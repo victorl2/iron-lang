@@ -536,6 +536,12 @@ if(IRON_BUILD_LSP)
         # handler-table seam; it delegates to these facade TUs per the
         # Handler -> Facade -> iron_compiler hard rule.
         src/lsp/facade/nav/nav_common.c
+        # Phase 10 Plan 10-01 (VIS-01..04, D-02): LSP-only visibility
+        # adapter -- normalizes Iron_Field.is_pub vs Iron_FuncDecl/
+        # MethodDecl.is_private into a single positive predicate plus a
+        # cross-module gate with stdlib carve-out. Consumed by Plans
+        # 10-02 (nav fan-out) and 10-03 (hover/completion/sig-help).
+        src/lsp/facade/nav/visibility.c
         src/lsp/facade/nav/definition.c
         src/lsp/facade/nav/declaration.c
         src/lsp/facade/nav/type_definition.c

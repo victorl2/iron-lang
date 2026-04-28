@@ -91,11 +91,11 @@ static const Iron_Symbol *ident_at_cursor(const IronLsp_Document   *doc,
     return NULL;
 }
 
-/* Return true if the canonical path indicates a stdlib/dep location
- * (PITFALL B filter). */
-static bool path_is_stdlib(const char *p) {
-    return p && strncmp(p, "stdlib://", 9) == 0;
-}
+/* Return true if the canonical path indicates a dep location
+ * (PITFALL B filter). The stdlib analogue (`path_is_stdlib`) was
+ * promoted to `ilsp_nav_path_is_stdlib` in nav_common.{c,h} during
+ * Phase 10 Plan 10-01 (D-08) so the visibility gate shares the same
+ * definition; call sites below use the public symbol. */
 static bool path_is_dep(const char *p) {
     return p && strncmp(p, "dep://", 6) == 0;
 }
@@ -449,7 +449,7 @@ void ilsp_facade_rename(IronLsp_Server        *server,
                      * This is the safe over-approximation; Phase 7
                      * may tighten it to method-name exact match. */
                     const char *ip = impls[i].canonical_path;
-                    if (path_is_stdlib(ip)) {
+                    if (ilsp_nav_path_is_stdlib(ip)) {
                         out->outcome = ILSP_RENAME_FAIL_STDLIB_IMPLEMENTOR;
                         out->fail_location = arena_printf(
                             arena, "%s:%u:%u",
