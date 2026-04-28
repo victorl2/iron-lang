@@ -1174,6 +1174,33 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 60)
 
+    # ── Phase 11 Plan 11-02 (PATCH-02 + PATCH-03) ───────────────────────
+    # Wave 0 stubs — flipped to real assertions in Task 5. Minimal link
+    # set is fine here since the stubs only TEST_IGNORE_MESSAGE; Task 5
+    # upgrades both to the full nav-facade stack with IRON_SOURCE_TREE_ROOT
+    # define so fixture_path() can locate tests/lsp/unit/v3_patch/*.iron.
+    add_executable(test_v3_patch_subtypes test_v3_patch_subtypes.c)
+    target_include_directories(test_v3_patch_subtypes PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_link_libraries(test_v3_patch_subtypes unity pthread m)
+    add_test(NAME test_v3_patch_subtypes COMMAND test_v3_patch_subtypes)
+    set_tests_properties(test_v3_patch_subtypes PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
+    add_executable(test_v3_patch_completion test_v3_patch_completion.c)
+    target_include_directories(test_v3_patch_completion PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_link_libraries(test_v3_patch_completion unity pthread m)
+    add_test(NAME test_v3_patch_completion COMMAND test_v3_patch_completion)
+    set_tests_properties(test_v3_patch_completion PROPERTIES
+        LABELS "unit;phase-m2-invariant"
+        TIMEOUT 60)
+
     # ── Phase 10 Plan 10-03 (TIER-03 + TIER-04) ─────────────────────────
     # 2 facade tests (completion detail tier prefix + signature_help label
     # tier prefix). Each links the full nav facade stack so the v3 tier
