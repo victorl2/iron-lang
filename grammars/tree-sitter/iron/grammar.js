@@ -139,7 +139,14 @@ module.exports = grammar({
       $.init_declaration,
       $.block_method_declaration,
     ),
+    // D-19/D-23 (Plan 13-02): optional `pub` prefix on field_declaration so
+    // v3 `pub val id: Int` / `pub var health: Int` (per
+    // tests/integration/v3_pub_field_synthesis.iron and v3_modifiers.txt
+    // Case 1) parses without ERROR nodes. Plan 13-01 omitted this; the
+    // visibility_modifier prefix discipline mirrors func_declaration (line
+    // 199) and init_declaration (line 291).
     field_declaration: $ => seq(
+      optional($.visibility_modifier),
       field('qualifier', choice('val', 'var')),
       field('name', $.identifier),
       optional(seq(':', field('type', $._type))),

@@ -1,0 +1,365 @@
+==========
+patch on user object with pub func
+==========
+
+object Foo {
+  var x: Int
+}
+patch object Foo {
+  pub func get_x() -> Int { return self.x }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier))))
+  (patch_declaration
+    target: (identifier)
+    (block_method_declaration
+      (visibility_modifier)
+      name: (identifier)
+      parameters: (parameter_list)
+      return_type: (type_identifier
+        (identifier))
+      body: (block
+        (return_statement
+          value: (member_expression
+            object: (self_expression)
+            property: (identifier)))))))
+
+==========
+patch on primitive Int
+==========
+
+patch object Int {
+  pub readonly func cmp(other: Int) -> Int { return self - other }
+}
+
+---
+
+(source_file
+  (patch_declaration
+    target: (identifier)
+    (block_method_declaration
+      (visibility_modifier)
+      (mutation_tier_modifier)
+      name: (identifier)
+      parameters: (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_identifier
+            (identifier))))
+      return_type: (type_identifier
+        (identifier))
+      body: (block
+        (return_statement
+          value: (binary_expression
+            (self_expression)
+            (identifier)))))))
+
+==========
+patch with single implements
+==========
+
+object Bar {}
+patch object Bar impl Comparable {
+  pub readonly func cmp(other: Bar) -> Int { return 0 }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier))
+  (patch_declaration
+    target: (identifier)
+    implements: (identifier)
+    (block_method_declaration
+      (visibility_modifier)
+      (mutation_tier_modifier)
+      name: (identifier)
+      parameters: (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_identifier
+            (identifier))))
+      return_type: (type_identifier
+        (identifier))
+      body: (block
+        (return_statement
+          value: (integer_literal))))))
+
+==========
+patch with multiple implements
+==========
+
+object Baz {}
+patch object Baz impl A, B {
+  func a_method() {}
+  func b_method() {}
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier))
+  (patch_declaration
+    target: (identifier)
+    implements: (identifier)
+    implements: (identifier)
+    (block_method_declaration
+      name: (identifier)
+      parameters: (parameter_list)
+      body: (block))
+    (block_method_declaration
+      name: (identifier)
+      parameters: (parameter_list)
+      body: (block))))
+
+==========
+patch with field-bearing init
+==========
+
+object Qux {
+  var name: String
+}
+patch object Qux {
+  init(name: String) { self.name = name }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier))))
+  (patch_declaration
+    target: (identifier)
+    (init_declaration
+      parameters: (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_identifier
+            (identifier))))
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (identifier))))))
+
+==========
+empty patch body
+==========
+
+object Empty {}
+patch object Empty {}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier))
+  (patch_declaration
+    target: (identifier)))
+
+==========
+patch with both init and method
+==========
+
+object Box {
+  var v: Int
+}
+patch object Box {
+  init(v: Int) { self.v = v }
+  pub func get() -> Int { return self.v }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier))))
+  (patch_declaration
+    target: (identifier)
+    (init_declaration
+      parameters: (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_identifier
+            (identifier))))
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (identifier))))
+    (block_method_declaration
+      (visibility_modifier)
+      name: (identifier)
+      parameters: (parameter_list)
+      return_type: (type_identifier
+        (identifier))
+      body: (block
+        (return_statement
+          value: (member_expression
+            object: (self_expression)
+            property: (identifier)))))))
+
+==========
+patch on String primitive
+==========
+
+patch object String {
+  pub readonly func is_empty() -> Bool { return self.length == 0 }
+}
+
+---
+
+(source_file
+  (patch_declaration
+    target: (identifier)
+    (block_method_declaration
+      (visibility_modifier)
+      (mutation_tier_modifier)
+      name: (identifier)
+      parameters: (parameter_list)
+      return_type: (type_identifier
+        (identifier))
+      body: (block
+        (return_statement
+          value: (binary_expression
+            (member_expression
+              object: (self_expression)
+              property: (identifier))
+            (integer_literal)))))))
+
+==========
+patch with named init plus pure
+==========
+
+object Vec2 {
+  var x: Int
+  var y: Int
+}
+patch object Vec2 {
+  init zero() { self.x = 0  self.y = 0 }
+  pub pure func magnitude() -> Int { return self.x * self.x + self.y * self.y }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier))))
+  (patch_declaration
+    target: (identifier)
+    (init_declaration
+      name: (identifier)
+      parameters: (parameter_list)
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (integer_literal))
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (integer_literal))))
+    (block_method_declaration
+      (visibility_modifier)
+      (mutation_tier_modifier)
+      name: (identifier)
+      parameters: (parameter_list)
+      return_type: (type_identifier
+        (identifier))
+      body: (block
+        (return_statement
+          value: (binary_expression
+            (binary_expression
+              (member_expression
+                object: (self_expression)
+                property: (identifier))
+              (member_expression
+                object: (self_expression)
+                property: (identifier)))
+            (binary_expression
+              (member_expression
+                object: (self_expression)
+                property: (identifier))
+              (member_expression
+                object: (self_expression)
+                property: (identifier)))))))))
+
+==========
+patch with mutation tier on inner method
+==========
+
+object Counter {
+  var count: Int
+}
+patch object Counter {
+  pub readonly func get() -> Int { return self.count }
+  pub func inc() { self.count = self.count + 1 }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier))))
+  (patch_declaration
+    target: (identifier)
+    (block_method_declaration
+      (visibility_modifier)
+      (mutation_tier_modifier)
+      name: (identifier)
+      parameters: (parameter_list)
+      return_type: (type_identifier
+        (identifier))
+      body: (block
+        (return_statement
+          value: (member_expression
+            object: (self_expression)
+            property: (identifier)))))
+    (block_method_declaration
+      (visibility_modifier)
+      name: (identifier)
+      parameters: (parameter_list)
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (binary_expression
+            (member_expression
+              object: (self_expression)
+              property: (identifier))
+            (integer_literal)))))))
