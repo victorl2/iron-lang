@@ -511,6 +511,10 @@ if(IRON_BUILD_LSP)
         # nav/nav_common.c + nav/node_at.c + the transport + obs stack
         # (matches test_rename_prepare's link shape).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_object_no_init.c
+        # Phase 12 Plan 12-03 (QF-03): multi-edit handler for code 262.
+        # Like quickfix_object_no_init.c, calls ilsp_facade_compile_for_nav
+        # and re-tokenizes via iron_lex_all; same link-stack already in place.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_v3_inline_default.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c

@@ -1,0 +1,14 @@
+-- Phase 12 Plan 12-03 fixture: QF-03 / E0262 case A (no existing init).
+-- Asserts: codeAction at the inline-default field returns 1 action with
+-- edit_text_edits.length == 2:
+--   [0] deletes ` = 100` from the field decl
+--   [1] synthesizes a new `init(health: Int) { self.health = 100 }`
+--       block inserted at the line right after the object's `{`.
+
+object Player {
+    var health: Int = 100
+}
+
+func main() {
+    val p: Player = Player(health: 50)
+}
