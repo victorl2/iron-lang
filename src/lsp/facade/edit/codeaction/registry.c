@@ -18,6 +18,7 @@ const IronLsp_QuickfixEntry ilsp_quickfix_table[] = {
     /* 200  */ { IRON_ERR_UNDEFINED_VAR,           ilsp_quickfix_undefined_var          },
     /* 260  */ { IRON_ERR_V3_RECEIVER_SYNTAX,      ilsp_quickfix_v3_receiver_syntax     },
     /* 261  */ { IRON_ERR_V3_MUT_RECEIVER,         ilsp_quickfix_v3_receiver_syntax     },  /* same handler — D-18 */
+    /* 264  */ { IRON_ERR_V3_NO_INIT,              ilsp_quickfix_object_no_init         },
     /* 292  */ { IRON_ERR_TYPE_MISMATCH_LITERAL,   ilsp_quickfix_type_mismatch_literal  },
     /* 293  */ { IRON_ERR_MISSING_RETURN,          ilsp_quickfix_missing_return         },
     /* 611  */ { IRON_WARN_UNUSED_IMPORT,          ilsp_quickfix_unused_import          },
