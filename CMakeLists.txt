@@ -598,6 +598,10 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/edit/codeaction/quickfix_missing_return.c
         src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
         src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
+        # Phase 12 Plan 12-02 (QF-01, D-16..D-20): single command-style
+        # quickfix handler shared by codes 260 (IRON_ERR_V3_RECEIVER_SYNTAX)
+        # and 261 (IRON_ERR_V3_MUT_RECEIVER).
+        src/lsp/facade/edit/codeaction/quickfix_v3_receiver_syntax.c
         # Plan 04-04 Task 02: code-action orchestrator + codeAction/resolve
         # facade (lazy edit compute, version-gated per D-07).
         src/lsp/facade/edit/codeaction/codeaction.c

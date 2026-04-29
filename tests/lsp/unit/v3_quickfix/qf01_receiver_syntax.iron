@@ -1,0 +1,15 @@
+-- Phase 12 Plan 12-02 fixture: QF-01 / E0260 (IRON_ERR_V3_RECEIVER_SYNTAX).
+-- Asserts: codeAction at the receiver-method `func (p: Player) ...` site
+-- returns 1 action with command_id = "iron.migrate.fromV2ToV3" and
+-- command_args = [doc->uri]; no edit field.
+-- Plan 12-03 wires the corpus binary that drives this fixture.
+
+object Player {
+    var health: Int
+    init(health: Int) { self.health = health }
+}
+
+func (p: Player) take_damage(n: Int) {
+    -- v2 receiver-method syntax — emits E0260 in v3 strict mode.
+    p.health = p.health - n
+}
