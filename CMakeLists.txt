@@ -578,6 +578,9 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/edit/complete/buckets.c
         src/lsp/facade/edit/complete/complete.c
         src/lsp/facade/edit/complete/resolve.c
+        # Phase 12 Plan 12-02 (KW-03, D-04..D-10): per-keyword visibility
+        # predicate consumed by Bucket 6 in buckets.c.
+        src/lsp/facade/edit/complete/keyword_filter.c
         # Phase 4 Plan 04-03 (EDIT-04, EDIT-05, D-02, D-15):
         # auto-import additionalTextEdits builder (Task 01) + snippet
         # renderer (Task 02). Wired into complete.c's orchestrator
