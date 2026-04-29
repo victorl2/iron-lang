@@ -120,8 +120,12 @@ void ilsp_facade_code_action(struct IronLsp_Server         *server,
 
     if (cancel && atomic_load(cancel)) goto done;
 
-    /* Upper bound: one quickfix per diagnostic + one organize slot. */
-    size_t cap = (size_t)(walk_diags.count > 0 ? walk_diags.count : 0) + 1;
+    /* Upper bound (Phase 12 D-13): ILSP_QUICKFIX_MAX_VARIANTS variants
+     * per diagnostic + one organize slot. The orchestrator stamps
+     * data_variant_idx on each emission so resolve.c can dispatch to
+     * the correct slot of the handler's multi-action output. */
+    size_t cap = (size_t)(walk_diags.count > 0 ? walk_diags.count : 0)
+                 * ILSP_QUICKFIX_MAX_VARIANTS + 1;
     IronLsp_CodeAction *arr = (IronLsp_CodeAction *)iron_arena_alloc(
         arena, cap * sizeof(IronLsp_CodeAction),
         _Alignof(IronLsp_CodeAction));
@@ -130,7 +134,9 @@ void ilsp_facade_code_action(struct IronLsp_Server         *server,
     size_t n = 0;
 
     /* Quickfix path: iterate diagnostics in [range], dispatch to the
-     * registered quickfix handler, stamp data for lazy-resolve. */
+     * registered quickfix handler, stamp data for lazy-resolve.
+     * Phase 12 D-13: handlers emit up to ILSP_QUICKFIX_MAX_VARIANTS
+     * actions per diagnostic; refusal is *out_n == 0 (Pitfall 2). */
     if (emit_quickfixes && walk_diags.count > 0) {
         for (int i = 0; i < walk_diags.count; i++) {
             if (cancel && atomic_load(cancel)) break;
@@ -139,16 +145,22 @@ void ilsp_facade_code_action(struct IronLsp_Server         *server,
             IronLsp_QuickfixFn handler = ilsp_quickfix_lookup(d->code);
             if (!handler) continue;
 
-            IronLsp_CodeAction tmp;
-            handler(d, doc, server->workspace_index, arena, &tmp);
-            /* Handler may refuse (NULL edit_new_text). */
-            if (!tmp.edit_new_text) continue;
+            IronLsp_CodeAction variants[ILSP_QUICKFIX_MAX_VARIANTS];
+            size_t variant_n = 0;
+            handler(d, doc, server->workspace_index, arena,
+                    variants, ILSP_QUICKFIX_MAX_VARIANTS, &variant_n);
+            /* Refusal: handler emitted no actions (Phase 12 D-13). */
+            if (variant_n == 0) continue;
+            if (variant_n > ILSP_QUICKFIX_MAX_VARIANTS)
+                variant_n = ILSP_QUICKFIX_MAX_VARIANTS;
 
-            tmp.data_file_version   = doc->version;
-            tmp.data_code           = d->code;
-            tmp.data_diagnostic_idx = i;
-
-            arr[n++] = tmp;
+            for (size_t v = 0; v < variant_n; v++) {
+                variants[v].data_file_version   = doc->version;
+                variants[v].data_code           = d->code;
+                variants[v].data_diagnostic_idx = i;
+                variants[v].data_variant_idx    = (int)v;
+                if (n < cap) arr[n++] = variants[v];
+            }
         }
     }
 

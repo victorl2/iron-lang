@@ -41,6 +41,7 @@ void ilsp_facade_code_action_resolve(struct IronLsp_Server   *server,
                                         int                      data_file_version,
                                         int                      data_code,
                                         int                      data_diagnostic_idx,
+                                        int                      data_variant_idx,
                                         _Atomic bool            *cancel,
                                         Iron_Arena              *arena,
                                         IronLsp_CodeAction      *out) {
@@ -127,8 +128,30 @@ void ilsp_facade_code_action_resolve(struct IronLsp_Server   *server,
     const Iron_Diagnostic *d = &walk_diags.items[data_diagnostic_idx];
     if (d->code != data_code) goto done;
 
-    /* Dispatch — handler fills out from d + doc; arena holds strings. */
-    handler(d, doc, server->workspace_index, arena, out);
+    /* Dispatch — handler emits up to ILSP_QUICKFIX_MAX_VARIANTS
+     * actions; resolve.c picks the slot the client identified via
+     * data.variant_idx (Phase 12 D-31). Out-of-bounds variant_idx
+     * (e.g., a stale resolve where the handler now emits fewer
+     * actions) is treated as refusal: out stays zero-filled and
+     * handlers_edit.c emits `edit: null`, T-12-01-01 mitigation. */
+    IronLsp_CodeAction variants[ILSP_QUICKFIX_MAX_VARIANTS];
+    memset(variants, 0, sizeof(variants));
+    size_t variant_n = 0;
+    handler(d, doc, server->workspace_index, arena,
+            variants, ILSP_QUICKFIX_MAX_VARIANTS, &variant_n);
+    if (variant_n == 0) goto done;
+    if (variant_n > ILSP_QUICKFIX_MAX_VARIANTS)
+        variant_n = ILSP_QUICKFIX_MAX_VARIANTS;
+    if (data_variant_idx < 0) goto done;
+    if ((size_t)data_variant_idx >= variant_n) goto done;
+    *out = variants[data_variant_idx];
+    /* Re-stamp data_* on the returned slot for symmetry with the
+     * initial codeAction response (codeaction.c does the same on
+     * each emit). */
+    out->data_file_version   = data_file_version;
+    out->data_code           = data_code;
+    out->data_diagnostic_idx = data_diagnostic_idx;
+    out->data_variant_idx    = data_variant_idx;
 
 done:
     iron_diaglist_free(&walk_diags);
