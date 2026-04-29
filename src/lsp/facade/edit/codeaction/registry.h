@@ -189,6 +189,12 @@ void ilsp_quickfix_v3_receiver_syntax   (const Iron_Diagnostic *, struct IronLsp
  * Single zero-width insertion at the line after the object's `{`. */
 void ilsp_quickfix_object_no_init       (const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
 
+/* Phase 12 Plan 12-03 (QF-03) — move inline `var x: T = expr` default
+ * into an init body (code 262 / IRON_ERR_V3_INLINE_DEFAULT). First
+ * Phase 12 consumer of edit_text_edits[]: emits 1 CodeAction with 2
+ * atomic edits — delete the `= expr` portion + insert/extend init. */
+void ilsp_quickfix_v3_inline_default    (const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
+
 #ifdef __cplusplus
 }
 #endif

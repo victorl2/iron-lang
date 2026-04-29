@@ -606,6 +606,11 @@ if(IRON_BUILD_LSP)
         # for code 264 (IRON_ERR_V3_NO_INIT). Walks Iron_ObjectDecl.fields[]
         # filtered to is_var == true; co-located Iron_TypeAnnotation walker.
         src/lsp/facade/edit/codeaction/quickfix_object_no_init.c
+        # Phase 12 Plan 12-03 (QF-03, D-26..D-28): multi-edit handler for
+        # code 262 (IRON_ERR_V3_INLINE_DEFAULT). Emits 1 CodeAction with 2
+        # atomic edits — delete inline `= expr` + insert/extend init body.
+        # First Phase 12 consumer of edit_text_edits[] (Plan 12-01 D-27).
+        src/lsp/facade/edit/codeaction/quickfix_v3_inline_default.c
         # Plan 04-04 Task 02: code-action orchestrator + codeAction/resolve
         # facade (lazy edit compute, version-gated per D-07).
         src/lsp/facade/edit/codeaction/codeaction.c
