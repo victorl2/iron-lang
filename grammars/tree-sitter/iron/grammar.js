@@ -87,9 +87,12 @@ module.exports = grammar({
     // ── Source file ─────────────────────────────────────────────────────
     source_file: $ => repeat($._declaration),
 
+    // D-09: patch_declaration inserted directly after object_declaration
+    // (natural object/patch/interface/enum order).
     _declaration: $ => choice(
       $.import_declaration,
       $.object_declaration,
+      $.patch_declaration,
       $.interface_declaration,
       $.enum_declaration,
       $.func_declaration,
@@ -129,7 +132,13 @@ module.exports = grammar({
       '}',
     ),
 
-    _object_member: $ => choice($.field_declaration),
+    // D-06: _object_member expanded to include init_declaration and
+    // block_method_declaration alongside the pre-v3 field_declaration.
+    _object_member: $ => choice(
+      $.field_declaration,
+      $.init_declaration,
+      $.block_method_declaration,
+    ),
     field_declaration: $ => seq(
       field('qualifier', choice('val', 'var')),
       field('name', $.identifier),
@@ -181,8 +190,14 @@ module.exports = grammar({
     // func [fusible] name[<G>](params) [-> T] { body }
     // Method form: func TypeName.method[<G>](params) [-> T] { body }
     // Array extension: func [T].method(...) { body }
+    // D-13: optional(visibility_modifier) + repeat(mutation_tier_modifier)
+    // prefix between @fusible and 'func' (e.g. `pub func`, `pure func`,
+    // `pub readonly func` at top level — needed by v3 fixtures like
+    // v3_pure_method.iron and v3_pub_field_synthesis.iron).
     func_declaration: $ => seq(
       optional(seq('@', 'fusible')),
+      optional($.visibility_modifier),
+      repeat($.mutation_tier_modifier),
       'func',
       field('name', $.identifier),
       optional($.generic_params),
@@ -248,9 +263,70 @@ module.exports = grammar({
     ),
 
     parameter_list: $ => seq('(', optional(commaSep1($.parameter)), ')'),
+    // D-04: optional `mut` modifier prefix on parameter (legacy v2 receiver-
+    // form tolerance — semantically rejected by parser as IRON_ERR_V3_MUT_*
+    // but syntactically tolerated to avoid ERROR nodes on v2 code mid-
+    // migration; LSP-side QF-01 surfaces the codemod).
     parameter: $ => seq(
+      optional(field('modifier', $.param_mut_modifier)),
       field('name', $.identifier),
       optional(seq(':', field('type', $._type))),
+    ),
+
+    // ── v3 modifier rules (D-01) ────────────────────────────────────────
+    // Named modifier rules (not anonymous-inline tokens): GRM-02 highlights
+    // queries express modifier capture as `(visibility_modifier) @keyword`
+    // and `(mutation_tier_modifier) @keyword.modifier` against the named
+    // structural node. `mutation_tier_modifier` accepts both `readonly` and
+    // `pure`; multi-tier stacking via repeat(...) at the call site.
+    visibility_modifier:    $ => 'pub',
+    mutation_tier_modifier: $ => choice('readonly', 'pure'),
+    param_mut_modifier:     $ => 'mut',
+
+    // ── v3 init declaration (D-05) ─────────────────────────────────────
+    // init [name](params) { body }   |  pub init(params) { body }
+    // Anonymous form: `init(args) { body }` (no name).
+    // Named form:     `init zero() { body }`.
+    init_declaration: $ => seq(
+      optional($.visibility_modifier),
+      'init',
+      optional(field('name', $.identifier)),
+      field('parameters', $.parameter_list),
+      field('body', $.block),
+    ),
+
+    // ── v3 patch declaration (D-08) ────────────────────────────────────
+    // patch object T [<G>] [impl I, J] { members }
+    // Mirrors object_declaration shape minus the extends clause; `target:`
+    // field name (not `name:`) because semantically it points at an
+    // existing type, not declaring a new one.
+    patch_declaration: $ => seq(
+      'patch',
+      'object',
+      field('target', $.identifier),
+      optional($.generic_params),
+      optional(seq('impl', field('implements',
+          seq($.identifier, repeat(seq(',', $.identifier)))))),
+      '{',
+      repeat($._object_member),
+      '}',
+    ),
+
+    // ── v3 in-block method declaration (D-11) ──────────────────────────
+    // [pub] [readonly] [pure] func name[<G>](params) [-> T] { body }
+    // Distinguished from existing top-level `method_declaration` (which
+    // carries a `TypeName.` prefix per legacy v2 receiver form): the
+    // enclosing object/patch context provides the receiver here.
+    block_method_declaration: $ => seq(
+      optional(seq('@', 'fusible')),
+      optional($.visibility_modifier),
+      repeat($.mutation_tier_modifier),
+      'func',
+      field('name', $.identifier),
+      optional($.generic_params),
+      field('parameters', $.parameter_list),
+      optional(seq('->', field('return_type', $._type))),
+      field('body', $.block),
     ),
 
     // ── Block & Statements ─────────────────────────────────────────────
