@@ -1294,13 +1294,15 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m1-invariant;phase-12-invariant"
         TIMEOUT 60)
 
-    # test_v3_keyword_filter: minimal stack — Plan 12-02 will add
-    # keyword_filter.c when it ships. Today the stub touches no sources
-    # beyond Unity + iron_compiler. Mirrors test_v3_patch_predicate's
-    # minimal-link shape (CMakeLists.txt:1138-1156).
+    # test_v3_keyword_filter: minimal stack — Plan 12-02 (KW-03) wires
+    # keyword_filter.c + the document store helpers used by the
+    # in-memory test fixtures.
     add_executable(test_v3_keyword_filter test_v3_keyword_filter.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/keyword_filter.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/node_at.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
         ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
     target_include_directories(test_v3_keyword_filter PRIVATE

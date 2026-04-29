@@ -26,10 +26,12 @@
 
 #include "lsp/facade/edit/complete/buckets.h"
 #include "lsp/facade/edit/complete/context_classify.h"
+#include "lsp/facade/edit/complete/keyword_filter.h"
 #include "lsp/facade/nav/fuzzy.h"
 #include "lsp/facade/nav/patch_lookup.h"
 #include "lsp/server/server.h"
 #include "lsp/store/document.h"
+#include "lsp/store/line_index.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/store/stdlib_cache.h"
 #include "lsp/store/dep_map.h"
@@ -407,16 +409,47 @@ static void emit_deps(IronLsp_CompletionCandidate **out_arr,
 
 /* ── Bucket 6: keywords ───────────────────────────────────────────── */
 
+/* Phase 12 Plan 12-02 (KW-03, D-04..D-10) — per-keyword visibility filter.
+ *
+ * Threads doc + program + cursor + ctx through to ilsp_keyword_visible_at
+ * for per-keyword arms. Cursor (line, col) derived from cursor_byte via
+ * the document's line index. The legacy if-gate at the call site below
+ * is dropped — the predicate's default arm bit-exactly preserves the
+ * old "EXPR_HEAD || STATEMENT_HEAD" behaviour for the 38 pre-v3
+ * keywords (D-10).
+ *
+ * Pitfall 5: surfaces the v3-deprecation note as detail string for `mut`
+ * so editors render it in the completion list. */
 static void emit_keywords(IronLsp_CompletionCandidate **out_arr,
-                            Iron_Arena              *arena,
-                            const char                     *query_prefix,
-                            _Atomic bool                   *cancel) {
+                            Iron_Arena                    *arena,
+                            const struct IronLsp_Document *doc,
+                            const Iron_Program            *program,
+                            size_t                         cursor_byte,
+                            IronLsp_CompletionContext      ctx,
+                            const char                    *query_prefix,
+                            _Atomic bool                  *cancel) {
+    /* Convert cursor_byte -> (line, col) once, both 0-indexed. */
+    uint32_t cursor_line_0 = 0;
+    uint32_t cursor_col_0  = 0;
+    if (doc) {
+        cursor_line_0 = ilsp_line_of_byte(&doc->line_idx, cursor_byte);
+        size_t line_start = ilsp_byte_of_line(&doc->line_idx, cursor_line_0);
+        if (line_start > cursor_byte) line_start = cursor_byte;
+        cursor_col_0 = (uint32_t)(cursor_byte - line_start);
+    }
     for (size_t i = 0; i < ILSP_COMPLETION_KEYWORD_COUNT; i++) {
         if (i % 64 == 0 && canceled(cancel)) return;
         const char *kw = ILSP_COMPLETION_KEYWORDS[i];
+        if (!ilsp_keyword_visible_at(kw, doc, program,
+                                       cursor_line_0, cursor_col_0, ctx)) {
+            continue;
+        }
+        const char *detail = (strcmp(kw, "mut") == 0)
+            ? "(v2 legacy — use of `mut` emits E0263)"
+            : "keyword";
         maybe_push(out_arr, arena, kw, LSP_CK_KEYWORD,
                     ILSP_COMPLETION_BUCKET_KEYWORDS,
-                    "keyword", "",
+                    detail, "",
                     kw, false, false, query_prefix);
     }
 }
@@ -684,12 +717,14 @@ void ilsp_complete_buckets_build(struct IronLsp_Server             *server,
     emit_deps(&cands, arena, server, imported, query_prefix, cancel);
     if (imported) shfree(imported);
 
-    /* Bucket 6 (KEYWORDS) — only when context is EXPR_HEAD or
-     * STATEMENT_HEAD. */
-    if (ctx == ILSP_CCTX_EXPR_HEAD || ctx == ILSP_CCTX_STATEMENT_HEAD) {
-        if (canceled(cancel)) goto finish;
-        emit_keywords(&cands, arena, query_prefix, cancel);
-    }
+    /* Bucket 6 (KEYWORDS) — Phase 12 Plan 12-02 (KW-03, D-04..D-10):
+     * the legacy if-gate is dropped. Per-keyword visibility is enforced
+     * inside emit_keywords via ilsp_keyword_visible_at; the predicate's
+     * default arm bit-exactly preserves the old "EXPR_HEAD ||
+     * STATEMENT_HEAD" gate for the 38 pre-v3 keywords. */
+    if (canceled(cancel)) goto finish;
+    emit_keywords(&cands, arena, doc, program, cursor_byte_offset, ctx,
+                   query_prefix, cancel);
 
 finish:
     if (canceled(cancel)) {
