@@ -1219,7 +1219,10 @@ if(IRON_BUILD_LSP)
     add_executable(test_v3_patch_completion test_v3_patch_completion.c
         ${_LSP_PHASE3_NAV_FACADE_SRC}
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/buckets.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/context_classify.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/context_classify.c
+        # Phase 12 Plan 12-02 (KW-03): buckets.c references
+        # ilsp_keyword_visible_at via emit_keywords.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/keyword_filter.c)
     target_include_directories(test_v3_patch_completion PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/vendor
@@ -1354,7 +1357,10 @@ if(IRON_BUILD_LSP)
     add_executable(test_v3_tier_completion test_v3_tier_completion.c
         ${_LSP_PHASE3_NAV_FACADE_SRC}
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/buckets.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/context_classify.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/context_classify.c
+        # Phase 12 Plan 12-02 (KW-03): buckets.c references
+        # ilsp_keyword_visible_at via emit_keywords.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/keyword_filter.c)
     target_include_directories(test_v3_tier_completion PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/vendor

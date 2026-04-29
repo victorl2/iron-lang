@@ -152,41 +152,56 @@ bool ilsp_keyword_visible_at(const char               *kw,
                               uint32_t                  cursor_line,
                               uint32_t                  cursor_col,
                               IronLsp_CompletionContext ctx) {
-    if (!kw || !doc) return false;
-    size_t cur_byte = cursor_byte_of(doc, cursor_line, cursor_col);
+    if (!kw) return false;
 
-    /* 1-indexed line for span comparisons (Iron_Span uses 1-indexed). */
-    uint32_t cursor_line_1 = cursor_line + 1;
+    /* All 6 v3 keyword arms need `doc` for byte-buffer scans / line
+     * derivation. When `doc == NULL` (test-mode callers passing only a
+     * bare Iron_Program) we refuse v3 keywords and fall through to the
+     * default arm — preserves Phase 4 EDIT-06 behaviour for the 38
+     * pre-v3 keywords. */
+    if (doc) {
+        size_t cur_byte = cursor_byte_of(doc, cursor_line, cursor_col);
+        /* 1-indexed line for span comparisons (Iron_Span uses 1-indexed). */
+        uint32_t cursor_line_1 = cursor_line + 1;
 
-    /* 6 v3 keyword arms — order doesn't matter; first match wins. */
-    if (strcmp(kw, "pub") == 0) {
-        if (!kw_pub_at_decl_head_textonly(doc, cursor_line, cur_byte)) {
-            return false;
+        /* 6 v3 keyword arms — order doesn't matter; first match wins. */
+        if (strcmp(kw, "pub") == 0) {
+            if (!kw_pub_at_decl_head_textonly(doc, cursor_line, cur_byte)) {
+                return false;
+            }
+            const Iron_Node *enc = enclosing_object_decl(program, cursor_line_1);
+            /* Visible at module top-level (enc == NULL fallback —
+             * covers both "no program yet (broken syntax — be lenient)"
+             * and "cursor outside any object decl") OR inside an
+             * IRON_NODE_OBJECT_DECL (classic or patch; no is_patch
+             * filter). */
+            if (enc == NULL) return true;  /* module top-level / lenient */
+            return enc->kind == IRON_NODE_OBJECT_DECL;
         }
-        const Iron_Node *enc = enclosing_object_decl(program, cursor_line_1);
-        /* Visible at module top-level (enc == NULL fallback — covers
-         * both "no program yet (broken syntax — be lenient)" and
-         * "cursor outside any object decl") OR inside an
-         * IRON_NODE_OBJECT_DECL (classic or patch; no is_patch filter). */
-        if (enc == NULL) return true;  /* module top-level / lenient */
-        return enc->kind == IRON_NODE_OBJECT_DECL;
-    }
-    if (strcmp(kw, "init") == 0) {
-        const Iron_Node *enc = enclosing_object_decl(program, cursor_line_1);
-        if (!enc) return false;  /* strict: no staged program OR not in
-                                  * an object body. */
-        return enc->kind == IRON_NODE_OBJECT_DECL;  /* Pitfall 3:
-                                                     * patches included */
-    }
-    if (strcmp(kw, "readonly") == 0 || strcmp(kw, "pure") == 0) {
-        return kw_modifier_func_follows(doc, cur_byte);
-    }
-    if (strcmp(kw, "mut") == 0) {
-        return kw_mut_in_receiver_pos(doc, cur_byte);
+        if (strcmp(kw, "init") == 0) {
+            const Iron_Node *enc = enclosing_object_decl(program, cursor_line_1);
+            if (!enc) return false;  /* strict */
+            return enc->kind == IRON_NODE_OBJECT_DECL;  /* Pitfall 3 */
+        }
+        if (strcmp(kw, "readonly") == 0 || strcmp(kw, "pure") == 0) {
+            return kw_modifier_func_follows(doc, cur_byte);
+        }
+        if (strcmp(kw, "mut") == 0) {
+            return kw_mut_in_receiver_pos(doc, cur_byte);
+        }
+    } else {
+        /* doc == NULL: refuse the 5 v3 arms that need a byte buffer or
+         * staged program. The sixth v3 keyword (`patch`) is context-free
+         * at decl-head and falls through to the default arm. */
+        if (strcmp(kw, "pub")      == 0) return false;
+        if (strcmp(kw, "init")     == 0) return false;
+        if (strcmp(kw, "readonly") == 0) return false;
+        if (strcmp(kw, "pure")     == 0) return false;
+        if (strcmp(kw, "mut")      == 0) return false;
     }
 
     /* Default for the 38 pre-v3 keywords (D-10 — preserves Phase 4
      * EDIT-06). */
-    (void)cursor_line; (void)cursor_col; (void)cursor_line_1; (void)cur_byte;
+    (void)cursor_line; (void)cursor_col;
     return (ctx == ILSP_CCTX_EXPR_HEAD || ctx == ILSP_CCTX_STATEMENT_HEAD);
 }
