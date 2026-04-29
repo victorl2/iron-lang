@@ -515,6 +515,11 @@ if(IRON_BUILD_LSP)
         # Like quickfix_object_no_init.c, calls ilsp_facade_compile_for_nav
         # and re-tokenizes via iron_lex_all; same link-stack already in place.
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_v3_inline_default.c
+        # Phase 12 Plan 12-03 (QF-04): 2-action handler for code 238.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_write_self.c
+        # Phase 12 Plan 12-03 (QF-05): 1-or-2 action handler for code 239.
+        # Calls ilsp_nav_path_is_stdlib (already linked via nav_common.c).
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_calls_mutating.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c

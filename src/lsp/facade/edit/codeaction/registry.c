@@ -15,15 +15,17 @@
  * after the Phase 80 MUT renumber (see diagnostics.h:283-285); they
  * therefore sort AFTER 260/261, not before. */
 const IronLsp_QuickfixEntry ilsp_quickfix_table[] = {
-    /* 200  */ { IRON_ERR_UNDEFINED_VAR,           ilsp_quickfix_undefined_var          },
-    /* 260  */ { IRON_ERR_V3_RECEIVER_SYNTAX,      ilsp_quickfix_v3_receiver_syntax     },
-    /* 261  */ { IRON_ERR_V3_MUT_RECEIVER,         ilsp_quickfix_v3_receiver_syntax     },  /* same handler — D-18 */
-    /* 262  */ { IRON_ERR_V3_INLINE_DEFAULT,       ilsp_quickfix_v3_inline_default      },
-    /* 264  */ { IRON_ERR_V3_NO_INIT,              ilsp_quickfix_object_no_init         },
-    /* 292  */ { IRON_ERR_TYPE_MISMATCH_LITERAL,   ilsp_quickfix_type_mismatch_literal  },
-    /* 293  */ { IRON_ERR_MISSING_RETURN,          ilsp_quickfix_missing_return         },
-    /* 611  */ { IRON_WARN_UNUSED_IMPORT,          ilsp_quickfix_unused_import          },
-    /* 612  */ { IRON_WARN_REDUNDANT_CAST,         ilsp_quickfix_redundant_cast         },
+    /* 200  */ { IRON_ERR_UNDEFINED_VAR,            ilsp_quickfix_undefined_var            },
+    /* 238  */ { IRON_ERR_READONLY_WRITE_SELF,      ilsp_quickfix_readonly_write_self      },
+    /* 239  */ { IRON_ERR_READONLY_CALLS_MUTATING,  ilsp_quickfix_readonly_calls_mutating  },
+    /* 260  */ { IRON_ERR_V3_RECEIVER_SYNTAX,       ilsp_quickfix_v3_receiver_syntax       },
+    /* 261  */ { IRON_ERR_V3_MUT_RECEIVER,          ilsp_quickfix_v3_receiver_syntax       },  /* same handler — D-18 */
+    /* 262  */ { IRON_ERR_V3_INLINE_DEFAULT,        ilsp_quickfix_v3_inline_default        },
+    /* 264  */ { IRON_ERR_V3_NO_INIT,               ilsp_quickfix_object_no_init           },
+    /* 292  */ { IRON_ERR_TYPE_MISMATCH_LITERAL,    ilsp_quickfix_type_mismatch_literal    },
+    /* 293  */ { IRON_ERR_MISSING_RETURN,           ilsp_quickfix_missing_return           },
+    /* 611  */ { IRON_WARN_UNUSED_IMPORT,           ilsp_quickfix_unused_import            },
+    /* 612  */ { IRON_WARN_REDUNDANT_CAST,          ilsp_quickfix_redundant_cast           },
 };
 const size_t ilsp_quickfix_table_size =
     sizeof(ilsp_quickfix_table) / sizeof(ilsp_quickfix_table[0]);

@@ -29,6 +29,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_object_no_init.c
         # Phase 12 Plan 12-03 (QF-03): multi-edit handler for code 262.
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_v3_inline_default.c
+        # Phase 12 Plan 12-03 (QF-04 + QF-05): 2-action / 1-or-2 action handlers.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_write_self.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_calls_mutating.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c

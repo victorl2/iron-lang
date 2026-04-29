@@ -1,0 +1,14 @@
+-- Phase 12 Plan 12-03 fixture: QF-04 / E0238 (IRON_ERR_READONLY_WRITE_SELF).
+-- Asserts: codeAction returns 2 actions:
+--   [0] "Remove 'readonly' modifier" — deletes `readonly ` from method sig
+--   [1] "Remove offending write"     — deletes `self.x = 1` line
+-- Both is_preferred = false (semantic ambiguity per D-31).
+-- data_variant_idx differs across actions (0 / 1).
+
+object Counter {
+    var x: Int
+    init(x: Int) { self.x = x }
+    readonly func update() {
+        self.x = 1
+    }
+}
