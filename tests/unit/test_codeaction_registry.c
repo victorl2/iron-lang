@@ -137,7 +137,9 @@ static void test_quickfix_undefined_var_shape(void) {
                                      "undefined variable: prinln",
                                      "println");
     IronLsp_CodeAction out;
-    ilsp_quickfix_undefined_var(&d, doc, NULL, &g_arena, &out);
+    size_t out_n = 0;
+    ilsp_quickfix_undefined_var(&d, doc, NULL, &g_arena, &out, 1, &out_n);
+    TEST_ASSERT_EQUAL_UINT(1, out_n);
 
     TEST_ASSERT_NOT_NULL(out.title);
     TEST_ASSERT_EQUAL_STRING_LEN("Replace with 'println'", out.title, 22);
@@ -173,9 +175,11 @@ static void test_quickfix_undefined_var_skips_when_no_suggestion(void) {
                                      "undefined",
                                      NULL);
     IronLsp_CodeAction out;
-    ilsp_quickfix_undefined_var(&d, doc, NULL, &g_arena, &out);
-    TEST_ASSERT_NULL_MESSAGE(out.edit_new_text,
-        "NULL suggestion must leave edit_new_text NULL (caller drops)");
+    size_t out_n = 99;
+    ilsp_quickfix_undefined_var(&d, doc, NULL, &g_arena, &out, 1, &out_n);
+    /* Phase 12 D-12: refusal protocol now sets *out_n = 0 (Pitfall 2). */
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(0, out_n,
+        "NULL suggestion must produce zero actions (caller drops)");
     ilsp_document_destroy(doc);
 }
 
@@ -191,7 +195,9 @@ static void test_quickfix_unused_import_shape(void) {
                                      "unused import", "");
 
     IronLsp_CodeAction out;
-    ilsp_quickfix_unused_import(&d, doc, NULL, &g_arena, &out);
+    size_t out_n = 0;
+    ilsp_quickfix_unused_import(&d, doc, NULL, &g_arena, &out, 1, &out_n);
+    TEST_ASSERT_EQUAL_UINT(1, out_n);
 
     TEST_ASSERT_NOT_NULL(out.title);
     TEST_ASSERT_EQUAL_STRING("Remove unused import", out.title);
@@ -228,7 +234,9 @@ static void test_quickfix_missing_return_shape(void) {
                                      "return 0");
 
     IronLsp_CodeAction out;
-    ilsp_quickfix_missing_return(&d, doc, NULL, &g_arena, &out);
+    size_t out_n = 0;
+    ilsp_quickfix_missing_return(&d, doc, NULL, &g_arena, &out, 1, &out_n);
+    TEST_ASSERT_EQUAL_UINT(1, out_n);
 
     TEST_ASSERT_NOT_NULL(out.title);
     TEST_ASSERT_NOT_NULL(strstr(out.title, "return 0"));
@@ -273,7 +281,9 @@ static void test_quickfix_type_mismatch_literal_shape(void) {
                                      "42.0");
 
     IronLsp_CodeAction out;
-    ilsp_quickfix_type_mismatch_literal(&d, doc, NULL, &g_arena, &out);
+    size_t out_n = 0;
+    ilsp_quickfix_type_mismatch_literal(&d, doc, NULL, &g_arena, &out, 1, &out_n);
+    TEST_ASSERT_EQUAL_UINT(1, out_n);
 
     TEST_ASSERT_NOT_NULL(out.title);
     TEST_ASSERT_NOT_NULL(strstr(out.title, "42.0"));
@@ -313,7 +323,9 @@ static void test_quickfix_redundant_cast_shape(void) {
                                      "1.0");
 
     IronLsp_CodeAction out;
-    ilsp_quickfix_redundant_cast(&d, doc, NULL, &g_arena, &out);
+    size_t out_n = 0;
+    ilsp_quickfix_redundant_cast(&d, doc, NULL, &g_arena, &out, 1, &out_n);
+    TEST_ASSERT_EQUAL_UINT(1, out_n);
 
     TEST_ASSERT_NOT_NULL(out.title);
     TEST_ASSERT_EQUAL_STRING("Remove redundant cast", out.title);
@@ -338,26 +350,34 @@ static void test_quickfix_redundant_cast_shape(void) {
 
 static void test_handlers_tolerate_null_inputs(void) {
     IronLsp_CodeAction out;
-    /* Each handler should zero-fill on NULL diag without crashing. */
+    size_t out_n;
+    /* Phase 12 D-12 (Pitfall 2): NULL diag refusal now sets *out_n = 0
+     * rather than leaving edit_new_text NULL. Memset the slot before
+     * each call so we can verify the handler zero-filled it. */
     memset(&out, 0xAB, sizeof(out));
-    ilsp_quickfix_undefined_var(NULL, NULL, NULL, NULL, &out);
-    TEST_ASSERT_NULL(out.edit_new_text);
+    out_n = 99;
+    ilsp_quickfix_undefined_var(NULL, NULL, NULL, NULL, &out, 1, &out_n);
+    TEST_ASSERT_EQUAL_UINT(0, out_n);
 
     memset(&out, 0xAB, sizeof(out));
-    ilsp_quickfix_unused_import(NULL, NULL, NULL, NULL, &out);
-    TEST_ASSERT_NULL(out.edit_new_text);
+    out_n = 99;
+    ilsp_quickfix_unused_import(NULL, NULL, NULL, NULL, &out, 1, &out_n);
+    TEST_ASSERT_EQUAL_UINT(0, out_n);
 
     memset(&out, 0xAB, sizeof(out));
-    ilsp_quickfix_missing_return(NULL, NULL, NULL, NULL, &out);
-    TEST_ASSERT_NULL(out.edit_new_text);
+    out_n = 99;
+    ilsp_quickfix_missing_return(NULL, NULL, NULL, NULL, &out, 1, &out_n);
+    TEST_ASSERT_EQUAL_UINT(0, out_n);
 
     memset(&out, 0xAB, sizeof(out));
-    ilsp_quickfix_type_mismatch_literal(NULL, NULL, NULL, NULL, &out);
-    TEST_ASSERT_NULL(out.edit_new_text);
+    out_n = 99;
+    ilsp_quickfix_type_mismatch_literal(NULL, NULL, NULL, NULL, &out, 1, &out_n);
+    TEST_ASSERT_EQUAL_UINT(0, out_n);
 
     memset(&out, 0xAB, sizeof(out));
-    ilsp_quickfix_redundant_cast(NULL, NULL, NULL, NULL, &out);
-    TEST_ASSERT_NULL(out.edit_new_text);
+    out_n = 99;
+    ilsp_quickfix_redundant_cast(NULL, NULL, NULL, NULL, &out, 1, &out_n);
+    TEST_ASSERT_EQUAL_UINT(0, out_n);
 }
 
 int main(void) {

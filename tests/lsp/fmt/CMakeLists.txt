@@ -18,6 +18,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_return.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
+        # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
+        # by quickfix_missing_return.c.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
         # Span -> LSP range converter (ilsp_span_to_lsp_range).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
         # Document store (line_idx + ilsp_byte_of_line used by
