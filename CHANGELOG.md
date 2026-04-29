@@ -67,13 +67,13 @@ shipped binding.
 ### Install
 
 ```bash
-curl -fsSL https://ironlang.org/install.sh | bash
+curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh
 ```
 
 Pin to a specific version:
 
 ```bash
-curl -fsSL https://ironlang.org/install.sh | bash -s -- --version v3.1.0-alpha
+curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh -s -- --version v3.1.0-alpha
 ```
 
 ## v3.0.0-alpha — Method Ergonomics (2026-04-23)
@@ -318,10 +318,10 @@ window because there are no published consumers yet.)*
 ### Install
 
 ```bash
-curl -fsSL https://ironlang.org/install.sh | bash
+curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh
 ```
 
-See the [Raylib getting-started guide](https://ironlang.org/raylib/guide/)
+See the [Raylib getting-started guide](https://ironlang.dev/raylib/guide/)
 for building your first game.
 
 ## v2.0.0-alpha — Iron Builds Real Games (2026-04-19)
@@ -336,7 +336,7 @@ First-class **raylib** binding for Iron. You can now write games in Iron that co
 - **Vendored raylib 6.0** — builds per-source (no amalgamation), compile-time ABI enforcement (413 `_Static_assert`s pin every `sizeof` + `offsetof` between `Iron_<T>` and raylib `<T>` so any drift is a hard clang error).
 - **5 canonical examples**: `pong` (full state machine + paddles + bounce audio + web-ready frame-loop split), `rotating_cube`, `model_viewer`, `post_fx`, `raylib_showcase` (12-category end-to-end demo).
 - **Web target**: `iron build --target=web` produces `dist/web/index.{html,js,wasm}` from the same Iron source, including canonical `while not Window.should_close()` main-loop lifting into a web-safe frame state.
-- **Documentation site** (docs.ironlang.org/raylib): landing, getting-started guide, 14-page category API reference, examples gallery.
+- **Documentation site** (ironlang.dev/raylib): landing, getting-started guide, 14-page category API reference, examples gallery.
 
 #### Runtime improvements that landed with this milestone
 
@@ -363,10 +363,10 @@ First-class **raylib** binding for Iron. You can now write games in Iron that co
 #### Install
 
 ```bash
-curl -fsSL https://ironlang.org/install.sh | bash
+curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh
 ```
 
-See the [Raylib getting-started guide](https://ironlang.org/raylib/guide/) for building your first game.
+See the [Raylib getting-started guide](https://ironlang.dev/raylib/guide/) for building your first game.
 
 ## v1.2.0-alpha — Networking Foundation, URL Module & Tuple Returns (2026-04-11)
 
