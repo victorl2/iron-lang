@@ -163,11 +163,21 @@ module.exports = grammar({
       '}',
     ),
 
+    // Phase 87 IFACE-01/IFACE-03 (Plan 13-03 deviation): interface method
+    // signatures accept an optional `readonly`/`pure` tier modifier prefix
+    // (parser.c:4501-4525) AND an optional default body `{ ... }` after the
+    // return type (parser.c:4554-4560). Surfaced by tests/integration/
+    // v3_iface_default_body.iron (`readonly func describe() -> Int { return 42 }`
+    // inside an `interface` body) once Plan 13-03 trimmed the integration-corpus
+    // skip list. Mirrors the modifier-prefix discipline applied to
+    // func_declaration (D-13) and block_method_declaration (D-11).
     method_signature: $ => seq(
+      repeat($.mutation_tier_modifier),
       'func',
       field('name', $.identifier),
       field('parameters', $.parameter_list),
       optional(seq('->', field('return_type', $._type))),
+      optional(field('body', $.block)),
     ),
 
     // enum Name[<Generics>] { Variant, Variant(T), Variant(T, U) }
@@ -303,16 +313,26 @@ module.exports = grammar({
     ),
 
     // ── v3 patch declaration (D-08) ────────────────────────────────────
-    // patch object T [<G>] [impl I, J] { members }
+    // patch object T [<G>] [(impl|implements) I, J] { members }
     // Mirrors object_declaration shape minus the extends clause; `target:`
     // field name (not `name:`) because semantically it points at an
     // existing type, not declaring a new one.
+    //
+    // Phase 87-02 PATCH-08 (Plan 13-03 deviation): the implements-clause
+    // keyword is `implements` (long form, contextual-keyword via parser.c:4128
+    // string compare) for `patch` declarations, NOT `impl` like for
+    // `object`. Both are accepted here so Plan 13-02's corpus (which uses
+    // the `impl` short form to mirror object_declaration) AND
+    // tests/integration/v3_patch_implements.iron (which uses `implements`,
+    // matching the Iron parser's contract) parse cleanly. Surfaced by Plan
+    // 13-03's KNOWN_SKIPS trim — the integration fixture's `implements`
+    // keyword was previously masked by the Phase-8 v3 skip list.
     patch_declaration: $ => seq(
       'patch',
       'object',
       field('target', $.identifier),
       optional($.generic_params),
-      optional(seq('impl', field('implements',
+      optional(seq(choice('impl', 'implements'), field('implements',
           seq($.identifier, repeat(seq(',', $.identifier)))))),
       '{',
       repeat($._object_member),
