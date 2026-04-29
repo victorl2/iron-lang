@@ -1261,6 +1261,75 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 60)
 
+    # ── Phase 12 Plan 12-01 (Wave 0 stubs) ──────────────────────────────
+    # 3 new test binaries that Plans 12-02 / 12-03 will flip to real
+    # assertions. Wave 0 contract: each binary builds, runs, and exits 0
+    # reporting its single test as IGNORED. Labels phase-m1-invariant +
+    # phase-12-invariant per CONTEXT.md D-37 + VALIDATION.md "Wave 0
+    # Requirements".
+    #
+    # test_v3_quickfix_corpus: drives ilsp_facade_code_action +
+    # ilsp_facade_code_action_resolve once Plan 12-03 wires fixtures.
+    # Full LSP server stack via _LSP_PLAN03_SERVER_SRC + transport
+    # sources (handlers_*.c reach into the writer queue + json
+    # serializers); downstream plans may add new quickfix .c sources to
+    # the server source list.
+    add_executable(test_v3_quickfix_corpus test_v3_quickfix_corpus.c
+        ${_LSP_PLAN03_SERVER_SRC}
+        ${_LSP_PLAN03_TRANSPORT_SRC})
+    target_include_directories(test_v3_quickfix_corpus PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_v3_quickfix_corpus PRIVATE
+        _GNU_SOURCE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_quickfix_corpus
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_v3_quickfix_corpus COMMAND test_v3_quickfix_corpus)
+    set_tests_properties(test_v3_quickfix_corpus PROPERTIES
+        LABELS "unit;phase-m1-invariant;phase-12-invariant"
+        TIMEOUT 60)
+
+    # test_v3_keyword_filter: minimal stack — Plan 12-02 will add
+    # keyword_filter.c when it ships. Today the stub touches no sources
+    # beyond Unity + iron_compiler. Mirrors test_v3_patch_predicate's
+    # minimal-link shape (CMakeLists.txt:1138-1156).
+    add_executable(test_v3_keyword_filter test_v3_keyword_filter.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/node_at.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
+    target_include_directories(test_v3_keyword_filter PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_v3_keyword_filter PRIVATE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_keyword_filter
+        iron_compiler iron_runtime unity pthread m)
+    add_test(NAME test_v3_keyword_filter COMMAND test_v3_keyword_filter)
+    set_tests_properties(test_v3_keyword_filter PROPERTIES
+        LABELS "unit;phase-m1-invariant;phase-12-invariant"
+        TIMEOUT 60)
+
+    # test_v3_keyword_drift: single-source binary mirroring
+    # test_completion_keyword_mirror.c (Phase 4 D-01). Plan 12-03 wires
+    # the in-process drift loop against the regenerated keyword_mirror.h.
+    add_executable(test_v3_keyword_drift test_v3_keyword_drift.c)
+    target_include_directories(test_v3_keyword_drift PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_compile_definitions(test_v3_keyword_drift PRIVATE
+        IRON_SOURCE_TREE_ROOT="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(test_v3_keyword_drift
+        iron_compiler iron_runtime unity pthread m)
+    add_test(NAME test_v3_keyword_drift COMMAND test_v3_keyword_drift)
+    set_tests_properties(test_v3_keyword_drift PROPERTIES
+        LABELS "unit;phase-m1-invariant;phase-12-invariant"
+        TIMEOUT 60)
+
     # ── Phase 10 Plan 10-03 (TIER-03 + TIER-04) ─────────────────────────
     # 2 facade tests (completion detail tier prefix + signature_help label
     # tier prefix). Each links the full nav facade stack so the v3 tier
