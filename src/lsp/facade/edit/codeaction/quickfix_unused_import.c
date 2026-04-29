@@ -48,10 +48,14 @@ void ilsp_quickfix_unused_import(const Iron_Diagnostic           *diag,
                                     struct IronLsp_Document         *doc,
                                     struct IronLsp_WorkspaceIndex   *wi,
                                     Iron_Arena                      *arena,
-                                    IronLsp_CodeAction              *out) {
+                                    IronLsp_CodeAction              *out_arr,
+                                    size_t                           out_cap,
+                                    size_t                          *out_n) {
     (void)wi;
-    if (!out) return;
-    memset(out, 0, sizeof(*out));
+    if (!out_arr || !out_n) return;
+    *out_n = 0;
+    if (out_cap == 0) return;
+    memset(&out_arr[0], 0, sizeof(out_arr[0]));
     if (!diag || !arena) return;
     if (diag->span.line == 0) return;  /* no anchor line; skip */
 
@@ -71,18 +75,19 @@ void ilsp_quickfix_unused_import(const Iron_Diagnostic           *diag,
         del_end_line += 1;
     }
 
-    out->title            = "Remove unused import";
-    out->kind             = "quickfix";
-    out->originating_diag = diag;
-    out->is_preferred     = false;
-    out->edit_start_line  = del_start_line;
-    out->edit_start_char  = 0;
-    out->edit_end_line    = del_end_line;
-    out->edit_end_char    = 0;
-    out->edit_new_text    = iron_arena_strdup(arena, "", 0);
-    if (!out->edit_new_text) {
+    out_arr[0].title            = "Remove unused import";
+    out_arr[0].kind             = "quickfix";
+    out_arr[0].originating_diag = diag;
+    out_arr[0].is_preferred     = false;
+    out_arr[0].edit_start_line  = del_start_line;
+    out_arr[0].edit_start_char  = 0;
+    out_arr[0].edit_end_line    = del_end_line;
+    out_arr[0].edit_end_char    = 0;
+    out_arr[0].edit_new_text    = iron_arena_strdup(arena, "", 0);
+    if (!out_arr[0].edit_new_text) {
         /* iron_arena_strdup of empty may return non-NULL zero-byte, but
          * guard against NULL by using a static empty string. */
-        out->edit_new_text = "";
+        out_arr[0].edit_new_text = "";
     }
+    *out_n = 1;
 }

@@ -18,67 +18,40 @@
  * Indentation derivation: inspect the document text between span.line
  * and span.end_line for the first non-blank line; its leading
  * whitespace is the body indent. If the body is empty, fall back to
- * 4 spaces (Iron canonical style).
+ * 4 spaces (Iron canonical style). The implementation lives in the
+ * shared codeaction_indent.{c,h} helper as of Phase 12 Plan 12-01
+ * (D-23) so QF-02 + QF-03 can consume the same source-of-truth.
  *
  * Skip: if suggestion is NULL (return type has no obvious zero) or
- * empty, the handler leaves out->edit_new_text NULL — caller drops the
- * action. (Plan 04-01 seeds "return 0;" / "return 0.0;" / "return
- * false;" / "return \"\";" when the return type is one of the
- * corresponding primitives.)
+ * empty, the handler sets *out_n = 0 — caller drops the action. (Plan
+ * 04-01 seeds "return 0;" / "return 0.0;" / "return false;" / "return
+ * \"\";" when the return type is one of the corresponding primitives.)
+ *
+ * Phase 12 Plan 12-01 (D-12) — signature widened to (out_arr, out_cap,
+ * out_n) per the multi-action substrate. This handler still emits
+ * exactly 1 action on success.
  */
 
 #include "lsp/facade/edit/codeaction/registry.h"
+#include "lsp/facade/edit/codeaction/codeaction_indent.h"
 #include "lsp/store/document.h"
 #include "lsp/store/line_index.h"
 
 #include <stdio.h>
 #include <string.h>
 
-/* Inspect the document text between start_line and end_line (both 0-indexed);
- * return the leading whitespace width of the first non-blank line. On
- * no-such-line or NULL text, returns a default of 4 (Iron canonical). */
-static uint32_t derive_body_indent(const struct IronLsp_Document *doc,
-                                     uint32_t start_line_0,
-                                     uint32_t end_line_0) {
-    const uint32_t DEFAULT_INDENT = 4;
-    if (!doc || !doc->text || doc->text_len == 0) return DEFAULT_INDENT;
-
-    for (uint32_t ln = start_line_0; ln < end_line_0; ln++) {
-        size_t start = ilsp_byte_of_line(&doc->line_idx, ln);
-        size_t next  = ilsp_byte_of_line(&doc->line_idx, ln + 1);
-        if (start > doc->text_len) start = doc->text_len;
-        if (next  > doc->text_len) next  = doc->text_len;
-        /* Fallback for the last line: ilsp_byte_of_line clamps to the
-         * last recorded start, so next == start for the last line —
-         * treat that as "line runs to text_len". */
-        if (next <= start) next = doc->text_len;
-        if (start >= next) continue;
-
-        size_t end = next;
-        if (end > start && doc->text[end - 1] == '\n') end--;
-
-        /* Count leading whitespace. */
-        uint32_t indent = 0;
-        size_t i = start;
-        while (i < end && (doc->text[i] == ' ' || doc->text[i] == '\t')) {
-            indent++;
-            i++;
-        }
-        /* Skip blank lines (all whitespace). */
-        if (i >= end) continue;
-        return indent;
-    }
-    return DEFAULT_INDENT;
-}
-
 void ilsp_quickfix_missing_return(const Iron_Diagnostic           *diag,
                                      struct IronLsp_Document         *doc,
                                      struct IronLsp_WorkspaceIndex   *wi,
                                      Iron_Arena                      *arena,
-                                     IronLsp_CodeAction              *out) {
+                                     IronLsp_CodeAction              *out_arr,
+                                     size_t                           out_cap,
+                                     size_t                          *out_n) {
     (void)wi;
-    if (!out) return;
-    memset(out, 0, sizeof(*out));
+    if (!out_arr || !out_n) return;
+    *out_n = 0;
+    if (out_cap == 0) return;
+    memset(&out_arr[0], 0, sizeof(out_arr[0]));
     if (!diag || !doc || !arena) return;
     if (!diag->suggestion || !diag->suggestion[0]) return;
     if (diag->span.line == 0 || diag->span.end_line == 0) return;
@@ -95,8 +68,9 @@ void ilsp_quickfix_missing_return(const Iron_Diagnostic           *diag,
     uint32_t start_line_0 = diag->span.line - 1;
     uint32_t end_line_0   = diag->span.end_line - 1;
 
-    /* Indentation from body interior; default to 4. */
-    uint32_t indent = derive_body_indent(doc, start_line_0 + 1, end_line_0);
+    /* Indentation from body interior; default to 4. Phase 12 D-23: lifted
+     * helper shared with QF-02 + QF-03. */
+    uint32_t indent = ilsp_codeaction_derive_body_indent(doc, start_line_0 + 1, end_line_0);
 
     /* Build newText: "<indent spaces>" + suggestion + "\n". */
     size_t need = (size_t)indent + slen + 2;  /* +\n +NUL */
@@ -113,13 +87,14 @@ void ilsp_quickfix_missing_return(const Iron_Diagnostic           *diag,
      * of the `}` line. Inserting "<indent>return 0;\n" pushes the `}`
      * line one row down while placing the return on the new row with
      * the correct indent. */
-    out->title            = title;
-    out->kind             = "quickfix";
-    out->originating_diag = diag;
-    out->is_preferred     = false;
-    out->edit_start_line  = end_line_0;
-    out->edit_start_char  = 0;
-    out->edit_end_line    = end_line_0;
-    out->edit_end_char    = 0;
-    out->edit_new_text    = new_text;
+    out_arr[0].title            = title;
+    out_arr[0].kind             = "quickfix";
+    out_arr[0].originating_diag = diag;
+    out_arr[0].is_preferred     = false;
+    out_arr[0].edit_start_line  = end_line_0;
+    out_arr[0].edit_start_char  = 0;
+    out_arr[0].edit_end_line    = end_line_0;
+    out_arr[0].edit_end_char    = 0;
+    out_arr[0].edit_new_text    = new_text;
+    *out_n = 1;
 }

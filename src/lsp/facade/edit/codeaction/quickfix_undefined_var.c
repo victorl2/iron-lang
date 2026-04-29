@@ -24,10 +24,14 @@ void ilsp_quickfix_undefined_var(const Iron_Diagnostic           *diag,
                                     struct IronLsp_Document         *doc,
                                     struct IronLsp_WorkspaceIndex   *wi,
                                     Iron_Arena                      *arena,
-                                    IronLsp_CodeAction              *out) {
+                                    IronLsp_CodeAction              *out_arr,
+                                    size_t                           out_cap,
+                                    size_t                          *out_n) {
     (void)wi;
-    if (!out) return;
-    memset(out, 0, sizeof(*out));
+    if (!out_arr || !out_n) return;
+    *out_n = 0;
+    if (out_cap == 0) return;
+    memset(&out_arr[0], 0, sizeof(out_arr[0]));
     if (!diag || !doc || !arena) return;
 
     /* No typo candidate (suggestion NULL or empty) — skip. */
@@ -48,13 +52,14 @@ void ilsp_quickfix_undefined_var(const Iron_Diagnostic           *diag,
          * without a server context (unit tests). */
         ILSP_ENC_UTF8);
 
-    out->title            = title;
-    out->kind             = "quickfix";
-    out->originating_diag = diag;
-    out->is_preferred     = true;
-    out->edit_start_line  = r.start.line;
-    out->edit_start_char  = r.start.character;
-    out->edit_end_line    = r.end.line;
-    out->edit_end_char    = r.end.character;
-    out->edit_new_text    = iron_arena_strdup(arena, diag->suggestion, slen);
+    out_arr[0].title            = title;
+    out_arr[0].kind             = "quickfix";
+    out_arr[0].originating_diag = diag;
+    out_arr[0].is_preferred     = true;
+    out_arr[0].edit_start_line  = r.start.line;
+    out_arr[0].edit_start_char  = r.start.character;
+    out_arr[0].edit_end_line    = r.end.line;
+    out_arr[0].edit_end_char    = r.end.character;
+    out_arr[0].edit_new_text    = iron_arena_strdup(arena, diag->suggestion, slen);
+    *out_n = 1;
 }

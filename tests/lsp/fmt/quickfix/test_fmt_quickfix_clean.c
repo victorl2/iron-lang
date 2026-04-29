@@ -170,10 +170,18 @@ static void run_fixture(const char *fixture_name, int diag_code) {
 
     /* Invoke the handler. Output is a single-file single-edit shape
      * (IronLsp_CodeAction.edit_{start,end}_{line,char} + edit_new_text
-     * per registry.h:56-65). */
+     * per registry.h). Phase 12 D-12: handler signature is
+     * (out_arr, out_cap, out_n); the 5 existing fmt-quickfix handlers
+     * still emit exactly 1 action each. */
     IronLsp_CodeAction action;
     memset(&action, 0, sizeof(action));
-    handler(target, doc, /* wi */ NULL, &arena, &action);
+    size_t action_n = 0;
+    handler(target, doc, /* wi */ NULL, &arena, &action, 1, &action_n);
+
+    snprintf(msg, sizeof(msg),
+             "fixture %s: quickfix produced no action (out_n == 0)",
+             fixture_name);
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(1, action_n, msg);
 
     snprintf(msg, sizeof(msg),
              "fixture %s: quickfix produced no edit (edit_new_text NULL)",

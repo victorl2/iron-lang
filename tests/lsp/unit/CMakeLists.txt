@@ -193,6 +193,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_return.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
+        # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
+        # by quickfix_missing_return.c (and QF-02/QF-03 in later plans).
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/prepare.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/collision.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/apply.c
@@ -1415,6 +1418,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_return.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
+        # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
+        # by quickfix_missing_return.c (and QF-02/QF-03 in later plans).
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/prepare.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/collision.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/rename/apply.c

@@ -599,6 +599,10 @@ if(IRON_BUILD_LSP)
         # facade (lazy edit compute, version-gated per D-07).
         src/lsp/facade/edit/codeaction/codeaction.c
         src/lsp/facade/edit/codeaction/resolve.c
+        # Phase 12 Plan 12-01 (D-23): shared body-indent helper. Lifted
+        # from quickfix_missing_return.c so QF-02 + QF-03 (Plans 12-02 /
+        # 12-03) consume the same source-of-truth.
+        src/lsp/facade/edit/codeaction/codeaction_indent.c
         # Plan 04-05 Task 01 (EDIT-09, D-08): source.organizeImports facade.
         # Classifies + sorts + dedups + optionally unused-removes the leading
         # Iron_ImportDecl run and emits a single TextEdit replacing its span.
