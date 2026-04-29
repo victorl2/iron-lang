@@ -64,12 +64,18 @@ void ilsp_facade_code_action(struct IronLsp_Server         *server,
                                 size_t                        *out_n);
 
 /* Re-materialize edit for a previously-returned CodeAction. Writes
- * out->edit_new_text = NULL when stale or unresolvable. NEVER RPC-errors. */
+ * out->edit_new_text = NULL (and other edit branches empty) when stale
+ * or unresolvable. NEVER RPC-errors.
+ *
+ * Phase 12 Plan 12-01 (D-31): data_variant_idx selects which slot of
+ * the multi-action handler's output to materialize. Single-action
+ * handlers + legacy clients pass 0 and receive the only slot. */
 void ilsp_facade_code_action_resolve(struct IronLsp_Server       *server,
                                         struct IronLsp_Document     *doc,
                                         int                          data_file_version,
                                         int                          data_code,
                                         int                          data_diagnostic_idx,
+                                        int                          data_variant_idx,
                                         _Atomic bool                *cancel,
                                         Iron_Arena                  *arena,
                                         IronLsp_CodeAction          *out);

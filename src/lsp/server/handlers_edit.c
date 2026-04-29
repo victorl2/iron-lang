@@ -618,8 +618,11 @@ void ilsp_handle_code_action_resolve(IronLsp_Server    *s,
     IronLsp_CodeAction out;
     memset(&out, 0, sizeof(out));
     if (d) {
-        ilsp_facade_code_action_resolve(s, d, fv, code, didx, cancel,
-                                           &work_arena, &out);
+        /* variant_idx is decoded from data.variant_idx in Task 5 (Phase
+         * 12 D-31); for now Task 3 widens the facade signature with the
+         * default-0 path (legacy clients without the wire key). */
+        ilsp_facade_code_action_resolve(s, d, fv, code, didx, /*variant_idx=*/0,
+                                           cancel, &work_arena, &out);
     }
 
     if (cancel && atomic_load(cancel)) {
