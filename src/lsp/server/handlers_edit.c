@@ -430,15 +430,89 @@ static yyjson_mut_val *code_action_to_json(yyjson_mut_doc               *rd,
     }
     yyjson_mut_obj_add_val(rd, obj, "diagnostics", diag_arr);
 
-    /* data: opaque round-trip payload for codeAction/resolve. */
+    /* data: opaque round-trip payload for codeAction/resolve. Phase 12
+     * D-31 adds variant_idx so multi-action handlers (QF-04/QF-05) can
+     * disambiguate which slot the user picked. Legacy clients without
+     * the key default to 0 in the decoder (RESEARCH Pitfall 8). */
     yyjson_mut_val *data = yyjson_mut_obj(rd);
     yyjson_mut_obj_add_int(rd, data, "file_version",   act->data_file_version);
     yyjson_mut_obj_add_int(rd, data, "code",           act->data_code);
     yyjson_mut_obj_add_int(rd, data, "diagnostic_idx", act->data_diagnostic_idx);
+    yyjson_mut_obj_add_int(rd, data, "variant_idx",    act->data_variant_idx);
     yyjson_mut_obj_add_val(rd, obj, "data", data);
 
-    /* Optional edit — only on resolve. */
-    if (include_edit && act->edit_new_text) {
+    /* Optional action payload — only on resolve. Three branches per
+     * Phase 12 D-14 / D-15 / D-27, in priority order: command-style →
+     * multi-edit → legacy single-edit. The legacy fast path is
+     * preserved verbatim for the 5 existing handlers + organizeImports. */
+    if (include_edit && act->command_id) {
+        /* Phase 12 Plan 12-01 (D-14, D-15) — command-style action.
+         * LSP 3.17 §"CodeAction": when `command` is set, the editor
+         * invokes workspace/executeCommand on accept; `edit` is omitted.
+         * Used by QF-01 (Plan 12-03) to surface the "Run ironc migrate"
+         * action; server-side executeCommand dispatch is deferred to
+         * Phase 14 CMD-01..03 (T-12-01-05 disposition). */
+        yyjson_mut_val *cmd = yyjson_mut_obj(rd);
+        yyjson_mut_obj_add_strcpy(rd, cmd, "title",
+            act->command_title ? act->command_title
+                : (act->title ? act->title : ""));
+        yyjson_mut_obj_add_strcpy(rd, cmd, "command", act->command_id);
+        yyjson_mut_val *args = yyjson_mut_arr(rd);
+        for (size_t k = 0; k < act->command_args_n; k++) {
+            yyjson_mut_arr_append(args,
+                yyjson_mut_strcpy(rd,
+                    act->command_args[k] ? act->command_args[k] : ""));
+        }
+        yyjson_mut_obj_add_val(rd, cmd, "arguments", args);
+        yyjson_mut_obj_add_val(rd, obj, "command", cmd);
+    } else if (include_edit && act->edit_text_edits_n > 0) {
+        /* Phase 12 Plan 12-01 (D-27) — multi-edit array; same wire
+         * envelope as legacy single-edit, with N entries inside
+         * documentChanges[0].edits[] (or changes[uri] when the client
+         * has not advertised documentChanges support). Used by QF-03
+         * (Plan 12-03) for "remove inline default + insert into init". */
+        yyjson_mut_val *edit  = yyjson_mut_obj(rd);
+        yyjson_mut_val *edits = yyjson_mut_arr(rd);
+        for (size_t k = 0; k < act->edit_text_edits_n; k++) {
+            const IronLsp_TextEdit *te_src = &act->edit_text_edits[k];
+            yyjson_mut_val *te = yyjson_mut_obj(rd);
+            yyjson_mut_val *range = yyjson_mut_obj(rd);
+            yyjson_mut_val *start = yyjson_mut_obj(rd);
+            yyjson_mut_val *end   = yyjson_mut_obj(rd);
+            yyjson_mut_obj_add_uint(rd, start, "line",      te_src->start_line);
+            yyjson_mut_obj_add_uint(rd, start, "character", te_src->start_char);
+            yyjson_mut_obj_add_uint(rd, end,   "line",      te_src->end_line);
+            yyjson_mut_obj_add_uint(rd, end,   "character", te_src->end_char);
+            yyjson_mut_obj_add_val(rd, range, "start", start);
+            yyjson_mut_obj_add_val(rd, range, "end",   end);
+            yyjson_mut_obj_add_val(rd, te, "range", range);
+            yyjson_mut_obj_add_strcpy(rd, te, "newText",
+                te_src->new_text ? te_src->new_text : "");
+            yyjson_mut_arr_append(edits, te);
+        }
+
+        if (client_supports_doc_changes) {
+            yyjson_mut_val *dc_arr = yyjson_mut_arr(rd);
+            yyjson_mut_val *dc     = yyjson_mut_obj(rd);
+            yyjson_mut_val *td     = yyjson_mut_obj(rd);
+            yyjson_mut_obj_add_strcpy(rd, td, "uri",
+                                         doc_uri ? doc_uri : "");
+            yyjson_mut_obj_add_int   (rd, td, "version", doc_version);
+            yyjson_mut_obj_add_val   (rd, dc, "textDocument", td);
+            yyjson_mut_obj_add_val   (rd, dc, "edits", edits);
+            yyjson_mut_arr_append(dc_arr, dc);
+            yyjson_mut_obj_add_val(rd, edit, "documentChanges", dc_arr);
+        } else {
+            yyjson_mut_val *changes = yyjson_mut_obj(rd);
+            yyjson_mut_obj_add_val(rd, changes,
+                                     doc_uri ? doc_uri : "", edits);
+            yyjson_mut_obj_add_val(rd, edit, "changes", changes);
+        }
+        yyjson_mut_obj_add_val(rd, obj, "edit", edit);
+    } else if (include_edit && act->edit_new_text) {
+        /* Legacy single-edit fast path — preserved verbatim from
+         * Phase 4 D-06. Used by the 5 existing handlers + organizeImports
+         * + QF-02 / QF-04 / QF-05's per-action edit slots. */
         yyjson_mut_val *edit = yyjson_mut_obj(rd);
         /* TextEdit shape used for either documentChanges or changes. */
         yyjson_mut_val *te = yyjson_mut_obj(rd);
@@ -562,21 +636,26 @@ void ilsp_handle_code_action_resolve(IronLsp_Server    *s,
     yyjson_mut_doc *rd       = yyjson_mut_doc_new(&alc);
     if (!rd) { iron_arena_free(&body_arena); return; }
 
-    /* Decode data.{file_version, code, diagnostic_idx}. Missing fields
-     * are treated as "stale" — we echo the action back without an edit
-     * rather than erroring. T-4-3 mitigation. */
-    int fv = -1, code = -1, didx = -1;
+    /* Decode data.{file_version, code, diagnostic_idx, variant_idx}.
+     * Missing fields are treated as "stale" — we echo the action back
+     * without an edit rather than erroring. T-4-3 mitigation. Phase 12
+     * D-31 adds variant_idx; legacy clients without the key default to
+     * 0 (Pitfall 8) so single-action handlers are unaffected. */
+    int fv = -1, code = -1, didx = -1, vidx = 0;
     yyjson_val *data = yyjson_obj_get(params, "data");
     if (data && yyjson_is_obj(data)) {
         yyjson_val *fv_v = yyjson_obj_get(data, "file_version");
         yyjson_val *cd_v = yyjson_obj_get(data, "code");
         yyjson_val *id2  = yyjson_obj_get(data, "diagnostic_idx");
+        yyjson_val *vi_v = yyjson_obj_get(data, "variant_idx");
         if (fv_v && (yyjson_is_int(fv_v) || yyjson_is_sint(fv_v) || yyjson_is_uint(fv_v)))
             fv   = yyjson_get_int(fv_v);
         if (cd_v && (yyjson_is_int(cd_v) || yyjson_is_sint(cd_v) || yyjson_is_uint(cd_v)))
             code = yyjson_get_int(cd_v);
         if (id2  && (yyjson_is_int(id2)  || yyjson_is_sint(id2)  || yyjson_is_uint(id2)))
             didx = yyjson_get_int(id2);
+        if (vi_v && (yyjson_is_int(vi_v) || yyjson_is_sint(vi_v) || yyjson_is_uint(vi_v)))
+            vidx = yyjson_get_int(vi_v);
     }
 
     /* Echo the original params object back — we merge the edit field
@@ -618,10 +697,11 @@ void ilsp_handle_code_action_resolve(IronLsp_Server    *s,
     IronLsp_CodeAction out;
     memset(&out, 0, sizeof(out));
     if (d) {
-        /* variant_idx is decoded from data.variant_idx in Task 5 (Phase
-         * 12 D-31); for now Task 3 widens the facade signature with the
-         * default-0 path (legacy clients without the wire key). */
-        ilsp_facade_code_action_resolve(s, d, fv, code, didx, /*variant_idx=*/0,
+        /* Phase 12 D-31: variant_idx routes to the matching slot of a
+         * multi-action handler's output. Legacy clients send no
+         * variant_idx key; the decoder defaulted vidx to 0 above so
+         * single-action handlers continue to work unchanged. */
+        ilsp_facade_code_action_resolve(s, d, fv, code, didx, vidx,
                                            cancel, &work_arena, &out);
     }
 
@@ -632,18 +712,78 @@ void ilsp_handle_code_action_resolve(IronLsp_Server    *s,
         return;
     }
 
-    /* Merge the edit into the echoed item. Remove any pre-existing
-     * edit field first. */
+    /* Merge the resolved action into the echoed item. Three branches
+     * per Phase 12 D-14 / D-15 / D-27, in priority order: command-style
+     * → multi-edit → legacy single-edit. Remove any pre-existing edit
+     * AND command keys so we don't double-emit. */
     if (yyjson_mut_is_obj(item)) {
-        yyjson_mut_val *old = yyjson_mut_obj_get(item, "edit");
-        if (old) yyjson_mut_obj_remove_str(item, "edit");
+        yyjson_mut_val *old_edit = yyjson_mut_obj_get(item, "edit");
+        if (old_edit) yyjson_mut_obj_remove_str(item, "edit");
+        yyjson_mut_val *old_cmd  = yyjson_mut_obj_get(item, "command");
+        if (old_cmd) yyjson_mut_obj_remove_str(item, "command");
 
-        if (out.edit_new_text) {
-            /* Build just the `edit` value via the shared serializer and
-             * splice it in. code_action_to_json returns the full
-             * action; we need only the `edit` it emitted. Re-render
-             * separately so we don't overwrite the client's other
-             * fields (title / kind / diagnostics from the input). */
+        if (out.command_id) {
+            /* Phase 12 D-14 / D-15 — command-style action. */
+            yyjson_mut_val *cmd = yyjson_mut_obj(rd);
+            yyjson_mut_obj_add_strcpy(rd, cmd, "title",
+                out.command_title ? out.command_title
+                    : (out.title ? out.title : ""));
+            yyjson_mut_obj_add_strcpy(rd, cmd, "command", out.command_id);
+            yyjson_mut_val *args = yyjson_mut_arr(rd);
+            for (size_t k = 0; k < out.command_args_n; k++) {
+                yyjson_mut_arr_append(args,
+                    yyjson_mut_strcpy(rd,
+                        out.command_args[k] ? out.command_args[k] : ""));
+            }
+            yyjson_mut_obj_add_val(rd, cmd, "arguments", args);
+            yyjson_mut_obj_add_val(rd, item, "command", cmd);
+            /* Per LSP 3.17, command-style actions OMIT `edit`. We emit
+             * edit:null explicitly so clients that already cached the
+             * codeAction's data field don't fall back to a stale edit
+             * payload. */
+            yyjson_mut_obj_add_val(rd, item, "edit", yyjson_mut_null(rd));
+        } else if (out.edit_text_edits_n > 0) {
+            /* Phase 12 D-27 — multi-edit array. */
+            yyjson_mut_val *edit  = yyjson_mut_obj(rd);
+            yyjson_mut_val *edits = yyjson_mut_arr(rd);
+            for (size_t k = 0; k < out.edit_text_edits_n; k++) {
+                const IronLsp_TextEdit *te_src = &out.edit_text_edits[k];
+                yyjson_mut_val *te    = yyjson_mut_obj(rd);
+                yyjson_mut_val *range = yyjson_mut_obj(rd);
+                yyjson_mut_val *start = yyjson_mut_obj(rd);
+                yyjson_mut_val *end   = yyjson_mut_obj(rd);
+                yyjson_mut_obj_add_uint(rd, start, "line",      te_src->start_line);
+                yyjson_mut_obj_add_uint(rd, start, "character", te_src->start_char);
+                yyjson_mut_obj_add_uint(rd, end,   "line",      te_src->end_line);
+                yyjson_mut_obj_add_uint(rd, end,   "character", te_src->end_char);
+                yyjson_mut_obj_add_val(rd, range, "start", start);
+                yyjson_mut_obj_add_val(rd, range, "end",   end);
+                yyjson_mut_obj_add_val(rd, te, "range", range);
+                yyjson_mut_obj_add_strcpy(rd, te, "newText",
+                    te_src->new_text ? te_src->new_text : "");
+                yyjson_mut_arr_append(edits, te);
+            }
+            if (s->client_supports_document_changes) {
+                yyjson_mut_val *dc_arr = yyjson_mut_arr(rd);
+                yyjson_mut_val *dc     = yyjson_mut_obj(rd);
+                yyjson_mut_val *td2    = yyjson_mut_obj(rd);
+                yyjson_mut_obj_add_strcpy(rd, td2, "uri",
+                                             d && d->uri ? d->uri : "");
+                yyjson_mut_obj_add_int   (rd, td2, "version",
+                                             d ? d->version : 0);
+                yyjson_mut_obj_add_val   (rd, dc, "textDocument", td2);
+                yyjson_mut_obj_add_val   (rd, dc, "edits", edits);
+                yyjson_mut_arr_append(dc_arr, dc);
+                yyjson_mut_obj_add_val(rd, edit, "documentChanges", dc_arr);
+            } else {
+                yyjson_mut_val *changes = yyjson_mut_obj(rd);
+                yyjson_mut_obj_add_val(rd, changes,
+                                         d && d->uri ? d->uri : "", edits);
+                yyjson_mut_obj_add_val(rd, edit, "changes", changes);
+            }
+            yyjson_mut_obj_add_val(rd, item, "edit", edit);
+        } else if (out.edit_new_text) {
+            /* Legacy single-edit fast path — verbatim from Phase 4. */
             yyjson_mut_val *edit = yyjson_mut_obj(rd);
             yyjson_mut_val *te = yyjson_mut_obj(rd);
             yyjson_mut_val *range = yyjson_mut_obj(rd);
