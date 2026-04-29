@@ -62,6 +62,15 @@
 ["object" "interface" "enum"] @keyword.type
 "import" @keyword.import
 ["val" "var"] @keyword
+
+; ── v3 modifier rules (named structural nodes per D-01) ───────────────
+(visibility_modifier)    @keyword
+(mutation_tier_modifier) @keyword.modifier
+(param_mut_modifier)     @keyword.modifier
+
+; ── v3 init/patch keywords (anonymous-token-in-context per D-20) ──────
+(init_declaration  "init"  @keyword)
+(patch_declaration "patch" @keyword)
 ["impl" "extends"] @keyword
 ["extern" "comptime" "spawn" "parallel"] @keyword
 (heap_expression "heap" @keyword)
