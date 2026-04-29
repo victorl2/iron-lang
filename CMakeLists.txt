@@ -602,6 +602,10 @@ if(IRON_BUILD_LSP)
         # quickfix handler shared by codes 260 (IRON_ERR_V3_RECEIVER_SYNTAX)
         # and 261 (IRON_ERR_V3_MUT_RECEIVER).
         src/lsp/facade/edit/codeaction/quickfix_v3_receiver_syntax.c
+        # Phase 12 Plan 12-02 (QF-02, D-21..D-25): synthesize default init
+        # for code 264 (IRON_ERR_V3_NO_INIT). Walks Iron_ObjectDecl.fields[]
+        # filtered to is_var == true; co-located Iron_TypeAnnotation walker.
+        src/lsp/facade/edit/codeaction/quickfix_object_no_init.c
         # Plan 04-04 Task 02: code-action orchestrator + codeAction/resolve
         # facade (lazy edit compute, version-gated per D-07).
         src/lsp/facade/edit/codeaction/codeaction.c

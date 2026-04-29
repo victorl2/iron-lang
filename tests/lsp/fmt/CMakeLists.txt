@@ -21,6 +21,16 @@ if(IRON_BUILD_LSP)
         # Phase 12 Plan 12-02 (QF-01): single command-style handler shared
         # by codes 260 + 261 (registry.c references it via two rows).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_v3_receiver_syntax.c
+        # Phase 12 Plan 12-02 (QF-02): synthesize default init for code 264.
+        # quickfix_object_no_init.c calls ilsp_facade_compile_for_nav, so
+        # the test must additionally link compile.c + diagnostics.c +
+        # nav/nav_common.c + nav/node_at.c + transport + obs (matches
+        # test_rename_prepare's link shape).
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_object_no_init.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/node_at.c
         # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
         # by quickfix_missing_return.c.
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
@@ -32,7 +42,16 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/utf.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c)
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/sha256.c
+        # compile.c + diagnostics.c pull in transport + obs deps.
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/json.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c
+        PROPERTIES COMPILE_FLAGS "-Wno-error -w")
     target_include_directories(test_fmt_quickfix_clean PRIVATE
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/vendor)

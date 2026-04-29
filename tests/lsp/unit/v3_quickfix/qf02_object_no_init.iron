@@ -1,0 +1,19 @@
+-- Phase 12 Plan 12-02 fixture: QF-02 / E0264 (IRON_ERR_V3_NO_INIT).
+-- Asserts: codeAction at the object_decl `Player` returns 1 action;
+-- post-resolve edit_new_text matches:
+--     init(health: Int, name: String) {
+--         self.health = health
+--         self.name = name
+--     }
+-- inserted as the first member (zero-width at line after the `{`).
+-- val fields are NOT included as init parameters (var-only filter).
+-- Plan 12-03 wires the corpus binary that drives this fixture.
+
+object Player {
+    var health: Int
+    var name: String
+}
+
+func main() {
+    val p: Player = Player(health: 100, name: "Hero")
+}

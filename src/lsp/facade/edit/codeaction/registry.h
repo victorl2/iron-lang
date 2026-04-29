@@ -184,6 +184,11 @@ void ilsp_quickfix_redundant_cast       (const Iron_Diagnostic *, struct IronLsp
  * symbol (D-18 — same fix is "run the codemod"). */
 void ilsp_quickfix_v3_receiver_syntax   (const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
 
+/* Phase 12 Plan 12-02 (QF-02) — synthesize default init for an object
+ * that has var fields but no init (code 264 / IRON_ERR_V3_NO_INIT).
+ * Single zero-width insertion at the line after the object's `{`. */
+void ilsp_quickfix_object_no_init       (const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
+
 #ifdef __cplusplus
 }
 #endif

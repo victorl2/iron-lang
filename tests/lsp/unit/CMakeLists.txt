@@ -199,6 +199,8 @@ if(IRON_BUILD_LSP)
         # Phase 12 Plan 12-02 (QF-01): single command-style handler shared
         # by codes 260 + 261 (registry.c references it via two rows).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_v3_receiver_syntax.c
+        # Phase 12 Plan 12-02 (QF-02): synthesize default init for code 264.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_object_no_init.c
         # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
         # by quickfix_missing_return.c (and QF-02/QF-03 in later plans).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
@@ -1432,6 +1434,8 @@ if(IRON_BUILD_LSP)
         # Phase 12 Plan 12-02 (QF-01): single command-style handler shared
         # by codes 260 + 261 (registry.c references it via two rows).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_v3_receiver_syntax.c
+        # Phase 12 Plan 12-02 (QF-02): synthesize default init for code 264.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_object_no_init.c
         # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
         # by quickfix_missing_return.c (and QF-02/QF-03 in later plans).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
