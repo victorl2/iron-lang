@@ -6,7 +6,52 @@ IRON_HOME="$HOME/.iron"
 INSTALL_DIR="$IRON_HOME/bin"
 ENV_FILE="$IRON_HOME/env"
 
+usage() {
+    cat <<EOF
+Iron installer.
+
+Usage: install.sh [--version VERSION]
+
+Options:
+  --version VERSION   Install a specific release tag (e.g. v3.0.0-alpha or
+                      3.0.0-alpha). Default: the latest release.
+  -h, --help          Show this help and exit.
+EOF
+}
+
 main() {
+    REQUESTED_VERSION=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --version)
+                shift
+                if [ $# -eq 0 ]; then
+                    echo "Error: --version requires a value (e.g. v3.0.0-alpha)" >&2
+                    exit 1
+                fi
+                REQUESTED_VERSION="$1"
+                shift
+                ;;
+            --version=*)
+                REQUESTED_VERSION="${1#--version=}"
+                if [ -z "$REQUESTED_VERSION" ]; then
+                    echo "Error: --version requires a value (e.g. v3.0.0-alpha)" >&2
+                    exit 1
+                fi
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                echo "Error: unknown argument: $1" >&2
+                usage >&2
+                exit 1
+                ;;
+        esac
+    done
+
     # Detect OS
     OS="$(uname -s)"
     case "$OS" in
@@ -25,16 +70,23 @@ main() {
 
     TARGET="${PLATFORM}-${ARCH}"
 
-    # Get latest release version
-    if command -v curl > /dev/null 2>&1; then
-        VERSION="$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/')"
-    else
+    # curl is needed for both the version probe and the tarball download.
+    if ! command -v curl > /dev/null 2>&1; then
         echo "Error: curl is required" >&2
         exit 1
     fi
 
+    # Resolve version. Explicit --version wins; otherwise read the latest tag
+    # from the GitHub releases API. Strip an optional leading "v" so the rest
+    # of the script can compose URLs from "${VERSION}" and "v${VERSION}".
+    if [ -n "$REQUESTED_VERSION" ]; then
+        VERSION="${REQUESTED_VERSION#v}"
+    else
+        VERSION="$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/')"
+    fi
+
     if [ -z "$VERSION" ]; then
-        echo "Error: Could not determine latest release version" >&2
+        echo "Error: Could not determine release version" >&2
         exit 1
     fi
 
@@ -169,4 +221,4 @@ ENVEOF
     echo "  iron build --target=web --help    # web builds ready"
 }
 
-main
+main "$@"
