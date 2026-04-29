@@ -35,3 +35,14 @@
 
 ; ── References ────────────────────────────────────────────────────────
 (identifier) @local.reference
+
+; ── v3 scopes (per D-15) ──────────────────────────────────────────────
+(init_declaration)         @local.scope
+(patch_declaration)        @local.scope
+(block_method_declaration) @local.scope
+
+; ── v3 method definition (parallel to method_declaration per D-17) ────
+(block_method_declaration name: (identifier) @local.definition.method)
+
+; ── v3 patch target as a reference (per D-18) ────────────────────────
+(patch_declaration target: (identifier) @local.reference)
