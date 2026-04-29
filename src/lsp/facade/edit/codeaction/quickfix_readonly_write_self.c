@@ -39,11 +39,25 @@
 
 /* ── Helpers shared structurally with QF-05 ───────────────────────── */
 
+/* Same-file gate: returns true when both filenames are NULL OR
+ * pointer-equal OR string-equal. Pointer equality is the optimistic
+ * fast path (analyzer arena interning); string equality is the
+ * fallback for re-analyzed programs that allocate fresh arena strings.
+ * NULL on either side is treated as "match anything" (defensive — the
+ * orchestrator always supplies non-NULL spans, but the handler must
+ * not crash on a malformed diag). */
+static bool same_file(const char *a, const char *b) {
+    if (a == b) return true;
+    if (!a || !b) return true;
+    return strcmp(a, b) == 0;
+}
+
 /* Find the enclosing method/func decl whose body span contains the
  * 1-indexed diag->span.line. Walks program->decls[] linearly:
  *   - IRON_NODE_METHOD_DECL: methods (including init) hoisted to top
- *     level. Match same-file via filename pointer equality + line
- *     containment of method's full span.
+ *     level. Match same-file via filename string equality (pointer
+ *     equality is unreliable across re-analyze arena boundaries) +
+ *     line containment of method's full span.
  *   - IRON_NODE_FUNC_DECL: top-level funcs. Phase 84 already rejects
  *     readonly/pure on top-level funcs (E0245), so a body containing
  *     E0238 is necessarily a method — but we accept either kind for
@@ -57,14 +71,14 @@ static const Iron_Node *find_enclosing_method(const Iron_Program  *program,
         if (!d) continue;
         if (d->kind == IRON_NODE_METHOD_DECL) {
             const Iron_MethodDecl *m = (const Iron_MethodDecl *)d;
-            if (m->span.filename != diag->span.filename) continue;
+            if (!same_file(m->span.filename, diag->span.filename)) continue;
             if (diag->span.line >= m->span.line &&
                 diag->span.line <= m->span.end_line) {
                 return d;
             }
         } else if (d->kind == IRON_NODE_FUNC_DECL) {
             const Iron_FuncDecl *fn = (const Iron_FuncDecl *)d;
-            if (fn->span.filename != diag->span.filename) continue;
+            if (!same_file(fn->span.filename, diag->span.filename)) continue;
             if (diag->span.line >= fn->span.line &&
                 diag->span.line <= fn->span.end_line) {
                 return d;
