@@ -142,6 +142,18 @@ static const Iron_Field *find_field_for_diag(const Iron_ObjectDecl *od,
     return NULL;
 }
 
+/* Same-file gate: NULL-safe + accepts pointer equality OR string
+ * equality. Pointer-equality is the optimistic fast path (analyzer
+ * arena interning); string-equality keeps the gate honest across
+ * arena boundaries (e.g., the handler's own re-analyzed program may
+ * intern a fresh copy of the filename). NULL on either side is
+ * treated as "match anything" (defensive). */
+static bool same_file(const char *a, const char *b) {
+    if (a == b) return true;
+    if (!a || !b) return true;
+    return strcmp(a, b) == 0;
+}
+
 /* Walk program->decls[] for an init MethodDecl whose span sits inside the
  * given object decl's span (line containment) AND whose type_name matches
  * od->name. Returns the first match (declaration order) or NULL. */
@@ -157,8 +169,8 @@ static const Iron_MethodDecl *find_init_method_in_object(
         if (!m->is_init) continue;
         if (!m->type_name || !od->name) continue;
         if (strcmp(m->type_name, od->name) != 0) continue;
-        /* Same-file gate via arena-interned filename pointer equality. */
-        if (m->span.filename != od->span.filename) continue;
+        /* Same-file gate: NULL-safe pointer/string equality. */
+        if (!same_file(m->span.filename, od->span.filename)) continue;
         /* Line-range containment inside the object decl. */
         if (m->span.line < od->span.line) continue;
         if (m->span.end_line > od->span.end_line) continue;

@@ -49,8 +49,20 @@
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
+/* Same-file gate: NULL-safe + accepts both pointer equality (analyzer
+ * arena interning) and string equality (fallback when re-analyze
+ * allocates fresh arena strings). Pointer-equality is the optimistic
+ * fast path; string-equality keeps the gate honest across arena
+ * boundaries. NULL on either side is treated as "match anything"
+ * (defensive — the orchestrator always supplies non-NULL spans). */
+static bool same_file(const char *a, const char *b) {
+    if (a == b) return true;
+    if (!a || !b) return true;
+    return strcmp(a, b) == 0;
+}
+
 /* Find the enclosing method/func decl whose span line range contains
- * diag->span.line (caller of the mutating method). Filename pointer
+ * diag->span.line (caller of the mutating method). Filename string
  * equality + line range. Linear scan over program->decls[]. */
 static const Iron_Node *find_enclosing_method(const Iron_Program  *program,
                                                  const Iron_Diagnostic *diag) {
@@ -60,14 +72,14 @@ static const Iron_Node *find_enclosing_method(const Iron_Program  *program,
         if (!d) continue;
         if (d->kind == IRON_NODE_METHOD_DECL) {
             const Iron_MethodDecl *m = (const Iron_MethodDecl *)d;
-            if (m->span.filename != diag->span.filename) continue;
+            if (!same_file(m->span.filename, diag->span.filename)) continue;
             if (diag->span.line >= m->span.line &&
                 diag->span.line <= m->span.end_line) {
                 return d;
             }
         } else if (d->kind == IRON_NODE_FUNC_DECL) {
             const Iron_FuncDecl *fn = (const Iron_FuncDecl *)d;
-            if (fn->span.filename != diag->span.filename) continue;
+            if (!same_file(fn->span.filename, diag->span.filename)) continue;
             if (diag->span.line >= fn->span.line &&
                 diag->span.line <= fn->span.end_line) {
                 return d;
@@ -364,8 +376,10 @@ void ilsp_quickfix_readonly_calls_mutating(const Iron_Diagnostic           *diag
 
         /* Step 3: Same-file gate (Phase 12 v1 restriction; cross-file
          * deferred per DEF-12-11). Iron_Span.filename is arena-interned;
-         * pointer equality is the canonical comparison. */
-        if (callee->span.filename != diag->span.filename) goto emit_a_only;
+         * we compare via the same_file helper above (pointer equality
+         * fast path + strcmp fallback for cross-arena cases such as
+         * re-analyzed programs). */
+        if (!same_file(callee->span.filename, diag->span.filename)) goto emit_a_only;
 
         /* Step 4: Stdlib carve-out (D-34). */
         const char *callee_path = callee->span.filename;
