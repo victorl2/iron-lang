@@ -78,7 +78,13 @@ static void test_lookup_unknown_code_returns_null(void) {
 /* ── Test 7: table is sorted ASC by code ──────────────────────────── */
 
 static void test_table_sorted_asc_by_code(void) {
-    TEST_ASSERT_EQUAL_UINT(5, ilsp_quickfix_table_size);
+    /* Phase 12 Plan 12-02 (QF-01): 2 rows added for codes 260 + 261 —
+     * IRON_ERR_V3_RECEIVER_SYNTAX and IRON_ERR_V3_MUT_RECEIVER both
+     * dispatch to ilsp_quickfix_v3_receiver_syntax (D-18). Sort order
+     * by NUMERIC value: 200, 260, 261, 292, 293, 611, 612 (note that
+     * IRON_ERR_TYPE_MISMATCH_LITERAL = 292 and IRON_ERR_MISSING_RETURN
+     * = 293 after the Phase 80 MUT renumber). */
+    TEST_ASSERT_EQUAL_UINT(7, ilsp_quickfix_table_size);
     for (size_t i = 1; i < ilsp_quickfix_table_size; i++) {
         TEST_ASSERT_TRUE_MESSAGE(
             ilsp_quickfix_table[i - 1].code < ilsp_quickfix_table[i].code,
@@ -86,10 +92,17 @@ static void test_table_sorted_asc_by_code(void) {
     }
     /* Exact codes to guard against accidental renumbering. */
     TEST_ASSERT_EQUAL_INT(IRON_ERR_UNDEFINED_VAR,         ilsp_quickfix_table[0].code);
-    TEST_ASSERT_EQUAL_INT(IRON_ERR_TYPE_MISMATCH_LITERAL, ilsp_quickfix_table[1].code);
-    TEST_ASSERT_EQUAL_INT(IRON_ERR_MISSING_RETURN,        ilsp_quickfix_table[2].code);
-    TEST_ASSERT_EQUAL_INT(IRON_WARN_UNUSED_IMPORT,        ilsp_quickfix_table[3].code);
-    TEST_ASSERT_EQUAL_INT(IRON_WARN_REDUNDANT_CAST,       ilsp_quickfix_table[4].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_V3_RECEIVER_SYNTAX,    ilsp_quickfix_table[1].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_V3_MUT_RECEIVER,       ilsp_quickfix_table[2].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_TYPE_MISMATCH_LITERAL, ilsp_quickfix_table[3].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_MISSING_RETURN,        ilsp_quickfix_table[4].code);
+    TEST_ASSERT_EQUAL_INT(IRON_WARN_UNUSED_IMPORT,        ilsp_quickfix_table[5].code);
+    TEST_ASSERT_EQUAL_INT(IRON_WARN_REDUNDANT_CAST,       ilsp_quickfix_table[6].code);
+    /* Codes 260 + 261 share the same handler (D-18). */
+    TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_v3_receiver_syntax,
+                            ilsp_quickfix_table[1].handler);
+    TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_v3_receiver_syntax,
+                            ilsp_quickfix_table[2].handler);
 }
 
 /* ── Shared fixture helpers ───────────────────────────────────────── */

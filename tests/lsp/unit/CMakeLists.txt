@@ -184,6 +184,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/resolve.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/auto_import.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/snippet.c
+        # Phase 12 Plan 12-02 (KW-03): per-keyword visibility predicate
+        # consumed by buckets.c emit_keywords.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/keyword_filter.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/registry.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/resolve.c
@@ -193,6 +196,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_return.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
+        # Phase 12 Plan 12-02 (QF-01): single command-style handler shared
+        # by codes 260 + 261 (registry.c references it via two rows).
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_v3_receiver_syntax.c
         # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
         # by quickfix_missing_return.c (and QF-02/QF-03 in later plans).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
@@ -1411,6 +1417,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/resolve.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/auto_import.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/snippet.c
+        # Phase 12 Plan 12-02 (KW-03): per-keyword visibility predicate
+        # consumed by buckets.c emit_keywords.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/keyword_filter.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/registry.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/resolve.c
@@ -1420,6 +1429,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_return.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
+        # Phase 12 Plan 12-02 (QF-01): single command-style handler shared
+        # by codes 260 + 261 (registry.c references it via two rows).
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_v3_receiver_syntax.c
         # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
         # by quickfix_missing_return.c (and QF-02/QF-03 in later plans).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
