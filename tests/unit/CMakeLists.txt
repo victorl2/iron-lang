@@ -420,6 +420,12 @@ if(IRON_BUILD_LSP)
         test_completion_buckets.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/context_classify.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/buckets.c
+        # Phase 12 Plan 12-02 (KW-03): buckets.c references
+        # ilsp_keyword_visible_at via emit_keywords; both buckets.c and
+        # keyword_filter.c call ilsp_byte_of_line / ilsp_line_of_byte
+        # for cursor (line, col) derivation.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/keyword_filter.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/store/line_index.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/fuzzy.c
     )
     target_include_directories(test_completion_buckets PRIVATE
