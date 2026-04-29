@@ -611,6 +611,17 @@ if(IRON_BUILD_LSP)
         # atomic edits — delete inline `= expr` + insert/extend init body.
         # First Phase 12 consumer of edit_text_edits[] (Plan 12-01 D-27).
         src/lsp/facade/edit/codeaction/quickfix_v3_inline_default.c
+        # Phase 12 Plan 12-03 (QF-04, D-29..D-31): 2-action handler for
+        # code 238 (IRON_ERR_READONLY_WRITE_SELF). Emits both
+        # "Remove 'readonly' modifier" and "Remove offending write" with
+        # data_variant_idx 0/1; both is_preferred = false.
+        src/lsp/facade/edit/codeaction/quickfix_readonly_write_self.c
+        # Phase 12 Plan 12-03 (QF-05, D-32..D-34): 1-or-2 action handler
+        # for code 239 (IRON_ERR_READONLY_CALLS_MUTATING). Action A
+        # always emits; Action B gated on same-file callee + non-stdlib
+        # + idempotency (D-34 stdlib carve-out, DEF-12-11 cross-file
+        # deferral). Cross-file callees → Action A only.
+        src/lsp/facade/edit/codeaction/quickfix_readonly_calls_mutating.c
         # Plan 04-04 Task 02: code-action orchestrator + codeAction/resolve
         # facade (lazy edit compute, version-gated per D-07).
         src/lsp/facade/edit/codeaction/codeaction.c

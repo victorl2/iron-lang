@@ -1,0 +1,15 @@
+-- Phase 12 Plan 12-03 fixture: QF-05 stdlib carve-out (D-34).
+-- Caller invokes a stdlib mutating method. Action B is suppressed by
+-- ilsp_nav_path_is_stdlib check; only Action A emits.
+-- Asserts: codeAction returns 1 action.
+
+import list
+
+object Owner {
+    readonly func report() {
+        -- list.append is mutating; calling from readonly emits E0239.
+        -- Action B is suppressed because list.iron lives under stdlib.
+        val xs: list[Int] = list.new()
+        xs.append(1)
+    }
+}

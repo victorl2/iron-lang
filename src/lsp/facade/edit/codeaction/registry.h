@@ -195,6 +195,20 @@ void ilsp_quickfix_object_no_init       (const Iron_Diagnostic *, struct IronLsp
  * atomic edits — delete the `= expr` portion + insert/extend init. */
 void ilsp_quickfix_v3_inline_default    (const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
 
+/* Phase 12 Plan 12-03 (QF-04) — code 238 / IRON_ERR_READONLY_WRITE_SELF.
+ * Emits exactly 2 CodeActions with distinct data_variant_idx:
+ *   variant 0 = "Remove 'readonly' modifier" (deletes readonly token)
+ *   variant 1 = "Remove offending write"     (deletes diag->span)
+ * Both is_preferred = false (semantic ambiguity per D-31). */
+void ilsp_quickfix_readonly_write_self  (const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
+
+/* Phase 12 Plan 12-03 (QF-05) — code 239 / IRON_ERR_READONLY_CALLS_MUTATING.
+ * Emits Action A always ("Drop 'readonly' from caller"); Action B
+ * ("Mark callee as 'readonly'") emits only when callee resolves in
+ * the same file AND is not stdlib AND `func` token is not already
+ * preceded by `readonly`. Cross-file Action B deferred (DEF-12-11). */
+void ilsp_quickfix_readonly_calls_mutating(const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
+
 #ifdef __cplusplus
 }
 #endif

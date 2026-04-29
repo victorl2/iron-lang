@@ -1,0 +1,14 @@
+-- Phase 12 Plan 12-03 fixture: QF-05 cross-file — caller module.
+-- Imports mod_a.Counter; readonly observe() calls mutating bump().
+-- Asserts: codeAction at the call site returns 1 action (Action A only).
+-- Cross-file Action B suppressed (DEF-12-11).
+
+import mod_a
+
+object Observer {
+    var c: Counter
+    init(c: Counter) { self.c = c }
+    readonly func observe() {
+        self.c.bump()
+    }
+}

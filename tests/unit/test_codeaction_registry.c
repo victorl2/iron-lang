@@ -68,11 +68,11 @@ static void test_lookup_unknown_code_returns_null(void) {
     TEST_ASSERT_NULL(ilsp_quickfix_lookup(0));
     TEST_ASSERT_NULL(ilsp_quickfix_lookup(-1));
     /* Ranges adjacent to real entries stay NULL. Phase 12 Plan 12-03
-     * adds codes 262 (QF-03) + 238/239 (QF-04/05); the gap-codes shift
-     * accordingly. 234 is between 200 and 238; 263 is between 262 and
-     * 264; 610 and 613 still gap the warning band. */
+     * adds codes 238/239 (QF-04/05) + 262 (QF-03); the gap-codes shift.
+     * 199 is below the band; 237 is between 200 and 238; 263 is between
+     * 262 and 264; 610 and 613 still gap the warning band. */
     TEST_ASSERT_NULL(ilsp_quickfix_lookup(199));
-    TEST_ASSERT_NULL(ilsp_quickfix_lookup(234));
+    TEST_ASSERT_NULL(ilsp_quickfix_lookup(237));
     TEST_ASSERT_NULL(ilsp_quickfix_lookup(263));
     TEST_ASSERT_NULL(ilsp_quickfix_lookup(610));
     TEST_ASSERT_NULL(ilsp_quickfix_lookup(613));
@@ -81,39 +81,44 @@ static void test_lookup_unknown_code_returns_null(void) {
 /* ── Test 7: table is sorted ASC by code ──────────────────────────── */
 
 static void test_table_sorted_asc_by_code(void) {
-    /* Phase 12 Plan 12-03: 1 row added (262 = IRON_ERR_V3_INLINE_DEFAULT
-     * → ilsp_quickfix_v3_inline_default, QF-03 multi-edit). Plan 12-02
-     * already added 260, 261, 264; codes 260 + 261 share the QF-01
-     * handler. Final sort order by NUMERIC value (after Task 1):
-     *   200, 260, 261, 262, 264, 292, 293, 611, 612
+    /* Phase 12 Plan 12-03 final state: 6 new rows added across Plans
+     * 12-02 + 12-03 (260, 261, 264 from 12-02; 238, 239, 262 from 12-03).
+     * Codes 260 + 261 share the QF-01 handler. Final sort order by
+     * NUMERIC value:
+     *   200, 238, 239, 260, 261, 262, 264, 292, 293, 611, 612
      * (IRON_ERR_TYPE_MISMATCH_LITERAL = 292 + IRON_ERR_MISSING_RETURN =
-     * 293 after the Phase 80 MUT renumber). Plan 12-03 Task 2 will
-     * grow this further to 11 entries by inserting 238 + 239. */
-    TEST_ASSERT_EQUAL_UINT(9, ilsp_quickfix_table_size);
+     * 293 after the Phase 80 MUT renumber). 11 entries total. */
+    TEST_ASSERT_EQUAL_UINT(11, ilsp_quickfix_table_size);
     for (size_t i = 1; i < ilsp_quickfix_table_size; i++) {
         TEST_ASSERT_TRUE_MESSAGE(
             ilsp_quickfix_table[i - 1].code < ilsp_quickfix_table[i].code,
             "ilsp_quickfix_table must be sorted ASC by code");
     }
     /* Exact codes to guard against accidental renumbering. */
-    TEST_ASSERT_EQUAL_INT(IRON_ERR_UNDEFINED_VAR,         ilsp_quickfix_table[0].code);
-    TEST_ASSERT_EQUAL_INT(IRON_ERR_V3_RECEIVER_SYNTAX,    ilsp_quickfix_table[1].code);
-    TEST_ASSERT_EQUAL_INT(IRON_ERR_V3_MUT_RECEIVER,       ilsp_quickfix_table[2].code);
-    TEST_ASSERT_EQUAL_INT(IRON_ERR_V3_INLINE_DEFAULT,     ilsp_quickfix_table[3].code);
-    TEST_ASSERT_EQUAL_INT(IRON_ERR_V3_NO_INIT,            ilsp_quickfix_table[4].code);
-    TEST_ASSERT_EQUAL_INT(IRON_ERR_TYPE_MISMATCH_LITERAL, ilsp_quickfix_table[5].code);
-    TEST_ASSERT_EQUAL_INT(IRON_ERR_MISSING_RETURN,        ilsp_quickfix_table[6].code);
-    TEST_ASSERT_EQUAL_INT(IRON_WARN_UNUSED_IMPORT,        ilsp_quickfix_table[7].code);
-    TEST_ASSERT_EQUAL_INT(IRON_WARN_REDUNDANT_CAST,       ilsp_quickfix_table[8].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_UNDEFINED_VAR,            ilsp_quickfix_table[0].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_READONLY_WRITE_SELF,      ilsp_quickfix_table[1].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_READONLY_CALLS_MUTATING,  ilsp_quickfix_table[2].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_V3_RECEIVER_SYNTAX,       ilsp_quickfix_table[3].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_V3_MUT_RECEIVER,          ilsp_quickfix_table[4].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_V3_INLINE_DEFAULT,        ilsp_quickfix_table[5].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_V3_NO_INIT,               ilsp_quickfix_table[6].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_TYPE_MISMATCH_LITERAL,    ilsp_quickfix_table[7].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_MISSING_RETURN,           ilsp_quickfix_table[8].code);
+    TEST_ASSERT_EQUAL_INT(IRON_WARN_UNUSED_IMPORT,           ilsp_quickfix_table[9].code);
+    TEST_ASSERT_EQUAL_INT(IRON_WARN_REDUNDANT_CAST,          ilsp_quickfix_table[10].code);
     /* Codes 260 + 261 share the same handler (D-18). */
-    TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_v3_receiver_syntax,
+    TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_readonly_write_self,
                             ilsp_quickfix_table[1].handler);
-    TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_v3_receiver_syntax,
+    TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_readonly_calls_mutating,
                             ilsp_quickfix_table[2].handler);
-    TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_v3_inline_default,
+    TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_v3_receiver_syntax,
                             ilsp_quickfix_table[3].handler);
-    TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_object_no_init,
+    TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_v3_receiver_syntax,
                             ilsp_quickfix_table[4].handler);
+    TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_v3_inline_default,
+                            ilsp_quickfix_table[5].handler);
+    TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_object_no_init,
+                            ilsp_quickfix_table[6].handler);
 }
 
 /* ── Shared fixture helpers ───────────────────────────────────────── */

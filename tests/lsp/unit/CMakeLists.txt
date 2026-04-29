@@ -204,6 +204,11 @@ if(IRON_BUILD_LSP)
         # Phase 12 Plan 12-03 (QF-03): multi-edit handler for code 262
         # (move inline default into init body).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_v3_inline_default.c
+        # Phase 12 Plan 12-03 (QF-04): 2-action handler for code 238.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_write_self.c
+        # Phase 12 Plan 12-03 (QF-05): 1-or-2 action handler for code 239
+        # (cross-file feasibility + stdlib carve-out via ilsp_nav_path_is_stdlib).
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_calls_mutating.c
         # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
         # by quickfix_missing_return.c (and QF-02/QF-03 in later plans).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
@@ -1448,6 +1453,11 @@ if(IRON_BUILD_LSP)
         # Phase 12 Plan 12-03 (QF-03): multi-edit handler for code 262
         # (move inline default into init body).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_v3_inline_default.c
+        # Phase 12 Plan 12-03 (QF-04): 2-action handler for code 238.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_write_self.c
+        # Phase 12 Plan 12-03 (QF-05): 1-or-2 action handler for code 239
+        # (cross-file feasibility + stdlib carve-out via ilsp_nav_path_is_stdlib).
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_calls_mutating.c
         # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
         # by quickfix_missing_return.c (and QF-02/QF-03 in later plans).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
