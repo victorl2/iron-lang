@@ -2880,14 +2880,47 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
          * is_init to gate definite-assignment and delegation-rejection. */
         if (iron_check(p, IRON_TOK_INIT)) {
             Iron_Token *istart = iron_current(p);
-            if (member_is_pub) {
+            /* Phase 93 VIS-04 (Plan 93-02): `pub init` is only valid when the
+             * enclosing object itself is `pub`. The function parameter `is_pub`
+             * is the truth source for the enclosing-object visibility (Plan
+             * 93-01 added it). Two cases:
+             *
+             *   member_is_pub && !is_pub: emit a diagnostic that points at
+             *     the enclosing visibility so the user knows which knob to
+             *     flip. The message includes the enclosing object's name to
+             *     stay unambiguous in multi-object files; the locked
+             *     substrings "`pub init` is only valid inside a `pub object`"
+             *     and "the enclosing" are matched verbatim by Plan 93-04's
+             *     compile_fail fixture.
+             *
+             *   member_is_pub && is_pub: accept silently. The MethodDecl
+             *     ARENA_ALLOC site below already sets `m->is_pub =
+             *     member_is_pub`, which is now true and the enclosing object
+             *     is pub - exactly the case VIS-04 requires.
+             *
+             * member_is_pub == false on either branch keeps the existing
+             * behavior (init defaults to is_pub == false, even inside a
+             * `pub object`; CONTEXT: pub-on-type does NOT propagate). */
+            if (member_is_pub && !is_pub) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "`pub init` is only valid inside a `pub object`; "
+                         "the enclosing `object %s` is private - mark it "
+                         "`pub` or remove `pub` from this init",
+                         name_tok && name_tok->value ? name_tok->value
+                                                     : "<unnamed>");
+                const char *msg_copy = iron_arena_strdup(p->arena, msg,
+                                                          strlen(msg));
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNEXPECTED_TOKEN,
                                iron_token_span(p, istart),
-                               "init visibility is tied to its object; "
-                               "cannot be marked pub", NULL);
-                /* Recover: continue parsing the init so a single diagnostic
-                 * represents the pub-init violation. */
+                               msg_copy ? msg_copy
+                                        : "`pub init` requires a `pub object` "
+                                          "enclosing",
+                               NULL);
+                /* Recover: continue parsing the init body so one diagnostic
+                 * represents the pub-init violation; matches the pre-Plan-93
+                 * recovery shape. */
             }
             if (member_is_readonly || member_is_pure) {
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
@@ -3874,16 +3907,31 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
         }
 
         /* Phase 85 INIT inside a patch body: same grammar as classic
-         * object body. `readonly init` / `pure init` / `pub init` all
-         * rejected via the same precedent paths. */
+         * object body. Phase 93 VIS-04 (Plan 93-02): `pub init` mirrors the
+         * iron_parse_object_decl gate - accepted when the enclosing
+         * `pub patch object T` is itself pub, rejected with the locked
+         * substring otherwise. The patch's `is_pub` parameter (threaded
+         * by Plan 93-01) is the truth source. `name_tok` here holds the
+         * patch target name (e.g. `Foo` in `pub patch object Foo`). */
         if (iron_check(p, IRON_TOK_INIT)) {
             Iron_Token *istart = iron_current(p);
-            if (member_is_pub) {
+            if (member_is_pub && !is_pub) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "`pub init` is only valid inside a `pub object`; "
+                         "the enclosing `object %s` is private - mark it "
+                         "`pub` or remove `pub` from this init",
+                         name_tok && name_tok->value ? name_tok->value
+                                                     : "<unnamed>");
+                const char *msg_copy = iron_arena_strdup(p->arena, msg,
+                                                          strlen(msg));
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNEXPECTED_TOKEN,
                                iron_token_span(p, istart),
-                               "init visibility is tied to its object; "
-                               "cannot be marked pub", NULL);
+                               msg_copy ? msg_copy
+                                        : "`pub init` requires a `pub object` "
+                                          "enclosing",
+                               NULL);
             }
             if (member_is_readonly || member_is_pure) {
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
@@ -3969,11 +4017,13 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->return_type          = NULL;
             m->body                 = ibody;
             m->is_private           = false;
-            /* Phase 93 VIS-01: in-patch init does not carry per-method pub
-             * (CONTEXT: patches reach visibility through the patched type's
-             * pub bit, not per-method). Default false; member_is_pub on the
-             * init was already rejected above. */
-            m->is_pub               = false;
+            /* Phase 93 VIS-04 (Plan 93-02): mirror iron_parse_object_decl.
+             * `pub init` inside a `pub patch object T { ... }` is accepted
+             * and the bit lands here; `pub init` inside a non-pub patch is
+             * rejected above and the recovery path still allocates the
+             * MethodDecl with member_is_pub == true (the build already
+             * failed - no downstream phase runs). */
+            m->is_pub               = member_is_pub;
             m->generic_params       = NULL;
             m->generic_param_count  = 0;
             m->resolved_return_type = NULL;

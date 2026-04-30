@@ -893,6 +893,11 @@ static bool has_diag_msg_substring(const char *needle) {
 }
 
 void test_parse_pub_init_rejected(void) {
+    /* Phase 93 VIS-04 (Plan 93-02): `pub init` inside a non-pub object is
+     * rejected with the refreshed message that points at the enclosing
+     * visibility. Plan 93-01's earlier message ('init visibility is tied
+     * to its object') was a Phase 85 lock that Phase 93 explicitly
+     * supersedes - the new message is the contract. */
     (void)parse(
         "object X {\n"
         "    pub init() {}\n"
@@ -901,10 +906,13 @@ void test_parse_pub_init_rejected(void) {
     TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
     TEST_ASSERT_TRUE_MESSAGE(
         has_diag_code(IRON_ERR_UNEXPECTED_TOKEN),
-        "expected IRON_ERR_UNEXPECTED_TOKEN for pub init");
+        "expected IRON_ERR_UNEXPECTED_TOKEN for pub init in non-pub object");
     TEST_ASSERT_TRUE_MESSAGE(
-        has_diag_msg_substring("init visibility is tied to its object"),
-        "expected locked 'init visibility is tied to its object' message");
+        has_diag_msg_substring("`pub init` is only valid inside a `pub object`"),
+        "expected refreshed Plan 93-02 pub-init-in-private-object message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_msg_substring("the enclosing"),
+        "expected message to point at the enclosing object");
 }
 
 void test_parse_readonly_init_rejected(void) {
