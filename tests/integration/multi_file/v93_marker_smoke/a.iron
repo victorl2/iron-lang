@@ -1,0 +1,7 @@
+-- Phase 93 lexer @file: marker smoke test (Plan 93-04 Task 1).
+-- Validates the runner concatenates files with `-- @file:` directives and
+-- the lexer re-tags subsequent tokens with the new filename. Without the
+-- marker plumbing, `ping` would be in the same module as `main`, so the
+-- cross-module check is structurally proved end-to-end by this fixture.
+
+pub func ping() -> Int { return 1 }

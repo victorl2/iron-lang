@@ -63,6 +63,91 @@ WORK_DIR=$(mktemp -d /tmp/iron_test_XXXXXX)
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
 shopt -s nullglob
+
+# Phase 93 multi-file integration fixtures: directory-shaped fixtures under
+# tests/integration/multi_file/<case>/ with N >= 1 .iron files plus a sibling
+# `expected` file (no leading dot — there is no <name>.iron to pair against).
+# The runner concatenates the .iron files in lexicographic order (so lib.iron
+# precedes main.iron alphabetically) with a synthetic `-- @file: <basename>`
+# directive between them. The lexer recognizes that directive and re-tags
+# subsequent tokens with the named filename so the resolver's cross-module
+# check (E0320) sees real per-file source identity.
+#
+# A fixture directory without an `expected` sibling is treated as compile-only.
+if [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/multi_file" ]; then
+    for case_dir in "${TEST_DIR}/multi_file"/*/; do
+        [ -d "${case_dir}" ] || continue
+        case_name="$(basename "${case_dir}")"
+        TOTAL=$((TOTAL + 1))
+
+        # Collect .iron files in lexicographic (sorted) order.
+        iron_files=()
+        for f in "${case_dir}"*.iron; do
+            [ -f "${f}" ] || continue
+            iron_files+=("${f}")
+        done
+        if [ "${#iron_files[@]}" -eq 0 ]; then
+            echo "[FAIL] multi_file/${case_name} (no .iron files in directory)"
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+
+        # Sort the array (bash arrays don't sort intrinsically; portable sort).
+        IFS=$'\n' iron_files=($(printf '%s\n' "${iron_files[@]}" | sort))
+        unset IFS
+
+        # Build a combined source file with @file directives.
+        build_dir="${WORK_DIR}/multi_file_${case_name}"
+        mkdir -p "${build_dir}"
+        combined="${build_dir}/${case_name}.iron"
+        : > "${combined}"
+        for f in "${iron_files[@]}"; do
+            printf -- '-- @file: %s\n' "$(basename "${f}")" >> "${combined}"
+            cat "${f}" >> "${combined}"
+            printf '\n' >> "${combined}"
+        done
+
+        echo -n "[RUN ] multi_file/${case_name} ... "
+
+        build_stderr="${build_dir}/build.err"
+        if ! (cd "${build_dir}" && "${IRON_BIN}" build "${combined}") 2>"${build_stderr}"; then
+            echo "[FAIL] (build failed)"
+            cat "${build_stderr}" >&2
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+
+        output_bin="${build_dir}/${case_name}"
+        if [ ! -x "${output_bin}" ]; then
+            echo "[FAIL] (binary not found at ${output_bin})"
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+
+        expected_file="${case_dir}expected"
+        if [ ! -f "${expected_file}" ]; then
+            # No `expected` sibling: compile-only multi-file fixture.
+            echo "[PASS] (compile-only)"
+            PASS=$((PASS + 1))
+            continue
+        fi
+
+        actual=$("${output_bin}" 2>&1) || true
+        expected=$(cat "${expected_file}")
+        expected="${expected%$'\n'}"
+
+        if [ "${actual}" = "${expected}" ]; then
+            echo "[PASS]"
+            PASS=$((PASS + 1))
+        else
+            echo "[FAIL]"
+            echo "  Expected: $(echo "${expected}" | head -5)"
+            echo "  Actual:   $(echo "${actual}" | head -5)"
+            FAIL=$((FAIL + 1))
+        fi
+    done
+fi
+
 for test_file in "${TEST_DIR}"/*.iron; do
     test_name=$(basename "${test_file}" .iron)
     expected_file="${TEST_DIR}/${test_name}.expected"

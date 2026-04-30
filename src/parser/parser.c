@@ -174,9 +174,13 @@ static bool iron_match(Iron_Parser *p, Iron_TokenKind kind) {
     return false;
 }
 
-/* Build an Iron_Span from a single token */
+/* Build an Iron_Span from a single token.
+ * Phase 93 VIS-03: prefer t->filename when set (lexer recognized a
+ * `-- @file: <name>` marker and re-tagged subsequent tokens). Falls back
+ * to the parser's own filename for the common single-source case. */
 static Iron_Span iron_token_span(Iron_Parser *p, Iron_Token *t) {
-    return iron_span_make(p->filename,
+    const char *fname = (t->filename != NULL) ? t->filename : p->filename;
+    return iron_span_make(fname,
                           t->line, t->col,
                           t->line, t->col + (t->len > 0 ? t->len - 1 : 0));
 }

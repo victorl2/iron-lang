@@ -127,6 +127,11 @@ typedef enum {
  * - value: arena-allocated copy of the token text (NULL for punctuation/delimiters)
  * - line, col: 1-indexed source position of the first character
  * - len: byte length of the token in the source
+ * - filename: optional per-token filename override. NULL by default; the
+ *   parser falls back to its own filename for span construction. Set by
+ *   the lexer's `-- @file: <name>` directive (Phase 93 multi-file fixture
+ *   support) so concatenated test sources can carry per-decl source
+ *   identity for the resolver's cross-module check.
  */
 typedef struct {
     Iron_TokenKind  kind;
@@ -134,6 +139,7 @@ typedef struct {
     uint32_t        line;
     uint32_t        col;
     uint32_t        len;
+    const char     *filename;  /* NULL = inherit from parser */
 } Iron_Token;
 
 /* ── Lexer ───────────────────────────────────────────────────────────────── */
