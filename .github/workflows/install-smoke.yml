@@ -1,0 +1,156 @@
+name: Install Smoke
+
+# Catches regressions in the cmake --install layout: makes sure a fresh
+# install can compile a hello-world .iron file with no manual recovery
+# steps. Originally added after issue #47, where lib/diagnostics/ was
+# absent from the installed tree because no install(...) rule covered it
+# and every fresh "curl ... | sh" install failed at the C compile step.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'CMakeLists.txt'
+      - 'src/runtime/**'
+      - 'src/diagnostics/**'
+      - 'src/stdlib/**'
+      - 'src/util/**'
+      - 'src/vendor/**'
+      - 'src/cli/**'
+      - 'src/pkg/**'
+      - '.github/workflows/install-smoke.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'CMakeLists.txt'
+      - 'src/runtime/**'
+      - 'src/diagnostics/**'
+      - 'src/stdlib/**'
+      - 'src/util/**'
+      - 'src/vendor/**'
+      - 'src/cli/**'
+      - 'src/pkg/**'
+      - '.github/workflows/install-smoke.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  install-smoke:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libasound2-dev
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang \
+            -G Ninja
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Install to clean prefix
+        id: install
+        run: |
+          PREFIX="$(mktemp -d -t iron-install-smoke-XXXXXX)"
+          echo "PREFIX=$PREFIX" >> "$GITHUB_OUTPUT"
+          cmake --install build --prefix "$PREFIX"
+          echo "Installed to: $PREFIX"
+          ls -la "$PREFIX/lib/"
+
+      - name: Verify required directories present
+        env:
+          PREFIX: ${{ steps.install.outputs.PREFIX }}
+        run: |
+          set -e
+          # These directories must exist for ironc to compile any program.
+          # iron_runtime.h includes "diagnostics/diagnostics.h" and the
+          # build pipeline expects runtime/util/vendor/stdlib in <prefix>/lib.
+          for d in runtime util vendor stdlib diagnostics; do
+            if [ ! -d "$PREFIX/lib/$d" ]; then
+              echo "FAIL: missing $PREFIX/lib/$d"
+              echo "(install rule for src/$d/ is absent from CMakeLists.txt)"
+              exit 1
+            fi
+            echo "OK: $PREFIX/lib/$d"
+          done
+
+      - name: Verify diagnostics header on disk (issue #47 canary)
+        env:
+          PREFIX: ${{ steps.install.outputs.PREFIX }}
+        run: |
+          set -e
+          test -f "$PREFIX/lib/diagnostics/diagnostics.h" \
+            || { echo "FAIL: diagnostics.h missing"; exit 1; }
+          test -f "$PREFIX/lib/diagnostics/diagnostics.c" \
+            || { echo "FAIL: diagnostics.c missing"; exit 1; }
+          echo "diagnostics layout OK"
+
+      - name: Compile and run hello-world
+        env:
+          PREFIX: ${{ steps.install.outputs.PREFIX }}
+        run: |
+          set -e
+          HELLO="$(mktemp -t hello-XXXXXX.iron)"
+          cat > "$HELLO" <<'IRON'
+          func main() {
+              println("hello")
+          }
+          IRON
+          OUT="$("$PREFIX/bin/ironc" run "$HELLO" 2>&1)"
+          echo "ironc output: $OUT"
+          [ "$OUT" = "hello" ] || { echo "FAIL: expected 'hello', got '$OUT'"; exit 1; }
+          echo "hello-world OK"
+
+      - name: Regression canary (missing diagnostics must fail compile)
+        env:
+          PREFIX: ${{ steps.install.outputs.PREFIX }}
+        run: |
+          set -e
+          HELLO="$(mktemp -t hello-XXXXXX.iron)"
+          cat > "$HELLO" <<'IRON'
+          func main() {
+              println("hello")
+          }
+          IRON
+          mv "$PREFIX/lib/diagnostics" "$PREFIX/lib/diagnostics.bak"
+          set +e
+          "$PREFIX/bin/ironc" run "$HELLO" >/tmp/ironc-out.log 2>&1
+          rc=$?
+          set -e
+          mv "$PREFIX/lib/diagnostics.bak" "$PREFIX/lib/diagnostics"
+          if [ $rc -eq 0 ]; then
+            echo "FAIL: ironc unexpectedly succeeded with diagnostics dir removed"
+            cat /tmp/ironc-out.log
+            exit 1
+          fi
+          if ! grep -q "diagnostics/diagnostics.h" /tmp/ironc-out.log; then
+            echo "FAIL: ironc failed but not for the expected diagnostics-missing reason"
+            cat /tmp/ironc-out.log
+            exit 1
+          fi
+          echo "regression canary OK (compile correctly fails when lib/diagnostics is absent)"
