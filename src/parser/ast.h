@@ -319,6 +319,14 @@ typedef struct {
      * is_init is true and init_name != NULL, method_name == init_name so
      * the symbol-table lookup for `Type.<init_name>` hits naturally. */
     const char        *init_name;
+    /* Phase 94 LIB-02: true when this method was produced by flattening an
+     * in-patch method (`pub patch object T { pub func ... }`). Set in
+     * iron_parse_patch_decl; defaults false everywhere else (in-block on a
+     * regular object, receiver-form, array-extension). The .iron-stub
+     * generator reads this bit to suppress patch-sourced methods even when
+     * a non-patch `pub object T` exists in the same source file (Pitfall 4
+     * disambiguation: regular object's methods survive, patch's don't). */
+    bool               is_patch_member;
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */

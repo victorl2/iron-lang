@@ -2546,6 +2546,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
         rm->is_pure              = false;
         rm->is_init              = false;  /* Phase 85: receiver form is never init */
         rm->init_name            = NULL;
+        rm->is_patch_member      = false;  /* Phase 94 LIB-02 */
         return (Iron_Node *)rm;
     }
 
@@ -2644,6 +2645,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
         m->is_pure              = false;
         m->is_init              = false;  /* Phase 85: array extension is never init */
         m->init_name            = NULL;
+        m->is_patch_member      = false;  /* Phase 94 LIB-02 */
         return (Iron_Node *)m;
     }
 
@@ -2726,6 +2728,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
         m->is_pure              = false;
         m->is_init              = false;  /* Phase 85: classic Type.method is never init */
         m->init_name            = NULL;
+        m->is_patch_member      = false;  /* Phase 94 LIB-02 */
         return (Iron_Node *)m;
     }
 
@@ -3052,6 +3055,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->is_pure              = false;
             m->is_init              = true;
             m->init_name            = init_name;  /* NULL for anonymous */
+            m->is_patch_member      = false;  /* Phase 94 LIB-02: in-block init on regular object */
 
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
@@ -3180,6 +3184,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
              * clarity so grep for is_init finds intent at every site. */
             m->is_init              = false;
             m->init_name            = NULL;
+            m->is_patch_member      = false;  /* Phase 94 LIB-02: in-block func on regular object */
 
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
@@ -3390,6 +3395,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
              * over a pre-existing field, not a constructor. */
             g_m->is_init              = false;
             g_m->init_name            = NULL;
+            g_m->is_patch_member      = false;  /* Phase 94 LIB-02 */
             arrput(*extra_decls_out, (Iron_Node *)g_m);
 
             if (!field->is_var) continue;
@@ -3527,6 +3533,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
              * field rather than constructing the object. */
             s_m->is_init              = false;
             s_m->init_name            = NULL;
+            s_m->is_patch_member      = false;  /* Phase 94 LIB-02 */
             arrput(*extra_decls_out, (Iron_Node *)s_m);
         }
 
@@ -3715,6 +3722,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
                 synth->is_pure              = false;
                 synth->is_init              = true;
                 synth->init_name            = NULL;  /* anonymous */
+                synth->is_patch_member      = false;  /* Phase 94 LIB-02 */
                 arrput(*extra_decls_out, (Iron_Node *)synth);
             }
         }
@@ -4051,6 +4059,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->is_pure              = false;
             m->is_init              = true;
             m->init_name            = init_name;
+            m->is_patch_member      = true;  /* Phase 94 LIB-02: stub generator suppresses */
 
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
@@ -4151,6 +4160,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->is_pure              = member_is_pure;
             m->is_init              = false;
             m->init_name            = NULL;
+            m->is_patch_member      = true;  /* Phase 94 LIB-02: stub generator suppresses */
 
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
