@@ -9,9 +9,16 @@ typedef struct {
     char *name;       /* key name in [dependencies] */
     char *git;        /* git = "owner/repo" */
     char *version;    /* version = "X.Y.Z" */
+    /* Phase 94 LIB-03: local-path dependency. Set when [dependencies]
+     * inline-table contains `path = "..."`. NULL for git-source deps.
+     * Resolver dispatches on this field: non-NULL -> path-source handler;
+     * NULL -> existing git-source handler. The string is heap-allocated
+     * (strdup'd by extract_inline_field) and freed in iron_toml_free. */
+    char *path;
     /* Filled in by resolver: */
     char *sha;        /* 40-char commit SHA (from iron.lock or GitHub API) */
-    char *cache_path; /* absolute path: ~/.iron/cache/{owner}/{repo}@{sha}/ */
+    char *cache_path; /* absolute path: ~/.iron/cache/{owner}/{repo}@{sha}/
+                       * Repurposed for path-deps: holds the absolute lib project dir. */
 } IronDep;
 
 /* Parsed representation of an iron.toml project file. */

@@ -399,6 +399,9 @@ IronProject *iron_toml_parse(const char *path) {
                 dep->name    = strdup(key);
                 dep->git     = extract_inline_field(val_str, "git");
                 dep->version = extract_inline_field(val_str, "version");
+                /* Phase 94 LIB-03: local-path dep form `name = { path = "..." }`.
+                 * NULL when absent (git-form). Resolver branches on dep->path. */
+                dep->path    = extract_inline_field(val_str, "path");
                 proj->dep_count++;
             }
         } else if (section == 3) {
@@ -484,6 +487,7 @@ void iron_toml_free(IronProject *proj) {
         free(proj->deps[i].name);
         free(proj->deps[i].git);
         free(proj->deps[i].version);
+        free(proj->deps[i].path);   /* Phase 94 LIB-03 */
         free(proj->deps[i].sha);
         free(proj->deps[i].cache_path);
     }
