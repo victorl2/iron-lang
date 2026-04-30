@@ -327,6 +327,25 @@ static int cmd_build(bool run_after, int argc, char **argv) {
         return 1;
     }
 
+    /* Phase 94 LIB-06: reject `iron run` on type=lib at iron.toml-parse moment.
+     * This fires BEFORE entry-file lookup, dep resolution, or any compile work
+     * so the user gets the friendly hint immediately. The em-dash in the
+     * locked CONTEXT message is intentional (per 94-CONTEXT.md verbatim). */
+    if (run_after && proj->type && strcmp(proj->type, "lib") == 0) {
+        char msg[1024];
+        snprintf(msg, sizeof(msg),
+                 "package '%s' has type \"lib\" \xe2\x80\x94 libraries are not directly runnable.",
+                 proj->name);
+        iron_print_error(colors, msg);
+        fprintf(stderr,
+                "  hint: run `iron build` to produce target/lib%s.a, or run a consumer\n"
+                "        binary that depends on it.\n",
+                proj->name);
+        free(toml_path);
+        iron_toml_free(proj);
+        return 1;
+    }
+
     /* 3. Derive project directory and entry point */
     char *proj_dir = get_project_dir(toml_path);
     const char *entry_basename = (proj->type && strcmp(proj->type, "lib") == 0)
