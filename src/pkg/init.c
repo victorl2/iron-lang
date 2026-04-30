@@ -113,10 +113,17 @@ int cmd_init(int argc, char **argv) {
 
     /* ── source file ────────────────────────────────────────────────────── */
     if (is_lib) {
-        const char *lib_content =
-            "func greet(name: String) {\n"
-            "    println(\"Hello, {name}!\")\n"
-            "}\n";
+        /* Phase 94 LIB-04: lib template uses `pub` so it compiles as a real
+         * archive on first build (no empty-pub-surface warning) and exercises
+         * the Phase 93 top-level pub keyword. The function name `hello` is
+         * fixed (locked by 94-CONTEXT.md) so the lib_init_smoke.sh test in
+         * Plan 94-04 can grep for it via nm. */
+        char lib_content[512];
+        snprintf(lib_content, sizeof(lib_content),
+                 "pub func hello() -> String {\n"
+                 "    return \"Hello from %s!\"\n"
+                 "}\n",
+                 pkg_name);
         if (write_if_absent("src/lib.iron", lib_content) < 0) return 1;
     } else {
         const char *main_content =
