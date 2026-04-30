@@ -39,6 +39,7 @@ static void print_usage(void) {
     fprintf(stderr, "  --version         Print version and exit\n");
     fprintf(stderr, "  --target=<t>      Build target: native (default) or web\n");
     fprintf(stderr, "  --release         Optimize build (native -O2, web -Oz -flto)\n");
+    fprintf(stderr, "  --emit-archive    Compile to static archive (lib<name>.a) instead of executable (Phase 94 LIB)\n");
     fprintf(stderr, "  --verbose         Show generated C code\n");
     fprintf(stderr, "  --debug-build     Keep .iron-build/ directory\n");
     fprintf(stderr, "  --force-comptime  Skip comptime evaluation cache\n");
@@ -73,6 +74,9 @@ int main(int argc, char **argv) {
     bool strict_v3 = true;
     IronBuildTarget target = IRON_TARGET_NATIVE;
     bool release = false;
+    bool emit_archive = false;
+    const char *pkg_name_arg = NULL;
+    const char *pkg_version_arg = NULL;
     const char *source_file = NULL;
     const char *output_file = NULL;
     const char **run_args = NULL;
@@ -126,6 +130,22 @@ int main(int argc, char **argv) {
             }
         } else if (strcmp(argv[i], "--release") == 0) {
             release = true;
+        } else if (strcmp(argv[i], "--emit-archive") == 0) {
+            emit_archive = true;
+        } else if (strcmp(argv[i], "--pkg-name") == 0) {
+            if (i + 1 < argc) {
+                pkg_name_arg = argv[++i];
+            } else {
+                fprintf(stderr, "%s: --pkg-name requires a value\n", IRON_BINARY_NAME);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--pkg-version") == 0) {
+            if (i + 1 < argc) {
+                pkg_version_arg = argv[++i];
+            } else {
+                fprintf(stderr, "%s: --pkg-version requires a value\n", IRON_BINARY_NAME);
+                return 1;
+            }
         } else if (strcmp(argv[i], "--strict-v3") == 0) {
             strict_v3 = true;
         } else if (strcmp(argv[i], "--no-strict-v3") == 0) {
@@ -159,7 +179,10 @@ int main(int argc, char **argv) {
             .report_compression = report_compression,
             .target         = target,
             .release        = release,
-            .strict_v3      = strict_v3
+            .strict_v3      = strict_v3,
+            .emit_archive   = emit_archive,
+            .pkg_name       = pkg_name_arg,
+            .pkg_version    = pkg_version_arg
         };
         return iron_build(source_file, output_file, opts);
     }
@@ -183,7 +206,10 @@ int main(int argc, char **argv) {
             .report_compression = report_compression,
             .target         = target,
             .release        = release,
-            .strict_v3      = strict_v3
+            .strict_v3      = strict_v3,
+            .emit_archive   = false,
+            .pkg_name       = NULL,
+            .pkg_version    = NULL
         };
         return iron_build(source_file, output_file, opts);
     }

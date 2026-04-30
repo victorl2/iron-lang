@@ -799,3 +799,15 @@ void iron_print_ast_to_file(Iron_Node *root, FILE *out) {
     fprintf(out, "%s", iron_strbuf_get(&sb));
     iron_strbuf_free(&sb);
 }
+
+/* Phase 94 LIB-02: stub generator (Task 1 placeholder; Task 2 expands).
+ * Header-only output for now so Task 1's archive emission has a callable
+ * symbol. Task 2 replaces this with the real implementation that walks pub
+ * decls, regroups methods, emits empty-bodied source. */
+int iron_print_pub_stubs(Iron_Program *prog, FILE *out,
+                         const char *pkg_name, const char *pkg_version) {
+    (void)prog;
+    fprintf(out, "-- iron-stub: auto-generated from src/lib.iron of %s v%s. Do not edit.\n\n",
+            pkg_name ? pkg_name : "?", pkg_version ? pkg_version : "?");
+    return 0;
+}

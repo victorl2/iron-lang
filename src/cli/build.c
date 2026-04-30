@@ -29,6 +29,7 @@
 #include "lexer/lexer.h"
 #include "parser/parser.h"
 #include "parser/ast.h"
+#include "parser/printer.h"
 #include "analyzer/analyzer.h"
 #include "analyzer/capture.h"
 #include "hir/hir_lower.h"
@@ -608,6 +609,89 @@ static void free_src_list(char *base_dir,
     free(rl_src); free(rl_i_flag);
     free(rl_glfw_src); free(rl_glfw_i_flag);
 }
+
+/* Phase 94 LIB-01: compile-only invocation that produces a .o object instead
+ * of a fully-linked executable. Mirrors invoke_clang's include/optimization
+ * flag construction but stops at `-c` and writes to obj_path. Skips all
+ * link-only flags (-lm, -lpthread, raylib link flags, runtime/stdlib .c files
+ * — those will be linked in by the consumer of the archive). */
+#ifndef _WIN32
+static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
+                                     IronBuildOpts opts) {
+    char *base_dir = get_iron_lib_dir();
+    if (!base_dir) {
+        fprintf(stderr, "error: cannot resolve iron lib directory\n");
+        return 1;
+    }
+
+    /* -I flags so the emitted C can include runtime/stdlib headers. */
+    size_t src_i_len = strlen("-I") + strlen(base_dir) + 1;
+    char *src_i_flag = (char *)malloc(src_i_len);
+    if (!src_i_flag) { free(base_dir); return 1; }
+    snprintf(src_i_flag, src_i_len, "-I%s", base_dir);
+
+    size_t vendor_i_len = strlen("-I") + strlen(base_dir) + strlen("/vendor") + 1;
+    char *vendor_i_flag = (char *)malloc(vendor_i_len);
+    if (!vendor_i_flag) { free(src_i_flag); free(base_dir); return 1; }
+    snprintf(vendor_i_flag, vendor_i_len, "-I%s/vendor", base_dir);
+
+    size_t stdlib_i_len = strlen("-I") + strlen(base_dir) + strlen("/stdlib") + 1;
+    char *stdlib_i_flag = (char *)malloc(stdlib_i_len);
+    if (!stdlib_i_flag) { free(vendor_i_flag); free(src_i_flag); free(base_dir); return 1; }
+    snprintf(stdlib_i_flag, stdlib_i_len, "-I%s/stdlib", base_dir);
+
+    const char *argv_buf[16];
+    int ai = 0;
+    argv_buf[ai++] = "clang";
+    argv_buf[ai++] = "-std=gnu17";
+    argv_buf[ai++] = "-c";
+    /* Default unoptimized; --release adds -O2 (matches bin path). */
+    if (opts.release) {
+        argv_buf[ai++] = "-O2";
+    } else {
+        argv_buf[ai++] = "-O0";
+    }
+    /* Phase 94: archive members must keep the AST-emitted symbols externally
+     * visible so consumers can link them. -fvisibility=default is the clang
+     * default, but pinned here for clarity and to forestall future global flag
+     * changes. */
+    argv_buf[ai++] = "-fvisibility=default";
+    argv_buf[ai++] = c_file;
+    argv_buf[ai++] = "-o";
+    argv_buf[ai++] = obj_path;
+    argv_buf[ai++] = src_i_flag;
+    argv_buf[ai++] = vendor_i_flag;
+    argv_buf[ai++] = stdlib_i_flag;
+    argv_buf[ai] = NULL;
+
+    if (opts.verbose) {
+        fprintf(stderr, "clang -c invocation:");
+        for (int i = 0; argv_buf[i]; i++) fprintf(stderr, " %s", argv_buf[i]);
+        fprintf(stderr, "\n");
+    }
+
+    pid_t pid;
+    int spawn_rc = posix_spawnp(&pid, "clang", NULL, NULL,
+                                (char *const *)argv_buf, environ);
+    free(stdlib_i_flag);
+    free(vendor_i_flag);
+    free(src_i_flag);
+    free(base_dir);
+
+    if (spawn_rc != 0) {
+        fprintf(stderr, "error: failed to spawn clang -c: %s\n", strerror(spawn_rc));
+        return 1;
+    }
+    int status;
+    waitpid(pid, &status, 0);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "error: clang -c failed (exit %d)\n",
+                WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+        return 1;
+    }
+    return 0;
+}
+#endif
 
 static int invoke_clang(const char *c_file, const char *output,
                          const char *src_dir, IronBuildOpts opts) {
@@ -1413,6 +1497,164 @@ int iron_build(const char *source_path, const char *output_path,
      *                emsdk version pin.
      */
     int ret;
+#ifndef _WIN32
+    if (opts.emit_archive) {
+        /* Phase 94 LIB-01/02/05: compile to .o then wrap with llvm-ar (or fall
+         * back to system ar). Also write target/<name>.iron-stub alongside the
+         * archive (the consumer's import surface). */
+
+        /* Derive obj path and stub path from output_path:
+         *   target/lib<name>.a -> target/<name>.o, target/<name>.iron-stub */
+        char obj_path[4096];
+        char stub_path[4096];
+        char base_buf[256];
+        char outdir[3072];
+        {
+            const char *out_base = strrchr(binary_name, '/');
+            out_base = out_base ? out_base + 1 : binary_name;
+            snprintf(base_buf, sizeof(base_buf), "%s", out_base);
+            size_t blen = strlen(base_buf);
+            if (blen > 2 && strcmp(base_buf + blen - 2, ".a") == 0) {
+                base_buf[blen - 2] = '\0';
+            }
+            if (strncmp(base_buf, "lib", 3) == 0) {
+                memmove(base_buf, base_buf + 3, strlen(base_buf) - 3 + 1);
+            }
+            size_t dirlen = (size_t)(out_base - binary_name);
+            if (dirlen >= sizeof(outdir)) dirlen = sizeof(outdir) - 1;
+            memcpy(outdir, binary_name, dirlen);
+            outdir[dirlen] = '\0';
+            snprintf(obj_path, sizeof(obj_path), "%s%s.o", outdir, base_buf);
+            snprintf(stub_path, sizeof(stub_path), "%s%s.iron-stub", outdir, base_buf);
+        }
+
+        /* Phase 94 LIB-02: write the .iron-stub companion file. The pub-decl
+         * count drives the empty-pub-surface warning below. NULL fallbacks:
+         * pkg_name -> derived basename (base_buf), pkg_version -> "0.0.0". */
+        const char *stub_pkg_name    = opts.pkg_name    ? opts.pkg_name    : base_buf;
+        const char *stub_pkg_version = opts.pkg_version ? opts.pkg_version : "0.0.0";
+        FILE *stub_f = fopen(stub_path, "w");
+        int pub_count = 0;
+        if (!stub_f) {
+            fprintf(stderr, "error: cannot create %s: %s\n", stub_path, strerror(errno));
+            free(c_file_path);
+            free(derived_output);
+            iron_diaglist_free(&diags);
+            iron_arena_free(&arena);
+            free(source);
+            free(base_dir);
+            return 1;
+        }
+        pub_count = iron_print_pub_stubs((Iron_Program *)ast, stub_f,
+                                         stub_pkg_name, stub_pkg_version);
+        fclose(stub_f);
+
+        if (pub_count == 0) {
+            fprintf(stderr,
+                    "warning: no `pub` symbols in src/lib.iron — the archive will be empty.\n"
+                    "  hint: add `pub` to declarations you want to expose.\n");
+        }
+
+        /* 1. Compile-only: clang -c [-O0|-O2] -o <obj_path> <c_file_path> */
+        int compile_ret = invoke_clang_compile_only(c_file_path, obj_path, opts);
+        if (compile_ret != 0) {
+            /* On failure, intermediates kept for debugging (per CONTEXT). */
+            if (!opts.debug_build) {
+                /* Still clean the c_file at the bottom block per existing flow. */
+            }
+            free(c_file_path);
+            iron_diaglist_free(&diags);
+            iron_arena_free(&arena);
+            free(source);
+            free(base_dir);
+            free(derived_output);
+            return compile_ret;
+        }
+
+        /* 2. Wrap: try llvm-ar first; on ENOENT, fall back to system ar */
+        char *llvm_argv[] = {
+            (char *)"llvm-ar", (char *)"rcs",
+            (char *)binary_name, obj_path, NULL
+        };
+        pid_t ar_pid;
+        int spawn_ret = posix_spawnp(&ar_pid, "llvm-ar", NULL, NULL,
+                                     llvm_argv, environ);
+        int ar_exit = -1;
+        bool used_fallback = false;
+        if (spawn_ret == 0) {
+            waitpid(ar_pid, &ar_exit, 0);
+        } else if (spawn_ret == ENOENT) {
+            /* Fall back to system ar with same rcs flags. Emit single-line
+             * stderr note (CONTEXT-locked verbatim text). */
+            used_fallback = true;
+            char *sys_argv[] = {
+                (char *)"ar", (char *)"rcs",
+                (char *)binary_name, obj_path, NULL
+            };
+            int sys_spawn = posix_spawnp(&ar_pid, "ar", NULL, NULL,
+                                         sys_argv, environ);
+            if (sys_spawn == 0) {
+                fprintf(stderr,
+                        "note: llvm-ar not found, using system ar (archives may differ across platforms)\n");
+                waitpid(ar_pid, &ar_exit, 0);
+            } else {
+                fprintf(stderr,
+                        "error: neither llvm-ar nor ar found in PATH. Install with: brew install llvm (macOS) or apt install llvm (Linux).\n");
+                /* Intermediate .o kept for debugging on failure. */
+                free(c_file_path);
+                iron_diaglist_free(&diags);
+                iron_arena_free(&arena);
+                free(source);
+                free(base_dir);
+                free(derived_output);
+                return 1;
+            }
+        } else {
+            fprintf(stderr, "error: failed to spawn llvm-ar: %s\n",
+                    strerror(spawn_ret));
+            free(c_file_path);
+            iron_diaglist_free(&diags);
+            iron_arena_free(&arena);
+            free(source);
+            free(base_dir);
+            free(derived_output);
+            return 1;
+        }
+        if (!(WIFEXITED(ar_exit) && WEXITSTATUS(ar_exit) == 0)) {
+            fprintf(stderr, "error: %s failed wrapping %s into %s\n",
+                    used_fallback ? "ar" : "llvm-ar", obj_path, binary_name);
+            /* .o kept on failure */
+            free(c_file_path);
+            iron_diaglist_free(&diags);
+            iron_arena_free(&arena);
+            free(source);
+            free(base_dir);
+            free(derived_output);
+            return 1;
+        }
+
+        /* 3. Cleanup intermediate .o on success. */
+        unlink(obj_path);
+
+        /* Cleanup combined-source temp file (mirrors the existing block at
+         * line 1454+ for the non-archive path). */
+        if (!opts.debug_build) {
+            unlink(c_file_path);
+        }
+        free(c_file_path);
+
+        if (diags.warning_count > 0) {
+            iron_diag_print_all(&diags, source);
+        }
+
+        iron_diaglist_free(&diags);
+        iron_arena_free(&arena);
+        free(source);
+        free(base_dir);
+        free(derived_output);
+        return 0;
+    }
+#endif
     if (opts.target == IRON_TARGET_WEB) {
         /* Web: spawn emcc with the canonical flag set + Iron runtime + web stdlib.
          * Parse iron.toml once to obtain [web] config (cfg) and toml_dir for
