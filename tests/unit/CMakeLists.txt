@@ -182,6 +182,18 @@ target_link_libraries(test_toml_web unity)
 add_test(NAME test_toml_web COMMAND test_toml_web)
 set_tests_properties(test_toml_web PROPERTIES LABELS "unit")
 
+# Phase 94 LIB-03: [dependencies] path-form parser tests
+add_executable(test_toml_path_dep
+    test_toml_path_dep.c
+    ${CMAKE_SOURCE_DIR}/src/cli/toml.c
+)
+target_include_directories(test_toml_path_dep PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(test_toml_path_dep unity)
+add_test(NAME test_toml_path_dep COMMAND test_toml_path_dep)
+set_tests_properties(test_toml_path_dep PROPERTIES LABELS "unit")
+
 # ── Phase 5 plan-03: web_main_loop_split pass test (WEB-EMIT-01..04) ─────────
 add_executable(test_web_main_loop_split test_web_main_loop_split.c)
 target_link_libraries(test_web_main_loop_split iron_compiler unity)
