@@ -27,6 +27,19 @@ typedef struct {
     Iron_MethodDecl *current_method;
     /* The object type_name for the current method. NULL outside methods. */
     const char      *current_type_name;
+
+    /* Phase 93 VIS-03: rate-limit the audit-hint note attached to E0320.
+     * The note ("audit your public surface with: grep -n '^pub '") is useful
+     * once per build but spammy on subsequent occurrences. */
+    bool             emitted_first_e0320;
+
+    /* Phase 93 VIS-03 stdlib carve-out: line number where the user's source
+     * begins. Decls whose span.line is below this value are stdlib (prepended
+     * via build.c:854 / check.c:161 pipelines) and are treated as implicitly
+     * pub. Set to 0 when no stdlib was prepended (no carve-out active).
+     * Threaded from Iron_Parser.user_source_start_line via Iron_Program at
+     * the resolver entry point. */
+    int              user_source_start_line;
 } ResolveCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -88,6 +101,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                                                    IRON_SYM_TYPE,
                                                    node, od->span);
             sym->type = ty;
+            /* Phase 93 VIS-02/03: propagate the AST is_pub bit. */
+            sym->is_pub = od->is_pub;
             if (!iron_scope_define(ctx->global_scope, ctx->arena, sym)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_DUPLICATE_DECL, od->span,
@@ -102,6 +117,11 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                                                    IRON_SYM_INTERFACE,
                                                    node, id->span);
             sym->type = ty;
+            /* Phase 93 RESEARCH Open Question 3: `pub interface` is deferred.
+             * Interfaces are always treated as not-pub at the cross-module
+             * gate; the gate predicate excludes IRON_SYM_INTERFACE anyway,
+             * so this is documentation only. */
+            sym->is_pub = false;
             if (!iron_scope_define(ctx->global_scope, ctx->arena, sym)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_DUPLICATE_DECL, id->span,
@@ -116,6 +136,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                                                        IRON_SYM_ENUM,
                                                        node, ed->span);
             enum_sym->type = ty;
+            /* Phase 93 VIS-02/03: propagate is_pub onto the enum symbol. */
+            enum_sym->is_pub = ed->is_pub;
             if (!iron_scope_define(ctx->global_scope, ctx->arena, enum_sym)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_DUPLICATE_DECL, ed->span,
@@ -128,6 +150,10 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                                                         IRON_SYM_ENUM_VARIANT,
                                                         ed->variants[i], ev->span);
                 vsym->type = ty;
+                /* Phase 93 VIS-02/03: variants inherit the enclosing enum's
+                 * pub bit. This matches the locked decision in CONTEXT.md
+                 * (no per-variant visibility). */
+                vsym->is_pub = ed->is_pub;
                 /* Silently skip duplicate variant names — a separate check can
                  * catch this later. For now just attempt to define. */
                 iron_scope_define(ctx->global_scope, ctx->arena, vsym);
@@ -140,6 +166,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                                                    IRON_SYM_FUNCTION,
                                                    node, fd->span);
             sym->is_private    = fd->is_private;
+            /* Phase 93 VIS-02/03: propagate the AST is_pub bit. */
+            sym->is_pub        = fd->is_pub;
             sym->is_extern     = fd->is_extern;
             sym->extern_c_name = fd->extern_c_name;
             if (!iron_scope_define(ctx->global_scope, ctx->arena, sym)) {
@@ -1141,6 +1169,12 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     ctx.current_scope      = ctx.global_scope;
     ctx.current_method     = NULL;
     ctx.current_type_name  = NULL;
+    /* Phase 93 VIS-03: initialize cross-module check state. The carve-out
+     * line is set from Iron_Program.user_source_start_line below once the
+     * AST plumbing lands in Task 2; default 0 keeps the gate inert until
+     * the build/check pipelines populate it. */
+    ctx.emitted_first_e0320    = false;
+    ctx.user_source_start_line = 0;
 
     /* Initialize type system */
     iron_types_init(arena);

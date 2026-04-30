@@ -42,6 +42,13 @@ typedef struct Iron_Symbol {
     Iron_Span          span;        /* declaration location */
     bool               is_mutable;  /* true for var, false for val */
     bool               is_private;
+    /* Phase 93 VIS-02/03: true when the declaring AST node carried `pub` at
+     * top level. Default false. Resolver populates from the Iron_FuncDecl /
+     * Iron_ObjectDecl / Iron_EnumDecl is_pub field at collect_decl time.
+     * Cross-module reference check (resolve.c IRON_NODE_IDENT arm) reads
+     * this bit; stdlib carve-out treats stdlib decls as implicitly pub
+     * regardless of the AST bit. */
+    bool               is_pub;
     bool               is_extern;       /* true for extern func symbols */
     const char        *extern_c_name;   /* C-side function name for FFI calls */
 } Iron_Symbol;

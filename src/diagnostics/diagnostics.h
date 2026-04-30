@@ -224,6 +224,14 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_INVALID_SLICE_BOUNDS   313
 #define IRON_ERR_POSSIBLY_UNINITIALIZED 314
 
+/* Phase 93 VIS-03: cross-module visibility. Fired by name resolution when a
+ * top-level symbol lookup matches a non-`pub` decl whose declaring file
+ * differs from the use-site file. Stdlib carve-out (line-offset based via
+ * Iron_Parser.user_source_start_line) makes prepended-stdlib decls
+ * implicitly pub; user code is private-by-default. Slotted in the open gap
+ * between E0314 (POSSIBLY_UNINITIALIZED) and the 400-range LOWER codes. */
+#define IRON_ERR_CROSS_MODULE_PRIVATE   320
+
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400
 #define IRON_ERR_LOWER_UNRESOLVED_IDENT    401
