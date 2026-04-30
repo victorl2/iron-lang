@@ -290,13 +290,19 @@ static void collect_project_files(FILE *out, const char *proj_dir) {
 static int cmd_build(bool run_after, int argc, char **argv) {
     bool colors = iron_color_init();
 
-    /* Parse --verbose and -- separator for passthrough args */
+    /* Parse --verbose, --release, and -- separator for passthrough args.
+     * Phase 94 LIB-04: --release is parsed at the iron build CLI layer and
+     * forwarded to ironc below; the Finished status line differentiates
+     * "release [optimized]" from "dev [unoptimized]" based on the same flag. */
     bool verbose = false;
+    bool release = false;
     char **run_args = NULL;
     int run_arg_count = 0;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--verbose") == 0) {
             verbose = true;
+        } else if (strcmp(argv[i], "--release") == 0) {
+            release = true;
         } else if (strcmp(argv[i], "--") == 0) {
             run_args = &argv[i + 1];
             run_arg_count = argc - i - 1;
@@ -490,6 +496,10 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     spawn_argv[arg_count++] = "--output";
     spawn_argv[arg_count++] = output_path;
     if (verbose) spawn_argv[arg_count++] = "--verbose";
+    /* Phase 94 LIB-04: forward --release from iron build CLI to ironc so
+     * native -O2 (and web -Oz -flto) optimization tiers reach the underlying
+     * clang -c invocation. Applies to both type=bin and type=lib builds. */
+    if (release) spawn_argv[arg_count++] = "--release";
     /* Phase 94 LIB-01: lib builds go through ironc's archive emit path. */
     if (is_lib) {
         spawn_argv[arg_count++] = "--emit-archive";
@@ -530,9 +540,14 @@ static int cmd_build(bool run_after, int argc, char **argv) {
 
     double elapsed = get_time_sec() - t_start;
 
-    /* 11. Report result */
+    /* 11. Report result.
+     * Phase 94 LIB-04: status line differentiates "release [optimized]" from
+     * "dev [unoptimized]" based on whether --release was passed to iron build. */
     if (ret == 0) {
-        snprintf(detail, sizeof(detail), "dev [unoptimized] in %.2fs", elapsed);
+        snprintf(detail, sizeof(detail), "%s [%s] in %.2fs",
+                 release ? "release" : "dev",
+                 release ? "optimized" : "unoptimized",
+                 elapsed);
         iron_print_status(colors, "Finished", detail);
 
         if (run_after) {
