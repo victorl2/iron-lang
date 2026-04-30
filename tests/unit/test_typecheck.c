@@ -3097,6 +3097,72 @@ void test_v93_top_level_pub_val_rejected(void) {
         "expected top-level pub val rejection");
 }
 
+/* Phase 93 VIS-04 (Plan 93-02): `pub init` gating on enclosing-object visibility. */
+
+void test_v93_pub_init_in_pub_object_accepted(void) {
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "pub object Player {\n"
+        "    var hp: Int\n"
+        "    pub init(hp: Int) { self.hp = hp }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    bool found_pub_init = false;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *m = (Iron_MethodDecl *)prog->decls[i];
+            if (m->method_name && strcmp(m->method_name, "init") == 0 && m->is_pub) {
+                found_pub_init = true;
+                break;
+            }
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found_pub_init,
+        "expected a synthesized init MethodDecl with is_pub == true");
+}
+
+void test_v93_pub_init_in_private_object_rejected(void) {
+    parse_and_resolve(
+        "object Foo {\n"
+        "    pub init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("`pub init` is only valid inside a `pub object`"),
+        "expected the new pub-init-in-private-object message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("the enclosing"),
+        "expected message to point at the enclosing object");
+    /* Locks the message-shape contract: subsequent compile_fail fixture in
+     * Plan 93-04 substring-matches against this exact phrasing. */
+}
+
+void test_v93_plain_init_in_pub_object_stays_private(void) {
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "pub object Bar {\n"
+        "    init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    /* CONTEXT: pub on the type does NOT propagate to members. The plain
+     * init MethodDecl must have is_pub == false even though the enclosing
+     * object is pub. Cross-module `Bar()` construction still works because
+     * init dispatch goes through method-table lookup, not top-level
+     * identifier resolution (RESEARCH Pitfall 4). */
+    bool found_init = false;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *m = (Iron_MethodDecl *)prog->decls[i];
+            if (m->method_name && strcmp(m->method_name, "init") == 0) {
+                TEST_ASSERT_FALSE_MESSAGE(m->is_pub,
+                    "plain init in pub object must NOT auto-promote to pub");
+                found_init = true;
+            }
+        }
+    }
+    TEST_ASSERT_TRUE(found_init);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -3305,6 +3371,9 @@ int main(void) {
     RUN_TEST(test_v93_pub_private_combined_rejected);
     RUN_TEST(test_v93_top_level_pub_init_rejected);
     RUN_TEST(test_v93_top_level_pub_val_rejected);
+    RUN_TEST(test_v93_pub_init_in_pub_object_accepted);
+    RUN_TEST(test_v93_pub_init_in_private_object_rejected);
+    RUN_TEST(test_v93_plain_init_in_pub_object_stays_private);
 
     return UNITY_END();
 }
