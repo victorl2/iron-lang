@@ -2981,6 +2981,122 @@ void test_classic_object_missing_method_emits_e0258(void) {
         "expected locked substring 'missing interface method' in E0258 message");
 }
 
+/* ── Phase 93 VIS-01: top-level `pub` parser threading ──────────────────── */
+
+void test_v93_pub_func_top_level_parses(void) {
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "pub func foo() -> Int { return 1 }\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    Iron_FuncDecl *fd = NULL;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_FUNC_DECL) {
+            fd = (Iron_FuncDecl *)prog->decls[i];
+            break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(fd);
+    TEST_ASSERT_TRUE(fd->is_pub);
+    TEST_ASSERT_FALSE(fd->is_private);
+}
+
+void test_v93_top_level_func_default_private(void) {
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "func bar() {}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    Iron_FuncDecl *fd = NULL;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_FUNC_DECL) {
+            fd = (Iron_FuncDecl *)prog->decls[i];
+            break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(fd);
+    TEST_ASSERT_FALSE(fd->is_pub);
+}
+
+void test_v93_pub_object_parses(void) {
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "pub object Player { var x: Int  init(x: Int) { self.x = x } }\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    Iron_ObjectDecl *od = NULL;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_OBJECT_DECL) {
+            Iron_ObjectDecl *cand = (Iron_ObjectDecl *)prog->decls[i];
+            if (cand->name && strcmp(cand->name, "Player") == 0) {
+                od = cand;
+                break;
+            }
+        }
+    }
+    TEST_ASSERT_NOT_NULL(od);
+    TEST_ASSERT_TRUE(od->is_pub);
+}
+
+void test_v93_pub_enum_parses(void) {
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "pub enum State { RUNNING, IDLE }\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    Iron_EnumDecl *ed = NULL;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_ENUM_DECL) {
+            ed = (Iron_EnumDecl *)prog->decls[i];
+            break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(ed);
+    TEST_ASSERT_TRUE(ed->is_pub);
+}
+
+void test_v93_pub_patch_object_parses(void) {
+    /* Use a user-defined object as the patch target so the receiver-type
+     * check (E0236 on primitive `Int` mut-receiver) does not fire. The
+     * point of this test is the parser threading of `pub` through
+     * iron_parse_patch_decl, not patch semantics. */
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "object Foo { var x: Int  init(x: Int) { self.x = x } }\n"
+        "pub patch object Foo { func twice() -> Int { return self.x * 2 } }\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    Iron_ObjectDecl *od = NULL;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_OBJECT_DECL) {
+            Iron_ObjectDecl *cand = (Iron_ObjectDecl *)prog->decls[i];
+            if (cand->is_patch) {
+                od = cand;
+                break;
+            }
+        }
+    }
+    TEST_ASSERT_NOT_NULL(od);
+    TEST_ASSERT_TRUE(od->is_patch);
+    TEST_ASSERT_TRUE(od->is_pub);
+}
+
+void test_v93_pub_private_combined_rejected(void) {
+    parse_and_resolve("pub private func foo() {}\n");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("`pub` and `private` cannot be combined"),
+        "expected pub+private mutual-exclusion error");
+}
+
+void test_v93_top_level_pub_init_rejected(void) {
+    parse_and_resolve("pub init Foo() {}\n");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("standalone `pub init`"),
+        "expected standalone-pub-init rejection");
+}
+
+void test_v93_top_level_pub_val_rejected(void) {
+    parse_and_resolve("pub val GLOBAL: Int = 0\n");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("top-level `pub val`"),
+        "expected top-level pub val rejection");
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -3179,6 +3295,16 @@ int main(void) {
     RUN_TEST(test_patch_retroactive_tier_strengthening);
     RUN_TEST(test_classic_object_conformance_still_works);
     RUN_TEST(test_classic_object_missing_method_emits_e0258);
+
+    /* Phase 93 VIS-01 Plan 93-01: top-level `pub` parser threading. */
+    RUN_TEST(test_v93_pub_func_top_level_parses);
+    RUN_TEST(test_v93_top_level_func_default_private);
+    RUN_TEST(test_v93_pub_object_parses);
+    RUN_TEST(test_v93_pub_enum_parses);
+    RUN_TEST(test_v93_pub_patch_object_parses);
+    RUN_TEST(test_v93_pub_private_combined_rejected);
+    RUN_TEST(test_v93_top_level_pub_init_rejected);
+    RUN_TEST(test_v93_top_level_pub_val_rejected);
 
     return UNITY_END();
 }

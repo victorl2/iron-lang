@@ -194,6 +194,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_OBJECT_DECL: {
             Iron_ObjectDecl *n = (Iron_ObjectDecl *)node;
+            if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             iron_strbuf_appendf(ctx->sb, "object %s", n->name);
             print_generic_params(ctx, n->generic_params, n->generic_param_count);
             if (n->extends_name) {
@@ -247,6 +248,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_ENUM_DECL: {
             Iron_EnumDecl *n = (Iron_EnumDecl *)node;
+            if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             iron_strbuf_appendf(ctx->sb, "enum %s {\n", n->name);
             ctx->indent_level++;
             for (int i = 0; i < n->variant_count; i++) {
@@ -271,6 +273,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FUNC_DECL: {
             Iron_FuncDecl *n = (Iron_FuncDecl *)node;
+            if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             if (n->is_private) iron_strbuf_appendf(ctx->sb, "private ");
             iron_strbuf_appendf(ctx->sb, "func %s", n->name);
             print_generic_params(ctx, n->generic_params, n->generic_param_count);
@@ -288,6 +291,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_DECL: {
             Iron_MethodDecl *n = (Iron_MethodDecl *)node;
+            if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             if (n->is_private) iron_strbuf_appendf(ctx->sb, "private ");
             if (n->is_receiver_form && n->param_count > 0) {
                 /* Receiver form: `func (recv: Type) method[G](rest...)`.

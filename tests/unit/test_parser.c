@@ -357,21 +357,17 @@ void test_pub_on_method_parses(void) {
     TEST_ASSERT_FALSE(m->is_synth_accessor);
 }
 
-void test_pub_at_top_level_rejected(void) {
-    (void)parse("pub func foo() {}\n");
-    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
-    /* The diagnostic message must mention pub and object-block so the user
-     * understands where `pub` is valid. */
-    bool found = false;
-    for (int i = 0; i < diags.count; i++) {
-        const char *msg = diags.items[i].message;
-        if (msg && strstr(msg, "pub") && strstr(msg, "object-block")) {
-            found = true;
-            break;
-        }
-    }
-    TEST_ASSERT_TRUE_MESSAGE(found,
-        "expected diagnostic mentioning 'pub' and 'object-block'");
+void test_pub_at_top_level_accepted(void) {
+    /* Phase 93 VIS-01: `pub` is now accepted at top level on func/object/
+     * enum/patch object. The Phase 83 rejection at parser.c:4513-4520 has
+     * been replaced by an accept-and-thread modifier loop. */
+    Iron_Program *prog = (Iron_Program *)parse("pub func foo() {}\n");
+    TEST_ASSERT_NOT_NULL(prog);
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    TEST_ASSERT_GREATER_THAN_INT(0, prog->decl_count);
+    Iron_FuncDecl *fd = (Iron_FuncDecl *)prog->decls[0];
+    TEST_ASSERT_EQUAL_INT(IRON_NODE_FUNC_DECL, fd->kind);
+    TEST_ASSERT_TRUE(fd->is_pub);
 }
 
 void test_is_synth_accessor_default_false_on_in_block_method(void) {
@@ -1989,7 +1985,7 @@ int main(void) {
     RUN_TEST(test_pub_on_fields_sets_is_pub);
     RUN_TEST(test_pub_mixed_with_plain_fields);
     RUN_TEST(test_pub_on_method_parses);
-    RUN_TEST(test_pub_at_top_level_rejected);
+    RUN_TEST(test_pub_at_top_level_accepted);
     RUN_TEST(test_is_synth_accessor_default_false_on_in_block_method);
     RUN_TEST(test_phase82_in_block_method_still_parses);
     /* Phase 83-02 Task 1: accessor synthesis + name-collision diagnostic. */

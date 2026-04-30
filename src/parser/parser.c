@@ -75,12 +75,12 @@ static Iron_Node *iron_parse_expr(Iron_Parser *p);
 static Iron_Node *iron_parse_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_block(Iron_Parser *p);
 static Iron_Node *iron_parse_type_annotation(Iron_Parser *p);
-static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private, Iron_Node ***extra_decls_out);
-static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private);
-static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, Iron_Node ***extra_decls_out);
-static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, Iron_Node ***extra_decls_out);
+static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private, bool is_pub, Iron_Node ***extra_decls_out);
+static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, bool is_pub);
+static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool is_pub, Iron_Node ***extra_decls_out);
+static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub, Iron_Node ***extra_decls_out);
 static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private);
-static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private);
+static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub);
 static Iron_Node *iron_parse_import_decl(Iron_Parser *p);
 static Iron_Node *iron_parse_val_decl(Iron_Parser *p);
 static Iron_Node *iron_parse_var_decl(Iron_Parser *p);
@@ -2325,6 +2325,10 @@ static Iron_Node *iron_parse_extern_func(Iron_Parser *p, bool is_private) {
     f->return_type          = ret;
     f->body                 = NULL;        /* extern funcs have no body */
     f->is_private           = is_private;
+    /* Phase 93 VIS-01: extern declarations are not pub-eligible in v3.2;
+     * `pub extern func` is dispatched through iron_parse_decl which currently
+     * does not thread is_pub here. Default false for clarity. */
+    f->is_pub               = false;
     f->is_extern            = true;
     f->extern_c_name        = c_name;
     f->generic_params       = NULL;
@@ -2335,7 +2339,7 @@ static Iron_Node *iron_parse_extern_func(Iron_Parser *p, bool is_private) {
     return (Iron_Node *)f;
 }
 
-static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
+static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, bool is_pub) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'func' */
 
@@ -2511,6 +2515,10 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         rm->return_type          = recv_ret;
         rm->body                 = recv_body;
         rm->is_private           = is_private;
+        /* Phase 93 VIS-01: top-level pub does not flow into receiver-form
+         * methods; v3-strict rejects this form anyway. Default false. */
+        rm->is_pub               = false;
+        (void)is_pub;
         rm->generic_params       = recv_generic_params;
         rm->generic_param_count  = recv_generic_count;
         rm->resolved_return_type = NULL;
@@ -2605,6 +2613,9 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         m->return_type          = ret;
         m->body                 = body;
         m->is_private           = is_private;
+        /* Phase 93 VIS-01: top-level pub does not propagate to array-extension
+         * methods; visibility flows from the array element type. Default false. */
+        m->is_pub               = false;
         m->generic_params       = generic_params;
         m->generic_param_count  = generic_count;
         m->resolved_return_type = NULL;
@@ -2686,6 +2697,9 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
         m->return_type          = ret;
         m->body                 = body;
         m->is_private           = is_private;
+        /* Phase 93 VIS-01: classic-form `func Type.method()` carries the
+         * top-level pub bit through to the method AST node. */
+        m->is_pub               = is_pub;
         m->generic_params       = generic_params;
         m->generic_param_count  = generic_count;
         m->resolved_return_type = NULL;  /* set by type checker */
@@ -2724,6 +2738,8 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     f->return_type          = ret;
     f->body                 = body;
     f->is_private           = is_private;
+    /* Phase 93 VIS-01: regular top-level function carries the threaded pub bit. */
+    f->is_pub               = is_pub;
     f->is_extern            = false;
     f->extern_c_name        = NULL;
     f->generic_params       = generic_params;
@@ -2734,7 +2750,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private) {
     return (Iron_Node *)f;
 }
 
-static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
+static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool is_pub,
                                          Iron_Node ***extra_decls_out) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'object' */
@@ -2971,6 +2987,11 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             m->return_type          = NULL;   /* INIT-11: always NULL */
             m->body                 = ibody;
             m->is_private           = false;
+            /* Phase 93 VIS-01/04: store the in-source `pub` bit on the init
+             * MethodDecl. Plan 93-02 enforces the gate that this is valid
+             * only when the enclosing object is `pub`; this plan only stores
+             * the bit so it round-trips through the printer. */
+            m->is_pub               = member_is_pub;
             m->generic_params       = NULL;
             m->generic_param_count  = 0;
             m->resolved_return_type = NULL;
@@ -3094,11 +3115,11 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             m->elem_type_name       = NULL;
             m->is_fusible           = false;
             m->is_receiver_form     = true;   /* CRITICAL: triggers Phase 79 resolver path */
-            /* Phase 83-01: `pub` on methods is silently accepted — methods
-             * default public in v2.2 so `pub func foo()` and `func foo()`
-             * are semantically identical today. Phase 88 may reinterpret the
-             * bit when the default flips to private. */
-            (void)member_is_pub;
+            /* Phase 93 VIS-01/04: in-block `pub func` lands the bit on the
+             * MethodDecl. Plan 93-02 enforces that this is only valid when
+             * the enclosing object is `pub`; here we just store the bit so
+             * the printer round-trips it. */
+            m->is_pub               = member_is_pub;
             /* Phase 83-01: default; Plan 83-02 flips on for synthesized
              * accessor methods; Phase 84 MUTTIER reads the bit. */
             m->is_synth_accessor    = false;
@@ -3297,6 +3318,11 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             g_m->return_type          = field->type_ann;
             g_m->body                 = (Iron_Node *)g_body;
             g_m->is_private           = false;
+            /* Phase 93 VIS-01: synth accessor visibility tracks the field's
+             * pub bit. Synth accessors only exist for pub fields, so this is
+             * effectively always true at this site, but spell it out for
+             * audit clarity and to allow Plan 93-03 cross-module reads. */
+            g_m->is_pub               = field->is_pub;
             g_m->generic_params       = NULL;
             g_m->generic_param_count  = 0;
             g_m->resolved_return_type = NULL;
@@ -3432,6 +3458,9 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
             s_m->return_type          = NULL;  /* setter returns void */
             s_m->body                 = (Iron_Node *)s_body;
             s_m->is_private           = false;
+            /* Phase 93 VIS-01: synth setter mirrors the field's pub bit;
+             * setters only exist for pub var fields. */
+            s_m->is_pub               = field->is_pub;
             s_m->generic_params       = NULL;
             s_m->generic_param_count  = 0;
             s_m->resolved_return_type = NULL;
@@ -3619,6 +3648,13 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
                 synth->return_type          = NULL;
                 synth->body                 = (Iron_Node *)empty_body;
                 synth->is_private           = false;
+                /* Phase 93 VIS-01: fieldless synth init defaults non-pub.
+                 * CONTEXT decision: pub on the enclosing type does NOT
+                 * propagate to members. Cross-module construction of a pub
+                 * type works automatically because Type(args) resolves the
+                 * type symbol (pub) then dispatches through the method
+                 * table without re-checking visibility. */
+                synth->is_pub               = false;
                 synth->generic_params       = NULL;
                 synth->generic_param_count  = 0;
                 synth->resolved_return_type = NULL;
@@ -3695,6 +3731,9 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
      * alloc site. */
     n->is_patch                = false;
     n->target_type_name        = NULL;
+    /* Phase 93 VIS-01: top-level pub bit lands on the ObjectDecl. Plan 93-03
+     * reads it onto Iron_Symbol.is_pub for the cross-module check. */
+    n->is_pub                  = is_pub;
     (void)is_private;  /* stored but not used in AST yet */
     return (Iron_Node *)n;
 }
@@ -3725,7 +3764,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private,
  * consumption arm. Phase 87+ may refactor to a shared helper if another
  * consumer appears (`trait` extension would be the candidate).
  */
-static Iron_Node *iron_parse_patch_decl(Iron_Parser *p,
+static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
                                         Iron_Node ***extra_decls_out) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'patch' */
@@ -3930,6 +3969,11 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p,
             m->return_type          = NULL;
             m->body                 = ibody;
             m->is_private           = false;
+            /* Phase 93 VIS-01: in-patch init does not carry per-method pub
+             * (CONTEXT: patches reach visibility through the patched type's
+             * pub bit, not per-method). Default false; member_is_pub on the
+             * init was already rejected above. */
+            m->is_pub               = false;
             m->generic_params       = NULL;
             m->generic_param_count  = 0;
             m->resolved_return_type = NULL;
@@ -4033,7 +4077,11 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p,
             m->elem_type_name       = NULL;
             m->is_fusible           = false;
             m->is_receiver_form     = true;
-            (void)member_is_pub;  /* pub on methods: silent accept (Phase 83) */
+            /* Phase 93 VIS-01: in-patch methods do NOT carry per-method
+             * pub (CONTEXT: patched-type pub bit is what governs cross-
+             * module reachability). Store member_is_pub for round-trip
+             * fidelity even though the resolver will not read it. */
+            m->is_pub               = member_is_pub;
             m->is_synth_accessor    = false;
             m->is_readonly          = member_is_readonly;
             m->is_pure              = member_is_pure;
@@ -4097,6 +4145,10 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p,
      * 86-02 can key the registry via either field. */
     n->is_patch            = true;
     n->target_type_name    = target_name;
+    /* Phase 93 VIS-01: `pub patch object T {...}` makes the patch's added
+     * methods cross-module-reachable when T itself is reachable. Plan 93-03
+     * reads this bit for the patch-method visibility check. */
+    n->is_pub              = is_pub;
     return (Iron_Node *)n;
 }
 
@@ -4222,6 +4274,9 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         sig->return_type          = sig_ret;
         sig->body                 = sig_body;  /* NULL = sig-only; non-NULL = default body */
         sig->is_private           = false;
+        /* Phase 93 VIS-01: interface method signatures do NOT carry pub in
+         * Phase 93 (deferred per RESEARCH Open Question 3). Default false. */
+        sig->is_pub               = false;
         sig->is_extern            = false;
         sig->extern_c_name        = NULL;
         sig->generic_params       = NULL;
@@ -4254,7 +4309,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
     return (Iron_Node *)n;
 }
 
-static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
+static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'enum' */
 
@@ -4377,12 +4432,51 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_private) {
     n->has_payloads         = has_payloads;
     n->generic_params       = generic_params;
     n->generic_param_count  = generic_count;
-    (void)is_private;
+    /* Phase 93 VIS-01: top-level pub bit lands on the EnumDecl. Plan 93-03
+     * reads it onto Iron_Symbol.is_pub for both the enum and its variants. */
+    n->is_pub               = is_pub;
     return (Iron_Node *)n;
 }
 
-static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private,
+static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private, bool is_pub,
                                   Iron_Node ***extra_decls_out) {
+    /* Phase 93 VIS-01: reject `pub init`, `pub val`, `pub var` at top level.
+     * Standalone init outside an object body would resurrect a removed
+     * grammar form. Module-level mutable/immutable globals with explicit
+     * visibility are deferred (out of v3.2 scope; init-order semantics
+     * unresolved). These checks fire BEFORE the dispatch switch so the
+     * locked hint substrings always win over the generic VAL/VAR arms. */
+    if (is_pub && iron_check(p, IRON_TOK_INIT)) {
+        Iron_Token *tok = iron_current(p);
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, tok),
+                       "standalone `pub init` is not a valid top-level form; "
+                       "use `pub init(...)` inside a `pub object T { ... }` body",
+                       NULL);
+        iron_advance(p);
+        iron_parser_sync_toplevel(p);
+        return iron_make_error(p);
+    }
+    if (is_pub && (iron_check(p, IRON_TOK_VAL) || iron_check(p, IRON_TOK_VAR))) {
+        Iron_Token *tok = iron_current(p);
+        const char *which = iron_check(p, IRON_TOK_VAL) ? "val" : "var";
+        char msg[200];
+        snprintf(msg, sizeof(msg),
+                 "top-level `pub %s` is not supported in v3.2; "
+                 "use `pub func` returning a constant, or wrap in a `pub object`",
+                 which);
+        const char *msg_copy = iron_arena_strdup(p->arena, msg, strlen(msg));
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, tok),
+                       msg_copy ? msg_copy : "top-level pub val/var rejected",
+                       NULL);
+        iron_advance(p);
+        iron_parser_sync_toplevel(p);
+        return iron_make_error(p);
+    }
+
     switch ((int)iron_peek(p)) {
         case IRON_TOK_AT: {
             iron_advance(p);  /* consume '@' */
@@ -4399,7 +4493,7 @@ static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private,
                 iron_advance(p);
             }
             if (iron_check(p, IRON_TOK_FUNC)) {
-                Iron_Node *n = iron_parse_func_or_method(p, is_private);
+                Iron_Node *n = iron_parse_func_or_method(p, is_private, is_pub);
                 if (is_fusible_ann && n) {
                     if (n->kind == IRON_NODE_FUNC_DECL) {
                         ((Iron_FuncDecl *)n)->is_fusible = true;
@@ -4421,18 +4515,18 @@ static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private,
             return n;
         }
         case IRON_TOK_FUNC:      {
-            Iron_Node *n = iron_parse_func_or_method(p, is_private);
+            Iron_Node *n = iron_parse_func_or_method(p, is_private, is_pub);
             p->in_error_recovery = false;
             return n;
         }
         case IRON_TOK_OBJECT:    {
-            Iron_Node *n = iron_parse_object_decl(p, is_private, extra_decls_out);
+            Iron_Node *n = iron_parse_object_decl(p, is_private, is_pub, extra_decls_out);
             p->in_error_recovery = false;
             return n;
         }
         case IRON_TOK_PATCH:     {
             /* Phase 86 PATCH-01: `patch object T { methods+inits }`. */
-            Iron_Node *n = iron_parse_patch_decl(p, extra_decls_out);
+            Iron_Node *n = iron_parse_patch_decl(p, is_pub, extra_decls_out);
             p->in_error_recovery = false;
             return n;
         }
@@ -4442,7 +4536,7 @@ static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private,
             return n;
         }
         case IRON_TOK_ENUM:      {
-            Iron_Node *n = iron_parse_enum_decl(p, is_private);
+            Iron_Node *n = iron_parse_enum_decl(p, is_pub);
             p->in_error_recovery = false;
             return n;
         }
@@ -4506,19 +4600,6 @@ Iron_Node *iron_parse(Iron_Parser *p) {
             continue;
         }
 
-        /* Phase 83 ACCESS-02: `pub` outside an object body is illegal in
-         * v2.2/v3.0. Top-level decls default public; there is no opt-in
-         * knob. Phase 88 may reinterpret top-level `pub` when the default
-         * flips — for now fail fast with a clear message. */
-        if (iron_check(p, IRON_TOK_PUB)) {
-            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
-                           iron_token_span(p, iron_current(p)),
-                           "'pub' modifier only valid on object-block declarations");
-            iron_advance(p);  /* consume pub */
-            iron_parser_sync_toplevel(p);
-            continue;
-        }
-
         /* Phase 84 MUTTIER-01/02/03: `readonly` and `pure` are only valid on
          * object-block methods. At top level fail fast with E0245
          * (IRON_ERR_TIER_MODIFIER_PLACEMENT) so the user gets a clear
@@ -4544,13 +4625,53 @@ Iron_Node *iron_parse(Iron_Parser *p) {
             continue;
         }
 
+        /* Phase 93 VIS-01: accept `pub` and `private` at top level in either
+         * order. Mutual exclusion: `pub` + `private` together is a hard
+         * error with the caret on the second-seen modifier. Duplicates
+         * (`pub pub`, `private private`) are also rejected. */
+        bool is_pub     = false;
         bool is_private = false;
-        if (iron_check(p, IRON_TOK_PRIVATE)) {
-            iron_advance(p);
-            is_private = true;
+        for (;;) {
+            if (iron_check(p, IRON_TOK_PUB)) {
+                Iron_Token *tok = iron_current(p);
+                if (is_pub) {
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_UNEXPECTED_TOKEN,
+                                   iron_token_span(p, tok),
+                                   "duplicate `pub` modifier", NULL);
+                } else if (is_private) {
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_UNEXPECTED_TOKEN,
+                                   iron_token_span(p, tok),
+                                   "`pub` and `private` cannot be combined",
+                                   NULL);
+                }
+                iron_advance(p);
+                is_pub = true;
+                continue;
+            }
+            if (iron_check(p, IRON_TOK_PRIVATE)) {
+                Iron_Token *tok = iron_current(p);
+                if (is_private) {
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_UNEXPECTED_TOKEN,
+                                   iron_token_span(p, tok),
+                                   "duplicate `private` modifier", NULL);
+                } else if (is_pub) {
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_UNEXPECTED_TOKEN,
+                                   iron_token_span(p, tok),
+                                   "`pub` and `private` cannot be combined",
+                                   NULL);
+                }
+                iron_advance(p);
+                is_private = true;
+                continue;
+            }
+            break;
         }
 
-        Iron_Node *d = iron_parse_decl(p, is_private, &extra_decls);
+        Iron_Node *d = iron_parse_decl(p, is_private, is_pub, &extra_decls);
         arrput(decls, d);
         decl_count++;
         /* Phase 82: flush any in-block methods synthesized during this decl

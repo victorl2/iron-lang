@@ -189,6 +189,11 @@ typedef struct Iron_ObjectDecl {
      *                   lookup site. */
     bool          is_patch;           /* PATCH-01 */
     const char   *target_type_name;   /* PATCH-02 */
+    /* Phase 93 VIS-01/02: true when the object was declared `pub object T {...}`
+     * or `pub patch object T {...}`. Default false. Does NOT propagate
+     * visibility to members (CONTEXT decision). Resolver reads this onto
+     * Iron_Symbol.is_pub for cross-module visibility (Plan 93-03). */
+    bool          is_pub;
 } Iron_ObjectDecl;
 
 typedef struct Iron_InterfaceDecl {
@@ -208,6 +213,10 @@ typedef struct Iron_EnumDecl {
     bool          has_payloads;       /* true if any variant has payload_count > 0 */
     Iron_Node   **generic_params;     /* NULL for non-generic enums */
     int           generic_param_count; /* 0 for non-generic enums */
+    /* Phase 93 VIS-01/02: true when the enum was declared `pub enum E {...}`.
+     * Default false. Resolver propagates onto Iron_Symbol.is_pub for both
+     * the enum and its variants (Plan 93-03). */
+    bool          is_pub;
 } Iron_EnumDecl;
 
 typedef struct {
@@ -219,6 +228,12 @@ typedef struct {
     Iron_Node         *return_type;  /* NULL if void */
     Iron_Node         *body;         /* Iron_Block; NULL for extern funcs */
     bool               is_private;
+    /* Phase 93 VIS-01/02: true when the function was declared with the
+     * top-level `pub` modifier. Default false (top-level decls are private
+     * by default in v3.2). Resolver propagates onto Iron_Symbol.is_pub for
+     * the cross-module visibility check (E0320). Plan 93-01 introduces
+     * this field; Plan 93-03 reads it at the resolver. */
+    bool               is_pub;
     bool               is_extern;      /* true for extern func declarations */
     const char        *extern_c_name;  /* C function name, e.g. "InitWindow"; NULL for non-extern */
     Iron_Node        **generic_params;
@@ -247,6 +262,10 @@ typedef struct {
     Iron_Node         *return_type;  /* NULL if void */
     Iron_Node         *body;
     bool               is_private;
+    /* Phase 93 VIS-01/04: true when this method was declared with the
+     * `pub` modifier. For in-block members, only valid when the enclosing
+     * object is `pub` (Plan 93-02 enforces this). Default false. */
+    bool               is_pub;
     Iron_Node        **generic_params;
     int                generic_param_count;
     struct Iron_Type  *resolved_return_type;  /* set by type checker */
