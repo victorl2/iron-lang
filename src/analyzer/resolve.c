@@ -1170,11 +1170,12 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     ctx.current_method     = NULL;
     ctx.current_type_name  = NULL;
     /* Phase 93 VIS-03: initialize cross-module check state. The carve-out
-     * line is set from Iron_Program.user_source_start_line below once the
-     * AST plumbing lands in Task 2; default 0 keeps the gate inert until
-     * the build/check pipelines populate it. */
+     * line is read from Iron_Program (which copies it from Iron_Parser at
+     * parse exit). build.c / check.c populate the parser value after stdlib
+     * prepends; user code without prepends has user_source_start_line == 0,
+     * which keeps the gate inert (no real line satisfies line < 0). */
     ctx.emitted_first_e0320    = false;
-    ctx.user_source_start_line = 0;
+    ctx.user_source_start_line = program->user_source_start_line;
 
     /* Initialize type system */
     iron_types_init(arena);

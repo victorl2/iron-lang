@@ -110,6 +110,9 @@ Iron_Parser iron_parser_create(Iron_Token *tokens, int token_count,
     p.source            = source;
     p.in_error_recovery = false;
     p.v3_strict_mode    = true;
+    /* Phase 93 VIS-03: default no-carve-out. Build.c / check.c override
+     * after counting prepended stdlib lines. */
+    p.user_source_start_line = 0;
     return p;
 }
 
@@ -4818,5 +4821,9 @@ Iron_Node *iron_parse(Iron_Parser *p) {
                                            iron_token_span(p, iron_current(p)));
     prog->decls         = decls;
     prog->decl_count    = decl_count;
+    /* Phase 93 VIS-03 stdlib carve-out: ferry the parser's
+     * user_source_start_line into Iron_Program so the resolver can pick it
+     * up at iron_resolve entry. */
+    prog->user_source_start_line = p->user_source_start_line;
     return (Iron_Node *)prog;
 }

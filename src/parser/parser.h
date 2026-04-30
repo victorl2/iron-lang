@@ -17,6 +17,13 @@ typedef struct {
     bool           in_error_recovery;
     /* Phase 88: BREAK gate -- default false; flip true after Phase 89 codemod */
     bool           v3_strict_mode;
+    /* Phase 93 VIS-03 stdlib carve-out: line number where the user's source
+     * begins. Set by the build/check pipelines after all stdlib prepends
+     * complete; copied into Iron_Program at parse exit and consulted by the
+     * resolver to treat decls with span.line below this value as stdlib
+     * (implicitly pub). For single-file user code with no stdlib prepend,
+     * leave at 0 (no real source line satisfies the carve-out condition). */
+    int            user_source_start_line;
 } Iron_Parser;
 
 /* ── API ─────────────────────────────────────────────────────────────────── */

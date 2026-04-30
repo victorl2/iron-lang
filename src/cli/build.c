@@ -325,6 +325,19 @@ static char *write_temp_c(const char *c_src, bool debug_build,
 #endif
 }
 
+/* Phase 93 VIS-03 stdlib carve-out: count '\n' bytes in a buffer. Used by
+ * the stdlib prepend pipeline below to track how many lines the prepended
+ * stdlib content adds. The resolver consults the resulting offset to
+ * classify decls as stdlib (implicitly pub) when their span.line is below
+ * the user's first source line. */
+static int iron_count_newlines(const char *buf, size_t len) {
+    int n = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (buf[i] == '\n') n++;
+    }
+    return n;
+}
+
 /* ── Helper: build a path from a base directory and relative path ─────────── */
 
 static char *make_path(const char *base, const char *rel) {
@@ -856,6 +869,12 @@ int iron_build(const char *source_path, const char *output_path,
      * lexer allocations do not linger until full compilation. */
     Iron_Arena detect_arena = iron_arena_create(32 * 1024);
 
+    /* Phase 93 VIS-03 stdlib carve-out: total lines added to the prefix by
+     * all stdlib prepends. Each prepend block updates this. The resolver
+     * uses (stdlib_prepended_lines + 1) as the line where user source
+     * begins; decls below that line are stdlib (implicitly pub). */
+    int stdlib_prepended_lines = 0;
+
     /* 1c. Detect "import raylib" in source and prepend raylib.iron */
     if (iron_detect_import(source, source_path, "raylib", &detect_arena)) {
         opts.use_raylib = true;
@@ -875,6 +894,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + rl_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(rl_src, (size_t)rl_size) + 1;
                 }
                 free(rl_src);
             }
@@ -897,6 +918,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + math_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(math_src, (size_t)math_size) + 1;
                 }
                 free(math_src);
             }
@@ -919,6 +942,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + io_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(io_src, (size_t)io_size) + 1;
                 }
                 free(io_src);
             }
@@ -941,6 +966,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + time_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(time_src, (size_t)time_size) + 1;
                 }
                 free(time_src);
             }
@@ -963,6 +990,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + hint_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(hint_src, (size_t)hint_size) + 1;
                 }
                 free(hint_src);
             }
@@ -985,6 +1014,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + log_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(log_src, (size_t)log_size) + 1;
                 }
                 free(log_src);
             }
@@ -1007,6 +1038,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + net_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(net_src, (size_t)net_size) + 1;
                 }
                 free(net_src);
             }
@@ -1032,6 +1065,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + url_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(url_src, (size_t)url_size) + 1;
                 }
                 free(url_src);
             }
@@ -1057,6 +1092,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + str_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(str_src, (size_t)str_size) + 1;
                 }
                 free(str_src);
             }
@@ -1081,6 +1118,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + list_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(list_src, (size_t)list_size) + 1;
                 }
                 free(list_src);
             }
@@ -1104,6 +1143,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + int_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(int_src, (size_t)int_size) + 1;
                 }
                 free(int_src);
             }
@@ -1127,6 +1168,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + float_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(float_src, (size_t)float_size) + 1;
                 }
                 free(float_src);
             }
@@ -1158,6 +1201,13 @@ int iron_build(const char *source_path, const char *output_path,
                                             &arena, &diags);
     /* Phase 88: propagate --strict-v3 gate to parser */
     parser.v3_strict_mode = opts.strict_v3;
+    /* Phase 93 VIS-03 stdlib carve-out: tell the parser where the user's
+     * source begins. Decls below this line in the combined source are stdlib
+     * (prepended above); the resolver treats them as implicitly pub regardless
+     * of whether they carry an explicit `pub` modifier. When no stdlib was
+     * prepended, stdlib_prepended_lines == 0 and user_source_start_line == 1
+     * (every real source line is at line >= 1, so the gate is inert). */
+    parser.user_source_start_line = stdlib_prepended_lines + 1;
     Iron_Node *ast = iron_parse(&parser);
     arrfree(tokens);
 

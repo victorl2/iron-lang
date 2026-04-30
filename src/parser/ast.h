@@ -155,6 +155,12 @@ typedef struct {
     Iron_NodeKind kind;  /* IRON_NODE_PROGRAM */
     Iron_Node   **decls;
     int           decl_count;
+    /* Phase 93 VIS-03 stdlib carve-out: copied from
+     * Iron_Parser.user_source_start_line at iron_parse exit. The resolver
+     * consults this when classifying decls as stdlib for cross-module
+     * visibility purposes. 0 means no carve-out is active (single-file user
+     * code with no prepended stdlib). */
+    int           user_source_start_line;
 } Iron_Program;
 
 typedef struct {
