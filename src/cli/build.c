@@ -972,6 +972,24 @@ int iron_build(const char *source_path, const char *output_path,
      * begins; decls below that line are stdlib (implicitly pub). */
     int stdlib_prepended_lines = 0;
 
+    /* Phase 94 LIB-03 polyfill-duplication fix: when emitting a static archive
+     * (`type = "lib"` -> `--emit-archive`), skip the stdlib auto-prepend region.
+     * Reason: list.iron (Array.map/filter/reduce/forEach/sum), string.iron,
+     * int.iron, float.iron each emit C function definitions that — when
+     * inlined into BOTH the lib's archive .o AND every consumer's .o — collide
+     * at link time with `duplicate symbol` errors. The consumer's own build
+     * already prepends the same polyfills, so the lib doesn't need to ship
+     * them inside the archive.
+     *
+     * v3.2 limitation: a lib whose own pub source references stdlib symbols
+     * (e.g. uses Array.map internally) will not link correctly inside the
+     * archive. The locked Phase 94 fixture (pub func hello / pub func greet
+     * with String interpolation) doesn't hit this; richer lib code will
+     * surface in Phase 96+ alongside the broader STR-01 / Array generics work
+     * and a dedicated weak-linkage / hidden-visibility revisit per Plan
+     * 94-02's deferred architectural note. */
+    if (!opts.emit_archive) {
+
     /* 1c. Detect "import raylib" in source and prepend raylib.iron */
     if (iron_detect_import(source, source_path, "raylib", &detect_arena)) {
         opts.use_raylib = true;
@@ -1271,6 +1289,13 @@ int iron_build(const char *source_path, const char *output_path,
                 free(float_src);
             }
         }
+    }
+
+    } else {
+        /* Phase 94 LIB-03 polyfill-duplication fix: emit_archive mode skipped
+         * the stdlib auto-prepend region. Free the detect arena that the
+         * skipped region would otherwise have freed at line ~1191. */
+        iron_arena_free(&detect_arena);
     }
 
     /* 2. Set up arena and diagnostics */
