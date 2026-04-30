@@ -206,6 +206,18 @@ target_link_libraries(test_semver unity)
 add_test(NAME test_semver COMMAND test_semver)
 set_tests_properties(test_semver PROPERTIES LABELS "unit")
 
+# Phase 95 PIN-01: [package].iron field parser tests
+add_executable(test_toml_iron_field
+    test_toml_iron_field.c
+    ${CMAKE_SOURCE_DIR}/src/cli/toml.c
+)
+target_include_directories(test_toml_iron_field PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(test_toml_iron_field unity)
+add_test(NAME test_toml_iron_field COMMAND test_toml_iron_field)
+set_tests_properties(test_toml_iron_field PROPERTIES LABELS "unit")
+
 # ── Phase 5 plan-03: web_main_loop_split pass test (WEB-EMIT-01..04) ─────────
 add_executable(test_web_main_loop_split test_web_main_loop_split.c)
 target_link_libraries(test_web_main_loop_split iron_compiler unity)
