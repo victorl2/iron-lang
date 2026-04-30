@@ -3163,6 +3163,297 @@ void test_v93_plain_init_in_pub_object_stays_private(void) {
     TEST_ASSERT_TRUE(found_init);
 }
 
+/* ── Phase 93 VIS-02/03 (Plan 93-03): resolver-side is_pub propagation +
+ *    E0320 cross-module visibility check + stdlib carve-out ──────────────── */
+
+/* Lookup helper: walk a global scope's stb_ds shmap and find the named symbol.
+ * Phase 93-03 uses this to assert that resolver-stage propagation copies the
+ * AST is_pub bit onto Iron_Symbol.is_pub. */
+static Iron_Symbol *find_global_sym(Iron_Scope *global, const char *name) {
+    if (!global || !name) return NULL;
+    for (ptrdiff_t i = 0; i < shlen(global->symbols); i++) {
+        if (global->symbols[i].key && strcmp(global->symbols[i].key, name) == 0) {
+            return global->symbols[i].value;
+        }
+    }
+    return NULL;
+}
+
+void test_v93_e0320_macro_registered(void) {
+    /* IRON_ERR_CROSS_MODULE_PRIVATE must be the agreed slot 320, between
+     * E0314 (POSSIBLY_UNINITIALIZED) and E0400 (LOWER_UNSUPPORTED). */
+    TEST_ASSERT_EQUAL_INT(320, IRON_ERR_CROSS_MODULE_PRIVATE);
+}
+
+void test_v93_sym_is_pub_propagates_func(void) {
+    /* `pub func` -> Iron_Symbol.is_pub == true. */
+    const char *src = "pub func foo() -> Int { return 1 }\n";
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron",
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Symbol *sym = find_global_sym(global, "foo");
+    TEST_ASSERT_NOT_NULL_MESSAGE(sym, "expected `foo` symbol in global scope");
+    TEST_ASSERT_TRUE_MESSAGE(sym->is_pub,
+        "expected sym->is_pub == true for `pub func foo`");
+}
+
+void test_v93_sym_is_pub_default_false_func(void) {
+    /* Plain `func bar` -> Iron_Symbol.is_pub == false. */
+    const char *src = "func bar() {}\n";
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron",
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Symbol *sym = find_global_sym(global, "bar");
+    TEST_ASSERT_NOT_NULL_MESSAGE(sym, "expected `bar` symbol in global scope");
+    TEST_ASSERT_FALSE_MESSAGE(sym->is_pub,
+        "expected sym->is_pub == false for plain `func bar`");
+}
+
+void test_v93_sym_is_pub_propagates_enum_and_variants(void) {
+    /* `pub enum State { RUNNING IDLE }` -> enum sym + each variant sym
+     * are all is_pub == true. */
+    const char *src = "pub enum State { RUNNING, IDLE }\n";
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron",
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+
+    Iron_Symbol *enum_sym = find_global_sym(global, "State");
+    TEST_ASSERT_NOT_NULL_MESSAGE(enum_sym, "expected `State` enum sym");
+    TEST_ASSERT_TRUE_MESSAGE(enum_sym->is_pub,
+        "expected pub enum sym->is_pub == true");
+
+    Iron_Symbol *running_sym = find_global_sym(global, "RUNNING");
+    TEST_ASSERT_NOT_NULL_MESSAGE(running_sym, "expected `RUNNING` variant sym");
+    TEST_ASSERT_TRUE_MESSAGE(running_sym->is_pub,
+        "expected variant of pub enum to inherit is_pub == true");
+
+    Iron_Symbol *idle_sym = find_global_sym(global, "IDLE");
+    TEST_ASSERT_NOT_NULL_MESSAGE(idle_sym, "expected `IDLE` variant sym");
+    TEST_ASSERT_TRUE_MESSAGE(idle_sym->is_pub,
+        "expected variant of pub enum to inherit is_pub == true");
+}
+
+void test_v93_sym_is_pub_default_false_enum_variants(void) {
+    /* `enum Color { RED }` -> variant `RED` is_pub == false. */
+    const char *src = "enum Color { RED }\n";
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron",
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+
+    Iron_Symbol *red_sym = find_global_sym(global, "RED");
+    TEST_ASSERT_NOT_NULL_MESSAGE(red_sym, "expected `RED` variant sym");
+    TEST_ASSERT_FALSE_MESSAGE(red_sym->is_pub,
+        "expected variant of plain enum to have is_pub == false");
+}
+
+void test_v93_sym_is_pub_propagates_object(void) {
+    /* `pub object Player` -> Iron_Symbol.is_pub == true. */
+    const char *src =
+        "pub object Player { var x: Int  init(x: Int) { self.x = x } }\n";
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron",
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+
+    Iron_Symbol *sym = find_global_sym(global, "Player");
+    TEST_ASSERT_NOT_NULL_MESSAGE(sym, "expected `Player` type sym");
+    TEST_ASSERT_TRUE_MESSAGE(sym->is_pub,
+        "expected pub object sym->is_pub == true");
+}
+
+/* ── Phase 93 VIS-03 (Plan 93-03): cross-module visibility check at the
+ *    IRON_NODE_IDENT lookup site, plus rate-limited audit-grep note. ─────── */
+
+/* parse_and_resolve_two_files: simulate cross-module by directly synthesizing
+ * a small program where two top-level decls carry distinct span.filename
+ * values. The parse_and_resolve helper above uses a single source string with
+ * one filename, which is structurally same-file. To exercise the cross-module
+ * gate (decl_file != use_file), we build the input as a single source string
+ * and then post-walk the resulting AST to retag the second function's decls
+ * (and the IDENT use-site) with a different filename. This sidesteps the
+ * Plan 04 multi-file test harness and locks the resolver-side check
+ * independently. */
+static Iron_Program *parse_two_files_then_resolve(
+        const char *file_a_filename, const char *file_a_src,
+        const char *file_b_filename, const char *file_b_src) {
+    /* Concatenate the two files with a marker we can scan for to find where
+     * file B starts; then parse the combined source under file_a_filename
+     * and post-walk to retag file B's decls + their bodies' span.filename. */
+    size_t la = strlen(file_a_src);
+    size_t lb = strlen(file_b_src);
+    char *combined = (char *)iron_arena_alloc(&g_arena, la + 1 + lb + 1, 1);
+    memcpy(combined, file_a_src, la);
+    combined[la] = '\n';
+    memcpy(combined + la + 1, file_b_src, lb);
+    combined[la + 1 + lb] = '\0';
+
+    Iron_Lexer   l      = iron_lexer_create(combined, file_a_filename, &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, combined, file_a_filename,
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+
+    /* Compute the line where file B begins in the combined source: count '\n'
+     * bytes in file_a_src + 1 (for the separator) -> that is the 1-indexed
+     * line number of the first character of file_b_src. */
+    int a_newlines = 0;
+    for (size_t i = 0; i < la; i++) if (file_a_src[i] == '\n') a_newlines++;
+    int file_b_start_line = a_newlines + 2;  /* +1 for separator, +1 for 1-indexed */
+
+    /* Retag every AST node whose span is on or after file_b_start_line to
+     * have filename = file_b_filename. The walk only needs to hit top-level
+     * decls' spans + their inner identifier use-site spans; keep it simple
+     * by scanning Iron_Program's decl array and walking decl.body if present. */
+    const char *intern_b =
+        iron_arena_strdup(&g_arena, file_b_filename, strlen(file_b_filename));
+    for (int i = 0; i < prog->decl_count; i++) {
+        Iron_Node *d = prog->decls[i];
+        if (!d) continue;
+        if (d->span.line >= (uint32_t)file_b_start_line) {
+            d->span.filename = intern_b;
+            /* Walk the body block (if any) and retag its statements. */
+            Iron_Node *body = NULL;
+            if (d->kind == IRON_NODE_FUNC_DECL) {
+                body = ((Iron_FuncDecl *)d)->body;
+            } else if (d->kind == IRON_NODE_METHOD_DECL) {
+                body = ((Iron_MethodDecl *)d)->body;
+            }
+            if (body && body->kind == IRON_NODE_BLOCK) {
+                Iron_Block *b = (Iron_Block *)body;
+                b->span.filename = intern_b;
+                for (int j = 0; j < b->stmt_count; j++) {
+                    if (!b->stmts[j]) continue;
+                    b->stmts[j]->span.filename = intern_b;
+                    /* For ExprStmt -> Call(callee=Ident, ...), retag the
+                     * callee Ident's span too so the IDENT resolve site sees
+                     * the file_b filename. */
+                    if (b->stmts[j]->kind == IRON_NODE_CALL) {
+                        Iron_CallExpr *ce = (Iron_CallExpr *)b->stmts[j];
+                        if (ce->callee) ce->callee->span.filename = intern_b;
+                    }
+                }
+            }
+        }
+    }
+
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    (void)global;
+    return prog;
+}
+
+void test_v93_e0320_cross_module_private_rejected(void) {
+    /* file_a.iron declares a private (default) `helper`; file_b.iron calls
+     * helper(). Expected: E0320 with substring "not visible from". */
+    Iron_Program *prog = parse_two_files_then_resolve(
+        "lib.iron",
+        "func helper() -> Int { return 42 }\n",
+        "main.iron",
+        "func main() { helper() }\n"
+    );
+    (void)prog;
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_CROSS_MODULE_PRIVATE),
+        "expected E0320 IRON_ERR_CROSS_MODULE_PRIVATE for cross-module private ref");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("not visible from"),
+        "expected E0320 message substring 'not visible from'");
+}
+
+void test_v93_e0320_cross_module_pub_accepted(void) {
+    /* `pub func helper` is visible across files -> NO E0320. */
+    Iron_Program *prog = parse_two_files_then_resolve(
+        "lib.iron",
+        "pub func helper() -> Int { return 42 }\n",
+        "main.iron",
+        "func main() { helper() }\n"
+    );
+    (void)prog;
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_CROSS_MODULE_PRIVATE),
+        "pub-marked symbol must not trigger E0320 across modules");
+}
+
+void test_v93_e0320_same_file_private_accepted(void) {
+    /* Same-file references to non-pub symbols never trigger E0320. */
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "func helper() -> Int { return 42 }\n"
+        "func main() { helper() }\n"
+    );
+    (void)prog;
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_CROSS_MODULE_PRIVATE),
+        "same-file private reference must not trigger E0320");
+}
+
+void test_v93_e0320_audit_note_rate_limited(void) {
+    /* Two cross-module references in the same compile unit should both emit
+     * E0320 (count == 2), but the audit-grep note line ("audit your public
+     * surface") must appear in only ONE of those diagnostics' suggestion
+     * fields. */
+    Iron_Program *prog = parse_two_files_then_resolve(
+        "lib.iron",
+        "func helper_a() -> Int { return 1 }\n"
+        "func helper_b() -> Int { return 2 }\n",
+        "main.iron",
+        "func main() { helper_a()  helper_b() }\n"
+    );
+    (void)prog;
+
+    int e0320_count = 0;
+    int audit_note_count = 0;
+    for (int i = 0; i < g_diags.count; i++) {
+        if (g_diags.items[i].code == IRON_ERR_CROSS_MODULE_PRIVATE) {
+            e0320_count++;
+            if (g_diags.items[i].suggestion &&
+                strstr(g_diags.items[i].suggestion, "audit your public surface")) {
+                audit_note_count++;
+            }
+        }
+    }
+    TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(2, e0320_count,
+        "expected at least 2 E0320 diagnostics for two cross-module refs");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, audit_note_count,
+        "audit-grep note must appear at most once across all E0320 diags");
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -3374,6 +3665,19 @@ int main(void) {
     RUN_TEST(test_v93_pub_init_in_pub_object_accepted);
     RUN_TEST(test_v93_pub_init_in_private_object_rejected);
     RUN_TEST(test_v93_plain_init_in_pub_object_stays_private);
+
+    /* Phase 93 Plan 93-03: resolver-side is_pub propagation + E0320
+     * cross-module visibility check + stdlib carve-out. */
+    RUN_TEST(test_v93_e0320_macro_registered);
+    RUN_TEST(test_v93_sym_is_pub_propagates_func);
+    RUN_TEST(test_v93_sym_is_pub_default_false_func);
+    RUN_TEST(test_v93_sym_is_pub_propagates_enum_and_variants);
+    RUN_TEST(test_v93_sym_is_pub_default_false_enum_variants);
+    RUN_TEST(test_v93_sym_is_pub_propagates_object);
+    RUN_TEST(test_v93_e0320_cross_module_private_rejected);
+    RUN_TEST(test_v93_e0320_cross_module_pub_accepted);
+    RUN_TEST(test_v93_e0320_same_file_private_accepted);
+    RUN_TEST(test_v93_e0320_audit_note_rate_limited);
 
     return UNITY_END();
 }
