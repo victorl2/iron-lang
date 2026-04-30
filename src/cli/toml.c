@@ -379,6 +379,12 @@ IronProject *iron_toml_parse(const char *path) {
             } else if (strcmp(key, "description") == 0) {
                 free(proj->description);
                 proj->description = extract_value(val_str);
+            } else if (strcmp(key, "iron") == 0) {
+                /* Phase 95 PIN-01: optional Cargo-style semver constraint
+                 * (e.g. iron = ">= 3.2.0"). Stored verbatim; parsed and
+                 * compared by pkg_build.c's check_iron_version helper. */
+                free(proj->iron_constraint);
+                proj->iron_constraint = extract_value(val_str);
             }
         } else if (section == 2) {
             /* [dependencies] section */
@@ -483,6 +489,7 @@ void iron_toml_free(IronProject *proj) {
     free(proj->entry);
     free(proj->type);
     free(proj->description);
+    free(proj->iron_constraint);   /* Phase 95 PIN-01 */
     for (int i = 0; i < proj->dep_count; i++) {
         free(proj->deps[i].name);
         free(proj->deps[i].git);

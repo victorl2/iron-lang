@@ -8,10 +8,8 @@
 #include "cli/check.h"
 #include "cli/fmt.h"
 #include "cli/test_runner.h"
+#include "cli/version.h"
 
-#ifndef IRON_VERSION_STRING
-#define IRON_VERSION_STRING "0.1.1"
-#endif
 #ifndef IRON_GIT_HASH
 #define IRON_GIT_HASH "unknown"
 #endif

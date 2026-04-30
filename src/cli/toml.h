@@ -30,6 +30,12 @@ typedef struct {
     char *type;        /* type = "bin" or "lib" (default "bin") */
     char *description; /* description = "..." (optional) */
 
+    /* [package].iron — Phase 95 PIN-01: optional Cargo-style semver
+     * constraint enforced by pkg_build.c's check_iron_version. NULL when
+     * the field is absent (no constraint = no check). Heap-owned; freed
+     * in iron_toml_free. */
+    char *iron_constraint;
+
     /* [dependencies] */
     bool   raylib;       /* raylib = true (backward compat) */
     IronDep *deps;       /* heap array of parsed inline-table deps */

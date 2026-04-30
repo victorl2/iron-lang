@@ -32,10 +32,8 @@
 #include "pkg/init.h"
 #include "pkg/pkg_build.h"
 #include "pkg/iron_pkg.h"
+#include "cli/version.h"
 
-#ifndef IRON_VERSION_STRING
-#define IRON_VERSION_STRING "0.0.3"
-#endif
 #ifndef IRON_GIT_HASH
 #define IRON_GIT_HASH "unknown"
 #endif
