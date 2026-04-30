@@ -1,0 +1,19 @@
+-- VIS-01..04 positive cross-file lock.
+-- Declares pub func, pub object, pub enum, plus a private helper.
+-- main.iron must reference all three pub names; main.iron must NOT
+-- reference `helper` (would trigger E0320; not the goal of this fixture).
+
+pub func damage(amount: Int) -> Int { return amount * 2 }
+
+pub object Box {
+    var value: Int
+    pub init(v: Int) { self.value = v }
+    pub func get() -> Int { return self.value }
+}
+
+pub enum State {
+    RUNNING,
+    IDLE,
+}
+
+func helper() -> Int { return 42 }  -- private; never imported

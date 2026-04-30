@@ -1810,9 +1810,16 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                 memcpy(expr_buf, s + expr_start, expr_len);
                 expr_buf[expr_len] = '\0';
 
-                /* Re-lex the expression */
+                /* Re-lex the expression. Phase 93 VIS-03: prefer the
+                 * containing token's filename (carried on `span`) so that
+                 * an interpolated identifier like `{describe(...)}` inside
+                 * a multi-file fixture inherits the per-file source identity
+                 * the lexer's `-- @file:` marker established. Falls back to
+                 * the parser's filename when the span has no filename. */
+                const char *interp_fname =
+                    (span.filename != NULL) ? span.filename : p->filename;
                 Iron_DiagList expr_diags = iron_diaglist_create();
-                Iron_Lexer    el         = iron_lexer_create(expr_buf, p->filename,
+                Iron_Lexer    el         = iron_lexer_create(expr_buf, interp_fname,
                                                               p->arena, &expr_diags);
                 Iron_Token   *expr_toks  = iron_lex_all(&el);
                 int           tok_count  = 0;
@@ -1821,7 +1828,7 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
 
                 /* Parse the expression using a sub-parser */
                 Iron_Parser sub = iron_parser_create(expr_toks, tok_count,
-                                                      expr_buf, p->filename,
+                                                      expr_buf, interp_fname,
                                                       p->arena, p->diags);
                 Iron_Node *expr_node = iron_parse_expr_prec(&sub, PREC_NONE);
                 iron_diaglist_free(&expr_diags);

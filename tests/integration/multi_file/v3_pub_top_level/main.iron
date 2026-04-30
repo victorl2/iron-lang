@@ -1,0 +1,16 @@
+-- Consumer file. Uses every pub name from lib.iron exactly once.
+-- Does NOT reference `helper` (private to lib.iron).
+
+func describe(s: State) -> String {
+    match s {
+        State.RUNNING -> return "running"
+        State.IDLE    -> return "idle"
+    }
+    return "unknown"
+}
+
+func main() {
+    var b = Box(10)
+    var d = damage(5)
+    println("{b.get()} {d} {describe(State.RUNNING)}")
+}
