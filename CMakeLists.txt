@@ -542,3 +542,8 @@ install(DIRECTORY src/vendor/ DESTINATION lib/vendor)
 install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
 # Install stdlib .iron files
 install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib FILES_MATCHING PATTERN "*.iron")
+# Install diagnostics module: header is referenced by lib/runtime/iron_runtime.h
+# at user-build time, so it must be present in the install prefix. Without
+# this rule, every fresh install fails to compile any program with
+# 'diagnostics/diagnostics.h: file not found' (issue #47).
+install(DIRECTORY src/diagnostics/ DESTINATION lib/diagnostics FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
