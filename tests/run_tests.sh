@@ -148,6 +148,132 @@ if [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/multi_file" ]; then
     done
 fi
 
+# Phase 94 LIB-03 lib_consume fixtures: directory-shaped fixtures under
+# tests/integration/lib_consume/ with two sibling subdirs: a `mylib`
+# (type="lib") and a `consumer` (type="bin") that path-deps on the lib via
+# `[dependencies] mylib = { path = "../mylib" }`. The runner builds the
+# consumer (which recursively builds the lib via the path-dep resolver),
+# runs the produced binary, compares stdout to the consumer's `expected`
+# file, and then asserts TEST-03's three archive checks:
+#   1. nm <archive> shows the lib's pub symbol (substring grep, platform-
+#      agnostic; macOS prepends `_` and `_` is a word character so a `\b`
+#      anchor would silently fail; see Plan 94-01 deviation #4).
+#   2. ar t <archive> lists exactly one .o member (filtered on `\.o$` to
+#      skip the macOS BSD `__.SYMDEF SORTED` phantom entry).
+#   3. Consumer binary stdout matches the locked `expected` file.
+#
+# PATH is exported with the iron binary's directory at the front so the
+# resolver's `execlp("iron","iron","build")` recursive invocation finds
+# the build-tree iron rather than a stale ~/.iron/bin/iron from a prior
+# system install.
+if [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/lib_consume" ]; then
+    IRON_BIN_DIR="$(dirname "${IRON_BIN}")"
+    for case_dir in "${TEST_DIR}/lib_consume"/*/; do
+        [ -f "${case_dir}iron.toml" ] || continue
+
+        # Skip lib-only dirs: they're consumed transitively by their
+        # paired consumer dir and should not run as standalone integration
+        # tests.
+        if grep -qE 'type *= *"lib"' "${case_dir}iron.toml"; then continue; fi
+
+        case_name="$(basename "${case_dir%/}")"
+        TOTAL=$((TOTAL + 1))
+        echo -n "[RUN ] lib_consume/${case_name} ... "
+
+        consumer_abs="$(cd "${case_dir}" && pwd)"
+        # Pull the path-dep relative path out of the consumer's iron.toml.
+        lib_dir_rel="$(grep -oE 'path *= *"[^"]+"' "${case_dir}iron.toml" | head -1 \
+                       | sed -E 's/path *= *"([^"]+)"/\1/')"
+        if [ -z "${lib_dir_rel}" ]; then
+            echo "[FAIL] (no path-dep in iron.toml)"
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+        lib_abs="$(cd "${consumer_abs}/${lib_dir_rel}" 2>/dev/null && pwd || true)"
+        if [ -z "${lib_abs}" ]; then
+            echo "[FAIL] (path-dep ${lib_dir_rel} does not resolve)"
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+
+        # Clean prior artifacts so the freshness check in the resolver
+        # exercises the recursive build path on every run.
+        rm -rf "${consumer_abs}/target" "${lib_abs}/target"
+
+        build_log="${WORK_DIR}/lib_consume_${case_name}_build.log"
+        set +e
+        (cd "${consumer_abs}" && PATH="${IRON_BIN_DIR}:${PATH}" "${IRON_BIN}" build) \
+            > "${build_log}" 2>&1
+        build_rc=$?
+        set -e
+        if [ "${build_rc}" -ne 0 ]; then
+            echo "[FAIL] (build exit ${build_rc})"
+            cat "${build_log}" >&2
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+
+        # Resolve the lib name + consumer name from their iron.tomls. The
+        # archive lives at <lib>/target/lib<name>.a; the binary at
+        # <consumer>/target/<name>.
+        lib_name=$(grep -oE 'name *= *"[^"]+"' "${lib_abs}/iron.toml" | head -1 \
+                   | sed -E 's/name *= *"([^"]+)"/\1/')
+        consumer_name=$(grep -oE 'name *= *"[^"]+"' "${case_dir}iron.toml" | head -1 \
+                        | sed -E 's/name *= *"([^"]+)"/\1/')
+        archive="${lib_abs}/target/lib${lib_name}.a"
+        binary="${consumer_abs}/target/${consumer_name}"
+
+        # TEST-03 check 1: archive exists + nm shows pub symbol. Substring
+        # grep covers either `greet` (lib_consume fixture) or `hello`
+        # (any future fixture using the iron init --lib template).
+        if [ ! -f "${archive}" ]; then
+            echo "[FAIL] (archive ${archive} not produced)"
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+        if ! nm "${archive}" 2>/dev/null | grep -qE 'greet|hello'; then
+            echo "[FAIL] (nm ${archive} missing pub symbol)"
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+
+        # TEST-03 check 2: ar t lists exactly one .o member.
+        member_count=$(ar t "${archive}" | grep -c '\.o$' || true)
+        if [ "${member_count}" != "1" ]; then
+            echo "[FAIL] (expected 1 .o member, got ${member_count})"
+            ar t "${archive}" >&2
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+
+        # TEST-03 check 3: consumer binary stdout matches expected.
+        if [ ! -x "${binary}" ]; then
+            echo "[FAIL] (consumer binary ${binary} not produced)"
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+        actual="$("${binary}" 2>&1 || true)"
+        expected_file="${case_dir}expected"
+        if [ -f "${expected_file}" ]; then
+            expected="$(cat "${expected_file}")"
+            expected="${expected%$'\n'}"
+            if [ "${actual}" != "${expected}" ]; then
+                echo "[FAIL] (stdout mismatch)"
+                echo "  Expected: ${expected}"
+                echo "  Actual:   ${actual}"
+                FAIL=$((FAIL + 1))
+                continue
+            fi
+        fi
+
+        # Clean up artifacts after success so the next run exercises the
+        # full pipeline (resolver freshness check + recursive build).
+        rm -rf "${consumer_abs}/target" "${lib_abs}/target"
+        echo "[PASS]"
+        PASS=$((PASS + 1))
+    done
+fi
+
 for test_file in "${TEST_DIR}"/*.iron; do
     test_name=$(basename "${test_file}" .iron)
     expected_file="${TEST_DIR}/${test_name}.expected"
@@ -216,6 +342,29 @@ for test_file in "${TEST_DIR}"/*.iron; do
         FAIL=$((FAIL + 1))
     fi
 done
+
+# Phase 94 LIB-03 lib_init_smoke: end-to-end iron init --lib + iron build
+# + nm + ar t + iron run rejection check. Mirrors the Phase 92 install-smoke
+# pattern (.github/workflows/install-smoke.yml). Wired into the integration
+# suite so the full TEST-03 surface (init template + archive emit + run
+# rejection) is exercised on every run, not only in CI.
+if [ "${CATEGORY}" = "integration" ] && [ -x "${TEST_DIR}/lib_init_smoke.sh" ]; then
+    TOTAL=$((TOTAL + 1))
+    echo -n "[RUN ] lib_init_smoke ... "
+    smoke_log="${WORK_DIR}/lib_init_smoke.log"
+    set +e
+    "${TEST_DIR}/lib_init_smoke.sh" "${IRON_BIN}" > "${smoke_log}" 2>&1
+    smoke_rc=$?
+    set -e
+    if [ "${smoke_rc}" -eq 0 ] && grep -q 'lib_init_smoke OK' "${smoke_log}"; then
+        echo "[PASS]"
+        PASS=$((PASS + 1))
+    else
+        echo "[FAIL] (exit ${smoke_rc})"
+        cat "${smoke_log}" >&2
+        FAIL=$((FAIL + 1))
+    fi
+fi
 
 echo ""
 echo "Results: ${PASS} passed, ${FAIL} failed, ${TOTAL} total"
