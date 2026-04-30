@@ -3454,6 +3454,72 @@ void test_v93_e0320_audit_note_rate_limited(void) {
         "audit-grep note must appear at most once across all E0320 diags");
 }
 
+/* ── Phase 93 Plan 04 Task 3: compile_fail fixture substring locks ───────────
+ *
+ * tests/compile_fail/ is NOT auto-discovered by tests/run_tests.sh (Phase 80
+ * commit 3bc6329 convention). Phase 87 IFACE convention (test_typecheck.c
+ * around line 2727) wires each compile_fail fixture into CI by pairing it
+ * with a unit test that runs parse_and_resolve(...) on equivalent inline
+ * source and asserts has_error_msg_substring(...) on the locked text from
+ * the fixture's `.expected` sibling. Each test below is the CI gate for
+ * one tests/compile_fail/v3_*.iron + .expected pair. */
+
+void test_v93_compile_fail_cross_module_private(void) {
+    /* Source: tests/compile_fail/v3_cross_module_private.iron
+     * Expected substring: tests/compile_fail/v3_cross_module_private.expected
+     *
+     * Two-file synthetic source via @file: markers. The lexer-side hook
+     * (Plan 93-04 Task 1) re-tags subsequent tokens with the new filename,
+     * so the resolver sees lib.iron and main.iron as distinct source files
+     * for the cross-module check. */
+    parse_and_resolve(
+        "-- @file: lib.iron\n"
+        "func helper() -> Int { return 42 }\n"
+        "-- @file: main.iron\n"
+        "func main() {\n"
+        "    println(\"{helper()}\")\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_CROSS_MODULE_PRIVATE),
+        "expected E0320 IRON_ERR_CROSS_MODULE_PRIVATE for cross-module private ref");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("not visible from"),
+        "expected E0320 'not visible from' substring (locks "
+        "tests/compile_fail/v3_cross_module_private.expected)");
+}
+
+void test_v93_compile_fail_pub_init_in_private_object(void) {
+    /* Source: tests/compile_fail/v3_pub_init_in_private_object.iron
+     * Expected substring: tests/compile_fail/v3_pub_init_in_private_object.expected
+     *
+     * Plan 93-02 emits the refreshed message that names the enclosing
+     * object. The fixture is intentionally minimal: `object Foo { pub
+     * init() {} }`. */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    pub init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("`pub init` is only valid inside a `pub object`"),
+        "expected pub-init-in-private-object substring (locks "
+        "tests/compile_fail/v3_pub_init_in_private_object.expected)");
+}
+
+void test_v93_compile_fail_pub_top_level_val(void) {
+    /* Source: tests/compile_fail/v3_pub_top_level_val.iron
+     * Expected substring: tests/compile_fail/v3_pub_top_level_val.expected
+     *
+     * Plan 93-01 rejects top-level `pub val` and points users at `pub func`
+     * returning a constant. */
+    parse_and_resolve("pub val GLOBAL: Int = 0\n");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("top-level `pub val`"),
+        "expected top-level pub val rejection substring (locks "
+        "tests/compile_fail/v3_pub_top_level_val.expected)");
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -3678,6 +3744,14 @@ int main(void) {
     RUN_TEST(test_v93_e0320_cross_module_pub_accepted);
     RUN_TEST(test_v93_e0320_same_file_private_accepted);
     RUN_TEST(test_v93_e0320_audit_note_rate_limited);
+
+    /* Phase 93 Plan 04 Task 3: compile_fail fixture substring locks. Pair
+     * one unit test per tests/compile_fail/v3_*.iron + .expected fixture so
+     * the substring lock gates CI (tests/compile_fail/ is not auto-discovered
+     * by run_tests.sh). */
+    RUN_TEST(test_v93_compile_fail_cross_module_private);
+    RUN_TEST(test_v93_compile_fail_pub_init_in_private_object);
+    RUN_TEST(test_v93_compile_fail_pub_top_level_val);
 
     return UNITY_END();
 }
