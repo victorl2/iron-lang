@@ -427,10 +427,36 @@ static int cmd_build(bool run_after, int argc, char **argv) {
             return 1;
         }
 
-        /* Write dep source files in topological order (leaves first) */
+        /* Write dep source files in topological order (leaves first).
+         * Phase 94 LIB-03: path-deps concat the .iron-stub (NOT the lib's
+         * source) preceded by Phase 93's `-- @file: <stub-path>` marker so
+         * the consumer's combined source carries the lib's public surface
+         * with the lib's own filename identity preserved. Git-form path is
+         * kept for future REGISTRY-01 (currently parsed-but-runtime-ignored
+         * in v3.2 — git-deps are not produced by the resolver right now). */
         for (int i = 0; i < resolved.count; i++) {
-            fprintf(combined, "-- dependency: %s\n", resolved.deps[i].name);
-            collect_iron_files(combined, resolved.deps[i].cache_path);
+            if (resolved.deps[i].path) {
+                /* Path-dep: concat <cache_path>/target/<name>.iron-stub */
+                char stub_path[4096];
+                snprintf(stub_path, sizeof(stub_path), "%s/target/%s.iron-stub",
+                         resolved.deps[i].cache_path, resolved.deps[i].name);
+                fprintf(combined, "-- @file: %s\n", stub_path);
+                if (append_file(combined, stub_path) != 0) {
+                    char errbuf[2048];
+                    snprintf(errbuf, sizeof(errbuf),
+                             "failed to read .iron-stub for path dep '%s' at %s",
+                             resolved.deps[i].name, stub_path);
+                    iron_print_error(colors, errbuf);
+                    fclose(combined);
+                    resolved_deps_free(&resolved);
+                    free(proj_dir); free(toml_path); iron_toml_free(proj);
+                    return 1;
+                }
+            } else {
+                /* Git-source path (parsed-but-runtime-ignored in v3.2). */
+                fprintf(combined, "-- dependency: %s\n", resolved.deps[i].name);
+                collect_iron_files(combined, resolved.deps[i].cache_path);
+            }
         }
 
         /* Write project source files (main.iron last) */
@@ -456,7 +482,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
 
     int arg_count = 0;
     /* Phase 94 LIB-03: spawn_argv sized for up to 8 path-deps * 2 link flags
-     * each plus the base argv (~8 entries) — bumped from 16 to 32. */
+     * each plus the base argv (~10 entries) — bumped from 16 to 32. */
     char *spawn_argv[32];
     spawn_argv[arg_count++] = ironc;
     spawn_argv[arg_count++] = "build";
@@ -472,9 +498,35 @@ static int cmd_build(bool run_after, int argc, char **argv) {
         spawn_argv[arg_count++] = "--pkg-version";
         spawn_argv[arg_count++] = proj->version;
     }
+    /* Phase 94 LIB-03: per path-dep, emit -L<dep>/target -l<name> so the
+     * consumer's clang link line picks up the static archives. Storage
+     * persists for the duration of the spawn call (heap-owned). The
+     * resolver's topological order is leaf-first; that order is preserved
+     * here (resolved.deps[0] is the deepest leaf). */
+    char *link_flag_storage[16] = {0};
+    int link_flag_alloc = 0;
+    for (int i = 0; i < resolved.count; i++) {
+        if (!resolved.deps[i].path) continue;
+        if (arg_count + 2 >=
+            (int)(sizeof(spawn_argv) / sizeof(spawn_argv[0])) - 1) break;
+        if (link_flag_alloc + 2 >
+            (int)(sizeof(link_flag_storage) / sizeof(link_flag_storage[0]))) break;
+        char buf[1024];
+        snprintf(buf, sizeof(buf), "-L%s/target", resolved.deps[i].cache_path);
+        link_flag_storage[link_flag_alloc] = strdup(buf);
+        spawn_argv[arg_count++] = link_flag_storage[link_flag_alloc++];
+        snprintf(buf, sizeof(buf), "-l%s", resolved.deps[i].name);
+        link_flag_storage[link_flag_alloc] = strdup(buf);
+        spawn_argv[arg_count++] = link_flag_storage[link_flag_alloc++];
+    }
     spawn_argv[arg_count] = NULL;
 
     int ret = spawn_and_wait(ironc, spawn_argv);
+
+    /* Free the heap-owned link-flag storage now that the spawn is done. */
+    for (int li = 0; li < link_flag_alloc; li++) {
+        free(link_flag_storage[li]);
+    }
 
     double elapsed = get_time_sec() - t_start;
 

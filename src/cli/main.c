@@ -81,6 +81,12 @@ int main(int argc, char **argv) {
     const char *output_file = NULL;
     const char **run_args = NULL;
     int run_arg_count = 0;
+    /* Phase 94 LIB-03: collect -L<dir> / -l<name> argv entries for forwarding
+     * to clang's link line. The pkg_build layer emits these per local-path
+     * dep; main.c stores them on IronBuildOpts.extra_link_flags so build.c
+     * can append them alongside the existing -lm. */
+    const char *extra_link_flags_buf[32];
+    int extra_link_flag_count = 0;
 
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--verbose") == 0) {
@@ -150,6 +156,21 @@ int main(int argc, char **argv) {
             strict_v3 = true;
         } else if (strcmp(argv[i], "--no-strict-v3") == 0) {
             strict_v3 = false;
+        } else if ((strncmp(argv[i], "-L", 2) == 0 && argv[i][2] != '\0') ||
+                   (strncmp(argv[i], "-l", 2) == 0 && argv[i][2] != '\0')) {
+            /* Phase 94 LIB-03: collect -L<dir> / -l<name> for the link line.
+             * Reject the bare "-L" / "-l" forms (no inline value) — the
+             * pkg_build layer emits inline form only. */
+            if (extra_link_flag_count <
+                (int)(sizeof(extra_link_flags_buf) / sizeof(extra_link_flags_buf[0]))) {
+                extra_link_flags_buf[extra_link_flag_count++] = argv[i];
+            } else {
+                fprintf(stderr,
+                        "%s: too many -L/-l link flags (max %zu)\n",
+                        IRON_BINARY_NAME,
+                        sizeof(extra_link_flags_buf) / sizeof(extra_link_flags_buf[0]));
+                return 1;
+            }
         } else if (strcmp(argv[i], "--") == 0) {
             /* Everything after -- is passed to the program (iron run) */
             run_args = (const char **)&argv[i + 1];
@@ -182,7 +203,9 @@ int main(int argc, char **argv) {
             .strict_v3      = strict_v3,
             .emit_archive   = emit_archive,
             .pkg_name       = pkg_name_arg,
-            .pkg_version    = pkg_version_arg
+            .pkg_version    = pkg_version_arg,
+            .extra_link_flags = extra_link_flag_count > 0 ? extra_link_flags_buf : NULL,
+            .extra_link_flag_count = extra_link_flag_count
         };
         return iron_build(source_file, output_file, opts);
     }
@@ -209,7 +232,9 @@ int main(int argc, char **argv) {
             .strict_v3      = strict_v3,
             .emit_archive   = false,
             .pkg_name       = NULL,
-            .pkg_version    = NULL
+            .pkg_version    = NULL,
+            .extra_link_flags = extra_link_flag_count > 0 ? extra_link_flags_buf : NULL,
+            .extra_link_flag_count = extra_link_flag_count
         };
         return iron_build(source_file, output_file, opts);
     }

@@ -483,6 +483,12 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
     argv_buf[ai++] = stdlib_i_flag;
+    /* Phase 94 LIB-03: extra -L<dir> / -l<name> flags forwarded from
+     * pkg_build for each local-path dependency, in topological order
+     * (leaf-deps first per resolver topo-sort). */
+    for (int li = 0; li < opts.extra_link_flag_count; li++) {
+        argv_buf[ai++] = opts.extra_link_flags[li];
+    }
     /* Phase 59 P01c: iron_net_init.c calls WSAStartup/WSACleanup/socket(), so
      * user-facing ironc-compiled binaries must link ws2_32.lib. Phase 59 P02
      * adds iphlpapi.lib — it's reserved for the Phase 59 P03 UDP/DNS path
@@ -528,6 +534,13 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
     argv_buf[ai++] = stdlib_i_flag;
+    /* Phase 94 LIB-03: extra -L<dir> / -l<name> flags forwarded from
+     * pkg_build for each local-path dependency, in topological order
+     * (leaf-deps first per resolver topo-sort). Placed before -lm so
+     * static-archive symbol lookup happens during the main link pass. */
+    for (int li = 0; li < opts.extra_link_flag_count; li++) {
+        argv_buf[ai++] = opts.extra_link_flags[li];
+    }
     argv_buf[ai++] = "-lm";
     argv_buf[ai++] = "-lpthread";
 #endif

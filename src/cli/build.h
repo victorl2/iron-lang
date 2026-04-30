@@ -30,6 +30,13 @@ typedef struct {
                                     * are out of v3.2 scope). */
     const char     *pkg_name;       /* Phase 94 LIB-02: for .iron-stub header. NULL = derive from output path. */
     const char     *pkg_version;    /* Phase 94 LIB-02: for .iron-stub header. NULL = "0.0.0". */
+    /* Phase 94 LIB-03: extra link flags forwarded to clang link line (e.g.
+     * -L<path-dep>/target -l<dep-name> for each local-path dependency).
+     * Each entry is appended verbatim to the clang argv just before the
+     * existing -lm. NULL / 0 when no path-deps are present. main.c collects
+     * any argv entry starting with "-L" or "-l" into this array. */
+    const char    **extra_link_flags;
+    int             extra_link_flag_count;
 } IronBuildOpts;
 
 /* Build a .iron source file to a native binary.
