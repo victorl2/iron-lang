@@ -22,6 +22,8 @@
 #endif
 
 #include "cli/toml.h"
+#include "cli/semver.h"
+#include "cli/version.h"
 #include "pkg/color.h"
 #include "pkg/iron_pkg.h"
 #include "pkg/pkg_build.h"
@@ -285,6 +287,63 @@ static void collect_project_files(FILE *out, const char *proj_dir) {
     }
 }
 
+/* ── check_iron_version (Phase 95 PIN-02 / PIN-03) ─────────────────────────
+ *
+ * Compares the running compiler's IRON_VERSION_STRING against
+ * proj->iron_constraint. Fail-fast: returns 1 with the locked error message
+ * printed to stderr if the constraint is malformed or unsatisfied.
+ * Returns 0 when:
+ *   - proj->iron_constraint is NULL or empty (PIN-04: no field = no check)
+ *   - the constraint parses and the running compiler satisfies it
+ *
+ * Locked error message (verbatim per 95-CONTEXT.md):
+ *   error: <pkg> requires iron <constraint>, but you have <current>. Run
+ *   'curl --proto =https --tlsv1.2 -sSfL https://ironlang.dev/install.sh |
+ *   sh -s -- --version <suggested>' to update.
+ *
+ * Scope (v3.2): the version check fires for `iron build` and `iron run`
+ * (which dispatches through cmd_build) only. `iron check` and `iron test`
+ * intentionally skip the check per CONTEXT.md so contributors can iterate
+ * on a package whose pin floor has drifted ahead of their toolchain.
+ */
+static int check_iron_version(const IronProject *proj, bool colors) {
+    if (!proj->iron_constraint || proj->iron_constraint[0] == '\0') {
+        return 0;  /* PIN-04: missing/empty field is permitted */
+    }
+
+    IronSemverConstraint *c = iron_semver_parse(proj->iron_constraint);
+    if (!c) {
+        char msg[1024];
+        snprintf(msg, sizeof(msg),
+                 "invalid iron version constraint in iron.toml: '%s'",
+                 proj->iron_constraint);
+        iron_print_error(colors, msg);
+        fprintf(stderr,
+                "  hint: use a Cargo-style semver constraint, e.g. "
+                "iron = \">= 3.2.0\" or iron = \">= 3.0.0, < 4.0.0\".\n");
+        return 1;
+    }
+
+    if (iron_semver_satisfies(c, IRON_VERSION_STRING)) {
+        iron_semver_free(c);
+        return 0;
+    }
+
+    const char *suggested = iron_semver_suggest_version(c);
+    if (!suggested) suggested = IRON_VERSION_STRING;
+
+    char msg[2048];
+    snprintf(msg, sizeof(msg),
+             "%s requires iron %s, but you have %s. Run 'curl --proto =https --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh -s -- --version %s' to update.",
+             proj->name,
+             proj->iron_constraint,
+             IRON_VERSION_STRING,
+             suggested);
+    iron_print_error(colors, msg);
+    iron_semver_free(c);
+    return 1;
+}
+
 /* ── cmd_build (handles both build and run) ─────────────────────────────── */
 
 static int cmd_build(bool run_after, int argc, char **argv) {
@@ -341,6 +400,18 @@ static int cmd_build(bool run_after, int argc, char **argv) {
                 "  hint: run `iron build` to produce target/lib%s.a, or run a consumer\n"
                 "        binary that depends on it.\n",
                 proj->name);
+        free(toml_path);
+        iron_toml_free(proj);
+        return 1;
+    }
+
+    /* Phase 95 PIN-02 / PIN-03: enforce iron-compiler version pinning.
+     * Fires after iron.toml parse + LIB-06 rejection but before any
+     * filesystem work (target/ creation, ironc spawn) so a mismatched
+     * constraint is fail-fast and side-effect-free. cmd_run dispatches
+     * through cmd_build(true, ...) (see cmd_package), so this single
+     * call site covers both `iron build` and `iron run`. */
+    if (check_iron_version(proj, colors) != 0) {
         free(toml_path);
         iron_toml_free(proj);
         return 1;
