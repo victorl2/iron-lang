@@ -353,12 +353,31 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     }
 #endif
 
-    /* 5. Build output path: target/<name> */
+    /* 5. Build output path: target/<name> for bin, target/lib<name>.a for lib.
+     * Phase 94 LIB-01: type=lib routes through the archive emit path. The
+     * --emit-archive flag is forwarded to ironc below so the static archive
+     * pipeline runs (clang -c then llvm-ar/ar wrap). Plan 94-02 needs this
+     * forwarded slice so path-dep resolver can recursively build libs into
+     * lib<name>.a archives; full LIB-04/05/06 work (init template + run
+     * rejection) lands in Plan 94-03. */
+    bool is_lib = (proj->type && strcmp(proj->type, "lib") == 0);
     char output_path[4096];
 #ifdef _WIN32
-    snprintf(output_path, sizeof(output_path), "%s/target/%s.exe", proj_dir, proj->name);
+    if (is_lib) {
+        snprintf(output_path, sizeof(output_path),
+                 "%s/target/lib%s.a", proj_dir, proj->name);
+    } else {
+        snprintf(output_path, sizeof(output_path),
+                 "%s/target/%s.exe", proj_dir, proj->name);
+    }
 #else
-    snprintf(output_path, sizeof(output_path), "%s/target/%s", proj_dir, proj->name);
+    if (is_lib) {
+        snprintf(output_path, sizeof(output_path),
+                 "%s/target/lib%s.a", proj_dir, proj->name);
+    } else {
+        snprintf(output_path, sizeof(output_path),
+                 "%s/target/%s", proj_dir, proj->name);
+    }
 #endif
 
     /* 6. Resolve dependencies (if any) */
@@ -436,13 +455,23 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     char *ironc = find_ironc();
 
     int arg_count = 0;
-    char *spawn_argv[16];
+    /* Phase 94 LIB-03: spawn_argv sized for up to 8 path-deps * 2 link flags
+     * each plus the base argv (~8 entries) — bumped from 16 to 32. */
+    char *spawn_argv[32];
     spawn_argv[arg_count++] = ironc;
     spawn_argv[arg_count++] = "build";
     spawn_argv[arg_count++] = build_source;
     spawn_argv[arg_count++] = "--output";
     spawn_argv[arg_count++] = output_path;
     if (verbose) spawn_argv[arg_count++] = "--verbose";
+    /* Phase 94 LIB-01: lib builds go through ironc's archive emit path. */
+    if (is_lib) {
+        spawn_argv[arg_count++] = "--emit-archive";
+        spawn_argv[arg_count++] = "--pkg-name";
+        spawn_argv[arg_count++] = proj->name;
+        spawn_argv[arg_count++] = "--pkg-version";
+        spawn_argv[arg_count++] = proj->version;
+    }
     spawn_argv[arg_count] = NULL;
 
     int ret = spawn_and_wait(ironc, spawn_argv);
