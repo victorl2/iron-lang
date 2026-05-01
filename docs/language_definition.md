@@ -406,6 +406,8 @@ patch object Int implements Describable {
 }
 ```
 
+<!-- Locked as a fixture at tests/integration/v3_str_describable_example.iron (Phase 96 STR-03). -->
+
 Rules: patches may not add fields or change the visibility of existing
 members. Duplicate method signatures across patches for the same type
 are a compile error (E03XX).
