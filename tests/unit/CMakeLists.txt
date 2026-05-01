@@ -79,6 +79,13 @@ target_link_libraries(test_runtime_string iron_runtime unity)
 add_test(NAME test_runtime_string COMMAND test_runtime_string)
 set_tests_properties(test_runtime_string PROPERTIES LABELS "unit")
 
+# Phase 96 STR-01: Unity tests for the iron_string_concat runtime helper
+# (NULL-safety, SSO + heap thresholds, chained calls).
+add_executable(test_string_concat test_string_concat.c)
+target_link_libraries(test_string_concat iron_runtime unity)
+add_test(NAME test_string_concat COMMAND test_string_concat)
+set_tests_properties(test_string_concat PROPERTIES LABELS "unit")
+
 add_executable(test_runtime_threads test_runtime_threads.c)
 target_link_libraries(test_runtime_threads iron_runtime unity)
 add_test(NAME test_runtime_threads COMMAND test_runtime_threads)
