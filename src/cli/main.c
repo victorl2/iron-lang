@@ -9,6 +9,7 @@
 #include "cli/fmt.h"
 #include "cli/test_runner.h"
 #include "cli/version.h"
+#include "cli/help_registry.h"
 
 #ifndef IRON_GIT_HASH
 #define IRON_GIT_HASH "unknown"
@@ -24,28 +25,30 @@ static void print_version(void) {
     printf("%s %s (%s %s)\n", IRON_BINARY_NAME, IRON_VERSION_STRING, IRON_GIT_HASH, IRON_BUILD_DATE);
 }
 
+/*
+ * print_usage: forwards to the central help registry. Phase 97 HELP-01
+ * routes both error paths (no-args, unknown-command) and the top-level
+ * --help request through iron_help_print_all on stdout. The exit code at
+ * the call sites stays unchanged: --help requests exit 0; usage errors
+ * (no-args, unknown-command) exit 1. Both print the same help text.
+ */
 static void print_usage(void) {
-    fprintf(stderr, "Usage: %s <command> [options] <file>\n\n", IRON_BINARY_NAME);
-    fprintf(stderr, "Commands:\n");
-    fprintf(stderr, "  build   Compile .iron file to native binary\n");
-    fprintf(stderr, "  run     Compile and execute .iron file\n");
-    fprintf(stderr, "  check   Type-check without compiling\n");
-    fprintf(stderr, "  fmt     Format Iron source code\n");
-    fprintf(stderr, "  test    Discover and run Iron tests\n");
-    fprintf(stderr, "  migrate Migrate .iron source from v2 to v3 grammar\n");
-    fprintf(stderr, "\nOptions:\n");
-    fprintf(stderr, "  --version         Print version and exit\n");
-    fprintf(stderr, "  --target=<t>      Build target: native (default) or web\n");
-    fprintf(stderr, "  --release         Optimize build (native -O2, web -Oz -flto)\n");
-    fprintf(stderr, "  --emit-archive    Compile to static archive (lib<name>.a) instead of executable (Phase 94 LIB)\n");
-    fprintf(stderr, "  --verbose         Show generated C code\n");
-    fprintf(stderr, "  --debug-build     Keep .iron-build/ directory\n");
-    fprintf(stderr, "  --force-comptime  Skip comptime evaluation cache\n");
-    fprintf(stderr, "  --dump-ir-passes  Print IR after each optimization pass\n");
-    fprintf(stderr, "  --no-optimize     Skip optimization passes (for A/B comparison)\n");
-    fprintf(stderr, "  --warn-fusion-break  Show where fusion chains are broken by non-fusible calls\n");
-    fprintf(stderr, "  --report-compression Show which fields were narrowed for value range compression\n");
-    fprintf(stderr, "  --no-strict-v3       Disable v3.0 breaking-change rejections (for debugging v2 syntax; default is ON)\n");
+    iron_help_print_all(stdout);
+}
+
+/*
+ * argv_contains_help: scan argv[start..argc) for --help or -h.
+ * Returns 1 if found anywhere, 0 otherwise. Mirrors the helper in
+ * src/pkg/main.c — kept inline rather than refactored into a shared
+ * header because a 6-line helper does not justify a header round-trip.
+ */
+static int argv_contains_help(int argc, char **argv, int start) {
+    for (int i = start; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -59,6 +62,34 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "--version") == 0 || strcmp(cmd, "-v") == 0) {
         print_version();
         return 0;
+    }
+
+    /* Top-level --help / -h */
+    if (strcmp(cmd, "--help") == 0 || strcmp(cmd, "-h") == 0) {
+        iron_help_print_all(stdout);
+        return 0;
+    }
+
+    /*
+     * Phase 97 HELP-01 / HELP-06: pre-dispatch --help scan for ironc.
+     * Mirrors the iron-side scan in src/pkg/main.c. Subcommands recognized
+     * by ironc: build, run, check, fmt, test, migrate (no `init` — that's
+     * an iron-only command). Fires BEFORE the global-flag-parsing argv
+     * loop below so iron_build / iron_check / iron_fmt / iron_test /
+     * migrate handlers never run for --help requests.
+     */
+    {
+        static const char *KNOWN_SUBS[] = {
+            "build", "run", "check", "fmt", "test", "migrate", NULL
+        };
+        int is_known_sub = 0;
+        for (int i = 0; KNOWN_SUBS[i]; i++) {
+            if (strcmp(cmd, KNOWN_SUBS[i]) == 0) { is_known_sub = 1; break; }
+        }
+        if (is_known_sub && argv_contains_help(argc, argv, 2)) {
+            iron_help_print_subcommand(cmd, stdout);
+            return 0;
+        }
     }
 
     /* Parse global flags */
