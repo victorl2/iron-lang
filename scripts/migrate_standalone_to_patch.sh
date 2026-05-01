@@ -321,34 +321,50 @@ function is_factory(method, line,    after_arrow, ret_type) {
 
 # Rewrite a standalone-form line into its patch-block body form.
 # Returns the rewritten line WITH 4-space indent prepended.
-function rewrite_standalone(s, type, method,    out, is_init, is_fact, body) {
+#
+# Init-method and factory rewrites were attempted in an earlier draft
+# but proved incompatible with three parser/typecheck/HIR constraints:
+#
+#   (a) Init parser at parser.c:3977 expects IDENTIFIER as the
+#       named-init slot; the IRON_TOK_INIT keyword is rejected, so
+#       `init init(...)` does not parse.
+#
+#   (b) Even with parser widening, fieldless objects (Window {}, Audio {})
+#       receive an auto-synth anonymous init at parser.c:3652. The
+#       migrated `init init(...)` collides with this synth at the HIR
+#       layer: both produce mangled-name `window_init` / `audio_init`,
+#       and Pass 2 lower_method_body_hir cannot disambiguate them.
+#
+#   (c) E0247 enforces definite-assignment on every init body. Factory
+#       FFI stubs have empty bodies and never assign fields, so
+#       factory-as-init on struct-with-fields types (Vector2, Color,
+#       etc.) fails to compile.
+#
+# The combined effect: `func TYPE.init(...)` and factory-named methods
+# cannot be cleanly migrated to init form within the constraints of the
+# existing grammar and resolver. Keep them as funcs (with readonly
+# injection for non-struct receivers); call sites continue to dispatch
+# via `Type.method(args)` unchanged.
+function rewrite_standalone(s, type, method,    out) {
     out = s
     is_init = (method == "init")
-    is_fact = is_factory(method, s)
 
-    if (is_init) {
-        # `func TYPE.init(args) {}` -> `    init init(args) {}`.
-        # Strip the `func TYPE.init` prefix and any return annotation.
-        sub(/^func[[:space:]]+[A-Z][A-Za-z0-9_]*\.init/, "init init", out)
-        out = strip_return_annotation(out)
-        return "    " out
-    }
-
-    if (is_fact) {
-        # `func TYPE.NAME(args) -> TYPE {}` -> `    init NAME(args) {}`.
-        # Drop both the `func TYPE.` prefix and the `-> TYPE` return annotation;
-        # named init returns Self automatically (parser.c:3992).
-        sub(/^func[[:space:]]+[A-Z][A-Za-z0-9_]*\./, "init ", out)
-        out = strip_return_annotation(out)
-        return "    " out
-    }
-
-    # Regular instance method.
     sub(/^func[[:space:]]+[A-Z][A-Za-z0-9_]*\./, "func ", out)
 
-    # Inject `readonly` for non-struct receiver types so the resolver
-    # E0236 mut-on-non-struct guard is not tripped.
-    if (type in nonstruct) {
+    # Inject `readonly` on every migrated method so:
+    #   (a) Non-struct receivers (String, Math, Int, Float, etc.) skip the
+    #       resolver E0236 mut-on-non-struct guard.
+    #   (b) Static-style call sites (Sound.from_wave(w), Color.from_hsv(...))
+    #       skip the resolver E0235 cannot-call-mutable-method-on-immutable-
+    #       binding guard. Static calls dispatch through the type symbol
+    #       which is val (immutable); a mutating-receiver method requires a
+    #       var binding.
+    #   (c) Init methods cannot be readonly (parser.c:3963 rejects). Skip
+    #       the prefix for `func init(...)` migrated decls; their receiver
+    #       is always mut by parser construction (for fieldless objects
+    #       this is fine - the auto-synth init covers anonymous dispatch
+    #       and the migrated `func init(...)` covers named dispatch).
+    if (!is_init) {
         sub(/^func[[:space:]]+/, "readonly func ", out)
     }
     return "    " out
