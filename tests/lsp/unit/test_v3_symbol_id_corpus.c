@@ -95,25 +95,36 @@ static const char *kind_name(Iron_SymbolKind k) {
 
 /* Walk every named entry in scope (current scope only -- no parent walk).
  * For each Iron_Symbol with non-NULL decl_node, derive the triple and emit
- * a "canonical\tname_path\tkind" line into out_lines (stb_ds dynamic). */
+ * a "canonical\tname_path\tkind" line into out_lines (stb_ds dynamic).
+ *
+ * The baseline file uses the BASENAME of canonical_path (not the full path)
+ * so the byte-identity assertion is portable across checkout locations.
+ * Without this, a baseline captured on /home/dev/iron-lang/ would not
+ * match a comparison run on /Users/runner/work/iron-lang/iron-lang/.
+ * The full path is still passed to ilsp_symbol_id_derive so production
+ * symbol-id derivation logic is exercised unchanged. */
 static void emit_scope_triples(Iron_Scope        *scope,
                                 const char        *canonical_path,
                                 Iron_Program      *program,
                                 Iron_Arena        *arena,
                                 char            ***out_lines) {
     if (!scope) return;
+    /* Strip path prefix so the baseline is portable. */
+    const char *basename = canonical_path;
+    const char *slash = strrchr(canonical_path, '/');
+    if (slash) basename = slash + 1;
     for (ptrdiff_t i = 0; i < shlen(scope->symbols); i++) {
         Iron_Symbol *sym = scope->symbols[i].value;
         if (!sym || !sym->decl_node) continue;
         IronLsp_SymbolId id = ilsp_symbol_id_derive(sym, canonical_path,
                                                       program, arena);
         if (!id.canonical_path || !id.name_path) continue;
-        size_t n = strlen(id.canonical_path) + strlen(id.name_path) +
+        size_t n = strlen(basename) + strlen(id.name_path) +
                     strlen(kind_name(id.kind)) + 8;
         char *line = (char *)malloc(n);
         if (!line) continue;
         snprintf(line, n, "%s\t%s\t%s",
-                  id.canonical_path, id.name_path, kind_name(id.kind));
+                  basename, id.name_path, kind_name(id.kind));
         arrput(*out_lines, line);
     }
 }
