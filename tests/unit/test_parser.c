@@ -111,14 +111,42 @@ void test_parse_func_decl(void) {
 }
 
 void test_parse_method_decl(void) {
-    Iron_Node *prog = parse("func Player.update(dt: Float) { }");
-    Iron_Node *d    = first_decl(prog);
-    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, d->kind);
-    Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+    /* Phase 98 PATCH-03: standalone form `func Player.update(dt: Float) { }`
+     * is rejected with E0321. The Iron_MethodDecl node shape is now reached
+     * only via in-block / patch-body declarations. Migrated to in-block
+     * form (Phase 82 grammar) to keep the MethodDecl shape assertion live:
+     * the in-block method parser produces a MethodDecl with the same
+     * type_name / method_name / params fields the standalone form used to. */
+    Iron_Node *prog = parse(
+        "object Player {\n"
+        "  init() { }\n"
+        "  func update(dt: Float) { }\n"
+        "}\n"
+    );
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(IRON_NODE_PROGRAM, prog->kind);
+    /* In-block methods are pushed as separate top-level MethodDecl nodes
+     * via extra_decls_out (Phase 82 mechanism); walk the program's decl
+     * list and pick the MethodDecl whose method_name == "update". */
+    Iron_MethodDecl *m = NULL;
+    for (int i = 0; i < pr->decl_count; i++) {
+        if (pr->decls[i]->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *cand = (Iron_MethodDecl *)pr->decls[i];
+            if (cand->method_name && strcmp(cand->method_name, "update") == 0) {
+                m = cand;
+                break;
+            }
+        }
+    }
+    TEST_ASSERT_NOT_NULL_MESSAGE(m, "expected a MethodDecl named 'update' in extra_decls_out");
     TEST_ASSERT_EQUAL_STRING("Player", m->type_name);
     TEST_ASSERT_EQUAL_STRING("update", m->method_name);
-    TEST_ASSERT_EQUAL(1, m->param_count);
-    TEST_ASSERT_EQUAL_STRING("dt", ((Iron_Param *)m->params[0])->name);
+    /* In-block parser synthesizes `self: Player` as the first positional
+     * parameter, so the user's declared `dt: Float` lands at params[1]
+     * with param_count == 2. */
+    TEST_ASSERT_EQUAL(2, m->param_count);
+    TEST_ASSERT_EQUAL_STRING("self", ((Iron_Param *)m->params[0])->name);
+    TEST_ASSERT_EQUAL_STRING("dt",   ((Iron_Param *)m->params[1])->name);
 }
 
 /* ── Object declarations ─────────────────────────────────────────────────── */
@@ -886,6 +914,21 @@ void test_parse_duplicate_named_init_rejected(void) {
 static bool has_diag_msg_substring(const char *needle) {
     for (int i = 0; i < diags.count; i++) {
         if (diags.items[i].message && strstr(diags.items[i].message, needle)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Phase 98 PATCH-03 / TEST-02: substring lock on the suggestion (help) line
+ * of any emitted diagnostic. Mirrors has_diag_msg_substring but reads the
+ * Iron_Diag.suggestion slot — required for diagnostics that split locked
+ * text across the message + suggestion pair (e.g., E0321's "use `patch
+ * object" suggestion sits adjacent to the "the standalone form" message). */
+static bool has_diag_suggestion_substring(const char *needle) {
+    for (int i = 0; i < diags.count; i++) {
+        if (diags.items[i].suggestion &&
+            strstr(diags.items[i].suggestion, needle)) {
             return true;
         }
     }
@@ -2003,7 +2046,7 @@ void test_v98_compile_fail_standalone_method_form(void) {
         "expected E0321 message substring 'the standalone form' "
         "(locks tests/compile_fail/v3_standalone_method_form.expected)");
     TEST_ASSERT_TRUE_MESSAGE(
-        has_diag_msg_substring("use `patch object"),
+        has_diag_suggestion_substring("use `patch object"),
         "expected E0321 suggestion substring 'use `patch object' "
         "(locks the migration-hint help text)");
 }

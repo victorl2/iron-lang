@@ -2676,6 +2676,35 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
     /* Check for method: TypeName.method_name */
     if (iron_check(p, IRON_TOK_DOT)) {
         iron_advance(p);  /* consume '.' */
+
+        /* Phase 98 PATCH-03: the standalone form `func TypeName.method()` is
+         * removed in v3.2. The stdlib migration in Plan 98-01 rewrote every
+         * standalone decl in src.stdlib (string.iron, math.iron, raylib.iron)
+         * to the `patch object T { ... }` form, so the parser can now reject
+         * the standalone form universally.
+         *
+         * Stdlib carve-out: only emit E0321 for tokens at or after
+         * user_source_start_line. When user_source_start_line == 0 (unit-test
+         * parser fixtures, no stdlib prepended), every standalone form is
+         * rejected -- which is the test-environment baseline. The primary
+         * lock is Plan 98-01's grep assertion (no `^func [A-Z]` lines in the
+         * three migrated stdlib files); the carve-out is a defensive
+         * belt-and-suspenders so that if a future contributor accidentally
+         * re-introduces a standalone form into stdlib, only the user-code
+         * path errors. */
+        if ((int)name_tok->line >= p->user_source_start_line) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_STANDALONE_METHOD_FORM,
+                           iron_token_span(p, start),
+                           "the standalone form `func TypeName.method()` is "
+                           "removed in v3.2",
+                           "rewrite as `patch object TypeName { func method() "
+                           "{ ... } }`; use `patch object` for new code");
+            p->in_error_recovery = true;
+            iron_parser_sync_toplevel(p);
+            return iron_make_error(p);
+        }
+
         /* Phase 85 INIT: accept IRON_TOK_INIT as the method name in classic
          * `func Type.init(...)` form so stdlib `func Window.init(...)` and
          * `func Audio.init()` continue to parse under pure-superset. */
