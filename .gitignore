@@ -19,6 +19,8 @@ expr_inline_arithmetic
 heap_auto_free
 strength_reduction_loop
 test_*
+# Phase 99 DOC-01: not a build artifact, this is a checked-in helper.
+!scripts/test_doc_examples.sh
 /collision_smoke
 /raymath_smoke
 /texture_smoke
