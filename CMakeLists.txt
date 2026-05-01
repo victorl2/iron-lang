@@ -1019,9 +1019,12 @@ set_tests_properties(benchmark_smoke PROPERTIES
 # will trip this invariant; planner-approved reuse must route through
 # the existing static helper.
 if(IRON_BUILD_LSP)
+    # Use `-eq` (numeric comparison) and trim whitespace via `tr` so the
+    # test works under both GNU `wc -l` (no leading whitespace) and BSD
+    # `wc -l` on macOS (leading whitespace).
     add_test(
         NAME test_fmt_single_call_site
-        COMMAND sh -c "count=$(grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/ 2>/dev/null | wc -l); if [ \"$count\" != \"1\" ]; then echo 'CORE-22 ANALOG VIOLATED: expected 1 iron_format_source( call site under src/lsp/, found '$count; grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/; exit 1; fi; exit 0"
+        COMMAND sh -c "count=$(grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/ 2>/dev/null | wc -l | tr -d ' '); if [ \"$count\" -ne 1 ]; then echo \"CORE-22 ANALOG VIOLATED: expected 1 iron_format_source( call site under src/lsp/, found $count\"; grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/; exit 1; fi; exit 0"
     )
     set_tests_properties(test_fmt_single_call_site PROPERTIES
         LABELS "invariant;phase-m4-invariant")
