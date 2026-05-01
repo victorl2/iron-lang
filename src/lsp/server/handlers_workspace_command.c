@@ -812,25 +812,26 @@ void ilsp_handle_workspace_execute_command(IronLsp_Server    *s,
         char *orig_content = read_file(orig_path, &orig_len);
         bool changed = (!orig_content || orig_len != new_len ||
                         memcmp(orig_content, new_content, orig_len) != 0);
-        free(orig_content);
 
         if (!changed) {
+            free(orig_content);
             free(new_content);
             continue;
         }
 
-        /* Count lines in new_content to build the end-range. */
+        /* Count lines in original to build full-replace range. Must happen
+         * before orig_content is freed (GCC -Werror=use-after-free). */
         unsigned last_line = 0;
         unsigned last_col = 0;
-        /* Count lines in original to build full-replace range. */
-        if (orig_len > 0) {
+        if (orig_content && orig_len > 0) {
             unsigned oline = 0;
             for (size_t j = 0; j < orig_len; j++) {
-                if (((char *)orig_content)[j] == '\n') { oline++; last_col = 0; }
+                if (orig_content[j] == '\n') { oline++; last_col = 0; }
                 else { last_col++; }
             }
             last_line = oline;
         }
+        free(orig_content);
 
         /* Build the TextEdit for this file. */
         yyjson_mut_val *edit_arr = yyjson_mut_arr(edit_doc);
