@@ -1359,6 +1359,11 @@ static Iron_Node *iron_parse_expr_prec(Iron_Parser *p, int min_prec) {
         bin->left  = left;
         bin->op    = (Iron_OpKind)op_tok->kind;
         bin->right = right;
+        /* Phase 96 STR-01: explicit-assignment audit (mirrors the Phase 93
+         * is_pub convention). ARENA_ALLOC zero-initialises the slot, but
+         * the explicit set documents the contract so any future BinaryExpr
+         * alloc site can be audited via grep for `is_string_concat`. */
+        bin->is_string_concat = false;
         left = (Iron_Node *)bin;
     }
 

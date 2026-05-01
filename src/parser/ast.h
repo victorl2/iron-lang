@@ -614,6 +614,14 @@ typedef struct {
     Iron_Node         *left;
     Iron_OpKind        op;
     Iron_Node         *right;
+    /* Phase 96 STR-01: set true by typecheck when op == IRON_TOK_PLUS AND
+     * both operands resolve to IRON_TYPE_STRING. hir_lower reads this bit
+     * to lower the binop as a runtime call to iron_string_concat instead
+     * of an HIR ADD opcode. Default false at every parser allocation site
+     * (parser.c:1357, where bin->kind = IRON_NODE_BINARY); explicit
+     * assignment mirrors the Phase 93 is_pub explicit-assignment audit
+     * convention so future maintainers can grep all init sites at once. */
+    bool               is_string_concat;
 } Iron_BinaryExpr;
 
 typedef struct {
