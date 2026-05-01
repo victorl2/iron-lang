@@ -444,7 +444,7 @@ jobs:
       - name: Install Neovim 0.11.3 (Linux)
         if: runner.os == 'Linux'
         run: |
-          curl -fsSL https://github.com/neovim/neovim/releases/download/v0.11.3/nvim-linux64.tar.gz -o /tmp/nvim.tar.gz
+          curl -fsSL https://github.com/neovim/neovim/releases/download/v0.11.3/nvim-linux-x86_64.tar.gz -o /tmp/nvim.tar.gz
           sudo mkdir -p /opt/nvim
           sudo tar -xzf /tmp/nvim.tar.gz -C /opt/nvim --strip-components=1
           echo "/opt/nvim/bin" >> "$GITHUB_PATH"
