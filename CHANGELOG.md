@@ -109,6 +109,72 @@ curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh -s --
 
 Full release notes: [docs/release-notes/v3.2.md](docs/release-notes/v3.2.md).
 
+## v3.1.1-alpha: Fresh-Install Fix (2026-04-30)
+
+## Iron v3.1.1-alpha: Fresh-Install Fix
+
+*Released: 2026-04-30*
+
+Patch release on top of v3.1.0-alpha. The release tarball was
+missing `lib/diagnostics/`, so every fresh
+`curl ... | sh` install failed at the C compile step the first
+time the user ran any Iron program. v3.1.1-alpha is the same
+compiler and same raylib 6 binding as v3.1.0-alpha with the
+install layout repaired and a CI canary that prevents recurrence.
+
+The Iron language is unchanged.
+
+### Fixed
+
+- **Fresh installs could not compile any program** (#47). The
+  CMake install layer had no rule for `src/diagnostics/`, so
+  `<prefix>/lib/diagnostics/diagnostics.h` never landed on disk.
+  `iron_runtime.h` includes that header on every user build, so
+  every fresh install hit `'diagnostics/diagnostics.h' file not
+  found` on hello-world. v3.1.1-alpha ships the missing install
+  rule, regenerates the tarball, and adds an `install-smoke`
+  GitHub Actions workflow that installs to a clean prefix on
+  Linux + macOS, compiles a hello-world end-to-end, and asserts
+  that removing `lib/diagnostics/` reproduces the original error
+  (regression canary).
+
+### Upgrade
+
+If you installed v3.1.0-alpha and hit the missing-diagnostics
+error, just refresh:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh -s -- --version v3.1.1-alpha
+```
+
+Existing installs do not need to be uninstalled first; the
+installer overwrites `~/.iron/lib/` in place and the new
+tarball includes `lib/diagnostics/`.
+
+### What's next
+
+The v3.2 milestone (Library Authoring Polish) is in flight on
+the `feat/v3.2-library-authoring-polish` branch and tracks nine
+remaining adoption blockers surfaced by the Forge framework
+spike: top-level `pub` (#52), `type = lib` static archives
+(#48), `iron.toml` compiler version pinning (#51), `iron run`
+output cleanup (#53), `String + String` concat (#49), CLI
+`--help` parsing (#50, #56), standalone-form removal (#54), and
+doc-test CI to lock spec/impl alignment (#55). v3.2.0-alpha will
+follow once those phases land.
+
+### Install
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh
+```
+
+Pin to this version:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh -s -- --version v3.1.1-alpha
+```
+
 ## v3.1.0-alpha: Raylib 6 (2026-04-28)
 
 ## Iron v3.1.0-alpha: Raylib 6
