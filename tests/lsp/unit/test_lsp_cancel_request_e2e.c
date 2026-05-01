@@ -171,12 +171,16 @@ static void test_cancel_thread_visibility(void) {
 
     pthread_join(th, NULL);
 
-    /* Observed within 10ms budget is the plan acceptance; the primitive
-     * is memory_order_relaxed on x86/arm64 which has implicit
-     * release-acquire for stores to aligned words, so visibility is
-     * typically ~microseconds. */
+    /* Visibility primitive is memory_order_relaxed on x86/arm64 with
+     * implicit release-acquire for aligned-word stores; typical
+     * observation is ~microseconds. The original 10ms budget held on
+     * dev hardware but flaked on GitHub-hosted macos-latest runners
+     * (worker scheduling under shared-host load can push observation
+     * past 10ms). Widen to 100ms — still tight enough to catch a
+     * missing-fence regression (would observe never / -1 / seconds)
+     * without being flaky on noisy CI. */
     TEST_ASSERT_TRUE(wc.observed_ns >= 0);
-    TEST_ASSERT_TRUE(wc.observed_ns < 10L * 1000L * 1000L);
+    TEST_ASSERT_TRUE(wc.observed_ns < 100L * 1000L * 1000L);
 
     ilsp_cancel_unregister(r, "99");
     ilsp_cancel_registry_destroy(r);
