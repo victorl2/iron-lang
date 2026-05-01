@@ -250,7 +250,10 @@ jobs:
           cache-dependency-path: grammars/tree-sitter/iron/package.json
 
       - name: Install tree-sitter-cli
-        run: npm install -g tree-sitter-cli@0.26.3
+        # 0.26.8 fixes a regression in 0.26.3 where `tree-sitter build --wasm`
+        # silently exits 0 without producing the .wasm artifact. ABI 15 is
+        # unchanged across the 0.26.x line.
+        run: npm install -g tree-sitter-cli@0.26.8
 
       - name: Verify tree-sitter version (ABI 15 contract per RESEARCH Pitfall 4)
         run: tree-sitter --version
@@ -543,12 +546,20 @@ jobs:
 
       - name: Zed extension validate (dry-run)
         if: env.ZED_CLI == '1'
-        # Schema: zed extension validate <path>. When the subcommand is not
-        # yet available on the installed Zed CLI, the step exits 0 and logs
-        # a skip reason — tightened in Phase 7.
+        # Schema: zed extension validate <path>. The Zed CLI on Linux runners
+        # without a display server treats positional args as paths to open in
+        # the editor and exits with "neither DISPLAY nor WAYLAND_DISPLAY is set"
+        # rather than running a validate subcommand. The `--help` probe used to
+        # be relied on as a feature gate but the Zed CLI accepts arbitrary args
+        # plus --help and exits 0 even when the subcommand isn't real.
+        # We now require BOTH a DISPLAY to be set AND `zed --help` to actually
+        # advertise an "extension" subcommand before invoking; otherwise log
+        # SKIP and pass — the wasm-build gate above is the load-bearing check.
         run: |
-          if zed extension validate --help >/dev/null 2>&1; then
+          if zed --help 2>&1 | grep -qE '(^|\s)extension(\s|$)' && [ -n "${DISPLAY:-}" ]; then
             zed extension validate editors/zed/
+          elif zed --help 2>&1 | grep -qE '(^|\s)extension(\s|$)'; then
+            echo "zed extension validate skipped — no DISPLAY/WAYLAND_DISPLAY on this runner; subcommand requires a display server"
           else
             echo "zed extension validate subcommand unavailable on this Zed CLI build — SKIP"
           fi
