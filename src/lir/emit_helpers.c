@@ -70,6 +70,13 @@ const char *emit_mangle_func_name(const char *name, Iron_Arena *arena) {
     /* Already mangled (shouldn't normally happen, but guard anyway) */
     if (strncmp(name, "Iron_", 5) == 0) return name;
 
+    /* Phase 96 STR-01: lowercase iron_* names are runtime symbols
+     * (iron_string_concat, iron_string_equals via FUNC_REF, etc.) — pass
+     * through verbatim so the call site emits the correct C identifier
+     * instead of double-prefixing to Iron_iron_string_concat. The compiler
+     * generates these names internally from hir_lower.c, never the user. */
+    if (strncmp(name, "iron_", 5) == 0) return name;
+
     /* All other names: apply Iron_ prefix */
     return emit_mangle_name(name, arena);
 }

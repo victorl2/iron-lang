@@ -1239,9 +1239,30 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Binary expression ───────────────────────────────────────────────── */
     case IRON_NODE_BINARY: {
         Iron_BinaryExpr *bin = (Iron_BinaryExpr *)node;
-        IronHIR_BinOp hop = ast_op_to_hir_binop(bin->op);
         IronHIR_Expr *lhs = lower_expr_hir(ctx, bin->left);
         IronHIR_Expr *rhs = lower_expr_hir(ctx, bin->right);
+
+        /* Phase 96 STR-01: lower String + String as a runtime call to
+         * iron_string_concat. The bit is set by typecheck.c when op ==
+         * IRON_TOK_PLUS and both operands are IRON_TYPE_STRING; otherwise
+         * fall through to the standard binop lowering. The func_ref + call
+         * pattern matches the precedent for Iron_int_to_string (lowercase
+         * iron_string_concat is a known runtime symbol; the C-name resolver
+         * in src/lir/emit_helpers.c keeps lowercase iron_* names verbatim
+         * to bypass the Iron_-prefix mangler, and src/lir/emit_c.c special-
+         * cases the call site to wrap both args with `&` since the runtime
+         * helper takes `const Iron_String *`). */
+        if (bin->is_string_concat) {
+            IronHIR_Expr *callee = iron_hir_expr_func_ref(
+                mod, "iron_string_concat", bin->resolved_type, span);
+            IronHIR_Expr **args = NULL;
+            arrput(args, lhs);
+            arrput(args, rhs);
+            return iron_hir_expr_call(mod, callee, args, 2,
+                                      bin->resolved_type, span);
+        }
+
+        IronHIR_BinOp hop = ast_op_to_hir_binop(bin->op);
         return iron_hir_expr_binop(mod, hop, lhs, rhs,
                                    bin->resolved_type, span);
     }
