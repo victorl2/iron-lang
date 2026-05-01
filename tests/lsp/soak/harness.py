@@ -122,7 +122,7 @@ class RssSampler(threading.Thread):
         self._pid = pid
         self._csv_path = csv_path
         self._interval = interval_sec
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
         self._t0 = time.monotonic()
         self._in_flight = 0
         self._lock = threading.Lock()
@@ -136,13 +136,13 @@ class RssSampler(threading.Thread):
             self._in_flight = max(0, self._in_flight - 1)
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stop_event.set()
 
     def run(self) -> None:
         with self._csv_path.open("w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["t_sec", "rss_bytes", "in_flight_requests"])
-            while not self._stop.is_set():
+            while not self._stop_event.is_set():
                 t_sec = time.monotonic() - self._t0
                 rss = _read_rss_bytes(self._pid)
                 with self._lock:
@@ -150,7 +150,7 @@ class RssSampler(threading.Thread):
                 writer.writerow([f"{t_sec:.3f}", rss, inflight])
                 f.flush()
                 # Event.wait returns True if set, False on timeout.
-                if self._stop.wait(self._interval):
+                if self._stop_event.wait(self._interval):
                     break
 
 
