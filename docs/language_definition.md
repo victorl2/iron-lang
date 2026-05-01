@@ -525,10 +525,45 @@ readonly func reset_via_call() {
 ### Static/factory methods
 
 Factory and utility helpers that do not need an instance receiver are
-written as standalone functions or named inits (see Init section below).
-The `func TypeName.method_name(...)` static-form syntax from v2.x is
-no longer supported for instance methods; it was replaced by in-block
-declarations in v3.0.
+written as standalone functions or named inits (see the Init section
+below).
+
+The legacy v2.x form `func TypeName.method_name(...)` for declaring
+instance methods at the top level is **rejected** in v3.2. Writing such
+a declaration produces diagnostic `E0321 IRON_ERR_STANDALONE_METHOD_FORM`
+at parse time:
+
+> error[E0321]: the standalone form \`func TypeName.method()\` is removed in v3.2
+>
+> help: rewrite as \`patch object TypeName { func method() { ... } }\`
+
+To add a method to an existing type, use a `patch object` block (see the
+[Patch section](#patch--open-extension-v30) for the full grammar):
+
+```iron
+object Foo {
+  init() { }
+}
+
+patch object Foo {
+  readonly func bar() -> Int {
+    return 42
+  }
+}
+```
+
+In-block methods on an object you are declaring yourself stay in the
+object body and never use the standalone form:
+
+```iron
+object Foo {
+  init() { }
+
+  readonly func bar() -> Int {
+    return 42
+  }
+}
+```
 
 ### Passing Convention
 
