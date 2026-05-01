@@ -95,7 +95,11 @@ check tests/lsp/invariant/test_version_stamp_coherence.sh
 check .github/workflows/parity.yml
 check docs/dev/ci-gates.md
 check docs/dev/release-runbook.md
-check .planning/phases/07-m6-production-hardening/07-PHASE-SUMMARY.md
+# .planning/ is gitignored (commit_docs=false), so the Phase 7 summary is
+# not present on CI runners. The audit was originally written assuming
+# planning artifacts would be tracked; that contract is no longer in
+# effect for this repo. Phase 7 SUMMARY existence is a local-dev concern,
+# not a runtime gate.
 
 # --------------------------------------------------------------------------
 # Phase label audit — every phase's invariant label must exist in the
