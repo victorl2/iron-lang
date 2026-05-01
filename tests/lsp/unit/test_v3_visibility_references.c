@@ -27,7 +27,7 @@
 #include "parser/ast.h"
 #include "util/arena.h"
 
-#include <linux/limits.h>
+#include <limits.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
