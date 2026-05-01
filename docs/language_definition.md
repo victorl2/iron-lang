@@ -1545,6 +1545,12 @@ func main() {
 
 ---
 
+## Command-line interface
+
+Both `iron` and `ironc` accept `--help` (or `-h`) at the top level and on every subcommand. `iron --help` lists every subcommand and every flag the CLI parses, grouped by subcommand and sorted alphabetically within each group. `iron <subcommand> --help` (for example, `iron build --help`, `iron init --help`, `iron migrate --help`) prints help scoped to that subcommand and exits with status 0 without performing any subcommand work: `iron init --help` does not scaffold a new project, `iron build --help` does not create `target/`, and no temporary files are written to the current directory. The same shape applies to `ironc`. Help text is generated from a single registry inside the compiler so adding a flag is a one-line edit, and the live `iron <subcommand> --help` output is the canonical CLI reference.
+
+---
+
 ## Keywords Summary
 
 ```
