@@ -4078,7 +4078,17 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             Iron_Token *fstart = iron_current(p);
             iron_advance(p);  /* consume 'func' */
 
-            if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+            /* Phase 98 PATCH-01: accept either IDENTIFIER or INIT as the
+             * method name slot. The latter is required for migrating
+             * `func TYPE.init(...)` standalone-form declarations
+             * (Window.init, Audio.init in raylib.iron) into patch-body
+             * form. The migrated source reads `func init(...)` inside
+             * `patch object TYPE { }` and the call site
+             * `Type.init(args)` resolves through the regular method
+             * dispatch path - NOT through the named-init `init NAME`
+             * keyword, which would collide with the parser auto-synth
+             * anonymous init at parser.c:3652. */
+            if (!iron_check_name_or_init(p)) {
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNEXPECTED_TOKEN,
                                iron_token_span(p, iron_current(p)),
