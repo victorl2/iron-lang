@@ -1,11 +1,11 @@
 # Installing from Source
 **Note: This document describes building Iron from source. This is not recommended if you don't know what you're doing.**
 
-**Tracks:** Iron v3.0.0-alpha.1 and newer (main branch). Older v1.2.x source tarballs follow their own per-release INSTALL.md.
+**Tracks:** Iron v3.1.1-alpha and newer (main branch). Older v1.2.x source tarballs follow their own per-release INSTALL.md.
 
 Iron compiles to C and produces native binaries. You need a C compiler and CMake to build the Iron compiler itself. Programs compiled with Iron are standalone executables.
 
-After a successful build, `./build/iron --version` and `./build/ironc --version` will both print `3.0.0-alpha.1 (<git-sha>, <utc-date>)`. If the version line does not start with `3.0.0-alpha.1`, your checkout is out of date or on a stale branch — `git pull` and rebuild.
+After a successful build, `./build/iron --version` and `./build/ironc --version` will both print `3.1.1-alpha (<git-sha>, <utc-date>)`. If the version line does not start with `3.1.`, your checkout is out of date or on a stale branch — `git pull` and rebuild.
 
 ## Requirements
 

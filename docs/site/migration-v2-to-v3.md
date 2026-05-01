@@ -8,7 +8,7 @@ The notes below cover **only the LSP / editor-extension side** of the upgrade.
 
 ### Editor extension version range
 
-Starting with v3.0.0-alpha.1, the iron-lsp editor extensions for VSCode, Neovim, and Zed enforce a hard version-range gate:
+Starting with v3.1.1-alpha, the iron-lsp editor extensions for VSCode, Neovim, and Zed enforce a hard version-range gate:
 
 ```
 ironls compatible range: ">= 3.0.0, < 4.0.0"
@@ -20,7 +20,7 @@ If you previously pinned the extension's compatible version range explicitly in 
 
 ### `iron.migrate` LSP command
 
-v3.0.0-alpha.1 ships an in-editor codemod command that runs `ironc migrate --from v2 --to v3` against your workspace and previews the diff before applying:
+v3.1.1-alpha ships an in-editor codemod command that runs `ironc migrate --from v2 --to v3` against your workspace and previews the diff before applying:
 
 - **VSCode**: command palette → "Iron: Migrate v2 → v3"
 - **Neovim**: `:IronLspMigrateV2ToV3`
