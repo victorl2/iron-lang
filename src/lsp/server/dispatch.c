@@ -70,6 +70,9 @@ void ilsp_handle_type_hierarchy_subtypes            (IronLsp_Server *s, yyjson_d
 /* Phase 3 Plan 06 (NAV-12): workspace/diagnostic pull handler. */
 void ilsp_handle_workspace_diagnostic(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 
+/* Phase 14 Plan 14-02 (CMD-01, CMD-03): workspace/executeCommand handler. */
+void ilsp_handle_workspace_execute_command(IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
+
 /* Phase 4 Plan 04-02 (EDIT-01, EDIT-03): completion + resolve. */
 void ilsp_handle_text_document_completion   (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
 void ilsp_handle_completion_item_resolve    (IronLsp_Server *s, yyjson_doc *doc, Iron_Arena *arena);
@@ -215,6 +218,13 @@ const IronLsp_HandlerEntry ilsp_handler_table[] = {
      * (workspaceDiagnostics=true in Plan 06). caps_has dedups. */
     { "workspace/diagnostic",              ilsp_handle_workspace_diagnostic,           true,  "diagnosticProvider"    },
     { "workspace/didChangeWatchedFiles",   ilsp_handle_didChangeWatchedFiles,          false, NULL                    },
+    /* Phase 14 Plan 14-02 (CMD-01, CMD-03): workspace/executeCommand.
+     * Sort: 'e' (0x65) < 's' (0x73) so executeCommand precedes symbol;
+     * 'd' (0x64) < 'e' (0x65) so didChangeWatchedFiles precedes executeCommand.
+     * Capability handled via caps_add override in capabilities.c (Phase 3 D-13
+     * signatureHelpProvider precedent -- auto-derive boolean cannot produce
+     * the nested object shape { commands: ["iron.migrate"] }). */
+    { "workspace/executeCommand",          ilsp_handle_workspace_execute_command,      true,  "executeCommandProvider"},
     /* Plan 03 Task 03 (NAV-08): workspace/symbol. */
     { "workspace/symbol",                  ilsp_handle_workspace_symbol,               true,  "workspaceSymbolProvider"},
 };

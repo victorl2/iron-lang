@@ -668,6 +668,10 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/fmt/range_format.c
         src/lsp/facade/fmt/on_type_format.c
         src/lsp/server/handlers_fmt.c
+        # Phase 14 Plan 14-02 (CMD-01, CMD-03): workspace/executeCommand handler.
+        # iron.migrate dispatch, subprocess spawn, 5-bucket $/progress,
+        # WorkspaceEdit construction, CMD-03 ironc >= 3.0.0 version gate.
+        src/lsp/server/handlers_workspace_command.c
         # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
         # workspace_index.c owns per-file arena-scoped IndexEntry map;
         # stdlib_cache.c is the process-lifetime pre-parsed surface-file
