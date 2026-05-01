@@ -24,6 +24,13 @@ describe('iron-lsp e2e', function()
   it('publishes at least one Error-severity diagnostic on diag_error.iron within 5s', function()
     local root = repo_root()
 
+    -- Plenary's test_directory spawns a child nvim with minimal_init='NONE',
+    -- which leaves filetype-detection autocmds OFF. Without `filetype on`,
+    -- `:edit *.iron` does not assign the "iron" filetype, so
+    -- `vim.lsp.enable('ironls')` (filetype-gated) never attaches the client.
+    -- Enable detection explicitly so the test mirrors what real users have.
+    vim.cmd('filetype on')
+
     -- Source the shipped editor files.
     dofile(root .. '/editors/neovim/ftdetect/iron.lua')
     dofile(root .. '/editors/neovim/plugin/iron_lsp.lua')
