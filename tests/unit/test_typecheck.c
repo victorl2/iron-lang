@@ -458,15 +458,19 @@ void test_is_narrowing(void) {
 /* ── Test 22: interface completeness — all methods present => no error ────── */
 
 void test_interface_complete_no_error(void) {
+    /* Phase 98 PATCH-03: standalone form `func Sprite.draw()` is rejected
+     * with E0321. Migrated to in-block method form on Sprite so the
+     * interface-completeness check still has a draw() implementation to
+     * see. */
     const char *src =
         "interface Drawable {\n"
         "  func draw() -> void\n"
         "}\n"
         "object Sprite impl Drawable {\n"
         "  var x: Int\n"
-        "}\n"
-        "func Sprite.draw() {\n"
-        "  val n = 1\n"
+        "  func draw() {\n"
+        "    val n = 1\n"
+        "  }\n"
         "}\n";
     parse_and_resolve(src);
     TEST_ASSERT_FALSE(has_error(IRON_ERR_MISSING_IFACE_METHOD));
@@ -926,12 +930,15 @@ void test_interp_not_stringable(void) {
 /* ── Test 43: object with to_string() in interpolation => no W0602 ───────── */
 
 void test_interp_object_with_to_string_ok(void) {
+    /* Phase 98 PATCH-03: standalone `func Bar.to_string()` is rejected with
+     * E0321. Migrated to in-block form so the interpolation type checker
+     * still sees Bar's to_string() implementation. */
     const char *src =
         "object Bar {\n"
         "  val x: Int\n"
-        "}\n"
-        "func Bar.to_string() -> String {\n"
-        "  return \"Bar\"\n"
+        "  func to_string() -> String {\n"
+        "    return \"Bar\"\n"
+        "  }\n"
         "}\n"
         "func main() {\n"
         "  val b = Bar(1)\n"
@@ -1165,7 +1172,10 @@ void test_slice_end_equals_size_valid(void) {
 
 /* ── Generic constraint checking tests ────────────────────────────────────── */
 
-/* GEN-01 negative: constraint satisfied on function call => no error */
+/* GEN-01 negative: constraint satisfied on function call => no error.
+ *
+ * Phase 98 PATCH-03: standalone `func MyObj.to_string()` is rejected with
+ * E0321. Migrated to in-block form on MyObj. */
 void test_generic_constraint_satisfied_no_error(void) {
     parse_and_resolve(
         "interface Printable {\n"
@@ -1173,9 +1183,9 @@ void test_generic_constraint_satisfied_no_error(void) {
         "}\n"
         "object MyObj impl Printable {\n"
         "  var value: Int\n"
-        "}\n"
-        "func MyObj.to_string() -> String {\n"
-        "  return \"obj\"\n"
+        "  func to_string() -> String {\n"
+        "    return \"obj\"\n"
+        "  }\n"
         "}\n"
         "func show[T: Printable](x: T) {\n"
         "  println(\"shown\")\n"
@@ -1223,7 +1233,10 @@ void test_generic_constraint_violated_construction(void) {
 
 /* GEN-03 negative: constraint satisfied on construction => no error
  * Uses call-as-construction path: Container(MyObj(1)) where field type T
- * is inferred from the MyObj arg, which impl Printable. */
+ * is inferred from the MyObj arg, which impl Printable.
+ *
+ * Phase 98 PATCH-03: standalone `func MyObj.to_string()` is rejected with
+ * E0321. Migrated to in-block form on MyObj. */
 void test_generic_constraint_satisfied_construction(void) {
     parse_and_resolve(
         "interface Printable {\n"
@@ -1231,9 +1244,9 @@ void test_generic_constraint_satisfied_construction(void) {
         "}\n"
         "object MyObj impl Printable {\n"
         "  var value: Int\n"
-        "}\n"
-        "func MyObj.to_string() -> String {\n"
-        "  return \"obj\"\n"
+        "  func to_string() -> String {\n"
+        "    return \"obj\"\n"
+        "  }\n"
         "}\n"
         "object Container[T: Printable] {\n"
         "  var item: T\n"
