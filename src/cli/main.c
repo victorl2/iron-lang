@@ -208,6 +208,16 @@ int main(int argc, char **argv) {
         return iron_build(source_file, output_file, opts);
     }
 
+    /* Phase 96 RUN-03 (reserved, NOT implemented in v3.2):
+     *   --keep-binary  reserved to suppress the atexit unlink of the
+     *                  ${TMPDIR}/iron-run-XXXXXX tempfile produced by the
+     *                  direct-source `iron run foo.iron` path.
+     *   -o <path>      reserved as an output-path override for `iron run`.
+     * Both flags are documented in `iron run --help` (Phase 97 HELP-03 scope).
+     * Implementing them in v3.2 was descoped: the cwd-clean default (mkstemp
+     * + atexit in iron_build) covers the primary issue (#53); a deliberate
+     * keep-binary flag belongs in a later phase alongside the broader CLI
+     * help registry work. */
     if (strcmp(cmd, "run") == 0) {
         if (!source_file) {
             fprintf(stderr, "%s run: missing source file\n", IRON_BINARY_NAME);

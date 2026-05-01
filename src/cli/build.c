@@ -167,6 +167,25 @@ static char *read_file(const char *path, long *out_size) {
     return buf;
 }
 
+/* ── Phase 96 RUN-01: tempfile cleanup state ─────────────────────────────── */
+
+/* iron_run_tempfile_path holds the mkstemp-allocated path while the runnable
+ * binary is needed; the atexit handler unlinks it on process exit. The handler
+ * is idempotent (unlink on empty path is a no-op) so a build that fails before
+ * the handler is registered does not leave a stale registration. Registration
+ * happens once per process via iron_run_tempfile_atexit_registered. Defense in
+ * depth: the run_after branch also unlinks the path immediately at each return
+ * site so a long-running parent process does not accumulate stale tempfiles. */
+static char iron_run_tempfile_path[4096] = {0};
+static bool iron_run_tempfile_atexit_registered = false;
+
+static void iron_run_tempfile_cleanup(void) {
+    if (iron_run_tempfile_path[0] != '\0') {
+        unlink(iron_run_tempfile_path);
+        iron_run_tempfile_path[0] = '\0';
+    }
+}
+
 /* ── Helper: derive output binary name from source path ──────────────────── */
 
 static char *derive_output_name(const char *source_path) {
@@ -1495,11 +1514,48 @@ int iron_build(const char *source_path, const char *output_path,
                 c_src);
     }
 
-    /* 10. Determine output binary name */
+    /* 10. Determine output binary name.
+     *
+     * Phase 96 RUN-01: when `run_after && output_path == NULL` (the
+     * `iron run foo.iron` direct-source path), compile to a tempfile under
+     * ${TMPDIR} (or /tmp fallback) instead of dropping a binary in cwd. The
+     * atexit handler unlinks it on process exit; the run_after branch below
+     * also unlinks promptly at each return point as defense in depth.
+     *
+     * RUN-03 (reserved, NOT implemented in v3.2): --keep-binary suppresses
+     * the cleanup; -o <path> forces an explicit output path. Both flags are
+     * intentionally deferred. Users who want to keep the produced binary
+     * should pass --output to ironc directly.
+     *
+     * `iron build foo.iron` (run_after=false, no -o) keeps the v3.1
+     * basename-in-cwd behavior so users still get a useful binary name. */
     char *derived_output = NULL;
     const char *binary_name;
     if (output_path) {
         binary_name = output_path;
+    } else if (opts.run_after) {
+        const char *tmpdir = getenv("TMPDIR");
+        if (!tmpdir || tmpdir[0] == '\0') tmpdir = "/tmp";
+        snprintf(iron_run_tempfile_path, sizeof(iron_run_tempfile_path),
+                 "%s/iron-run-XXXXXX", tmpdir);
+        int tmp_fd = mkstemp(iron_run_tempfile_path);
+        if (tmp_fd < 0) {
+            fprintf(stderr,
+                    "error: failed to create tempfile in %s: %s\n",
+                    tmpdir, strerror(errno));
+            iron_run_tempfile_path[0] = '\0';
+            iron_diaglist_free(&diags);
+            iron_arena_free(&arena);
+            free(source);
+            free(base_dir);
+            return 1;
+        }
+        close(tmp_fd);  /* mkstemp opened it; clang -o overwrites the path */
+        if (!iron_run_tempfile_atexit_registered) {
+            atexit(iron_run_tempfile_cleanup);
+            iron_run_tempfile_atexit_registered = true;
+        }
+        binary_name = iron_run_tempfile_path;
     } else {
         derived_output = derive_output_name(source_path);
         if (!derived_output) {
@@ -1785,6 +1841,11 @@ int iron_build(const char *source_path, const char *output_path,
         GetExitCodeProcess(run_pi.hProcess, &run_exit);
         CloseHandle(run_pi.hProcess);
         CloseHandle(run_pi.hThread);
+        /* Phase 96 RUN-01: prompt unlink (atexit is the safety net). */
+        if (iron_run_tempfile_path[0] != '\0') {
+            unlink(iron_run_tempfile_path);
+            iron_run_tempfile_path[0] = '\0';
+        }
         free(derived_output);
         return (int)run_exit;
 #else
@@ -1817,6 +1878,11 @@ int iron_build(const char *source_path, const char *output_path,
                         strerror(errno));
                 free(derived_output);
                 return 1;
+            }
+            /* Phase 96 RUN-01: prompt unlink (atexit is the safety net). */
+            if (iron_run_tempfile_path[0] != '\0') {
+                unlink(iron_run_tempfile_path);
+                iron_run_tempfile_path[0] = '\0';
             }
             free(derived_output);
             return WIFEXITED(emrun_wstatus) ? WEXITSTATUS(emrun_wstatus) : 1;
@@ -1874,6 +1940,11 @@ int iron_build(const char *source_path, const char *output_path,
             fprintf(stderr, "error: waitpid failed: %s\n", strerror(errno));
             free(derived_output);
             return 1;
+        }
+        /* Phase 96 RUN-01: prompt unlink (atexit is the safety net). */
+        if (iron_run_tempfile_path[0] != '\0') {
+            unlink(iron_run_tempfile_path);
+            iron_run_tempfile_path[0] = '\0';
         }
         free(derived_output);
         return WIFEXITED(wstatus) ? WEXITSTATUS(wstatus) : 1;

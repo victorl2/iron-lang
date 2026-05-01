@@ -455,13 +455,43 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * pipeline runs (clang -c then llvm-ar/ar wrap). Plan 94-02 needs this
      * forwarded slice so path-dep resolver can recursively build libs into
      * lib<name>.a archives; full LIB-04/05/06 work (init template + run
-     * rejection) lands in Plan 94-03. */
+     * rejection) lands in Plan 94-03.
+     *
+     * Phase 96 RUN-02: when running a bin package (run_after && !is_lib),
+     * route the binary to <proj_dir>/target/run/<name> instead of
+     * <proj_dir>/target/<name> so cwd and the package root stay clean. mkdir
+     * target/run/ if needed; ignore EEXIST. The lib branch is unaffected
+     * (libs still emit to target/lib<name>.a; Phase 94 LIB-06 already rejects
+     * `iron run` on libs upstream). `iron build` (run_after=false) keeps the
+     * v3.1 behavior: binaries land at target/<name> so external scripts that
+     * look for build artifacts there continue to work. */
     bool is_lib = (proj->type && strcmp(proj->type, "lib") == 0);
+    bool route_to_run_dir = run_after && !is_lib;
+    if (route_to_run_dir) {
+        char target_run_dir[4096];
+        snprintf(target_run_dir, sizeof(target_run_dir),
+                 "%s/target/run", proj_dir);
+#ifdef _WIN32
+        _mkdir(target_run_dir);
+#else
+        if (mkdir(target_run_dir, 0755) != 0 && errno != EEXIST) {
+            char msg[512];
+            snprintf(msg, sizeof(msg),
+                     "cannot create target/run/: %s", strerror(errno));
+            iron_print_error(colors, msg);
+            free(proj_dir); free(toml_path); iron_toml_free(proj);
+            return 1;
+        }
+#endif
+    }
     char output_path[4096];
 #ifdef _WIN32
     if (is_lib) {
         snprintf(output_path, sizeof(output_path),
                  "%s/target/lib%s.a", proj_dir, proj->name);
+    } else if (route_to_run_dir) {
+        snprintf(output_path, sizeof(output_path),
+                 "%s/target/run/%s.exe", proj_dir, proj->name);
     } else {
         snprintf(output_path, sizeof(output_path),
                  "%s/target/%s.exe", proj_dir, proj->name);
@@ -470,6 +500,9 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     if (is_lib) {
         snprintf(output_path, sizeof(output_path),
                  "%s/target/lib%s.a", proj_dir, proj->name);
+    } else if (route_to_run_dir) {
+        snprintf(output_path, sizeof(output_path),
+                 "%s/target/run/%s", proj_dir, proj->name);
     } else {
         snprintf(output_path, sizeof(output_path),
                  "%s/target/%s", proj_dir, proj->name);
@@ -788,6 +821,14 @@ static int cmd_test(int argc, char **argv) {
 
 int cmd_package(const char *cmd, int argc, char **argv) {
     if (strcmp(cmd, "build") == 0) return cmd_build(false, argc, argv);
+    /* Phase 96 RUN-03 (reserved, NOT implemented in v3.2):
+     *   --keep-binary  reserved to suppress the atexit unlink (iron-run-XXXXXX)
+     *                  for users who want to inspect the produced binary.
+     *   -o <path>      reserved as an output-path override for `iron run`.
+     * Both flags are documented in `iron run --help` (Phase 97 HELP-03 scope).
+     * Implementing them in v3.2 was descoped: the cwd-clean default covers the
+     * primary issue (#53); a deliberate keep-binary flag belongs in a later
+     * phase alongside the broader CLI help registry work. */
     if (strcmp(cmd, "run") == 0)   return cmd_build(true, argc, argv);
     if (strcmp(cmd, "check") == 0) return cmd_check(argc, argv);
     if (strcmp(cmd, "test") == 0)  return cmd_test(argc, argv);
