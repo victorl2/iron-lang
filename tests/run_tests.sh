@@ -343,6 +343,85 @@ for test_file in "${TEST_DIR}"/*.iron; do
     fi
 done
 
+# Phase 95 PIN: directory-shaped iron.toml-rooted fixtures under
+# tests/integration/pin_*/. Three cases lock the satisfied / mismatch /
+# absent paths of the version-pin check (PIN-01..04 + TEST-04).
+#
+#   pin_satisfied/  iron = ">= 0.1.0" -> build + run + stdout-compare
+#   pin_mismatch/   iron = ">= 99.0.0" -> iron build MUST exit non-zero;
+#                   stderr MUST contain the substring in
+#                   expected_stderr_substring (TEST-04 lock); target/
+#                   MUST NOT have been created (fail-fast invariant).
+#   pin_absent/     no iron field -> build + run + stdout-compare
+if [ "${CATEGORY}" = "integration" ]; then
+    for case_dir in "${TEST_DIR}"/pin_*/; do
+        [ -d "${case_dir}" ] || continue
+        [ -f "${case_dir}iron.toml" ] || continue
+        case_name="$(basename "${case_dir%/}")"
+        TOTAL=$((TOTAL + 1))
+        echo -n "[RUN ] ${case_name} ... "
+
+        build_log="${WORK_DIR}/${case_name}_build.log"
+        set +e
+        (cd "${case_dir}" && rm -rf target && "${IRON_BIN}" build) > "${build_log}" 2>&1
+        build_rc=$?
+        set -e
+
+        if [ "${case_name}" = "pin_mismatch" ]; then
+            if [ "${build_rc}" -eq 0 ]; then
+                echo "[FAIL] (expected build to fail; exit 0)"
+                cat "${build_log}" >&2
+                FAIL=$((FAIL + 1))
+                continue
+            fi
+            expected_substr=$(cat "${case_dir}expected_stderr_substring")
+            if ! grep -qF "${expected_substr}" "${build_log}"; then
+                echo "[FAIL] (stderr missing locked substring: ${expected_substr})"
+                cat "${build_log}" >&2
+                FAIL=$((FAIL + 1))
+                continue
+            fi
+            # Fail-fast invariant: target/ MUST NOT have been created.
+            if [ -d "${case_dir}target" ]; then
+                echo "[FAIL] (fail-fast violated: target/ created on mismatch)"
+                FAIL=$((FAIL + 1))
+                continue
+            fi
+            echo "[PASS]"
+            PASS=$((PASS + 1))
+            continue
+        fi
+
+        # pin_satisfied / pin_absent: build + run + stdout-compare.
+        if [ "${build_rc}" -ne 0 ]; then
+            echo "[FAIL] (build exited ${build_rc})"
+            cat "${build_log}" >&2
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+        bin="${case_dir}target/${case_name}"
+        if [ ! -x "${bin}" ]; then
+            echo "[FAIL] (binary not produced at ${bin})"
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+        actual=$("${bin}" 2>&1) || true
+        expected=$(cat "${case_dir}expected")
+        expected="${expected%$'\n'}"
+        if [ "${actual}" = "${expected}" ]; then
+            # Clean up so the next run exercises a fresh build.
+            rm -rf "${case_dir}target"
+            echo "[PASS]"
+            PASS=$((PASS + 1))
+        else
+            echo "[FAIL]"
+            echo "  Expected: ${expected}"
+            echo "  Actual:   ${actual}"
+            FAIL=$((FAIL + 1))
+        fi
+    done
+fi
+
 # Phase 94 LIB-03 lib_init_smoke: end-to-end iron init --lib + iron build
 # + nm + ar t + iron run rejection check. Mirrors the Phase 92 install-smoke
 # pattern (.github/workflows/install-smoke.yml). Wired into the integration
