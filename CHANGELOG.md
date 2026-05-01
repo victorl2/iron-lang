@@ -3,6 +3,112 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v3.2.0-alpha: Library Authoring Polish (2026-05-01)
+
+## Iron v3.2.0-alpha: Library Authoring Polish
+
+*Released: 2026-05-01*
+
+Closes ten library-authoring pain points (#47 through #56) surfaced by
+the Forge framework Phase 1 spike. Distribution, library packaging,
+visibility, version pinning, `iron run` cleanup, string concatenation,
+CLI help, standalone-form removal, and doc-test CI all ship together.
+The pure-superset guard against v3.0 holds: every program that compiled
+on v3.1 still compiles on v3.2.
+
+### Distribution (#47)
+
+- Fresh `curl ... | sh` installs now ship `lib/diagnostics/` headers, so
+  a hello-world compiles unaided.
+- `install-smoke.yml` runs the untar-then-compile-hello-world contract
+  on Linux and macOS for every push and PR, with a regression canary
+  that asserts the build fails as expected when `lib/diagnostics/` is
+  removed.
+
+### Library packaging (#48)
+
+- `iron build` for `type = "lib"` emits `target/lib<name>.a` (static
+  archive) plus `target/<name>.iron-stub` (declaration-only public
+  surface).
+- Path-form `[dependencies] mylib = { path = "../mylib" }` resolves
+  without lockfile or registry; ironc threads `-L` and `-l` link flags
+  automatically.
+- `iron init --lib` scaffolds a ready-to-build library project.
+- `iron run` rejects libraries with a friendly locked error.
+
+### Visibility (#52)
+
+- `pub` accepted at top level for `func`, `object`, `enum`.
+- Cross-module references to non-`pub` symbols emit
+  `error[E0320]: '<name>' is private to <file>`.
+- Stdlib decls carved out via a line-offset gate so auto-prepended
+  built-ins keep working.
+
+### Iron version pinning (#51)
+
+- `[package].iron = ">= 3.2.0"` enforced before any compile work.
+- Cargo-style operators (`>=`, `>`, `=`, `^`) supported.
+- Mismatch error points at the install command for upgrade.
+
+### iron run cleanup (#53)
+
+- Standalone source: binary written to a `mkstemp` path, unlinked via
+  `atexit`.
+- Package build (cwd has `iron.toml`): binary written to
+  `target/run/<basename>`.
+- Either way, the cwd stays clean.
+
+### String concatenation (#49)
+
+- `String + String` is a built-in special case; `error[E0202]` was
+  narrowed so it stops firing on the legitimate concat case.
+
+### CLI help (#50, #56)
+
+- Central help registry (`src/cli/help_registry.{c,h}`) plus
+  pre-dispatch `--help` argv scan.
+- `iron --help`, `iron <sub> --help`, and `iron --version` produce no
+  side effects: no `iron.toml` parse, no resolve, no network access.
+- `--version` listed in `--help` for both `iron` and `ironc`.
+
+### Standalone-form removal (#54)
+
+- `func TypeName.method()` rejected universally with
+  `error[E0321]`; locked suggestion points at `patch object`.
+- Stdlib migrated to `patch object` (PATCH-01..02), parser-side
+  rejection landed (PATCH-03), 85 integration fixtures bulk-migrated
+  via `scripts/migrate_standalone_to_patch.sh` (PATCH-04).
+
+### Doc-test CI (#55)
+
+- `scripts/test_doc_examples.sh` (bash + awk) walks
+  `docs/language_definition.md`, runs `iron check` on every fenced
+  ` ```iron ` block. Paired `.github/workflows/doc-test.yml` runs it on
+  every push and PR. First-time green run on v3.2 ship day; zero
+  `doctest-skip` markers in the spec doc.
+
+### Forge spike rebuild
+
+- `scripts/rebuild_forge_spike.sh` ran live against `~/code/forge`
+  (SHA `42435c5e`) with `rc=0` in 5 seconds; the produced
+  `target/forge --help` exits cleanly. The v3.2 toolchain handles the
+  un-modified Phase 1 spike without any of the defensive workarounds
+  being needed.
+
+### Install
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh
+```
+
+Pin to a specific version:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh -s -- --version v3.2.0-alpha
+```
+
+Full release notes: [docs/release-notes/v3.2.md](docs/release-notes/v3.2.md).
+
 ## v3.1.0-alpha: Raylib 6 (2026-04-28)
 
 ## Iron v3.1.0-alpha: Raylib 6
@@ -76,7 +182,7 @@ Pin to a specific version:
 curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh -s -- --version v3.1.0-alpha
 ```
 
-## v3.0.0-alpha — Method Ergonomics (2026-04-23)
+## v3.0.0-alpha: Method Ergonomics (2026-04-23)
 
 ### Breaking
 
