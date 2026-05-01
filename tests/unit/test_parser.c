@@ -1965,6 +1965,49 @@ void test_parse_tuple_destructure_wildcard(void) {
     TEST_ASSERT_NULL(vd->binding_names[1]);  /* wildcard sentinel */
 }
 
+/* ── Phase 98 PATCH-03 / TEST-02: standalone-form rejection ──────────────
+ *
+ * tests/compile_fail/ is NOT auto-discovered by tests/run_tests.sh
+ * (Phase 80 commit 3bc6329 convention). Phase 87 IFACE convention pairs
+ * each compile_fail fixture with a unit test that runs parse_no_strict
+ * on equivalent inline source and asserts has_diag_msg_substring on the
+ * locked text from the fixture's .expected sibling, plus an additional
+ * substring lock on the suggestion line.
+ *
+ * Fixture: tests/compile_fail/v3_standalone_method_form.iron
+ * Expected substring: tests/compile_fail/v3_standalone_method_form.expected
+ *   "the standalone form"
+ * Plus suggestion substring (locked separately to force two-anchor coverage):
+ *   "use `patch object"
+ */
+void test_v98_compile_fail_standalone_method_form(void) {
+    /* Equivalent inline source to the .iron fixture, sans header
+     * comment. parse_no_strict triggers the parser path WITHOUT
+     * stdlib prepend, so user_source_start_line == 0 and every line
+     * counts as user source — exactly the contract under test. */
+    (void)parse_no_strict(
+        "object Foo {\n"
+        "  init() { }\n"
+        "}\n"
+        "\n"
+        "func Foo.bar() -> Int {\n"
+        "  return 42\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_STANDALONE_METHOD_FORM),
+        "expected E0321 IRON_ERR_STANDALONE_METHOD_FORM for "
+        "standalone-form `func Foo.bar()` decl");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_msg_substring("the standalone form"),
+        "expected E0321 message substring 'the standalone form' "
+        "(locks tests/compile_fail/v3_standalone_method_form.expected)");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_msg_substring("use `patch object"),
+        "expected E0321 suggestion substring 'use `patch object' "
+        "(locks the migration-hint help text)");
+}
+
 /* ── main ────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -2060,6 +2103,9 @@ int main(void) {
     RUN_TEST(test_patch_implements_multiple);
     RUN_TEST(test_patch_implements_recovery);
     RUN_TEST(test_patch_without_implements_unchanged);
+
+    /* Phase 98 PATCH-03 / TEST-02: standalone-form rejection lock. */
+    RUN_TEST(test_v98_compile_fail_standalone_method_form);
 
     RUN_TEST(test_parse_enum_decl);
     RUN_TEST(test_parse_import);
