@@ -1695,8 +1695,29 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             IronHIR_Param *params;
 
             if (is_stub) {
-                /* Stub method: only explicit params (no self) */
-                total_params = md->param_count;
+                /* Stub method: only explicit params (no self).
+                 *
+                 * Phase 98 PATCH-01: when migrating stdlib from standalone
+                 * form `func TYPE.method(...)` to patch-body form
+                 * `patch object TYPE { func method(...) }`, the patch parser
+                 * synthesizes a `self: TYPE` first parameter
+                 * (parser.c:4102-4128). For empty-body stubs (FFI-bound to
+                 * the C runtime), we must skip that synth_self so the HIR
+                 * func signature matches the C runtime declaration which
+                 * does NOT take a self for static-style methods. Detected
+                 * by: is_receiver_form && params[0]->name == "self". This
+                 * preserves the pre-migration ABI: standalone stubs had
+                 * no self in params, and migrated patch-body stubs must
+                 * lower to the same HIR shape so call-site lowering
+                 * (hir_to_lir.c synth_self gate) behaves identically. */
+                int skip_self = 0;
+                if (md->is_receiver_form && md->param_count > 0) {
+                    Iron_Param *p0 = (Iron_Param *)md->params[0];
+                    if (p0 && p0->name && strcmp(p0->name, "self") == 0) {
+                        skip_self = 1;
+                    }
+                }
+                total_params = md->param_count - skip_self;
                 params = NULL;
                 if (total_params > 0) {
                     params = (IronHIR_Param *)iron_arena_alloc(
@@ -1704,8 +1725,8 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                         (size_t)total_params * sizeof(IronHIR_Param),
                         _Alignof(IronHIR_Param));
                     if (!params) iron_oom_abort("hir_lower.c:lower_module_decls_hir stub_params");
-                    for (int p = 0; p < md->param_count; p++) {
-                        Iron_Param *ap = (Iron_Param *)md->params[p];
+                    for (int p = 0; p < total_params; p++) {
+                        Iron_Param *ap = (Iron_Param *)md->params[p + skip_self];
                         params[p].name   = ap->name;
                         params[p].type   = resolve_type_ann(ctx, ap->type_ann);
                         params[p].var_id = IRON_HIR_VAR_INVALID;
@@ -1786,8 +1807,14 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             /* Phase 80 MUT-07: propagate receiver mut-ness to the HIR func so
              * HIR→LIR can fire self_by_addr at call sites. Gated on
              * is_receiver_form + params[0]->is_mut_receiver so non-receiver-form
-             * methods, stub bodies, and free functions stay false. */
-            if (md->is_receiver_form && md->param_count > 0) {
+             * methods, stub bodies, and free functions stay false.
+             *
+             * Phase 98 PATCH-01: stubs (FFI-bound to C runtime) MUST stay
+             * false even when patch-body parser synthesized a mutating self.
+             * The C runtime takes the receiver by value (or by no receiver
+             * at all for static-style calls); firing self_by_addr would
+             * pass `&value` to a function expecting the value. */
+            if (md->is_receiver_form && md->param_count > 0 && !is_stub) {
                 Iron_Param *recv = (Iron_Param *)md->params[0];
                 if (recv && recv->is_mut_receiver) {
                     f->is_mut_receiver_method = true;
