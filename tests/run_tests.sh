@@ -445,6 +445,28 @@ if [ "${CATEGORY}" = "integration" ] && [ -x "${TEST_DIR}/lib_init_smoke.sh" ]; 
     fi
 fi
 
+# Phase 96 TEST-06 run_cwd_clean_smoke: assert iron run produces no
+# stray binaries in cwd or the package root for both the direct-source
+# (RUN-01) and inside-package (RUN-02) paths. Mirrors the Phase 94
+# lib_init_smoke handler shape.
+if [ "${CATEGORY}" = "integration" ] && [ -x "${TEST_DIR}/run_cwd_clean_smoke.sh" ]; then
+    TOTAL=$((TOTAL + 1))
+    echo -n "[RUN ] run_cwd_clean_smoke ... "
+    smoke_log="${WORK_DIR}/run_cwd_clean_smoke.log"
+    set +e
+    "${TEST_DIR}/run_cwd_clean_smoke.sh" "${IRON_BIN}" > "${smoke_log}" 2>&1
+    smoke_rc=$?
+    set -e
+    if [ "${smoke_rc}" -eq 0 ] && grep -q 'run_cwd_clean_smoke OK' "${smoke_log}"; then
+        echo "[PASS]"
+        PASS=$((PASS + 1))
+    else
+        echo "[FAIL] (exit ${smoke_rc})"
+        cat "${smoke_log}" >&2
+        FAIL=$((FAIL + 1))
+    fi
+fi
+
 echo ""
 echo "Results: ${PASS} passed, ${FAIL} failed, ${TOTAL} total"
 
