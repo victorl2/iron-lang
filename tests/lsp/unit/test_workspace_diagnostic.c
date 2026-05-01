@@ -99,10 +99,19 @@ static void test_refresh_emits_method(void) {
 
     ilsp_send_workspace_diagnostic_refresh(&f.server);
 
-    /* Drain the writer so the body lands in sink_buf. */
+    /* Drain the writer so the body lands in sink_buf. The drain poll
+     * is non-blocking; if the producer thread hasn't enqueued the
+     * notification frame yet, drain_one returns false. On loaded Ubuntu
+     * CI runners the producer can take >1 ms to land the message, so
+     * the original 10-spin busy-poll occasionally exited before the
+     * frame arrived. Bump retries to 200 and sleep 1 ms between polls,
+     * giving the producer up to ~200 ms total. The fast path (frame
+     * ready on first poll) still exits immediately. */
     int drained = 0;
-    for (int i = 0; i < 10 && drained < 1; i++) {
-        if (ilsp_writer_drain_one(f.writer)) drained++;
+    for (int i = 0; i < 200 && drained < 1; i++) {
+        if (ilsp_writer_drain_one(f.writer)) { drained++; break; }
+        struct timespec ts = { .tv_sec = 0, .tv_nsec = 1000000L };  /* 1 ms */
+        nanosleep(&ts, NULL);
     }
     fflush(f.sink);
 
