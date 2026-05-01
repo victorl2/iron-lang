@@ -1,28 +1,30 @@
 -- string.iron -- Iron wrapper for String built-in methods
-func String.len() -> Int {}
-func String.upper() -> String {}
-func String.lower() -> String {}
-func String.trim() -> String {}
-func String.contains(sub: String) -> Bool {}
-func String.starts_with(prefix: String) -> Bool {}
-func String.ends_with(suffix: String) -> Bool {}
-func String.split(sep: String) -> [String] {}
-func String.replace(old: String, new: String) -> String {}
-func String.substring(start: Int, end: Int) -> String {}
-func String.index_of(sub: String) -> Int {}
-func String.char_at(i: Int) -> String {}
-func String.to_int() -> Int {}
-func String.to_float() -> Float {}
-func String.join(parts: [String]) -> String {}
-func String.repeat(n: Int) -> String {}
-func String.pad_left(width: Int, ch: String) -> String {}
-func String.pad_right(width: Int, ch: String) -> String {}
-func String.count(sub: String) -> Int {}
+patch object String {
+    readonly func len() -> Int {}
+    readonly func upper() -> String {}
+    readonly func lower() -> String {}
+    readonly func trim() -> String {}
+    readonly func contains(sub: String) -> Bool {}
+    readonly func starts_with(prefix: String) -> Bool {}
+    readonly func ends_with(suffix: String) -> Bool {}
+    readonly func split(sep: String) -> [String] {}
+    readonly func replace(old: String, new: String) -> String {}
+    readonly func substring(start: Int, end: Int) -> String {}
+    readonly func index_of(sub: String) -> Int {}
+    readonly func char_at(i: Int) -> String {}
+    readonly func to_int() -> Int {}
+    readonly func to_float() -> Float {}
+    readonly func join(parts: [String]) -> String {}
+    readonly func repeat(n: Int) -> String {}
+    readonly func pad_left(width: Int, ch: String) -> String {}
+    readonly func pad_right(width: Int, ch: String) -> String {}
+    readonly func count(sub: String) -> Int {}
+    readonly func rindex_of(sub: String) -> Int {}
+    readonly func byte_at(i: Int) -> Int {}
+    readonly func from_byte(b: Int) -> String {}
+}
 
 -- Phase 59 P01c: byte-level and reverse-search primitives needed by URL
 -- parsing and generic byte access. All three land in a single coherent
 -- edit; `from_byte` was previously slated for P05 but moved forward per
 -- checker warning #3 so the String primitive trio ships together.
-func String.rindex_of(sub: String) -> Int {}
-func String.byte_at(i: Int) -> Int {}
-func String.from_byte(b: Int) -> String {}
