@@ -227,6 +227,31 @@ vim.api.nvim_create_user_command('IronLspDiagnose', function()
   end
 end, { desc = 'Iron LSP: Diagnose (print + copy UI-SPEC S3 bug-report payload)' })
 
+-- Phase 14 CMD-02: :IronLspMigrateV2ToV3 — delegates workspace/executeCommand
+-- iron.migrate to the running ironls, which invokes `ironc migrate` and returns
+-- a WorkspaceEdit. vim.lsp.buf.execute_command is the 0.11+ surface.
+vim.api.nvim_create_user_command('IronLspMigrateV2ToV3', function()
+  local clients = get_clients()
+  if #clients == 0 then
+    vim.notify('[iron-lsp] language server is not running. Open a .iron file first.', vim.log.levels.ERROR)
+    return
+  end
+  local client = clients[1]
+  client.request('workspace/executeCommand', {
+    command = 'iron.migrate',
+    arguments = {},
+  }, function(err, result)
+    if err then
+      vim.notify('[iron-lsp] migration failed: ' .. (err.message or tostring(err)), vim.log.levels.ERROR)
+      return
+    end
+    if result then
+      vim.lsp.util.apply_workspace_edit(result, client.offset_encoding or 'utf-8')
+      vim.notify('[iron-lsp] migration complete. Review changes and save.', vim.log.levels.INFO)
+    end
+  end)
+end, { desc = 'Iron LSP: Migrate v2 -> v3 (workspace/executeCommand iron.migrate)' })
+
 -- Fire ext.activate event at plugin load (UI-SPEC S5 vocabulary).
 M.event('info', 'ext.activate', { editor_version = editor_version_string() })
 

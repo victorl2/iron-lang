@@ -182,6 +182,39 @@ running `:checkhealth`; (b) the server is on `PATH`; (c) your Neovim is
 
 ---
 
+## Iron v3 schematic example
+
+```iron
+pub object Player {
+    val name: String
+    val hp: Int
+
+    init(name: String, hp: Int) {
+        self.name = name
+        self.hp = hp
+    }
+
+    pure func is_alive(self) -> Bool {
+        return self.hp > 0
+    }
+}
+
+patch Player {
+    func take_damage(mut self, amount: Int) {
+        self.hp = self.hp - amount
+    }
+}
+```
+
+## `:IronLspMigrateV2ToV3`
+
+Run `:IronLspMigrateV2ToV3` to invoke `workspace/executeCommand iron.migrate`
+on the running `ironls`. The command calls `ironc migrate` on your workspace,
+computes the rewrite diff, and applies it in-editor as a `WorkspaceEdit` (no
+disk writes until you `:w`). Requires ironls >= 3.0.0.
+
+---
+
 ## `:IronLspDiagnose`
 
 Run `:IronLspDiagnose` in Neovim to produce a bug-report payload (UI-SPEC
@@ -227,7 +260,7 @@ before our version guard gets a chance to `return {}`. Upgrade Neovim.
 ### Version mismatch (`[iron-lsp] detected ironls X.Y.Z, but this config requires …`)
 
 Phase 7 HARD-22 / D-10 / UI-SPEC S9 — when the attached `ironls` reports
-a `serverInfo.version` outside the range `>= 1.2.0, < 2.0.0`
+a `serverInfo.version` outside the range `>= 3.0.0, < 4.0.0`
 (`IRON_LSP_COMPATIBLE_VERSION_RANGE` in `lsp/ironls.lua`), the
 `on_attach` hook refuses the attach:
 
@@ -245,11 +278,11 @@ the LSP client is not silently left running in a half-active state.
 
 ## Version compatibility
 
-This config targets `ironls` in `>= 1.2.0, < 2.0.0` per the
+This config targets `ironls` in `>= 3.0.0, < 4.0.0` per the
 `IRON_LSP_COMPATIBLE_VERSION_RANGE` constant in `lsp/ironls.lua`. The
 `on_attach` hook enforces the range as a hard refuse (Phase 7 HARD-22
-/ D-10). Minor/patch bumps within `1.2.x` / `1.3.x` / `1.999.x` are
-compatible by definition; a `2.0.0` release signals breaking LSP
+/ D-10). Minor/patch bumps within `3.0.x` / `3.1.x` / `3.999.x` are
+compatible by definition; a `4.0.0` release signals breaking LSP
 semantics and will require an updated config.
 
 ---

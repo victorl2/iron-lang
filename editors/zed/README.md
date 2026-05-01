@@ -38,6 +38,30 @@ Legacy pre-v3 keywords (`val`, `var`, `object`, `interface`, `impl`, etc.)
 continue to work unchanged. The complete roster is 44 keywords,
 drift-guarded at build time by `test_grammar_keyword_drift_tree_sitter`.
 
+## Iron v3 schematic example
+
+```iron
+pub object Player {
+    val name: String
+    val hp: Int
+
+    init(name: String, hp: Int) {
+        self.name = name
+        self.hp = hp
+    }
+
+    pure func is_alive(self) -> Bool {
+        return self.hp > 0
+    }
+}
+
+patch Player {
+    func take_damage(mut self, amount: Int) {
+        self.hp = self.hp - amount
+    }
+}
+```
+
 ## Requirements
 
 - **Zed 0.200+** (the `zed_extension_api` 0.7 surface + `wasm32-wasip2`
@@ -177,7 +201,7 @@ CI harness allows Linux to fail on this extension for v1.
 
 ## Version compatibility
 
-This extension targets `ironls` in the range `>= 1.2.0, < 2.0.0` per
+This extension targets `ironls` in the range `>= 3.0.0, < 4.0.0` per
 the `[version_constraints] ironls` entry in `extension.toml`. Phase 7
 HARD-22 / D-10 enforces this with a **hard refuse**: on every
 activation the extension runs `ironls --version`, parses the semver
