@@ -234,6 +234,7 @@ add_executable(ironc
     src/cli/toml.c
     src/cli/iron_import_detect.c
     src/cli/semver.c
+    src/cli/help_registry.c
 )
 target_include_directories(ironc PRIVATE src)
 if(NOT WIN32)
@@ -262,6 +263,7 @@ add_executable(iron
     src/pkg/lockfile.c
     src/cli/toml.c
     src/cli/semver.c
+    src/cli/help_registry.c
 )
 target_include_directories(iron PRIVATE src)
 target_compile_definitions(iron PRIVATE

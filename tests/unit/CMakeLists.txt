@@ -225,6 +225,18 @@ target_link_libraries(test_toml_iron_field unity)
 add_test(NAME test_toml_iron_field COMMAND test_toml_iron_field)
 set_tests_properties(test_toml_iron_field PROPERTIES LABELS "unit")
 
+# Phase 97 HELP-04: central help registry tests
+add_executable(test_help_registry
+    test_help_registry.c
+    ${CMAKE_SOURCE_DIR}/src/cli/help_registry.c
+)
+target_include_directories(test_help_registry PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(test_help_registry unity)
+add_test(NAME test_help_registry COMMAND test_help_registry)
+set_tests_properties(test_help_registry PROPERTIES LABELS "unit")
+
 # ── Phase 5 plan-03: web_main_loop_split pass test (WEB-EMIT-01..04) ─────────
 add_executable(test_web_main_loop_split test_web_main_loop_split.c)
 target_link_libraries(test_web_main_loop_split iron_compiler unity)
