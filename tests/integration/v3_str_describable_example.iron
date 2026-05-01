@@ -1,0 +1,24 @@
+-- STR-03 fixture: locks the §Patch `Describable` example from
+-- docs/language_definition.md (lines 397-407) verbatim.
+--
+-- After Phase 96 STR-01 + STR-02 land, the inner `+` between the
+-- literal "Int(" and the `self.to_string()` return (and again between
+-- that and the closing ")") typechecks as String concatenation and
+-- lowers to runtime calls to iron_string_concat.
+--
+-- A Phase 99 doc-test pass should regenerate this fixture from the
+-- spec block; for v3.2 it is hand-mirrored.
+
+interface Describable {
+  readonly func describe() -> String
+}
+
+patch object Int implements Describable {
+  pub readonly func describe() -> String {
+    return "Int(" + self.to_string() + ")"
+  }
+}
+
+func main() {
+  println(42.describe())
+}
