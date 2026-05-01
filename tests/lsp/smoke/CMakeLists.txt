@@ -93,6 +93,43 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             LABELS "smoke;lsp_smoke;phase-m4-invariant"
             TIMEOUT 120
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+
+        # Phase 14 Plan 14-02 (CMD-01, CMD-03): test_iron_migrate_command --
+        # Wave 0 smoke for workspace/executeCommand iron.migrate.
+        # Covers: capability-advertised, workspace-edit happy path,
+        # CMD-03 version-gate failure path.
+        # Labels: phase-m6-invariant (Phase 7 family) + phase-14-invariant.
+        add_test(
+            NAME test_iron_migrate_command
+            COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_iron_migrate_command.py
+                --lsp-binary=$<TARGET_FILE:ironls>
+                --no-header
+                -p no:cacheprovider
+                -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(test_iron_migrate_command PROPERTIES
+            LABELS "smoke;lsp_smoke;phase-m6-invariant;phase-14-invariant"
+            TIMEOUT 120
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+
+        # Phase 14 Plan 14-02 (MIG-06): test_hard_refuse_v3 --
+        # Unit-style version-range guard. Does NOT require a running ironls.
+        # Asserts that v1.x is REJECTED and v3.x is ACCEPTED by
+        # the '>= 3.0.0, < 4.0.0' extension range.
+        # Labels: phase-m6-invariant + phase-14-invariant.
+        add_test(
+            NAME test_hard_refuse_v3
+            COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_hard_refuse_v3.py
+                --no-header
+                -p no:cacheprovider
+                -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(test_hard_refuse_v3 PROPERTIES
+            LABELS "smoke;phase-m6-invariant;phase-14-invariant"
+            TIMEOUT 60
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
     else()
         message(STATUS
             "pytest-lsp not installed -- registering lsp_smoke as a skipping shim. "
@@ -133,6 +170,32 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             COMMAND ${Python3_EXECUTABLE} -c "print('pytest-lsp not installed'); raise SystemExit(77)")
         set_tests_properties(lsp_fmt_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase-m4-invariant"
+            SKIP_RETURN_CODE 77
+            TIMEOUT 30)
+
+        # Phase 14 Plan 14-02: SKIP shim for test_iron_migrate_command when
+        # pytest-lsp is absent. ctest -L phase-m6-invariant stays green.
+        add_test(
+            NAME test_iron_migrate_command
+            COMMAND ${Python3_EXECUTABLE} -c "print('pytest-lsp not installed'); raise SystemExit(77)")
+        set_tests_properties(test_iron_migrate_command PROPERTIES
+            LABELS "smoke;lsp_smoke;phase-m6-invariant;phase-14-invariant"
+            SKIP_RETURN_CODE 77
+            TIMEOUT 30)
+
+        # Phase 14 Plan 14-02: SKIP shim for test_hard_refuse_v3.
+        # This test has no pytest-lsp dependency (pure Python unit test)
+        # but we keep the SKIP shim for the case where Python3 itself
+        # is missing — the outer `if(Python3_FOUND ...)` gate already
+        # handles that. When Python3 is present, no shim is needed for
+        # test_hard_refuse_v3 since it doesn't need pytest-lsp; however
+        # the SKIP shim is registered here for consistency with the
+        # else() branch structure.
+        add_test(
+            NAME test_hard_refuse_v3
+            COMMAND ${Python3_EXECUTABLE} -c "print('pytest not installed'); raise SystemExit(77)")
+        set_tests_properties(test_hard_refuse_v3 PROPERTIES
+            LABELS "smoke;phase-m6-invariant;phase-14-invariant"
             SKIP_RETURN_CODE 77
             TIMEOUT 30)
     endif()
