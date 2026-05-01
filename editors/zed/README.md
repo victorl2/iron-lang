@@ -10,7 +10,7 @@ in the [Zed editor](https://zed.dev/). Ships with:
 - automatic `ironls` binary download from GitHub Releases with
   SHA-256 verification.
 
-**Tracks:** Iron v3.0.0-alpha.1 (current main-branch alpha). See the
+**Tracks:** Iron v3.1.1-alpha (current main-branch alpha). See the
 **Version compatibility** section below for the exact `ironls` range the
 extension accepts (the hard-refuse constant bumps atomically in a later
 phase).

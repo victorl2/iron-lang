@@ -5,7 +5,7 @@ server (`ironls`). It is a single Lua config file consumed by Neovim's native
 `vim.lsp.config()` / `vim.lsp.enable()` API — no plugin-wrapper layer, no
 framework dependency.
 
-**Tracks:** Iron v3.0.0-alpha.1 (current main-branch alpha). See the
+**Tracks:** Iron v3.1.1-alpha (current main-branch alpha). See the
 **Version compatibility** section below for the exact `ironls` range the
 config accepts (the hard-refuse constant bumps atomically in a later phase).
 

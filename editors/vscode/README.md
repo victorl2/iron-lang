@@ -4,7 +4,7 @@ Iron language support for [Visual Studio Code](https://code.visualstudio.com/):
 TextMate syntax highlighting and a full LSP 3.17 client that delegates to
 [`ironls`](https://github.com/iron-lang/iron-lang), the Iron language server.
 
-**Tracks:** Iron v3.0.0-alpha.1 (current main-branch alpha). See the
+**Tracks:** Iron v3.1.1-alpha (current main-branch alpha). See the
 **Version mismatch** section below for the exact `ironls` binary the
 extension accepts.
 
