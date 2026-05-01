@@ -18,9 +18,13 @@ import raylib
 
 object _Phase70Probe {}
 
-func _Phase70Probe.list_matrix_in(items: [Matrix]) {}
-func _Phase70Probe.list_material_out() -> [Material] {}
-func _Phase70Probe.list_model_animation_out() -> [ModelAnimation] {}
+-- Foreign-method-stub declarations migrated from the v2.x standalone
+-- form to v3.2 patch-object form (Phase 98 PATCH-03 / E0321).
+patch object _Phase70Probe {
+    readonly func list_matrix_in(items: [Matrix]) {}
+    readonly func list_material_out() -> [Material] {}
+    readonly func list_model_animation_out() -> [ModelAnimation] {}
+}
 
 func main() -> Int32 {
     return Int32(0)
