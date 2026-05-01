@@ -46,13 +46,13 @@ use sha2::{Digest, Sha256};
 /// `check_ironls_version` probes `ironls --version` and returns an
 /// Err from `language_server_command` on mismatch. Zed surfaces the
 /// Err message to the user and does not spawn the language server.
-const COMPATIBLE_IRONLS: &str = ">= 1.2.0, < 2.0.0";
+const COMPATIBLE_IRONLS: &str = ">= 3.0.0, < 4.0.0";
 
 /// Minimum inclusive ironls major.minor.patch (parsed from COMPATIBLE_IRONLS).
-const COMPATIBLE_MIN: (u32, u32, u32) = (1, 2, 0);
+const COMPATIBLE_MIN: (u32, u32, u32) = (3, 0, 0);
 
 /// Maximum exclusive ironls major.minor.patch (parsed from COMPATIBLE_IRONLS).
-const COMPATIBLE_MAX_EXCLUSIVE: (u32, u32, u32) = (2, 0, 0);
+const COMPATIBLE_MAX_EXCLUSIVE: (u32, u32, u32) = (4, 0, 0);
 
 /// Parse a dotted semver prefix "X.Y.Z" (with optional pre-release suffix
 /// "-alpha", "-alpha.7", etc.) and return (major, minor, patch). Returns

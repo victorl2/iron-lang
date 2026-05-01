@@ -228,6 +228,38 @@ export async function activate(
       })
     )
   );
+
+  // Phase 14 CMD-02: iron.migrate command — delegates workspace/executeCommand
+  // to ironls, which runs ironc migrate on the workspace root and returns a
+  // WorkspaceEdit covering all rewritten files.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('iron-lsp.migrate', async () => {
+      if (!client) {
+        void vscode.window.showErrorMessage(
+          'Iron LSP: language server is not running. Open a .iron file first.'
+        );
+        return;
+      }
+      try {
+        const edit = await client.sendRequest('workspace/executeCommand', {
+          command: 'iron.migrate',
+          arguments: [],
+        });
+        if (edit && typeof edit === 'object') {
+          const we = client.protocol2CodeConverter.asWorkspaceEdit(
+            edit as Parameters<typeof client.protocol2CodeConverter.asWorkspaceEdit>[0]
+          );
+          await vscode.workspace.applyEdit(we);
+          void vscode.window.showInformationMessage(
+            'Iron LSP: migration complete. Review the changes and save.'
+          );
+        }
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : String(e);
+        void vscode.window.showErrorMessage(`Iron LSP: migration failed — ${reason}`);
+      }
+    })
+  );
 }
 
 export async function deactivate(): Promise<void> {

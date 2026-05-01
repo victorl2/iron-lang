@@ -40,6 +40,33 @@ keywords, drift-guarded at build time by `test_grammar_keyword_drift_*`.
 - Configurable log level + trace channel for debugging.
 - `Iron LSP: Diagnose` command (Command Palette) producing a self-contained
   report for bug filing.
+- `Iron: Migrate v2 -> v3` command (Command Palette) — invokes
+  `workspace/executeCommand iron.migrate` on ironls, which runs
+  `ironc migrate` and applies the resulting WorkspaceEdit in-editor.
+
+## Iron v3 schematic example
+
+```iron
+pub object Player {
+    val name: String
+    val hp: Int
+
+    init(name: String, hp: Int) {
+        self.name = name
+        self.hp = hp
+    }
+
+    pure func is_alive(self) -> Bool {
+        return self.hp > 0
+    }
+}
+
+patch Player {
+    func take_damage(mut self, amount: Int) {
+        self.hp = self.hp - amount
+    }
+}
+```
 
 ## Requirements
 
@@ -49,7 +76,7 @@ keywords, drift-guarded at build time by `test_grammar_keyword_drift_*`.
   `ironls` alongside `ironc`; follow the install instructions at
   <https://iron-lang.dev/install>.
 - Compatible `ironls` versions: see `ironLspCompatibleIronlsRange` in
-  `package.json` (currently `>= 1.2.0, < 2.0.0`). An incompatible server
+  `package.json` (currently `>= 3.0.0, < 4.0.0`). An incompatible server
   triggers a **hard refuse** — see the "Version mismatch" section below.
 
 ## Install
@@ -95,11 +122,11 @@ Each error has an **Open Settings** button that jumps to the
 ### Version mismatch
 
 Phase 7 HARD-22 / UI-SPEC S9 — when the extension detects an `ironls`
-version outside `ironLspCompatibleIronlsRange` (`>= 1.2.0, < 2.0.0`),
+version outside `ironLspCompatibleIronlsRange` (`>= 3.0.0, < 4.0.0`),
 it refuses to activate the language client:
 
 > **Iron LSP: detected ironls X.Y.Z, but this extension requires
-> &gt;= 1.2.0 .. &lt; 2.0.0. The language server will NOT activate.
+> &gt;= 3.0.0 .. &lt; 4.0.0. The language server will NOT activate.
 > Install the latest ironls to continue.**
 
 Click **Update Iron LSP** in the toast to open

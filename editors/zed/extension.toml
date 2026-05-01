@@ -21,7 +21,7 @@ languages = ["Iron"]
 # outside the range. `compatible_ironls` is kept in sync with the new
 # `[version_constraints]` section below for backward compatibility with
 # tooling that reads the legacy field.
-compatible_ironls = ">= 1.2.0, < 2.0.0"
+compatible_ironls = ">= 3.0.0, < 4.0.0"
 
 # Phase 7 Plan 07-07 Task 02 (HARD-22, D-10) — explicit version
 # constraints table. src/lib.rs reads this key via the
@@ -29,7 +29,7 @@ compatible_ironls = ">= 1.2.0, < 2.0.0"
 # `ironls` key matches the LSP server id above so future multi-server
 # extensions can express constraints per server.
 [version_constraints]
-ironls = ">= 1.2.0, < 2.0.0"
+ironls = ">= 3.0.0, < 4.0.0"
 
 # Minimum-permissions capability grant per RESEARCH §V4 Access Control.
 # zed_extension_api::download_file only succeeds against hosts the extension
