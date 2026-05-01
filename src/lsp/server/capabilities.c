@@ -151,6 +151,21 @@ static void caps_add(yyjson_mut_doc *d, yyjson_mut_val *caps,
         return;
     }
 
+    /* Phase 14 Plan 14-02 (CMD-01, CMD-03): executeCommandProvider expects
+     *   { commands: ["iron.migrate"] }
+     * Handler-table auto-advertise cannot produce this nested-object shape
+     * (it only emits booleans by default); this explicit branch mirrors the
+     * signatureHelpProvider precedent (Phase 3 D-13 decision: "signatureHelpProvider
+     * shape override lives in capabilities.c caps_add — not handler-table auto-derive"). */
+    if (strcmp(name, "executeCommandProvider") == 0) {
+        yyjson_mut_val *exec_cmd = yyjson_mut_obj(d);
+        yyjson_mut_val *cmds_arr = yyjson_mut_arr(d);
+        yyjson_mut_arr_append(cmds_arr, yyjson_mut_str(d, "iron.migrate"));
+        yyjson_mut_obj_add_val(d, exec_cmd, "commands", cmds_arr);
+        yyjson_mut_obj_add_val(d, caps, name, exec_cmd);
+        return;
+    }
+
     /* Phase 3 Plan 04 Task 03 (D-13): signatureHelpProvider expects
      *   { triggerCharacters: ["(", ","], retriggerCharacters: [","] }.
      * Handler-table auto-advertise cannot produce this shape (it only
