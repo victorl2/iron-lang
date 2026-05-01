@@ -3520,6 +3520,128 @@ void test_v93_compile_fail_pub_top_level_val(void) {
         "tests/compile_fail/v3_pub_top_level_val.expected)");
 }
 
+/* ── Phase 96 STR-01/02: String + String concat + narrowed E0202 ────────────
+ *
+ * Plan 96-01 wires `String + String` as a built-in concatenation operator:
+ *   - typecheck.c sets Iron_BinaryExpr.is_string_concat = true when op is
+ *     IRON_TOK_PLUS AND both operands are IRON_TYPE_STRING; result type is
+ *     String (no E0202).
+ *   - The narrowed E0202 substring "operator `+` requires numeric operands
+ *     or two `String` values" fires ONLY for op == IRON_TOK_PLUS with mixed
+ *     String / non-String operands; the generic "arithmetic operator
+ *     requires numeric operands" message survives for `-`, `*`, `/`, `%`.
+ * Six tests below lock the contract for both directions and cover the
+ * pure-superset Int+Int / Float+Float regressions. */
+
+void test_v96_string_plus_string_typechecks_as_string(void) {
+    /* "a" + "b" should typecheck as String with is_string_concat = true and
+     * not emit any diagnostic. */
+    const char *src =
+        "func main() {\n"
+        "  val s: String = \"a\" + \"b\"\n"
+        "}\n";
+    Iron_Program *prog = parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    Iron_ValDecl *vd = (Iron_ValDecl *)get_first_stmt(prog);
+    TEST_ASSERT_NOT_NULL(vd);
+    Iron_BinaryExpr *be = (Iron_BinaryExpr *)vd->init;
+    TEST_ASSERT_NOT_NULL(be);
+    TEST_ASSERT_EQUAL_INT(IRON_NODE_BINARY, be->kind);
+    TEST_ASSERT_NOT_NULL(be->resolved_type);
+    TEST_ASSERT_EQUAL_INT(IRON_TYPE_STRING, be->resolved_type->kind);
+    TEST_ASSERT_TRUE_MESSAGE(be->is_string_concat,
+        "String + String must set is_string_concat = true");
+}
+
+void test_v96_chained_string_concat_left_associates(void) {
+    /* "a" + "b" + "c" parses as ((a + b) + c). Both inner and outer binops
+     * must have is_string_concat = true and resolved_type == String. */
+    const char *src =
+        "func main() {\n"
+        "  val s: String = \"a\" + \"b\" + \"c\"\n"
+        "}\n";
+    Iron_Program *prog = parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    Iron_ValDecl *vd = (Iron_ValDecl *)get_first_stmt(prog);
+    Iron_BinaryExpr *outer = (Iron_BinaryExpr *)vd->init;
+    TEST_ASSERT_NOT_NULL(outer);
+    TEST_ASSERT_TRUE_MESSAGE(outer->is_string_concat,
+        "outer (a+b)+c must set is_string_concat = true");
+    TEST_ASSERT_EQUAL_INT(IRON_TYPE_STRING, outer->resolved_type->kind);
+
+    Iron_BinaryExpr *inner = (Iron_BinaryExpr *)outer->left;
+    TEST_ASSERT_NOT_NULL(inner);
+    TEST_ASSERT_EQUAL_INT(IRON_NODE_BINARY, inner->kind);
+    TEST_ASSERT_TRUE_MESSAGE(inner->is_string_concat,
+        "inner a+b must set is_string_concat = true");
+    TEST_ASSERT_EQUAL_INT(IRON_TYPE_STRING, inner->resolved_type->kind);
+}
+
+void test_v96_string_plus_int_emits_narrowed_e0202(void) {
+    /* "foo" + 42 must emit the narrowed E0202 substring (locks the
+     * tests/compile_fail/v3_str_plus_int.expected fixture). The OLD generic
+     * substring must NOT appear. */
+    const char *src =
+        "func main() {\n"
+        "  val bad = \"foo\" + 42\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_GREATER_THAN(0, g_diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring(
+            "operator `+` requires numeric operands or two `String` values"),
+        "expected narrowed E0202 substring (locks "
+        "tests/compile_fail/v3_str_plus_int.expected)");
+}
+
+void test_v96_int_plus_string_emits_narrowed_e0202(void) {
+    /* Mirror direction: 42 + "foo" must also fire the narrowed E0202. */
+    const char *src =
+        "func main() {\n"
+        "  val bad = 42 + \"foo\"\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_GREATER_THAN(0, g_diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring(
+            "operator `+` requires numeric operands or two `String` values"),
+        "expected narrowed E0202 substring for Int + String (mirror)");
+}
+
+void test_v96_string_minus_string_emits_generic_e0202(void) {
+    /* "foo" - "bar" must keep the generic E0202 substring "arithmetic
+     * operator requires numeric operands" because op != IRON_TOK_PLUS. */
+    const char *src =
+        "func main() {\n"
+        "  val bad = \"foo\" - \"bar\"\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_GREATER_THAN(0, g_diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("arithmetic operator requires numeric operands"),
+        "String - String must keep the generic E0202 message (op != PLUS)");
+}
+
+void test_v96_int_plus_int_unchanged_no_string_concat_bit(void) {
+    /* Pure-superset regression: 1 + 2 still typechecks as Int, and the binop
+     * must NOT have is_string_concat set. */
+    const char *src =
+        "func main() {\n"
+        "  val z = 1 + 2\n"
+        "}\n";
+    Iron_Program *prog = parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    Iron_ValDecl *vd = (Iron_ValDecl *)get_first_stmt(prog);
+    Iron_BinaryExpr *be = (Iron_BinaryExpr *)vd->init;
+    TEST_ASSERT_NOT_NULL(be);
+    TEST_ASSERT_EQUAL_INT(IRON_TYPE_INT, be->resolved_type->kind);
+    TEST_ASSERT_FALSE_MESSAGE(be->is_string_concat,
+        "Int + Int must NOT set is_string_concat");
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -3752,6 +3874,14 @@ int main(void) {
     RUN_TEST(test_v93_compile_fail_cross_module_private);
     RUN_TEST(test_v93_compile_fail_pub_init_in_private_object);
     RUN_TEST(test_v93_compile_fail_pub_top_level_val);
+
+    /* Phase 96 STR-01/02: String + String concat + narrowed E0202. */
+    RUN_TEST(test_v96_string_plus_string_typechecks_as_string);
+    RUN_TEST(test_v96_chained_string_concat_left_associates);
+    RUN_TEST(test_v96_string_plus_int_emits_narrowed_e0202);
+    RUN_TEST(test_v96_int_plus_string_emits_narrowed_e0202);
+    RUN_TEST(test_v96_string_minus_string_emits_generic_e0202);
+    RUN_TEST(test_v96_int_plus_int_unchanged_no_string_concat_bit);
 
     return UNITY_END();
 }
