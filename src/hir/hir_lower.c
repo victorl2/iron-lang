@@ -1751,6 +1751,18 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                                 break;
                             }
                         }
+                        /* Iron_string_from_byte specifically: the
+                         * runtime declares it as `(int64_t b)` with no
+                         * self (an inconsistency among the receiver-style
+                         * Iron_string_* prefixes). Hard-coded here rather
+                         * than via a generic factory heuristic because
+                         * raylib factories like Iron_image_from_rectangle
+                         * DO take self at the C boundary - the
+                         * convention is per-symbol, not per-prefix. */
+                        if (!skip_self && md->method_name &&
+                            strncmp(mangled, "string_from_byte", 16) == 0) {
+                            skip_self = 1;
+                        }
                     }
                 }
                 total_params = md->param_count - skip_self;
