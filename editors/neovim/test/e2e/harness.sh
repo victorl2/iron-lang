@@ -48,7 +48,15 @@ cd "$REPO"
 # -u NONE: skip the user's init.lua (we are not testing the user config; we
 # are testing the shipped in-tree config). The plenary runtimepath is added
 # inline via `set rtp+=...` so the harness has no other dependency.
+#
+# `filetype on`: -u NONE also disables Neovim's built-in filetype-detection
+# autocmds. Without it, `:edit *.iron` does not set filetype to "iron", so
+# `vim.lsp.enable('ironls')` (filetype-gated) never attaches the client and
+# no diagnostics are published. The shipped editors/neovim/ftdetect/iron.lua
+# maps the extension via vim.filetype.add(), but that mapping only fires
+# inside filetype-detection autocmds.
 nvim --headless -u NONE \
+    -c "filetype on" \
     -c "set rtp+=$PLENARY_DIR" \
     -c "lua vim.env.IRONLS_E2E = '1'" \
     -c "lua require('plenary.test_harness').test_directory('$E2E_DIR', { minimal_init = 'NONE' })" \

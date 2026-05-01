@@ -13,12 +13,13 @@
 --   - editors/neovim/test/e2e/diag_error_spec.lua      (Plan 06-04)
 --   - editors/zed/test/dev-load/diag_error_test.rs     (Plan 06-05)
 --
--- NOTE: Iron uses `--` for line comments (not `//`). The original Phase 6
--- fixture used `//` which produced extra parse errors under v3 — this was
--- the root cause of the neovim-e2e and vscode-e2e failures on the PR after
--- the rebase. Fixed by switching to `--`.
+-- v3 syntax notes:
+--   * Iron uses `--` for line comments (not `//`).
+--   * Primitive types are capitalized: `Int`, `String`, `Bool`, `Float`.
+--   * Phase 6 fixture used `//` + `int` which v3's parser/typechecker reject
+--     with extra noise diagnostics, masking the intended one.
 
-func main() -> int {
-    val x: int = undefined_symbol
+func main() -> Int {
+    val x: Int = undefined_symbol
     return x
 }
