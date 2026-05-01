@@ -7,13 +7,15 @@ object Vec {
   val y: Int
 }
 
-func Vec.dot(other: Vec) -> Int {
-  return self.x * other.x + self.y * other.y
+patch object Vec {
+    readonly func dot(other: Vec) -> Int {
+      return self.x * other.x + self.y * other.y
+    }
+    readonly func mag_sq() -> Int {
+      return self.x * self.x + self.y * self.y
+    }
 }
 
-func Vec.mag_sq() -> Int {
-  return self.x * self.x + self.y * self.y
-}
 
 func main() {
   val a = heap Vec(3, 4)

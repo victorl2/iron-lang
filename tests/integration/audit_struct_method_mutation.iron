@@ -7,13 +7,15 @@ object Counter {
     }
 }
 
-func Counter.increment(amount: Int) -> Counter {
-  return Counter(self.count + amount, self.name)
+patch object Counter {
+    readonly func increment(amount: Int) -> Counter {
+      return Counter(self.count + amount, self.name)
+    }
+    readonly func display() {
+      println("{self.name}: {self.count}")
+    }
 }
 
-func Counter.display() {
-  println("{self.name}: {self.count}")
-}
 
 func main() {
   val c1 = Counter(0, "alpha")

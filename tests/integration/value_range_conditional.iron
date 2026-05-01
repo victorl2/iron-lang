@@ -35,12 +35,16 @@ object Meter impl Sensor {
     }
 }
 
-func Gauge.reading() -> Int {
-  return self.level * self.scale
+patch object Gauge {
+    readonly func reading() -> Int {
+      return self.level * self.scale
+    }
 }
 
-func Meter.reading() -> Int {
-  return self.level + self.offset
+patch object Meter {
+    readonly func reading() -> Int {
+      return self.level + self.offset
+    }
 }
 
 -- Identity function to prevent inlining of callers (has_call = true)

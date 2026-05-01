@@ -16,11 +16,15 @@ object Square impl Shape {
         self.side = side
     }
 }
-func Circle.area() -> Int {
-  return self.radius * self.radius * 3
+patch object Circle {
+    readonly func area() -> Int {
+      return self.radius * self.radius * 3
+    }
 }
-func Square.area() -> Int {
-  return self.side * self.side
+patch object Square {
+    readonly func area() -> Int {
+      return self.side * self.side
+    }
 }
 func main() {
   val shapes = [Circle(5), Square(4), Circle(3)]

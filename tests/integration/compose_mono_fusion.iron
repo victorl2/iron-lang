@@ -17,8 +17,10 @@ object Circle impl Shape {
     }
 }
 
-func Circle.area() -> Int {
-  return self.radius * self.radius * 3
+patch object Circle {
+    readonly func area() -> Int {
+      return self.radius * self.radius * 3
+    }
 }
 
 func main() {

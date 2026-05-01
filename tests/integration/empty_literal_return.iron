@@ -23,12 +23,16 @@ object Square impl Shape {
     }
 }
 
-func Circle.area() -> Int {
-  return self.radius * self.radius * 3
+patch object Circle {
+    readonly func area() -> Int {
+      return self.radius * self.radius * 3
+    }
 }
 
-func Square.area() -> Int {
-  return self.side * self.side
+patch object Square {
+    readonly func area() -> Int {
+      return self.side * self.side
+    }
 }
 
 func make_empty_shapes() -> [Shape] {

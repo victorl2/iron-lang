@@ -25,12 +25,16 @@ object Dog impl Named {
     }
 }
 
-func Cat.get_id() -> Int {
-  return self.id
+patch object Cat {
+    readonly func get_id() -> Int {
+      return self.id
+    }
 }
 
-func Dog.get_id() -> Int {
-  return self.id
+patch object Dog {
+    readonly func get_id() -> Int {
+      return self.id
+    }
 }
 
 func main() {

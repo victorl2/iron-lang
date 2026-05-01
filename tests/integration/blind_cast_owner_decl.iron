@@ -51,13 +51,17 @@ object Dog extends Animal {
     val breed: Int
 }
 
-func Dog.describe() -> Int {
-    val local = 1
-    return local + self.breed
+patch object Dog {
+    readonly func describe() -> Int {
+        val local = 1
+        return local + self.breed
+    }
 }
 
-func Animal.get_kind() -> Int {
-    return 7
+patch object Animal {
+    readonly func get_kind() -> Int {
+        return 7
+    }
 }
 
 func main() {

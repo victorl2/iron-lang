@@ -48,17 +48,19 @@ object Counter {
     }
 }
 
-func Counter.bump() -> Int {
-  return self.value + 1
+patch object Counter {
+    readonly func bump() -> Int {
+      return self.value + 1
+    }
+    readonly func triple() -> Int {
+      return self.value * 3
+    }
+    readonly func add(x: Int) -> Int {
+      return self.value + x
+    }
 }
 
-func Counter.triple() -> Int {
-  return self.value * 3
-}
 
-func Counter.add(x: Int) -> Int {
-  return self.value + x
-}
 
 func main() {
   val c = Counter(10)

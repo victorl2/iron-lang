@@ -5,13 +5,15 @@ object Counter {
     }
 }
 
-func Counter.increment() -> Int {
-  return self.count + 1
+patch object Counter {
+    readonly func increment() -> Int {
+      return self.count + 1
+    }
+    readonly func value() -> Int {
+      return self.count
+    }
 }
 
-func Counter.value() -> Int {
-  return self.count
-}
 
 func main() {
   val c = Counter(0)

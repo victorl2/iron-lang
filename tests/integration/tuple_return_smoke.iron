@@ -15,8 +15,10 @@
 -- 0-initialized pair the factory returns.
 object Smoke {}
 
-func Smoke.pair() -> (Int, Int) {
-    return (0, 0)
+patch object Smoke {
+    readonly func pair() -> (Int, Int) {
+        return (0, 0)
+    }
 }
 
 func main() {
