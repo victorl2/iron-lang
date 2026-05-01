@@ -9,8 +9,12 @@
 # Algorithm:
 #   1. Pre-pass coalesces multi-line `func TYPE.method(...)` declarations
 #      into single logical lines by tracking parenthesis depth across lines
-#      until a closing paren returns depth to 0. The coalesced line preserves
-#      the original opener line position; continuation lines are dropped.
+#      until a closing paren returns depth to 0. After paren balance, if the
+#      declaration opens a body brace, we keep coalescing until brace depth
+#      returns to 0 so multi-line bodies are captured wholesale. Captured
+#      lines are joined with literal newlines so Stage B can preserve the
+#      original body text verbatim. The coalesced line preserves the
+#      original opener line position; continuation lines are dropped.
 #   2. Two-pass scan over the coalesced stream.
 #   3. Pass 1 collects, per-TypeName:
 #        a. Every standalone-form line `func TypeName.method(...) {...}`,
@@ -75,6 +79,8 @@ BEGIN {
     NLINES = 0
     pending = ""
     pending_paren_depth = 0
+    pending_brace_depth = 0
+    pending_phase = ""    # "" = idle, "paren" = balancing params, "brace" = capturing body
     in_pending_func = 0
 
     types_seen_count = 0
@@ -127,33 +133,80 @@ function brace_delta(s,    i, c, d) {
     return d
 }
 
-# Stage A: coalesce multi-line `func TYPE.method(...)` declarations.
+# Stage A: coalesce multi-line `func TYPE.method(...)` declarations,
+# including multi-line bodies. Captured lines join with "\n" so Stage B
+# can preserve original body text verbatim.
 {
     if (in_pending_func) {
-        # Append continuation, dropping the leading whitespace so the
-        # coalesced line reads cleanly.
-        cont = $0
-        sub(/^[[:space:]]+/, " ", cont)
-        pending = pending cont
-        pending_paren_depth += paren_delta($0)
-        if (pending_paren_depth <= 0) {
-            NLINES++
-            LINE[NLINES] = pending
-            pending = ""
-            pending_paren_depth = 0
-            in_pending_func = 0
+        if (pending_phase == "paren") {
+            # Still balancing parameter list across lines: collapse leading
+            # whitespace into a single space so the signature reads cleanly.
+            cont = $0
+            sub(/^[[:space:]]+/, " ", cont)
+            pending = pending cont
+            pending_paren_depth += paren_delta($0)
+            if (pending_paren_depth <= 0) {
+                # Paren balance reached. If the joined line has opened a
+                # body brace, switch to brace-capture phase; otherwise the
+                # declaration is a stub `func ... {}` (or no body at all)
+                # and we flush immediately.
+                pending_brace_depth = brace_delta(pending)
+                if (pending_brace_depth > 0) {
+                    pending_phase = "brace"
+                } else {
+                    NLINES++
+                    LINE[NLINES] = pending
+                    pending = ""
+                    pending_paren_depth = 0
+                    pending_brace_depth = 0
+                    pending_phase = ""
+                    in_pending_func = 0
+                }
+            }
+            next
         }
-        next
+        if (pending_phase == "brace") {
+            # Capturing body: preserve original line text verbatim, join
+            # with newline so the rewrite can keep the indentation/comments.
+            pending = pending "\n" $0
+            pending_brace_depth += brace_delta($0)
+            if (pending_brace_depth <= 0) {
+                NLINES++
+                LINE[NLINES] = pending
+                pending = ""
+                pending_paren_depth = 0
+                pending_brace_depth = 0
+                pending_phase = ""
+                in_pending_func = 0
+            }
+            next
+        }
     }
 
     if ($0 ~ /^func[[:space:]]+[A-Z][A-Za-z0-9_]*\./) {
         d = paren_delta($0)
         if (d > 0) {
+            # Multi-line parameter list. Buffer and switch to paren phase.
             pending = $0
             pending_paren_depth = d
+            pending_brace_depth = 0
+            pending_phase = "paren"
             in_pending_func = 1
             next
         }
+        # Single-line signature. If the body opens but does not close on the
+        # same line, switch directly to brace-capture phase.
+        bd = brace_delta($0)
+        if (bd > 0) {
+            pending = $0
+            pending_paren_depth = 0
+            pending_brace_depth = bd
+            pending_phase = "brace"
+            in_pending_func = 1
+            next
+        }
+        # Else: full single-line decl (e.g., empty body `{}` or no body).
+        # Fall through to the unconditional buffer below.
     }
 
     NLINES++
@@ -345,29 +398,34 @@ function is_factory(method, line,    after_arrow, ret_type) {
 # existing grammar and resolver. Keep them as funcs (with readonly
 # injection for non-struct receivers); call sites continue to dispatch
 # via `Type.method(args)` unchanged.
-function rewrite_standalone(s, type, method,    out) {
+function rewrite_standalone(s, type, method,    out, n_parts, parts, j, joined) {
     out = s
     is_init = (method == "init")
 
-    sub(/^func[[:space:]]+[A-Z][A-Za-z0-9_]*\./, "func ", out)
+    # The captured logical line may contain literal newlines if the body
+    # spans multiple input lines. Rewrite the prefix on the FIRST physical
+    # line only (the signature), then re-indent every physical line by
+    # four spaces so it sits inside the surrounding patch block.
+    n_parts = split(out, parts, "\n")
 
-    # Inject `readonly` on every migrated method so:
-    #   (a) Non-struct receivers (String, Math, Int, Float, etc.) skip the
-    #       resolver E0236 mut-on-non-struct guard.
-    #   (b) Static-style call sites (Sound.from_wave(w), Color.from_hsv(...))
-    #       skip the resolver E0235 cannot-call-mutable-method-on-immutable-
-    #       binding guard. Static calls dispatch through the type symbol
-    #       which is val (immutable); a mutating-receiver method requires a
-    #       var binding.
-    #   (c) Init methods cannot be readonly (parser.c:3963 rejects). Skip
-    #       the prefix for `func init(...)` migrated decls; their receiver
-    #       is always mut by parser construction (for fieldless objects
-    #       this is fine - the auto-synth init covers anonymous dispatch
-    #       and the migrated `func init(...)` covers named dispatch).
+    # First part: rewrite the receiver-form prefix and inject readonly.
+    sub(/^func[[:space:]]+[A-Z][A-Za-z0-9_]*\./, "func ", parts[1])
     if (!is_init) {
-        sub(/^func[[:space:]]+/, "readonly func ", out)
+        sub(/^func[[:space:]]+/, "readonly func ", parts[1])
     }
-    return "    " out
+
+    # Every physical line gets a four-space indent (relative to the patch
+    # block), preserving any pre-existing relative indentation in the body.
+    joined = "    " parts[1]
+    for (j = 2; j <= n_parts; j++) {
+        # Skip totally empty lines so we do not emit "    " on a blank line.
+        if (length(parts[j]) == 0) {
+            joined = joined "\n"
+        } else {
+            joined = joined "\n    " parts[j]
+        }
+    }
+    return joined
 }
 
 function register_first(type, lineno) {
