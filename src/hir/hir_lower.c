@@ -1701,20 +1701,56 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                  * form `func TYPE.method(...)` to patch-body form
                  * `patch object TYPE { func method(...) }`, the patch parser
                  * synthesizes a `self: TYPE` first parameter
-                 * (parser.c:4102-4128). For empty-body stubs (FFI-bound to
-                 * the C runtime), we must skip that synth_self so the HIR
-                 * func signature matches the C runtime declaration which
-                 * does NOT take a self for static-style methods. Detected
-                 * by: is_receiver_form && params[0]->name == "self". This
-                 * preserves the pre-migration ABI: standalone stubs had
-                 * no self in params, and migrated patch-body stubs must
-                 * lower to the same HIR shape so call-site lowering
-                 * (hir_to_lir.c synth_self gate) behaves identically. */
+                 * (parser.c:4102-4128). For empty-body stubs whose C
+                 * runtime ABI is namespace-only (no self at the C
+                 * boundary), we must strip the synth_self so the HIR
+                 * func signature matches the runtime header.
+                 *
+                 * Two distinct C ABI conventions exist among stub stdlib
+                 * methods:
+                 *
+                 *   (A) Header-declared receiver-style. iron_runtime.h
+                 *       declares Iron_string_upper(Iron_String self),
+                 *       Iron_list_len(Iron_List_T self), etc. These match
+                 *       the synth_self shape; keep self in HIR.
+                 *
+                 *   (B) Namespace-only. iron_math.h declares
+                 *       Iron_math_sin(double x) (no self). iron_raylib.c
+                 *       defines Iron_window_init(...), Iron_audio_init(),
+                 *       Iron_random_seed(int64_t) etc. with no self at
+                 *       the C boundary. These do NOT match the synth_self
+                 *       shape; strip self from HIR so the call-site arity
+                 *       matches the runtime header.
+                 *
+                 * Discriminator: prefix of the mangled name. The list is
+                 * locked here (rather than discovered dynamically) so the
+                 * codemod's allowlist of namespace-only stdlib types
+                 * (Math + raylib namespaces Window/Audio/Files/Random/
+                 * Text/Draw/Keyboard/Mouse/Gamepad/Touch/Gestures/RMath)
+                 * matches what the HIR layer recognises. Trailing
+                 * underscore prevents prefix collisions (math_ != matrix_). */
                 int skip_self = 0;
                 if (md->is_receiver_form && md->param_count > 0) {
                     Iron_Param *p0 = (Iron_Param *)md->params[0];
                     if (p0 && p0->name && strcmp(p0->name, "self") == 0) {
-                        skip_self = 1;
+                        static const char *k_no_self_prefixes[] = {
+                            "math_",  "io_",   "time_", "log_",
+                            "hint_",  "int_",  "int32_", "float_",
+                            "float32_",
+                            /* raylib namespace types - no self at C boundary */
+                            "window_", "audio_",   "files_",
+                            "random_", "text_",    "draw_",
+                            "keyboard_", "mouse_", "gamepad_",
+                            "touch_",   "gestures_", "rmath_",
+                            NULL
+                        };
+                        for (int pi = 0; k_no_self_prefixes[pi]; pi++) {
+                            size_t plen = strlen(k_no_self_prefixes[pi]);
+                            if (strncmp(mangled, k_no_self_prefixes[pi], plen) == 0) {
+                                skip_self = 1;
+                                break;
+                            }
+                        }
                     }
                 }
                 total_params = md->param_count - skip_self;
