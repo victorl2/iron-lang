@@ -28,6 +28,7 @@
 #include "pkg/color.h"
 #include "pkg/init.h"
 #include "pkg/iron_pkg.h"
+#include "cli/version.h"
 
 /* ── write_if_absent ────────────────────────────────────────────────────── */
 
@@ -56,6 +57,29 @@ static int write_if_absent(const char *path, const char *content) {
     }
     fclose(f);
     return 1;
+}
+
+/* ── compute_minor_floor_version ────────────────────────────────────────── */
+
+/*
+ * Compute the major.minor.0 floor of IRON_VERSION_STRING for the iron init
+ * template's `iron = ">= X.Y.0"` line (Phase 95 PIN-04). The minor floor
+ * keeps the pin loose enough that the freshly scaffolded project always
+ * builds on the compiler that scaffolded it. Returns the heap "X.Y.0"
+ * string (caller must free) or NULL on parse failure (caller falls back
+ * to omitting the iron line).
+ */
+static char *compute_minor_floor_version(void) {
+    int major = 0, minor = 0;
+    if (sscanf(IRON_VERSION_STRING, "%d.%d.", &major, &minor) != 2) {
+        return NULL;
+    }
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%d.%d.0", major, minor);
+    char *out = (char *)malloc(strlen(buf) + 1);
+    if (!out) return NULL;
+    strcpy(out, buf);
+    return out;
 }
 
 /* ── cmd_init ───────────────────────────────────────────────────────────── */
@@ -89,15 +113,34 @@ int cmd_init(int argc, char **argv) {
     pkg_name = (pkg_name != NULL) ? pkg_name + 1 : cwd;
 
     /* ── iron.toml ──────────────────────────────────────────────────────── */
+    /* Phase 95 PIN-04: emit the [package].iron field with a major.minor.0
+     * floor computed from IRON_VERSION_STRING so the scaffolded project
+     * always satisfies its own pin on the compiler that scaffolded it.
+     * If parsing the running version fails, fall back to omitting the
+     * iron line (PIN-04 backward-compat path). */
     char toml_content[1024];
-    snprintf(toml_content, sizeof(toml_content),
-             "[package]\n"
-             "name = \"%s\"\n"
-             "version = \"0.1.0\"\n"
-             "type = \"%s\"\n"
-             "\n"
-             "[dependencies]\n",
-             pkg_name, is_lib ? "lib" : "bin");
+    char *floor = compute_minor_floor_version();
+    if (floor) {
+        snprintf(toml_content, sizeof(toml_content),
+                 "[package]\n"
+                 "name = \"%s\"\n"
+                 "version = \"0.1.0\"\n"
+                 "type = \"%s\"\n"
+                 "iron = \">= %s\"  # Minimum iron compiler version. Update when adopting features that require a newer compiler.\n"
+                 "\n"
+                 "[dependencies]\n",
+                 pkg_name, is_lib ? "lib" : "bin", floor);
+        free(floor);
+    } else {
+        snprintf(toml_content, sizeof(toml_content),
+                 "[package]\n"
+                 "name = \"%s\"\n"
+                 "version = \"0.1.0\"\n"
+                 "type = \"%s\"\n"
+                 "\n"
+                 "[dependencies]\n",
+                 pkg_name, is_lib ? "lib" : "bin");
+    }
 
     if (write_if_absent("iron.toml", toml_content) < 0) return 1;
 

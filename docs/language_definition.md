@@ -580,6 +580,43 @@ val result, _ = divide(10.0, 3.0)
 
 ---
 
+## Project manifest
+
+Iron projects are declared by an `iron.toml` at the project root. The
+`[package]` table carries metadata; `[dependencies]` lists local-path or
+git-source libraries.
+
+```toml
+[package]
+name = "my_game"
+version = "0.1.0"
+type = "bin"               # "bin" (default) or "lib"
+iron = ">= 3.2.0"          # optional, minimum iron compiler version
+
+[dependencies]
+mylib = { path = "../mylib" }
+```
+
+The `iron` field is an optional Cargo-style semver constraint enforced
+by `iron build` and `iron run` before any compile work begins. Supported
+operators: `>=`, `>`, `<=`, `<`, `=` (or no operator = exact), `^`
+(compatible-with: same major), `~` (compatible-with: same minor).
+Comma-separated AND ranges are supported.
+
+Examples:
+
+```toml
+iron = ">= 3.2.0"                  # any version 3.2.0 or newer
+iron = ">= 3.0.0, < 4.0.0"         # any 3.x version
+iron = "^3.2"                       # any 3.x version (>= 3.2.0)
+```
+
+A version mismatch produces a clear error pointing at the install script
+with a `--version` argument. A package with no `iron` field is not
+version-checked.
+
+---
+
 ## Module System
 
 ### One file = one module
