@@ -266,7 +266,10 @@ jobs:
 
       - name: Build WASM (auto-downloads wasi-sdk on first run)
         working-directory: grammars/tree-sitter/iron
-        run: tree-sitter build --wasm
+        # Without -o, tree-sitter 0.26.x writes to tree-sitter-iron.wasm
+        # (package-name prefixed). The upload-artifact step expects iron.wasm
+        # at grammars/tree-sitter/iron/iron.wasm — pin the output name.
+        run: tree-sitter build --wasm -o iron.wasm
 
       - name: Upload iron.wasm artifact
         uses: actions/upload-artifact@v4
