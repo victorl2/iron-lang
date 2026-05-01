@@ -246,13 +246,15 @@ export async function activate(
           arguments: [],
         });
         if (edit && typeof edit === 'object') {
-          const we = client.protocol2CodeConverter.asWorkspaceEdit(
+          const we = await client.protocol2CodeConverter.asWorkspaceEdit(
             edit as Parameters<typeof client.protocol2CodeConverter.asWorkspaceEdit>[0]
           );
-          await vscode.workspace.applyEdit(we);
-          void vscode.window.showInformationMessage(
-            'Iron LSP: migration complete. Review the changes and save.'
-          );
+          if (we) {
+            await vscode.workspace.applyEdit(we);
+            void vscode.window.showInformationMessage(
+              'Iron LSP: migration complete. Review the changes and save.'
+            );
+          }
         }
       } catch (e) {
         const reason = e instanceof Error ? e.message : String(e);
