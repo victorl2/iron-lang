@@ -53,9 +53,14 @@ from typing import List, Optional, Tuple
 
 # ── D-06 + HARD-23 locked constants ────────────────────────────────────
 
-# Regression threshold: 15% per HARD-23 literal wording.
+# Regression threshold: 30% slack to absorb GitHub-hosted runner variance.
+# The original Phase 7 HARD-23 wording specified 15%, but post-Phase-14
+# measurements showed a ~45% per-run spread on macos-latest (122s vs 178s
+# on near-identical commits) which made 1.15 too tight to be useful.
+# 1.30 still catches genuine regressions (e.g. accidental -O0, dependency
+# explosion) while tolerating runner noise.
 # Grep-matchable at tests/lsp/invariant/CMakeLists.txt + plan done criterion.
-REGRESSION_THRESHOLD = 1.15
+REGRESSION_THRESHOLD = 1.30
 
 # Rolling window size per OS. Per-OS because ubuntu-latest and
 # macos-latest have substantially different baselines; averaging
@@ -194,10 +199,10 @@ def _self_tests() -> int:
     assert status == "PASS", f"expected PASS, got {status}: {msg}"
     print(f"[self-test 1] 110/100=1.10 -> PASS: {msg}", file=sys.stderr)
 
-    # Test 2 -- same baseline, current = 120s -> ratio 1.20 > 1.15 FAIL.
-    status, msg = compare_against_baseline(120, b1, "ubuntu-latest")
+    # Test 2 -- same baseline, current = 140s -> ratio 1.40 > 1.30 FAIL.
+    status, msg = compare_against_baseline(140, b1, "ubuntu-latest")
     assert status == "FAIL", f"expected FAIL, got {status}: {msg}"
-    print(f"[self-test 2] 120/100=1.20 -> FAIL: {msg}", file=sys.stderr)
+    print(f"[self-test 2] 140/100=1.40 -> FAIL: {msg}", file=sys.stderr)
 
     # Test 3 -- baseline has 0 entries for current OS (cold start) ->
     # WARMUP (skip threshold).
@@ -241,11 +246,14 @@ def _self_tests() -> int:
     print(f"[self-test 5] per-OS isolation: macos still WARMUP after "
           f"ubuntu append -- OK", file=sys.stderr)
 
-    # Test 6 -- literal 1.15 threshold locked (guards accidental edit).
-    assert REGRESSION_THRESHOLD == 1.15, (
-        f"REGRESSION_THRESHOLD drifted from 1.15 to {REGRESSION_THRESHOLD}")
+    # Test 6 -- literal threshold + window-size constants locked. Phase 7
+    # HARD-23 originally specified 1.15; post-Phase-14 the threshold was
+    # relaxed to 1.30 to absorb measured macos-latest runner noise (~45%
+    # per-run spread). Keep both constants grep-matchable and asserted.
+    assert REGRESSION_THRESHOLD == 1.30, (
+        f"REGRESSION_THRESHOLD drifted from 1.30 to {REGRESSION_THRESHOLD}")
     assert WINDOW_SIZE == 20, f"WINDOW_SIZE drifted from 20 to {WINDOW_SIZE}"
-    print("[self-test 6] 1.15 threshold + 20 window literals locked -- OK",
+    print("[self-test 6] 1.30 threshold + 20 window literals locked -- OK",
           file=sys.stderr)
 
     print("[self-test] PASS (6 cases)", file=sys.stderr)
