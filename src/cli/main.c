@@ -8,10 +8,9 @@
 #include "cli/check.h"
 #include "cli/fmt.h"
 #include "cli/test_runner.h"
+#include "cli/version.h"
+#include "cli/help_registry.h"
 
-#ifndef IRON_VERSION_STRING
-#define IRON_VERSION_STRING "0.1.1"
-#endif
 #ifndef IRON_GIT_HASH
 #define IRON_GIT_HASH "unknown"
 #endif
@@ -26,27 +25,30 @@ static void print_version(void) {
     printf("%s %s (%s %s)\n", IRON_BINARY_NAME, IRON_VERSION_STRING, IRON_GIT_HASH, IRON_BUILD_DATE);
 }
 
+/*
+ * print_usage: forwards to the central help registry. Phase 97 HELP-01
+ * routes both error paths (no-args, unknown-command) and the top-level
+ * --help request through iron_help_print_all on stdout. The exit code at
+ * the call sites stays unchanged: --help requests exit 0; usage errors
+ * (no-args, unknown-command) exit 1. Both print the same help text.
+ */
 static void print_usage(void) {
-    fprintf(stderr, "Usage: %s <command> [options] <file>\n\n", IRON_BINARY_NAME);
-    fprintf(stderr, "Commands:\n");
-    fprintf(stderr, "  build   Compile .iron file to native binary\n");
-    fprintf(stderr, "  run     Compile and execute .iron file\n");
-    fprintf(stderr, "  check   Type-check without compiling\n");
-    fprintf(stderr, "  fmt     Format Iron source code\n");
-    fprintf(stderr, "  test    Discover and run Iron tests\n");
-    fprintf(stderr, "  migrate Migrate .iron source from v2 to v3 grammar\n");
-    fprintf(stderr, "\nOptions:\n");
-    fprintf(stderr, "  --version         Print version and exit\n");
-    fprintf(stderr, "  --target=<t>      Build target: native (default) or web\n");
-    fprintf(stderr, "  --release         Optimize build (native -O2, web -Oz -flto)\n");
-    fprintf(stderr, "  --verbose         Show generated C code\n");
-    fprintf(stderr, "  --debug-build     Keep .iron-build/ directory\n");
-    fprintf(stderr, "  --force-comptime  Skip comptime evaluation cache\n");
-    fprintf(stderr, "  --dump-ir-passes  Print IR after each optimization pass\n");
-    fprintf(stderr, "  --no-optimize     Skip optimization passes (for A/B comparison)\n");
-    fprintf(stderr, "  --warn-fusion-break  Show where fusion chains are broken by non-fusible calls\n");
-    fprintf(stderr, "  --report-compression Show which fields were narrowed for value range compression\n");
-    fprintf(stderr, "  --no-strict-v3       Disable v3.0 breaking-change rejections (for debugging v2 syntax; default is ON)\n");
+    iron_help_print_all("ironc", stdout);
+}
+
+/*
+ * argv_contains_help: scan argv[start..argc) for --help or -h.
+ * Returns 1 if found anywhere, 0 otherwise. Mirrors the helper in
+ * src/pkg/main.c — kept inline rather than refactored into a shared
+ * header because a 6-line helper does not justify a header round-trip.
+ */
+static int argv_contains_help(int argc, char **argv, int start) {
+    for (int i = start; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -62,6 +64,34 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    /* Top-level --help / -h */
+    if (strcmp(cmd, "--help") == 0 || strcmp(cmd, "-h") == 0) {
+        iron_help_print_all("ironc", stdout);
+        return 0;
+    }
+
+    /*
+     * Phase 97 HELP-01 / HELP-06: pre-dispatch --help scan for ironc.
+     * Mirrors the iron-side scan in src/pkg/main.c. Subcommands recognized
+     * by ironc: build, run, check, fmt, test, migrate (no `init` — that's
+     * an iron-only command). Fires BEFORE the global-flag-parsing argv
+     * loop below so iron_build / iron_check / iron_fmt / iron_test /
+     * migrate handlers never run for --help requests.
+     */
+    {
+        static const char *KNOWN_SUBS[] = {
+            "build", "run", "check", "fmt", "test", "migrate", NULL
+        };
+        int is_known_sub = 0;
+        for (int i = 0; KNOWN_SUBS[i]; i++) {
+            if (strcmp(cmd, KNOWN_SUBS[i]) == 0) { is_known_sub = 1; break; }
+        }
+        if (is_known_sub && argv_contains_help(argc, argv, 2)) {
+            iron_help_print_subcommand("ironc", cmd, stdout);
+            return 0;
+        }
+    }
+
     /* Parse global flags */
     bool verbose = false;
     bool debug_build = false;
@@ -73,10 +103,19 @@ int main(int argc, char **argv) {
     bool strict_v3 = true;
     IronBuildTarget target = IRON_TARGET_NATIVE;
     bool release = false;
+    bool emit_archive = false;
+    const char *pkg_name_arg = NULL;
+    const char *pkg_version_arg = NULL;
     const char *source_file = NULL;
     const char *output_file = NULL;
     const char **run_args = NULL;
     int run_arg_count = 0;
+    /* Phase 94 LIB-03: collect -L<dir> / -l<name> argv entries for forwarding
+     * to clang's link line. The pkg_build layer emits these per local-path
+     * dep; main.c stores them on IronBuildOpts.extra_link_flags so build.c
+     * can append them alongside the existing -lm. */
+    const char *extra_link_flags_buf[32];
+    int extra_link_flag_count = 0;
 
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--verbose") == 0) {
@@ -126,10 +165,41 @@ int main(int argc, char **argv) {
             }
         } else if (strcmp(argv[i], "--release") == 0) {
             release = true;
+        } else if (strcmp(argv[i], "--emit-archive") == 0) {
+            emit_archive = true;
+        } else if (strcmp(argv[i], "--pkg-name") == 0) {
+            if (i + 1 < argc) {
+                pkg_name_arg = argv[++i];
+            } else {
+                fprintf(stderr, "%s: --pkg-name requires a value\n", IRON_BINARY_NAME);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--pkg-version") == 0) {
+            if (i + 1 < argc) {
+                pkg_version_arg = argv[++i];
+            } else {
+                fprintf(stderr, "%s: --pkg-version requires a value\n", IRON_BINARY_NAME);
+                return 1;
+            }
         } else if (strcmp(argv[i], "--strict-v3") == 0) {
             strict_v3 = true;
         } else if (strcmp(argv[i], "--no-strict-v3") == 0) {
             strict_v3 = false;
+        } else if ((strncmp(argv[i], "-L", 2) == 0 && argv[i][2] != '\0') ||
+                   (strncmp(argv[i], "-l", 2) == 0 && argv[i][2] != '\0')) {
+            /* Phase 94 LIB-03: collect -L<dir> / -l<name> for the link line.
+             * Reject the bare "-L" / "-l" forms (no inline value) — the
+             * pkg_build layer emits inline form only. */
+            if (extra_link_flag_count <
+                (int)(sizeof(extra_link_flags_buf) / sizeof(extra_link_flags_buf[0]))) {
+                extra_link_flags_buf[extra_link_flag_count++] = argv[i];
+            } else {
+                fprintf(stderr,
+                        "%s: too many -L/-l link flags (max %zu)\n",
+                        IRON_BINARY_NAME,
+                        sizeof(extra_link_flags_buf) / sizeof(extra_link_flags_buf[0]));
+                return 1;
+            }
         } else if (strcmp(argv[i], "--") == 0) {
             /* Everything after -- is passed to the program (iron run) */
             run_args = (const char **)&argv[i + 1];
@@ -159,11 +229,26 @@ int main(int argc, char **argv) {
             .report_compression = report_compression,
             .target         = target,
             .release        = release,
-            .strict_v3      = strict_v3
+            .strict_v3      = strict_v3,
+            .emit_archive   = emit_archive,
+            .pkg_name       = pkg_name_arg,
+            .pkg_version    = pkg_version_arg,
+            .extra_link_flags = extra_link_flag_count > 0 ? extra_link_flags_buf : NULL,
+            .extra_link_flag_count = extra_link_flag_count
         };
         return iron_build(source_file, output_file, opts);
     }
 
+    /* Phase 96 RUN-03 (reserved, NOT implemented in v3.2):
+     *   --keep-binary  reserved to suppress the atexit unlink of the
+     *                  ${TMPDIR}/iron-run-XXXXXX tempfile produced by the
+     *                  direct-source `iron run foo.iron` path.
+     *   -o <path>      reserved as an output-path override for `iron run`.
+     * Both flags are documented in `iron run --help` (Phase 97 HELP-03 scope).
+     * Implementing them in v3.2 was descoped: the cwd-clean default (mkstemp
+     * + atexit in iron_build) covers the primary issue (#53); a deliberate
+     * keep-binary flag belongs in a later phase alongside the broader CLI
+     * help registry work. */
     if (strcmp(cmd, "run") == 0) {
         if (!source_file) {
             fprintf(stderr, "%s run: missing source file\n", IRON_BINARY_NAME);
@@ -183,7 +268,12 @@ int main(int argc, char **argv) {
             .report_compression = report_compression,
             .target         = target,
             .release        = release,
-            .strict_v3      = strict_v3
+            .strict_v3      = strict_v3,
+            .emit_archive   = false,
+            .pkg_name       = NULL,
+            .pkg_version    = NULL,
+            .extra_link_flags = extra_link_flag_count > 0 ? extra_link_flags_buf : NULL,
+            .extra_link_flag_count = extra_link_flag_count
         };
         return iron_build(source_file, output_file, opts);
     }

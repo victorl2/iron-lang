@@ -2798,6 +2798,35 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * self_by_addr + hir_to_lir.c for the two population sites. */
         bool self_by_addr = instr->call.self_by_addr;
 
+        /* Phase 96 STR-01: iron_string_concat is a runtime helper whose C
+         * signature is `Iron_String iron_string_concat(const Iron_String *,
+         * const Iron_String *)` — both arguments by pointer. The HIR call
+         * built in hir_lower.c passes the operands as Iron_String values,
+         * so the emitter wraps each argument with `&` (mirrors the
+         * iron_string_equals inline emission earlier in this file). The
+         * sibling emit_helpers.c rule keeps the lowercase iron_* name
+         * verbatim through the mangler.
+         *
+         * Detection runs against the FUNC_REF name directly (not via
+         * callee_ir_name) because iron_string_concat lives in the runtime
+         * library — there is no matching IronLIR_Func in the module, so
+         * the callee_ir_name resolution earlier in this block leaves the
+         * variable NULL. */
+        bool runtime_args_by_addr = false;
+        {
+            IronLIR_ValueId fptr_chk = instr->call.func_ptr;
+            if (!instr->call.func_decl &&
+                fptr_chk != IRON_LIR_VALUE_INVALID &&
+                fptr_chk < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                fn->value_table[fptr_chk] != NULL &&
+                fn->value_table[fptr_chk]->kind == IRON_LIR_FUNC_REF) {
+                const char *rn_chk = fn->value_table[fptr_chk]->func_ref.func_name;
+                if (rn_chk && strcmp(rn_chk, "iron_string_concat") == 0) {
+                    runtime_args_by_addr = true;
+                }
+            }
+        }
+
         bool first_arg = !has_env_arg;  /* false when .env was already emitted */
         for (int i = 0; i < instr->call.arg_count; i++) {
             if (!first_arg) iron_strbuf_appendf(sb, ", ");
@@ -2818,6 +2847,14 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     iron_strbuf_appendf(sb, "&");
                 }
                 emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                continue;
+            }
+
+            /* Phase 96 STR-01: runtime helper takes operands by pointer. */
+            if (runtime_args_by_addr) {
+                iron_strbuf_appendf(sb, "&(");
+                emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ")");
                 continue;
             }
 

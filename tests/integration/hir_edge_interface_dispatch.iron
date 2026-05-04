@@ -18,12 +18,16 @@ object Square {
     }
 }
 
-func Rect.area() -> Int {
-  return self.width * self.height
+patch object Rect {
+    readonly func area() -> Int {
+      return self.width * self.height
+    }
 }
 
-func Square.area() -> Int {
-  return self.side * self.side
+patch object Square {
+    readonly func area() -> Int {
+      return self.side * self.side
+    }
 }
 
 func main() {

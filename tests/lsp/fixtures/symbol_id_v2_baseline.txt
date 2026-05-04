@@ -14,10 +14,6 @@ adt_enum_decl.iron	adt_enum_decl.Shape.Circle	ENUM_VARIANT
 adt_enum_decl.iron	adt_enum_decl.Shape.Point	ENUM_VARIANT
 adt_enum_decl.iron	adt_enum_decl.Shape.Rectangle	ENUM_VARIANT
 adt_enum_decl.iron	adt_enum_decl.main	FUNCTION
-adt_enum_method.iron	adt_enum_method.Shape	ENUM
-adt_enum_method.iron	adt_enum_method.Shape.Circle	ENUM_VARIANT
-adt_enum_method.iron	adt_enum_method.Shape.Rect	ENUM_VARIANT
-adt_enum_method.iron	adt_enum_method.main	FUNCTION
 adt_match_syntax.iron	adt_match_syntax.classify	FUNCTION
 adt_match_syntax.iron	adt_match_syntax.main	FUNCTION
 adt_mixed_payload.iron	adt_mixed_payload.Token	ENUM
@@ -38,12 +34,6 @@ adt_pattern_binding.iron	adt_pattern_binding.Shape.Circle	ENUM_VARIANT
 adt_pattern_binding.iron	adt_pattern_binding.Shape.Rect	ENUM_VARIANT
 adt_pattern_binding.iron	adt_pattern_binding.describe	FUNCTION
 adt_pattern_binding.iron	adt_pattern_binding.main	FUNCTION
-adt_plain_enum_method.iron	adt_plain_enum_method.Dir	ENUM
-adt_plain_enum_method.iron	adt_plain_enum_method.Dir.East	ENUM_VARIANT
-adt_plain_enum_method.iron	adt_plain_enum_method.Dir.North	ENUM_VARIANT
-adt_plain_enum_method.iron	adt_plain_enum_method.Dir.South	ENUM_VARIANT
-adt_plain_enum_method.iron	adt_plain_enum_method.Dir.West	ENUM_VARIANT
-adt_plain_enum_method.iron	adt_plain_enum_method.main	FUNCTION
 adt_recursive_expr.iron	adt_recursive_expr.Expr	ENUM
 adt_recursive_expr.iron	adt_recursive_expr.Expr.BinOp	ENUM_VARIANT
 adt_recursive_expr.iron	adt_recursive_expr.Expr.IntLit	ENUM_VARIANT
@@ -246,11 +236,6 @@ empty_literal_return.iron	empty_literal_return.Shape	INTERFACE
 empty_literal_return.iron	empty_literal_return.Square	TYPE
 empty_literal_return.iron	empty_literal_return.main	FUNCTION
 empty_literal_return.iron	empty_literal_return.make_empty_shapes	FUNCTION
-enum_construct_reinterpret.iron	enum_construct_reinterpret.Shape	ENUM
-enum_construct_reinterpret.iron	enum_construct_reinterpret.Shape.Circle	ENUM_VARIANT
-enum_construct_reinterpret.iron	enum_construct_reinterpret.Shape.Rect	ENUM_VARIANT
-enum_construct_reinterpret.iron	enum_construct_reinterpret.Shape.Square	ENUM_VARIANT
-enum_construct_reinterpret.iron	enum_construct_reinterpret.main	FUNCTION
 expr_inline_arithmetic.iron	expr_inline_arithmetic.main	FUNCTION
 expr_inline_closures.iron	expr_inline_closures.main	FUNCTION
 expr_inline_generics.iron	expr_inline_generics.add_and_scale	FUNCTION
@@ -330,11 +315,6 @@ hir_bubble_sort.iron	hir_bubble_sort.bubble_sort	FUNCTION
 hir_bubble_sort.iron	hir_bubble_sort.main	FUNCTION
 hir_canary_assign.iron	hir_canary_assign.main	FUNCTION
 hir_canary_closure_capture.iron	hir_canary_closure_capture.main	FUNCTION
-hir_canary_enum_construct.iron	hir_canary_enum_construct.Color	ENUM
-hir_canary_enum_construct.iron	hir_canary_enum_construct.Color.Blue	ENUM_VARIANT
-hir_canary_enum_construct.iron	hir_canary_enum_construct.Color.Green	ENUM_VARIANT
-hir_canary_enum_construct.iron	hir_canary_enum_construct.Color.Red	ENUM_VARIANT
-hir_canary_enum_construct.iron	hir_canary_enum_construct.main	FUNCTION
 hir_canary_for.iron	hir_canary_for.factorial	FUNCTION
 hir_canary_for.iron	hir_canary_for.main	FUNCTION
 hir_canary_for.iron	hir_canary_for.sum_squares	FUNCTION

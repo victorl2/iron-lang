@@ -1,0 +1,67 @@
+name: Doc Test
+
+# Phase 99 DOC-03: durable lock against future spec-vs-impl drift in
+# docs/language_definition.md. Builds iron from source, then runs
+# scripts/test_doc_examples.sh which extracts every fenced ```iron
+# block and feeds it to `iron check`. Adding this workflow as a
+# REQUIRED merge-gate via branch-protection is a config-only follow-up
+# tracked under Phase 99 deferred-items.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/language_definition.md'
+      - 'scripts/test_doc_examples.sh'
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/doc-test.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/language_definition.md'
+      - 'scripts/test_doc_examples.sh'
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/doc-test.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  doc-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libasound2-dev
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang \
+            -G Ninja
+
+      - name: Build iron
+        run: cmake --build build
+
+      - name: Verify iron binary
+        run: |
+          test -x ./build/iron || { echo "FAIL: ./build/iron missing"; exit 1; }
+          ./build/iron --version
+
+      - name: Run doc-test extractor against docs/language_definition.md
+        run: |
+          chmod +x scripts/test_doc_examples.sh
+          bash scripts/test_doc_examples.sh ./build/iron

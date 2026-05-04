@@ -32,10 +32,9 @@
 #include "pkg/init.h"
 #include "pkg/pkg_build.h"
 #include "pkg/iron_pkg.h"
+#include "cli/version.h"
+#include "cli/help_registry.h"
 
-#ifndef IRON_VERSION_STRING
-#define IRON_VERSION_STRING "0.0.3"
-#endif
 #ifndef IRON_GIT_HASH
 #define IRON_GIT_HASH "unknown"
 #endif
@@ -224,36 +223,30 @@ static void print_version(void) {
            IRON_VERSION_STRING, IRON_GIT_HASH, IRON_BUILD_DATE);
 }
 
+/*
+ * print_help: forwards to the central help registry. The `colors` parameter
+ * is preserved for caller signature stability (the unknown-command branch
+ * passes it); registry output is uncolored in v3.2.
+ */
 static void print_help(bool colors) {
-    print_version();
-    printf("The Iron package manager\n\n");
-    printf("Usage: iron <command> [options] [args]\n\n");
-    printf("Package Commands:\n");
-    if (colors) {
-        printf("  " IRON_COLOR_BOLD IRON_COLOR_ORANGE "init" IRON_COLOR_RESET
-               "     Create a new Iron project\n");
-        printf("  " IRON_COLOR_BOLD IRON_COLOR_ORANGE "build" IRON_COLOR_RESET
-               "    Build the current package or a .iron file\n");
-        printf("  " IRON_COLOR_BOLD IRON_COLOR_ORANGE "run" IRON_COLOR_RESET
-               "      Run the current package or a .iron file\n");
-        printf("  " IRON_COLOR_BOLD IRON_COLOR_ORANGE "check" IRON_COLOR_RESET
-               "    Type-check without producing a binary\n");
-        printf("  " IRON_COLOR_BOLD IRON_COLOR_ORANGE "fmt" IRON_COLOR_RESET
-               "      Format Iron source code\n");
-        printf("  " IRON_COLOR_BOLD IRON_COLOR_ORANGE "test" IRON_COLOR_RESET
-               "     Discover and run tests\n");
-    } else {
-        printf("  init     Create a new Iron project\n");
-        printf("  build    Build the current package or a .iron file\n");
-        printf("  run      Run the current package or a .iron file\n");
-        printf("  check    Type-check without producing a binary\n");
-        printf("  fmt      Format Iron source code\n");
-        printf("  test     Discover and run tests\n");
+    (void)colors;
+    iron_help_print_all("iron", stdout);
+}
+
+/*
+ * argv_contains_help: scan argv[start..argc) for --help or -h.
+ * Returns 1 if found anywhere, 0 otherwise. Phase 97 HELP-01 pre-dispatch
+ * scan helper: lets main() short-circuit to subcommand-scoped help BEFORE
+ * any subcommand handler runs, so commands like `iron init --help` print
+ * help and exit 0 instead of scaffolding files.
+ */
+static int argv_contains_help(int argc, char **argv, int start) {
+    for (int i = start; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            return 1;
+        }
     }
-    printf("\nSee also: ironc -- raw compiler for direct file compilation\n");
-    printf("\nOptions:\n");
-    printf("  --version    Print version and exit\n");
-    printf("  --help       Print this help\n");
+    return 0;
 }
 
 /* ── Entry point ────────────────────────────────────────────────────────── */
@@ -275,8 +268,34 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (strcmp(cmd, "--help") == 0 || strcmp(cmd, "-h") == 0) {
-        print_help(colors);
+        iron_help_print_all("iron", stdout);
         return 0;
+    }
+
+    /*
+     * Phase 97 HELP-01: pre-dispatch --help scan. If argv[1] is a known
+     * subcommand AND --help/-h appears anywhere in argv[2..argc), print
+     * subcommand-scoped help and exit 0 BEFORE the subcommand handler
+     * runs. This is what makes `iron init --help` not scaffold files,
+     * `iron build --help` not create target/, and so on (HELP-02).
+     *
+     * `migrate` is included even though src/pkg/main.c does not currently
+     * dispatch it (it's an ironc-only command); listing it here means
+     * `iron migrate --help` prints migrate help instead of falling
+     * through to the unknown-command branch.
+     */
+    {
+        static const char *KNOWN_SUBS[] = {
+            "init", "build", "run", "check", "fmt", "test", "migrate", NULL
+        };
+        int is_known_sub = 0;
+        for (int i = 0; KNOWN_SUBS[i]; i++) {
+            if (strcmp(cmd, KNOWN_SUBS[i]) == 0) { is_known_sub = 1; break; }
+        }
+        if (is_known_sub && argv_contains_help(argc, argv, 2)) {
+            iron_help_print_subcommand("iron", cmd, stdout);
+            return 0;
+        }
     }
 
     /* init subcommand */

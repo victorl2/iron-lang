@@ -1,0 +1,6 @@
+-- Phase 94 LIB-03 fixture: lib half of the lib_consume pair.
+-- Exposes a single pub func that the consumer will call across the path-dep boundary.
+
+pub func greet(name: String) -> String {
+    return "Hello, {name}!"
+}

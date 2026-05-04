@@ -146,7 +146,8 @@ Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
                                         IronAnalysisMode    mode,
                                         Iron_Arena         *arena,
                                         Iron_DiagList      *diags,
-                                        const _Atomic bool *cancel_flag) {
+                                        const _Atomic bool *cancel_flag,
+                                        int                 user_source_start_line) {
     Iron_AnalyzeResult result = { .global_scope = NULL, .has_errors = false,
                                    .program = NULL };
 
@@ -185,6 +186,7 @@ Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
      * read site, not an AST write — NAV-15 sealed-tree contract is
      * upstream of this point and unaffected. */
     parser.v3_strict_mode = (mode == IRON_ANALYSIS_MODE_CLI);
+    parser.user_source_start_line = user_source_start_line;
     iron_parser_set_cancel_flag(&parser, cancel_flag); /* HARD-05 */
     Iron_Node *ast = iron_parse(&parser);
     arrfree(tokens);

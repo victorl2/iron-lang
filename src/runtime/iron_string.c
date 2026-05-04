@@ -127,6 +127,19 @@ bool iron_string_equals(const Iron_String *a, const Iron_String *b) {
 }
 
 Iron_String iron_string_concat(const Iron_String *a, const Iron_String *b) {
+    /* Phase 96 STR-01: defense-in-depth NULL guard — the compiler-side
+     * lowering at hir_lower.c always emits two valid Iron_String pointers,
+     * but partial chains and future generated-call paths may insert NULL
+     * for "empty operand" without an extra null check. Treating NULL as
+     * empty matches the CONTEXT.md "NULL operand = empty string" decision
+     * and keeps the helper crash-free in isolation (test_string_concat.c).
+     * The static const is zero-initialised: heap.flags = 0 (SSO variant)
+     * with sso.len = 0, which iron_string_byte_len + iron_string_cstr
+     * already handle correctly. */
+    static const Iron_String iron_string_empty_const;
+    if (!a) a = &iron_string_empty_const;
+    if (!b) b = &iron_string_empty_const;
+
     size_t la    = iron_string_byte_len(a);
     size_t lb    = iron_string_byte_len(b);
     size_t total = la + lb;

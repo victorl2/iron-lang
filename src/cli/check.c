@@ -28,6 +28,17 @@
 #include "vendor/stb_ds.h"
 #include "cli/iron_import_detect.h"
 
+/* Phase 93 VIS-03 stdlib carve-out: count '\n' bytes in a buffer. Mirrors
+ * the helper in build.c so check.c can plumb an equivalent
+ * user_source_start_line to the parser without depending on build.c. */
+static int check_count_newlines(const char *buf, size_t len) {
+    int n = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (buf[i] == '\n') n++;
+    }
+    return n;
+}
+
 /* ── Helper: read a file into a heap-allocated string ────────────────────── */
 
 static char *check_read_file(const char *path) {
@@ -169,6 +180,10 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
      * Use a temporary arena for the token-level import detection. */
     Iron_Arena detect_arena = iron_arena_create(32 * 1024);
 
+    /* Phase 93 VIS-03 stdlib carve-out: total lines added to the prefix by
+     * all stdlib prepends. Mirrors build.c. */
+    int stdlib_prepended_lines = 0;
+
     if (iron_detect_import(source, source_path, "raylib", &detect_arena)) {
         char *rl_path = check_make_path(base_dir, "stdlib/raylib.iron");
         if (rl_path) {
@@ -184,6 +199,8 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
                     strcpy(combined + rl_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(rl_src, (size_t)rl_size) + 1;
                 }
                 free(rl_src);
             }
@@ -205,6 +222,8 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
                     strcpy(combined + sz + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
                 }
                 free(src);
             }
@@ -226,6 +245,8 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
                     strcpy(combined + sz + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
                 }
                 free(src);
             }
@@ -247,6 +268,8 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
                     strcpy(combined + sz + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
                 }
                 free(src);
             }
@@ -268,6 +291,8 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
                     strcpy(combined + sz + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
                 }
                 free(src);
             }
@@ -292,6 +317,8 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
                     strcpy(combined + sz + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
                 }
                 free(src);
             }
@@ -317,6 +344,8 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
                     strcpy(combined + sz + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
                 }
                 free(src);
             }
@@ -341,6 +370,8 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
                     strcpy(combined + str_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(str_src, (size_t)str_size) + 1;
                 }
                 free(str_src);
             }
@@ -364,6 +395,8 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
                     strcpy(combined + sz + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
                 }
                 free(src);
             }
@@ -387,6 +420,8 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
                     strcpy(combined + sz + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
                 }
                 free(src);
             }
@@ -404,7 +439,8 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
         source, strlen(source), source_path,
         analysis_mode,
         &arena, &diags,
-        NULL);
+        NULL,
+        stdlib_prepended_lines + 1);
 
     /* 4. Print all diagnostics */
     iron_diag_print_all(&diags, source);

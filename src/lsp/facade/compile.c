@@ -61,7 +61,8 @@ static Iron_Program *facade_analyze(struct IronLsp_Document      *doc,
         IRON_ANALYSIS_MODE_LSP,
         arena,
         diags,
-        cancel);
+        cancel,
+        0  /* LSP buffer mode: no stdlib prepended, all source is user code */);
     return r.program;
 }
 

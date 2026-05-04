@@ -40,7 +40,8 @@ static void harness_init(NavHarness *h, const char *src, const char *uri) {
     h->doc   = ilsp_document_create(uri, src, strlen(src), 1);
     Iron_AnalyzeResult r = iron_analyze_buffer(src, strlen(src), uri,
                                                 IRON_ANALYSIS_MODE_CLI,
-                                                &h->arena, &h->diags, NULL);
+                                                &h->arena, &h->diags, NULL,
+        0);
     h->program = r.program;
 }
 

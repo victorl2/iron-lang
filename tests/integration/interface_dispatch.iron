@@ -33,33 +33,39 @@ object Bird {
     }
 }
 
-func Dog.speak() -> String {
-  return "Woof!"
+patch object Dog {
+    readonly func speak() -> String {
+      return "Woof!"
+    }
+    readonly func name() -> String {
+      return self.dog_name
+    }
 }
 
-func Dog.name() -> String {
-  return self.dog_name
+
+patch object Cat {
+    readonly func speak() -> String {
+      return "Meow!"
+    }
+    readonly func name() -> String {
+      return self.cat_name
+    }
 }
 
-func Cat.speak() -> String {
-  return "Meow!"
+
+patch object Bird {
+    readonly func speak() -> String {
+      if self.can_fly == 1 {
+        return "Tweet from above!"
+      } else {
+        return "Tweet from ground!"
+      }
+    }
+    readonly func name() -> String {
+      return self.bird_name
+    }
 }
 
-func Cat.name() -> String {
-  return self.cat_name
-}
-
-func Bird.speak() -> String {
-  if self.can_fly == 1 {
-    return "Tweet from above!"
-  } else {
-    return "Tweet from ground!"
-  }
-}
-
-func Bird.name() -> String {
-  return self.bird_name
-}
 
 func describe_dog(d: Dog) -> String {
   return "{d.name()}: {d.speak()}"

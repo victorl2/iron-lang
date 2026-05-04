@@ -7,8 +7,10 @@ object Vec2 {
     }
 }
 
-func Vec2.length() -> Float {
-  return self.x + self.y
+patch object Vec2 {
+    readonly func length() -> Float {
+      return self.x + self.y
+    }
 }
 
 func main() {

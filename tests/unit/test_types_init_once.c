@@ -41,7 +41,8 @@ static void *worker_run(void *arg) {
     for (int i = 0; i < 100; i++) {
         iron_analyze_buffer(src, strlen(src), "concurrent.iron",
                             IRON_ANALYSIS_MODE_CLI,
-                            &s->arena, &s->diags, NULL);
+                            &s->arena, &s->diags, NULL,
+        0);
     }
     return NULL;
 }

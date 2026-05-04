@@ -1,0 +1,9 @@
+-- VIS-01 negative lock: top-level `pub val` is rejected.
+-- Plan 93-01 emits a hint pointing at `pub func` returning a constant.
+--
+-- Compile_fail category is NOT auto-discovered (Phase 80 convention);
+-- a paired substring-lock unit test in tests/unit/test_typecheck.c
+-- gates CI. Spot-check:
+--   ./build/iron build FIXTURE 2>&1 | grep -qF "$(cat FIXTURE.expected)"
+
+pub val GLOBAL: Int = 0

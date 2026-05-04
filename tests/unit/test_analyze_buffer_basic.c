@@ -29,7 +29,8 @@ void test_iron_analyze_buffer_well_formed_input(void) {
     Iron_AnalyzeResult r = iron_analyze_buffer(
         src, strlen(src), "basic.iron",
         IRON_ANALYSIS_MODE_CLI,
-        &arena, &diags, NULL);
+        &arena, &diags, NULL,
+        0);
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);
     TEST_ASSERT_NOT_NULL(r.global_scope);
     TEST_ASSERT_FALSE(r.has_errors);
@@ -42,7 +43,8 @@ void test_iron_analyze_buffer_pre_cancelled_returns_early(void) {
     Iron_AnalyzeResult r = iron_analyze_buffer(
         src, strlen(src), "cancel.iron",
         IRON_ANALYSIS_MODE_CLI,
-        &arena, &diags, &cancel);
+        &arena, &diags, &cancel,
+        0);
     /* Before Plan 03 wires poll sites, the pre-cancel check at entry is
      * the only observed cancellation. Partial result is NULL global scope. */
     TEST_ASSERT_NULL(r.global_scope);
@@ -54,7 +56,8 @@ void test_iron_analyze_buffer_null_cancel_flag(void) {
     Iron_AnalyzeResult r = iron_analyze_buffer(
         src, strlen(src), "nullcancel.iron",
         IRON_ANALYSIS_MODE_CLI,
-        &arena, &diags, NULL);
+        &arena, &diags, NULL,
+        0);
     TEST_ASSERT_NOT_NULL(r.global_scope);
 }
 

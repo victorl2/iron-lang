@@ -152,7 +152,8 @@ static Iron_Program *parse_and_analyze(const char *src, const char *filename,
                                           Iron_DiagList *diags) {
     Iron_AnalyzeResult r = iron_analyze_buffer(
         src, strlen(src), filename, IRON_ANALYSIS_MODE_LSP,
-        arena, diags, NULL);
+        arena, diags, NULL,
+        0);
     return r.program;
 }
 

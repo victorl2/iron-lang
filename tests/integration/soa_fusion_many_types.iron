@@ -69,20 +69,28 @@ object Healer impl Unit {
     }
 }
 
-func Soldier.get_power() -> Int {
-  return self.power
+patch object Soldier {
+    readonly func get_power() -> Int {
+      return self.power
+    }
 }
 
-func Archer.get_power() -> Int {
-  return self.power
+patch object Archer {
+    readonly func get_power() -> Int {
+      return self.power
+    }
 }
 
-func Mage.get_power() -> Int {
-  return self.power
+patch object Mage {
+    readonly func get_power() -> Int {
+      return self.power
+    }
 }
 
-func Healer.get_power() -> Int {
-  return self.power
+patch object Healer {
+    readonly func get_power() -> Int {
+      return self.power
+    }
 }
 
 func main() {

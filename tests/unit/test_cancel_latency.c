@@ -53,7 +53,8 @@ void test_pre_signaled_cancel_returns_immediately(void) {
     Iron_AnalyzeResult r = iron_analyze_buffer(
         src, strlen(src), "test.iron",
         IRON_ANALYSIS_MODE_CLI,
-        &arena, &diags, &cancel);
+        &arena, &diags, &cancel,
+        0);
 
     /* Pipeline never ran — global_scope stays NULL. */
     TEST_ASSERT_NULL(r.global_scope);
@@ -81,7 +82,8 @@ void test_null_cancel_flag_never_fires(void) {
     Iron_AnalyzeResult r = iron_analyze_buffer(
         src, strlen(src), "test.iron",
         IRON_ANALYSIS_MODE_CLI,
-        &arena, &diags, NULL);
+        &arena, &diags, NULL,
+        0);
 
     TEST_ASSERT_NOT_NULL(r.global_scope);
     for (int i = 0; i < diags.count; i++) {
@@ -106,7 +108,8 @@ static void *compile_thread_fn(void *arg) {
     job->result = iron_analyze_buffer(
         job->src, job->len, "big.iron",
         IRON_ANALYSIS_MODE_CLI,
-        &job_arena, &job_diags, job->cancel);
+        &job_arena, &job_diags, job->cancel,
+        0);
     return NULL;
 }
 

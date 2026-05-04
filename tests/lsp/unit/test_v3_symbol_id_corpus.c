@@ -167,7 +167,8 @@ static void collect_v2_triples(const char *integration_dir, char ***out_lines) {
         Iron_DiagList diags = iron_diaglist_create();
         Iron_AnalyzeResult r = iron_analyze_buffer(src, got, full,
                                                     IRON_ANALYSIS_MODE_LSP,
-                                                    &arena, &diags, NULL);
+                                                    &arena, &diags, NULL,
+        0);
         if (r.global_scope && r.program) {
             emit_scope_triples(r.global_scope, full, r.program,
                                 &arena, out_lines);
@@ -245,7 +246,8 @@ static TripleRow *collect_triples(const char *integration_dir,
         Iron_DiagList diags = iron_diaglist_create();
         Iron_AnalyzeResult r = iron_analyze_buffer(src, got, full,
                                                     IRON_ANALYSIS_MODE_LSP,
-                                                    &arena, &diags, NULL);
+                                                    &arena, &diags, NULL,
+        0);
         if (r.global_scope && r.program) {
             for (ptrdiff_t i = 0; i < shlen(r.global_scope->symbols); i++) {
                 Iron_Symbol *sym = r.global_scope->symbols[i].value;

@@ -148,6 +148,10 @@ static IronHIR_Module *compile_to_hir(const char *src,
  * representative tokens appear in the output. This alone pushes
  * parser/printer.c coverage over the 50% line.
  */
+/* Phase 98 PATCH-03: standalone form `func Point.greet()` is rejected with
+ * E0321. Migrated to in-block method form so the AST printer still sees a
+ * MethodDecl on Point with the same shape (param list, return type, body)
+ * the standalone form used to produce. */
 static const char *k_dense_src =
     "interface Greeter {\n"
     "  func greet() -> String\n"
@@ -156,10 +160,9 @@ static const char *k_dense_src =
     "object Point impl Greeter {\n"
     "  var x: Int\n"
     "  var y: Int\n"
-    "}\n"
-    "\n"
-    "func Point.greet() -> String {\n"
-    "  return \"hi\"\n"
+    "  func greet() -> String {\n"
+    "    return \"hi\"\n"
+    "  }\n"
     "}\n"
     "\n"
     "enum Color {\n"
@@ -261,14 +264,19 @@ void test_print_ast_dense_program(void) {
  * that might stress HIR lowering). Complete-enough to exercise the main
  * HIR/LIR printer case arms: func body, let stmts, binop/unop exprs,
  * if/while, return, calls, literal kinds. */
+/* Phase 98 PATCH-03: standalone form `func Pair.sum()` is rejected with
+ * E0321. Migrated to in-block method form so HIR + LIR printers still see
+ * a MethodDecl on Pair with self-field access in the body. The legacy
+ * standalone form's implicit receiver was treated as immutable by Phase 84
+ * MUTTIER; the equivalent in v3.0+ in-block form is `readonly func`, which
+ * is required here so `val p = Pair(1, 2); p.sum()` does not trip E0235. */
 static const char *k_hir_src =
     "object Pair {\n"
     "  var a: Int\n"
     "  var b: Int\n"
-    "}\n"
-    "\n"
-    "func Pair.sum() -> Int {\n"
-    "  return self.a + self.b\n"
+    "  readonly func sum() -> Int {\n"
+    "    return self.a + self.b\n"
+    "  }\n"
     "}\n"
     "\n"
     "func add(a: Int, b: Int) -> Int {\n"

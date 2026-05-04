@@ -15,15 +15,19 @@ import raylib
 -- raylib.iron.
 object Probe {}
 
--- [Float32] INPUT — foreign-method-stub param scan must fire.
-func Probe.f32_input(data: [Float32]) {}
+-- Foreign-method-stub declarations migrated from the v2.x standalone
+-- form to v3.2 patch-object form (Phase 98 PATCH-03 / E0321).
+patch object Probe {
+    -- [Float32] INPUT — foreign-method-stub param scan must fire.
+    readonly func f32_input(data: [Float32]) {}
 
--- [Float32] RETURN — foreign-method-stub return scan must fire.
-func Probe.f32_return() -> [Float32] {}
+    -- [Float32] RETURN — foreign-method-stub return scan must fire.
+    readonly func f32_return() -> [Float32] {}
 
--- [UInt8] INPUT — foreign-method-stub param scan must fire for
--- primitive element types.
-func Probe.u8_input(data: [UInt8]) {}
+    -- [UInt8] INPUT — foreign-method-stub param scan must fire for
+    -- primitive element types.
+    readonly func u8_input(data: [UInt8]) {}
+}
 
 func main() -> Int32 {
     -- Empty main — probe validates COMPILATION, not runtime behavior.

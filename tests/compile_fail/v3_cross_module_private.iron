@@ -1,0 +1,21 @@
+-- VIS-03 negative lock: cross-module reference to a non-pub symbol.
+-- Locks E0320 = IRON_ERR_CROSS_MODULE_PRIVATE.
+--
+-- Compile_fail category is NOT auto-discovered by tests/run_tests.sh
+-- (Phase 80 commit 3bc6329 convention). Phase 87 IFACE convention
+-- (test_typecheck.c:2727-2748) wires this fixture via a paired
+-- substring-lock unit test. To verify standalone:
+--   ./build/iron build FIXTURE 2>&1 | grep -qF "$(cat FIXTURE.expected)"
+--
+-- This fixture exercises the Phase 93 multi-file `-- @file:` marker
+-- (Plan 04 Task 1): the lexer recognizes the directive and re-tags
+-- subsequent tokens with the named filename so the resolver's
+-- cross-module check sees lib.iron and main.iron as distinct sources.
+
+-- @file: lib.iron
+func helper() -> Int { return 42 }
+
+-- @file: main.iron
+func main() {
+    println("{helper()}")
+}

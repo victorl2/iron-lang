@@ -135,7 +135,8 @@ static void run_fixture(const char *fixture_name, int diag_code) {
     Iron_DiagList diags = iron_diaglist_create();
     (void)iron_analyze_buffer(src, src_len, src_path,
                                IRON_ANALYSIS_MODE_CLI,
-                               &arena, &diags, NULL);
+                               &arena, &diags, NULL,
+        0);
 
     const Iron_Diagnostic *target = find_diag(&diags, diag_code);
     if (!target) {

@@ -20,12 +20,16 @@ object Casual impl Greeting {
     }
 }
 
-func Formal.greet() -> String {
-  return "Good day, {self.name}."
+patch object Formal {
+    readonly func greet() -> String {
+      return "Good day, {self.name}."
+    }
 }
 
-func Casual.greet() -> String {
-  return "Hey {self.name}!"
+patch object Casual {
+    readonly func greet() -> String {
+      return "Hey {self.name}!"
+    }
 }
 
 func print_greeting(g: Greeting) {

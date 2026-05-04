@@ -1,17 +1,3 @@
--- soa_fusion_map_sum.iron: Primary Phase 57 regression test for SoA + fusion composition
--- Minimal reproduction of the bug documented at .planning/phases/54-test-hardening/54-VERIFICATION.md:122
---
--- Triggers:
---   (1) Split collection: 2 implementors (Particle, Bullet) -> per-type sub-arrays
---   (2) SoA layout: only get_x accessed, 1 of 4 fields used per impl -> Phase 48 picks SoA
---   (3) Dead field elimination: y, z, mass (Particle) and y, z, speed (Bullet) removed from Stor
---   (4) Fusion: entities.map(...).sum() is a fusible chain -> Phase 49 emits per-type fused loop
---
--- Before Phase 57: fused loop called Iron_Entity_from_Bullet(_v.bullet_items[_fi]) where
--- bullet_items is Iron_Bullet_Stor[], failing clang with "passing 'Iron_Bullet_Stor' to
--- parameter of incompatible type 'Iron_Bullet'".
--- After Phase 57: fused loop calls Iron_Entity_from_Bullet_Stor(_v.bullet_items[_fi]).
-
 interface Entity {
   func get_x() -> Int
 }
@@ -21,13 +7,24 @@ object Particle impl Entity {
   var y: Int
   var z: Int
   var mass: Int
-
-    init(x: Int, y: Int, z: Int, mass: Int) {
-        self.x = x
-        self.y = y
-        self.z = z
-        self.mass = mass
-    }
+  init(x: Int, y: Int, z: Int, mass: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.mass = mass
+  }
+  readonly func get_x() -> Int {
+    return self.x
+  }
+  init(x: Int, y: Int, z: Int, mass: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.mass = mass
+  }
+  readonly func get_x() -> Int {
+    return self.x
+  }
 }
 
 object Bullet impl Entity {
@@ -35,30 +32,73 @@ object Bullet impl Entity {
   var y: Int
   var z: Int
   var speed: Int
-
-    init(x: Int, y: Int, z: Int, speed: Int) {
-        self.x = x
-        self.y = y
-        self.z = z
-        self.speed = speed
-    }
+  init(x: Int, y: Int, z: Int, speed: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.speed = speed
+  }
+  readonly func get_x() -> Int {
+    return self.x
+  }
+  init(x: Int, y: Int, z: Int, speed: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.speed = speed
+  }
+  readonly func get_x() -> Int {
+    return self.x
+  }
 }
 
-func Particle.get_x() -> Int {
-  return self.x
+patch object Particle {
+  init(x: Int, y: Int, z: Int, mass: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.mass = mass
+  }
+  readonly func get_x() -> Int {
+    return self.x
+  }
+  init(x: Int, y: Int, z: Int, mass: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.mass = mass
+  }
+  readonly func get_x() -> Int {
+    return self.x
+  }
 }
 
-func Bullet.get_x() -> Int {
-  return self.x
+patch object Bullet {
+  init(x: Int, y: Int, z: Int, speed: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.speed = speed
+  }
+  readonly func get_x() -> Int {
+    return self.x
+  }
+  init(x: Int, y: Int, z: Int, speed: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.speed = speed
+  }
+  readonly func get_x() -> Int {
+    return self.x
+  }
 }
 
 func main() {
   val entities = [Particle(10, 20, 30, 100), Bullet(5, 15, 25, 50), Particle(3, 6, 9, 200), Bullet(8, 12, 18, 75)]
-  -- Fused chain: map(get_x) then sum
-  -- Particles: x=10, x=3 -> 13
-  -- Bullets:   x=5, x=8  -> 13
-  -- Total:              26
-  val sum_x = entities.map(func(e: Entity) -> Int { return e.get_x() }).sum()
+  val sum_x = entities.map(func(e: Entity) -> Int {
+    return e.get_x()
+  }).sum()
   println("{sum_x}")
   println("soa_fusion_done")
 }

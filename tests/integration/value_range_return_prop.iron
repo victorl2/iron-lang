@@ -40,12 +40,16 @@ object Pixel impl Particle {
     }
 }
 
-func Dot.describe() -> Int {
-  return self.kind * 1000 + self.x * 100 + self.y
+patch object Dot {
+    readonly func describe() -> Int {
+      return self.kind * 1000 + self.x * 100 + self.y
+    }
 }
 
-func Pixel.describe() -> Int {
-  return self.kind * 1000 + self.r * 100 + self.g
+patch object Pixel {
+    readonly func describe() -> Int {
+      return self.kind * 1000 + self.r * 100 + self.g
+    }
 }
 
 -- Leaf functions returning known small constants.

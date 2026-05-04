@@ -1,0 +1,24 @@
+-- PATCH-03 negative lock: the standalone `func TypeName.method()` form
+-- is removed in v3.2. This fixture must trigger E0321
+-- (IRON_ERR_STANDALONE_METHOD_FORM) at the `func Foo.bar` decl site.
+--
+-- Compile_fail category is NOT auto-discovered by tests/run_tests.sh
+-- (Phase 80 commit 3bc6329 convention). Phase 87 IFACE convention
+-- pairs each fixture with a substring-lock unit test in
+-- tests/unit/test_parser.c (see test_v98_compile_fail_standalone_method_form).
+--
+-- To verify standalone:
+--   ./build/ironc check FIXTURE 2>&1 | grep -qF "$(cat FIXTURE.expected)"
+--
+-- Migration form (the suggestion this diagnostic emits):
+--   patch object Foo {
+--     func bar() -> Int { return 42 }
+--   }
+
+object Foo {
+  init() { }
+}
+
+func Foo.bar() -> Int {
+  return 42
+}

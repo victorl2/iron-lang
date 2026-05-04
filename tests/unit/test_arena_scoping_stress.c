@@ -82,7 +82,8 @@ void test_arena_scoping_stress_rss_bounded(void) {
         Iron_Arena    a = iron_arena_create(64 * 1024);
         Iron_DiagList d = iron_diaglist_create();
         (void)iron_analyze_buffer(src, len, "stress.iron",
-                                   IRON_ANALYSIS_MODE_CLI, &a, &d, NULL);
+                                   IRON_ANALYSIS_MODE_CLI, &a, &d, NULL,
+        0);
         iron_diaglist_free(&d);
         iron_arena_free(&a);
     }
@@ -94,7 +95,8 @@ void test_arena_scoping_stress_rss_bounded(void) {
         Iron_Arena    a = iron_arena_create(64 * 1024);
         Iron_DiagList d = iron_diaglist_create();
         (void)iron_analyze_buffer(src, len, "stress.iron",
-                                   IRON_ANALYSIS_MODE_CLI, &a, &d, NULL);
+                                   IRON_ANALYSIS_MODE_CLI, &a, &d, NULL,
+        0);
         iron_diaglist_free(&d);
         iron_arena_free(&a);
     }

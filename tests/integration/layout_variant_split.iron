@@ -37,12 +37,16 @@ object HugeRect impl Shape {
     }
 }
 
-func TinyDot.area() -> Int {
-  return 0
+patch object TinyDot {
+    readonly func area() -> Int {
+      return 0
+    }
 }
 
-func HugeRect.area() -> Int {
-  return (self.x2 - self.x1) * (self.y2 - self.y1)
+patch object HugeRect {
+    readonly func area() -> Int {
+      return (self.x2 - self.x1) * (self.y2 - self.y1)
+    }
 }
 
 func main() {

@@ -7,13 +7,15 @@ object Vec2 {
     }
 }
 
-func Vec2.length_sq() -> Int {
-  return self.x * self.x + self.y * self.y
+patch object Vec2 {
+    readonly func length_sq() -> Int {
+      return self.x * self.x + self.y * self.y
+    }
+    readonly func manhattan() -> Int {
+      return self.x + self.y
+    }
 }
 
-func Vec2.manhattan() -> Int {
-  return self.x + self.y
-}
 
 func main() {
   val v1 = Vec2(3, 4)

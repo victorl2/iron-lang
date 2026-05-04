@@ -1,0 +1,6 @@
+-- Phase 94 LIB-03 fixture: consumer half of the lib_consume pair.
+-- Imports `greet` from the path-dep `mylib` and prints the result.
+
+func main() {
+    println(greet("Alice"))
+}

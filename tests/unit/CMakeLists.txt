@@ -127,6 +127,13 @@ target_link_libraries(test_runtime_string iron_runtime unity)
 add_test(NAME test_runtime_string COMMAND test_runtime_string)
 set_tests_properties(test_runtime_string PROPERTIES LABELS "unit")
 
+# Phase 96 STR-01: Unity tests for the iron_string_concat runtime helper
+# (NULL-safety, SSO + heap thresholds, chained calls).
+add_executable(test_string_concat test_string_concat.c)
+target_link_libraries(test_string_concat iron_runtime unity)
+add_test(NAME test_string_concat COMMAND test_string_concat)
+set_tests_properties(test_string_concat PROPERTIES LABELS "unit")
+
 add_executable(test_runtime_threads test_runtime_threads.c)
 target_link_libraries(test_runtime_threads iron_runtime unity)
 add_test(NAME test_runtime_threads COMMAND test_runtime_threads)
@@ -231,6 +238,56 @@ target_include_directories(test_toml_web PRIVATE
 target_link_libraries(test_toml_web unity)
 add_test(NAME test_toml_web COMMAND test_toml_web)
 set_tests_properties(test_toml_web PROPERTIES LABELS "unit")
+
+# Phase 94 LIB-03: [dependencies] path-form parser tests
+add_executable(test_toml_path_dep
+    test_toml_path_dep.c
+    ${CMAKE_SOURCE_DIR}/src/cli/toml.c
+    ${CMAKE_SOURCE_DIR}/src/fmt/options.c
+)
+target_include_directories(test_toml_path_dep PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(test_toml_path_dep unity)
+add_test(NAME test_toml_path_dep COMMAND test_toml_path_dep)
+set_tests_properties(test_toml_path_dep PROPERTIES LABELS "unit")
+
+# Phase 95 PIN: semver constraint parser tests
+add_executable(test_semver
+    test_semver.c
+    ${CMAKE_SOURCE_DIR}/src/cli/semver.c
+)
+target_include_directories(test_semver PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(test_semver unity)
+add_test(NAME test_semver COMMAND test_semver)
+set_tests_properties(test_semver PROPERTIES LABELS "unit")
+
+# Phase 95 PIN-01: [package].iron field parser tests
+add_executable(test_toml_iron_field
+    test_toml_iron_field.c
+    ${CMAKE_SOURCE_DIR}/src/cli/toml.c
+    ${CMAKE_SOURCE_DIR}/src/fmt/options.c
+)
+target_include_directories(test_toml_iron_field PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(test_toml_iron_field unity)
+add_test(NAME test_toml_iron_field COMMAND test_toml_iron_field)
+set_tests_properties(test_toml_iron_field PROPERTIES LABELS "unit")
+
+# Phase 97 HELP-04: central help registry tests
+add_executable(test_help_registry
+    test_help_registry.c
+    ${CMAKE_SOURCE_DIR}/src/cli/help_registry.c
+)
+target_include_directories(test_help_registry PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(test_help_registry unity)
+add_test(NAME test_help_registry COMMAND test_help_registry)
+set_tests_properties(test_help_registry PROPERTIES LABELS "unit")
 
 # ── Phase 5 plan-03: web_main_loop_split pass test (WEB-EMIT-01..04) ─────────
 add_executable(test_web_main_loop_split test_web_main_loop_split.c)

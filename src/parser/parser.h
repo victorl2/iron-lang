@@ -19,11 +19,19 @@ typedef struct {
     const char         *filename;
     const char         *source;       /* original source text for diagnostics */
     bool                in_error_recovery;
-    /* Phase 88: BREAK gate -- default false; flip true after Phase 89 codemod */
+    /* BREAK gate -- default false; flip true after codemod sweep */
     bool                v3_strict_mode;
     IronAnalysisMode    mode;         /* HARD-02: gate cascade-suppression on LSP mode */
     const _Atomic bool *cancel_flag;  /* HARD-05: NULL means never cancel */
     int                 recur_depth;  /* HARD-08: current recursion depth */
+    /* Stdlib carve-out: line number where the user's source begins. Set
+     * by the build/check pipelines after all stdlib prepends complete;
+     * copied into Iron_Program at parse exit and consulted by the
+     * resolver to treat decls with span.line below this value as stdlib
+     * (implicitly pub). For single-file user code with no stdlib
+     * prepend, leave at 0 (no real source line satisfies the carve-out
+     * condition). */
+    int                 user_source_start_line;
 } Iron_Parser;
 
 /* ── API ─────────────────────────────────────────────────────────────────── */

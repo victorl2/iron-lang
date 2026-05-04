@@ -254,6 +254,25 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_INVALID_SLICE_BOUNDS   313
 #define IRON_ERR_POSSIBLY_UNINITIALIZED 314
 
+/* Phase 93 VIS-03: cross-module visibility. Fired by name resolution when a
+ * top-level symbol lookup matches a non-`pub` decl whose declaring file
+ * differs from the use-site file. Stdlib carve-out (line-offset based via
+ * Iron_Parser.user_source_start_line) makes prepended-stdlib decls
+ * implicitly pub; user code is private-by-default. Slotted in the open gap
+ * between E0314 (POSSIBLY_UNINITIALIZED) and the 400-range LOWER codes. */
+#define IRON_ERR_CROSS_MODULE_PRIVATE   320
+
+/* Phase 98 PATCH-03: the standalone form `func TypeName.method()` is
+ * removed in v3.2. The form was deprecated in v3.0 but unenforced; the
+ * stdlib-side migration in Plan 98-01 rewrote every standalone decl
+ * into the `patch object T { ... }` form, so the parser can now reject
+ * the standalone form universally. The diagnostic carries the locked
+ * substrings "the standalone form" (in the message) and "use `patch
+ * object" (in the suggestion). Stdlib carve-out via
+ * Iron_Parser.user_source_start_line mirrors the E0320 carve-out: only
+ * user-source lines (line >= user_source_start_line) trigger E0321. */
+#define IRON_ERR_STANDALONE_METHOD_FORM 321
+
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400
 #define IRON_ERR_LOWER_UNRESOLVED_IDENT    401

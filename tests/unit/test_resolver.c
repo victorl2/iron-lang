@@ -241,11 +241,22 @@ void test_resolve_duplicate_decl(void) {
     TEST_ASSERT_TRUE(found_dup);
 }
 
-/* Test 5: forward reference — method decl before object decl */
+/* Test 5: forward reference — patch-block method declared before object decl.
+ *
+ * Phase 98 PATCH-03: standalone form `func Player.update()` is rejected with
+ * E0321. Migrated to `patch object Player { ... }` form, which the parser
+ * lowers to a PatchObjectDecl at the patch source position followed by a
+ * synthesized Iron_MethodDecl in extra_decls_out (same MethodDecl shape the
+ * standalone form used to produce). The forward-reference invariant is
+ * preserved: the patch block precedes the object decl in source order, and
+ * the resolver still has to register Player in pass 1 before checking the
+ * method's owner_sym in pass 2. */
 void test_resolve_forward_reference_method_before_object(void) {
     const char *src =
-        "func Player.update() {\n"
-        "  val x = 1\n"
+        "patch object Player {\n"
+        "  func update() {\n"
+        "    val x = 1\n"
+        "  }\n"
         "}\n"
         "object Player {\n"
         "  var hp: Int\n"
@@ -262,9 +273,22 @@ void test_resolve_forward_reference_method_before_object(void) {
     TEST_ASSERT_NOT_NULL(player_sym);
     TEST_ASSERT_EQUAL_INT(IRON_SYM_TYPE, player_sym->sym_kind);
 
-    /* MethodDecl owner_sym should be set to Player's symbol */
-    Iron_MethodDecl *md = (Iron_MethodDecl *)prog->decls[0];
-    TEST_ASSERT_EQUAL_INT(IRON_NODE_METHOD_DECL, md->kind);
+    /* The MethodDecl synthesized from the patch body lives somewhere in
+     * prog->decls (Phase 82 extras flush appends it right after the
+     * PatchObjectDecl that produced it). Walk the decl list and find the
+     * MethodDecl whose method_name == "update". Mirrors test_parse_method_decl
+     * in test_parser.c. */
+    Iron_MethodDecl *md = NULL;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *cand = (Iron_MethodDecl *)prog->decls[i];
+            if (cand->method_name && strcmp(cand->method_name, "update") == 0) {
+                md = cand;
+                break;
+            }
+        }
+    }
+    TEST_ASSERT_NOT_NULL(md);
     TEST_ASSERT_NOT_NULL(md->owner_sym);
     TEST_ASSERT_EQUAL_STRING("Player", md->owner_sym->name);
 }
@@ -316,14 +340,20 @@ void test_resolve_block_scope_isolation(void) {
     TEST_ASSERT_EQUAL_INT(IRON_ERR_UNDEFINED_VAR, g_diags.items[0].code);
 }
 
-/* Test 8: self inside method resolves without error */
+/* Test 8: self inside method resolves without error.
+ *
+ * Phase 98 PATCH-03: standalone form `func Player.tick()` is rejected with
+ * E0321. Migrated to in-block method form (Phase 82 grammar). The in-block
+ * parser desugars `func tick() { ... }` inside an object body into a
+ * top-level Iron_MethodDecl (synthesized via extra_decls_out) with the same
+ * shape and self-resolution semantics as the legacy standalone form. */
 void test_resolve_self_inside_method(void) {
     const char *src =
         "object Player {\n"
         "  var hp: Int\n"
-        "}\n"
-        "func Player.tick() {\n"
-        "  val s = self\n"
+        "  func tick() {\n"
+        "    val s = self\n"
+        "  }\n"
         "}\n";
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
@@ -331,8 +361,20 @@ void test_resolve_self_inside_method(void) {
     iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
+    /* In-block methods are flushed into prog->decls right after the enclosing
+     * ObjectDecl (Phase 82 extras flush). Walk for the MethodDecl named "tick". */
+    Iron_MethodDecl *md = NULL;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *cand = (Iron_MethodDecl *)prog->decls[i];
+            if (cand->method_name && strcmp(cand->method_name, "tick") == 0) {
+                md = cand;
+                break;
+            }
+        }
+    }
+    TEST_ASSERT_NOT_NULL(md);
     /* self ident should have resolved_sym set */
-    Iron_MethodDecl *md  = (Iron_MethodDecl *)prog->decls[1];
     Iron_Block      *body = (Iron_Block *)md->body;
     Iron_ValDecl    *vd  = (Iron_ValDecl *)body->stmts[0];
     Iron_Ident      *sid = (Iron_Ident *)vd->init;
@@ -354,7 +396,10 @@ void test_resolve_self_outside_method(void) {
     TEST_ASSERT_EQUAL_INT(IRON_ERR_SELF_OUTSIDE_METHOD, g_diags.items[0].code);
 }
 
-/* Test 10: super in child method resolves */
+/* Test 10: super in child method resolves.
+ *
+ * Phase 98 PATCH-03: standalone `func Dog.bark()` is rejected with E0321.
+ * Migrated to in-block form on Dog. */
 void test_resolve_super_in_child_method(void) {
     const char *src =
         "object Animal {\n"
@@ -362,9 +407,9 @@ void test_resolve_super_in_child_method(void) {
         "}\n"
         "object Dog extends Animal {\n"
         "  var name: String\n"
-        "}\n"
-        "func Dog.bark() {\n"
-        "  val p = super\n"
+        "  func bark() {\n"
+        "    val p = super\n"
+        "  }\n"
         "}\n";
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
@@ -373,14 +418,17 @@ void test_resolve_super_in_child_method(void) {
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
 
-/* Test 11: super in non-extending type => E0211 */
+/* Test 11: super in non-extending type => E0211.
+ *
+ * Phase 98 PATCH-03: standalone `func Solo.action()` is rejected with E0321.
+ * Migrated to in-block form on Solo. */
 void test_resolve_super_no_parent(void) {
     const char *src =
         "object Solo {\n"
         "  var x: Int\n"
-        "}\n"
-        "func Solo.action() {\n"
-        "  val p = super\n"
+        "  func action() {\n"
+        "    val p = super\n"
+        "  }\n"
         "}\n";
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
@@ -390,11 +438,19 @@ void test_resolve_super_no_parent(void) {
     TEST_ASSERT_EQUAL_INT(IRON_ERR_SUPER_NO_PARENT, g_diags.items[0].code);
 }
 
-/* Test 12: method with unresolved type_name produces error */
+/* Test 12: method with unresolved type_name produces error.
+ *
+ * Phase 98 PATCH-03: standalone `func UnknownType.bar()` is rejected with
+ * E0321 at parse time, so we can't exercise the resolver's "method on
+ * undeclared type" path through the standalone form anymore. Migrated to
+ * `patch object UnknownType { ... }`, which parses cleanly and lets the
+ * resolver fire its own diagnostic on the missing type symbol. */
 void test_resolve_method_unresolved_type(void) {
     const char *src =
-        "func UnknownType.bar() {\n"
-        "  val x = 1\n"
+        "patch object UnknownType {\n"
+        "  func bar() {\n"
+        "    val x = 1\n"
+        "  }\n"
         "}\n";
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);

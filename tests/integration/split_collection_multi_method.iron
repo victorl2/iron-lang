@@ -23,21 +23,25 @@ object Bike impl Vehicle {
     }
 }
 
-func Car.speed() -> Int {
-  return self.max_speed
+patch object Car {
+    readonly func speed() -> Int {
+      return self.max_speed
+    }
+    readonly func fuel() -> Int {
+      return self.tank
+    }
 }
 
-func Car.fuel() -> Int {
-  return self.tank
+
+patch object Bike {
+    readonly func speed() -> Int {
+      return self.max_speed
+    }
+    readonly func fuel() -> Int {
+      return 0
+    }
 }
 
-func Bike.speed() -> Int {
-  return self.max_speed
-}
-
-func Bike.fuel() -> Int {
-  return 0
-}
 
 func main() {
   val vehicles = [Car(120, 50), Bike(25), Car(200, 80)]

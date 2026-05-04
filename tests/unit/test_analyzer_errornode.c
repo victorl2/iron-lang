@@ -43,7 +43,8 @@ void test_malformed_source_cli_mode_no_abort(void) {
     Iron_AnalyzeResult r = iron_analyze_buffer(
         src, strlen(src), "malformed.iron",
         IRON_ANALYSIS_MODE_CLI,
-        &arena, &diags, NULL);
+        &arena, &diags, NULL,
+        0);
     /* Errors expected (parse errors) but no abort — we reached this line. */
     TEST_ASSERT_GREATER_THAN(0, diags.error_count);
     TEST_ASSERT_TRUE(r.has_errors);
@@ -63,7 +64,8 @@ void test_malformed_source_lsp_mode_no_abort_more_diags(void) {
     Iron_DiagList cli_diags  = iron_diaglist_create();
     Iron_Arena    cli_arena  = iron_arena_create(131072);
     iron_analyze_buffer(src, strlen(src), "malformed.iron",
-                        IRON_ANALYSIS_MODE_CLI, &cli_arena, &cli_diags, NULL);
+                        IRON_ANALYSIS_MODE_CLI, &cli_arena, &cli_diags, NULL,
+        0);
     int cli_count = cli_diags.error_count;
     iron_diaglist_free(&cli_diags);
     iron_arena_free(&cli_arena);
@@ -72,7 +74,8 @@ void test_malformed_source_lsp_mode_no_abort_more_diags(void) {
     Iron_AnalyzeResult r = iron_analyze_buffer(
         src, strlen(src), "malformed.iron",
         IRON_ANALYSIS_MODE_LSP,
-        &arena, &diags, NULL);
+        &arena, &diags, NULL,
+        0);
     (void)r;
     /* LSP count >= CLI count (suppression OFF in LSP mode). */
     TEST_ASSERT_GREATER_OR_EQUAL(cli_count, diags.error_count);
@@ -92,7 +95,8 @@ void test_deep_nesting_no_abort(void) {
     Iron_AnalyzeResult r = iron_analyze_buffer(
         buf, strlen(buf), "deep.iron",
         IRON_ANALYSIS_MODE_CLI,
-        &arena, &diags, NULL);
+        &arena, &diags, NULL,
+        0);
     (void)r;
     /* Survival is the assertion. */
     TEST_ASSERT_TRUE(1);

@@ -33,7 +33,8 @@ static void test_analyzer_seals_program_on_success(void) {
 
     Iron_AnalyzeResult r = iron_analyze_buffer(src, strlen(src), "t.iron",
                                                 IRON_ANALYSIS_MODE_CLI,
-                                                &arena, &diags, NULL);
+                                                &arena, &diags, NULL,
+        0);
     TEST_ASSERT_NOT_NULL(r.program);
     TEST_ASSERT_TRUE_MESSAGE(r.program->sealed,
                               "analyzer must set sealed=true on return");

@@ -68,7 +68,8 @@ static bool harness_init_from_file(V3NavHarness *h, const char *path,
     h->doc   = ilsp_document_create(uri, h->source, strlen(h->source), 1);
     Iron_AnalyzeResult r = iron_analyze_buffer(h->source, strlen(h->source),
                                                 uri, IRON_ANALYSIS_MODE_LSP,
-                                                &h->arena, &h->diags, NULL);
+                                                &h->arena, &h->diags, NULL,
+        0);
     h->program = r.program;
     return h->program != NULL;
 }

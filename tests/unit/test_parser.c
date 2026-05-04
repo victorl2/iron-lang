@@ -111,14 +111,42 @@ void test_parse_func_decl(void) {
 }
 
 void test_parse_method_decl(void) {
-    Iron_Node *prog = parse("func Player.update(dt: Float) { }");
-    Iron_Node *d    = first_decl(prog);
-    TEST_ASSERT_EQUAL(IRON_NODE_METHOD_DECL, d->kind);
-    Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+    /* Phase 98 PATCH-03: standalone form `func Player.update(dt: Float) { }`
+     * is rejected with E0321. The Iron_MethodDecl node shape is now reached
+     * only via in-block / patch-body declarations. Migrated to in-block
+     * form (Phase 82 grammar) to keep the MethodDecl shape assertion live:
+     * the in-block method parser produces a MethodDecl with the same
+     * type_name / method_name / params fields the standalone form used to. */
+    Iron_Node *prog = parse(
+        "object Player {\n"
+        "  init() { }\n"
+        "  func update(dt: Float) { }\n"
+        "}\n"
+    );
+    Iron_Program *pr = (Iron_Program *)prog;
+    TEST_ASSERT_EQUAL(IRON_NODE_PROGRAM, prog->kind);
+    /* In-block methods are pushed as separate top-level MethodDecl nodes
+     * via extra_decls_out (Phase 82 mechanism); walk the program's decl
+     * list and pick the MethodDecl whose method_name == "update". */
+    Iron_MethodDecl *m = NULL;
+    for (int i = 0; i < pr->decl_count; i++) {
+        if (pr->decls[i]->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *cand = (Iron_MethodDecl *)pr->decls[i];
+            if (cand->method_name && strcmp(cand->method_name, "update") == 0) {
+                m = cand;
+                break;
+            }
+        }
+    }
+    TEST_ASSERT_NOT_NULL_MESSAGE(m, "expected a MethodDecl named 'update' in extra_decls_out");
     TEST_ASSERT_EQUAL_STRING("Player", m->type_name);
     TEST_ASSERT_EQUAL_STRING("update", m->method_name);
-    TEST_ASSERT_EQUAL(1, m->param_count);
-    TEST_ASSERT_EQUAL_STRING("dt", ((Iron_Param *)m->params[0])->name);
+    /* In-block parser synthesizes `self: Player` as the first positional
+     * parameter, so the user's declared `dt: Float` lands at params[1]
+     * with param_count == 2. */
+    TEST_ASSERT_EQUAL(2, m->param_count);
+    TEST_ASSERT_EQUAL_STRING("self", ((Iron_Param *)m->params[0])->name);
+    TEST_ASSERT_EQUAL_STRING("dt",   ((Iron_Param *)m->params[1])->name);
 }
 
 /* ── Object declarations ─────────────────────────────────────────────────── */
@@ -357,21 +385,17 @@ void test_pub_on_method_parses(void) {
     TEST_ASSERT_FALSE(m->is_synth_accessor);
 }
 
-void test_pub_at_top_level_rejected(void) {
-    (void)parse("pub func foo() {}\n");
-    TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
-    /* The diagnostic message must mention pub and object-block so the user
-     * understands where `pub` is valid. */
-    bool found = false;
-    for (int i = 0; i < diags.count; i++) {
-        const char *msg = diags.items[i].message;
-        if (msg && strstr(msg, "pub") && strstr(msg, "object-block")) {
-            found = true;
-            break;
-        }
-    }
-    TEST_ASSERT_TRUE_MESSAGE(found,
-        "expected diagnostic mentioning 'pub' and 'object-block'");
+void test_pub_at_top_level_accepted(void) {
+    /* Phase 93 VIS-01: `pub` is now accepted at top level on func/object/
+     * enum/patch object. The Phase 83 rejection at parser.c:4513-4520 has
+     * been replaced by an accept-and-thread modifier loop. */
+    Iron_Program *prog = (Iron_Program *)parse("pub func foo() {}\n");
+    TEST_ASSERT_NOT_NULL(prog);
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+    TEST_ASSERT_GREATER_THAN_INT(0, prog->decl_count);
+    Iron_FuncDecl *fd = (Iron_FuncDecl *)prog->decls[0];
+    TEST_ASSERT_EQUAL_INT(IRON_NODE_FUNC_DECL, fd->kind);
+    TEST_ASSERT_TRUE(fd->is_pub);
 }
 
 void test_is_synth_accessor_default_false_on_in_block_method(void) {
@@ -896,7 +920,27 @@ static bool has_diag_msg_substring(const char *needle) {
     return false;
 }
 
+/* Phase 98 PATCH-03 / TEST-02: substring lock on the suggestion (help) line
+ * of any emitted diagnostic. Mirrors has_diag_msg_substring but reads the
+ * Iron_Diag.suggestion slot — required for diagnostics that split locked
+ * text across the message + suggestion pair (e.g., E0321's "use `patch
+ * object" suggestion sits adjacent to the "the standalone form" message). */
+static bool has_diag_suggestion_substring(const char *needle) {
+    for (int i = 0; i < diags.count; i++) {
+        if (diags.items[i].suggestion &&
+            strstr(diags.items[i].suggestion, needle)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void test_parse_pub_init_rejected(void) {
+    /* Phase 93 VIS-04 (Plan 93-02): `pub init` inside a non-pub object is
+     * rejected with the refreshed message that points at the enclosing
+     * visibility. Plan 93-01's earlier message ('init visibility is tied
+     * to its object') was a Phase 85 lock that Phase 93 explicitly
+     * supersedes - the new message is the contract. */
     (void)parse(
         "object X {\n"
         "    pub init() {}\n"
@@ -905,10 +949,13 @@ void test_parse_pub_init_rejected(void) {
     TEST_ASSERT_GREATER_THAN_INT(0, diags.error_count);
     TEST_ASSERT_TRUE_MESSAGE(
         has_diag_code(IRON_ERR_UNEXPECTED_TOKEN),
-        "expected IRON_ERR_UNEXPECTED_TOKEN for pub init");
+        "expected IRON_ERR_UNEXPECTED_TOKEN for pub init in non-pub object");
     TEST_ASSERT_TRUE_MESSAGE(
-        has_diag_msg_substring("init visibility is tied to its object"),
-        "expected locked 'init visibility is tied to its object' message");
+        has_diag_msg_substring("`pub init` is only valid inside a `pub object`"),
+        "expected refreshed Plan 93-02 pub-init-in-private-object message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_msg_substring("the enclosing"),
+        "expected message to point at the enclosing object");
 }
 
 void test_parse_readonly_init_rejected(void) {
@@ -1961,6 +2008,49 @@ void test_parse_tuple_destructure_wildcard(void) {
     TEST_ASSERT_NULL(vd->binding_names[1]);  /* wildcard sentinel */
 }
 
+/* ── Phase 98 PATCH-03 / TEST-02: standalone-form rejection ──────────────
+ *
+ * tests/compile_fail/ is NOT auto-discovered by tests/run_tests.sh
+ * (Phase 80 commit 3bc6329 convention). Phase 87 IFACE convention pairs
+ * each compile_fail fixture with a unit test that runs parse_no_strict
+ * on equivalent inline source and asserts has_diag_msg_substring on the
+ * locked text from the fixture's .expected sibling, plus an additional
+ * substring lock on the suggestion line.
+ *
+ * Fixture: tests/compile_fail/v3_standalone_method_form.iron
+ * Expected substring: tests/compile_fail/v3_standalone_method_form.expected
+ *   "the standalone form"
+ * Plus suggestion substring (locked separately to force two-anchor coverage):
+ *   "use `patch object"
+ */
+void test_v98_compile_fail_standalone_method_form(void) {
+    /* Equivalent inline source to the .iron fixture, sans header
+     * comment. parse_no_strict triggers the parser path WITHOUT
+     * stdlib prepend, so user_source_start_line == 0 and every line
+     * counts as user source — exactly the contract under test. */
+    (void)parse_no_strict(
+        "object Foo {\n"
+        "  init() { }\n"
+        "}\n"
+        "\n"
+        "func Foo.bar() -> Int {\n"
+        "  return 42\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_code(IRON_ERR_STANDALONE_METHOD_FORM),
+        "expected E0321 IRON_ERR_STANDALONE_METHOD_FORM for "
+        "standalone-form `func Foo.bar()` decl");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_msg_substring("the standalone form"),
+        "expected E0321 message substring 'the standalone form' "
+        "(locks tests/compile_fail/v3_standalone_method_form.expected)");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_diag_suggestion_substring("use `patch object"),
+        "expected E0321 suggestion substring 'use `patch object' "
+        "(locks the migration-hint help text)");
+}
+
 /* ── main ────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -1989,7 +2079,7 @@ int main(void) {
     RUN_TEST(test_pub_on_fields_sets_is_pub);
     RUN_TEST(test_pub_mixed_with_plain_fields);
     RUN_TEST(test_pub_on_method_parses);
-    RUN_TEST(test_pub_at_top_level_rejected);
+    RUN_TEST(test_pub_at_top_level_accepted);
     RUN_TEST(test_is_synth_accessor_default_false_on_in_block_method);
     RUN_TEST(test_phase82_in_block_method_still_parses);
     /* Phase 83-02 Task 1: accessor synthesis + name-collision diagnostic. */
@@ -2056,6 +2146,9 @@ int main(void) {
     RUN_TEST(test_patch_implements_multiple);
     RUN_TEST(test_patch_implements_recovery);
     RUN_TEST(test_patch_without_implements_unchanged);
+
+    /* Phase 98 PATCH-03 / TEST-02: standalone-form rejection lock. */
+    RUN_TEST(test_v98_compile_fail_standalone_method_form);
 
     RUN_TEST(test_parse_enum_decl);
     RUN_TEST(test_parse_import);

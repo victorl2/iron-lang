@@ -1,0 +1,14 @@
+-- STR-02 negative lock: `String + <non-String>` triggers the
+-- narrowed E0202 message introduced in Phase 96.
+--
+-- compile_fail is NOT auto-discovered by tests/run_tests.sh (Phase 80
+-- commit 3bc6329 convention). Phase 87 IFACE convention paired this
+-- fixture with the substring-lock unit test
+-- test_v96_string_plus_int_emits_narrowed_e0202 in
+-- tests/unit/test_typecheck.c. To verify standalone:
+--   ./build/ironc check FIXTURE 2>&1 | grep -qF "$(cat FIXTURE.expected)"
+
+func main() {
+  val bad: String = "foo" + 42
+  println(bad)
+}

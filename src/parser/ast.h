@@ -155,12 +155,18 @@ typedef struct {
     Iron_NodeKind kind;  /* IRON_NODE_PROGRAM */
     Iron_Node   **decls;
     int           decl_count;
-    /* Phase 3 NAV-15: set to true by iron_analyze_buffer on the single
+    /* NAV-15: set to true by iron_analyze_buffer on the single
      * successful-return path. Consumers outside src/analyzer/ and
      * src/parser/ must never mutate a sealed Iron_Program -- the
      * IRON_AST_ASSERT_UNSEALED macro below traps rogue writes in
      * debug builds. See docs/dev/AST_CONTRACT.md. */
     bool          sealed;
+    /* Stdlib carve-out: copied from Iron_Parser.user_source_start_line at
+     * iron_parse exit. The resolver consults this when classifying decls
+     * as stdlib for cross-module visibility purposes. 0 means no
+     * carve-out is active (single-file user code with no prepended
+     * stdlib). */
+    int           user_source_start_line;
 } Iron_Program;
 
 /* ── Phase 3 NAV-15: sealed-AST contract debug enforcement ───────────────────
@@ -214,8 +220,13 @@ typedef struct Iron_ObjectDecl {
      *                   lookup site. */
     bool          is_patch;           /* PATCH-01 */
     const char   *target_type_name;   /* PATCH-02 */
-    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    /* NAV-14: arena-interned `///` run; NULL if none. */
     const char   *doc_comment;
+    /* True when the object was declared `pub object T {...}` or
+     * `pub patch object T {...}`. Default false. Does NOT propagate
+     * visibility to members. Resolver reads this onto Iron_Symbol.is_pub
+     * for cross-module visibility. */
+    bool          is_pub;
 } Iron_ObjectDecl;
 
 typedef struct Iron_InterfaceDecl {
@@ -237,8 +248,12 @@ typedef struct Iron_EnumDecl {
     bool          has_payloads;       /* true if any variant has payload_count > 0 */
     Iron_Node   **generic_params;     /* NULL for non-generic enums */
     int           generic_param_count; /* 0 for non-generic enums */
-    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    /* NAV-14: arena-interned `///` run; NULL if none. */
     const char   *doc_comment;
+    /* True when the enum was declared `pub enum E {...}`. Default false.
+     * Resolver propagates onto Iron_Symbol.is_pub for both the enum and
+     * its variants. */
+    bool          is_pub;
 } Iron_EnumDecl;
 
 typedef struct {
@@ -250,6 +265,12 @@ typedef struct {
     Iron_Node         *return_type;  /* NULL if void */
     Iron_Node         *body;         /* Iron_Block; NULL for extern funcs */
     bool               is_private;
+    /* Phase 93 VIS-01/02: true when the function was declared with the
+     * top-level `pub` modifier. Default false (top-level decls are private
+     * by default in v3.2). Resolver propagates onto Iron_Symbol.is_pub for
+     * the cross-module visibility check (E0320). Plan 93-01 introduces
+     * this field; Plan 93-03 reads it at the resolver. */
+    bool               is_pub;
     bool               is_extern;      /* true for extern func declarations */
     const char        *extern_c_name;  /* C function name, e.g. "InitWindow"; NULL for non-extern */
     Iron_Node        **generic_params;
@@ -280,6 +301,10 @@ typedef struct {
     Iron_Node         *return_type;  /* NULL if void */
     Iron_Node         *body;
     bool               is_private;
+    /* Phase 93 VIS-01/04: true when this method was declared with the
+     * `pub` modifier. For in-block members, only valid when the enclosing
+     * object is `pub` (Plan 93-02 enforces this). Default false. */
+    bool               is_pub;
     Iron_Node        **generic_params;
     int                generic_param_count;
     struct Iron_Type  *resolved_return_type;  /* set by type checker */
@@ -327,8 +352,16 @@ typedef struct {
      * is_init is true and init_name != NULL, method_name == init_name so
      * the symbol-table lookup for `Type.<init_name>` hits naturally. */
     const char        *init_name;
-    /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
+    /* NAV-14: arena-interned `///` run; NULL if none. */
     const char        *doc_comment;
+    /* True when this method was produced by flattening an in-patch
+     * method (`pub patch object T { pub func ... }`). Set in
+     * iron_parse_patch_decl; defaults false everywhere else (in-block on
+     * a regular object, receiver-form, array-extension). The .iron-stub
+     * generator reads this bit to suppress patch-sourced methods even
+     * when a non-patch `pub object T` exists in the same source file
+     * (regular object's methods survive, patch's don't). */
+    bool               is_patch_member;
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
@@ -620,6 +653,14 @@ typedef struct {
     Iron_Node         *left;
     Iron_OpKind        op;
     Iron_Node         *right;
+    /* Phase 96 STR-01: set true by typecheck when op == IRON_TOK_PLUS AND
+     * both operands resolve to IRON_TYPE_STRING. hir_lower reads this bit
+     * to lower the binop as a runtime call to iron_string_concat instead
+     * of an HIR ADD opcode. Default false at every parser allocation site
+     * (parser.c:1357, where bin->kind = IRON_NODE_BINARY); explicit
+     * assignment mirrors the Phase 93 is_pub explicit-assignment audit
+     * convention so future maintainers can grep all init sites at once. */
+    bool               is_string_concat;
 } Iron_BinaryExpr;
 
 typedef struct {

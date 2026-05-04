@@ -61,10 +61,12 @@ static void assert_parity(const char *src) {
 
     (void)iron_analyze_buffer(src, strlen(src), "parity.iron",
                                IRON_ANALYSIS_MODE_CLI,
-                               &arena_cli, &diags_cli, NULL);
+                               &arena_cli, &diags_cli, NULL,
+        0);
     (void)iron_analyze_buffer(src, strlen(src), "parity.iron",
                                IRON_ANALYSIS_MODE_LSP,
-                               &arena_lsp, &diags_lsp, NULL);
+                               &arena_lsp, &diags_lsp, NULL,
+        0);
 
     /* Diag lists may differ in cancel-path NOTE emits or LSP cascade
      * suppression, but the 5 P1 codes are deterministic between modes.

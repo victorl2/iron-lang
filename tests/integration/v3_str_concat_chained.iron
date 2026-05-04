@@ -1,0 +1,10 @@
+-- STR-01 chained-concat fixture: `"a" + "b" + "c"` left-associates
+-- as `BinaryExpr(BinaryExpr("a", "b"), "c")`. Each `+` sets the
+-- is_string_concat AST bit and lowers to iron_string_concat; the
+-- inner concat allocates first, the outer concat consumes the
+-- temporary and produces the final "abc" result.
+
+func main() {
+  val s: String = "a" + "b" + "c"
+  println(s)
+}

@@ -10,9 +10,16 @@ typedef struct {
     char *name;       /* key name in [dependencies] */
     char *git;        /* git = "owner/repo" */
     char *version;    /* version = "X.Y.Z" */
+    /* Phase 94 LIB-03: local-path dependency. Set when [dependencies]
+     * inline-table contains `path = "..."`. NULL for git-source deps.
+     * Resolver dispatches on this field: non-NULL -> path-source handler;
+     * NULL -> existing git-source handler. The string is heap-allocated
+     * (strdup'd by extract_inline_field) and freed in iron_toml_free. */
+    char *path;
     /* Filled in by resolver: */
     char *sha;        /* 40-char commit SHA (from iron.lock or GitHub API) */
-    char *cache_path; /* absolute path: ~/.iron/cache/{owner}/{repo}@{sha}/ */
+    char *cache_path; /* absolute path: ~/.iron/cache/{owner}/{repo}@{sha}/
+                       * Repurposed for path-deps: holds the absolute lib project dir. */
 } IronDep;
 
 /* Parsed representation of an iron.toml project file. */
@@ -23,6 +30,12 @@ typedef struct {
     char *entry;       /* entry = "..." (preserved for backward compat, ignored by iron) */
     char *type;        /* type = "bin" or "lib" (default "bin") */
     char *description; /* description = "..." (optional) */
+
+    /* [package].iron — Phase 95 PIN-01: optional Cargo-style semver
+     * constraint enforced by pkg_build.c's check_iron_version. NULL when
+     * the field is absent (no constraint = no check). Heap-owned; freed
+     * in iron_toml_free. */
+    char *iron_constraint;
 
     /* [dependencies] */
     bool   raylib;       /* raylib = true (backward compat) */

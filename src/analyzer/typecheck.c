@@ -1623,7 +1623,42 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     }
                     result = iron_type_make_primitive(IRON_TYPE_BOOL);
                 } else if (is_arithmetic) {
-                    if (!iron_type_equals(lt, rt)) {
+                    /* Phase 96 STR-01/02: special-case `+` for strings.
+                     * Three cases, all triggered by op == IRON_TOK_PLUS:
+                     *
+                     *   1. String + non-String (or non-String + String):
+                     *      fire the narrowed E0202 directly (instead of
+                     *      falling through to TYPE_MISMATCH) so the
+                     *      diagnostic message tells the user `+` accepts
+                     *      numeric operands or two `String` values. The
+                     *      `(lt==STRING) != (rt==STRING)` guard catches
+                     *      both `"foo" + 42` and `42 + "foo"`.
+                     *
+                     *   2. String + String: set the AST bit so hir_lower
+                     *      rewrites this binop into a runtime call to
+                     *      iron_string_concat. No diagnostic — typecheck
+                     *      succeeds and produces a String result.
+                     *
+                     *   3. Anything else: keep the v3.1 behavior — type-
+                     *      mismatch on lt != rt; the GENERIC E0202 message
+                     *      "arithmetic operator requires numeric operands"
+                     *      survives for non-numeric same-type operands
+                     *      (e.g. `"a" - "b"`, `true * false`) so that `-`,
+                     *      `*`, `/`, `%` continue to reject those without
+                     *      advertising a String overload that does not
+                     *      exist for those operators. */
+                    if (op == IRON_TOK_PLUS &&
+                        (lt->kind == IRON_TYPE_STRING) != (rt->kind == IRON_TYPE_STRING)) {
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, be->span,
+                                   "operator `+` requires numeric operands or two `String` values",
+                                   NULL);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    } else if (op == IRON_TOK_PLUS &&
+                               lt->kind == IRON_TYPE_STRING &&
+                               rt->kind == IRON_TYPE_STRING) {
+                        be->is_string_concat = true;
+                        result = lt;  /* String */
+                    } else if (!iron_type_equals(lt, rt)) {
                         emit_type_mismatch(ctx, be->span, lt, rt);
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     } else if (!iron_type_is_numeric(lt)) {

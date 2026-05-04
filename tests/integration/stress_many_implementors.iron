@@ -79,35 +79,55 @@ object Fox impl Animal {
     }
 }
 
-func Dog.value() -> Int {
-  return self.n * 1
+patch object Dog {
+    readonly func value() -> Int {
+      return self.n * 1
+    }
 }
-func Cat.value() -> Int {
-  return self.n * 2
+patch object Cat {
+    readonly func value() -> Int {
+      return self.n * 2
+    }
 }
-func Bird.value() -> Int {
-  return self.n * 3
+patch object Bird {
+    readonly func value() -> Int {
+      return self.n * 3
+    }
 }
-func Fish.value() -> Int {
-  return self.n * 4
+patch object Fish {
+    readonly func value() -> Int {
+      return self.n * 4
+    }
 }
-func Frog.value() -> Int {
-  return self.n * 5
+patch object Frog {
+    readonly func value() -> Int {
+      return self.n * 5
+    }
 }
-func Snake.value() -> Int {
-  return self.n * 6
+patch object Snake {
+    readonly func value() -> Int {
+      return self.n * 6
+    }
 }
-func Hawk.value() -> Int {
-  return self.n * 7
+patch object Hawk {
+    readonly func value() -> Int {
+      return self.n * 7
+    }
 }
-func Bear.value() -> Int {
-  return self.n * 8
+patch object Bear {
+    readonly func value() -> Int {
+      return self.n * 8
+    }
 }
-func Wolf.value() -> Int {
-  return self.n * 9
+patch object Wolf {
+    readonly func value() -> Int {
+      return self.n * 9
+    }
 }
-func Fox.value() -> Int {
-  return self.n * 10
+patch object Fox {
+    readonly func value() -> Int {
+      return self.n * 10
+    }
 }
 
 func main() {

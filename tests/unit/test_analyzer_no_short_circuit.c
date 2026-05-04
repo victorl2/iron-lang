@@ -43,7 +43,8 @@ void test_both_resolve_and_typecheck_errors_reported(void) {
     Iron_AnalyzeResult r = iron_analyze_buffer(
         src, strlen(src), "both_errors.iron",
         IRON_ANALYSIS_MODE_CLI,
-        &arena, &diags, NULL);
+        &arena, &diags, NULL,
+        0);
     (void)r;
     /* Both error codes expected to appear in the diag list.
      *

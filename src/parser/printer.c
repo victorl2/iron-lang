@@ -389,10 +389,11 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_OBJECT_DECL: {
             Iron_ObjectDecl *n = (Iron_ObjectDecl *)node;
-            /* Phase 9 Plan 09-02 D-10: emit the `patch ` prefix for patch
-             * decls. n->name and n->target_type_name reference the same
-             * arena strdup for patches (parser.c:4435 / :4448) so we can
+            /* Emit `pub` and/or `patch` prefixes in Iron source order:
+             * `pub patch object T`. n->name and n->target_type_name
+             * reference the same arena strdup for patches so we can
              * keep using n->name for the identifier. */
+            if (n->is_pub)   iron_strbuf_appendf(ctx->sb, "pub ");
             if (n->is_patch) iron_strbuf_appendf(ctx->sb, "patch ");
             iron_strbuf_appendf(ctx->sb, "object %s", n->name);
             print_generic_params(ctx, n->generic_params, n->generic_param_count);
@@ -478,6 +479,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_ENUM_DECL: {
             Iron_EnumDecl *n = (Iron_EnumDecl *)node;
+            if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             iron_strbuf_appendf(ctx->sb, "enum %s {\n", n->name);
             ctx->indent_level++;
             for (int i = 0; i < n->variant_count; i++) {
@@ -502,6 +504,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FUNC_DECL: {
             Iron_FuncDecl *n = (Iron_FuncDecl *)node;
+            if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             if (n->is_private) iron_strbuf_appendf(ctx->sb, "private ");
             /* Phase 9 Plan 09-02 D-10: tier modifier prefix in locked order
              * (visibility-before-tier-before-func). Iron_FuncDecl carries
@@ -531,6 +534,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_DECL: {
             Iron_MethodDecl *n = (Iron_MethodDecl *)node;
+            if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             if (n->is_private) iron_strbuf_appendf(ctx->sb, "private ");
             /* Phase 9 Plan 09-02 D-10: tier modifier prefix on the standalone
              * (top-level) method print path. Locked order is
@@ -1072,4 +1076,339 @@ void iron_print_ast_to_file(Iron_Node *root, const IronFmtOptions *opts, FILE *o
     method_index_free(idx);
     fprintf(out, "%s", iron_strbuf_get(&sb));
     iron_strbuf_free(&sb);
+}
+
+/* ── Phase 94 LIB-02: pub-stub generator ─────────────────────────────────── */
+
+/* Pull a decl's name for sorting, regardless of which top-level decl kind. */
+static const char *stub_decl_name(Iron_Node *n) {
+    if (!n) return "";
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wswitch-enum"
+#endif
+    switch (n->kind) {
+        case IRON_NODE_FUNC_DECL:   return ((Iron_FuncDecl *)n)->name   ? ((Iron_FuncDecl *)n)->name   : "";
+        case IRON_NODE_OBJECT_DECL: return ((Iron_ObjectDecl *)n)->name ? ((Iron_ObjectDecl *)n)->name : "";
+        case IRON_NODE_ENUM_DECL:   return ((Iron_EnumDecl *)n)->name   ? ((Iron_EnumDecl *)n)->name   : "";
+        default:                    return "";
+    }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+}
+
+static int stub_cmp_decl_name(const void *a, const void *b) {
+    Iron_Node *x = *(Iron_Node *const *)a;
+    Iron_Node *y = *(Iron_Node *const *)b;
+    return strcmp(stub_decl_name(x), stub_decl_name(y));
+}
+
+static int stub_cmp_method_name(const void *a, const void *b) {
+    Iron_MethodDecl *x = *(Iron_MethodDecl *const *)a;
+    Iron_MethodDecl *y = *(Iron_MethodDecl *const *)b;
+    const char *xn = x->method_name ? x->method_name : "";
+    const char *yn = y->method_name ? y->method_name : "";
+    return strcmp(xn, yn);
+}
+
+/* Emit a parameter list: (name: Type, ...). Mirrors print_param/print_params
+ * but writes directly to FILE *out so the stub generator avoids round-tripping
+ * through the strbuf-backed PrintCtx machinery. */
+static void stub_emit_param(FILE *out, Iron_Node *node) {
+    if (!node || node->kind != IRON_NODE_PARAM) return;
+    Iron_Param *p = (Iron_Param *)node;
+    if (p->is_var) fprintf(out, "var ");
+    fprintf(out, "%s", p->name ? p->name : "_");
+    if (p->type_ann && p->type_ann->kind == IRON_NODE_TYPE_ANNOTATION) {
+        Iron_TypeAnnotation *t = (Iron_TypeAnnotation *)p->type_ann;
+        fprintf(out, ": ");
+        if (t->is_array) {
+            fprintf(out, "[%s", t->name ? t->name : "");
+            fprintf(out, "]");
+        } else {
+            fprintf(out, "%s", t->name ? t->name : "");
+            if (t->is_nullable) fprintf(out, "?");
+            if (t->generic_arg_count > 0) {
+                fprintf(out, "[");
+                for (int i = 0; i < t->generic_arg_count; i++) {
+                    if (i > 0) fprintf(out, ", ");
+                    Iron_TypeAnnotation *g = (Iron_TypeAnnotation *)t->generic_args[i];
+                    if (g) fprintf(out, "%s", g->name ? g->name : "");
+                }
+                fprintf(out, "]");
+            }
+        }
+    }
+}
+
+static void stub_emit_params(FILE *out, Iron_Node **params, int count) {
+    fprintf(out, "(");
+    for (int i = 0; i < count; i++) {
+        if (i > 0) fprintf(out, ", ");
+        stub_emit_param(out, params[i]);
+    }
+    fprintf(out, ")");
+}
+
+static void stub_emit_type_ann(FILE *out, Iron_Node *node) {
+    if (!node || node->kind != IRON_NODE_TYPE_ANNOTATION) return;
+    Iron_TypeAnnotation *t = (Iron_TypeAnnotation *)node;
+    if (t->is_array) {
+        fprintf(out, "[%s]", t->name ? t->name : "");
+    } else {
+        fprintf(out, "%s", t->name ? t->name : "");
+        if (t->is_nullable) fprintf(out, "?");
+        if (t->generic_arg_count > 0) {
+            fprintf(out, "[");
+            for (int i = 0; i < t->generic_arg_count; i++) {
+                if (i > 0) fprintf(out, ", ");
+                stub_emit_type_ann(out, t->generic_args[i]);
+            }
+            fprintf(out, "]");
+        }
+    }
+}
+
+static void stub_emit_generic_params(FILE *out, Iron_Node **gps, int count) {
+    if (count == 0) return;
+    fprintf(out, "[");
+    for (int i = 0; i < count; i++) {
+        if (i > 0) fprintf(out, ", ");
+        if (gps[i]->kind == IRON_NODE_IDENT) {
+            fprintf(out, "%s", ((Iron_Ident *)gps[i])->name);
+        } else if (gps[i]->kind == IRON_NODE_TYPE_ANNOTATION) {
+            stub_emit_type_ann(out, gps[i]);
+        }
+    }
+    fprintf(out, "]");
+}
+
+/* Emit a top-level pub func: signature + empty body. */
+static void stub_emit_func(FILE *out, Iron_FuncDecl *fd) {
+    fprintf(out, "pub func %s", fd->name ? fd->name : "?");
+    stub_emit_generic_params(out, fd->generic_params, fd->generic_param_count);
+    stub_emit_params(out, fd->params, fd->param_count);
+    if (fd->return_type) {
+        fprintf(out, " -> ");
+        stub_emit_type_ann(out, fd->return_type);
+    }
+    fprintf(out, " {\n}\n\n");
+}
+
+/* Emit a method nested inside an object stub. Indented four spaces.
+ * Init methods print as `pub init(...) {}` (or `pub init.<name>(...)` for
+ * named inits); plain methods print as `pub func <name>(...) {}`.
+ *
+ * Round-trip critical: in-block methods carry a parser-synthesized `self`
+ * receiver as params[0] (parser.c:3098-3134). When the consumer re-parses
+ * the stub, the parser will synthesize ANOTHER `self`, producing duplicate
+ * receivers. We must therefore skip params[0] when emitting nested method
+ * decls so the round-trip is identity-preserving. */
+static void stub_emit_method(FILE *out, Iron_MethodDecl *md) {
+    fprintf(out, "    pub ");
+    if (md->is_init) {
+        if (md->init_name) {
+            fprintf(out, "init.%s", md->init_name);
+        } else {
+            fprintf(out, "init");
+        }
+    } else {
+        fprintf(out, "func %s", md->method_name ? md->method_name : "?");
+    }
+    stub_emit_generic_params(out, md->generic_params, md->generic_param_count);
+
+    /* Skip params[0] when it's the synthesized `self` receiver. Detect via
+     * is_receiver_form (Phase 82 in-block + Phase 79 receiver-form both set
+     * this) AND a "self"-named first param. The defensive name check covers
+     * the `func (recv: T) name()` form where the receiver might be named
+     * something other than "self" (in which case we keep all params). */
+    Iron_Node **emit_params = md->params;
+    int emit_count = md->param_count;
+    if (md->is_receiver_form && md->param_count > 0) {
+        Iron_Param *p0 = (Iron_Param *)md->params[0];
+        if (p0 && p0->name && strcmp(p0->name, "self") == 0) {
+            emit_params = md->params + 1;
+            emit_count  = md->param_count - 1;
+        }
+    }
+    stub_emit_params(out, emit_params, emit_count);
+
+    if (md->return_type) {
+        fprintf(out, " -> ");
+        stub_emit_type_ann(out, md->return_type);
+    }
+    fprintf(out, " {\n    }\n");
+}
+
+/* Emit a pub object: header line, fields preserved (type only), methods
+ * regrouped from prog->decls by type_name (alphabetic by method_name). */
+static void stub_emit_object(FILE *out, Iron_ObjectDecl *od, Iron_Program *prog) {
+    fprintf(out, "pub object %s", od->name ? od->name : "?");
+    stub_emit_generic_params(out, od->generic_params, od->generic_param_count);
+    fprintf(out, " {\n");
+
+    /* Fields: preserve types (no values; field initializers are not part of
+     * the public surface — consumers construct via pub init). */
+    for (int fi = 0; fi < od->field_count; fi++) {
+        Iron_Field *f = (Iron_Field *)od->fields[fi];
+        if (!f) continue;
+        fprintf(out, "    %s %s",
+                f->is_var ? "var" : "val",
+                f->name ? f->name : "_");
+        if (f->type_ann) {
+            fprintf(out, ": ");
+            stub_emit_type_ann(out, f->type_ann);
+        }
+        fprintf(out, "\n");
+    }
+
+    /* Methods: walk prog->decls, collect any IRON_NODE_METHOD_DECL whose
+     * type_name == od->name && is_pub && !is_array_extension && !is_patch_member.
+     * Pitfall 4 lock: is_patch_member excludes methods sourced from
+     * `pub patch object T { ... }` even when a non-patch `pub object T`
+     * coexists in the same source. Sort alphabetically by method_name for
+     * diff stability. */
+    Iron_MethodDecl **methods = NULL;
+    size_t mc = 0, mcap = 0;
+    for (int k = 0; k < prog->decl_count; k++) {
+        Iron_Node *m = prog->decls[k];
+        if (!m || m->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)m;
+        if (!md->is_pub) continue;
+        if (md->is_array_extension) continue;
+        if (md->is_patch_member) continue;  /* Pitfall 4: drop patch-sourced methods */
+        if (!md->type_name || strcmp(md->type_name, od->name) != 0) continue;
+        if (mc == mcap) {
+            mcap = mcap ? mcap * 2 : 4;
+            methods = (Iron_MethodDecl **)realloc(methods, mcap * sizeof(*methods));
+        }
+        methods[mc++] = md;
+    }
+    if (mc > 1) qsort(methods, mc, sizeof(*methods), stub_cmp_method_name);
+    for (size_t mi = 0; mi < mc; mi++) {
+        stub_emit_method(out, methods[mi]);
+    }
+    free(methods);
+
+    fprintf(out, "}\n\n");
+}
+
+/* Emit a pub enum: full variant list (variants are pure type defs; nothing
+ * to strip). Uses payload type-annotation names directly. */
+static void stub_emit_enum(FILE *out, Iron_EnumDecl *ed) {
+    fprintf(out, "pub enum %s", ed->name ? ed->name : "?");
+    stub_emit_generic_params(out, ed->generic_params, ed->generic_param_count);
+    fprintf(out, " {\n");
+    for (int i = 0; i < ed->variant_count; i++) {
+        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[i];
+        if (!ev) continue;
+        fprintf(out, "    %s", ev->name ? ev->name : "?");
+        if (ev->payload_count > 0) {
+            fprintf(out, "(");
+            for (int j = 0; j < ev->payload_count; j++) {
+                if (j > 0) fprintf(out, ", ");
+                stub_emit_type_ann(out, ev->payload_type_anns[j]);
+            }
+            fprintf(out, ")");
+        }
+        fprintf(out, ",\n");
+    }
+    fprintf(out, "}\n\n");
+}
+
+int iron_print_pub_stubs(Iron_Program *prog, FILE *out,
+                         const char *pkg_name, const char *pkg_version) {
+    fprintf(out, "-- iron-stub: auto-generated from src/lib.iron of %s v%s. Do not edit.\n\n",
+            pkg_name ? pkg_name : "?", pkg_version ? pkg_version : "?");
+
+    if (!prog) return 0;
+
+    /* 1. Bucket pub top-level decls by kind. is_patch objects are excluded
+     *    (Pitfall 4 lock); their grouped methods are implicitly excluded
+     *    because the per-object method walk only fires for collected pub
+     *    objects. */
+    Iron_Node **pub_funcs   = NULL; size_t fc = 0, fcap = 0;
+    Iron_Node **pub_objects = NULL; size_t oc = 0, ocap = 0;
+    Iron_Node **pub_enums   = NULL; size_t ec = 0, ecap = 0;
+
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wswitch-enum"
+#endif
+    for (int i = 0; i < prog->decl_count; i++) {
+        Iron_Node *d = prog->decls[i];
+        if (!d) continue;
+        switch (d->kind) {
+            case IRON_NODE_FUNC_DECL: {
+                Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+                if (fd->is_pub && !fd->is_extern) {
+                    if (fc == fcap) {
+                        fcap = fcap ? fcap * 2 : 8;
+                        pub_funcs = (Iron_Node **)realloc(pub_funcs, fcap * sizeof(*pub_funcs));
+                    }
+                    pub_funcs[fc++] = d;
+                }
+                break;
+            }
+            case IRON_NODE_OBJECT_DECL: {
+                Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+                /* Pitfall 4: skip ANY object with is_patch == true even if
+                 * is_pub — patches are implementation details, not public API. */
+                if (od->is_pub && !od->is_patch) {
+                    if (oc == ocap) {
+                        ocap = ocap ? ocap * 2 : 8;
+                        pub_objects = (Iron_Node **)realloc(pub_objects, ocap * sizeof(*pub_objects));
+                    }
+                    pub_objects[oc++] = d;
+                }
+                break;
+            }
+            case IRON_NODE_ENUM_DECL: {
+                Iron_EnumDecl *ed = (Iron_EnumDecl *)d;
+                if (ed->is_pub) {
+                    if (ec == ecap) {
+                        ecap = ecap ? ecap * 2 : 8;
+                        pub_enums = (Iron_Node **)realloc(pub_enums, ecap * sizeof(*pub_enums));
+                    }
+                    pub_enums[ec++] = d;
+                }
+                break;
+            }
+            default: break;
+        }
+    }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+
+    /* 2. Sort each bucket alphabetically by name (case-sensitive strcmp / C locale). */
+    if (fc > 1) qsort(pub_funcs,   fc, sizeof(*pub_funcs),   stub_cmp_decl_name);
+    if (oc > 1) qsort(pub_objects, oc, sizeof(*pub_objects), stub_cmp_decl_name);
+    if (ec > 1) qsort(pub_enums,   ec, sizeof(*pub_enums),   stub_cmp_decl_name);
+
+    int emitted = 0;
+
+    /* 3. Emit enums first (pure type defs, no body to strip). */
+    for (size_t i = 0; i < ec; i++) {
+        stub_emit_enum(out, (Iron_EnumDecl *)pub_enums[i]);
+        emitted++;
+    }
+
+    /* 4. Emit objects with regrouped methods inside braces. */
+    for (size_t i = 0; i < oc; i++) {
+        stub_emit_object(out, (Iron_ObjectDecl *)pub_objects[i], prog);
+        emitted++;
+    }
+
+    /* 5. Emit free funcs (no enclosing object). */
+    for (size_t i = 0; i < fc; i++) {
+        stub_emit_func(out, (Iron_FuncDecl *)pub_funcs[i]);
+        emitted++;
+    }
+
+    free(pub_funcs);
+    free(pub_objects);
+    free(pub_enums);
+    return emitted;
 }

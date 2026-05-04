@@ -104,7 +104,7 @@ static char *run_once(const char *src, size_t len, const char *name,
                       IronAnalysisMode mode) {
     Iron_Arena    a = iron_arena_create(131072);
     Iron_DiagList d = iron_diaglist_create();
-    (void)iron_analyze_buffer(src, len, name, mode, &a, &d, NULL);
+    (void)iron_analyze_buffer(src, len, name, mode, &a, &d, NULL, 0);
     char *out = diag_serialize(&d);
     iron_diaglist_free(&d);
     iron_arena_free(&a);

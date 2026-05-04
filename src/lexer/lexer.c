@@ -250,12 +250,16 @@ static Iron_Token iron_make_token(Iron_Lexer *l, Iron_TokenKind kind,
                                    uint32_t start_line, uint32_t start_col,
                                    uint32_t len) {
     Iron_Token t;
-    t.kind  = kind;
-    t.value = value;
-    t.line  = start_line;
-    t.col   = start_col;
-    t.len   = len;
-    (void)l; /* suppress unused warning */
+    t.kind     = kind;
+    t.value    = value;
+    t.line     = start_line;
+    t.col      = start_col;
+    t.len      = len;
+    /* Phase 93 VIS-03 multi-file marker: tokens carry the lexer's current
+     * filename so the parser's span builder can prefer the per-token value
+     * over its own. The lexer mutates `l->filename` when it sees a
+     * `-- @file: <name>` directive in the comment-handling branch. */
+    t.filename = l->filename;
     return t;
 }
 
@@ -672,6 +676,56 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
             }
             if (iron_peek_char(l) == '-') {
                 /* Comment: consume to end of line. */
+
+                /* Phase 93 VIS-03 multi-file test marker. Recognizes:
+                 *   -- @file: <basename>
+                 * The runner emits this directive between concatenated test
+                 * files so the lexer can re-tag subsequent tokens with the
+                 * correct filename for the resolver's cross-module check.
+                 * The directive is otherwise treated as a normal line-comment
+                 * (its text is consumed; no token emitted). At this point
+                 * we have already consumed the first '-' (start_pos) and
+                 * peeked the second '-'. Consume the second '-' first, then
+                 * skip inline whitespace and look for "@file:". */
+                size_t scan = l->pos + 1;  /* index of char after the second '-' */
+                /* Skip inline whitespace (spaces and tabs only). */
+                while (scan < l->src_len &&
+                       (l->src[scan] == ' ' || l->src[scan] == '\t')) {
+                    scan++;
+                }
+                static const char k_marker[] = "@file:";
+                size_t k_marker_len = sizeof(k_marker) - 1;
+                if (scan + k_marker_len <= l->src_len &&
+                    memcmp(l->src + scan, k_marker, k_marker_len) == 0) {
+                    /* Position scan past "@file:". */
+                    scan += k_marker_len;
+                    /* Skip whitespace before the basename. */
+                    while (scan < l->src_len &&
+                           (l->src[scan] == ' ' || l->src[scan] == '\t')) {
+                        scan++;
+                    }
+                    /* Read basename until newline / EOF / whitespace. */
+                    size_t name_start = scan;
+                    while (scan < l->src_len &&
+                           l->src[scan] != '\n' &&
+                           l->src[scan] != '\r' &&
+                           l->src[scan] != ' ' &&
+                           l->src[scan] != '\t') {
+                        scan++;
+                    }
+                    size_t name_len = scan - name_start;
+                    if (name_len > 0) {
+                        char *new_filename = iron_arena_strdup(
+                            l->arena, l->src + name_start, name_len);
+                        if (new_filename) {
+                            l->filename = new_filename;
+                        }
+                    }
+                    /* Fall through: regular consume-to-EOL below picks up
+                     * the rest of the comment line (including any trailing
+                     * text after the basename, if a user wrote one). */
+                }
+
                 while (l->pos < l->src_len && l->src[l->pos] != '\n') {
                     l->pos++;
                     l->col++;

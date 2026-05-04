@@ -79,7 +79,8 @@ static void test_lsp_mode_does_not_create_iron_build_dir(void) {
     Iron_AnalyzeResult r = iron_analyze_buffer(
         src, strlen(src), "lsp_mode.iron",
         IRON_ANALYSIS_MODE_LSP,
-        &arena, &diags, NULL);
+        &arena, &diags, NULL,
+        0);
     (void)r;
 
     struct stat st;
@@ -102,7 +103,8 @@ static void test_lsp_mode_read_file_emits_fs_disabled_diag(void) {
     Iron_AnalyzeResult r = iron_analyze_buffer(
         src, strlen(src), "lsp_read_file.iron",
         IRON_ANALYSIS_MODE_LSP,
-        &arena, &diags, NULL);
+        &arena, &diags, NULL,
+        0);
     (void)r;
 
     /* Scan diag list for IRON_ERR_COMPTIME_FS_DISABLED_IN_LSP_MODE (234). */
@@ -139,7 +141,8 @@ static void test_cli_mode_comptime_path_runs_cleanly(void) {
     Iron_AnalyzeResult r = iron_analyze_buffer(
         src, strlen(src), "cli_mode.iron",
         IRON_ANALYSIS_MODE_CLI,
-        &arena, &diags, NULL);
+        &arena, &diags, NULL,
+        0);
     (void)r;
 
     /* CLI mode must NOT emit the LSP-only FS-disabled diagnostic. */

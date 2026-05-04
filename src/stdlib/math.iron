@@ -5,24 +5,26 @@ object Math {
   val E: Float
 }
 
-func Math.sin(x: Float) -> Float {}
-func Math.cos(x: Float) -> Float {}
-func Math.tan(x: Float) -> Float {}
-func Math.sqrt(x: Float) -> Float {}
-func Math.pow(base: Float, exp: Float) -> Float {}
-func Math.floor(x: Float) -> Float {}
-func Math.ceil(x: Float) -> Float {}
-func Math.round(x: Float) -> Float {}
-func Math.lerp(a: Float, b: Float, t: Float) -> Float {}
-func Math.random() -> Float {}
-func Math.random_int(min: Int, max: Int) -> Int {}
-func Math.asin(x: Float) -> Float {}
-func Math.acos(x: Float) -> Float {}
-func Math.atan2(y: Float, x: Float) -> Float {}
-func Math.sign(x: Float) -> Int {}
-func Math.seed(n: Int) {}
-func Math.random_float(min: Float, max: Float) -> Float {}
-func Math.log(x: Float) -> Float {}
-func Math.log2(x: Float) -> Float {}
-func Math.exp(x: Float) -> Float {}
-func Math.hypot(a: Float, b: Float) -> Float {}
+patch object Math {
+    readonly func sin(x: Float) -> Float {}
+    readonly func cos(x: Float) -> Float {}
+    readonly func tan(x: Float) -> Float {}
+    readonly func sqrt(x: Float) -> Float {}
+    readonly func pow(base: Float, exp: Float) -> Float {}
+    readonly func floor(x: Float) -> Float {}
+    readonly func ceil(x: Float) -> Float {}
+    readonly func round(x: Float) -> Float {}
+    readonly func lerp(a: Float, b: Float, t: Float) -> Float {}
+    readonly func random() -> Float {}
+    readonly func random_int(min: Int, max: Int) -> Int {}
+    readonly func asin(x: Float) -> Float {}
+    readonly func acos(x: Float) -> Float {}
+    readonly func atan2(y: Float, x: Float) -> Float {}
+    readonly func sign(x: Float) -> Int {}
+    readonly func seed(n: Int) {}
+    readonly func random_float(min: Float, max: Float) -> Float {}
+    readonly func log(x: Float) -> Float {}
+    readonly func log2(x: Float) -> Float {}
+    readonly func exp(x: Float) -> Float {}
+    readonly func hypot(a: Float, b: Float) -> Float {}
+}

@@ -28,8 +28,12 @@ object S2B impl Small2 {
     }
 }
 
-func S2A.get_a() -> Int { return self.a }
-func S2B.get_a() -> Int { return self.a }
+patch object S2A {
+    readonly func get_a() -> Int { return self.a }
+}
+patch object S2B {
+    readonly func get_a() -> Int { return self.a }
+}
 
 -- ========== 4-field structs (SoA threshold: 1/4 = 25% < 50% -> SoA) ==========
 
@@ -65,8 +69,12 @@ object M4B impl Medium4 {
     }
 }
 
-func M4A.get_x() -> Int { return self.x }
-func M4B.get_x() -> Int { return self.x }
+patch object M4A {
+    readonly func get_x() -> Int { return self.x }
+}
+patch object M4B {
+    readonly func get_x() -> Int { return self.x }
+}
 
 -- ========== 4-field structs, all accessed (4/4 = 100% -> AoS) ==========
 
@@ -102,8 +110,12 @@ object F4B impl Full4 {
     }
 }
 
-func F4A.total() -> Int { return self.a + self.b + self.c + self.d }
-func F4B.total() -> Int { return self.a + self.b + self.c + self.d }
+patch object F4A {
+    readonly func total() -> Int { return self.a + self.b + self.c + self.d }
+}
+patch object F4B {
+    readonly func total() -> Int { return self.a + self.b + self.c + self.d }
+}
 
 -- ========== Dead field test: extra fields never accessed ==========
 
@@ -133,8 +145,12 @@ object WithoutExtra impl HasValue {
     }
 }
 
-func WithExtra.value() -> Int { return self.num }
-func WithoutExtra.value() -> Int { return self.num }
+patch object WithExtra {
+    readonly func value() -> Int { return self.num }
+}
+patch object WithoutExtra {
+    readonly func value() -> Int { return self.num }
+}
 
 -- ========== Common field test: 'id' shared at position 0 ==========
 
@@ -162,8 +178,12 @@ object TypeB impl Identified {
     }
 }
 
-func TypeA.get_id() -> Int { return self.id }
-func TypeB.get_id() -> Int { return self.id }
+patch object TypeA {
+    readonly func get_id() -> Int { return self.id }
+}
+patch object TypeB {
+    readonly func get_id() -> Int { return self.id }
+}
 
 func main() {
   -- Test 1: 2-field, 1 accessed (50% = AoS boundary)

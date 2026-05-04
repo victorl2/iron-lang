@@ -62,7 +62,8 @@ void test_pathological_nesting_emits_depth_exceeded_diagnostic(void) {
     iron_analyze_buffer(
         buf, pos, "nested.iron",
         IRON_ANALYSIS_MODE_CLI,
-        &arena, &diags, NULL);
+        &arena, &diags, NULL,
+        0);
 
     /* Expect at least one IRON_ERR_PARSE_DEPTH_EXCEEDED diagnostic, and
      * critically: we REACHED this assertion without crashing. */
@@ -97,7 +98,8 @@ void test_moderate_nesting_parses_cleanly(void) {
     iron_analyze_buffer(
         buf, pos, "moderate.iron",
         IRON_ANALYSIS_MODE_CLI,
-        &arena, &diags, NULL);
+        &arena, &diags, NULL,
+        0);
 
     for (int i = 0; i < diags.count; i++) {
         TEST_ASSERT_NOT_EQUAL_MESSAGE(
@@ -130,7 +132,8 @@ void test_pathological_block_nesting_emits_depth_exceeded(void) {
     iron_analyze_buffer(
         buf, pos, "blocks.iron",
         IRON_ANALYSIS_MODE_CLI,
-        &arena, &diags, NULL);
+        &arena, &diags, NULL,
+        0);
 
     int saw = 0;
     for (int i = 0; i < diags.count; i++) {

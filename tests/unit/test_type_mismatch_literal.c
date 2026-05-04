@@ -38,7 +38,8 @@ static const Iron_Diagnostic *find_diag(const Iron_DiagList *dl, int code) {
 static void analyze(const char *src) {
     (void)iron_analyze_buffer(src, strlen(src), "test.iron",
                                IRON_ANALYSIS_MODE_CLI,
-                               &g_arena, &g_diags, NULL);
+                               &g_arena, &g_diags, NULL,
+        0);
 }
 
 /* Int literal RHS bound to Float-typed var -> code 235 + "42.0" suggestion. */

@@ -33,12 +33,16 @@ object Bullet impl Entity {
     }
 }
 
-func Particle.get_x() -> Int {
-  return self.x
+patch object Particle {
+    readonly func get_x() -> Int {
+      return self.x
+    }
 }
 
-func Bullet.get_x() -> Int {
-  return self.x
+patch object Bullet {
+    readonly func get_x() -> Int {
+      return self.x
+    }
 }
 
 func main() {

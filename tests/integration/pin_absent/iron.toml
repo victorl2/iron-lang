@@ -1,0 +1,4 @@
+[package]
+name = "pin_absent"
+version = "0.1.0"
+type = "bin"

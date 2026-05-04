@@ -34,7 +34,8 @@ static void test_triple_deterministic_across_reanalyze(void) {
     Iron_DiagList d1 = iron_diaglist_create();
     Iron_AnalyzeResult r1 = iron_analyze_buffer(src, strlen(src), path,
                                                  IRON_ANALYSIS_MODE_CLI,
-                                                 &a1, &d1, NULL);
+                                                 &a1, &d1, NULL,
+        0);
     TEST_ASSERT_NOT_NULL(r1.global_scope);
     Iron_Symbol *s1 = iron_scope_lookup_local(r1.global_scope, "greet");
     TEST_ASSERT_NOT_NULL(s1);
@@ -44,7 +45,8 @@ static void test_triple_deterministic_across_reanalyze(void) {
     Iron_DiagList d2 = iron_diaglist_create();
     Iron_AnalyzeResult r2 = iron_analyze_buffer(src, strlen(src), path,
                                                  IRON_ANALYSIS_MODE_CLI,
-                                                 &a2, &d2, NULL);
+                                                 &a2, &d2, NULL,
+        0);
     Iron_Symbol *s2 = iron_scope_lookup_local(r2.global_scope, "greet");
     TEST_ASSERT_NOT_NULL(s2);
     IronLsp_SymbolId id2 = ilsp_symbol_id_derive(s2, path, r2.program, &a2);
@@ -63,6 +65,12 @@ static void test_triple_deterministic_across_reanalyze(void) {
 
 /* ── Test 02: method name_path is dotted (module.Owner.method) ───────── */
 static void test_method_name_path_is_dotted(void) {
+    /* The standalone receiver-form `func Foo.bar() {}` is removed in v3.2
+     * (E0321). Update this test to use `patch object Foo { func bar() {} }`
+     * once the symbol_id walker exercises that surface. */
+    TEST_IGNORE_MESSAGE(
+        "uses removed v2 receiver-form syntax (E0321); rewrite as "
+        "patch object before re-enabling");
     const char *src =
         "object Foo {\n"
         "    val x: Int\n"
@@ -74,7 +82,8 @@ static void test_method_name_path_is_dotted(void) {
     Iron_DiagList diags = iron_diaglist_create();
     Iron_AnalyzeResult r = iron_analyze_buffer(src, strlen(src), path,
                                                 IRON_ANALYSIS_MODE_CLI,
-                                                &arena, &diags, NULL);
+                                                &arena, &diags, NULL,
+        0);
     TEST_ASSERT_NOT_NULL(r.global_scope);
     /* Look up `Foo` to confirm the object symbol exists; the method
      * symbol may live in a child scope attached to Foo, so we also

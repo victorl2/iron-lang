@@ -114,12 +114,19 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
  *
  * Returns Iron_AnalyzeResult with the same shape as iron_analyze().
  */
+/* `user_source_start_line` is the 1-based line where the caller's own
+ * source begins. Decls whose span.line is below this value are treated
+ * as stdlib (implicitly pub) by the resolver's visibility carve-out.
+ * Pass 0 when no stdlib was prepended (LSP buffer mode), or
+ * `prepended_lines + 1` when the caller prepended stdlib above the user
+ * source (CLI check / build pipelines). */
 Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
                                         size_t              len,
                                         const char         *filename,
                                         IronAnalysisMode    mode,
                                         Iron_Arena         *arena,
                                         Iron_DiagList      *diags,
-                                        const _Atomic bool *cancel_flag);
+                                        const _Atomic bool *cancel_flag,
+                                        int                 user_source_start_line);
 
 #endif /* IRON_ANALYZER_H */

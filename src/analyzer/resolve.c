@@ -46,6 +46,19 @@ typedef struct {
      * can be suppressed cascades-style without aborting. Mirrors the
      * parser's p->in_error_recovery flag. */
     bool in_error_recovery;
+
+    /* Rate-limit the audit-hint note attached to E0320. The note
+     * ("audit your public surface with: grep -n '^pub '") is useful once
+     * per build but spammy on subsequent occurrences. */
+    bool emitted_first_e0320;
+
+    /* Stdlib carve-out: line number where the user's source begins. Decls
+     * whose span.line is below this value are stdlib (prepended via
+     * build.c / check.c pipelines) and are treated as implicitly pub. Set
+     * to 0 when no stdlib was prepended (no carve-out active). Threaded
+     * from Iron_Parser.user_source_start_line via Iron_Program at the
+     * resolver entry point. */
+    int user_source_start_line;
 } ResolveCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -113,6 +126,48 @@ static void emit_undefined(ResolveCtx *ctx, const char *name, Iron_Span span) {
                    IRON_ERR_UNDEFINED_VAR, span, msg_copy, suggestion);
 }
 
+/* Phase 93 VIS-03: classify a symbol as stdlib via the line-offset carve-out.
+ * Stdlib decls are prepended to the user source by build.c / check.c; their
+ * AST span.line is below ctx->user_source_start_line. Returns true when the
+ * symbol's declaring line is in the stdlib prefix. When the carve-out is
+ * inactive (user_source_start_line <= 0) every decl tests false so the gate
+ * still works on synthetic cross-module test inputs (e.g. unit tests). */
+static bool is_stdlib_decl(ResolveCtx *ctx, Iron_Symbol *sym) {
+    if (ctx->user_source_start_line <= 0) return false;
+    return sym->span.line > 0 &&
+           sym->span.line < (uint32_t)ctx->user_source_start_line;
+}
+
+/* Phase 93 VIS-03: emit E0320 for a cross-module reference to a non-pub
+ * symbol. Includes the declaring file, the use-site file, and (on the first
+ * emission per build only) a help+note pair recommending `grep -n '^pub '`
+ * to audit the public surface. The note is rate-limited so multi-error
+ * compiles stay readable. */
+static void emit_cross_module_private(ResolveCtx *ctx,
+                                      Iron_Symbol *sym,
+                                      Iron_Ident  *id) {
+    char msg[512];
+    snprintf(msg, sizeof(msg),
+             "private symbol '%s' (declared in %s) is not visible from %s",
+             id->name,
+             sym->span.filename ? sym->span.filename : "<unknown>",
+             id->span.filename  ? id->span.filename  : "<unknown>");
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) iron_oom_abort("resolve.c:emit_cross_module_private msg");
+
+    const char *hint;
+    if (!ctx->emitted_first_e0320) {
+        hint = "add `pub` to the declaration to expose it across module boundaries\n"
+               "note: audit your public surface with: grep -n '^pub ' src/*.iron";
+    } else {
+        hint = "add `pub` to the declaration to expose it across module boundaries";
+    }
+
+    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                   IRON_ERR_CROSS_MODULE_PRIVATE, id->span, msg_copy, hint);
+    ctx->emitted_first_e0320 = true;
+}
+
 /* ── Pass 1a: Collect top-level declarations ─────────────────────────────── */
 
 static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
@@ -134,6 +189,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             /* HARD-09 CR-03: skip this decl on arena OOM. */
             if (!sym) { ctx->in_error_recovery = true; break; }
             sym->type = ty;
+            /* Phase 93 VIS-02/03: propagate the AST is_pub bit. */
+            sym->is_pub = od->is_pub;
             if (!iron_scope_define(ctx->global_scope, ctx->arena, sym)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_DUPLICATE_DECL, od->span,
@@ -150,6 +207,11 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             /* HARD-09 CR-03: skip this decl on arena OOM. */
             if (!sym) { ctx->in_error_recovery = true; break; }
             sym->type = ty;
+            /* Phase 93 RESEARCH Open Question 3: `pub interface` is deferred.
+             * Interfaces are always treated as not-pub at the cross-module
+             * gate; the gate predicate excludes IRON_SYM_INTERFACE anyway,
+             * so this is documentation only. */
+            sym->is_pub = false;
             if (!iron_scope_define(ctx->global_scope, ctx->arena, sym)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_DUPLICATE_DECL, id->span,
@@ -166,6 +228,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             /* HARD-09 CR-03: skip this decl on arena OOM. */
             if (!enum_sym) { ctx->in_error_recovery = true; break; }
             enum_sym->type = ty;
+            /* Phase 93 VIS-02/03: propagate is_pub onto the enum symbol. */
+            enum_sym->is_pub = ed->is_pub;
             if (!iron_scope_define(ctx->global_scope, ctx->arena, enum_sym)) {
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_DUPLICATE_DECL, ed->span,
@@ -180,6 +244,10 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                 /* HARD-09 CR-03: skip this variant on arena OOM. */
                 if (!vsym) { ctx->in_error_recovery = true; continue; }
                 vsym->type = ty;
+                /* Phase 93 VIS-02/03: variants inherit the enclosing enum's
+                 * pub bit. This matches the locked decision in CONTEXT.md
+                 * (no per-variant visibility). */
+                vsym->is_pub = ed->is_pub;
                 /* Silently skip duplicate variant names — a separate check can
                  * catch this later. For now just attempt to define. */
                 iron_scope_define(ctx->global_scope, ctx->arena, vsym);
@@ -194,6 +262,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             /* HARD-09 CR-03: skip this decl on arena OOM. */
             if (!sym) { ctx->in_error_recovery = true; break; }
             sym->is_private    = fd->is_private;
+            /* Phase 93 VIS-02/03: propagate the AST is_pub bit. */
+            sym->is_pub        = fd->is_pub;
             sym->is_extern     = fd->is_extern;
             sym->extern_c_name = fd->extern_c_name;
             if (!iron_scope_define(ctx->global_scope, ctx->arena, sym)) {
@@ -400,6 +470,32 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             Iron_Symbol *sym = iron_scope_lookup(ctx->current_scope, id->name);
             if (sym) {
                 id->resolved_sym = sym;
+
+                /* Phase 93 VIS-03: cross-module visibility check.
+                 *
+                 * Fires only on global-scope top-level symbols (FUNCTION /
+                 * TYPE / ENUM / ENUM_VARIANT). Locals, params, fields, self,
+                 * super, Self are never subject to this check (they are
+                 * either earlier in this case body or have a different
+                 * Iron_SymbolKind). IRON_SYM_INTERFACE is intentionally
+                 * excluded — `pub interface` is deferred per RESEARCH Open
+                 * Question 3. Stdlib carve-out (line-offset based) makes
+                 * stdlib decls implicitly pub. */
+                bool is_global =
+                    sym->sym_kind == IRON_SYM_FUNCTION ||
+                    sym->sym_kind == IRON_SYM_TYPE     ||
+                    sym->sym_kind == IRON_SYM_ENUM     ||
+                    sym->sym_kind == IRON_SYM_ENUM_VARIANT;
+                if (is_global && !sym->is_pub &&
+                    sym->span.filename && id->span.filename &&
+                    !is_stdlib_decl(ctx, sym)) {
+                    bool same_file =
+                        sym->span.filename == id->span.filename ||
+                        strcmp(sym->span.filename, id->span.filename) == 0;
+                    if (!same_file) {
+                        emit_cross_module_private(ctx, sym, id);
+                    }
+                }
             } else {
                 emit_undefined(ctx, id->name, id->span);
             }
@@ -1405,6 +1501,14 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     ctx.cancel_flag        = cancel_flag;
     ctx.skipped_scope_pushes = 0;
     ctx.in_error_recovery  = false;
+    /* Initialize cross-module check state. The carve-out line is read
+     * from Iron_Program (which copies it from Iron_Parser at parse
+     * exit). build.c / check.c populate the parser value after stdlib
+     * prepends; user code without prepends has user_source_start_line
+     * == 0, which keeps the gate inert (no real line satisfies
+     * line < 0). */
+    ctx.emitted_first_e0320    = false;
+    ctx.user_source_start_line = program->user_source_start_line;
 
     /* Initialize type system */
     iron_types_init(arena);
