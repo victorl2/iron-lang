@@ -3,6 +3,82 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v3.3.0-alpha: Editor Support (2026-05-04)
+
+## Iron v3.3.0-alpha: Editor Support
+
+*Released: 2026-05-04*
+
+First-class editor support: a Language Server Protocol 3.17
+implementation (`ironls`), a tree-sitter grammar, and bundled extensions
+for VSCode, Neovim, and Zed. The same `iron_compiler` static library
+that powers `ironc` powers the LSP, so every diagnostic span and error
+code your editor surfaces matches what the compiler produces
+byte-for-byte. Inherits everything in v3.2 (library authoring polish:
+ten library-authoring fixes #47–#56). Pure-superset guard against v3.0
+holds: every program that compiled on v3.2 still compiles on v3.3.
+
+### LSP server (`ironls`)
+
+- New `ironls` binary built from the same `iron_compiler` static
+  library as `ironc`. CI runs a byte-identical parity gate
+  (`test_parity_ironc_lsp`) on every commit — a drift between the LSP
+  and the compiler is a merge-blocking failure.
+- Implements LSP 3.17: diagnostics (push + pull), hover,
+  goto-definition / declaration / type-definition, completion (six
+  context-classified buckets), document and workspace symbols,
+  references, rename (with prepare), semantic tokens, formatting,
+  range formatting, code actions (ten quick fixes), type hierarchy
+  (supertypes + subtypes), work-done progress, cancellation.
+- Out-of-process supervisor with a 5-in-60s crash circuit breaker.
+  Per-document AST worker threads with a coalescing 250ms debounce.
+  `SIGABRT` recovery via `sigsetjmp` + thread-local document slot;
+  one bad document gets quarantined after the second strike instead
+  of crashing the server.
+- Observability: structured trace events, RSS sampling, parent-watch
+  (server exits if the editor dies), crash dumps. An 8-hour nightly
+  memory-soak gate runs in CI; PRs run a 30-minute short-soak.
+
+### Tree-sitter grammar
+
+- `grammars/tree-sitter/iron/grammar.js` covers the full v3 keyword
+  roster (44 keywords). Highlight queries (`highlights.scm`),
+  local-scope resolution (`locals.scm`), and fold ranges
+  (`folds.scm`) ship as companion files.
+- Drift-guarded against the C lexer and the TextMate grammar by
+  `test_grammar_keyword_drift_*` invariants.
+- Built as a portable `iron.wasm` artifact attached to each release.
+
+### Editor extensions
+
+- **VSCode**: "Iron Language Support" in the Marketplace, or install
+  the bundled `iron-lsp-*.vsix` directly. Override the binary path
+  via `iron-lsp.serverPath`.
+- **Neovim**: filetype plugin + LSP client snippet under
+  `editors/neovim/`. Override the binary path via
+  `cmd = { "/path/to/ironls" }`.
+- **Zed**: "Iron LSP" in the extensions panel. The extension
+  downloads `ironls` from the matching release and verifies its
+  SHA-256 before spawning. Override under
+  `lsp."iron-lsp".binary.path`.
+
+### Performance & correctness gates
+
+- **Parity** (`test_parity_ironc_lsp`): byte-identical diagnostic
+  stream between LSP and compiler.
+- **Memory soak**: < 5 MiB/hr growth, < 800 MiB peak across 28,800
+  simulated edit events (8h nightly).
+- **Cold compile**: ~5ms on a 500-LOC fixture.
+- **Cancellation latency**: in-flight compile observes the cancel
+  flag within microseconds.
+
+### Documentation
+
+- New `/lsp/` page on ironlang.dev with feature list, editor setup
+  walk-throughs, configuration overrides, and the parity guarantee.
+- LSP architecture and concurrency model documented in
+  `src/lsp/lsp.h` and the README.
+
 ## v3.2.0-alpha: Library Authoring Polish (2026-05-01)
 
 ## Iron v3.2.0-alpha: Library Authoring Polish
