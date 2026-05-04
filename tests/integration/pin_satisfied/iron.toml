@@ -1,0 +1,5 @@
+[package]
+name = "pin_satisfied"
+version = "0.1.0"
+type = "bin"
+iron = ">= 0.1.0"

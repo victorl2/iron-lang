@@ -1,0 +1,11 @@
+-- VIS-04 negative lock: `pub init` inside a non-pub object.
+-- Plan 93-02 emits the refreshed message that names the enclosing object.
+--
+-- Compile_fail category is NOT auto-discovered (Phase 80 convention);
+-- a paired substring-lock unit test in tests/unit/test_typecheck.c
+-- gates CI. Spot-check:
+--   ./build/iron build FIXTURE 2>&1 | grep -qF "$(cat FIXTURE.expected)"
+
+object Foo {
+    pub init() {}
+}

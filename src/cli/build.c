@@ -29,6 +29,7 @@
 #include "lexer/lexer.h"
 #include "parser/parser.h"
 #include "parser/ast.h"
+#include "parser/printer.h"
 #include "analyzer/analyzer.h"
 #include "analyzer/capture.h"
 #include "hir/hir_lower.h"
@@ -164,6 +165,25 @@ static char *read_file(const char *path, long *out_size) {
     buf[read] = '\0';
     if (out_size) *out_size = (long)read;
     return buf;
+}
+
+/* ── Phase 96 RUN-01: tempfile cleanup state ─────────────────────────────── */
+
+/* iron_run_tempfile_path holds the mkstemp-allocated path while the runnable
+ * binary is needed; the atexit handler unlinks it on process exit. The handler
+ * is idempotent (unlink on empty path is a no-op) so a build that fails before
+ * the handler is registered does not leave a stale registration. Registration
+ * happens once per process via iron_run_tempfile_atexit_registered. Defense in
+ * depth: the run_after branch also unlinks the path immediately at each return
+ * site so a long-running parent process does not accumulate stale tempfiles. */
+static char iron_run_tempfile_path[4096] = {0};
+static bool iron_run_tempfile_atexit_registered = false;
+
+static void iron_run_tempfile_cleanup(void) {
+    if (iron_run_tempfile_path[0] != '\0') {
+        unlink(iron_run_tempfile_path);
+        iron_run_tempfile_path[0] = '\0';
+    }
 }
 
 /* ── Helper: derive output binary name from source path ──────────────────── */
@@ -325,6 +345,19 @@ static char *write_temp_c(const char *c_src, bool debug_build,
 #endif
 }
 
+/* Phase 93 VIS-03 stdlib carve-out: count '\n' bytes in a buffer. Used by
+ * the stdlib prepend pipeline below to track how many lines the prepended
+ * stdlib content adds. The resolver consults the resulting offset to
+ * classify decls as stdlib (implicitly pub) when their span.line is below
+ * the user's first source line. */
+static int iron_count_newlines(const char *buf, size_t len) {
+    int n = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (buf[i] == '\n') n++;
+    }
+    return n;
+}
+
 /* ── Helper: build a path from a base directory and relative path ─────────── */
 
 static char *make_path(const char *base, const char *rel) {
@@ -469,6 +502,12 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
     argv_buf[ai++] = stdlib_i_flag;
+    /* Phase 94 LIB-03: extra -L<dir> / -l<name> flags forwarded from
+     * pkg_build for each local-path dependency, in topological order
+     * (leaf-deps first per resolver topo-sort). */
+    for (int li = 0; li < opts.extra_link_flag_count; li++) {
+        argv_buf[ai++] = opts.extra_link_flags[li];
+    }
     /* Phase 59 P01c: iron_net_init.c calls WSAStartup/WSACleanup/socket(), so
      * user-facing ironc-compiled binaries must link ws2_32.lib. Phase 59 P02
      * adds iphlpapi.lib — it's reserved for the Phase 59 P03 UDP/DNS path
@@ -514,6 +553,13 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
     argv_buf[ai++] = stdlib_i_flag;
+    /* Phase 94 LIB-03: extra -L<dir> / -l<name> flags forwarded from
+     * pkg_build for each local-path dependency, in topological order
+     * (leaf-deps first per resolver topo-sort). Placed before -lm so
+     * static-archive symbol lookup happens during the main link pass. */
+    for (int li = 0; li < opts.extra_link_flag_count; li++) {
+        argv_buf[ai++] = opts.extra_link_flags[li];
+    }
     argv_buf[ai++] = "-lm";
     argv_buf[ai++] = "-lpthread";
 #endif
@@ -595,6 +641,89 @@ static void free_src_list(char *base_dir,
     free(rl_src); free(rl_i_flag);
     free(rl_glfw_src); free(rl_glfw_i_flag);
 }
+
+/* Phase 94 LIB-01: compile-only invocation that produces a .o object instead
+ * of a fully-linked executable. Mirrors invoke_clang's include/optimization
+ * flag construction but stops at `-c` and writes to obj_path. Skips all
+ * link-only flags (-lm, -lpthread, raylib link flags, runtime/stdlib .c files
+ * — those will be linked in by the consumer of the archive). */
+#ifndef _WIN32
+static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
+                                     IronBuildOpts opts) {
+    char *base_dir = get_iron_lib_dir();
+    if (!base_dir) {
+        fprintf(stderr, "error: cannot resolve iron lib directory\n");
+        return 1;
+    }
+
+    /* -I flags so the emitted C can include runtime/stdlib headers. */
+    size_t src_i_len = strlen("-I") + strlen(base_dir) + 1;
+    char *src_i_flag = (char *)malloc(src_i_len);
+    if (!src_i_flag) { free(base_dir); return 1; }
+    snprintf(src_i_flag, src_i_len, "-I%s", base_dir);
+
+    size_t vendor_i_len = strlen("-I") + strlen(base_dir) + strlen("/vendor") + 1;
+    char *vendor_i_flag = (char *)malloc(vendor_i_len);
+    if (!vendor_i_flag) { free(src_i_flag); free(base_dir); return 1; }
+    snprintf(vendor_i_flag, vendor_i_len, "-I%s/vendor", base_dir);
+
+    size_t stdlib_i_len = strlen("-I") + strlen(base_dir) + strlen("/stdlib") + 1;
+    char *stdlib_i_flag = (char *)malloc(stdlib_i_len);
+    if (!stdlib_i_flag) { free(vendor_i_flag); free(src_i_flag); free(base_dir); return 1; }
+    snprintf(stdlib_i_flag, stdlib_i_len, "-I%s/stdlib", base_dir);
+
+    const char *argv_buf[16];
+    int ai = 0;
+    argv_buf[ai++] = "clang";
+    argv_buf[ai++] = "-std=gnu17";
+    argv_buf[ai++] = "-c";
+    /* Default unoptimized; --release adds -O2 (matches bin path). */
+    if (opts.release) {
+        argv_buf[ai++] = "-O2";
+    } else {
+        argv_buf[ai++] = "-O0";
+    }
+    /* Phase 94: archive members must keep the AST-emitted symbols externally
+     * visible so consumers can link them. -fvisibility=default is the clang
+     * default, but pinned here for clarity and to forestall future global flag
+     * changes. */
+    argv_buf[ai++] = "-fvisibility=default";
+    argv_buf[ai++] = c_file;
+    argv_buf[ai++] = "-o";
+    argv_buf[ai++] = obj_path;
+    argv_buf[ai++] = src_i_flag;
+    argv_buf[ai++] = vendor_i_flag;
+    argv_buf[ai++] = stdlib_i_flag;
+    argv_buf[ai] = NULL;
+
+    if (opts.verbose) {
+        fprintf(stderr, "clang -c invocation:");
+        for (int i = 0; argv_buf[i]; i++) fprintf(stderr, " %s", argv_buf[i]);
+        fprintf(stderr, "\n");
+    }
+
+    pid_t pid;
+    int spawn_rc = posix_spawnp(&pid, "clang", NULL, NULL,
+                                (char *const *)argv_buf, environ);
+    free(stdlib_i_flag);
+    free(vendor_i_flag);
+    free(src_i_flag);
+    free(base_dir);
+
+    if (spawn_rc != 0) {
+        fprintf(stderr, "error: failed to spawn clang -c: %s\n", strerror(spawn_rc));
+        return 1;
+    }
+    int status;
+    waitpid(pid, &status, 0);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "error: clang -c failed (exit %d)\n",
+                WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+        return 1;
+    }
+    return 0;
+}
+#endif
 
 static int invoke_clang(const char *c_file, const char *output,
                          const char *src_dir, IronBuildOpts opts) {
@@ -856,6 +985,30 @@ int iron_build(const char *source_path, const char *output_path,
      * lexer allocations do not linger until full compilation. */
     Iron_Arena detect_arena = iron_arena_create(32 * 1024);
 
+    /* Phase 93 VIS-03 stdlib carve-out: total lines added to the prefix by
+     * all stdlib prepends. Each prepend block updates this. The resolver
+     * uses (stdlib_prepended_lines + 1) as the line where user source
+     * begins; decls below that line are stdlib (implicitly pub). */
+    int stdlib_prepended_lines = 0;
+
+    /* Phase 94 LIB-03 polyfill-duplication fix: when emitting a static archive
+     * (`type = "lib"` -> `--emit-archive`), skip the stdlib auto-prepend region.
+     * Reason: list.iron (Array.map/filter/reduce/forEach/sum), string.iron,
+     * int.iron, float.iron each emit C function definitions that — when
+     * inlined into BOTH the lib's archive .o AND every consumer's .o — collide
+     * at link time with `duplicate symbol` errors. The consumer's own build
+     * already prepends the same polyfills, so the lib doesn't need to ship
+     * them inside the archive.
+     *
+     * v3.2 limitation: a lib whose own pub source references stdlib symbols
+     * (e.g. uses Array.map internally) will not link correctly inside the
+     * archive. The locked Phase 94 fixture (pub func hello / pub func greet
+     * with String interpolation) doesn't hit this; richer lib code will
+     * surface in Phase 96+ alongside the broader STR-01 / Array generics work
+     * and a dedicated weak-linkage / hidden-visibility revisit per Plan
+     * 94-02's deferred architectural note. */
+    if (!opts.emit_archive) {
+
     /* 1c. Detect "import raylib" in source and prepend raylib.iron */
     if (iron_detect_import(source, source_path, "raylib", &detect_arena)) {
         opts.use_raylib = true;
@@ -875,6 +1028,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + rl_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(rl_src, (size_t)rl_size) + 1;
                 }
                 free(rl_src);
             }
@@ -897,6 +1052,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + math_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(math_src, (size_t)math_size) + 1;
                 }
                 free(math_src);
             }
@@ -919,6 +1076,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + io_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(io_src, (size_t)io_size) + 1;
                 }
                 free(io_src);
             }
@@ -941,6 +1100,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + time_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(time_src, (size_t)time_size) + 1;
                 }
                 free(time_src);
             }
@@ -963,6 +1124,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + hint_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(hint_src, (size_t)hint_size) + 1;
                 }
                 free(hint_src);
             }
@@ -985,6 +1148,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + log_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(log_src, (size_t)log_size) + 1;
                 }
                 free(log_src);
             }
@@ -1007,6 +1172,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + net_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(net_src, (size_t)net_size) + 1;
                 }
                 free(net_src);
             }
@@ -1032,6 +1199,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + url_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(url_src, (size_t)url_size) + 1;
                 }
                 free(url_src);
             }
@@ -1057,6 +1226,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + str_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(str_src, (size_t)str_size) + 1;
                 }
                 free(str_src);
             }
@@ -1081,6 +1252,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + list_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(list_src, (size_t)list_size) + 1;
                 }
                 free(list_src);
             }
@@ -1104,6 +1277,8 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + int_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(int_src, (size_t)int_size) + 1;
                 }
                 free(int_src);
             }
@@ -1127,10 +1302,19 @@ int iron_build(const char *source_path, const char *output_path,
                     strcpy(combined + float_size + 1, source);
                     free(source);
                     source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(float_src, (size_t)float_size) + 1;
                 }
                 free(float_src);
             }
         }
+    }
+
+    } else {
+        /* Phase 94 LIB-03 polyfill-duplication fix: emit_archive mode skipped
+         * the stdlib auto-prepend region. Free the detect arena that the
+         * skipped region would otherwise have freed at line ~1191. */
+        iron_arena_free(&detect_arena);
     }
 
     /* 2. Set up arena and diagnostics */
@@ -1158,6 +1342,13 @@ int iron_build(const char *source_path, const char *output_path,
                                             &arena, &diags);
     /* Phase 88: propagate --strict-v3 gate to parser */
     parser.v3_strict_mode = opts.strict_v3;
+    /* Phase 93 VIS-03 stdlib carve-out: tell the parser where the user's
+     * source begins. Decls below this line in the combined source are stdlib
+     * (prepended above); the resolver treats them as implicitly pub regardless
+     * of whether they carry an explicit `pub` modifier. When no stdlib was
+     * prepended, stdlib_prepended_lines == 0 and user_source_start_line == 1
+     * (every real source line is at line >= 1, so the gate is inert). */
+    parser.user_source_start_line = stdlib_prepended_lines + 1;
     Iron_Node *ast = iron_parse(&parser);
     arrfree(tokens);
 
@@ -1323,11 +1514,48 @@ int iron_build(const char *source_path, const char *output_path,
                 c_src);
     }
 
-    /* 10. Determine output binary name */
+    /* 10. Determine output binary name.
+     *
+     * Phase 96 RUN-01: when `run_after && output_path == NULL` (the
+     * `iron run foo.iron` direct-source path), compile to a tempfile under
+     * ${TMPDIR} (or /tmp fallback) instead of dropping a binary in cwd. The
+     * atexit handler unlinks it on process exit; the run_after branch below
+     * also unlinks promptly at each return point as defense in depth.
+     *
+     * RUN-03 (reserved, NOT implemented in v3.2): --keep-binary suppresses
+     * the cleanup; -o <path> forces an explicit output path. Both flags are
+     * intentionally deferred. Users who want to keep the produced binary
+     * should pass --output to ironc directly.
+     *
+     * `iron build foo.iron` (run_after=false, no -o) keeps the v3.1
+     * basename-in-cwd behavior so users still get a useful binary name. */
     char *derived_output = NULL;
     const char *binary_name;
     if (output_path) {
         binary_name = output_path;
+    } else if (opts.run_after) {
+        const char *tmpdir = getenv("TMPDIR");
+        if (!tmpdir || tmpdir[0] == '\0') tmpdir = "/tmp";
+        snprintf(iron_run_tempfile_path, sizeof(iron_run_tempfile_path),
+                 "%s/iron-run-XXXXXX", tmpdir);
+        int tmp_fd = mkstemp(iron_run_tempfile_path);
+        if (tmp_fd < 0) {
+            fprintf(stderr,
+                    "error: failed to create tempfile in %s: %s\n",
+                    tmpdir, strerror(errno));
+            iron_run_tempfile_path[0] = '\0';
+            iron_diaglist_free(&diags);
+            iron_arena_free(&arena);
+            free(source);
+            free(base_dir);
+            return 1;
+        }
+        close(tmp_fd);  /* mkstemp opened it; clang -o overwrites the path */
+        if (!iron_run_tempfile_atexit_registered) {
+            atexit(iron_run_tempfile_cleanup);
+            iron_run_tempfile_atexit_registered = true;
+        }
+        binary_name = iron_run_tempfile_path;
     } else {
         derived_output = derive_output_name(source_path);
         if (!derived_output) {
@@ -1363,6 +1591,164 @@ int iron_build(const char *source_path, const char *output_path,
      *                emsdk version pin.
      */
     int ret;
+#ifndef _WIN32
+    if (opts.emit_archive) {
+        /* Phase 94 LIB-01/02/05: compile to .o then wrap with llvm-ar (or fall
+         * back to system ar). Also write target/<name>.iron-stub alongside the
+         * archive (the consumer's import surface). */
+
+        /* Derive obj path and stub path from output_path:
+         *   target/lib<name>.a -> target/<name>.o, target/<name>.iron-stub */
+        char obj_path[4096];
+        char stub_path[4096];
+        char base_buf[256];
+        char outdir[3072];
+        {
+            const char *out_base = strrchr(binary_name, '/');
+            out_base = out_base ? out_base + 1 : binary_name;
+            snprintf(base_buf, sizeof(base_buf), "%s", out_base);
+            size_t blen = strlen(base_buf);
+            if (blen > 2 && strcmp(base_buf + blen - 2, ".a") == 0) {
+                base_buf[blen - 2] = '\0';
+            }
+            if (strncmp(base_buf, "lib", 3) == 0) {
+                memmove(base_buf, base_buf + 3, strlen(base_buf) - 3 + 1);
+            }
+            size_t dirlen = (size_t)(out_base - binary_name);
+            if (dirlen >= sizeof(outdir)) dirlen = sizeof(outdir) - 1;
+            memcpy(outdir, binary_name, dirlen);
+            outdir[dirlen] = '\0';
+            snprintf(obj_path, sizeof(obj_path), "%s%s.o", outdir, base_buf);
+            snprintf(stub_path, sizeof(stub_path), "%s%s.iron-stub", outdir, base_buf);
+        }
+
+        /* Phase 94 LIB-02: write the .iron-stub companion file. The pub-decl
+         * count drives the empty-pub-surface warning below. NULL fallbacks:
+         * pkg_name -> derived basename (base_buf), pkg_version -> "0.0.0". */
+        const char *stub_pkg_name    = opts.pkg_name    ? opts.pkg_name    : base_buf;
+        const char *stub_pkg_version = opts.pkg_version ? opts.pkg_version : "0.0.0";
+        FILE *stub_f = fopen(stub_path, "w");
+        int pub_count = 0;
+        if (!stub_f) {
+            fprintf(stderr, "error: cannot create %s: %s\n", stub_path, strerror(errno));
+            free(c_file_path);
+            free(derived_output);
+            iron_diaglist_free(&diags);
+            iron_arena_free(&arena);
+            free(source);
+            free(base_dir);
+            return 1;
+        }
+        pub_count = iron_print_pub_stubs((Iron_Program *)ast, stub_f,
+                                         stub_pkg_name, stub_pkg_version);
+        fclose(stub_f);
+
+        if (pub_count == 0) {
+            fprintf(stderr,
+                    "warning: no `pub` symbols in src/lib.iron — the archive will be empty.\n"
+                    "  hint: add `pub` to declarations you want to expose.\n");
+        }
+
+        /* 1. Compile-only: clang -c [-O0|-O2] -o <obj_path> <c_file_path> */
+        int compile_ret = invoke_clang_compile_only(c_file_path, obj_path, opts);
+        if (compile_ret != 0) {
+            /* On failure, intermediates kept for debugging (per CONTEXT). */
+            if (!opts.debug_build) {
+                /* Still clean the c_file at the bottom block per existing flow. */
+            }
+            free(c_file_path);
+            iron_diaglist_free(&diags);
+            iron_arena_free(&arena);
+            free(source);
+            free(base_dir);
+            free(derived_output);
+            return compile_ret;
+        }
+
+        /* 2. Wrap: try llvm-ar first; on ENOENT, fall back to system ar */
+        char *llvm_argv[] = {
+            (char *)"llvm-ar", (char *)"rcs",
+            (char *)binary_name, obj_path, NULL
+        };
+        pid_t ar_pid;
+        int spawn_ret = posix_spawnp(&ar_pid, "llvm-ar", NULL, NULL,
+                                     llvm_argv, environ);
+        int ar_exit = -1;
+        bool used_fallback = false;
+        if (spawn_ret == 0) {
+            waitpid(ar_pid, &ar_exit, 0);
+        } else if (spawn_ret == ENOENT) {
+            /* Fall back to system ar with same rcs flags. Emit single-line
+             * stderr note (CONTEXT-locked verbatim text). */
+            used_fallback = true;
+            char *sys_argv[] = {
+                (char *)"ar", (char *)"rcs",
+                (char *)binary_name, obj_path, NULL
+            };
+            int sys_spawn = posix_spawnp(&ar_pid, "ar", NULL, NULL,
+                                         sys_argv, environ);
+            if (sys_spawn == 0) {
+                fprintf(stderr,
+                        "note: llvm-ar not found, using system ar (archives may differ across platforms)\n");
+                waitpid(ar_pid, &ar_exit, 0);
+            } else {
+                fprintf(stderr,
+                        "error: neither llvm-ar nor ar found in PATH. Install with: brew install llvm (macOS) or apt install llvm (Linux).\n");
+                /* Intermediate .o kept for debugging on failure. */
+                free(c_file_path);
+                iron_diaglist_free(&diags);
+                iron_arena_free(&arena);
+                free(source);
+                free(base_dir);
+                free(derived_output);
+                return 1;
+            }
+        } else {
+            fprintf(stderr, "error: failed to spawn llvm-ar: %s\n",
+                    strerror(spawn_ret));
+            free(c_file_path);
+            iron_diaglist_free(&diags);
+            iron_arena_free(&arena);
+            free(source);
+            free(base_dir);
+            free(derived_output);
+            return 1;
+        }
+        if (!(WIFEXITED(ar_exit) && WEXITSTATUS(ar_exit) == 0)) {
+            fprintf(stderr, "error: %s failed wrapping %s into %s\n",
+                    used_fallback ? "ar" : "llvm-ar", obj_path, binary_name);
+            /* .o kept on failure */
+            free(c_file_path);
+            iron_diaglist_free(&diags);
+            iron_arena_free(&arena);
+            free(source);
+            free(base_dir);
+            free(derived_output);
+            return 1;
+        }
+
+        /* 3. Cleanup intermediate .o on success. */
+        unlink(obj_path);
+
+        /* Cleanup combined-source temp file (mirrors the existing block at
+         * line 1454+ for the non-archive path). */
+        if (!opts.debug_build) {
+            unlink(c_file_path);
+        }
+        free(c_file_path);
+
+        if (diags.warning_count > 0) {
+            iron_diag_print_all(&diags, source);
+        }
+
+        iron_diaglist_free(&diags);
+        iron_arena_free(&arena);
+        free(source);
+        free(base_dir);
+        free(derived_output);
+        return 0;
+    }
+#endif
     if (opts.target == IRON_TARGET_WEB) {
         /* Web: spawn emcc with the canonical flag set + Iron runtime + web stdlib.
          * Parse iron.toml once to obtain [web] config (cfg) and toml_dir for
@@ -1455,6 +1841,11 @@ int iron_build(const char *source_path, const char *output_path,
         GetExitCodeProcess(run_pi.hProcess, &run_exit);
         CloseHandle(run_pi.hProcess);
         CloseHandle(run_pi.hThread);
+        /* Phase 96 RUN-01: prompt unlink (atexit is the safety net). */
+        if (iron_run_tempfile_path[0] != '\0') {
+            unlink(iron_run_tempfile_path);
+            iron_run_tempfile_path[0] = '\0';
+        }
         free(derived_output);
         return (int)run_exit;
 #else
@@ -1487,6 +1878,11 @@ int iron_build(const char *source_path, const char *output_path,
                         strerror(errno));
                 free(derived_output);
                 return 1;
+            }
+            /* Phase 96 RUN-01: prompt unlink (atexit is the safety net). */
+            if (iron_run_tempfile_path[0] != '\0') {
+                unlink(iron_run_tempfile_path);
+                iron_run_tempfile_path[0] = '\0';
             }
             free(derived_output);
             return WIFEXITED(emrun_wstatus) ? WEXITSTATUS(emrun_wstatus) : 1;
@@ -1544,6 +1940,11 @@ int iron_build(const char *source_path, const char *output_path,
             fprintf(stderr, "error: waitpid failed: %s\n", strerror(errno));
             free(derived_output);
             return 1;
+        }
+        /* Phase 96 RUN-01: prompt unlink (atexit is the safety net). */
+        if (iron_run_tempfile_path[0] != '\0') {
+            unlink(iron_run_tempfile_path);
+            iron_run_tempfile_path[0] = '\0';
         }
         free(derived_output);
         return WIFEXITED(wstatus) ? WEXITSTATUS(wstatus) : 1;

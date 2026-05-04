@@ -458,15 +458,19 @@ void test_is_narrowing(void) {
 /* ── Test 22: interface completeness — all methods present => no error ────── */
 
 void test_interface_complete_no_error(void) {
+    /* Phase 98 PATCH-03: standalone form `func Sprite.draw()` is rejected
+     * with E0321. Migrated to in-block method form on Sprite so the
+     * interface-completeness check still has a draw() implementation to
+     * see. */
     const char *src =
         "interface Drawable {\n"
         "  func draw() -> void\n"
         "}\n"
         "object Sprite impl Drawable {\n"
         "  var x: Int\n"
-        "}\n"
-        "func Sprite.draw() {\n"
-        "  val n = 1\n"
+        "  func draw() {\n"
+        "    val n = 1\n"
+        "  }\n"
         "}\n";
     parse_and_resolve(src);
     TEST_ASSERT_FALSE(has_error(IRON_ERR_MISSING_IFACE_METHOD));
@@ -926,12 +930,15 @@ void test_interp_not_stringable(void) {
 /* ── Test 43: object with to_string() in interpolation => no W0602 ───────── */
 
 void test_interp_object_with_to_string_ok(void) {
+    /* Phase 98 PATCH-03: standalone `func Bar.to_string()` is rejected with
+     * E0321. Migrated to in-block form so the interpolation type checker
+     * still sees Bar's to_string() implementation. */
     const char *src =
         "object Bar {\n"
         "  val x: Int\n"
-        "}\n"
-        "func Bar.to_string() -> String {\n"
-        "  return \"Bar\"\n"
+        "  func to_string() -> String {\n"
+        "    return \"Bar\"\n"
+        "  }\n"
         "}\n"
         "func main() {\n"
         "  val b = Bar(1)\n"
@@ -1165,7 +1172,10 @@ void test_slice_end_equals_size_valid(void) {
 
 /* ── Generic constraint checking tests ────────────────────────────────────── */
 
-/* GEN-01 negative: constraint satisfied on function call => no error */
+/* GEN-01 negative: constraint satisfied on function call => no error.
+ *
+ * Phase 98 PATCH-03: standalone `func MyObj.to_string()` is rejected with
+ * E0321. Migrated to in-block form on MyObj. */
 void test_generic_constraint_satisfied_no_error(void) {
     parse_and_resolve(
         "interface Printable {\n"
@@ -1173,9 +1183,9 @@ void test_generic_constraint_satisfied_no_error(void) {
         "}\n"
         "object MyObj impl Printable {\n"
         "  var value: Int\n"
-        "}\n"
-        "func MyObj.to_string() -> String {\n"
-        "  return \"obj\"\n"
+        "  func to_string() -> String {\n"
+        "    return \"obj\"\n"
+        "  }\n"
         "}\n"
         "func show[T: Printable](x: T) {\n"
         "  println(\"shown\")\n"
@@ -1223,7 +1233,10 @@ void test_generic_constraint_violated_construction(void) {
 
 /* GEN-03 negative: constraint satisfied on construction => no error
  * Uses call-as-construction path: Container(MyObj(1)) where field type T
- * is inferred from the MyObj arg, which impl Printable. */
+ * is inferred from the MyObj arg, which impl Printable.
+ *
+ * Phase 98 PATCH-03: standalone `func MyObj.to_string()` is rejected with
+ * E0321. Migrated to in-block form on MyObj. */
 void test_generic_constraint_satisfied_construction(void) {
     parse_and_resolve(
         "interface Printable {\n"
@@ -1231,9 +1244,9 @@ void test_generic_constraint_satisfied_construction(void) {
         "}\n"
         "object MyObj impl Printable {\n"
         "  var value: Int\n"
-        "}\n"
-        "func MyObj.to_string() -> String {\n"
-        "  return \"obj\"\n"
+        "  func to_string() -> String {\n"
+        "    return \"obj\"\n"
+        "  }\n"
         "}\n"
         "object Container[T: Printable] {\n"
         "  var item: T\n"
@@ -2981,6 +2994,667 @@ void test_classic_object_missing_method_emits_e0258(void) {
         "expected locked substring 'missing interface method' in E0258 message");
 }
 
+/* ── Phase 93 VIS-01: top-level `pub` parser threading ──────────────────── */
+
+void test_v93_pub_func_top_level_parses(void) {
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "pub func foo() -> Int { return 1 }\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    Iron_FuncDecl *fd = NULL;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_FUNC_DECL) {
+            fd = (Iron_FuncDecl *)prog->decls[i];
+            break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(fd);
+    TEST_ASSERT_TRUE(fd->is_pub);
+    TEST_ASSERT_FALSE(fd->is_private);
+}
+
+void test_v93_top_level_func_default_private(void) {
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "func bar() {}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    Iron_FuncDecl *fd = NULL;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_FUNC_DECL) {
+            fd = (Iron_FuncDecl *)prog->decls[i];
+            break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(fd);
+    TEST_ASSERT_FALSE(fd->is_pub);
+}
+
+void test_v93_pub_object_parses(void) {
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "pub object Player { var x: Int  init(x: Int) { self.x = x } }\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    Iron_ObjectDecl *od = NULL;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_OBJECT_DECL) {
+            Iron_ObjectDecl *cand = (Iron_ObjectDecl *)prog->decls[i];
+            if (cand->name && strcmp(cand->name, "Player") == 0) {
+                od = cand;
+                break;
+            }
+        }
+    }
+    TEST_ASSERT_NOT_NULL(od);
+    TEST_ASSERT_TRUE(od->is_pub);
+}
+
+void test_v93_pub_enum_parses(void) {
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "pub enum State { RUNNING, IDLE }\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    Iron_EnumDecl *ed = NULL;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_ENUM_DECL) {
+            ed = (Iron_EnumDecl *)prog->decls[i];
+            break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(ed);
+    TEST_ASSERT_TRUE(ed->is_pub);
+}
+
+void test_v93_pub_patch_object_parses(void) {
+    /* Use a user-defined object as the patch target so the receiver-type
+     * check (E0236 on primitive `Int` mut-receiver) does not fire. The
+     * point of this test is the parser threading of `pub` through
+     * iron_parse_patch_decl, not patch semantics. */
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "object Foo { var x: Int  init(x: Int) { self.x = x } }\n"
+        "pub patch object Foo { func twice() -> Int { return self.x * 2 } }\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    Iron_ObjectDecl *od = NULL;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_OBJECT_DECL) {
+            Iron_ObjectDecl *cand = (Iron_ObjectDecl *)prog->decls[i];
+            if (cand->is_patch) {
+                od = cand;
+                break;
+            }
+        }
+    }
+    TEST_ASSERT_NOT_NULL(od);
+    TEST_ASSERT_TRUE(od->is_patch);
+    TEST_ASSERT_TRUE(od->is_pub);
+}
+
+void test_v93_pub_private_combined_rejected(void) {
+    parse_and_resolve("pub private func foo() {}\n");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("`pub` and `private` cannot be combined"),
+        "expected pub+private mutual-exclusion error");
+}
+
+void test_v93_top_level_pub_init_rejected(void) {
+    parse_and_resolve("pub init Foo() {}\n");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("standalone `pub init`"),
+        "expected standalone-pub-init rejection");
+}
+
+void test_v93_top_level_pub_val_rejected(void) {
+    parse_and_resolve("pub val GLOBAL: Int = 0\n");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("top-level `pub val`"),
+        "expected top-level pub val rejection");
+}
+
+/* Phase 93 VIS-04 (Plan 93-02): `pub init` gating on enclosing-object visibility. */
+
+void test_v93_pub_init_in_pub_object_accepted(void) {
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "pub object Player {\n"
+        "    var hp: Int\n"
+        "    pub init(hp: Int) { self.hp = hp }\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    bool found_pub_init = false;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *m = (Iron_MethodDecl *)prog->decls[i];
+            if (m->method_name && strcmp(m->method_name, "init") == 0 && m->is_pub) {
+                found_pub_init = true;
+                break;
+            }
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found_pub_init,
+        "expected a synthesized init MethodDecl with is_pub == true");
+}
+
+void test_v93_pub_init_in_private_object_rejected(void) {
+    parse_and_resolve(
+        "object Foo {\n"
+        "    pub init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("`pub init` is only valid inside a `pub object`"),
+        "expected the new pub-init-in-private-object message");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("the enclosing"),
+        "expected message to point at the enclosing object");
+    /* Locks the message-shape contract: subsequent compile_fail fixture in
+     * Plan 93-04 substring-matches against this exact phrasing. */
+}
+
+void test_v93_plain_init_in_pub_object_stays_private(void) {
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "pub object Bar {\n"
+        "    init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+    /* CONTEXT: pub on the type does NOT propagate to members. The plain
+     * init MethodDecl must have is_pub == false even though the enclosing
+     * object is pub. Cross-module `Bar()` construction still works because
+     * init dispatch goes through method-table lookup, not top-level
+     * identifier resolution (RESEARCH Pitfall 4). */
+    bool found_init = false;
+    for (int i = 0; i < prog->decl_count; i++) {
+        if (prog->decls[i]->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *m = (Iron_MethodDecl *)prog->decls[i];
+            if (m->method_name && strcmp(m->method_name, "init") == 0) {
+                TEST_ASSERT_FALSE_MESSAGE(m->is_pub,
+                    "plain init in pub object must NOT auto-promote to pub");
+                found_init = true;
+            }
+        }
+    }
+    TEST_ASSERT_TRUE(found_init);
+}
+
+/* ── Phase 93 VIS-02/03 (Plan 93-03): resolver-side is_pub propagation +
+ *    E0320 cross-module visibility check + stdlib carve-out ──────────────── */
+
+/* Lookup helper: walk a global scope's stb_ds shmap and find the named symbol.
+ * Phase 93-03 uses this to assert that resolver-stage propagation copies the
+ * AST is_pub bit onto Iron_Symbol.is_pub. */
+static Iron_Symbol *find_global_sym(Iron_Scope *global, const char *name) {
+    if (!global || !name) return NULL;
+    for (ptrdiff_t i = 0; i < shlen(global->symbols); i++) {
+        if (global->symbols[i].key && strcmp(global->symbols[i].key, name) == 0) {
+            return global->symbols[i].value;
+        }
+    }
+    return NULL;
+}
+
+void test_v93_e0320_macro_registered(void) {
+    /* IRON_ERR_CROSS_MODULE_PRIVATE must be the agreed slot 320, between
+     * E0314 (POSSIBLY_UNINITIALIZED) and E0400 (LOWER_UNSUPPORTED). */
+    TEST_ASSERT_EQUAL_INT(320, IRON_ERR_CROSS_MODULE_PRIVATE);
+}
+
+void test_v93_sym_is_pub_propagates_func(void) {
+    /* `pub func` -> Iron_Symbol.is_pub == true. */
+    const char *src = "pub func foo() -> Int { return 1 }\n";
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron",
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Symbol *sym = find_global_sym(global, "foo");
+    TEST_ASSERT_NOT_NULL_MESSAGE(sym, "expected `foo` symbol in global scope");
+    TEST_ASSERT_TRUE_MESSAGE(sym->is_pub,
+        "expected sym->is_pub == true for `pub func foo`");
+}
+
+void test_v93_sym_is_pub_default_false_func(void) {
+    /* Plain `func bar` -> Iron_Symbol.is_pub == false. */
+    const char *src = "func bar() {}\n";
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron",
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Symbol *sym = find_global_sym(global, "bar");
+    TEST_ASSERT_NOT_NULL_MESSAGE(sym, "expected `bar` symbol in global scope");
+    TEST_ASSERT_FALSE_MESSAGE(sym->is_pub,
+        "expected sym->is_pub == false for plain `func bar`");
+}
+
+void test_v93_sym_is_pub_propagates_enum_and_variants(void) {
+    /* `pub enum State { RUNNING IDLE }` -> enum sym + each variant sym
+     * are all is_pub == true. */
+    const char *src = "pub enum State { RUNNING, IDLE }\n";
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron",
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+
+    Iron_Symbol *enum_sym = find_global_sym(global, "State");
+    TEST_ASSERT_NOT_NULL_MESSAGE(enum_sym, "expected `State` enum sym");
+    TEST_ASSERT_TRUE_MESSAGE(enum_sym->is_pub,
+        "expected pub enum sym->is_pub == true");
+
+    Iron_Symbol *running_sym = find_global_sym(global, "RUNNING");
+    TEST_ASSERT_NOT_NULL_MESSAGE(running_sym, "expected `RUNNING` variant sym");
+    TEST_ASSERT_TRUE_MESSAGE(running_sym->is_pub,
+        "expected variant of pub enum to inherit is_pub == true");
+
+    Iron_Symbol *idle_sym = find_global_sym(global, "IDLE");
+    TEST_ASSERT_NOT_NULL_MESSAGE(idle_sym, "expected `IDLE` variant sym");
+    TEST_ASSERT_TRUE_MESSAGE(idle_sym->is_pub,
+        "expected variant of pub enum to inherit is_pub == true");
+}
+
+void test_v93_sym_is_pub_default_false_enum_variants(void) {
+    /* `enum Color { RED }` -> variant `RED` is_pub == false. */
+    const char *src = "enum Color { RED }\n";
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron",
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+
+    Iron_Symbol *red_sym = find_global_sym(global, "RED");
+    TEST_ASSERT_NOT_NULL_MESSAGE(red_sym, "expected `RED` variant sym");
+    TEST_ASSERT_FALSE_MESSAGE(red_sym->is_pub,
+        "expected variant of plain enum to have is_pub == false");
+}
+
+void test_v93_sym_is_pub_propagates_object(void) {
+    /* `pub object Player` -> Iron_Symbol.is_pub == true. */
+    const char *src =
+        "pub object Player { var x: Int  init(x: Int) { self.x = x } }\n";
+    Iron_Lexer   l      = iron_lexer_create(src, "test.iron", &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron",
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+
+    Iron_Symbol *sym = find_global_sym(global, "Player");
+    TEST_ASSERT_NOT_NULL_MESSAGE(sym, "expected `Player` type sym");
+    TEST_ASSERT_TRUE_MESSAGE(sym->is_pub,
+        "expected pub object sym->is_pub == true");
+}
+
+/* ── Phase 93 VIS-03 (Plan 93-03): cross-module visibility check at the
+ *    IRON_NODE_IDENT lookup site, plus rate-limited audit-grep note. ─────── */
+
+/* parse_and_resolve_two_files: simulate cross-module by directly synthesizing
+ * a small program where two top-level decls carry distinct span.filename
+ * values. The parse_and_resolve helper above uses a single source string with
+ * one filename, which is structurally same-file. To exercise the cross-module
+ * gate (decl_file != use_file), we build the input as a single source string
+ * and then post-walk the resulting AST to retag the second function's decls
+ * (and the IDENT use-site) with a different filename. This sidesteps the
+ * Plan 04 multi-file test harness and locks the resolver-side check
+ * independently. */
+static Iron_Program *parse_two_files_then_resolve(
+        const char *file_a_filename, const char *file_a_src,
+        const char *file_b_filename, const char *file_b_src) {
+    /* Concatenate the two files with a marker we can scan for to find where
+     * file B starts; then parse the combined source under file_a_filename
+     * and post-walk to retag file B's decls + their bodies' span.filename. */
+    size_t la = strlen(file_a_src);
+    size_t lb = strlen(file_b_src);
+    char *combined = (char *)iron_arena_alloc(&g_arena, la + 1 + lb + 1, 1);
+    memcpy(combined, file_a_src, la);
+    combined[la] = '\n';
+    memcpy(combined + la + 1, file_b_src, lb);
+    combined[la + 1 + lb] = '\0';
+
+    Iron_Lexer   l      = iron_lexer_create(combined, file_a_filename, &g_arena, &g_diags);
+    Iron_Token  *tokens = iron_lex_all(&l);
+    int          count  = 0;
+    while (tokens[count].kind != IRON_TOK_EOF) count++;
+    count++;
+    Iron_Parser  p = iron_parser_create(tokens, count, combined, file_a_filename,
+                                         &g_arena, &g_diags);
+    Iron_Node   *root = iron_parse(&p);
+    Iron_Program *prog = (Iron_Program *)root;
+
+    /* Compute the line where file B begins in the combined source: count '\n'
+     * bytes in file_a_src + 1 (for the separator) -> that is the 1-indexed
+     * line number of the first character of file_b_src. */
+    int a_newlines = 0;
+    for (size_t i = 0; i < la; i++) if (file_a_src[i] == '\n') a_newlines++;
+    int file_b_start_line = a_newlines + 2;  /* +1 for separator, +1 for 1-indexed */
+
+    /* Retag every AST node whose span is on or after file_b_start_line to
+     * have filename = file_b_filename. The walk only needs to hit top-level
+     * decls' spans + their inner identifier use-site spans; keep it simple
+     * by scanning Iron_Program's decl array and walking decl.body if present. */
+    const char *intern_b =
+        iron_arena_strdup(&g_arena, file_b_filename, strlen(file_b_filename));
+    for (int i = 0; i < prog->decl_count; i++) {
+        Iron_Node *d = prog->decls[i];
+        if (!d) continue;
+        if (d->span.line >= (uint32_t)file_b_start_line) {
+            d->span.filename = intern_b;
+            /* Walk the body block (if any) and retag its statements. */
+            Iron_Node *body = NULL;
+            if (d->kind == IRON_NODE_FUNC_DECL) {
+                body = ((Iron_FuncDecl *)d)->body;
+            } else if (d->kind == IRON_NODE_METHOD_DECL) {
+                body = ((Iron_MethodDecl *)d)->body;
+            }
+            if (body && body->kind == IRON_NODE_BLOCK) {
+                Iron_Block *b = (Iron_Block *)body;
+                b->span.filename = intern_b;
+                for (int j = 0; j < b->stmt_count; j++) {
+                    if (!b->stmts[j]) continue;
+                    b->stmts[j]->span.filename = intern_b;
+                    /* For ExprStmt -> Call(callee=Ident, ...), retag the
+                     * callee Ident's span too so the IDENT resolve site sees
+                     * the file_b filename. */
+                    if (b->stmts[j]->kind == IRON_NODE_CALL) {
+                        Iron_CallExpr *ce = (Iron_CallExpr *)b->stmts[j];
+                        if (ce->callee) ce->callee->span.filename = intern_b;
+                    }
+                }
+            }
+        }
+    }
+
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    (void)global;
+    return prog;
+}
+
+void test_v93_e0320_cross_module_private_rejected(void) {
+    /* file_a.iron declares a private (default) `helper`; file_b.iron calls
+     * helper(). Expected: E0320 with substring "not visible from". */
+    Iron_Program *prog = parse_two_files_then_resolve(
+        "lib.iron",
+        "func helper() -> Int { return 42 }\n",
+        "main.iron",
+        "func main() { helper() }\n"
+    );
+    (void)prog;
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_CROSS_MODULE_PRIVATE),
+        "expected E0320 IRON_ERR_CROSS_MODULE_PRIVATE for cross-module private ref");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("not visible from"),
+        "expected E0320 message substring 'not visible from'");
+}
+
+void test_v93_e0320_cross_module_pub_accepted(void) {
+    /* `pub func helper` is visible across files -> NO E0320. */
+    Iron_Program *prog = parse_two_files_then_resolve(
+        "lib.iron",
+        "pub func helper() -> Int { return 42 }\n",
+        "main.iron",
+        "func main() { helper() }\n"
+    );
+    (void)prog;
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_CROSS_MODULE_PRIVATE),
+        "pub-marked symbol must not trigger E0320 across modules");
+}
+
+void test_v93_e0320_same_file_private_accepted(void) {
+    /* Same-file references to non-pub symbols never trigger E0320. */
+    Iron_Program *prog = (Iron_Program *)parse_and_resolve(
+        "func helper() -> Int { return 42 }\n"
+        "func main() { helper() }\n"
+    );
+    (void)prog;
+    TEST_ASSERT_FALSE_MESSAGE(
+        has_error(IRON_ERR_CROSS_MODULE_PRIVATE),
+        "same-file private reference must not trigger E0320");
+}
+
+void test_v93_e0320_audit_note_rate_limited(void) {
+    /* Two cross-module references in the same compile unit should both emit
+     * E0320 (count == 2), but the audit-grep note line ("audit your public
+     * surface") must appear in only ONE of those diagnostics' suggestion
+     * fields. */
+    Iron_Program *prog = parse_two_files_then_resolve(
+        "lib.iron",
+        "func helper_a() -> Int { return 1 }\n"
+        "func helper_b() -> Int { return 2 }\n",
+        "main.iron",
+        "func main() { helper_a()  helper_b() }\n"
+    );
+    (void)prog;
+
+    int e0320_count = 0;
+    int audit_note_count = 0;
+    for (int i = 0; i < g_diags.count; i++) {
+        if (g_diags.items[i].code == IRON_ERR_CROSS_MODULE_PRIVATE) {
+            e0320_count++;
+            if (g_diags.items[i].suggestion &&
+                strstr(g_diags.items[i].suggestion, "audit your public surface")) {
+                audit_note_count++;
+            }
+        }
+    }
+    TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(2, e0320_count,
+        "expected at least 2 E0320 diagnostics for two cross-module refs");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, audit_note_count,
+        "audit-grep note must appear at most once across all E0320 diags");
+}
+
+/* ── Phase 93 Plan 04 Task 3: compile_fail fixture substring locks ───────────
+ *
+ * tests/compile_fail/ is NOT auto-discovered by tests/run_tests.sh (Phase 80
+ * commit 3bc6329 convention). Phase 87 IFACE convention (test_typecheck.c
+ * around line 2727) wires each compile_fail fixture into CI by pairing it
+ * with a unit test that runs parse_and_resolve(...) on equivalent inline
+ * source and asserts has_error_msg_substring(...) on the locked text from
+ * the fixture's `.expected` sibling. Each test below is the CI gate for
+ * one tests/compile_fail/v3_*.iron + .expected pair. */
+
+void test_v93_compile_fail_cross_module_private(void) {
+    /* Source: tests/compile_fail/v3_cross_module_private.iron
+     * Expected substring: tests/compile_fail/v3_cross_module_private.expected
+     *
+     * Two-file synthetic source via @file: markers. The lexer-side hook
+     * (Plan 93-04 Task 1) re-tags subsequent tokens with the new filename,
+     * so the resolver sees lib.iron and main.iron as distinct source files
+     * for the cross-module check. */
+    parse_and_resolve(
+        "-- @file: lib.iron\n"
+        "func helper() -> Int { return 42 }\n"
+        "-- @file: main.iron\n"
+        "func main() {\n"
+        "    println(\"{helper()}\")\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error(IRON_ERR_CROSS_MODULE_PRIVATE),
+        "expected E0320 IRON_ERR_CROSS_MODULE_PRIVATE for cross-module private ref");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("not visible from"),
+        "expected E0320 'not visible from' substring (locks "
+        "tests/compile_fail/v3_cross_module_private.expected)");
+}
+
+void test_v93_compile_fail_pub_init_in_private_object(void) {
+    /* Source: tests/compile_fail/v3_pub_init_in_private_object.iron
+     * Expected substring: tests/compile_fail/v3_pub_init_in_private_object.expected
+     *
+     * Plan 93-02 emits the refreshed message that names the enclosing
+     * object. The fixture is intentionally minimal: `object Foo { pub
+     * init() {} }`. */
+    parse_and_resolve(
+        "object Foo {\n"
+        "    pub init() {}\n"
+        "}\n"
+    );
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("`pub init` is only valid inside a `pub object`"),
+        "expected pub-init-in-private-object substring (locks "
+        "tests/compile_fail/v3_pub_init_in_private_object.expected)");
+}
+
+void test_v93_compile_fail_pub_top_level_val(void) {
+    /* Source: tests/compile_fail/v3_pub_top_level_val.iron
+     * Expected substring: tests/compile_fail/v3_pub_top_level_val.expected
+     *
+     * Plan 93-01 rejects top-level `pub val` and points users at `pub func`
+     * returning a constant. */
+    parse_and_resolve("pub val GLOBAL: Int = 0\n");
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("top-level `pub val`"),
+        "expected top-level pub val rejection substring (locks "
+        "tests/compile_fail/v3_pub_top_level_val.expected)");
+}
+
+/* ── Phase 96 STR-01/02: String + String concat + narrowed E0202 ────────────
+ *
+ * Plan 96-01 wires `String + String` as a built-in concatenation operator:
+ *   - typecheck.c sets Iron_BinaryExpr.is_string_concat = true when op is
+ *     IRON_TOK_PLUS AND both operands are IRON_TYPE_STRING; result type is
+ *     String (no E0202).
+ *   - The narrowed E0202 substring "operator `+` requires numeric operands
+ *     or two `String` values" fires ONLY for op == IRON_TOK_PLUS with mixed
+ *     String / non-String operands; the generic "arithmetic operator
+ *     requires numeric operands" message survives for `-`, `*`, `/`, `%`.
+ * Six tests below lock the contract for both directions and cover the
+ * pure-superset Int+Int / Float+Float regressions. */
+
+void test_v96_string_plus_string_typechecks_as_string(void) {
+    /* "a" + "b" should typecheck as String with is_string_concat = true and
+     * not emit any diagnostic. */
+    const char *src =
+        "func main() {\n"
+        "  val s: String = \"a\" + \"b\"\n"
+        "}\n";
+    Iron_Program *prog = parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    Iron_ValDecl *vd = (Iron_ValDecl *)get_first_stmt(prog);
+    TEST_ASSERT_NOT_NULL(vd);
+    Iron_BinaryExpr *be = (Iron_BinaryExpr *)vd->init;
+    TEST_ASSERT_NOT_NULL(be);
+    TEST_ASSERT_EQUAL_INT(IRON_NODE_BINARY, be->kind);
+    TEST_ASSERT_NOT_NULL(be->resolved_type);
+    TEST_ASSERT_EQUAL_INT(IRON_TYPE_STRING, be->resolved_type->kind);
+    TEST_ASSERT_TRUE_MESSAGE(be->is_string_concat,
+        "String + String must set is_string_concat = true");
+}
+
+void test_v96_chained_string_concat_left_associates(void) {
+    /* "a" + "b" + "c" parses as ((a + b) + c). Both inner and outer binops
+     * must have is_string_concat = true and resolved_type == String. */
+    const char *src =
+        "func main() {\n"
+        "  val s: String = \"a\" + \"b\" + \"c\"\n"
+        "}\n";
+    Iron_Program *prog = parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    Iron_ValDecl *vd = (Iron_ValDecl *)get_first_stmt(prog);
+    Iron_BinaryExpr *outer = (Iron_BinaryExpr *)vd->init;
+    TEST_ASSERT_NOT_NULL(outer);
+    TEST_ASSERT_TRUE_MESSAGE(outer->is_string_concat,
+        "outer (a+b)+c must set is_string_concat = true");
+    TEST_ASSERT_EQUAL_INT(IRON_TYPE_STRING, outer->resolved_type->kind);
+
+    Iron_BinaryExpr *inner = (Iron_BinaryExpr *)outer->left;
+    TEST_ASSERT_NOT_NULL(inner);
+    TEST_ASSERT_EQUAL_INT(IRON_NODE_BINARY, inner->kind);
+    TEST_ASSERT_TRUE_MESSAGE(inner->is_string_concat,
+        "inner a+b must set is_string_concat = true");
+    TEST_ASSERT_EQUAL_INT(IRON_TYPE_STRING, inner->resolved_type->kind);
+}
+
+void test_v96_string_plus_int_emits_narrowed_e0202(void) {
+    /* "foo" + 42 must emit the narrowed E0202 substring (locks the
+     * tests/compile_fail/v3_str_plus_int.expected fixture). The OLD generic
+     * substring must NOT appear. */
+    const char *src =
+        "func main() {\n"
+        "  val bad = \"foo\" + 42\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_GREATER_THAN(0, g_diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring(
+            "operator `+` requires numeric operands or two `String` values"),
+        "expected narrowed E0202 substring (locks "
+        "tests/compile_fail/v3_str_plus_int.expected)");
+}
+
+void test_v96_int_plus_string_emits_narrowed_e0202(void) {
+    /* Mirror direction: 42 + "foo" must also fire the narrowed E0202. */
+    const char *src =
+        "func main() {\n"
+        "  val bad = 42 + \"foo\"\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_GREATER_THAN(0, g_diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring(
+            "operator `+` requires numeric operands or two `String` values"),
+        "expected narrowed E0202 substring for Int + String (mirror)");
+}
+
+void test_v96_string_minus_string_emits_generic_e0202(void) {
+    /* "foo" - "bar" must keep the generic E0202 substring "arithmetic
+     * operator requires numeric operands" because op != IRON_TOK_PLUS. */
+    const char *src =
+        "func main() {\n"
+        "  val bad = \"foo\" - \"bar\"\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_GREATER_THAN(0, g_diags.error_count);
+    TEST_ASSERT_TRUE_MESSAGE(
+        has_error_msg_substring("arithmetic operator requires numeric operands"),
+        "String - String must keep the generic E0202 message (op != PLUS)");
+}
+
+void test_v96_int_plus_int_unchanged_no_string_concat_bit(void) {
+    /* Pure-superset regression: 1 + 2 still typechecks as Int, and the binop
+     * must NOT have is_string_concat set. */
+    const char *src =
+        "func main() {\n"
+        "  val z = 1 + 2\n"
+        "}\n";
+    Iron_Program *prog = parse_and_resolve(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    Iron_ValDecl *vd = (Iron_ValDecl *)get_first_stmt(prog);
+    Iron_BinaryExpr *be = (Iron_BinaryExpr *)vd->init;
+    TEST_ASSERT_NOT_NULL(be);
+    TEST_ASSERT_EQUAL_INT(IRON_TYPE_INT, be->resolved_type->kind);
+    TEST_ASSERT_FALSE_MESSAGE(be->is_string_concat,
+        "Int + Int must NOT set is_string_concat");
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -3179,6 +3853,48 @@ int main(void) {
     RUN_TEST(test_patch_retroactive_tier_strengthening);
     RUN_TEST(test_classic_object_conformance_still_works);
     RUN_TEST(test_classic_object_missing_method_emits_e0258);
+
+    /* Phase 93 VIS-01 Plan 93-01: top-level `pub` parser threading. */
+    RUN_TEST(test_v93_pub_func_top_level_parses);
+    RUN_TEST(test_v93_top_level_func_default_private);
+    RUN_TEST(test_v93_pub_object_parses);
+    RUN_TEST(test_v93_pub_enum_parses);
+    RUN_TEST(test_v93_pub_patch_object_parses);
+    RUN_TEST(test_v93_pub_private_combined_rejected);
+    RUN_TEST(test_v93_top_level_pub_init_rejected);
+    RUN_TEST(test_v93_top_level_pub_val_rejected);
+    RUN_TEST(test_v93_pub_init_in_pub_object_accepted);
+    RUN_TEST(test_v93_pub_init_in_private_object_rejected);
+    RUN_TEST(test_v93_plain_init_in_pub_object_stays_private);
+
+    /* Phase 93 Plan 93-03: resolver-side is_pub propagation + E0320
+     * cross-module visibility check + stdlib carve-out. */
+    RUN_TEST(test_v93_e0320_macro_registered);
+    RUN_TEST(test_v93_sym_is_pub_propagates_func);
+    RUN_TEST(test_v93_sym_is_pub_default_false_func);
+    RUN_TEST(test_v93_sym_is_pub_propagates_enum_and_variants);
+    RUN_TEST(test_v93_sym_is_pub_default_false_enum_variants);
+    RUN_TEST(test_v93_sym_is_pub_propagates_object);
+    RUN_TEST(test_v93_e0320_cross_module_private_rejected);
+    RUN_TEST(test_v93_e0320_cross_module_pub_accepted);
+    RUN_TEST(test_v93_e0320_same_file_private_accepted);
+    RUN_TEST(test_v93_e0320_audit_note_rate_limited);
+
+    /* Phase 93 Plan 04 Task 3: compile_fail fixture substring locks. Pair
+     * one unit test per tests/compile_fail/v3_*.iron + .expected fixture so
+     * the substring lock gates CI (tests/compile_fail/ is not auto-discovered
+     * by run_tests.sh). */
+    RUN_TEST(test_v93_compile_fail_cross_module_private);
+    RUN_TEST(test_v93_compile_fail_pub_init_in_private_object);
+    RUN_TEST(test_v93_compile_fail_pub_top_level_val);
+
+    /* Phase 96 STR-01/02: String + String concat + narrowed E0202. */
+    RUN_TEST(test_v96_string_plus_string_typechecks_as_string);
+    RUN_TEST(test_v96_chained_string_concat_left_associates);
+    RUN_TEST(test_v96_string_plus_int_emits_narrowed_e0202);
+    RUN_TEST(test_v96_int_plus_string_emits_narrowed_e0202);
+    RUN_TEST(test_v96_string_minus_string_emits_generic_e0202);
+    RUN_TEST(test_v96_int_plus_int_unchanged_no_string_concat_bit);
 
     return UNITY_END();
 }

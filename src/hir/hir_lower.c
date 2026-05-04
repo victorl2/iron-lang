@@ -1239,9 +1239,30 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Binary expression ───────────────────────────────────────────────── */
     case IRON_NODE_BINARY: {
         Iron_BinaryExpr *bin = (Iron_BinaryExpr *)node;
-        IronHIR_BinOp hop = ast_op_to_hir_binop(bin->op);
         IronHIR_Expr *lhs = lower_expr_hir(ctx, bin->left);
         IronHIR_Expr *rhs = lower_expr_hir(ctx, bin->right);
+
+        /* Phase 96 STR-01: lower String + String as a runtime call to
+         * iron_string_concat. The bit is set by typecheck.c when op ==
+         * IRON_TOK_PLUS and both operands are IRON_TYPE_STRING; otherwise
+         * fall through to the standard binop lowering. The func_ref + call
+         * pattern matches the precedent for Iron_int_to_string (lowercase
+         * iron_string_concat is a known runtime symbol; the C-name resolver
+         * in src/lir/emit_helpers.c keeps lowercase iron_* names verbatim
+         * to bypass the Iron_-prefix mangler, and src/lir/emit_c.c special-
+         * cases the call site to wrap both args with `&` since the runtime
+         * helper takes `const Iron_String *`). */
+        if (bin->is_string_concat) {
+            IronHIR_Expr *callee = iron_hir_expr_func_ref(
+                mod, "iron_string_concat", bin->resolved_type, span);
+            IronHIR_Expr **args = NULL;
+            arrput(args, lhs);
+            arrput(args, rhs);
+            return iron_hir_expr_call(mod, callee, args, 2,
+                                      bin->resolved_type, span);
+        }
+
+        IronHIR_BinOp hop = ast_op_to_hir_binop(bin->op);
         return iron_hir_expr_binop(mod, hop, lhs, rhs,
                                    bin->resolved_type, span);
     }
@@ -1674,8 +1695,77 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             IronHIR_Param *params;
 
             if (is_stub) {
-                /* Stub method: only explicit params (no self) */
-                total_params = md->param_count;
+                /* Stub method: only explicit params (no self).
+                 *
+                 * Phase 98 PATCH-01: when migrating stdlib from standalone
+                 * form `func TYPE.method(...)` to patch-body form
+                 * `patch object TYPE { func method(...) }`, the patch parser
+                 * synthesizes a `self: TYPE` first parameter
+                 * (parser.c:4102-4128). For empty-body stubs whose C
+                 * runtime ABI is namespace-only (no self at the C
+                 * boundary), we must strip the synth_self so the HIR
+                 * func signature matches the runtime header.
+                 *
+                 * Two distinct C ABI conventions exist among stub stdlib
+                 * methods:
+                 *
+                 *   (A) Header-declared receiver-style. iron_runtime.h
+                 *       declares Iron_string_upper(Iron_String self),
+                 *       Iron_list_len(Iron_List_T self), etc. These match
+                 *       the synth_self shape; keep self in HIR.
+                 *
+                 *   (B) Namespace-only. iron_math.h declares
+                 *       Iron_math_sin(double x) (no self). iron_raylib.c
+                 *       defines Iron_window_init(...), Iron_audio_init(),
+                 *       Iron_random_seed(int64_t) etc. with no self at
+                 *       the C boundary. These do NOT match the synth_self
+                 *       shape; strip self from HIR so the call-site arity
+                 *       matches the runtime header.
+                 *
+                 * Discriminator: prefix of the mangled name. The list is
+                 * locked here (rather than discovered dynamically) so the
+                 * codemod's allowlist of namespace-only stdlib types
+                 * (Math + raylib namespaces Window/Audio/Files/Random/
+                 * Text/Draw/Keyboard/Mouse/Gamepad/Touch/Gestures/RMath)
+                 * matches what the HIR layer recognises. Trailing
+                 * underscore prevents prefix collisions (math_ != matrix_). */
+                int skip_self = 0;
+                if (md->is_receiver_form && md->param_count > 0) {
+                    Iron_Param *p0 = (Iron_Param *)md->params[0];
+                    if (p0 && p0->name && strcmp(p0->name, "self") == 0) {
+                        static const char *k_no_self_prefixes[] = {
+                            "math_",  "io_",   "time_", "log_",
+                            "hint_",  "int_",  "int32_", "float_",
+                            "float32_",
+                            /* raylib namespace types - no self at C boundary */
+                            "window_", "audio_",   "files_",
+                            "random_", "text_",    "draw_",
+                            "keyboard_", "mouse_", "gamepad_",
+                            "touch_",   "gestures_", "rmath_",
+                            NULL
+                        };
+                        for (int pi = 0; k_no_self_prefixes[pi]; pi++) {
+                            size_t plen = strlen(k_no_self_prefixes[pi]);
+                            if (strncmp(mangled, k_no_self_prefixes[pi], plen) == 0) {
+                                skip_self = 1;
+                                break;
+                            }
+                        }
+                        /* Iron_string_from_byte specifically: the
+                         * runtime declares it as `(int64_t b)` with no
+                         * self (an inconsistency among the receiver-style
+                         * Iron_string_* prefixes). Hard-coded here rather
+                         * than via a generic factory heuristic because
+                         * raylib factories like Iron_image_from_rectangle
+                         * DO take self at the C boundary - the
+                         * convention is per-symbol, not per-prefix. */
+                        if (!skip_self && md->method_name &&
+                            strncmp(mangled, "string_from_byte", 16) == 0) {
+                            skip_self = 1;
+                        }
+                    }
+                }
+                total_params = md->param_count - skip_self;
                 params = NULL;
                 if (total_params > 0) {
                     params = (IronHIR_Param *)iron_arena_alloc(
@@ -1683,8 +1773,8 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                         (size_t)total_params * sizeof(IronHIR_Param),
                         _Alignof(IronHIR_Param));
                     if (!params) iron_oom_abort("hir_lower.c:lower_module_decls_hir stub_params");
-                    for (int p = 0; p < md->param_count; p++) {
-                        Iron_Param *ap = (Iron_Param *)md->params[p];
+                    for (int p = 0; p < total_params; p++) {
+                        Iron_Param *ap = (Iron_Param *)md->params[p + skip_self];
                         params[p].name   = ap->name;
                         params[p].type   = resolve_type_ann(ctx, ap->type_ann);
                         params[p].var_id = IRON_HIR_VAR_INVALID;
@@ -1765,8 +1855,14 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             /* Phase 80 MUT-07: propagate receiver mut-ness to the HIR func so
              * HIR→LIR can fire self_by_addr at call sites. Gated on
              * is_receiver_form + params[0]->is_mut_receiver so non-receiver-form
-             * methods, stub bodies, and free functions stay false. */
-            if (md->is_receiver_form && md->param_count > 0) {
+             * methods, stub bodies, and free functions stay false.
+             *
+             * Phase 98 PATCH-01: stubs (FFI-bound to C runtime) MUST stay
+             * false even when patch-body parser synthesized a mutating self.
+             * The C runtime takes the receiver by value (or by no receiver
+             * at all for static-style calls); firing self_by_addr would
+             * pass `&value` to a function expecting the value. */
+            if (md->is_receiver_form && md->param_count > 0 && !is_stub) {
                 Iron_Param *recv = (Iron_Param *)md->params[0];
                 if (recv && recv->is_mut_receiver) {
                     f->is_mut_receiver_method = true;

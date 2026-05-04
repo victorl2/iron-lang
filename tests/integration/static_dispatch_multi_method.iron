@@ -24,29 +24,33 @@ object Bike impl Vehicle {
     }
 }
 
-func Car.speed() -> Int {
-  return self.max_speed
+patch object Car {
+    readonly func speed() -> Int {
+      return self.max_speed
+    }
+    readonly func fuel() -> Int {
+      return self.tank
+    }
+    readonly func describe() -> String {
+      return "Car(speed={self.max_speed}, fuel={self.tank})"
+    }
 }
 
-func Car.fuel() -> Int {
-  return self.tank
+
+
+patch object Bike {
+    readonly func speed() -> Int {
+      return self.max_speed
+    }
+    readonly func fuel() -> Int {
+      return 0
+    }
+    readonly func describe() -> String {
+      return "Bike(speed={self.max_speed})"
+    }
 }
 
-func Car.describe() -> String {
-  return "Car(speed={self.max_speed}, fuel={self.tank})"
-}
 
-func Bike.speed() -> Int {
-  return self.max_speed
-}
-
-func Bike.fuel() -> Int {
-  return 0
-}
-
-func Bike.describe() -> String {
-  return "Bike(speed={self.max_speed})"
-}
 
 func report(v: Vehicle) {
   println("{v.describe()} goes {v.speed()} with {v.fuel()} fuel")

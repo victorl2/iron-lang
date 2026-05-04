@@ -20,12 +20,16 @@ object StringWrapper {
     }
 }
 
-func IntWrapper.doubled() -> Int {
-  return self.value * 2
+patch object IntWrapper {
+    readonly func doubled() -> Int {
+      return self.value * 2
+    }
 }
 
-func FloatWrapper.doubled() -> Float {
-  return self.value * 2.0
+patch object FloatWrapper {
+    readonly func doubled() -> Float {
+      return self.value * 2.0
+    }
 }
 
 func main() {

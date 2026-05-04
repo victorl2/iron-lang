@@ -30,20 +30,26 @@ object Counter {
     }
 }
 
-func IntPair.sum() -> Int {
-  return self.first + self.second
+patch object IntPair {
+    readonly func sum() -> Int {
+      return self.first + self.second
+    }
+    readonly func product() -> Int {
+      return self.first * self.second
+    }
 }
 
-func IntPair.product() -> Int {
-  return self.first * self.second
+
+patch object StringPair {
+    readonly func combined() -> String {
+      return "{self.first}-{self.second}"
+    }
 }
 
-func StringPair.combined() -> String {
-  return "{self.first}-{self.second}"
-}
-
-func Counter.next() -> Int {
-  return self.value + self.step
+patch object Counter {
+    readonly func next() -> Int {
+      return self.value + self.step
+    }
 }
 
 func double_val(n: Int) -> Int {

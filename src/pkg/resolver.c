@@ -1,6 +1,14 @@
 /*
  * iron dependency resolver: DFS graph traversal with cycle detection,
  * diamond dedup, version conflict detection, and topological ordering.
+ *
+ * Phase 94 LIB-03 adds local-path dispatch: when an IronDep carries a
+ * non-NULL `path` field, the resolver bypasses the git/SHA/cache pipeline
+ * and instead reads the lib's iron.toml, freshness-checks the archive
+ * against source files (and iron.toml), spawns a recursive `iron build`
+ * when stale, and records the absolute lib project dir as cache_path.
+ * The path field is preserved on the resolved entry so pkg_build can
+ * branch on it when assembling combined.iron.
  */
 
 #include <stdio.h>
@@ -8,6 +16,17 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdbool.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+#ifdef _WIN32
+#  include <process.h>
+#  include <windows.h>
+#else
+#  include <dirent.h>
+#  include <unistd.h>
+#  include <sys/wait.h>
+#endif
 
 #include "pkg/resolver.h"
 #include "pkg/fetcher.h"
@@ -99,15 +118,224 @@ static void resolved_add(ResolvedDeps *r, const char *name, const char *version,
     r->count++;
 }
 
+/* ── Phase 94 LIB-03: local-path dependency dispatch ───────────────────── */
+
+/* Return file mtime as a long, or -1 if stat fails (file missing). */
+static long file_mtime(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return -1;
+    return (long)st.st_mtime;
+}
+
+/* Determine if the static archive at `archive_path` is stale relative to
+ * the lib's source dir and iron.toml. Returns true when:
+ *   - the archive does not exist, OR
+ *   - iron.toml is newer than the archive, OR
+ *   - any .iron file under <src_dir> is newer than the archive.
+ * iron.toml is included in the freshness check so a lib version bump
+ * (without source change) still triggers a rebuild — the .iron-stub's
+ * header carries the version string. */
+static bool archive_is_stale(const char *archive_path, const char *src_dir,
+                             const char *toml_path) {
+    long arc_mtime = file_mtime(archive_path);
+    if (arc_mtime < 0) return true;  /* missing archive == stale */
+    long toml_m = file_mtime(toml_path);
+    if (toml_m > arc_mtime) return true;
+#ifndef _WIN32
+    DIR *d = opendir(src_dir);
+    if (!d) return true;  /* no src dir == treat as stale to surface error */
+    struct dirent *ent;
+    bool stale = false;
+    while ((ent = readdir(d)) != NULL) {
+        size_t nlen = strlen(ent->d_name);
+        if (nlen < 6 || strcmp(ent->d_name + nlen - 5, ".iron") != 0) continue;
+        char src_file[4096];
+        snprintf(src_file, sizeof(src_file), "%s/%s", src_dir, ent->d_name);
+        long src_m = file_mtime(src_file);
+        if (src_m > arc_mtime) { stale = true; break; }
+    }
+    closedir(d);
+    return stale;
+#else
+    /* Windows: scan src_dir\*.iron via FindFirstFileA. */
+    char pattern[4096];
+    snprintf(pattern, sizeof(pattern), "%s\\*.iron", src_dir);
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) return true;
+    bool stale = false;
+    do {
+        char src_file[4096];
+        snprintf(src_file, sizeof(src_file), "%s\\%s", src_dir, fd.cFileName);
+        long src_m = file_mtime(src_file);
+        if (src_m > arc_mtime) { stale = true; break; }
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    return stale;
+#endif
+}
+
+/* Spawn `iron build` in `lib_dir` and wait for completion.
+ * Returns 0 on success, non-zero on failure (child exit != 0 or fork/exec
+ * failure). The recursive build relies on `iron` being on PATH (the parent
+ * was invoked as `iron build`). Working directory is restored via fork+chdir
+ * pattern so the parent's cwd is unaffected. */
+static int spawn_recursive_iron_build(const char *lib_dir) {
+#ifndef _WIN32
+    pid_t pid = fork();
+    if (pid == 0) {
+        if (chdir(lib_dir) != 0) _exit(127);
+        execlp("iron", "iron", "build", (char *)NULL);
+        _exit(127);
+    } else if (pid < 0) {
+        return -1;
+    }
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) return -1;
+    if (!WIFEXITED(status)) return -1;
+    return WEXITSTATUS(status);
+#else
+    /* Windows: chdir + spawn + restore cwd. spawnlp is synchronous. */
+    char prev_cwd[4096];
+    if (_getcwd(prev_cwd, sizeof(prev_cwd)) == NULL) return -1;
+    if (_chdir(lib_dir) != 0) return -1;
+    intptr_t rc = _spawnlp(_P_WAIT, "iron", "iron", "build", NULL);
+    _chdir(prev_cwd);
+    return (rc == 0) ? 0 : -1;
+#endif
+}
+
+/* Resolve a single local-path dependency: read the lib's iron.toml,
+ * confirm type=lib, freshness-check the archive, recursively build when
+ * stale, and append a ResolvedDep entry whose cache_path is the absolute
+ * lib project dir and whose path field is preserved.
+ *
+ * Returns 0 on success, non-zero on failure (lib_proj missing, type
+ * mismatch, recursive build failure, archive missing post-build, or
+ * transitive path-deps detected — out of scope for v3.2 LIB-03). */
+static int handle_path_dep(IronDep *dep, const char *consumer_dir,
+                           bool colors, ResolvedDeps *result) {
+    /* 1. Resolve dep->path against consumer_dir, then canonicalize. */
+    char abs_lib_dir[4096];
+    if (dep->path[0] == '/') {
+        snprintf(abs_lib_dir, sizeof(abs_lib_dir), "%s", dep->path);
+    } else {
+        snprintf(abs_lib_dir, sizeof(abs_lib_dir), "%s/%s",
+                 consumer_dir, dep->path);
+    }
+#ifndef _WIN32
+    char canonical[4096];
+    if (realpath(abs_lib_dir, canonical) != NULL) {
+        snprintf(abs_lib_dir, sizeof(abs_lib_dir), "%s", canonical);
+    }
+#endif
+
+    /* 2. Read the lib's iron.toml and assert type == "lib". */
+    char lib_toml_path[4096];
+    snprintf(lib_toml_path, sizeof(lib_toml_path),
+             "%s/iron.toml", abs_lib_dir);
+    IronProject *lib_proj = iron_toml_parse(lib_toml_path);
+    if (!lib_proj || !lib_proj->name) {
+        char errbuf[2048];
+        snprintf(errbuf, sizeof(errbuf),
+                 "path dep '%s' has no readable iron.toml at %s",
+                 dep->name, lib_toml_path);
+        iron_print_error(colors, errbuf);
+        if (lib_proj) iron_toml_free(lib_proj);
+        return -1;
+    }
+    if (!lib_proj->type || strcmp(lib_proj->type, "lib") != 0) {
+        char errbuf[2048];
+        snprintf(errbuf, sizeof(errbuf),
+                 "path dep '%s' at %s is not a type=\"lib\" package",
+                 dep->name, abs_lib_dir);
+        iron_print_error(colors, errbuf);
+        fprintf(stderr,
+                "  hint: only `type = \"lib\"` packages can be used as path-deps\n");
+        iron_toml_free(lib_proj);
+        return -1;
+    }
+
+    /* 3. v3.2 LIB-03: transitive path-deps deferred. Reject if the lib's
+     *    iron.toml itself declares any path-form deps. Git-form deps stay
+     *    parsed-but-runtime-ignored per the v3.2 REGISTRY-01 deferral, so
+     *    they pass through silently here. */
+    for (int t = 0; t < lib_proj->dep_count; t++) {
+        if (lib_proj->deps[t].path) {
+            char errbuf[2048];
+            snprintf(errbuf, sizeof(errbuf),
+                     "transitive path-dep '%s' inside lib '%s' is not supported in v3.2",
+                     lib_proj->deps[t].name, dep->name);
+            iron_print_error(colors, errbuf);
+            fprintf(stderr,
+                    "  hint: v3.2 supports a single direct path-dep depth (consumer -> lib).\n");
+            iron_toml_free(lib_proj);
+            return -1;
+        }
+    }
+
+    /* 4. Freshness check + recursive iron build if stale. */
+    char archive_path[4096];
+    snprintf(archive_path, sizeof(archive_path),
+             "%s/target/lib%s.a", abs_lib_dir, lib_proj->name);
+    char src_dir[4096];
+    snprintf(src_dir, sizeof(src_dir), "%s/src", abs_lib_dir);
+    if (archive_is_stale(archive_path, src_dir, lib_toml_path)) {
+        int build_rc = spawn_recursive_iron_build(abs_lib_dir);
+        if (build_rc != 0) {
+            char errbuf[2048];
+            snprintf(errbuf, sizeof(errbuf),
+                     "recursive `iron build` failed for path dep '%s' at %s",
+                     dep->name, abs_lib_dir);
+            iron_print_error(colors, errbuf);
+            iron_toml_free(lib_proj);
+            return -1;
+        }
+        if (file_mtime(archive_path) < 0) {
+            char errbuf[2048];
+            snprintf(errbuf, sizeof(errbuf),
+                     "recursive build of '%s' did not produce %s",
+                     dep->name, archive_path);
+            iron_print_error(colors, errbuf);
+            iron_toml_free(lib_proj);
+            return -1;
+        }
+    }
+
+    /* 5. Append to ResolvedDeps. cache_path holds the absolute lib project
+     *    dir. The dep's path is preserved on the resolved entry so pkg_build
+     *    can branch on it when assembling combined.iron and the link line. */
+    resolved_add(result, lib_proj->name,
+                 lib_proj->version ? lib_proj->version : "0.0.0",
+                 "" /* git: empty marker for path-deps */,
+                 "" /* sha: empty marker for path-deps */,
+                 abs_lib_dir);
+    if (result->count > 0) {
+        IronDep *added = &result->deps[result->count - 1];
+        free(added->path);
+        added->path = strdup(dep->path);
+    }
+
+    iron_toml_free(lib_proj);
+    return 0;
+}
+
 /* ── DFS resolver ──────────────────────────────────────────────────────── */
 
 static int resolve_recursive(IronDep *deps, int dep_count,
                              IronLockEntry *lock_entries, int lock_count,
                              const char *token, bool colors,
                              ResolvedDeps *result,
-                             StringSet *visited, StringSet *path) {
+                             StringSet *visited, StringSet *path,
+                             const char *consumer_dir) {
     for (int i = 0; i < dep_count; i++) {
         IronDep *dep = &deps[i];
+        /* Phase 94 LIB-03: local-path dep — bypass git/SHA/cache pipeline. */
+        if (dep->path) {
+            int prc = handle_path_dep(dep, consumer_dir, colors, result);
+            if (prc != 0) return prc;
+            continue;
+        }
         if (!dep->git) continue;
 
         char *key = lowercase_git(dep->git);
@@ -212,7 +440,8 @@ static int resolve_recursive(IronDep *deps, int dep_count,
 
             int rec_ret = resolve_recursive(dep_proj->deps, dep_proj->dep_count,
                                             lock_entries, lock_count, token,
-                                            colors, result, visited, path);
+                                            colors, result, visited, path,
+                                            cache_dir);
             if (rec_ret != 0) {
                 iron_toml_free(dep_proj);
                 string_set_remove_last(path);
@@ -273,7 +502,7 @@ int resolve_dependencies(IronProject *proj, const char *proj_dir,
 
     int ret = resolve_recursive(proj->deps, proj->dep_count,
                                 lock_entries, lock_count, token, colors,
-                                result, &visited, &path_stack);
+                                result, &visited, &path_stack, proj_dir);
 
     /* On success: write updated iron.lock from resolved deps */
     if (ret == 0 && result->count > 0) {
@@ -308,6 +537,7 @@ void resolved_deps_free(ResolvedDeps *result) {
         free(result->deps[i].git);
         free(result->deps[i].sha);
         free(result->deps[i].cache_path);
+        free(result->deps[i].path);  /* Phase 94 LIB-03 */
     }
     free(result->deps);
     result->deps = NULL;

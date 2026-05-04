@@ -44,12 +44,16 @@ object Note impl Entry {
     }
 }
 
-func Ledger.get_value() -> Int {
-  return self.value
+patch object Ledger {
+    readonly func get_value() -> Int {
+      return self.value
+    }
 }
 
-func Note.get_value() -> Int {
-  return self.value
+patch object Note {
+    readonly func get_value() -> Int {
+      return self.value
+    }
 }
 
 func main() {

@@ -1,0 +1,31 @@
+-- v3_spec_visibility_example.iron
+-- VIS-05 lock for Phase 93. The `pub object Player` block below (lines
+-- 8-25) is verbatim from docs/language_definition.md §Visibility (~line
+-- 627-645). A `func main` harness is appended so the integration runner
+-- has something to execute (the spec block alone is decl-only).
+-- `clamp(Int, Int, Int) -> Int` is a builtin registered by the resolver
+-- (src/analyzer/resolve.c), so the spec text needs no local definition.
+
+pub object Player {            -- public: visible to importers
+  var health: Int              -- private field
+  pub var name: String         -- public field (getter + setter)
+
+  pub init(health: Int, name: String) {
+    self.health = health
+    self.name   = name
+  }
+
+  pub func take_damage(n: Int) {
+    self.health = self.health - n
+  }
+
+  func recalc_stats() {        -- private: only callable inside Player
+    self.health = clamp(self.health, 0, 100)
+  }
+}
+
+func main() {
+    var p = Player(100, "Alice")
+    p.take_damage(20)
+    println("{p.name}: {p.health}")
+}

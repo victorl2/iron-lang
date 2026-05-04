@@ -406,6 +406,8 @@ patch object Int implements Describable {
 }
 ```
 
+<!-- Locked as a fixture at tests/integration/v3_str_describable_example.iron (Phase 96 STR-03). -->
+
 Rules: patches may not add fields or change the visibility of existing
 members. Duplicate method signatures across patches for the same type
 are a compile error (E03XX).
@@ -523,10 +525,45 @@ readonly func reset_via_call() {
 ### Static/factory methods
 
 Factory and utility helpers that do not need an instance receiver are
-written as standalone functions or named inits (see Init section below).
-The `func TypeName.method_name(...)` static-form syntax from v2.x is
-no longer supported for instance methods; it was replaced by in-block
-declarations in v3.0.
+written as standalone functions or named inits (see the Init section
+below).
+
+The legacy v2.x form `func TypeName.method_name(...)` for declaring
+instance methods at the top level is **rejected** in v3.2. Writing such
+a declaration produces diagnostic `E0321 IRON_ERR_STANDALONE_METHOD_FORM`
+at parse time:
+
+> error[E0321]: the standalone form \`func TypeName.method()\` is removed in v3.2
+>
+> help: rewrite as \`patch object TypeName { func method() { ... } }\`
+
+To add a method to an existing type, use a `patch object` block (see the
+[Patch section](#patch--open-extension-v30) for the full grammar):
+
+```iron
+object Foo {
+  init() { }
+}
+
+patch object Foo {
+  readonly func bar() -> Int {
+    return 42
+  }
+}
+```
+
+In-block methods on an object you are declaring yourself stay in the
+object body and never use the standalone form:
+
+```iron
+object Foo {
+  init() { }
+
+  readonly func bar() -> Int {
+    return 42
+  }
+}
+```
 
 ### Passing Convention
 
@@ -577,6 +614,43 @@ if err != null {
 -- discard a value
 val result, _ = divide(10.0, 3.0)
 ```
+
+---
+
+## Project manifest
+
+Iron projects are declared by an `iron.toml` at the project root. The
+`[package]` table carries metadata; `[dependencies]` lists local-path or
+git-source libraries.
+
+```toml
+[package]
+name = "my_game"
+version = "0.1.0"
+type = "bin"               # "bin" (default) or "lib"
+iron = ">= 3.2.0"          # optional, minimum iron compiler version
+
+[dependencies]
+mylib = { path = "../mylib" }
+```
+
+The `iron` field is an optional Cargo-style semver constraint enforced
+by `iron build` and `iron run` before any compile work begins. Supported
+operators: `>=`, `>`, `<=`, `<`, `=` (or no operator = exact), `^`
+(compatible-with: same major), `~` (compatible-with: same minor).
+Comma-separated AND ranges are supported.
+
+Examples:
+
+```toml
+iron = ">= 3.2.0"                  # any version 3.2.0 or newer
+iron = ">= 3.0.0, < 4.0.0"         # any 3.x version
+iron = "^3.2"                       # any 3.x version (>= 3.2.0)
+```
+
+A version mismatch produces a clear error pointing at the install script
+with a `--version` argument. A package with no `iron` field is not
+version-checked.
 
 ---
 
@@ -1503,6 +1577,12 @@ func main() {
   }
 }
 ```
+
+---
+
+## Command-line interface
+
+Both `iron` and `ironc` accept `--help` (or `-h`) at the top level and on every subcommand. `iron --help` lists every subcommand and every flag the CLI parses, grouped by subcommand and sorted alphabetically within each group. `iron <subcommand> --help` (for example, `iron build --help`, `iron init --help`, `iron migrate --help`) prints help scoped to that subcommand and exits with status 0 without performing any subcommand work: `iron init --help` does not scaffold a new project, `iron build --help` does not create `target/`, and no temporary files are written to the current directory. The same shape applies to `ironc`. Help text is generated from a single registry inside the compiler so adding a flag is a one-line edit, and the live `iron <subcommand> --help` output is the canonical CLI reference.
 
 ---
 

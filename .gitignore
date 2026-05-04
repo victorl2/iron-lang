@@ -19,6 +19,8 @@ expr_inline_arithmetic
 heap_auto_free
 strength_reduction_loop
 test_*
+# Phase 99 DOC-01: not a build artifact, this is a checked-in helper.
+!scripts/test_doc_examples.sh
 /collision_smoke
 /raymath_smoke
 /texture_smoke
@@ -137,3 +139,9 @@ compile_commands.json
 *.exe
 *.dSYM/
 *.pch
+
+# Phase 94 LIB-03: iron build writes iron.lock alongside iron.toml in package
+# roots. It's a regenerated build artifact, never a source file. Used by
+# tests/integration/lib_consume/<consumer>/ on every test run.
+iron.lock
+target/

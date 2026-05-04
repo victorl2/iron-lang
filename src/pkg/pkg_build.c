@@ -22,6 +22,8 @@
 #endif
 
 #include "cli/toml.h"
+#include "cli/semver.h"
+#include "cli/version.h"
 #include "pkg/color.h"
 #include "pkg/iron_pkg.h"
 #include "pkg/pkg_build.h"
@@ -285,18 +287,81 @@ static void collect_project_files(FILE *out, const char *proj_dir) {
     }
 }
 
+/* ── check_iron_version (Phase 95 PIN-02 / PIN-03) ─────────────────────────
+ *
+ * Compares the running compiler's IRON_VERSION_STRING against
+ * proj->iron_constraint. Fail-fast: returns 1 with the locked error message
+ * printed to stderr if the constraint is malformed or unsatisfied.
+ * Returns 0 when:
+ *   - proj->iron_constraint is NULL or empty (PIN-04: no field = no check)
+ *   - the constraint parses and the running compiler satisfies it
+ *
+ * Locked error message (verbatim per 95-CONTEXT.md):
+ *   error: <pkg> requires iron <constraint>, but you have <current>. Run
+ *   'curl --proto =https --tlsv1.2 -sSfL https://ironlang.dev/install.sh |
+ *   sh -s -- --version <suggested>' to update.
+ *
+ * Scope (v3.2): the version check fires for `iron build` and `iron run`
+ * (which dispatches through cmd_build) only. `iron check` and `iron test`
+ * intentionally skip the check per CONTEXT.md so contributors can iterate
+ * on a package whose pin floor has drifted ahead of their toolchain.
+ */
+static int check_iron_version(const IronProject *proj, bool colors) {
+    if (!proj->iron_constraint || proj->iron_constraint[0] == '\0') {
+        return 0;  /* PIN-04: missing/empty field is permitted */
+    }
+
+    IronSemverConstraint *c = iron_semver_parse(proj->iron_constraint);
+    if (!c) {
+        char msg[1024];
+        snprintf(msg, sizeof(msg),
+                 "invalid iron version constraint in iron.toml: '%s'",
+                 proj->iron_constraint);
+        iron_print_error(colors, msg);
+        fprintf(stderr,
+                "  hint: use a Cargo-style semver constraint, e.g. "
+                "iron = \">= 3.2.0\" or iron = \">= 3.0.0, < 4.0.0\".\n");
+        return 1;
+    }
+
+    if (iron_semver_satisfies(c, IRON_VERSION_STRING)) {
+        iron_semver_free(c);
+        return 0;
+    }
+
+    const char *suggested = iron_semver_suggest_version(c);
+    if (!suggested) suggested = IRON_VERSION_STRING;
+
+    char msg[2048];
+    snprintf(msg, sizeof(msg),
+             "%s requires iron %s, but you have %s. Run 'curl --proto =https --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh -s -- --version %s' to update.",
+             proj->name,
+             proj->iron_constraint,
+             IRON_VERSION_STRING,
+             suggested);
+    iron_print_error(colors, msg);
+    iron_semver_free(c);
+    return 1;
+}
+
 /* ── cmd_build (handles both build and run) ─────────────────────────────── */
 
 static int cmd_build(bool run_after, int argc, char **argv) {
     bool colors = iron_color_init();
 
-    /* Parse --verbose and -- separator for passthrough args */
+    /* Parse --verbose, --release, and -- separator for passthrough args.
+     * Phase 94 LIB-04: --release is parsed at the iron build CLI layer and
+     * forwarded to ironc below; the Finished status line differentiates
+     * "release [optimized]" from "dev [unoptimized]" based on the same flag. */
     bool verbose = false;
+    bool release = false;
     char **run_args = NULL;
     int run_arg_count = 0;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--verbose") == 0) {
             verbose = true;
+        } else if (strcmp(argv[i], "--release") == 0) {
+            release = true;
         } else if (strcmp(argv[i], "--") == 0) {
             run_args = &argv[i + 1];
             run_arg_count = argc - i - 1;
@@ -318,6 +383,37 @@ static int cmd_build(bool run_after, int argc, char **argv) {
         iron_print_error(colors, "invalid iron.toml: missing required fields (name, version)");
         free(toml_path);
         if (proj) iron_toml_free(proj);
+        return 1;
+    }
+
+    /* Phase 94 LIB-06: reject `iron run` on type=lib at iron.toml-parse moment.
+     * This fires BEFORE entry-file lookup, dep resolution, or any compile work
+     * so the user gets the friendly hint immediately. The em-dash in the
+     * locked CONTEXT message is intentional (per 94-CONTEXT.md verbatim). */
+    if (run_after && proj->type && strcmp(proj->type, "lib") == 0) {
+        char msg[1024];
+        snprintf(msg, sizeof(msg),
+                 "package '%s' has type \"lib\" \xe2\x80\x94 libraries are not directly runnable.",
+                 proj->name);
+        iron_print_error(colors, msg);
+        fprintf(stderr,
+                "  hint: run `iron build` to produce target/lib%s.a, or run a consumer\n"
+                "        binary that depends on it.\n",
+                proj->name);
+        free(toml_path);
+        iron_toml_free(proj);
+        return 1;
+    }
+
+    /* Phase 95 PIN-02 / PIN-03: enforce iron-compiler version pinning.
+     * Fires after iron.toml parse + LIB-06 rejection but before any
+     * filesystem work (target/ creation, ironc spawn) so a mismatched
+     * constraint is fail-fast and side-effect-free. cmd_run dispatches
+     * through cmd_build(true, ...) (see cmd_package), so this single
+     * call site covers both `iron build` and `iron run`. */
+    if (check_iron_version(proj, colors) != 0) {
+        free(toml_path);
+        iron_toml_free(proj);
         return 1;
     }
 
@@ -353,12 +449,64 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     }
 #endif
 
-    /* 5. Build output path: target/<name> */
+    /* 5. Build output path: target/<name> for bin, target/lib<name>.a for lib.
+     * Phase 94 LIB-01: type=lib routes through the archive emit path. The
+     * --emit-archive flag is forwarded to ironc below so the static archive
+     * pipeline runs (clang -c then llvm-ar/ar wrap). Plan 94-02 needs this
+     * forwarded slice so path-dep resolver can recursively build libs into
+     * lib<name>.a archives; full LIB-04/05/06 work (init template + run
+     * rejection) lands in Plan 94-03.
+     *
+     * Phase 96 RUN-02: when running a bin package (run_after && !is_lib),
+     * route the binary to <proj_dir>/target/run/<name> instead of
+     * <proj_dir>/target/<name> so cwd and the package root stay clean. mkdir
+     * target/run/ if needed; ignore EEXIST. The lib branch is unaffected
+     * (libs still emit to target/lib<name>.a; Phase 94 LIB-06 already rejects
+     * `iron run` on libs upstream). `iron build` (run_after=false) keeps the
+     * v3.1 behavior: binaries land at target/<name> so external scripts that
+     * look for build artifacts there continue to work. */
+    bool is_lib = (proj->type && strcmp(proj->type, "lib") == 0);
+    bool route_to_run_dir = run_after && !is_lib;
+    if (route_to_run_dir) {
+        char target_run_dir[4096];
+        snprintf(target_run_dir, sizeof(target_run_dir),
+                 "%s/target/run", proj_dir);
+#ifdef _WIN32
+        _mkdir(target_run_dir);
+#else
+        if (mkdir(target_run_dir, 0755) != 0 && errno != EEXIST) {
+            char msg[512];
+            snprintf(msg, sizeof(msg),
+                     "cannot create target/run/: %s", strerror(errno));
+            iron_print_error(colors, msg);
+            free(proj_dir); free(toml_path); iron_toml_free(proj);
+            return 1;
+        }
+#endif
+    }
     char output_path[4096];
 #ifdef _WIN32
-    snprintf(output_path, sizeof(output_path), "%s/target/%s.exe", proj_dir, proj->name);
+    if (is_lib) {
+        snprintf(output_path, sizeof(output_path),
+                 "%s/target/lib%s.a", proj_dir, proj->name);
+    } else if (route_to_run_dir) {
+        snprintf(output_path, sizeof(output_path),
+                 "%s/target/run/%s.exe", proj_dir, proj->name);
+    } else {
+        snprintf(output_path, sizeof(output_path),
+                 "%s/target/%s.exe", proj_dir, proj->name);
+    }
 #else
-    snprintf(output_path, sizeof(output_path), "%s/target/%s", proj_dir, proj->name);
+    if (is_lib) {
+        snprintf(output_path, sizeof(output_path),
+                 "%s/target/lib%s.a", proj_dir, proj->name);
+    } else if (route_to_run_dir) {
+        snprintf(output_path, sizeof(output_path),
+                 "%s/target/run/%s", proj_dir, proj->name);
+    } else {
+        snprintf(output_path, sizeof(output_path),
+                 "%s/target/%s", proj_dir, proj->name);
+    }
 #endif
 
     /* 6. Resolve dependencies (if any) */
@@ -408,10 +556,36 @@ static int cmd_build(bool run_after, int argc, char **argv) {
             return 1;
         }
 
-        /* Write dep source files in topological order (leaves first) */
+        /* Write dep source files in topological order (leaves first).
+         * Phase 94 LIB-03: path-deps concat the .iron-stub (NOT the lib's
+         * source) preceded by Phase 93's `-- @file: <stub-path>` marker so
+         * the consumer's combined source carries the lib's public surface
+         * with the lib's own filename identity preserved. Git-form path is
+         * kept for future REGISTRY-01 (currently parsed-but-runtime-ignored
+         * in v3.2 — git-deps are not produced by the resolver right now). */
         for (int i = 0; i < resolved.count; i++) {
-            fprintf(combined, "-- dependency: %s\n", resolved.deps[i].name);
-            collect_iron_files(combined, resolved.deps[i].cache_path);
+            if (resolved.deps[i].path) {
+                /* Path-dep: concat <cache_path>/target/<name>.iron-stub */
+                char stub_path[4096];
+                snprintf(stub_path, sizeof(stub_path), "%s/target/%s.iron-stub",
+                         resolved.deps[i].cache_path, resolved.deps[i].name);
+                fprintf(combined, "-- @file: %s\n", stub_path);
+                if (append_file(combined, stub_path) != 0) {
+                    char errbuf[2048];
+                    snprintf(errbuf, sizeof(errbuf),
+                             "failed to read .iron-stub for path dep '%s' at %s",
+                             resolved.deps[i].name, stub_path);
+                    iron_print_error(colors, errbuf);
+                    fclose(combined);
+                    resolved_deps_free(&resolved);
+                    free(proj_dir); free(toml_path); iron_toml_free(proj);
+                    return 1;
+                }
+            } else {
+                /* Git-source path (parsed-but-runtime-ignored in v3.2). */
+                fprintf(combined, "-- dependency: %s\n", resolved.deps[i].name);
+                collect_iron_files(combined, resolved.deps[i].cache_path);
+            }
         }
 
         /* Write project source files (main.iron last) */
@@ -436,22 +610,67 @@ static int cmd_build(bool run_after, int argc, char **argv) {
     char *ironc = find_ironc();
 
     int arg_count = 0;
-    char *spawn_argv[16];
+    /* Phase 94 LIB-03: spawn_argv sized for up to 8 path-deps * 2 link flags
+     * each plus the base argv (~10 entries) — bumped from 16 to 32. */
+    char *spawn_argv[32];
     spawn_argv[arg_count++] = ironc;
     spawn_argv[arg_count++] = "build";
     spawn_argv[arg_count++] = build_source;
     spawn_argv[arg_count++] = "--output";
     spawn_argv[arg_count++] = output_path;
     if (verbose) spawn_argv[arg_count++] = "--verbose";
+    /* Phase 94 LIB-04: forward --release from iron build CLI to ironc so
+     * native -O2 (and web -Oz -flto) optimization tiers reach the underlying
+     * clang -c invocation. Applies to both type=bin and type=lib builds. */
+    if (release) spawn_argv[arg_count++] = "--release";
+    /* Phase 94 LIB-01: lib builds go through ironc's archive emit path. */
+    if (is_lib) {
+        spawn_argv[arg_count++] = "--emit-archive";
+        spawn_argv[arg_count++] = "--pkg-name";
+        spawn_argv[arg_count++] = proj->name;
+        spawn_argv[arg_count++] = "--pkg-version";
+        spawn_argv[arg_count++] = proj->version;
+    }
+    /* Phase 94 LIB-03: per path-dep, emit -L<dep>/target -l<name> so the
+     * consumer's clang link line picks up the static archives. Storage
+     * persists for the duration of the spawn call (heap-owned). The
+     * resolver's topological order is leaf-first; that order is preserved
+     * here (resolved.deps[0] is the deepest leaf). */
+    char *link_flag_storage[16] = {0};
+    int link_flag_alloc = 0;
+    for (int i = 0; i < resolved.count; i++) {
+        if (!resolved.deps[i].path) continue;
+        if (arg_count + 2 >=
+            (int)(sizeof(spawn_argv) / sizeof(spawn_argv[0])) - 1) break;
+        if (link_flag_alloc + 2 >
+            (int)(sizeof(link_flag_storage) / sizeof(link_flag_storage[0]))) break;
+        char buf[1024];
+        snprintf(buf, sizeof(buf), "-L%s/target", resolved.deps[i].cache_path);
+        link_flag_storage[link_flag_alloc] = strdup(buf);
+        spawn_argv[arg_count++] = link_flag_storage[link_flag_alloc++];
+        snprintf(buf, sizeof(buf), "-l%s", resolved.deps[i].name);
+        link_flag_storage[link_flag_alloc] = strdup(buf);
+        spawn_argv[arg_count++] = link_flag_storage[link_flag_alloc++];
+    }
     spawn_argv[arg_count] = NULL;
 
     int ret = spawn_and_wait(ironc, spawn_argv);
 
+    /* Free the heap-owned link-flag storage now that the spawn is done. */
+    for (int li = 0; li < link_flag_alloc; li++) {
+        free(link_flag_storage[li]);
+    }
+
     double elapsed = get_time_sec() - t_start;
 
-    /* 11. Report result */
+    /* 11. Report result.
+     * Phase 94 LIB-04: status line differentiates "release [optimized]" from
+     * "dev [unoptimized]" based on whether --release was passed to iron build. */
     if (ret == 0) {
-        snprintf(detail, sizeof(detail), "dev [unoptimized] in %.2fs", elapsed);
+        snprintf(detail, sizeof(detail), "%s [%s] in %.2fs",
+                 release ? "release" : "dev",
+                 release ? "optimized" : "unoptimized",
+                 elapsed);
         iron_print_status(colors, "Finished", detail);
 
         if (run_after) {
@@ -602,6 +821,14 @@ static int cmd_test(int argc, char **argv) {
 
 int cmd_package(const char *cmd, int argc, char **argv) {
     if (strcmp(cmd, "build") == 0) return cmd_build(false, argc, argv);
+    /* Phase 96 RUN-03 (reserved, NOT implemented in v3.2):
+     *   --keep-binary  reserved to suppress the atexit unlink (iron-run-XXXXXX)
+     *                  for users who want to inspect the produced binary.
+     *   -o <path>      reserved as an output-path override for `iron run`.
+     * Both flags are documented in `iron run --help` (Phase 97 HELP-03 scope).
+     * Implementing them in v3.2 was descoped: the cwd-clean default covers the
+     * primary issue (#53); a deliberate keep-binary flag belongs in a later
+     * phase alongside the broader CLI help registry work. */
     if (strcmp(cmd, "run") == 0)   return cmd_build(true, argc, argv);
     if (strcmp(cmd, "check") == 0) return cmd_check(argc, argv);
     if (strcmp(cmd, "test") == 0)  return cmd_test(argc, argv);

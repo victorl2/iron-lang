@@ -12,12 +12,16 @@ object TypeA impl Marker {
 object TypeB impl Marker {
 }
 
-func TypeA.tag() -> Int {
-  return 1
+patch object TypeA {
+    readonly func tag() -> Int {
+      return 1
+    }
 }
 
-func TypeB.tag() -> Int {
-  return 2
+patch object TypeB {
+    readonly func tag() -> Int {
+      return 2
+    }
 }
 
 func main() {

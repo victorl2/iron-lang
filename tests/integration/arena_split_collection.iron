@@ -30,16 +30,22 @@ object Bird impl Animal {
     }
 }
 
-func Dog.sound() -> Int {
-  return self.volume * 10
+patch object Dog {
+    readonly func sound() -> Int {
+      return self.volume * 10
+    }
 }
 
-func Cat.sound() -> Int {
-  return self.pitch * 5
+patch object Cat {
+    readonly func sound() -> Int {
+      return self.pitch * 5
+    }
 }
 
-func Bird.sound() -> Int {
-  return self.freq * 2
+patch object Bird {
+    readonly func sound() -> Int {
+      return self.freq * 2
+    }
 }
 
 func main() {

@@ -48,16 +48,22 @@ object Label impl Widget {
     }
 }
 
-func Button.score() -> Int {
-  return self.priority * 100 + self.x
+patch object Button {
+    readonly func score() -> Int {
+      return self.priority * 100 + self.x
+    }
 }
 
-func Slider.score() -> Int {
-  return self.priority * 100 + self.pos
+patch object Slider {
+    readonly func score() -> Int {
+      return self.priority * 100 + self.pos
+    }
 }
 
-func Label.score() -> Int {
-  return self.priority * 100 + self.len
+patch object Label {
+    readonly func score() -> Int {
+      return self.priority * 100 + self.len
+    }
 }
 
 func main() {

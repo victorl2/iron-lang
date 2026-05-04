@@ -233,6 +233,8 @@ add_executable(ironc
     src/cli/test_runner.c
     src/cli/toml.c
     src/cli/iron_import_detect.c
+    src/cli/semver.c
+    src/cli/help_registry.c
 )
 target_include_directories(ironc PRIVATE src)
 if(NOT WIN32)
@@ -260,6 +262,8 @@ add_executable(iron
     src/pkg/resolver.c
     src/pkg/lockfile.c
     src/cli/toml.c
+    src/cli/semver.c
+    src/cli/help_registry.c
 )
 target_include_directories(iron PRIVATE src)
 target_compile_definitions(iron PRIVATE
@@ -274,7 +278,7 @@ add_test(
     COMMAND ironc
 )
 set_tests_properties(test_ironc_help PROPERTIES
-    PASS_REGULAR_EXPRESSION "Usage: ironc"
+    PASS_REGULAR_EXPRESSION "Usage:\n  ironc"
 )
 
 add_test(
@@ -292,7 +296,7 @@ add_test(
     COMMAND ironc
 )
 set_tests_properties(test_ironc_usage_lists_target PROPERTIES
-    PASS_REGULAR_EXPRESSION "--target=<t>"
+    PASS_REGULAR_EXPRESSION "--target"
 )
 
 add_test(
@@ -426,7 +430,7 @@ add_test(
     COMMAND iron
 )
 set_tests_properties(test_iron_help PROPERTIES
-    PASS_REGULAR_EXPRESSION "Package Commands:"
+    PASS_REGULAR_EXPRESSION "Subcommands:"
 )
 
 add_test(
@@ -442,7 +446,7 @@ add_test(
     COMMAND ${CMAKE_COMMAND} -E env NO_COLOR=1 $<TARGET_FILE:iron>
 )
 set_tests_properties(test_iron_no_color PROPERTIES
-    PASS_REGULAR_EXPRESSION "Package Commands:"
+    PASS_REGULAR_EXPRESSION "Subcommands:"
 )
 
 # iron init tests

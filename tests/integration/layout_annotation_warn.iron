@@ -25,12 +25,16 @@ object FloatPair impl Pair {
     }
 }
 
-func IntPair.sum() -> Int {
-  return self.a + self.b
+patch object IntPair {
+    readonly func sum() -> Int {
+      return self.a + self.b
+    }
 }
 
-func FloatPair.sum() -> Int {
-  return self.a + self.b
+patch object FloatPair {
+    readonly func sum() -> Int {
+      return self.a + self.b
+    }
 }
 
 func main() {

@@ -45,12 +45,16 @@ object Chore impl Task {
     }
 }
 
-func Job.get_priority() -> Int {
-  return self.priority
+patch object Job {
+    readonly func get_priority() -> Int {
+      return self.priority
+    }
 }
 
-func Chore.get_priority() -> Int {
-  return self.priority
+patch object Chore {
+    readonly func get_priority() -> Int {
+      return self.priority
+    }
 }
 
 func main() {

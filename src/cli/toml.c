@@ -379,6 +379,12 @@ IronProject *iron_toml_parse(const char *path) {
             } else if (strcmp(key, "description") == 0) {
                 free(proj->description);
                 proj->description = extract_value(val_str);
+            } else if (strcmp(key, "iron") == 0) {
+                /* Phase 95 PIN-01: optional Cargo-style semver constraint
+                 * (e.g. iron = ">= 3.2.0"). Stored verbatim; parsed and
+                 * compared by pkg_build.c's check_iron_version helper. */
+                free(proj->iron_constraint);
+                proj->iron_constraint = extract_value(val_str);
             }
         } else if (section == 2) {
             /* [dependencies] section */
@@ -399,6 +405,9 @@ IronProject *iron_toml_parse(const char *path) {
                 dep->name    = strdup(key);
                 dep->git     = extract_inline_field(val_str, "git");
                 dep->version = extract_inline_field(val_str, "version");
+                /* Phase 94 LIB-03: local-path dep form `name = { path = "..." }`.
+                 * NULL when absent (git-form). Resolver branches on dep->path. */
+                dep->path    = extract_inline_field(val_str, "path");
                 proj->dep_count++;
             }
         } else if (section == 3) {
@@ -480,10 +489,12 @@ void iron_toml_free(IronProject *proj) {
     free(proj->entry);
     free(proj->type);
     free(proj->description);
+    free(proj->iron_constraint);   /* Phase 95 PIN-01 */
     for (int i = 0; i < proj->dep_count; i++) {
         free(proj->deps[i].name);
         free(proj->deps[i].git);
         free(proj->deps[i].version);
+        free(proj->deps[i].path);   /* Phase 94 LIB-03 */
         free(proj->deps[i].sha);
         free(proj->deps[i].cache_path);
     }
