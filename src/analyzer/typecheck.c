@@ -1175,6 +1175,23 @@ static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
 
     /* Extern functions have no body to check. */
     if (!fd->body) return;
+    /* `.iron-stub` companion files are auto-generated signature-only
+     * surfaces emitted by `iron build` for path-deps. Their function
+     * bodies are intentionally empty; the implementation lives in the
+     * compiled artifact (.a) that gets linked alongside. Skip the
+     * missing-return walker for any decl whose source span belongs to a
+     * stub file — the @file: lexer directive already tags spans with
+     * the stub filename when the consumer concats the stub into its
+     * combined source. */
+    if (fd->span.filename) {
+        size_t fnlen = strlen(fd->span.filename);
+        const char suffix[] = ".iron-stub";
+        const size_t slen = sizeof(suffix) - 1;
+        if (fnlen >= slen &&
+            strcmp(fd->span.filename + fnlen - slen, suffix) == 0) {
+            return;
+        }
+    }
     if (stmt_always_returns(fd->body)) return;
 
     /* Pick a type-appropriate "zero" return snippet. Skip emit for types

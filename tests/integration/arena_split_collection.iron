@@ -32,33 +32,6 @@ object Bird impl Animal {
   }
 }
 
-patch object Dog {
-  init(volume: Int) {
-    self.volume = volume
-  }
-  readonly func sound() -> Int {
-    return (self.volume * 10)
-  }
-}
-
-patch object Cat {
-  init(pitch: Int) {
-    self.pitch = pitch
-  }
-  readonly func sound() -> Int {
-    return (self.pitch * 5)
-  }
-}
-
-patch object Bird {
-  init(freq: Int) {
-    self.freq = freq
-  }
-  readonly func sound() -> Int {
-    return (self.freq * 2)
-  }
-}
-
 func main() {
   val animals = [Dog(3), Cat(7), Bird(100), Dog(5), Cat(2), Bird(200), Dog(1), Cat(9), Bird(50), Dog(8), Cat(4), Bird(75), Dog(6), Cat(1)]
   var total = 0

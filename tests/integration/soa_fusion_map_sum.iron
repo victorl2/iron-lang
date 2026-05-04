@@ -16,15 +16,6 @@ object Particle impl Entity {
   readonly func get_x() -> Int {
     return self.x
   }
-  init(x: Int, y: Int, z: Int, mass: Int) {
-    self.x = x
-    self.y = y
-    self.z = z
-    self.mass = mass
-  }
-  readonly func get_x() -> Int {
-    return self.x
-  }
 }
 
 object Bullet impl Entity {
@@ -32,57 +23,6 @@ object Bullet impl Entity {
   var y: Int
   var z: Int
   var speed: Int
-  init(x: Int, y: Int, z: Int, speed: Int) {
-    self.x = x
-    self.y = y
-    self.z = z
-    self.speed = speed
-  }
-  readonly func get_x() -> Int {
-    return self.x
-  }
-  init(x: Int, y: Int, z: Int, speed: Int) {
-    self.x = x
-    self.y = y
-    self.z = z
-    self.speed = speed
-  }
-  readonly func get_x() -> Int {
-    return self.x
-  }
-}
-
-patch object Particle {
-  init(x: Int, y: Int, z: Int, mass: Int) {
-    self.x = x
-    self.y = y
-    self.z = z
-    self.mass = mass
-  }
-  readonly func get_x() -> Int {
-    return self.x
-  }
-  init(x: Int, y: Int, z: Int, mass: Int) {
-    self.x = x
-    self.y = y
-    self.z = z
-    self.mass = mass
-  }
-  readonly func get_x() -> Int {
-    return self.x
-  }
-}
-
-patch object Bullet {
-  init(x: Int, y: Int, z: Int, speed: Int) {
-    self.x = x
-    self.y = y
-    self.z = z
-    self.speed = speed
-  }
-  readonly func get_x() -> Int {
-    return self.x
-  }
   init(x: Int, y: Int, z: Int, speed: Int) {
     self.x = x
     self.y = y
