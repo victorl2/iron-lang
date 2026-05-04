@@ -1083,19 +1083,13 @@ void iron_print_ast_to_file(Iron_Node *root, const IronFmtOptions *opts, FILE *o
 /* Pull a decl's name for sorting, regardless of which top-level decl kind. */
 static const char *stub_decl_name(Iron_Node *n) {
     if (!n) return "";
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wswitch-enum"
-#endif
-    switch (n->kind) {
+    /* Cast to int so -Werror=switch-enum accepts the default arm. */
+    switch ((int)n->kind) {
         case IRON_NODE_FUNC_DECL:   return ((Iron_FuncDecl *)n)->name   ? ((Iron_FuncDecl *)n)->name   : "";
         case IRON_NODE_OBJECT_DECL: return ((Iron_ObjectDecl *)n)->name ? ((Iron_ObjectDecl *)n)->name : "";
         case IRON_NODE_ENUM_DECL:   return ((Iron_EnumDecl *)n)->name   ? ((Iron_EnumDecl *)n)->name   : "";
         default:                    return "";
     }
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
 }
 
 static int stub_cmp_decl_name(const void *a, const void *b) {
@@ -1332,14 +1326,11 @@ int iron_print_pub_stubs(Iron_Program *prog, FILE *out,
     Iron_Node **pub_objects = NULL; size_t oc = 0, ocap = 0;
     Iron_Node **pub_enums   = NULL; size_t ec = 0, ecap = 0;
 
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wswitch-enum"
-#endif
     for (int i = 0; i < prog->decl_count; i++) {
         Iron_Node *d = prog->decls[i];
         if (!d) continue;
-        switch (d->kind) {
+        /* Cast to int so -Werror=switch-enum accepts the default arm. */
+        switch ((int)d->kind) {
             case IRON_NODE_FUNC_DECL: {
                 Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
                 if (fd->is_pub && !fd->is_extern) {
@@ -1378,9 +1369,6 @@ int iron_print_pub_stubs(Iron_Program *prog, FILE *out,
             default: break;
         }
     }
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
 
     /* 2. Sort each bucket alphabetically by name (case-sensitive strcmp / C locale). */
     if (fc > 1) qsort(pub_funcs,   fc, sizeof(*pub_funcs),   stub_cmp_decl_name);
