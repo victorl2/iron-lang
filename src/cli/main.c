@@ -33,7 +33,7 @@ static void print_version(void) {
  * (no-args, unknown-command) exit 1. Both print the same help text.
  */
 static void print_usage(void) {
-    iron_help_print_all(stdout);
+    iron_help_print_all("ironc", stdout);
 }
 
 /*
@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
 
     /* Top-level --help / -h */
     if (strcmp(cmd, "--help") == 0 || strcmp(cmd, "-h") == 0) {
-        iron_help_print_all(stdout);
+        iron_help_print_all("ironc", stdout);
         return 0;
     }
 
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
             if (strcmp(cmd, KNOWN_SUBS[i]) == 0) { is_known_sub = 1; break; }
         }
         if (is_known_sub && argv_contains_help(argc, argv, 2)) {
-            iron_help_print_subcommand(cmd, stdout);
+            iron_help_print_subcommand("ironc", cmd, stdout);
             return 0;
         }
     }

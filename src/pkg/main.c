@@ -230,7 +230,7 @@ static void print_version(void) {
  */
 static void print_help(bool colors) {
     (void)colors;
-    iron_help_print_all(stdout);
+    iron_help_print_all("iron", stdout);
 }
 
 /*
@@ -268,7 +268,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (strcmp(cmd, "--help") == 0 || strcmp(cmd, "-h") == 0) {
-        iron_help_print_all(stdout);
+        iron_help_print_all("iron", stdout);
         return 0;
     }
 
@@ -293,7 +293,7 @@ int main(int argc, char **argv) {
             if (strcmp(cmd, KNOWN_SUBS[i]) == 0) { is_known_sub = 1; break; }
         }
         if (is_known_sub && argv_contains_help(argc, argv, 2)) {
-            iron_help_print_subcommand(cmd, stdout);
+            iron_help_print_subcommand("iron", cmd, stdout);
             return 0;
         }
     }

@@ -153,19 +153,20 @@ static void emit_flag_line(const IronCliFlag *f, FILE *out) {
 
 /* ── iron_help_print_subcommand ──────────────────────────────────────── */
 
-void iron_help_print_subcommand(const char *sub, FILE *out) {
+void iron_help_print_subcommand(const char *prog, const char *sub, FILE *out) {
+    if (prog == NULL || prog[0] == '\0') prog = "iron";
     if (sub == NULL || sub[0] == '\0') {
-        iron_help_print_all(out);
+        iron_help_print_all(prog, out);
         return;
     }
 
     const char *summary = sub_summary(sub);
     if (summary[0] != '\0') {
-        fprintf(out, "iron %s, %s\n\n", sub, summary);
+        fprintf(out, "%s %s, %s\n\n", prog, sub, summary);
     } else {
-        fprintf(out, "iron %s\n\n", sub);
+        fprintf(out, "%s %s\n\n", prog, sub);
     }
-    fprintf(out, "Usage:\n  iron %s [flags] [args]\n\n", sub);
+    fprintf(out, "Usage:\n  %s %s [flags] [args]\n\n", prog, sub);
 
     const IronCliFlag *sorted[64];
     int n = collect_sorted(sub, sorted, 64);
@@ -184,9 +185,10 @@ void iron_help_print_subcommand(const char *sub, FILE *out) {
 
 /* ── iron_help_print_all ─────────────────────────────────────────────── */
 
-void iron_help_print_all(FILE *out) {
-    fprintf(out, "iron %s, Iron compiler\n\n", IRON_VERSION_STRING);
-    fprintf(out, "Usage:\n  iron <subcommand> [flags] [args]\n\n");
+void iron_help_print_all(const char *prog, FILE *out) {
+    if (prog == NULL || prog[0] == '\0') prog = "iron";
+    fprintf(out, "%s %s, Iron compiler\n\n", prog, IRON_VERSION_STRING);
+    fprintf(out, "Usage:\n  %s <subcommand> [flags] [args]\n\n", prog);
 
     fprintf(out, "Subcommands:\n");
     for (int i = 0; i < IRON_SUB_SUMMARIES_COUNT; i++) {
@@ -211,7 +213,7 @@ void iron_help_print_all(FILE *out) {
     for (int s = 0; s < IRON_SUB_SUMMARIES_COUNT; s++) {
         const char *sub = IRON_SUB_SUMMARIES[s].name;
         n = collect_sorted(sub, sorted, 64);
-        fprintf(out, "\niron %s:\n", sub);
+        fprintf(out, "\n%s %s:\n", prog, sub);
         if (n == 0) {
             fprintf(out, "  (no subcommand-specific flags)\n");
         } else {

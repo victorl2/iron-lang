@@ -28,7 +28,7 @@ void tearDown(void) {}
 static void capture_print_all(char *buf, size_t buf_size) {
     FILE *f = tmpfile();
     TEST_ASSERT_NOT_NULL(f);
-    iron_help_print_all(f);
+    iron_help_print_all("iron", f);
     rewind(f);
     size_t n = fread(buf, 1, buf_size - 1, f);
     buf[n] = '\0';
@@ -38,7 +38,7 @@ static void capture_print_all(char *buf, size_t buf_size) {
 static void capture_print_sub(const char *sub, char *buf, size_t buf_size) {
     FILE *f = tmpfile();
     TEST_ASSERT_NOT_NULL(f);
-    iron_help_print_subcommand(sub, f);
+    iron_help_print_subcommand("iron", sub, f);
     rewind(f);
     size_t n = fread(buf, 1, buf_size - 1, f);
     buf[n] = '\0';

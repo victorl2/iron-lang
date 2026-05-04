@@ -42,13 +42,19 @@ extern const int IRON_CLI_FLAGS_COUNT;
 
 /* Print help for one subcommand to `out`. Pass "" to mean top-level help
  * (forwards to iron_help_print_all). Recognized subcommand strings are
- * those listed in the IronCliFlag.subcommand field comment above. */
-void iron_help_print_subcommand(const char *sub, FILE *out);
+ * those listed in the IronCliFlag.subcommand field comment above.
+ *
+ * `prog` is the binary name that should appear in the banner and usage
+ * line ("iron" when called from src/pkg/main.c, "ironc" when called from
+ * src/cli/main.c). NULL falls back to "iron". */
+void iron_help_print_subcommand(const char *prog, const char *sub, FILE *out);
 
 /* Print top-level help (banner + subcommand list + every flag grouped by
  * subcommand) to `out`. Within each subcommand block, flags emit in
- * ASCII-alphabetical order — this is locked by tests/unit/test_help_registry.c
- * (Phase 97 HELP-04). */
-void iron_help_print_all(FILE *out);
+ * ASCII-alphabetical order, this is locked by tests/unit/test_help_registry.c.
+ *
+ * `prog` is the binary name that should appear in the banner and usage
+ * line. NULL falls back to "iron". */
+void iron_help_print_all(const char *prog, FILE *out);
 
 #endif /* IRON_CLI_HELP_REGISTRY_H */
