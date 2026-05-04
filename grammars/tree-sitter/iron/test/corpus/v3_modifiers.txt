@@ -1,0 +1,260 @@
+==========
+pub var field
+==========
+
+object Box {
+  pub var x: Int
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      (visibility_modifier)
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))))
+
+==========
+top-level pub func
+==========
+
+pub func helper(x: Int) -> Int { return x + 1 }
+
+---
+
+(source_file
+  (func_declaration
+    (visibility_modifier)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    return_type: (type_identifier
+      (identifier))
+    body: (block
+      (return_statement
+        value: (binary_expression
+          (identifier)
+          (integer_literal))))))
+
+==========
+top-level pub readonly func
+==========
+
+pub readonly func compute(x: Int) -> Int { return x * 2 }
+
+---
+
+(source_file
+  (func_declaration
+    (visibility_modifier)
+    (mutation_tier_modifier)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    return_type: (type_identifier
+      (identifier))
+    body: (block
+      (return_statement
+        value: (binary_expression
+          (identifier)
+          (integer_literal))))))
+
+==========
+in-block pub readonly func
+==========
+
+object Foo {
+  var x: Int
+  pub readonly func get() -> Int { return self.x }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (block_method_declaration
+      (visibility_modifier)
+      (mutation_tier_modifier)
+      name: (identifier)
+      parameters: (parameter_list)
+      return_type: (type_identifier
+        (identifier))
+      body: (block
+        (return_statement
+          value: (member_expression
+            object: (self_expression)
+            property: (identifier)))))))
+
+==========
+top-level pure func
+==========
+
+pure func identity(x: Int) -> Int { return x }
+
+---
+
+(source_file
+  (func_declaration
+    (mutation_tier_modifier)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    return_type: (type_identifier
+      (identifier))
+    body: (block
+      (return_statement
+        value: (identifier)))))
+
+==========
+in-block pure func
+==========
+
+object Bar {
+  var x: Int
+  pure func double() -> Int { return self.x * 2 }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (block_method_declaration
+      (mutation_tier_modifier)
+      name: (identifier)
+      parameters: (parameter_list)
+      return_type: (type_identifier
+        (identifier))
+      body: (block
+        (return_statement
+          value: (binary_expression
+            (member_expression
+              object: (self_expression)
+              property: (identifier))
+            (integer_literal)))))))
+
+==========
+multi-tier readonly pure func
+==========
+
+readonly pure func combine(a: Int, b: Int) -> Int { return a + b }
+
+---
+
+(source_file
+  (func_declaration
+    (mutation_tier_modifier)
+    (mutation_tier_modifier)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier)))
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    return_type: (type_identifier
+      (identifier))
+    body: (block
+      (return_statement
+        value: (binary_expression
+          (identifier)
+          (identifier))))))
+
+==========
+multi-tier pure readonly func (alt order tolerance)
+==========
+
+pure readonly func combine_alt(a: Int, b: Int) -> Int { return a + b }
+
+---
+
+(source_file
+  (func_declaration
+    (mutation_tier_modifier)
+    (mutation_tier_modifier)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier)))
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    return_type: (type_identifier
+      (identifier))
+    body: (block
+      (return_statement
+        value: (binary_expression
+          (identifier)
+          (identifier))))))
+
+==========
+mut on regular param
+==========
+
+func consume(mut x: Int) { x = 0 }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        modifier: (param_mut_modifier)
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    body: (block
+      (assignment_statement
+        target: (identifier)
+        value: (integer_literal)))))
+
+==========
+mut on legacy receiver-form param
+==========
+
+func TypeName.method(mut p: Int) { p = 0 }
+
+---
+
+(source_file
+  (method_declaration
+    type_name: (identifier)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        modifier: (param_mut_modifier)
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    body: (block
+      (assignment_statement
+        target: (identifier)
+        value: (integer_literal)))))

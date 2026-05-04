@@ -1,0 +1,9 @@
+func add(a: Int, b: Int) -> Int {
+  val sum = (a + b)
+  return 0
+}
+
+func main() {
+  val r = add(1, 2)
+  println("done")
+}

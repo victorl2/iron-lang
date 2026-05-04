@@ -1,0 +1,5 @@
+import util
+
+func main() {
+    let x = util.greet("world")
+}

@@ -1,0 +1,15 @@
+import time
+
+func main() {
+  val start = Time.now()
+  val elapsed = Time.since(start)
+  println("since ok")
+  val t = Time.Timer(5.0)
+  println("{t.duration_ms}")
+  println("{t.elapsed_ms}")
+  val d1 = Timer.done(t)
+  println("{d1}")
+  Timer.update(t, 1.5)
+  Timer.reset(t)
+  println("update+reset ok")
+}

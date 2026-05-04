@@ -1,0 +1,31 @@
+-- Phase 11 Plan 11-02 fixture: PATCH-02 user-object subtypes interleaving.
+-- Asserts: typeHierarchy/subtypes on Circle returns BOTH whatever native
+-- subtypes Circle has (none in this fixture) AND the patch method
+-- `area_doubled` (kind=Method=6) — empirically a "single patch entry"
+-- list shape that test_v3_patch_subtypes asserts on.
+--
+-- v3 grammar reality:
+--   - `object T impl I { ... }` declares native interface impl using
+--     the `impl` keyword (IRON_TOK_IMPL); the parser does NOT accept
+--     a `: I` shorthand for objects (Plan 11-01 deviation #1).
+--   - `patch object Circle { ... }` extends Circle with extra methods
+--     surfaced via PATCH-02 as virtual Method entries.
+--   - Construction is positional: `Circle(3)` not `Circle(r: 3)`.
+
+interface Shape {
+    readonly func area() -> Int
+}
+
+object Circle impl Shape {
+    val r: Int
+    readonly func area() -> Int { return self.r * self.r }
+}
+
+patch object Circle {
+    readonly func area_doubled() -> Int { return self.r * self.r * 2 }
+}
+
+func main() -> Int {
+    val c: Circle = Circle(3)
+    return c.area()
+}

@@ -1,0 +1,22 @@
+func factorial(n: Int) -> Int {
+  var result = 1
+  var i = 1
+  while (i <= n) {
+    result = (result * i)
+    i = (i + 1)
+  }
+  return result
+}
+
+func sum_squares(n: Int) -> Int {
+  var total = 0
+  for i in range(n) {
+    total = (total + (i * i))
+  }
+  return total
+}
+
+func main() {
+  println("fact: {factorial(10)}")
+  println("sq: {sum_squares(5)}")
+}

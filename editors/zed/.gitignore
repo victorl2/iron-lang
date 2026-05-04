@@ -1,0 +1,12 @@
+# Phase 6 Plan 06-05 Task 1 (EXT-08).
+# Cargo build artifacts — ignored per standard Rust convention.
+/target
+
+# Cargo.lock is INTENTIONALLY NOT ignored here.
+# RESEARCH §V4 Access Control + supply-chain discipline: locked dependency
+# graph is part of the source tree so CI + human reviewers always see the
+# exact transitive set used at build time.
+
+# Zed dev-extension runtime artefacts
+/work_dir
+/.zed

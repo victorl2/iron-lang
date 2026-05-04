@@ -1,0 +1,10 @@
+[package]
+name = "tsan_workspace"
+version = "0.1.0"
+
+# Phase 7 Plan 07-03 Task 01 (HARD-17, D-05) -- canonical TSAN workspace.
+# Two cross-referencing Iron modules so `workspace/symbol`, definition, and
+# references requests exercise the workspace-index lock paths under the
+# 2-worker mini-soak driver (tests/lsp/tsan/driver.py). The fixture stays
+# small on purpose: TSAN adds a 5-15x slowdown, so every extra file pays
+# compile tax twice.

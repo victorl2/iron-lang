@@ -83,6 +83,13 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_UNTERMINATED_STRING   1
 #define IRON_ERR_INVALID_CHAR          2
 #define IRON_ERR_INVALID_NUMBER        3
+/* HARD-09: lexer-side OOM during arena allocation — emitted as a diagnostic
+ * instead of aborting the process, so iron_analyze_buffer stays fallible
+ * on the hot path (CR-01). */
+#define IRON_ERR_LEXER_OOM             4
+/* HARD-09: string literal exceeded the lexer's 4KB buffer capacity. Emitted
+ * once per overflow to avoid log spam on pathological input (WR-07). */
+#define IRON_ERR_STRING_TOO_LONG       5
 
 /* Parser errors */
 #define IRON_ERR_UNEXPECTED_TOKEN    101
@@ -91,6 +98,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_EXPECTED_RPAREN     104
 #define IRON_ERR_EXPECTED_COLON      105
 #define IRON_ERR_EXPECTED_ARROW      106
+#define IRON_ERR_PARSE_DEPTH_EXCEEDED 107  /* HARD-08: recursion-depth guard (Plan 04) */
 
 /* Semantic errors */
 #define IRON_ERR_UNDEFINED_VAR        200
@@ -206,6 +214,28 @@ void iron_diaglist_free(Iron_DiagList *list);
  * free function or any other non-method context. */
 #define IRON_ERR_SELF_OUTSIDE_CONTEXT       259   /* SELF outside method/iface */
 
+/* HARD-02 (Plan 05): LSP-mode comptime FS-gating — emitted when `read_file()`
+ * (or any future FS-bound builtin) is invoked under IRON_ANALYSIS_MODE_LSP.
+ * ERROR-level so the caller can surface a clear message in-editor without
+ * actually reading the filesystem.
+ * RENUMBERED 234→291 (F3 Phase 8 rebase): 234 now owned by IRON_ERR_MUT_FIELD_IMMUT_RECV
+ * (Phase 80 MUT). */
+#define IRON_ERR_COMPTIME_FS_DISABLED_IN_LSP_MODE 291
+
+/* Phase 4 Plan 04-01 (D-06) — P1 quickfix set for LSP code actions.
+ * RENUMBERED (F3 Phase 8 rebase):
+ *   IRON_ERR_TYPE_MISMATCH_LITERAL 235 → 292 (235 owned by IRON_ERR_MUT_CALL_ON_VAL, Phase 80 MUT)
+ *   IRON_ERR_MISSING_RETURN        236 → 293 (236 owned by IRON_ERR_MUT_ON_PRIMITIVE, Phase 80 MUT) */
+#define IRON_ERR_TYPE_MISMATCH_LITERAL 292   /* narrowing of IRON_ERR_TYPE_MISMATCH for literal RHS */
+#define IRON_ERR_MISSING_RETURN        293   /* function body reaches end without returning a value */
+
+/* Cancellation meta-diagnostic — emitted by iron_analyze_buffer on cancel.
+ * Level is IRON_DIAG_NOTE so it does NOT bump error_count and does NOT change
+ * exit-code semantics for CLI. HARD-05 (Plan 03).
+ * RENUMBERED 240→290 (F3 Phase 8 rebase): 240 now owned by IRON_ERR_PURE_IO
+ * (Phase 84 MUTTIER). */
+#define IRON_ERR_CANCELLED            290
+
 /* IR verifier errors */
 #define IRON_ERR_LIR_MISSING_TERMINATOR     300
 #define IRON_ERR_LIR_INVALID_BRANCH_TARGET  301
@@ -261,6 +291,14 @@ void iron_diaglist_free(Iron_DiagList *list);
 
 /* Warning codes (600 range) */
 #define IRON_WARN_SPAWN_NO_HANDLE     600
+/* Phase 3 NAV-14 (T-03-01): `///` doc-comment body exceeded the 8 KB per-line
+ * cap. Body is truncated; a NOTE-level diagnostic is emitted so the user can
+ * see why their `///` text stopped mid-sentence. */
+#define IRON_WARN_DOC_COMMENT_TRUNCATED 610
+
+/* Phase 4 Plan 04-01 (D-06) — P1 quickfix warnings. */
+#define IRON_WARN_UNUSED_IMPORT        611   /* import referenced zero times in module */
+#define IRON_WARN_REDUNDANT_CAST       612   /* `expr as T` where expr is already of type T */
 
 /* Type validation warnings (601+ range) */
 #define IRON_WARN_NARROWING_CAST        601

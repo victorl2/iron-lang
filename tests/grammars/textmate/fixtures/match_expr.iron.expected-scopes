@@ -1,0 +1,18 @@
+# match_expr.iron expected-scopes reference.
+Token    | Scope
+---------|--------------------------------
+match    | keyword.control.iron
+x        | (unscoped)
+{        | punctuation.section.iron
+1        | constant.numeric.integer.iron
+=>       | keyword.operator.iron (= is operator; > is operator)
+"one"    | string.quoted.double.iron
+,        | punctuation.separator.iron
+2        | constant.numeric.integer.iron
+"two"    | string.quoted.double.iron
+_        | (unscoped — wildcard)
+"other"  | string.quoted.double.iron
+}        | punctuation.section.iron
+
+Covers UI-SPEC S6: keyword.control.iron (match), constant.numeric.integer.iron,
+string.quoted.double.iron, punctuation.section.iron, punctuation.separator.iron.

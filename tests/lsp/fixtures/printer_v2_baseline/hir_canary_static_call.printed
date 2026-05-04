@@ -1,0 +1,12 @@
+import math
+
+func main() {
+  val s1 = Math.sign(-7.5)
+  val s2 = Math.sign(0.0)
+  val s3 = Math.sign(4.2)
+  val sum = ((s1 + s2) + s3)
+  println("s1: {s1}")
+  println("s2: {s2}")
+  println("s3: {s3}")
+  println("sum: {sum}")
+}

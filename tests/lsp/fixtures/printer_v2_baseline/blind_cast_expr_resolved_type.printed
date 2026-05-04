@@ -1,0 +1,12 @@
+func compute(n: Int) -> Int {
+  return ((n * 2) + 1)
+}
+
+func main() {
+  val h = spawn("work") {
+    return compute(10)
+  }
+  val result = await h
+  println("spawn result: {result}")
+  println("narrow: {compute(5)}")
+}

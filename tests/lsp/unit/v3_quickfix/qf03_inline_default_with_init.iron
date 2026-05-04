@@ -1,0 +1,16 @@
+-- Phase 12 Plan 12-03 fixture: QF-03 / E0262 case B (existing init present).
+-- Asserts: codeAction returns 1 action with edit_text_edits.length == 2:
+--   [0] deletes ` = 100` from the field decl
+--   [1] inserts `    self.health = 100` BEFORE the existing init's `}`.
+
+object Player {
+    var health: Int = 100
+    var name: String
+    init(name: String) {
+        self.name = name
+    }
+}
+
+func main() {
+    val p: Player = Player(name: "Hero")
+}

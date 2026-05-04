@@ -1,0 +1,13 @@
+object Smoke {
+  init() {
+  }
+}
+
+func Smoke.pair() -> (null) {
+  return [0, 0]
+}
+
+func main() {
+  val (null) = Smoke.pair()
+  println("{v} {code}")
+}

@@ -1,0 +1,46 @@
+interface Particle {
+  func describe() -> Int
+}
+
+object Dot impl Particle {
+  var kind: Int
+  var x: Int
+  var y: Int
+  var debug_id: Int
+  init(kind: Int, x: Int, y: Int, debug_id: Int) {
+    self.kind = kind
+    self.x = x
+    self.y = y
+    self.debug_id = debug_id
+  }
+}
+
+object Pixel impl Particle {
+  var kind: Int
+  var r: Int
+  var g: Int
+  var debug_id: Int
+  init(kind: Int, r: Int, g: Int, debug_id: Int) {
+    self.kind = kind
+    self.r = r
+    self.g = g
+    self.debug_id = debug_id
+  }
+}
+
+func Dot.describe() -> Int {
+  return (((self.kind * 1000) + (self.x * 100)) + self.y)
+}
+
+func Pixel.describe() -> Int {
+  return (((self.kind * 1000) + (self.r * 100)) + self.g)
+}
+
+func main() {
+  val particles = [Dot(1, 10, 20, 900), Dot(1, 30, 40, 901), Pixel(2, 100, 200, 902), Pixel(2, 50, 150, 903), Dot(1, 25, 35, 904), Pixel(2, 75, 125, 905)]
+  var total = 0
+  for p in particles {
+    total = (total + p.describe())
+  }
+  println("{total}")
+}

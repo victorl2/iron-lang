@@ -1,0 +1,9 @@
+-- Phase 10 TIER fixture: readonly + pure + plain func methods.
+object Vec {
+    val x: Int
+    val y: Int
+
+    readonly func length_sq() -> Int { return self.x * self.x + self.y * self.y }
+    pure func add(other: Vec) -> Vec { return Vec(x: self.x + other.x, y: self.y + other.y) }
+    func mutate(dx: Int) {}
+}

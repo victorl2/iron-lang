@@ -1,0 +1,14 @@
+/// A single-line doc.
+func alpha() {}
+
+/// First line of multi-line doc.
+/// Second line with <script>alert("xss")</script> raw markdown.
+/// Third line with a backtick: `code`
+object Beta {
+    /// Field doc.
+    val x: Int
+}
+
+/// Orphan doc (blank line breaks association).
+
+func gamma() {}

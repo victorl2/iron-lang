@@ -1,0 +1,47 @@
+interface Entity {
+  func get_x() -> Int
+}
+
+object Particle impl Entity {
+  var x: Int
+  var y: Int
+  var z: Int
+  var mass: Int
+  init(x: Int, y: Int, z: Int, mass: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.mass = mass
+  }
+}
+
+object Bullet impl Entity {
+  var x: Int
+  var y: Int
+  var z: Int
+  var speed: Int
+  init(x: Int, y: Int, z: Int, speed: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.speed = speed
+  }
+}
+
+func Particle.get_x() -> Int {
+  return self.x
+}
+
+func Bullet.get_x() -> Int {
+  return self.x
+}
+
+func main() {
+  val entities = [Particle(10, 20, 30, 100), Bullet(5, 15, 25, 50), Particle(3, 6, 9, 200)]
+  var sum_x = 0
+  for e in entities {
+    sum_x = (sum_x + e.get_x())
+  }
+  println("{sum_x}")
+  println("done")
+}

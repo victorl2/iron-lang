@@ -9,12 +9,21 @@
  */
 
 #include "analyzer/resolve.h"
+#include "analyzer/typo_candidate.h"
+#include "parser/ast.h"
 #include "vendor/stb_ds.h"
 
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* ── Resolver context ────────────────────────────────────────────────────── */
 
@@ -27,19 +36,29 @@ typedef struct {
     Iron_MethodDecl *current_method;
     /* The object type_name for the current method. NULL outside methods. */
     const char      *current_type_name;
+    /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
+    const _Atomic bool *cancel_flag;
+    /* HARD-09 CR-03: counter of push_scope calls that failed (arena OOM)
+     * and silently aliased to the current scope. pop_scope must skip the
+     * same number of pops so the scope stack stays balanced. */
+    int skipped_scope_pushes;
+    /* HARD-09 CR-03: set true when an OOM path was taken so diagnostics
+     * can be suppressed cascades-style without aborting. Mirrors the
+     * parser's p->in_error_recovery flag. */
+    bool in_error_recovery;
 
-    /* Phase 93 VIS-03: rate-limit the audit-hint note attached to E0320.
-     * The note ("audit your public surface with: grep -n '^pub '") is useful
-     * once per build but spammy on subsequent occurrences. */
-    bool             emitted_first_e0320;
+    /* Rate-limit the audit-hint note attached to E0320. The note
+     * ("audit your public surface with: grep -n '^pub '") is useful once
+     * per build but spammy on subsequent occurrences. */
+    bool emitted_first_e0320;
 
-    /* Phase 93 VIS-03 stdlib carve-out: line number where the user's source
-     * begins. Decls whose span.line is below this value are stdlib (prepended
-     * via build.c:854 / check.c:161 pipelines) and are treated as implicitly
-     * pub. Set to 0 when no stdlib was prepended (no carve-out active).
-     * Threaded from Iron_Parser.user_source_start_line via Iron_Program at
-     * the resolver entry point. */
-    int              user_source_start_line;
+    /* Stdlib carve-out: line number where the user's source begins. Decls
+     * whose span.line is below this value are stdlib (prepended via
+     * build.c / check.c pipelines) and are treated as implicitly pub. Set
+     * to 0 when no stdlib was prepended (no carve-out active). Threaded
+     * from Iron_Parser.user_source_start_line via Iron_Program at the
+     * resolver entry point. */
+    int user_source_start_line;
 } ResolveCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -50,11 +69,28 @@ static void resolve_expr(ResolveCtx *ctx, Iron_Node *node);
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
 static void push_scope(ResolveCtx *ctx, Iron_ScopeKind kind) {
-    ctx->current_scope = iron_scope_create(ctx->arena, ctx->current_scope, kind);
+    /* HARD-09 CR-03: iron_scope_create may return NULL on arena OOM. Fall
+     * back to the current scope (alias it as the "new" scope) and record
+     * the skipped push so the matching pop_scope does not unbalance the
+     * stack. The degraded path causes duplicate-decl diagnostics where a
+     * nested scope would have shadowed, but avoids aborting compilation. */
+    Iron_Scope *ns = iron_scope_create(ctx->arena, ctx->current_scope, kind);
+    if (ns) {
+        ctx->current_scope = ns;
+    } else {
+        ctx->skipped_scope_pushes++;
+        ctx->in_error_recovery = true;
+    }
 }
 
 static void pop_scope(ResolveCtx *ctx) {
-    if (ctx->current_scope->parent) {
+    /* HARD-09 CR-03: consume skipped-push counter first so the matching
+     * pops for failed pushes are no-ops. */
+    if (ctx->skipped_scope_pushes > 0) {
+        ctx->skipped_scope_pushes--;
+        return;
+    }
+    if (ctx->current_scope && ctx->current_scope->parent) {
         ctx->current_scope = ctx->current_scope->parent;
     }
 }
@@ -63,6 +99,10 @@ static void define_sym(ResolveCtx *ctx, const char *name, Iron_SymbolKind kind,
                         Iron_Node *decl_node, Iron_Span span, bool is_mutable,
                         bool is_private) {
     Iron_Symbol *sym = iron_symbol_create(ctx->arena, name, kind, decl_node, span);
+    /* HARD-09 CR-03: iron_symbol_create may return NULL on arena OOM.
+     * Skip insertion; subsequent lookups emit "undefined identifier" which
+     * is a safe, non-crashing degraded mode. */
+    if (!sym) { ctx->in_error_recovery = true; return; }
     sym->is_mutable  = is_mutable;
     sym->is_private  = is_private;
     if (!iron_scope_define(ctx->current_scope, ctx->arena, sym)) {
@@ -72,14 +112,18 @@ static void define_sym(ResolveCtx *ctx, const char *name, Iron_SymbolKind kind,
     }
 }
 
-/* Emit an "undefined variable" diagnostic for an unresolved identifier. */
+/* Emit an "undefined variable" diagnostic for an unresolved identifier.
+ * Phase 4 Plan 04-01 (EDIT-07): enrich with .suggestion = best Levenshtein
+ * candidate from the visible scope chain (max distance 2). */
 static void emit_undefined(ResolveCtx *ctx, const char *name, Iron_Span span) {
     char msg[256];
     snprintf(msg, sizeof(msg), "undefined identifier '%s'", name);
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-    if (!msg_copy) iron_oom_abort("resolve.c:emit_undefined msg");
+    if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:emit_undefined msg) */ msg_copy = "analyzer error"; }
+    const char *suggestion = iron_best_typo_candidate(ctx->current_scope,
+                                                       ctx->arena, name);
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
-                   IRON_ERR_UNDEFINED_VAR, span, msg_copy, NULL);
+                   IRON_ERR_UNDEFINED_VAR, span, msg_copy, suggestion);
 }
 
 /* Phase 93 VIS-03: classify a symbol as stdlib via the line-offset carve-out.
@@ -142,6 +186,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, od->name,
                                                    IRON_SYM_TYPE,
                                                    node, od->span);
+            /* HARD-09 CR-03: skip this decl on arena OOM. */
+            if (!sym) { ctx->in_error_recovery = true; break; }
             sym->type = ty;
             /* Phase 93 VIS-02/03: propagate the AST is_pub bit. */
             sym->is_pub = od->is_pub;
@@ -158,6 +204,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, id->name,
                                                    IRON_SYM_INTERFACE,
                                                    node, id->span);
+            /* HARD-09 CR-03: skip this decl on arena OOM. */
+            if (!sym) { ctx->in_error_recovery = true; break; }
             sym->type = ty;
             /* Phase 93 RESEARCH Open Question 3: `pub interface` is deferred.
              * Interfaces are always treated as not-pub at the cross-module
@@ -177,6 +225,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             Iron_Symbol *enum_sym = iron_symbol_create(ctx->arena, ed->name,
                                                        IRON_SYM_ENUM,
                                                        node, ed->span);
+            /* HARD-09 CR-03: skip this decl on arena OOM. */
+            if (!enum_sym) { ctx->in_error_recovery = true; break; }
             enum_sym->type = ty;
             /* Phase 93 VIS-02/03: propagate is_pub onto the enum symbol. */
             enum_sym->is_pub = ed->is_pub;
@@ -191,6 +241,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *vsym = iron_symbol_create(ctx->arena, ev->name,
                                                         IRON_SYM_ENUM_VARIANT,
                                                         ed->variants[i], ev->span);
+                /* HARD-09 CR-03: skip this variant on arena OOM. */
+                if (!vsym) { ctx->in_error_recovery = true; continue; }
                 vsym->type = ty;
                 /* Phase 93 VIS-02/03: variants inherit the enclosing enum's
                  * pub bit. This matches the locked decision in CONTEXT.md
@@ -207,6 +259,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, fd->name,
                                                    IRON_SYM_FUNCTION,
                                                    node, fd->span);
+            /* HARD-09 CR-03: skip this decl on arena OOM. */
+            if (!sym) { ctx->in_error_recovery = true; break; }
             sym->is_private    = fd->is_private;
             /* Phase 93 VIS-02/03: propagate the AST is_pub bit. */
             sym->is_pub        = fd->is_pub;
@@ -227,6 +281,8 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *sym = iron_symbol_create(ctx->arena, imp->alias,
                                                        IRON_SYM_TYPE,
                                                        node, imp->span);
+                /* HARD-09 CR-03: skip this alias on arena OOM. */
+                if (!sym) { ctx->in_error_recovery = true; break; }
                 /* Tolerate duplicate alias silently — import ordering issues
                  * will be caught by the module resolver later. */
                 iron_scope_define(ctx->global_scope, ctx->arena, sym);
@@ -255,15 +311,21 @@ static void attach_method(ResolveCtx *ctx, Iron_Node *node) {
 
     Iron_Symbol *owner = iron_scope_lookup(ctx->global_scope, md->type_name);
     if (!owner) {
+        /* Phase 4 Plan 04-01 (EDIT-07): seed .suggestion with typo candidate. */
+        const char *sug = iron_best_typo_candidate(ctx->global_scope,
+                                                    ctx->arena, md->type_name);
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNDEFINED_VAR, md->span,
-                       "method declared on undeclared type", NULL);
+                       "method declared on undeclared type", sug);
         return;
     }
     if (owner->sym_kind != IRON_SYM_TYPE && owner->sym_kind != IRON_SYM_ENUM) {
+        /* Phase 4 Plan 04-01 (EDIT-07): seed .suggestion with typo candidate. */
+        const char *sug = iron_best_typo_candidate(ctx->global_scope,
+                                                    ctx->arena, md->type_name);
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNDEFINED_VAR, md->span,
-                       "method declared on non-object type", NULL);
+                       "method declared on non-object type", sug);
         return;
     }
     md->owner_sym = owner;
@@ -273,17 +335,23 @@ static void attach_method(ResolveCtx *ctx, Iron_Node *node) {
 
 static void resolve_node_list(ResolveCtx *ctx, Iron_Node **nodes, int count) {
     for (int i = 0; i < count; i++) {
+        /* HARD-05: cancel poll inside bulk list walker. */
+        if (iron_cancel_requested(ctx->cancel_flag)) return;
         if (nodes[i]) resolve_node(ctx, nodes[i]);
     }
 }
 
 static void resolve_expr(ResolveCtx *ctx, Iron_Node *node) {
     if (!node) return;
+    /* HARD-05: cancel poll at expression walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
     resolve_node(ctx, node);
 }
 
 static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
     if (!node) return;
+    /* HARD-05: cancel poll at the top of the recursive switch dispatcher. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
 
     switch (node->kind) {
         /* ── Ident resolution ─────────────────────────────────────────────── */
@@ -443,7 +511,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             if (fd->is_extern) break;
 
             push_scope(ctx, IRON_SCOPE_FUNCTION);
-            ctx->current_scope->owner_name = fd->name;
+            if (ctx->current_scope) ctx->current_scope->owner_name = fd->name;
 
             /* Define params */
             for (int i = 0; i < fd->param_count; i++) {
@@ -451,6 +519,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *ps = iron_symbol_create(ctx->arena, p->name,
                                                       IRON_SYM_PARAM,
                                                       fd->params[i], p->span);
+                /* HARD-09 CR-03: skip this param on arena OOM. */
+                if (!ps) { ctx->in_error_recovery = true; continue; }
                 ps->is_mutable = p->is_var;
                 iron_scope_define(ctx->current_scope, ctx->arena, ps);
             }
@@ -473,7 +543,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             ctx->current_type_name = md->type_name;
 
             push_scope(ctx, IRON_SCOPE_FUNCTION);
-            ctx->current_scope->owner_name = md->method_name;
+            if (ctx->current_scope) ctx->current_scope->owner_name = md->method_name;
 
             /* Phase 80 MUT-09: reject `mut` on non-struct receiver types.
              * Primitive types (Int, Float, Bool, String, etc.) ARE registered
@@ -522,9 +592,14 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *self_sym = iron_symbol_create(ctx->arena, "self",
                                                             IRON_SYM_VARIABLE,
                                                             node, md->span);
-                self_sym->is_mutable = true;
-                self_sym->type = md->owner_sym->type;
-                iron_scope_define(ctx->current_scope, ctx->arena, self_sym);
+                /* HARD-09 CR-03: skip self binding on arena OOM. */
+                if (self_sym) {
+                    self_sym->is_mutable = true;
+                    self_sym->type = md->owner_sym->type;
+                    iron_scope_define(ctx->current_scope, ctx->arena, self_sym);
+                } else {
+                    ctx->in_error_recovery = true;
+                }
             }
 
             /* Define params */
@@ -533,6 +608,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *ps = iron_symbol_create(ctx->arena, p->name,
                                                       IRON_SYM_PARAM,
                                                       md->params[i], p->span);
+                /* HARD-09 CR-03: skip this param on arena OOM. */
+                if (!ps) { ctx->in_error_recovery = true; continue; }
                 /* Phase 80 MUT-02: receiver-form methods use is_mut_receiver
                  * for the receiver binding (params[0] when md->is_receiver_form).
                  * Regular params — including the non-receiver params of a
@@ -760,6 +837,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *ps = iron_symbol_create(ctx->arena, p->name,
                                                       IRON_SYM_PARAM,
                                                       le->params[i], p->span);
+                /* HARD-09 CR-03: skip this param on arena OOM. */
+                if (!ps) { ctx->in_error_recovery = true; continue; }
                 ps->is_mutable = p->is_var;
                 iron_scope_define(ctx->current_scope, ctx->arena, ps);
             }
@@ -825,7 +904,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     char msg[256];
                     snprintf(msg, sizeof(msg), "unknown enum '%s'", pat->enum_name);
                     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-                    if (!msg_copy) iron_oom_abort("resolve.c:resolve_expr PATTERN unknown-enum msg");
+                    if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:resolve_expr PATTERN unknown-enum msg) */ msg_copy = "analyzer error"; }
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_UNKNOWN_VARIANT, pat->span,
                                    msg_copy, NULL);
@@ -839,7 +918,16 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                  * any future drift (e.g., a builtin enum with NULL
                  * decl_node, or a wrong-kind decl_node) aborts in Debug. */
                 if (!esym->decl_node) break;
-                IRON_NODE_ASSERT_KIND(esym->decl_node, IRON_NODE_ENUM_DECL);
+                /* HARD-10 REPLACE (audit row resolve.c:651):
+                 * decl_node can be IRON_NODE_ERROR after parse recovery.
+                 * Skip variant resolution gracefully instead of aborting. */
+                if (esym->decl_node->kind != IRON_NODE_ENUM_DECL) {
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_NOTE,
+                                   IRON_ERR_UNDEFINED_VAR, pat->span,
+                                   "skipping pattern variant check on partially-parsed enum",
+                                   NULL);
+                    break;
+                }
                 Iron_EnumDecl *ed = (Iron_EnumDecl *)esym->decl_node;
                 bool found = false;
                 for (int i = 0; i < ed->variant_count; i++) {
@@ -854,7 +942,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
                              pat->enum_name, pat->variant_name);
                     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-                    if (!msg_copy) iron_oom_abort("resolve.c:resolve_expr PATTERN no-variant msg");
+                    if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:resolve_expr PATTERN no-variant msg) */ msg_copy = "analyzer error"; }
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_UNKNOWN_VARIANT, pat->span,
                                    msg_copy, NULL);
@@ -878,7 +966,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     snprintf(msg, sizeof(msg),
                              "pattern binding '%s' shadows outer variable", bname);
                     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-                    if (!msg_copy) iron_oom_abort("resolve.c:resolve_expr PATTERN shadow msg");
+                    if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:resolve_expr PATTERN shadow msg) */ msg_copy = "analyzer error"; }
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_BINDING_SHADOWS, pat->span,
                                    msg_copy, NULL);
@@ -899,7 +987,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             if (!esym || esym->sym_kind != IRON_SYM_ENUM) {
                 Iron_Ident *ident_node = (Iron_Ident *)iron_arena_alloc(
                     ctx->arena, sizeof(Iron_Ident), _Alignof(Iron_Ident));
-                if (!ident_node) iron_oom_abort("resolve.c:resolve_expr ENUM_CONSTRUCT ident_node");
+                if (!ident_node) { /* HARD-09 REPLACE (resolve.c:resolve_expr ENUM_CONSTRUCT ident_node) */ return; }
                 ident_node->kind = IRON_NODE_IDENT;
                 ident_node->span = ec->span;
                 ident_node->name = ec->enum_name;
@@ -921,44 +1009,42 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                  * future struct-size regression, which is exactly what PROT-04
                  * is trying to prevent. */
                 IRON_NODE_ASSERT_KIND(ec, IRON_NODE_ENUM_CONSTRUCT);
+                /* WR-08: the _Static_asserts below prove the target layout
+                 * fits in the source storage, so we populate the ec payload
+                 * directly rather than round-tripping through a separate
+                 * arena allocation. Local copies of the ec fields we need
+                 * (span, args, arg_count) are captured before the cast-
+                 * assignment to avoid aliasing issues when the target
+                 * struct's layout overlaps the source fields. */
                 if (ec->arg_count > 0) {
                     _Static_assert(sizeof(Iron_MethodCallExpr) <= sizeof(Iron_EnumConstruct),
                                    "enum-construct-to-method-call rewrite requires size fit");
-                    Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)iron_arena_alloc(
-                        ctx->arena,
-                        sizeof(Iron_MethodCallExpr),
-                        _Alignof(Iron_MethodCallExpr));
-                    if (!mc) iron_oom_abort("resolve.c:resolve_expr ENUM_CONSTRUCT method_call");
-                    mc->span          = ec->span;
-                    mc->kind          = IRON_NODE_METHOD_CALL;
-                    mc->resolved_type = NULL;
-                    mc->object        = (Iron_Node *)ident_node;
-                    mc->method        = member;
-                    mc->args          = ec->args;       /* reuse the already-allocated arg array */
-                    mc->arg_count     = ec->arg_count;
-                    /* Copy the fresh layout over the original ec storage so
-                     * the AST's upstream parent pointer now sees the new
-                     * METHOD_CALL payload at the same Iron_Node* address. */
-                    *(Iron_MethodCallExpr *)ec = *mc;
+                    Iron_Span    ec_span   = ec->span;
+                    Iron_Node  **ec_args   = ec->args;
+                    int          ec_argc   = ec->arg_count;
+                    Iron_MethodCallExpr *mc_slot = (Iron_MethodCallExpr *)ec;
+                    mc_slot->span          = ec_span;
+                    mc_slot->kind          = IRON_NODE_METHOD_CALL;
+                    mc_slot->resolved_type = NULL;
+                    mc_slot->object        = (Iron_Node *)ident_node;
+                    mc_slot->method        = member;
+                    mc_slot->args          = ec_args;
+                    mc_slot->arg_count     = ec_argc;
                     resolve_expr(ctx, (Iron_Node *)ec);
                 } else {
                     _Static_assert(sizeof(Iron_FieldAccess) <= sizeof(Iron_EnumConstruct),
                                    "enum-construct-to-field-access rewrite requires size fit");
-                    Iron_FieldAccess *fa = (Iron_FieldAccess *)iron_arena_alloc(
-                        ctx->arena,
-                        sizeof(Iron_FieldAccess),
-                        _Alignof(Iron_FieldAccess));
-                    if (!fa) iron_oom_abort("resolve.c:resolve_expr ENUM_CONSTRUCT field_access");
-                    fa->span          = ec->span;
-                    fa->kind          = IRON_NODE_FIELD_ACCESS;
-                    fa->resolved_type = NULL;
-                    fa->object        = (Iron_Node *)ident_node;
-                    fa->field         = member;
+                    Iron_Span    ec_span   = ec->span;
+                    Iron_FieldAccess *fa_slot = (Iron_FieldAccess *)ec;
+                    fa_slot->span          = ec_span;
+                    fa_slot->kind          = IRON_NODE_FIELD_ACCESS;
+                    fa_slot->resolved_type = NULL;
+                    fa_slot->object        = (Iron_Node *)ident_node;
+                    fa_slot->field         = member;
                     /* Phase 83-02: defensive default so downstream passes
                      * do not read uninitialized state if this rewrite is
                      * ever exercised before typecheck. */
-                    fa->is_pub_access = false;
-                    *(Iron_FieldAccess *)ec = *fa;
+                    fa_slot->is_pub_access = false;
                     resolve_expr(ctx, (Iron_Node *)ec);
                 }
                 break;
@@ -967,7 +1053,16 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             /* PROT-03 row 23 (AUDIT-01 M-severity): same pattern as row 22 —
              * assert IRON_NODE_ENUM_DECL before casting esym->decl_node. */
             if (!esym->decl_node) break;
-            IRON_NODE_ASSERT_KIND(esym->decl_node, IRON_NODE_ENUM_DECL);
+            /* HARD-10 REPLACE (audit row resolve.c:775):
+             * decl_node can be IRON_NODE_ERROR after parse recovery.
+             * Skip variant validation gracefully. */
+            if (esym->decl_node->kind != IRON_NODE_ENUM_DECL) {
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_NOTE,
+                               IRON_ERR_UNDEFINED_VAR, ec->span,
+                               "skipping enum-construct check on partially-parsed enum",
+                               NULL);
+                break;
+            }
             Iron_EnumDecl *ed = (Iron_EnumDecl *)esym->decl_node;
             bool found = false;
             for (int i = 0; i < ed->variant_count; i++) {
@@ -982,7 +1077,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
                          ec->enum_name, ec->variant_name);
                 const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-                if (!msg_copy) iron_oom_abort("resolve.c:resolve_expr ENUM_CONSTRUCT no-variant msg");
+                if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:resolve_expr ENUM_CONSTRUCT no-variant msg) */ msg_copy = "analyzer error"; }
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNKNOWN_VARIANT, ec->span,
                                msg_copy, NULL);
@@ -1224,24 +1319,194 @@ void iron_type_patch_registry_free(Iron_TypePatchRegistry *reg) {
     free(reg);
 }
 
+
+/* ── Phase 4 Plan 04-01 (EDIT-07): unused-import post-pass walker ────────── */
+/* After Pass 2 completes, walk every Iron_Ident in the program AST looking
+ * for uses of an import alias. Any IMPORT_DECL whose alias was never
+ * referenced emits IRON_WARN_UNUSED_IMPORT with a non-NULL .suggestion
+ * (empty string acts as a sentinel meaning "delete the line" in the
+ * code-action dispatch layer of Plan 04-04; keeping it non-NULL satisfies
+ * the "every P1 emit site populates .suggestion" invariant). */
+
+typedef struct {
+    const char **used_alias_set;   /* stb_ds dynamic array of alias names */
+} UnusedImportScan;
+
+static void scan_collect_ident(UnusedImportScan *s, Iron_Node *node);
+
+static void scan_collect_list(UnusedImportScan *s, Iron_Node **nodes, int n) {
+    if (!nodes) return;
+    for (int i = 0; i < n; i++) if (nodes[i]) scan_collect_ident(s, nodes[i]);
+}
+
+/* Mark an import alias name as "used". O(n) dedup scan — alias sets are
+ * small (<~20 per file in practice). */
+static void mark_alias_used(UnusedImportScan *s, const char *alias) {
+    if (!alias) return;
+    for (ptrdiff_t i = 0; i < arrlen(s->used_alias_set); i++) {
+        if (strcmp(s->used_alias_set[i], alias) == 0) return;
+    }
+    arrput(s->used_alias_set, alias);
+}
+
+/* Walk node subtree collecting any Iron_Ident whose resolved_sym's decl_node
+ * kind is IRON_NODE_IMPORT_DECL. These are the "used import" names. */
+static void scan_collect_ident(UnusedImportScan *s, Iron_Node *node) {
+    if (!node) return;
+    switch ((int)node->kind) {
+        case IRON_NODE_IDENT: {
+            Iron_Ident *id = (Iron_Ident *)node;
+            if (id->resolved_sym && id->resolved_sym->decl_node &&
+                id->resolved_sym->decl_node->kind == IRON_NODE_IMPORT_DECL) {
+                /* The alias symbol's name *is* the alias. */
+                mark_alias_used(s, id->resolved_sym->name);
+            }
+            break;
+        }
+        case IRON_NODE_FUNC_DECL: {
+            Iron_FuncDecl *fd = (Iron_FuncDecl *)node;
+            scan_collect_ident(s, fd->body);
+            break;
+        }
+        case IRON_NODE_METHOD_DECL: {
+            Iron_MethodDecl *md = (Iron_MethodDecl *)node;
+            scan_collect_ident(s, md->body);
+            break;
+        }
+        case IRON_NODE_BLOCK: {
+            Iron_Block *b = (Iron_Block *)node;
+            scan_collect_list(s, b->stmts, b->stmt_count);
+            break;
+        }
+        case IRON_NODE_VAL_DECL: {
+            Iron_ValDecl *vd = (Iron_ValDecl *)node;
+            scan_collect_ident(s, vd->init);
+            break;
+        }
+        case IRON_NODE_VAR_DECL: {
+            Iron_VarDecl *vd = (Iron_VarDecl *)node;
+            scan_collect_ident(s, vd->init);
+            break;
+        }
+        case IRON_NODE_RETURN: {
+            Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
+            scan_collect_ident(s, rs->value);
+            break;
+        }
+        case IRON_NODE_BINARY: {
+            Iron_BinaryExpr *be = (Iron_BinaryExpr *)node;
+            scan_collect_ident(s, be->left);
+            scan_collect_ident(s, be->right);
+            break;
+        }
+        case IRON_NODE_UNARY: {
+            Iron_UnaryExpr *ue = (Iron_UnaryExpr *)node;
+            scan_collect_ident(s, ue->operand);
+            break;
+        }
+        case IRON_NODE_CALL: {
+            Iron_CallExpr *ce = (Iron_CallExpr *)node;
+            scan_collect_ident(s, ce->callee);
+            scan_collect_list(s, ce->args, ce->arg_count);
+            break;
+        }
+        case IRON_NODE_FIELD_ACCESS: {
+            Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
+            scan_collect_ident(s, fa->object);
+            break;
+        }
+        case IRON_NODE_IF: {
+            Iron_IfStmt *is = (Iron_IfStmt *)node;
+            scan_collect_ident(s, is->condition);
+            scan_collect_ident(s, is->body);
+            scan_collect_ident(s, is->else_body);
+            break;
+        }
+        case IRON_NODE_ASSIGN: {
+            Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+            scan_collect_ident(s, as->target);
+            scan_collect_ident(s, as->value);
+            break;
+        }
+        default:
+            /* Other kinds (literals, type decls, etc.) don't carry import refs. */
+            break;
+    }
+}
+
+/* Emit IRON_WARN_UNUSED_IMPORT for each import alias that was never
+ * referenced. Non-aliased imports have no in-scope symbol to track, so
+ * they are conservatively NOT flagged here (a future plan may extend
+ * the tracker to cover path-based references). */
+static void emit_unused_imports(ResolveCtx *ctx, Iron_Program *program) {
+    UnusedImportScan s = { NULL };
+
+    /* Build the "used alias" set by walking every declaration body. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d) continue;
+        scan_collect_ident(&s, d);
+    }
+
+    /* Emit for every aliased IMPORT_DECL whose alias isn't in the used set. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_IMPORT_DECL) continue;
+        Iron_ImportDecl *imp = (Iron_ImportDecl *)d;
+        if (!imp->alias) continue; /* only aliased imports are tracked */
+
+        bool used = false;
+        for (ptrdiff_t k = 0; k < arrlen(s.used_alias_set); k++) {
+            if (strcmp(s.used_alias_set[k], imp->alias) == 0) { used = true; break; }
+        }
+        if (used) continue;
+
+        /* Empty-string suggestion is the "delete line" sentinel. arena-strdup
+         * so .suggestion is non-NULL and owned by the compilation arena. */
+        const char *sug = iron_arena_strdup(ctx->arena, "", 0);
+        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING,
+                       IRON_WARN_UNUSED_IMPORT, imp->span,
+                       "unused import", sug);
+    }
+
+    if (s.used_alias_set) arrfree(s.used_alias_set);
+}
+
 /* ── Entry point ─────────────────────────────────────────────────────────── */
 
 Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
-                          Iron_DiagList *diags) {
+                          Iron_DiagList *diags,
+                          const _Atomic bool *cancel_flag) {
     if (!program) return NULL;
+    /* HARD-05: pre-entry cancel check. */
+    if (iron_cancel_requested(cancel_flag)) return NULL;
 
     ResolveCtx ctx;
     ctx.arena              = arena;
     ctx.diags              = diags;
     ctx.global_scope       = iron_scope_create(arena, NULL, IRON_SCOPE_GLOBAL);
+    /* HARD-09 CR-03: if the top-level arena allocation fails we cannot
+     * proceed with resolution. Emit a meta-diagnostic and return NULL so
+     * the caller can surface it without aborting the process. */
+    if (!ctx.global_scope) {
+        Iron_Span empty_span = {0};
+        iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                       IRON_ERR_LEXER_OOM, empty_span,
+                       "out of memory while creating global scope", NULL);
+        return NULL;
+    }
     ctx.current_scope      = ctx.global_scope;
     ctx.current_method     = NULL;
     ctx.current_type_name  = NULL;
-    /* Phase 93 VIS-03: initialize cross-module check state. The carve-out
-     * line is read from Iron_Program (which copies it from Iron_Parser at
-     * parse exit). build.c / check.c populate the parser value after stdlib
-     * prepends; user code without prepends has user_source_start_line == 0,
-     * which keeps the gate inert (no real line satisfies line < 0). */
+    ctx.cancel_flag        = cancel_flag;
+    ctx.skipped_scope_pushes = 0;
+    ctx.in_error_recovery  = false;
+    /* Initialize cross-module check state. The carve-out line is read
+     * from Iron_Program (which copies it from Iron_Parser at parse
+     * exit). build.c / check.c populate the parser value after stdlib
+     * prepends; user code without prepends has user_source_start_line
+     * == 0, which keeps the gate inert (no real line satisfies
+     * line < 0). */
     ctx.emitted_first_e0320    = false;
     ctx.user_source_start_line = program->user_source_start_line;
 
@@ -1277,6 +1542,8 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Symbol *bsym = iron_symbol_create(arena, print_builtins[bi],
                                                     IRON_SYM_FUNCTION,
                                                     NULL, no_span);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (!bsym) { ctx.in_error_recovery = true; continue; }
             bsym->type = println_type;
             iron_scope_define(ctx.global_scope, arena, bsym);
         }
@@ -1301,8 +1568,13 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 1, int_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "len",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) {
+                sym->type = fn;
+                iron_scope_define(ctx.global_scope, arena, sym);
+            } else {
+                ctx.in_error_recovery = true;
+            }
         }
         /* min(Int, Int) -> Int */
         {
@@ -1310,8 +1582,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 2, int_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "min",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* max(Int, Int) -> Int */
         {
@@ -1319,8 +1592,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 2, int_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "max",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* clamp(Int, Int, Int) -> Int */
         {
@@ -1328,8 +1602,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 3, int_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "clamp",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* abs(Int) -> Int */
         {
@@ -1337,8 +1612,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 1, int_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "abs",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* range(Int) -> Int */
         {
@@ -1346,8 +1622,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 1, int_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "range",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* assert(Bool) -> Void */
         {
@@ -1355,8 +1632,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 1, void_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "assert",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* read_file(String) -> String — comptime only */
         {
@@ -1364,8 +1642,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 1, str_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "read_file",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
         /* fill(Int, Int) -> [Int]  (type checker special-cases to infer [T]) */
         {
@@ -1374,8 +1653,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *fn = iron_type_make_func(arena, params, 2, arr_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "fill",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
-            sym->type = fn;
-            iron_scope_define(ctx.global_scope, arena, sym);
+            /* HARD-09 CR-03: skip builtin on arena OOM. */
+            if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
+            else     { ctx.in_error_recovery = true; }
         }
     }
 
@@ -1405,6 +1685,8 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             Iron_Type *pt = iron_type_make_primitive(prims[pi].kind);
             Iron_Symbol *sym = iron_symbol_create(arena, prims[pi].name,
                                                    IRON_SYM_TYPE, NULL, no_span);
+            /* HARD-09 CR-03: skip primitive type registration on arena OOM. */
+            if (!sym) { ctx.in_error_recovery = true; continue; }
             sym->type = pt;
             iron_scope_define(ctx.global_scope, arena, sym);
         }
@@ -1450,6 +1732,11 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
                 break;
         }
     }
+
+    /* Phase 4 Plan 04-01 (EDIT-07): post-pass — flag any aliased imports
+     * that never resolved a reference. Runs after Pass 2 so every
+     * Iron_Ident has its resolved_sym set (or NULL for unresolved). */
+    emit_unused_imports(&ctx, program);
 
     return ctx.global_scope;
 }

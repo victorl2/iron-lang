@@ -1,0 +1,14 @@
+object Point {
+  var x: Int
+  var y: Int
+  init(x: Int, y: Int) {
+    self.x = x
+    self.y = y
+  }
+}
+
+func main() {
+  val p = Point(1, 2)
+  println("{p.x}")
+  println("{p.y}")
+}

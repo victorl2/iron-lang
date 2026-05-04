@@ -1,0 +1,14 @@
+import log
+
+func main() {
+  val d = Log.DEBUG
+  val i = Log.INFO
+  val w = Log.WARN
+  val e = Log.ERROR
+  println("{d}")
+  println("{i}")
+  println("{w}")
+  println("{e}")
+  Log.set_level(Log.ERROR)
+  println("set_level ok")
+}

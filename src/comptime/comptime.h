@@ -3,6 +3,7 @@
 
 #include "parser/ast.h"
 #include "analyzer/scope.h"
+#include "analyzer/analyzer.h"  /* HARD-02: IronAnalysisMode */
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 #include <stdbool.h>
@@ -74,6 +75,11 @@ typedef struct {
     /* Return value signaling */
     bool                  had_return;
     Iron_ComptimeVal     *return_val;
+    /* HARD-02: Analysis mode (CLI permits comptime FS side effects; LSP
+     * disables them per docs/dev/abort-audit.md + CONTEXT.md lock).
+     * Flows from iron_analyze_buffer → iron_analyze_with_mode →
+     * iron_comptime_apply → Iron_ComptimeCtx. */
+    IronAnalysisMode      mode;
 } Iron_ComptimeCtx;
 
 /* ── Public API ──────────────────────────────────────────────────────────── */
@@ -94,10 +100,17 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
  *
  * force_comptime:  if true, bypass cache and re-evaluate all comptime exprs.
  * source_file_dir: used for read_file() calls (NULL is fine for basic comptime).
- * source_text/len: full source text used as cache key (NULL skips caching). */
+ * source_text/len: full source text used as cache key (NULL skips caching).
+ * mode: HARD-02 — CLI permits FS side effects (cache read/write + read_file
+ *   builtin); LSP disables all of them. When mode == IRON_ANALYSIS_MODE_LSP:
+ *     - `.iron-build/` is NOT created
+ *     - cache read/write are no-ops
+ *     - `read_file(path)` emits IRON_ERR_COMPTIME_FS_DISABLED_IN_LSP_MODE
+ *       and returns a null comptime value. */
 void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,
                           Iron_Arena *arena, Iron_DiagList *diags,
                           const char *source_file_dir, bool force_comptime,
-                          const char *source_text, size_t source_len);
+                          const char *source_text, size_t source_len,
+                          IronAnalysisMode mode);
 
 #endif /* IRON_COMPTIME_H */

@@ -1,0 +1,17 @@
+/* Phase 10 fixture: visibility cross-module discrimination.
+ *
+ * v3 grammar reality (post-Phase-9):
+ *   - Top-level `pub` is rejected (Phase 83 ACCESS-02: top-level decls
+ *     default public)
+ *   - To make a top-level decl private, use the `private` keyword
+ *     (v2 carry-over)
+ *   - Inside an object body, `pub` IS valid on fields (Phase 82+)
+ *
+ * So: "public_fn" has is_private=false; "private_fn" has is_private=true. */
+func public_fn() -> Int { return 1 }
+private func private_fn() -> Int { return 2 }
+
+object Container {
+    pub var public_field: Int
+    var private_field: Int
+}

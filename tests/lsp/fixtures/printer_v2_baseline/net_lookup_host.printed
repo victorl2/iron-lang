@@ -1,0 +1,14 @@
+import net
+
+func main() {
+  val (null) = Net.lookup_host("localhost", 2000)
+  if (err.code != 0) {
+    println("lookup failed")
+    return
+  }
+  if (len(addrs) > 0) {
+    println("resolved ok")
+  } else {
+    println("no addresses")
+  }
+}

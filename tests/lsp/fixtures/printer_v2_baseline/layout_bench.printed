@@ -1,0 +1,205 @@
+interface Small2 {
+  func get_a() -> Int
+}
+
+object S2A impl Small2 {
+  var a: Int
+  var b: Int
+  init(a: Int, b: Int) {
+    self.a = a
+    self.b = b
+  }
+}
+
+object S2B impl Small2 {
+  var a: Int
+  var b: Int
+  init(a: Int, b: Int) {
+    self.a = a
+    self.b = b
+  }
+}
+
+func S2A.get_a() -> Int {
+  return self.a
+}
+
+func S2B.get_a() -> Int {
+  return self.a
+}
+
+interface Medium4 {
+  func get_x() -> Int
+}
+
+object M4A impl Medium4 {
+  var x: Int
+  var y: Int
+  var z: Int
+  var w: Int
+  init(x: Int, y: Int, z: Int, w: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.w = w
+  }
+}
+
+object M4B impl Medium4 {
+  var x: Int
+  var y: Int
+  var z: Int
+  var w: Int
+  init(x: Int, y: Int, z: Int, w: Int) {
+    self.x = x
+    self.y = y
+    self.z = z
+    self.w = w
+  }
+}
+
+func M4A.get_x() -> Int {
+  return self.x
+}
+
+func M4B.get_x() -> Int {
+  return self.x
+}
+
+interface Full4 {
+  func total() -> Int
+}
+
+object F4A impl Full4 {
+  var a: Int
+  var b: Int
+  var c: Int
+  var d: Int
+  init(a: Int, b: Int, c: Int, d: Int) {
+    self.a = a
+    self.b = b
+    self.c = c
+    self.d = d
+  }
+}
+
+object F4B impl Full4 {
+  var a: Int
+  var b: Int
+  var c: Int
+  var d: Int
+  init(a: Int, b: Int, c: Int, d: Int) {
+    self.a = a
+    self.b = b
+    self.c = c
+    self.d = d
+  }
+}
+
+func F4A.total() -> Int {
+  return (((self.a + self.b) + self.c) + self.d)
+}
+
+func F4B.total() -> Int {
+  return (((self.a + self.b) + self.c) + self.d)
+}
+
+interface HasValue {
+  func value() -> Int
+}
+
+object WithExtra impl HasValue {
+  var num: Int
+  var extra1: Int
+  var extra2: Int
+  var extra3: Int
+  init(num: Int, extra1: Int, extra2: Int, extra3: Int) {
+    self.num = num
+    self.extra1 = extra1
+    self.extra2 = extra2
+    self.extra3 = extra3
+  }
+}
+
+object WithoutExtra impl HasValue {
+  var num: Int
+  init(num: Int) {
+    self.num = num
+  }
+}
+
+func WithExtra.value() -> Int {
+  return self.num
+}
+
+func WithoutExtra.value() -> Int {
+  return self.num
+}
+
+interface Identified {
+  func get_id() -> Int
+}
+
+object TypeA impl Identified {
+  var id: Int
+  var data_a: Int
+  init(id: Int, data_a: Int) {
+    self.id = id
+    self.data_a = data_a
+  }
+}
+
+object TypeB impl Identified {
+  var id: Int
+  var data_b: Int
+  init(id: Int, data_b: Int) {
+    self.id = id
+    self.data_b = data_b
+  }
+}
+
+func TypeA.get_id() -> Int {
+  return self.id
+}
+
+func TypeB.get_id() -> Int {
+  return self.id
+}
+
+func main() {
+  val items2 = [S2A(10, 20), S2B(30, 40), S2A(50, 60)]
+  var sum2 = 0
+  for item in items2 {
+    sum2 = (sum2 + item.get_a())
+  }
+  println("{sum2}")
+  val items4 = [M4A(1, 2, 3, 4), M4B(5, 6, 7, 8), M4A(9, 10, 11, 12)]
+  var sum4 = 0
+  for item in items4 {
+    sum4 = (sum4 + item.get_x())
+  }
+  println("{sum4}")
+  val full4 = [F4A(1, 2, 3, 4), F4B(10, 20, 30, 40)]
+  var sumf = 0
+  for item in full4 {
+    sumf = (sumf + item.total())
+  }
+  println("{sumf}")
+  val vals = [WithExtra(100, 0, 0, 0), WithoutExtra(200), WithExtra(300, 0, 0, 0)]
+  var sumv = 0
+  for v in vals {
+    sumv = (sumv + v.value())
+  }
+  println("{sumv}")
+  val identified = [TypeA(1, 100), TypeB(2, 200), TypeA(3, 300)]
+  var sum_id = 0
+  for item in identified {
+    sum_id = (sum_id + item.get_id())
+  }
+  println("{sum_id}")
+  val we = WithExtra(42, 1, 2, 3)
+  println("{we.extra1}")
+  println("{we.extra2}")
+  println("{we.extra3}")
+  println("done")
+}

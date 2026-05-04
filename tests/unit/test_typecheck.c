@@ -64,8 +64,8 @@ static Iron_Program *parse_and_resolve(const char *src) {
     Iron_Parser  p = iron_parser_create(tokens, count, src, "test.iron", &g_arena, &g_diags);
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
-    iron_typecheck(prog, global, &g_arena, &g_diags);
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
+    iron_typecheck(prog, global, &g_arena, &g_diags, NULL);
     return prog;
 }
 
@@ -83,8 +83,8 @@ static Iron_Program *parse_and_resolve_no_strict(const char *src) {
     p.v3_strict_mode = false;
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
-    iron_typecheck(prog, global, &g_arena, &g_diags);
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
+    iron_typecheck(prog, global, &g_arena, &g_diags, NULL);
     return prog;
 }
 
@@ -127,7 +127,7 @@ static Iron_Program *parse_and_resolve_only(const char *src) {
                                          &g_arena, &g_diags);
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    g_global_scope_for_patch = iron_resolve(prog, &g_arena, &g_diags);
+    g_global_scope_for_patch = iron_resolve(prog, &g_arena, &g_diags, NULL);
     return prog;
 }
 
@@ -202,8 +202,13 @@ void test_explicit_annotation_match(void) {
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
 
-/* ── Test 5: val x: Float = 42  =>  E0202 (Int to Float mismatch) ────────── */
-
+/* ── Test 5: val x: Float = 42  =>  E0235 (literal-RHS mismatch) ─────────
+ *
+ * Phase 4 Plan 04-01 (EDIT-07): literal-position RHS narrows from the
+ * generic IRON_ERR_TYPE_MISMATCH (202) to IRON_ERR_TYPE_MISMATCH_LITERAL
+ * (235) so the code-action dispatch layer in Plan 04-04 can offer a
+ * retyped-literal quickfix. The general 202 is still emitted for
+ * non-literal type mismatches. */
 void test_explicit_annotation_mismatch(void) {
     const char *src =
         "func main() {\n"
@@ -211,7 +216,7 @@ void test_explicit_annotation_mismatch(void) {
         "}\n";
     parse_and_resolve(src);
     TEST_ASSERT_GREATER_THAN(0, g_diags.error_count);
-    TEST_ASSERT_TRUE(has_error(IRON_ERR_TYPE_MISMATCH));
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_TYPE_MISMATCH_LITERAL));
 }
 
 /* ── Test 6: val x = 1; x = 2  =>  E0203 (val reassignment) ─────────────── */
@@ -3210,7 +3215,7 @@ void test_v93_sym_is_pub_propagates_func(void) {
                                          &g_arena, &g_diags);
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
     Iron_Symbol *sym = find_global_sym(global, "foo");
     TEST_ASSERT_NOT_NULL_MESSAGE(sym, "expected `foo` symbol in global scope");
     TEST_ASSERT_TRUE_MESSAGE(sym->is_pub,
@@ -3229,7 +3234,7 @@ void test_v93_sym_is_pub_default_false_func(void) {
                                          &g_arena, &g_diags);
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
     Iron_Symbol *sym = find_global_sym(global, "bar");
     TEST_ASSERT_NOT_NULL_MESSAGE(sym, "expected `bar` symbol in global scope");
     TEST_ASSERT_FALSE_MESSAGE(sym->is_pub,
@@ -3249,7 +3254,7 @@ void test_v93_sym_is_pub_propagates_enum_and_variants(void) {
                                          &g_arena, &g_diags);
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
 
     Iron_Symbol *enum_sym = find_global_sym(global, "State");
     TEST_ASSERT_NOT_NULL_MESSAGE(enum_sym, "expected `State` enum sym");
@@ -3279,7 +3284,7 @@ void test_v93_sym_is_pub_default_false_enum_variants(void) {
                                          &g_arena, &g_diags);
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
 
     Iron_Symbol *red_sym = find_global_sym(global, "RED");
     TEST_ASSERT_NOT_NULL_MESSAGE(red_sym, "expected `RED` variant sym");
@@ -3300,7 +3305,7 @@ void test_v93_sym_is_pub_propagates_object(void) {
                                          &g_arena, &g_diags);
     Iron_Node   *root = iron_parse(&p);
     Iron_Program *prog = (Iron_Program *)root;
-    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope   *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
 
     Iron_Symbol *sym = find_global_sym(global, "Player");
     TEST_ASSERT_NOT_NULL_MESSAGE(sym, "expected `Player` type sym");
@@ -3387,7 +3392,7 @@ static Iron_Program *parse_two_files_then_resolve(
         }
     }
 
-    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
     (void)global;
     return prog;
 }

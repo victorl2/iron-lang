@@ -1,0 +1,16 @@
+-- Phase 11 Plan 11-03 fixture: PATCH-04 hover-on-patch-method case.
+-- Asserts: hover on `reverse` method (declared inside the patch body)
+-- prepends an italic markdown line `_From `patch object String { … }`
+-- in <module>_` ABOVE the existing fenced signature block.
+--
+-- Note: primitive patch methods do NOT take an explicit `self` param
+-- (per Plan 11-01 deviation #3 — explicit self causes ironc OOM).
+
+patch object String {
+    readonly func reverse() -> String { return "reversed" }
+}
+
+func main() -> String {
+    val s: String = "hello"
+    return s.reverse()
+}

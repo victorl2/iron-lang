@@ -1,0 +1,13 @@
+object Circle {
+  val radius: Int
+}
+
+func area(c: Circle) -> Int {
+  return ((c.radius * c.radius) * 3)
+}
+
+func main() {
+  val c = Circle(5)
+  println("radius: {c.radius}")
+  println("area: {area(c)}")
+}

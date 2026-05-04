@@ -1,0 +1,8 @@
+/* Phase 10 fixture: requester module. */
+import mod_a
+
+func main() -> Int {
+    val a = public_fn()
+    val b = private_fn()
+    return a + b
+}

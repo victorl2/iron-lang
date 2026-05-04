@@ -1,0 +1,37 @@
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+  init(radius: Int) {
+    self.radius = radius
+  }
+}
+
+object Square impl Shape {
+  var side: Int
+  init(side: Int) {
+    self.side = side
+  }
+}
+
+func Circle.area() -> Int {
+  return ((self.radius * self.radius) * 3)
+}
+
+func Square.area() -> Int {
+  return (self.side * self.side)
+}
+
+func main() {
+  val circles = [Circle(1), Circle(2), Circle(3), Circle(4)]
+  val big_sum = circles.map(func(c: Circle) -> Int {
+    return c.radius
+  }).filter(func(r: Int) -> Bool {
+    return (r >= 3)
+  }).reduce(0, func(acc: Int, r: Int) -> Int {
+    return (acc + r)
+  })
+  println("{big_sum}")
+}

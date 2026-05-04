@@ -1,0 +1,13 @@
+-- Phase 10 TIER-04 fixture: top-level funcs with each tier modifier
+-- + a call site so signature_help can find a CALL expression and
+-- resolve to the corresponding FuncDecl.
+
+readonly func length_sq(x: Int, y: Int) -> Int { return x * x + y * y }
+pure func add(a: Int, b: Int) -> Int { return a + b }
+func mutate(dx: Int) {}
+
+func main() {
+    val l: Int = length_sq(1, 2)
+    val s: Int = add(3, 4)
+    mutate(5)
+}

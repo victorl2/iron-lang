@@ -1,0 +1,42 @@
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+  init(radius: Int) {
+    self.radius = radius
+  }
+}
+
+object Square impl Shape {
+  var side: Int
+  init(side: Int) {
+    self.side = side
+  }
+}
+
+func Circle.area() -> Int {
+  return ((self.radius * self.radius) * 3)
+}
+
+func Square.area() -> Int {
+  return (self.side * self.side)
+}
+
+func pick_shape(flag: Bool) -> Shape {
+  if flag {
+    return Circle(4)
+  } else {
+    return Square(5)
+  }
+}
+
+func main() {
+  var shapes = [Circle(1), Square(3)]
+  val picked: Shape = pick_shape(true)
+  shapes.push(picked)
+  for item in shapes {
+    println("{item.area()}")
+  }
+}

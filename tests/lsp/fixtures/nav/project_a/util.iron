@@ -1,0 +1,4 @@
+/// Greet someone by name.
+func greet(name: String) -> String {
+    return "Hello, " + name
+}

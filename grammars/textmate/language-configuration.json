@@ -1,0 +1,39 @@
+{
+    "$comment": "Phase 6 Plan 06-01 Task 2 (EXT-01, D-02). Consumed by VSCode's editor runtime + copied into editors/vscode/ at prepackage time (Plan 06-03). Defines comment markers, brackets, surrounding pairs, indent heuristics, and the /// doc-comment onEnter rule that mirrors rustfmt's `/// ` auto-insert UX.",
+    "comments": {
+        "lineComment": "//",
+        "blockComment": ["/*", "*/"]
+    },
+    "brackets": [
+        ["{", "}"],
+        ["[", "]"],
+        ["(", ")"]
+    ],
+    "autoClosingPairs": [
+        { "open": "{", "close": "}" },
+        { "open": "[", "close": "]" },
+        { "open": "(", "close": ")" },
+        { "open": "\"", "close": "\"", "notIn": ["string"] },
+        { "open": "/*", "close": "*/", "notIn": ["string"] }
+    ],
+    "surroundingPairs": [
+        ["{", "}"],
+        ["[", "]"],
+        ["(", ")"],
+        ["\"", "\""]
+    ],
+    "indentationRules": {
+        "increaseIndentPattern": "^.*\\{[^}]*$",
+        "decreaseIndentPattern": "^\\s*\\}$"
+    },
+    "onEnterRules": [
+        {
+            "beforeText": "^\\s*///.*$",
+            "action": { "indent": "none", "appendText": "/// " }
+        },
+        {
+            "beforeText": "^\\s*/\\*\\*(?!\\/)([^\\*]|\\*(?!\\/))*$",
+            "action": { "indent": "none", "appendText": " * " }
+        }
+    ]
+}

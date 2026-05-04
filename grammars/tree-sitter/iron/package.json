@@ -1,0 +1,33 @@
+{
+  "name": "tree-sitter-iron",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for the Iron programming language.",
+  "main": "bindings/node",
+  "keywords": ["parser", "lexer", "tree-sitter", "iron", "iron-lang"],
+  "author": "iron-lang",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iron-lang/iron-lang.git"
+  },
+  "files": [
+    "grammar.js",
+    "src/",
+    "queries/",
+    "bindings/"
+  ],
+  "scripts": {
+    "build": "tree-sitter generate",
+    "test": "tree-sitter test"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "0.25.10"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.iron",
+      "file-types": ["iron"],
+      "highlights": "queries/highlights.scm"
+    }
+  ]
+}

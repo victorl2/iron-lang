@@ -7,12 +7,18 @@
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 
+#include <stdatomic.h>
+#include <stdbool.h>
+
 /* Run escape analysis on a type-checked program.
  * Sets auto_free and escapes flags on Iron_HeapExpr nodes.
  * Emits E0207 for escaping heap values without free/leak.
  * Emits E0212/E0213/E0214 for invalid free/leak usage.
+ *
+ * HARD-05: cancel_flag (NULL = never cancel) polled at entry and walkers.
  */
 void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
-                         Iron_Arena *arena, Iron_DiagList *diags);
+                         Iron_Arena *arena, Iron_DiagList *diags,
+                         const _Atomic bool *cancel_flag);
 
 #endif /* IRON_ESCAPE_H */

@@ -144,7 +144,7 @@ void test_resolve_func_and_val(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_NOT_NULL(global);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
@@ -164,7 +164,7 @@ void test_resolve_val_reference(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_NOT_NULL(global);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
@@ -180,7 +180,12 @@ void test_resolve_val_reference(void) {
     TEST_ASSERT_EQUAL_INT(IRON_SYM_VARIABLE, x_ref->resolved_sym->sym_kind);
 }
 
-/* Test 3: undefined variable => IRON_ERR_UNDEFINED_VAR (E0200) */
+/* Test 3: undefined variable => IRON_ERR_UNDEFINED_VAR (E0200).
+ * Phase 4 Plan 04-01 (EDIT-07): also asserts `.suggestion != NULL` for
+ * the typo candidate seeded by iron_best_typo_candidate — the fixture
+ * has no visible symbol within distance 2 of "z", so the candidate may
+ * be NULL; the assertion is lifted to the shadowing fixture below and
+ * the cross-plan test_diag_suggestion_seeded.c for the positive path. */
 void test_resolve_undefined_var(void) {
     const char *src =
         "func foo() {\n"
@@ -189,9 +194,28 @@ void test_resolve_undefined_var(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    iron_resolve(prog, &g_arena, &g_diags);
+    iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_EQUAL_INT(1, g_diags.error_count);
     TEST_ASSERT_EQUAL_INT(IRON_ERR_UNDEFINED_VAR, g_diags.items[0].code);
+}
+
+/* Test 3b: undefined-var emit with a typo candidate in scope.
+ * Phase 4 Plan 04-01 (EDIT-07): asserts the emit carries a non-NULL
+ * `.suggestion` whose bytes match the in-scope Levenshtein candidate. */
+void test_resolve_undefined_var_has_suggestion(void) {
+    const char *src =
+        "func foo() {\n"
+        "  val println_local = 1\n"
+        "  val y = println_loca\n"
+        "}\n";
+    Iron_Program *prog = parse_program(src);
+    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
+
+    iron_resolve(prog, &g_arena, &g_diags, NULL);
+    TEST_ASSERT_EQUAL_INT(1, g_diags.error_count);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_UNDEFINED_VAR, g_diags.items[0].code);
+    TEST_ASSERT_NOT_NULL(g_diags.items[0].suggestion);
+    TEST_ASSERT_EQUAL_STRING("println_local", g_diags.items[0].suggestion);
 }
 
 /* Test 4: duplicate declaration => IRON_ERR_DUPLICATE_DECL (E0201) */
@@ -204,7 +228,7 @@ void test_resolve_duplicate_decl(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    iron_resolve(prog, &g_arena, &g_diags);
+    iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_GREATER_THAN(0, g_diags.error_count);
     /* Check at least one IRON_ERR_DUPLICATE_DECL was emitted */
     bool found_dup = false;
@@ -240,7 +264,7 @@ void test_resolve_forward_reference_method_before_object(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_NOT_NULL(global);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
@@ -281,7 +305,7 @@ void test_resolve_nested_scope_lookup(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    iron_resolve(prog, &g_arena, &g_diags);
+    iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
     /* Find the 'x' ident inside the if-body */
@@ -310,7 +334,7 @@ void test_resolve_block_scope_isolation(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    iron_resolve(prog, &g_arena, &g_diags);
+    iron_resolve(prog, &g_arena, &g_diags, NULL);
     /* x is only defined in the if-block; y = x should produce E0200 */
     TEST_ASSERT_EQUAL_INT(1, g_diags.error_count);
     TEST_ASSERT_EQUAL_INT(IRON_ERR_UNDEFINED_VAR, g_diags.items[0].code);
@@ -334,7 +358,7 @@ void test_resolve_self_inside_method(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    iron_resolve(prog, &g_arena, &g_diags);
+    iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
     /* In-block methods are flushed into prog->decls right after the enclosing
@@ -367,7 +391,7 @@ void test_resolve_self_outside_method(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    iron_resolve(prog, &g_arena, &g_diags);
+    iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_EQUAL_INT(1, g_diags.error_count);
     TEST_ASSERT_EQUAL_INT(IRON_ERR_SELF_OUTSIDE_METHOD, g_diags.items[0].code);
 }
@@ -390,7 +414,7 @@ void test_resolve_super_in_child_method(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    iron_resolve(prog, &g_arena, &g_diags);
+    iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
 
@@ -409,7 +433,7 @@ void test_resolve_super_no_parent(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    iron_resolve(prog, &g_arena, &g_diags);
+    iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_EQUAL_INT(1, g_diags.error_count);
     TEST_ASSERT_EQUAL_INT(IRON_ERR_SUPER_NO_PARENT, g_diags.items[0].code);
 }
@@ -431,7 +455,7 @@ void test_resolve_method_unresolved_type(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    iron_resolve(prog, &g_arena, &g_diags);
+    iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_GREATER_THAN(0, g_diags.error_count);
 }
 
@@ -446,7 +470,7 @@ void test_resolve_enum_variants_registered(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_NOT_NULL(global);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
@@ -467,7 +491,7 @@ void test_resolve_import_no_error(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_NOT_NULL(global);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
@@ -481,7 +505,7 @@ void test_resolve_interface_registered(void) {
     Iron_Program *prog = parse_program(src);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
-    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_NOT_NULL(global);
 
     Iron_Symbol *sym = iron_scope_lookup(global, "Drawable");
@@ -513,7 +537,7 @@ void test_resolve_adt_pattern_binding(void) {
         "  }\n"
         "}\n";
     Iron_Program *prog = parse_program(src);
-    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_NOT_NULL(global);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
@@ -533,7 +557,7 @@ void test_resolve_adt_wildcard_no_binding(void) {
         "  }\n"
         "}\n";
     Iron_Program *prog = parse_program(src);
-    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_NOT_NULL(global);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
@@ -554,7 +578,7 @@ void test_resolve_adt_binding_shadows_error(void) {
         "  }\n"
         "}\n";
     Iron_Program *prog = parse_program(src);
-    iron_resolve(prog, &g_arena, &g_diags);
+    iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_TRUE(has_error_code(227));
 }
 
@@ -573,7 +597,7 @@ void test_resolve_adt_unknown_variant_error(void) {
         "  }\n"
         "}\n";
     Iron_Program *prog = parse_program(src);
-    iron_resolve(prog, &g_arena, &g_diags);
+    iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_TRUE(has_error_code(228));
 }
 
@@ -587,7 +611,7 @@ void test_resolve_adt_enum_construct_ok(void) {
         "  val s = Shape.Circle(1.0)\n"
         "}\n";
     Iron_Program *prog = parse_program(src);
-    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_NOT_NULL(global);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
@@ -610,7 +634,7 @@ void test_resolve_adt_same_binding_across_arms(void) {
         "  }\n"
         "}\n";
     Iron_Program *prog = parse_program(src);
-    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags);
+    Iron_Scope *global = iron_resolve(prog, &g_arena, &g_diags, NULL);
     TEST_ASSERT_NOT_NULL(global);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 }
@@ -623,6 +647,7 @@ int main(void) {
     RUN_TEST(test_resolve_func_and_val);
     RUN_TEST(test_resolve_val_reference);
     RUN_TEST(test_resolve_undefined_var);
+    RUN_TEST(test_resolve_undefined_var_has_suggestion);
     RUN_TEST(test_resolve_duplicate_decl);
     RUN_TEST(test_resolve_forward_reference_method_before_object);
     RUN_TEST(test_resolve_nested_scope_lookup);

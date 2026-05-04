@@ -235,7 +235,7 @@ void test_print_ast_dense_program(void) {
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
     /* AST printer runs on the parser's output directly — no analysis needed. */
-    char *printed = iron_print_ast(root, &g_arena);
+    char *printed = iron_print_ast(root, NULL, &g_arena);
     TEST_ASSERT_NOT_NULL(printed);
 
     /* Sample several shapes: if present in output, at least the
@@ -433,7 +433,7 @@ void test_web_await_check_follows_call_chain_to_helper(void) {
      * The pass only needs the decl table and call-name identifiers
      * (which come from the parser) — it doesn't consult resolved types. */
     iron_web_await_check((Iron_Program *)root, &g_arena, &g_diags,
-                         IRON_TARGET_WEB);
+                         IRON_TARGET_WEB, NULL);
 
     /* Expect E0501 because await is reachable from main via helper(). */
     bool found_501 = false;
@@ -493,7 +493,7 @@ void test_web_await_check_container_arms_no_await(void) {
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
     iron_web_await_check((Iron_Program *)root, &g_arena, &g_diags,
-                         IRON_TARGET_WEB);
+                         IRON_TARGET_WEB, NULL);
 
     /* No await anywhere → no E0501. */
     for (int i = 0; i < g_diags.count; i++) {

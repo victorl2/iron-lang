@@ -4,15 +4,24 @@
 #include <string.h>
 #include <stdio.h>
 #include <stddef.h>
+#include <pthread.h>
 
-/* ── Primitive singleton table ───────────────────────────────────────────── */
-
-/* Static storage for interned primitive types.
+/* ── Primitive-type singleton table (HARD-07) ────────────────────────────── */
+/* Process-wide: iron_types_init is idempotent across all calls in a process.
+ * pthread_once matches process lifetime (not test-fixture lifetime) — see
+ * RESEARCH.md §Pitfall 3. s_primitives is read-only after init, so concurrent
+ * readers after the first iron_types_init call do not race.
+ *
+ * The original implementation used `static bool s_initialized;` which was
+ * prone to a torn-init race under concurrent ASTWorkers. pthread_once
+ * guarantees types_init_impl() runs exactly once per process, with all
+ * subsequent callers blocking until init completes.
+ *
  * Indexed directly by Iron_TypeKind value.
  * Only kinds in the "primitive" range are populated; others are left zeroed.
  */
-static Iron_Type s_primitives[IRON_TYPE_ERROR + 1];
-static bool      s_initialized = false;
+static Iron_Type       s_primitives[IRON_TYPE_ERROR + 1];
+static pthread_once_t  s_primitives_once = PTHREAD_ONCE_INIT;
 
 /* Kinds that have interned singletons (IRON_TYPE_VOID and IRON_TYPE_NULL
  * and IRON_TYPE_ERROR are also interned for convenience). */
@@ -45,15 +54,20 @@ static bool is_primitive_kind(Iron_TypeKind kind) {
     }
 }
 
-void iron_types_init(Iron_Arena *arena) {
-    (void)arena; /* reserved for future use */
-    if (s_initialized) return;
+/* One-shot body run under pthread_once. Idempotent by construction. */
+static void types_init_impl(void) {
     memset(s_primitives, 0, sizeof(s_primitives));
     /* Stamp the kind field for every internable slot */
     for (int k = IRON_TYPE_INT; k <= IRON_TYPE_ERROR; k++) {
         s_primitives[k].kind = (Iron_TypeKind)k;
     }
-    s_initialized = true;
+}
+
+void iron_types_init(Iron_Arena *arena) {
+    (void)arena; /* reserved for future use; pthread_once ignores it */
+    /* HARD-07: process-wide one-time init. Concurrent callers block until the
+     * first caller's types_init_impl() returns, then return immediately. */
+    pthread_once(&s_primitives_once, types_init_impl);
 }
 
 Iron_Type *iron_type_make_primitive(Iron_TypeKind kind) {
@@ -65,7 +79,10 @@ Iron_Type *iron_type_make_primitive(Iron_TypeKind kind) {
 
 Iron_Type *iron_type_make_nullable(Iron_Arena *a, Iron_Type *inner) {
     Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
-    if (!t) iron_oom_abort("types.c:iron_type_make_nullable");
+    /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_nullable): return NULL
+     * on OOM. Callers propagate to iron_type_make_primitive(IRON_TYPE_ERROR)
+     * poison — see typecheck.c:618 for the established pattern. */
+    if (!t) return NULL;
     memset(t, 0, sizeof(*t));
     t->kind           = IRON_TYPE_NULLABLE;
     t->nullable.inner = inner;
@@ -74,7 +91,8 @@ Iron_Type *iron_type_make_nullable(Iron_Arena *a, Iron_Type *inner) {
 
 Iron_Type *iron_type_make_rc(Iron_Arena *a, Iron_Type *inner) {
     Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
-    if (!t) iron_oom_abort("types.c:iron_type_make_rc");
+    /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_rc). */
+    if (!t) return NULL;
     memset(t, 0, sizeof(*t));
     t->kind     = IRON_TYPE_RC;
     t->rc.inner = inner;
@@ -83,7 +101,8 @@ Iron_Type *iron_type_make_rc(Iron_Arena *a, Iron_Type *inner) {
 
 Iron_Type *iron_type_make_func(Iron_Arena *a, Iron_Type **params, int count, Iron_Type *ret) {
     Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
-    if (!t) iron_oom_abort("types.c:iron_type_make_func");
+    /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_func). */
+    if (!t) return NULL;
     memset(t, 0, sizeof(*t));
     t->kind              = IRON_TYPE_FUNC;
     t->func.param_count  = count;
@@ -91,7 +110,8 @@ Iron_Type *iron_type_make_func(Iron_Arena *a, Iron_Type **params, int count, Iro
     if (count > 0 && params) {
         Iron_Type **copy = (Iron_Type **)iron_arena_alloc(a,
             sizeof(Iron_Type *) * (size_t)count, _Alignof(Iron_Type *));
-        if (!copy) iron_oom_abort("types.c:iron_type_make_func param copy");
+        /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_func param copy). */
+        if (!copy) return NULL;
         memcpy(copy, params, sizeof(Iron_Type *) * (size_t)count);
         t->func.param_types = copy;
     } else {
@@ -102,7 +122,8 @@ Iron_Type *iron_type_make_func(Iron_Arena *a, Iron_Type **params, int count, Iro
 
 Iron_Type *iron_type_make_array(Iron_Arena *a, Iron_Type *elem, int size) {
     Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
-    if (!t) iron_oom_abort("types.c:iron_type_make_array");
+    /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_array). */
+    if (!t) return NULL;
     memset(t, 0, sizeof(*t));
     t->kind       = IRON_TYPE_ARRAY;
     t->array.elem = elem;
@@ -112,7 +133,8 @@ Iron_Type *iron_type_make_array(Iron_Arena *a, Iron_Type *elem, int size) {
 
 Iron_Type *iron_type_make_object(Iron_Arena *a, struct Iron_ObjectDecl *decl) {
     Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
-    if (!t) iron_oom_abort("types.c:iron_type_make_object");
+    /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_object). */
+    if (!t) return NULL;
     memset(t, 0, sizeof(*t));
     t->kind        = IRON_TYPE_OBJECT;
     t->object.decl = decl;
@@ -121,7 +143,8 @@ Iron_Type *iron_type_make_object(Iron_Arena *a, struct Iron_ObjectDecl *decl) {
 
 Iron_Type *iron_type_make_interface(Iron_Arena *a, struct Iron_InterfaceDecl *decl) {
     Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
-    if (!t) iron_oom_abort("types.c:iron_type_make_interface");
+    /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_interface). */
+    if (!t) return NULL;
     memset(t, 0, sizeof(*t));
     t->kind            = IRON_TYPE_INTERFACE;
     t->interface.decl  = decl;
@@ -130,7 +153,8 @@ Iron_Type *iron_type_make_interface(Iron_Arena *a, struct Iron_InterfaceDecl *de
 
 Iron_Type *iron_type_make_enum(Iron_Arena *a, struct Iron_EnumDecl *decl) {
     Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
-    if (!t) iron_oom_abort("types.c:iron_type_make_enum");
+    /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_enum). */
+    if (!t) return NULL;
     memset(t, 0, sizeof(*t));
     t->kind     = IRON_TYPE_ENUM;
     t->enu.decl = decl;
@@ -139,7 +163,8 @@ Iron_Type *iron_type_make_enum(Iron_Arena *a, struct Iron_EnumDecl *decl) {
 
 Iron_Type *iron_type_make_generic_param(Iron_Arena *a, const char *name, Iron_Type *constraint) {
     Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
-    if (!t) iron_oom_abort("types.c:iron_type_make_generic_param");
+    /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_generic_param). */
+    if (!t) return NULL;
     memset(t, 0, sizeof(*t));
     t->kind                    = IRON_TYPE_GENERIC_PARAM;
     t->generic_param.name       = name;
@@ -182,21 +207,26 @@ static const char *tuple_build_mangled_name(Iron_Arena *a, Iron_Type **elems,
     if (pos >= sizeof(buf)) pos = sizeof(buf) - 1;
     buf[pos] = '\0';
     const char *mangled = iron_arena_strdup(a, buf, pos);
-    if (!mangled) iron_oom_abort("types.c:tuple_build_mangled_name");
+    /* HARD-09 REPLACE (CR-02, types.c:tuple_build_mangled_name): fall back
+     * to a stable static name on OOM so callers can still construct the
+     * tuple type (IRON_TYPE_ERROR poison is surfaced at emit time). */
+    if (!mangled) mangled = "Iron_Tuple_OOM";
     return mangled;
 }
 
 Iron_Type *iron_type_make_tuple(Iron_Arena *a, Iron_Type **elem_types, int count) {
     if (count < 2 || !elem_types) return NULL;
     Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
-    if (!t) iron_oom_abort("types.c:iron_type_make_tuple");
+    /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_tuple). */
+    if (!t) return NULL;
     memset(t, 0, sizeof(*t));
     t->kind = IRON_TYPE_TUPLE;
     /* Copy the element pointer array into the arena (caller retains ownership
      * of their input buffer, matching iron_type_make_func semantics). */
     Iron_Type **copy = (Iron_Type **)iron_arena_alloc(a,
         sizeof(Iron_Type *) * (size_t)count, _Alignof(Iron_Type *));
-    if (!copy) iron_oom_abort("types.c:iron_type_make_tuple elem copy");
+    /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_tuple elem copy). */
+    if (!copy) return NULL;
     memcpy(copy, elem_types, sizeof(Iron_Type *) * (size_t)count);
     t->tuple.elem_types  = copy;
     t->tuple.elem_count  = count;
@@ -309,7 +339,10 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
             const char *inner = iron_type_to_string(t->nullable.inner, a);
             size_t len = strlen(inner) + 2; /* + '?' + '\0' */
             char *buf = (char *)iron_arena_alloc(a, len, 1);
-            if (!buf) iron_oom_abort("types.c:iron_type_to_string NULLABLE");
+            /* HARD-09 REPLACE (CR-02, types.c:iron_type_to_string NULLABLE):
+             * fall back to a stable static label so the analyzer can keep
+             * formatting diagnostic messages even under arena pressure. */
+            if (!buf) return "<oom?>";
             snprintf(buf, len, "%s?", inner);
             return buf;
         }
@@ -318,7 +351,8 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
             const char *inner = iron_type_to_string(t->rc.inner, a);
             size_t len = strlen(inner) + 4; /* "rc " + inner + '\0' */
             char *buf = (char *)iron_arena_alloc(a, len, 1);
-            if (!buf) iron_oom_abort("types.c:iron_type_to_string RC");
+            /* HARD-09 REPLACE (CR-02, types.c:iron_type_to_string RC). */
+            if (!buf) return "<oom rc>";
             snprintf(buf, len, "rc %s", inner);
             return buf;
         }
@@ -329,7 +363,8 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
             size_t elem_len = strlen(elem);
             size_t buf_size = elem_len + 32; /* "[" + elem + "; " + number + "]" + NUL */
             char *buf = (char *)iron_arena_alloc(a, buf_size, 1);
-            if (!buf) iron_oom_abort("types.c:iron_type_to_string ARRAY");
+            /* HARD-09 REPLACE (CR-02, types.c:iron_type_to_string ARRAY). */
+            if (!buf) return "<oom array>";
             if (t->array.size < 0) {
                 snprintf(buf, buf_size, "[%s]", elem);
             } else {
@@ -353,7 +388,8 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
             pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, ") -> %s", rs);
             size_t len = (size_t)pos + 1;
             char *out = (char *)iron_arena_alloc(a, len, 1);
-            if (!out) iron_oom_abort("types.c:iron_type_to_string FUNC");
+            /* HARD-09 REPLACE (CR-02, types.c:iron_type_to_string FUNC). */
+            if (!out) return "<oom func>";
             memcpy(out, buf, len);
             return out;
         }
@@ -389,7 +425,8 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
             pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "]");
             size_t len = (size_t)pos + 1;
             char *out = (char *)iron_arena_alloc(a, len, 1);
-            if (!out) iron_oom_abort("types.c:iron_type_to_string ENUM generic");
+            /* HARD-09 REPLACE (CR-02, types.c:iron_type_to_string ENUM generic). */
+            if (!out) return "<oom enum>";
             memcpy(out, buf, len);
             return out;
         }
@@ -413,7 +450,8 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
             pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, ")");
             size_t len = (size_t)pos + 1;
             char *out = (char *)iron_arena_alloc(a, len, 1);
-            if (!out) iron_oom_abort("types.c:iron_type_to_string TUPLE");
+            /* HARD-09 REPLACE (CR-02, types.c:iron_type_to_string TUPLE). */
+            if (!out) return "<oom tuple>";
             memcpy(out, buf, len);
             return out;
         }

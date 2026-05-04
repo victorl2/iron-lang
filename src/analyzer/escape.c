@@ -18,6 +18,13 @@
 #include <string.h>
 #include <stdio.h>
 #include <stddef.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* ── Context ─────────────────────────────────────────────────────────────── */
 
@@ -42,6 +49,9 @@ typedef struct {
 
     /* Names that escape (appear in return or outer assignment) */
     const char   **escaped_names;  /* stb_ds dynamic array */
+
+    /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
+    const _Atomic bool *cancel_flag;
 } EscapeCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -68,7 +78,7 @@ static Iron_HeapExpr *find_heap_for_name(EscapeCtx *ctx, const char *name) {
 /* Emit a diagnostic. */
 static void emit_err(EscapeCtx *ctx, int code, Iron_Span span, const char *msg) {
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-    if (!msg_copy) iron_oom_abort("escape.c:emit_err msg");
+    if (!msg_copy) { /* HARD-09 REPLACE (escape.c:emit_err msg) */ msg_copy = "analyzer error"; }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR, code, span,
                    msg_copy, NULL);
 }
@@ -234,6 +244,14 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
             if (ss->body) collect_stmt(ctx, ss->body);
             break;
         }
+        /* HARD-04: graceful no-op on parser ErrorNode. */
+        case IRON_NODE_ERROR:
+            break;
+
+        /* HARD-04: sentinel — never a real node kind. */
+        case IRON_NODE_COUNT:
+            break;
+
         /* -Wswitch-enum opt-out: escape.c::collect_stmt only cares about
          * statements that can produce, free, leak, or escape a heap binding;
          * every other Iron_NodeKind is intentionally a no-op here. */
@@ -290,7 +308,11 @@ static void validate_node(EscapeCtx *ctx, Iron_Node *node) {
                      * non-ident shapes. */
                     bool is_rc = false;
                     if (ls->expr->kind == IRON_NODE_IDENT) {
-                        IRON_NODE_ASSERT_KIND(ls->expr, IRON_NODE_IDENT);
+                        /* HARD-10 REPLACE (audit row escape.c:293):
+                         * guard above (ls->expr->kind == IRON_NODE_IDENT) is
+                         * the authoritative kind check; the redundant assert
+                         * has been dropped so an IRON_NODE_ERROR never aborts
+                         * here (unreachable given the guard but principled). */
                         Iron_Ident *id = (Iron_Ident *)ls->expr;
                         /* Check if it's an rc value via resolved_sym->type */
                         if (id->resolved_sym &&
@@ -385,6 +407,10 @@ static void validate_node(EscapeCtx *ctx, Iron_Node *node) {
             if (ss->body) validate_node(ctx, ss->body);
             break;
         }
+        /* HARD-04: graceful no-op on parser ErrorNode. */
+        case IRON_NODE_ERROR:
+            break;
+
         /* -Wswitch-enum opt-out: validate_node only inspects stmts that can
          * reference a freed/leaked binding or introduce a nested scope. */
         default:
@@ -402,6 +428,8 @@ static void validate_free_leak(EscapeCtx *ctx, Iron_Node **stmts, int count) {
 
 static void analyze_function_body(EscapeCtx *ctx, Iron_Node *body_node) {
     if (!body_node || body_node->kind != IRON_NODE_BLOCK) return;
+    /* HARD-05: cancel poll at per-function analysis entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
     Iron_Block *body = (Iron_Block *)body_node;
 
     /* Reset per-function state */
@@ -455,8 +483,11 @@ static void analyze_function_body(EscapeCtx *ctx, Iron_Node *body_node) {
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
-                         Iron_Arena *arena, Iron_DiagList *diags) {
+                         Iron_Arena *arena, Iron_DiagList *diags,
+                         const _Atomic bool *cancel_flag) {
     if (!program) return;
+    /* HARD-05: pre-entry cancel check. */
+    if (iron_cancel_requested(cancel_flag)) return;
     (void)global_scope; /* not needed for intra-procedural analysis */
 
     EscapeCtx ctx;
@@ -466,8 +497,11 @@ void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
     ctx.freed_names   = NULL;
     ctx.leaked_names  = NULL;
     ctx.escaped_names = NULL;
+    ctx.cancel_flag   = cancel_flag;
 
     for (int i = 0; i < program->decl_count; i++) {
+        /* HARD-05: cancel poll inside top-level decl loop. */
+        if (iron_cancel_requested(cancel_flag)) break;
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
         switch ((int)(decl->kind)) {
@@ -481,6 +515,10 @@ void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
                 if (md->body) analyze_function_body(&ctx, md->body);
                 break;
             }
+            /* HARD-04: graceful no-op on parser ErrorNode at top level. */
+            case IRON_NODE_ERROR:
+                break;
+
             /* -Wswitch-enum opt-out: escape analysis only runs on function
              * and method bodies; every other top-level Iron_NodeKind is
              * intentionally skipped. */

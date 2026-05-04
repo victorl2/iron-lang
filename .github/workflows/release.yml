@@ -100,14 +100,32 @@ jobs:
             -G Ninja
 
       - name: Build
-        run: cmake --build build
+        # Phase 6 Plan 06-05 Task 3 (EXT-08 + EXT-09): explicitly list targets
+        # so the `ironls` binary is produced alongside `iron`/`ironc` for the
+        # Zed extension's download flow. Default target would build ironls
+        # transitively (IRON_BUILD_LSP=ON default on Linux/macOS), but naming
+        # it keeps the job self-documenting.
+        run: cmake --build build --target iron ironc ironls
 
       - name: Verify version output
         run: |
           ./build/ironc --version
           ./build/iron --version
+          test -x ./build/ironls && echo "ironls binary OK"
 
       - name: Package
+        # Produces TWO archives per matrix row:
+        #   1. iron-<version>-<target>.tar.gz   (existing: iron + ironc + stdlib + runtime sources)
+        #   2. ironls-v<version>-<os>-<arch>.tar.gz + .sha256 sidecar   (new in 06-05)
+        #
+        # The Zed extension (editors/zed/src/lib.rs) downloads the second
+        # pair: the tarball for the binary, the .sha256 for hand-rolled
+        # verification per RESEARCH CRITICAL + threat T-06-05-01.
+        #
+        # Target mapping to Zed's current_platform() (linux|macos, x86_64|aarch64):
+        #   linux-x86_64  → linux  / x86_64
+        #   macos-x86_64  → macos  / x86_64
+        #   macos-arm64   → macos  / aarch64
         run: |
           VERSION="${RELEASE_TAG#v}"
           ARCHIVE="iron-${VERSION}-${{ matrix.target }}.tar.gz"
@@ -122,12 +140,177 @@ jobs:
           tar -czf "${ARCHIVE}" -C staging .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
 
-      - name: Upload release asset
-        if: github.event_name != 'pull_request'
+          # --- Zed extension download target (06-05 EXT-08) ---
+          # Zed's current_platform() returns (os, arch). Derive the matching
+          # asset-name components from the matrix target slug.
+          case "${{ matrix.target }}" in
+            linux-x86_64) ZED_OS="linux" ; ZED_ARCH="x86_64"  ;;
+            macos-x86_64) ZED_OS="macos" ; ZED_ARCH="x86_64"  ;;
+            macos-arm64)  ZED_OS="macos" ; ZED_ARCH="aarch64" ;;
+            *) echo "unknown matrix.target for Zed packaging: ${{ matrix.target }}" ; exit 1 ;;
+          esac
+
+          # Ensure RELEASE_TAG has a v-prefix for ironls asset naming
+          # (editors/zed/src/lib.rs builds `ironls-${release.version}-...`
+          # from zed::latest_github_release which returns the tag unmodified).
+          ZED_VERSION="${RELEASE_TAG}"
+          if [ "${ZED_VERSION#v}" = "${ZED_VERSION}" ]; then
+            ZED_VERSION="v${ZED_VERSION}"
+          fi
+
+          IRONLS_ARCHIVE="ironls-${ZED_VERSION}-${ZED_OS}-${ZED_ARCH}.tar.gz"
+          # Stage just the ironls binary so the tarball root contains it
+          # at `./ironls` — matches the extraction assumption in
+          # editors/zed/src/lib.rs (`<version_dir>/ironls`).
+          mkdir -p ironls-staging
+          cp build/ironls ironls-staging/ironls
+          # Strip symbols where supported (Linux: strip; macOS: strip -S).
+          if [ "${ZED_OS}" = "macos" ]; then
+            strip -S ironls-staging/ironls || true
+          else
+            strip ironls-staging/ironls || true
+          fi
+          tar -czf "${IRONLS_ARCHIVE}" -C ironls-staging ironls
+
+          # SHA-256 sidecar. Use shasum on macOS (BSD), sha256sum on Linux.
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${IRONLS_ARCHIVE}" | awk '{print $1}' > "${IRONLS_ARCHIVE}.sha256"
+          else
+            shasum -a 256 "${IRONLS_ARCHIVE}" | awk '{print $1}' > "${IRONLS_ARCHIVE}.sha256"
+          fi
+
+          echo "IRONLS_ARCHIVE=${IRONLS_ARCHIVE}" >> $GITHUB_ENV
+          echo "IRONLS_SHA256=${IRONLS_ARCHIVE}.sha256" >> $GITHUB_ENV
+
+          # Visible in CI logs so the per-row SHA is easy to audit.
+          echo "ironls tarball: ${IRONLS_ARCHIVE}"
+          echo "ironls sha256 : $(cat ${IRONLS_ARCHIVE}.sha256)"
+
+      # Phase 7 Plan 07-06 (HARD-21, CONTEXT D-09): on macOS matrix legs
+      # the ironls tarball + .sha256 are NOT uploaded to the Release
+      # directly — they're uploaded as a workflow artifact and handed
+      # off to the sign-and-notarize-macos job, which Developer-ID-signs,
+      # notarizes, staples, re-tars, and recomputes the .sha256 before
+      # the final Release asset upload. Linux matrix legs continue to
+      # upload the ironls tarball + .sha256 directly (no signing flow
+      # on Linux in v1).
+      - name: Upload release asset (Linux — iron bundle + ironls signed/unsigned)
+        if: github.event_name != 'pull_request' && runner.os == 'Linux'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          files: ${{ env.ARCHIVE }}
+          files: |
+            ${{ env.ARCHIVE }}
+            ${{ env.IRONLS_ARCHIVE }}
+            ${{ env.IRONLS_SHA256 }}
+
+      # macOS legs: upload only the iron-<ver>-<target>.tar.gz bundle
+      # (iron + ironc + stdlib/runtime sources). The ironls tarball +
+      # .sha256 are handed off to the signing job below.
+      - name: Upload release asset (macOS — iron bundle only; ironls deferred to signing job)
+        if: github.event_name != 'pull_request' && runner.os == 'macOS'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            ${{ env.ARCHIVE }}
+
+      # Hand off the unsigned macOS ironls tarball + .sha256 to the
+      # sign-and-notarize-macos job via a workflow artifact.
+      - name: Upload unsigned macOS ironls artifact (handoff to signing job)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ironls-macos-unsigned-${{ matrix.target }}
+          path: |
+            ${{ env.IRONLS_ARCHIVE }}
+          if-no-files-found: error
+          retention-days: 1
+
+  # Phase 7 Plan 07-06 (HARD-21, CONTEXT D-09): Developer-ID sign +
+  # notarize + staple every macOS ironls binary before it reaches a
+  # GitHub Release. Closes the Phase 6 Gatekeeper caveat documented in
+  # `editors/zed/README.md` — signed + notarized + stapled binaries
+  # pass Gatekeeper silently instead of prompting "developer cannot be
+  # verified".
+  #
+  # Runs on macos-latest (requires Xcode CLT: codesign, xcrun notarytool,
+  # xcrun stapler, security, ditto). Linux/Windows runners cannot sign
+  # macOS binaries.
+  #
+  # Secrets (configured by maintainer per docs/dev/apple-notarization-setup.md):
+  #   APPLE_DEVELOPER_ID_P12_BASE64   — base64 .p12 cert + key
+  #   APPLE_DEVELOPER_ID_P12_PASSWORD — .p12 export password
+  #   APPLE_ID_EMAIL                  — Apple ID login
+  #   APPLE_ID_APP_PASSWORD           — app-specific password
+  #                                     (NOT the Apple ID password)
+  #   APPLE_TEAM_ID                   — 10-char Team ID
+  #
+  # T-07-06-01 mitigation: secrets are bound to env vars via `env:`
+  # block and referenced indirectly (`${!var}`) inside the script —
+  # never interpolated into `run:` scripts directly.
+  sign-and-notarize-macos:
+    if: github.event_name != 'pull_request'
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - target: macos-x86_64
+            arch: x86_64
+          - target: macos-arm64
+            arch: aarch64
+      fail-fast: false
+    runs-on: macos-latest
+    # T-07-06-04 mitigation: notarytool --wait has known hang modes
+    # in 2026 (RESEARCH Pitfall 5). Script caps primary path at 1200s
+    # and falls back to 30-minute polling. Overall job cap is 30 min.
+    timeout-minutes: 30
+    env:
+      APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+      APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+      APPLE_ID_EMAIL: ${{ secrets.APPLE_ID_EMAIL }}
+      APPLE_ID_APP_PASSWORD: ${{ secrets.APPLE_ID_APP_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download unsigned macOS ironls tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: ironls-macos-unsigned-${{ matrix.target }}
+          path: handoff/
+
+      - name: Extract ironls binary for signing
+        run: |
+          set -euo pipefail
+          # The handoff artifact is `ironls-v<version>-macos-<arch>.tar.gz`.
+          # Extract into a per-arch directory so both matrix legs can
+          # share the same runner-local filesystem without collision.
+          mkdir -p build
+          TARBALL=$(ls handoff/ironls-v*-macos-*.tar.gz | head -1)
+          if [[ -z "${TARBALL}" ]]; then
+            echo "ERROR: no ironls tarball found in handoff/" >&2
+            ls -la handoff/ >&2
+            exit 1
+          fi
+          echo "extracting: $TARBALL"
+          tar -xzf "$TARBALL" -C build/
+          test -x build/ironls || { echo "ERROR: build/ironls not executable" >&2; exit 1; }
+
+      - name: Sign + notarize + staple + re-tar (scripts/ci/sign_and_notarize_macos.sh)
+        run: |
+          bash scripts/ci/sign_and_notarize_macos.sh \
+            build/ironls \
+            "${{ env.RELEASE_TAG }}" \
+            "${{ matrix.arch }}"
+
+      - name: Upload signed macOS ironls asset to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            build/ironls-v*-macos-${{ matrix.arch }}.tar.gz
+            build/ironls-v*-macos-${{ matrix.arch }}.tar.gz.sha256
 
   upload-install-script:
     if: github.event_name != 'pull_request'
@@ -141,6 +324,40 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: scripts/install.sh
+
+  # Phase 6 Plan 06-05 Task 3 (EXT-08 + EXT-09, CONTEXT D-11).
+  #
+  # Builds iron.wasm (tree-sitter grammar parser) and uploads it as a
+  # Release asset alongside the ironls tarballs. The Zed extension's
+  # [grammars.iron] section (Plan 06-06) will fetch this artifact from
+  # the Release so users get correct Iron syntax highlighting without
+  # a second download + verify step. Pinned tree-sitter-cli 0.26.3 matches
+  # the existing tree-sitter-wasm CI job in ci.yml.
+  release-wasm:
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install tree-sitter-cli
+        run: npm install -g tree-sitter-cli@0.26.3
+
+      - name: Generate + build WASM
+        working-directory: grammars/tree-sitter/iron
+        run: |
+          tree-sitter generate
+          tree-sitter build --wasm
+
+      - name: Upload iron.wasm
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: grammars/tree-sitter/iron/iron.wasm
 
   deploy-pages:
     if: github.event_name != 'pull_request'

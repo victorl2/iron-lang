@@ -1,0 +1,25 @@
+/* @GENERATED at configure time from src/lexer/lexer.c kw_table.
+ * DO NOT EDIT. Edit src/lexer/lexer.c and reconfigure.
+ *
+ * Phase 4 Plan 04-02 Task 01 (EDIT-06, PITFALL H — keyword drift).
+ *
+ * The completion engine emits this list as Bucket 6 (keyword candidates)
+ * when context is ILSP_CCTX_EXPR_HEAD or ILSP_CCTX_STATEMENT_HEAD. It
+ * MUST remain byte-identical to the lexer's kw_table; the drift-guard
+ * unit test (tests/unit/test_completion_keyword_mirror.c) asserts parity
+ * at run time. The CMake `configure_file` step below extracts keyword
+ * strings from src/lexer/lexer.c at build-configure time so a divergence
+ * in one file is never committed alone. */
+#ifndef IRON_COMPLETION_KEYWORD_MIRROR_H
+#define IRON_COMPLETION_KEYWORD_MIRROR_H
+
+#include <stddef.h>
+
+static const char *const ILSP_COMPLETION_KEYWORDS[] = {
+@IRON_KEYWORD_LIST@
+};
+
+#define ILSP_COMPLETION_KEYWORD_COUNT \
+    (sizeof(ILSP_COMPLETION_KEYWORDS) / sizeof(ILSP_COMPLETION_KEYWORDS[0]))
+
+#endif /* IRON_COMPLETION_KEYWORD_MIRROR_H */

@@ -1,0 +1,50 @@
+interface Entry {
+  func get_value() -> Int
+}
+
+object Ledger impl Entry {
+  var value: Int
+  var label_a: Int
+  var label_b: Int
+  var label_c: Int
+  var label_d: Int
+  init(value: Int, label_a: Int, label_b: Int, label_c: Int, label_d: Int) {
+    self.value = value
+    self.label_a = label_a
+    self.label_b = label_b
+    self.label_c = label_c
+    self.label_d = label_d
+  }
+}
+
+object Note impl Entry {
+  var value: Int
+  var tag_a: Int
+  var tag_b: Int
+  var tag_c: Int
+  var tag_d: Int
+  init(value: Int, tag_a: Int, tag_b: Int, tag_c: Int, tag_d: Int) {
+    self.value = value
+    self.tag_a = tag_a
+    self.tag_b = tag_b
+    self.tag_c = tag_c
+    self.tag_d = tag_d
+  }
+}
+
+func Ledger.get_value() -> Int {
+  return self.value
+}
+
+func Note.get_value() -> Int {
+  return self.value
+}
+
+func main() {
+  val entries = [Ledger(100, 9001, 9002, 9003, 9004), Note(40, 8001, 8002, 8003, 8004), Ledger(250, 7001, 7002, 7003, 7004), Note(60, 6001, 6002, 6003, 6004), Ledger(50, 5001, 5002, 5003, 5004)]
+  val total = entries.map(func(e: Entry) -> Int {
+    return e.get_value()
+  }).sum()
+  println("{total}")
+  println("dead_field_done")
+}

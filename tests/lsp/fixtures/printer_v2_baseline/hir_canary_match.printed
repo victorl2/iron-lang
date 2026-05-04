@@ -1,0 +1,26 @@
+func describe(n: Int) -> Int {
+  match n {
+    1 -> {
+      return 10
+    }
+    2 -> {
+      return 20
+    }
+    3 -> {
+      return 30
+    }
+    else -> {
+      return 99
+    }
+  }
+  return 0
+}
+
+func main() {
+  var total = 0
+  total = (total + describe(1))
+  total = (total + describe(2))
+  total = (total + describe(3))
+  total = (total + describe(7))
+  println("total: {total}")
+}

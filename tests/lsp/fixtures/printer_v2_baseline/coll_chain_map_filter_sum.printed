@@ -1,0 +1,9 @@
+func main() {
+  val arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  val result = arr.map(func(x: Int) -> Int {
+    return (x * 2)
+  }).filter(func(x: Int) -> Bool {
+    return (x > 10)
+  }).sum()
+  println("{result}")
+}

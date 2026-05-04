@@ -1,0 +1,28 @@
+import math
+
+func main() {
+  val a = Math.asin(0.0)
+  println("asin ok")
+  val b = Math.acos(1.0)
+  println("acos ok")
+  val c = Math.atan2(0.0, 1.0)
+  println("atan2 ok")
+  val s1 = Math.sign(-5.0)
+  println("{s1}")
+  val s2 = Math.sign(0.0)
+  println("{s2}")
+  val s3 = Math.sign(3.0)
+  println("{s3}")
+  Math.seed(42)
+  println("seed ok")
+  val rf = Math.random_float(0.0, 1.0)
+  println("random_float ok")
+  val lg = Math.log(1.0)
+  println("log ok")
+  val l2 = Math.log2(8.0)
+  println("log2 ok")
+  val ex = Math.exp(0.0)
+  println("exp ok")
+  val h = Math.hypot(3.0, 4.0)
+  println("hypot ok")
+}

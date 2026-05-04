@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Iron LSP — Editor Support</title>
+  <meta name="description" content="Iron's official Language Server Protocol implementation. Diagnostics, hover, goto-definition, completion, and rename for VSCode, Neovim, and Zed.">
+  <meta property="og:title" content="Iron LSP — Editor Support">
+  <meta property="og:description" content="Diagnostics, hover, goto-definition, completion, and rename for VSCode, Neovim, and Zed.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://ironlang.dev/lsp/">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-deep: #08080f;
+      --bg-primary: #0c0c16;
+      --bg-surface: #12121f;
+      --bg-card: #181830;
+      --bg-code: #0a0a14;
+      --accent: #e8590c;
+      --accent-hover: #ff6b1a;
+      --accent-glow: rgba(232, 89, 12, 0.12);
+      --accent-subtle: rgba(232, 89, 12, 0.06);
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --border: #1e1e32;
+      --border-light: #2a2a42;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --max-width: 1200px;
+      --radius: 10px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-deep);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    a { color: var(--accent); text-decoration: none; transition: color 0.2s; }
+    a:hover { color: var(--accent-hover); }
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.88em;
+      background: var(--bg-surface);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+    }
+
+    /* ── Navigation ─────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(8, 8, 15, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 2rem;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-weight: 800;
+      font-size: 1.25rem;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .nav-logo:hover { color: var(--text); }
+
+    .nav-logo-icon {
+      width: 30px;
+      height: 30px;
+      background: var(--accent);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: white;
+      font-family: var(--font-sans);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+      transition: color 0.2s, background 0.2s;
+      padding: 0.4rem 0.75rem;
+      border-radius: 6px;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .nav-links a.active-link {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .nav-links .gh-link {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .nav-links .gh-link svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+
+    .nav-hamburger {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.5rem;
+    }
+
+    .nav-hamburger span {
+      display: block;
+      width: 22px;
+      height: 2px;
+      background: var(--text-secondary);
+      margin: 5px 0;
+      transition: 0.3s;
+      transform-origin: center;
+    }
+
+    .nav-hamburger.active span:nth-child(1) {
+      transform: rotate(45deg) translate(5px, 5px);
+    }
+
+    .nav-hamburger.active span:nth-child(2) {
+      opacity: 0;
+    }
+
+    .nav-hamburger.active span:nth-child(3) {
+      transform: rotate(-45deg) translate(5px, -5px);
+    }
+
+    /* ── Overlay ────────────────────────────────────────── */
+    .nav-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 99;
+      background: rgba(0, 0, 0, 0.5);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s, visibility 0.3s;
+    }
+
+    .nav-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    /* ── Page layout ───────────────────────────────────── */
+    main {
+      flex: 1;
+      padding: 0 2rem;
+    }
+
+    .install-hero {
+      max-width: 740px;
+      margin: 0 auto;
+      padding-top: 8rem;
+      padding-bottom: 3.5rem;
+      text-align: center;
+    }
+
+    .install-hero h1 {
+      font-size: 3rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.15;
+      margin-bottom: 1.25rem;
+    }
+
+    .install-hero h1 .highlight {
+      background: linear-gradient(135deg, var(--accent), #ff8c42);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .install-hero .subtitle {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      line-height: 1.7;
+      max-width: 520px;
+      margin: 0 auto;
+    }
+
+    /* ── Platform detection ─────────────────────────────── */
+    .platform-section {
+      max-width: 740px;
+      margin: 0 auto;
+      padding-bottom: 4rem;
+    }
+
+    .platform-banner {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.5rem;
+      margin-bottom: 2rem;
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    .platform-banner strong {
+      color: var(--text);
+    }
+
+    .platform-icon {
+      flex-shrink: 0;
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      background: var(--accent-glow);
+      border: 1px solid rgba(232, 89, 12, 0.18);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .platform-icon svg {
+      width: 20px;
+      height: 20px;
+      fill: var(--accent);
+    }
+
+    /* ── Install sections (toggled by JS) ──────────────── */
+    .install-unix,
+    .install-windows,
+    .install-unknown {
+      display: none;
+    }
+
+    .install-unix.active,
+    .install-windows.active,
+    .install-unknown.active {
+      display: block;
+    }
+
+    /* ── Terminal command box ───────────────────────────── */
+    .terminal {
+      background: var(--bg-code);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 1.5rem;
+    }
+
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0.7rem 1rem;
+      background: rgba(255,255,255,0.02);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .terminal-dot.red { background: #ff5f57; }
+    .terminal-dot.yellow { background: #febc2e; }
+    .terminal-dot.green { background: #28c840; }
+
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-family: var(--font-sans);
+      margin-right: 46px; /* offset for dots to visually center */
+    }
+
+    .terminal-body {
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      position: relative;
+    }
+
+    .terminal-prompt {
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-weight: 500;
+      font-size: 0.9rem;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .terminal-cmd {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: var(--text);
+      line-height: 1.65;
+      word-break: break-all;
+      user-select: all;
+      flex: 1;
+    }
+
+    .copy-btn {
+      position: absolute;
+      top: 50%;
+      right: 1rem;
+      transform: translateY(-50%);
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: 6px;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0.4rem 0.65rem;
+      font-size: 0.75rem;
+      font-family: var(--font-sans);
+      font-weight: 500;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
+    }
+
+    .copy-btn:hover {
+      color: var(--text);
+      border-color: var(--accent);
+      background: var(--accent-glow);
+    }
+
+    .copy-btn.copied {
+      color: #4ade80;
+      border-color: rgba(74, 222, 128, 0.3);
+      background: rgba(74, 222, 128, 0.06);
+    }
+
+    .copy-btn svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+    }
+
+    /* ── Info text ──────────────────────────────────────── */
+    .install-detail {
+      color: var(--text-secondary);
+      font-size: 0.92rem;
+      line-height: 1.75;
+    }
+
+    .install-detail a {
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      text-decoration-color: rgba(232, 89, 12, 0.4);
+    }
+
+    .install-detail a:hover {
+      text-decoration-color: var(--accent);
+    }
+
+    /* ── Divider ───────────────────────────────────────── */
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 3.5rem 0;
+    }
+
+    /* ── What you get ──────────────────────────────────── */
+    .what-you-get {
+      max-width: 740px;
+      margin: 0 auto;
+      padding-bottom: 1rem;
+    }
+
+    .what-you-get h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 1.5rem;
+    }
+
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      padding: 1.1rem 1.35rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: border-color 0.2s;
+    }
+
+    .step:hover {
+      border-color: var(--border-light);
+    }
+
+    .step-num {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .step-content {
+      flex: 1;
+    }
+
+    .step-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 0.2rem;
+    }
+
+    .step-desc {
+      color: var(--text-secondary);
+      font-size: 0.88rem;
+      line-height: 1.6;
+    }
+
+    .step-desc code {
+      font-size: 0.82em;
+    }
+
+    /* ── Other methods ─────────────────────────────────── */
+    .other-methods {
+      max-width: 740px;
+      margin: 0 auto;
+      padding-bottom: 4rem;
+    }
+
+    .other-methods h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 1.5rem;
+    }
+
+    .methods-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .method-card {
+      padding: 1.5rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: border-color 0.25s, background 0.25s;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .method-card:hover {
+      border-color: var(--border-light);
+      background: var(--bg-card);
+    }
+
+    .method-card-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--accent-glow);
+      border: 1px solid rgba(232, 89, 12, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+
+    .method-card-icon svg {
+      width: 18px;
+      height: 18px;
+      fill: var(--accent);
+    }
+
+    .method-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .method-card p {
+      color: var(--text-secondary);
+      font-size: 0.88rem;
+      line-height: 1.65;
+      flex: 1;
+    }
+
+    .method-card .method-link {
+      margin-top: 1rem;
+      font-size: 0.88rem;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .method-card .method-link svg {
+      width: 14px;
+      height: 14px;
+      fill: currentColor;
+      transition: transform 0.2s;
+    }
+
+    .method-card:hover .method-link svg {
+      transform: translateX(2px);
+    }
+
+    /* ── Windows notice ────────────────────────────────── */
+    .notice-box {
+      background: rgba(232, 89, 12, 0.04);
+      border: 1px solid rgba(232, 89, 12, 0.15);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.5rem;
+      font-size: 0.92rem;
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+
+    .notice-box strong {
+      color: var(--text);
+    }
+
+    /* ── Footer ────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem;
+      margin-top: auto;
+    }
+
+    .footer-inner {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    .footer-inner a {
+      color: var(--text-secondary);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      text-decoration-color: var(--border-light);
+    }
+
+    .footer-inner a:hover {
+      color: var(--text);
+    }
+
+    /* ── Entrance animations ───────────────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .install-hero { animation: fadeUp 0.5s ease-out both; }
+    .platform-section { animation: fadeUp 0.5s ease-out 0.1s both; }
+    .what-you-get { animation: fadeUp 0.5s ease-out 0.2s both; }
+    .other-methods { animation: fadeUp 0.5s ease-out 0.3s both; }
+
+    /* ── Responsive ────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .nav-links {
+        position: absolute;
+        top: 64px;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        background: rgba(12, 12, 22, 0.98);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-bottom: 1px solid var(--border);
+        padding: 1rem 2rem;
+        gap: 0;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(-8px);
+        transition: opacity 0.25s, visibility 0.25s, transform 0.25s;
+      }
+      .nav-links.open {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+      .nav-links a {
+        padding: 0.65rem 0.5rem;
+        font-size: 1rem;
+        border-radius: 8px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+      }
+      .nav-links a:hover {
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .nav-hamburger { display: block; }
+      .install-hero { padding-top: 7rem; }
+      .install-hero h1 { font-size: 2.25rem; }
+      .methods-grid { grid-template-columns: 1fr; }
+      main { padding: 0 1.5rem; }
+    }
+
+    @media (max-width: 480px) {
+      .nav-inner { padding: 0 1rem; }
+      .install-hero { padding-top: 6rem; padding-bottom: 2rem; }
+      .install-hero h1 { font-size: 1.85rem; }
+      .install-hero .subtitle { font-size: 0.95rem; }
+      .terminal-body { padding: 0.85rem 1rem; }
+      .terminal-cmd { font-size: 0.75rem; word-break: break-all; }
+      .terminal-prompt { font-size: 0.82rem; }
+      .platform-banner { flex-direction: column; text-align: center; gap: 0.6rem; padding: 1rem; font-size: 0.9rem; }
+      .copy-btn span { display: none; }
+      .copy-btn { padding: 0.4rem; }
+      .footer-inner { flex-direction: column; gap: 0.5rem; text-align: center; }
+      main { padding: 0 1rem; }
+      .step { padding: 0.85rem 1rem; gap: 0.75rem; }
+      .step-title { font-size: 0.9rem; }
+      .step-desc { font-size: 0.82rem; }
+      .method-card { padding: 1.15rem; }
+      .method-card h3 { font-size: 0.95rem; }
+      .method-card p { font-size: 0.84rem; }
+      .what-you-get h2, .other-methods h2 { font-size: 1.3rem; }
+      .notice-box { padding: 1rem; font-size: 0.88rem; }
+      .divider { margin: 2.5rem 0; }
+      .install-detail { font-size: 0.88rem; }
+    }
+
+    @media (max-width: 360px) {
+      .install-hero { padding-top: 5.5rem; }
+      .install-hero h1 { font-size: 1.6rem; }
+      .install-hero .subtitle { font-size: 0.9rem; }
+      .terminal-cmd { font-size: 0.68rem; }
+      main { padding: 0 0.75rem; }
+      .nav-inner { padding: 0 0.75rem; }
+      .step { padding: 0.75rem; }
+      .method-card { padding: 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <!-- ── Navigation ───────────────────────────────────── -->
+  <nav>
+    <div class="nav-inner">
+      <a href="/" class="nav-logo">
+        <div class="nav-logo-icon">Fe</div>
+        Iron
+      </a>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="/docs/">Docs</a></li>
+        <li><a href="/guide/">Package Manager</a></li>
+        <li><a href="/raylib/">Raylib</a></li>
+        <li><a href="/lsp/" class="active-link">LSP</a></li>
+        <li><a href="/install/">Install</a></li>
+        <li>
+          <a href="https://github.com/victorl2/iron-lang" class="gh-link">
+            <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            Source Code
+          </a>
+        </li>
+      </ul>
+      <button class="nav-hamburger" id="navToggle" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </nav>
+  <div class="nav-overlay" id="navOverlay"></div>
+
+  <main>
+    <!-- ── Hero ──────────────────────────────────────── -->
+    <section class="install-hero">
+      <h1>Iron <span class="highlight">LSP</span></h1>
+      <p class="subtitle">Real-time language intelligence for <code>.iron</code> files in VSCode, Neovim, and Zed. Diagnostics that match the compiler exactly — never a divergence between what your editor flags and what <code>ironc</code> produces.</p>
+    </section>
+
+    <!-- ── Features ──────────────────────────────────── -->
+    <section class="what-you-get">
+      <h2>What you get</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">①</div>
+          <div class="step-content">
+            <div class="step-title">Diagnostics</div>
+            <div class="step-desc">Lex, parse, and type errors as you type. Same error codes and spans as <code>ironc check</code>, byte-identical.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">②</div>
+          <div class="step-content">
+            <div class="step-title">Hover &amp; Goto Definition</div>
+            <div class="step-desc">Type and signature info on hover. Jump to the definition of any identifier — functions, methods, fields, enum variants.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">③</div>
+          <div class="step-content">
+            <div class="step-title">Completion</div>
+            <div class="step-desc">In-scope identifier completion. Method completion on a value's type. Module-qualified completion for stdlib symbols.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">④</div>
+          <div class="step-content">
+            <div class="step-title">Document &amp; Workspace Symbols</div>
+            <div class="step-desc">Outline view per file. Workspace-wide symbol search across every <code>.iron</code> file in the project.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">⑤</div>
+          <div class="step-content">
+            <div class="step-title">References &amp; Rename</div>
+            <div class="step-desc">Find every reader of a symbol. Safe project-wide rename that won't touch shadowed names or unrelated identifiers.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">⑥</div>
+          <div class="step-content">
+            <div class="step-title">Type Hierarchy &amp; Code Actions</div>
+            <div class="step-desc">Walk supertypes and subtypes for any object. Quick fixes for common diagnostics. Format on save via <code>ironc fmt</code>.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="divider" style="max-width: 740px; margin-left: auto; margin-right: auto;">
+
+    <!-- ── Editor install ────────────────────────────── -->
+    <section class="other-methods">
+      <h2>Editor extensions</h2>
+      <p style="text-align: center; max-width: 720px; margin: 0 auto 2.5rem; color: var(--text-secondary);">
+        The Iron installer (<code>~/.iron/bin/ironls</code>) ships the language server. Install one of the editor extensions below, and your editor will discover and spawn it automatically.
+      </p>
+      <div class="methods-grid">
+        <div class="method-card">
+          <div class="method-card-icon">
+            <svg viewBox="0 0 24 24"><path d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>
+          </div>
+          <h3>VSCode</h3>
+          <p>Search "Iron Language Support" in the Marketplace, or install from the <code>.vsix</code> bundled with each release.</p>
+          <a class="method-link" href="https://github.com/victorl2/iron-lang/tree/main/editors/vscode">
+            VSCode extension
+            <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+          </a>
+        </div>
+        <div class="method-card">
+          <div class="method-card-icon">
+            <svg viewBox="0 0 24 24"><path d="M2 4l3 1.5v13L2 20V4zm20 0v16l-3-1.5v-13L22 4zM7 6.5l5 2.5L7 11.5v-5zm10 0v5l-5-2.5 5-2.5zM7 12.5l5 2.5-5 2.5v-5zm10 0v5l-5-2.5 5-2.5z"/></svg>
+          </div>
+          <h3>Neovim</h3>
+          <p>Built-in LSP client + the Iron filetype plugin. Drop the snippet from the Neovim README into your config.</p>
+          <a class="method-link" href="https://github.com/victorl2/iron-lang/tree/main/editors/neovim">
+            Neovim setup
+            <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+          </a>
+        </div>
+        <div class="method-card">
+          <div class="method-card-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 9.5L12 13l4-3.5M8 14l4 3.5 4-3.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+          </div>
+          <h3>Zed</h3>
+          <p>Search "Iron LSP" in the Zed extensions panel. The extension downloads <code>ironls</code> from the matching release and verifies its SHA-256.</p>
+          <a class="method-link" href="https://github.com/victorl2/iron-lang/tree/main/editors/zed">
+            Zed extension
+            <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <hr class="divider" style="max-width: 740px; margin-left: auto; margin-right: auto;">
+
+    <!-- ── Configuration ─────────────────────────────── -->
+    <section class="what-you-get">
+      <h2>Configuration</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">①</div>
+          <div class="step-content">
+            <div class="step-title">Use a custom <code>ironls</code> binary</div>
+            <div class="step-desc">
+              If you've built <code>ironls</code> locally and want your editor to use it instead of the bundled release binary, set the <code>iron_lsp_path</code> override:
+              <ul style="margin-top: 0.5rem; padding-left: 1.25rem;">
+                <li><strong>VSCode</strong>: <code>"iron-lsp.serverPath"</code> in <code>settings.json</code></li>
+                <li><strong>Neovim</strong>: pass <code>cmd = { "/path/to/ironls" }</code> when calling <code>vim.lsp.start</code></li>
+                <li><strong>Zed</strong>: <code>"lsp": { "iron-lsp": { "binary": { "path": "/path/to/ironls" } } }</code></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">②</div>
+          <div class="step-content">
+            <div class="step-title">Version pinning</div>
+            <div class="step-desc">Each editor extension declares a compatible <code>ironls</code> version range. If your binary falls outside the range, the extension refuses to spawn it and shows a notification — your project never silently runs against an incompatible server.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">③</div>
+          <div class="step-content">
+            <div class="step-title">Logs</div>
+            <div class="step-desc">Set <code>iron_lsp_log_level</code> to <code>debug</code> for verbose output. Each editor exposes the LSP stderr stream through its standard logs panel — use it when diagnosing startup or version-mismatch issues.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="divider" style="max-width: 740px; margin-left: auto; margin-right: auto;">
+
+    <!-- ── The compiler-parity guarantee ─────────────── -->
+    <section class="other-methods" style="max-width: 880px; margin-left: auto; margin-right: auto;">
+      <h2>The parity guarantee</h2>
+      <p style="text-align: center; max-width: 640px; margin: 0 auto 2rem; color: var(--text-secondary);">
+        Iron's LSP isn't a parallel implementation of the language — it links the compiler frontend (<code>iron_compiler</code>) directly as a static library. Every diagnostic span, every error code, every type lookup comes from the same code path that <code>ironc</code> uses. That is the core promise: what your editor flags, the compiler flags. CI runs a byte-identical comparison on every commit to ensure they never drift.
+      </p>
+      <div style="text-align: center;">
+        <a class="method-link" href="https://github.com/victorl2/iron-lang/blob/main/src/lsp/" style="justify-content: center; max-width: 280px; margin: 0 auto;">
+          Read the LSP source
+          <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <!-- ── Footer ───────────────────────────────────────── -->
+  <footer>
+    <div class="footer-inner">
+      <span>Apache 2.0 License</span>
+      <span>Created by <a href="https://victorfts.com/">Victor Ferreira T da Silva</a></span>
+    </div>
+  </footer>
+
+  <script>
+    // Nav toggle
+    (function() {
+      var toggle = document.getElementById('navToggle');
+      var links = document.getElementById('navLinks');
+      var overlay = document.getElementById('navOverlay');
+
+      function closeMenu() {
+        links.classList.remove('open');
+        toggle.classList.remove('active');
+        overlay.classList.remove('active');
+        document.body.style.overflow = '';
+      }
+
+      toggle.addEventListener('click', function() {
+        var isOpen = links.classList.toggle('open');
+        toggle.classList.toggle('active');
+        overlay.classList.toggle('active');
+        document.body.style.overflow = isOpen ? 'hidden' : '';
+      });
+
+      overlay.addEventListener('click', closeMenu);
+
+      links.querySelectorAll('a').forEach(function(a) {
+        a.addEventListener('click', closeMenu);
+      });
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeMenu();
+      });
+    })();
+
+  </script>
+</body>
+</html>

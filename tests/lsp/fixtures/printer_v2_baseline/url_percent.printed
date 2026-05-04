@@ -1,0 +1,16 @@
+import url
+
+func main() {
+  println(Url.percent_encode("hello world", false))
+  val (null) = Url.percent_decode("hello%20world")
+  if (e1.code == 0) {
+    println(d1)
+  } else {
+    println("decode failed")
+  }
+  val (null) = Url.percent_decode("bad%2")
+  if (e2.code == 2007) {
+    println("bad percent ok")
+  }
+  println(Url.percent_encode("a/b?c=d&e=f", false))
+}

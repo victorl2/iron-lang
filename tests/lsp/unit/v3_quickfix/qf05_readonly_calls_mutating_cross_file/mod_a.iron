@@ -1,0 +1,11 @@
+-- Phase 12 Plan 12-03 fixture: QF-05 cross-file — callee module.
+-- Defines a mutating method. The caller in mod_b.iron triggers E0239.
+-- Asserts (cross-file): only Action A emits (Phase 12 v1 limits Action B
+-- to same-file callees per DEF-12-11; cross-file requires per-edit URI
+-- on IronLsp_CodeAction, deferred to a future phase).
+
+pub object Counter {
+    var x: Int
+    init(x: Int) { self.x = x }
+    pub func bump() { self.x = self.x + 1 }
+}

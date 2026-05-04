@@ -2,24 +2,138 @@
 #include "parser/ast.h"
 #include "util/strbuf.h"
 #include "util/arena.h"
+#include "fmt/options.h"   /* IronFmtOptions */
 #include "lexer/lexer.h"   /* Iron_TokenKind for operator names */
+#include "vendor/stb_ds.h" /* Phase 9 Plan 09-02: shput/shget/arrput for the
+                            * method-by-type-name index used by the
+                            * OBJECT_DECL method-merge path (D-10 Approach 1). */
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
+/* ── Method-by-type-name index (Phase 9 Plan 09-02 D-10) ─────────────────── */
+
+/* Bucket value: a malloc-grown stb_ds dynamic array of receiver-form methods
+ * owned by a single type. arrput'd; arrfree'd at teardown. */
+typedef struct {
+    Iron_MethodDecl **methods;
+} MethodOwnerArr;
+
+/* stb_ds shmap entry shape: shput(t, k, v) writes (t)[i].key=k and
+ * (t)[i].value=v (see stb_ds.h:563-566), so the array element type must
+ * have both `.key` and `.value` fields. Map type is `MethodIndexEntry *`
+ * dynamic; iterate via shlen / map[i].value.methods. */
+typedef struct {
+    char           *key;     /* type name; stb_ds owns the realloc'd slot */
+    MethodOwnerArr  value;
+} MethodIndexEntry;
+
 /* ── Printer context ─────────────────────────────────────────────────────── */
 
 typedef struct {
-    Iron_StrBuf *sb;
-    int          indent_level;
+    Iron_StrBuf          *sb;
+    int                   indent_level;
+    const IronFmtOptions *opts;   /* Phase 5 Plan 05-01: NULL means defaults */
+    /* Phase 9 Plan 09-02 D-10 Approach 1: method-by-type-name index built
+     * once per iron_print_ast call. NULL when print_node is invoked
+     * recursively without a top-level Iron_Program (e.g., printing a single
+     * AST subtree); in that case the merge logic short-circuits and methods
+     * print at top level via the standalone METHOD_DECL arm. void* keeps
+     * MethodOwnerArr private to printer.c. */
+    void                 *method_index;  /* (MethodIndexEntry *) shmap or NULL */
 } PrintCtx;
+
+/* ── Method index: build / lookup / free ─────────────────────────────────── */
+
+/* Build a method-by-type-name index from program->decls[] including only
+ * methods with is_receiver_form==true. The bit-explicit filter is the
+ * Pitfall 3 mitigation: classic v2 `func Type.method(...)` decls leave
+ * is_receiver_form=false (parser.c:3040-3041 and the v2 receiver-form
+ * branch elsewhere) and therefore stay at top level on print, preserving
+ * v2 byte output verbatim. v3 method-in-block / patch / init decls are
+ * hoisted to program->decls[] by the parser (parser.c:3331-3460,
+ * :3208-3335) and carry is_receiver_form=true; those are the only ones
+ * pulled into their owning object body during printing. */
+static MethodIndexEntry *method_index_build(Iron_Program *prog) {
+    if (!prog) return NULL;
+    MethodIndexEntry *map = NULL;
+    /* Don't use sh_new_arena — the printer's arena is the OUTPUT string
+     * arena and must not absorb transient bookkeeping. Plain shput uses
+     * stb_ds default malloc; freed in method_index_free below. */
+    int any = 0;
+    for (int i = 0; i < prog->decl_count; i++) {
+        Iron_Node *d = prog->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!md->is_receiver_form) continue;
+        if (!md->type_name) continue;
+        any = 1;
+        int idx = shgeti(map, md->type_name);
+        if (idx < 0) {
+            MethodOwnerArr empty = { .methods = NULL };
+            shput(map, md->type_name, empty);
+            idx = shgeti(map, md->type_name);
+        }
+        arrput(map[idx].value.methods, md);
+    }
+    if (!any) {
+        if (map) shfree(map);
+        return NULL;
+    }
+    return map;
+}
+
+/* Lookup the method bucket for a given type name. Returns NULL if no
+ * receiver-form methods own that type. Safe on map==NULL. */
+static MethodOwnerArr *method_index_lookup(MethodIndexEntry *map,
+                                             const char *type_name) {
+    if (!map || !type_name) return NULL;
+    int idx = shgeti(map, type_name);
+    if (idx < 0) return NULL;
+    return &map[idx].value;
+}
+
+/* Test whether a given Iron_MethodDecl is in the suppression set — i.e.,
+ * will be re-emitted inside the body of its owning Iron_ObjectDecl during
+ * the OBJECT_DECL print and therefore must NOT print at top level too. */
+static int method_index_should_suppress(MethodIndexEntry *map,
+                                          Iron_MethodDecl *md) {
+    if (!map || !md) return 0;
+    if (!md->is_receiver_form || !md->type_name) return 0;
+    return method_index_lookup(map, md->type_name) != NULL;
+}
+
+/* Free the index: each bucket's methods array (arrfree) plus the shmap
+ * itself (shfree). Safe on NULL. */
+static void method_index_free(MethodIndexEntry *map) {
+    if (!map) return;
+    for (ptrdiff_t i = 0; i < shlen(map); i++) {
+        arrfree(map[i].value.methods);
+    }
+    shfree(map);
+}
+
+/* Forward decl (defined alongside print_node below). */
+static void print_method_in_block(PrintCtx *ctx, Iron_MethodDecl *m);
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
+/* Phase 5 Plan 05-01 (D-01, FMT-05): honor opts->use_tabs and
+ * opts->indent_width. NULL opts or opts->indent_width <= 0 fall back
+ * to 2 spaces -- byte-identical to pre-Phase-5 behavior (RESEARCH A1). */
 static void print_indent(PrintCtx *ctx) {
-    for (int i = 0; i < ctx->indent_level; i++) {
-        iron_strbuf_appendf(ctx->sb, "  ");
+    if (ctx->opts && ctx->opts->use_tabs) {
+        for (int i = 0; i < ctx->indent_level; i++) {
+            iron_strbuf_appendf(ctx->sb, "\t");
+        }
+    } else {
+        int width = (ctx->opts && ctx->opts->indent_width > 0)
+                    ? ctx->opts->indent_width
+                    : 2;    /* preserve pre-Phase-5 default */
+        for (int i = 0; i < ctx->indent_level; i++) {
+            for (int j = 0; j < width; j++) iron_strbuf_appendf(ctx->sb, " ");
+        }
     }
 }
 
@@ -166,6 +280,71 @@ static void print_args(PrintCtx *ctx, Iron_Node **args, int count) {
     iron_strbuf_appendf(ctx->sb, ")");
 }
 
+/* Phase 9 Plan 09-02 D-10 Approach 1: print a single Iron_MethodDecl using
+ * the v3 in-block source shape. Reached only for methods that the
+ * OBJECT_DECL printer is re-merging into the body of their owning object
+ * (i.e., methods that the parser hoisted out of an object/patch body via
+ * the `is_receiver_form==true` path at parser.c:3208-3460). The
+ * synthesized self param is at index 0 and is skipped from the rendered
+ * param list to match the source shape (`func name(args)` not
+ * `func name(self: T, args)`). */
+static void print_method_in_block(PrintCtx *ctx, Iron_MethodDecl *m) {
+    if (m->is_private) iron_strbuf_appendf(ctx->sb, "private ");
+    /* Init form precedes any tier modifier; tier modifiers on init are
+     * rejected at parse time (parser.c:3219-3228), so this branch never
+     * combines init with readonly/pure. The init grammar produces method
+     * declarations with method_name=="init" (anonymous) or
+     * method_name==init_name (named); we render the source-side decl
+     * shape `init` / `init <name>` followed by the param list. */
+    if (m->is_init) {
+        iron_strbuf_appendf(ctx->sb, "init");
+        if (m->init_name) {
+            iron_strbuf_appendf(ctx->sb, " %s", m->init_name);
+        }
+        /* Skip the parser-synthesized implicit self at index 0
+         * (parser.c:3297). The remainder are explicit init params. */
+        if (m->param_count > 0) {
+            print_params(ctx, m->params + 1, m->param_count - 1);
+        } else {
+            iron_strbuf_appendf(ctx->sb, "()");
+        }
+        if (m->body) {
+            iron_strbuf_appendf(ctx->sb, " ");
+            print_block(ctx, m->body);
+        }
+        return;
+    }
+    /* Phase 9 Plan 09-02 D-10: visibility-before-tier-before-func order.
+     * Iron_MethodDecl has no is_pub field — the parser silently drops
+     * `pub` on methods (parser.c:3444 / :4385). For v3 fixtures whose
+     * source includes `pub` on methods (e.g., v3_init_anonymous_and_named's
+     * `pub readonly func read()`), the printer cannot recover the literal
+     * `pub` token after parse — but the parser's lossy treatment of `pub`
+     * on methods is deliberate (methods default public in v2.2/v3.0) and
+     * the round-trip stable form drops `pub` on methods. The fixed-point
+     * property still holds because both p1 and p2 in
+     * iron_print_ast(parse(iron_print_ast(parse(src)))) drop the same bits. */
+    if (m->is_readonly) iron_strbuf_appendf(ctx->sb, "readonly ");
+    if (m->is_pure)     iron_strbuf_appendf(ctx->sb, "pure ");
+    iron_strbuf_appendf(ctx->sb, "func %s", m->method_name);
+    print_generic_params(ctx, m->generic_params, m->generic_param_count);
+    /* Skip implicit self at index 0; matches Phase 82 / 85 / 86 synthesis
+     * sites at parser.c:3297, :3409. */
+    if (m->param_count > 0) {
+        print_params(ctx, m->params + 1, m->param_count - 1);
+    } else {
+        iron_strbuf_appendf(ctx->sb, "()");
+    }
+    if (m->return_type) {
+        iron_strbuf_appendf(ctx->sb, " -> ");
+        print_type_ann(ctx, m->return_type);
+    }
+    if (m->body) {
+        iron_strbuf_appendf(ctx->sb, " ");
+        print_block(ctx, m->body);
+    }
+}
+
 /* ── Main node printer ───────────────────────────────────────────────────── */
 
 static void print_node(PrintCtx *ctx, Iron_Node *node) {
@@ -176,10 +355,26 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
         /* ── Program ── */
         case IRON_NODE_PROGRAM: {
             Iron_Program *n = (Iron_Program *)node;
+            /* Phase 9 Plan 09-02 D-10 Approach 1: skip receiver-form methods
+             * that have been re-emitted inside their owning object body. The
+             * separator-on-non-first logic must observe the same skip so
+             * surviving decls keep single-blank-line separation (Pitfall 3:
+             * a stray blank line where the suppressed method used to be
+             * would diverge from the v2 baseline). */
+            int printed = 0;
             for (int i = 0; i < n->decl_count; i++) {
-                if (i > 0) iron_strbuf_appendf(ctx->sb, "\n");
-                print_node(ctx, n->decls[i]);
+                Iron_Node *d = n->decls[i];
+                if (d && d->kind == IRON_NODE_METHOD_DECL) {
+                    if (method_index_should_suppress(
+                            (MethodIndexEntry *)ctx->method_index,
+                            (Iron_MethodDecl *)d)) {
+                        continue;  /* re-emitted inside owning object body */
+                    }
+                }
+                if (printed > 0) iron_strbuf_appendf(ctx->sb, "\n");
+                print_node(ctx, d);
                 iron_strbuf_appendf(ctx->sb, "\n");
+                printed++;
             }
             break;
         }
@@ -194,14 +389,24 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_OBJECT_DECL: {
             Iron_ObjectDecl *n = (Iron_ObjectDecl *)node;
-            if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
+            /* Emit `pub` and/or `patch` prefixes in Iron source order:
+             * `pub patch object T`. n->name and n->target_type_name
+             * reference the same arena strdup for patches so we can
+             * keep using n->name for the identifier. */
+            if (n->is_pub)   iron_strbuf_appendf(ctx->sb, "pub ");
+            if (n->is_patch) iron_strbuf_appendf(ctx->sb, "patch ");
             iron_strbuf_appendf(ctx->sb, "object %s", n->name);
             print_generic_params(ctx, n->generic_params, n->generic_param_count);
             if (n->extends_name) {
                 iron_strbuf_appendf(ctx->sb, " extends %s", n->extends_name);
             }
             if (n->implements_count > 0) {
-                iron_strbuf_appendf(ctx->sb, " impl ");
+                /* Phase 9 Plan 09-02 D-10: classic `object T impl I` uses the
+                 * IRON_TOK_IMPL keyword (parser.c:3117); patches use the
+                 * contextual identifier `implements` (parser.c:4127-4129).
+                 * Round-tripping requires emitting the matching token. */
+                iron_strbuf_appendf(ctx->sb,
+                                     n->is_patch ? " implements " : " impl ");
                 for (int i = 0; i < n->implements_count; i++) {
                     if (i > 0) iron_strbuf_appendf(ctx->sb, ", ");
                     iron_strbuf_appendf(ctx->sb, "%s", n->implements_names[i]);
@@ -212,12 +417,38 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             for (int i = 0; i < n->field_count; i++) {
                 print_indent(ctx);
                 Iron_Field *f = (Iron_Field *)n->fields[i];
+                /* Phase 9 Plan 09-02 D-10: pub prefix on field rendered
+                 * inside an object body. Mirrors the standalone IRON_NODE_FIELD
+                 * arm; this is the load-bearing path because that standalone
+                 * arm is otherwise unreachable from iron_print_ast (fields
+                 * only enter the printer through their owning object). */
+                if (f->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
                 iron_strbuf_appendf(ctx->sb, "%s %s", f->is_var ? "var" : "val", f->name);
                 if (f->type_ann) {
                     iron_strbuf_appendf(ctx->sb, ": ");
                     print_type_ann(ctx, f->type_ann);
                 }
                 iron_strbuf_appendf(ctx->sb, "\n");
+            }
+            /* Phase 9 Plan 09-02 D-10 Approach 1: re-merge receiver-form
+             * methods into the object body. The key is target_type_name when
+             * is_patch=true and name otherwise — but parser.c:4448 sets
+             * target_type_name == name for patches, so n->name covers both.
+             * The bit-explicit `is_receiver_form` filter at index-build time
+             * keeps classic v2 `func Type.method(...)` decls (which leave
+             * is_receiver_form=false) at top level — Pitfall 3 mitigation. */
+            MethodIndexEntry *map = (MethodIndexEntry *)ctx->method_index;
+            if (map) {
+                const char *key = n->is_patch && n->target_type_name
+                                   ? n->target_type_name : n->name;
+                MethodOwnerArr *slot = method_index_lookup(map, key);
+                if (slot) {
+                    for (ptrdiff_t i = 0; i < arrlen(slot->methods); i++) {
+                        print_indent(ctx);
+                        print_method_in_block(ctx, slot->methods[i]);
+                        iron_strbuf_appendf(ctx->sb, "\n");
+                    }
+                }
             }
             ctx->indent_level--;
             print_indent(ctx);
@@ -275,6 +506,18 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             Iron_FuncDecl *n = (Iron_FuncDecl *)node;
             if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             if (n->is_private) iron_strbuf_appendf(ctx->sb, "private ");
+            /* Phase 9 Plan 09-02 D-10: tier modifier prefix in locked order
+             * (visibility-before-tier-before-func). Iron_FuncDecl carries
+             * is_readonly / is_pure for interface method signatures only —
+             * top-level func decls reject these tokens at parse time
+             * (parser.c:4937-4955), so on a parsed-clean program these bits
+             * are only ever true for nodes stored inside an Iron_InterfaceDecl
+             * method_sigs array. is_pub is intentionally absent on
+             * Iron_FuncDecl (parser silently drops `pub` on object-block
+             * methods at parser.c:3444 / :4385 and rejects it on top-level
+             * func decls at parser.c:4937). */
+            if (n->is_readonly) iron_strbuf_appendf(ctx->sb, "readonly ");
+            if (n->is_pure)     iron_strbuf_appendf(ctx->sb, "pure ");
             iron_strbuf_appendf(ctx->sb, "func %s", n->name);
             print_generic_params(ctx, n->generic_params, n->generic_param_count);
             print_params(ctx, n->params, n->param_count);
@@ -293,6 +536,21 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             Iron_MethodDecl *n = (Iron_MethodDecl *)node;
             if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             if (n->is_private) iron_strbuf_appendf(ctx->sb, "private ");
+            /* Phase 9 Plan 09-02 D-10: tier modifier prefix on the standalone
+             * (top-level) method print path. Locked order is
+             * `[private] [readonly|pure] func ...`. Iron_MethodDecl has no
+             * is_pub field — the parser silently drops `pub` on methods
+             * (parser.c:3444 / :4385) because methods default public in
+             * v2.2/v3.0. is_init / init_name are NOT printed on this
+             * standalone path; the in-block init form `init [name](args)` is
+             * emitted only via print_method_in_block (Task 3). On the
+             * standalone path an init method (if any reaches it before the
+             * Task 3 method-merge lands) falls through to the legacy
+             * `func Type.init(...)` shape, which is acceptable as a transient
+             * since v3 fixtures with init methods are exercised exclusively
+             * by the parity test that the merge satisfies. */
+            if (n->is_readonly) iron_strbuf_appendf(ctx->sb, "readonly ");
+            if (n->is_pure)     iron_strbuf_appendf(ctx->sb, "pure ");
             if (n->is_receiver_form && n->param_count > 0) {
                 /* Receiver form: `func (recv: Type) method[G](rest...)`.
                  * By parser invariant, params[0] is the receiver. */
@@ -701,6 +959,11 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FIELD: {
             Iron_Field *f = (Iron_Field *)node;
+            /* Phase 9 Plan 09-02 D-10: pub prefix on field. Iron_Field is
+             * the only ast node that carries is_pub on the v3 surface
+             * (parser.c:3529); FuncDecl / MethodDecl have no equivalent
+             * because methods default public. */
+            if (f->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
             iron_strbuf_appendf(ctx->sb, "%s %s", f->is_var ? "var" : "val", f->name);
             if (f->type_ann) {
                 iron_strbuf_appendf(ctx->sb, ": ");
@@ -777,10 +1040,23 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
 /* ── Public API ──────────────────────────────────────────────────────────── */
 
-char *iron_print_ast(Iron_Node *root, Iron_Arena *arena) {
-    Iron_StrBuf sb  = iron_strbuf_create(512);
-    PrintCtx    ctx = { &sb, 0 };
+/* Phase 9 Plan 09-02 D-10 Approach 1: build the method-by-type-name index
+ * if the print root is a top-level Iron_Program, NULL otherwise. Recursive
+ * print of an AST subtree (e.g., a single FuncDecl) bypasses the merge —
+ * methods would not be re-emitted inside an absent owning object body, so
+ * they print at top level via the standalone METHOD_DECL arm. */
+static MethodIndexEntry *build_print_index_for_root(Iron_Node *root) {
+    if (!root) return NULL;
+    if (root->kind != IRON_NODE_PROGRAM) return NULL;
+    return method_index_build((Iron_Program *)root);
+}
+
+char *iron_print_ast(Iron_Node *root, const IronFmtOptions *opts, Iron_Arena *arena) {
+    Iron_StrBuf       sb  = iron_strbuf_create(512);
+    MethodIndexEntry *idx = build_print_index_for_root(root);
+    PrintCtx          ctx = { &sb, 0, opts, idx };
     print_node(&ctx, root);
+    method_index_free(idx);
 
     /* Copy result into arena */
     const char *result = iron_strbuf_get(&sb);
@@ -792,10 +1068,12 @@ char *iron_print_ast(Iron_Node *root, Iron_Arena *arena) {
     return out;
 }
 
-void iron_print_ast_to_file(Iron_Node *root, FILE *out) {
-    Iron_StrBuf sb  = iron_strbuf_create(512);
-    PrintCtx    ctx = { &sb, 0 };
+void iron_print_ast_to_file(Iron_Node *root, const IronFmtOptions *opts, FILE *out) {
+    Iron_StrBuf       sb  = iron_strbuf_create(512);
+    MethodIndexEntry *idx = build_print_index_for_root(root);
+    PrintCtx          ctx = { &sb, 0, opts, idx };
     print_node(&ctx, root);
+    method_index_free(idx);
     fprintf(out, "%s", iron_strbuf_get(&sb));
     iron_strbuf_free(&sb);
 }
@@ -805,19 +1083,13 @@ void iron_print_ast_to_file(Iron_Node *root, FILE *out) {
 /* Pull a decl's name for sorting, regardless of which top-level decl kind. */
 static const char *stub_decl_name(Iron_Node *n) {
     if (!n) return "";
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wswitch-enum"
-#endif
-    switch (n->kind) {
+    /* Cast to int so -Werror=switch-enum accepts the default arm. */
+    switch ((int)n->kind) {
         case IRON_NODE_FUNC_DECL:   return ((Iron_FuncDecl *)n)->name   ? ((Iron_FuncDecl *)n)->name   : "";
         case IRON_NODE_OBJECT_DECL: return ((Iron_ObjectDecl *)n)->name ? ((Iron_ObjectDecl *)n)->name : "";
         case IRON_NODE_ENUM_DECL:   return ((Iron_EnumDecl *)n)->name   ? ((Iron_EnumDecl *)n)->name   : "";
         default:                    return "";
     }
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
 }
 
 static int stub_cmp_decl_name(const void *a, const void *b) {
@@ -1054,14 +1326,11 @@ int iron_print_pub_stubs(Iron_Program *prog, FILE *out,
     Iron_Node **pub_objects = NULL; size_t oc = 0, ocap = 0;
     Iron_Node **pub_enums   = NULL; size_t ec = 0, ecap = 0;
 
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wswitch-enum"
-#endif
     for (int i = 0; i < prog->decl_count; i++) {
         Iron_Node *d = prog->decls[i];
         if (!d) continue;
-        switch (d->kind) {
+        /* Cast to int so -Werror=switch-enum accepts the default arm. */
+        switch ((int)d->kind) {
             case IRON_NODE_FUNC_DECL: {
                 Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
                 if (fd->is_pub && !fd->is_extern) {
@@ -1100,9 +1369,6 @@ int iron_print_pub_stubs(Iron_Program *prog, FILE *out,
             default: break;
         }
     }
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
 
     /* 2. Sort each bucket alphabetically by name (case-sensitive strcmp / C locale). */
     if (fc > 1) qsort(pub_funcs,   fc, sizeof(*pub_funcs),   stub_cmp_decl_name);

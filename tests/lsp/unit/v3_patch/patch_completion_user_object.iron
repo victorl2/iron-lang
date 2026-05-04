@@ -1,0 +1,31 @@
+-- Phase 11 Plan 11-02 fixture: PATCH-03 user-object receiver dot-completion.
+-- Asserts: completion at `f.|<cursor>` (where `val f: Foo`) includes
+-- BOTH `native_method` (declared inside Foo's body) AND `patched_method`
+-- (declared inside `patch object Foo`).
+--
+-- TIER-03 prefix flows through patches: detail field on the patch
+-- candidate carries `func` / `readonly func` / `pure func` per the
+-- parser-tier flags on the patched Iron_MethodDecl (Phase 10 D-10).
+--
+-- v3 grammar reality:
+--   - Construction is positional: `Foo(42)` not `Foo(x: 42)` (Plan 11-01
+--     fixture style).
+
+object Foo {
+    val x: Int
+    readonly func native_method() -> Int { return self.x }
+}
+
+patch object Foo {
+    readonly func patched_method() -> Int { return self.x + 1 }
+}
+
+-- Top-level `val f: Foo` so emit_member_fields' top-level val/var
+-- walker finds the receiver type. The PATCH-03 receiver-resolver
+-- walks program->decls, so the `val f` MUST be a top-level decl,
+-- not nested inside a function body.
+val f: Foo = Foo(42)
+
+func main() -> Int {
+    return f.native_method()
+}

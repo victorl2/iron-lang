@@ -1,0 +1,17 @@
+func main() {
+  var x = 10
+  x = 20
+  var y = (x + 5)
+  println("{y}")
+  var arr = [1, 2, 3, 4, 5]
+  arr[2] = 99
+  val elem = arr[2]
+  println("{elem}")
+  var total = 0
+  var i = 0
+  while (i < 5) {
+    total = (total + (i * 2))
+    i = (i + 1)
+  }
+  println("{total}")
+}

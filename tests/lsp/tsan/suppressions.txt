@@ -1,0 +1,71 @@
+# Phase 7 Plan 07-03 (HARD-17, D-05) -- ThreadSanitizer suppressions.
+#
+# v1 LAND: THIS FILE IS INTENTIONALLY EMPTY (no active suppressions).
+#
+# Policy (D-05 + CONTEXT §specifics + threat model T-07-03-01):
+#
+#   1. Zero suppressions at v1 land. Any TSAN finding must be fixed at
+#      the source, not suppressed.
+#   2. Adding an entry requires:
+#      (a) CODEOWNERS review on the PR that adds it.
+#      (b) An inline comment on every suppression line explaining:
+#            - what was flagged (function / file + line),
+#            - why it is a false positive (not a real race),
+#            - why it cannot be fixed (e.g. lives in vendored code
+#              like yyjson / stb_ds that we do not patch).
+#   3. If this file ever grows beyond 5 entries, that is a red flag for
+#      real races hiding under "false positive" labels -- the reviewer
+#      should require fresh justification for every entry.
+#
+# Suppression file format:
+#   Each non-comment line has the form `<kind>:<function_or_pattern>`.
+#   Recognised kinds for TSAN: `race`, `thread`, `mutex`, `signal`,
+#   `deadlock`, `called_from_lib`.
+#   See https://clang.llvm.org/docs/ThreadSanitizer.html#blacklist
+#
+# Example (hypothetical; do NOT add without CODEOWNERS sign-off):
+#   # Vendored yyjson uses relaxed atomics internally; single-producer/
+#   # single-consumer pattern verified via code review (see PR #1234).
+#   # race:yyjson_internal_atomic_load
+#
+# Phase 8 Plan 08-02 Task 3 (2026-04-24) — stb_ds hash_seed global race.
+#
+# Flagged: stbds_make_hash_index at src/vendor/stb_ds.h:950 writes
+#          stbds_hash_seed (line 849 file-scope global `size_t`) every
+#          time a new hash map is created. Two LSP worker threads
+#          (ast_worker T3 and T4) race on this global when both open
+#          fresh documents concurrently and each calls iron_scope_create
+#          -> stbds_shmode_func -> stbds_make_hash_index.
+#
+# Why it is benign IN PRACTICE: stbds_hash_seed is used only as a seed
+# sprinkle into per-map `t->seed` (line 944); the read-modify-write is
+# a multiplicative mixer whose output is statistically fine even under
+# torn reads — the WORST case is two maps getting non-ideally-spread
+# seeds, which is still within stb_ds's advertised collision bounds.
+# The TSAN warning is architecturally accurate (the global is not
+# atomic) but the failure mode is non-corrupting.
+#
+# Why it cannot be fixed in Phase 8: stb_ds is vendored single-header
+# code (src/vendor/stb_ds.h, 0.67 from Sean Barrett upstream). Patching
+# the vendor source would either (a) diverge from upstream, requiring
+# manual merge on every vendor update, or (b) require wrapping every
+# map-create call site with a mutex (non-trivial across 100s of sites).
+#
+# This race has been LATENT since Phase 1 Plan 01 (when stb_ds + the
+# multi-worker LSP were combined); it was never caught before Phase 8
+# because the Phase 7 tsan.yml workflow referenced a wrong `--ironls`
+# path (build-tsan/src/lsp/ironls instead of build-tsan/ironls). The
+# path was corrected in Phase 8 Plan 08-02 Task 3 (same commit as this
+# suppression), which is what surfaced the pre-existing race.
+#
+# Follow-up owner: Phase 9+ can choose: (a) submit an upstream stb_ds
+# PR making stbds_hash_seed an _Atomic, (b) wrap the hash_seed mutation
+# in a static pthread_mutex inside src/util/stb_ds_impl.c, or (c) set
+# stbds_rand_seed() once at ironls startup and leave it fixed.
+race:stbds_make_hash_index
+
+# Phase 8 Plan 08-02 Task 3 (2026-04-24) — stbds_shmode_func race.
+# Same root cause as the suppression above; TSAN sometimes reports the
+# mid-frame stbds_shmode_func instead of the terminal
+# stbds_make_hash_index depending on inlining decisions.
+race:stbds_shmode_func

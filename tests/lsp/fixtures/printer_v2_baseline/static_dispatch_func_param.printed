@@ -1,0 +1,39 @@
+interface Greeting {
+  func greet() -> String
+}
+
+object Formal impl Greeting {
+  var name: String
+  init(name: String) {
+    self.name = name
+  }
+}
+
+object Casual impl Greeting {
+  var name: String
+  init(name: String) {
+    self.name = name
+  }
+}
+
+func Formal.greet() -> String {
+  return "Good day, {self.name}."
+}
+
+func Casual.greet() -> String {
+  return "Hey {self.name}!"
+}
+
+func print_greeting(g: Greeting) {
+  println(g.greet())
+}
+
+func main() {
+  print_greeting(Formal("Alice"))
+  print_greeting(Casual("Bob"))
+  val g1: Greeting = Formal("Charlie")
+  val g2: Greeting = Casual("Diana")
+  println(g1.greet())
+  println(g2.greet())
+  println("done")
+}

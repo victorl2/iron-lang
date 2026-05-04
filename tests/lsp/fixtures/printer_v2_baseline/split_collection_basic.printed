@@ -1,0 +1,35 @@
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+  init(radius: Int) {
+    self.radius = radius
+  }
+}
+
+object Square impl Shape {
+  var side: Int
+  init(side: Int) {
+    self.side = side
+  }
+}
+
+func Circle.area() -> Int {
+  return ((self.radius * self.radius) * 3)
+}
+
+func Square.area() -> Int {
+  return (self.side * self.side)
+}
+
+func main() {
+  val shapes = [Circle(5), Square(4), Circle(3), Square(2)]
+  var total = 0
+  for s in shapes {
+    total = (total + s.area())
+  }
+  println("{total}")
+  println("done")
+}

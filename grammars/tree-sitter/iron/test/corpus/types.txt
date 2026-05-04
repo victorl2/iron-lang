@@ -1,0 +1,68 @@
+==========
+named type annotation
+==========
+
+val x: MyType = init()
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    type: (type_identifier
+      (identifier))
+    value: (call_expression
+      function: (identifier))))
+
+==========
+array type
+==========
+
+val xs: [Int] = [1, 2, 3]
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    type: (array_type
+      (type_identifier
+        (identifier)))
+    value: (array_literal
+      (integer_literal)
+      (integer_literal)
+      (integer_literal))))
+
+==========
+function type annotation
+==========
+
+val f: func(Int) -> Int = identity
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    type: (function_type
+      (type_identifier
+        (identifier))
+      (type_identifier
+        (identifier)))
+    value: (identifier)))
+
+==========
+nullable type
+==========
+
+val x: Int? = null
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    type: (nullable_type
+      (type_identifier
+        (identifier)))
+    value: (null_literal)))

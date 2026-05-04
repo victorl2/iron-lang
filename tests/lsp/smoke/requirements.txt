@@ -1,0 +1,9 @@
+# Phase 2 M1 LSP Core smoke harness.
+#
+# pytest-lsp 1.0 is still in beta (the stable index shows 1.0.0b2 as of
+# 2026-04-18 while the PyPI tag channel is 0.4.3). We pin >=1.0.0b1 so
+# pip resolves the b2 beta; install invocations must pass --pre so the
+# pre-release filter is off. The CI workflow adds --pre; local dev can
+# run: `pip install --pre -r tests/lsp/smoke/requirements.txt`.
+pytest>=7
+pytest-lsp>=1.0.0b1

@@ -6,6 +6,16 @@
 #include <string.h>
 #include <ctype.h>
 #include <errno.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+/* CONTEXT.md lock: NULL flag means never cancel; relaxed ordering ok.
+ * This is a static inline helper so each translation unit can define its
+ * own copy without ODR conflicts — grep-friendly across the codebase. */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* ── Keyword table ───────────────────────────────────────────────────────── */
 
@@ -171,6 +181,7 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_IDENTIFIER]    = "IRON_TOK_IDENTIFIER",
     [IRON_TOK_WILDCARD]      = "IRON_TOK_WILDCARD",
     [IRON_TOK_AT]            = "IRON_TOK_AT",
+    [IRON_TOK_DOC_COMMENT]   = "IRON_TOK_DOC_COMMENT",
 };
 
 const char *iron_token_kind_str(Iron_TokenKind kind) {
@@ -184,15 +195,22 @@ const char *iron_token_kind_str(Iron_TokenKind kind) {
 Iron_Lexer iron_lexer_create(const char *src, const char *filename,
                               Iron_Arena *arena, Iron_DiagList *diags) {
     Iron_Lexer l;
-    l.src      = src;
-    l.src_len  = src ? strlen(src) : 0;
-    l.pos      = 0;
-    l.line     = 1;
-    l.col      = 1;
-    l.filename = filename;
-    l.arena    = arena;
-    l.diags    = diags;
+    l.src         = src;
+    l.src_len     = src ? strlen(src) : 0;
+    l.pos         = 0;
+    l.line        = 1;
+    l.col         = 1;
+    l.filename    = filename;
+    l.arena       = arena;
+    l.diags       = diags;
+    l.cancel_flag = NULL; /* HARD-05: default = never cancel */
     return l;
+}
+
+/* HARD-05: caller attaches a cancel flag; subsequent calls to iron_lex_all
+ * will poll it at safepoints. Passing NULL disables polling. */
+void iron_lexer_set_cancel_flag(Iron_Lexer *l, const _Atomic bool *flag) {
+    if (l) l->cancel_flag = flag;
 }
 
 /* ── Low-level helpers ───────────────────────────────────────────────────── */
@@ -262,28 +280,36 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
         multiline = 1;
     }
 
-    /* Buffer for string content (stored in arena later). */
-    size_t  buf_cap  = 256;
+    /* Buffer for string content (stored in arena later).
+     * WR-06: previously this function allocated 256 bytes then immediately
+     * re-allocated 4096 bytes without using the first block, wasting ~2.56 MB
+     * of arena per 10K-string program. The 256-byte allocation has been
+     * removed — we go straight to the 4 KB arena block. */
     size_t  buf_len  = 0;
-    char   *buf      = (char *)iron_arena_alloc(l->arena, buf_cap, 1);
-    if (!buf) iron_oom_abort("lexer.c:iron_lex_string scratch");
+    char   *buf      = (char *)iron_arena_alloc(l->arena, 4096, 1);
+    if (!buf) {
+        /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_string 4K scratch). */
+        Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                         l->line, l->col);
+        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_LEXER_OOM, span,
+                       "out of memory while lexing string literal", NULL);
+        return iron_make_token(l, IRON_TOK_ERROR, NULL,
+                               start_line, start_col,
+                               (uint32_t)(l->pos - start_pos));
+    }
+    size_t buf_max = 4096;
 
     int has_interp = 0;
-
-    /* Reserve space helper (inline growth). Since arena is bump-only, we
-     * pre-allocate a generous block and track usage. For very long strings we
-     * just extend the arena. The simpler approach: build into a local large
-     * arena allocation. We use 4096 initial capacity. */
-    (void)buf_cap;
-    /* Restart: allocate 4 KB up front. The arena won't reclaim it so we accept
-     * the waste for now. */
-    buf_len = 0;
-    buf     = (char *)iron_arena_alloc(l->arena, 4096, 1);
-    if (!buf) iron_oom_abort("lexer.c:iron_lex_string 4K scratch");
-    size_t buf_max = 4096;
+    /* WR-07: track whether any bytes were dropped by PUSH_CHAR when the
+     * literal exceeded buf_max-1 characters, so we can emit a single
+     * IRON_ERR_STRING_TOO_LONG diagnostic per literal instead of silently
+     * truncating. */
+    bool overflowed = false;
 
 #define PUSH_CHAR(ch) do { \
     if (buf_len < buf_max - 1) { buf[buf_len++] = (ch); } \
+    else { overflowed = true; } \
 } while (0)
 
     for (;;) {
@@ -374,9 +400,35 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
 #undef PUSH_CHAR
 
     buf[buf_len] = '\0';
+
+    /* WR-07: if PUSH_CHAR dropped bytes past the 4KB buffer capacity, emit
+     * a single diagnostic so the user sees the truncation rather than
+     * silently getting a wrong string value. The token is still returned
+     * (truncated) so downstream parsing continues on its best effort. */
+    if (overflowed) {
+        Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                         l->line, l->col);
+        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_STRING_TOO_LONG, span,
+                       "string literal exceeds 4095-character limit "
+                       "and was truncated",
+                       "split the string across multiple literals or "
+                       "move it to a file read with comptime read_file()");
+    }
+
     /* Copy final string into arena (fresh minimal allocation). */
     const char *value = iron_arena_strdup(l->arena, buf, buf_len);
-    if (!value) iron_oom_abort("lexer.c:iron_lex_string value");
+    if (!value) {
+        /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_string value). */
+        Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                         l->line, l->col);
+        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_LEXER_OOM, span,
+                       "out of memory while lexing string literal", NULL);
+        return iron_make_token(l, IRON_TOK_ERROR, NULL,
+                               start_line, start_col,
+                               (uint32_t)(l->pos - start_pos));
+    }
     uint32_t tok_len = (uint32_t)(l->pos - start_pos);
     Iron_TokenKind kind = has_interp ? IRON_TOK_INTERP_STRING : IRON_TOK_STRING;
     return iron_make_token(l, kind, value, start_line, start_col, tok_len);
@@ -438,7 +490,17 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
             char decbuf[32];
             snprintf(decbuf, sizeof(decbuf), "%lld", v);
             const char *value = iron_arena_strdup(l->arena, decbuf, strlen(decbuf));
-            if (!value) iron_oom_abort("lexer.c:iron_lex_number hex value");
+            if (!value) {
+                /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_number hex value). */
+                Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                                 l->line, l->col);
+                iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_LEXER_OOM, span,
+                               "out of memory while lexing hex literal", NULL);
+                uint32_t bad_len = (uint32_t)(l->pos - start_pos);
+                return iron_make_token(l, IRON_TOK_ERROR, NULL,
+                                       start_line, start_col, bad_len);
+            }
             uint32_t tok_len = (uint32_t)(l->pos - start_pos);
             return iron_make_token(l, IRON_TOK_INTEGER, value,
                                    start_line, start_col, tok_len);
@@ -485,7 +547,17 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
             char decbuf[32];
             snprintf(decbuf, sizeof(decbuf), "%lld", v);
             const char *value = iron_arena_strdup(l->arena, decbuf, strlen(decbuf));
-            if (!value) iron_oom_abort("lexer.c:iron_lex_number binary value");
+            if (!value) {
+                /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_number binary value). */
+                Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                                 l->line, l->col);
+                iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_LEXER_OOM, span,
+                               "out of memory while lexing binary literal", NULL);
+                uint32_t bad_len = (uint32_t)(l->pos - start_pos);
+                return iron_make_token(l, IRON_TOK_ERROR, NULL,
+                                       start_line, start_col, bad_len);
+            }
             uint32_t tok_len = (uint32_t)(l->pos - start_pos);
             return iron_make_token(l, IRON_TOK_INTEGER, value,
                                    start_line, start_col, tok_len);
@@ -526,7 +598,16 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
     }
 
     const char *value = iron_arena_strdup(l->arena, l->src + start_pos, tok_len);
-    if (!value) iron_oom_abort("lexer.c:iron_lex_number value");
+    if (!value) {
+        /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_number value). */
+        Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                         l->line, l->col);
+        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_LEXER_OOM, span,
+                       "out of memory while lexing numeric literal", NULL);
+        return iron_make_token(l, IRON_TOK_ERROR, NULL,
+                               start_line, start_col, tok_len);
+    }
     Iron_TokenKind kind = is_float ? IRON_TOK_FLOAT : IRON_TOK_INTEGER;
     return iron_make_token(l, kind, value, start_line, start_col, tok_len);
 }
@@ -549,7 +630,16 @@ static Iron_Token iron_lex_identifier(Iron_Lexer *l) {
 
     uint32_t tok_len = (uint32_t)(l->pos - start_pos);
     const char *text = iron_arena_strdup(l->arena, l->src + start_pos, tok_len);
-    if (!text) iron_oom_abort("lexer.c:iron_lex_identifier text");
+    if (!text) {
+        /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_identifier text). */
+        Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                         l->line, l->col);
+        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_LEXER_OOM, span,
+                       "out of memory while lexing identifier", NULL);
+        return iron_make_token(l, IRON_TOK_ERROR, NULL,
+                               start_line, start_col, tok_len);
+    }
 
     if (tok_len == 1 && text[0] == '_') {
         return iron_make_token(l, IRON_TOK_WILDCARD, text, start_line, start_col, tok_len);
@@ -673,6 +763,53 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                 return iron_make_token(l, IRON_TOK_SLASH_ASSIGN, NULL,
                                        start_line, start_col, 2);
             }
+            /* Phase 3 NAV-14: `///` triple-slash doc-comment line. Consume
+             * the next two slashes, collect the body to EOL (not consuming
+             * the newline), strip one leading space if present, arena-intern
+             * as the token value. Cap body at 8192 bytes (T-03-01); truncate
+             * and emit a NOTE-level diagnostic if the user exceeds it. The
+             * newline itself is consumed by the top-level loop and emitted
+             * as IRON_TOK_NEWLINE in the normal flow. A bare `//` is NOT
+             * an Iron comment today; fall through to IRON_TOK_SLASH as
+             * before (the next `/` will then produce IRON_TOK_SLASH too;
+             * surface divergence from `ironc` is covered by parity). */
+            if (iron_peek_char(l) == '/' && iron_peek_next(l) == '/') {
+                iron_advance_char(l); /* consume 2nd '/' */
+                iron_advance_char(l); /* consume 3rd '/' */
+                /* Optional single leading space: `/// foo` -> "foo". */
+                if (iron_peek_char(l) == ' ') {
+                    iron_advance_char(l);
+                }
+                size_t body_start = l->pos;
+                while (l->pos < l->src_len && l->src[l->pos] != '\n') {
+                    l->pos++;
+                    l->col++;
+                }
+                size_t body_len = l->pos - body_start;
+                /* T-03-01: cap at 8192 bytes. If user wrote a pathological
+                 * line, truncate and emit a NOTE. */
+                bool truncated = false;
+                if (body_len > 8192) {
+                    body_len = 8192;
+                    truncated = true;
+                }
+                const char *body = iron_arena_strdup(l->arena,
+                                                      &l->src[body_start],
+                                                      body_len);
+                if (!body) body = "";
+                if (truncated) {
+                    Iron_Span span = iron_span_make(l->filename,
+                                                     start_line, start_col,
+                                                     l->line, l->col);
+                    iron_diag_emit(l->diags, l->arena, IRON_DIAG_NOTE,
+                                   IRON_WARN_DOC_COMMENT_TRUNCATED, span,
+                                   "doc comment truncated to 8 KB",
+                                   NULL);
+                }
+                return iron_make_token(l, IRON_TOK_DOC_COMMENT, body,
+                                       start_line, start_col,
+                                       (uint32_t)(l->pos - start_pos));
+            }
             return iron_make_token(l, IRON_TOK_SLASH, NULL,
                                    start_line, start_col, 1);
 
@@ -700,7 +837,9 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                 char msg[64];
                 snprintf(msg, sizeof(msg), "invalid character '!'");
                 const char *arena_msg = iron_arena_strdup(l->arena, msg, strlen(msg));
-                if (!arena_msg) iron_oom_abort("lexer.c:iron_lex_punctuation bang msg");
+                /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_punctuation bang msg):
+                 * fall back to a static message on OOM so lexing stays fallible. */
+                if (!arena_msg) arena_msg = "invalid character";
                 Iron_Span span = iron_span_make(l->filename, start_line, start_col,
                                                  start_line, start_col + 1);
                 iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
@@ -831,7 +970,9 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                 snprintf(msg, sizeof(msg), "invalid character (0x%02x)", (unsigned char)c);
             }
             const char *arena_msg = iron_arena_strdup(l->arena, msg, strlen(msg));
-            if (!arena_msg) iron_oom_abort("lexer.c:iron_lex_punctuation invalid char msg");
+            /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_punctuation invalid char msg):
+             * fall back to a static message on OOM so lexing stays fallible. */
+            if (!arena_msg) arena_msg = "invalid character";
             Iron_Span span = iron_span_make(l->filename, start_line, start_col,
                                              start_line, start_col + 1);
             iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
@@ -849,6 +990,24 @@ Iron_Token *iron_lex_all(Iron_Lexer *l) {
     Iron_Token *tokens = NULL; /* stb_ds array */
 
     for (;;) {
+        /* HARD-05: cooperative cancellation poll at top of tokenization loop.
+         * Cadence: every iteration — atomic_load with NULL check is ~1ns and
+         * measured overhead is negligible. On observation emit a single
+         * NOTE-level IRON_ERR_CANCELLED and return partial tokens. Ensures
+         * an EOF is appended so downstream callers (parser) see a valid
+         * terminator rather than running off the end of the array. */
+        if (iron_cancel_requested(l->cancel_flag)) {
+            iron_diag_emit(l->diags, l->arena, IRON_DIAG_NOTE,
+                           IRON_ERR_CANCELLED,
+                           iron_span_make(l->filename, l->line, l->col,
+                                          l->line, l->col),
+                           "compilation cancelled", NULL);
+            Iron_Token eof = iron_make_token(l, IRON_TOK_EOF, NULL,
+                                              l->line, l->col, 0);
+            arrput(tokens, eof);
+            break;
+        }
+
         iron_skip_whitespace(l);
 
         char c = iron_peek_char(l);

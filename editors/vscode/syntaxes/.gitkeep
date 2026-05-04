@@ -1,0 +1,4 @@
+# Phase 6 Plan 06-03: placeholder so the syntaxes/ directory is tracked.
+# The real iron.tmLanguage.json is copied here by `npm run prepackage`
+# (see editors/vscode/prepackage.mjs) from the drift-guarded source at
+# grammars/textmate/iron.tmLanguage.json and is gitignored.

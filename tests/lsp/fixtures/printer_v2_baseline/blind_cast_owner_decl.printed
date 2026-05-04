@@ -1,0 +1,23 @@
+object Animal {
+  val tag: Int
+}
+
+object Dog extends Animal {
+  val breed: Int
+}
+
+func Dog.describe() -> Int {
+  val local = 1
+  return (local + self.breed)
+}
+
+func Animal.get_kind() -> Int {
+  return 7
+}
+
+func main() {
+  val d = Dog(42)
+  println("dog.describe: {d.describe()}")
+  val a = Animal(3)
+  println("animal.kind: {a.get_kind()}")
+}

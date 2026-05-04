@@ -1,0 +1,11 @@
+val NEG_SAFE = comptime -4611686018427387900
+
+val NEG_MAX = comptime -(0 - 4611686018427387907)
+
+val POS_FROM_NEG = comptime -(0 - 100)
+
+func main() {
+  println("neg: {NEG_SAFE}")
+  println("round: {NEG_MAX}")
+  println("pos: {POS_FROM_NEG}")
+}

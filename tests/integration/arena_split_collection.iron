@@ -1,77 +1,49 @@
--- arena_split_collection.iron: Arena allocation for split collections (Phase 50)
--- Tests ARENA-01: per-type sub-arrays use arena-tracked allocation with geometric growth
--- Tests ARENA-02: arena free releases all sub-arrays in one operation
-
 interface Animal {
   func sound() -> Int
 }
 
 object Dog impl Animal {
   var volume: Int
-
-    init(volume: Int) {
-        self.volume = volume
-    }
+  init(volume: Int) {
+    self.volume = volume
+  }
+  readonly func sound() -> Int {
+    return (self.volume * 10)
+  }
 }
 
 object Cat impl Animal {
   var pitch: Int
-
-    init(pitch: Int) {
-        self.pitch = pitch
-    }
+  init(pitch: Int) {
+    self.pitch = pitch
+  }
+  readonly func sound() -> Int {
+    return (self.pitch * 5)
+  }
 }
 
 object Bird impl Animal {
   var freq: Int
-
-    init(freq: Int) {
-        self.freq = freq
-    }
-}
-
-patch object Dog {
-    readonly func sound() -> Int {
-      return self.volume * 10
-    }
-}
-
-patch object Cat {
-    readonly func sound() -> Int {
-      return self.pitch * 5
-    }
-}
-
-patch object Bird {
-    readonly func sound() -> Int {
-      return self.freq * 2
-    }
+  init(freq: Int) {
+    self.freq = freq
+  }
+  readonly func sound() -> Int {
+    return (self.freq * 2)
+  }
 }
 
 func main() {
-  -- Create a larger collection to trigger geometric growth (>8 elements initial cap)
-  val animals = [
-    Dog(3), Cat(7), Bird(100),
-    Dog(5), Cat(2), Bird(200),
-    Dog(1), Cat(9), Bird(50),
-    Dog(8), Cat(4), Bird(75),
-    Dog(6), Cat(1)
-  ]
-
+  val animals = [Dog(3), Cat(7), Bird(100), Dog(5), Cat(2), Bird(200), Dog(1), Cat(9), Bird(50), Dog(8), Cat(4), Bird(75), Dog(6), Cat(1)]
   var total = 0
   for a in animals {
-    total = total + a.sound()
+    total = (total + a.sound())
   }
   println("{total}")
-
-  -- Verify count
   println("14")
-
-  -- Small collection (within initial capacity 8)
   val pets = [Dog(2), Cat(3)]
   var petsum = 0
   for p in pets {
-    petsum = petsum + p.sound()
+    petsum = (petsum + p.sound())
   }
   println("{petsum}")
 }

@@ -27,7 +27,7 @@ static const char *write_temp_toml(const char *contents) {
     strcpy(path, "/tmp/iron_test_asset_path_XXXXXX");
     int fd = mkstemp(path);
     if (fd < 0) return NULL;
-    write(fd, contents, strlen(contents));
+    ssize_t n = write(fd, contents, strlen(contents)); (void)n;
     close(fd);
     return path;
 }

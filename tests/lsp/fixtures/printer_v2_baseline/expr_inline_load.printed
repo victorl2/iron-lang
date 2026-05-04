@@ -1,0 +1,17 @@
+func main() {
+  var x = 10
+  var y = 20
+  val sum = (x + y)
+  println("{sum}")
+  var a = 5
+  val doubled = (a + a)
+  println("{doubled}")
+  var flag = 1
+  if (flag > 0) {
+    var inner = 42
+    println("{inner}")
+  }
+  var m = 7
+  val triple = ((m + m) + m)
+  println("{triple}")
+}

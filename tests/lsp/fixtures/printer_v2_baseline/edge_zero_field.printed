@@ -1,0 +1,35 @@
+interface Marker {
+  func tag() -> Int
+}
+
+object TypeA impl Marker {
+  init() {
+  }
+}
+
+object TypeB impl Marker {
+  init() {
+  }
+}
+
+func TypeA.tag() -> Int {
+  return 1
+}
+
+func TypeB.tag() -> Int {
+  return 2
+}
+
+func main() {
+  val markers = [TypeA(), TypeB(), TypeA(), TypeB(), TypeA()]
+  val result1 = markers.map(func(m: Marker) -> Int {
+    return m.tag()
+  }).sum()
+  println("{result1}")
+  val result2 = markers.filter(func(m: Marker) -> Bool {
+    return (m.tag() == 1)
+  }).map(func(m: Marker) -> Int {
+    return m.tag()
+  }).sum()
+  println("{result2}")
+}

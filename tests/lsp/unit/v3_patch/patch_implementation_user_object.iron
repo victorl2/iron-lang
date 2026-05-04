@@ -1,0 +1,15 @@
+-- Phase 11 Plan 11-01 fixture: PATCH-01 user-object case.
+-- Asserts: textDocument/implementation on `Greeter` interface returns
+-- Location[] including the patch method `extra` on MyGreeter.
+
+interface Greeter {
+    func hi() -> String
+}
+
+object MyGreeter impl Greeter {
+    func hi() -> String { return "hello" }
+}
+
+patch object MyGreeter {
+    func extra() -> Int { return 42 }
+}

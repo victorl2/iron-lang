@@ -1,0 +1,11 @@
+func main() {
+  val arr = [10, 20, 30, 40, 50]
+  val doubled = arr.map(func(x: Int) -> Int {
+    return (x * 2)
+  })
+  val big = doubled.filter(func(x: Int) -> Bool {
+    return (x > 50)
+  })
+  println("{doubled.sum()}")
+  println("{big.sum()}")
+}

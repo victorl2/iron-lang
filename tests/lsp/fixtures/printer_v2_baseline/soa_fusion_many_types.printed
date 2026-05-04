@@ -1,0 +1,80 @@
+interface Unit {
+  func get_power() -> Int
+}
+
+object Soldier impl Unit {
+  var power: Int
+  var armor: Int
+  var pos_x: Int
+  var pos_y: Int
+  init(power: Int, armor: Int, pos_x: Int, pos_y: Int) {
+    self.power = power
+    self.armor = armor
+    self.pos_x = pos_x
+    self.pos_y = pos_y
+  }
+}
+
+object Archer impl Unit {
+  var power: Int
+  var range: Int
+  var pos_x: Int
+  var pos_y: Int
+  init(power: Int, range: Int, pos_x: Int, pos_y: Int) {
+    self.power = power
+    self.range = range
+    self.pos_x = pos_x
+    self.pos_y = pos_y
+  }
+}
+
+object Mage impl Unit {
+  var power: Int
+  var mana: Int
+  var pos_x: Int
+  var pos_y: Int
+  init(power: Int, mana: Int, pos_x: Int, pos_y: Int) {
+    self.power = power
+    self.mana = mana
+    self.pos_x = pos_x
+    self.pos_y = pos_y
+  }
+}
+
+object Healer impl Unit {
+  var power: Int
+  var heal: Int
+  var pos_x: Int
+  var pos_y: Int
+  init(power: Int, heal: Int, pos_x: Int, pos_y: Int) {
+    self.power = power
+    self.heal = heal
+    self.pos_x = pos_x
+    self.pos_y = pos_y
+  }
+}
+
+func Soldier.get_power() -> Int {
+  return self.power
+}
+
+func Archer.get_power() -> Int {
+  return self.power
+}
+
+func Mage.get_power() -> Int {
+  return self.power
+}
+
+func Healer.get_power() -> Int {
+  return self.power
+}
+
+func main() {
+  val army = [Soldier(10, 50, 1, 1), Archer(8, 30, 2, 2), Mage(15, 100, 3, 3), Healer(5, 40, 4, 4), Soldier(12, 55, 5, 5), Archer(9, 32, 6, 6), Mage(20, 110, 7, 7), Healer(7, 42, 8, 8)]
+  val total = army.map(func(u: Unit) -> Int {
+    return u.get_power()
+  }).sum()
+  println("{total}")
+  println("many_types_done")
+}

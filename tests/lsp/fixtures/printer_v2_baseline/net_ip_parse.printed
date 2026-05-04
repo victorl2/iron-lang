@@ -1,0 +1,20 @@
+import net
+
+func main() {
+  val (null) = IPv4Addr.parse("10.20.30.40")
+  if (err1.code != 0) {
+    println("v4 parse failed")
+    return
+  }
+  println("v4: {IPv4Addr.format(a)}")
+  val (null) = IPv6Addr.parse("2001:db8::1")
+  if (err2.code != 0) {
+    println("v6 parse failed")
+    return
+  }
+  println("v6: {IPv6Addr.format(b)}")
+  val (null) = IPv4Addr.parse("999.0.0.0")
+  if (err3.code == 1008) {
+    println("v4 bad ok")
+  }
+}

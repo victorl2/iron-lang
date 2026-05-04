@@ -42,7 +42,7 @@ static Iron_Node *parse(const char *src) {
 /* parse "val x = 10", print, verify output contains "val x = 10" */
 void test_print_val_decl(void) {
     Iron_Node  *ast    = parse("val x = 10");
-    char       *output = iron_print_ast(ast, &arena);
+    char       *output = iron_print_ast(ast, NULL, &arena);
     TEST_ASSERT_NOT_NULL(output);
     TEST_ASSERT_NOT_NULL(strstr(output, "val x = 10"));
 }
@@ -54,7 +54,7 @@ void test_print_func_decl(void) {
         "  return a\n"
         "}\n";
     Iron_Node *ast    = parse(src);
-    char      *output = iron_print_ast(ast, &arena);
+    char      *output = iron_print_ast(ast, NULL, &arena);
     TEST_ASSERT_NOT_NULL(output);
     TEST_ASSERT_NOT_NULL(strstr(output, "func add("));
 }
@@ -67,7 +67,7 @@ void test_print_object_decl(void) {
         "  val name: String\n"
         "}\n";
     Iron_Node *ast    = parse(src);
-    char      *output = iron_print_ast(ast, &arena);
+    char      *output = iron_print_ast(ast, NULL, &arena);
     TEST_ASSERT_NOT_NULL(output);
     TEST_ASSERT_NOT_NULL(strstr(output, "object Player"));
 }
@@ -85,7 +85,7 @@ void test_print_if_elif_else(void) {
         "  }\n"
         "}\n";
     Iron_Node *ast    = parse(src);
-    char      *output = iron_print_ast(ast, &arena);
+    char      *output = iron_print_ast(ast, NULL, &arena);
     TEST_ASSERT_NOT_NULL(output);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(output, "if"), "Missing 'if' in output");
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(output, "elif"), "Missing 'elif' in output");
@@ -101,7 +101,7 @@ void test_print_for_parallel(void) {
         "  }\n"
         "}\n";
     Iron_Node *ast    = parse(src);
-    char      *output = iron_print_ast(ast, &arena);
+    char      *output = iron_print_ast(ast, NULL, &arena);
     TEST_ASSERT_NOT_NULL(output);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(output, "parallel"), "Missing 'parallel' in output");
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(output, "for"), "Missing 'for' in output");
@@ -115,7 +115,7 @@ void test_roundtrip_hello(void) {
         "  println(\"Hello, Iron!\")\n"
         "}\n";
     Iron_Node *ast1   = parse(src);
-    char      *output = iron_print_ast(ast1, &arena);
+    char      *output = iron_print_ast(ast1, NULL, &arena);
     TEST_ASSERT_NOT_NULL(output);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(output, "func main"), "Round-trip missing 'func main'");
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(output, "println"), "Round-trip missing 'println'");
@@ -149,7 +149,7 @@ void test_print_interp_string(void) {
         "  val msg = \"Hello {name}!\"\n"
         "}\n";
     Iron_Node *ast    = parse(src);
-    char      *output = iron_print_ast(ast, &arena);
+    char      *output = iron_print_ast(ast, NULL, &arena);
     TEST_ASSERT_NOT_NULL(output);
     /* The printed output should contain { and } from the interpolation */
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(output, "{"), "Missing '{' in interp string output");

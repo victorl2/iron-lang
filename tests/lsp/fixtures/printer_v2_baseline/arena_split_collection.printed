@@ -1,0 +1,52 @@
+interface Animal {
+  func sound() -> Int
+}
+
+object Dog impl Animal {
+  var volume: Int
+  init(volume: Int) {
+    self.volume = volume
+  }
+}
+
+object Cat impl Animal {
+  var pitch: Int
+  init(pitch: Int) {
+    self.pitch = pitch
+  }
+}
+
+object Bird impl Animal {
+  var freq: Int
+  init(freq: Int) {
+    self.freq = freq
+  }
+}
+
+func Dog.sound() -> Int {
+  return (self.volume * 10)
+}
+
+func Cat.sound() -> Int {
+  return (self.pitch * 5)
+}
+
+func Bird.sound() -> Int {
+  return (self.freq * 2)
+}
+
+func main() {
+  val animals = [Dog(3), Cat(7), Bird(100), Dog(5), Cat(2), Bird(200), Dog(1), Cat(9), Bird(50), Dog(8), Cat(4), Bird(75), Dog(6), Cat(1)]
+  var total = 0
+  for a in animals {
+    total = (total + a.sound())
+  }
+  println("{total}")
+  println("14")
+  val pets = [Dog(2), Cat(3)]
+  var petsum = 0
+  for p in pets {
+    petsum = (petsum + p.sound())
+  }
+  println("{petsum}")
+}

@@ -20,12 +20,20 @@
 #include <stdio.h>
 #include <string.h>
 #include <stddef.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* ── Context ─────────────────────────────────────────────────────────────── */
 
 typedef struct {
-    Iron_Arena    *arena;
-    Iron_DiagList *diags;
+    Iron_Arena         *arena;
+    Iron_DiagList      *diags;
+    const _Atomic bool *cancel_flag;  /* HARD-05 */
 } CaptureCtx;
 
 /* stb_ds string hashmap entry (int value — we just use it as a set) */
@@ -121,6 +129,14 @@ static void collect_locals(Iron_Node *node, StrSet **locals) {
         }
         /* Do NOT recurse into nested IRON_NODE_LAMBDA — its locals are
          * handled when find_captures processes it separately. */
+        /* HARD-04: graceful no-op on parser ErrorNode. */
+        case IRON_NODE_ERROR:
+            break;
+
+        /* HARD-04: sentinel — never a real node kind. */
+        case IRON_NODE_COUNT:
+            break;
+
         /* -Wswitch-enum opt-out: collect_locals only visits statement-shaped
          * kinds that can declare a new name; every other Iron_NodeKind is
          * ignored. */
@@ -386,11 +402,11 @@ static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
         Iron_CaptureEntry *arr = iron_arena_alloc(
             ctx->arena, (size_t)count * sizeof(Iron_CaptureEntry),
             _Alignof(Iron_CaptureEntry));
-        if (!arr) iron_oom_abort("capture.c:find_captures arr");
+        if (!arr) { /* HARD-09 REPLACE (capture.c:find_captures arr) */ return; }
         for (int i = 0; i < count; i++) {
             arr[i].name       = iron_arena_strdup(ctx->arena, captures[i].name,
                                                   strlen(captures[i].name));
-            if (!arr[i].name) iron_oom_abort("capture.c:find_captures name");
+            if (!arr[i].name) { /* HARD-09 REPLACE (capture.c:find_captures name) */ return; }
             arr[i].type       = captures[i].type;
             arr[i].is_mutable = captures[i].is_mutable;
         }
@@ -426,11 +442,11 @@ static void find_spawn_captures(CaptureCtx *ctx, Iron_SpawnStmt *ss) {
         Iron_CaptureEntry *arr = iron_arena_alloc(
             ctx->arena, (size_t)count * sizeof(Iron_CaptureEntry),
             _Alignof(Iron_CaptureEntry));
-        if (!arr) iron_oom_abort("capture.c:find_spawn_captures arr");
+        if (!arr) { /* HARD-09 REPLACE (capture.c:find_spawn_captures arr) */ return; }
         for (int i = 0; i < count; i++) {
             arr[i].name       = iron_arena_strdup(ctx->arena, captures[i].name,
                                                   strlen(captures[i].name));
-            if (!arr[i].name) iron_oom_abort("capture.c:find_spawn_captures name");
+            if (!arr[i].name) { /* HARD-09 REPLACE (capture.c:find_spawn_captures name) */ return; }
             arr[i].type       = captures[i].type;
             arr[i].is_mutable = captures[i].is_mutable;
         }
@@ -465,11 +481,11 @@ static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
         Iron_CaptureEntry *arr = iron_arena_alloc(
             ctx->arena, (size_t)count * sizeof(Iron_CaptureEntry),
             _Alignof(Iron_CaptureEntry));
-        if (!arr) iron_oom_abort("capture.c:find_pfor_captures arr");
+        if (!arr) { /* HARD-09 REPLACE (capture.c:find_pfor_captures arr) */ return; }
         for (int i = 0; i < count; i++) {
             arr[i].name       = iron_arena_strdup(ctx->arena, captures[i].name,
                                                   strlen(captures[i].name));
-            if (!arr[i].name) iron_oom_abort("capture.c:find_pfor_captures name");
+            if (!arr[i].name) { /* HARD-09 REPLACE (capture.c:find_pfor_captures name) */ return; }
             arr[i].type       = captures[i].type;
             arr[i].is_mutable = captures[i].is_mutable;
         }
@@ -492,6 +508,8 @@ static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
  * ordering), then process the lambda itself. */
 static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node) {
     if (!node) return;
+    /* HARD-05: cancel poll at recursive walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
     switch ((int)(node->kind)) {
         case IRON_NODE_LAMBDA: {
             Iron_LambdaExpr *le = (Iron_LambdaExpr *)node;
@@ -815,15 +833,21 @@ static void verbose_walk(Iron_Node *node, Iron_Arena *arena, int depth) {
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
-                          Iron_Arena *arena, Iron_DiagList *diags) {
+                          Iron_Arena *arena, Iron_DiagList *diags,
+                          const _Atomic bool *cancel_flag) {
     if (!program) return;
+    /* HARD-05: pre-entry cancel check. */
+    if (iron_cancel_requested(cancel_flag)) return;
     (void)global_scope; /* not needed: resolved_sym already attached to idents */
 
     CaptureCtx ctx;
-    ctx.arena = arena;
-    ctx.diags = diags;
+    ctx.arena       = arena;
+    ctx.diags       = diags;
+    ctx.cancel_flag = cancel_flag;
 
     for (int i = 0; i < program->decl_count; i++) {
+        /* HARD-05: cancel poll inside top-level decl loop. */
+        if (iron_cancel_requested(cancel_flag)) return;
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
         switch ((int)(decl->kind)) {

@@ -1,0 +1,14 @@
+-- Phase 11 Plan 11-03 fixture: PATCH-04 false-positive guard (D-13).
+-- Asserts: hover on `compute` (NATIVE, not patch) does NOT render the
+-- italic prepend. Markdown contains the existing fenced signature
+-- block but NO "From `patch object" line.
+
+object Calculator {
+    val seed: Int
+    readonly func compute(x: Int) -> Int { return self.seed + x }
+}
+
+func main() -> Int {
+    val c: Calculator = Calculator(1)
+    return c.compute(10)
+}

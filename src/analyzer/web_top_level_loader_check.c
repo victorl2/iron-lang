@@ -33,8 +33,15 @@
 #include <string.h>
 #include <stdio.h>
 #include <stddef.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 
 #define IRON_DIAG_E0502_TOP_LEVEL_LOADER_ON_WEB 502
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* ── Forbidden callee names ──────────────────────────────────────────────────
  * These are the raylib resource-loader functions that must NOT be called at
@@ -54,8 +61,10 @@ static const char *const FORBIDDEN_LOADERS[] = {
 /* ── Context ─────────────────────────────────────────────────────────────── */
 
 typedef struct {
-    Iron_Arena    *arena;
-    Iron_DiagList *diags;
+    Iron_Arena         *arena;
+    Iron_DiagList      *diags;
+    /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
+    const _Atomic bool *cancel_flag;
 } WebLoaderCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -79,7 +88,7 @@ static void emit_loader_error(WebLoaderCtx *ctx, const char *callee_name,
              callee_name);
 
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
-    if (!msg_copy) iron_oom_abort("web_top_level_loader_check.c:emit_loader_error msg");
+    if (!msg_copy) { /* HARD-09 REPLACE (web_top_level_loader_check.c:emit_loader_error msg) */ msg_copy = "analyzer error"; }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                    IRON_DIAG_E0502_TOP_LEVEL_LOADER_ON_WEB, span,
                    msg_copy, NULL);
@@ -92,6 +101,8 @@ static void scan_node(WebLoaderCtx *ctx, Iron_Node *node);
 
 static void scan_node(WebLoaderCtx *ctx, Iron_Node *node) {
     if (!node) return;
+    /* HARD-05: cancel poll at recursive walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
 
     switch ((int)(node->kind)) {
         /* ── Call expression: check callee name ─────────────────────────── */
@@ -167,6 +178,14 @@ static void scan_node(WebLoaderCtx *ctx, Iron_Node *node) {
             scan_node(ctx, (Iron_Node *)fs->body);
             break;
         }
+        /* HARD-04: graceful no-op on parser ErrorNode. */
+        case IRON_NODE_ERROR:
+            break;
+
+        /* HARD-04: sentinel — never a real node kind. */
+        case IRON_NODE_COUNT:
+            break;
+
         /* ── Default: leaf or unrecognised container — no-op ─────────────── */
         /* -Wswitch-enum opt-out: web-top-level-loader BFS only needs to
          * descend into kinds that can call an async loader. */
@@ -179,14 +198,18 @@ static void scan_node(WebLoaderCtx *ctx, Iron_Node *node) {
 
 void iron_web_top_level_loader_check(Iron_Program *program, Iron_Arena *arena,
                                      Iron_DiagList *diags,
-                                     IronBuildTarget target) {
+                                     IronBuildTarget target,
+                                     const _Atomic bool *cancel_flag) {
     /* On native targets this pass is a zero-cost no-op. */
     if (target != IRON_TARGET_WEB) return;
     if (!program || program->decl_count == 0) return;
+    /* HARD-05: pre-entry cancel check. */
+    if (iron_cancel_requested(cancel_flag)) return;
 
     WebLoaderCtx ctx;
-    ctx.arena = arena;
-    ctx.diags = diags;
+    ctx.arena       = arena;
+    ctx.diags       = diags;
+    ctx.cancel_flag = cancel_flag;
 
     /* Walk only module-level declarations.
      *

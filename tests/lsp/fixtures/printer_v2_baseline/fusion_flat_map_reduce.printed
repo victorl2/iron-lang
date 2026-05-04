@@ -1,0 +1,9 @@
+func main() {
+  val arr = [1, 2, 3, 4, 5]
+  val result = arr.map(func(x: Int) -> Int {
+    return (x * x)
+  }).reduce(0, func(acc: Int, x: Int) -> Int {
+    return (acc + x)
+  })
+  println("{result}")
+}

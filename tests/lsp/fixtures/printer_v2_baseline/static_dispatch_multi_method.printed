@@ -1,0 +1,56 @@
+interface Vehicle {
+  func speed() -> Int
+  func fuel() -> Int
+  func describe() -> String
+}
+
+object Car impl Vehicle {
+  var max_speed: Int
+  var tank: Int
+  init(max_speed: Int, tank: Int) {
+    self.max_speed = max_speed
+    self.tank = tank
+  }
+}
+
+object Bike impl Vehicle {
+  var max_speed: Int
+  init(max_speed: Int) {
+    self.max_speed = max_speed
+  }
+}
+
+func Car.speed() -> Int {
+  return self.max_speed
+}
+
+func Car.fuel() -> Int {
+  return self.tank
+}
+
+func Car.describe() -> String {
+  return "Car(speed={self.max_speed}, fuel={self.tank})"
+}
+
+func Bike.speed() -> Int {
+  return self.max_speed
+}
+
+func Bike.fuel() -> Int {
+  return 0
+}
+
+func Bike.describe() -> String {
+  return "Bike(speed={self.max_speed})"
+}
+
+func report(v: Vehicle) {
+  println("{v.describe()} goes {v.speed()} with {v.fuel()} fuel")
+}
+
+func main() {
+  report(Car(120, 50))
+  report(Bike(25))
+  report(Car(200, 80))
+  println("done")
+}

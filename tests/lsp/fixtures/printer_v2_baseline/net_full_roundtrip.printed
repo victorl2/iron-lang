@@ -1,0 +1,41 @@
+import net
+
+func main() {
+  val (null) = Net.tcp_listen("127.0.0.1", 34503)
+  if (lerr.code != 0) {
+    println("listen failed: {lerr.code}")
+    return
+  }
+  val (null) = Net.tcp_dial("127.0.0.1", 34503, 2000)
+  if (derr.code != 0) {
+    println("dial failed: {derr.code}")
+    TcpListener.close(listener)
+    return
+  }
+  val (null) = TcpListener.accept(listener, 1000)
+  if (aerr.code != 0) {
+    println("accept failed: {aerr.code}")
+    TcpSocket.close(client)
+    TcpListener.close(listener)
+    return
+  }
+  val (null) = TcpSocket.write(client, "ping", 1000)
+  if (werr.code != 0) {
+    println("write failed: {werr.code}")
+    TcpSocket.close(client)
+    TcpSocket.close(server_side)
+    TcpListener.close(listener)
+    return
+  }
+  if (nw != 4) {
+    println("short write: {nw}")
+    TcpSocket.close(client)
+    TcpSocket.close(server_side)
+    TcpListener.close(listener)
+    return
+  }
+  println("roundtrip ok")
+  TcpSocket.close(client)
+  TcpSocket.close(server_side)
+  TcpListener.close(listener)
+}

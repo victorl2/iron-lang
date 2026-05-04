@@ -1,0 +1,37 @@
+object IntWrapper {
+  var value: Int
+  init(value: Int) {
+    self.value = value
+  }
+}
+
+object FloatWrapper {
+  var value: Float
+  init(value: Float) {
+    self.value = value
+  }
+}
+
+object StringWrapper {
+  var value: String
+  init(value: String) {
+    self.value = value
+  }
+}
+
+func IntWrapper.doubled() -> Int {
+  return (self.value * 2)
+}
+
+func FloatWrapper.doubled() -> Float {
+  return (self.value * 2.0)
+}
+
+func main() {
+  val iw = IntWrapper(21)
+  val fw = FloatWrapper(3.14)
+  val sw = StringWrapper("hello")
+  println("{iw.doubled()}")
+  println("{iw.value}")
+  println(sw.value)
+}

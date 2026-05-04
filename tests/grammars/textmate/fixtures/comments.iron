@@ -1,0 +1,7 @@
+// SYNTAX TEST "source.iron" "comments.iron"
+// a plain line comment
+// <- comment.line.double-slash.iron
+/* a block comment */
+// <- comment.block.iron
+/// a doc comment
+// <- comment.block.documentation.iron

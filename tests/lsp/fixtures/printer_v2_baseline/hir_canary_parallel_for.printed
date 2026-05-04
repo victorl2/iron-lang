@@ -1,0 +1,11 @@
+func main() {
+  for i in 50 parallel {
+    var work = (i * i)
+    work = (work + 1)
+  }
+  var total = 0
+  for i in range(10) {
+    total = (total + (i * i))
+  }
+  println("sum: {total}")
+}

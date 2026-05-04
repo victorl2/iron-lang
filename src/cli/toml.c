@@ -205,6 +205,7 @@ static const char *KNOWN_SECTIONS[] = {
     "project",
     "dependencies",
     "web",
+    "fmt",        /* Phase 5 Plan 05-01 (D-02, FMT-05) */
     NULL
 };
 
@@ -285,6 +286,12 @@ IronProject *iron_toml_parse(const char *path) {
         return NULL;
     }
 
+    /* Phase 5 Plan 05-01 (D-02, FMT-05): seed [fmt] defaults so that an
+     * iron.toml without a [fmt] section yields the v1-locked defaults
+     * (line_width=100, indent_width=2, use_tabs=false). The section==4
+     * branch below overwrites individual fields when keys are present. */
+    proj->fmt = iron_fmt_options_default();
+
     /* Compute toml_dir: the directory containing iron.toml (WEB-ASSET-04).
      * Used by web builds to resolve [web].assets paths relative to iron.toml
      * rather than the shell's cwd.
@@ -332,6 +339,8 @@ IronProject *iron_toml_parse(const char *path) {
                     section = 2;
                 } else if (strcmp(sec_name, "web") == 0) {
                     section = 3;
+                } else if (strcmp(sec_name, "fmt") == 0) {   /* Phase 5 Plan 05-01 (D-02) */
+                    section = 4;
                 } else {
                     /* Unknown section: check if it's a typo of a known one (Levenshtein ≤2). */
                     int best_dist = INT_MAX;
@@ -473,6 +482,44 @@ IronProject *iron_toml_parse(const char *path) {
             } else {
                 fprintf(stderr, "warning: unknown [web] key '%s' (ignored)\n", key);
             }
+        } else if (section == 4) {
+            /* Phase 5 Plan 05-01 (D-02, FMT-05): [fmt] section.
+             * Unknown keys silently ignored (forward-compat). */
+            if (strcmp(key, "line_width") == 0) {
+                char *endp = NULL;
+                long v = strtol(val_str, &endp, 10);
+                if (endp == val_str || v <= 0) {
+                    fprintf(stderr,
+                        "warning: [fmt].line_width must be a positive integer "
+                        "(got '%s', ignored)\n", val_str);
+                } else {
+                    proj->fmt.line_width = (int)v;
+                }
+            } else if (strcmp(key, "indent_width") == 0) {
+                char *endp = NULL;
+                long v = strtol(val_str, &endp, 10);
+                if (endp == val_str || v <= 0) {
+                    fprintf(stderr,
+                        "warning: [fmt].indent_width must be a positive integer "
+                        "(got '%s', ignored)\n", val_str);
+                } else {
+                    /* Defensive clamp per RESEARCH Security V10:
+                     * indent_width > 16 is almost certainly a typo. */
+                    if (v > 16) v = 16;
+                    proj->fmt.indent_width = (int)v;
+                }
+            } else if (strcmp(key, "use_tabs") == 0) {
+                if (strcmp(val_str, "true") == 0) {
+                    proj->fmt.use_tabs = true;
+                } else if (strcmp(val_str, "false") == 0) {
+                    proj->fmt.use_tabs = false;
+                } else {
+                    fprintf(stderr,
+                        "warning: [fmt].use_tabs must be 'true' or 'false' "
+                        "(got '%s', ignored)\n", val_str);
+                }
+            }
+            /* Unknown keys silently ignored (D-02 forward-compat). */
         }
     }
 

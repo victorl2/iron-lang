@@ -1,0 +1,341 @@
+==========
+init anonymous one param
+==========
+
+object Player {
+  var count: Int
+  init(v: Int) { self.count = v }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (init_declaration
+      parameters: (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_identifier
+            (identifier))))
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (identifier))))))
+
+==========
+init named zero
+==========
+
+object Counter {
+  var count: Int
+  init zero() { self.count = 0 }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (init_declaration
+      name: (identifier)
+      parameters: (parameter_list)
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (integer_literal))))))
+
+==========
+init multi-dispatch
+==========
+
+object Vec {
+  var x: Int
+  var y: Int
+  init(x: Int, y: Int) { self.x = x  self.y = y }
+  init zero() { self.x = 0  self.y = 0 }
+  init unit() { self.x = 1  self.y = 1 }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (init_declaration
+      parameters: (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_identifier
+            (identifier)))
+        (parameter
+          name: (identifier)
+          type: (type_identifier
+            (identifier))))
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (identifier))
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (identifier))))
+    (init_declaration
+      name: (identifier)
+      parameters: (parameter_list)
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (integer_literal))
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (integer_literal))))
+    (init_declaration
+      name: (identifier)
+      parameters: (parameter_list)
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (integer_literal))
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (integer_literal))))))
+
+==========
+init no params
+==========
+
+object Marker {
+  init() {}
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (init_declaration
+      parameters: (parameter_list)
+      body: (block))))
+
+==========
+init inside patch
+==========
+
+patch object Foo {
+  init(v: Int) { self.value = v }
+}
+
+---
+
+(source_file
+  (patch_declaration
+    target: (identifier)
+    (init_declaration
+      parameters: (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_identifier
+            (identifier))))
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (identifier))))))
+
+==========
+init param with type
+==========
+
+object Box {
+  var item: Int
+  init(item: Int) { self.item = item }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (init_declaration
+      parameters: (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_identifier
+            (identifier))))
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (identifier))))))
+
+==========
+init param without explicit type
+==========
+
+object Tag {
+  var name: String
+  init(name) { self.name = name }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (init_declaration
+      parameters: (parameter_list
+        (parameter
+          name: (identifier)))
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (identifier))))))
+
+==========
+pub init
+==========
+
+object Card {
+  var rank: Int
+  pub init(rank: Int) { self.rank = rank }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (init_declaration
+      (visibility_modifier)
+      parameters: (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_identifier
+            (identifier))))
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (identifier))))))
+
+==========
+fieldless marker init
+==========
+
+object Sentinel {
+  init() {}
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (init_declaration
+      parameters: (parameter_list)
+      body: (block))))
+
+==========
+init named with multiple params
+==========
+
+object Point3 {
+  var x: Int
+  var y: Int
+  var z: Int
+  init xy_plane(x: Int, y: Int) { self.x = x  self.y = y  self.z = 0 }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (init_declaration
+      name: (identifier)
+      parameters: (parameter_list
+        (parameter
+          name: (identifier)
+          type: (type_identifier
+            (identifier)))
+        (parameter
+          name: (identifier)
+          type: (type_identifier
+            (identifier))))
+      body: (block
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (identifier))
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (identifier))
+        (assignment_statement
+          target: (member_expression
+            object: (self_expression)
+            property: (identifier))
+          value: (integer_literal))))))

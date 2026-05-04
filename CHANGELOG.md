@@ -540,6 +540,117 @@ curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh
 
 See the [Raylib getting-started guide](https://ironlang.dev/raylib/guide/) for building your first game.
 
+## v1.2.0-alpha.7 — v1 LSP Feature-Complete Alpha (2026-04-23)
+
+First feature-complete v1 alpha release of the Iron Language Server Protocol
+implementation (`ironls`) + TextMate + tree-sitter grammars + VSCode,
+Neovim, and Zed editor extensions. All 93 v1 requirements land across
+7 phases. The **Core Value** — "an Iron programmer opens a `.iron` file
+and gets correct, fast, process-stable language intelligence that never
+diverges from what `ironc` compiles" — is now enforced by a blocking
+branch-protection gate (`test_parity_ironc_lsp` + `test_parity_ironc_lsp_fmt`).
+
+### M6 Production Hardening — Phase 7 (12 requirements)
+
+- **HARD-13**: Supervisor fork+proxy with exponential-backoff restart and
+  5-crash-in-60-seconds bailout. `ironls --supervised` becomes the default
+  invocation shipped by every editor extension.
+- **HARD-14**: Crash-dump pipeline — SIGABRT + SIGSEGV handlers write a
+  3-section `.dmp` file to `$XDG_STATE_HOME/iron-lsp/crashes/<iso8601>.dmp`
+  containing backtrace, in-flight requests, and document state.
+- **HARD-15**: RSS cap (default 1 GiB) sampled every 5s; on exceed the
+  server exits with code 42 and writes an `rss-restart-<iso8601>.log`
+  marker. The supervisor treats code 42 as a restartable event.
+- **HARD-16**: 8-hour nightly soak + 30-minute PR short-soak with
+  linear-regression growth detection (`<1 KiB/hour` threshold).
+- **HARD-17**: ThreadSanitizer CI on ubuntu-latest with 2-worker
+  mini-soak; zero findings locked in for v1.
+- **HARD-18**: Per-request SLO enforcement via a pytest-lsp harness —
+  p50 thresholds: hover < 20ms, completion < 100ms, diagnostic < 500ms,
+  definition < 50ms.
+- **HARD-19**: 4 new LSP fuzz harnesses (`fuzz_lsp_frame`, `fuzz_lsp_json`,
+  `fuzz_lsp_dispatch`, `fuzz_lsp_didChange`) wired into the existing
+  `fuzz.yml` libFuzzer cron.
+- **HARD-20**: Parent-death detection — Linux `PR_SET_PDEATHSIG`, macOS
+  `kqueue(NOTE_EXIT)`. ironls exits within 5s of its editor process dying.
+- **HARD-21**: macOS Developer-ID signed + Apple-notarized + stapled
+  `ironls` binaries on GitHub Releases. Gatekeeper accepts them silently
+  on first launch — no `xattr -dr com.apple.quarantine` workaround needed.
+- **HARD-22**: `IRON_VERSION_FULL` stamps `iron`, `ironc`, and `ironls`
+  identically at compile time; all three extensions hard-refuse to attach
+  on major-version mismatch (policy: `>= 1.2.0, < 2.0.0`).
+- **HARD-23**: Build-time regression CI — fires an issue when build
+  exceeds 1.15× the rolling 20-sample baseline per OS.
+- **HARD-24**: `test_parity_ironc_lsp` + `test_parity_ironc_lsp_fmt`
+  promoted to blocking CI gates via dedicated `.github/workflows/parity.yml`.
+  Branch protection configured per `docs/dev/ci-gates.md` — zero bypass,
+  admins not excluded. The Core-Value loop is now closed.
+
+### M5 Grammars & Editor Extensions — Phase 6 (10 requirements)
+
+- TextMate grammar drift-guarded against the compiler lexer's `kw_table`.
+- Full tree-sitter grammar with `iron.wasm` artifact shipped per release.
+- VSCode extension (`vscode-languageclient@9.0.1`) with `@vscode/test-electron` e2e harness.
+- Neovim extension via native `vim.lsp.config()` (Neovim 0.11.3+) with
+  `plenary.nvim` e2e harness.
+- Zed extension (Rust → `wasm32-wasip2`) with hand-rolled SHA-256
+  verification of the GitHub-Release download.
+
+### M4 Formatting — Phase 5 (9 requirements)
+
+- `textDocument/formatting` + `textDocument/rangeFormatting` via the
+  `iron_format_source` library call (same primitive as `ironc fmt`).
+- Idempotency guarantee: `fmt(fmt(x)) == fmt(x)` across every integration
+  fixture (`test_parity_ironc_lsp_fmt`).
+- Quickfix cleanliness gate: applying a quickfix must not introduce
+  unformatted output.
+
+### M3 Editing Assistance — Phase 4 (14 requirements)
+
+- Completion with auto-import suggestions.
+- Code actions: quickfixes for common diagnostic patterns + organize imports.
+- Cross-file rename with preview via `textDocument/prepareRename` +
+  `textDocument/rename`.
+
+### M2 Navigation & Understanding — Phase 3 (14 requirements)
+
+- `textDocument/definition`, `textDocument/hover`, `textDocument/references`,
+  `textDocument/signatureHelp`, `workspace/symbol`, `typeHierarchy/*`.
+
+### M1 LSP Core — Phase 2 (16 requirements)
+
+- `ironls` binary built on the `iron_compiler` static library.
+- JSON-RPC transport (frame-level + yyjson-backed payload layer).
+- LSP 3.17 lifecycle FSM + capability negotiation + cancellation.
+- Document store with UTF-16 line-index math + SHA-256 drift detection.
+- Per-document ASTWorker with 250ms coalescing mailbox + SIGABRT boundary.
+
+### M0 Compiler Foundation — Phase 1 (18 requirements)
+
+- `iron_analyze_buffer()` unified API (single-call lex+parse+analyze).
+- `iron_format_source()` library function extracted from `ironc fmt`.
+- Cross-stage arena-lifetime documentation + PROT-01..04 AST invariants.
+- First version of `test_parity_ironc_lsp` (originally advisory; promoted
+  to required in this release).
+
+### Known operating costs
+
+- Apple Developer Program: $99/year (enables HARD-21 macOS signing).
+- GitHub Actions minutes: 8h nightly soak × 2 runners + 30-min PR soak +
+  parity/tsan/slos/vscode-e2e/neovim-e2e/zed-package-validate on every PR.
+  Fits within the free-tier allowance for alpha-stage projects.
+
+### Known limitations (v1.x tracking)
+
+- Windows `ironls` blocked on the compiler's Windows posture (PLAT-01).
+- macOS TSAN deferred (Apple clang flakiness on atomic primitives).
+- Supervisor loses document state across restart (editor re-`didOpen`
+  restores; v1.x shared-state enhancement tracked).
+- Soak-test workload is one canonical fixture (`workload.jsonl`, 28,800
+  events); v1.x will expand to a workload library.
+- `nvim-lspconfig` upstream PR deferred post-v1 (needs ≥ 1 external-user
+  validation per CONTEXT D-05).
+
 ## v1.2.0-alpha — Networking Foundation, URL Module & Tuple Returns (2026-04-11)
 
 ### Summary

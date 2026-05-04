@@ -1,0 +1,38 @@
+interface Shape {
+  func area() -> Int
+}
+
+object Circle impl Shape {
+  var radius: Int
+  init(radius: Int) {
+    self.radius = radius
+  }
+}
+
+object Square impl Shape {
+  var side: Int
+  init(side: Int) {
+    self.side = side
+  }
+}
+
+func Circle.area() -> Int {
+  return ((self.radius * self.radius) * 3)
+}
+
+func Square.area() -> Int {
+  return (self.side * self.side)
+}
+
+func main() {
+  var circles = [Circle(1), Circle(2), Circle(3), Circle(4)]
+  println("{circles.len()}")
+  var first = circles.get(0)
+  println("{first.radius}")
+  circles.set(0, Circle(99))
+  var first_updated = circles.get(0)
+  println("{first_updated.radius}")
+  val popped = circles.pop()
+  println("{popped.radius}")
+  println("{circles.len()}")
+}

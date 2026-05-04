@@ -1,0 +1,9 @@
+func main() {
+  println("{~0}")
+  println("{~1}")
+  println("{~-1}")
+  println("{~5}")
+  println("{~-6}")
+  val a = 42
+  println("{~~a}")
+}

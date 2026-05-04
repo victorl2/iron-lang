@@ -1,0 +1,14 @@
+object Point {
+  var x: Int
+  var y: Int
+  init(x: Int, y: Int) {
+    self.x = x
+    self.y = y
+  }
+}
+
+func main() {
+  val p = heap Point(3, 4)
+  println("before leak: {p.x} {p.y}")
+  leak p
+}

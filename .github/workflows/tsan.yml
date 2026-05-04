@@ -1,0 +1,90 @@
+name: tsan
+
+# Phase 7 Plan 07-03 Task 01 (HARD-17, D-05) -- ThreadSanitizer CI job.
+#
+# Scope: ubuntu-latest only at v1. Apple clang TSAN is flakier than
+# upstream clang and is deferred to v2 per
+# .planning/phases/07-m6-production-hardening/07-CONTEXT.md §D-05.
+#
+# Build: a dedicated `build-tsan/` directory with
+#   -DIRON_ENABLE_SANITIZERS=ON -DIRON_SANITIZER=thread. The selector
+# is mutually exclusive with IRON_ENABLE_FUZZING and IRON_ENABLE_COVERAGE
+# (enforced at configure time in CMakeLists.txt).
+#
+# Success criterion: zero `WARNING: ThreadSanitizer:` lines in the
+# driver's captured ironls stderr. `tests/lsp/tsan/driver.py` exits 1
+# on any match.
+
+on:
+  pull_request:
+    paths:
+      - 'src/lsp/**'
+      - 'src/**/*.c'
+      - 'src/**/*.h'
+      - 'tests/lsp/tsan/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/tsan.yml'
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  tsan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang cmake
+
+      - name: Driver self-test
+        # Fast guard: validates the detection regex + workload-count
+        # invariant before we spend 5+ minutes on a TSAN build.
+        run: python3 tests/lsp/tsan/driver.py --self-test
+
+      - name: Configure TSAN build
+        run: |
+          cmake -B build-tsan -G Ninja \
+              -DCMAKE_C_COMPILER=clang \
+              -DCMAKE_BUILD_TYPE=Debug \
+              -DIRON_ENABLE_SANITIZERS=ON \
+              -DIRON_SANITIZER=thread \
+              -DIRON_BUILD_LSP=ON
+
+      - name: Build ironls under TSAN
+        run: cmake --build build-tsan -j4 --target ironls
+
+      - name: Run 2-worker mini-soak under TSAN
+        env:
+          # halt_on_error=0 so all findings surface in one run.
+          # second_deadlock_stack=1 improves lock-order diagnostics.
+          # print_suppressions=1 so any v1 suppression additions are
+          # flagged in the CI log (policy guardrail for T-07-03-01).
+          TSAN_OPTIONS: "suppressions=${{ github.workspace }}/tests/lsp/tsan/suppressions.txt halt_on_error=0 print_suppressions=1 second_deadlock_stack=1"
+        run: |
+          python3 tests/lsp/tsan/driver.py \
+              --ironls build-tsan/ironls \
+              --workload tests/lsp/tsan/workload.jsonl \
+              --fixtures-root tests/lsp/tsan/fixtures \
+              --suppressions tests/lsp/tsan/suppressions.txt \
+              --workers 2 \
+              --timeout-sec 300 \
+              2> tsan-stderr.log
+          # Re-check the log at the workflow layer so a driver regression
+          # that missed the warning is still caught by GitHub Actions.
+          if grep -q '^WARNING: ThreadSanitizer:' tsan-stderr.log; then
+            echo "::error::ThreadSanitizer WARNING detected in ironls stderr"
+            exit 1
+          fi
+
+      - name: Upload tsan stderr log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tsan-stderr
+          path: tsan-stderr.log
+          retention-days: 14

@@ -1,0 +1,21 @@
+# operators.iron expected-scopes reference.
+Token | Scope
+------|-----------------------
++     | keyword.operator.iron
+-     | keyword.operator.iron
+*     | keyword.operator.iron
+/     | keyword.operator.iron
+%     | keyword.operator.iron
+<     | keyword.operator.iron
+>     | keyword.operator.iron
+==    | keyword.operator.iron
+!=    | keyword.operator.iron
+<=    | keyword.operator.iron
+>=    | keyword.operator.iron
+&&    | keyword.operator.iron
+||    | keyword.operator.iron
+!     | keyword.operator.iron
+=     | keyword.operator.iron
+
+Covers UI-SPEC S6 keyword.operator.iron (single scope per the spec —
+themes style all operators uniformly for v1).

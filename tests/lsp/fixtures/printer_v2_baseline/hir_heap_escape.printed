@@ -1,0 +1,15 @@
+object Item {
+  var value: Int
+  init(value: Int) {
+    self.value = value
+  }
+}
+
+func main() {
+  val a = heap Item(42)
+  val b = heap Item(100)
+  println("{a.value}")
+  println("{b.value}")
+  val c = heap Item((a.value + b.value))
+  println("{c.value}")
+}

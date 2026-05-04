@@ -1,0 +1,7 @@
+# Minimal iron.toml for Phase 4 Plan 04-06 Task 02 cross-file rename
+# smoke fixture. The workspace contains main.iron (importer) and
+# lib.iron (exporter of `do_work`); the smoke test exercises renaming
+# `do_work` from main.iron's use-site and asserts WorkspaceEdit
+# contains documentChanges for both files.
+name = "rename_workspace"
+version = "0.1.0"

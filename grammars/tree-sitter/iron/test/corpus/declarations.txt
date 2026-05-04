@@ -1,0 +1,273 @@
+==========
+import simple
+==========
+
+import foo
+
+---
+
+(source_file
+  (import_declaration
+    path: (import_path
+      (identifier))))
+
+==========
+import dotted path
+==========
+
+import foo.bar.baz
+
+---
+
+(source_file
+  (import_declaration
+    path: (import_path
+      (identifier)
+      (identifier)
+      (identifier))))
+
+==========
+import with alias
+==========
+
+import net as N
+
+---
+
+(source_file
+  (import_declaration
+    path: (import_path
+      (identifier))
+    alias: (identifier)))
+
+==========
+object empty
+==========
+
+object Point {}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)))
+
+==========
+object with fields
+==========
+
+object Point { val x: Int, val y: Int, }
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))))
+
+==========
+interface empty
+==========
+
+interface Drawable {}
+
+---
+
+(source_file
+  (interface_declaration
+    name: (identifier)))
+
+==========
+interface with method signature
+==========
+
+interface Shape { func area() -> Int }
+
+---
+
+(source_file
+  (interface_declaration
+    name: (identifier)
+    (method_signature
+      name: (identifier)
+      parameters: (parameter_list)
+      return_type: (type_identifier
+        (identifier)))))
+
+==========
+enum plain variants
+==========
+
+enum Color { Red, Green, Blue, }
+
+---
+
+(source_file
+  (enum_declaration
+    name: (identifier)
+    (enum_variant
+      name: (identifier))
+    (enum_variant
+      name: (identifier))
+    (enum_variant
+      name: (identifier))))
+
+==========
+enum with payload variants
+==========
+
+enum Shape { Circle(Int), Square(Int, Int), Point, }
+
+---
+
+(source_file
+  (enum_declaration
+    name: (identifier)
+    (enum_variant
+      name: (identifier)
+      (type_identifier
+        (identifier)))
+    (enum_variant
+      name: (identifier)
+      (type_identifier
+        (identifier))
+      (type_identifier
+        (identifier)))
+    (enum_variant
+      name: (identifier))))
+
+==========
+func void no params
+==========
+
+func main() {}
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block)))
+
+==========
+func with params and return
+==========
+
+func add(a: Int, b: Int) -> Int { return a + b }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier)))
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    return_type: (type_identifier
+      (identifier))
+    body: (block
+      (return_statement
+        value: (binary_expression
+          (identifier)
+          (identifier))))))
+
+==========
+val with type annotation
+==========
+
+val x: Int = 42
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    type: (type_identifier
+      (identifier))
+    value: (integer_literal)))
+
+==========
+var without type
+==========
+
+var counter = 0
+
+---
+
+(source_file
+  (var_declaration
+    binding: (identifier)
+    value: (integer_literal)))
+
+==========
+method declaration
+==========
+
+func Point.translate(dx: Int) -> Point { return self }
+
+---
+
+(source_file
+  (method_declaration
+    type_name: (identifier)
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    return_type: (type_identifier
+      (identifier))
+    body: (block
+      (return_statement
+        value: (self_expression)))))
+
+==========
+extern func signature
+==========
+
+extern func puts(s: String) -> Int
+
+---
+
+(source_file
+  (extern_func_declaration
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    return_type: (type_identifier
+      (identifier))))
+
+==========
+object with implements list
+==========
+
+object Circle impl Shape { var radius: Int, }
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    implements: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))))

@@ -1,0 +1,348 @@
+/* iron-lsp entry point -- Phase 2 Plan 06 Task 02 (CORE-19, CORE-21).
+ *
+ * Full wiring: argv -> signals -> log -> server singleton -> reader +
+ * writer threads -> main-thread reader.join() -> clean shutdown.
+ *
+ * Startup ordering (important -- see RESEARCH.md §Process Lifetime):
+ *   1. argv parse. `--version` returns immediately (unit tests rely on
+ *      this). `--log-dir=<p>` + `--log-level=<L>` capture into locals
+ *      used once the log sink is open.
+ *   2. signal(SIGPIPE, SIG_IGN) BEFORE any I/O so write(2) can return
+ *      EPIPE instead of killing us (pattern reused from
+ *      src/runtime/iron_net_init.c:95-108).
+ *   3. ilsp_install_abort_handler() -- Plan 05's SIGABRT boundary. Runs
+ *      before we spawn worker threads so the sigaction is inherited by
+ *      every pthread_create child.
+ *   4. ilsp_log_open() -- XDG-resolved JSON-line sink; --log-dir wins.
+ *      Log the startup banner so operators can trace process starts.
+ *   5. IronLsp_Server singleton field initialization. The struct body
+ *      is defined in lsp/server/server.h (Plan 03 Task 03); this TU
+ *      does NOT re-declare it (acceptance invariant).
+ *   6. ilsp_writer_start() spawns the writer thread.
+ *   7. ilsp_reader_start() spawns the reader thread and binds
+ *      on_message() as the per-frame dispatch callback.
+ *   8. Main thread blocks in ilsp_reader_join() until stdin EOF or
+ *      explicit reader shutdown (e.g. parent editor quit / exit-queued).
+ *
+ * Teardown ordering (must match steps 5-7 in reverse):
+ *   a. Iterate server.documents and ilsp_ast_worker_shutdown_and_join
+ *      each -- joins the per-doc worker thread + frees its mailbox.
+ *   b. ilsp_document_destroy + shdel for each map entry.
+ *   c. shfree the documents map itself.
+ *   d. ilsp_writer_shutdown + ilsp_writer_join + ilsp_writer_destroy.
+ *   e. ilsp_reader_destroy (already joined in step 8).
+ *   f. Destroy cancels + dyn_reg.
+ *   g. ilsp_trace_dump to stderr (operator visibility of timings).
+ *   h. Log + close the log sink.
+ *   i. Exit code 0 if lifecycle reached EXIT_QUEUED (client drove
+ *      shutdown + exit), else 1 (editor crashed or we died early).
+ *
+ * Singleton discipline: `g_server` is mutated ONLY before the reader
+ * thread starts (step 5) and AFTER the reader thread joins (step a).
+ * Between those two points it is const-after-init from main.c's
+ * perspective; handler code mutates state via their respective
+ * subsystem mutexes (cancels lock, mailbox lock, log lock, etc.). This
+ * is the documented CLAUDE.md "no static mutable state" exception; no
+ * other TU references g_server directly. */
+
+#include <errno.h>
+#include <signal.h>
+#include <stdatomic.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "util/arena.h"
+#include "lsp/server/server.h"     /* IronLsp_Server body -- DO NOT re-declare. */
+#include "lsp/server/dispatch.h"
+#include "lsp/server/lifecycle.h"
+#include "lsp/server/cancel.h"
+#include "lsp/server/dyn_register.h"
+#include "lsp/store/document.h"
+#include "lsp/store/workspace_index.h" /* Phase 3 Plan 02: workspace index teardown */
+#include "lsp/facade/workspace_diagnostic.h" /* Phase 3 Plan 06: ws_diag cache */
+#include "lsp/workers/ast_worker.h"
+#include "lsp/transport/reader.h"
+#include "lsp/transport/writer.h"
+#include "lsp/facade/types.h"
+#include "lsp/cli/args.h"          /* Phase 7 Plan 07-01 Task 02: argv parser. */
+#include "lsp/cli/version.h"       /* Phase 7 Plan 07-07 Task 01 (HARD-22, D-10): version accessor. */
+#include "lsp/obs/log.h"           /* Plan 06 Task 01: JSON-line log sink. */
+#include "lsp/obs/trace.h"         /* Plan 06 Task 01: shutdown histogram. */
+#include "lsp/obs/abort_handler.h" /* Plan 05: SIGABRT boundary. */
+#include "lsp/obs/crash_dump.h"    /* Phase 7 Plan 07-01 Task 01: SIGSEGV + crash dump. */
+#include "lsp/obs/parent_watch.h"  /* Phase 7 Plan 07-01 Task 02: parent-death detection. */
+#include "lsp/obs/rss.h"           /* Phase 7 Plan 07-02 Task 01: RSS cap + exit-42 restart. */
+#include "lsp/supervisor/supervisor.h" /* Phase 7 Plan 07-01 Task 02: --supervised mode. */
+
+#include "vendor/stb_ds.h"
+
+#ifndef IRON_VERSION_STRING
+#define IRON_VERSION_STRING "0.0.0"
+#endif
+#ifndef IRON_GIT_HASH
+#define IRON_GIT_HASH "unknown"
+#endif
+#ifndef IRON_BUILD_DATE
+#define IRON_BUILD_DATE "unknown"
+#endif
+#ifndef IRON_BINARY_NAME
+#define IRON_BINARY_NAME "ironls"
+#endif
+
+/* dyn_register symbols ship without a public .h (Plan 03 leaves them
+ * extern-only). Forward-declare matches src/lsp/server/dyn_register.c. */
+extern IronLsp_DynRegister *ilsp_dyn_register_create(void);
+extern void                 ilsp_dyn_register_destroy(IronLsp_DynRegister *r);
+
+/* Singleton -- see file header for mutation discipline. */
+static IronLsp_Server g_server = {0};
+
+/* Reader callback. Invoked on the reader thread for each COMPLETE frame.
+ * Allocates a per-request arena, routes via ilsp_dispatch_route, frees
+ * the arena. This is the Plan 05 HARD-06 per-request-arena discipline
+ * propagated from the facade up to the dispatcher entry. */
+static void on_message(void *ctx, const char *body, size_t len) {
+    IronLsp_Server *s = (IronLsp_Server *)ctx;
+    IronLsp_TraceToken tok = ilsp_trace_begin("dispatch-frame");
+    Iron_Arena arena = iron_arena_create(32 * 1024);
+    ilsp_dispatch_route(s, body, len, &arena);
+    iron_arena_free(&arena);
+    ilsp_trace_end(tok);
+}
+
+/* Phase 7 Plan 07-01 Task 02: argv parsing lives in src/lsp/cli/args.c
+ * so supervisor parent + worker share the same schema. */
+
+int main(int argc, char **argv) {
+    /* ── 1. argv parse (Phase 7 Plan 07-01 Task 02: centralised) ─────── */
+    IlspArgs args = ilsp_args_parse(argc, argv);
+    if (args.want_version) {
+        /* Phase 7 Plan 07-07 (HARD-22, D-10): route the --version print
+         * through ilsp_server_version() so it reads the same compile-time
+         * IRON_VERSION_STRING bytes that the initialize response's
+         * serverInfo.version emits. test_version_stamp_coherence pins
+         * this byte-for-byte match across iron/ironc/ironls. */
+        printf("%s %s (%s, %s)\n",
+               IRON_BINARY_NAME,
+               ilsp_server_version(),
+               IRON_GIT_HASH,
+               IRON_BUILD_DATE);
+        return 0;
+    }
+
+    /* Phase 7 D-01: --supervised mode forks a worker and proxies stdio.
+     * The supervisor parent NEVER reaches the rest of main(); it has
+     * its own signal handling, its own process lifetime, and never runs
+     * the LSP server itself. The worker (spawned by the supervisor with
+     * --__worker) comes back through this path with mode ==
+     * SUPERVISED_WORKER and continues to the normal server bring-up. */
+    if (args.mode == ILSP_MODE_SUPERVISED_PARENT) {
+        return ilsp_supervisor_run(argc, argv);
+    }
+
+    const char       *override_log_dir = args.log_dir;
+    bool              have_level       = (args.log_level != ILSP_ARGS_LOG_UNSET);
+    IronLsp_LogLevel  level_arg        =
+        (args.log_level == ILSP_ARGS_LOG_UNSET)
+            ? ILSP_LOG_WARN
+            : (IronLsp_LogLevel)args.log_level;
+
+    /* ── 2. SIGPIPE SIG_IGN ─────────────────────────────────────────────
+     * Follow the pattern documented in src/runtime/iron_net_init.c:
+     * signal() is sufficient here because we only install SIG_IGN (no
+     * handler state) and the effect is idempotent. MUST happen before
+     * ANY I/O call so the first write to a broken pipe returns EPIPE
+     * instead of terminating the process. */
+    signal(SIGPIPE, SIG_IGN);
+
+    /* ── 3a. Crash-dump handlers (Phase 7 Plan 07-01 Task 01, HARD-14) ──
+     * Install BEFORE the Phase 2 SIGABRT boundary so that SIGSEGV/SIGBUS
+     * flow through the crash-dump handler first. SIGABRT continues to
+     * flow through the Phase 2 sigsetjmp per-doc quarantine path. See
+     * crash_dump.c + 07-01 SUMMARY for the chain discipline. */
+    ilsp_crash_install_handlers();
+
+    /* ── 3b. SIGABRT boundary (Plan 05) ──────────────────────────────
+     * Install BEFORE spawning worker threads so the sigaction is
+     * inherited. The handler siglongjmp's into the per-doc jmp_buf via
+     * the _Thread_local ilsp_current_doc_tls; outside a compile it
+     * _exit(134)s. */
+    ilsp_install_abort_handler();
+
+    /* ── 4. Log sink ────────────────────────────────────────────────────
+     * Open BEFORE starting threads so every subsequent log() call
+     * (including the startup banner) lands in the file. */
+    if (ilsp_log_open(override_log_dir) != 0) {
+        fprintf(stderr, "ironls: could not open log sink; continuing without file log\n");
+    }
+    if (have_level) ilsp_log_set_level(level_arg);
+    ilsp_log(ILSP_LOG_INFO, "startup",
+             "ironls %s (%s, %s) pid=%d mode=%s",
+             ilsp_server_version(), IRON_GIT_HASH, IRON_BUILD_DATE,
+             (int)getpid(),
+             (args.mode == ILSP_MODE_SUPERVISED_WORKER) ? "worker" : "normal");
+
+    /* ── 4b. Parent-death watch (Phase 7 Plan 07-01 Task 02, HARD-20) ──
+     * Linux: prctl(PR_SET_PDEATHSIG). macOS: kqueue+NOTE_EXIT thread.
+     * Fallback: PPID-polling thread. Install AFTER log_open so any
+     * warnings can reach the log sink, and BEFORE spawning the reader
+     * thread so there is exactly one descendant to inherit the watcher. */
+    ilsp_parent_watch_init();
+
+    /* ── 4c. RSS cap (Phase 7 Plan 07-02 Task 01, HARD-15, D-03) ──────
+     * Resolve the effective cap in priority order:
+     *   1. --rss-cap=<bytes> explicitly set on argv (args.rss_cap_explicit)
+     *   2. env IRON_LSP_RSS_CAP_BYTES
+     *   3. compiled-in default 1073741824 bytes (1 GiB)
+     * IRON_LSP_RSS_CAP_BYTES=0 (env) disables the cap entirely per
+     * D-03; an explicit --rss-cap=0 on argv has the same meaning.
+     * ilsp_rss_cap_init(0) is a documented no-op. */
+    {
+        uint64_t cap = 0;
+        bool     cap_set = false;
+        if (args.rss_cap_explicit) {
+            cap     = args.rss_cap_bytes;
+            cap_set = true;
+        } else {
+            const char *env = getenv("IRON_LSP_RSS_CAP_BYTES");
+            if (env && env[0] != '\0') {
+                char *endp = NULL;
+                unsigned long long v = strtoull(env, &endp, 10);
+                if (endp && *endp == '\0') {
+                    cap     = (uint64_t)v;
+                    cap_set = true;
+                }
+            }
+        }
+        if (!cap_set) {
+            cap = 1073741824ULL;  /* 1 GiB default per D-03. */
+        }
+        /* Install (or disable when cap == 0). */
+        if (ilsp_rss_cap_init(cap) != 0) {
+            ilsp_log(ILSP_LOG_WARN, "rss-cap-init",
+                     "ilsp_rss_cap_init(%llu) failed; continuing without cap",
+                     (unsigned long long)cap);
+        } else {
+            ilsp_log(ILSP_LOG_INFO, "rss-cap-init",
+                     "RSS cap %s (cap_bytes=%llu)",
+                     (cap == 0) ? "disabled" : "enabled",
+                     (unsigned long long)cap);
+        }
+    }
+
+    /* ── 5. Server singleton init ───────────────────────────────────── */
+    g_server.lifecycle         = ILSP_LIFECYCLE_UNINIT;
+    g_server.writer            = ilsp_writer_create(stdout);
+    g_server.reader            = NULL;   /* populated below */
+    g_server.cancels           = ilsp_cancel_registry_create();
+    g_server.dyn_reg           = ilsp_dyn_register_create();
+    g_server.position_encoding = ILSP_ENC_UTF16;   /* re-negotiated by initialize */
+    g_server.documents         = NULL;              /* lazy sh_new_strdup on didOpen */
+    g_server.workspace_root    = NULL;
+    g_server.workers           = NULL;
+    g_server.workspace_index   = NULL;              /* created in `initialize` handler */
+    /* Plan 06 (NAV-12, D-12): workspace/diagnostic per-file cache.
+     * Created eagerly so the handler's first call finds a non-NULL cache
+     * even when no workspace_index exists (pull gracefully returns empty). */
+    g_server.ws_diag_cache     = ilsp_ws_diag_cache_create();
+    /* Server-originated request ids (client/registerCapability,
+     * workspace/diagnostic/refresh, etc.) must not collide with
+     * client request ids. Clients (pygls, vscode, neovim) start at 1
+     * and increment, and some treat the id-space as shared — so a
+     * server request with id=1 sent after the client's initialize
+     * (also id=1) corrupts their id→pending-request map. Start the
+     * server counter at 2^31 so no realistic session can collide. */
+    atomic_store(&g_server.next_request_id, 0x80000000ULL);
+
+    if (!g_server.writer || !g_server.cancels || !g_server.dyn_reg) {
+        ilsp_log(ILSP_LOG_ERROR, "startup-failure",
+                 "server subsystem allocation failed; exiting");
+        fprintf(stderr, "ironls: server subsystem allocation failed\n");
+        /* Best-effort cleanup of any partial allocations. */
+        if (g_server.writer)  ilsp_writer_destroy(g_server.writer);
+        if (g_server.cancels) ilsp_cancel_registry_destroy(g_server.cancels);
+        if (g_server.dyn_reg) ilsp_dyn_register_destroy(g_server.dyn_reg);
+        ilsp_log_close();
+        return 1;
+    }
+
+    /* ── 6. Writer thread ─────────────────────────────────────────────── */
+    ilsp_writer_start(g_server.writer);
+
+    /* ── 7. Reader thread ─────────────────────────────────────────────── */
+    g_server.reader = ilsp_reader_create(stdin, on_message, &g_server);
+    if (!g_server.reader) {
+        ilsp_log(ILSP_LOG_ERROR, "startup-failure",
+                 "reader allocation failed; exiting");
+        ilsp_writer_shutdown(g_server.writer);
+        ilsp_writer_join(g_server.writer);
+        ilsp_writer_destroy(g_server.writer);
+        ilsp_cancel_registry_destroy(g_server.cancels);
+        ilsp_dyn_register_destroy(g_server.dyn_reg);
+        ilsp_log_close();
+        return 1;
+    }
+    ilsp_reader_start(g_server.reader);
+
+    /* ── 8. Block on reader lifetime ──────────────────────────────────── */
+    ilsp_log(ILSP_LOG_INFO, "running",
+             "reader+writer threads started; entering main loop");
+    ilsp_reader_join(g_server.reader);
+
+    /* ── a. Per-doc worker teardown ───────────────────────────────────── */
+    ilsp_log(ILSP_LOG_INFO, "shutdown-docs",
+             "reader exited; joining per-document workers");
+    if (g_server.documents) {
+        for (ptrdiff_t i = 0; i < shlen(g_server.documents); i++) {
+            IronLsp_Document *d = g_server.documents[i].value;
+            if (!d) continue;
+            ilsp_ast_worker_shutdown_and_join(d);
+            ilsp_document_destroy(d);
+        }
+        shfree(g_server.documents);
+        g_server.documents = NULL;
+    }
+
+    /* ── d. Writer teardown ───────────────────────────────────────────── */
+    ilsp_log(ILSP_LOG_INFO, "shutdown-writer", "draining + joining writer");
+    ilsp_writer_shutdown(g_server.writer);
+    ilsp_writer_join(g_server.writer);
+    ilsp_writer_destroy(g_server.writer);
+    g_server.writer = NULL;
+
+    /* ── e. Reader destroy (already joined) ───────────────────────────── */
+    ilsp_reader_destroy(g_server.reader);
+    g_server.reader = NULL;
+
+    /* ── f. Cancels + dyn_reg ─────────────────────────────────────────── */
+    ilsp_cancel_registry_destroy(g_server.cancels);
+    g_server.cancels = NULL;
+    ilsp_dyn_register_destroy(g_server.dyn_reg);
+    g_server.dyn_reg = NULL;
+    if (g_server.workspace_root) {
+        free(g_server.workspace_root);
+        g_server.workspace_root = NULL;
+    }
+    if (g_server.workspace_index) {
+        ilsp_workspace_index_destroy(g_server.workspace_index);
+        g_server.workspace_index = NULL;
+    }
+    if (g_server.ws_diag_cache) {
+        ilsp_ws_diag_cache_destroy(g_server.ws_diag_cache);
+        g_server.ws_diag_cache = NULL;
+    }
+
+    /* ── g. Trace dump ────────────────────────────────────────────────── */
+    ilsp_trace_dump(stderr);
+
+    /* ── h/i. Exit code + log close ───────────────────────────────────── */
+    int exit_code = (g_server.lifecycle == ILSP_LIFECYCLE_EXIT_QUEUED) ? 0 : 1;
+    ilsp_log(ILSP_LOG_INFO, "exit",
+             "ironls exiting (code=%d, lifecycle=%s)",
+             exit_code, ilsp_lifecycle_state_name(g_server.lifecycle));
+    ilsp_log_close();
+
+    return exit_code;
+}

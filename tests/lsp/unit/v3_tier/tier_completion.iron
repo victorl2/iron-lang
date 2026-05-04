@@ -1,0 +1,15 @@
+-- Phase 10 TIER-03 fixture: object-body methods with each tier modifier.
+-- Per src/parser/parser.c:3154, `readonly` and `pure` are only valid on
+-- methods inside an object block (not top-level free funcs). The parser
+-- pushes each in-block method decl into the program's top-level decls
+-- via extra_decls_out (parser.c:3332), so emit_top_level's iteration
+-- of program->decls reaches these METHOD_DECL nodes and the TIER-03
+-- prefix shipped by Plan 10-03 Task 4 fires.
+object Vec {
+    val x: Int
+    val y: Int
+
+    readonly func length_sq() -> Int { return self.x * self.x + self.y * self.y }
+    pure func add(other: Vec) -> Vec { return Vec(x: self.x + other.x, y: self.y + other.y) }
+    func mutate(dx: Int) {}
+}

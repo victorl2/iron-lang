@@ -1,0 +1,15 @@
+-- Phase 12 Plan 12-03 fixture: QF-05 / E0239 — same-file callee.
+-- Asserts: codeAction returns 2 actions:
+--   [0] "Drop 'readonly' from caller"   — deletes `readonly ` from caller
+--   [1] "Mark callee as 'readonly'"     — inserts `readonly ` before
+--                                          callee's `func` token
+-- Both is_preferred = false; both same-file; non-stdlib callee.
+
+object Counter {
+    var x: Int
+    init(x: Int) { self.x = x }
+    func bump() { self.x = self.x + 1 }
+    readonly func observe() {
+        self.bump()
+    }
+}

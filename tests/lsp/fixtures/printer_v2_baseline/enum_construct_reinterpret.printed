@@ -1,0 +1,29 @@
+enum Shape {
+  Circle(Int),
+  Square,
+  Rect(Int, Int),
+}
+
+func Shape.area() -> Int {
+  match self {
+    Shape.Circle(r) -> {
+      return (r * r)
+    }
+    Shape.Square -> {
+      return 16
+    }
+    Shape.Rect(w, h) -> {
+      return (w * h)
+    }
+  }
+  return 0
+}
+
+func main() {
+  val c = Shape.Circle(5)
+  val sq = Shape.Square
+  val r = Shape.Rect(3, 4)
+  println("{c.area()}")
+  println("{sq.area()}")
+  println("{r.area()}")
+}

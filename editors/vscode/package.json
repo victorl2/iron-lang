@@ -1,0 +1,99 @@
+{
+  "name": "iron-lsp",
+  "displayName": "Iron LSP",
+  "description": "Iron language support for VSCode via ironls (LSP 3.17) with TextMate syntax highlighting.",
+  "publisher": "iron-lang",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iron-lang/iron-lang"
+  },
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:iron",
+    "workspaceContains:**/iron.toml"
+  ],
+  "main": "./dist/extension.js",
+  "ironLspCompatibleIronlsRange": ">= 3.0.0, < 4.0.0",
+  "contributes": {
+    "languages": [
+      {
+        "id": "iron",
+        "extensions": [".iron"],
+        "aliases": ["Iron", "iron"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "iron",
+        "scopeName": "source.iron",
+        "path": "./syntaxes/iron.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Iron LSP",
+      "properties": {
+        "iron.languageServer.path": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the ironls binary. When empty, the extension searches PATH via which/where. See UI-SPEC S4."
+        },
+        "iron.languageServer.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Traces LSP communication between VSCode and ironls. When not 'off', messages appear in the 'Iron Language Server (trace)' output channel."
+        },
+        "iron.languageServer.logLevel": {
+          "type": "string",
+          "enum": ["error", "warn", "info", "debug"],
+          "default": "info",
+          "description": "Minimum severity for Iron LSP editor-side log events (ext.activate, ironls.discovered, lsp.initialize.*)."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "iron-lsp.diagnose",
+        "title": "Iron LSP: Diagnose",
+        "category": "Iron LSP"
+      },
+      {
+        "command": "iron-lsp.migrate",
+        "title": "Iron: Migrate v2 -> v3",
+        "category": "Iron LSP"
+      }
+    ]
+  },
+  "scripts": {
+    "bundle": "node esbuild.mjs",
+    "prepackage": "node prepackage.mjs",
+    "compile": "tsc -p . --noEmit",
+    "package": "npm run prepackage && npm run bundle && vsce package --no-dependencies",
+    "publish": "npm run prepackage && npm run bundle && vsce publish --no-dependencies",
+    "pretest:e2e": "tsc -p . --outDir out",
+    "test:e2e": "npm run bundle && node ./out/test/runTest.js"
+  },
+  "dependencies": {
+    "vscode-languageclient": "9.0.1"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "@types/vscode": "1.92.0",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.9.0",
+    "esbuild": "^0.24.0",
+    "glob": "^11.0.0",
+    "mocha": "^10.0.0",
+    "typescript": "^5.5.0"
+  }
+}

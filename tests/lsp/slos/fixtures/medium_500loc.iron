@@ -1,0 +1,501 @@
+// Phase 7 Plan 07-04 Task 01 (HARD-18, D-06) -- SLO fixture (medium 500 LoC).
+// Per-PR SLO p50 thresholds enforced on this file (D-06):
+//   textDocument/hover<20ms  completion<100ms  diagnostic<500ms  definition<50ms
+// Five objects, eleven methods each, cross-object references so every
+// request has real work at every cursor position. Hand-shaped to the
+// 'typical Iron file' size per D-06.
+
+val ALPHA_BIAS: Int = 7
+val BETA_BIAS: Int = 13
+val GAMMA_BIAS: Int = 19
+val DELTA_BIAS: Int = 23
+val EPSILON_BIAS: Int = 29
+
+object Alpha {
+  val id: Int
+  var counter: Int = 7
+}
+
+func Alpha.op_0(a: Int) -> Int {
+  var acc: Int = 8
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + BETA_BIAS
+  return acc
+}
+
+func Alpha.op_1(a: Int) -> Int {
+  var acc: Int = 19
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + BETA_BIAS
+  return acc
+}
+
+func Alpha.op_2(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + BETA_BIAS
+  return acc
+}
+
+func Alpha.op_3(a: Int) -> Int {
+  var acc: Int = 41
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + BETA_BIAS
+  return acc
+}
+
+func Alpha.op_4(a: Int) -> Int {
+  var acc: Int = 52
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + BETA_BIAS
+  return acc
+}
+
+func Alpha.op_5(a: Int) -> Int {
+  var acc: Int = 63
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + BETA_BIAS
+  return acc
+}
+
+func Alpha.op_6(a: Int) -> Int {
+  var acc: Int = 74
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + BETA_BIAS
+  return acc
+}
+
+func Alpha.op_7(a: Int) -> Int {
+  var acc: Int = 85
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + BETA_BIAS
+  return acc
+}
+
+func Alpha.op_8(a: Int) -> Int {
+  var acc: Int = 96
+  acc = acc + a
+  acc = acc * 10
+  acc = acc + BETA_BIAS
+  return acc
+}
+
+func Alpha.op_9(a: Int) -> Int {
+  var acc: Int = 10
+  acc = acc + a
+  acc = acc * 11
+  acc = acc + BETA_BIAS
+  return acc
+}
+
+func Alpha.op_10(a: Int) -> Int {
+  var acc: Int = 21
+  acc = acc + a
+  acc = acc * 12
+  acc = acc + BETA_BIAS
+  return acc
+}
+
+object Beta {
+  val id: Int
+  var counter: Int = 13
+}
+
+func Beta.op_0(a: Int) -> Int {
+  var acc: Int = 14
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + GAMMA_BIAS
+  return acc
+}
+
+func Beta.op_1(a: Int) -> Int {
+  var acc: Int = 25
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + GAMMA_BIAS
+  return acc
+}
+
+func Beta.op_2(a: Int) -> Int {
+  var acc: Int = 36
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + GAMMA_BIAS
+  return acc
+}
+
+func Beta.op_3(a: Int) -> Int {
+  var acc: Int = 47
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + GAMMA_BIAS
+  return acc
+}
+
+func Beta.op_4(a: Int) -> Int {
+  var acc: Int = 58
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + GAMMA_BIAS
+  return acc
+}
+
+func Beta.op_5(a: Int) -> Int {
+  var acc: Int = 69
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + GAMMA_BIAS
+  return acc
+}
+
+func Beta.op_6(a: Int) -> Int {
+  var acc: Int = 80
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + GAMMA_BIAS
+  return acc
+}
+
+func Beta.op_7(a: Int) -> Int {
+  var acc: Int = 91
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + GAMMA_BIAS
+  return acc
+}
+
+func Beta.op_8(a: Int) -> Int {
+  var acc: Int = 5
+  acc = acc + a
+  acc = acc * 10
+  acc = acc + GAMMA_BIAS
+  return acc
+}
+
+func Beta.op_9(a: Int) -> Int {
+  var acc: Int = 16
+  acc = acc + a
+  acc = acc * 11
+  acc = acc + GAMMA_BIAS
+  return acc
+}
+
+func Beta.op_10(a: Int) -> Int {
+  var acc: Int = 27
+  acc = acc + a
+  acc = acc * 12
+  acc = acc + GAMMA_BIAS
+  return acc
+}
+
+object Gamma {
+  val id: Int
+  var counter: Int = 19
+}
+
+func Gamma.op_0(a: Int) -> Int {
+  var acc: Int = 20
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + DELTA_BIAS
+  return acc
+}
+
+func Gamma.op_1(a: Int) -> Int {
+  var acc: Int = 31
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + DELTA_BIAS
+  return acc
+}
+
+func Gamma.op_2(a: Int) -> Int {
+  var acc: Int = 42
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + DELTA_BIAS
+  return acc
+}
+
+func Gamma.op_3(a: Int) -> Int {
+  var acc: Int = 53
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + DELTA_BIAS
+  return acc
+}
+
+func Gamma.op_4(a: Int) -> Int {
+  var acc: Int = 64
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + DELTA_BIAS
+  return acc
+}
+
+func Gamma.op_5(a: Int) -> Int {
+  var acc: Int = 75
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + DELTA_BIAS
+  return acc
+}
+
+func Gamma.op_6(a: Int) -> Int {
+  var acc: Int = 86
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + DELTA_BIAS
+  return acc
+}
+
+func Gamma.op_7(a: Int) -> Int {
+  var acc: Int = 97
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + DELTA_BIAS
+  return acc
+}
+
+func Gamma.op_8(a: Int) -> Int {
+  var acc: Int = 11
+  acc = acc + a
+  acc = acc * 10
+  acc = acc + DELTA_BIAS
+  return acc
+}
+
+func Gamma.op_9(a: Int) -> Int {
+  var acc: Int = 22
+  acc = acc + a
+  acc = acc * 11
+  acc = acc + DELTA_BIAS
+  return acc
+}
+
+func Gamma.op_10(a: Int) -> Int {
+  var acc: Int = 33
+  acc = acc + a
+  acc = acc * 12
+  acc = acc + DELTA_BIAS
+  return acc
+}
+
+object Delta {
+  val id: Int
+  var counter: Int = 23
+}
+
+func Delta.op_0(a: Int) -> Int {
+  var acc: Int = 24
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + EPSILON_BIAS
+  return acc
+}
+
+func Delta.op_1(a: Int) -> Int {
+  var acc: Int = 35
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + EPSILON_BIAS
+  return acc
+}
+
+func Delta.op_2(a: Int) -> Int {
+  var acc: Int = 46
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + EPSILON_BIAS
+  return acc
+}
+
+func Delta.op_3(a: Int) -> Int {
+  var acc: Int = 57
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + EPSILON_BIAS
+  return acc
+}
+
+func Delta.op_4(a: Int) -> Int {
+  var acc: Int = 68
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + EPSILON_BIAS
+  return acc
+}
+
+func Delta.op_5(a: Int) -> Int {
+  var acc: Int = 79
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + EPSILON_BIAS
+  return acc
+}
+
+func Delta.op_6(a: Int) -> Int {
+  var acc: Int = 90
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + EPSILON_BIAS
+  return acc
+}
+
+func Delta.op_7(a: Int) -> Int {
+  var acc: Int = 4
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + EPSILON_BIAS
+  return acc
+}
+
+func Delta.op_8(a: Int) -> Int {
+  var acc: Int = 15
+  acc = acc + a
+  acc = acc * 10
+  acc = acc + EPSILON_BIAS
+  return acc
+}
+
+func Delta.op_9(a: Int) -> Int {
+  var acc: Int = 26
+  acc = acc + a
+  acc = acc * 11
+  acc = acc + EPSILON_BIAS
+  return acc
+}
+
+func Delta.op_10(a: Int) -> Int {
+  var acc: Int = 37
+  acc = acc + a
+  acc = acc * 12
+  acc = acc + EPSILON_BIAS
+  return acc
+}
+
+object Epsilon {
+  val id: Int
+  var counter: Int = 29
+}
+
+func Epsilon.op_0(a: Int) -> Int {
+  var acc: Int = 30
+  acc = acc + a
+  acc = acc * 2
+  acc = acc + ALPHA_BIAS
+  return acc
+}
+
+func Epsilon.op_1(a: Int) -> Int {
+  var acc: Int = 41
+  acc = acc + a
+  acc = acc * 3
+  acc = acc + ALPHA_BIAS
+  return acc
+}
+
+func Epsilon.op_2(a: Int) -> Int {
+  var acc: Int = 52
+  acc = acc + a
+  acc = acc * 4
+  acc = acc + ALPHA_BIAS
+  return acc
+}
+
+func Epsilon.op_3(a: Int) -> Int {
+  var acc: Int = 63
+  acc = acc + a
+  acc = acc * 5
+  acc = acc + ALPHA_BIAS
+  return acc
+}
+
+func Epsilon.op_4(a: Int) -> Int {
+  var acc: Int = 74
+  acc = acc + a
+  acc = acc * 6
+  acc = acc + ALPHA_BIAS
+  return acc
+}
+
+func Epsilon.op_5(a: Int) -> Int {
+  var acc: Int = 85
+  acc = acc + a
+  acc = acc * 7
+  acc = acc + ALPHA_BIAS
+  return acc
+}
+
+func Epsilon.op_6(a: Int) -> Int {
+  var acc: Int = 96
+  acc = acc + a
+  acc = acc * 8
+  acc = acc + ALPHA_BIAS
+  return acc
+}
+
+func Epsilon.op_7(a: Int) -> Int {
+  var acc: Int = 10
+  acc = acc + a
+  acc = acc * 9
+  acc = acc + ALPHA_BIAS
+  return acc
+}
+
+func Epsilon.op_8(a: Int) -> Int {
+  var acc: Int = 21
+  acc = acc + a
+  acc = acc * 10
+  acc = acc + ALPHA_BIAS
+  return acc
+}
+
+func Epsilon.op_9(a: Int) -> Int {
+  var acc: Int = 32
+  acc = acc + a
+  acc = acc * 11
+  acc = acc + ALPHA_BIAS
+  return acc
+}
+
+func Epsilon.op_10(a: Int) -> Int {
+  var acc: Int = 43
+  acc = acc + a
+  acc = acc * 12
+  acc = acc + ALPHA_BIAS
+  return acc
+}
+
+func main() {
+  val x_alpha: Alpha = Alpha { id: 0, counter: 7 }
+  val x_beta: Beta = Beta { id: 1, counter: 13 }
+  val x_gamma: Gamma = Gamma { id: 2, counter: 19 }
+  val x_delta: Delta = Delta { id: 3, counter: 23 }
+  val x_epsilon: Epsilon = Epsilon { id: 4, counter: 29 }
+  val _r_alpha_0: Int = x_alpha.op_0(1)
+  val _r_alpha_1: Int = x_alpha.op_1(2)
+  val _r_alpha_2: Int = x_alpha.op_2(3)
+  val _r_beta_0: Int = x_beta.op_0(1)
+  val _r_beta_1: Int = x_beta.op_1(2)
+  val _r_beta_2: Int = x_beta.op_2(3)
+  val _r_gamma_0: Int = x_gamma.op_0(1)
+  val _r_gamma_1: Int = x_gamma.op_1(2)
+  val _r_gamma_2: Int = x_gamma.op_2(3)
+  val _r_delta_0: Int = x_delta.op_0(1)
+  val _r_delta_1: Int = x_delta.op_1(2)
+  val _r_delta_2: Int = x_delta.op_2(3)
+  val _r_epsilon_0: Int = x_epsilon.op_0(1)
+  val _r_epsilon_1: Int = x_epsilon.op_1(2)
+  val _r_epsilon_2: Int = x_epsilon.op_2(3)
+  return
+}

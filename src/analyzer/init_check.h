@@ -7,6 +7,9 @@
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 
+#include <stdatomic.h>
+#include <stdbool.h>
+
 /* Run definite assignment analysis on a type-checked program.
  * For each function body, tracks which variables are definitely assigned
  * at each program point. Emits IRON_ERR_POSSIBLY_UNINITIALIZED (E0314)
@@ -15,8 +18,11 @@
  * Only checks `var` declarations without initializers.
  * `val` declarations always have initializers; function parameters are
  * always initialized. Uses bounded name-set tracking, O(n*v).
+ *
+ * HARD-05: cancel_flag (NULL = never cancel) polled at entry and walkers.
  */
 void iron_init_check(Iron_Program *program, Iron_Scope *global_scope,
-                     Iron_Arena *arena, Iron_DiagList *diags);
+                     Iron_Arena *arena, Iron_DiagList *diags,
+                     const _Atomic bool *cancel_flag);
 
 #endif /* IRON_INIT_CHECK_H */

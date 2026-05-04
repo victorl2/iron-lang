@@ -18,6 +18,13 @@
 #include "vendor/stb_ds.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+
+/* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
+static inline bool iron_cancel_requested(const _Atomic bool *flag) {
+    return flag != NULL && atomic_load_explicit(flag, memory_order_relaxed);
+}
 
 /* Max tracked uninitialized variables per function scope */
 #define MAX_UNINIT_VARS 256
@@ -38,6 +45,15 @@ typedef struct {
      * Used for control flow merging: a branch that returns is excluded
      * from the intersection at merge points. */
     bool          has_return;
+
+    /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
+    const _Atomic bool *cancel_flag;
+
+    /* WR-02 / HARD-09 defensive: emitted a one-time NOTE when the
+     * MAX_UNINIT_VARS=256 tracking cap was hit and further uninit vars
+     * were silently dropped. Prevents silent false-negatives on huge
+     * functions. */
+    bool          cap_warned;
 } InitCheckCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -66,7 +82,7 @@ static void emit_uninit_error(InitCheckCtx *ctx, Iron_Span span,
     snprintf(buf, sizeof(buf),
              "variable '%s' may be used before initialization", name);
     const char *msg_copy = iron_arena_strdup(ctx->arena, buf, strlen(buf));
-    if (!msg_copy) iron_oom_abort("init_check.c:emit_uninit_error msg");
+    if (!msg_copy) { /* HARD-09 REPLACE (init_check.c:emit_uninit_error msg) */ msg_copy = "analyzer error"; }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                    IRON_ERR_POSSIBLY_UNINITIALIZED, span,
                    msg_copy, NULL);
@@ -104,6 +120,8 @@ static void union_assigned(InitCheckCtx *ctx, const bool *other) {
 
 static void check_expr_uses(InitCheckCtx *ctx, Iron_Node *expr) {
     if (!expr) return;
+    /* HARD-05: cancel poll at recursive walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
 
     switch ((int)(expr->kind)) {
     case IRON_NODE_IDENT: {
@@ -204,6 +222,14 @@ static void check_expr_uses(InitCheckCtx *ctx, Iron_Node *expr) {
         /* Lambda bodies are separate scopes; skip for now. */
         break;
     }
+    /* HARD-04: graceful no-op on parser ErrorNode. */
+    case IRON_NODE_ERROR:
+        break;
+
+    /* HARD-04: sentinel — never a real node kind. */
+    case IRON_NODE_COUNT:
+        break;
+
     /* -Wswitch-enum opt-out: init-check walker only visits expression kinds
      * that can read a name; literals, nulls, bools, and helper kinds are
      * intentional no-ops. */
@@ -217,6 +243,8 @@ static void check_expr_uses(InitCheckCtx *ctx, Iron_Node *expr) {
 
 static void check_stmt_init(InitCheckCtx *ctx, Iron_Node *node) {
     if (!node) return;
+    /* HARD-05: cancel poll at recursive statement walker entry. */
+    if (iron_cancel_requested(ctx->cancel_flag)) return;
 
     switch ((int)(node->kind)) {
     case IRON_NODE_VAR_DECL: {
@@ -227,6 +255,19 @@ static void check_stmt_init(InitCheckCtx *ctx, Iron_Node *node) {
                 ctx->uninit_vars[ctx->uninit_count] = vd->name;
                 ctx->assigned[ctx->uninit_count] = false;
                 ctx->uninit_count++;
+            } else if (vd->name && !ctx->cap_warned) {
+                /* WR-02: emit a one-time NOTE when the tracking cap is hit
+                 * so users know definite-assignment analysis is no longer
+                 * sound past this point in the function. NOTE-level does
+                 * not bump error_count; read-before-write bugs may still
+                 * exist past the cap but will not be flagged. */
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_NOTE,
+                               IRON_ERR_POSSIBLY_UNINITIALIZED, vd->span,
+                               "definite-assignment tracking cap reached "
+                               "(256 vars per function); further uninit "
+                               "vars are not checked",
+                               NULL);
+                ctx->cap_warned = true;
             }
         } else {
             /* Init expression may reference other uninit vars */
@@ -480,6 +521,7 @@ static void check_stmt_init(InitCheckCtx *ctx, Iron_Node *node) {
 static void check_function(InitCheckCtx *ctx, Iron_FuncDecl *fn) {
     ctx->uninit_count = 0;
     ctx->has_return = false;
+    ctx->cap_warned = false;  /* WR-02: reset per function. */
     memset(ctx->assigned, 0, sizeof(ctx->assigned));
 
     /* Parameters are always initialized -- do NOT register them. */
@@ -492,12 +534,17 @@ static void check_function(InitCheckCtx *ctx, Iron_FuncDecl *fn) {
 /* ── Public entry point ──────────────────────────────────────────────────── */
 
 void iron_init_check(Iron_Program *program, Iron_Scope *global_scope,
-                     Iron_Arena *arena, Iron_DiagList *diags) {
+                     Iron_Arena *arena, Iron_DiagList *diags,
+                     const _Atomic bool *cancel_flag) {
     (void)global_scope;
 
     if (!program) return;
+    /* HARD-05: pre-entry cancel check. */
+    if (iron_cancel_requested(cancel_flag)) return;
 
     for (int i = 0; i < program->decl_count; i++) {
+        /* HARD-05: cancel poll inside top-level decl loop. */
+        if (iron_cancel_requested(cancel_flag)) return;
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
 
@@ -507,6 +554,8 @@ void iron_init_check(Iron_Program *program, Iron_Scope *global_scope,
             ctx.diags = diags;
             ctx.uninit_count = 0;
             ctx.has_return = false;
+            ctx.cancel_flag = cancel_flag;
+            ctx.cap_warned = false;  /* WR-02: per-function cap note. */
             memset(ctx.assigned, 0, sizeof(ctx.assigned));
             check_function(&ctx, (Iron_FuncDecl *)decl);
         } else if (decl->kind == IRON_NODE_METHOD_DECL) {
@@ -517,6 +566,8 @@ void iron_init_check(Iron_Program *program, Iron_Scope *global_scope,
             ctx.diags = diags;
             ctx.uninit_count = 0;
             ctx.has_return = false;
+            ctx.cancel_flag = cancel_flag;
+            ctx.cap_warned = false;  /* WR-02: per-method cap note. */
             memset(ctx.assigned, 0, sizeof(ctx.assigned));
             if (md->body) {
                 check_stmt_init(&ctx, md->body);

@@ -1,0 +1,8 @@
+func main() {
+  val x = 42
+  val y = Float(x)
+  println("{y}")
+  val pi = 3.14
+  val n = Int(pi)
+  println("{n}")
+}

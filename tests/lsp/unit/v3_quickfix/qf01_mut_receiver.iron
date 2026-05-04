@@ -1,0 +1,13 @@
+-- Phase 12 Plan 12-02 fixture: QF-01 / E0261 (IRON_ERR_V3_MUT_RECEIVER).
+-- Asserts: same handler as qf01_receiver_syntax.iron; same 1 action.
+-- Both codes 260 + 261 dispatch to ilsp_quickfix_v3_receiver_syntax.
+
+object Player {
+    var health: Int
+    init(health: Int) { self.health = health }
+}
+
+func (mut p: Player) heal(amount: Int) {
+    -- v2 mut-receiver syntax — emits E0261 in v3 strict mode.
+    p.health = p.health + amount
+}

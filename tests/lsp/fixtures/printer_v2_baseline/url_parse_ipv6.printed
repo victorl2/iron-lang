@@ -1,0 +1,19 @@
+import url
+
+func main() {
+  val (null) = Url.parse("https://[2001:db8::1]:8443/path?q=1#frag")
+  if (err.code != 0) {
+    println("failed")
+    return
+  }
+  println(u.scheme)
+  println(u.host)
+  println("{u.port}")
+  println(u.path)
+  println(u.query)
+  println(u.fragment)
+  val (null) = Url.parse("https://[unclosed")
+  if (err2.code == 2004) {
+    println("v6 error ok")
+  }
+}

@@ -1,0 +1,16 @@
+import net
+
+func main() {
+  val (null) = Net.tcp_listen("::", 34502)
+  if (lerr.code != 0) {
+    println("listen failed: {lerr.code}")
+    return
+  }
+  val (null) = TcpListener.accept(listener, 50)
+  if (aerr.code == 1004) {
+    println("dualstack listener ok")
+  } else {
+    println("unexpected: {aerr.code}")
+  }
+  TcpListener.close(listener)
+}

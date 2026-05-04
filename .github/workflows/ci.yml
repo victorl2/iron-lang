@@ -3,8 +3,27 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      # Phase 2: src/lsp/** covered by src/** above; grep hook: src/lsp
+      - 'src/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/**'
+      # Phase 6 Plan 06-02: grammars/** + editors/** changes must re-run CI.
+      # grammars/tree-sitter/** changes also trigger the tree-sitter-wasm
+      # job below.
+      - 'grammars/**'
+      - 'editors/**'
   pull_request:
     branches: [main]
+    paths:
+      # Phase 2: src/lsp/** covered by src/** above; grep hook: src/lsp
+      - 'src/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/**'
+      - 'grammars/**'
+      - 'editors/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -80,6 +99,12 @@ jobs:
       - name: Install dependencies (macOS)
         if: needs.changes.outputs.ci == 'true' && runner.os == 'macOS'
         run: brew install cmake ninja
+
+      - name: Install pytest-lsp
+        # Phase 2 M1 LSP Core: smoke tests under tests/lsp/smoke/ drive real
+        # ironls via pytest-lsp. The --break-system-packages fallback handles
+        # Ubuntu 24.04's PEP 668 externally-managed environment.
+        run: python3 -m pip install --pre 'pytest-lsp>=1.0.0b1' 'pytest>=7' || python3 -m pip install --pre --break-system-packages 'pytest-lsp>=1.0.0b1' 'pytest>=7'
 
       - name: Configure (Debug with ASan/UBSan)
         if: needs.changes.outputs.ci == 'true'
@@ -158,6 +183,11 @@ jobs:
             libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
             libxcursor-dev libxi-dev libasound2-dev
 
+      - name: Install pytest-lsp
+        # Phase 2 M1 LSP Core: Release job mirrors Debug job pytest-lsp
+        # install so tests/lsp/smoke/ can run under both configurations.
+        run: python3 -m pip install --pre 'pytest-lsp>=1.0.0b1' 'pytest>=7' || python3 -m pip install --pre --break-system-packages 'pytest-lsp>=1.0.0b1' 'pytest>=7'
+
       - name: Configure (Release, no sanitizers)
         if: needs.changes.outputs.ci == 'true'
         run: |
@@ -185,3 +215,442 @@ jobs:
         run: |
           chmod +x tests/integration/run_integration.sh
           tests/integration/run_integration.sh build/iron
+
+  # Phase 6 Plan 06-02 Task 3 (EXT-02, CONTEXT D-03 + D-07 + D-11).
+  #
+  # Generates + tests + WASM-builds the tree-sitter grammar. Produces
+  # iron.wasm as a build artifact consumed by:
+  #   * Zed extension        (Plan 06-05; Zed downloads the matching
+  #                           iron.wasm alongside the ironls binary at
+  #                           Release time per CONTEXT D-06/D-11).
+  #   * Neovim users         (Plan 06-04; users can install parser via
+  #                           nvim-treesitter once the upstream PR lands,
+  #                           or point at the Release artifact directly).
+  #
+  # ABI 15 contract — tree-sitter-cli 0.26.x is the pinned major. The
+  # tree-sitter-cli@0.26.3 dep pin in the job differs from the repo's
+  # local grammars/tree-sitter/iron/package.json (which pins 0.25.10 for
+  # glibc 2.34 local-dev compatibility). Both produce ABI 15 output;
+  # test_grammar_keyword_drift_tree_sitter is drift-gated against the
+  # committed grammar.js, not the CLI version.
+  #
+  # Threat model T-06-02-02: WASM artifact retention is per-SHA + 7-day
+  # rolling window; Release upload (Plan 06-06) requires a manual publish
+  # gate. Pinned tree-sitter-cli version mitigates T-06-02-03 npm
+  # supply-chain risk.
+  tree-sitter-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: grammars/tree-sitter/iron/package.json
+
+      - name: Install tree-sitter-cli
+        # 0.26.8 fixes a regression in 0.26.3 where `tree-sitter build --wasm`
+        # silently exits 0 without producing the .wasm artifact. ABI 15 is
+        # unchanged across the 0.26.x line.
+        run: npm install -g tree-sitter-cli@0.26.8
+
+      - name: Verify tree-sitter version (ABI 15 contract per RESEARCH Pitfall 4)
+        run: tree-sitter --version
+
+      - name: Generate + test grammar
+        working-directory: grammars/tree-sitter/iron
+        run: |
+          tree-sitter generate
+          tree-sitter test
+
+      - name: Build WASM (auto-downloads wasi-sdk on first run)
+        working-directory: grammars/tree-sitter/iron
+        # Without -o, tree-sitter 0.26.x writes to tree-sitter-iron.wasm
+        # (package-name prefixed). The upload-artifact step expects iron.wasm
+        # at grammars/tree-sitter/iron/iron.wasm — pin the output name.
+        run: tree-sitter build --wasm -o iron.wasm
+
+      - name: Upload iron.wasm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iron-wasm-${{ github.sha }}
+          path: grammars/tree-sitter/iron/iron.wasm
+          if-no-files-found: error
+          retention-days: 7
+
+  # Phase 6 Plan 06-03 Task 3 (EXT-04, EXT-05, CONTEXT D-04 + D-07 + D-11).
+  #
+  # Gates every PR touching editors/vscode/** or grammars/textmate/** on
+  # a successful `vsce package --no-dependencies` dry-run. Asserts the
+  # resulting .vsix stays under the 5 MB ceiling per RESEARCH Pitfall 10.
+  # No Marketplace PAT is required for packaging — only `vsce publish`
+  # needs one, and publish is a human-gated step per CONTEXT D-11.
+  #
+  # Threat model T-06-03-05 mitigation: --no-dependencies keeps the .vsix
+  # free of unneeded runtime dependencies (we bundle via esbuild instead)
+  # and ensures CI never requires secret credentials.
+  vscode-package-dryrun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install VSCode extension deps
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Prepackage (copy grammars)
+        working-directory: editors/vscode
+        run: npm run prepackage
+
+      - name: Bundle (esbuild)
+        working-directory: editors/vscode
+        run: npm run bundle
+
+      - name: vsce package --no-dependencies
+        working-directory: editors/vscode
+        run: npx vsce package --no-dependencies --out iron-lsp.vsix
+
+      - name: Assert .vsix size under 5 MB
+        working-directory: editors/vscode
+        run: |
+          size=$(stat -c%s iron-lsp.vsix)
+          echo "vsix size: $size bytes (ceiling: 5242880)"
+          [ "$size" -lt 5242880 ]
+
+      - name: Upload .vsix artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iron-lsp-vsix-${{ github.sha }}
+          path: editors/vscode/iron-lsp.vsix
+          if-no-files-found: error
+          retention-days: 7
+
+  # Phase 6 Plan 06-03 Task 3 (EXT-04): @vscode/test-electron e2e harness.
+  #
+  # Builds ironls from source, injects it onto $PATH (so
+  # discoverIronls() resolves it), and runs the headless Electron test
+  # that opens tests/editors/fixtures/diag_error.iron and asserts at
+  # least one Error-severity diagnostic appears within 10 s. Linux runs
+  # under xvfb; macOS arm64 passes --disable-gpu-sandbox per RESEARCH
+  # Pitfall 7 (handled in test/runTest.ts).
+  vscode-e2e:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang xvfb \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libasound2-dev
+
+      - name: Install system deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
+      - name: Build ironls
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja .
+          cmake --build build --target ironls --parallel 4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install VSCode extension deps
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Prepackage + bundle + compile tests
+        working-directory: editors/vscode
+        run: |
+          npm run prepackage
+          npm run bundle
+          npx tsc -p . --outDir out
+
+      - name: Run e2e (Linux via xvfb)
+        if: runner.os == 'Linux'
+        working-directory: editors/vscode
+        env:
+          IRONLS_PATH: ${{ github.workspace }}/build/ironls
+        run: |
+          export PATH="${{ github.workspace }}/build:$PATH"
+          xvfb-run -a node ./out/test/runTest.js
+
+      - name: Run e2e (macOS)
+        if: runner.os == 'macOS'
+        working-directory: editors/vscode
+        env:
+          IRONLS_PATH: ${{ github.workspace }}/build/ironls
+        run: |
+          export PATH="${{ github.workspace }}/build:$PATH"
+          node ./out/test/runTest.js
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-e2e-logs-${{ matrix.os }}
+          path: editors/vscode/out/
+          retention-days: 7
+
+  # Phase 6 Plan 06-04 Task 2 (EXT-06 + EXT-10, CONTEXT D-05 + D-07).
+  #
+  # Gates every PR touching editors/neovim/**, grammars/**, or src/** on a
+  # successful plenary.nvim e2e run: builds ironls, clones plenary.nvim,
+  # installs Neovim 0.11.3 (Linux: GitHub release tarball; macOS: brew),
+  # runs editors/neovim/test/e2e/harness.sh which asserts that the shipped
+  # lsp/ironls.lua + ftdetect/iron.lua + plugin/iron_lsp.lua cause at
+  # least one Error-severity diagnostic to surface on the shared
+  # tests/editors/fixtures/diag_error.iron fixture within 5 s (PITFALLS §6).
+  #
+  # Neovim 0.11.3 is the documented floor — matches CONTEXT D-05 + the
+  # version guard in lsp/ironls.lua. Bumping this should be coordinated
+  # with the in-tree version guard.
+  #
+  # plenary.nvim is cloned at master (--depth 1) per threat T-06-04-04
+  # (accepted); pinning to a tag is a trivial v1.x follow-up if master
+  # becomes volatile.
+  neovim-e2e:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libasound2-dev
+
+      - name: Install system deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
+      - name: Install Neovim 0.11.3 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://github.com/neovim/neovim/releases/download/v0.11.3/nvim-linux-x86_64.tar.gz -o /tmp/nvim.tar.gz
+          sudo mkdir -p /opt/nvim
+          sudo tar -xzf /tmp/nvim.tar.gz -C /opt/nvim --strip-components=1
+          echo "/opt/nvim/bin" >> "$GITHUB_PATH"
+
+      - name: Install Neovim (macOS)
+        if: runner.os == 'macOS'
+        run: brew install neovim
+
+      - name: Verify Neovim 0.11.3+
+        run: nvim --version | head -1
+
+      - name: Clone plenary.nvim
+        run: |
+          mkdir -p ~/.local/share/nvim/site/pack/test/start
+          git clone --depth 1 https://github.com/nvim-lua/plenary.nvim \
+            ~/.local/share/nvim/site/pack/test/start/plenary.nvim
+
+      - name: Build ironls
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja .
+          cmake --build build --target ironls --parallel 4
+
+      - name: Run plenary e2e harness
+        run: |
+          export PATH="${{ github.workspace }}/build:$PATH"
+          bash editors/neovim/test/e2e/harness.sh
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neovim-e2e-logs-${{ matrix.os }}
+          path: |
+            ~/.local/state/iron-lsp/
+            ~/.local/state/nvim/lsp.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Phase 6 Plan 06-05 Task 3 (EXT-08 + EXT-09, CONTEXT D-06 + D-07 + D-11).
+  #
+  # Gate 1 of 2 for the Zed extension. Builds the wasm32-wasip2 artifact
+  # that Zed loads and runs `zed extension validate` as a dry-run sanity
+  # check (no publish — publish is human-gated per CONTEXT D-11).
+  #
+  # The Zed CLI install script pipes to bash; we pin to the official
+  # https://zed.dev/install.sh to keep supply-chain surface minimal.
+  # Threat T-06-05-07 (devDep supply chain) — Cargo.lock is committed
+  # in editors/zed/ so transitive pins are gated by code review.
+  zed-package-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install wasm32-wasip2 target
+        run: rustup target add wasm32-wasip2
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            editors/zed/target
+          key: zed-cargo-${{ runner.os }}-${{ hashFiles('editors/zed/Cargo.toml', 'editors/zed/Cargo.lock') }}
+          restore-keys: |
+            zed-cargo-${{ runner.os }}-
+
+      - name: Build Zed extension (wasm32-wasip2, release)
+        working-directory: editors/zed
+        run: cargo build --target wasm32-wasip2 --release
+
+      - name: Clippy (wasm32-wasip2, deny warnings)
+        working-directory: editors/zed
+        run: cargo clippy --target wasm32-wasip2 --release -- -D warnings
+        continue-on-error: true  # v1 best-effort; tightened in Phase 7 hardening
+
+      - name: Install Zed CLI
+        run: |
+          curl -fsSL https://zed.dev/install.sh | sh
+          # Zed install script puts the `zed` binary on PATH via ~/.local/bin
+          # or ~/.zed/cli — add both candidates, only the valid one resolves.
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/zed.app/Contents/MacOS/cli" >> "$GITHUB_PATH"
+
+      - name: Verify Zed CLI present
+        run: |
+          if command -v zed >/dev/null 2>&1; then
+            zed --help | head -3
+            echo "ZED_CLI=1" >> "$GITHUB_ENV"
+          else
+            echo "Zed CLI unavailable on this runner — treat validate step as SKIP."
+            echo "ZED_CLI=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Zed extension validate (dry-run)
+        if: env.ZED_CLI == '1'
+        # Schema: zed extension validate <path>. The Zed CLI on Linux runners
+        # without a display server treats positional args as paths to open in
+        # the editor and exits with "neither DISPLAY nor WAYLAND_DISPLAY is set"
+        # rather than running a validate subcommand. The `--help` probe used to
+        # be relied on as a feature gate but the Zed CLI accepts arbitrary args
+        # plus --help and exits 0 even when the subcommand isn't real.
+        # We now require BOTH a DISPLAY to be set AND `zed --help` to actually
+        # advertise an "extension" subcommand before invoking; otherwise log
+        # SKIP and pass — the wasm-build gate above is the load-bearing check.
+        run: |
+          if zed --help 2>&1 | grep -qE '(^|\s)extension(\s|$)' && [ -n "${DISPLAY:-}" ]; then
+            zed extension validate editors/zed/
+          elif zed --help 2>&1 | grep -qE '(^|\s)extension(\s|$)'; then
+            echo "zed extension validate skipped — no DISPLAY/WAYLAND_DISPLAY on this runner; subcommand requires a display server"
+          else
+            echo "zed extension validate subcommand unavailable on this Zed CLI build — SKIP"
+          fi
+
+      - name: Upload wasm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zed-iron-lsp-wasm-${{ github.sha }}
+          path: editors/zed/target/wasm32-wasip2/release/*.wasm
+          if-no-files-found: error
+          retention-days: 7
+
+  # Phase 6 Plan 06-05 Task 3 (EXT-08 + EXT-10, CONTEXT D-06 + D-07).
+  #
+  # Gate 2 of 2 for the Zed extension. Runs the native `cargo test
+  # --features dev-extension-test` suite which verifies the hand-rolled
+  # SHA-256 helper logic against the mock_release fixture. The full
+  # zed::download_file flow requires Zed's extension runtime sandbox
+  # (not reachable from a native test binary), so end-to-end coverage
+  # of that path is macOS-primary with Linux continue-on-error per
+  # CONTEXT D-07 (Zed Linux support still maturing).
+  #
+  # GH_TOKEN is set so CI runs don't hit the 60/hr unauth GitHub API
+  # rate limit when zed::latest_github_release is exercised manually
+  # during dev-extension loading (PITFALLS §8).
+  zed-e2e:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'ubuntu-latest' }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install wasm32-wasip2 target
+        run: rustup target add wasm32-wasip2
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            editors/zed/target
+          key: zed-cargo-e2e-${{ runner.os }}-${{ hashFiles('editors/zed/Cargo.toml', 'editors/zed/Cargo.lock') }}
+          restore-keys: |
+            zed-cargo-e2e-${{ runner.os }}-
+
+      - name: Run SHA-256 helper tests (native)
+        working-directory: editors/zed
+        run: cargo test --features dev-extension-test
+
+      - name: Build Zed extension (wasm32-wasip2, release)
+        working-directory: editors/zed
+        run: cargo build --target wasm32-wasip2 --release
+
+      - name: Install Zed nightly (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          curl -fsSL https://zed.dev/install.sh | sh
+          echo "$HOME/.local/zed.app/Contents/MacOS/cli" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install Zed nightly (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://zed.dev/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify zed CLI present
+        run: |
+          if command -v zed >/dev/null 2>&1; then
+            zed --help | head -1
+          else
+            echo "Zed CLI not on PATH — v1 allowed-to-fail on Linux per CONTEXT D-07"
+            exit 1
+          fi
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zed-e2e-logs-${{ matrix.os }}
+          path: editors/zed/target/debug/
+          retention-days: 7
+          if-no-files-found: ignore

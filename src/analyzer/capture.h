@@ -7,15 +7,21 @@
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 
+#include <stdatomic.h>
+#include <stdbool.h>
+
 /* Run free variable (capture) analysis on a type-checked program.
  * Annotates each Iron_LambdaExpr with its capture set.
  * Sets lambda->captures and lambda->capture_count for every lambda in the
  * program. Non-capturing lambdas get capture_count == 0 and captures == NULL.
  *
  * Must be called after iron_typecheck() and before escape analysis.
+ *
+ * HARD-05: cancel_flag (NULL = never cancel) polled at entry and walkers.
  */
 void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
-                          Iron_Arena *arena, Iron_DiagList *diags);
+                          Iron_Arena *arena, Iron_DiagList *diags,
+                          const _Atomic bool *cancel_flag);
 
 /* Print a human-readable summary of all lambda/spawn/pfor captures in
  * the program to stderr.  Called by the build pipeline when --verbose is set,

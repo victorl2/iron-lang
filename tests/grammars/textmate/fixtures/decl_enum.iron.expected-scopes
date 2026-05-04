@@ -1,0 +1,14 @@
+# decl_enum.iron expected-scopes reference.
+Token | Scope
+------|--------------------------------
+enum  | keyword.declaration.iron
+Color | entity.name.type.iron
+{     | punctuation.section.iron
+Red   | (unscoped variant)
+,     | punctuation.separator.iron
+Green | (unscoped variant)
+,     | punctuation.separator.iron
+Blue  | (unscoped variant)
+}     | punctuation.section.iron
+
+Covers UI-SPEC S6: keyword.declaration.iron, entity.name.type.iron.

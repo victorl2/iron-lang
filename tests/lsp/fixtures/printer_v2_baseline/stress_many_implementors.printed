@@ -1,0 +1,127 @@
+interface Animal {
+  func value() -> Int
+}
+
+object Dog impl Animal {
+  var n: Int
+  init(n: Int) {
+    self.n = n
+  }
+}
+
+object Cat impl Animal {
+  var n: Int
+  init(n: Int) {
+    self.n = n
+  }
+}
+
+object Bird impl Animal {
+  var n: Int
+  init(n: Int) {
+    self.n = n
+  }
+}
+
+object Fish impl Animal {
+  var n: Int
+  init(n: Int) {
+    self.n = n
+  }
+}
+
+object Frog impl Animal {
+  var n: Int
+  init(n: Int) {
+    self.n = n
+  }
+}
+
+object Snake impl Animal {
+  var n: Int
+  init(n: Int) {
+    self.n = n
+  }
+}
+
+object Hawk impl Animal {
+  var n: Int
+  init(n: Int) {
+    self.n = n
+  }
+}
+
+object Bear impl Animal {
+  var n: Int
+  init(n: Int) {
+    self.n = n
+  }
+}
+
+object Wolf impl Animal {
+  var n: Int
+  init(n: Int) {
+    self.n = n
+  }
+}
+
+object Fox impl Animal {
+  var n: Int
+  init(n: Int) {
+    self.n = n
+  }
+}
+
+func Dog.value() -> Int {
+  return (self.n * 1)
+}
+
+func Cat.value() -> Int {
+  return (self.n * 2)
+}
+
+func Bird.value() -> Int {
+  return (self.n * 3)
+}
+
+func Fish.value() -> Int {
+  return (self.n * 4)
+}
+
+func Frog.value() -> Int {
+  return (self.n * 5)
+}
+
+func Snake.value() -> Int {
+  return (self.n * 6)
+}
+
+func Hawk.value() -> Int {
+  return (self.n * 7)
+}
+
+func Bear.value() -> Int {
+  return (self.n * 8)
+}
+
+func Wolf.value() -> Int {
+  return (self.n * 9)
+}
+
+func Fox.value() -> Int {
+  return (self.n * 10)
+}
+
+func main() {
+  val animals = [Dog(1), Cat(2), Bird(3), Fish(4), Frog(5), Snake(6), Hawk(7), Bear(8), Wolf(9), Fox(10), Dog(2), Cat(3), Bird(4), Fish(5), Frog(6), Snake(7), Hawk(8), Bear(9), Wolf(10), Fox(1), Dog(3), Cat(4), Bird(5), Fish(6), Frog(7), Snake(8), Hawk(9), Bear(10), Wolf(1), Fox(2)]
+  val result = animals.map(func(a: Animal) -> Int {
+    return a.value()
+  }).sum()
+  println("{result}")
+  var total = 0
+  for a in animals {
+    total = (total + a.value())
+  }
+  println("{total}")
+  println("30")
+}
