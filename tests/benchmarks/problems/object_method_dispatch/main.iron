@@ -13,22 +13,24 @@ object Point {
     }
 }
 
-func Point.distance_sq(other: Point) -> Int {
-    val dx = self.x - other.x
-    val dy = self.y - other.y
-    return dx * dx + dy * dy
-}
+patch object Point {
+    readonly func distance_sq(other: Point) -> Int {
+        val dx = self.x - other.x
+        val dy = self.y - other.y
+        return dx * dx + dy * dy
+    }
 
-func Point.translate(dx: Int, dy: Int) -> Point {
-    return Point(self.x + dx, self.y + dy)
-}
+    readonly func translate(dx: Int, dy: Int) -> Point {
+        return Point(self.x + dx, self.y + dy)
+    }
 
-func Point.manhattan() -> Int {
-    var ax = self.x
-    var ay = self.y
-    if ax < 0 { ax = 0 - ax }
-    if ay < 0 { ay = 0 - ay }
-    return ax + ay
+    readonly func manhattan() -> Int {
+        var ax = self.x
+        var ay = self.y
+        if ax < 0 { ax = 0 - ax }
+        if ay < 0 { ay = 0 - ay }
+        return ax + ay
+    }
 }
 
 func compute_checksum(n: Int) -> Int {
