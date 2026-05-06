@@ -317,7 +317,12 @@ fi
 for test_file in ${_main_loop_files}; do
     [ -f "${test_file}" ] || continue
     test_name=$(basename "${test_file}" .iron)
-    expected_file="${TEST_DIR}/${test_name}.expected"
+    # v4 fixtures live in §-section subdirs; derive expected_file from the sibling path.
+    if [ "${CATEGORY}" = "v4" ]; then
+        expected_file="$(dirname "${test_file}")/${test_name}.expected"
+    else
+        expected_file="${TEST_DIR}/${test_name}.expected"
+    fi
     TOTAL=$((TOTAL + 1))
 
     # @compile-only marker: grep the first 10 lines of the .iron source.
