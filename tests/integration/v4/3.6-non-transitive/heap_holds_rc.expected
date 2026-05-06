@@ -1,0 +1,3 @@
+container tag: 1, tex: sprites.png
+drop heap container: 1
+free texture: sprites.png

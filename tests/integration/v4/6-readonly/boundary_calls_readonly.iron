@@ -1,0 +1,23 @@
+-- section: 6-readonly
+-- @req: READ-01, READ-03
+-- @expected-pass-after: phase-22
+-- extends-spec: readonly may call another readonly (§6.1 allowed operations)
+
+object Rect {
+    val w: Int
+    val h: Int
+}
+
+readonly func area(r: *Rect) -> Int {
+    return r.w * r.h
+}
+
+readonly func double_area(r: *Rect) -> Int {
+    return area(r) * 2
+}
+
+func main() {
+    val r = Rect(w: 4, h: 5)
+    val result = double_area(&r)
+    println("double area: {result}")
+}

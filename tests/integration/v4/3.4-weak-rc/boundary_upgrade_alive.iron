@@ -1,0 +1,23 @@
+-- section 3.4 weak rc: upgrade succeeds while strong reference alive
+-- @req: POL-08, POL-09
+-- @expected-pass-after: phase-27
+-- extends-spec: probe pointer access via auto-deref on upgraded handle while strong alive
+
+object Entity {
+    val x: Int
+    val y: Int
+
+    drop {
+        println("drop: entity ({x},{y})")
+    }
+}
+
+func main() {
+    val strong = rc Entity(x: 10, y: 20)
+    val weak_ref: weak rc Entity = strong.demote()
+    val handle = weak_ref.upgrade()
+    if handle != null {
+        println("x: {handle.x}, y: {handle.y}")
+    }
+    println("done")
+}

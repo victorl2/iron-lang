@@ -1,0 +1,19 @@
+-- section 3.2 heap policy + destructor timing
+-- @req: POL-02, POL-04, DROP-01
+-- @expected-pass-after: phase-21
+-- extends-spec: drop probe in object body confirms timing: destructor fires AT free, not earlier
+
+object Resource {
+    val name: String
+
+    drop {
+        println("drop: {name}")
+    }
+}
+
+func main() {
+    val res = heap Resource(name: "res1")
+    println("before free")
+    free res
+    println("after free")
+}

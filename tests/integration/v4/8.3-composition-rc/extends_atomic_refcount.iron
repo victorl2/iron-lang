@@ -1,0 +1,27 @@
+-- section 8.3 extends-spec: ATOMIC-ELISION.md soundness barrier probe
+-- @req: POL-06, POL-07
+-- @expected-pass-after: phase-26
+-- extends-spec: spawn worker holding rc copy; main awaits; drop fires exactly once
+
+object SharedState {
+    val value: Int
+
+    drop {
+        println("shared state dropped")
+    }
+}
+
+func worker(s: rc SharedState) {
+    -- worker holds its own rc copy for the duration of the task
+    println("worker value: {s.value}")
+    -- s drops at worker function exit; refcount decrements
+}
+
+func main() {
+    val state = rc SharedState(value: 42)
+    val worker_copy = state         -- refcount = 2
+    spawn worker(worker_copy)       -- worker takes ownership of the copy
+    -- main's rc copy still alive here; refcount >= 1
+    println("main continues")
+    -- state drops at main exit; refcount reaches 0; destructor fires once
+}

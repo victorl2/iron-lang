@@ -1,0 +1,112 @@
+-- section 8.7 mixing all policies verbatim
+-- @req: POL-01, POL-02, POL-06, POL-08, ARENA-01
+-- @expected-pass-after: phase-28
+-- all 5 policies + both pointer regimes + arena in one fixture
+
+object InputState {
+    var quit: Bool
+}
+
+object Enemy {
+    val id: Int
+    var player: weak rc Player
+}
+
+object Player {
+    val hp: Int
+}
+
+object AssetManager {
+    var loaded: Int
+}
+
+object ParticleArray {
+    var count: Int
+}
+
+nocopy object ParticleSystem {
+    var storage: Box[ParticleArray]
+
+    init() {
+        self.storage = Box.new(ParticleArray(count: 0))
+    }
+}
+
+object LevelData {
+    val seed: Int
+
+    drop {
+        println("level freed")
+    }
+}
+
+object DrawCmd {
+    val id: Int
+}
+
+object Game {
+    var assets: AssetManager                    -- value, contains rc internally
+    var enemies: List[Enemy]                    -- value, heap buffer internally
+    var player: rc Player                       -- shared, weak-referenced by enemies
+    var current_level: heap LevelData           -- explicit heap allocation
+    var input_state: InputState                 -- value, stack
+    var particles: ParticleSystem               -- contains Box for hot loop
+    var frame_arena: heap Arena                 -- arena for per-frame allocations
+
+    init() {
+        self.assets = AssetManager(loaded: 0)
+        self.enemies = List.new()
+        self.player = rc Player(hp: 100)
+        self.current_level = heap LevelData(seed: 1)
+        self.input_state = InputState(quit: false)
+        self.particles = ParticleSystem()
+        self.frame_arena = heap Arena.new(size: 4 * 1024 * 1024)
+    }
+
+    func tick(self: *var Game, dt: Float) {
+        -- placeholder
+    }
+
+    func build_render_cmds(self: *var Game, frame_cmds: *var [DrawCmd; <=4096]) {
+        -- placeholder
+    }
+
+    drop {
+        println("game freed")
+    }
+}
+
+func should_quit() -> Bool {
+    return true
+}
+
+func get_frame_time() -> Float {
+    return 0.016
+}
+
+func process_input(input: *var InputState) {
+    -- placeholder
+}
+
+func submit_to_gpu(cmds: *var [DrawCmd; <=4096]) {
+    println("frame submitted")
+}
+
+func main() {
+    val game = heap Game.new()
+    defer free game
+
+    while !should_quit() {
+        val dt = get_frame_time()
+
+        process_input(&game.input_state)
+        game.tick(dt)
+
+        in game.frame_arena {
+            val frame_cmds = heap [DrawCmd; <=4096]
+            game.build_render_cmds(&frame_cmds)
+            submit_to_gpu(&frame_cmds)
+        }
+        game.frame_arena.reset()
+    }
+}

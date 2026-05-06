@@ -1,0 +1,84 @@
+-- section 8.6 per-frame arena allocation verbatim
+-- @req: ARENA-01, ARENA-03, ARENA-06
+-- @expected-pass-after: phase-28
+-- per-frame Arena bumped at frame start; O(1) reset at frame end; perm arena holds engine state
+
+object Renderer {
+    val width: Int
+
+    init() {
+        self.width = 1920
+        println("renderer init")
+    }
+
+    drop {
+        println("renderer freed")
+    }
+}
+
+object AudioSystem {
+    val sample_rate: Int
+
+    init() {
+        self.sample_rate = 44100
+        println("audio init")
+    }
+
+    drop {
+        println("audio freed")
+    }
+}
+
+object DrawCmd {
+    val id: Int
+}
+
+func should_quit() -> Bool {
+    return true
+}
+
+func get_frame_time() -> Float {
+    return 0.016
+}
+
+func tick_simulation(dt: Float, ai_scratch: *var [Float; <=4096]) {
+    -- placeholder
+}
+
+func build_draw_commands(draw_cmds: *var [DrawCmd; <=8192]) {
+    -- placeholder
+}
+
+func submit_to_gpu(draw_cmds: *var [DrawCmd; <=8192]) {
+    println("frame submitted")
+}
+
+func main() {
+    val frame_arena = heap Arena.new(size: 64 * 1024 * 1024)
+    val perm_arena = heap Arena.new(size: 32 * 1024 * 1024)
+
+    defer free perm_arena
+    defer free frame_arena
+
+    -- Permanent allocations: engine state, never reset
+    in perm_arena {
+        val renderer = heap Renderer.init()
+        val audio = heap AudioSystem.init()
+    }
+
+    -- Frame loop: per-frame allocations are arena-bumped, then bulk-freed
+    while !should_quit() {
+        val dt = get_frame_time()
+
+        in frame_arena {
+            val draw_cmds = heap [DrawCmd; <=8192]
+            val ai_scratch = heap [Float; <=4096]
+
+            tick_simulation(dt, &ai_scratch)
+            build_draw_commands(&draw_cmds)
+            submit_to_gpu(&draw_cmds)
+        }
+
+        frame_arena.reset()    -- O(1) cleanup of all per-frame allocations
+    }
+}

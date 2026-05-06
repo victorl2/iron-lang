@@ -1,0 +1,9 @@
+-- section 4.10 negative: mutating through an immutable pointer
+-- @req: PTR-06
+-- @expected-pass-after: phase-20
+-- *Player (non-var) pointer does not allow mutation of the pointee
+func main() {
+    val player: Player = Player.new()
+    val p: *Player = &player
+    p.hp = 0
+}

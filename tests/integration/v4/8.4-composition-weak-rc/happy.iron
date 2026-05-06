@@ -1,0 +1,49 @@
+-- section 8.4 weak rc parent/child Node graph verbatim
+-- @req: POL-08, POL-09
+-- @expected-pass-after: phase-27
+-- parent->child is rc (owning); child->parent is weak rc (non-owning); no cycle
+
+object Mat4 {
+    val m00: Float
+
+    readonly func mul(self: *Mat4, other: *Mat4) -> Mat4 {
+        return Mat4(m00: self.m00 * other.m00)
+    }
+}
+
+object SceneNode {
+    var transform: Mat4
+    var children: List[rc SceneNode]
+    var parent: weak rc SceneNode
+
+    init(transform: Mat4) {
+        self.transform = transform
+        self.children = List.new()
+        self.parent = weak rc null
+    }
+
+    func add_child(self: *var SceneNode, child: rc SceneNode) {
+        child.parent = weak rc self
+        self.children.add(child)
+    }
+
+    readonly func world_transform(self: *SceneNode) -> Mat4 {
+        val parent_strong = self.parent.upgrade()
+        if parent_strong == null {
+            return self.transform
+        }
+        return parent_strong.value.world_transform().mul(&self.transform)
+    }
+
+    drop {
+        println("node freed")
+    }
+}
+
+func main() {
+    val root = rc SceneNode(transform: Mat4(m00: 1.0))
+    val child = rc SceneNode(transform: Mat4(m00: 2.0))
+    root.add_child(child)
+    println("tree built")
+    -- root and child freed when main exits; no cycle so both drop
+}

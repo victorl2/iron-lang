@@ -1,0 +1,3 @@
+worker value: 42
+main continues
+shared state dropped

@@ -1,0 +1,20 @@
+-- section 3.7 arena allocation
+-- @req: ARENA-01, ARENA-03
+-- @expected-pass-after: phase-28
+-- canonical Arena.with_capacity + heap(in: arena) allocations + scope-exit drop
+
+object DrawCmd {
+    val id: Int
+
+    drop {
+        println("drop cmd: {id}")
+    }
+}
+
+func main() {
+    val frame_arena = Arena.with_capacity(65536)
+    val cmd1 = heap(in: frame_arena) DrawCmd(id: 1)
+    val cmd2 = heap(in: frame_arena) DrawCmd(id: 2)
+    val cmd3 = heap(in: frame_arena) DrawCmd(id: 3)
+    println("cmds: {cmd1.id}, {cmd2.id}, {cmd3.id}")
+}

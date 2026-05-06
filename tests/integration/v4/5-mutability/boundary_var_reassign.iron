@@ -1,0 +1,12 @@
+-- section: 5-mutability
+-- @req: VAL-04
+-- @expected-pass-after: phase-17
+-- extends-spec: var reassignment runtime probe; 3 successive writes to a var binding; final value is the last assignment
+
+func main() {
+    var counter = 0
+    counter = 1
+    counter = 2
+    counter = 3
+    println("counter={counter}")
+}

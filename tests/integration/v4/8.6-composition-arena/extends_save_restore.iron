@@ -1,0 +1,38 @@
+-- section 8.6 extends-spec: save/restore boundary probe (CONTEXT.md mandate)
+-- @req: ARENA-01, ARENA-03, ARENA-06
+-- @expected-pass-after: phase-28
+-- extends-spec: arena with save mark; allocate 3 values; restore mark drops them; allocate 1 more
+
+object Temp {
+    val id: Int
+
+    drop {
+        println("temp {id} freed")
+    }
+}
+
+func main() {
+    val arena = heap Arena.new(size: 1024 * 1024)
+    defer free arena
+
+    val mark = arena.save()
+
+    -- allocate 3 temporaries inside the mark boundary
+    in arena {
+        val t1 = heap Temp(id: 1)
+        val t2 = heap Temp(id: 2)
+        val t3 = heap Temp(id: 3)
+        println("temps allocated")
+    }
+
+    -- restore resets arena to saved mark; all 3 temps freed in bulk
+    arena.restore(mark)
+    println("mark restored")
+
+    -- one more allocation after restore; proves arena is still usable
+    in arena {
+        val t4 = heap Temp(id: 4)
+        println("t4 allocated")
+    }
+    arena.reset()
+}

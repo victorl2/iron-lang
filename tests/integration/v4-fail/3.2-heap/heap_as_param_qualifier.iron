@@ -1,0 +1,6 @@
+-- section 3.2 negative: heap as parameter qualifier
+-- @req: POL-02
+-- @expected-pass-after: phase-21
+-- heap may not qualify a function parameter type
+func process(x: heap Player) {
+}

@@ -1,0 +1,12 @@
+-- section 10.4 extends-spec: defer LIFO ordering across 3 deferred statements
+-- @req: DEFER-01, DEFER-02
+-- @expected-pass-after: phase-32
+-- extends-spec: 3 defer statements execute in LIFO order at scope exit
+
+func main() {
+    defer println("deferred 1")
+    defer println("deferred 2")
+    defer println("deferred 3")
+    println("work done")
+    -- scope exits; defers run in reverse registration order (LIFO)
+}

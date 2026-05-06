@@ -1,0 +1,7 @@
+-- section 5.1 negative: must specify val or var on local binding
+-- @req: VAL-01
+-- @expected-pass-after: phase-17
+-- every local variable declaration must begin with val or var
+func main() {
+    x = 30
+}

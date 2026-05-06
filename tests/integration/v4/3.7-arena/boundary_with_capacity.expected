@@ -1,0 +1,4 @@
+capacity: 4096
+used before: 0
+used after 3 allocs > 0: true
+data: 1,2,3

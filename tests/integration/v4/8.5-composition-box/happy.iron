@@ -1,0 +1,53 @@
+-- section 8.5 Box performance-critical tight loop verbatim
+-- @req: UNCK-01, UNCK-03
+-- @expected-pass-after: phase-25
+-- Box[ParticleArray] for hot loop; unwrap yields *unchecked for zero-overhead inner loop
+
+object Vec2 {
+    var x: Float
+    var y: Float
+}
+
+object Particle {
+    var pos: Vec2
+    var vel: Vec2
+    var lifetime: Float
+}
+
+nocopy object ParticleArray {
+    var items: [Particle; <=4096]
+    var count: Int
+
+    init(capacity: Int) {
+        self.items = [Particle; <=4096].new()
+        self.count = 0
+    }
+}
+
+nocopy object ParticleSystem {
+    var storage: Box[ParticleArray]
+    var count: Int
+
+    init(capacity: Int) {
+        self.storage = Box.new(ParticleArray(capacity: capacity))
+        self.count = 0
+    }
+
+    func step(self: *var ParticleSystem, dt: Float) {
+        val particles: *var unchecked ParticleArray = self.storage.unwrap()
+
+        -- tight inner loop, raw pointer access, no per-deref checks
+        for i in range(self.count) {
+            val p: *var unchecked Particle = &particles.items[i]
+            p.pos.x += p.vel.x * dt
+            p.pos.y += p.vel.y * dt
+            p.lifetime -= dt
+        }
+    }
+}
+
+func main() {
+    var ps = ParticleSystem(capacity: 4096)
+    ps.step(0.016)
+    println("step complete")
+}

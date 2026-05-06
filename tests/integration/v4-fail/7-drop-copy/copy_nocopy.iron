@@ -1,0 +1,11 @@
+-- section 7.3 negative: copying a nocopy value
+-- @req: DROP-04
+-- @expected-pass-after: phase-24
+-- nocopy types cannot be implicitly copied; assignment triggers move semantics
+nocopy object FileHandle {
+    var fd: Int
+}
+func main() {
+    val a = FileHandle(fd: 3)
+    val b = a
+}

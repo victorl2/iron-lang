@@ -1,0 +1,9 @@
+-- section 4.8 negative: pointer arithmetic is forbidden
+-- @req: PTR-04
+-- @expected-pass-after: phase-20
+-- adding an integer offset to a pointer is not allowed in the checked regime
+func main() {
+    val player: Player = Player.new()
+    val p: *Player = &player
+    val q = p + 1
+}

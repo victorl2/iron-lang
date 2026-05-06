@@ -1,0 +1,7 @@
+registered a
+registered b
+registered c
+scope exit
+drop: c
+drop: b
+drop: a

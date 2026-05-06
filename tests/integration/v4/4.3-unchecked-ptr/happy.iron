@@ -1,0 +1,14 @@
+-- section: 4.3-unchecked-ptr
+-- @req: UNCK-01, UNCK-03
+-- @expected-pass-after: phase-25
+-- description: Box[T] unwrap returns inner *unchecked T; auto-deref field access through Box
+
+object Sample {
+    val value: Int
+}
+
+func main() {
+    val boxed: Box[Sample] = Box.new(Sample(value: 42))
+    val sample = boxed.unwrap()
+    println("value: {sample.value}")
+}

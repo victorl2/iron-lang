@@ -1,0 +1,11 @@
+-- section 5.3 negative: passing a read-only value to a var parameter slot
+-- @req: PARM-01
+-- @expected-pass-after: phase-18
+-- read-only binding cannot be passed where a var (mutable) parameter is expected
+func mutates(var y: Int) {
+    y = y + 1
+}
+func main() {
+    val x: Int = 5
+    mutates(x)
+}

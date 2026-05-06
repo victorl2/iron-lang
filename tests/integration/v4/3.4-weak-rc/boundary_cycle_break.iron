@@ -1,0 +1,28 @@
+-- section 3.4 weak rc: cycle breaking with weak rc
+-- @req: POL-08, POL-09
+-- @expected-pass-after: phase-27
+-- extends-spec: drop probes verify both A and B freed (without weak, both would leak)
+
+object NodeB {
+    val id: Int
+
+    drop {
+        println("drop: B-{id}")
+    }
+}
+
+object NodeA {
+    val id: Int
+    val b_link: rc NodeB
+    var back: weak rc NodeA
+
+    drop {
+        println("drop: A-{id}")
+    }
+}
+
+func main() {
+    val node_a = rc NodeA(id: 1, b_link: rc NodeB(id: 2), back: weak rc null)
+    node_a.back = node_a.demote()
+    println("cycle set up")
+}

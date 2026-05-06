@@ -1,0 +1,32 @@
+-- section: 7-drop-copy
+-- @req: DROP-05
+-- @expected-pass-after: phase-24
+-- extends-spec: partial-init cleanup: if constructor panics mid-init, already-initialized fields drop (§7.1)
+-- @expect-panic: partial init cleanup
+
+object Probe {
+    val name: String
+    drop {
+        println("drop: {name}")
+    }
+}
+
+object Multi {
+    val first: Probe
+    val second: Probe
+    val third: Probe
+
+    init(fail: Bool) -> Multi {
+        self.first = Probe(name: "first")
+        if fail {
+            panic("partial init cleanup")
+        }
+        self.second = Probe(name: "second")
+        self.third = Probe(name: "third")
+    }
+}
+
+func main() {
+    val m = Multi(fail: true)
+    println("should not reach here")
+}

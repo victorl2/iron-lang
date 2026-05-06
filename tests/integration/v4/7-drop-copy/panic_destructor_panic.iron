@@ -1,0 +1,17 @@
+-- section: 7-drop-copy
+-- @req: DROP-04, DROP-05
+-- @expected-pass-after: phase-24
+-- extends-spec: panicking destructor aborts process (§7.1 destructor failure)
+-- @expect-panic: destructor panic
+
+object Bomb {
+    val id: Int
+    drop {
+        panic("destructor panic")
+    }
+}
+
+func main() {
+    val b = Bomb(id: 1)
+    println("created bomb {b.id}")
+}

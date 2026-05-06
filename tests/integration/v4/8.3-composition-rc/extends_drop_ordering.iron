@@ -1,0 +1,31 @@
+-- section 8.3 extends-spec: drop-ordering probe for rc shared texture
+-- @req: POL-06, POL-07, DROP-01
+-- @expected-pass-after: phase-26
+-- extends-spec: 3 rc copies in nested scopes; destructor fires after last reference released
+
+object Resource {
+    val id: Int
+
+    drop {
+        println("drop resource {id}")
+    }
+}
+
+func main() {
+    val a = rc Resource(id: 1)
+    println("a alive")
+    {
+        val b = a                  -- refcount = 2
+        println("b alive")
+        {
+            val c = a              -- refcount = 3
+            println("c alive")
+            -- c drops here; refcount = 2; no destructor
+        }
+        println("c gone")
+        -- b drops here; refcount = 1; no destructor
+    }
+    println("b gone")
+    -- a drops here; refcount = 0; destructor fires
+    println("a gone")
+}

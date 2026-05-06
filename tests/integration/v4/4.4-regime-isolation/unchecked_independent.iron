@@ -1,0 +1,14 @@
+-- section: 4.4-regime-isolation
+-- @req: PTR-04, UNCK-01
+-- @expected-pass-after: phase-25
+-- extends-spec: unchecked pointer regime works independently in FFI boundary; no checked pointer ever touches the unchecked realm; PTR-03 regime disjointness means cross-regime conversion is a compile error (verified in v4-fail/4.4)
+
+extern func c_abs(x: *unchecked Int) -> Int
+
+func main() {
+    val value: Int = -42
+    val raw: *unchecked Int = value as *unchecked Int
+    -- FFI call through unchecked pointer; no generation check performed
+    val result = c_abs(raw)
+    println("abs: {result}")
+}

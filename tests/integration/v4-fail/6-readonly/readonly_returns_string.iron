@@ -1,0 +1,7 @@
+-- section 6.4 negative: readonly method returns an allocating type
+-- @req: READ-04
+-- @expected-pass-after: phase-22
+-- String is not readonly-compatible because creating one requires allocation
+readonly func bad() -> String {
+    return "hello"
+}

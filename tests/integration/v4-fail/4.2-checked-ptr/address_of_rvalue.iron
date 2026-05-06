@@ -1,0 +1,7 @@
+-- section 4.2 negative: cannot take address of rvalue
+-- @req: PTR-01
+-- @expected-pass-after: phase-20
+-- & operator requires an lvalue; temporary is not addressable
+func main() {
+    val ptr = &Player.new()
+}

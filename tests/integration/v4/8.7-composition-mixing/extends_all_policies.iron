@@ -1,0 +1,75 @@
+-- section 8.7 extends-spec: all-policies integration probe
+-- @req: POL-01, POL-02, POL-06, POL-08, ARENA-01, DROP-01
+-- @expected-pass-after: phase-28
+-- extends-spec: stack + heap + rc + weak + arena lifecycle interleaved; destructors fire in correct order
+
+object StackVal {
+    val id: Int
+
+    drop {
+        println("stack {id} freed")
+    }
+}
+
+object HeapObj {
+    val id: Int
+
+    drop {
+        println("heap {id} freed")
+    }
+}
+
+object Shared {
+    val id: Int
+
+    drop {
+        println("shared {id} freed")
+    }
+}
+
+object ArenaObj {
+    val id: Int
+
+    drop {
+        println("arena {id} freed")
+    }
+}
+
+object Child {
+    val id: Int
+    var parent: weak rc Shared
+
+    drop {
+        println("child {id} freed")
+    }
+}
+
+func main() {
+    -- stack allocation: freed at scope exit
+    val sv = StackVal(id: 1)
+
+    -- heap allocation: freed via defer
+    val ho = heap HeapObj(id: 2)
+    defer free ho
+
+    -- rc allocation: freed when last reference goes out of scope
+    val sh = rc Shared(id: 3)
+
+    -- weak rc: child holds non-owning reference to shared
+    val ch = Child(id: 4, parent: weak rc sh)
+
+    -- arena allocation: freed at arena.reset()
+    val arena = heap Arena.new(size: 64 * 1024)
+    defer free arena
+
+    in arena {
+        val ao = heap ArenaObj(id: 5)
+        println("arena obj alive")
+    }
+    arena.reset()
+
+    println("all alive")
+    -- rc sh drops at end of main scope
+    -- heap ho freed by defer before stack sv
+    -- sv drops last (stack; declaration order reversed by LIFO)
+}

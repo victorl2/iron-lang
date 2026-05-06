@@ -1,0 +1,7 @@
+temps allocated
+temp 3 freed
+temp 2 freed
+temp 1 freed
+mark restored
+t4 allocated
+temp 4 freed

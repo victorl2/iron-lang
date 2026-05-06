@@ -1,0 +1,10 @@
+-- section 4.4 negative: implicit conversion from unchecked to checked pointer
+-- @req: PTR-04, UNCK-01
+-- @expected-pass-after: phase-25
+-- unchecked regime cannot implicitly enter checked regime
+func get_unchecked() -> *unchecked Player {
+    return null
+}
+func main() {
+    val checked: *Player = get_unchecked()
+}

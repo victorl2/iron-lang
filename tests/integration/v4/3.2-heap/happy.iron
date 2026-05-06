@@ -1,0 +1,16 @@
+-- section 3.2 heap policy + defer free
+-- @req: POL-02, POL-04
+-- @expected-pass-after: phase-21
+-- heap allocation: World object deferred free
+
+object World {
+    var seed: Int
+    var size: Int
+}
+
+func main() {
+    val world = heap World(seed: 42, size: 1024)
+    defer free world
+    println("seed: {world.seed}")
+    println("size: {world.size}")
+}

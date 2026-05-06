@@ -1,0 +1,15 @@
+-- section: 5-mutability
+-- @req: PARM-02
+-- @expected-pass-after: phase-18
+-- extends-spec: var parameter modifier allows reassignment inside callee body; mutation is local to callee - does NOT affect caller (pass-by-value semantics with var modifier)
+
+func mutate(var x: Int) {
+    x = x + 1
+    println("inside: {x}")
+}
+
+func main() {
+    val original = 10
+    mutate(original)
+    println("outside: {original}")
+}

@@ -1,0 +1,7 @@
+arena obj alive
+arena 5 freed
+all alive
+child 4 freed
+shared 3 freed
+heap 2 freed
+stack 1 freed

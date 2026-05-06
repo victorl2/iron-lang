@@ -1,0 +1,4 @@
+using all
+drop: c
+drop: b
+drop: a

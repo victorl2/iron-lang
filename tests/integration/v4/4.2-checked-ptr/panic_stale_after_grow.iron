@@ -1,0 +1,20 @@
+-- section: 4.2-checked-ptr
+-- @req: PTR-08, SAFE-02
+-- @expected-pass-after: phase-20
+-- @expect-panic: dangling pointer to invalidated element
+-- extends-spec: POINTER-CHECK-ELISION.md soundness trap "stale after grow" - List resize invalidates element pointer; SAFE-02 generational pointer guard catches the stale deref; this fixture deterministically panics
+
+func main() {
+    var list: List[Int] = List.new(capacity: 4)
+    list.push(1)
+    list.push(2)
+    list.push(3)
+    list.push(4)
+    -- Take a pointer to element 0 before the list grows
+    val ptr: *Int = &list[0]
+    -- Force reallocation by pushing beyond initial capacity
+    list.push(5)
+    list.push(6)
+    -- Dereference stale pointer - backing buffer was reallocated; generation mismatch panics
+    println("stale: {ptr}")
+}

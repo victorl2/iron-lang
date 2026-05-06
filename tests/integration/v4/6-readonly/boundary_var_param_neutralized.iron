@@ -1,0 +1,24 @@
+-- section: 6-readonly
+-- @req: READ-01, READ-02
+-- @expected-pass-after: phase-22
+-- extends-spec: readonly method takes *var parameter but cannot mutate it (§6.3 neutralization)
+
+object Player {
+    val hp: Int
+    val attack: Int
+}
+
+readonly func observe_hp(p: *var Player) -> Int {
+    return p.hp
+}
+
+readonly func observe_attack(p: *var Player) -> Int {
+    return p.attack
+}
+
+func main() {
+    var player = Player(hp: 75, attack: 12)
+    val hp = observe_hp(&player)
+    val atk = observe_attack(&player)
+    println("hp={hp} attack={atk}")
+}

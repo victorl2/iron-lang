@@ -1,0 +1,9 @@
+-- section 10.4 defer canonical: cleanup runs at scope exit
+-- @req: DEFER-01
+-- @expected-pass-after: phase-32
+-- defer schedules cleanup to run at scope exit regardless of how scope is left
+
+func main() {
+    defer println("cleanup")
+    println("work")
+}

@@ -1,0 +1,11 @@
+-- section 4.4 negative: regime mismatch on function parameter
+-- @req: PTR-04
+-- @expected-pass-after: phase-25
+-- checked pointer passed where unchecked pointer is expected causes type mismatch
+func process_unchecked(p: *unchecked Player) {
+}
+func main() {
+    val player: Player = Player.new()
+    val checked: *Player = &player
+    process_unchecked(checked)
+}

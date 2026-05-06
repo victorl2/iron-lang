@@ -1,0 +1,4 @@
+before save: tag=0
+after alloc: tags=1,2,3
+after restore
+new alloc: tag=99

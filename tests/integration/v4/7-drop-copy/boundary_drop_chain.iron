@@ -1,0 +1,18 @@
+-- section: 7-drop-copy
+-- @req: DROP-01, DROP-02
+-- @expected-pass-after: phase-24
+-- extends-spec: destructor chain across 3 nested values - reverse declaration order DROP-02
+
+object Resource {
+    val name: String
+    drop {
+        println("drop: {name}")
+    }
+}
+
+func main() {
+    val a = Resource(name: "a")
+    val b = Resource(name: "b")
+    val c = Resource(name: "c")
+    println("using all")
+}

@@ -1,0 +1,10 @@
+-- section 4.10 negative: reassigning a val pointer binding
+-- @req: VAL-01
+-- @expected-pass-after: phase-20
+-- val binding prohibits reassignment; pointer val cannot point to a new target
+func main() {
+    val a: Player = Player.new()
+    val b: Player = Player.new()
+    val p: *Player = &a
+    p = &b
+}

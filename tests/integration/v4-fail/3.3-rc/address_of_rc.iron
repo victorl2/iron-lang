@@ -1,0 +1,8 @@
+-- section 3.3 negative: cannot take address of rc value
+-- @req: POL-07
+-- @expected-pass-after: phase-26
+-- & operator forbidden on rc value
+func main() {
+    val player = rc Player.new()
+    val ptr = &player
+}
