@@ -28,7 +28,9 @@ void tearDown(void) {
 static int parse_and_count_errors(const char *src) {
     Iron_Lexer l = iron_lexer_create(src, "test.iron", &arena, &diags);
     Iron_Token *toks = iron_lex_all(&l);
-    Iron_Parser p = iron_parser_create(toks, &arena, &diags, "test.iron");
+    int tok_count = (int)arrlen(toks);
+    Iron_Parser p = iron_parser_create(toks, tok_count, src, "test.iron",
+                                       &arena, &diags);
     (void)iron_parse(&p);
     int n = diags.error_count;
     arrfree(toks);
@@ -84,12 +86,15 @@ void test_image_copy_call_accepted(void) {
 }
 
 void test_func_image_copy_decl_accepted(void) {
-    /* `func Image.copy() -> Image { ... }` is the receiver-form method
-     * declaration shape used in src/stdlib/raylib.iron. After Plan 16-02
-     * the helper at parser.c:3054 must accept IRON_TOK_COPY in this slot. */
+    /* `copy { ... }` inside a patch object body is the current raylib.iron
+     * form after Phase 98 (standalone func Type.method() is removed in v3.2).
+     * After Plan 16-02 the IRON_TOK_COPY branch in the patch-body parser
+     * accepts `copy { ... }` as a block construct. */
     TEST_ASSERT_EQUAL_INT(0, parse_and_count_errors(
         "object Image {}\n"
-        "func Image.copy() -> Image { return self }\n"));
+        "patch object Image {\n"
+        "    copy { }\n"
+        "}\n"));
 }
 
 int main(void) {

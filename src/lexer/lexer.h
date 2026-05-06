@@ -18,11 +18,13 @@ typedef enum {
     IRON_TOK_STRING,
     IRON_TOK_INTERP_STRING,
 
-    /* Keywords (44 total, alphabetical) */
+    /* Keywords (49 total, alphabetical) */
     IRON_TOK_AND,
     IRON_TOK_AWAIT,
     IRON_TOK_COMPTIME,
+    IRON_TOK_COPY,       /* Phase 16: v4 copy hook keyword (semantics: Phase 24) */
     IRON_TOK_DEFER,
+    IRON_TOK_DROP,       /* Phase 16: v4 destructor keyword (semantics: Phase 24) */
     IRON_TOK_ELIF,
     IRON_TOK_ELSE,
     IRON_TOK_ENUM,
@@ -43,6 +45,7 @@ typedef enum {
     IRON_TOK_LEAK,
     IRON_TOK_MATCH,
     IRON_TOK_MUT,
+    IRON_TOK_NOCOPY,     /* Phase 16: v4 nocopy object modifier (semantics: Phase 24) */
     IRON_TOK_NOT,
     IRON_TOK_NULL_KW,
     IRON_TOK_OBJECT,
@@ -60,8 +63,10 @@ typedef enum {
     IRON_TOK_SPAWN,
     IRON_TOK_SUPER,
     IRON_TOK_TRUE,
+    IRON_TOK_UNCHECKED,  /* Phase 16: v4 unchecked pointer-regime keyword (semantics: Phase 25) */
     IRON_TOK_VAL,
     IRON_TOK_VAR,
+    IRON_TOK_WEAK,       /* Phase 16: v4 weak rc keyword (semantics: Phase 27) */
     IRON_TOK_WHILE,
 
     /* Operators */

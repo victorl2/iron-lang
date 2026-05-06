@@ -351,26 +351,35 @@ static bool iron_check_name(Iron_Parser *p) {
     return k == IRON_TOK_IDENTIFIER;
 }
 
-/* Phase 85 INIT: `init` is a contextual keyword - reserved inside
- * object-block bodies and interface-block bodies, but MUST remain usable
- * as a regular identifier in parameter names and in classic
- * `func Type.init(...)` method-declaration / `obj.init(...)` call-site
- * positions so the pure-superset guard holds through Phase 87 (v2.2
- * stdlib and raylib bindings already use `init` as a parameter name in
- * reduce and as the method name for Window.init / Audio.init). This
- * helper accepts either IRON_TOK_IDENTIFIER or IRON_TOK_INIT in the
- * places that downstream code treats the token as a bare name; the
- * object-block body loop explicitly branches on IRON_TOK_INIT BEFORE
- * calling this helper so the init keyword still wins inside
- * `object X { ... }`. */
-static bool iron_check_name_or_init(Iron_Parser *p) {
+/* Phase 85 INIT-03 + Phase 16 v4 keywords: accept IDENTIFIER, INIT, COPY,
+ * and DROP as bare-name tokens in the slots where downstream code treats
+ * the token as a name. The object-block body loop explicitly branches
+ * on IRON_TOK_INIT, IRON_TOK_COPY, and IRON_TOK_DROP BEFORE calling this
+ * helper so the keywords win as block-introducers inside `object X { ... }`.
+ * NOCOPY is NOT included here — it is an object-decl modifier (parsed
+ * at the top-level decl loop), not a name-position token. UNCHECKED and
+ * WEAK are NOT included — they are pointer-type-position keywords that
+ * never appear in name slots. */
+static bool iron_check_name_or_block_kw(Iron_Parser *p) {
     Iron_TokenKind k = iron_peek(p);
-    return k == IRON_TOK_IDENTIFIER || k == IRON_TOK_INIT;
+    return k == IRON_TOK_IDENTIFIER
+        || k == IRON_TOK_INIT
+        || k == IRON_TOK_COPY
+        || k == IRON_TOK_DROP;
 }
 
 static bool iron_match(Iron_Parser *p, Iron_TokenKind kind) {
     if (iron_check(p, kind)) { iron_advance(p); return true; }
     return false;
+}
+
+/* Phase 16: detect v4 reserved keywords that are not valid as binding names.
+ * Emits IRON_ERR_KEYWORD_NOT_BINDING_NAME (code 175) for sharp diagnostics
+ * when one of these appears where the parser expects a binding name. */
+static bool iron_is_v4_reserved_kw(Iron_TokenKind k) {
+    return k == IRON_TOK_COPY || k == IRON_TOK_DROP
+        || k == IRON_TOK_NOCOPY || k == IRON_TOK_UNCHECKED
+        || k == IRON_TOK_WEAK;
 }
 
 /* Build an Iron_Span from a single token.
@@ -845,8 +854,9 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
         }
 
         /* Phase 85 INIT: accept IRON_TOK_INIT as a parameter name so stdlib
-         * `reduce(init: U, ...)` lexes under pure-superset. */
-        if (!iron_check_name_or_init(p)) {
+         * `reduce(init: U, ...)` lexes under pure-superset.
+         * Phase 16: also accept IRON_TOK_COPY + IRON_TOK_DROP (via helper). */
+        if (!iron_check_name_or_block_kw(p)) {
             iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
                            "expected parameter name");
@@ -1479,8 +1489,10 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
              * sites so `Window.init(...)` and `Audio.init()` continue to
              * parse under pure-superset. The keyword is only hard inside
              * object-block / interface-block bodies; here it denotes the
-             * method named "init" declared via `func Type.init(...)`. */
-            if (!iron_check_name_or_init(p)) {
+             * method named "init" declared via `func Type.init(...)`.
+             * Phase 16: also accept IRON_TOK_COPY + IRON_TOK_DROP so that
+             * `Image.copy(...)` / `Wave.copy(...)` continue to parse. */
+            if (!iron_check_name_or_block_kw(p)) {
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNEXPECTED_TOKEN,
                                iron_token_span(p, iron_current(p)),
@@ -2287,6 +2299,19 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
         return (Iron_Node *)n;
     }
 
+    /* Phase 16: emit a sharp diagnostic when a v4 reserved keyword appears
+     * as a val binding name (e.g., `val copy = 1`). The keyword-specific
+     * error code IRON_ERR_KEYWORD_NOT_BINDING_NAME (175) gives users a
+     * clearer message than the generic IRON_ERR_UNEXPECTED_TOKEN.
+     * Fall through to the existing IDENTIFIER check for recovery. */
+    if (iron_is_v4_reserved_kw(iron_peek(p))) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_KEYWORD_NOT_BINDING_NAME,
+                       iron_token_span(p, iron_current(p)),
+                       "reserved v4 keyword cannot be used as a binding name",
+                       NULL);
+        /* fall through to the IDENTIFIER check below for recovery */
+    }
     if (!iron_check(p, IRON_TOK_IDENTIFIER) && !iron_check(p, IRON_TOK_WILDCARD)) {
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
@@ -2345,6 +2370,16 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'var' */
 
+    /* Phase 16: emit a sharp diagnostic when a v4 reserved keyword appears
+     * as a var binding name (e.g., `var drop = 1`). Same pattern as val. */
+    if (iron_is_v4_reserved_kw(iron_peek(p))) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_KEYWORD_NOT_BINDING_NAME,
+                       iron_token_span(p, iron_current(p)),
+                       "reserved v4 keyword cannot be used as a binding name",
+                       NULL);
+        /* fall through to the IDENTIFIER check below for recovery */
+    }
     if (!iron_check(p, IRON_TOK_IDENTIFIER) && !iron_check(p, IRON_TOK_WILDCARD)) {
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
@@ -2935,8 +2970,9 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
          * name to keep stdlib list.iron / set.iron room to use `init` if
          * needed in future extensions. Currently no in-tree file exercises
          * this branch but the symmetry with classic Type.method form is
-         * worth preserving. */
-        if (!iron_check_name_or_init(p)) {
+         * worth preserving.
+         * Phase 16: also accept IRON_TOK_COPY + IRON_TOK_DROP (via helper). */
+        if (!iron_check_name_or_block_kw(p)) {
             iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
                            "expected method name after '[T].'");
@@ -3050,8 +3086,10 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
 
         /* Phase 85 INIT: accept IRON_TOK_INIT as the method name in classic
          * `func Type.init(...)` form so stdlib `func Window.init(...)` and
-         * `func Audio.init()` continue to parse under pure-superset. */
-        if (!iron_check_name_or_init(p)) {
+         * `func Audio.init()` continue to parse under pure-superset.
+         * Phase 16: also accept IRON_TOK_COPY + IRON_TOK_DROP so that
+         * `func Image.copy() -> Image { ... }` declarations parse correctly. */
+        if (!iron_check_name_or_block_kw(p)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
@@ -3272,6 +3310,84 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
          * (is_receiver_form = true, synthesized self param) so Phase 79's
          * resolver path handles it without modification. Plan 85-02 reads
          * is_init to gate definite-assignment and delegation-rejection. */
+        /* Phase 16: `copy { ... }` and `drop { ... }` inside an object body
+         * are block-introducing keywords (semantics reserved for Phase 24).
+         * Parse them as MethodDecl stubs with is_receiver_form=true and
+         * is_init=false. These branches must come BEFORE the helper-based
+         * name check so the keywords win as block-introducers inside
+         * `object X { ... }`. */
+        if (iron_check(p, IRON_TOK_COPY) || iron_check(p, IRON_TOK_DROP)) {
+            Iron_Token *kw_tok = iron_current(p);
+            const char *kw_name = iron_check(p, IRON_TOK_COPY) ? "copy" : "drop";
+            iron_advance(p);  /* consume 'copy' or 'drop' */
+
+            /* Parse the block body: `copy { ... }` or `drop { ... }` */
+            Iron_Node *kw_body = iron_parse_block(p);
+
+            /* Synthesize self receiver param (same pattern as INIT branch). */
+            Iron_Param *synth_self = ARENA_ALLOC(p->arena, Iron_Param);
+            if (!synth_self) iron_oom_abort("parser.c:iron_parse_object_decl copy/drop synth self");
+            synth_self->kind            = IRON_NODE_PARAM;
+            synth_self->span            = iron_token_span(p, kw_tok);
+            synth_self->is_var          = false;
+            synth_self->is_mut_receiver = true;
+            synth_self->name            = iron_arena_strdup(p->arena, "self", 4);
+            if (!synth_self->name) iron_oom_abort("parser.c:iron_parse_object_decl copy/drop self name");
+
+            Iron_TypeAnnotation *self_type = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+            if (!self_type) iron_oom_abort("parser.c:iron_parse_object_decl copy/drop self type");
+            memset(self_type, 0, sizeof(*self_type));
+            self_type->kind = IRON_NODE_TYPE_ANNOTATION;
+            self_type->span = iron_token_span(p, kw_tok);
+            self_type->name = iron_arena_strdup(p->arena, name_tok->value,
+                                                 strlen(name_tok->value));
+            if (!self_type->name) iron_oom_abort("parser.c:iron_parse_object_decl copy/drop self type name");
+            synth_self->type_ann = (Iron_Node *)self_type;
+
+            Iron_Node **all_params = (Iron_Node **)iron_arena_alloc(
+                p->arena, sizeof(Iron_Node *), _Alignof(Iron_Node *));
+            if (!all_params) iron_oom_abort("parser.c:iron_parse_object_decl copy/drop params array");
+            all_params[0] = (Iron_Node *)synth_self;
+
+            Iron_MethodDecl *m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+            if (!m) iron_oom_abort("parser.c:iron_parse_object_decl copy/drop MethodDecl");
+            m->kind                 = IRON_NODE_METHOD_DECL;
+            m->span                 = iron_span_merge(iron_token_span(p, kw_tok),
+                                                       kw_body ? kw_body->span
+                                                               : iron_token_span(p, kw_tok));
+            m->type_name            = iron_arena_strdup(p->arena, name_tok->value,
+                                                         strlen(name_tok->value));
+            if (!m->type_name) iron_oom_abort("parser.c:iron_parse_object_decl copy/drop type_name");
+            m->method_name          = iron_arena_strdup(p->arena, kw_name, strlen(kw_name));
+            if (!m->method_name) iron_oom_abort("parser.c:iron_parse_object_decl copy/drop method_name");
+            m->params               = all_params;
+            m->param_count          = 1;
+            m->return_type          = NULL;
+            m->body                 = kw_body;
+            m->is_private           = false;
+            m->is_pub               = member_is_pub;
+            m->generic_params       = NULL;
+            m->generic_param_count  = 0;
+            m->resolved_return_type = NULL;
+            m->owner_sym            = NULL;
+            m->is_array_extension   = false;
+            m->elem_type_name       = NULL;
+            m->is_fusible           = false;
+            m->is_receiver_form     = true;
+            m->is_synth_accessor    = false;
+            m->is_readonly          = false;
+            m->is_pure              = false;
+            m->is_init              = false;
+            m->init_name            = NULL;
+            m->is_patch_member      = false;
+
+            if (extra_decls_out) {
+                arrput(*extra_decls_out, (Iron_Node *)m);
+            }
+            iron_skip_newlines(p);
+            continue;
+        }
+
         if (iron_check(p, IRON_TOK_INIT)) {
             Iron_Token *istart = iron_current(p);
             /* Phase 93 VIS-04 (Plan 93-02): `pub init` is only valid when the
@@ -4311,6 +4427,76 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             }
         }
 
+        /* Phase 16: `copy { ... }` and `drop { ... }` inside a patch body
+         * mirror the object-body branches above. Semantics reserved for Phase 24. */
+        if (iron_check(p, IRON_TOK_COPY) || iron_check(p, IRON_TOK_DROP)) {
+            Iron_Token *kw_tok = iron_current(p);
+            const char *kw_name = iron_check(p, IRON_TOK_COPY) ? "copy" : "drop";
+            iron_advance(p);  /* consume 'copy' or 'drop' */
+
+            Iron_Node *kw_body = iron_parse_block(p);
+
+            Iron_Param *synth_self = ARENA_ALLOC(p->arena, Iron_Param);
+            if (!synth_self) iron_oom_abort("parser.c:iron_parse_patch_decl copy/drop synth self");
+            synth_self->kind            = IRON_NODE_PARAM;
+            synth_self->span            = iron_token_span(p, kw_tok);
+            synth_self->is_var          = false;
+            synth_self->is_mut_receiver = true;
+            synth_self->name            = iron_arena_strdup(p->arena, "self", 4);
+            if (!synth_self->name) iron_oom_abort("parser.c:iron_parse_patch_decl copy/drop self name");
+
+            Iron_TypeAnnotation *self_type = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+            if (!self_type) iron_oom_abort("parser.c:iron_parse_patch_decl copy/drop self type");
+            memset(self_type, 0, sizeof(*self_type));
+            self_type->kind = IRON_NODE_TYPE_ANNOTATION;
+            self_type->span = iron_token_span(p, kw_tok);
+            self_type->name = iron_arena_strdup(p->arena, target_name, strlen(target_name));
+            if (!self_type->name) iron_oom_abort("parser.c:iron_parse_patch_decl copy/drop self type name");
+            synth_self->type_ann = (Iron_Node *)self_type;
+
+            Iron_Node **all_params = (Iron_Node **)iron_arena_alloc(
+                p->arena, sizeof(Iron_Node *), _Alignof(Iron_Node *));
+            if (!all_params) iron_oom_abort("parser.c:iron_parse_patch_decl copy/drop params array");
+            all_params[0] = (Iron_Node *)synth_self;
+
+            Iron_MethodDecl *m = ARENA_ALLOC(p->arena, Iron_MethodDecl);
+            if (!m) iron_oom_abort("parser.c:iron_parse_patch_decl copy/drop MethodDecl");
+            m->kind                 = IRON_NODE_METHOD_DECL;
+            m->span                 = iron_span_merge(iron_token_span(p, kw_tok),
+                                                       kw_body ? kw_body->span
+                                                               : iron_token_span(p, kw_tok));
+            m->type_name            = iron_arena_strdup(p->arena, target_name, strlen(target_name));
+            if (!m->type_name) iron_oom_abort("parser.c:iron_parse_patch_decl copy/drop type_name");
+            m->method_name          = iron_arena_strdup(p->arena, kw_name, strlen(kw_name));
+            if (!m->method_name) iron_oom_abort("parser.c:iron_parse_patch_decl copy/drop method_name");
+            m->params               = all_params;
+            m->param_count          = 1;
+            m->return_type          = NULL;
+            m->body                 = kw_body;
+            m->is_private           = false;
+            m->is_pub               = member_is_pub;
+            m->generic_params       = NULL;
+            m->generic_param_count  = 0;
+            m->resolved_return_type = NULL;
+            m->owner_sym            = NULL;
+            m->is_array_extension   = false;
+            m->elem_type_name       = NULL;
+            m->is_fusible           = false;
+            m->is_receiver_form     = true;
+            m->is_synth_accessor    = false;
+            m->is_readonly          = false;
+            m->is_pure              = false;
+            m->is_init              = false;
+            m->init_name            = NULL;
+            m->is_patch_member      = true;
+
+            if (extra_decls_out) {
+                arrput(*extra_decls_out, (Iron_Node *)m);
+            }
+            iron_skip_newlines(p);
+            continue;
+        }
+
         /* Phase 85 INIT inside a patch body: same grammar as classic
          * object body. Phase 93 VIS-04 (Plan 93-02): `pub init` mirrors the
          * iron_parse_object_decl gate - accepted when the enclosing
@@ -4465,8 +4651,9 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
              * `Type.init(args)` resolves through the regular method
              * dispatch path - NOT through the named-init `init NAME`
              * keyword, which would collide with the parser auto-synth
-             * anonymous init at parser.c:3652. */
-            if (!iron_check_name_or_init(p)) {
+             * anonymous init at parser.c:3652.
+             * Phase 16: also accept IRON_TOK_COPY + IRON_TOK_DROP (via helper). */
+            if (!iron_check_name_or_block_kw(p)) {
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNEXPECTED_TOKEN,
                                iron_token_span(p, iron_current(p)),
@@ -5161,6 +5348,22 @@ Iron_Node *iron_parse(Iron_Parser *p) {
                            IRON_ERR_TIER_MODIFIER_PLACEMENT,
                            iron_token_span(p, iron_current(p)),
                            "'pure' modifier only valid on object-block methods",
+                           NULL);
+            iron_advance(p);
+            iron_parser_sync_toplevel(p);
+            continue;
+        }
+        /* Phase 16: `nocopy` is only valid as a leading modifier on `object`
+         * decls (e.g., `nocopy object Mutex { ... }`). At top level without
+         * a following `object`, fail fast with the dedicated parser-range
+         * error code IRON_ERR_KEYWORD_NOT_BINDING_NAME. Phase 24 will add
+         * the actual nocopy modifier handling on object decls. */
+        if (iron_check(p, IRON_TOK_NOCOPY)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_KEYWORD_NOT_BINDING_NAME,
+                           iron_token_span(p, iron_current(p)),
+                           "'nocopy' modifier only valid on `object` declarations "
+                           "(reserved for Phase 24 semantics)",
                            NULL);
             iron_advance(p);
             iron_parser_sync_toplevel(p);

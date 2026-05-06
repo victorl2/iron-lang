@@ -99,6 +99,10 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_EXPECTED_COLON      105
 #define IRON_ERR_EXPECTED_ARROW      106
 #define IRON_ERR_PARSE_DEPTH_EXCEEDED 107  /* HARD-08: recursion-depth guard (Plan 04) */
+/* Phase 16: keyword used in binding-name position (val X / var X / for X in / func param).
+ * Emitted when a v4-reserved keyword (copy, drop, nocopy, unchecked, weak) appears where
+ * the parser expects an identifier for a binding name. Parser range 101-199. */
+#define IRON_ERR_KEYWORD_NOT_BINDING_NAME 175
 
 /* Semantic errors */
 #define IRON_ERR_UNDEFINED_VAR        200

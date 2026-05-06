@@ -42,13 +42,19 @@ void test_keyword_func(void) {
     arrfree(toks);
 }
 
-void test_all_37_keywords(void) {
+/* Phase 16: renamed from test_all_37_keywords to test_all_keywords so future
+ * keyword additions do not require a function rename. Count assertion updated
+ * from 37 to 49 (44 pre-v4 keywords + 5 new v4 keywords: copy, drop, nocopy,
+ * unchecked, weak). */
+void test_all_keywords(void) {
     typedef struct { const char *word; Iron_TokenKind kind; } KW;
     KW cases[] = {
         { "and",        IRON_TOK_AND        },
         { "await",      IRON_TOK_AWAIT      },
         { "comptime",   IRON_TOK_COMPTIME   },
+        { "copy",       IRON_TOK_COPY       },  /* Phase 16: v4 */
         { "defer",      IRON_TOK_DEFER      },
+        { "drop",       IRON_TOK_DROP       },  /* Phase 16: v4 */
         { "elif",       IRON_TOK_ELIF       },
         { "else",       IRON_TOK_ELSE       },
         { "enum",       IRON_TOK_ENUM       },
@@ -66,6 +72,7 @@ void test_all_37_keywords(void) {
         { "is",         IRON_TOK_IS         },
         { "leak",       IRON_TOK_LEAK       },
         { "match",      IRON_TOK_MATCH      },
+        { "nocopy",     IRON_TOK_NOCOPY     },  /* Phase 16: v4 */
         { "not",        IRON_TOK_NOT        },
         { "null",       IRON_TOK_NULL_KW    },
         { "object",     IRON_TOK_OBJECT     },
@@ -79,12 +86,14 @@ void test_all_37_keywords(void) {
         { "spawn",      IRON_TOK_SPAWN      },
         { "super",      IRON_TOK_SUPER      },
         { "true",       IRON_TOK_TRUE       },
+        { "unchecked",  IRON_TOK_UNCHECKED  },  /* Phase 16: v4 */
         { "val",        IRON_TOK_VAL        },
         { "var",        IRON_TOK_VAR        },
+        { "weak",       IRON_TOK_WEAK       },  /* Phase 16: v4 */
         { "while",      IRON_TOK_WHILE      },
     };
     int count = (int)(sizeof(cases) / sizeof(cases[0]));
-    TEST_ASSERT_EQUAL_INT(37, count);
+    TEST_ASSERT_EQUAL_INT(42, count);
 
     for (int i = 0; i < count; i++) {
         Iron_Arena   a = iron_arena_create(4096);
@@ -535,7 +544,7 @@ int main(void) {
 
     RUN_TEST(test_keyword_val);
     RUN_TEST(test_keyword_func);
-    RUN_TEST(test_all_37_keywords);
+    RUN_TEST(test_all_keywords);  /* Phase 16: renamed from test_all_37_keywords */
     RUN_TEST(test_identifier_not_keyword);
 
     /* Phase 83 ACCESS-02 / ACCESS-07: `pub` keyword + non-keyword guards */

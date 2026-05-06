@@ -29,7 +29,9 @@ static const KeywordEntry kw_table[] = {
     { "and",        IRON_TOK_AND        },
     { "await",      IRON_TOK_AWAIT      },
     { "comptime",   IRON_TOK_COMPTIME   },
+    { "copy",       IRON_TOK_COPY       },  /* Phase 16: v4 copy hook keyword */
     { "defer",      IRON_TOK_DEFER      },
+    { "drop",       IRON_TOK_DROP       },  /* Phase 16: v4 destructor keyword */
     { "elif",       IRON_TOK_ELIF       },
     { "else",       IRON_TOK_ELSE       },
     { "enum",       IRON_TOK_ENUM       },
@@ -50,6 +52,7 @@ static const KeywordEntry kw_table[] = {
     { "leak",       IRON_TOK_LEAK       },
     { "match",      IRON_TOK_MATCH      },
     { "mut",        IRON_TOK_MUT        },
+    { "nocopy",     IRON_TOK_NOCOPY     },  /* Phase 16: v4 nocopy object modifier */
     { "not",        IRON_TOK_NOT        },
     { "null",       IRON_TOK_NULL_KW    },
     { "object",     IRON_TOK_OBJECT     },
@@ -67,8 +70,10 @@ static const KeywordEntry kw_table[] = {
     { "spawn",      IRON_TOK_SPAWN      },
     { "super",      IRON_TOK_SUPER      },
     { "true",       IRON_TOK_TRUE       },
+    { "unchecked",  IRON_TOK_UNCHECKED  },  /* Phase 16: v4 unchecked pointer regime keyword */
     { "val",        IRON_TOK_VAL        },
     { "var",        IRON_TOK_VAR        },
+    { "weak",       IRON_TOK_WEAK       },  /* Phase 16: v4 weak rc keyword */
     { "while",      IRON_TOK_WHILE      },
 };
 
@@ -94,7 +99,9 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_AND]           = "IRON_TOK_AND",
     [IRON_TOK_AWAIT]         = "IRON_TOK_AWAIT",
     [IRON_TOK_COMPTIME]      = "IRON_TOK_COMPTIME",
+    [IRON_TOK_COPY]          = "IRON_TOK_COPY",
     [IRON_TOK_DEFER]         = "IRON_TOK_DEFER",
+    [IRON_TOK_DROP]          = "IRON_TOK_DROP",
     [IRON_TOK_ELIF]          = "IRON_TOK_ELIF",
     [IRON_TOK_ELSE]          = "IRON_TOK_ELSE",
     [IRON_TOK_ENUM]          = "IRON_TOK_ENUM",
@@ -115,6 +122,7 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_LEAK]          = "IRON_TOK_LEAK",
     [IRON_TOK_MATCH]         = "IRON_TOK_MATCH",
     [IRON_TOK_MUT]           = "IRON_TOK_MUT",
+    [IRON_TOK_NOCOPY]        = "IRON_TOK_NOCOPY",
     [IRON_TOK_NOT]           = "IRON_TOK_NOT",
     [IRON_TOK_NULL_KW]       = "IRON_TOK_NULL_KW",
     [IRON_TOK_OBJECT]        = "IRON_TOK_OBJECT",
@@ -132,8 +140,10 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_SPAWN]         = "IRON_TOK_SPAWN",
     [IRON_TOK_SUPER]         = "IRON_TOK_SUPER",
     [IRON_TOK_TRUE]          = "IRON_TOK_TRUE",
+    [IRON_TOK_UNCHECKED]     = "IRON_TOK_UNCHECKED",
     [IRON_TOK_VAL]           = "IRON_TOK_VAL",
     [IRON_TOK_VAR]           = "IRON_TOK_VAR",
+    [IRON_TOK_WEAK]          = "IRON_TOK_WEAK",
     [IRON_TOK_WHILE]         = "IRON_TOK_WHILE",
     [IRON_TOK_PLUS]          = "IRON_TOK_PLUS",
     [IRON_TOK_MINUS]         = "IRON_TOK_MINUS",
