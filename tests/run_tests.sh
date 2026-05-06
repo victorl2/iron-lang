@@ -355,16 +355,20 @@ for test_file in ${_main_loop_files}; do
     # Try build; if it fails AND directive present, count XFAIL. If it passes unexpectedly,
     # fall through to normal handling so the regular comparison runs (and likely flips PASS).
     if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+        xfail_dir="${WORK_DIR}/${test_name}_xfail_$$"
+        mkdir -p "${xfail_dir}"
         set +e
-        (cd "${WORK_DIR}" && "${IRON_BIN}" build "${test_file}") > "${WORK_DIR}/${test_name}_xfail_$$.log" 2>&1
+        (cd "${xfail_dir}" && "${IRON_BIN}" build "${test_file}") > "${WORK_DIR}/${test_name}_xfail_$$.log" 2>&1
         build_rc=$?
         set -e
         if [ "${build_rc}" -ne 0 ]; then
+            rm -rf "${xfail_dir}"
             echo "[XFAIL] (build failed; expected-pass-after: phase-${expected_pass_after})"
             XFAIL=$((XFAIL + 1))
             continue
         fi
-        # Unexpected success — fall through; let normal pipeline classify
+        # Unexpected success — clean up the XFAIL dir and fall through to normal pipeline classify
+        rm -rf "${xfail_dir}"
     fi
 
     # Build the test in a temp directory so the output binary is isolated
