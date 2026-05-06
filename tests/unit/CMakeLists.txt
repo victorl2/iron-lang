@@ -28,6 +28,18 @@ target_link_libraries(test_parser_errors iron_compiler unity)
 add_test(NAME test_parser_errors COMMAND test_parser_errors)
 set_tests_properties(test_parser_errors PROPERTIES LABELS "unit")
 
+# Phase 16 Wave 0: v4 keyword tokenization (RED until Plan 16-02 lands lexer additions).
+add_executable(test_lexer_v4_keywords test_lexer_v4_keywords.c)
+target_link_libraries(test_lexer_v4_keywords iron_compiler unity)
+add_test(NAME test_lexer_v4_keywords COMMAND test_lexer_v4_keywords)
+set_tests_properties(test_lexer_v4_keywords PROPERTIES LABELS "unit")
+
+# Phase 16 Wave 0: v4 keyword binding-position rejection (RED until Plan 16-02 lands parser helper).
+add_executable(test_parser_v4_keyword_rejection test_parser_v4_keyword_rejection.c)
+target_link_libraries(test_parser_v4_keyword_rejection iron_compiler unity)
+add_test(NAME test_parser_v4_keyword_rejection COMMAND test_parser_v4_keyword_rejection)
+set_tests_properties(test_parser_v4_keyword_rejection PROPERTIES LABELS "unit")
+
 add_executable(test_interp test_interp.c)
 target_link_libraries(test_interp iron_compiler unity)
 add_test(NAME test_interp COMMAND test_interp)
