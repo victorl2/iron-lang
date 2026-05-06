@@ -412,14 +412,29 @@ for test_file in ${_main_loop_files}; do
         run_rc=$?
         set -e
         if [ "${run_rc}" -eq 0 ]; then
-            echo "[FAIL] (@expect-panic: expected non-zero exit)"
-            FAIL=$((FAIL + 1))
+            if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+                echo "[XFAIL] (@expect-panic: no panic yet; expected-pass-after: phase-${expected_pass_after})"
+                XFAIL=$((XFAIL + 1))
+            else
+                echo "[FAIL] (@expect-panic: expected non-zero exit)"
+                FAIL=$((FAIL + 1))
+            fi
         elif ! echo "${run_output}" | grep -qF "${expect_panic_substr}"; then
-            echo "[FAIL] (@expect-panic: stderr missing '${expect_panic_substr}')"
-            FAIL=$((FAIL + 1))
+            if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+                echo "[XFAIL] (@expect-panic: panic missing substring; expected-pass-after: phase-${expected_pass_after})"
+                XFAIL=$((XFAIL + 1))
+            else
+                echo "[FAIL] (@expect-panic: stderr missing '${expect_panic_substr}')"
+                FAIL=$((FAIL + 1))
+            fi
         else
-            echo "[PASS] (@expect-panic)"
-            PASS=$((PASS + 1))
+            if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+                echo "[XFAIL] (@expect-panic: correct but not yet unlocked; expected-pass-after: phase-${expected_pass_after})"
+                XFAIL=$((XFAIL + 1))
+            else
+                echo "[PASS] (@expect-panic)"
+                PASS=$((PASS + 1))
+            fi
         fi
         continue
     fi
@@ -432,13 +447,25 @@ for test_file in ${_main_loop_files}; do
     expected="${expected%$'\n'}"
 
     if [ "${actual}" = "${expected}" ]; then
-        echo "[PASS]"
-        PASS=$((PASS + 1))
+        if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+            echo "[XFAIL] (build+output correct but not yet unlocked; expected-pass-after: phase-${expected_pass_after})"
+            XFAIL=$((XFAIL + 1))
+        else
+            echo "[PASS]"
+            PASS=$((PASS + 1))
+        fi
     else
-        echo "[FAIL]"
-        echo "  Expected: $(echo "${expected}" | head -5)"
-        echo "  Actual:   $(echo "${actual}" | head -5)"
-        FAIL=$((FAIL + 1))
+        if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+            echo "[XFAIL] (output mismatch; expected-pass-after: phase-${expected_pass_after})"
+            echo "  Expected: $(echo "${expected}" | head -5)"
+            echo "  Actual:   $(echo "${actual}" | head -5)"
+            XFAIL=$((XFAIL + 1))
+        else
+            echo "[FAIL]"
+            echo "  Expected: $(echo "${expected}" | head -5)"
+            echo "  Actual:   $(echo "${actual}" | head -5)"
+            FAIL=$((FAIL + 1))
+        fi
     fi
 done
 
