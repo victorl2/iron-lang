@@ -56,6 +56,62 @@ codes should accept either the bare integer or the `E<NNN>` string.
   `src/analyzer/typecheck.c` is guarded by `!ff->is_var && !ff->is_pub` so
   var fields continue to compile cleanly.
 
+## Phase 18 — Parameter modifier system (§5.3)
+
+| Code | Symbol                              | Message (locked substring)                                          | Hint                                                                                | Quickfix-Target (Phase 34 LSP-06)                                          | Phase | Spec § |
+|-----:|-------------------------------------|---------------------------------------------------------------------|-------------------------------------------------------------------------------------|----------------------------------------------------------------------------|------:|-------:|
+| 266  | `IRON_ERR_PARM_READ_ONLY`           | `cannot mutate read-only parameter '<name>'`                        | `add 'var' modifier to grant in-body mutation: 'var <name>: T'`                     | Insert `var ` before the parameter name in the function declaration         | 18    | §5.3 |
+| 267  | `IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT`  | `cannot pass read-only argument to 'var' parameter '<name>'`        | `make the argument source mutable (declare as 'var')`                               | Change argument-source binding from `val ` to `var ` (cross-edit at decl)   | 18    | §5.3 |
+
+### Notes
+
+- Code 266 (`IRON_ERR_PARM_READ_ONLY`) supersedes the legacy
+  `IRON_ERR_VAL_REASSIGN=203` and `IRON_ERR_MUT_FIELD_IMMUT_RECV=234`
+  paths *specifically* for the `IRON_SYM_PARAM`-rooted subset of
+  mutations (direct rebind, compound assign, and field-write through
+  the parameter binding). The legacy codes still fire for val-local
+  rebinds (203) and non-param immutable-receiver field-writes (234).
+  Mutual exclusion is enforced in `src/analyzer/typecheck.c` at the
+  `IRON_NODE_ASSIGN` handler via a `sym_kind == IRON_SYM_PARAM`
+  branch with else-fallthrough; Plan 18-01 unit test
+  `test_parm_01_no_double_emit_direct` locks `COUNT(266)==1 AND
+  COUNT(203)==0` against future drift.
+- Code 267 (`IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT`) fires at the call
+  site (argument expression span), distinct from code 266 which
+  fires inside the called function's body. This duality maps to two
+  separate Phase 34 LSP-06 quickfix actions: code 266 inserts `var `
+  at the parameter declaration; code 267 changes the *caller-side*
+  argument source's declaration from `val` to `var`. Plan 18-02
+  ships the call-site check at both `IRON_NODE_CALL`
+  (typecheck.c:2249-2319) and `IRON_NODE_METHOD_CALL`
+  (typecheck.c:2753-2783) handlers via the recursive
+  `arg_source_is_mutable` helper.
+- **Phase 18 deviation from CONTEXT.md "reuse 265 with readonly hint"
+  decision:** `IRON_ERR_READONLY_WRITE_SELF=238` (Phase 84) is
+  RETAINED as the dedicated diagnostic code for readonly-method
+  self-field-write violations. CONTEXT.md originally proposed
+  re-routing readonly-self-write to `IRON_ERR_VAL_FIELD_REASSIGN=265`
+  with a hint-string variation. RESEARCH.md Open Question #3
+  recommended keeping 238 dedicated because (a) 265 carries
+  storage-class semantics ("val field cannot be reassigned"), (b)
+  238 carries tier-class semantics ("readonly method cannot mutate
+  self"), and (c) Phase 34 LSP-06 emits two distinct quickfixes —
+  *change `val` to `var` on the field* (265) versus *drop `readonly`
+  modifier or remove the self.field write* (238). Plan 18-02
+  honored the RESEARCH recommendation; the lock test
+  `test_parm_04_amendment_e238_dedicated` asserts
+  `COUNT(IRON_ERR_READONLY_WRITE_SELF) >= 1` against any future drift
+  back to the original "reuse 265" routing.
+- Hint strings for both 266 and 267 are *conservatively* worded — they
+  do NOT mention the `*var T` checked-pointer form. Pointer-typed
+  parameters are Phase 20's territory (PTR-*); when `*var T`
+  parameters ship, the Phase 20 author may amend these hints to
+  read e.g. `"...or pass a *var pointer"`. The current wording
+  `"add 'var' modifier..."` and `"make the argument source mutable
+  (declare as 'var')"` are deliberately stable so Phase 34 LSP-06's
+  prefix-matching quickfix routing keeps working without a
+  hint-string version pin.
+
 ## Adding new codes
 
 1. Allocate the next free slot in the appropriate range. Verify uniqueness
