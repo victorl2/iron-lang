@@ -48,6 +48,25 @@ add_test(NAME test_parser_val_var_required COMMAND test_parser_val_var_required)
 set_tests_properties(test_parser_val_var_required PROPERTIES
     LABELS "unit;phase17-invariant")
 
+# Phase 17 Wave 0 (Plan 02): VAL-03 init-context check + VAL-04 var-field
+# reassignability. RED until Plan 17-02 lands IRON_ERR_VAL_FIELD_REASSIGN=265
+# and extends typecheck.c:3924-3969 with the non-pub val branch.
+add_executable(test_analyzer_val_field_reassign test_analyzer_val_field_reassign.c)
+target_link_libraries(test_analyzer_val_field_reassign iron_compiler unity)
+add_test(NAME test_analyzer_val_field_reassign COMMAND test_analyzer_val_field_reassign)
+set_tests_properties(test_analyzer_val_field_reassign PROPERTIES
+    LABELS "unit;phase17-invariant")
+
+# Phase 17 Wave 0 (Plan 02): VAL-05 + VAL-06 unused-var pass.
+# RED until Plan 17-02 lands IRON_WARN_UNUSED_VAR=613 +
+# IRON_WARN_UNUSED_VAR_PARAM=614 + src/analyzer/unused_var.c pass +
+# src/analyzer/analyzer.c dispatcher insertion between Step 3.5 and Step 4.
+add_executable(test_analyzer_unused_var test_analyzer_unused_var.c)
+target_link_libraries(test_analyzer_unused_var iron_compiler unity)
+add_test(NAME test_analyzer_unused_var COMMAND test_analyzer_unused_var)
+set_tests_properties(test_analyzer_unused_var PROPERTIES
+    LABELS "unit;phase17-invariant")
+
 add_executable(test_interp test_interp.c)
 target_link_libraries(test_interp iron_compiler unity)
 add_test(NAME test_interp COMMAND test_interp)

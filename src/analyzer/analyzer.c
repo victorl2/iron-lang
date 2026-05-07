@@ -3,6 +3,7 @@
 #include "analyzer/typecheck.h"
 #include "analyzer/capture.h"
 #include "analyzer/init_check.h"
+#include "analyzer/unused_var.h"
 #include "analyzer/escape.h"
 #include "analyzer/concurrency.h"
 #include "analyzer/web_await_check.h"
@@ -67,6 +68,14 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
 
     /* Step 3.5: Definite assignment analysis */
     iron_init_check(program, result.global_scope, arena, diags, cancel_flag);
+
+    if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
+
+    /* Step 3.6: Phase 17 VAL-05/VAL-06 unused-var warning pass.
+     * Pure read pass; no AST mutation. Safe to run unconditionally on any
+     * tree the resolver has seen, including ones with prior errors.
+     * Cancellation polled at per-function boundary inside the pass. */
+    iron_unused_var_check(program, result.global_scope, arena, diags, cancel_flag);
 
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 

@@ -228,6 +228,7 @@ add_library(iron_compiler STATIC
     src/analyzer/web_await_check.c
     src/analyzer/web_top_level_loader_check.c
     src/analyzer/init_check.c
+    src/analyzer/unused_var.c
     src/analyzer/iface_collect.c
     src/analyzer/analyzer.c
     src/comptime/comptime.c

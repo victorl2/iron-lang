@@ -195,6 +195,15 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_INIT_DELEGATION            251   /* INIT-14 */
 #define IRON_ERR_INIT_RETURN_VALUE          252   /* INIT-11 typecheck branch */
 
+/* Phase 17 VAL-03: post-init assignment to a non-pub val field. Distinct
+ * from IRON_ERR_VAL_REASSIGN=203 (local val rebinding) AND from the
+ * pub-val branch (which reuses 203 because pub val is a special case).
+ * This code names the field-storage class for non-pub val, enabling
+ * Phase 34 LSP-06 quickfix to offer "change field declaration to var"
+ * rather than "remove rebinding". Slotted at 265 (next free in semantic
+ * range 200-289 after Phase 88 BREAK 260-264). */
+#define IRON_ERR_VAL_FIELD_REASSIGN  265   /* VAL-03 */
+
 /* Phase 86 PATCH: open-extension diagnostics.
  *
  * PATCH-01 lands the parse-surface for `patch object T { ... }`; the parser
@@ -312,6 +321,18 @@ void iron_diaglist_free(Iron_DiagList *list);
 /* Phase 4 Plan 04-01 (D-06) — P1 quickfix warnings. */
 #define IRON_WARN_UNUSED_IMPORT        611   /* import referenced zero times in module */
 #define IRON_WARN_REDUNDANT_CAST       612   /* `expr as T` where expr is already of type T */
+
+/* Phase 17 VAL-05: var binding never reassigned in its scope. Suggests
+ * `val` to keep the modifier system honest. Span anchored on the `var`
+ * keyword (3-char width slice from binding span start) so Phase 34
+ * LSP-06 quickfix can replace "var" with "val" in a single TextEdit. */
+#define IRON_WARN_UNUSED_VAR        613   /* VAL-05 */
+/* Phase 17 VAL-06: var parameter never mutated in function body.
+ * Suggests dropping the `var` modifier (parameters default to read-only
+ * borrow under v4 §5.3). Split from VAL-05 because the quickfix wording
+ * differs ("change var → val" vs "drop var modifier") and the warning
+ * text also differs ("never reassigned" vs "never mutated"). */
+#define IRON_WARN_UNUSED_VAR_PARAM  614   /* VAL-06 */
 
 /* Type validation warnings (601+ range) */
 #define IRON_WARN_NARROWING_CAST        601

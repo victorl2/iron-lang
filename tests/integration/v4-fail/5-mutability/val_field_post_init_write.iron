@@ -1,0 +1,22 @@
+-- section 5.2 negative: post-init write to non-pub val field
+-- @req: VAL-03
+-- @expected-pass-after: phase-17
+-- non-pub val field is assignable only inside init; post-init write is a compile error
+
+object T {
+    val name: String
+
+    init() {
+        self.name = "init"
+    }
+
+    func bad() {
+        self.name = "post"
+    }
+}
+
+func main() {
+    var t = T()
+    t.bad()
+    println(t.name)
+}

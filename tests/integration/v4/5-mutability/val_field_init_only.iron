@@ -1,0 +1,20 @@
+-- section 5.2 positive: val field assigned only inside init
+-- @req: VAL-03
+-- @expected-pass-after: phase-17
+
+object Counter {
+    val initial: Int
+
+    init(v: Int) {
+        self.initial = v
+    }
+
+    func get() -> Int {
+        return self.initial
+    }
+}
+
+func main() {
+    var c = Counter(42)
+    println("initial={c.get()}")
+}

@@ -1,18 +1,22 @@
 -- section: 5-mutability
 -- @req: VAL-02
 -- @expected-pass-after: phase-17
--- extends-spec: object field declared var allows mutation through *var receiver; VAL-02 requires every field to declare val or var explicitly
+-- extends-spec: object field declared var allows mutation through in-object methods; VAL-02 requires every field to declare val or var explicitly
 
 object Counter {
     var count: Int
 
-    func increment(self: *var Counter) {
+    init() {
+        self.count = 0
+    }
+
+    func increment() {
         self.count = self.count + 1
     }
 }
 
 func main() {
-    var c = Counter(count: 0)
+    var c = Counter()
     c.increment()
     c.increment()
     c.increment()

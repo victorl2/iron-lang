@@ -3968,6 +3968,58 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
+            /* Phase 17 VAL-03: non-pub val field write OUTSIDE init is a
+             * compile error. The pub-val branch below (line ~4011) handles
+             * pub fields with IRON_ERR_VAL_REASSIGN=203. This branch covers
+             * non-pub val with a dedicated code (IRON_ERR_VAL_FIELD_REASSIGN
+             * =265) per CONTEXT.md decision so Phase 34's LSP-06 quickfix
+             * can target it independently with the wording "declare field
+             * as 'var'".
+             *
+             * Lexical scope only — methods called from init do NOT
+             * transitively count (CONTEXT.md decision). The check matches
+             * the chain shape of the in-init double-assign block above:
+             * walk to root IDENT, confirm it is `self`, look up the field
+             * on the enclosing object via ctx->current_method_type, fire
+             * when !is_var && !is_pub. The !is_pub guard makes this branch
+             * mutually exclusive with the pub-val branch below — both
+             * cannot fire on the same write. */
+            if (!ctx->in_synth_accessor &&
+                !ctx->in_init_method &&
+                as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_FieldAccess *tfa = (Iron_FieldAccess *)as->target;
+                if (tfa->object && tfa->object->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *rid = (Iron_Ident *)tfa->object;
+                    if (rid->name && strcmp(rid->name, "self") == 0 &&
+                        tfa->field && ctx->current_method_type) {
+                        Iron_Symbol *ts = iron_scope_lookup(
+                            ctx->global_scope, ctx->current_method_type);
+                        if (ts && ts->decl_node &&
+                            ts->decl_node->kind == IRON_NODE_OBJECT_DECL) {
+                            Iron_ObjectDecl *od = (Iron_ObjectDecl *)ts->decl_node;
+                            for (int fi = 0; fi < od->field_count; fi++) {
+                                Iron_Field *ff = (Iron_Field *)od->fields[fi];
+                                if (ff && ff->name &&
+                                    strcmp(ff->name, tfa->field) == 0 &&
+                                    !ff->is_var && !ff->is_pub) {
+                                    /* non-pub val field write outside init */
+                                    char msg[256];
+                                    snprintf(msg, sizeof(msg),
+                                             "cannot reassign 'val' field '%s' "
+                                             "after initialization",
+                                             tfa->field);
+                                    emit_error(ctx, IRON_ERR_VAL_FIELD_REASSIGN,
+                                               as->span, msg,
+                                               "declare field as 'var' to allow "
+                                               "reassignment after init");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             /* Phase 83-02 ACCESS-05: pub-field write dispatch.
              * When the LHS is a direct field-access on an object field marked
              * `pub var`, flag the assign so HIR lowers it as a call to the

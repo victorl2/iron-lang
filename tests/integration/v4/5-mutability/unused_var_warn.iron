@@ -1,0 +1,8 @@
+-- section 5.5 positive: var binding never reassigned (warning expected; runtime stdout asserted)
+-- @req: VAL-05
+-- @expected-pass-after: phase-17
+
+func main() {
+    var x = 5
+    println("x={x}")
+}
