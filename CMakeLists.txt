@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(iron VERSION 3.1.1 LANGUAGES C)
+project(iron VERSION 3.3.0 LANGUAGES C)
 
 # Full release version, including any pre-release suffix (e.g. "1.0.0-alpha").
 # CMake's project(VERSION ...) only accepts numeric MAJOR.MINOR.PATCH[.TWEAK],
