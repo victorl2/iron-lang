@@ -29,36 +29,12 @@
 /* Process-global allocation-id counter; declaration in iron_runtime.h. */
 iron_atomic_u64 iron_alloc_id_counter;
 
-/* ── iron_panic_stale_pointer — temporary minimal body ──────────────────────
- * Plan 19-01 needs the symbol present so iron_runtime.a links into every
- * unit test and downstream binary. Plan 19-02 ships the canonical body in
- * src/runtime/iron_panic.c with text/JSON output channels, IRON_PANIC_FORMAT
- * env handling, and distinct heap/stack message variants — and removes this
- * stub. The body below mirrors iron_oom_abort's stderr+abort discipline so
- * that any accidental panic during Plan 19-01 unit tests still terminates
- * the process visibly with a stale-pointer-tagged diagnostic instead of
- * crashing in undefined territory.
- *
- * Tests that exercise the panic path are TEST_IGNORE'd until 19-02 lands. */
-#if defined(__GNUC__) || defined(__clang__)
-__attribute__((noreturn))
-#endif
-void iron_panic_stale_pointer(const char *deref_file,
-                              int deref_line,
-                              const IronAllocHdr *hdr) {
-    fprintf(stderr,
-            "iron: stale pointer dereference\n"
-            "  deref site: %s:%d\n",
-            deref_file ? deref_file : "<unknown>",
-            deref_line);
-    if (hdr) {
-        fprintf(stderr,
-                "  allocation: size=%llu\n",
-                (unsigned long long)hdr->size);
-    }
-    fflush(stderr);
-    abort();
-}
+/* iron_panic_stale_pointer body lives in src/runtime/iron_panic.c (Plan
+ * 19-02). It is forward-declared in src/runtime/iron_runtime.h with
+ * __attribute__((noreturn)); the canonical declaration is in
+ * src/diagnostics/diagnostics.h next to iron_oom_abort. The link-time
+ * resolve closes the call site in iron_heap_free below and the static-
+ * inline iron_check_pointer_gen in iron_runtime.h. */
 
 /* Compile-time lock on lock-free 64-bit atomics — fail fast on
  * misconfigured 32-bit ARM builds that would otherwise emit __atomic_*

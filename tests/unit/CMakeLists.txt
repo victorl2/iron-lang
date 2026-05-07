@@ -1078,3 +1078,28 @@ add_executable(test_runtime_heap_free test_runtime_heap_free.c)
 target_link_libraries(test_runtime_heap_free iron_runtime unity)
 add_test(NAME test_runtime_heap_free COMMAND test_runtime_heap_free)
 set_tests_properties(test_runtime_heap_free PROPERTIES LABELS "unit;phase19-invariant")
+
+# ── Phase 19 plan-02: panic mechanism SAFE-03/04/06 ─────────────────────────
+# Stale-pointer panic format + env-cached output channel + release-build
+# symbol retention. Fork-per-case panic-capture pattern (POSIX). The
+# release-mode sibling test compiles the same source with -DNDEBUG=1 -O2 to
+# verify SAFE-04: no `--release-skip-checks` flag exists; the deref check
+# and panic must survive in release-built iron_runtime.
+add_executable(test_runtime_panic_stale test_runtime_panic_stale.c)
+target_link_libraries(test_runtime_panic_stale iron_runtime unity)
+add_test(NAME test_runtime_panic_stale COMMAND test_runtime_panic_stale)
+set_tests_properties(test_runtime_panic_stale PROPERTIES
+    LABELS "unit;phase19-invariant"
+    TIMEOUT 30
+)
+
+# SAFE-04 release-build symbol presence — same source, Release-mode build.
+add_executable(test_runtime_panic_stale_release test_runtime_panic_stale.c)
+target_link_libraries(test_runtime_panic_stale_release iron_runtime unity)
+target_compile_definitions(test_runtime_panic_stale_release PRIVATE NDEBUG=1)
+target_compile_options(test_runtime_panic_stale_release PRIVATE -O2)
+add_test(NAME test_runtime_panic_stale_release COMMAND test_runtime_panic_stale_release)
+set_tests_properties(test_runtime_panic_stale_release PROPERTIES
+    LABELS "unit;phase19-invariant"
+    TIMEOUT 30
+)

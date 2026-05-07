@@ -437,4 +437,44 @@ __attribute__((noreturn))
 #endif
 void iron_oom_abort(const char *where);
 
+/* ── Stale-pointer panic helper (Phase 19, SAFE-03/04/06) ───────────────────
+ * iron_panic_stale_pointer is the canonical abort path for a checked-pointer
+ * dereference that observes a generation mismatch: the user is dereferencing
+ * a pointer to a heap allocation that has been freed (or whose generation
+ * has otherwise been bumped — arena reset in Phase 28, partial-init cleanup
+ * in Phase 24, etc.).
+ *
+ * Multi-line stderr block (text default) or one-line JSON (set
+ * IRON_PANIC_FORMAT=json BEFORE iron_runtime_init is called). The env
+ * variable is read ONCE at iron_runtime_init time and cached — subsequent
+ * setenv() calls are NOT honored (Pitfall 6: per-panic getenv is not
+ * async-signal-safe and may itself allocate or take a lock).
+ *
+ * Allocation-site fields (file, line, size) are emitted in debug builds
+ * only (IRON_DEBUG_ALLOCATOR); in release builds the JSON form emits
+ * "alloc_site":null and "allocation":null while the text form simply
+ * omits those lines.
+ *
+ * Termination: abort(). Triggers SIGABRT, captures core dump, debugger-
+ * friendly. Matches iron_oom_abort precedent (above). Process-mode panic
+ * (the entire process dies, not just the offending thread) — pointer
+ * safety is global.
+ *
+ * Definition lives in src/runtime/iron_panic.c (linked into iron_runtime,
+ * same convention as iron_oom.c — see iron_oom.c lines 9-22 for the
+ * definition-vs-declaration split rationale).
+ *
+ * IronAllocHdr is forward-declared here to avoid pulling
+ * runtime/iron_runtime.h into every diagnostics consumer; the full
+ * definition lives in iron_runtime.h.
+ */
+struct IronAllocHdr;  /* forward declaration; full def in runtime/iron_runtime.h */
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_stale_pointer(const char *deref_file,
+                              int deref_line,
+                              const struct IronAllocHdr *hdr);
+
 #endif /* IRON_DIAGNOSTICS_H */

@@ -1,4 +1,5 @@
 #include "iron_runtime.h"
+#include "runtime/iron_panic.h"  /* Phase 19-02: iron_panic_init_from_env */
 
 #include <string.h>
 #include <stdlib.h>
@@ -289,6 +290,13 @@ void iron_runtime_init(int argc, char **argv) {
      * (unit-test harness pattern) per the existing s_intern_table /
      * iron_threads_init conventions in this file. */
     IRON_ATOMIC_U64_INIT(iron_alloc_id_counter, 0);
+
+    /* Phase 19-02: cache IRON_PANIC_FORMAT env variable BEFORE any
+     * allocation can panic (Pitfall 6: getenv-once-at-init). Idempotent
+     * across repeated iron_runtime_init calls. Must come AFTER alloc-id
+     * init since panic formatting may reference the alloc-id field on
+     * stale-deref. */
+    iron_panic_init_from_env();
 
     /* Phase 59 P01c: network runtime hooks — WSAStartup (Windows) and
      * SIGPIPE=SIG_IGN (POSIX). Both hooks are idempotent:

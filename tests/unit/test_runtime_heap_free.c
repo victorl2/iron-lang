@@ -22,6 +22,7 @@
 #include <string.h>
 
 #ifndef _WIN32
+  #include <signal.h>
   #include <sys/wait.h>
   #include <unistd.h>
 #endif
@@ -95,12 +96,50 @@ void test_iron_heap_free_relaxed_inc_visible_via_acquire_load(void) {
 }
 
 void test_iron_heap_free_double_free_detected(void) {
-    /* Plan 19-01 forward-declares iron_panic_stale_pointer; its body
-     * lands in Plan 19-02 (src/runtime/iron_panic.c). Until that atomic
-     * commit lands the tests linker-resolve to a still-extern symbol —
-     * the test below stays TEST_IGNORE'd to keep the test suite green. */
-    TEST_IGNORE_MESSAGE("Plan 19-02 will land iron_panic_stale_pointer; "
-                        "flips active in 19-02 atomic commit");
+    /* Plan 19-02 lands iron_panic_stale_pointer's canonical body. Double-
+     * free of a stale fp must trigger the panic via iron_heap_free's
+     * generation-mismatch guard at iron_heap_track.c:107. We fork() a
+     * child; child performs alloc → copy → free → free-again on the copy.
+     * Parent waits for SIGABRT and asserts the text-format panic header
+     * surfaced on the child's stderr (IRON_PANIC_FORMAT is unset, so the
+     * default text channel applies). */
+#ifdef _WIN32
+    TEST_IGNORE_MESSAGE("fork()-based panic capture is POSIX-only; "
+                        "Phase 19 panic tests run on Linux/macOS only");
+#else
+    int err_pipe[2];
+    TEST_ASSERT_EQUAL_INT(0, pipe(err_pipe));
+    pid_t pid = fork();
+    TEST_ASSERT_NOT_EQUAL(-1, pid);
+    if (pid == 0) {
+        /* child */
+        close(err_pipe[0]);
+        dup2(err_pipe[1], 2);
+        close(err_pipe[1]);
+        Iron_FatPtr fp      = iron_heap_alloc(__FILE__, __LINE__, 16);
+        Iron_FatPtr fp_copy = fp;
+        iron_heap_free(fp);          /* legal first free */
+        iron_heap_free(fp_copy);     /* must panic via stale-gen guard */
+        _exit(99);                    /* unreachable */
+    }
+    /* parent */
+    close(err_pipe[1]);
+    char   buf[2048];
+    size_t total = 0;
+    ssize_t n;
+    while (total + 1 < sizeof(buf) &&
+           (n = read(err_pipe[0], buf + total, sizeof(buf) - 1 - total)) > 0) {
+        total += (size_t)n;
+    }
+    buf[total] = '\0';
+    close(err_pipe[0]);
+    int status = 0;
+    TEST_ASSERT_EQUAL_INT(pid, waitpid(pid, &status, 0));
+    TEST_ASSERT_TRUE(WIFSIGNALED(status));
+    TEST_ASSERT_EQUAL_INT(SIGABRT, WTERMSIG(status));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "stale pointer dereference"),
+                                 "double-free must trigger stale-pointer panic");
+#endif
 }
 
 /* ── Test runner ─────────────────────────────────────────────────────────── */

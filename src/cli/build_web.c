@@ -626,7 +626,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      */
     const char *iron_src_dir = lib_dir ? lib_dir : "src";
 
-#define IRON_WEB_SRC_COUNT 15
+#define IRON_WEB_SRC_COUNT 16
     const char *rel_paths[IRON_WEB_SRC_COUNT] = {
         "util/stb_ds_impl.c",
         "util/arena.c",
@@ -638,6 +638,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         "runtime/iron_collections.c",
         "runtime/iron_fmt.c",            /* Phase 78: Int/Int32/Float → String */
         "runtime/iron_heap_track.c",     /* Phase 19: generational pointer tracker */
+        "runtime/iron_panic.c",          /* Phase 19-02: stale-pointer panic */
         "stdlib/iron_io.c",
         "stdlib/iron_log.c",
         "stdlib/iron_math.c",
