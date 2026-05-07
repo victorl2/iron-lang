@@ -1,1 +1,1 @@
-cannot pass read-only to var
+cannot pass read-only argument to 'var' parameter

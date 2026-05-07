@@ -89,6 +89,30 @@ add_test(NAME test_analyzer_unused_var_param_field_write
 set_tests_properties(test_analyzer_unused_var_param_field_write PROPERTIES
     LABELS "unit;phase18-invariant")
 
+# Phase 18 Wave 0 (Plan 02): PARM-03 read-only-arg-to-var-slot rejection
+# covering BOTH IRON_NODE_CALL (free-function) AND IRON_NODE_METHOD_CALL
+# (method-call) paths. RED until Plan 18-02 lands
+# IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT=267 in src/diagnostics/diagnostics.h
+# AND extends typecheck.c IRON_NODE_CALL handler at lines 2204-2226
+# + IRON_NODE_METHOD_CALL handler at line 2286+ with the per-arg PARM-03
+# check using the static helper arg_source_is_mutable.
+add_executable(test_analyzer_parm_var_slot test_analyzer_parm_var_slot.c)
+target_link_libraries(test_analyzer_parm_var_slot iron_compiler unity)
+add_test(NAME test_analyzer_parm_var_slot COMMAND test_analyzer_parm_var_slot)
+set_tests_properties(test_analyzer_parm_var_slot PROPERTIES
+    LABELS "unit;phase18-invariant")
+
+# Phase 18 Wave 0 (Plan 02): PARM-04 method receiver tier regression-anchor
+# (NOT a Wave 0 RED gate — Plan 18-02 leaves the existing Phase 84
+# IRON_ERR_READONLY_WRITE_SELF=238 enforcement untouched). 3 RUN_TESTs
+# verify default-mutable receiver works + readonly opt-out continues to
+# emit E0238 + CONTEXT.md "reuse 265" amendment lock (KEEP 238 dedicated).
+add_executable(test_analyzer_method_receiver test_analyzer_method_receiver.c)
+target_link_libraries(test_analyzer_method_receiver iron_compiler unity)
+add_test(NAME test_analyzer_method_receiver COMMAND test_analyzer_method_receiver)
+set_tests_properties(test_analyzer_method_receiver PROPERTIES
+    LABELS "unit;phase18-invariant")
+
 add_executable(test_interp test_interp.c)
 target_link_libraries(test_interp iron_compiler unity)
 add_test(NAME test_interp COMMAND test_interp)

@@ -227,6 +227,60 @@ static Iron_Symbol *tc_lookup(TypeCtx *ctx, const char *name) {
     return iron_scope_lookup(ctx->current_scope, name);
 }
 
+/* Phase 18 PARM-03: derive whether an argument expression yields a
+ * mutable source.
+ *
+ * Walks IRON_NODE_IDENT and IRON_NODE_FIELD_ACCESS chains; every other
+ * expression kind is conservatively NOT mutable (literals, calls, binops,
+ * unary, casts, lambdas, struct/list/map literals are all rvalues).
+ *
+ * For a FIELD_ACCESS, both (a) the named field's is_var bit AND (b) the
+ * root binding's is_mutable must be true — a `var` field on a `val`-rooted
+ * object is still effectively immutable; a `val` field on a `var`-rooted
+ * object is also immutable (the field's storage class wins).
+ *
+ * Mirrors the chain walk pattern at typecheck.c:4075-4095 (Phase 80
+ * MUT-03 / Phase 17 VAL-03). IRON_TYPE_RC unwrapping handles `rc Box`
+ * receivers transparently. */
+static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
+    if (!arg) return false;
+    switch ((int)arg->kind) {
+        case IRON_NODE_IDENT: {
+            Iron_Ident *id = (Iron_Ident *)arg;
+            if (id->resolved_sym) return id->resolved_sym->is_mutable;
+            Iron_Symbol *s = id->name ? tc_lookup(ctx, id->name) : NULL;
+            return s ? s->is_mutable : false;
+        }
+        case IRON_NODE_FIELD_ACCESS: {
+            Iron_FieldAccess *fa = (Iron_FieldAccess *)arg;
+            /* Field-level mutability: walk obj's resolved_type → ObjectDecl,
+             * find the field, check is_var. Combined with root-binding
+             * mutability (recursive). Both must be mutable for the source
+             * to count as mutable. */
+            Iron_Type *obj_ty = fa->object
+                ? ((Iron_ExprNode *)fa->object)->resolved_type : NULL;
+            if (obj_ty && obj_ty->kind == IRON_TYPE_RC) obj_ty = obj_ty->rc.inner;
+            bool field_mut = false;
+            if (obj_ty && obj_ty->kind == IRON_TYPE_OBJECT && obj_ty->object.decl) {
+                Iron_ObjectDecl *od = obj_ty->object.decl;
+                for (int fi = 0; fi < od->field_count; fi++) {
+                    Iron_Field *f = (Iron_Field *)od->fields[fi];
+                    if (f && f->name && fa->field &&
+                        strcmp(f->name, fa->field) == 0) {
+                        field_mut = f->is_var;
+                        break;
+                    }
+                }
+            }
+            return field_mut && arg_source_is_mutable(ctx, fa->object);
+        }
+        /* Calls, literals, binops, unary, struct-literal, list-literal,
+         * map-literal, casts, lambdas — all rvalues, not mutable sources. */
+        default:
+            return false;
+    }
+}
+
 /* Recursively define binding variables from a pattern into the current scope.
  * enum_type: the Iron_Type of the enum being matched by this pattern.
  * pattern_node: the Iron_Pattern AST node. */
@@ -2193,6 +2247,25 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
             /* Check arg count */
             int expected_count = callee_type->func.param_count;
+
+            /* Phase 18 PARM-03: lookup callee FuncDecl once for per-param
+             * is_var enforcement at the call site. Free-function path; the
+             * IRON_NODE_METHOD_CALL handler below carries the method-call
+             * sibling check (Pitfall 3 method-call coverage lock). */
+            Iron_FuncDecl *fd_for_parm = NULL;
+            if (ce->callee && ce->callee->kind == IRON_NODE_IDENT) {
+                Iron_Ident *fn_id = (Iron_Ident *)ce->callee;
+                Iron_Symbol *fn_sym =
+                    fn_id->name
+                        ? iron_scope_lookup(ctx->global_scope, fn_id->name)
+                        : NULL;
+                if (fn_sym && fn_sym->sym_kind == IRON_SYM_FUNCTION &&
+                    fn_sym->decl_node &&
+                    fn_sym->decl_node->kind == IRON_NODE_FUNC_DECL) {
+                    fd_for_parm = (Iron_FuncDecl *)fn_sym->decl_node;
+                }
+            }
+
             if (ce->arg_count != expected_count) {
                 char msg[256];
                 snprintf(msg, sizeof(msg),
@@ -2221,6 +2294,29 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     /* Narrow literal args to match parameter type */
                     if (is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
                         ((Iron_IntLit *)ce->args[i])->resolved_type = param_type;
+                    }
+                    /* Phase 18 PARM-03: read-only argument passed to a
+                     * 'var' parameter slot. arg_source_is_mutable returns
+                     * false for val bindings, val fields, literals, calls,
+                     * and any non-IDENT/non-FIELD_ACCESS rvalue (Pitfall 7
+                     * lock — hint mentions only `var`, not `*var`). */
+                    if (fd_for_parm && i < fd_for_parm->param_count &&
+                        fd_for_parm->params[i] &&
+                        fd_for_parm->params[i]->kind == IRON_NODE_PARAM) {
+                        Iron_Param *fp = (Iron_Param *)fd_for_parm->params[i];
+                        if (fp->is_var &&
+                            !arg_source_is_mutable(ctx, ce->args[i])) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot pass read-only argument to "
+                                     "'var' parameter '%s'",
+                                     fp->name ? fp->name : "<unnamed>");
+                            emit_error(ctx,
+                                       IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT,
+                                       ce->args[i]->span, msg,
+                                       "make the argument source mutable "
+                                       "(declare as 'var')");
+                        }
                     }
                 }
             }
@@ -2653,6 +2749,37 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                          md->type_name, md->method_name);
                                 emit_error(ctx, IRON_ERR_PURE_NON_PURE_CALL,
                                            mc->span, msg, NULL);
+                            }
+                            /* Phase 18 PARM-03: per-arg read-only-source check
+                             * at the method call site (Pitfall 3 method-call
+                             * coverage lock — free-function-only fix leaves
+                             * v4 method fixtures unprotected).
+                             *
+                             * For receiver-form methods, params[0] is the
+                             * receiver binding and user args start at
+                             * params[1]; offset accordingly so mc->args[i]
+                             * lines up with params[i + recv_off]. */
+                            int recv_off = md->is_receiver_form ? 1 : 0;
+                            for (int ai = 0; ai < mc->arg_count; ai++) {
+                                int pi = ai + recv_off;
+                                if (pi >= md->param_count) break;
+                                if (!md->params[pi] ||
+                                    md->params[pi]->kind != IRON_NODE_PARAM)
+                                    continue;
+                                Iron_Param *mp = (Iron_Param *)md->params[pi];
+                                if (mp->is_var &&
+                                    !arg_source_is_mutable(ctx, mc->args[ai])) {
+                                    char msg[256];
+                                    snprintf(msg, sizeof(msg),
+                                             "cannot pass read-only argument to "
+                                             "'var' parameter '%s'",
+                                             mp->name ? mp->name : "<unnamed>");
+                                    emit_error(ctx,
+                                               IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT,
+                                               mc->args[ai]->span, msg,
+                                               "make the argument source mutable "
+                                               "(declare as 'var')");
+                                }
                             }
                             break;
                         }

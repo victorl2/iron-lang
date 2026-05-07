@@ -213,6 +213,17 @@ void iron_diaglist_free(Iron_DiagList *list);
  * (next free in semantic range 200-289 after Phase 17's E0265). */
 #define IRON_ERR_PARM_READ_ONLY      266   /* PARM-01 */
 
+/* Phase 18 PARM-03: read-only argument passed to 'var' parameter slot.
+ * Call-site dual of PARM-01 — even if the callee opts in to mutation via
+ * `var p`, the caller cannot supply a read-only source (val binding,
+ * literal rvalue, val field). Distinct from E0203/E0234/E0266 which fire
+ * on the assign target inside the callee body; this code fires on the
+ * argument expression at the call site. Quickfix-target: "make argument
+ * source mutable" (Phase 34 LSP-06). Hint deliberately omits `*var`
+ * pointer suggestion — pointer-typed parameters are Phase 20 territory.
+ * Slotted at 267 (next free after Plan 18-01's E0266). */
+#define IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT  267   /* PARM-03 */
+
 /* Phase 86 PATCH: open-extension diagnostics.
  *
  * PATCH-01 lands the parse-surface for `patch object T { ... }`; the parser
