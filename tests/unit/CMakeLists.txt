@@ -1103,3 +1103,23 @@ set_tests_properties(test_runtime_panic_stale_release PROPERTIES
     LABELS "unit;phase19-invariant"
     TIMEOUT 30
 )
+
+# ── Phase 19 plan-03: thread-safety stress test SAFE-01/05 ───────────────────
+# Counter atomicity (8 threads x 100k iterations alloc+free) + cross-thread
+# free panic (fork-per-consumer SIGABRT capture) + cross-thread deref panic
+# (fork-per-consumer SIGABRT capture). Mirrors the test_string_intern_race
+# TSAN-gated pattern: -fsanitize=thread on Linux, FAIL_REGULAR_EXPRESSION
+# converts any ThreadSanitizer warning into a test failure. POSIX-only;
+# Win32 path emits TEST_IGNORE_MESSAGE.
+add_executable(test_runtime_heap_concurrent test_runtime_heap_concurrent.c)
+target_link_libraries(test_runtime_heap_concurrent iron_runtime unity)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_options(test_runtime_heap_concurrent PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(test_runtime_heap_concurrent PRIVATE -fsanitize=thread)
+endif()
+add_test(NAME test_runtime_heap_concurrent COMMAND test_runtime_heap_concurrent)
+set_tests_properties(test_runtime_heap_concurrent PROPERTIES
+    LABELS "unit;phase19-invariant;tsan"
+    TIMEOUT 60
+    FAIL_REGULAR_EXPRESSION "WARNING: ThreadSanitizer"
+)
