@@ -3699,11 +3699,19 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
         } else if (iron_check(p, IRON_TOK_VAL)) {
             iron_advance(p);
         } else {
-            /* Interface method signature inside object — skip with error */
+            /* Phase 17 VAL-02: field declaration without 'val' or 'var' modifier.
+             * Spec §5.2 requires every field to specify val or var explicitly;
+             * shares IRON_ERR_MISSING_VAL_VAR with VAL-01 (the local-binding
+             * lookahead at iron_parse_stmt_impl) so Phase 34 LSP-06 quickfix can
+             * route both sites through one code. Spec-locked message
+             * "must specify val or var" matches the v4-fail corpus
+             * missing_val_var_field.expected substring. */
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                           IRON_ERR_UNEXPECTED_TOKEN,
+                           IRON_ERR_MISSING_VAL_VAR,
                            iron_token_span(p, iron_current(p)),
-                           "expected field declaration (val or var)", NULL);
+                           "must specify val or var",
+                           "insert 'val' for an immutable binding "
+                           "(or 'var' to allow reassignment)");
             iron_parser_sync_stmt(p);
             continue;
         }

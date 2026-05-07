@@ -59,6 +59,20 @@ typedef struct {
      * from Iron_Parser.user_source_start_line via Iron_Program at the
      * resolver entry point. */
     int user_source_start_line;
+
+    /* Phase 17 VAL-01: set true while resolving the LHS of an assignment
+     * statement whose target is a bare IDENT (e.g. `x = 30`). When the
+     * resolver finds the IDENT undefined under this flag, it emits
+     * IRON_ERR_MISSING_VAL_VAR ("must specify val or var") rather than
+     * the generic IRON_ERR_UNDEFINED_VAR — bare-assignment-with-no-binding
+     * is the canonical "you forgot val/var" syntax shape per spec §5.1.
+     *
+     * The flag is set ONLY when as->target->kind == IRON_NODE_IDENT, so
+     * `obj.field = ...` and `arr[i] = ...` continue to surface as
+     * IRON_ERR_UNDEFINED_VAR / field-access errors. The flag is cleared
+     * before walking as->value so a use of `y` in `x = y` (where neither
+     * is bound) still gets E0200 on `y`. */
+    bool is_assign_lhs;
 } ResolveCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -114,8 +128,27 @@ static void define_sym(ResolveCtx *ctx, const char *name, Iron_SymbolKind kind,
 
 /* Emit an "undefined variable" diagnostic for an unresolved identifier.
  * Phase 4 Plan 04-01 (EDIT-07): enrich with .suggestion = best Levenshtein
- * candidate from the visible scope chain (max distance 2). */
+ * candidate from the visible scope chain (max distance 2).
+ *
+ * Phase 17 VAL-01: when the IDENT is the LHS of a bare assignment
+ * (ctx->is_assign_lhs set), reroute to IRON_ERR_MISSING_VAL_VAR with the
+ * spec-mandated message + hint. The bare-`x = 30` shape with no `val`/`var`
+ * declarator is the spec's canonical "you forgot the modifier" syntax;
+ * surfacing it as "must specify val or var" gives the user a single
+ * actionable diagnostic with the same code as the field-decl site
+ * (parser.c:3702-3708) so Phase 34 LSP-06 quickfix can route both through
+ * one entry. Reassignment to existing `var` bindings (e.g.
+ * `var y = 20; y = 30`) is unaffected — the IDENT resolves successfully,
+ * neither E0200 nor E176 fires. */
 static void emit_undefined(ResolveCtx *ctx, const char *name, Iron_Span span) {
+    if (ctx->is_assign_lhs) {
+        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_MISSING_VAL_VAR, span,
+                       "must specify val or var",
+                       "insert 'val' for an immutable binding "
+                       "(or 'var' to allow reassignment)");
+        return;
+    }
     char msg[256];
     snprintf(msg, sizeof(msg), "undefined identifier '%s'", name);
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
@@ -676,7 +709,17 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_ASSIGN: {
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+            /* Phase 17 VAL-01: tag the LHS walk so emit_undefined reroutes
+             * a bare-IDENT-undefined into IRON_ERR_MISSING_VAL_VAR. We tag
+             * ONLY when target is a bare IDENT — `obj.field = …`,
+             * `arr[i] = …`, etc. fall through with the flag clear so the
+             * receiver/index expressions still surface as E0200 when their
+             * own subexpressions are undefined. Save/restore in case of
+             * nested assigns inside RHS. */
+            bool prev_lhs = ctx->is_assign_lhs;
+            ctx->is_assign_lhs = (as->target && as->target->kind == IRON_NODE_IDENT);
             resolve_expr(ctx, as->target);
+            ctx->is_assign_lhs = prev_lhs;
             resolve_expr(ctx, as->value);
             break;
         }
@@ -1509,6 +1552,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
      * line < 0). */
     ctx.emitted_first_e0320    = false;
     ctx.user_source_start_line = program->user_source_start_line;
+    /* Phase 17 VAL-01: cleared by default; set true only inside the
+     * IRON_NODE_ASSIGN case while walking a bare-IDENT LHS. */
+    ctx.is_assign_lhs          = false;
 
     /* Initialize type system */
     iron_types_init(arena);

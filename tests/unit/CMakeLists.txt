@@ -40,6 +40,14 @@ target_link_libraries(test_parser_v4_keyword_rejection iron_compiler unity)
 add_test(NAME test_parser_v4_keyword_rejection COMMAND test_parser_v4_keyword_rejection)
 set_tests_properties(test_parser_v4_keyword_rejection PROPERTIES LABELS "unit")
 
+# Phase 17 Wave 0: VAL-01 (bare local) + VAL-02 (bare field) parser rejection.
+# RED until Plan 17-01 lands IRON_ERR_MISSING_VAL_VAR=176 + parser lookahead.
+add_executable(test_parser_val_var_required test_parser_val_var_required.c)
+target_link_libraries(test_parser_val_var_required iron_compiler unity)
+add_test(NAME test_parser_val_var_required COMMAND test_parser_val_var_required)
+set_tests_properties(test_parser_val_var_required PROPERTIES
+    LABELS "unit;phase17-invariant")
+
 add_executable(test_interp test_interp.c)
 target_link_libraries(test_interp iron_compiler unity)
 add_test(NAME test_interp COMMAND test_interp)

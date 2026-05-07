@@ -104,6 +104,15 @@ void iron_diaglist_free(Iron_DiagList *list);
  * the parser expects an identifier for a binding name. Parser range 101-199. */
 #define IRON_ERR_KEYWORD_NOT_BINDING_NAME 175
 
+/* Phase 17 VAL-01/VAL-02: missing val/var on local binding or field decl.
+ * Spec §5.1/§5.2 require explicit val or var; omitting both is a parser
+ * error with the spec-mandated message "must specify val or var". The
+ * single code covers both the local-binding (parser.c iron_parse_stmt_impl
+ * lookahead at line 2530) and field-decl (parser.c:3702-3708 in-place
+ * wording change) emission sites — they share quickfix-target semantics
+ * for Phase 34 LSP-06 (insert 'val' or 'var'). */
+#define IRON_ERR_MISSING_VAL_VAR  176   /* VAL-01, VAL-02 */
+
 /* Semantic errors */
 #define IRON_ERR_UNDEFINED_VAR        200
 #define IRON_ERR_DUPLICATE_DECL       201
