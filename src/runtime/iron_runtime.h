@@ -47,6 +47,124 @@
   #define IRON_ATOMIC_CAS_WEAK(v, exp, des) atomic_compare_exchange_weak(&(v), (exp), (des))
 #endif
 
+/* ── Phase 19: 64-bit atomic abstraction with explicit memory ordering ──────
+ * Generation counters need explicit relaxed/acquire ordering. The existing
+ * IRON_ATOMIC_* macros above use sequentially-consistent ops (the C11 default
+ * for *_explicit-less APIs); over-strong for monotonic counters. This parallel
+ * family wraps atomic_*_explicit on POSIX and Win64 Interlocked*64 (which are
+ * unconditionally seq-cst — acceptable since Iron's parallel-LSP-request
+ * model is not bottlenecked on heap-tracker atomics, and Windows is excluded
+ * from CI today).
+ *
+ * CONTEXT-locked: relaxed-fetch-add on free, acquire-load on deref-check.
+ * Do NOT replace with the seq-cst IRON_ATOMIC_* macros above. */
+#ifdef _WIN32
+  typedef volatile LONG64 iron_atomic_u64;
+  #define IRON_ATOMIC_U64_INIT(v, val) \
+      ((v) = (LONG64)(val))
+  #define IRON_ATOMIC_U64_LOAD_ACQUIRE(v) \
+      ((uint64_t)InterlockedCompareExchange64((volatile LONG64 *)&(v), 0, 0))
+  #define IRON_ATOMIC_U64_FETCH_ADD_RELAXED(v, n) \
+      ((uint64_t)InterlockedExchangeAdd64((volatile LONG64 *)&(v), (LONG64)(n)))
+#else
+  /* <stdatomic.h> already included on POSIX path above. */
+  typedef _Atomic uint64_t iron_atomic_u64;
+  #define IRON_ATOMIC_U64_INIT(v, val) \
+      atomic_init(&(v), (val))
+  #define IRON_ATOMIC_U64_LOAD_ACQUIRE(v) \
+      atomic_load_explicit(&(v), memory_order_acquire)
+  #define IRON_ATOMIC_U64_FETCH_ADD_RELAXED(v, n) \
+      atomic_fetch_add_explicit(&(v), (n), memory_order_relaxed)
+#endif
+
+/* ── Phase 19: Generational pointer infrastructure (heap-only this phase) ──
+ * Phase 20 surfaces *T / *var T to Iron source; Phase 19 lands the runtime
+ * substrate Phase 20 will codegen against.
+ *
+ * Public ABI commitment: Iron_FatPtr is exactly 16B (8B addr + 8B gen).
+ * Documented in docs/dev/POINTER-LAYOUT.md (Plan 19-03). Future changes
+ * require explicit version bump + migration plan.
+ *
+ * gen=0 reserved as null/freed sentinel; first valid generation is 1. */
+
+typedef struct {
+    void     *addr;   /* points to user payload; header at addr - sizeof(IronAllocHdr) */
+    uint64_t  gen;    /* generation captured at pointer-creation time */
+} Iron_FatPtr;
+
+_Static_assert(sizeof(Iron_FatPtr) == 16,
+               "Iron_FatPtr must be 16B — System V AMD64 / AAPCS ARM64 "
+               "2-register pass-by-value lock; growing past 16B is a "
+               "silent perf regression on every pointer pass. "
+               "See docs/dev/POINTER-LAYOUT.md for the public ABI commitment.");
+
+/* IronAllocHdr is the header prepended to every iron_heap_alloc'd block.
+ * Release build: 16B; Debug build (IRON_DEBUG_ALLOCATOR): 32B with site
+ * capture. Both sizes yield 16B-aligned user pointer (sizeof is multiple
+ * of 16) given malloc's max_align_t alignment guarantee.
+ *
+ * Phase 31 may extend the debug section with poison/double-free fields;
+ * the release layout (16B) is locked by Plan 19-01 and changing it
+ * requires the public ABI bump documented in POINTER-LAYOUT.md. */
+typedef struct IronAllocHdr {
+    iron_atomic_u64 gen;        /* atomic generation counter (relaxed inc, acquire load) */
+    uint64_t        size;       /* user payload size in bytes (arena accounting + free validation) */
+#ifdef IRON_DEBUG_ALLOCATOR
+    const char     *alloc_site_file;  /* string-literal __FILE__ pointer; no strdup */
+    uint32_t        alloc_site_line;  /* __LINE__ */
+    uint32_t        alloc_id;         /* unique id from iron_alloc_id_counter (Phase 31 leak detector reuses) */
+    /* Total debug-build size: 16B release fields + 8B ptr + 4B + 4B = 32B.
+     * Phase 31 may extend with poison/double-free fields; doing so requires
+     * an explicit ABI bump documented in POINTER-LAYOUT.md. */
+#endif
+} IronAllocHdr;
+
+#ifdef IRON_DEBUG_ALLOCATOR
+  _Static_assert(sizeof(IronAllocHdr) == 32,
+                 "IronAllocHdr (debug) must be 32B — Plan 19-01 layout lock");
+#else
+  _Static_assert(sizeof(IronAllocHdr) == 16,
+                 "IronAllocHdr (release) must be 16B — Plan 19-01 layout lock");
+#endif
+
+/* Public API — definitions in src/runtime/iron_heap_track.c. */
+Iron_FatPtr iron_heap_alloc(const char *site_file, int site_line, size_t size);
+void        iron_heap_free(Iron_FatPtr fp);
+
+/* Forward declaration — definition lands in Plan 19-02 (src/runtime/iron_panic.c).
+ * Declared here so the static-inline iron_check_pointer_gen below can call it
+ * without needing diagnostics.h transitively included by every iron_runtime.h
+ * consumer. Plan 19-02 also adds the canonical declaration in
+ * src/diagnostics/diagnostics.h next to iron_oom_abort. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_stale_pointer(const char *deref_file,
+                              int deref_line,
+                              const IronAllocHdr *hdr);
+
+/* Static-inline so Phase 30 optimizer can elide redundant checks at the
+ * call site. Iron's release codegen will inline this trivially.
+ * CONTEXT-locked: do not change to out-of-line without coordinating with
+ * Phase 30 (POINTER-LAYOUT.md API surface). */
+static inline void iron_check_pointer_gen(Iron_FatPtr fp,
+                                          const char *deref_file,
+                                          int deref_line) {
+    if (!fp.addr) {
+        iron_panic_stale_pointer(deref_file, deref_line, NULL);
+    }
+    IronAllocHdr *hdr = ((IronAllocHdr *)fp.addr) - 1;
+    uint64_t cur = IRON_ATOMIC_U64_LOAD_ACQUIRE(hdr->gen);
+    if (cur != fp.gen) {
+        iron_panic_stale_pointer(deref_file, deref_line, hdr);
+    }
+}
+
+/* Process-global allocation-id counter; bumped per alloc in debug builds.
+ * Initialized in iron_runtime_init via IRON_ATOMIC_U64_INIT.
+ * Definition lives in src/runtime/iron_heap_track.c. */
+extern iron_atomic_u64 iron_alloc_id_counter;
+
 /* ── Platform threading abstraction ──────────────────────────────────────── */
 #ifdef _WIN32
 

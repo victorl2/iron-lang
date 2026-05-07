@@ -283,6 +283,13 @@ void iron_runtime_init(int argc, char **argv) {
     IRON_MUTEX_UNLOCK(s_intern_lock);
     iron_threads_init();
 
+    /* Phase 19: heap-tracker allocation-id counter (debug builds use it
+     * in IronAllocHdr; release builds set it for forward-compat).
+     * Atomic init is idempotent across repeated iron_runtime_init calls
+     * (unit-test harness pattern) per the existing s_intern_table /
+     * iron_threads_init conventions in this file. */
+    IRON_ATOMIC_U64_INIT(iron_alloc_id_counter, 0);
+
     /* Phase 59 P01c: network runtime hooks — WSAStartup (Windows) and
      * SIGPIPE=SIG_IGN (POSIX). Both hooks are idempotent:
      *   - Iron_net_wsa_startup_once is refcounted under an internal mutex

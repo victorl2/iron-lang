@@ -1063,3 +1063,18 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m6-invariant"
         TIMEOUT 30)
 endif()
+
+# ── Phase 19 plan-01: heap-tracker SAFE-01/02/05 ─────────────────────────────
+# Generational pointer infrastructure runtime substrate. Both tests link
+# iron_runtime (where iron_heap_track.c lives) + unity. The double-free
+# panic test inside test_runtime_heap_free is TEST_IGNORE'd until Plan 19-02
+# ships iron_panic_stale_pointer's body.
+add_executable(test_runtime_heap_alloc test_runtime_heap_alloc.c)
+target_link_libraries(test_runtime_heap_alloc iron_runtime unity)
+add_test(NAME test_runtime_heap_alloc COMMAND test_runtime_heap_alloc)
+set_tests_properties(test_runtime_heap_alloc PROPERTIES LABELS "unit;phase19-invariant")
+
+add_executable(test_runtime_heap_free test_runtime_heap_free.c)
+target_link_libraries(test_runtime_heap_free iron_runtime unity)
+add_test(NAME test_runtime_heap_free COMMAND test_runtime_heap_free)
+set_tests_properties(test_runtime_heap_free PROPERTIES LABELS "unit;phase19-invariant")
