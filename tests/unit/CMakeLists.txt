@@ -67,6 +67,28 @@ add_test(NAME test_analyzer_unused_var COMMAND test_analyzer_unused_var)
 set_tests_properties(test_analyzer_unused_var PROPERTIES
     LABELS "unit;phase17-invariant")
 
+# Phase 18 Wave 0 (Plan 01): PARM-01 read-only parameter mutation rejection
+# + PARM-02 var-opt-in sanity. RED until Plan 18-01 lands
+# IRON_ERR_PARM_READ_ONLY=266 in src/diagnostics/diagnostics.h and
+# extends typecheck.c IRON_NODE_ASSIGN handler with sym_kind == IRON_SYM_PARAM
+# branch.
+add_executable(test_analyzer_parm_read_only test_analyzer_parm_read_only.c)
+target_link_libraries(test_analyzer_parm_read_only iron_compiler unity)
+add_test(NAME test_analyzer_parm_read_only COMMAND test_analyzer_parm_read_only)
+set_tests_properties(test_analyzer_parm_read_only PROPERTIES
+    LABELS "unit;phase18-invariant")
+
+# Phase 18 Wave 0 (Plan 01): VAL-06 false-positive regression test.
+# RED until Plan 18-01 extends src/analyzer/unused_var.c scan_for_writes
+# to mark FIELD_ACCESS-rooted IDENTs as written.
+add_executable(test_analyzer_unused_var_param_field_write
+    test_analyzer_unused_var_param_field_write.c)
+target_link_libraries(test_analyzer_unused_var_param_field_write iron_compiler unity)
+add_test(NAME test_analyzer_unused_var_param_field_write
+    COMMAND test_analyzer_unused_var_param_field_write)
+set_tests_properties(test_analyzer_unused_var_param_field_write PROPERTIES
+    LABELS "unit;phase18-invariant")
+
 add_executable(test_interp test_interp.c)
 target_link_libraries(test_interp iron_compiler unity)
 add_test(NAME test_interp COMMAND test_interp)

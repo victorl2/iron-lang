@@ -65,6 +65,28 @@ static void mark_reassigned(UnusedVarCtx *ctx, Iron_Ident *id) {
     }
 }
 
+/* Phase 18 VAL-06 false-positive fix: param-only "used via field-write"
+ * marker. A var parameter with a body that ONLY does field-writes
+ * (e.g., `func f(var p: Point) { p.x = 5 }`) is using the param for
+ * mutation — must NOT trigger IRON_WARN_UNUSED_VAR_PARAM=614.
+ *
+ * This helper deliberately ignores non-param tracker entries so VAL-05
+ * (val/var local) semantics remain Phase 17's narrowest definition:
+ * "Mutation = binding reassignment only. Field writes (x.f = ...) do
+ * NOT count." Per Plan 18-01 Pitfall 1: PARM-02 mental model differs
+ * from VAL-05 (a var param exists for mutation; a var local with only
+ * field-writes can be a val). */
+static void mark_param_used_via_field_write(UnusedVarCtx *ctx, Iron_Ident *id) {
+    if (!id || !id->name) return;
+    for (ptrdiff_t i = 0; i < arrlen(ctx->trackers); i++) {
+        VarTracker *t = &ctx->trackers[i];
+        if (t->is_param && t->name && strcmp(t->name, id->name) == 0) {
+            t->was_reassigned = true;
+            return;
+        }
+    }
+}
+
 /* Recursively walk a node looking for IDENT-LHS assigns/compound-assigns.
  * Mirrors init_check.c stmt-traversal pattern. Default branch recurses no
  * further (safe over-approximation: the worst case is a missed warning,
@@ -81,9 +103,35 @@ static void scan_for_writes(UnusedVarCtx *ctx, Iron_Node *node) {
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
             if (as->target && as->target->kind == IRON_NODE_IDENT) {
                 /* Direct `x = ...` AND compound `x += ...` (op != IRON_OP_NONE)
-                 * both count per CONTEXT.md. Only IDENT targets count;
-                 * field writes (`x.f = ...`) intentionally skip below. */
+                 * both count per Phase 17 CONTEXT.md. Only IDENT targets count
+                 * for VAL-05 (val locals); for var-param VAL-06 the
+                 * FIELD_ACCESS arm below also counts. */
                 mark_reassigned(ctx, (Iron_Ident *)as->target);
+            } else if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                /* Phase 18 VAL-06 false-positive fix: walk the FIELD_ACCESS
+                 * chain to its root IDENT and mark the param binding as
+                 * written.
+                 *
+                 * Rationale: a var parameter doing only field-writes (e.g.,
+                 * `func f(var p: Point) { p.x = 5 }`) is being USED for
+                 * mutation — must NOT trigger IRON_WARN_UNUSED_VAR_PARAM=614.
+                 *
+                 * Phase 17 VAL-05 (unused val local) intentionally does NOT
+                 * extend this way — field-write does not "use" a val local
+                 * for VAL-05 purposes (binding never reassigned). PARM-02
+                 * mental model differs from VAL-05: a var param exists for
+                 * mutation; field-write counts as use. The
+                 * mark_param_used_via_field_write helper FILTERS to
+                 * is_param entries so the Phase 17 test
+                 * test_val_05_field_write_does_not_count keeps passing
+                 * (var-local field-writes still warn). */
+                Iron_Node *cur = as->target;
+                while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
+                    cur = ((Iron_FieldAccess *)cur)->object;
+                }
+                if (cur && cur->kind == IRON_NODE_IDENT) {
+                    mark_param_used_via_field_write(ctx, (Iron_Ident *)cur);
+                }
             }
             /* Recurse into value to find nested writes. Do NOT recurse
              * into the IDENT target — already handled. Do recurse into

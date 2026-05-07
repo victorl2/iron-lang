@@ -204,6 +204,15 @@ void iron_diaglist_free(Iron_DiagList *list);
  * range 200-289 after Phase 88 BREAK 260-264). */
 #define IRON_ERR_VAL_FIELD_REASSIGN  265   /* VAL-03 */
 
+/* Phase 18 PARM-01: read-only parameter mutation. Function parameters
+ * default to read-only borrow (spec §5.3); mutation in body is a compile
+ * error unless the parameter is declared with 'var'. Routes the
+ * read-only-param subset of E0203 (val rebind) and E0234 (immutable-receiver
+ * field write) to a dedicated quickfix-target for Phase 34 LSP-06 to offer
+ * "add 'var' modifier" rather than "remove rebinding". Slotted at 266
+ * (next free in semantic range 200-289 after Phase 17's E0265). */
+#define IRON_ERR_PARM_READ_ONLY      266   /* PARM-01 */
+
 /* Phase 86 PATCH: open-extension diagnostics.
  *
  * PATCH-01 lands the parse-surface for `patch object T { ... }`; the parser

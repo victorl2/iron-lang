@@ -3763,6 +3763,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * source of is_mutable. Also check type-checker scope as fallback. */
             bool is_immutable = false;
             const char *target_name = NULL;
+            Iron_Symbol *target_sym = NULL;  /* Phase 18 PARM-01: captured for sym_kind branch */
 
             if (as->target && as->target->kind == IRON_NODE_IDENT) {
                 Iron_Ident *tid = (Iron_Ident *)as->target;
@@ -3772,9 +3773,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *tc_sym = tc_lookup(ctx, target_name);
                 if (tc_sym) {
                     is_immutable = !tc_sym->is_mutable;
+                    target_sym = tc_sym;
                 } else if (tid->resolved_sym) {
                     /* Fall back to resolver's symbol */
                     is_immutable = !tid->resolved_sym->is_mutable;
+                    target_sym = tid->resolved_sym;
                 }
 
                 /* Phase 84 MUTTIER-03: pure-tier write-to-ident diagnostics.
@@ -3829,6 +3832,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * handles it). */
             bool is_field_target_immut = false;
             const char *field_root_name = NULL;
+            Iron_Symbol *field_root_sym = NULL;  /* Phase 18 PARM-01: captured for sym_kind branch */
             if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
                 Iron_Node *cur = as->target;
                 while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
@@ -3839,6 +3843,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     if (root_id->resolved_sym) {
                         is_field_target_immut = !root_id->resolved_sym->is_mutable;
                         field_root_name = root_id->name;
+                        field_root_sym = root_id->resolved_sym;
                     }
                 }
             }
@@ -3853,19 +3858,51 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             Iron_Type *value_type  = check_expr_with_expected(ctx, as->value, target_type);
 
             if (is_immutable) {
-                char msg[256];
-                snprintf(msg, sizeof(msg),
-                         "cannot assign to val '%s' — val is immutable",
-                         target_name ? target_name : "");
-                emit_error(ctx, IRON_ERR_VAL_REASSIGN, as->span, msg, NULL);
+                /* Phase 18 PARM-01: when the immutable target is a function
+                 * parameter (read-only by default per spec §5.3), redirect
+                 * to IRON_ERR_PARM_READ_ONLY=266 with a hint that mentions
+                 * the 'var' modifier (Phase 34 LSP-06 quickfix-target).
+                 * The else branch preserves the pre-Phase-18 path for
+                 * val-local rebinds. Mutually exclusive emit — Pitfall 2
+                 * lock asserts COUNT(266)==1 AND COUNT(203)==0 on the
+                 * canonical PARM-01 case. */
+                if (target_sym && target_sym->sym_kind == IRON_SYM_PARAM) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "cannot mutate read-only parameter '%s'",
+                             target_name ? target_name : "");
+                    emit_error(ctx, IRON_ERR_PARM_READ_ONLY, as->span, msg,
+                               "add 'var' modifier to grant in-body mutation: 'var <name>: T'");
+                } else {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "cannot assign to val '%s' — val is immutable",
+                             target_name ? target_name : "");
+                    emit_error(ctx, IRON_ERR_VAL_REASSIGN, as->span, msg, NULL);
+                }
             }
 
             if (is_field_target_immut) {
-                char msg[256];
-                snprintf(msg, sizeof(msg),
-                         "cannot mutate field on immutable receiver");
-                emit_error(ctx, IRON_ERR_MUT_FIELD_IMMUT_RECV, as->span, msg, NULL);
-                (void)field_root_name;  /* reserved for future hint; silence unused warn */
+                /* Phase 18 PARM-01: when the immutable receiver is a
+                 * function parameter (rooted at IRON_SYM_PARAM), redirect
+                 * to IRON_ERR_PARM_READ_ONLY=266. The else branch preserves
+                 * the pre-Phase-18 generic immutable-receiver path
+                 * (E0234) for val-local field writes. Mutually exclusive
+                 * emit. */
+                if (field_root_sym && field_root_sym->sym_kind == IRON_SYM_PARAM) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "cannot mutate read-only parameter '%s'",
+                             field_root_name ? field_root_name : "");
+                    emit_error(ctx, IRON_ERR_PARM_READ_ONLY, as->span, msg,
+                               "add 'var' modifier to grant in-body mutation: 'var <name>: T'");
+                } else {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "cannot mutate field on immutable receiver");
+                    emit_error(ctx, IRON_ERR_MUT_FIELD_IMMUT_RECV, as->span, msg, NULL);
+                    (void)field_root_name;  /* reserved for future hint; silence unused warn */
+                }
             }
 
             /* Phase 84 MUTTIER-02/03: readonly/pure method writing self.field
