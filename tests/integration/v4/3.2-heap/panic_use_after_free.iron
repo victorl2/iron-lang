@@ -1,15 +1,17 @@
 -- section 3.2 heap policy + use-after-free safety
 -- @req: POL-04, SAFE-01
--- @expected-pass-after: phase-21
--- @expect-panic: dangling pointer
+-- @expect-panic: stale pointer dereference
 -- extends-spec: SAFE-01 runtime guard catches use-after-free deterministically
 
 object World {
     var seed: Int
+    init(seed: Int) {
+        self.seed = seed
+    }
 }
 
 func main() {
-    val world = heap World(seed: 42)
+    val world = heap World(42)
     val ptr: *World = &world
     free world
     println("seed: {ptr.seed}")

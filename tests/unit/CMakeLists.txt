@@ -1229,3 +1229,14 @@ add_executable(test_defer_form_unsupported test_defer_form_unsupported.c)
 target_link_libraries(test_defer_form_unsupported iron_compiler unity)
 add_test(NAME test_defer_form_unsupported COMMAND test_defer_form_unsupported)
 set_tests_properties(test_defer_form_unsupported PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)
+
+# Phase 21 Plan 02 — Wave 0 RED -> GREEN codegen migration + is_leaked
+add_executable(test_heap_alloc_codegen test_heap_alloc_codegen.c)
+target_link_libraries(test_heap_alloc_codegen iron_compiler unity)
+add_test(NAME test_heap_alloc_codegen COMMAND test_heap_alloc_codegen)
+set_tests_properties(test_heap_alloc_codegen PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)
+
+add_executable(test_leak_symbol_flag test_leak_symbol_flag.c)
+target_link_libraries(test_leak_symbol_flag iron_compiler unity)
+add_test(NAME test_leak_symbol_flag COMMAND test_leak_symbol_flag)
+set_tests_properties(test_leak_symbol_flag PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)

@@ -50,6 +50,8 @@ typedef struct Iron_Symbol {
      * regardless of the AST bit. */
     bool               is_pub;
     bool               is_extern;       /* true for extern func symbols */
+    bool               is_leaked;       /* Phase 21 POL-05: set by leak-stmt pass;
+                                         * consumed by Phase 31 DBG-05 lint */
     const char        *extern_c_name;   /* C-side function name for FFI calls */
 } Iron_Symbol;
 

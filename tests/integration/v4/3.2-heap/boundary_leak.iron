@@ -1,18 +1,19 @@
 -- section 3.2 heap policy + leak opt-out
 -- @req: POL-04, POL-05
--- @expected-pass-after: phase-21
 -- extends-spec: leak opt-out from destructor; no drop line in output
 
 object World {
     var seed: Int
-
+    init(seed: Int) {
+        self.seed = seed
+    }
     drop {
         println("drop: world")
     }
 }
 
 func main() {
-    val world = heap World(seed: 99)
+    val world = heap World(99)
     leak world
     println("seed: {world.seed}")
     println("done")

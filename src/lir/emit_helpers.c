@@ -435,6 +435,55 @@ bool emit_val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
     return false;
 }
 
+/* Phase 21: Returns true when the LIR value was produced by IRON_LIR_HEAP_ALLOC
+ * (Iron_FatPtr local — post-migration type).  Distinct from emit_val_is_heap_ptr
+ * which also returns true for IRON_LIR_RC_ALLOC (T * local — still a pointer).
+ * Used at field-access / field-store / addr-of sites to select the
+ * `((T *)_vN.addr)->field` form vs `_vN->field` for RC pointers. */
+bool emit_val_is_heap_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID) return false;
+    if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *instr = fn->value_table[vid];
+    if (!instr) return false;
+    return instr->kind == IRON_LIR_HEAP_ALLOC;
+}
+
+/* Phase 21: Returns true when a value is ANY Iron_FatPtr at runtime:
+ * IRON_LIR_HEAP_ALLOC (heap binding) OR IRON_LIR_ADDR_OF (pointer-to-heap/stack).
+ * Both produce C locals of type Iron_FatPtr, so field-access and deref sites
+ * must use the ((T *)_vN.addr)->field form rather than _vN.field. */
+bool emit_val_is_any_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID) return false;
+    if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *instr = fn->value_table[vid];
+    if (!instr) return false;
+    return instr->kind == IRON_LIR_HEAP_ALLOC || instr->kind == IRON_LIR_ADDR_OF;
+}
+
+/* Phase 21: Return the C pointee-type string for any Iron_FatPtr value.
+ * - HEAP_ALLOC: the heap-allocated object type (instr->type).
+ * - ADDR_OF targeting HEAP_ALLOC: the target's object type.
+ * - ADDR_OF targeting other: the target's type.
+ * Returns NULL if not a fat ptr. */
+const char *emit_fat_ptr_pointee_type_c(IronLIR_Func *fn, IronLIR_ValueId vid, EmitCtx *ctx) {
+    if (vid == IRON_LIR_VALUE_INVALID) return NULL;
+    if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return NULL;
+    IronLIR_Instr *instr = fn->value_table[vid];
+    if (!instr) return NULL;
+    if (instr->kind == IRON_LIR_HEAP_ALLOC) {
+        return emit_type_to_c(instr->type, ctx);
+    }
+    if (instr->kind == IRON_LIR_ADDR_OF) {
+        IronLIR_ValueId tgt = instr->addr_of.target;
+        if (tgt == IRON_LIR_VALUE_INVALID) return NULL;
+        if (tgt >= (IronLIR_ValueId)arrlen(fn->value_table)) return NULL;
+        IronLIR_Instr *tgt_instr = fn->value_table[tgt];
+        if (!tgt_instr) return NULL;
+        return emit_type_to_c(tgt_instr->type, ctx);
+    }
+    return NULL;
+}
+
 /* Determine if a LIR value is a FUNC_REF used as a type-name namespace
  * (e.g. "Math" in Math.PI, "Log" in Log.DEBUG).  When a field is accessed
  * on such a value the object is not a runtime struct instance but a type

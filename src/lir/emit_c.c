@@ -463,9 +463,20 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             iron_strbuf_appendf(sb, "%s_%s", type_c, instr->field.field);
             break;
         }
-        bool obj_is_ptr = emit_val_is_heap_ptr(fn, instr->field.object);
-        emit_expr_to_buf(sb, instr->field.object, fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, "%s%s", obj_is_ptr ? "->" : ".", instr->field.field);
+        bool obj_is_fat_ptr = emit_val_is_any_fat_ptr(fn, instr->field.object);
+        bool obj_is_ptr = !obj_is_fat_ptr && emit_val_is_heap_ptr(fn, instr->field.object);
+        if (obj_is_fat_ptr) {
+            /* Phase 21 Pitfall 1: heap binding OR addr-of result is Iron_FatPtr;
+             * must cast .addr to reach the pointee fields. Works for both
+             * IRON_LIR_HEAP_ALLOC (_vN = heap T) and IRON_LIR_ADDR_OF (_vN = &t). */
+            const char *obj_type = emit_fat_ptr_pointee_type_c(fn, instr->field.object, ctx);
+            iron_strbuf_appendf(sb, "((%s *)", obj_type ? obj_type : "void");
+            emit_expr_to_buf(sb, instr->field.object, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, ".addr)->%s", instr->field.field);
+        } else {
+            emit_expr_to_buf(sb, instr->field.object, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, "%s%s", obj_is_ptr ? "->" : ".", instr->field.field);
+        }
         break;
     }
 
@@ -1391,13 +1402,39 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             iron_strbuf_appendf(sb, " = %s_%s;\n", type_c, instr->field.field);
             break;
         }
-        /* object.field or object->field for heap/rc pointers */
+        /* object.field or object->field for heap/rc pointers.
+         * Phase 21 Pitfall 1: heap binding is Iron_FatPtr (not T*), so use
+         * ((T *)_vN.addr)->field form for IRON_LIR_HEAP_ALLOC sources. */
+        bool obj_is_fat_ptr = emit_val_is_any_fat_ptr(fn, instr->field.object);
+        /* Use -> when the object value comes from a heap or rc allocation,
+         * or when loaded from an alloca that holds a pointer (RC-typed alloca).
+         * Excludes fat-ptr values (handled via obj_is_fat_ptr above). */
+        bool obj_is_ptr = !obj_is_fat_ptr && emit_val_is_heap_ptr(fn, instr->field.object);
+
+        /* Phase 21 SAFE-01: For ADDR_OF fat-ptr field access, emit generation
+         * check BEFORE the assignment to catch use-after-free at runtime.
+         * HEAP_ALLOC bindings are owners — no check needed for those. */
+        if (obj_is_fat_ptr) {
+            IronLIR_Instr *obj_instr2 =
+                (instr->field.object != IRON_LIR_VALUE_INVALID &&
+                 instr->field.object < (IronLIR_ValueId)arrlen(fn->value_table))
+                ? fn->value_table[instr->field.object] : NULL;
+            if (obj_instr2 && obj_instr2->kind == IRON_LIR_ADDR_OF) {
+                const char *df2 = instr->span.filename ? instr->span.filename : "<unknown>";
+                const char *check_fn2 =
+                    (obj_instr2->addr_of.gen_source == IRON_LIR_GEN_STACK)
+                        ? "iron_check_stack_pointer_gen"
+                        : "iron_check_pointer_gen";
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "%s(", check_fn2);
+                emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ", \"%s\", %u);\n", df2, (unsigned)instr->span.line);
+            }
+        }
+
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
-        /* Use -> when the object value comes from a heap or rc allocation,
-         * or when loaded from an alloca that holds a pointer (RC-typed alloca). */
-        bool obj_is_ptr = emit_val_is_heap_ptr(fn, instr->field.object);
 
         /* Check if this field access is on a boxed recursive ADT slot:
          * field path format is "data.VariantName._N" — if slot N is boxed, wrap with *() */
@@ -1464,7 +1501,15 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
 
-        if (needs_deref) {
+        if (obj_is_fat_ptr) {
+            /* Phase 21 Pitfall 1: fat-ptr (HEAP_ALLOC or ADDR_OF) needs .addr cast.
+             * Generation check was already emitted above (before the assignment
+             * statement) for ADDR_OF objects. */
+            const char *obj_type = emit_fat_ptr_pointee_type_c(fn, instr->field.object, ctx);
+            iron_strbuf_appendf(sb, " = ((%s *)", obj_type ? obj_type : "void");
+            emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ".addr)->%s;\n", instr->field.field);
+        } else if (needs_deref) {
             iron_strbuf_appendf(sb, " = *(");
             emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, "%s%s);\n", obj_is_ptr ? "->" : ".", instr->field.field);
@@ -1505,11 +1550,21 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
         if (!wrote_via_capture) {
-            /* object.field = value or object->field = value for heap/rc */
+            /* object.field = value or object->field = value for heap/rc.
+             * Phase 21 Pitfall 1: heap binding is Iron_FatPtr; use
+             * ((T *)_vN.addr)->field = value form. */
             emit_indent(sb, ind);
-            emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
-            bool obj_is_ptr = emit_val_is_heap_ptr(fn, instr->field.object);
-            iron_strbuf_appendf(sb, "%s%s = ", obj_is_ptr ? "->" : ".", instr->field.field);
+            bool obj_is_fat_ptr2 = emit_val_is_any_fat_ptr(fn, instr->field.object);
+            bool obj_is_ptr2 = !obj_is_fat_ptr2 && emit_val_is_heap_ptr(fn, instr->field.object);
+            if (obj_is_fat_ptr2) {
+                const char *obj_type2 = emit_fat_ptr_pointee_type_c(fn, instr->field.object, ctx);
+                iron_strbuf_appendf(sb, "((%s *)", obj_type2 ? obj_type2 : "void");
+                emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ".addr)->%s = ", instr->field.field);
+            } else {
+                emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, "%s%s = ", obj_is_ptr2 ? "->" : ".", instr->field.field);
+            }
             emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ";\n");
         }
@@ -2963,9 +3018,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             } else {
                 /* Heap-pointer deref: if the argument is a heap/rc pointer but the
                  * callee's corresponding parameter expects a value type (IRON_TYPE_OBJECT),
-                 * dereference the pointer so the value is passed by value as expected. */
+                 * dereference the pointer so the value is passed by value as expected.
+                 * Phase 21 Pitfall 1: heap binding is Iron_FatPtr — must use
+                 * *((T *)_vN.addr) instead of *_vN for deref. */
                 bool needs_deref = false;
-                if (emit_val_is_heap_ptr(fn, arg_id) && callee_ir_name) {
+                bool arg_is_fat_ptr = emit_val_is_any_fat_ptr(fn, arg_id);
+                if ((arg_is_fat_ptr || emit_val_is_heap_ptr(fn, arg_id)) && callee_ir_name) {
                     IronLIR_Func *callee_fn = emit_find_ir_func(ctx, callee_ir_name);
                     if (callee_fn && i < callee_fn->param_count) {
                         Iron_Type *param_t = callee_fn->params[i].type;
@@ -2974,7 +3032,14 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         }
                     }
                 }
-                if (needs_deref) {
+                if (needs_deref && arg_is_fat_ptr) {
+                    /* Phase 21: deref through .addr cast — works for both
+                     * HEAP_ALLOC and ADDR_OF fat-ptr values. */
+                    const char *hp_type = emit_fat_ptr_pointee_type_c(fn, arg_id, ctx);
+                    iron_strbuf_appendf(sb, "*((%s *)", hp_type ? hp_type : "void");
+                    emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ".addr)");
+                } else if (needs_deref) {
                     iron_strbuf_appendf(sb, "(*");
                     emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ")");
@@ -3241,32 +3306,32 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     /* ── Memory management ──────────────────────────────────────────────── */
 
     case IRON_LIR_HEAP_ALLOC: {
-        /* The inner_val is an already-constructed value; wrap it in a pointer.
-         * instr->type is the inner (value) type, e.g. Iron_Data.
-         * The heap result is a pointer: Iron_Data *_vN = malloc(sizeof(Iron_Data));
-         * *_vN = inner_val;
+        /* Phase 21 POL-02: emit Iron_FatPtr via iron_heap_alloc — activates
+         * Phase 19 generation-tracking substrate for heap allocations.
+         * instr->type is the inner (value) type, e.g. Iron_Point.
+         * The heap result is Iron_FatPtr: Iron_FatPtr _vN = iron_heap_alloc(...).
          *
-         * FIX-01 rank 3 (Phase 67-02): pre-Phase-67 ironc emitted a bare
-         * `T *_vN = malloc(...); *_vN = val;` sequence with zero NULL check,
-         * so every compiled Iron program that used `heap` silently segfaulted
-         * under OOM. The guard below routes OOM into iron_oom_abort which
-         * prints a bisectable diagnostic before abort(3). */
+         * PHASE-31: auto_free connects to DBG-05 forgotten-free warning;
+         * do NOT emit iron_heap_free here. */
         const char *val_type = emit_type_to_c(instr->type, ctx);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s *", val_type);
+        iron_strbuf_appendf(sb, "Iron_FatPtr ");
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = (%s *)malloc(sizeof(%s));\n", val_type, val_type);
-        /* FIX-01 rank 3: OOM guard before dereference */
+        iron_strbuf_appendf(sb,
+            " = iron_heap_alloc(__FILE__, __LINE__, sizeof(%s));\n",
+            val_type);
+        /* OOM guard: iron_heap_alloc returns fp.addr=NULL on OOM */
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "if (!");
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, ") iron_oom_abort(\"emit_c HEAP_ALLOC\");\n");
+        iron_strbuf_appendf(sb, ".addr) iron_oom_abort(\"emit_c HEAP_ALLOC\");\n");
         /* Store the inner value into the allocated memory */
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "*");
+        iron_strbuf_appendf(sb, "*((%s *)", val_type);
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = ");
-        emit_expr_to_buf(sb, instr->heap_alloc.inner_val, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ".addr) = ");
+        emit_expr_to_buf(sb, instr->heap_alloc.inner_val, fn, ctx,
+                         ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
     }
@@ -3305,7 +3370,9 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_FREE:
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "free(");
+        iron_strbuf_appendf(sb, "/* PHASE-24 HOOK: drop call insertion before iron_heap_free */\n");
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_heap_free(");
         emit_expr_to_buf(sb, instr->free_instr.value, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ");\n");
         break;
@@ -4399,18 +4466,31 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_FatPtr ");
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)&");
-        emit_val(sb, instr->addr_of.target);
-        if (instr->addr_of.gen_source == IRON_LIR_GEN_STACK) {
+        bool target_is_heap_fp = emit_val_is_heap_fat_ptr(fn, instr->addr_of.target);
+        if (target_is_heap_fp) {
+            /* HEAP: Phase 21 migration — the ADDR_OF target is an Iron_FatPtr
+             * (result of IRON_LIR_HEAP_ALLOC). &world means "pointer to the
+             * heap-allocated data", NOT a pointer to the fat-ptr struct itself.
+             * Extract the type from the HEAP_ALLOC instruction so we can cast
+             * through the void* slot: (void *)((T *)_vN.addr). */
+            IronLIR_Instr *heap_instr = fn->value_table[instr->addr_of.target];
+            const char *heap_type = emit_type_to_c(heap_instr->type, ctx);
+            iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)((");
+            iron_strbuf_appendf(sb, "%s *)", heap_type);
+            emit_val(sb, instr->addr_of.target);
+            iron_strbuf_appendf(sb, ".addr), .gen = ");
+            emit_val(sb, instr->addr_of.target);
+            iron_strbuf_appendf(sb, ".gen };\n");
+        } else if (instr->addr_of.gen_source == IRON_LIR_GEN_STACK) {
+            iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)&");
+            emit_val(sb, instr->addr_of.target);
             iron_strbuf_appendf(sb, ", .gen = iron_stack_gen };\n");
         } else {
-            /* HEAP: recover gen from IronAllocHdr prepended to alloc.
-             * (target's addr is the user payload pointer per Phase 19 ABI;
-             * header is at addr - sizeof(IronAllocHdr).) */
-            iron_strbuf_appendf(sb,
-                ", .gen = ((const IronAllocHdr *)((const char *)&");
+            iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)&");
             emit_val(sb, instr->addr_of.target);
-            iron_strbuf_appendf(sb, " - sizeof(IronAllocHdr)))->gen };\n");
+            iron_strbuf_appendf(sb, ", .gen = ");
+            emit_val(sb, instr->addr_of.target);
+            iron_strbuf_appendf(sb, ".gen };\n");
         }
         break;
     }

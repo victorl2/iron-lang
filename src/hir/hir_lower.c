@@ -1009,16 +1009,22 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             return NULL;  /* produce NO HIR node — Pitfall 4 */
         }
 
-        /* Accepted: `defer free <ident>` — fall through to existing
-         * IRON_HIR_STMT_DEFER lowering which registers on the defer_stack
-         * (the existing emit_defer_cleanup at hir_to_lir.c:1730 emits LIFO
-         * cleanup before every IRON_LIR_RETURN). The IRON_LIR_FREE codegen
-         * at emit_c.c is migrated to call iron_heap_free in Plan 21-02. */
+        /* Accepted: `defer free <ident>` — lower the inner FREE node as an
+         * HIR free statement and push it onto the defer_stack.
+         * The existing emit_defer_cleanup at hir_to_lir.c:1730 emits LIFO
+         * cleanup before every IRON_LIR_RETURN. The IRON_LIR_FREE codegen
+         * at emit_c.c calls iron_heap_free post-Plan-21-02 migration.
+         *
+         * NOTE: ds->expr is IRON_NODE_FREE (a statement node, not an expression).
+         * lower_expr_hir cannot lower FREE; we extract the operand ident directly
+         * and build an IRON_HIR_STMT_FREE with the lowered operand. */
         IronHIR_Block  *defer_body = iron_hir_block_create(mod);
-        /* Lower the deferred expression as a single expression statement */
-        IronHIR_Expr *dexpr = lower_expr_hir(ctx, ds->expr);
-        IronHIR_Stmt *dstmt = iron_hir_stmt_expr(mod, dexpr, span);
-        iron_hir_block_add_stmt(defer_body, dstmt);
+        {
+            Iron_FreeStmt *fs = (Iron_FreeStmt *)ds->expr;
+            IronHIR_Expr *free_val = lower_expr_hir(ctx, fs->expr);
+            IronHIR_Stmt *dstmt = iron_hir_stmt_free(mod, free_val, span);
+            iron_hir_block_add_stmt(defer_body, dstmt);
+        }
         IronHIR_Stmt *s = iron_hir_stmt_defer(mod, defer_body, span);
         iron_hir_block_add_stmt(blk, s);
         /* Push deferred block onto the current scope's defer stack */
@@ -1320,7 +1326,28 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
          * so HIR carries the typed result-of-& through unchanged. */
         if ((int)un->op == IRON_TOK_AMP) {
             IronHIR_Expr *target = lower_expr_hir(ctx, un->operand);
-            return iron_hir_expr_addr_of(mod, target, IRON_HIR_GEN_STACK,
+            /* Phase 21 Plan 02: detect heap-allocated bindings so ADDR_OF
+             * carries IRON_HIR_GEN_HEAP when &binding targets heap T(...)
+             * storage. The deref-side runtime check then calls
+             * iron_check_pointer_gen (header-based) not iron_check_stack_pointer_gen
+             * (TLS-based) — correct for use-after-free detection (SAFE-01). */
+            IronHIR_GenSource gen_src = IRON_HIR_GEN_STACK;
+            if (un->operand && un->operand->kind == IRON_NODE_IDENT) {
+                Iron_Ident *id = (Iron_Ident *)un->operand;
+                if (id->resolved_sym && id->resolved_sym->decl_node) {
+                    Iron_Node *decl = id->resolved_sym->decl_node;
+                    Iron_Node *init_node = NULL;
+                    if (decl->kind == IRON_NODE_VAL_DECL) {
+                        init_node = ((Iron_ValDecl *)decl)->init;
+                    } else if (decl->kind == IRON_NODE_VAR_DECL) {
+                        init_node = ((Iron_VarDecl *)decl)->init;
+                    }
+                    if (init_node && init_node->kind == IRON_NODE_HEAP) {
+                        gen_src = IRON_HIR_GEN_HEAP;
+                    }
+                }
+            }
+            return iron_hir_expr_addr_of(mod, target, gen_src,
                                          un->resolved_type, span);
         }
 

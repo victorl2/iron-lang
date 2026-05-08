@@ -798,6 +798,13 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
         case IRON_NODE_LEAK: {
             Iron_LeakStmt *ls = (Iron_LeakStmt *)node;
             resolve_expr(ctx, ls->expr);
+            /* Phase 21 POL-05: mark the symbol as intentionally leaked. */
+            if (ls->expr && ls->expr->kind == IRON_NODE_IDENT) {
+                Iron_Ident *id = (Iron_Ident *)ls->expr;
+                if (id->resolved_sym) {
+                    id->resolved_sym->is_leaked = true;
+                }
+            }
             break;
         }
 

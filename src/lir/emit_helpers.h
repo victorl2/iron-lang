@@ -188,6 +188,16 @@ void emit_val(Iron_StrBuf *sb, IronLIR_ValueId id);
 
 bool emit_type_is_pointer(const Iron_Type *t);
 bool emit_val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid);
+bool emit_val_is_heap_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid);
+/* Phase 21: Returns true when the value is ANY Iron_FatPtr at runtime:
+ * IRON_LIR_HEAP_ALLOC (heap binding) or IRON_LIR_ADDR_OF (pointer to heap/stack).
+ * Used at field-access sites to select the ((T *)_vN.addr)->field form. */
+bool emit_val_is_any_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid);
+/* Phase 21: Return the C pointee-type string for any Iron_FatPtr value.
+ * For HEAP_ALLOC: returns emit_type_to_c(instr->type, ctx).
+ * For ADDR_OF targeting HEAP_ALLOC: returns the heap alloc's C type.
+ * Returns NULL if not a fat ptr. */
+const char *emit_fat_ptr_pointee_type_c(IronLIR_Func *fn, IronLIR_ValueId vid, EmitCtx *ctx);
 bool emit_val_is_type_ref(IronLIR_Func *fn, IronLIR_ValueId vid);
 Iron_Type *emit_get_value_type(IronLIR_Func *fn, IronLIR_ValueId vid);
 IronLIR_Func *emit_find_ir_func(EmitCtx *ctx, const char *ir_name);

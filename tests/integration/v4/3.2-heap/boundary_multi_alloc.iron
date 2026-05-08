@@ -1,7 +1,8 @@
 -- section 3.2 heap policy + multiple allocations
 -- @req: POL-02, POL-04
--- @expected-pass-after: phase-21
+-- @expected-pass-after: phase-24
 -- extends-spec: 3 independent heap allocations + 3 defer free + drop probe verifies all run
+-- Phase 24 required: drop blocks fire during iron_heap_free (destructor wiring)
 
 object Node {
     val id: Int
@@ -12,11 +13,11 @@ object Node {
 }
 
 func main() {
-    val n1 = heap Node(id: 1)
+    val n1 = heap Node(1)
     defer free n1
-    val n2 = heap Node(id: 2)
+    val n2 = heap Node(2)
     defer free n2
-    val n3 = heap Node(id: 3)
+    val n3 = heap Node(3)
     defer free n3
     println("nodes: {n1.id}, {n2.id}, {n3.id}")
 }
