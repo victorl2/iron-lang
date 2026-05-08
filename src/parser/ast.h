@@ -440,6 +440,16 @@ typedef struct {
      * TypeCtx.enclosing_type_name, or emits E0259 if used outside a
      * method/interface context. Defaults false at every allocation site. */
     bool          is_self_type;
+    /* Phase 20 PTR-* — checked pointer types (Plan 20-01).
+     * is_pointer       — true for `*T`, `*var T`, `?*T`, `?*var T` shapes.
+     * is_var_pointer   — true only when is_pointer; encodes the `var` modifier.
+     * pointer_pointee  — the inner type-annotation AST when is_pointer; NULL
+     *                    otherwise. For `?*T` the OUTER annotation carries
+     *                    is_pointer=true + is_nullable=true (leading-`?`
+     *                    surface form locked by 20-CONTEXT.md). */
+    bool          is_pointer;
+    bool          is_var_pointer;
+    Iron_Node    *pointer_pointee;
 } Iron_TypeAnnotation;
 
 #define IRON_LAYOUT_HINT_NONE 0

@@ -1123,3 +1123,40 @@ set_tests_properties(test_runtime_heap_concurrent PROPERTIES
     TIMEOUT 60
     FAIL_REGULAR_EXPRESSION "WARNING: ThreadSanitizer"
 )
+
+# ── Phase 20 plan-01 — checked pointer types: type-system surface ────────────
+# PTR-01/11/12/13/14/15. Wave 0 RED: tests reference unallocated symbols
+# (IRON_TYPE_PTR / iron_type_make_ptr / IRON_ERR_PTR_NO_ARITH /
+#  Iron_TypeAnnotation.is_pointer/is_var_pointer/pointer_pointee). Build
+# fails until Plan 20-01 lands the parser + analyzer + diagnostics changes.
+add_executable(test_parser_ptr_type_annotation test_parser_ptr_type_annotation.c)
+target_link_libraries(test_parser_ptr_type_annotation iron_compiler unity)
+add_test(NAME test_parser_ptr_type_annotation COMMAND test_parser_ptr_type_annotation)
+set_tests_properties(test_parser_ptr_type_annotation PROPERTIES
+    LABELS "unit;phase20-invariant"
+    TIMEOUT 30
+)
+
+add_executable(test_parser_amp_unary test_parser_amp_unary.c)
+target_link_libraries(test_parser_amp_unary iron_compiler unity)
+add_test(NAME test_parser_amp_unary COMMAND test_parser_amp_unary)
+set_tests_properties(test_parser_amp_unary PROPERTIES
+    LABELS "unit;phase20-invariant"
+    TIMEOUT 30
+)
+
+add_executable(test_analyzer_ptr_distinct_types test_analyzer_ptr_distinct_types.c)
+target_link_libraries(test_analyzer_ptr_distinct_types iron_compiler unity)
+add_test(NAME test_analyzer_ptr_distinct_types COMMAND test_analyzer_ptr_distinct_types)
+set_tests_properties(test_analyzer_ptr_distinct_types PROPERTIES
+    LABELS "unit;phase20-invariant"
+    TIMEOUT 30
+)
+
+add_executable(test_analyzer_ptr_nullability test_analyzer_ptr_nullability.c)
+target_link_libraries(test_analyzer_ptr_nullability iron_compiler unity)
+add_test(NAME test_analyzer_ptr_nullability COMMAND test_analyzer_ptr_nullability)
+set_tests_properties(test_analyzer_ptr_nullability PROPERTIES
+    LABELS "unit;phase20-invariant"
+    TIMEOUT 30
+)

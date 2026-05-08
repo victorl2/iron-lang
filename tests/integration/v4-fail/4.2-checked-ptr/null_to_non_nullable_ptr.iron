@@ -1,0 +1,15 @@
+-- section 4.2 negative: cannot assign null to non-nullable pointer
+-- @req: PTR-13
+-- @expected-pass-after: phase-20
+-- *Point is non-nullable; use ?*Point for the nullable variant
+object Point {
+    var x: Int
+    var y: Int
+    init() {
+        self.x = 0
+        self.y = 0
+    }
+}
+func main() {
+    val p: *Point = null
+}

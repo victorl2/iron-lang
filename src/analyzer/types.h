@@ -45,6 +45,7 @@ typedef enum {
     IRON_TYPE_FUNC,          /* func(...)->R */
     IRON_TYPE_ARRAY,         /* [T; N] or [T] */
     IRON_TYPE_RC,            /* rc T       */
+    IRON_TYPE_PTR,           /* Phase 20 — *T or *var T (PTR-01) */
 
     /* Meta types */
     IRON_TYPE_GENERIC_PARAM, /* generic type parameter */
@@ -89,6 +90,14 @@ typedef struct Iron_Type {
         struct {
             struct Iron_Type          *inner;
         } rc;
+
+        /* IRON_TYPE_PTR — Phase 20 PTR-01.
+         * `*T` carries pointee=T, is_var=false; `*var T` carries is_var=true.
+         * `?*T` is encoded as IRON_TYPE_NULLABLE wrapping IRON_TYPE_PTR. */
+        struct {
+            struct Iron_Type          *pointee;
+            bool                       is_var;
+        } ptr;
 
         /* IRON_TYPE_FUNC */
         struct {
@@ -137,6 +146,12 @@ Iron_Type *iron_type_make_nullable(Iron_Arena *a, Iron_Type *inner);
 
 /* Construct an Rc<T> wrapper type */
 Iron_Type *iron_type_make_rc(Iron_Arena *a, Iron_Type *inner);
+
+/* Phase 20 PTR-01: construct a checked pointer type (`*T` or `*var T`).
+ * No interning — distinct (pointee, is_var) combinations always yield a
+ * fresh Iron_Type. Returns NULL on OOM (caller propagates to
+ * IRON_TYPE_ERROR poison per the established convention). */
+Iron_Type *iron_type_make_ptr(Iron_Arena *a, Iron_Type *pointee, bool is_var);
 
 /* Construct a function type func(params...) -> ret */
 Iron_Type *iron_type_make_func(Iron_Arena *a, Iron_Type **params, int count, Iron_Type *ret);

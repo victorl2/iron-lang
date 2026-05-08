@@ -1,0 +1,16 @@
+-- section 4.2 negative: no '->' operator; pointer field access uses '.'
+-- @req: PTR-15
+-- @expected-pass-after: phase-20
+-- C-style arrow operator is not part of the Iron grammar
+object Point {
+    var x: Int
+    var y: Int
+    init() {
+        self.x = 0
+        self.y = 0
+    }
+}
+func read_x(p: *Point) -> Int {
+    return p->x
+}
+func main() {}

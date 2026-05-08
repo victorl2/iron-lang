@@ -1,1 +1,1 @@
-no pointer arithmetic
+no pointer arithmetic in checked regime; use Ptr.offset on *unchecked T

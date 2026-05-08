@@ -224,6 +224,30 @@ void iron_diaglist_free(Iron_DiagList *list);
  * Slotted at 267 (next free after Plan 18-01's E0266). */
 #define IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT  267   /* PARM-03 */
 
+/* Phase 20 PTR-* — checked pointer types (Plan 20-01 declares; Plan 20-01
+ * emits 268 + 272 at typecheck. Codes 269/270/271 are declared here and
+ * emitted in Plan 20-02. Slot range 268-272 is the next-free block in the
+ * 200-289 semantic range after Phase 18's E0267.
+ *
+ * Code references and quickfix-targets (Phase 34 LSP-06):
+ *   268 PTR-11: pointer arithmetic in checked regime — quickfix points to
+ *               *unchecked T + Ptr.offset escape hatch (Phase 25).
+ *   269 (Plan 20-02): Ptr.cast[T] same-size violation — quickfix shows the
+ *                     two type sizes side-by-side.
+ *   270 (Plan 20-02): `&` on rvalue (literal, function-call result) —
+ *                     quickfix offers "bind to local first then take &".
+ *   271 (Plan 20-02): compile-time stack-escape (returning &local) —
+ *                     quickfix offers "wrap in heap T(...)" (Phase 21).
+ *   272 (Plan 20-01): null-to-non-nullable-pointer at binding-init AND
+ *                     runtime null-deref panic identifier reused via
+ *                     iron_panic_stale_pointer hdr=NULL path (Phase 19
+ *                     panic infra; Plan 20-02 wires runtime emission). */
+#define IRON_ERR_PTR_NO_ARITH             268   /* PTR-11 */
+#define IRON_ERR_PTR_CAST_SIZE_MISMATCH   269   /* Ptr.cast[T] (Plan 20-02) */
+#define IRON_ERR_PTR_AMP_ON_RVALUE        270   /* `&` on rvalue (Plan 20-02) */
+#define IRON_ERR_PTR_ESCAPE_STACK_REF     271   /* compile-time escape (Plan 20-02) */
+#define IRON_ERR_PTR_NULL_DEREF           272   /* PTR-13 + runtime panic identifier */
+
 /* Phase 86 PATCH: open-extension diagnostics.
  *
  * PATCH-01 lands the parse-surface for `patch object T { ... }`; the parser

@@ -509,6 +509,52 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
     }
     Iron_Token *start = iron_current(p);
 
+    /* Phase 20 PTR-13: leading `?` for `?*T` / `?*var T`. The leading-`?`
+     * surface form is reserved for nullable pointer types only (locked by
+     * 20-CONTEXT.md OQ-A). Recurse, then assert the inner is a pointer
+     * annotation; if not, surface IRON_ERR_UNEXPECTED_TOKEN with a
+     * nullable-pointer hint. */
+    if (iron_check(p, IRON_TOK_QUESTION)) {
+        Iron_Span q_span = iron_token_span(p, iron_current(p));
+        iron_advance(p);  /* consume `?` */
+        Iron_Node *inner = iron_parse_type_annotation_impl(p);
+        if (inner && inner->kind == IRON_NODE_TYPE_ANNOTATION) {
+            Iron_TypeAnnotation *ia = (Iron_TypeAnnotation *)inner;
+            if (ia->is_pointer) {
+                ia->is_nullable = true;
+                ia->span = iron_span_merge(q_span, ia->span);
+                return inner;
+            }
+        }
+        /* Leading `?` on a non-pointer is malformed — trailing-`?` is the
+         * canonical form for `Int?` / `String?`. */
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN, q_span,
+                       "leading '?' is only valid before a pointer type "
+                       "(use 'T?' for nullable non-pointer types)", NULL);
+        return inner ? inner : iron_make_error(p);
+    }
+
+    /* Phase 20 PTR-13/14: pointer type `*T` or `*var T`. The optional `var`
+     * modifier marks the pointer as mutable (locked by 20-CONTEXT.md). */
+    if (iron_check(p, IRON_TOK_STAR)) {
+        Iron_Span star_span = iron_token_span(p, iron_current(p));
+        iron_advance(p);  /* consume `*` */
+        bool is_var_ptr = iron_match(p, IRON_TOK_VAR);
+        Iron_Node *pointee = iron_parse_type_annotation(p);
+        Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+        if (!ann) { /* HARD-09 REPLACE (iron_parse_type_annotation pointer) */ p->in_error_recovery = true; return iron_make_error(p); }
+        memset(ann, 0, sizeof(*ann));
+        ann->kind            = IRON_NODE_TYPE_ANNOTATION;
+        ann->name            = "*";
+        ann->is_pointer      = true;
+        ann->is_var_pointer  = is_var_ptr;
+        ann->pointer_pointee = pointee;
+        ann->span = iron_span_merge(star_span,
+                                    pointee ? pointee->span : star_span);
+        return (Iron_Node *)ann;
+    }
+
     /* Phase 59 01d: Tuple type (T0, T1, ...) — arity >= 2 enforced. */
     if (iron_check(p, IRON_TOK_LPAREN)) {
         Iron_Span start_span = iron_token_span(p, iron_current(p));
@@ -1204,6 +1250,23 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             n->kind            = IRON_NODE_UNARY;
             n->span            = iron_span_merge(iron_token_span(p, t), operand->span);
             n->op              = (Iron_OpKind)IRON_TOK_TILDE;
+            n->operand         = operand;
+            return (Iron_Node *)n;
+        }
+        /* Phase 20 PTR-04 (parser surface): unary address-of `&expr`.
+         * Mirrors IRON_TOK_MINUS / NOT / TILDE verbatim. The binary `&`
+         * (PREC_BIT_AND) handler is unaffected because iron_parse_primary
+         * runs BEFORE the binary-handler precedence climb. */
+        case IRON_TOK_AMP: {
+            iron_advance(p);
+            Iron_Node *operand = iron_parse_expr_prec(p, PREC_UNARY);
+            Iron_UnaryExpr *n  = ARENA_ALLOC(p->arena, Iron_UnaryExpr);
+            if (!n) { /* HARD-09 REPLACE (iron_parse_primary UnaryExpr amp) */ p->in_error_recovery = true; return iron_make_error(p); }
+            n->kind            = IRON_NODE_UNARY;
+            n->span            = iron_span_merge(iron_token_span(p, t),
+                                                  operand ? operand->span :
+                                                  iron_token_span(p, t));
+            n->op              = (Iron_OpKind)IRON_TOK_AMP;
             n->operand         = operand;
             return (Iron_Node *)n;
         }

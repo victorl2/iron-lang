@@ -590,6 +590,34 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
     if (iron_type_equals(decl_t, init_t)) return true;
     /* Int32 -> Int: implicit widening (always safe) */
     if (decl_t->kind == IRON_TYPE_INT && init_t->kind == IRON_TYPE_INT32) return true;
+
+    /* Phase 20 PTR-13 (nullable accept): a `null` literal is assignable to
+     * any nullable type `T?`. Required so `val p: ?*Point = null` analyzes
+     * cleanly while `val p: *Point = null` still triggers the dedicated
+     * IRON_ERR_PTR_NULL_DEREF path at the val/var binding site. This rule
+     * also makes `val q: Int? = null` work at last; pre-Phase-20 the path
+     * silently fell through to E0202 because no NULL -> NULLABLE rule
+     * existed. */
+    if (decl_t->kind == IRON_TYPE_NULLABLE && init_t->kind == IRON_TYPE_NULL) {
+        return true;
+    }
+
+    /* Phase 20 PTR-12: pointer covariance.
+     *   *var T -> *T  : ALLOWED  (drop mutability is safe).
+     *   *T     -> *var T : REJECTED (var-invariance).
+     *   *T1    -> *T2 : REJECTED unless pointees structurally equal.
+     *   T      <-> *T  : REJECTED (cross-kind).
+     */
+    if (decl_t->kind == IRON_TYPE_PTR && init_t->kind == IRON_TYPE_PTR) {
+        if (!iron_type_equals(decl_t->ptr.pointee, init_t->ptr.pointee)) return false;
+        if (decl_t->ptr.is_var && !init_t->ptr.is_var) return false;
+        return true;
+    }
+    /* Cross-kind PTR <-> non-PTR is never assignable. NULL-literal
+     * compatibility is handled separately (decl_t may be IRON_TYPE_NULLABLE
+     * wrapping IRON_TYPE_PTR for `?*T`). */
+    if (decl_t->kind == IRON_TYPE_PTR && init_t->kind != IRON_TYPE_PTR) return false;
+    if (decl_t->kind != IRON_TYPE_PTR && init_t->kind == IRON_TYPE_PTR) return false;
     /* func-type compatibility: two func types with equal param counts are compatible
      * when their return types are both "void-like" (either IRON_TYPE_VOID or NULL).
      * This allows lambdas with unresolved return type (NULL) to be passed to
@@ -842,6 +870,26 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     }
 
     Iron_TypeAnnotation *ann = (Iron_TypeAnnotation *)ann_node;
+
+    /* Phase 20 PTR-01/13: lower `*T` / `*var T` / `?*T` / `?*var T`. The
+     * outer is_nullable on a pointer annotation surfaces as
+     * IRON_TYPE_NULLABLE wrapping IRON_TYPE_PTR — `?*T` composes the two
+     * existing constructors. */
+    if (ann->is_pointer) {
+        Iron_Type *pointee_t = ann->pointer_pointee
+            ? resolve_type_annotation(ctx, ann->pointer_pointee)
+            : iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (!pointee_t) pointee_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+        Iron_Type *pt = iron_type_make_ptr(ctx->arena, pointee_t,
+                                            ann->is_var_pointer);
+        if (!pt) pt = iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (ann->is_nullable) {
+            Iron_Type *np = iron_type_make_nullable(ctx->arena, pt);
+            return np ? np : iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
+        return pt;
+    }
+
     const char *name = ann->name;
     Iron_Type *base = NULL;
 
@@ -1640,6 +1688,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                op == IRON_TOK_CARET);
 
             if (lt && rt && lt->kind != IRON_TYPE_ERROR && rt->kind != IRON_TYPE_ERROR) {
+                /* Phase 20 PTR-11: pointer arithmetic in checked regime is
+                 * forbidden. Fires for + - * / %% when EITHER operand is
+                 * IRON_TYPE_PTR. The diagnostic hint mentions Phase 25's
+                 * `*unchecked T` + `Ptr.offset` escape hatch as the
+                 * forward-migration path for performance-critical pointer
+                 * arithmetic code. */
+                if (is_arithmetic &&
+                    (lt->kind == IRON_TYPE_PTR || rt->kind == IRON_TYPE_PTR)) {
+                    emit_error(ctx, IRON_ERR_PTR_NO_ARITH, be->span,
+                               "no pointer arithmetic in checked regime; "
+                               "use Ptr.offset on *unchecked T",
+                               "checked-pointer arithmetic is deferred to "
+                               "Phase 25's *unchecked T regime via Ptr.offset");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    be->resolved_type = result;
+                    break;
+                }
                 bool lt_is_int   = (lt->kind == IRON_TYPE_INT);
                 bool lt_is_float = (lt->kind == IRON_TYPE_FLOAT ||
                                     lt->kind == IRON_TYPE_FLOAT32 ||
@@ -3795,6 +3860,25 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
                     !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
+                    /* Phase 20 PTR-13: null literal assigned to non-nullable
+                     * pointer type. Emit IRON_ERR_PTR_NULL_DEREF=272 with the
+                     * spec-locked substring "non-nullable pointer" and a hint
+                     * pointing to the `?*T` nullable variant. The check for
+                     * IRON_TYPE_NULLABLE inner=PTR is intentionally absent on
+                     * decl_type because that path goes through types_assignable
+                     * cleanly via NULL-handling on nullables. */
+                    Iron_Span lit_span = (vd->init) ? vd->init->span : vd->span;
+                    if (decl_type->kind == IRON_TYPE_PTR &&
+                        init_type->kind == IRON_TYPE_NULL) {
+                        const char *pt_str = iron_type_to_string(decl_type, ctx->arena);
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot assign null to non-nullable pointer "
+                                 "type '%s'", pt_str ? pt_str : "*T");
+                        emit_error(ctx, IRON_ERR_PTR_NULL_DEREF, lit_span,
+                                   msg,
+                                   "use '?*T' for the nullable pointer variant");
+                    } else {
                     /* Phase 4 Plan 04-01 (EDIT-07): narrow literal RHS to
                      * IRON_ERR_TYPE_MISMATCH_LITERAL=235 with retyped-literal
                      * .suggestion. Non-literal RHS stays at 202 with NULL.
@@ -3805,9 +3889,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                      * the previous whole-decl span caused the quickfix
                      * to destroy the `val n: Int =` prefix. The 202
                      * general-form emit still uses vd->span below. */
-                    Iron_Span lit_span = (vd->init) ? vd->init->span : vd->span;
                     emit_type_mismatch_maybe_literal(ctx, lit_span, decl_type,
                                                       init_type, vd->init);
+                    }
                 }
                 /* Narrow literal type to match declaration (e.g., Int literal -> Int32) */
                 if (is_int_literal_narrowing(decl_type, init_type, vd->init)) {
@@ -3855,6 +3939,25 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
                     !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
+                    /* Phase 20 PTR-13: null literal assigned to non-nullable
+                     * pointer type. Emit IRON_ERR_PTR_NULL_DEREF=272 with the
+                     * spec-locked substring "non-nullable pointer" and a hint
+                     * pointing to the `?*T` nullable variant. The check for
+                     * IRON_TYPE_NULLABLE inner=PTR is intentionally absent on
+                     * decl_type because that path goes through types_assignable
+                     * cleanly via NULL-handling on nullables. */
+                    Iron_Span lit_span = (vd->init) ? vd->init->span : vd->span;
+                    if (decl_type->kind == IRON_TYPE_PTR &&
+                        init_type->kind == IRON_TYPE_NULL) {
+                        const char *pt_str = iron_type_to_string(decl_type, ctx->arena);
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot assign null to non-nullable pointer "
+                                 "type '%s'", pt_str ? pt_str : "*T");
+                        emit_error(ctx, IRON_ERR_PTR_NULL_DEREF, lit_span,
+                                   msg,
+                                   "use '?*T' for the nullable pointer variant");
+                    } else {
                     /* Phase 4 Plan 04-01 (EDIT-07): narrow literal RHS to
                      * IRON_ERR_TYPE_MISMATCH_LITERAL=235 with retyped-literal
                      * .suggestion. Non-literal RHS stays at 202 with NULL.
@@ -3865,9 +3968,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                      * the previous whole-decl span caused the quickfix
                      * to destroy the `val n: Int =` prefix. The 202
                      * general-form emit still uses vd->span below. */
-                    Iron_Span lit_span = (vd->init) ? vd->init->span : vd->span;
                     emit_type_mismatch_maybe_literal(ctx, lit_span, decl_type,
                                                       init_type, vd->init);
+                    }
                 }
                 /* Narrow literal type to match declaration (e.g., Int literal -> Int32) */
                 if (is_int_literal_narrowing(decl_type, init_type, vd->init)) {

@@ -193,6 +193,12 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
             return result;
         }
 
+        /* Phase 20 PTR-01: checked pointers lower to the 16B Iron_FatPtr ABI
+         * defined in src/runtime/iron_runtime.h (Phase 19 substrate lock).
+         * Plan 20-01 declares the kind; Plan 20-02 wires actual codegen. */
+        case IRON_TYPE_PTR:
+            return "Iron_FatPtr";
+
         case IRON_TYPE_FUNC:
             return "Iron_Closure";
 
