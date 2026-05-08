@@ -162,6 +162,29 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             TIMEOUT 60
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
 
+        # Phase 21 Plan 03 closeout: POL-03 + POL-04 publishDiagnostics
+        # regression-anchor smoke. NOT a Wave 0 RED gate -- by the time
+        # this test runs, Plans 21-01/02 have already committed
+        # IRON_ERR_HEAP_BAD_POSITION=273 (POL-03) and
+        # IRON_ERR_FREE_NOT_BINDING=274 (POL-04). This is a regression
+        # anchor verifying the CORE-22 facade flows new compiler-side
+        # diagnostics through publishDiagnostics with zero LSP-side change.
+        # Phase 34 LSP-06 leans on this assertion shape when wiring
+        # quickfix code-actions for heap-policy diagnostics.
+        add_test(
+            NAME lsp_phase21_smoke
+            COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_did_publish_pol_violation.py
+                --lsp-binary=$<TARGET_FILE:ironls>
+                --no-header
+                -p no:cacheprovider
+                -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(lsp_phase21_smoke PROPERTIES
+            LABELS "smoke;lsp_smoke;phase21-invariant"
+            TIMEOUT 60
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+
         # Phase 14 Plan 14-02 (CMD-01, CMD-03): test_iron_migrate_command --
         # Wave 0 smoke for workspace/executeCommand iron.migrate.
         # Covers: capability-advertised, workspace-edit happy path,
@@ -268,6 +291,16 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             COMMAND ${Python3_EXECUTABLE} -c "print('pytest-lsp not installed'); raise SystemExit(77)")
         set_tests_properties(lsp_phase20_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase20-invariant"
+            SKIP_RETURN_CODE 77
+            TIMEOUT 30)
+
+        # Phase 21 Plan 03 closeout: SKIP shim for lsp_phase21_smoke when
+        # pytest-lsp is absent. ctest -L phase21-invariant stays green.
+        add_test(
+            NAME lsp_phase21_smoke
+            COMMAND ${Python3_EXECUTABLE} -c "print('pytest-lsp not installed'); raise SystemExit(77)")
+        set_tests_properties(lsp_phase21_smoke PROPERTIES
+            LABELS "smoke;lsp_smoke;phase21-invariant"
             SKIP_RETURN_CODE 77
             TIMEOUT 30)
 

@@ -1240,3 +1240,11 @@ add_executable(test_leak_symbol_flag test_leak_symbol_flag.c)
 target_link_libraries(test_leak_symbol_flag iron_compiler unity)
 add_test(NAME test_leak_symbol_flag COMMAND test_leak_symbol_flag)
 set_tests_properties(test_leak_symbol_flag PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)
+
+# Phase 21 Plan 03 — OQ-09 mechanical gate (B2 closure 2026-05-08)
+# Verifies heap T(...) compiles cleanly AND rc T(...) is rejected (closed-
+# policy enforcement), and that the asymmetry holds within a single function.
+add_executable(test_oq09_no_promotion test_oq09_no_promotion.c)
+target_link_libraries(test_oq09_no_promotion iron_compiler unity)
+add_test(NAME test_oq09_no_promotion COMMAND test_oq09_no_promotion)
+set_tests_properties(test_oq09_no_promotion PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)

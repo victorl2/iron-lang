@@ -460,3 +460,132 @@ major-or-minor bump discipline as the Phase 19 ABI items above.
 - Phase 34 (LSP adaptation): consumes
   `docs/dev/diagnostic-codes.md` Phase 20 quickfix-target column to
   wire LSP-06 quickfix actions.
+
+## Phase 21 surfaces
+
+Phase 21 (Heap Policy + Free) surfaces the runtime substrate locked above to
+Iron source as user-visible heap allocation, free, leak, and defer-free idioms.
+The Phase 19 ABI is unchanged — Iron_FatPtr is still 16B, IronAllocHdr is
+unchanged, iron_heap_alloc / iron_heap_free / iron_check_pointer_gen are
+unchanged. Phase 21 ACTIVATES these existing surfaces from Iron source for the
+first time:
+
+### User-visible surface
+
+- **Allocation:** `heap T(...)` is the sole allocation form. The expression
+  returns a value of type `T` (NOT `*T` and NOT `rc T`); the underlying
+  allocation is generation-tracked via Phase 19's IronAllocHdr.
+- **Position lock (POL-03):** `heap` is RESERVED to allocation-expression
+  position. Three illegal positions emit `IRON_ERR_HEAP_BAD_POSITION` (E0273)
+  with hint distinguishing the position:
+  - In type annotation: `val p: heap T = ...` → "got `heap` in type annotation"
+  - On binding declaration: `heap val p = ...` / `heap var p = ...` → "got `heap` in binding declaration"
+  - On parameter: `func f(heap p: T) {}` → "got `heap` in parameter declaration"
+- **Free:** `free <binding>` invalidates the heap allocation. Lowers to
+  `iron_heap_free(fp)` (Phase 19 substrate), which atomically bumps the
+  IronAllocHdr gen and frees the IronAllocHdr+value block. Double-free
+  protection is automatic via Phase 19's gen-mismatch panic path.
+- **Free target restriction (POL-04):** `free` accepts ONLY identifier
+  (binding) targets. `free p.field` / `free arr[i]` / `free obj.method()`
+  emit `IRON_ERR_FREE_NOT_BINDING` (E0274). Phase 24 may relax this once
+  `drop` semantics arrive.
+- **Leak:** `leak <binding>` marks an allocation intentionally permanent. Pure
+  compile-time analyzer marker (NO runtime emission) — sets
+  `Iron_Symbol.is_leaked = true` on the resolved binding. Phase 31 (DBG-05
+  forgotten-`free` warning) reads this flag and SUPPRESSES the warning for
+  leaked bindings.
+- **Leak target restriction (POL-05):** `leak` accepts ONLY identifier
+  (binding) targets, symmetric with `free`. Non-identifier targets emit
+  `IRON_ERR_LEAK_NOT_BINDING` (E0275).
+- **Defer-free idiom (DEFER-02):** `defer free <binding>` is the canonical
+  scope-bound free idiom available in v3.0-alpha.1. Lowers through the existing
+  IRON_HIR_STMT_DEFER → IRON_LIR_FREE → iron_heap_free path; the existing
+  `emit_defer_cleanup` LIFO machinery in `src/hir/hir_to_lir.c` emits frees in
+  LIFO order before every IRON_LIR_RETURN.
+- **Defer form restriction:** All other defer forms emit
+  `IRON_ERR_DEFER_FORM_UNSUPPORTED` (E0276) with hint forward-referencing Phase
+  32 for full defer semantics. Plan 21-01 added the structural check at
+  hir_lower.c's IRON_NODE_DEFER arm; the check fires BEFORE HIR emission to
+  prevent invalid HIR nodes from reaching codegen.
+
+### Codegen behavior (informative)
+
+- `heap T(...)` lowers to
+  `Iron_FatPtr _vN = iron_heap_alloc(__FILE__, __LINE__, sizeof(T))`
+  followed by `*((T *)_vN.addr) = inner_value`. The local IS the Iron_FatPtr
+  (16B value type), NOT a raw `T *`; this is the post-Phase-21 codegen
+  invariant. All downstream dereferences emit `((T *)_vN.addr)` form (e.g.,
+  `((T *)_vN.addr)->field` for field access, `*((T *)_vN.addr) = ...` for
+  store).
+- `free p` lowers to `iron_heap_free(_vN)` preceded by a
+  `/* PHASE-24 HOOK: drop call insertion before iron_heap_free */` comment
+  stub. Phase 24 will replace the stub with a destructor invocation when the
+  freed type has a `drop { ... }` block.
+- `leak p` produces NO LIR emission. The IRON_HIR_STMT_LEAK arm in
+  hir_to_lir.c evaluates the expr (for any side-effects in `p`'s computation,
+  though `p` is always an ident here) and discards output.
+- `defer free p` is registered on the existing per-function `defer_stack`
+  during HIR lowering; `emit_defer_cleanup` at hir_to_lir.c:~1730 emits LIFO
+  `iron_heap_free` calls before every IRON_LIR_RETURN.
+- `&p` for heap-rooted `p` (Phase 20 ADDR_OF) uses gen_source=HEAP path:
+  `(Iron_FatPtr){ .addr = (void*)((T *)_vN.addr), .gen = _vN.gen }`. The
+  `.gen` field reads directly from the Iron_FatPtr local — the legacy
+  IronAllocHdr arithmetic gen-recovery is no longer applicable post-Phase-21
+  codegen migration (the local IS the Iron_FatPtr).
+
+### `auto_free` flag disconnection
+
+The escape.c v1/v2 classifier sets `auto_free` on heap expressions that do not
+escape. This flag flows into `IRON_LIR_HEAP_ALLOC.heap_alloc.auto_free`. Phase
+21 EXPLICITLY DOES NOT connect this flag to automatic `iron_heap_free` emission
+— emit_c.c at the HEAP_ALLOC site carries a
+`/* PHASE-31: auto_free connects to DBG-05 forgotten-free warning; do NOT emit iron_heap_free here */`
+documentation guard. Phase 31 will consume `auto_free` to drive the DBG-05
+forgotten-`free` warning at lint-time.
+
+### Diagnostic codes added (cross-reference)
+
+See `docs/dev/diagnostic-codes.md` Phase 21 section for the full table. Codes
+273-276 are reserved for Phase 21.
+
+### Forward references
+
+- Phase 22 (`readonly` purity tightening): readonly-compatible return-type
+  checker covers heap allocations (heap allocation that escapes a readonly
+  function is a violation per READ-04).
+- Phase 24 (drop / copy / nocopy): replaces the `/* PHASE-24 HOOK */` stub at
+  IRON_LIR_FREE with destructor invocation; the fixture
+  `tests/integration/v4/3.2-heap/boundary_destructor_runs.iron` (retagged in
+  Plan 21-01) flips XFAIL→GREEN when Phase 24 lands DROP-01.
+- Phase 26 (`rc` policy): introduces `rc T(...)` allocation form; OQ-09 lock
+  (NO `heap → rc` promotion) is consistent with Phase 26's POL-11
+  closed-policy enforcement.
+- Phase 31 (debug allocator + leak detection): consumes
+  `Iron_Symbol.is_leaked` (Plan 21-02) and
+  `IRON_LIR_HEAP_ALLOC.heap_alloc.auto_free` (escape.c) to drive DBG-05
+  forgotten-`free` warning; full unification of escape.c with the Phase 21
+  identifier-only path lands here.
+- Phase 32 (defer statement): generalizes `defer` to all forms (LIFO across
+  all forms, panic-safe, drop interaction); Phase 21's `defer free <binding>`
+  becomes a special case of the general defer machinery.
+- Phase 34 (LSP adaptation): consumes diagnostic-codes.md Phase 21
+  quickfix-target column to wire LSP-06 quickfix actions.
+
+### Phase 19 ABI substrate UNCHANGED
+
+Phase 21 only CONSUMES existing Phase 19 surfaces. The following remain
+UNCHANGED per the Stability Commitment in this document's Phase 19 sections:
+
+- `Iron_FatPtr` 16B layout (`{ void *addr; uint64_t gen; }`)
+- `IronAllocHdr` 16B release / 32B debug layout
+- `iron_heap_alloc(file, line, size)` returning `Iron_FatPtr`;
+  `iron_heap_free(Iron_FatPtr)`; `iron_check_pointer_gen` static-inline;
+  `iron_panic_stale_pointer` panic format (text + JSON channels)
+- Atomic semantics + memory ordering on the gen field
+
+Phase 21 modifications are confined to `src/lir/emit_c.c` (codegen migration;
+no Phase 19 source files touched), `src/parser/parser.c` +
+`src/analyzer/typecheck.c` + `src/hir/hir_lower.c` +
+`src/diagnostics/diagnostics.h` (frontend surface; no runtime files touched),
+and `src/analyzer/scope.h` + `src/analyzer/resolve.c` (single bool field +
+one-line setter; not in src/runtime/).
