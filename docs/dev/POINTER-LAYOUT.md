@@ -346,5 +346,117 @@ under `-fsanitize=thread` on Linux.
 | Phase 25 (Box[T] + *unchecked T) | Box's underlying allocation does NOT register with this tracker; Box.unwrap() returns `*unchecked T` which bypasses `iron_check_pointer_gen` entirely |
 | Phase 28 (Arena allocation) | Arena allocations slot into the same 16B `Iron_FatPtr` layout; generation comes from the arena's counter, not a per-allocation header; ABI compatible |
 | Phase 30 (Pointer-check elision optimizer) | `iron_check_pointer_gen` is static-inline so the optimizer can recognize the canonical `acquire-load + compare + panic` shape and elide redundant checks |
+| Phase 30 (Pointer-check elision optimizer) | `iron_check_stack_pointer_gen` (Phase 20 OQ-B Option C) is also static-inline with isomorphic shape (load gen, compare, panic); Phase 30 EarlyCSE/GVN/LICM is parameterized over both patterns |
 | Phase 31 (Debug allocator) | Extends `IronAllocHdr` debug-build fields with poison-on-free, double-free reports, leak detection; size lock at 32 bytes may be relaxed in Phase 31 with a documented version bump |
 | Phase 33 (Stdlib container rewrite) | New v4 stdlib containers may opt in to register their allocations with the tracker; ABI is documented and stable |
+
+## Phase 20 surfaces
+
+Phase 20 (Checked Pointer Types) surfaces the runtime substrate locked
+above to Iron source as user-visible types and operators. The Phase 19
+ABI is unchanged — `Iron_FatPtr` is still 16B, `IronAllocHdr` is
+unchanged, `iron_check_pointer_gen` is unchanged. Phase 20 ADDS:
+
+### User-visible surface
+
+- **Type annotations:** `*T`, `*var T`, `?*T`, `?*var T`. Multi-level
+  (`**T`) parses but is rejected at typecheck time (auto-deref is
+  single-level only).
+- **Operators:** `&` (unary address-of, expression-position prefix at
+  PREC_UNARY). `*` in expression-position is RESERVED for Phase 25
+  (`*unchecked T` regime); attempting `*p = value` emits
+  `IRON_ERR_UNEXPECTED_TOKEN`.
+- **Auto-deref:** `p.field` and `p.method()` for `p: *T`/`*var T`
+  auto-deref through one level. Compile error on `pp.field` for
+  `pp: **T`.
+- **Auto-address:** `f(my_local)`, `f(obj.field)`, `f(arr[i])`
+  auto-address when the parameter is `*T`/`*var T`. Rvalues (literals,
+  function-call results) are rejected with E0270.
+- **Nullability:** `?*T` encodes null as `addr=NULL` (Phase 19 reserved
+  `gen=0` as freed-sentinel; `addr==NULL` is the additional null
+  sentinel). Unwrap via flow-typing: `if p != null { use_p_as_T(p) }`.
+- **Casting:** `Ptr.cast[T](p)` is a compiler builtin; same-size types
+  only; size mismatch is E0269. Phase 25's `Ptr.offset` / `Ptr.diff`
+  work on `*unchecked T` only.
+- **Closure capture (OQ-02 RESOLVED Plan 20-03):** closures over `*T`
+  and `*var T` are LEGAL; closure captures the 16B `Iron_FatPtr` by
+  value into its captured-state struct (existing
+  `emit_capture_rhs` + C struct-copy semantics handle 16B value-type
+  captures unchanged); closure-body deref panics on stale gen at
+  invocation site through the same `iron_check_pointer_gen` /
+  `iron_check_stack_pointer_gen` path the surrounding code already uses.
+  See `tests/integration/v4/4.2-checked-ptr/closure_pointer_capture.iron`
+  and `closure_var_pointer_capture.iron` for positive-corpus pinning.
+
+### New runtime artifacts
+
+- **`extern _Thread_local uint64_t iron_stack_gen;`** — per-thread
+  stack-frame generation counter. Initial value 1 (`gen=0` reserved).
+  Bumped on entry/exit of every function body containing `&local_var`
+  syntactically (whole-function pessimistic detection per OQ-E).
+- **`static inline void iron_check_stack_pointer_gen(Iron_FatPtr fp,
+  const char *deref_file, int deref_line);`** — separate deref-check
+  path for stack-source pointers (OQ-B Option C). Compares `fp.gen` to
+  `iron_stack_gen` directly; on mismatch calls
+  `iron_panic_stale_stack_pointer`. Phase 30 elision target (isomorphic
+  shape with `iron_check_pointer_gen`).
+- **`__attribute__((noreturn)) void iron_panic_stale_stack_pointer(
+  const char *deref_file, int deref_line, uint64_t captured_frame_gen);`**
+  — stack-pointer panic emission. Same channels as
+  `iron_panic_stale_pointer` (text + JSON via `IRON_PANIC_FORMAT` env).
+  Text format: `"iron: dangling stack pointer to frame #N (current
+  frame #M) at <file>:<line>"`. JSON format:
+  `{"panic":"stack_pointer","deref_site":...,"captured_frame_gen":N,
+  "current_stack_gen":N}`.
+
+### Codegen behavior (informative)
+
+- `&x` lowers to
+  `(Iron_FatPtr){ .addr = (void *)&x, .gen = source_gen }` where
+  `source_gen` is `iron_stack_gen` (stack-rooted) or `hdr->gen`
+  (heap-rooted). The LIR opcode `IRON_LIR_ADDR_OF` carries an
+  `IronLIR_GenSource` tag (HEAP/STACK) that picks the right gen value
+  and the right deref-check path.
+- Auto-deref `p.field` lowers to
+  `iron_check_pointer_gen(p, file, line); ((PointeeT *)p.addr)->field`
+  — or `iron_check_stack_pointer_gen` for stack-source.
+- Field-pointer `&x.field` carries the parent `x`'s outermost-allocation
+  generation (PTR-08); element-pointer `&arr[i]` carries `arr`'s
+  generation (PTR-09). For `&heap_obj.field_pointing_to_local`, gen =
+  `heap_obj.hdr->gen` (the field's value, even if itself a pointer, is
+  just data — OQ-C).
+- Functions with `takes_local_addr=true` emit `iron_stack_gen += 1;` on
+  entry AND immediately before each `return ...;` statement (OQ-E
+  per-call lock).
+
+### Diagnostic codes added (cross-reference)
+
+See `docs/dev/diagnostic-codes.md` Phase 20 section for the full table.
+Codes 268–272 are reserved for Phase 20.
+
+### Stability commitment for Phase 20 surfaces
+
+The Phase 20 surfaces section is **informative** (describes user-visible
+behavior). The ABI sections above (Iron_FatPtr layout, IronAllocHdr
+layout, atomic semantics, runtime API signatures, panic format string
+discriminators) remain the binding contract. Phase 20 adds the
+`iron_stack_gen` TLS slot, `iron_check_stack_pointer_gen` static-inline,
+and `iron_panic_stale_stack_pointer` helper as additive surface; their
+removal or signature change requires the same `IRON_VERSION_FULL`
+major-or-minor bump discipline as the Phase 19 ABI items above.
+
+### Forward references (Phase 20 additions)
+
+- Phase 21 (Heap Policy + Free): `heap T(...)` syntax provides the heap
+  allocation expression that Phase 20's `&` consumes; PTR-04's
+  `&heap_alloc` requires Phase 21 syntax to materialize.
+- Phase 25 (Unchecked Pointers + Box[T]): hosts `*unchecked T`,
+  `Box[T]`, `Ptr.offset`, `Ptr.diff`, `Ptr.set`. Phase 20
+  forward-references via diagnostic codes 268 + 269 hint strings.
+- Phase 30 (Pointer-check elision optimizer): targets BOTH
+  `iron_check_pointer_gen` (Phase 19) and `iron_check_stack_pointer_gen`
+  (Phase 20) for elision. Both are static-inlines with isomorphic
+  shapes.
+- Phase 34 (LSP adaptation): consumes
+  `docs/dev/diagnostic-codes.md` Phase 20 quickfix-target column to
+  wire LSP-06 quickfix actions.

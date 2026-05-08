@@ -112,6 +112,65 @@ codes should accept either the bare integer or the `E<NNN>` string.
   prefix-matching quickfix routing keeps working without a
   hint-string version pin.
 
+## Phase 20 — Checked pointer types (§4.2)
+
+| Code | Symbol                                | Message (locked substring)                                                            | Hint                                                                                              | Quickfix-Target (Phase 34 LSP-06)                                                       | Phase | Spec § |
+|-----:|---------------------------------------|---------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|------:|-------:|
+| 268  | `IRON_ERR_PTR_NO_ARITH`               | `no pointer arithmetic in checked regime`                                              | `use Ptr.offset on *unchecked T`                                                                  | Rewrite as `Ptr.offset` call on `*unchecked T` (requires Phase 25 *unchecked T)         | 20    | §4.2 |
+| 269  | `IRON_ERR_PTR_CAST_SIZE_MISMATCH`     | `Ptr.cast pointee size mismatch`                                                       | `use *unchecked T (Phase 25) for arbitrary pointer casts`                                         | Wrap target in `Box[T]` and `unwrap()` to obtain `*unchecked T` (Phase 25)              | 20    | §4.2 |
+| 270  | `IRON_ERR_PTR_AMP_ON_RVALUE`          | `cannot take address of rvalue (literal or temporary)`                                 | `bind to a local first (val x = ...; sink(x))`                                                    | Insert `val x = <expr>; ... &x` rewrite at the call site                                | 20    | §4.2 |
+| 271  | `IRON_ERR_PTR_ESCAPE_STACK_REF`       | `cannot return reference to stack-local variable`                                      | `allocate on the heap (Phase 21 'heap T(...)') or return the value by-copy`                       | Replace `return &local` with `return local` (by-value) OR with `heap T(...)` (Phase 21) | 20    | §4.2 |
+| 272  | `IRON_ERR_PTR_NULL_DEREF`             | `cannot assign null to non-nullable pointer type` (compile-time) / `null deref` (runtime) | `use '?*T' for the nullable variant; narrow with 'if p != null { ... }' before dereference`     | Change type from `*T` to `?*T`; insert `if p != null { ... }` narrowing block          | 20    | §4.2 |
+
+### Notes
+
+- **Code 267 (`IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT`, Phase 18) is REUSED by Phase 20**
+  at the call-site auto-address path: when a `*var T` parameter receives an
+  auto-addressed argument whose source binding is `val`, code 267 fires (same
+  code as Phase 18's PARM-03 path; same caller-side quickfix target). The hint
+  string was conservatively worded in Phase 18 to NOT mention `*var` (Phase 18
+  Notes line ~105); Phase 20 author may amend the hint in a future plan if
+  Phase 34 LSP-06 needs the differentiation, but the current wording remains
+  stable.
+- **Code 272 (`IRON_ERR_PTR_NULL_DEREF`) is DUAL-USE.** Compile-time emission:
+  `val p: *T = null` (binding mismatch) — fires at the binding-init site with
+  substring "cannot assign null to non-nullable pointer type". Runtime
+  emission: the existing `iron_panic_stale_pointer` path with `hdr=NULL`
+  convention (Phase 19) reports null-deref panics from runtime `?*T` access
+  without narrowing. Both surface as code 272 to the LSP/CLI; the Phase 34
+  LSP-06 quickfix is the same in both cases (insert `if p != null { ... }`
+  narrowing block OR change type to `?*T`).
+- **Phase 25 forward-reference.** Codes 268 + 269 explicitly mention
+  `*unchecked T` and `Ptr.offset` as the migration path. Phase 25 (Unchecked
+  Pointers + Box[T]) ships these. Plan 25-NN should NOT change the wording of
+  codes 268/269 — the Phase 25 implementer adds the matching emission paths
+  in `*unchecked T` codepaths (`Ptr.offset` is the unchecked-only stdlib
+  function).
+- **OQ-A locked Plan 20-01 (object-pointer writes via auto-deref `p.field = value`):**
+  the hint strings for codes 270 + 272 reference auto-deref (`bind to a local
+  first`; `narrow with 'if p != null'`). Primitive-pointer-write
+  (`*var Int` writes) is deferred to Phase 25's `Ptr.set` builtin; if user
+  code attempts `*p = value` syntax, the parser emits the existing
+  `IRON_ERR_UNEXPECTED_TOKEN` (code 101) because `*` in expression-position
+  is reserved.
+- **OQ-B locked Plan 20-02 (Option C — separate
+  `iron_check_stack_pointer_gen` path):** stack-pointer panics fire via
+  `iron_panic_stale_stack_pointer` (new Phase 20 helper) with text channel
+  `"dangling stack pointer to frame #M"` and JSON channel
+  `"panic":"stack_pointer"`. The text format mirrors Phase 19's
+  `iron_panic_stale_pointer` but distinguishes by message and JSON
+  discriminator. See `docs/dev/POINTER-LAYOUT.md` "Phase 20 surfaces" section
+  for the full panic format.
+- **OQ-02 RESOLVED (Plan 20-03):** Closures over `*T`/`*var T` are LEGAL
+  with lifetime-extension + panic-on-invocation semantics. The closure
+  captures the 16B `Iron_FatPtr` by value into its captured-state struct;
+  closure-body deref through stale fp panics via `iron_check_pointer_gen`
+  (heap-source) or `iron_check_stack_pointer_gen` (stack-source).
+  `.planning/PROJECT.md` Key Decisions table has the canonical entry; the
+  positive-corpus fixtures
+  `tests/integration/v4/4.2-checked-ptr/closure_pointer_capture.iron` +
+  `closure_var_pointer_capture.iron` pin the spec semantics on disk.
+
 ## Adding new codes
 
 1. Allocate the next free slot in the appropriate range. Verify uniqueness
