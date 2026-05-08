@@ -208,6 +208,23 @@ static void collect_operands(const IronLIR_Instr *instr,
         /* No operands — poison is a standalone error placeholder */
         break;
 
+    /* Phase 20 PTR-04/08/09 (Plan 20-02b): pointer ops.
+     * Pitfall 9: explicit cases for the new opcodes so the operand-tracker
+     * sees their sub-values; gen_source is a tag-only field with no
+     * IronLIR_ValueId payload. */
+    case IRON_LIR_ADDR_OF:
+        PUSH(instr->addr_of.target);
+        break;
+
+    case IRON_LIR_PTR_LOAD:
+        PUSH(instr->ptr_load.fp);
+        break;
+
+    case IRON_LIR_PTR_STORE:
+        PUSH(instr->ptr_store.fp);
+        PUSH(instr->ptr_store.value);
+        break;
+
     /* -Wswitch-enum opt-out: collect_operands enumerates every opcode that
      * consumes a typed value operand; opcodes whose data lives entirely in
      * the arena-allocated per-op union (and the IRON_LIR_INSTR_COUNT

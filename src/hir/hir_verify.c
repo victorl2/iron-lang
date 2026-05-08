@@ -568,6 +568,32 @@ static void verify_expr(const IronHIR_Expr *expr, const IronHIR_Module *mod,
         }
         break;
 
+    /* Phase 20 PTR-04/08/09 (Plan 20-02b): &lvalue + auto-address synthesis.
+     * Verify the target sub-expression structurally; the gen_source enum
+     * value is checked at LIR-emission time. */
+    case IRON_HIR_EXPR_ADDR_OF:
+        if (expr->addr_of.target) {
+            verify_expr(expr->addr_of.target, mod, stack, diags, arena);
+        } else {
+            iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                           IRON_ERR_HIR_STRUCTURAL, expr->span,
+                           "addr_of expression has NULL target",
+                           "provide an lvalue target for `&`");
+        }
+        break;
+
+    /* Phase 20 PTR-06 (Plan 20-02b): auto-deref / OQ-A write half. */
+    case IRON_HIR_EXPR_DEREF:
+        if (expr->deref.target) {
+            verify_expr(expr->deref.target, mod, stack, diags, arena);
+        } else {
+            iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                           IRON_ERR_HIR_STRUCTURAL, expr->span,
+                           "deref expression has NULL target",
+                           "provide a *T value to dereference");
+        }
+        break;
+
     /* -Wswitch-enum opt-out: any remaining HIR expression kinds (UNIT, etc.)
      * have no sub-expressions requiring verification. */
     default:

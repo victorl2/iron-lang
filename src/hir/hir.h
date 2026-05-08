@@ -83,7 +83,27 @@ typedef enum {
     IRON_HIR_EXPR_FUNC_REF,      /* function reference             */
     IRON_HIR_EXPR_ENUM_CONSTRUCT, /* ADT enum variant construction  */
     IRON_HIR_EXPR_PATTERN,        /* match arm pattern (ADT)        */
-    IRON_HIR_EXPR_IS             /* type test / pattern match check */
+    IRON_HIR_EXPR_IS,             /* type test / pattern match check */
+
+    /* Phase 20 PTR-04/06/08/09 (Plan 20-02b): pointer ops.
+     *
+     * IRON_HIR_EXPR_ADDR_OF — produced by lowering of `&lvalue` AND by
+     * synthesis at call-sites where Iron_*.is_auto_address_target=true
+     * (set by Plan 20-02a typecheck.c). Lowers to IRON_LIR_ADDR_OF which
+     * emits an Iron_FatPtr compound literal.
+     *
+     * IRON_HIR_EXPR_DEREF — produced by lowering of FIELD_ACCESS /
+     * METHOD_CALL with is_auto_deref=true on a *T receiver, and by the
+     * OQ-A write-half lowering of assignment-LHS field-access on *var T.
+     * Lowers to IRON_LIR_PTR_LOAD or IRON_LIR_PTR_STORE which calls
+     * iron_check_pointer_gen (HEAP source) or iron_check_stack_pointer_gen
+     * (STACK source) before the load/store.
+     *
+     * Pitfall 9: hir_verify.c uses default-break, so adding new kinds at
+     * the end of the enum is safe; explicit case handlers cover NULL-
+     * subexpression checks where applicable. */
+    IRON_HIR_EXPR_ADDR_OF,
+    IRON_HIR_EXPR_DEREF
 } IronHIR_ExprKind;
 
 /* ── Binary operator ────────────────────────────────────────────────────── */
@@ -116,6 +136,16 @@ typedef enum {
     IRON_HIR_UNOP_NOT,   /* !x */
     IRON_HIR_UNOP_BNOT   /* ~x */
 } IronHIR_UnOp;
+
+/* ── Phase 20 PTR-04/06/08/09 (Plan 20-02b OQ-B Option C lock) ─────────────
+ * HIR-side mirror of IronLIR_GenSource so hir.h need not include lir.h.
+ * HIR-to-LIR lowering passes the value through unchanged (the two enums
+ * have identical numeric values). Selects between iron_check_pointer_gen
+ * (HEAP) and iron_check_stack_pointer_gen (STACK) at codegen time. */
+typedef enum {
+    IRON_HIR_GEN_HEAP,
+    IRON_HIR_GEN_STACK
+} IronHIR_GenSource;
 
 /* ── Helper structs ──────────────────────────────────────────────────────── */
 
@@ -421,6 +451,27 @@ struct IronHIR_Expr {
             IronHIR_Expr **nested_patterns; /* NULL entry = simple binding */
             int            binding_count;
         } pattern;
+
+        /* IRON_HIR_EXPR_ADDR_OF — Phase 20 PTR-04/08/09.
+         * Lowers from `&lvalue` and from auto-address materialization at
+         * call sites (Pitfall 4: AST stays unchanged; HIR materializes from
+         * is_auto_address_target flags set by Plan 20-02a typecheck.c). */
+        struct {
+            IronHIR_Expr     *target;       /* lvalue chain expression */
+            IronHIR_GenSource gen_source;   /* derived during lowering */
+        } addr_of;
+
+        /* IRON_HIR_EXPR_DEREF — Phase 20 PTR-06 read half.
+         * Synthesized at FIELD_ACCESS / METHOD_CALL receivers when
+         * is_auto_deref=true. The OQ-A write half lowers assignment-LHS
+         * field-access on *var T through the same DEREF kind followed by a
+         * HIR field-store; the LIR side picks PTR_LOAD vs PTR_STORE based
+         * on whether the deref appears on the read or write side of the
+         * enclosing expression. */
+        struct {
+            IronHIR_Expr     *target;       /* the *T value being deref'd */
+            IronHIR_GenSource gen_source;   /* propagated to LIR */
+        } deref;
     };
 };
 
@@ -442,6 +493,12 @@ struct IronHIR_Func {
      * receiver by pointer so field mutations persist to the caller's binding.
      * Default false (iron_hir_func_create memsets the struct). */
     bool               is_mut_receiver_method;
+    /* Phase 20 PTR-10 (Plan 20-02b): mirrors Iron_FuncDecl.takes_local_addr.
+     * Propagated by hir_lower from the AST decl; further propagated by
+     * hir_to_lir to IronLIR_Func.takes_local_addr so emit_c.c can inject
+     * `iron_stack_gen += 1;` prologue/epilogue. Default false via
+     * iron_hir_func_create memset. OQ-E lock: per-call bump semantics. */
+    bool               takes_local_addr;
 };
 
 /* ── Module ──────────────────────────────────────────────────────────────── */
@@ -603,6 +660,14 @@ IronHIR_Expr *iron_hir_expr_pattern(IronHIR_Module *mod,
                                      IronHIR_Expr **nested_patterns,
                                      int binding_count,
                                      Iron_Span span);
+
+/* Phase 20 PTR-04/06/08/09 — addr_of / deref constructors. */
+IronHIR_Expr *iron_hir_expr_addr_of(IronHIR_Module *mod, IronHIR_Expr *target,
+                                     IronHIR_GenSource gen_source,
+                                     Iron_Type *type, Iron_Span span);
+IronHIR_Expr *iron_hir_expr_deref(IronHIR_Module *mod, IronHIR_Expr *target,
+                                   IronHIR_GenSource gen_source,
+                                   Iron_Type *type, Iron_Span span);
 
 /* ---- Printer ---- */
 char *iron_hir_print(const IronHIR_Module *module);

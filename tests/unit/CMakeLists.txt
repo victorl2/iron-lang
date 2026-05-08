@@ -1164,9 +1164,9 @@ set_tests_properties(test_analyzer_ptr_nullability PROPERTIES
 # ── Phase 20 plan-02a — analyzer surface (PTR-06 / PTR-07 / PTR-10 compile) ──
 # Wave 0 RED: tests reference unallocated symbols (Iron_FieldAccess.is_auto_deref,
 # Iron_FuncDecl.takes_local_addr, iron_stack_gen, iron_check_stack_pointer_gen,
-# IRON_HIR_EXPR_ADDR_OF, IRON_LIR_ADDR_OF). Build fails until Plan 20-02a Tasks
-# 2-3 land the analyzer surface, AND for the two phase20-pending-20-02b entries,
-# until Plan 20-02b ships HIR/LIR/codegen + runtime.
+# IRON_HIR_EXPR_ADDR_OF, IRON_LIR_ADDR_OF). Build failed until Plan 20-02a Tasks
+# 2-3 landed the analyzer surface; the two formerly-gated entries flipped
+# GREEN once Plan 20-02b shipped HIR/LIR/codegen + runtime.
 add_executable(test_analyzer_auto_deref_field test_analyzer_auto_deref_field.c)
 target_link_libraries(test_analyzer_auto_deref_field iron_compiler unity)
 add_test(NAME test_analyzer_auto_deref_field COMMAND test_analyzer_auto_deref_field)
@@ -1191,15 +1191,17 @@ set_tests_properties(test_analyzer_pointer_assignability PROPERTIES
     TIMEOUT 30
 )
 
-# Phase 20 Plan 02a — RED scaffold; flips GREEN in Plan 20-02b.
-# The phase20-pending-20-02b LABEL excludes these entries from the default
-# `ctest -L phase20-invariant -LE phase20-pending-20-02b` sweep. Plan 20-02b
-# drops the label after wiring HIR/LIR/codegen + the iron_stack_gen runtime.
+# Phase 20 Plan 02b — pending-LABEL dropped now that the HIR/LIR/codegen
+# plumbing + runtime substrate (iron_stack_gen TLS slot,
+# iron_check_stack_pointer_gen static-inline, iron_panic_stale_stack_pointer
+# panic helper) have landed. These two tests now run under the default
+# `ctest -L phase20-invariant` sweep alongside the other 7 Phase 20 entries
+# (4 from 20-01 + 3 analyzer-pure from 20-02a) for a cumulative 9/9 GREEN.
 add_executable(test_analyzer_addr_of_codegen test_analyzer_addr_of_codegen.c)
 target_link_libraries(test_analyzer_addr_of_codegen iron_compiler unity)
 add_test(NAME test_analyzer_addr_of_codegen COMMAND test_analyzer_addr_of_codegen)
 set_tests_properties(test_analyzer_addr_of_codegen PROPERTIES
-    LABELS "unit;phase20-invariant;phase20-pending-20-02b"
+    LABELS "unit;phase20-invariant"
     TIMEOUT 30
 )
 
@@ -1207,6 +1209,6 @@ add_executable(test_runtime_stack_pointer_dangling test_runtime_stack_pointer_da
 target_link_libraries(test_runtime_stack_pointer_dangling iron_runtime unity)
 add_test(NAME test_runtime_stack_pointer_dangling COMMAND test_runtime_stack_pointer_dangling)
 set_tests_properties(test_runtime_stack_pointer_dangling PROPERTIES
-    LABELS "unit;phase20-invariant;phase20-pending-20-02b"
+    LABELS "unit;phase20-invariant"
     TIMEOUT 30
 )

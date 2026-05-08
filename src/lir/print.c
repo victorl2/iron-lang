@@ -548,6 +548,32 @@ static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, "\n");
         break;
 
+    /* Phase 20 PTR-04/06/08/09 (Plan 20-02b): pointer ops. */
+    case IRON_LIR_ADDR_OF:
+        iron_strbuf_appendf(sb, "  %%%u = addr_of %%%u (%s) : ",
+                            instr->id, instr->addr_of.target,
+                            instr->addr_of.gen_source == IRON_LIR_GEN_HEAP
+                                ? "heap" : "stack");
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_PTR_LOAD:
+        iron_strbuf_appendf(sb, "  %%%u = ptr_load %%%u (%s) : ",
+                            instr->id, instr->ptr_load.fp,
+                            instr->ptr_load.gen_source == IRON_LIR_GEN_HEAP
+                                ? "heap" : "stack");
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_PTR_STORE:
+        iron_strbuf_appendf(sb, "  ptr_store %%%u, %%%u (%s)\n",
+                            instr->ptr_store.fp, instr->ptr_store.value,
+                            instr->ptr_store.gen_source == IRON_LIR_GEN_HEAP
+                                ? "heap" : "stack");
+        break;
+
     case IRON_LIR_INSTR_COUNT:
         /* sentinel — never a real instruction kind */
         break;

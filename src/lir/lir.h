@@ -111,8 +111,36 @@ typedef enum {
     IRON_LIR_POISON,
 
     /* Sentinel */
+    /* Phase 20 PTR-04/06/08/09 (Plan 20-02b): pointer ops.
+     * IRON_LIR_ADDR_OF       — produces an Iron_FatPtr value from an lvalue
+     *                          + a generation source (HEAP recovers from
+     *                          IronAllocHdr, STACK reads iron_stack_gen).
+     * IRON_LIR_PTR_LOAD/STORE — call iron_check_pointer_gen (HEAP) or
+     *                          iron_check_stack_pointer_gen (STACK) and
+     *                          then load/store through fp.addr.
+     * Plan 20-02b's emit_c.c is the only consumer; verifier default-break
+     * covers structural emission until full e2e codegen lands. */
+    IRON_LIR_ADDR_OF,
+    IRON_LIR_PTR_LOAD,
+    IRON_LIR_PTR_STORE,
+
     IRON_LIR_INSTR_COUNT
 } IronLIR_InstrKind;
+
+/* Phase 20 PTR-04/06/08/09/10 (Plan 20-02b OQ-B Option C lock):
+ * source-tag carried by IRON_LIR_ADDR_OF / PTR_LOAD / PTR_STORE so emit_c.c
+ * can dispatch between iron_check_pointer_gen (heap) and
+ * iron_check_stack_pointer_gen (stack) and so ADDR_OF picks between
+ * IronAllocHdr-recovered gen vs iron_stack_gen TLS-counter gen.
+ *
+ * Derived during HIR lowering by walking the lvalue chain to its outermost
+ * binding (per OQ-C field-pointer rule: parent gen = outermost-allocation
+ * gen, not field-of-field intermediate). HEAP when the root binding's
+ * symbol is heap-tracked; STACK otherwise (locals / params). */
+typedef enum IronLIR_GenSource {
+    IRON_LIR_GEN_HEAP,
+    IRON_LIR_GEN_STACK
+} IronLIR_GenSource;
 
 /* ── Instruction (tagged union) ───────────────────────────────────────────── */
 
@@ -301,6 +329,34 @@ struct IronLIR_Instr {
 
         /* IRON_LIR_POISON */
         struct { int _pad; } poison;
+
+        /* IRON_LIR_ADDR_OF — Phase 20 PTR-04/08/09.
+         * Produces an Iron_FatPtr value: { .addr = &target, .gen = src }.
+         * gen_source==HEAP: emit_c recovers gen via
+         *   ((IronAllocHdr*)target.addr - 1)->gen
+         * gen_source==STACK: emit_c reads iron_stack_gen at &-site. */
+        struct {
+            IronLIR_ValueId    target;     /* lvalue whose address is taken */
+            IronLIR_GenSource gen_source;
+        } addr_of;
+
+        /* IRON_LIR_PTR_LOAD — Phase 20 PTR-06 read half.
+         * Calls iron_check_pointer_gen (HEAP) or
+         * iron_check_stack_pointer_gen (STACK) on `fp` then loads through
+         * fp.addr. dest_type is set on the instruction's `type` field. */
+        struct {
+            IronLIR_ValueId    fp;
+            IronLIR_GenSource gen_source;
+        } ptr_load;
+
+        /* IRON_LIR_PTR_STORE — Phase 20 PTR-06 OQ-A write half.
+         * Same dispatch as PTR_LOAD; stores `value` through fp.addr after
+         * the gen-check passes. */
+        struct {
+            IronLIR_ValueId    fp;
+            IronLIR_ValueId    value;
+            IronLIR_GenSource gen_source;
+        } ptr_store;
     };
 };
 
@@ -418,6 +474,15 @@ struct IronLIR_Func {
      * Do NOT add an explicit initializer there. */
     Iron_CaptureEntry *web_frame_captures;
     int                web_frame_capture_count;
+
+    /* Phase 20 PTR-10 (Plan 20-02b): propagated from
+     * IronHIR_Func.takes_local_addr (which mirrors Iron_FuncDecl /
+     * Iron_MethodDecl flag set by Plan 20-02a's mark_takes_local_addr_pass).
+     * emit_c.c reads this bit to inject `iron_stack_gen += 1;` in the
+     * function prologue and before every IRON_LIR_RETURN. OQ-E lock:
+     * per-call bump (recursive calls bump twice — entry + exit). Default
+     * false via iron_lir_func_create memset. */
+    bool               takes_local_addr;
 };
 
 /* ── Module ───────────────────────────────────────────────────────────────── */
@@ -569,6 +634,19 @@ IronLIR_Instr *iron_lir_phi(IronLIR_Func *fn, IronLIR_Block *block,
                            Iron_Type *type, Iron_Span span);
 IronLIR_Instr *iron_lir_poison(IronLIR_Func *fn, IronLIR_Block *block,
                               Iron_Type *type, Iron_Span span);
+
+/* Phase 20 PTR-04/06/08/09 — pointer ops constructors. */
+IronLIR_Instr *iron_lir_addr_of(IronLIR_Func *fn, IronLIR_Block *block,
+                                IronLIR_ValueId target,
+                                IronLIR_GenSource gen_source,
+                                Iron_Type *type, Iron_Span span);
+IronLIR_Instr *iron_lir_ptr_load(IronLIR_Func *fn, IronLIR_Block *block,
+                                 IronLIR_ValueId fp,
+                                 IronLIR_GenSource gen_source,
+                                 Iron_Type *type, Iron_Span span);
+IronLIR_Instr *iron_lir_ptr_store(IronLIR_Func *fn, IronLIR_Block *block,
+                                  IronLIR_ValueId fp, IronLIR_ValueId value,
+                                  IronLIR_GenSource gen_source, Iron_Span span);
 
 /* Phi manipulation */
 void iron_lir_phi_add_incoming(IronLIR_Instr *phi, IronLIR_ValueId value,

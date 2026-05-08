@@ -165,6 +165,62 @@ static inline void iron_check_pointer_gen(Iron_FatPtr fp,
  * Definition lives in src/runtime/iron_heap_track.c. */
 extern iron_atomic_u64 iron_alloc_id_counter;
 
+/* ── Phase 20 PTR-10: per-thread stack-frame generation counter ───────────
+ * Bumped on entry/exit of each function whose body takes the address of a
+ * stack-local (Iron_FuncDecl.takes_local_addr=true; mark_takes_local_addr_pass
+ * flag set in Plan 20-02a). Captured by-value into Iron_FatPtr.gen at every
+ * &local site; checked at deref via iron_check_stack_pointer_gen.
+ *
+ * Initial value 1 (defined in src/runtime/iron_heap_track.c) — gen=0 stays
+ * reserved as the freed-sentinel value per Phase 19 ABI lock; uint64_t TLS
+ * default-init is 0, so we set 1 explicitly to keep the first &local's gen
+ * out of the freed-sentinel range.
+ *
+ * OQ-B Option C lock (Plan 20-02b CONTEXT.md): a SEPARATE static-inline
+ * (iron_check_stack_pointer_gen, below) compares fp.gen against this TLS
+ * counter directly — no IronAllocHdr recovery (stack pointers have no
+ * header). iron_check_pointer_gen and Phase 19's substrate stay UNTOUCHED.
+ * Pitfall 7: both check helpers are static-inline and isomorphic so Phase 30
+ * elision works on each path with the same template. */
+extern _Thread_local uint64_t iron_stack_gen;
+
+/* Phase 20 PTR-10: stack-pointer panic variant (NEW Plan 20-02b).
+ * Same emission channels as iron_panic_stale_pointer (text + JSON);
+ * different header text "dangling stack pointer to frame" and JSON
+ * "panic":"stack_pointer". Forward-declared here so the static-inline
+ * iron_check_stack_pointer_gen below can call it without pulling
+ * diagnostics.h into every consumer; canonical re-declaration also lives in
+ * src/diagnostics/diagnostics.h next to iron_panic_stale_pointer. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_stale_stack_pointer(const char *deref_file,
+                                    int deref_line,
+                                    uint64_t captured_frame_gen);
+
+/* Phase 20 PTR-10: stack-pointer deref check (OQ-B Option C — separate
+ * static-inline; preserves Phase 19 ABI lock). Iron's release codegen
+ * inlines this trivially.
+ *
+ * Distinct from iron_check_pointer_gen because stack pointers carry the
+ * TLS counter snapshot at &-site instead of an IronAllocHdr-sourced gen;
+ * compares fp.gen directly against the current iron_stack_gen.
+ *
+ * Pitfall 7 isomorphism: matches iron_check_pointer_gen shape (load
+ * generation source, compare, panic) so Phase 30's elision pass templates
+ * over both. CONTEXT-locked: do not change to out-of-line without
+ * coordinating with Phase 30. */
+static inline void iron_check_stack_pointer_gen(Iron_FatPtr fp,
+                                                const char *deref_file,
+                                                int deref_line) {
+    if (!fp.addr) {
+        iron_panic_stale_pointer(deref_file, deref_line, NULL);
+    }
+    if (fp.gen != iron_stack_gen) {
+        iron_panic_stale_stack_pointer(deref_file, deref_line, fp.gen);
+    }
+}
+
 /* ── Platform threading abstraction ──────────────────────────────────────── */
 #ifdef _WIN32
 

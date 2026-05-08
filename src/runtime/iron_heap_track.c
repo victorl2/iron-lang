@@ -29,6 +29,21 @@
 /* Process-global allocation-id counter; declaration in iron_runtime.h. */
 iron_atomic_u64 iron_alloc_id_counter;
 
+/* Phase 20 PTR-10: per-thread stack-frame generation counter.
+ *
+ * Initial value 1 keeps gen=0 reserved as the freed-sentinel value per
+ * Phase 19 ABI lock; each thread starts with iron_stack_gen=1 (TLS
+ * default-init is 0, but the explicit `= 1` covers every thread because
+ * the C language initializes TLS variables from the explicit initializer
+ * at thread start, not from the parent thread's value). Bumped per
+ * takes_local_addr-marked function entry and once again per return path
+ * (per-call semantics; OQ-E lock per CONTEXT.md). Codegen: emit_c.c
+ * injects `iron_stack_gen += 1;` in the function prologue and before
+ * every IRON_LIR_RETURN when fn->takes_local_addr.
+ *
+ * Declaration in iron_runtime.h. */
+_Thread_local uint64_t iron_stack_gen = 1;
+
 /* iron_panic_stale_pointer body lives in src/runtime/iron_panic.c (Plan
  * 19-02). It is forward-declared in src/runtime/iron_runtime.h with
  * __attribute__((noreturn)); the canonical declaration is in

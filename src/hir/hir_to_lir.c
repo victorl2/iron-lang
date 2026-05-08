@@ -1686,6 +1686,41 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * If somehow reached as an expression, emit poison. */
         return iron_lir_poison(ctx->current_func, ctx->current_block, type, span)->id;
 
+    /* Phase 20 PTR-04/06/08/09 (Plan 20-02b): pointer ops.
+     *
+     * IRON_HIR_EXPR_ADDR_OF lowers to IRON_LIR_ADDR_OF carrying the
+     * gen_source tag (HEAP / STACK) derived during HIR lowering. The LIR
+     * instruction's `target` operand is the result-id of the operand
+     * expression — emit_c.c assembles the Iron_FatPtr compound literal
+     * `{ .addr = &<lvalue>, .gen = <source-gen> }` from this.
+     *
+     * IRON_HIR_EXPR_DEREF lowers to IRON_LIR_PTR_LOAD by default; the
+     * IRON_HIR_STMT_ASSIGN handler upstream is responsible for the
+     * OQ-A write-half DEREF -> PTR_STORE rewrite when the deref appears
+     * on the LHS of an assignment.
+     *
+     * Both kinds propagate gen_source unchanged from HIR to LIR via the
+     * isomorphic enum mapping (IRON_HIR_GEN_HEAP <-> IRON_LIR_GEN_HEAP). */
+    case IRON_HIR_EXPR_ADDR_OF: {
+        IronLIR_ValueId target = lower_expr(ctx, expr->addr_of.target);
+        if (!ctx->current_block) return IRON_LIR_VALUE_INVALID;
+        IronLIR_GenSource gs =
+            (expr->addr_of.gen_source == IRON_HIR_GEN_HEAP)
+                ? IRON_LIR_GEN_HEAP : IRON_LIR_GEN_STACK;
+        return iron_lir_addr_of(ctx->current_func, ctx->current_block,
+                                target, gs, type, span)->id;
+    }
+
+    case IRON_HIR_EXPR_DEREF: {
+        IronLIR_ValueId fp = lower_expr(ctx, expr->deref.target);
+        if (!ctx->current_block) return IRON_LIR_VALUE_INVALID;
+        IronLIR_GenSource gs =
+            (expr->deref.gen_source == IRON_HIR_GEN_HEAP)
+                ? IRON_LIR_GEN_HEAP : IRON_LIR_GEN_STACK;
+        return iron_lir_ptr_load(ctx->current_func, ctx->current_block,
+                                 fp, gs, type, span)->id;
+    }
+
     default:
         return iron_lir_poison(ctx->current_func, ctx->current_block, type, span)->id;
     }
@@ -2404,6 +2439,12 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     /* Phase 80 MUT-07: propagate mut-receiver flag HIR→LIR so emit_c.c can
      * emit pointer-receiver signature + `->` field access for the body. */
     lir_func->is_mut_receiver_method = hir_func->is_mut_receiver_method;
+
+    /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr flag
+     * HIR -> LIR so emit_c.c can inject `iron_stack_gen += 1;` prologue
+     * + per-return-path bumps for functions whose body takes the address
+     * of a stack-local (set by Plan 20-02a's mark_takes_local_addr_pass). */
+    lir_func->takes_local_addr = hir_func->takes_local_addr;
 
     /* Set up context for this function */
     ctx->current_func = lir_func;

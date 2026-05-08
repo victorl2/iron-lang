@@ -715,3 +715,39 @@ IronHIR_Expr *iron_hir_expr_pattern(IronHIR_Module *mod,
     e->pattern.binding_count         = binding_count;
     return e;
 }
+
+/* Phase 20 PTR-04/08/09 — &lvalue lowering + auto-address materialization.
+ * Mirrors iron_hir_expr_unop shape (single sub-expr + operator-style tag).
+ * gen_source is derived in hir_lower.c by walking to the outermost root
+ * binding (OQ-C: field-pointer parent gen = outermost-allocation gen). */
+IronHIR_Expr *iron_hir_expr_addr_of(IronHIR_Module *mod, IronHIR_Expr *target,
+                                     IronHIR_GenSource gen_source,
+                                     Iron_Type *type, Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_addr_of");
+    memset(e, 0, sizeof(*e));
+    e->kind             = IRON_HIR_EXPR_ADDR_OF;
+    e->span             = span;
+    e->type             = type;
+    e->addr_of.target     = target;
+    e->addr_of.gen_source = gen_source;
+    return e;
+}
+
+/* Phase 20 PTR-06 — auto-deref expansion at FIELD_ACCESS / METHOD_CALL on
+ * *T receivers (read half) AND OQ-A write half (assignment-LHS field-access
+ * on *var T, lowered to DEREF + field-store). LIR side picks PTR_LOAD vs
+ * PTR_STORE based on usage context. */
+IronHIR_Expr *iron_hir_expr_deref(IronHIR_Module *mod, IronHIR_Expr *target,
+                                   IronHIR_GenSource gen_source,
+                                   Iron_Type *type, Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_deref");
+    memset(e, 0, sizeof(*e));
+    e->kind             = IRON_HIR_EXPR_DEREF;
+    e->span             = span;
+    e->type             = type;
+    e->deref.target     = target;
+    e->deref.gen_source = gen_source;
+    return e;
+}

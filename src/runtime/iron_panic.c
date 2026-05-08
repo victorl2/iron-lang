@@ -46,6 +46,49 @@ void iron_panic_init_from_env(void) {
     }
 }
 
+/* Phase 20 PTR-10: stack-pointer panic helper (OQ-B Option C lock).
+ *
+ * Mirrors iron_panic_stale_pointer text + JSON channels but with a
+ * distinct header substring ("dangling stack pointer to frame") and a
+ * distinct JSON "panic":"stack_pointer" tag. Stack pointers carry no
+ * IronAllocHdr; the captured_frame_gen parameter is the value stored in
+ * Iron_FatPtr.gen at &-site, compared against current iron_stack_gen by
+ * the caller (iron_check_stack_pointer_gen).
+ *
+ * Reuses the same s_iron_panic_format channel-pick state cached at
+ * iron_runtime_init time per Pitfall 6 (single getenv-once-at-init);
+ * panic-during-panic discipline matches iron_panic_stale_pointer (no
+ * malloc, no Iron_String, only fputs/fprintf with stack buffers). */
+void iron_panic_stale_stack_pointer(const char *deref_file,
+                                    int deref_line,
+                                    uint64_t captured_frame_gen) {
+    const char *df = deref_file ? deref_file : "<unknown>";
+
+    if (s_iron_panic_format == 1) {
+        /* JSON line — distinct "panic":"stack_pointer" tag. */
+        fputs("{\"panic\":\"stack_pointer\",", stderr);
+        fprintf(stderr, "\"deref_site\":{\"file\":\"%s\",\"line\":%d}",
+                df, deref_line);
+        fprintf(stderr,
+                ",\"captured_frame_gen\":%llu,\"current_stack_gen\":%llu",
+                (unsigned long long)captured_frame_gen,
+                (unsigned long long)iron_stack_gen);
+        fputc('}', stderr);
+        fputc('\n', stderr);
+    } else {
+        /* Text format — distinct header substring asserted by
+         * tests/unit/test_runtime_stack_pointer_dangling.c */
+        fputs("iron: dangling stack pointer to frame\n", stderr);
+        fprintf(stderr, "  deref site: %s:%d\n", df, deref_line);
+        fprintf(stderr,
+                "  captured frame: #%llu (current frame: #%llu)\n",
+                (unsigned long long)captured_frame_gen,
+                (unsigned long long)iron_stack_gen);
+    }
+    fflush(stderr);
+    abort();
+}
+
 void iron_panic_stale_pointer(const char *deref_file,
                               int deref_line,
                               const struct IronAllocHdr *hdr) {

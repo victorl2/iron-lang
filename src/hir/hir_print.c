@@ -540,6 +540,27 @@ static void print_expr(Iron_StrBuf *sb, const IronHIR_Expr *expr,
         }
         break;
 
+    /* Phase 20 PTR-04/06/08/09 (Plan 20-02b). */
+    case IRON_HIR_EXPR_ADDR_OF:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "AddrOf(%s)\n",
+                            expr->addr_of.gen_source == IRON_HIR_GEN_HEAP
+                                ? "heap" : "stack");
+        if (expr->addr_of.target) {
+            print_expr(sb, expr->addr_of.target, mod, depth + 1, tmp);
+        }
+        break;
+
+    case IRON_HIR_EXPR_DEREF:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "Deref(%s)\n",
+                            expr->deref.gen_source == IRON_HIR_GEN_HEAP
+                                ? "heap" : "stack");
+        if (expr->deref.target) {
+            print_expr(sb, expr->deref.target, mod, depth + 1, tmp);
+        }
+        break;
+
     default:
         do_indent(sb, depth);
         iron_strbuf_appendf(sb, "UnknownExpr\n");

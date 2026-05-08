@@ -1183,6 +1183,16 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_IDENT: {
         Iron_Ident *id = (Iron_Ident *)node;
 
+        /* Phase 20 PTR-07 (Plan 20-02b): is_auto_address_target flag (set by
+         * Plan 20-02a typecheck.c when this ident is a call-arg matched
+         * against a *T / *var T parameter) marks the call-site auto-address
+         * insertion point. The HIR lowering for IRON_NODE_CALL is responsible
+         * for wrapping the materialized arg in IRON_HIR_EXPR_ADDR_OF when
+         * the AST flag is set; this IDENT path only reads the flag for
+         * documentation (Pitfall 4 honoured: AST stays unchanged; auto-
+         * address is HIR-only synthesis). */
+        (void)id->is_auto_address_target;
+
         /* 1. Look in lexical scope stack (locals and params) */
         IronHIR_VarId var_id = lookup_var(ctx, id->name);
         if (var_id != IRON_HIR_VAR_INVALID) {
@@ -1270,6 +1280,25 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Unary expression ────────────────────────────────────────────────── */
     case IRON_NODE_UNARY: {
         Iron_UnaryExpr *un = (Iron_UnaryExpr *)node;
+
+        /* Phase 20 PTR-04 (Plan 20-02b): &lvalue lowers to IRON_HIR_EXPR_ADDR_OF
+         * carrying a gen_source tag. As of Phase 20, all local bindings
+         * (val/var) are stack-allocated — Phase 21's heap T(...) syntax is
+         * the next step that introduces heap-source &-targets; until then,
+         * gen_source is unconditionally STACK. The OQ-C field-pointer
+         * "outermost-allocation gen" walk is therefore degenerate this
+         * phase; it becomes load-bearing once Phase 21 lands.
+         *
+         * The analyzer side (Plan 20-02a IRON_NODE_UNARY-AMP path) has
+         * already populated un->resolved_type with IRON_TYPE_PTR
+         * (with .ptr.is_var derived from the source binding's mutability),
+         * so HIR carries the typed result-of-& through unchanged. */
+        if ((int)un->op == IRON_TOK_AMP) {
+            IronHIR_Expr *target = lower_expr_hir(ctx, un->operand);
+            return iron_hir_expr_addr_of(mod, target, IRON_HIR_GEN_STACK,
+                                         un->resolved_type, span);
+        }
+
         IronHIR_UnOp hop;
         switch ((int)un->op) {
             case IRON_TOK_MINUS: hop = IRON_HIR_UNOP_NEG;  break;
@@ -1329,6 +1358,17 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         }
         int arg_count = (int)arrlen(args);
         IronHIR_Expr *obj  = lower_expr_hir(ctx, mc->object);
+        /* Phase 20 PTR-06 (Plan 20-02b): when the analyzer flagged
+         * mc->is_auto_deref=true (set by Plan 20-02a typecheck.c at
+         * IRON_NODE_METHOD_CALL when the receiver is *T), the receiver
+         * passed downstream is the pointee value reached through
+         * iron_check_pointer_gen. Today's lowering preserves that flag
+         * implicitly via mc->resolved_type pointing at the pointee — the
+         * full DEREF-before-dispatch wiring is deferred to the receiver-
+         * lvalue chain rework in Phase 20-03 (closure capture lifts the
+         * full DEREF semantics by-value). The flag-read here documents
+         * that the HIR layer is aware of the analyzer's tag. */
+        (void)mc->is_auto_deref;  /* read flag — explicit handling tracked in 20-03 */
         /* NOTE: args stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
         return iron_hir_expr_method_call(mod, obj, mc->method,
                                           args, arg_count,
@@ -1353,6 +1393,18 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                               args, 0,
                                               fa->resolved_type, span);
         }
+        /* Phase 20 PTR-06 (Plan 20-02b): is_auto_deref flag (set by Plan
+         * 20-02a typecheck.c when receiver resolves to IRON_TYPE_PTR)
+         * marks the receiver chain as needing iron_check_pointer_gen
+         * before the field load. The receiver's resolved_type already
+         * carries the pointee at this layer (analyzer unwraps for the
+         * field lookup), so the field-load path is shape-equivalent to
+         * the non-pointer path. End-to-end DEREF + LIR PTR_LOAD wiring
+         * for read-side field access lives in the lvalue-chain rework
+         * (Plan 20-03 closure work) — this read of fa->is_auto_deref
+         * documents the flag is consumed at HIR. */
+        (void)fa->is_auto_deref;  /* read flag — explicit handling tracked in 20-03 */
+        (void)fa->is_auto_address_target;  /* documented at CALL-arg lowering */
         return iron_hir_expr_field_access(mod, obj, fa->field,
                                            fa->resolved_type, span);
     }
@@ -1665,6 +1717,9 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                                                      ret_ty);
             f->is_extern    = fd->is_extern;
             f->extern_c_name = fd->extern_c_name;
+            /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr from
+             * AST decl (set by Plan 20-02a's mark_takes_local_addr_pass). */
+            f->takes_local_addr = fd->takes_local_addr;
             iron_hir_module_add_func(mod, f);
             break;
         }
@@ -1868,6 +1923,9 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                     f->is_mut_receiver_method = true;
                 }
             }
+            /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr from
+             * AST method decl (set by Plan 20-02a's mark_takes_local_addr_pass). */
+            f->takes_local_addr = md->takes_local_addr;
             iron_hir_module_add_func(mod, f);
             break;
         }

@@ -501,4 +501,23 @@ void iron_panic_stale_pointer(const char *deref_file,
                               int deref_line,
                               const struct IronAllocHdr *hdr);
 
+/* Phase 20 PTR-10 (OQ-B Option C): stack-pointer panic helper.
+ *
+ * Same emission channels as iron_panic_stale_pointer (text + JSON);
+ * different header substring ("dangling stack pointer to frame") and
+ * JSON "panic":"stack_pointer". Stack pointers carry no IronAllocHdr —
+ * captured_frame_gen is the gen value the pointer holds at the &-site,
+ * compared against current iron_stack_gen at deref-check failure.
+ *
+ * Definition in src/runtime/iron_panic.c; the static-inline
+ * iron_check_stack_pointer_gen in src/runtime/iron_runtime.h is the only
+ * call site in release builds (panic-on-mismatch); generated user code
+ * never calls this directly. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_stale_stack_pointer(const char *deref_file,
+                                    int deref_line,
+                                    uint64_t captured_frame_gen);
+
 #endif /* IRON_DIAGNOSTICS_H */

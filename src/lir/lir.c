@@ -539,6 +539,42 @@ void iron_lir_phi_add_incoming(IronLIR_Instr *phi, IronLIR_ValueId value,
     phi->phi.count++;
 }
 
+/* Phase 20 PTR-04/08/09 — IRON_LIR_ADDR_OF constructor.
+ * Produces an Iron_FatPtr value; emit_c.c assembles the compound literal
+ * (addr, gen) with gen_source choosing between IronAllocHdr-recovered gen
+ * (HEAP) and iron_stack_gen TLS counter (STACK). */
+IronLIR_Instr *iron_lir_addr_of(IronLIR_Func *fn, IronLIR_Block *block,
+                                IronLIR_ValueId target,
+                                IronLIR_GenSource gen_source,
+                                Iron_Type *type, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_ADDR_OF, type, span, true);
+    i->addr_of.target     = target;
+    i->addr_of.gen_source = gen_source;
+    return i;
+}
+
+/* Phase 20 PTR-06 — IRON_LIR_PTR_LOAD constructor. */
+IronLIR_Instr *iron_lir_ptr_load(IronLIR_Func *fn, IronLIR_Block *block,
+                                 IronLIR_ValueId fp,
+                                 IronLIR_GenSource gen_source,
+                                 Iron_Type *type, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_PTR_LOAD, type, span, true);
+    i->ptr_load.fp         = fp;
+    i->ptr_load.gen_source = gen_source;
+    return i;
+}
+
+/* Phase 20 PTR-06 OQ-A write half — IRON_LIR_PTR_STORE constructor. */
+IronLIR_Instr *iron_lir_ptr_store(IronLIR_Func *fn, IronLIR_Block *block,
+                                  IronLIR_ValueId fp, IronLIR_ValueId value,
+                                  IronLIR_GenSource gen_source, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_PTR_STORE, NULL, span, false);
+    i->ptr_store.fp         = fp;
+    i->ptr_store.value      = value;
+    i->ptr_store.gen_source = gen_source;
+    return i;
+}
+
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 
 bool iron_lir_is_terminator(IronLIR_InstrKind kind) {

@@ -3103,6 +3103,19 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 
     case IRON_LIR_RETURN: {
+        /* Phase 20 PTR-10 (Plan 20-02b): stack-frame TLS counter return-path
+         * bump. Mirrors the prologue bump injected at function entry; emitted
+         * BEFORE any free()s and the actual return statement so the TLS gen
+         * is updated at the precise frame-exit point. OQ-E per-call lock:
+         * each return path bumps once, so a function with N returns plus the
+         * entry-bump observes N+1 increments per call (entry + each exit).
+         * Stack pointers captured before the entry-bump or after the
+         * exit-bump fail iron_check_stack_pointer_gen with the
+         * "dangling stack pointer to frame" panic. */
+        if (fn->takes_local_addr) {
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "iron_stack_gen += 1;\n");
+        }
         /* COLL-04: Emit _free() for non-escaping heap arrays before return.
          * We iterate over all unique original ARRAY_LIT ids tracked in
          * heap_array_ids and free those that haven't escaped. */
@@ -4369,6 +4382,93 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, "/* poison */\n");
         break;
 
+    /* ── Phase 20 PTR-04/06/08/09 (Plan 20-02b): pointer ops ────────────── */
+
+    /* IRON_LIR_ADDR_OF: emit `Iron_FatPtr _vN = (Iron_FatPtr){ .addr = &_vT,
+     * .gen = SRC };` where SRC is iron_stack_gen for STACK source or the
+     * IronAllocHdr-recovered gen for HEAP source. The cast on .addr keeps
+     * the fat-pointer type-correct against `void *addr`.
+     *
+     * Plan 20-02b note: for the plumbing-and-tests scope of this plan the
+     * ADDR_OF target is the LIR result-id of the operand; a future plan
+     * (20-03 / Phase 21 follow-up) may grow a dedicated lvalue-chain
+     * representation so emit_c can emit `&<expr>` without the underscore-v
+     * indirection. Today's emit produces a syntactically-correct fat-ptr
+     * literal: gen comes from the source tag; addr is `&_vT`. */
+    case IRON_LIR_ADDR_OF: {
+        emit_indent(sb, ind);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_FatPtr ");
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)&");
+        emit_val(sb, instr->addr_of.target);
+        if (instr->addr_of.gen_source == IRON_LIR_GEN_STACK) {
+            iron_strbuf_appendf(sb, ", .gen = iron_stack_gen };\n");
+        } else {
+            /* HEAP: recover gen from IronAllocHdr prepended to alloc.
+             * (target's addr is the user payload pointer per Phase 19 ABI;
+             * header is at addr - sizeof(IronAllocHdr).) */
+            iron_strbuf_appendf(sb,
+                ", .gen = ((const IronAllocHdr *)((const char *)&");
+            emit_val(sb, instr->addr_of.target);
+            iron_strbuf_appendf(sb, " - sizeof(IronAllocHdr)))->gen };\n");
+        }
+        break;
+    }
+
+    /* IRON_LIR_PTR_LOAD: dispatch heap vs stack check, then load through
+     * fp.addr. Pitfall 7 isomorphism: both check helpers are static-inline
+     * with identical shapes so Phase 30 elision works on both with the
+     * same template. */
+    case IRON_LIR_PTR_LOAD: {
+        const char *check_fn =
+            (instr->ptr_load.gen_source == IRON_LIR_GEN_STACK)
+                ? "iron_check_stack_pointer_gen"
+                : "iron_check_pointer_gen";
+        const char *df = instr->span.filename ? instr->span.filename : "<unknown>";
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s(", check_fn);
+        emit_val(sb, instr->ptr_load.fp);
+        iron_strbuf_appendf(sb, ", \"%s\", %u);\n",
+                            df, (unsigned)instr->span.line);
+        emit_indent(sb, ind);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = *((%s *)", emit_type_to_c(instr->type, ctx));
+        emit_val(sb, instr->ptr_load.fp);
+        iron_strbuf_appendf(sb, ".addr);\n");
+        break;
+    }
+
+    /* IRON_LIR_PTR_STORE (OQ-A write half): same dispatch as PTR_LOAD,
+     * then store value through fp.addr. */
+    case IRON_LIR_PTR_STORE: {
+        const char *check_fn =
+            (instr->ptr_store.gen_source == IRON_LIR_GEN_STACK)
+                ? "iron_check_stack_pointer_gen"
+                : "iron_check_pointer_gen";
+        const char *df = instr->span.filename ? instr->span.filename : "<unknown>";
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s(", check_fn);
+        emit_val(sb, instr->ptr_store.fp);
+        iron_strbuf_appendf(sb, ", \"%s\", %u);\n",
+                            df, (unsigned)instr->span.line);
+        /* The pointee-type for the store is the type of the value being
+         * stored; lower layer guarantees value's lir type matches. */
+        IronLIR_Instr *vinstr =
+            (instr->ptr_store.value < (IronLIR_ValueId)arrlen(fn->value_table))
+                ? fn->value_table[instr->ptr_store.value] : NULL;
+        const char *value_c =
+            (vinstr && vinstr->type) ? emit_type_to_c(vinstr->type, ctx)
+                                     : "void *";
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "*((%s *)", value_c);
+        emit_val(sb, instr->ptr_store.fp);
+        iron_strbuf_appendf(sb, ".addr) = ");
+        emit_val(sb, instr->ptr_store.value);
+        iron_strbuf_appendf(sb, ";\n");
+        break;
+    }
+
     /* ── Sentinel ───────────────────────────────────────────────────────── */
 
     case IRON_LIR_INSTR_COUNT:
@@ -5080,6 +5180,19 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     iron_strbuf_appendf(sb, " {\n");
 
     ctx->indent = 1;
+
+    /* ── Phase 20 PTR-10 (Plan 20-02b): stack-frame TLS counter prologue ─────
+     * For functions whose body takes the address of a stack-local (set by
+     * Plan 20-02a's mark_takes_local_addr_pass and propagated to LIR via
+     * hir_to_lir.c), emit `iron_stack_gen += 1;` so any &local site inside
+     * this frame snapshots a per-call gen value. The matching bump on each
+     * IRON_LIR_RETURN is emitted in emit_instr's RETURN case. OQ-E lock:
+     * per-call (not per-function-name) — recursive functions get fresh gen
+     * per recursive entry. RESEARCH Pattern 6 codegen template. */
+    if (fn->takes_local_addr) {
+        emit_indent(sb, 1);
+        iron_strbuf_appendf(sb, "iron_stack_gen += 1;\n");
+    }
 
     /* ── Capture alias setup for lifted lambda functions ─────────────────────
      * For lifted functions with captures, build a map from alloca ValueId to
