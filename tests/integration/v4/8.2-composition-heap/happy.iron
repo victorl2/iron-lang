@@ -1,6 +1,6 @@
 -- section 8.2 heap subsystem with defer free verbatim
 -- @req: POL-02, POL-04, PTR-01
--- @expected-pass-after: phase-21
+-- @expected-pass-after: phase-24
 -- heap World because value is too large for stack; explicit free via defer
 
 object TerrainGrid {

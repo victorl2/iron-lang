@@ -178,10 +178,15 @@ typedef struct {
  * fields, call IRON_AST_ASSERT_UNSEALED(program) before the write. The
  * full contract lives in docs/dev/AST_CONTRACT.md. */
 #ifndef NDEBUG
+/* Use a helper inline to avoid -Werror=address when caller passes &local. */
+static inline void iron_ast_assert_unsealed_impl(const Iron_Program *prog,
+                                                  const char *file, int line) {
+    if (prog && prog->sealed)
+        iron_ice("AST_CONTRACT breach: write after analyze at %s:%d", file, line);
+}
 #  define IRON_AST_ASSERT_UNSEALED(program)                                  \
-       do { if ((program) && ((const Iron_Program *)(program))->sealed)     \
-            iron_ice("AST_CONTRACT breach: write after analyze at %s:%d",   \
-                     __FILE__, __LINE__); } while (0)
+       iron_ast_assert_unsealed_impl((const Iron_Program *)(program),        \
+                                     __FILE__, __LINE__)
 #else
 #  define IRON_AST_ASSERT_UNSEALED(program) ((void)0)
 #endif

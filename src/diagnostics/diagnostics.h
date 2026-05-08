@@ -248,6 +248,25 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_PTR_ESCAPE_STACK_REF     271   /* compile-time escape (Plan 20-02) */
 #define IRON_ERR_PTR_NULL_DEREF           272   /* PTR-13 + runtime panic identifier */
 
+/* Phase 21 — Heap policy + free / leak / defer-free (POL-* / DEFER-02)
+ *
+ *   273 (Plan 21-01): POL-03 position lock — `heap` keyword used outside
+ *                     allocation-expression position.  Single code; the hint
+ *                     string distinguishes three call-sites:
+ *                     "in type annotation" / "in binding declaration" /
+ *                     "in parameter declaration".
+ *   274 (Plan 21-01): POL-04 target restriction — `free` target must be a
+ *                     bare identifier (binding name), not an expression.
+ *   275 (Plan 21-01): POL-05 target restriction — `leak` target must be a
+ *                     bare identifier (binding name), not an expression.
+ *   276 (Plan 21-01): DEFER-02 structural restriction — only
+ *                     `defer free <ident>` is supported in v3.0-alpha.1;
+ *                     full `defer` semantics ship in Phase 32. */
+#define IRON_ERR_HEAP_BAD_POSITION        273  /* POL-03 (3 positions; hint distinguishes type-annotation/binding/parameter) */
+#define IRON_ERR_FREE_NOT_BINDING         274  /* POL-04 (free target must be IRON_NODE_IDENT; emitted Plan 21-01 Task 3) */
+#define IRON_ERR_LEAK_NOT_BINDING         275  /* POL-05 (leak target must be IRON_NODE_IDENT; emitted Plan 21-01 Task 3) */
+#define IRON_ERR_DEFER_FORM_UNSUPPORTED   276  /* DEFER-02 (only `defer free <ident>` accepted in v3.0-alpha.1; emitted Plan 21-01 Task 4 in hir_lower.c) */
+
 /* Phase 86 PATCH: open-extension diagnostics.
  *
  * PATCH-01 lands the parse-surface for `patch object T { ... }`; the parser

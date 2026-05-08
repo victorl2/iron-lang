@@ -1062,6 +1062,14 @@ set_tests_properties(test_fmt_idempotent PROPERTIES
     LABELS "integration;phase-m4-invariant"
     TIMEOUT 300)
 
+# ── Phase 21 invariant label declaration ─────────────────────────────────────
+# `ctest -L phase21-invariant` aggregates all Plan 21-01 + 21-02 + 21-03
+# invariant tests (3 unit tests from tests/unit/CMakeLists.txt with LABELS
+# "unit;phase21-invariant").  The LABEL is declared on each test entry in
+# tests/unit/CMakeLists.txt; this comment serves as the root-level anchor for
+# the phase21-invariant label, mirroring the phase20-invariant pattern.
+# Plans 21-01 through 21-03 each add tests to this label group.
+
 # ---- Install rules ----
 if(IRON_BUILD_LSP)
     install(TARGETS ironc iron ironls DESTINATION bin)

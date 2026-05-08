@@ -1212,3 +1212,20 @@ set_tests_properties(test_runtime_stack_pointer_dangling PROPERTIES
     LABELS "unit;phase20-invariant"
     TIMEOUT 30
 )
+
+# Phase 21 Plan 01 — Wave 0 RED -> GREEN
+# POL-03 position locks + POL-04/05 identifier-only checks + DEFER-02 structural check
+add_executable(test_heap_bad_position test_heap_bad_position.c)
+target_link_libraries(test_heap_bad_position iron_compiler unity)
+add_test(NAME test_heap_bad_position COMMAND test_heap_bad_position)
+set_tests_properties(test_heap_bad_position PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)
+
+add_executable(test_free_leak_target_check test_free_leak_target_check.c)
+target_link_libraries(test_free_leak_target_check iron_compiler unity)
+add_test(NAME test_free_leak_target_check COMMAND test_free_leak_target_check)
+set_tests_properties(test_free_leak_target_check PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)
+
+add_executable(test_defer_form_unsupported test_defer_form_unsupported.c)
+target_link_libraries(test_defer_form_unsupported iron_compiler unity)
+add_test(NAME test_defer_form_unsupported COMMAND test_defer_form_unsupported)
+set_tests_properties(test_defer_form_unsupported PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)

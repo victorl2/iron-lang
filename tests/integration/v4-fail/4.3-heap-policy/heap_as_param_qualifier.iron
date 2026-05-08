@@ -1,0 +1,11 @@
+-- section 4.3 negative: heap keyword as parameter qualifier
+-- @req: POL-03
+-- @expected-pass-after: phase-21
+
+func f(heap p: Int) -> Int {
+    return p
+}
+
+func main() {
+    f(42)
+}

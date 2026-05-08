@@ -1,6 +1,6 @@
 -- section 3.2 heap policy + destructor timing
 -- @req: POL-02, POL-04, DROP-01
--- @expected-pass-after: phase-21
+-- @expected-pass-after: phase-24
 -- extends-spec: drop probe in object body confirms timing: destructor fires AT free, not earlier
 
 object Resource {

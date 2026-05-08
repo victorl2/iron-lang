@@ -507,6 +507,22 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
     if (iron_cancel_requested(p->cancel_flag)) {
         return iron_make_error(p);
     }
+
+    /* Phase 21 POL-03: heap keyword is illegal in type-annotation position.
+     * Consume + recover so the rest of the annotation parses cleanly.
+     * Placement: BEFORE the Phase 20 leading-`?` and leading-`*` guards so
+     * that `?heap T` and `*heap T` also trigger this check via the recursive
+     * call that re-enters this impl from the `?` / `*` handlers (Pitfall 6). */
+    if (iron_check(p, IRON_TOK_HEAP)) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_HEAP_BAD_POSITION,
+                       iron_token_span(p, iron_current(p)),
+                       "`heap` only valid at allocation expression"
+                       " \342\200\224 got `heap` in type annotation",
+                       NULL);
+        iron_advance(p);  /* consume `heap`, re-parse as if absent */
+    }
+
     Iron_Token *start = iron_current(p);
 
     /* Phase 20 PTR-13: leading `?` for `?*T` / `?*var T`. The leading-`?`
@@ -897,6 +913,19 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
                            "or declare a default in-object method to mutate self",
                            "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
             iron_advance(p);  /* consume 'mut' for recovery */
+        }
+
+        /* Phase 21 POL-03: heap keyword is illegal as a parameter qualifier.
+         * Consume + recover so the rest of the param list keeps parsing cleanly.
+         * Placement: after val/var qualifier consumption, before name-token check. */
+        if (iron_check(p, IRON_TOK_HEAP)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_HEAP_BAD_POSITION,
+                           iron_token_span(p, iron_current(p)),
+                           "`heap` only valid at allocation expression"
+                           " \342\200\224 got `heap` in parameter declaration",
+                           NULL);
+            iron_advance(p);  /* consume `heap`, continue with name-token */
         }
 
         /* Phase 85 INIT: accept IRON_TOK_INIT as a parameter name so stdlib
@@ -2506,6 +2535,28 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
         return iron_make_error(p);
     }
     iron_skip_newlines(p);
+
+    /* Phase 21 POL-03 (Pitfall 5): `heap val p = ...` or `heap var p = ...`
+     * is illegal — `heap` is not a binding modifier.
+     * Token stream: [HEAP][VAL|VAR][IDENT]...
+     * Intercept BEFORE the switch so the expression-statement fallthrough
+     * (which routes `heap T(...)` through iron_parse_primary) is NOT taken.
+     * When the peek is NOT val/var the token IS a legal `heap T(...)` expr;
+     * fall through normally so the expression-statement path handles it. */
+    if (iron_peek(p) == IRON_TOK_HEAP &&
+        p->pos + 1 < p->token_count &&
+        (p->tokens[p->pos + 1].kind == IRON_TOK_VAL ||
+         p->tokens[p->pos + 1].kind == IRON_TOK_VAR)) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_HEAP_BAD_POSITION,
+                       iron_token_span(p, iron_current(p)),
+                       "`heap` only valid at allocation expression"
+                       " \342\200\224 got `heap` in binding declaration",
+                       NULL);
+        iron_advance(p);  /* consume `heap`, re-dispatch to val/var */
+        /* fall through: switch below sees IRON_TOK_VAL or IRON_TOK_VAR */
+    }
+
     Iron_Token *t = iron_current(p);
 
     switch ((int)t->kind) {
@@ -2538,7 +2589,27 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
             return iron_parse_match_stmt(p);
         case IRON_TOK_DEFER: {
             iron_advance(p);
-            Iron_Node *expr  = iron_parse_expr(p);
+            /* Phase 21 DEFER-02: `defer free <ident>` is the only supported
+             * defer form in v3.0-alpha.1.  When the next token is `free`, parse
+             * `free <expr>` into an Iron_FreeStmt node so that hir_lower.c's
+             * structural check (ds->expr->kind == IRON_NODE_FREE) fires
+             * correctly.  Other defer body forms remain parsed via
+             * iron_parse_expr so their expr kind is captured for the E0276
+             * rejection in hir_lower.c. */
+            Iron_Node *expr;
+            if (iron_check(p, IRON_TOK_FREE)) {
+                Iron_Token *free_tok = iron_current(p);
+                iron_advance(p);  /* consume `free` */
+                Iron_Node *free_target = iron_parse_expr(p);
+                Iron_FreeStmt *fs = ARENA_ALLOC(p->arena, Iron_FreeStmt);
+                if (!fs) { p->in_error_recovery = true; return iron_make_error(p); }
+                fs->kind = IRON_NODE_FREE;
+                fs->span = iron_span_merge(iron_token_span(p, free_tok), free_target->span);
+                fs->expr = free_target;
+                expr = (Iron_Node *)fs;
+            } else {
+                expr = iron_parse_expr(p);
+            }
             Iron_DeferStmt *n = ARENA_ALLOC(p->arena, Iron_DeferStmt);
             if (!n) { /* HARD-09 REPLACE (iron_parse_stmt DeferStmt) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind           = IRON_NODE_DEFER;

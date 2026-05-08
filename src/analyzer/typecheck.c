@@ -5430,18 +5430,53 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_DEFER: {
             Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
             check_expr(ctx, ds->expr);
+            /* Phase 21 DEFER-02: only `defer free <ident>` is supported in
+             * v3.0-alpha.1; full defer semantics ship in Phase 32.
+             * Primary emission site: typecheck.c so `ironc check` surfaces
+             * the error (check does not run hir_lower). hir_lower.c retains
+             * the structural check as a safety net (Pitfall 4). */
+            {
+                bool is_defer_free_ident =
+                    ds->expr &&
+                    ds->expr->kind == IRON_NODE_FREE &&
+                    ((Iron_FreeStmt *)ds->expr)->expr &&
+                    ((Iron_FreeStmt *)ds->expr)->expr->kind == IRON_NODE_IDENT;
+                if (!is_defer_free_ident) {
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_DEFER_FORM_UNSUPPORTED, ds->span,
+                                   "only `defer free <binding>` is supported"
+                                   " in v3.0-alpha.1",
+                                   "full `defer` semantics ship in Phase 32");
+                }
+            }
             break;
         }
 
         case IRON_NODE_FREE: {
             Iron_FreeStmt *frs = (Iron_FreeStmt *)node;
             check_expr(ctx, frs->expr);
+            /* Phase 21 POL-04: free target must be a bare identifier. */
+            if (frs->expr && frs->expr->kind != IRON_NODE_IDENT) {
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_FREE_NOT_BINDING, frs->span,
+                               "`free` target must be a binding name,"
+                               " not an expression",
+                               NULL);
+            }
             break;
         }
 
         case IRON_NODE_LEAK: {
             Iron_LeakStmt *ls = (Iron_LeakStmt *)node;
             check_expr(ctx, ls->expr);
+            /* Phase 21 POL-05: leak target must be a bare identifier. */
+            if (ls->expr && ls->expr->kind != IRON_NODE_IDENT) {
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_LEAK_NOT_BINDING, ls->span,
+                               "`leak` target must be a binding name,"
+                               " not an expression",
+                               NULL);
+            }
             break;
         }
 

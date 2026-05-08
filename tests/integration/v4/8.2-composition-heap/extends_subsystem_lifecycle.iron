@@ -1,6 +1,6 @@
 -- section 8.2 extends-spec: subsystem init/shutdown order across 2 subsystems
 -- @req: POL-02, POL-04, DROP-01
--- @expected-pass-after: phase-21
+-- @expected-pass-after: phase-24
 -- extends-spec: probe verifies init-then-shutdown ordering in LIFO (defer-stack) order
 
 object Physics {

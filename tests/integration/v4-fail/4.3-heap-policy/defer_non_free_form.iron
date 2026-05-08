@@ -1,0 +1,7 @@
+-- section 4.3 negative: defer body is not `free <ident>` (DEFER-02)
+-- @req: DEFER-02
+-- @expected-pass-after: phase-21
+
+func main() {
+    defer println("cleanup")
+}

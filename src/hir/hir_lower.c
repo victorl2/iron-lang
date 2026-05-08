@@ -989,6 +989,31 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Defer ─────────────────────────────────────────────────────────────── */
     case IRON_NODE_DEFER: {
         Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
+
+        /* Phase 21 DEFER-02: only `defer free <ident>` is supported in
+         * v3.0-alpha.1; full defer semantics ship in Phase 32.
+         * Insert at TOP of arm, BEFORE existing lowering (Pitfall 4: return NULL
+         * before any HIR emission to avoid segfault in hir_to_lir). */
+        bool is_defer_free_ident =
+            ds->expr &&
+            ds->expr->kind == IRON_NODE_FREE &&
+            ((Iron_FreeStmt *)ds->expr)->expr &&
+            ((Iron_FreeStmt *)ds->expr)->expr->kind == IRON_NODE_IDENT;
+
+        if (!is_defer_free_ident) {
+            iron_diag_emit(ctx->diags, ctx->module->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_DEFER_FORM_UNSUPPORTED, ds->span,
+                           "only `defer free <binding>` is supported"
+                           " in v3.0-alpha.1",
+                           "full `defer` semantics ship in Phase 32");
+            return NULL;  /* produce NO HIR node — Pitfall 4 */
+        }
+
+        /* Accepted: `defer free <ident>` — fall through to existing
+         * IRON_HIR_STMT_DEFER lowering which registers on the defer_stack
+         * (the existing emit_defer_cleanup at hir_to_lir.c:1730 emits LIFO
+         * cleanup before every IRON_LIR_RETURN). The IRON_LIR_FREE codegen
+         * at emit_c.c is migrated to call iron_heap_free in Plan 21-02. */
         IronHIR_Block  *defer_body = iron_hir_block_create(mod);
         /* Lower the deferred expression as a single expression statement */
         IronHIR_Expr *dexpr = lower_expr_hir(ctx, ds->expr);
