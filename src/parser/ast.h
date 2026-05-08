@@ -289,6 +289,14 @@ typedef struct {
     bool               is_pure;
     /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
     const char        *doc_comment;
+    /* Phase 20 PTR-10 (Plan 20-02a): set by mark_takes_local_addr_pass after
+     * typecheck when the function body contains either an explicit `&local`
+     * unary expression OR an is_auto_address_target flag rooted at a stack-
+     * local Iron_Symbol. Plan 20-02b's emit_c.c reads this bit to inject
+     * `iron_stack_gen += 1;` prologue/epilogue around the function body
+     * (per-function-decl pessimistic detection per CONTEXT.md OQ-E lock;
+     * pure syntactic walk per RESEARCH Pitfall 6). Default false. */
+    bool               takes_local_addr;
 } Iron_FuncDecl;
 
 typedef struct {
@@ -362,6 +370,12 @@ typedef struct {
      * when a non-patch `pub object T` exists in the same source file
      * (regular object's methods survive, patch's don't). */
     bool               is_patch_member;
+    /* Phase 20 PTR-10 (Plan 20-02a): set by mark_takes_local_addr_pass
+     * when the method body contains `&local` OR an is_auto_address_target
+     * flag rooted at a stack-local. Mirrors the Iron_FuncDecl bit; same
+     * semantics. Plan 20-02b's emit_c.c reads it on method bodies for
+     * the iron_stack_gen prologue/epilogue injection. Default false. */
+    bool               takes_local_addr;
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
@@ -654,6 +668,11 @@ typedef struct {
     const char         *name;
     struct Iron_Symbol *resolved_sym;   /* set by resolver; NULL = unresolved */
     const char         *constraint_name;  /* generic param constraint; NULL if unconstrained */
+    /* Phase 20 PTR-07 (Plan 20-02a): set by typecheck.c when this ident is a
+     * call-arg that auto-addresses a *T / *var T parameter. HIR lowering
+     * (Plan 20-02b) reads this bit to emit a fat-pointer literal at the call
+     * site. Default false (arena zero-init covers non-auto-address idents). */
+    bool                is_auto_address_target;
 } Iron_Ident;
 
 typedef struct {
@@ -699,6 +718,11 @@ typedef struct {
     const char        *method;
     Iron_Node        **args;
     int                arg_count;
+    /* Phase 20 PTR-06 (Plan 20-02a): set by typecheck.c when the receiver
+     * `object` resolves to IRON_TYPE_PTR. HIR lowering (Plan 20-02b) reads
+     * this bit to emit `iron_check_pointer_gen` + load before dispatching the
+     * method against the pointee type. Default false (arena zero-init). */
+    bool               is_auto_deref;
 } Iron_MethodCallExpr;
 
 typedef struct {
@@ -713,6 +737,18 @@ typedef struct {
      * emitting a direct field load. Default false at every construction
      * site; arena zero-init covers non-pub field accesses. */
     bool               is_pub_access;
+    /* Phase 20 PTR-06 (Plan 20-02a): set by typecheck.c when the receiver
+     * `object` resolves to IRON_TYPE_PTR (read side) OR when this field-access
+     * is the LHS of an assignment whose receiver is *var T (OQ-A write side).
+     * HIR lowering (Plan 20-02b) reads this bit on read-side accesses to
+     * emit `iron_check_pointer_gen` + field-load and on write-side LHS to
+     * emit a deref-store. Default false (arena zero-init). */
+    bool               is_auto_deref;
+    /* Phase 20 PTR-07 (Plan 20-02a): set when a field-access is a call-arg
+     * that auto-addresses a *T / *var T parameter (e.g. `f(obj.field)` where
+     * f expects `*Int`). HIR lowering reads this bit at call sites to emit
+     * the field-pointer fat-ptr literal. Default false. */
+    bool               is_auto_address_target;
 } Iron_FieldAccess;
 
 typedef struct {
@@ -721,6 +757,11 @@ typedef struct {
     struct Iron_Type  *resolved_type;  /* set by type checker */
     Iron_Node         *object;
     Iron_Node         *index;
+    /* Phase 20 PTR-07 (Plan 20-02a): set when an index expression is a
+     * call-arg that auto-addresses a *T / *var T parameter (e.g. `f(arr[i])`
+     * where f expects `*Int`). HIR lowering reads this bit at call sites to
+     * emit the element-pointer fat-ptr literal. Default false. */
+    bool               is_auto_address_target;
 } Iron_IndexExpr;
 
 typedef struct {

@@ -1,0 +1,5 @@
+func sink(p: *Int) {}
+
+func main() {
+    sink(42)
+}

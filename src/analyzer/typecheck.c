@@ -281,6 +281,164 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
     }
 }
 
+/* Phase 20 PTR-07 (Plan 20-02a): true when `expr` is a syntactic lvalue
+ * that auto-address can target (named binding, field, or array element).
+ * Function-call results, literals, binops, and explicit `&` are all
+ * rvalues for the purposes of auto-address insertion. */
+static bool is_lvalue_expression(const Iron_Node *expr) {
+    if (!expr) return false;
+    switch ((int)expr->kind) {
+        case IRON_NODE_IDENT:        return true;
+        case IRON_NODE_FIELD_ACCESS: return true;
+        case IRON_NODE_INDEX:        return true;
+        default:                     return false;
+    }
+}
+
+/* Phase 20 PTR-07 (Plan 20-02a): set is_auto_address_target=true on the
+ * given expression when its kind is one of the supported lvalue shapes
+ * (IDENT, FIELD_ACCESS, INDEX). Pitfall 4 lock: flag-on-existing-node
+ * pattern, NEVER synthesize a new Iron_UnaryExpr wrapper — formatter must
+ * stay unaware so the parity-fmt gate keeps green. */
+static void set_auto_address_target_flag(Iron_Node *expr) {
+    if (!expr) return;
+    switch ((int)expr->kind) {
+        case IRON_NODE_IDENT:
+            ((Iron_Ident *)expr)->is_auto_address_target = true;
+            break;
+        case IRON_NODE_FIELD_ACCESS:
+            ((Iron_FieldAccess *)expr)->is_auto_address_target = true;
+            break;
+        case IRON_NODE_INDEX:
+            ((Iron_IndexExpr *)expr)->is_auto_address_target = true;
+            break;
+        default:
+            break;
+    }
+}
+
+/* Phase 20 PTR-10 (Plan 20-02a): walk a chain of FIELD_ACCESS / INDEX
+ * back to the rooted IRON_NODE_IDENT and return its resolved Iron_Symbol.
+ * Used by (a) PTR-10 stack-escape detection at IRON_NODE_RETURN to ask
+ * "is this an address of a stack-local?", and (b) mark_takes_local_addr
+ * walker (analyzer.c) to flag functions whose body addresses any local.
+ * Returns NULL if the chain doesn't terminate at an Iron_Ident or if the
+ * ident has no resolved_sym (resolver error path). */
+Iron_Symbol *iron_walk_to_root_binding(Iron_Node *expr) {
+    while (expr) {
+        switch ((int)expr->kind) {
+            case IRON_NODE_IDENT: {
+                Iron_Ident *id = (Iron_Ident *)expr;
+                return id->resolved_sym;
+            }
+            case IRON_NODE_FIELD_ACCESS:
+                expr = ((Iron_FieldAccess *)expr)->object;
+                break;
+            case IRON_NODE_INDEX:
+                expr = ((Iron_IndexExpr *)expr)->object;
+                break;
+            default:
+                return NULL;
+        }
+    }
+    return NULL;
+}
+
+/* Phase 20 OQ-D (Plan 20-02a): pointee-size estimate for Ptr.cast[T]
+ * compile-time check. Returns a coarse byte estimate sufficient to
+ * distinguish "same-size" from "different-size" pointee types. Mirrors
+ * the existing emit_estimate_type_size logic in src/lir/emit_structs.c
+ * (8B fixed-width primitives, 16B String/Closure, 24B array, sum of
+ * field sizes for objects). Returns -1 for IRON_TYPE_ERROR / NULL so
+ * the caller can short-circuit. */
+static int iron_type_pointee_size(const Iron_Type *t) {
+    if (!t) return -1;
+    switch ((int)t->kind) {
+        case IRON_TYPE_INT8:
+        case IRON_TYPE_UINT8:
+        case IRON_TYPE_BOOL:
+            return 1;
+        case IRON_TYPE_INT16:
+        case IRON_TYPE_UINT16:
+            return 2;
+        case IRON_TYPE_INT32:
+        case IRON_TYPE_UINT32:
+        case IRON_TYPE_FLOAT32:
+            return 4;
+        case IRON_TYPE_INT:
+        case IRON_TYPE_INT64:
+        case IRON_TYPE_UINT:
+        case IRON_TYPE_UINT64:
+        case IRON_TYPE_FLOAT:
+        case IRON_TYPE_FLOAT64:
+            return 8;
+        case IRON_TYPE_STRING:
+            return 16;
+        case IRON_TYPE_FUNC:
+            return 16;
+        case IRON_TYPE_PTR:
+            return 16;
+        case IRON_TYPE_ARRAY:
+            return 24;
+        case IRON_TYPE_OBJECT: {
+            if (!t->object.decl) return 8;
+            Iron_ObjectDecl *od = t->object.decl;
+            int total = 0;
+            for (int i = 0; i < od->field_count; i++) {
+                if (!od->fields[i] ||
+                    od->fields[i]->kind != IRON_NODE_FIELD) continue;
+                Iron_Field *f = (Iron_Field *)od->fields[i];
+                if (!f->type_ann ||
+                    f->type_ann->kind != IRON_NODE_TYPE_ANNOTATION) {
+                    total += 8;
+                    continue;
+                }
+                Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
+                if (ta->is_pointer)     total += 16;
+                else if (ta->is_array)  total += 24;
+                else if (ta->is_func)   total += 16;
+                else if (ta->name && strcmp(ta->name, "String") == 0)
+                                        total += 16;
+                else                    total += 8;
+            }
+            return total > 0 ? total : 8;
+        }
+        case IRON_TYPE_NULLABLE:
+            return iron_type_pointee_size(t->nullable.inner);
+        default:
+            return 8;
+    }
+}
+
+/* Phase 20 PTR-10: returns true when `sym` represents a stack-local
+ * variable (val/var binding inside a function body). Resolver tags such
+ * bindings with sym_kind == IRON_SYM_VARIABLE and sets the symbol on the
+ * function's local scope; top-level globals share IRON_SYM_VARIABLE but
+ * live on the global scope. We discriminate via decl_node->kind: stack
+ * locals come from IRON_NODE_VAL_DECL / IRON_NODE_VAR_DECL inside a
+ * function, AND parameters (IRON_SYM_PARAM) are also stack-resident.
+ *
+ * For the conservative whole-function pessimistic detection (Pitfall 6),
+ * any IRON_SYM_VARIABLE or IRON_SYM_PARAM source counts. Top-level
+ * globals are excluded because their addresses (when supported in a
+ * later phase) carry static-storage-duration generation, not stack. */
+static bool sym_is_stack_local(const Iron_Symbol *sym) {
+    if (!sym) return false;
+    if (sym->sym_kind == IRON_SYM_PARAM) return true;
+    if (sym->sym_kind != IRON_SYM_VARIABLE) return false;
+    /* IRON_SYM_VARIABLE: differentiate top-level globals (decl from
+     * top-level VAL_DECL / VAR_DECL but resolver registers in global
+     * scope) vs locals (registered in function scope). The resolver
+     * does not currently expose `scope_kind` on the symbol; use
+     * decl_node->kind as a proxy — IRON_NODE_VAL_DECL / VAR_DECL are
+     * the only decl kinds that produce IRON_SYM_VARIABLE. Conservative
+     * choice: treat ALL IRON_SYM_VARIABLE as stack locals for PTR-10
+     * (matches CONTEXT.md "whole-function pessimistic" lock). Top-level
+     * globals are not common enough to matter, and the runtime panic
+     * path (Plan 20-02b) is the safety net regardless. */
+    return true;
+}
+
 /* Recursively define binding variables from a pattern into the current scope.
  * enum_type: the Iron_Type of the enum being matched by this pattern.
  * pattern_node: the Iron_Pattern AST node. */
@@ -1835,6 +1993,46 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_UNARY: {
             Iron_UnaryExpr *ue = (Iron_UnaryExpr *)node;
+            /* Phase 20 PTR-04 / PTR-07 (Plan 20-02a): `&` resolves to *T at
+             * the analyzer level. The operand must be an lvalue (named
+             * binding, field, element); any rvalue (literal, function-call
+             * result, binop) emits E0270. The result is `*var T` when the
+             * operand source is mutable (var binding or var-rooted field)
+             * and `*T` otherwise. HIR/LIR lowering (Plan 20-02b) reads the
+             * resolved Iron_Type to emit Iron_FatPtr and tag the gen source.
+             *
+             * Order: handle AMP BEFORE the generic check_expr(operand) so
+             * we can short-circuit on rvalue operands and avoid surfacing
+             * unrelated diagnostics from re-checking. */
+            if (ue->op == (Iron_OpKind)IRON_TOK_AMP) {
+                if (!is_lvalue_expression(ue->operand)) {
+                    /* Still check the operand to surface its own
+                     * diagnostics (e.g. undefined call inside &g()). */
+                    check_expr(ctx, ue->operand);
+                    emit_error(ctx, IRON_ERR_PTR_AMP_ON_RVALUE, ue->span,
+                               "cannot take address of rvalue (literal or "
+                               "temporary)",
+                               "auto-address requires a named binding, "
+                               "field, or element");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ue->resolved_type = result;
+                    break;
+                }
+                Iron_Type *operand_t = check_expr(ctx, ue->operand);
+                if (!operand_t || operand_t->kind == IRON_TYPE_ERROR) {
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ue->resolved_type = result;
+                    break;
+                }
+                bool is_var_src = arg_source_is_mutable(ctx, ue->operand);
+                Iron_Type *ptr_t = iron_type_make_ptr(ctx->arena,
+                                                       operand_t,
+                                                       is_var_src);
+                result = ptr_t ? ptr_t
+                               : iron_type_make_primitive(IRON_TYPE_ERROR);
+                ue->resolved_type = result;
+                break;
+            }
             Iron_Type *ot = check_expr(ctx, ue->operand);
             if (ue->op == IRON_TOK_NOT) {
                 if (ot && ot->kind != IRON_TYPE_BOOL && ot->kind != IRON_TYPE_ERROR) {
@@ -1868,6 +2066,126 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_CALL: {
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
+
+            /* Phase 20 OQ-D (Plan 20-02a): `Ptr.cast[T](p)` compiler
+             * builtin. Parses as CALL(callee=INDEX(object=FIELD_ACCESS(
+             * Ptr.cast), index=Ident(T)), args=[p]). Compile-time
+             * pointee-size check: sizeof(T) must equal sizeof(*S) where
+             * S is the pointee of arg p (an IRON_TYPE_PTR).
+             *   - Mismatch → IRON_ERR_PTR_CAST_SIZE_MISMATCH (E0269)
+             *   - Success → return *T preserving is_var from the source
+             *
+             * Per CONTEXT.md OQ-D lock: Ptr.cast is a compiler builtin in
+             * typecheck.c, NOT a stdlib function. Phase 25 ships the rest
+             * of the Ptr namespace as stdlib functions; the dedicated
+             * builtin path here owns the size check. */
+            if (ce->callee && ce->callee->kind == IRON_NODE_INDEX) {
+                Iron_IndexExpr *idx_callee = (Iron_IndexExpr *)ce->callee;
+                if (idx_callee->object &&
+                    idx_callee->object->kind == IRON_NODE_FIELD_ACCESS) {
+                    Iron_FieldAccess *fa_inner =
+                        (Iron_FieldAccess *)idx_callee->object;
+                    bool is_ptr_cast =
+                        fa_inner->object &&
+                        fa_inner->object->kind == IRON_NODE_IDENT &&
+                        ((Iron_Ident *)fa_inner->object)->name &&
+                        strcmp(((Iron_Ident *)fa_inner->object)->name,
+                               "Ptr") == 0 &&
+                        fa_inner->field &&
+                        strcmp(fa_inner->field, "cast") == 0;
+                    if (is_ptr_cast) {
+                        /* Resolve target type T from the index expression.
+                         * The parser produced an Iron_Ident or other
+                         * type-name expression; resolve it via scope
+                         * lookup against IRON_SYM_TYPE. */
+                        Iron_Type *target_t = NULL;
+                        if (idx_callee->index &&
+                            idx_callee->index->kind == IRON_NODE_IDENT) {
+                            Iron_Ident *tid = (Iron_Ident *)idx_callee->index;
+                            Iron_Symbol *tsym = tid->name
+                                ? iron_scope_lookup(ctx->global_scope, tid->name)
+                                : NULL;
+                            if (tsym && tsym->sym_kind == IRON_SYM_TYPE) {
+                                target_t = tsym->type;
+                            } else {
+                                target_t = iron_type_make_primitive(IRON_TYPE_INT);
+                                if (tsym == NULL) {
+                                    /* Try built-in primitives by name. */
+                                    if (strcmp(tid->name, "Int")  == 0) target_t = iron_type_make_primitive(IRON_TYPE_INT);
+                                    else if (strcmp(tid->name, "Bool")  == 0) target_t = iron_type_make_primitive(IRON_TYPE_BOOL);
+                                    else if (strcmp(tid->name, "Float") == 0) target_t = iron_type_make_primitive(IRON_TYPE_FLOAT);
+                                    else if (strcmp(tid->name, "String")== 0) target_t = iron_type_make_primitive(IRON_TYPE_STRING);
+                                }
+                            }
+                        }
+                        /* Validate exactly one positional arg of type *S. */
+                        if (ce->arg_count != 1) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "Ptr.cast[T] expects 1 argument, got %d",
+                                     ce->arg_count);
+                            emit_error(ctx, IRON_ERR_ARG_COUNT,
+                                       ce->span, msg, NULL);
+                            for (int i = 0; i < ce->arg_count; i++)
+                                check_expr(ctx, ce->args[i]);
+                            result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                            ce->resolved_type = result;
+                            break;
+                        }
+                        Iron_Type *src_arg_t = check_expr(ctx, ce->args[0]);
+                        if (!src_arg_t || src_arg_t->kind != IRON_TYPE_PTR ||
+                            !src_arg_t->ptr.pointee) {
+                            emit_error(ctx, IRON_ERR_TYPE_MISMATCH,
+                                       ce->args[0]->span,
+                                       "Ptr.cast[T] expects a pointer "
+                                       "argument",
+                                       NULL);
+                            result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                            ce->resolved_type = result;
+                            break;
+                        }
+                        if (target_t) {
+                            int sz_target = iron_type_pointee_size(target_t);
+                            int sz_source = iron_type_pointee_size(
+                                src_arg_t->ptr.pointee);
+                            if (sz_target > 0 && sz_source > 0 &&
+                                sz_target != sz_source) {
+                                char msg[320];
+                                snprintf(msg, sizeof(msg),
+                                         "Ptr.cast pointee size mismatch: "
+                                         "cannot cast '*%s' (size %d) to "
+                                         "'*%s' (size %d); cast requires "
+                                         "sizeof(target) == sizeof(source)",
+                                         iron_type_to_string(
+                                             src_arg_t->ptr.pointee, ctx->arena),
+                                         sz_source,
+                                         iron_type_to_string(target_t, ctx->arena),
+                                         sz_target);
+                                emit_error(ctx,
+                                           IRON_ERR_PTR_CAST_SIZE_MISMATCH,
+                                           ce->span, msg,
+                                           "use *unchecked T (Phase 25) "
+                                           "for arbitrary pointer casts");
+                                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                                ce->resolved_type = result;
+                                break;
+                            }
+                            /* Success: return *T preserving is_var. */
+                            Iron_Type *out_t = iron_type_make_ptr(
+                                ctx->arena, target_t,
+                                src_arg_t->ptr.is_var);
+                            result = out_t
+                                ? out_t
+                                : iron_type_make_primitive(IRON_TYPE_ERROR);
+                            ce->resolved_type = result;
+                            break;
+                        }
+                        /* target_t couldn't be resolved — fall through to
+                         * the standard CALL path which will emit a more
+                         * generic diagnostic for the unknown callee. */
+                    }
+                }
+            }
 
             /* Phase 87-02 SELF-03: Self(args) inside a method body dispatches
              * to the enclosing type's anonymous init. Rewrite the callee ident
@@ -2343,9 +2661,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 for (int i = 0; i < ce->arg_count; i++) {
                     Iron_Type *param_type = callee_type->func.param_types[i];
                     Iron_Type *arg_type = check_expr_with_expected(ctx, ce->args[i], param_type);
+                    /* Phase 20 PTR-07: auto-address shape check. When the
+                     * param is `*T` / `*var T` and the arg is a non-pointer
+                     * matching the pointee structurally, the type-mismatch
+                     * branch is suppressed — auto-address (handled below)
+                     * inserts the implicit `&` and the call still type-
+                     * checks. The downstream PTR-07 block emits E0270 (on
+                     * rvalue) / E0267 (on val→*var T) where applicable. */
+                    bool auto_address_applies =
+                        param_type && param_type->kind == IRON_TYPE_PTR &&
+                        arg_type && arg_type->kind != IRON_TYPE_PTR &&
+                        arg_type->kind != IRON_TYPE_ERROR &&
+                        param_type->ptr.pointee &&
+                        iron_type_equals(param_type->ptr.pointee, arg_type);
                     if (param_type && arg_type &&
                         param_type->kind != IRON_TYPE_ERROR &&
                         arg_type->kind   != IRON_TYPE_ERROR &&
+                        !auto_address_applies &&
                         !types_assignable(param_type, arg_type) &&
                         !is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
                         char msg[256];
@@ -2381,6 +2713,55 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                        ce->args[i]->span, msg,
                                        "make the argument source mutable "
                                        "(declare as 'var')");
+                        }
+                    }
+
+                    /* Phase 20 PTR-07 (Plan 20-02a): auto-address insertion
+                     * at call sites. When the param is `*T` / `*var T` and
+                     * the arg is a non-pointer expression matching the
+                     * pointee type, set is_auto_address_target on the arg
+                     * (flag-on-existing-node per Pitfall 4 — formatter must
+                     * not see a synthesized `&` wrapper, parity-fmt gate
+                     * stays green). Three branches:
+                     *   (a) arg is an rvalue (literal, call result, binop)
+                     *       → emit E0270 "& on rvalue".
+                     *   (b) param is *var T but arg source is not mutable
+                     *       → emit E0267 (PARM-03 reused per CONTEXT.md
+                     *       lock; same code Phase 18 ships for var params).
+                     *   (c) auto-address ok → set the flag.
+                     * Skip when the arg is already an Iron_UnaryExpr with
+                     * op==IRON_TOK_AMP (explicit & path resolves to *T at
+                     * the unary handler; types_assignable already accepted
+                     * it above). */
+                    if (param_type && param_type->kind == IRON_TYPE_PTR &&
+                        arg_type && arg_type->kind != IRON_TYPE_PTR &&
+                        arg_type->kind != IRON_TYPE_ERROR &&
+                        param_type->ptr.pointee &&
+                        iron_type_equals(param_type->ptr.pointee, arg_type)) {
+                        if (!is_lvalue_expression(ce->args[i])) {
+                            emit_error(ctx, IRON_ERR_PTR_AMP_ON_RVALUE,
+                                       ce->args[i]->span,
+                                       "cannot take address of rvalue "
+                                       "(literal or temporary)",
+                                       "auto-address requires a named "
+                                       "binding, field, or element; bind "
+                                       "to a local first");
+                        } else if (param_type->ptr.is_var &&
+                                   !arg_source_is_mutable(ctx, ce->args[i])) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot pass read-only argument to "
+                                     "'*var %s' parameter",
+                                     iron_type_to_string(
+                                         param_type->ptr.pointee, ctx->arena));
+                            emit_error(ctx,
+                                       IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT,
+                                       ce->args[i]->span, msg,
+                                       "make the argument source mutable "
+                                       "(declare as 'var') or pass an "
+                                       "explicit '&'");
+                        } else {
+                            set_auto_address_target_flag(ce->args[i]);
                         }
                     }
                 }
@@ -2448,6 +2829,20 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+
+            /* Phase 20 PTR-06 (Plan 20-02a): auto-deref the receiver when
+             * its resolved type is `*T` / `*var T`. Set is_auto_deref on the
+             * Iron_MethodCallExpr so HIR lowering (Plan 20-02b) emits a
+             * `iron_check_pointer_gen` + load before dispatching the method
+             * against the pointee type. Single-level only per CONTEXT.md
+             * lock; multi-level **T receivers fall through to existing
+             * not-found / not-callable diagnostics downstream. */
+            if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_PTR &&
+                obj_type_mc->ptr.pointee &&
+                obj_type_mc->ptr.pointee->kind != IRON_TYPE_PTR) {
+                obj_type_mc = obj_type_mc->ptr.pointee;
+                mc->is_auto_deref = true;
+            }
 
             /* Phase 85 INIT-09 E0249 + INIT-14 E0251: inside an init body,
              *   (a) calling self.<anything> while any field is still
@@ -2628,14 +3023,25 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             if (mc->object->kind == IRON_NODE_IDENT) {
                 Iron_Ident *obj_id = (Iron_Ident *)mc->object;
                 const char *type_name_mc = NULL;
+                /* Phase 20 PTR-06 (Plan 20-02a): when the receiver is `*T` or
+                 * `*var T`, resolve the method against the pointee's
+                 * ObjectDecl by treating the pointee as the effective
+                 * receiver type for dispatch. mc->is_auto_deref was set
+                 * earlier in this branch when the auto-deref kicked in. */
+                Iron_Type *eff_recv_t = obj_id->resolved_type;
+                if (eff_recv_t && eff_recv_t->kind == IRON_TYPE_PTR &&
+                    eff_recv_t->ptr.pointee) {
+                    eff_recv_t = eff_recv_t->ptr.pointee;
+                }
                 if (obj_id->resolved_sym &&
                     obj_id->resolved_sym->sym_kind == IRON_SYM_TYPE) {
                     /* Auto-static: receiver is the type itself */
                     type_name_mc = obj_id->name;
-                } else if (obj_id->resolved_type &&
-                           obj_id->resolved_type->kind == IRON_TYPE_OBJECT) {
-                    /* Instance method: receiver has object type */
-                    type_name_mc = obj_id->resolved_type->object.decl->name;
+                } else if (eff_recv_t &&
+                           eff_recv_t->kind == IRON_TYPE_OBJECT) {
+                    /* Instance method: receiver has object type (post-auto-deref
+                     * for *T receivers). */
+                    type_name_mc = eff_recv_t->object.decl->name;
                 } else if (obj_id->resolved_type &&
                            obj_id->resolved_type->kind == IRON_TYPE_STRING) {
                     /* String instance method: resolve via string.iron wrapper decls */
@@ -2845,6 +3251,53 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                                "make the argument source mutable "
                                                "(declare as 'var')");
                                 }
+                                /* Phase 20 PTR-07 (Plan 20-02a): auto-address
+                                 * insertion at method call sites mirrors the
+                                 * IRON_NODE_CALL arg-loop. Param `*T` /
+                                 * `*var T` + non-pointer arg matching the
+                                 * pointee → set is_auto_address_target on
+                                 * the existing AST node (Pitfall 4 lock).
+                                 * E0270 on rvalue, E0267 on val→*var T. */
+                                Iron_Type *mp_t = resolve_type_annotation(
+                                    ctx, mp->type_ann);
+                                Iron_Type *ma_t = mc->args[ai]
+                                    ? ((Iron_ExprNode *)mc->args[ai])->resolved_type
+                                    : NULL;
+                                if (mp_t && mp_t->kind == IRON_TYPE_PTR &&
+                                    ma_t && ma_t->kind != IRON_TYPE_PTR &&
+                                    ma_t->kind != IRON_TYPE_ERROR &&
+                                    mp_t->ptr.pointee &&
+                                    iron_type_equals(mp_t->ptr.pointee, ma_t)) {
+                                    if (!is_lvalue_expression(mc->args[ai])) {
+                                        emit_error(ctx,
+                                                   IRON_ERR_PTR_AMP_ON_RVALUE,
+                                                   mc->args[ai]->span,
+                                                   "cannot take address of "
+                                                   "rvalue (literal or "
+                                                   "temporary)",
+                                                   "auto-address requires a "
+                                                   "named binding, field, or "
+                                                   "element");
+                                    } else if (mp_t->ptr.is_var &&
+                                               !arg_source_is_mutable(
+                                                    ctx, mc->args[ai])) {
+                                        char msg[256];
+                                        snprintf(msg, sizeof(msg),
+                                                 "cannot pass read-only "
+                                                 "argument to '*var %s' "
+                                                 "parameter",
+                                                 iron_type_to_string(
+                                                     mp_t->ptr.pointee,
+                                                     ctx->arena));
+                                        emit_error(ctx,
+                                                   IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT,
+                                                   mc->args[ai]->span, msg,
+                                                   "make the argument source "
+                                                   "mutable (declare as 'var')");
+                                    } else {
+                                        set_auto_address_target_flag(mc->args[ai]);
+                                    }
+                                }
                             }
                             break;
                         }
@@ -2961,8 +3414,32 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 obj_type = obj_type->rc.inner;
             }
 
-            if (obj_type->kind != IRON_TYPE_OBJECT) {
-                if (obj_type->kind == IRON_TYPE_NULLABLE) {
+            /* Phase 20 PTR-06 (Plan 20-02a): auto-deref through `*T` /
+             * `*var T` receivers. Single-level only per CONTEXT.md lock —
+             * if the pointee is itself a pointer, emit an error and bail.
+             * `?*T` flow-typing narrowing reuses the existing nullable
+             * pipeline upstream of this handler: when an `if p != null`
+             * branch narrows IRON_TYPE_NULLABLE{IRON_TYPE_PTR} to its
+             * inner IRON_TYPE_PTR via narrowing_set, the IDENT lookup at
+             * 1645 returns the PTR type, and we land here naturally. */
+            if (obj_type->kind == IRON_TYPE_PTR) {
+                if (obj_type->ptr.pointee &&
+                    obj_type->ptr.pointee->kind == IRON_TYPE_PTR) {
+                    emit_error(ctx, IRON_ERR_PTR_NULL_DEREF, fa->span,
+                               "multi-level auto-deref through '**T' is not "
+                               "supported in checked regime",
+                               "use explicit dereference (Phase 25 Ptr.deref) "
+                               "or unwrap one level first");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    fa->resolved_type = result;
+                    break;
+                }
+                obj_type = obj_type->ptr.pointee;
+                fa->is_auto_deref = true;
+            }
+
+            if (!obj_type || obj_type->kind != IRON_TYPE_OBJECT) {
+                if (obj_type && obj_type->kind == IRON_TYPE_NULLABLE) {
                     emit_error(ctx, IRON_ERR_NULLABLE_ACCESS, fa->span,
                                "cannot access field of nullable type without null check",
                                "Check for null before accessing");
@@ -4060,24 +4537,6 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * kinds like method calls — we only fire when the walk terminates at
              * an ident with a resolved_sym; otherwise the broader type system
              * handles it). */
-            bool is_field_target_immut = false;
-            const char *field_root_name = NULL;
-            Iron_Symbol *field_root_sym = NULL;  /* Phase 18 PARM-01: captured for sym_kind branch */
-            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
-                Iron_Node *cur = as->target;
-                while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
-                    cur = ((Iron_FieldAccess *)cur)->object;
-                }
-                if (cur && cur->kind == IRON_NODE_IDENT) {
-                    Iron_Ident *root_id = (Iron_Ident *)cur;
-                    if (root_id->resolved_sym) {
-                        is_field_target_immut = !root_id->resolved_sym->is_mutable;
-                        field_root_name = root_id->name;
-                        field_root_sym = root_id->resolved_sym;
-                    }
-                }
-            }
-
             /* Phase 85 INIT-05: mark the assign target while it's being
              * checked so the FIELD_ACCESS handler can suppress the E0246
              * read-before-assign check on the immediate target node. */
@@ -4086,6 +4545,49 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             Iron_Type *target_type = check_expr(ctx, as->target);
             ctx->cur_assign_target = prev_assign_target;
             Iron_Type *value_type  = check_expr_with_expected(ctx, as->value, target_type);
+
+            bool is_field_target_immut = false;
+            const char *field_root_name = NULL;
+            Iron_Symbol *field_root_sym = NULL;  /* Phase 18 PARM-01: captured for sym_kind branch */
+            /* Phase 20 OQ-A (Plan 20-02a): when the LHS is a field-access on
+             * a `*var T` receiver, the binding's own mutability does NOT
+             * gate the write — the pointer's `var` modifier authorizes it.
+             * Detect this by inspecting the outermost field-access object's
+             * resolved_type (populated by check_expr above): IRON_TYPE_PTR
+             * with is_var=true means OQ-A applies, suppressing the
+             * immutability gate. The IRON_NODE_FIELD_ACCESS handler
+             * already set is_auto_deref on the outermost FA when this
+             * condition holds (Phase 20 PTR-06 read side). */
+            bool lhs_is_var_ptr_auto_deref = false;
+            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_FieldAccess *outer_fa = (Iron_FieldAccess *)as->target;
+                if (outer_fa->object) {
+                    Iron_Type *recv_t =
+                        ((Iron_ExprNode *)outer_fa->object)->resolved_type;
+                    if (recv_t && recv_t->kind == IRON_TYPE_PTR &&
+                        recv_t->ptr.is_var) {
+                        lhs_is_var_ptr_auto_deref = true;
+                    }
+                }
+            }
+            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_Node *cur = as->target;
+                while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
+                    cur = ((Iron_FieldAccess *)cur)->object;
+                }
+                if (cur && cur->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *root_id = (Iron_Ident *)cur;
+                    if (root_id->resolved_sym) {
+                        /* OQ-A lock: skip the immutability gate when the
+                         * write goes through a *var T pointer. */
+                        is_field_target_immut =
+                            !root_id->resolved_sym->is_mutable &&
+                            !lhs_is_var_ptr_auto_deref;
+                        field_root_name = root_id->name;
+                        field_root_sym = root_id->resolved_sym;
+                    }
+                }
+            }
 
             if (is_immutable) {
                 /* Phase 18 PARM-01: when the immutable target is a function
@@ -4385,6 +4887,33 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_RETURN: {
             Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
             Iron_Type *ret_type = NULL;
+
+            /* Phase 20 PTR-10 (Plan 20-02a): compile-time stack-escape
+             * detection. `return &local` where `local` is a stack-resident
+             * binding (val/var inside a function body) emits E0271 — the
+             * pointer would dangle past the frame's return. Indirect
+             * escapes (closures, structures, function-pointer storage)
+             * remain caught at runtime by the iron_check_stack_pointer_gen
+             * panic in Plan 20-02b. */
+            if (rs->value && rs->value->kind == IRON_NODE_UNARY) {
+                Iron_UnaryExpr *ue_ret = (Iron_UnaryExpr *)rs->value;
+                if (ue_ret->op == (Iron_OpKind)IRON_TOK_AMP) {
+                    Iron_Symbol *root_sym =
+                        iron_walk_to_root_binding(ue_ret->operand);
+                    if (root_sym && sym_is_stack_local(root_sym)) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot return reference to stack-local "
+                                 "variable '%s'; the binding does not "
+                                 "outlive the current function frame",
+                                 root_sym->name ? root_sym->name : "?");
+                        emit_error(ctx, IRON_ERR_PTR_ESCAPE_STACK_REF,
+                                   ue_ret->span, msg,
+                                   "allocate on the heap (Phase 21 'heap "
+                                   "T(...)') or return the value by-copy");
+                    }
+                }
+            }
 
             if (rs->value) {
                 ret_type = check_expr_with_expected(ctx, rs->value, ctx->current_return_type);
