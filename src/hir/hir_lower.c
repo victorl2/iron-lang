@@ -42,6 +42,11 @@ typedef struct {
     IronHIR_VarId     *capture_var_ids; /* stb_ds array: outer-scope VarIds */
     Iron_CaptureEntry *captures;        /* capture metadata (name, type, is_mutable) */
     int                capture_count;
+    /* Phase 22 OQ-04 / READ-08: carries the enclosing readonly context bit
+     * forward from queue site to lift Pass 3. Plan 22-03 will define
+     * IronHIR_Func.is_readonly and consume this bit at lift time
+     * (lower_lift_pending_hir ~line 2027). */
+    bool               is_readonly_context;
 } LiftPending;
 
 /* ── Per-scope frame type ────────────────────────────────────────────────── */
@@ -80,6 +85,12 @@ typedef struct {
 
     /* Current enclosing function name (for lifted function naming) */
     const char      *current_func_name;
+
+    /* Phase 22 OQ-04: readonly flag of the current enclosing function/method;
+     * set by lower_func_body_hir / lower_method_body_hir; consumed by the
+     * lambda-queue site to populate LiftPending.is_readonly_context for
+     * Plan 22-03's IronHIR_Func.is_readonly assignment. */
+    bool             current_func_is_readonly;
 
     /* Global constant lazy lowering */
     struct { char *key; Iron_Node *value; } *global_constants_map;
@@ -1543,10 +1554,11 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         /* Queue for lifting */
         LiftPending lp;
         memset(&lp, 0, sizeof(lp));
-        lp.kind           = LIFT_LAMBDA;
-        lp.ast_node       = node;
-        lp.lifted_name    = name_copy;
-        lp.enclosing_func = ctx->current_func_name;
+        lp.kind                 = LIFT_LAMBDA;
+        lp.ast_node             = node;
+        lp.lifted_name          = name_copy;
+        lp.enclosing_func       = ctx->current_func_name;
+        lp.is_readonly_context  = ctx->current_func_is_readonly;
         arrput(ctx->pending_lifts, lp);
 
         return result;
@@ -2026,8 +2038,11 @@ static void lower_func_body_hir(IronHIR_LowerCtx *ctx,
     IronHIR_Func *fn = find_hir_func(ctx->module, fd->name);
     if (!fn) return;
 
-    ctx->current_func      = fn;
-    ctx->current_func_name = fd->name;
+    ctx->current_func             = fn;
+    ctx->current_func_name        = fd->name;
+    /* Phase 22 OQ-04: propagate readonly bit so lambda-queue site can
+     * populate LiftPending.is_readonly_context. */
+    ctx->current_func_is_readonly = fd->is_readonly;
 
     /* Create the function body block */
     fn->body = iron_hir_block_create(ctx->module);
@@ -2073,8 +2088,10 @@ static void lower_method_body_hir(IronHIR_LowerCtx *ctx, Iron_MethodDecl *md) {
     IronHIR_Func *fn = find_hir_func(ctx->module, mangled);
     if (!fn) return;
 
-    ctx->current_func      = fn;
-    ctx->current_func_name = fn->name;
+    ctx->current_func             = fn;
+    ctx->current_func_name        = fn->name;
+    /* Phase 22 OQ-04: propagate readonly bit; pure methods are also readonly. */
+    ctx->current_func_is_readonly = (md->is_readonly || md->is_pure);
 
     fn->body = iron_hir_block_create(ctx->module);
 
@@ -2241,6 +2258,9 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
             pop_scope(ctx);
             ctx->current_func = NULL;
             iron_hir_module_add_func(mod, lifted);
+            /* Phase 22 Plan 22-03: when IronHIR_Func.is_readonly is added by
+             * Plan 22-03, assign:
+             *   lifted->is_readonly = lp->is_readonly_context; */
             break;
         }
 

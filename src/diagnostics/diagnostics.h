@@ -284,8 +284,8 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_READONLY_PARAM_MUTATION  277  /* READ-02 (typecheck.c IRON_NODE_ASSIGN; Plan 22-01) */
 #define IRON_ERR_READONLY_IO              278  /* READ-04 (typecheck.c free-fn + method-call sites; Plan 22-01) */
 #define IRON_ERR_READONLY_HEAP_ESCAPE     279  /* READ-05 (typecheck.c IRON_NODE_HEAP arm; Plan 22-01) */
-/* #define IRON_ERR_READONLY_RETURN_TYPE      280  -- READ-06 declaration-site whitelist (Plan 22-02) */
-/* #define IRON_ERR_READONLY_IFACE_CONFORMANCE 281 -- READ-07 interface conformance (Plan 22-02) */
+#define IRON_ERR_READONLY_RETURN_TYPE      280  /* READ-06 declaration-site whitelist (typecheck.c check_func_decl + check_method_decl; Plan 22-02) */
+#define IRON_ERR_READONLY_IFACE_CONFORMANCE 281  /* READ-07 interface conformance (typecheck.c check_iface_tier_strengthening; Plan 22-02) */
 
 /* Phase 86 PATCH: open-extension diagnostics.
  *

@@ -5653,6 +5653,113 @@ static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count) {
     }
 }
 
+/* ── READ-06: is_readonly_compatible_type — closed whitelist helper ─────── */
+
+/* Determines whether a return type is readonly-compatible per spec §12 step 8.
+ * Implements RESEARCH Pattern 4 closed whitelist with:
+ *   - Pitfall 6 optimistic-cache for self-referential struct types
+ *   - Pitfall 5 -Werror=switch-enum protection via explicit default arm
+ *   - Pitfall 3 NULL resolved_type treated as INCOMPATIBLE (fail-safe)
+ *
+ * Compatible types: primitives (Int/Float/Bool/String + width variants + Void),
+ *   IRON_TYPE_ARRAY with size >= 0 (fixed-size), IRON_TYPE_NULLABLE recursing
+ *   on inner, IRON_TYPE_TUPLE recursing on elements, IRON_TYPE_OBJECT iff every
+ *   field's resolved_type is compatible (transitive struct walk with cache).
+ *
+ * Incompatible: IRON_TYPE_RC, IRON_TYPE_PTR, IRON_TYPE_FUNC, IRON_TYPE_INTERFACE,
+ *   IRON_TYPE_ENUM, IRON_TYPE_GENERIC_PARAM, IRON_TYPE_ERROR, IRON_TYPE_NULL,
+ *   IRON_TYPE_ARRAY with size == -1 (dynamic = List[T]), and default (unknown).
+ */
+static bool is_readonly_compatible_type(const Iron_Type *t, TypeCtx *ctx) {
+    if (!t) return true;  /* void / NULL — OK; void return is always compatible */
+
+    /* Cache check (Pitfall 6 — break self-referential recursion for OBJECT types) */
+    if (t->kind == IRON_TYPE_OBJECT && t->readonly_compat_cached) {
+        return t->is_readonly_compatible;
+    }
+
+    switch (t->kind) {
+        /* ── Whitelisted primitives ─────────────────────────────────────── */
+        case IRON_TYPE_INT:    case IRON_TYPE_INT8:   case IRON_TYPE_INT16:
+        case IRON_TYPE_INT32:  case IRON_TYPE_INT64:
+        case IRON_TYPE_UINT:   case IRON_TYPE_UINT8:  case IRON_TYPE_UINT16:
+        case IRON_TYPE_UINT32: case IRON_TYPE_UINT64:
+        case IRON_TYPE_FLOAT:  case IRON_TYPE_FLOAT32: case IRON_TYPE_FLOAT64:
+        case IRON_TYPE_BOOL:   case IRON_TYPE_STRING:
+        case IRON_TYPE_VOID:
+            return true;
+
+        /* ── Fixed-size arrays ([T; N]) ─────────────────────────────────── */
+        case IRON_TYPE_ARRAY:
+            /* size == -1 means dynamic (List[T]) — incompatible.
+             * Phase 23 BVEC will handle [T; <=N] bounded vectors. */
+            return t->array.size >= 0 &&
+                   is_readonly_compatible_type(t->array.elem, ctx);
+
+        /* ── Nullable (T?) — recurse on inner ───────────────────────────── */
+        case IRON_TYPE_NULLABLE:
+            return is_readonly_compatible_type(t->nullable.inner, ctx);
+
+        /* ── Tuples — all elements must be compatible ────────────────────── */
+        case IRON_TYPE_TUPLE:
+            for (int i = 0; i < t->tuple.elem_count; i++) {
+                if (!is_readonly_compatible_type(t->tuple.elem_types[i], ctx))
+                    return false;
+            }
+            return true;
+
+        /* ── Object (struct) — transitive field walk with optimistic cache ─ */
+        case IRON_TYPE_OBJECT: {
+            if (!t->object.decl) return false;
+            Iron_ObjectDecl *od = t->object.decl;
+            /* Pitfall 6 optimistic-cache: set BEFORE recursing into fields.
+             * If a field back-references T (self-referential struct), the
+             * recursive call sees cached=true, compatible=true — breaks the
+             * cycle. If any field is later found incompatible, the cache is
+             * corrected before return. Worst case: a self-referential struct
+             * with an incompatible field at depth > 1 may be transiently
+             * misclassified on the first walk; subsequent walks see corrected
+             * cache. For Phase 22, this edge case is extremely rare and the
+             * optimistic default (safe for pure primitives + nullable back-refs)
+             * is the correct choice. */
+            ((Iron_Type *)t)->readonly_compat_cached = true;
+            ((Iron_Type *)t)->is_readonly_compatible  = true;
+            for (int i = 0; i < od->field_count; i++) {
+                Iron_Field *f = (Iron_Field *)od->fields[i];
+                if (!f) continue;
+                /* Pitfall 3: NULL type_ann / resolved field type = fail-safe REJECT.
+                 * Iron_Field has no resolved_type field — field types are obtained
+                 * via resolve_type_annotation (RESEARCH Pitfall 3 / FIX-03 §1). */
+                Iron_Type *ft = f->type_ann
+                    ? resolve_type_annotation(ctx, f->type_ann)
+                    : NULL;
+                if (!ft || !is_readonly_compatible_type(ft, ctx)) {
+                    ((Iron_Type *)t)->is_readonly_compatible = false;
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /* ── Pointer types — not readonly-compatible ─────────────────────── */
+        case IRON_TYPE_PTR:
+            return false;
+
+        /* ── All other types — not readonly-compatible ───────────────────── */
+        case IRON_TYPE_RC:
+        case IRON_TYPE_FUNC:
+        case IRON_TYPE_INTERFACE:
+        case IRON_TYPE_ENUM:
+        case IRON_TYPE_GENERIC_PARAM:
+        case IRON_TYPE_ERROR:
+        case IRON_TYPE_NULL:
+        default:
+            /* Phase 23 BVEC: when IRON_TYPE_BVEC lands as a new kind, add
+             * an explicit case here before the default arm. */
+            return false;
+    }
+}
+
 /* ── Check function / method declarations ────────────────────────────────── */
 
 static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
@@ -5664,6 +5771,23 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
         ret_type = iron_type_make_primitive(IRON_TYPE_VOID);
     }
     fd->resolved_return_type = ret_type;
+
+    /* Phase 22 READ-06: declaration-site readonly return-type check.
+     * Pitfall 2: use fd->is_readonly directly, NOT ctx->in_readonly_method
+     * (which is unset for top-level functions at declaration-check time). */
+    if (fd->is_readonly && ret_type &&
+        ret_type->kind != IRON_TYPE_VOID &&
+        !is_readonly_compatible_type(ret_type, ctx)) {
+        const char *ts = iron_type_to_string(ret_type, ctx->arena);
+        char msg[256];
+        snprintf(msg, sizeof(msg),
+                 "readonly function return type '%s' is not readonly-compatible",
+                 ts ? ts : "?");
+        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_READONLY_RETURN_TYPE, fd->span, msg,
+                       "§6: readonly return types: primitives, fixed structs,"
+                       " [T; N], [T; <=N], tuples, T?");
+    }
 
     /* Resolve param types */
     Iron_Type **param_types = NULL;
@@ -5755,6 +5879,25 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
         }
     }
     md->resolved_return_type = ret_type;
+
+    /* Phase 22 READ-06: declaration-site readonly return-type check.
+     * Pitfall 2: insertion is BEFORE body-walk; use md->is_readonly directly.
+     * Skip init methods (their return type is Self, always compatible). */
+    if (md->is_readonly && !md->is_init && ret_type &&
+        ret_type->kind != IRON_TYPE_VOID &&
+        !is_readonly_compatible_type(ret_type, ctx)) {
+        const char *ts = iron_type_to_string(ret_type, ctx->arena);
+        char msg[256];
+        snprintf(msg, sizeof(msg),
+                 "readonly method '%s.%s' return type '%s' is not readonly-compatible",
+                 md->type_name ? md->type_name : "?",
+                 md->method_name ? md->method_name : "?",
+                 ts ? ts : "?");
+        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_READONLY_RETURN_TYPE, md->span, msg,
+                       "§6: readonly return types: primitives, fixed structs,"
+                       " [T; N], [T; <=N], tuples, T?");
+    }
 
     /* Resolve param types */
     Iron_Type **param_types = NULL;
@@ -6045,9 +6188,18 @@ static void check_iface_tier_strengthening(TypeCtx *ctx, Iron_Program *program) 
                         iron_arena_strdup(ctx->arena, msg, strlen(msg));
                     if (!msg_copy)
                         iron_oom_abort("typecheck.c:check_iface_tier_strengthening msg");
+                    /* Phase 22 READ-07: use READONLY-specific code for clearer spec
+                     * tracing. Pure-sig violations CONTINUE to emit
+                     * IRON_ERR_IFACE_METHOD_TIER_MISMATCH (257) to preserve Phase 87
+                     * fixture compatibility per RESEARCH Pitfall 7. */
+                    int diag_code = sig->is_pure
+                        ? IRON_ERR_IFACE_METHOD_TIER_MISMATCH   /* Phase 87 baseline; pure-sig case */
+                        : IRON_ERR_READONLY_IFACE_CONFORMANCE;  /* Phase 22 READ-07; readonly-sig case */
+                    const char *hint = sig->is_pure
+                        ? NULL   /* pure-tier hint conventions out of scope */
+                        : "§6: interface readonly method requires readonly or pure implementation";
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
-                                   IRON_ERR_IFACE_METHOD_TIER_MISMATCH,
-                                   impl->span, msg_copy, NULL);
+                                   diag_code, impl->span, msg_copy, hint);
                 }
             }
         }

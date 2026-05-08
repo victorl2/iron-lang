@@ -127,6 +127,13 @@ typedef struct Iron_Type {
             const char                *mangled_name; /* e.g. "Iron_Tuple_int64_t_Iron_Error" */
         } tuple;
     };
+
+    /* Phase 22 READ-06: cache for is_readonly_compatible_type to break
+     * self-referential recursion (RESEARCH Pitfall 6).
+     * Default-zeroed by iron_arena_alloc; uncached + not-compatible =
+     * conservative safe state until first walk populates. */
+    bool readonly_compat_cached;
+    bool is_readonly_compatible;
 } Iron_Type;
 
 /* ── Public API ──────────────────────────────────────────────────────────── */

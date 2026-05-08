@@ -1,0 +1,21 @@
+-- section 4.4 positive: pure impl satisfies readonly interface sig (pure >= readonly)
+-- @req: OQ-05, READ-07
+-- @expected-pass-after: phase-22
+
+interface Reader {
+    readonly func read() -> Int
+}
+
+object MyReader impl Reader {
+    var value: Int
+    init() {}
+
+    pure func read() -> Int {
+        return 0
+    }
+}
+
+func main() {
+    val r = MyReader(0)
+    val v = r.read()
+}

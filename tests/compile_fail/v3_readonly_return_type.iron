@@ -1,0 +1,18 @@
+-- v3_readonly_return_type.iron -- Phase 22 READ-06 lock.
+-- MUST fail with IRON_ERR_READONLY_RETURN_TYPE (E0280).
+--
+-- Reject: readonly method returning a pointer type (not readonly-compatible).
+-- Compile_fail verification: grep -qF on stderr against .expected substring.
+--   ./build/ironc check tests/compile_fail/v3_readonly_return_type.iron 2>&1 | grep -qF "$(cat tests/compile_fail/v3_readonly_return_type.expected)"
+
+object X {
+    var value: Int
+
+    readonly func get_ptr() -> *Int {
+        return null
+    }
+}
+
+func main() {
+    val x = X(0)
+}
