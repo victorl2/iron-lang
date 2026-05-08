@@ -1070,6 +1070,14 @@ set_tests_properties(test_fmt_idempotent PROPERTIES
 # the phase21-invariant label, mirroring the phase20-invariant pattern.
 # Plans 21-01 through 21-03 each add tests to this label group.
 
+# ── Phase 22 invariant label declaration ─────────────────────────────────────
+# `ctest -L phase22-invariant` aggregates all Plan 22-01 + 22-02 + 22-03
+# invariant tests (unit tests from tests/unit/CMakeLists.txt with LABELS
+# "unit;phase22-invariant").  The LABEL is declared on each test entry in
+# tests/unit/CMakeLists.txt; this comment serves as the root-level anchor for
+# the phase22-invariant label, mirroring the phase21-invariant pattern.
+# Plans 22-01 through 22-03 each add tests to this label group.
+
 # ---- Install rules ----
 if(IRON_BUILD_LSP)
     install(TARGETS ironc iron ironls DESTINATION bin)

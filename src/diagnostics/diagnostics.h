@@ -267,6 +267,26 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_LEAK_NOT_BINDING         275  /* POL-05 (leak target must be IRON_NODE_IDENT; emitted Plan 21-01 Task 3) */
 #define IRON_ERR_DEFER_FORM_UNSUPPORTED   276  /* DEFER-02 (only `defer free <ident>` accepted in v3.0-alpha.1; emitted Plan 21-01 Task 4 in hir_lower.c) */
 
+/* Phase 22 — readonly Purity Tightening (READ-* / OQ-04 / OQ-05)
+ *
+ *   277 (Plan 22-01): READ-02 param-mutation — readonly method writes a
+ *                     parameter; check fires at typecheck.c IRON_NODE_ASSIGN
+ *                     arm; sibling to IRON_ERR_PURE_PARAM_WRITE (243).
+ *   278 (Plan 22-01): READ-04 I/O — readonly method calls an I/O builtin
+ *                     (free-function site at ~line 2585) or I/O stdlib module
+ *                     method (method-call site in IRON_NODE_METHOD_CALL arm).
+ *   279 (Plan 22-01): READ-05 heap-escape — readonly method allocates heap
+ *                     memory; check fires at check_expr IRON_NODE_HEAP arm.
+ *
+ * Reserved by Plan 22-02 (do NOT use in Plan 22-01):
+ *   280: IRON_ERR_READONLY_RETURN_TYPE      — READ-06 declaration-site whitelist
+ *   281: IRON_ERR_READONLY_IFACE_CONFORMANCE — READ-07 interface conformance */
+#define IRON_ERR_READONLY_PARAM_MUTATION  277  /* READ-02 (typecheck.c IRON_NODE_ASSIGN; Plan 22-01) */
+#define IRON_ERR_READONLY_IO              278  /* READ-04 (typecheck.c free-fn + method-call sites; Plan 22-01) */
+#define IRON_ERR_READONLY_HEAP_ESCAPE     279  /* READ-05 (typecheck.c IRON_NODE_HEAP arm; Plan 22-01) */
+/* #define IRON_ERR_READONLY_RETURN_TYPE      280  -- READ-06 declaration-site whitelist (Plan 22-02) */
+/* #define IRON_ERR_READONLY_IFACE_CONFORMANCE 281 -- READ-07 interface conformance (Plan 22-02) */
+
 /* Phase 86 PATCH: open-extension diagnostics.
  *
  * PATCH-01 lands the parse-surface for `patch object T { ... }`; the parser

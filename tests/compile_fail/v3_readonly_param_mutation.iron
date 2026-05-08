@@ -1,0 +1,17 @@
+-- v3_readonly_param_mutation.iron -- Phase 22 READ-02 lock.
+-- MUST fail with IRON_ERR_READONLY_PARAM_MUTATION (E0277).
+--
+-- Reject: readonly method assigning to a parameter.
+-- Compile_fail verification: grep -qF on stderr against .expected substring.
+
+object X {
+    readonly func f(p: Int) -> Int {
+        p = 99
+        return p
+    }
+}
+
+func main() {
+    val x = X()
+    x.f(0)
+}

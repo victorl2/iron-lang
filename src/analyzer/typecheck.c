@@ -2583,6 +2583,36 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     }
                 }
             }
+            /* Phase 22 READ-04: readonly method calling I/O builtin function.
+             * Mirrors IRON_ERR_PURE_IO but for the readonly tier.
+             * §6: readonly methods may not perform I/O (file, network, console, log).
+             * Pitfall 1 guard: !in_pure_method prevents double-emit when the
+             * enclosing method is pure (ctx->in_readonly_method is true for BOTH
+             * pure and readonly methods — see typecheck.c:5700). */
+            if (ctx->in_readonly_method && !ctx->in_pure_method &&
+                ce->callee && ce->callee->kind == IRON_NODE_IDENT) {
+                Iron_Ident *fn_id_ro = (Iron_Ident *)ce->callee;
+                if (fn_id_ro->name) {
+                    /* REUSE IRON_PURE_IO_BUILTINS declared in the pure block above. */
+                    static const char *const IRON_RO_IO_BUILTINS[] = {
+                        "println", "print", "readline",
+                    };
+                    for (size_t i = 0;
+                         i < sizeof(IRON_RO_IO_BUILTINS) /
+                             sizeof(IRON_RO_IO_BUILTINS[0]);
+                         i++) {
+                        if (strcmp(fn_id_ro->name, IRON_RO_IO_BUILTINS[i]) == 0) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot call I/O function '%s' in readonly method",
+                                     fn_id_ro->name);
+                            emit_error(ctx, IRON_ERR_READONLY_IO, ce->span, msg,
+                                       "§6: readonly methods may not perform I/O");
+                            break;
+                        }
+                    }
+                }
+            }
 
             /* Special case: len(array) -> Int.
              * The len builtin is registered as len(String)->Int, but we also
@@ -3200,7 +3230,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                                  md->type_name, md->method_name);
                                         emit_error(ctx,
                                                    IRON_ERR_READONLY_CALLS_MUTATING,
-                                                   mc->span, msg, NULL);
+                                                   mc->span, msg,
+                                                   "§6: readonly methods may not call non-readonly functions");
                                     }
                                 }
                             }
@@ -3371,6 +3402,37 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
             mc->resolved_type = result;
+
+            /* Phase 22 READ-04: readonly method calling I/O stdlib module method.
+             * Covers Log.info, IO.write_file, Net.connect, Raylib.draw_text, etc.
+             * The check fires when (1) the enclosing method is readonly (not pure —
+             * Pitfall 1 guard) AND (2) the call receiver is a known I/O module
+             * identifier. */
+            if (ctx->in_readonly_method && !ctx->in_pure_method &&
+                mc->object && mc->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *recv_id_ro = (Iron_Ident *)mc->object;
+                if (recv_id_ro->name) {
+                    static const char *const IRON_RO_IO_MODULES[] = {
+                        "IO", "Log", "Net", "Raylib",
+                    };
+                    for (size_t i = 0;
+                         i < sizeof(IRON_RO_IO_MODULES) /
+                             sizeof(IRON_RO_IO_MODULES[0]);
+                         i++) {
+                        if (strcmp(recv_id_ro->name, IRON_RO_IO_MODULES[i]) == 0) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot call I/O method '%s.%s' in readonly method",
+                                     recv_id_ro->name,
+                                     mc->method ? mc->method : "?");
+                            emit_error(ctx, IRON_ERR_READONLY_IO, mc->span, msg,
+                                       "§6: readonly methods may not perform I/O");
+                            break;
+                        }
+                    }
+                }
+            }
+
             break;
         }
 
@@ -3720,6 +3782,22 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_HeapExpr *he = (Iron_HeapExpr *)node;
             result = check_expr(ctx, he->inner);
             he->resolved_type = result;
+            /* Phase 22 READ-05: readonly method allocating heap memory.
+             * Guard: Pitfall 1 — !ctx->in_pure_method prevents double-emit.
+             * (Pure-tier heap-escape is a separate future check; readonly-tier
+             * owns this diagnostic for non-pure readonly methods.) */
+            if (ctx->in_readonly_method && !ctx->in_pure_method) {
+                const char *type_nm = (result && result->kind == IRON_TYPE_OBJECT
+                                       && result->object.decl
+                                       && result->object.decl->name)
+                                      ? result->object.decl->name : "T";
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "cannot allocate 'heap %s(...)' in readonly method",
+                         type_nm);
+                emit_error(ctx, IRON_ERR_READONLY_HEAP_ESCAPE, he->span, msg,
+                           "§6: readonly methods may not allocate heap T(...) or rc T(...)");
+            }
             break;
         }
 
@@ -4233,7 +4311,6 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return;
     /* HARD-05: cancel poll at recursive statement walker entry. */
     if (iron_cancel_requested(ctx->cancel_flag)) return;
-
     switch ((int)(node->kind)) {
         case IRON_NODE_BLOCK: {
             Iron_Block *b = (Iron_Block *)node;
@@ -4523,6 +4600,21 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         }
                     }
                 }
+                /* Phase 22 READ-02: readonly method assigning to any parameter.
+                 * Mirrors IRON_ERR_PURE_PARAM_WRITE but for the readonly tier.
+                 * Guard: Pitfall 1 — !ctx->in_pure_method prevents double-emit when
+                 * the enclosing method is pure (in_readonly_method is true for both). */
+                if (ctx->in_readonly_method && !ctx->in_pure_method &&
+                    tc_sym && tc_sym->sym_kind == IRON_SYM_PARAM &&
+                    target_name && strcmp(target_name, "self") != 0) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "cannot assign to parameter '%s' in readonly method",
+                             target_name);
+                    emit_error(ctx, IRON_ERR_READONLY_PARAM_MUTATION,
+                               as->span, msg,
+                               "§6: readonly methods may not assign to any parameter");
+                }
             }
 
             /* Phase 80 MUT-03: field-assignment on immutable receiver.
@@ -4672,7 +4764,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
                                  "cannot write self.field in %s method", tier);
-                        emit_error(ctx, code, as->span, msg, NULL);
+                        const char *hint_str = ctx->in_pure_method
+                            ? NULL
+                            : "§6: readonly methods may not assign to self or its fields";
+                        emit_error(ctx, code, as->span, msg, hint_str);
                     }
                 }
             }

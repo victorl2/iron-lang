@@ -1,0 +1,10 @@
+-- section 4.4 negative: readonly method assigning to a parameter
+-- @req: READ-02
+-- @expected-pass-after: phase-22
+
+object X {
+    readonly func f(p: Int) -> Int {
+        p = 99
+        return p
+    }
+}
