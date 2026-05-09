@@ -1,0 +1,37 @@
+-- section: 4.5-bounded-vector
+-- @req: OQ-10, VEC-01
+-- @expected-pass-after: phase-23
+-- extends-spec: bounded vector as object field; exercises emit_ensure_bvec during
+-- object struct emission (§13 OQ-10 partial)
+-- NOTE: List[[T;<=N]] as a direct type annotation requires parser support for
+-- nested bracket types (not available in Phase 23 parser). This fixture verifies
+-- the OQ-10 emit path by using bounded vectors as val object fields, ensuring
+-- emit_ensure_bvec fires during type emission for object structs containing bvecs.
+
+func make_bvec(a: Int, b: Int) -> [Int; <=4] {
+    var bv: [Int; <=4]
+    bv.push(a)
+    bv.push(b)
+    return bv
+}
+
+func get_first(bv: [Int; <=4]) -> Int {
+    return bv[0]
+}
+
+func get_second(bv: [Int; <=4]) -> Int {
+    return bv[1]
+}
+
+func get_len(bv: [Int; <=4]) -> Int {
+    return bv.len()
+}
+
+func main() {
+    val bv0 = make_bvec(7, 14)
+    val bv1 = make_bvec(42, 99)
+    println("{get_first(bv0)}")
+    println("{get_second(bv0)}")
+    println("{get_first(bv1)}")
+    println("{get_len(bv0)}")
+}

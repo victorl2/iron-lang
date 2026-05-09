@@ -206,6 +206,84 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
             }
         }
     }
+    /* Phase 23 OQ-10: handle ARRAY_LIT whose elem_type is a bounded vector
+     * ([T; <=N]) — i.e. List[[T; <=N]].  The ARRAY_LIT scan above only
+     * handles IRON_TYPE_OBJECT elem types.  For bounded-vector elem types
+     * we must (a) call emit_ensure_bvec FIRST so Iron_BVec_T_N typedef
+     * lands in struct_bodies before Iron_List_Iron_BVec_T_N references it
+     * (Pitfall 5 mitigation), then (b) emit the Iron_List_Iron_BVec_T_N
+     * struct typedef + IRON_LIST_DECL + IRON_LIST_IMPL.
+     *
+     * The dedup key is the mangled bvec name (e.g. "Iron_BVec_int64_t_4")
+     * so duplicate ARRAY_LIT instructions for the same (T, N) only emit
+     * one set of declarations. */
+    for (int fi2 = 0; fi2 < module->func_count; fi2++) {
+        IronLIR_Func *fn2 = module->funcs[fi2];
+        if (!fn2 || fn2->is_extern || fn2->block_count == 0) continue;
+
+        for (int bi2 = 0; bi2 < fn2->block_count; bi2++) {
+            IronLIR_Block *blk2 = fn2->blocks[bi2];
+            for (int ii2 = 0; ii2 < blk2->instr_count; ii2++) {
+                IronLIR_Instr *in2 = blk2->instrs[ii2];
+                if (in2->kind != IRON_LIR_ARRAY_LIT) continue;
+                Iron_Type *et2 = in2->array_lit.elem_type;
+                if (!et2) continue;
+                /* Only bounded-vector element types are handled here;
+                 * IRON_TYPE_OBJECT is handled by the scan above. */
+                if (et2->kind != IRON_TYPE_ARRAY) continue;
+                if (!et2->array.is_bounded || et2->array.size < 0) continue;
+
+                /* Step A: ensure Iron_BVec_T_N typedef is emitted FIRST
+                 * (Pitfall 5: typedef must precede Iron_List_Iron_BVec_T_N). */
+                emit_ensure_bvec(ctx, et2);
+
+                /* Step B: compute mangled bvec name for the list dedup key.
+                 * Must match emit_ensure_bvec naming: Iron_BVec_<elem_c>_<N>
+                 * with spaces and * replaced by _. */
+                const char *inner_c = emit_type_to_c(et2->array.elem, ctx);
+                Iron_StrBuf bvec_sb = iron_strbuf_create(64);
+                iron_strbuf_appendf(&bvec_sb, "Iron_BVec_");
+                for (const char *cp = inner_c; *cp; cp++) {
+                    if (*cp == ' ' || *cp == '*') {
+                        iron_strbuf_appendf(&bvec_sb, "_");
+                    } else {
+                        char cc[2] = { *cp, '\0' };
+                        iron_strbuf_appendf(&bvec_sb, "%s", cc);
+                    }
+                }
+                iron_strbuf_appendf(&bvec_sb, "_%d", et2->array.size);
+                const char *bvec_name = iron_arena_strdup(ctx->arena,
+                    iron_strbuf_get(&bvec_sb), bvec_sb.len);
+                iron_strbuf_free(&bvec_sb);
+                if (!bvec_name)
+                    iron_oom_abort("emit_structs.c:emit_mono_list_decls bvec_name");
+
+                if (shgeti(emitted_mono_list_types, bvec_name) >= 0) continue;
+                shput(emitted_mono_list_types, bvec_name, true);
+
+                /* Step C: emit Iron_List_Iron_BVec_T_N struct typedef +
+                 * IRON_LIST_DECL + IRON_LIST_IMPL.  The list stores bvec
+                 * structs by value (VEC-01 inline-storage guarantee). */
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "/* Phase 23 OQ-10: Iron_List for bounded vector element %s */\n"
+                    "typedef struct Iron_List_%s {\n"
+                    "    %s    *items;\n"
+                    "    int64_t count;\n"
+                    "    int64_t capacity;\n"
+                    "} Iron_List_%s;\n",
+                    bvec_name, bvec_name, bvec_name, bvec_name);
+
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "IRON_LIST_DECL(%s, %s)\n",
+                    bvec_name, bvec_name);
+
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "IRON_LIST_IMPL(%s, %s)\n\n",
+                    bvec_name, bvec_name);
+            }
+        }
+    }
+
     /* Also iterate ctx->monomorphic_collections to pick up any concrete
      * types that arrived via Phase 49/53 mono collapse (interface-typed
      * ARRAY_LIT that got collapsed to a concrete type at the Phase 49

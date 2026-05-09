@@ -1,0 +1,41 @@
+-- section: 4.5-bounded-vector
+-- @req: OQ-10, VEC-01
+-- @expected-pass-after: phase-23
+-- extends-spec: bounded vector through function call chain; multiple bvec types (§13 OQ-10 partial)
+-- NOTE: [[T;<=N];<=M] nested type annotation requires nested bracket parser support
+-- (not available in Phase 23 parser). This fixture verifies the OQ-10 emit path
+-- by using two distinct bounded vector types ([Int;<=4] and [Int;<=8]) in the same
+-- compilation unit, exercising emit_ensure_bvec for multiple (T,N) instantiations.
+
+func fill4(a: Int, b: Int, c: Int) -> [Int; <=4] {
+    var bv: [Int; <=4]
+    bv.push(a)
+    bv.push(b)
+    bv.push(c)
+    return bv
+}
+
+func fill8(a: Int, b: Int) -> [Int; <=8] {
+    var bv: [Int; <=8]
+    bv.push(a)
+    bv.push(b)
+    return bv
+}
+
+func sum_bvec4(bv: [Int; <=4]) -> Int {
+    var s = 0
+    for i in range(bv.len()) {
+        s += bv[i]
+    }
+    return s
+}
+
+func main() {
+    val v4 = fill4(10, 20, 30)
+    val v8 = fill8(100, 200)
+    println("{v4[0]}")
+    println("{v4[1]}")
+    println("{v8[0]}")
+    println("{sum_bvec4(v4)}")
+    println("{v4.len()}")
+}

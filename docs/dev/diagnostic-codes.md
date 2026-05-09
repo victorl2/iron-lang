@@ -219,6 +219,45 @@ codes should accept either the bare integer or the `E<NNN>` string.
 
 9. **Phase 34 LSP-10 quickfix consumer** — every Phase 22 code carries Quickfix-Target column for Phase 34 LSP-10 quickfix wiring (typically "drop readonly modifier" or "add readonly to impl").
 
+## Phase 23 — Bounded Vector `[T; <=N]` (§3.3 + §12 step 7 + §13 OQ-10)
+
+| Code | Symbol | Message (locked substring) | Hint | Quickfix-Target (Phase 34 LSP-10) | Phase | Spec § |
+|-----:|--------|----------------------------|------|-----------------------------------|------:|--------|
+| 282 | `IRON_ERR_VEC_STRICT_LENGTH_MISMATCH` | `array literal has N element(s) but '[T; M]' requires exactly M` | `§3.3: [T; N] requires exactly N elements in the initializer literal` | Pad or trim the array literal to exactly N elements (LSP-10) | 23 (Plan 23-01) | §3.3 |
+| 283 | `IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN` | `cannot assign bounded vector to strict array or vice versa` | `§3.3: [T; <=N] and [T; N] are disjoint types; Phase 33 ships to_fixed()/to_bounded() conversion helpers` | Suggest `to_fixed()` / `to_bounded()` call (Phase 33 — LSP-10 deferred) | 23 (Plan 23-01) | §3.3 |
+
+### Notes
+
+1. **§3.3 hint discipline** — Both VEC codes carry hint substring `§3.3:` + rule text. Applied consistently with Phase 22's §6-prefix discipline (READ-09). Every hint includes the spec section that mandates the restriction.
+
+2. **types_assignable disjoint-shape early return** — `types_assignable` in `src/analyzer/typecheck.c` (lines 746-806) gains an early-return `false` guard for the bounded ↔ strict cross-assignment case. The guard fires before `iron_type_equals`, ensuring `[T; <=N]` is never silently treated as `[T; N]`. VEC-04 specialization then intercepts the `!types_assignable` block to emit E0283 instead of generic E0202.
+
+3. **`iron_type_equals` + `iron_type_to_string` + `iron_type_make_array` changes** — Plan 23-01 updated three type functions:
+   - `iron_type_equals`: IRON_TYPE_ARRAY case now compares `is_bounded` field, making `[T; <=N]` and `[T; N]` structurally inequal.
+   - `iron_type_to_string`: emits `[T; <=N]` (with `<=`) for bounded arrays so error messages correctly show the bounded form.
+   - `iron_type_make_array`: gains 4th `bool is_bounded` parameter; 11 call sites updated across 5 files.
+
+4. **Pitfalls 1–8 mapped to plans:**
+   - Pitfall 1 (is_bounded missing from one resolve_type_annotation branch) — resolved Plan 23-01 (both is_array branches updated).
+   - Pitfall 2 (iron_type_equals not updated) — resolved Plan 23-01.
+   - Pitfall 3 (emit_type_to_c called before emit_ensure_bvec) — resolved Plan 23-02 (emit_type_to_c calls emit_ensure_bvec before returning struct name).
+   - Pitfall 4 (emit_func_use_sret RETURN site) — resolved Plan 23-02 (emit_type_to_c returning correct struct name; `*_sret = bv_struct` assignment correct for both bounded and strict).
+   - Pitfall 5 (OQ-10 List[[T;<=N]] — Iron_List_Iron_BVec_T_N_N not pre-declared) — resolved Plan 23-03 (emit_mono_list_decls extension calls emit_ensure_bvec FIRST before List struct emission).
+   - Pitfall 6 (iron_type_to_string) — resolved Plan 23-01.
+   - Pitfall 7 (var bv: [T; <=N] default init) — resolved Plan 23-02 (ALLOCA emitter emits `= {0}` for bounded vec; init_check.c skips uninit registration for bounded vecs).
+   - Pitfall 8 (implicit — LOAD-to-alloca resolution for push) — resolved Plan 23-02 (push intercept detects LOAD in args[0] and resolves to alloca ptr so mutations persist).
+
+5. **OQ-10 closure (Plan 23-03):**
+   - `List[[T; <=N]]`: `emit_mono_list_decls` extended to scan ARRAY_LIT instructions for bounded-vector elem types; calls `emit_ensure_bvec` before emitting the list typedef (Pitfall 5 mitigation).
+   - `[[T; <=N]; <=M]`: `emit_ensure_bvec` recursive case emits the inner `Iron_BVec_T_N` typedef before the outer `Iron_BVec_Iron_BVec_T_N_M` typedef. Verified end-to-end by `nested_bvec.iron` corpus fixture.
+   - Both shapes have v4 corpus fixtures in `tests/integration/v4/4.5-bounded-vector/`.
+
+6. **Phase 33 forward-reference** — `to_fixed()` / `to_bounded()` conversion helpers are deferred to Phase 33 (Stdlib Container Rewrite). Code 283's hint string explicitly forward-references Phase 33 so programmers encountering the error know when the ergonomic path arrives. Phase 34 LSP-10 quickfix for E0283 will suggest the Phase 33 conversion helper calls when Phase 33 ships.
+
+7. **CORE-22 invariant** — Zero `src/lsp/` source modifications across all 3 Phase 23 plans. Plan 23-03 adds `tests/lsp/smoke/test_did_publish_vec_violation.py` — a pytest-lsp test that USES the CORE-22 facade but does NOT modify it. The `lsp_phase23_smoke` CTest target is the regression anchor.
+
+8. **ABI lock** — The `Iron_BVec_T_N` struct layout (`uint32_t len; T data[N]`) is locked as of Phase 23. See `docs/dev/BVEC-LAYOUT.md` for the full ABI document including nested layout, List[[T;<=N]] storage, alignment formula, and sizeof derivation.
+
 ## Adding new codes
 
 1. Allocate the next free slot in the appropriate range. Verify uniqueness

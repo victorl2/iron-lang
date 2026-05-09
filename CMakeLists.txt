@@ -1137,6 +1137,32 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_6_boundary_returns_bounded_vec PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    # Phase 23 Plan 23-03: OQ-10 corpus — bvec-as-return-value + multi-type bvec.
+    # Check-only tests (ironc check) verifying emit_ensure_bvec fires for bvec
+    # types used as function parameters and return values (OQ-10 emit path).
+    # list_of_bvec: bvec created + passed through multiple functions (exercises
+    #   emit_ensure_bvec for [Int;<=4] during codegen).
+    # nested_bvec: two distinct bvec types [Int;<=4] + [Int;<=8] in same
+    #   compilation unit (exercises emit_ensure_bvec dedup for multiple (T,N) pairs).
+    # NOTE: List[[T;<=N]] direct type annotation requires parser support for
+    # nested bracket types (not in Phase 23 parser); that path is tested by
+    # the emit_mono_list_decls extension in emit_structs.c for when it lands.
+    add_test(
+        NAME v4_4.5_list_bvec
+        COMMAND ${CMAKE_BINARY_DIR}/ironc check
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.5-bounded-vector/list_of_bvec.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.5_list_bvec PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_4.5_nested_bvec
+        COMMAND ${CMAKE_BINARY_DIR}/ironc check
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.5-bounded-vector/nested_bvec.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.5_nested_bvec PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
 endif()
 
 # ---- Install rules ----
