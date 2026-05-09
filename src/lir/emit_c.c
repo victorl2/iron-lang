@@ -3290,7 +3290,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     const char *list_type = NULL;
                     if (orig_instr->kind == IRON_LIR_ARRAY_LIT) {
                         Iron_Type *arr_type = iron_type_make_array(
-                            ctx->arena, orig_instr->array_lit.elem_type, -1);
+                            ctx->arena, orig_instr->array_lit.elem_type, -1, false);
                         list_type = emit_type_to_c(arr_type, ctx);
                     } else if (orig_instr->type &&
                                orig_instr->type->kind == IRON_TYPE_ARRAY) {
@@ -3706,7 +3706,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         } else {
             /* Create a type-specific Iron_List_<suffix> and push each element.
              * e.g. [Int] -> Iron_List_int64_t_create(), Iron_List_int64_t_push() */
-            Iron_Type *arr_type = iron_type_make_array(ctx->arena, instr->array_lit.elem_type, -1);
+            Iron_Type *arr_type = iron_type_make_array(ctx->arena, instr->array_lit.elem_type, -1, false);
             const char *list_type = emit_type_to_c(arr_type, ctx);
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb, "%s ", list_type);

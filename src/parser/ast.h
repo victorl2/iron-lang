@@ -448,6 +448,9 @@ typedef struct {
     /* Phase 48: layout annotations for array types [T, layout: soa/aos] [T, unordered] */
     int           layout_hint;      /* 0 = none, 1 = soa, 2 = aos */
     bool          is_unordered;     /* true if [T, unordered] */
+    /* Phase 23 VEC-01: true when source is `[T; <=N]` bounded-vector form.
+     * Propagated to Iron_Type.array.is_bounded by resolve_type_annotation. */
+    bool          bounded;
     /* Phase 59 01d: tuple type annotation — (T0, T1, ...) */
     bool          is_tuple;
     Iron_Node   **tuple_elems;      /* array of Iron_TypeAnnotation* for element types */

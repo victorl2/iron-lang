@@ -213,7 +213,7 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
             base = iron_type_make_nullable(ctx->module->arena, base);
         }
         if (ta->is_array && base) {
-            base = iron_type_make_array(ctx->module->arena, base, -1);
+            base = iron_type_make_array(ctx->module->arena, base, -1, false);
         }
         return base;
     }
@@ -268,7 +268,7 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
     if (ta->is_array && base) {
         int size = -1;
         /* size node not used here for simplicity */
-        base = iron_type_make_array(ctx->module->arena, base, size);
+        base = iron_type_make_array(ctx->module->arena, base, size, false);
     }
     return base;
 }

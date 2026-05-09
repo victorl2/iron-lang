@@ -708,8 +708,12 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
             }
         }
 
-        /* optional [T; Size] */
+        /* optional [T; Size] or [T; <=N] (bounded vector — Phase 23 VEC-01) */
         if (iron_match(p, IRON_TOK_SEMICOLON)) {
+            /* Phase 23 VEC-01: detect <= before size literal */
+            if (iron_match(p, IRON_TOK_LESS_EQ)) {
+                ann->bounded = true;
+            }
             ann->array_size = iron_parse_expr(p);
         }
 

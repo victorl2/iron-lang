@@ -839,7 +839,7 @@ void test_store_load_elim_set_index_clobbers(void) {
 
     IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_sle_setidx");
     Iron_Type *int_type   = iron_type_make_primitive(IRON_TYPE_INT);
-    Iron_Type *arr_type   = iron_type_make_array(&ir_arena, int_type, -1);
+    Iron_Type *arr_type   = iron_type_make_array(&ir_arena, int_type, -1, false);
     Iron_Span sp = test_span();
 
     /* func test() -> [Int]

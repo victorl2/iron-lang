@@ -1,0 +1,7 @@
+-- section 4.5 negative: strict array literal element count mismatch
+-- @req: VEC-04
+-- @expected-pass-after: phase-23
+func main() -> Int {
+    val v: [Int; 3] = [1, 2]
+    return 0
+}

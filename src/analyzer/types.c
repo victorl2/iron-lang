@@ -134,14 +134,16 @@ Iron_Type *iron_type_make_func(Iron_Arena *a, Iron_Type **params, int count, Iro
     return t;
 }
 
-Iron_Type *iron_type_make_array(Iron_Arena *a, Iron_Type *elem, int size) {
+Iron_Type *iron_type_make_array(Iron_Arena *a, Iron_Type *elem, int size, bool is_bounded) {
     Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
     /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_array). */
     if (!t) return NULL;
     memset(t, 0, sizeof(*t));
-    t->kind       = IRON_TYPE_ARRAY;
-    t->array.elem = elem;
-    t->array.size = size;
+    t->kind              = IRON_TYPE_ARRAY;
+    t->array.elem        = elem;
+    t->array.size        = size;
+    /* Phase 23 VEC-01: bounded flag distinguishes [T; <=N] from [T; N]. */
+    t->array.is_bounded  = is_bounded;
     return t;
 }
 
@@ -281,7 +283,9 @@ bool iron_type_equals(const Iron_Type *a, const Iron_Type *b) {
                    iron_type_equals(a->ptr.pointee, b->ptr.pointee);
 
         case IRON_TYPE_ARRAY:
+            /* Phase 23 VEC: [T; <=N] and [T; N] are DISJOINT types — is_bounded must match. */
             return a->array.size == b->array.size &&
+                   a->array.is_bounded == b->array.is_bounded &&
                    iron_type_equals(a->array.elem, b->array.elem);
 
         case IRON_TYPE_FUNC: {
@@ -391,12 +395,15 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
             const char *elem = iron_type_to_string(t->array.elem, a);
             /* Build into arena directly; estimate max size generously */
             size_t elem_len = strlen(elem);
-            size_t buf_size = elem_len + 32; /* "[" + elem + "; " + number + "]" + NUL */
+            size_t buf_size = elem_len + 36; /* "[" + elem + "; <=" + number + "]" + NUL */
             char *buf = (char *)iron_arena_alloc(a, buf_size, 1);
             /* HARD-09 REPLACE (CR-02, types.c:iron_type_to_string ARRAY). */
             if (!buf) return "<oom array>";
             if (t->array.size < 0) {
                 snprintf(buf, buf_size, "[%s]", elem);
+            } else if (t->array.is_bounded) {
+                /* Phase 23 VEC: emit `[T; <=N]` form for bounded vector (Pitfall 6). */
+                snprintf(buf, buf_size, "[%s; <=%d]", elem, t->array.size);
             } else {
                 snprintf(buf, buf_size, "[%s; %d]", elem, t->array.size);
             }

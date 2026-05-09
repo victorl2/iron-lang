@@ -1078,6 +1078,28 @@ set_tests_properties(test_fmt_idempotent PROPERTIES
 # the phase22-invariant label, mirroring the phase21-invariant pattern.
 # Plans 22-01 through 22-03 each add tests to this label group.
 
+# Phase 23 VEC: bounded vector [T; <=N] type-level surface (Plan 23-01)
+# `ctest -L phase23-invariant` aggregates unit tests (from tests/unit/CMakeLists.txt)
+# and per-fixture negative corpus tests below.  Unit-test LABELS are declared in
+# tests/unit/CMakeLists.txt; corpus tests are registered here with LABELS
+# "integration;phase23-invariant".  The negative-corpus tests run `ironc check` directly
+# and assert that a known error code appears in stderr.
+if(NOT WIN32)
+    add_test(
+        NAME v4_fail_4.5_strict_mismatch
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.5-bounded-vector/strict_mismatch.iron 2>&1 | grep -qF E0282"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.5_strict_mismatch PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.5_bounded_to_fixed
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.5-bounded-vector/bounded_to_fixed.iron 2>&1 | grep -qF E0283"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.5_bounded_to_fixed PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+endif()
+
 # ---- Install rules ----
 if(IRON_BUILD_LSP)
     install(TARGETS ironc iron ironls DESTINATION bin)

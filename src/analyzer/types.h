@@ -112,6 +112,10 @@ typedef struct Iron_Type {
             int                        size;  /* -1 = dynamic */
             int                        layout_hint;   /* Phase 48: 0=none, 1=soa, 2=aos */
             bool                       is_unordered;  /* Phase 48: [T, unordered] */
+            /* Phase 23 VEC-01: distinguishes [T; <=N] (true) from [T; N] (false).
+             * Three states: dynamic (size=-1, is_bounded=false), strict (size>=0, is_bounded=false),
+             * bounded (size>=0, is_bounded=true). */
+            bool                       is_bounded;
         } array;
 
         /* IRON_TYPE_GENERIC_PARAM */
@@ -163,8 +167,9 @@ Iron_Type *iron_type_make_ptr(Iron_Arena *a, Iron_Type *pointee, bool is_var);
 /* Construct a function type func(params...) -> ret */
 Iron_Type *iron_type_make_func(Iron_Arena *a, Iron_Type **params, int count, Iron_Type *ret);
 
-/* Construct an array type [elem; size] (size == -1 for dynamic) */
-Iron_Type *iron_type_make_array(Iron_Arena *a, Iron_Type *elem, int size);
+/* Construct an array type [elem; size] (size == -1 for dynamic).
+ * Phase 23 VEC-01: is_bounded=true for [T; <=N], false for [T; N] / dynamic. */
+Iron_Type *iron_type_make_array(Iron_Arena *a, Iron_Type *elem, int size, bool is_bounded);
 
 /* Construct an object type backed by a declaration node */
 Iron_Type *iron_type_make_object(Iron_Arena *a, struct Iron_ObjectDecl *decl);

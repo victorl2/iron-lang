@@ -1452,7 +1452,7 @@ void test_h2l_array_lit_instr(void) {
     arrput(elems, e1);
     arrput(elems, e2);
 
-    Iron_Type *arr_t = iron_type_make_array(g_mod->arena, int_t, 3);
+    Iron_Type *arr_t = iron_type_make_array(g_mod->arena, int_t, 3, false);
     IronHIR_Expr *arr_lit = iron_hir_expr_array_lit(g_mod, int_t, elems, 3, arr_t, span);
     IronHIR_Stmt *s       = iron_hir_stmt_expr(g_mod, arr_lit, span);
 
@@ -2365,7 +2365,7 @@ void test_h2l_for_loop_count_hoisted(void) {
     Iron_Span span    = zero_span();
     Iron_Type *int_t  = iron_type_make_primitive(IRON_TYPE_INT);
     Iron_Type *void_t = iron_type_make_primitive(IRON_TYPE_VOID);
-    Iron_Type *arr_t  = iron_type_make_array(g_mod->arena, int_t, 3);
+    Iron_Type *arr_t  = iron_type_make_array(g_mod->arena, int_t, 3, false);
 
     /* Build array literal [1, 2, 3] as the iterable */
     IronHIR_Expr *e0 = iron_hir_expr_int_lit(g_mod, 1, int_t, span);

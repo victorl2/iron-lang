@@ -745,6 +745,15 @@ static void emit_type_mismatch_maybe_literal(TypeCtx *ctx, Iron_Span span,
  */
 static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
     if (!decl_t || !init_t) return true;
+    /* Phase 23 VEC: [T;<=N] and [T;N] are disjoint types — reject cross-assignment.
+     * Caller specializes the diagnostic to E0283 when this returns false on
+     * matching elem + matching size + differing is_bounded. */
+    if (decl_t->kind == IRON_TYPE_ARRAY && init_t->kind == IRON_TYPE_ARRAY &&
+        decl_t->array.size >= 0 && init_t->array.size >= 0 &&
+        decl_t->array.is_bounded != init_t->array.is_bounded &&
+        iron_type_equals(decl_t->array.elem, init_t->array.elem)) {
+        return false;
+    }
     if (iron_type_equals(decl_t, init_t)) return true;
     /* Int32 -> Int: implicit widening (always safe) */
     if (decl_t->kind == IRON_TYPE_INT && init_t->kind == IRON_TYPE_INT32) return true;
@@ -1125,7 +1134,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                 Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
                 if (il->value) size = (int)strtol(il->value, NULL, 10);
             }
-            Iron_Type *arr = iron_type_make_array(ctx->arena, base, size);
+            Iron_Type *arr = iron_type_make_array(ctx->arena, base, size, ann->bounded);
             /* HARD-09 CR-02: NULL-propagation fallback. */
             if (!arr) arr = iron_type_make_primitive(IRON_TYPE_ERROR);
             base = arr;
@@ -1134,6 +1143,8 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
             if (base && base->kind == IRON_TYPE_ARRAY) {
                 base->array.layout_hint  = ann->layout_hint;
                 base->array.is_unordered = ann->is_unordered;
+                /* Phase 23 VEC-01: propagate bounded flag from annotation to type */
+                base->array.is_bounded   = ann->bounded;
             }
         }
 
@@ -1333,7 +1344,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
             Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
             if (il->value) size = (int)strtol(il->value, NULL, 10);
         }
-        Iron_Type *arr = iron_type_make_array(ctx->arena, base, size);
+        Iron_Type *arr = iron_type_make_array(ctx->arena, base, size, ann->bounded);
         /* HARD-09 CR-02: NULL-propagation fallback. */
         if (!arr) arr = iron_type_make_primitive(IRON_TYPE_ERROR);
         base = arr;
@@ -1342,6 +1353,8 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         if (base && base->kind == IRON_TYPE_ARRAY) {
             base->array.layout_hint  = ann->layout_hint;
             base->array.is_unordered = ann->is_unordered;
+            /* Phase 23 VEC-01: propagate bounded flag from annotation to type */
+            base->array.is_bounded   = ann->bounded;
         }
     }
 
@@ -1577,7 +1590,7 @@ static Iron_Type *resolve_array_ext_method(TypeCtx *ctx,
                     }
                 }
                 if (inferred_u) {
-                    return iron_type_make_array(ctx->arena, inferred_u, -1);
+                    return iron_type_make_array(ctx->arena, inferred_u, -1, false);
                 }
                 return arr_type;
             }
@@ -2648,10 +2661,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     }
                     /* Return type is [T] where T is the type of val */
                     if (val_t) {
-                        result = iron_type_make_array(ctx->arena, val_t, -1);
+                        result = iron_type_make_array(ctx->arena, val_t, -1, false);
                     } else {
                         result = iron_type_make_array(ctx->arena,
-                                   iron_type_make_primitive(IRON_TYPE_INT), -1);
+                                   iron_type_make_primitive(IRON_TYPE_INT), -1, false);
                     }
                     ce->resolved_type = result;
                     break;
@@ -3973,7 +3986,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
                 elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
             }
-            result = iron_type_make_array(ctx->arena, elem_type, -1);
+            result = iron_type_make_array(ctx->arena, elem_type, -1, false);
             al->resolved_type = result;
             break;
         }
@@ -4432,6 +4445,40 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         emit_error(ctx, IRON_ERR_PTR_NULL_DEREF, lit_span,
                                    msg,
                                    "use '?*T' for the nullable pointer variant");
+                    } else if (decl_type->kind == IRON_TYPE_ARRAY && init_type->kind == IRON_TYPE_ARRAY &&
+                               decl_type->array.size >= 0 && init_type->array.size >= 0 &&
+                               decl_type->array.is_bounded != init_type->array.is_bounded) {
+                        /* Phase 23 VEC-283: specialize bounded<->strict cross-assign.
+                         * §3.3: [T; <=N] and [T; N] are disjoint types. */
+                        emit_error(ctx, IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN, lit_span,
+                                   "cannot assign bounded vector to strict array or vice versa",
+                                   "§3.3: [T; <=N] and [T; N] are disjoint types; "
+                                   "Phase 33 ships to_fixed()/to_bounded() conversion helpers");
+                    } else if (decl_type->kind == IRON_TYPE_ARRAY &&
+                               decl_type->array.size >= 0 && !decl_type->array.is_bounded &&
+                               vd->init && vd->init->kind == IRON_NODE_ARRAY_LIT) {
+                        /* Phase 23 VEC-04: strict array declared with literal.
+                         * The literal's inferred type is [T] (dynamic, size=-1) so
+                         * types_assignable rejected it. Two sub-cases:
+                         *   - element count matches size → valid; suppress E0202.
+                         *   - element count differs → emit VEC-04 specialization (E0282).
+                         * §3.3: [T; N] requires exactly N elements in the initializer. */
+                        Iron_ArrayLit *al = (Iron_ArrayLit *)vd->init;
+                        if (al->element_count != decl_type->array.size) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "array literal has %d element(s) but '[%s; %d]' requires exactly %d",
+                                     al->element_count,
+                                     decl_type->array.elem
+                                         ? iron_type_to_string(decl_type->array.elem, ctx->arena) : "?",
+                                     decl_type->array.size, decl_type->array.size);
+                            const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                            if (!msg_copy) msg_copy = "array literal element count mismatch";
+                            emit_error(ctx, IRON_ERR_VEC_STRICT_LENGTH_MISMATCH,
+                                       vd->init->span, msg_copy,
+                                       "§3.3: [T; N] requires exactly N elements in the initializer literal");
+                        }
+                        /* If count matches, suppress the generic E0202: the literal is valid. */
                     } else {
                     /* Phase 4 Plan 04-01 (EDIT-07): narrow literal RHS to
                      * IRON_ERR_TYPE_MISMATCH_LITERAL=235 with retyped-literal
@@ -4501,7 +4548,41 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                      * decl_type because that path goes through types_assignable
                      * cleanly via NULL-handling on nullables. */
                     Iron_Span lit_span = (vd->init) ? vd->init->span : vd->span;
-                    if (decl_type->kind == IRON_TYPE_PTR &&
+                    if (decl_type->kind == IRON_TYPE_ARRAY && init_type->kind == IRON_TYPE_ARRAY &&
+                        decl_type->array.size >= 0 && init_type->array.size >= 0 &&
+                        decl_type->array.is_bounded != init_type->array.is_bounded) {
+                        /* Phase 23 VEC-283: specialize bounded<->strict cross-assign.
+                         * §3.3: [T; <=N] and [T; N] are disjoint types. */
+                        emit_error(ctx, IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN, lit_span,
+                                   "cannot assign bounded vector to strict array or vice versa",
+                                   "§3.3: [T; <=N] and [T; N] are disjoint types; "
+                                   "Phase 33 ships to_fixed()/to_bounded() conversion helpers");
+                    } else if (decl_type->kind == IRON_TYPE_ARRAY &&
+                               decl_type->array.size >= 0 && !decl_type->array.is_bounded &&
+                               vd->init && vd->init->kind == IRON_NODE_ARRAY_LIT) {
+                        /* Phase 23 VEC-04: strict array declared with literal.
+                         * The literal's inferred type is [T] (dynamic, size=-1) so
+                         * types_assignable rejected it. Two sub-cases:
+                         *   - element count matches size → valid; suppress E0202.
+                         *   - element count differs → emit VEC-04 specialization (E0282).
+                         * §3.3: [T; N] requires exactly N elements in the initializer. */
+                        Iron_ArrayLit *al = (Iron_ArrayLit *)vd->init;
+                        if (al->element_count != decl_type->array.size) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "array literal has %d element(s) but '[%s; %d]' requires exactly %d",
+                                     al->element_count,
+                                     decl_type->array.elem
+                                         ? iron_type_to_string(decl_type->array.elem, ctx->arena) : "?",
+                                     decl_type->array.size, decl_type->array.size);
+                            const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                            if (!msg_copy) msg_copy = "array literal element count mismatch";
+                            emit_error(ctx, IRON_ERR_VEC_STRICT_LENGTH_MISMATCH,
+                                       vd->init->span, msg_copy,
+                                       "§3.3: [T; N] requires exactly N elements in the initializer literal");
+                        }
+                        /* If count matches, suppress the generic E0202: the literal is valid. */
+                    } else if (decl_type->kind == IRON_TYPE_PTR &&
                         init_type->kind == IRON_TYPE_NULL) {
                         const char *pt_str = iron_type_to_string(decl_type, ctx->arena);
                         char msg[256];

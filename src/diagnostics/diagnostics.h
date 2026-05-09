@@ -286,6 +286,9 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_READONLY_HEAP_ESCAPE     279  /* READ-05 (typecheck.c IRON_NODE_HEAP arm; Plan 22-01) */
 #define IRON_ERR_READONLY_RETURN_TYPE      280  /* READ-06 declaration-site whitelist (typecheck.c check_func_decl + check_method_decl; Plan 22-02) */
 #define IRON_ERR_READONLY_IFACE_CONFORMANCE 281  /* READ-07 interface conformance (typecheck.c check_iface_tier_strengthening; Plan 22-02) */
+/* Phase 23 VEC: bounded vector [T; <=N] type-level surface */
+#define IRON_ERR_VEC_STRICT_LENGTH_MISMATCH    282  /* VEC-04 (typecheck.c VAL_DECL/VAR_DECL ARRAY_LIT element-count mismatch; Plan 23-01) */
+#define IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN 283  /* VEC: [T;<=N]<->[T;N] disjoint cross-assign (typecheck.c types_assignable + VAL_DECL/VAR_DECL specialization; Plan 23-01) */
 
 /* Phase 86 PATCH: open-extension diagnostics.
  *

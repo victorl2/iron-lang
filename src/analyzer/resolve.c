@@ -1701,7 +1701,7 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
         }
         /* fill(Int, Int) -> [Int]  (type checker special-cases to infer [T]) */
         {
-            Iron_Type *arr_t = iron_type_make_array(arena, int_t, -1);
+            Iron_Type *arr_t = iron_type_make_array(arena, int_t, -1, false);
             Iron_Type *params[2] = { int_t, int_t };
             Iron_Type *fn = iron_type_make_func(arena, params, 2, arr_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "fill",
