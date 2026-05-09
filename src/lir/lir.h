@@ -483,6 +483,11 @@ struct IronLIR_Func {
      * per-call bump (recursive calls bump twice — entry + exit). Default
      * false via iron_lir_func_create memset. */
     bool               takes_local_addr;
+    /* Phase 22 READ-08: propagated from IronHIR_Func.is_readonly.
+     * Consumed by emit_c.c to emit sret ABI for fixed-array returns from
+     * readonly functions ([T; N] and [T; <=N] return by caller-provided slot).
+     * Default false via iron_lir_func_create memset. */
+    bool               is_readonly;
 };
 
 /* ── Module ───────────────────────────────────────────────────────────────── */

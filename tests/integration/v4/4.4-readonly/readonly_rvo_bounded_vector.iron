@@ -1,0 +1,20 @@
+-- section 4.4 positive: readonly method returning [Int; <=4] exercises sret RVO codegen
+-- Phase 23 tightens storage semantics; Phase 22 accepts the syntax in readonly-compatible whitelist.
+-- @req: READ-08
+-- @expected-pass-after: phase-23
+-- note: requires Phase 23 [T; <=N] bounded-vector semantics + String.split READ-06 whitelist
+
+object BVec {
+    var a: Int
+    var b: Int
+    var c: Int
+
+    readonly func make_bvec() -> [Int; <=4] {
+        return [self.a, self.b, self.c]
+    }
+}
+
+func main() {
+    val bv = BVec(1, 2, 3)
+    val result = bv.make_bvec()
+}

@@ -189,6 +189,36 @@ codes should accept either the bare integer or the `E<NNN>` string.
 - **OQ-09 NO-promotion lock.** Policy promotion `heap → rc` is **NOT** supported. The closed policy set is enforced at type level: a programmer wanting reference counting must allocate via `rc T(...)` from the start (Phase 26 ships the `rc` allocation form). PROJECT.md Key Decisions table has the canonical row resolving OQ-09; consistent with POL-11's closed-policy-keyword guard.
 - **`auto_free` flag disconnection (Phase 31 forward-reference).** The `IRON_LIR_HEAP_ALLOC.heap_alloc.auto_free` flag (set by escape.c for non-escaping heap allocations) is intentionally NOT connected to automatic `iron_heap_free` emission in Phase 21. Phase 31 (DBG-05 forgotten-`free` warning) will consume this flag to drive the warning. The emit_c.c HEAP_ALLOC site carries a `/* PHASE-31: auto_free connects to DBG-05 forgotten-free warning; do NOT emit iron_heap_free here */` documentation guard.
 
+## Phase 22 — readonly Purity Tightening (§6 + §12 step 6/8)
+
+| Code | Symbol | Message (locked substring) | Hint | Quickfix-Target (Phase 34 LSP-10) | Phase | Spec § |
+|-----:|--------|----------------------------|------|-----------------------------------|------:|--------|
+| 277 | `IRON_ERR_READONLY_PARAM_MUTATION` | `cannot assign to parameter '...' in readonly method` | `§6: readonly methods may not assign to any parameter` | Drop `readonly` modifier (LSP-10) | 22 (Plan 22-01) | §6 |
+| 278 | `IRON_ERR_READONLY_IO` | `cannot call I/O function/method '...' in readonly method` | `§6: readonly methods may not perform I/O` | Drop `readonly` modifier (LSP-10) | 22 (Plan 22-01) | §6 |
+| 279 | `IRON_ERR_READONLY_HEAP_ESCAPE` | `cannot allocate 'heap T(...)' in readonly method` | `§6: readonly methods may not allocate heap T(...) or rc T(...)` | Drop `readonly` modifier (LSP-10) | 22 (Plan 22-01) | §6 + §4.5 |
+| 280 | `IRON_ERR_READONLY_RETURN_TYPE` | `readonly function/method return type '...' is not readonly-compatible` | `§6: readonly return types: primitives, fixed structs, [T; N], [T; <=N], tuples, T?` | Drop `readonly` modifier (LSP-10) | 22 (Plan 22-02) | §6 + §12 step 8 |
+| 281 | `IRON_ERR_READONLY_IFACE_CONFORMANCE` | `interface readonly method '...' implementation '...' must be readonly or pure` | `§6: interface readonly method requires readonly or pure implementation` | Add `readonly` to impl (LSP-10) | 22 (Plan 22-02) | §6 + §13 OQ-05 |
+
+### Notes
+
+1. **§6 hint discipline (READ-09)** — All FIVE readonly diagnostics carry hint substring `§6:` + rule text. The two Phase 84 baseline emissions (`IRON_ERR_READONLY_WRITE_SELF`=238 + `IRON_ERR_READONLY_CALLS_MUTATING`=239) were retrofitted by Plan 22-01 Tasks 3 + 4 to gain §6 hints; codes/messages preserved.
+
+2. **Pitfall 1 double-emit guard** — All Phase 22 body-violation checks are guarded with `ctx->in_readonly_method && !ctx->in_pure_method`. Without the `!ctx->in_pure_method`, a `pure` method (which has both flags true per typecheck.c:4438) would emit BOTH a pure-tier code (240-244) AND a readonly-tier code (277-279) for the same violation. The guard ensures pure-tier owns pure methods; readonly-tier owns non-pure-readonly only. Regression anchor: tests/unit/test_readonly_body.c case `pure_method_io_no_double_emit`.
+
+3. **Pitfall 7 Phase 87 v3_iface_tier_mismatch.iron preservation** — READ-07 changed the diagnostic code for `sig->is_readonly && !sig->is_pure` failures from `IRON_ERR_IFACE_METHOD_TIER_MISMATCH` (257, Phase 87 baseline) to `IRON_ERR_READONLY_IFACE_CONFORMANCE` (281, Phase 22). Pure-sig violations PRESERVE code 257 to keep Phase 87 fixture compatibility. The semantic at typecheck.c (`ok = impl->is_readonly || impl->is_pure;` for readonly sig — `pure >= readonly`) is UNCHANGED.
+
+4. **READ-08 sret RVO contract** — readonly methods/functions returning `[T; N]` (fixed array) or `[T; <=N]` (bounded vector — Phase 23 syntax accepted; semantics tightened in Phase 23) use sret ABI in generated C: `void fn(T_array *_sret, ...args)` with caller-provided slot. emit_c.c `emit_func_use_sret` helper centralizes the decision symmetrically at function-decl and call sites (Pitfall 6). `IronHIR_Func.is_readonly` + `IronLIR_Func.is_readonly` fields propagate from AST through hir_lower.c + hir_to_lir.c. Lambda lifting carries the readonly context via `LiftPending.is_readonly_context` (Plan 22-02 set; Plan 22-03 consume at lift Pass 3 setting `IronHIR_Func.is_readonly`).
+
+5. **OQ-04 closure body-purity + capture-purity** — closures inside a readonly method/func are implicitly readonly (body-purity inheritance via `LiftPending.is_readonly_context` propagation). Captures of `var` bindings (mutable storage) and `*var T` pointers (writable through capture) are REJECTED with code 277 (`IRON_ERR_READONLY_PARAM_MUTATION`) emitted in capture.c after `find_captures` builds the capture set; `readonly_context` propagated AST-side per RESEARCH Pitfall 4 (TypeCtx not available post-typecheck). Captures of `val`, `*T` (read-only pointer), primitives, fixed structs are accepted. Hint substring `§6: closures in readonly...` distinguishes closure-capture from body-mutation.
+
+6. **OQ-05 pure >= readonly** one-way subsumption: pure impl satisfies readonly sig; readonly impl does NOT satisfy pure sig. Formalized at typecheck.c `check_iface_tier_strengthening` with `ok = impl->is_readonly || impl->is_pure;` for readonly sig (Phase 87 baseline; Plan 22-02 only changes diagnostic code on failure). Positive corpus: `pure_satisfies_readonly_iface.iron` validates the subsumption.
+
+7. **Phase 23 forward-reference (BVEC)** — the `[T; <=N]` syntax is accepted in Phase 22's readonly-compatible whitelist (`is_readonly_compatible_type` IRON_TYPE_ARRAY case with `size >= 0`). Phase 23 will land the inline-storage representation. `is_readonly_compatible_type`'s switch has a `/* Phase 23 BVEC: when IRON_TYPE_BVEC lands as a new kind, add explicit case */` future-extension comment per Pitfall 5.
+
+8. **Phase 24 forward-reference (DROP/copy/nocopy)** — readonly-compatible struct walk treats all fields as candidates; Phase 24 may need to refine for nocopy field interaction with readonly returns.
+
+9. **Phase 34 LSP-10 quickfix consumer** — every Phase 22 code carries Quickfix-Target column for Phase 34 LSP-10 quickfix wiring (typically "drop readonly modifier" or "add readonly to impl").
+
 ## Adding new codes
 
 1. Allocate the next free slot in the appropriate range. Verify uniqueness

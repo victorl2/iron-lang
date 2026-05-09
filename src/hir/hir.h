@@ -499,6 +499,11 @@ struct IronHIR_Func {
      * `iron_stack_gen += 1;` prologue/epilogue. Default false via
      * iron_hir_func_create memset. OQ-E lock: per-call bump semantics. */
     bool               takes_local_addr;
+    /* Phase 22 READ-08: true when lowered from a readonly FuncDecl/MethodDecl.
+     * Consumed by hir_to_lir.c to propagate to IronLIR_Func for sret codegen.
+     * Consumes Plan 22-02 LiftPending.is_readonly_context for lifted lambdas.
+     * Default false via iron_hir_func_create memset. */
+    bool               is_readonly;
 };
 
 /* ── Module ──────────────────────────────────────────────────────────────── */

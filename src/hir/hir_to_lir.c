@@ -2445,6 +2445,10 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
      * + per-return-path bumps for functions whose body takes the address
      * of a stack-local (set by Plan 20-02a's mark_takes_local_addr_pass). */
     lir_func->takes_local_addr = hir_func->takes_local_addr;
+    /* Phase 22 READ-08: pure pass-through propagation HIR -> LIR.
+     * Consumed by emit_c.c emit_func_use_sret helper for symmetric
+     * sret ABI at function-decl and call-site emission. */
+    lir_func->is_readonly = hir_func->is_readonly;
 
     /* Set up context for this function */
     ctx->current_func = lir_func;

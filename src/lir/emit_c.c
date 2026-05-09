@@ -54,6 +54,39 @@ static void mark_stack_array(EmitCtx *ctx, IronLIR_ValueId id,
 
 /* (resolve_stack_array_origin removed — pre-scan in emit_func_body handles propagation) */
 
+/* ── Phase 22 READ-08: sret RVO eligibility predicate ───────────────────── */
+
+/* emit_func_use_sret: returns true iff fn is readonly AND returns a fixed-size
+ * array (IRON_TYPE_ARRAY with size >= 0 — covers both [T; N] strict and
+ * [T; <=N] bounded; Phase 23 may add a distinct IRON_TYPE_BVEC kind, in which
+ * case this helper updates — see comment in is_readonly_compatible_type).
+ *
+ * Used at BOTH function-decl and call-site emission for symmetric ABI
+ * (RESEARCH Pitfall 6: asymmetric transformation produces C compile errors
+ * "too many/few arguments" or "incompatible type"). */
+static bool emit_func_use_sret(const IronLIR_Func *fn) {
+    return fn && fn->is_readonly && fn->return_type &&
+           fn->return_type->kind == IRON_TYPE_ARRAY &&
+           fn->return_type->array.size >= 0;
+}
+
+/* emit_find_lir_func_by_name: look up an IronLIR_Func in the module by its
+ * IR name. Used by the IRON_LIR_CALL handler to determine whether a callee
+ * is sret-eligible (requires callee metadata — existing call emission
+ * doesn't need this). Returns NULL if not found (extern callee — use standard
+ * ABI). */
+static const IronLIR_Func *emit_find_lir_func_by_name(const EmitCtx *ctx,
+                                                        const char *name) {
+    if (!ctx || !ctx->module || !name) return NULL;
+    for (int i = 0; i < ctx->module->func_count; i++) {
+        if (ctx->module->funcs[i] && ctx->module->funcs[i]->name &&
+            strcmp(ctx->module->funcs[i]->name, name) == 0) {
+            return ctx->module->funcs[i];
+        }
+    }
+    return NULL;
+}
+
 /* Forward declaration -- emit_instr and emit_expr_to_buf are mutually recursive.
  * emit_expr_to_buf is non-static: also called from emit_fusion.c. */
 void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
@@ -2664,6 +2697,60 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         bool is_void = (instr->type == NULL ||
                         instr->type->kind == IRON_TYPE_VOID);
 
+        /* Phase 22 READ-08: sret call-site transformation.
+         * If the callee is a readonly function returning a fixed-size array,
+         * emit: `T_array _vN_sret; callee(&_vN_sret, args...);` and bind the
+         * result id to `_vN_sret` instead of assigning from return value.
+         * Look up callee by IR name in the LIR module to check is_readonly +
+         * return_type (Pitfall 6: both decl and call sites must agree on ABI). */
+        {
+            const char *callee_ir_name = NULL;
+            if (instr->call.func_decl) {
+                callee_ir_name = instr->call.func_decl->name;
+            } else {
+                IronLIR_ValueId fptr2 = instr->call.func_ptr;
+                if (fptr2 != IRON_LIR_VALUE_INVALID &&
+                    fptr2 < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                    fn->value_table[fptr2] != NULL &&
+                    fn->value_table[fptr2]->kind == IRON_LIR_FUNC_REF) {
+                    callee_ir_name = fn->value_table[fptr2]->func_ref.func_name;
+                }
+            }
+            if (callee_ir_name) {
+                const IronLIR_Func *callee_fn = emit_find_lir_func_by_name(ctx, callee_ir_name);
+                if (emit_func_use_sret(callee_fn)) {
+                    /* sret call: declare stack slot, call with &slot as first arg */
+                    const char *array_c_type = emit_type_to_c(callee_fn->return_type, ctx);
+                    emit_indent(sb, ind);
+                    if (!is_hoisted) {
+                        iron_strbuf_appendf(sb, "%s ", array_c_type);
+                    }
+                    emit_val(sb, instr->id);
+                    iron_strbuf_appendf(sb, ";\n");
+                    /* Emit the call: callee_c(&_vID, args...) */
+                    emit_indent(sb, ind);
+                    const char *callee_c_name;
+                    if (instr->call.func_decl) {
+                        Iron_FuncDecl *fd2 = instr->call.func_decl;
+                        callee_c_name = (fd2->is_extern && fd2->extern_c_name)
+                            ? fd2->extern_c_name
+                            : emit_mangle_func_name(fd2->name, ctx->arena);
+                    } else {
+                        callee_c_name = emit_resolve_func_c_name(ctx, callee_ir_name);
+                    }
+                    iron_strbuf_appendf(sb, "%s(&", callee_c_name);
+                    emit_val(sb, instr->id);
+                    for (int ai = 0; ai < instr->call.arg_count; ai++) {
+                        iron_strbuf_appendf(sb, ", ");
+                        emit_expr_to_buf(sb, instr->call.args[ai], fn, ctx,
+                                         ctx->current_block_id, 0);
+                    }
+                    iron_strbuf_appendf(sb, ");\n");
+                    break;
+                }
+            }
+        }
+
         emit_indent(sb, ind);
         if (!is_void) {
             if (!is_hoisted) {
@@ -3249,6 +3336,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         if (instr->ret.is_void) {
             iron_strbuf_appendf(sb, "return;\n");
+        } else if (emit_func_use_sret(fn)) {
+            /* Phase 22 READ-08: sret return form — write value through caller-
+             * provided _sret pointer instead of returning by value. The callee
+             * owns the write; the caller reads _ret_slot after the call. */
+            iron_strbuf_appendf(sb, "*_sret = ");
+            if (fn->is_mut_receiver_method && instr->ret.value == 1) {
+                iron_strbuf_appendf(sb, "*");
+            }
+            emit_expr_to_buf(sb, instr->ret.value, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ";\nreturn;\n");
         } else {
             /* Check if return needs interface wrapping:
              * function returns interface, value is concrete */
@@ -4569,12 +4666,53 @@ static bool is_lifted_func(const char *name) {
 
 void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
                          EmitCtx *ctx, bool with_newline) {
-    const char *ret_c = fn->return_type
-                        ? emit_type_to_c(fn->return_type, ctx)
-                        : "void";
     const char *c_name = fn->is_extern && fn->extern_c_name
                         ? fn->extern_c_name
                         : emit_mangle_func_name(fn->name, ctx->arena);
+    /* Phase 22 READ-08: sret ABI — readonly functions returning a fixed-size
+     * array use `void fn(T_array *_sret, ...args)` instead of
+     * `T_array fn(...args)`. Both decl and call sites must agree (Pitfall 6). */
+    if (emit_func_use_sret(fn)) {
+        const char *array_c_type = emit_type_to_c(fn->return_type, ctx);
+        iron_strbuf_appendf(sb, "void %s(%s *_sret", c_name, array_c_type);
+        for (int i = 0; i < fn->param_count; i++) {
+            iron_strbuf_appendf(sb, ", ");
+            Iron_Type *pt = fn->params[i].type;
+            int param_val_id = i + 1;
+            if (pt && pt->kind == IRON_TYPE_ARRAY) {
+                ArrayParamMode pmode = emit_get_array_param_mode(ctx, fn->name, i);
+                if (pmode == ARRAY_PARAM_CONST_PTR) {
+                    const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
+                    iron_strbuf_appendf(sb, "const %s *_v%d, int64_t _v%d_len",
+                                        elem_c, param_val_id, param_val_id);
+                } else if (pmode == ARRAY_PARAM_MUT_PTR) {
+                    const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
+                    iron_strbuf_appendf(sb, "%s *_v%d, int64_t _v%d_len",
+                                        elem_c, param_val_id, param_val_id);
+                } else {
+                    iron_strbuf_appendf(sb, "%s _v%d",
+                                        emit_type_to_c(pt, ctx), param_val_id);
+                }
+            } else if (fn->is_mut_receiver_method && i == 0) {
+                iron_strbuf_appendf(sb, "%s *_v%d",
+                                    pt ? emit_type_to_c(pt, ctx) : "void*",
+                                    param_val_id);
+            } else {
+                iron_strbuf_appendf(sb, "%s _v%d",
+                                    pt ? emit_type_to_c(pt, ctx) : "void*",
+                                    param_val_id);
+            }
+        }
+        if (fn->param_count == 0) {
+            /* _sret is the only param; no additional params to emit */
+        }
+        iron_strbuf_appendf(sb, ")");
+        if (with_newline) iron_strbuf_appendf(sb, ";\n");
+        return;
+    }
+    const char *ret_c = fn->return_type
+                        ? emit_type_to_c(fn->return_type, ctx)
+                        : "void";
     iron_strbuf_appendf(sb, "%s %s(", ret_c, c_name);
     for (int i = 0; i < fn->param_count; i++) {
         if (i > 0) iron_strbuf_appendf(sb, ", ");

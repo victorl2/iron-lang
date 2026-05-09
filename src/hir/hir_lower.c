@@ -1784,6 +1784,10 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr from
              * AST decl (set by Plan 20-02a's mark_takes_local_addr_pass). */
             f->takes_local_addr = fd->takes_local_addr;
+            /* Phase 22 READ-08: propagate is_readonly from AST FuncDecl.
+             * Top-level free functions use is_readonly directly (no is_pure
+             * on free functions per Iron design). */
+            f->is_readonly = fd->is_readonly;
             iron_hir_module_add_func(mod, f);
             break;
         }
@@ -1990,6 +1994,10 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr from
              * AST method decl (set by Plan 20-02a's mark_takes_local_addr_pass). */
             f->takes_local_addr = md->takes_local_addr;
+            /* Phase 22 READ-08: propagate is_readonly from AST MethodDecl.
+             * Methods inherit readonly when EITHER is_readonly OR is_pure
+             * (pure >= readonly one-way subsumption per OQ-05). */
+            f->is_readonly = md->is_readonly || md->is_pure;
             iron_hir_module_add_func(mod, f);
             break;
         }
@@ -2257,10 +2265,11 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
 
             pop_scope(ctx);
             ctx->current_func = NULL;
+            /* Phase 22 READ-08: consume LiftPending bit set by Plan 22-02 at
+             * queue site (~line 1561). The lifted lambda inherits readonly
+             * context from the enclosing function. */
+            lifted->is_readonly = lp->is_readonly_context;
             iron_hir_module_add_func(mod, lifted);
-            /* Phase 22 Plan 22-03: when IronHIR_Func.is_readonly is added by
-             * Plan 22-03, assign:
-             *   lifted->is_readonly = lp->is_readonly_context; */
             break;
         }
 
