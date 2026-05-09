@@ -58,8 +58,9 @@ static void mark_stack_array(EmitCtx *ctx, IronLIR_ValueId id,
 
 /* emit_func_use_sret: returns true iff fn is readonly AND returns a fixed-size
  * array (IRON_TYPE_ARRAY with size >= 0 — covers both [T; N] strict and
- * [T; <=N] bounded; Phase 23 may add a distinct IRON_TYPE_BVEC kind, in which
- * case this helper updates — see comment in is_readonly_compatible_type).
+ * [T; <=N] bounded; Phase 23 Plan 23-02 confirmed is_bounded approach:
+ * no IRON_TYPE_BVEC kind added; predicate body UNCHANGED since bounded
+ * vectors also have size >= 0 — see comment in is_readonly_compatible_type).
  *
  * Used at BOTH function-decl and call-site emission for symmetric ABI
  * (RESEARCH Pitfall 6: asymmetric transformation produces C compile errors
@@ -479,6 +480,18 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 
     /* GET_FIELD */
     case IRON_LIR_GET_FIELD: {
+        /* Phase 23 VEC-01: bounded vector .count in expression context → .len */
+        {
+            Iron_Type *bvec_expr_t = emit_get_value_type(fn, instr->field.object);
+            if (instr->field.field && strcmp(instr->field.field, "count") == 0 &&
+                bvec_expr_t && bvec_expr_t->kind == IRON_TYPE_ARRAY &&
+                bvec_expr_t->array.is_bounded) {
+                iron_strbuf_appendf(sb, "(int64_t)");
+                emit_expr_to_buf(sb, instr->field.object, fn, ctx, use_block_id, depth+1);
+                iron_strbuf_appendf(sb, ".len");
+                break;
+            }
+        }
         /* Stack array .count is a special case — emits as _vN_len */
         if (get_stack_array_origin(ctx, instr->field.object) != IRON_LIR_VALUE_INVALID &&
             instr->field.field && strcmp(instr->field.field, "count") == 0) {
@@ -530,8 +543,17 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         } else {
             /* Check direct array type — also handles parameter values (NULL in value_table) */
             Iron_Type *arr_t_expr = emit_get_value_type(fn, instr->index.array);
-            bool use_direct = (arr_t_expr && arr_t_expr->kind == IRON_TYPE_ARRAY);
-            if (use_direct) {
+            bool use_bvec_expr = (arr_t_expr && arr_t_expr->kind == IRON_TYPE_ARRAY &&
+                                  arr_t_expr->array.is_bounded);
+            bool use_direct = (arr_t_expr && arr_t_expr->kind == IRON_TYPE_ARRAY && !use_bvec_expr);
+            if (use_bvec_expr) {
+                /* Phase 23 VEC-01: bounded vector inline index in expression context.
+                 * Use .data[] (not .items[] — bvec struct has no items field). */
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth+1);
+                iron_strbuf_appendf(sb, ".data[");
+                emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
+                iron_strbuf_appendf(sb, "]");
+            } else if (use_direct) {
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth+1);
                 iron_strbuf_appendf(sb, ".items[");
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
@@ -1211,7 +1233,17 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb, "%s ", c_type);
             emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, ";\n");
+            /* Phase 23 VEC-01 Pitfall 7: bounded vector ALLOCA zero-init via
+             * designated initializer.  Without this, garbage `len` field in the
+             * emitted struct causes an immediate spurious panic on the first push
+             * (bounds check fires because bv.len contains random stack data). */
+            if (instr->alloca.alloc_type &&
+                instr->alloca.alloc_type->kind == IRON_TYPE_ARRAY &&
+                instr->alloca.alloc_type->array.is_bounded) {
+                iron_strbuf_appendf(sb, " = {0};\n");
+            } else {
+                iron_strbuf_appendf(sb, ";\n");
+            }
         }
         break;
     }
@@ -1406,6 +1438,23 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 iron_strbuf_appendf(sb, " = ");
                 emit_val(sb, instr->field.object);
                 iron_strbuf_appendf(sb, "._total_count;\n");
+                break;
+            }
+        }
+        /* Phase 23 VEC-01: .count on a bounded vector → .len (bvec struct has .len not .count).
+         * for-loop lowering in hir_to_lir.c emits GET_FIELD "count" for all IRON_TYPE_ARRAY
+         * iterables; remap to .len for is_bounded types so C sees the correct field name. */
+        {
+            Iron_Type *bvec_field_t = emit_get_value_type(fn, instr->field.object);
+            if (instr->field.field && strcmp(instr->field.field, "count") == 0 &&
+                bvec_field_t && bvec_field_t->kind == IRON_TYPE_ARRAY &&
+                bvec_field_t->array.is_bounded) {
+                emit_indent(sb, ind);
+                if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = (int64_t)");
+                emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ".len;\n");
                 break;
             }
         }
@@ -1687,8 +1736,35 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             /* Check if the array has an array type — if so, inline .items[idx]
              * instead of calling _get() which is just return self->items[index] */
             Iron_Type *arr_t = emit_get_value_type(fn, instr->index.array);
-            bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY);
-            if (use_direct) {
+            /* Phase 23 VEC-01: bounded vector index — emit inline bounds check against
+             * bv.len (initialized region, NOT N capacity) per CONTEXT Area 3, then
+             * read bv.data[i] directly.  Pitfall: check against len, not array size. */
+            bool use_bvec = (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
+                             arr_t->array.is_bounded);
+            bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY && !use_bvec);
+            if (use_bvec) {
+                /* Inline bounds-check: if (i >= (int64_t)bv.len) iron_panic_bvec_oob(...) */
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "if (");
+                emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, " >= (int64_t)");
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb,
+                    ".len) iron_panic_bvec_oob(__FILE__, __LINE__, ");
+                emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ", (int64_t)");
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ".len);\n");
+                /* result = bv.data[i] */
+                emit_indent(sb, ind);
+                if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = ");
+                emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ".data[");
+                emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, "];\n");
+            } else if (use_direct) {
                 /* Direct field access: result = array.items[index]; */
                 emit_indent(sb, ind);
                 if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
@@ -2688,6 +2764,100 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 "/* Phase 55: .set() with non-concrete or non-matching "
                                 "type — no-op (known limitation) */\n");
                             break;
+                        }
+                    }
+                }
+            }
+        }
+
+        /* Phase 23 VEC-01: bounded-vector method interception.
+         * hir_to_lir.c generates `CALL Iron_List_<elem>_<method>(&bv, ...)` for
+         * `bv.<method>(...)` on any IRON_TYPE_ARRAY receiver.  When the first
+         * argument's type is bounded (is_bounded=true), the receiver is an
+         * `Iron_BVec_T_N` struct — calling Iron_List_T_<method> on it is a C type
+         * error.  Intercept push and len here; emit inline codegen instead. */
+        {
+            const char *bv_callee = NULL;
+            IronLIR_ValueId bv_fptr = instr->call.func_ptr;
+            if (bv_fptr != IRON_LIR_VALUE_INVALID &&
+                bv_fptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                fn->value_table[bv_fptr] != NULL &&
+                fn->value_table[bv_fptr]->kind == IRON_LIR_FUNC_REF) {
+                bv_callee = fn->value_table[bv_fptr]->func_ref.func_name;
+            }
+            if (bv_callee && instr->call.arg_count >= 1) {
+                size_t clen = strlen(bv_callee);
+                /* Detect _push or _len suffix */
+                bool is_push_call = (clen >= 5 &&
+                                     strcmp(bv_callee + clen - 5, "_push") == 0);
+                bool is_len_call  = (clen >= 4 &&
+                                     strcmp(bv_callee + clen - 4, "_len") == 0);
+                if (is_push_call || is_len_call) {
+                    Iron_Type *recv_t = emit_get_value_type(fn, instr->call.args[0]);
+                    if (recv_t && recv_t->kind == IRON_TYPE_ARRAY &&
+                        recv_t->array.is_bounded && recv_t->array.size >= 0) {
+                        if (is_push_call && instr->call.arg_count >= 2) {
+                            int N = recv_t->array.size;
+                            /* Phase 23 VEC-01 push mutation fix: bounded vecs are
+                             * value types (structs).  If args[0] is a LOAD, the
+                             * SSA result is a *copy* — mutations there are lost.
+                             * Detect that pattern and operate directly on the alloca
+                             * (the ptr operand of the LOAD) so writes stick. */
+                            IronLIR_ValueId push_recv = instr->call.args[0];
+                            {
+                                IronLIR_ValueId raw = push_recv;
+                                if (raw != IRON_LIR_VALUE_INVALID &&
+                                    raw < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                                    fn->value_table[raw] != NULL &&
+                                    fn->value_table[raw]->kind == IRON_LIR_LOAD) {
+                                    push_recv = fn->value_table[raw]->load.ptr;
+                                }
+                            }
+                            /* if (bv.len >= N) iron_panic_bvec_oob(...) */
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb, "if (");
+                            emit_expr_to_buf(sb, push_recv, fn, ctx,
+                                             ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb,
+                                ".len >= %d)"
+                                " iron_panic_bvec_oob(__FILE__, __LINE__, (int64_t)",
+                                N);
+                            emit_expr_to_buf(sb, push_recv, fn, ctx,
+                                             ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ".len, (int64_t)%d);\n", N);
+                            /* bv.data[bv.len] = value; */
+                            emit_indent(sb, ind);
+                            emit_expr_to_buf(sb, push_recv, fn, ctx,
+                                             ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ".data[");
+                            emit_expr_to_buf(sb, push_recv, fn, ctx,
+                                             ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ".len] = ");
+                            emit_expr_to_buf(sb, instr->call.args[1], fn, ctx,
+                                             ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ";\n");
+                            /* bv.len += 1; */
+                            emit_indent(sb, ind);
+                            emit_expr_to_buf(sb, push_recv, fn, ctx,
+                                             ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ".len += 1;\n");
+                            break;  /* skip standard CALL emission */
+                        } else if (is_len_call) {
+                            /* result = (int64_t)bv.len; */
+                            bool is_v = (instr->type == NULL ||
+                                         instr->type->kind == IRON_TYPE_VOID);
+                            emit_indent(sb, ind);
+                            if (!is_v) {
+                                if (!is_hoisted)
+                                    iron_strbuf_appendf(sb, "%s ",
+                                        emit_type_to_c(instr->type, ctx));
+                                emit_val(sb, instr->id);
+                                iron_strbuf_appendf(sb, " = (int64_t)");
+                                emit_expr_to_buf(sb, instr->call.args[0], fn, ctx,
+                                                 ctx->current_block_id, 0);
+                                iron_strbuf_appendf(sb, ".len;\n");
+                            }
+                            break;  /* skip standard CALL emission */
                         }
                     }
                 }

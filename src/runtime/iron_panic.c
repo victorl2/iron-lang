@@ -89,6 +89,40 @@ void iron_panic_stale_stack_pointer(const char *deref_file,
     abort();
 }
 
+/* Phase 23 VEC-03: bounded vector out-of-bounds panic.
+ *
+ * Mirrors iron_panic_stale_stack_pointer shape: no malloc, fputs/fprintf only,
+ * reuses s_iron_panic_format channel cache (getenv-once-at-init Pitfall 6).
+ * JSON channel:  {"panic":"bvec_oob","deref_site":{"file":"...","line":N},"index":I,"bound":B}
+ * Text channel:  iron: bounded vector access out of bounds
+ *                  deref site: <file>:<line>
+ *                  index: <I> >= bound: <B>
+ * Finishes with abort() (noreturn). */
+void iron_panic_bvec_oob(const char *deref_file,
+                         int deref_line,
+                         int64_t index,
+                         int64_t bound) {
+    const char *df = deref_file ? deref_file : "<unknown>";
+
+    if (s_iron_panic_format == 1) {
+        /* JSON line — distinct "panic":"bvec_oob" tag */
+        fputs("{\"panic\":\"bvec_oob\",", stderr);
+        fprintf(stderr, "\"deref_site\":{\"file\":\"%s\",\"line\":%d}", df, deref_line);
+        fprintf(stderr, ",\"index\":%lld,\"bound\":%lld",
+                (long long)index, (long long)bound);
+        fputc('}', stderr);
+        fputc('\n', stderr);
+    } else {
+        /* Text format */
+        fputs("iron: bounded vector access out of bounds\n", stderr);
+        fprintf(stderr, "  deref site: %s:%d\n", df, deref_line);
+        fprintf(stderr, "  index: %lld >= bound: %lld\n",
+                (long long)index, (long long)bound);
+    }
+    fflush(stderr);
+    abort();
+}
+
 void iron_panic_stale_pointer(const char *deref_file,
                               int deref_line,
                               const struct IronAllocHdr *hdr) {

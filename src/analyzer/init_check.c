@@ -15,6 +15,7 @@
  */
 
 #include "analyzer/init_check.h"
+#include "analyzer/types.h"
 #include "vendor/stb_ds.h"
 #include <string.h>
 #include <stdio.h>
@@ -250,6 +251,16 @@ static void check_stmt_init(InitCheckCtx *ctx, Iron_Node *node) {
     case IRON_NODE_VAR_DECL: {
         Iron_VarDecl *vd = (Iron_VarDecl *)node;
         if (vd->init == NULL) {
+            /* Phase 23 VEC-01: bounded vectors ([T; <=N]) are implicitly
+             * zero-initialized at declaration (emitted as `= {0}` in C).
+             * Treat them as definitely assigned so push/index calls on an
+             * uninit-declared bvar do not fire E0314. */
+            if (vd->declared_type &&
+                vd->declared_type->kind == IRON_TYPE_ARRAY &&
+                vd->declared_type->array.is_bounded) {
+                /* Skip uninit registration — bvec is implicitly zero-init. */
+                break;
+            }
             /* Register as potentially uninitialized */
             if (vd->name && ctx->uninit_count < MAX_UNINIT_VARS) {
                 ctx->uninit_vars[ctx->uninit_count] = vd->name;

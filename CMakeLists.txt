@@ -1098,6 +1098,45 @@ if(NOT WIN32)
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.5_bounded_to_fixed PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    # Phase 23 Plan 23-02: positive corpus — bounded vector happy paths.
+    # Build-only checks (compile succeeds = codegen is correct); full output
+    # comparison is covered by the run_tests.sh v4 runner (test_v4_acceptance).
+    # LABELS "integration;phase23-invariant" so `ctest -L phase23-invariant`
+    # counts them toward the >=10 cumulative target.
+    add_test(
+        NAME v4_4.5_bvec_happy
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.5-bounded-vector/happy.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.5_bvec_happy PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_4.5_bvec_strict_happy
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.5-bounded-vector/strict_happy.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.5_bvec_strict_happy PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    # Phase 23 Plan 23-02: XFAIL-flip positive corpus — readonly + bounded vec.
+    # These fixtures were XFAIL in Phase 22 substrate; Plan 23-02 codegen flips GREEN.
+    add_test(
+        NAME v4_4.4_readonly_rvo_bounded_vector
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.4-readonly/readonly_rvo_bounded_vector.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.4_readonly_rvo_bounded_vector PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_6_boundary_returns_bounded_vec
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/6-readonly/boundary_returns_bounded_vec.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_6_boundary_returns_bounded_vec PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
 endif()
 
 # ---- Install rules ----

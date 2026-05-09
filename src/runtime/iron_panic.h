@@ -34,4 +34,20 @@ void iron_panic_stale_stack_pointer(const char *deref_file,
                                     int deref_line,
                                     uint64_t captured_frame_gen);
 
+/* Phase 23 VEC-03: bounded vector out-of-bounds panic.
+ * Called inline from generated C at every push and index site.
+ *   deref_file / deref_line : __FILE__ / __LINE__ at the access site
+ *   index                   : requesting index (or current len at push site)
+ *   bound                   : limit (N at push site; bv.len at index site)
+ * Reuses s_iron_panic_format channel cache (no malloc, fputs/fprintf only).
+ * Definition in src/runtime/iron_panic.c.
+ * Forward-declared in src/runtime/iron_runtime.h for generated user binaries. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_bvec_oob(const char *deref_file,
+                         int deref_line,
+                         int64_t index,
+                         int64_t bound);
+
 #endif /* IRON_PANIC_H */

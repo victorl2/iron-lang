@@ -198,6 +198,18 @@ void iron_panic_stale_stack_pointer(const char *deref_file,
                                     int deref_line,
                                     uint64_t captured_frame_gen);
 
+/* Phase 23 VEC-03: bounded vector out-of-bounds panic.
+ * Forward-declared here so generated user binaries can call it inline at
+ * push and index sites without depending on diagnostics.h.  Definition in
+ * src/runtime/iron_panic.c.  Canonical declaration also in iron_panic.h. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_bvec_oob(const char *deref_file,
+                         int deref_line,
+                         int64_t index,
+                         int64_t bound);
+
 /* Phase 20 PTR-10: stack-pointer deref check (OQ-B Option C — separate
  * static-inline; preserves Phase 19 ABI lock). Iron's release codegen
  * inlines this trivially.

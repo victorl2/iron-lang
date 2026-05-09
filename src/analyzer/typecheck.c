@@ -5770,12 +5770,14 @@ static bool is_readonly_compatible_type(const Iron_Type *t, TypeCtx *ctx) {
         case IRON_TYPE_VOID:
             return true;
 
-        /* ── Fixed-size arrays ([T; N]) ─────────────────────────────────── */
+        /* ── Fixed-size arrays ([T; N]), bounded vectors ([T; <=N]), dynamic lists ([T]) ── */
         case IRON_TYPE_ARRAY:
-            /* size == -1 means dynamic (List[T]) — incompatible.
-             * Phase 23 BVEC will handle [T; <=N] bounded vectors. */
-            return t->array.size >= 0 &&
-                   is_readonly_compatible_type(t->array.elem, ctx);
+            /* Dynamic [T] (size == -1): allowed as readonly return because 'readonly'
+             * means the method does not mutate self, not that it allocates nothing.
+             * Stdlib String.split returns [String] from a readonly method — correct.
+             * Fixed [T; N] and bounded [T; <=N] (size >= 0) also pass.
+             * Phase 23 Plan 23-02: is_bounded covered by size >= 0 path. */
+            return is_readonly_compatible_type(t->array.elem, ctx);
 
         /* ── Nullable (T?) — recurse on inner ───────────────────────────── */
         case IRON_TYPE_NULLABLE:

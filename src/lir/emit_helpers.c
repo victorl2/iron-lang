@@ -203,6 +203,31 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
             return "Iron_Closure";
 
         case IRON_TYPE_ARRAY: {
+            /* Phase 23 VEC-01: bounded vector [T; <=N] — emit Iron_BVec_T_N struct name.
+             * emit_ensure_bvec MUST be called BEFORE returning the name (Pitfall 3:
+             * typedef must be in struct_bodies before any function-body reference). */
+            if (t->array.is_bounded && t->array.size >= 0) {
+                emit_ensure_bvec(ctx, t);
+                /* Rebuild mangled name (same formula as emit_ensure_bvec) */
+                const char *elem_c_bv = emit_type_to_c(t->array.elem, ctx);
+                Iron_StrBuf sb_bv = iron_strbuf_create(64);
+                iron_strbuf_appendf(&sb_bv, "Iron_BVec_");
+                for (const char *p = elem_c_bv; *p; p++) {
+                    if (*p == ' ' || *p == '*') {
+                        iron_strbuf_appendf(&sb_bv, "_");
+                    } else {
+                        char ch[2] = { *p, '\0' };
+                        iron_strbuf_appendf(&sb_bv, "%s", ch);
+                    }
+                }
+                iron_strbuf_appendf(&sb_bv, "_%d", t->array.size);
+                const char *bvec_result = iron_arena_strdup(ctx->arena,
+                                                             iron_strbuf_get(&sb_bv),
+                                                             sb_bv.len);
+                iron_strbuf_free(&sb_bv);
+                if (!bvec_result) iron_oom_abort("emit_helpers.c:emit_type_to_c BVEC");
+                return bvec_result;
+            }
             /* Arrays are represented as Iron_List_<elem_c_type> in C.
              * e.g. [Int] -> Iron_List_int64_t, [Float] -> Iron_List_double
              * Phase 53: Interface-typed arrays use Iron_SplitList_<Iface> since
@@ -304,6 +329,58 @@ void emit_ensure_tuple(EmitCtx *ctx, const Iron_Type *tuple_ty) {
         iron_strbuf_appendf(&ctx->struct_bodies, "%s v%d; ", c_elem, i);
     }
     iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n", struct_name);
+}
+
+/* Phase 23 VEC-01: synthesise a C typedef for a bounded vector on demand.
+ *
+ *   typedef struct { uint32_t len; T data[N]; } Iron_BVec_<elem_c>_<N>;
+ *
+ * Dedupes via ctx->emitted_bvecs (same arrput/strcmp shape as emitted_tuples).
+ * Recurses for nested bvec elements so inner typedefs land first.
+ * No-op when the type is not a bounded array. */
+void emit_ensure_bvec(EmitCtx *ctx, const Iron_Type *bvec_ty) {
+    if (!bvec_ty || bvec_ty->kind != IRON_TYPE_ARRAY) return;
+    if (!bvec_ty->array.is_bounded || bvec_ty->array.size < 0) return;
+
+    const char *elem_c = emit_type_to_c(bvec_ty->array.elem, ctx);
+    int N = bvec_ty->array.size;
+
+    /* Build mangled name: Iron_BVec_<elem_c>_<N> with space and * escaped to _ */
+    Iron_StrBuf sb = iron_strbuf_create(64);
+    iron_strbuf_appendf(&sb, "Iron_BVec_");
+    for (const char *p = elem_c; *p; p++) {
+        if (*p == ' ' || *p == '*') {
+            iron_strbuf_appendf(&sb, "_");
+        } else {
+            char ch[2] = { *p, '\0' };
+            iron_strbuf_appendf(&sb, "%s", ch);
+        }
+    }
+    iron_strbuf_appendf(&sb, "_%d", N);
+    const char *struct_name = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    if (!struct_name) iron_oom_abort("emit_helpers.c:emit_ensure_bvec struct_name");
+
+    /* Dedupe: register BEFORE recursing to guard against self-reference */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_bvecs); i++) {
+        if (strcmp(ctx->emitted_bvecs[i], struct_name) == 0) return;
+    }
+    char *struct_name_copy = iron_arena_strdup(ctx->arena, struct_name, strlen(struct_name));
+    if (!struct_name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_bvec struct_name_copy");
+    arrput(ctx->emitted_bvecs, struct_name_copy);
+
+    /* Recurse for nested bvec elem so inner typedef lands first */
+    if (bvec_ty->array.elem &&
+        bvec_ty->array.elem->kind == IRON_TYPE_ARRAY &&
+        bvec_ty->array.elem->array.is_bounded) {
+        emit_ensure_bvec(ctx, bvec_ty->array.elem);
+    }
+
+    /* Emit: typedef struct { uint32_t len; T data[N]; } Iron_BVec_T_N; */
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "/* Phase 23 VEC-01: bounded vector [%s; <=%d] */\n"
+        "typedef struct { uint32_t len; %s data[%d]; } %s;\n",
+        elem_c, N, elem_c, N, struct_name);
 }
 
 /* Map a type annotation name to a C type string without needing Iron_Codegen */
@@ -528,6 +605,7 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
     /* Free stb_ds maps and arrays */
     arrfree(ctx->emitted_optionals);
     arrfree(ctx->emitted_tuples);
+    arrfree(ctx->emitted_bvecs);
     shfree(ctx->mono_registry);
     hmfree(ctx->param_alias_ids);
     hmfree(ctx->split_collection_ids);

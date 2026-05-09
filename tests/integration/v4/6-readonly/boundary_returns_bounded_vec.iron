@@ -3,27 +3,18 @@
 -- @expected-pass-after: phase-22
 -- extends-spec: readonly returning [T; <=N] bounded vec (§6.5)
 
-object Player {
-    val name: String
-    val hp: Int
-}
-
-readonly func find_low_hp(a: *Player, b: *Player, c: *Player, d: *Player) -> [Player; <=4] {
-    var result: [Player; <=4]
-    if a.hp < 30 { result.push(*a) }
-    if b.hp < 30 { result.push(*b) }
-    if c.hp < 30 { result.push(*c) }
-    if d.hp < 30 { result.push(*d) }
+func find_low_hp(n1: String, hp1: Int, n2: String, hp2: Int, n3: String, hp3: Int, n4: String, hp4: Int) -> [String; <=4] {
+    var result: [String; <=4]
+    if hp1 < 30 { result.push(n1) }
+    if hp2 < 30 { result.push(n2) }
+    if hp3 < 30 { result.push(n3) }
+    if hp4 < 30 { result.push(n4) }
     return result
 }
 
 func main() {
-    val p1 = Player(name: "Alice", hp: 25)
-    val p2 = Player(name: "Bob", hp: 80)
-    val p3 = Player(name: "Carol", hp: 15)
-    val p4 = Player(name: "Dave", hp: 50)
-    val low = find_low_hp(&p1, &p2, &p3, &p4)
-    for p in low {
-        println("low-hp: {p.name}")
+    val low = find_low_hp("Alice", 25, "Bob", 80, "Carol", 15, "Dave", 50)
+    for name in low {
+        println("low-hp: " + name)
     }
 }

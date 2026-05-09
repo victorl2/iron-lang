@@ -61,6 +61,9 @@ typedef struct {
     /* General emission state */
     char        **emitted_optionals;             /* stb_ds string array */
     char        **emitted_tuples;                /* Phase 59 01d: stb_ds string array of tuple mangled names */
+    /* Phase 23 VEC-01: per-(T, N) Iron_BVec_T_N typedef dedup.
+     * Parallel to emitted_tuples; same arrput/arrlen/strcmp shape. */
+    char        **emitted_bvecs;
     struct { char *key; bool value; } *mono_registry; /* stb_ds string map */
     int           next_type_tag;                 /* starts at 1 */
     int           indent;
@@ -178,6 +181,13 @@ void emit_ensure_optional(EmitCtx *ctx, const Iron_Type *inner);
  * Dedupes via ctx->emitted_tuples. Nested tuples recurse so inner
  * typedefs land first. No-op for non-tuple input. */
 void emit_ensure_tuple(EmitCtx *ctx, const Iron_Type *tuple_ty);
+
+/* Phase 23 VEC-01: synthesize a C typedef for a bounded vector type on demand.
+ * Emits `typedef struct { uint32_t len; T data[N]; } Iron_BVec_T_N;` into
+ * ctx->struct_bodies.  Dedupes via ctx->emitted_bvecs (same arrput/strcmp shape
+ * as emitted_tuples).  Recurses for nested-bvec elements so inner typedefs land
+ * first (Pitfall 3 mitigation).  No-op for non-bounded or non-array input. */
+void emit_ensure_bvec(EmitCtx *ctx, const Iron_Type *bvec_ty);
 
 /* ── Emit utilities ──────────────────────────────────────────────────────── */
 
