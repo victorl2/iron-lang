@@ -693,8 +693,12 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
         struct Iron_ObjectDecl *field_od = ft->object.decl;
         if (od_has_drop_lir(ctx, field_od)) {
             const char *field_c_name = emit_type_to_c(ft, ctx);
+            /* Phase 24 DROP-04 (Plan 24-03): the field's drop function sets
+             * iron_in_destructor=true internally (emit_func_body prologue).
+             * No call-site wrap needed — just invoke the synthesized drop. */
             iron_strbuf_appendf(&ctx->lifted_funcs,
-                "    %s_drop(&self->%s);\n", field_c_name, f->name);
+                "    %s_drop(&self->%s);\n",
+                field_c_name, f->name);
         }
     }
     iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");

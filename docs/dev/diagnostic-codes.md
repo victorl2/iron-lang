@@ -258,6 +258,40 @@ codes should accept either the bare integer or the `E<NNN>` string.
 
 8. **ABI lock** — The `Iron_BVec_T_N` struct layout (`uint32_t len; T data[N]`) is locked as of Phase 23. See `docs/dev/BVEC-LAYOUT.md` for the full ABI document including nested layout, List[[T;<=N]] storage, alignment formula, and sizeof derivation.
 
+## Phase 24 — Resource Types: drop / copy / nocopy (§7 + §12 steps 9–10)
+
+| Code | Symbol | Message (locked substring) | Hint | Quickfix-Target (Phase 34 LSP-10) | Phase | Spec § |
+|-----:|--------|----------------------------|------|-----------------------------------|------:|--------|
+| 284 | `IRON_ERR_DROP_DUPLICATE` | `duplicate 'drop' block` | `§7.1: an object may declare at most one drop block` | Remove duplicate drop block (LSP-10) | 24 (Plan 24-01) | §7.1 |
+| 285 | `IRON_ERR_COPY_DUPLICATE` | `duplicate 'copy' block` | `§7.2: an object may declare at most one copy block` | Remove duplicate copy block (LSP-10) | 24 (Plan 24-01) | §7.2 |
+| 286 | `IRON_ERR_COPY_OF_NOCOPY_TYPE` | `cannot copy nocopy type` | `§7.2: nocopy objects may not be copied, passed by value, or returned by value` | Change binding to a reference or use explicit clone() (Phase 33 — LSP-10 deferred) | 24 (Plan 24-01) | §7.2 |
+| 287 | `IRON_ERR_DROP_NOT_READONLY` | `'drop' body may not be marked readonly` | `§7.1: drop blocks run side-effectful cleanup; readonly is incompatible` | Remove readonly modifier from drop block (LSP-10) | 24 (Plan 24-01) | §7.1 |
+| 288 | `IRON_ERR_DROP_NO_EARLY_RETURN` | `'return' not allowed in drop body` | `§7.1: drop bodies must run to completion; early return skips field destructor sweep` | Remove early return (LSP-10) | 24 (Plan 24-01) | §7.1 |
+
+### Notes
+
+1. **§7 hint discipline (DROP-01/06/08)** — All five DROP codes carry hint substring `§7.1:` or `§7.2:` + rule text, consistent with Phase 22's §6-prefix discipline (READ-09) and Phase 23's §3.3-prefix discipline. Every hint includes the spec section that mandates the restriction.
+
+2. **Duplicate detection via top-level dispatch walk** — `IRON_ERR_DROP_DUPLICATE` (284) and `IRON_ERR_COPY_DUPLICATE` (285) are emitted in the object-declaration arm of `src/analyzer/typecheck.c`. The top-level dispatch walks the object's member list; when it encounters a second `IRON_NODE_DROP` or `IRON_NODE_COPY` node after already registering one, it emits the duplicate code on the second occurrence. This mirrors the Phase 18 duplicate-method-block pattern.
+
+3. **Nocopy enforcement at 3 sites** — `IRON_ERR_COPY_OF_NOCOPY_TYPE` (286) is emitted in three distinct positions:
+   - VAL/VAR declaration with a nocopy-typed RHS that forces a value copy (typecheck.c VAL_DECL arm).
+   - Function call passing a nocopy argument by value (typecheck.c CALL arm — Pitfall 2: must check param mode, not just type).
+   - `return` of a nocopy type by value (typecheck.c RETURN arm).
+   Struct-assignment in compound-literal init is exempted because init blocks produce the first copy (construction), not a subsequent copy.
+
+4. **Reverse declaration order for field destructors (Pitfall 6)** — `emit_helpers.c` `emit_field_destructors` walks the field list in reverse order, emitting `<FieldType>_drop(&self->field_N)` from last to first. This ensures LIFO destruction semantics: a field initialized after another is destroyed before it. The user-written `drop { ... }` body runs BEFORE the field destructor sweep, giving the body access to all fields in their initialized state.
+
+5. **`iron_panic_destructor_aborted` for DROP-04** — The `iron_in_destructor` TLS flag is set in the **prologue** of every generated `<TypeName>_drop` function (detected by `emit_func_body` checking `fn->name` ending with `_drop`). Every existing `iron_panic_*` function checks this flag at its top; when set, it diverts to `iron_panic_destructor_aborted(type_name, __FILE__, __LINE__)` which prints `iron: destructor panicked` (text channel) or `{"panic":"destructor_aborted",...}` (JSON channel) and calls `abort()`. The ABI contract is fully documented in `docs/dev/DROP-LAYOUT.md` §5.
+
+6. **Partial-init cleanup via TLS stack for DROP-05** — The `IronInitCleanupEntry` TLS linked list (`iron_init_cleanup_top`) is pushed per assigned field during init-method execution. `iron_init_cleanup_run_and_clear` is called from the panic path when `iron_init_cleanup_top != NULL`. In v3.0-alpha.1, Iron always inlines init calls as compound literals, making the `*_init` C function dead code; the end-to-end partial-init panic path is therefore not exercised by the current corpus. The mechanism is fully implemented and wired; Phase 32 `defer` integration will provide the execution context needed for end-to-end coverage. See `docs/dev/DROP-LAYOUT.md` §4 for the struct layout and limitation note.
+
+7. **DROP-07 — panicking copy: documented UB** — A copy body that panics leaves the destination in an undefined state (partially initialized fields). This is documented UB in v3.0-alpha.1. Types needing fallible copy must expose `clone() -> T?` (Phase 33 Stdlib Container Rewrite). The compiler enforces no special handling beyond the `iron_in_destructor` panic-trap pattern on drop (not copy). The full contract and rationale are in `docs/dev/DROP-LAYOUT.md` §7. PROJECT.md Key Decisions table has the canonical resolution row.
+
+8. **Phase 26 forward-reference (rc vtable polymorphic drop)** — `PHASE-26 HOOK` comment stubs in `src/lir/emit_c.c` and `src/lir/emit_helpers.c` mark where Phase 26 will wire `<TypeName>_drop` through a vtable pointer on the rc allocation header's `type_info` field. The `iron_in_destructor` prologue/epilogue pattern applies equally to vtable-dispatched drops — the flag is set by the drop function itself, regardless of how it is invoked.
+
+9. **DROP-01 PARTIAL `[~]` in REQUIREMENTS.md** — The rc last-reference drop path is deferred to Phase 26 (`PHASE-26 HOOK` stubs left in `emit_c.c` + `emit_helpers.c`). Stack scope-exit drop and heap-`free`-site drop are complete as of Phase 24. REQUIREMENTS.md marks DROP-01 as `[~]` (partial) with citation `Plan 24-02 + Plan 24-03 + Phase 26 forward`. DROP-02/03/06/07/08 are `[x]` Complete.
+
 ## Adding new codes
 
 1. Allocate the next free slot in the appropriate range. Verify uniqueness

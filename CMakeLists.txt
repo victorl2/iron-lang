@@ -1251,6 +1251,24 @@ if(NOT WIN32)
     target_include_directories(test_drop_static_dispatch PRIVATE src src/vendor)
     add_test(NAME test_drop_static_dispatch COMMAND test_drop_static_dispatch)
     set_tests_properties(test_drop_static_dispatch PROPERTIES LABELS "unit;phase24-invariant")
+
+    # Phase 24 Plan 24-03: DROP-04 panic-in-destructor aborts (iron_panic_destructor_aborted).
+    # Binary panics inside drop block → iron_in_destructor guard fires → stderr "destructor panicked".
+    add_test(
+        NAME v4_7_panic_destructor_panic
+        COMMAND sh -c "d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/panic_destructor_panic\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/panic_destructor_panic.iron && \"\$d/panic_destructor_panic\" 2>&1; rc=\$? ; rm -rf \"\$d\" ; [ \$rc -ne 0 ]"
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7_panic_destructor_panic PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    # Phase 24 Plan 24-03: DROP-05 structural prerequisite — objects with droppable fields
+    # drop in declaration order at scope exit. Full panic-mid-init path deferred.
+    add_test(
+        NAME v4_7_boundary_partial_init_cleanup
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_partial_init_cleanup\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.iron && actual=\$(\"\$d/boundary_partial_init_cleanup\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7_boundary_partial_init_cleanup PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
 endif()
 
 # ---- Install rules ----

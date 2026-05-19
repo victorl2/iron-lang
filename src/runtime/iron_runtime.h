@@ -210,6 +210,35 @@ void iron_panic_bvec_oob(const char *deref_file,
                          int64_t index,
                          int64_t bound);
 
+/* Phase 24 DROP-04/05 (Plan 24-03): partial-init cleanup + panic-trap TLS state.
+ * Definitions live in iron_panic.c; canonical typedef + struct body + externs
+ * also in iron_panic.h. Duplicated here (with the same layout) so generated user
+ * binaries include all needed types via the single iron_runtime.h preamble
+ * without depending on iron_panic.h directly.
+ * Guard against double-definition when iron_panic.h is also included (e.g.,
+ * in iron_panic.c which includes both). */
+#ifndef IRON_INIT_CLEANUP_ENTRY_DEFINED
+#define IRON_INIT_CLEANUP_ENTRY_DEFINED
+typedef struct IronInitCleanupEntry {
+    void (*drop_fn)(void *);
+    void *field_ptr;
+    struct IronInitCleanupEntry *prev;
+} IronInitCleanupEntry;
+#endif /* IRON_INIT_CLEANUP_ENTRY_DEFINED */
+extern _Thread_local IronInitCleanupEntry *iron_init_cleanup_top;
+extern _Thread_local bool iron_in_destructor;
+extern _Thread_local const char *iron_current_dropping_type;
+void iron_init_cleanup_register(IronInitCleanupEntry *entry,
+                                 void (*drop_fn)(void *), void *field_ptr);
+void iron_init_cleanup_run_and_clear(void);
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_destructor_aborted(const char *type_name,
+                                    const char *drop_site_file,
+                                    int drop_site_line);
+
 /* Phase 20 PTR-10: stack-pointer deref check (OQ-B Option C — separate
  * static-inline; preserves Phase 19 ABI lock). Iron's release codegen
  * inlines this trivially.

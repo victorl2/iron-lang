@@ -1649,6 +1649,84 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
             emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ";\n");
+
+            /* Phase 24 DROP-05 (Plan 24-03): partial-init cleanup instrumentation.
+             * After each self.field assignment in an init body, register a cleanup
+             * entry so that a panic mid-init unwinds already-initialized fields
+             * in reverse-assignment (LIFO) order (DROP-05).
+             * Condition: in_init_method AND field type is an object type with drop. */
+            if (ctx->in_init_method && instr->field.field) {
+                /* Recover the object's Iron_Type to find the field's type.
+                 * Parameters (value IDs 1..param_count) have NULL value_table
+                 * entries by design (see hir_to_lir.c:2668 "synthetic: no
+                 * backing instr"). Fall back to fn->params[] for these. */
+                Iron_Type *obj_ty = NULL;
+                if (instr->field.object != IRON_LIR_VALUE_INVALID &&
+                    instr->field.object < (IronLIR_ValueId)arrlen(fn->value_table)) {
+                    if (fn->value_table[instr->field.object]) {
+                        obj_ty = fn->value_table[instr->field.object]->type;
+                    } else if (instr->field.object >= 1 &&
+                               (int)(instr->field.object - 1) < fn->param_count) {
+                        /* Parameter value — look up type from fn->params[] */
+                        obj_ty = fn->params[instr->field.object - 1].type;
+                    }
+                    /* Unwrap pointer to get the object type */
+                    if (obj_ty && obj_ty->kind == IRON_TYPE_PTR && obj_ty->ptr.pointee) {
+                        obj_ty = obj_ty->ptr.pointee;
+                    }
+                }
+                if (obj_ty && obj_ty->kind == IRON_TYPE_OBJECT && obj_ty->object.decl) {
+                    struct Iron_ObjectDecl *owner_od = obj_ty->object.decl;
+                    /* Find the field within the object declaration */
+                    Iron_Type *field_ty = NULL;
+                    for (int fi2 = 0; fi2 < owner_od->field_count; fi2++) {
+                        Iron_Field *fld2 = (Iron_Field *)owner_od->fields[fi2];
+                        if (fld2 && fld2->name &&
+                            strcmp(fld2->name, instr->field.field) == 0) {
+                            field_ty = fld2->field_type_cached;
+                            break;
+                        }
+                    }
+                    if (field_ty && field_ty->kind == IRON_TYPE_OBJECT &&
+                        field_ty->object.decl &&
+                        od_has_drop_lir(ctx, field_ty->object.decl)) {
+                        const char *field_c = emit_type_to_c(field_ty, ctx);
+                        /* Ensure the drop function exists before referencing it */
+                        emit_ensure_drop(ctx, field_c, field_ty->object.decl);
+                        int n = ctx->init_cleanup_counter++;
+                        /* Emit the stack-allocated cleanup entry declaration + registration.
+                         * The entry is declared with static storage so it persists across
+                         * the current function invocation (required for IronInitCleanupEntry
+                         * linked-list stability — entries must not be on the register-allocated
+                         * portion of the frame).
+                         * NOTE: Using static here means the entry is shared across calls;
+                         * iron_init_cleanup_run_and_clear resets top=NULL per Pitfall 5. */
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb,
+                            "{ static IronInitCleanupEntry _iron_cleanup_%d;\n", n);
+                        emit_indent(sb, ind);
+                        if (obj_is_fat_ptr2) {
+                            const char *obj_type_c2 = emit_fat_ptr_pointee_type_c(fn, instr->field.object, ctx);
+                            iron_strbuf_appendf(sb,
+                                "  iron_init_cleanup_register(&_iron_cleanup_%d, "
+                                "(void (*)(void *))%s_drop, "
+                                "&((%s *)",
+                                n, field_c, obj_type_c2 ? obj_type_c2 : "void");
+                            emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ".addr)->%s); }\n", instr->field.field);
+                        } else {
+                            iron_strbuf_appendf(sb,
+                                "  iron_init_cleanup_register(&_iron_cleanup_%d, "
+                                "(void (*)(void *))%s_drop, &(",
+                                n, field_c);
+                            emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, "%s%s)); }\n",
+                                obj_is_ptr2 ? "->" : ".",
+                                instr->field.field);
+                        }
+                    }
+                }
+            }
         }
         break;
     }
@@ -3503,6 +3581,22 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
 
+        /* Phase 24 DROP-05 (Plan 24-03): on successful init body exit, reset
+         * the partial-init cleanup stack. The fields are now owned by the
+         * freshly-constructed object, so we only need to reset the top pointer
+         * (not call drop_fn on them). iron_init_cleanup_run_and_clear would
+         * incorrectly drop already-owned fields, so we reset directly. */
+        if (ctx->in_init_method && ctx->init_cleanup_counter > 0) {
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "iron_init_cleanup_top = NULL; /* DROP-05: successful init exit */\n");
+        }
+        /* Phase 24 DROP-04 (Plan 24-03): drop-method panic-trap epilogue.
+         * Clear iron_in_destructor on normal return from the drop body so
+         * subsequent code does not see a stale true value. */
+        if (ctx->in_drop_method) {
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "iron_in_destructor = false;\n");
+        }
         emit_indent(sb, ind);
         if (instr->ret.is_void) {
             iron_strbuf_appendf(sb, "return;\n");
@@ -3652,6 +3746,9 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             if (od_has_drop_lir(ctx, od)) {
                 const char *obj_c = emit_type_to_c(vt, ctx);
                 emit_ensure_drop(ctx, obj_c, od);   /* synthesis BEFORE use — Pitfall 3 */
+                /* Phase 24 DROP-04 (Plan 24-03): the drop function itself sets
+                 * iron_in_destructor=true in its prologue (emit_func_body) and
+                 * clears it on return. No call-site wrap needed here. */
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "%s_drop((%s *)(", obj_c, obj_c);
                 emit_expr_to_buf(sb, instr->free_instr.value, fn, ctx, ctx->current_block_id, 0);
@@ -4960,6 +5057,30 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                       ? &ctx->lifted_funcs
                       : &ctx->implementations;
 
+    /* Phase 24 DROP-05 (Plan 24-03): partial-init cleanup tracking.
+     * Detect init methods by name suffix "_init" (per hir_lower.c mangling:
+     * "<TypeName>_init"). Reset cleanup counter per function. */
+    ctx->in_init_method = (fn->name &&
+                           strlen(fn->name) > 5 &&
+                           strcmp(fn->name + strlen(fn->name) - 5, "_init") == 0);
+    ctx->init_cleanup_counter = 0;
+
+    /* Phase 24 DROP-04 (Plan 24-03): detect user drop body by name suffix "_drop".
+     * hir_lower.c mangles drop methods as "<lowercase_type_name>_drop".
+     * Prologue: iron_in_destructor=true + iron_current_dropping_type.
+     * Epilogue: iron_in_destructor=false (emitted at IRON_LIR_RETURN).
+     * This covers ALL paths that invoke the drop body (scope exit, free,
+     * future rc last-ref) without modifying each call site. */
+    ctx->in_drop_method = false;
+    ctx->drop_method_type_name = NULL;
+    if (fn->name) {
+        size_t nlen = strlen(fn->name);
+        if (nlen > 5 && strcmp(fn->name + nlen - 5, "_drop") == 0) {
+            ctx->in_drop_method = true;
+            ctx->drop_method_type_name = fn->name; /* entire name; "_drop" suffix known */
+        }
+    }
+
     /* Reset per-function ADT boxed-alloca tracking map (Phase 38) */
     hmfree(ctx->adt_boxed_allocas);
     ctx->adt_boxed_allocas = NULL;
@@ -5591,6 +5712,23 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     iron_strbuf_appendf(sb, " {\n");
 
     ctx->indent = 1;
+
+    /* ── Phase 24 DROP-04 (Plan 24-03): drop-method panic-trap prologue ──────
+     * If this function is a user-written drop body (name ends "_drop"), set
+     * iron_in_destructor=true and iron_current_dropping_type to the type name
+     * so that any iron_panic_* call inside the destructor body re-routes to
+     * iron_panic_destructor_aborted rather than aborting with a generic message.
+     * The epilogue (iron_in_destructor=false) is emitted at IRON_LIR_RETURN. */
+    if (ctx->in_drop_method && ctx->drop_method_type_name) {
+        /* Derive a printable type name: strip the trailing "_drop" suffix */
+        size_t dn_len = strlen(ctx->drop_method_type_name);
+        size_t type_len = dn_len > 5 ? dn_len - 5 : 0;
+        emit_indent(sb, 1);
+        iron_strbuf_appendf(sb, "iron_current_dropping_type = \"%.*s\";\n",
+                            (int)type_len, ctx->drop_method_type_name);
+        emit_indent(sb, 1);
+        iron_strbuf_appendf(sb, "iron_in_destructor = true;\n");
+    }
 
     /* ── Phase 20 PTR-10 (Plan 20-02b): stack-frame TLS counter prologue ─────
      * For functions whose body takes the address of a stack-local (set by

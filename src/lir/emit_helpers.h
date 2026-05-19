@@ -68,6 +68,26 @@ typedef struct {
      * Parallel to emitted_bvecs; same arrput/arrlen/strcmp shape. */
     char        **emitted_drops;
     char        **emitted_copies;
+
+    /* Phase 24 DROP-05 (Plan 24-03): partial-init cleanup instrumentation.
+     * in_init_method: true when currently emitting an init method body; set
+     *   by emit_func_body when the function name ends with "_init".
+     * init_cleanup_counter: monotonic counter for unique _iron_cleanup_N
+     *   entry names per function; reset to 0 at each function entry. */
+    bool in_init_method;
+    int  init_cleanup_counter;
+
+    /* Phase 24 DROP-04 (Plan 24-03): drop-method panic trap.
+     * in_drop_method: true when currently emitting a user drop body (LIR
+     *   function whose name ends with "_drop"). The function prologue sets
+     *   iron_in_destructor=true and the RETURN handler clears it, so that
+     *   any iron_panic_* call inside the drop body re-routes to
+     *   iron_panic_destructor_aborted. The LIR drop name is the original
+     *   lowercased type name (e.g., "bomb_drop" for "Bomb"). */
+    bool in_drop_method;
+    /* Pointer to the type-name portion of fn->name for drop methods
+     * (the part before "_drop"), for use in the epilogue emit. */
+    const char *drop_method_type_name;
     struct { char *key; bool value; } *mono_registry; /* stb_ds string map */
     int           next_type_tag;                 /* starts at 1 */
     int           indent;

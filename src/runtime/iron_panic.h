@@ -50,4 +50,46 @@ void iron_panic_bvec_oob(const char *deref_file,
                          int64_t index,
                          int64_t bound);
 
+/* Phase 24 DROP-04 (Plan 24-03): panicking destructor abort.
+ * Called when any iron_panic_* fires while iron_in_destructor == true.
+ * Mirrors iron_panic_bvec_oob: no malloc, fputs/fprintf only, reuses
+ * s_iron_panic_format channel cache.
+ * JSON channel: {"panic":"destructor_aborted","type":"<T>","drop_site":{"file":"<f>","line":<l>}}
+ * Text channel: iron: destructor panicked\n  type: <T>\n  drop site: <f>:<l>\n
+ * Finishes with abort() (noreturn).
+ * Definition in src/runtime/iron_panic.c.
+ * Forward-declared in src/runtime/iron_runtime.h for generated user binaries. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_destructor_aborted(const char *type_name,
+                                    const char *drop_site_file,
+                                    int drop_site_line);
+
+/* Phase 24 DROP-05 (Plan 24-03): partial-init cleanup machinery.
+ * HIR-lower instrumentation registers each self.field assignment in an init
+ * body via iron_init_cleanup_register so that a panic mid-init unwinds
+ * already-initialized fields in reverse-assignment (LIFO) order.
+ * TLS definitions live in iron_panic.c; extern declarations also in
+ * iron_runtime.h for generated user binaries. */
+#ifndef IRON_INIT_CLEANUP_ENTRY_DEFINED
+#define IRON_INIT_CLEANUP_ENTRY_DEFINED
+typedef struct IronInitCleanupEntry {
+    void (*drop_fn)(void *);
+    void *field_ptr;
+    struct IronInitCleanupEntry *prev;
+} IronInitCleanupEntry;
+#endif /* IRON_INIT_CLEANUP_ENTRY_DEFINED */
+
+void iron_init_cleanup_register(IronInitCleanupEntry *entry,
+                                 void (*drop_fn)(void *),
+                                 void *field_ptr);
+void iron_init_cleanup_run_and_clear(void);
+
+/* Phase 24 DROP-04/05 (Plan 24-03): TLS state for panic-trap + cleanup.
+ * Definitions in iron_panic.c; extern declarations also in iron_runtime.h. */
+extern _Thread_local IronInitCleanupEntry *iron_init_cleanup_top;
+extern _Thread_local bool iron_in_destructor;
+extern _Thread_local const char *iron_current_dropping_type;
+
 #endif /* IRON_PANIC_H */

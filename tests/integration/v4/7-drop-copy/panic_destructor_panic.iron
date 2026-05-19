@@ -7,11 +7,18 @@
 object Bomb {
     val id: Int
     drop {
-        panic("destructor panic")
+        -- Trigger a runtime panic from within the destructor:
+        -- Push one element, then access bv[len] (OOB by 1) to fire
+        -- iron_panic_bvec_oob. Because iron_in_destructor==true, the guard
+        -- re-routes to iron_panic_destructor_aborted (stderr: "iron: destructor panicked").
+        var bv: [Int; <=4]
+        bv.push(1)
+        val idx = bv.len()
+        println("{bv[idx]}")
     }
 }
 
 func main() {
-    val b = Bomb(id: 1)
+    val b = Bomb(1)
     println("created bomb {b.id}")
 }

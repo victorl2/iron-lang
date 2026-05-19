@@ -31,6 +31,18 @@
  * File-scope static; never re-read on the panic path. */
 static int s_iron_panic_format = 0;
 
+/* Phase 24 DROP-04/05 (Plan 24-03): TLS state for panic-trap + partial-init cleanup.
+ * iron_in_destructor: set true by codegen before each <T>_drop call; checked
+ *   at top of every iron_panic_* function to divert to iron_panic_destructor_aborted.
+ * iron_current_dropping_type: set by codegen alongside iron_in_destructor so
+ *   iron_panic_destructor_aborted can name the type being dropped.
+ * iron_init_cleanup_top: LIFO linked-list head for partial-init cleanup entries;
+ *   each self.field assignment in an init body pushes an entry; on panic,
+ *   iron_init_cleanup_run_and_clear walks LIFO calling each drop_fn. */
+_Thread_local IronInitCleanupEntry *iron_init_cleanup_top = NULL;
+_Thread_local bool iron_in_destructor = false;
+_Thread_local const char *iron_current_dropping_type = NULL;
+
 void iron_panic_init_from_env(void) {
     /* Single getenv per process (idempotent across repeated init calls in
      * test harnesses). NEVER called from the panic path itself. Pitfall 6
@@ -62,6 +74,12 @@ void iron_panic_init_from_env(void) {
 void iron_panic_stale_stack_pointer(const char *deref_file,
                                     int deref_line,
                                     uint64_t captured_frame_gen) {
+    /* Phase 24 DROP-04/05 (Plan 24-03): init-time cleanup + drop-time abort divert */
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        /* noreturn — abort() inside */
+    }
     const char *df = deref_file ? deref_file : "<unknown>";
 
     if (s_iron_panic_format == 1) {
@@ -102,6 +120,12 @@ void iron_panic_bvec_oob(const char *deref_file,
                          int deref_line,
                          int64_t index,
                          int64_t bound) {
+    /* Phase 24 DROP-04/05 (Plan 24-03): init-time cleanup + drop-time abort divert */
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        /* noreturn — abort() inside */
+    }
     const char *df = deref_file ? deref_file : "<unknown>";
 
     if (s_iron_panic_format == 1) {
@@ -123,9 +147,76 @@ void iron_panic_bvec_oob(const char *deref_file,
     abort();
 }
 
+/* Phase 24 DROP-04 (Plan 24-03): partial-init cleanup helpers.
+ *
+ * iron_init_cleanup_register: push a cleanup entry (stack-allocated by caller)
+ *   onto the TLS linked list head; O(1) linked-list push.
+ * iron_init_cleanup_run_and_clear: walk LIFO calling each drop_fn(field_ptr),
+ *   then unconditionally reset iron_init_cleanup_top = NULL (Pitfall 5:
+ *   ALWAYS reset even on success path to avoid stale entries leaking
+ *   across Unity test harness runs). */
+void iron_init_cleanup_register(IronInitCleanupEntry *entry,
+                                 void (*drop_fn)(void *),
+                                 void *field_ptr) {
+    if (!entry) return;
+    entry->drop_fn   = drop_fn;
+    entry->field_ptr = field_ptr;
+    entry->prev      = iron_init_cleanup_top;
+    iron_init_cleanup_top = entry;
+}
+
+void iron_init_cleanup_run_and_clear(void) {
+    IronInitCleanupEntry *e = iron_init_cleanup_top;
+    while (e) {
+        IronInitCleanupEntry *prev = e->prev;
+        if (e->drop_fn && e->field_ptr) {
+            e->drop_fn(e->field_ptr);
+        }
+        e = prev;
+    }
+    iron_init_cleanup_top = NULL;  /* Pitfall 5: ALWAYS reset */
+}
+
+/* Phase 24 DROP-04 (Plan 24-03): panicking destructor abort.
+ *
+ * Called when any iron_panic_* fires while iron_in_destructor == true.
+ * Mirrors iron_panic_bvec_oob (no malloc, fputs/fprintf only, reuses
+ * s_iron_panic_format channel cache).
+ * JSON channel: {"panic":"destructor_aborted","type":"<T>","drop_site":{"file":"<f>","line":<l>}}
+ * Text channel: iron: destructor panicked\n  type: <T>\n  drop site: <f>:<l>\n */
+void iron_panic_destructor_aborted(const char *type_name,
+                                    const char *drop_site_file,
+                                    int drop_site_line) {
+    const char *tn = type_name      ? type_name      : "<unknown>";
+    const char *df = drop_site_file ? drop_site_file : "<unknown>";
+
+    if (s_iron_panic_format == 1) {
+        /* JSON line — distinct "panic":"destructor_aborted" tag */
+        fputs("{\"panic\":\"destructor_aborted\",", stderr);
+        fprintf(stderr, "\"type\":\"%s\",", tn);
+        fprintf(stderr, "\"drop_site\":{\"file\":\"%s\",\"line\":%d}",
+                df, drop_site_line);
+        fputc('}', stderr);
+        fputc('\n', stderr);
+    } else {
+        /* Text format */
+        fputs("iron: destructor panicked\n", stderr);
+        fprintf(stderr, "  type: %s\n", tn);
+        fprintf(stderr, "  drop site: %s:%d\n", df, drop_site_line);
+    }
+    fflush(stderr);
+    abort();
+}
+
 void iron_panic_stale_pointer(const char *deref_file,
                               int deref_line,
                               const struct IronAllocHdr *hdr) {
+    /* Phase 24 DROP-04/05 (Plan 24-03): init-time cleanup + drop-time abort divert */
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        /* noreturn — abort() inside */
+    }
     const char *df = deref_file ? deref_file : "<unknown>";
 
     if (s_iron_panic_format == 1) {
