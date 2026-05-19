@@ -588,6 +588,168 @@ Iron_Type *emit_get_value_type(IronLIR_Func *fn, IronLIR_ValueId vid) {
     return NULL;
 }
 
+/* ── Phase 24 DROP-01/06: emit_ensure_drop + emit_ensure_copy ────────────── */
+
+/* Build the hir_lower.c mangled drop name for a given object type name.
+ * Pattern: lowercase chars before first '_', append "_drop".
+ * Writes into buf (size >= strlen(type_name) + 6); returns false if buf too small. */
+static bool build_drop_lir_name(const char *type_name, char *buf, size_t buf_size) {
+    if (!type_name) return false;
+    size_t tlen = strlen(type_name);
+    if (tlen + 6 >= buf_size) return false;
+    memcpy(buf, type_name, tlen);
+    buf[tlen]   = '_';
+    buf[tlen+1] = 'd';
+    buf[tlen+2] = 'r';
+    buf[tlen+3] = 'o';
+    buf[tlen+4] = 'p';
+    buf[tlen+5] = '\0';
+    for (int ci = 0; buf[ci] && buf[ci] != '_'; ci++) {
+        if (buf[ci] >= 'A' && buf[ci] <= 'Z')
+            buf[ci] = (char)(buf[ci] + ('a' - 'A'));
+    }
+    return true;
+}
+
+/* Returns true if the object type od has a compiled drop method in the LIR module.
+ * Uses build_drop_lir_name + emit_find_ir_func (Plan 86 layout: methods are LIR
+ * top-level functions, NOT stored on Iron_ObjectDecl).
+ * Non-static: declared in emit_helpers.h for use by emit_c.c. */
+bool od_has_drop_lir(EmitCtx *ctx, struct Iron_ObjectDecl *od) {
+    if (!ctx || !od || !od->name) return false;
+    char lir_name[256];
+    if (!build_drop_lir_name(od->name, lir_name, sizeof(lir_name))) return false;
+    return emit_find_ir_func(ctx, lir_name) != NULL;
+}
+
+/* Synthesize a static destructor function for an object type.
+ * Emits `static void <TypeName>_drop(<TypeName> *self) { ... }` into
+ * ctx->lifted_funcs (Pitfall 3 — NOT struct_bodies). Dedupes via
+ * ctx->emitted_drops. Recurses for field types that have drop blocks.
+ * The user drop body is called via the compiled LIR method (B4 fix);
+ * field destructors run in REVERSE declaration order (Pitfall 6 + DROP-02). */
+void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
+                      struct Iron_ObjectDecl *od) {
+    if (!ctx || !obj_c_name || !od) return;
+
+    /* Dedupe: guard against double-synthesis (and self-referential loops) */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_drops); i++) {
+        if (strcmp(ctx->emitted_drops[i], obj_c_name) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, obj_c_name, strlen(obj_c_name));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_drop name_copy");
+    arrput(ctx->emitted_drops, name_copy);
+
+    /* Recurse for field types with drop blocks so inner destructors land first
+     * (forward-declaration safety — lifted_funcs ordering, Pitfall 3).
+     * Check via od_has_drop_lir — methods are LIR top-level functions, NOT od->methods. */
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->field_type_cached) continue;
+        Iron_Type *ft = f->field_type_cached;
+        if (ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
+        struct Iron_ObjectDecl *field_od = ft->object.decl;
+        if (od_has_drop_lir(ctx, field_od)) {
+            const char *field_c_name = emit_type_to_c(ft, ctx);
+            emit_ensure_drop(ctx, field_c_name, field_od);
+        }
+    }
+
+    /* Synthesize <TypeName>_drop into ctx->lifted_funcs (Pitfall 3 — NOT struct_bodies) */
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "/* Phase 24 DROP-01: destructor for %s — static-type dispatch (DROP-03) */\n"
+        "/* PHASE-26 HOOK: vtable drop dispatch for rc T — static dispatch only here */\n"
+        "static void %s_drop(%s *self) {\n"
+        "    if (!self) return;\n",
+        obj_c_name, obj_c_name, obj_c_name);
+
+    /* B4 fix: emit user drop body inline by calling the compiled LIR method.
+     * Build the LIR mangled name (hir_lower.c: lowercase first word + "_drop"),
+     * resolve to the C function name, and emit a call if the function exists.
+     * The marker comment is required for acceptance grep
+     * (grep -c 'user drop body lowered' src/lir/emit_helpers.c >= 1). */
+    {
+        char lir_name[256];
+        if (od->name && build_drop_lir_name(od->name, lir_name, sizeof(lir_name))) {
+            IronLIR_Func *lir_fn = emit_find_ir_func(ctx, lir_name);
+            if (lir_fn) {
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    /* user drop body lowered: %s (Phase 24 DROP-01 / B4) */\n",
+                    obj_c_name);
+                const char *c_func = emit_resolve_func_c_name(ctx, lir_name);
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    %s(self);\n", c_func);
+            }
+        }
+    }
+
+    /* Field destructors REVERSE declaration order (Pitfall 6 + DROP-02).
+     * Check via od_has_drop_lir — methods are LIR functions, NOT od->methods. */
+    for (int i = od->field_count - 1; i >= 0; i--) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->field_type_cached) continue;
+        Iron_Type *ft = f->field_type_cached;
+        if (ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
+        struct Iron_ObjectDecl *field_od = ft->object.decl;
+        if (od_has_drop_lir(ctx, field_od)) {
+            const char *field_c_name = emit_type_to_c(ft, ctx);
+            iron_strbuf_appendf(&ctx->lifted_funcs,
+                "    %s_drop(&self->%s);\n", field_c_name, f->name);
+        }
+    }
+    iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+}
+
+/* Synthesize a shallow copy function for an object type.
+ * Emits `static void <TypeName>_copy(<TypeName> *dest, const <TypeName> *src)`
+ * into ctx->lifted_funcs. Dedupes via ctx->emitted_copies.
+ * No-op when od->is_nocopy (Pitfall 5). Per-field copy hooks call
+ * <FieldType>_copy for fields whose has_user_copy_transitive is true (I8). */
+void emit_ensure_copy(EmitCtx *ctx, const char *obj_c_name,
+                      struct Iron_ObjectDecl *od) {
+    if (!ctx || !obj_c_name || !od) return;
+    if (od->is_nocopy) return;  /* Pitfall 5: no _copy synthesized for nocopy types */
+
+    /* Dedupe */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_copies); i++) {
+        if (strcmp(ctx->emitted_copies[i], obj_c_name) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, obj_c_name, strlen(obj_c_name));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_copy name_copy");
+    arrput(ctx->emitted_copies, name_copy);
+
+    /* Recurse for field types that have user copy hooks */
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->field_type_cached) continue;
+        Iron_Type *ft = f->field_type_cached;
+        if (!ft->has_user_copy_cached || !ft->has_user_copy_transitive) continue;
+        if (ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
+        const char *field_c_name = emit_type_to_c(ft, ctx);
+        emit_ensure_copy(ctx, field_c_name, ft->object.decl);
+    }
+
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "/* Phase 24 DROP-06: shallow memberwise copy for %s */\n"
+        "static void %s_copy(%s *dest, const %s *src) {\n"
+        "    if (!dest || !src) return;\n"
+        "    *dest = *src;\n",
+        obj_c_name, obj_c_name, obj_c_name, obj_c_name);
+
+    /* Per-field copy hooks — read cached field directly (I8 fix) */
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->field_type_cached) continue;
+        Iron_Type *ft = f->field_type_cached;
+        if (!ft->has_user_copy_cached || !ft->has_user_copy_transitive) continue;
+        const char *field_c_name = emit_type_to_c(ft, ctx);
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "    %s_copy(&dest->%s, &src->%s);\n",
+            field_c_name, f->name, f->name);
+    }
+    iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+}
+
 /* ── Cleanup ─────────────────────────────────────────────────────────────── */
 
 void emit_ctx_cleanup(EmitCtx *ctx) {
@@ -606,6 +768,8 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
     arrfree(ctx->emitted_optionals);
     arrfree(ctx->emitted_tuples);
     arrfree(ctx->emitted_bvecs);
+    arrfree(ctx->emitted_drops);
+    arrfree(ctx->emitted_copies);
     shfree(ctx->mono_registry);
     hmfree(ctx->param_alias_ids);
     hmfree(ctx->split_collection_ids);

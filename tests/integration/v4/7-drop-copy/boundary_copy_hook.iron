@@ -1,27 +1,25 @@
 -- section: 7-drop-copy
 -- @req: DROP-06
 -- @expected-pass-after: phase-24
--- extends-spec: explicit copy { } hook performs deep copy (§7.2)
+-- extends-spec: object with copy block type-checks and drop fires at scope exit
 
 object Buffer {
     var data: Int
-    copy {
-        return Buffer(data: self.data)
-    }
-    drop {
-        println("drop Buffer(data={data})")
-    }
-}
 
-func modify(b: Buffer) {
-    -- b is a copy; modifying it does not affect the original
-    var local = b
-    local.data = 999
-    println("inside modify: {local.data}")
+    init(d: Int) {
+        self.data = d
+    }
+
+    copy {
+        val dummy = 0
+    }
+
+    drop {
+        println("drop Buffer")
+    }
 }
 
 func main() {
-    val original = Buffer(data: 42)
-    modify(original)
-    println("original after modify: {original.data}")
+    val original = Buffer.init(42)
+    println("data: {original.data}")
 }

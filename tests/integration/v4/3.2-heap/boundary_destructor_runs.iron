@@ -7,12 +7,12 @@ object Resource {
     val name: String
 
     drop {
-        println("drop: {name}")
+        println("drop: {self.name}")
     }
 }
 
 func main() {
-    val res = heap Resource(name: "res1")
+    val res = heap Resource("res1")
     println("before free")
     free res
     println("after free")

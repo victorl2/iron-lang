@@ -132,7 +132,7 @@ void test_heap_alloc_emits_fat_ptr_and_iron_heap_alloc(void) {
     iron_lir_optimize_info_free(&opt);
 }
 
-/* ── Case 2: heap alloc + free emits iron_heap_free + PHASE-24 HOOK ──────── */
+/* ── Case 2: heap alloc + free emits iron_heap_free (Phase 24: HOOK now live) ── */
 
 void test_heap_free_emits_iron_heap_free_and_phase24_hook(void) {
     static const char *src =
@@ -153,9 +153,9 @@ void test_heap_free_emits_iron_heap_free_and_phase24_hook(void) {
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, "iron_heap_free("),
         "Expected iron_heap_free( in emitted C (IRON_LIR_FREE migration)");
 
-    /* Post-migration: PHASE-24 HOOK comment must be present */
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, "PHASE-24 HOOK"),
-        "Expected PHASE-24 HOOK comment at IRON_LIR_FREE site");
+    /* Phase 24 implemented: PHASE-24 HOOK is now live code (drop call before free).
+     * The old stub comment is gone. For objects without drop blocks (like Point),
+     * no drop call is emitted — only iron_heap_free. Verify iron_heap_free is present. */
 
     /* Post-migration: raw free() must NOT appear for the binding free */
     /* The PHASE-24 HOOK comment uses the word "free" but let's check

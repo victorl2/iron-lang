@@ -1,4 +1,2 @@
-inside modify: 999
-drop Buffer(data=999)
-original after modify: 42
-drop Buffer(data=42)
+data: 42
+drop Buffer

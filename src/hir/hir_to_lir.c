@@ -33,6 +33,35 @@ typedef struct { IronHIR_VarId key; IronLIR_ValueId value; } VarAllocaEntry;
 typedef struct { IronHIR_VarId key; IronLIR_ValueId value; } VarValEntry;
 typedef struct { IronHIR_VarId key; IronLIR_ValueId value; } ParamEntry;
 
+/* Phase 24 DROP-01 (Plan 24-02): returns true if the type has a drop block.
+ * Methods are NOT stored on Iron_ObjectDecl (Plan 86 layout) — scan
+ * program->decls for IRON_NODE_METHOD_DECL with matching type_name + is_drop. */
+static bool type_has_drop_block(Iron_Type *t, Iron_Program *program) {
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl) return false;
+    if (!program) return false;
+    const char *type_name = t->object.decl->name;
+    if (!type_name) return false;
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+        if (!m->type_name || strcmp(m->type_name, type_name) != 0) continue;
+        if (m->is_drop) return true;
+    }
+    return false;
+}
+
+/* ── Phase 24 DROP-01 (Plan 24-02): drop-entry for scope cleanup ──────────── */
+/* Records a stack-local binding that needs its destructor called at scope exit.
+ * Pushed during val/var lowering when the binding's Iron_Type has a drop block.
+ * Emitted in LIFO order inside emit_defer_cleanup (after defer-free bodies). */
+typedef struct IronLIR_DropEntry_s {
+    IronLIR_ValueId alloca_id;   /* ALLOCA ValueId (or direct value if is_direct_value) */
+    Iron_Type      *object_type; /* Iron_Type* of the object (kind == IRON_TYPE_OBJECT) */
+    bool            is_direct_value; /* true: alloca_id is a direct value (immutable val); */
+                                     /* false: alloca_id is a pointer to load from (mutable var) */
+} IronLIR_DropEntry;
+
 /* ── Lowering context ────────────────────────────────────────────────────── */
 typedef struct {
     IronHIR_Module  *hir;
@@ -56,6 +85,13 @@ typedef struct {
     IronHIR_Block ***defer_stacks;   /* stb_ds array of stb_ds arrays */
     int              defer_depth;
     int              function_scope_depth;
+
+    /* Phase 24 DROP-01 (Plan 24-02): per-scope drop-call entries (LIFO).
+     * Parallel to defer_stacks — one stb_ds IronLIR_DropEntry array per
+     * scope depth. Entries are pushed at val/var bindings whose type has
+     * a drop block; emit_defer_cleanup emits drop calls AFTER defer-free
+     * bodies at the same depth (DROP-DEFER-04 ordering). */
+    IronLIR_DropEntry **drop_stacks; /* stb_ds array of stb_ds arrays of IronLIR_DropEntry */
 
     /* Cleanup blocks for defer */
     IronLIR_Block  **cleanup_blocks; /* stb_ds array, one per scope depth */
@@ -138,6 +174,11 @@ static void push_defer_scope(HIR_to_LIR_Ctx *ctx) {
         arrput(ctx->defer_stacks, (IronHIR_Block **)NULL);
     }
     ctx->defer_stacks[ctx->defer_depth - 1] = NULL;
+    /* Phase 24 DROP-01 (Plan 24-02): parallel drop_stacks initialization */
+    while ((int)arrlen(ctx->drop_stacks) < ctx->defer_depth) {
+        arrput(ctx->drop_stacks, (IronLIR_DropEntry *)NULL);
+    }
+    ctx->drop_stacks[ctx->defer_depth - 1] = NULL;
 }
 
 static void pop_defer_scope(HIR_to_LIR_Ctx *ctx) {
@@ -146,6 +187,64 @@ static void pop_defer_scope(HIR_to_LIR_Ctx *ctx) {
     if (ctx->defer_depth < (int)arrlen(ctx->defer_stacks)) {
         arrfree(ctx->defer_stacks[ctx->defer_depth]);
         ctx->defer_stacks[ctx->defer_depth] = NULL;
+    }
+    /* Phase 24 DROP-01 (Plan 24-02): parallel drop_stacks cleanup */
+    if (ctx->defer_depth < (int)arrlen(ctx->drop_stacks)) {
+        arrfree(ctx->drop_stacks[ctx->defer_depth]);
+        ctx->drop_stacks[ctx->defer_depth] = NULL;
+    }
+}
+
+/* Phase 24 DROP-01 (Plan 24-02): emit drop calls for the drop_stacks entries
+ * from scope depth d, in LIFO order (most-recently-bound dropped first). */
+static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span span) {
+    if (!ctx->drop_stacks || d >= (int)arrlen(ctx->drop_stacks)) return;
+    IronLIR_DropEntry *drop_list = ctx->drop_stacks[d];
+    int n = (int)arrlen(drop_list);
+    for (int i = n - 1; i >= 0; i--) {
+        IronLIR_DropEntry *entry = &drop_list[i];
+        if (!entry->object_type || entry->object_type->kind != IRON_TYPE_OBJECT) continue;
+        struct Iron_ObjectDecl *od = entry->object_type->object.decl;
+        if (!od) continue;
+
+        /* Find the drop method's LIR mangled name */
+        const char *type_name = od->name;
+        if (!type_name) continue;
+        size_t tlen = strlen(type_name);
+        if (tlen + 6 >= 256) continue;
+        char lir_drop_name[256];
+        memcpy(lir_drop_name, type_name, tlen);
+        lir_drop_name[tlen]   = '_';
+        lir_drop_name[tlen+1] = 'd';
+        lir_drop_name[tlen+2] = 'r';
+        lir_drop_name[tlen+3] = 'o';
+        lir_drop_name[tlen+4] = 'p';
+        lir_drop_name[tlen+5] = '\0';
+        /* Lowercase chars before first '_' (mirror hir_lower.c mangling) */
+        for (int ci = 0; lir_drop_name[ci] && lir_drop_name[ci] != '_'; ci++) {
+            if (lir_drop_name[ci] >= 'A' && lir_drop_name[ci] <= 'Z')
+                lir_drop_name[ci] = (char)(lir_drop_name[ci] + ('a' - 'A'));
+        }
+        /* Arena-copy the name so it outlives the stack buffer */
+        const char *drop_name_arena = iron_arena_strdup(ctx->lir_arena,
+                                                         lir_drop_name,
+                                                         strlen(lir_drop_name));
+        if (!drop_name_arena) continue;
+
+        /* Emit: call <type>_drop(&alloca) — alloca_id is always an alloca/slot
+         * pointer in the LIR. Set self_by_addr=true so emit_c.c emits "&arg"
+         * for the first argument (the compiled drop method takes T *self). */
+        if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+
+        /* func_ref for the drop method */
+        IronLIR_Instr *fref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
+                                                  drop_name_arena, NULL, span);
+        if (!fref) continue;
+        /* Pass alloca_id as the self argument; self_by_addr makes emit_c emit &arg */
+        IronLIR_ValueId args[1] = { entry->alloca_id };
+        IronLIR_Instr *call = iron_lir_call(ctx->current_func, ctx->current_block,
+                                             NULL, fref->id, args, 1, NULL, span);
+        if (call) call->call.self_by_addr = true;
     }
 }
 
@@ -169,6 +268,9 @@ static void emit_scope_defers(HIR_to_LIR_Ctx *ctx, int target_depth, Iron_Span s
                 }
             }
         }
+        /* Phase 24 DROP-01 (Plan 24-02): emit drop calls for this scope depth
+         * AFTER defer-free bodies (DROP-DEFER-04 ordering). */
+        emit_drop_entries_at_depth(ctx, d, span);
     }
 }
 
@@ -1760,6 +1862,22 @@ static void emit_defer_cleanup(HIR_to_LIR_Ctx *ctx, IronLIR_Block *after_block,
             lower_block_stmts(ctx, defer_body);
             prev_cleanup = ctx->current_block;
         }
+        /* Phase 24 DROP-01 (Plan 24-02): emit drop calls for this scope depth
+         * AFTER defer-free bodies at the same depth (DROP-DEFER-04 ordering).
+         * Drop entries are emitted in the LAST cleanup block for this depth, or
+         * directly in the entry block chain if no defer blocks exist. */
+        if (ctx->drop_stacks && d < (int)arrlen(ctx->drop_stacks) &&
+            arrlen(ctx->drop_stacks[d]) > 0) {
+            IronLIR_Block *drop_blk = new_block(ctx, make_label(ctx, "drop_cleanup"));
+            if (!cleanup_entry) cleanup_entry = drop_blk;
+            IronLIR_Block *prev_blk = prev_cleanup ? prev_cleanup : entry_block;
+            if (prev_blk && !block_is_terminated(prev_blk)) {
+                iron_lir_jump(ctx->current_func, prev_blk, drop_blk->id, span);
+            }
+            switch_block(ctx, drop_blk);
+            emit_drop_entries_at_depth(ctx, d, span);
+            prev_cleanup = ctx->current_block;
+        }
     }
 
     /* Final cleanup block jumps to after_block */
@@ -1824,6 +1942,12 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                                    alloca_id, init_val, span);
                 }
             }
+            /* Phase 24 DROP-01 (Plan 24-02): push drop entry for mutable binding */
+            if (type_has_drop_block(type, ctx->program) && ctx->defer_depth > 0 &&
+                ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
+                IronLIR_DropEntry de = { alloca_id, type, false };
+                arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+            }
         } else if (type && type->kind == IRON_TYPE_INTERFACE) {
             /* Interface-typed immutable val: use ALLOCA+STORE to preserve
              * the interface type for dispatch. Direct binding would lose the
@@ -1839,13 +1963,51 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                                    alloca_id, init_val, span);
                 }
             }
+            /* Phase 24 DROP-01 (Plan 24-02): push drop entry for interface-alloca binding */
+            if (type_has_drop_block(type, ctx->program) && ctx->defer_depth > 0 &&
+                ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
+                IronLIR_DropEntry de = { alloca_id, type, false };
+                arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+            }
         } else {
             /* Immutable val: bind directly to the init value (no alloca needed).
              * This avoids inserting an alloca into the entry block after it may
-             * have been terminated by a branch instruction. */
-            if (stmt->let.init) {
+             * have been terminated by a branch instruction.
+             * EXCEPTION: if the type has a drop block, we need a stable alloca
+             * address to pass as T* to the drop function at scope exit.
+             * In that case, promote to alloca+store even though it is nominally
+             * immutable (from the IR perspective there will be no further stores). */
+            /* Heap/rc allocations are tracked by value type Iron_FatPtr / T*;
+             * their drop fires on the explicit `free` instruction, NOT at scope
+             * exit.  Promoting them to alloca here would store Iron_FatPtr into
+             * a T-sized slot → C type mismatch.  Exclude them. */
+            bool init_is_heap_or_rc = stmt->let.init &&
+                (stmt->let.init->kind == IRON_HIR_EXPR_HEAP ||
+                 stmt->let.init->kind == IRON_HIR_EXPR_RC);
+            bool needs_drop_alloca = stmt->let.init &&
+                                     !init_is_heap_or_rc &&
+                                     type_has_drop_block(type, ctx->program) &&
+                                     ctx->defer_depth > 0 &&
+                                     ctx->drop_stacks &&
+                                     ctx->defer_depth <= (int)arrlen(ctx->drop_stacks);
+            if (needs_drop_alloca) {
+                /* Promote to alloca+store so we have a stable T* for drop. */
+                const char *vname = iron_hir_var_name(ctx->hir, vid);
+                IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, type, vname, span);
+                hmput(ctx->var_alloca_map, vid, alloca_id);
                 IronLIR_ValueId init_val = lower_expr(ctx, stmt->let.init);
-                hmput(ctx->val_binding_map, vid, init_val);
+                if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                    iron_lir_store(ctx->current_func, ctx->current_block,
+                                   alloca_id, init_val, span);
+                }
+                /* Push drop entry using alloca_id (is_direct_value=false → &alloca) */
+                IronLIR_DropEntry de = { alloca_id, type, false };
+                arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+            } else {
+                if (stmt->let.init) {
+                    IronLIR_ValueId init_val = lower_expr(ctx, stmt->let.init);
+                    hmput(ctx->val_binding_map, vid, init_val);
+                }
             }
         }
         break;
@@ -2473,6 +2635,14 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
         }
         arrfree(ctx->defer_stacks);
         ctx->defer_stacks = NULL;
+    }
+    /* Phase 24 DROP-01 (Plan 24-02): reset drop stacks */
+    if (ctx->drop_stacks) {
+        for (int d = 0; d < (int)arrlen(ctx->drop_stacks); d++) {
+            arrfree(ctx->drop_stacks[d]);
+        }
+        arrfree(ctx->drop_stacks);
+        ctx->drop_stacks = NULL;
     }
     ctx->defer_depth = 0;
     ctx->function_scope_depth = 0;

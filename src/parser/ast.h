@@ -428,6 +428,11 @@ typedef struct {
     bool          is_pub;
     /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
     const char   *doc_comment;
+    /* Phase 24 DROP-06 (Plan 24-02): resolved Iron_Type* for this field,
+     * cached by compute_has_user_copy_transitive / check_method_decl during
+     * the analyzer pass so codegen can read field types without TypeCtx.
+     * Default NULL (arena-zalloc); populated on first resolver access. */
+    struct Iron_Type *field_type_cached;
 } Iron_Field;
 
 typedef struct {

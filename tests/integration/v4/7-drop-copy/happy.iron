@@ -6,11 +6,11 @@
 object Resource {
     val name: String
     drop {
-        println("releasing: {name}")
+        println("releasing: {self.name}")
     }
 }
 
 func main() {
-    val r = Resource(name: "db")
+    val r = Resource("db")
     println("using: {r.name}")
 }

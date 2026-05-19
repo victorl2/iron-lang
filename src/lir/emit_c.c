@@ -3635,14 +3635,37 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         break;
     }
 
-    case IRON_LIR_FREE:
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "/* PHASE-24 HOOK: drop call insertion before iron_heap_free */\n");
+    case IRON_LIR_FREE: {
+        /* Phase 24 DROP-01 (Plan 24-02): call <TypeName>_drop before freeing.
+         * B2: recover Iron_ObjectDecl* DIRECTLY from the freed value's Iron_Type.
+         * The IRON_LIR_FREE value-id carries an Iron_Type whose kind is
+         * IRON_TYPE_OBJECT and object.decl points to the Iron_ObjectDecl.
+         * Pitfall 4: NULL guard required — unusual free targets skip drop emit. */
+        Iron_Type *vt = (instr->free_instr.value < (IronLIR_ValueId)arrlen(fn->value_table))
+                        ? (fn->value_table[instr->free_instr.value]
+                           ? fn->value_table[instr->free_instr.value]->type : NULL)
+                        : NULL;
+        struct Iron_ObjectDecl *od = (vt && vt->kind == IRON_TYPE_OBJECT) ? vt->object.decl : NULL;
+        if (od) {
+            /* Check that this object type has a drop block via od_has_drop_lir.
+             * Methods are LIR top-level functions (Plan 86), NOT od->methods. */
+            if (od_has_drop_lir(ctx, od)) {
+                const char *obj_c = emit_type_to_c(vt, ctx);
+                emit_ensure_drop(ctx, obj_c, od);   /* synthesis BEFORE use — Pitfall 3 */
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "%s_drop((%s *)(", obj_c, obj_c);
+                emit_expr_to_buf(sb, instr->free_instr.value, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ").addr);\n");  /* Iron_FatPtr .addr — Phase 19 ABI */
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "/* PHASE-26 HOOK: vtable drop dispatch for rc T */\n");
+            }
+        }
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "iron_heap_free(");
         emit_expr_to_buf(sb, instr->free_instr.value, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ");\n");
         break;
+    }
 
     /* ── Construct ──────────────────────────────────────────────────────── */
 

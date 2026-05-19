@@ -1198,6 +1198,59 @@ if(NOT WIN32)
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.6_drop_early_return PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    # Phase 24 Plan 24-02: Wave 1 positive integration corpus (XFAIL → GREEN).
+    # These fixtures test runtime drop/copy/nocopy behaviour; they need build + run + output compare.
+    # NOTE: shell vars use \$ escaping so CMake does not expand them at configure time.
+    add_test(
+        NAME v4_7_drop_happy
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/happy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/happy.iron && actual=\$(\"\$d/happy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7_drop_happy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_7_boundary_drop_chain
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_drop_chain\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.iron && actual=\$(\"\$d/boundary_drop_chain\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7_boundary_drop_chain PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_7_boundary_copy_hook
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_copy_hook\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_copy_hook.iron && actual=\$(\"\$d/boundary_copy_hook\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_copy_hook.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7_boundary_copy_hook PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_7_boundary_nocopy
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_nocopy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_nocopy.iron && actual=\$(\"\$d/boundary_nocopy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_nocopy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7_boundary_nocopy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_3.2_boundary_destructor_runs
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_destructor_runs\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.2-heap/boundary_destructor_runs.iron && actual=\$(\"\$d/boundary_destructor_runs\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.2-heap/boundary_destructor_runs.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_3.2_boundary_destructor_runs PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    # Phase 24 Plan 24-02: v4-fail/7-drop-copy/copy_nocopy.iron (E0286 nocopy assignment) — flips GREEN here.
+    add_test(
+        NAME v4_fail_7_copy_nocopy
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7-drop-copy/copy_nocopy.iron 2>&1 | grep -qF E0286"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_7_copy_nocopy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    # Phase 24 DROP-03 unit test: static-dispatch destructor — no vtable.
+    add_executable(test_drop_static_dispatch tests/unit/test_drop_static_dispatch.c)
+    target_link_libraries(test_drop_static_dispatch PRIVATE iron_compiler iron_runtime unity m pthread)
+    target_include_directories(test_drop_static_dispatch PRIVATE src src/vendor)
+    add_test(NAME test_drop_static_dispatch COMMAND test_drop_static_dispatch)
+    set_tests_properties(test_drop_static_dispatch PROPERTIES LABELS "unit;phase24-invariant")
 endif()
 
 # ---- Install rules ----

@@ -64,6 +64,10 @@ typedef struct {
     /* Phase 23 VEC-01: per-(T, N) Iron_BVec_T_N typedef dedup.
      * Parallel to emitted_tuples; same arrput/arrlen/strcmp shape. */
     char        **emitted_bvecs;
+    /* Phase 24 DROP-01/06 (Plan 24-02): per-type drop/copy synthesis dedup.
+     * Parallel to emitted_bvecs; same arrput/arrlen/strcmp shape. */
+    char        **emitted_drops;
+    char        **emitted_copies;
     struct { char *key; bool value; } *mono_registry; /* stb_ds string map */
     int           next_type_tag;                 /* starts at 1 */
     int           indent;
@@ -188,6 +192,31 @@ void emit_ensure_tuple(EmitCtx *ctx, const Iron_Type *tuple_ty);
  * as emitted_tuples).  Recurses for nested-bvec elements so inner typedefs land
  * first (Pitfall 3 mitigation).  No-op for non-bounded or non-array input. */
 void emit_ensure_bvec(EmitCtx *ctx, const Iron_Type *bvec_ty);
+
+/* Phase 24 DROP-01 (Plan 24-02): synthesize a static destructor function for an
+ * object type. Emits `static void <TypeName>_drop(<TypeName> *self) { ... }`
+ * into ctx->lifted_funcs (Pitfall 3: NOT struct_bodies). Dedupes via
+ * ctx->emitted_drops. Recurses for field types that have drop blocks (so inner
+ * destructors land before the outer one — forward-reference safe).
+ * The user drop body is lowered inline; field destructors run in REVERSE
+ * declaration order (Pitfall 6 + DROP-02). */
+void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
+                      struct Iron_ObjectDecl *od);
+
+/* Phase 24 DROP-01 (Plan 24-02): returns true if the object type od has a
+ * compiled drop method in the LIR module. Methods are LIR top-level functions
+ * (Plan 86 layout), NOT stored on Iron_ObjectDecl.
+ * Used by emit_c.c and emit_helpers.c to gate drop synthesis. */
+bool od_has_drop_lir(EmitCtx *ctx, struct Iron_ObjectDecl *od);
+
+/* Phase 24 DROP-06 (Plan 24-02): synthesize a shallow copy function for an
+ * object type. Emits `static void <TypeName>_copy(<TypeName> *dest, const
+ * <TypeName> *src) { ... }` into ctx->lifted_funcs. Dedupes via
+ * ctx->emitted_copies. No-op when od->is_nocopy (Pitfall 5).
+ * Per-field copy hooks call <FieldType>_copy for fields whose
+ * Iron_Type.has_user_copy_transitive is true (cached by typecheck). */
+void emit_ensure_copy(EmitCtx *ctx, const char *obj_c_name,
+                      struct Iron_ObjectDecl *od);
 
 /* ── Emit utilities ──────────────────────────────────────────────────────── */
 

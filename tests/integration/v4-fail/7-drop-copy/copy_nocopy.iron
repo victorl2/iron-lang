@@ -4,8 +4,12 @@
 -- nocopy types cannot be implicitly copied; assignment triggers move semantics
 nocopy object FileHandle {
     var fd: Int
+
+    init(d: Int) {
+        self.fd = d
+    }
 }
 func main() {
-    val a = FileHandle(fd: 3)
+    val a = FileHandle.init(3)
     val b = a
 }

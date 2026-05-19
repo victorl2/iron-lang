@@ -138,6 +138,13 @@ typedef struct Iron_Type {
      * conservative safe state until first walk populates. */
     bool readonly_compat_cached;
     bool is_readonly_compatible;
+    /* Phase 24 DROP-06 (Plan 24-02): user-copy transitivity cache.
+     * True when this IRON_TYPE_OBJECT type (or any field recursively)
+     * has a copy block. Populated by compute_has_user_copy_transitive
+     * during the analyzer pass; codegen reads the cached field directly
+     * without a cross-TU helper call (I8 fix). */
+    bool has_user_copy_transitive;
+    bool has_user_copy_cached;
 } Iron_Type;
 
 /* ── Public API ──────────────────────────────────────────────────────────── */

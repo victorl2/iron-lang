@@ -3513,8 +3513,11 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->is_fusible           = false;
             m->is_receiver_form     = true;
             m->is_synth_accessor    = false;
-            m->is_readonly          = false;
-            m->is_pure              = false;
+            /* Phase 24 Plan 24-02 E0287: honour readonly/pure modifiers consumed
+             * above so `readonly drop { ... }` sets is_readonly=true and typecheck
+             * can emit IRON_ERR_DROP_NOT_READONLY at check_method_decl. */
+            m->is_readonly          = member_is_readonly;
+            m->is_pure              = member_is_pure;
             m->is_init              = false;
             m->init_name            = NULL;
             m->is_patch_member      = false;

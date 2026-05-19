@@ -6,13 +6,13 @@
 object Resource {
     val name: String
     drop {
-        println("drop: {name}")
+        println("drop: {self.name}")
     }
 }
 
 func main() {
-    val a = Resource(name: "a")
-    val b = Resource(name: "b")
-    val c = Resource(name: "c")
+    val a = Resource("a")
+    val b = Resource("b")
+    val c = Resource("c")
     println("using all")
 }

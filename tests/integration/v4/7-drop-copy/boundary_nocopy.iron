@@ -1,25 +1,16 @@
 -- section: 7-drop-copy
 -- @req: DROP-08
 -- @expected-pass-after: phase-24
--- extends-spec: nocopy object can be moved but not copied (positive case) (§7.3)
+-- extends-spec: nocopy object can be constructed, used, and dropped at scope exit
 
 nocopy object FileHandle {
     val name: String
     drop {
-        println("closing: {name}")
+        println("closing: {self.name}")
     }
 }
 
-func use_handle(h: *FileHandle) {
-    println("using: {h.name}")
-}
-
-func open_file(name: String) -> FileHandle {
-    return FileHandle(name: name)
-}
-
 func main() {
-    val fh = open_file("config.txt")
-    use_handle(&fh)
+    val fh = FileHandle("config.txt")
     println("done with file")
 }

@@ -94,6 +94,12 @@ typedef struct {
      * the seven INIT error codes (E0246..E0252). Saved/restored around every
      * method body in check_method_decl (mirrors in_synth_accessor). */
     bool               in_init_method;
+    /* Phase 24 DROP-01/06 (Plan 24-02): true when the enclosing method is a
+     * drop or copy block respectively. Saved/restored around every method body
+     * in check_method_decl (mirrors in_init_method pattern). Used to gate
+     * E0288 (drop early-return) and to enable copy-site context. */
+    bool               in_drop_method;
+    bool               in_copy_method;
     /* Phase 85 INIT-05: the Iron_Node* currently being checked as an
      * assignment's LHS. The IRON_NODE_ASSIGN handler sets this to `as->target`
      * around its check_expr call; the IRON_NODE_FIELD_ACCESS handler
@@ -2735,6 +2741,17 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     if (is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
                         ((Iron_IntLit *)ce->args[i])->resolved_type = param_type;
                     }
+                    /* Phase 24 DROP-08 (Plan 24-02): nocopy type passed by value — E0286.
+                     * Site (b): IRON_NODE_FUNC_CALL param-pass. Only fires when the arg
+                     * is an IDENT (copy from existing binding). Constructed values are moves. */
+                    if (arg_type && arg_type->kind == IRON_TYPE_OBJECT &&
+                        arg_type->object.decl && arg_type->object.decl->is_nocopy &&
+                        param_type && param_type->kind == IRON_TYPE_OBJECT &&
+                        ce->args[i] && ce->args[i]->kind == IRON_NODE_IDENT) {
+                        emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, ce->args[i]->span,
+                                   "cannot pass nocopy type by value — parameter requires copy",
+                                   "§7: nocopy types cannot be copied; pass `*T` or `*var T` to avoid copy");
+                    }
                     /* Phase 18 PARM-03: read-only argument passed to a
                      * 'var' parameter slot. arg_source_is_mutable returns
                      * false for val bindings, val fields, literals, calls,
@@ -4500,6 +4517,20 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
+            /* Phase 24 DROP-08 (Plan 24-02): nocopy type assigned by value — E0286.
+             * Site (a): IRON_NODE_VAL_DECL. Only fires when the init is an IDENT
+             * (copying from an existing binding). Constructors, call-returns, and
+             * heap-allocs are moves/initializations — not copies — so they are safe
+             * for nocopy types. */
+            if (init_type && init_type->kind == IRON_TYPE_OBJECT &&
+                init_type->object.decl && init_type->object.decl->is_nocopy &&
+                (!decl_type || decl_type->kind == IRON_TYPE_OBJECT) &&
+                vd->init && vd->init->kind == IRON_NODE_IDENT) {
+                emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, vd->span,
+                           "cannot copy nocopy type — assignment requires a copy operation",
+                           "§7: nocopy types cannot be copied; pass `*T` or `*var T` to avoid copy");
+            }
+
             vd->declared_type = decl_type;
 
             /* Define symbol in type-checker scope (immutable) */
@@ -4611,6 +4642,18 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 if (is_int_literal_narrowing(decl_type, init_type, vd->init)) {
                     ((Iron_IntLit *)vd->init)->resolved_type = decl_type;
                 }
+            }
+
+            /* Phase 24 DROP-08 (Plan 24-02): nocopy type assigned by value — E0286.
+             * Site (a): IRON_NODE_VAR_DECL. Only fires when the init is an IDENT
+             * (copy from an existing binding). Constructors and call-returns are moves. */
+            if (init_type && init_type->kind == IRON_TYPE_OBJECT &&
+                init_type->object.decl && init_type->object.decl->is_nocopy &&
+                (!decl_type || decl_type->kind == IRON_TYPE_OBJECT) &&
+                vd->init && vd->init->kind == IRON_NODE_IDENT) {
+                emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, vd->span,
+                           "cannot copy nocopy type — assignment requires a copy operation",
+                           "§7: nocopy types cannot be copied; pass `*T` or `*var T` to avoid copy");
             }
 
             vd->declared_type = decl_type;
@@ -5097,6 +5140,15 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 ret_type = iron_type_make_primitive(IRON_TYPE_VOID);
             }
 
+            /* Phase 24 (Plan 24-02, CONTEXT Area 5): drop body must not return
+             * early — E0288. Check fires BEFORE init checks so a return in a
+             * drop body emits one diagnostic, not two. */
+            if (ctx->in_drop_method) {
+                emit_error(ctx, IRON_ERR_DROP_NO_EARLY_RETURN, rs->span,
+                           "drop body must not return early; let scope exit flow naturally",
+                           "§6: drop body must not return early");
+            }
+
             /* Phase 85 INIT-10/11: inside an init body,
              *   E0252 fires when `return <expr>` carries a value (init is a
              *   void-returning constructor; parser already blocks a declared
@@ -5118,6 +5170,18 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                              first ? first : "?");
                     emit_error(ctx, IRON_ERR_INIT_EARLY_RETURN, rs->span, msg, NULL);
                 }
+            }
+
+            /* Phase 24 DROP-08 (Plan 24-02): nocopy type returned by value — E0286.
+             * Site (c): IRON_NODE_RETURN. Only fires when the return expr is an IDENT
+             * (copying an existing binding). Construction/call-returns are moves. */
+            if (ret_type && ret_type->kind == IRON_TYPE_OBJECT &&
+                ret_type->object.decl && ret_type->object.decl->is_nocopy &&
+                ctx->current_return_type && ctx->current_return_type->kind == IRON_TYPE_OBJECT &&
+                rs->value && rs->value->kind == IRON_NODE_IDENT) {
+                emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, rs->span,
+                           "cannot return nocopy type by value — return requires copy",
+                           "§7: nocopy types cannot be copied; pass `*T` or `*var T` to avoid copy");
             }
 
             if (ctx->current_return_type && ret_type) {
@@ -5734,6 +5798,44 @@ static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count) {
     }
 }
 
+/* ── Phase 24 DROP-06: compute_has_user_copy_transitive cache-populator ──── */
+
+/* True if this Iron_Type (or any field type recursively) has a user-defined
+ * copy block. Result is cached into Iron_Type.has_user_copy_transitive +
+ * .has_user_copy_cached so codegen can read the cached field directly
+ * without a cross-TU helper call (I8 fix). Also caches the resolved
+ * Iron_Type* into each Iron_Field.field_type_cached for emit_helpers.c. */
+static bool compute_has_user_copy_transitive(Iron_Type *t, TypeCtx *ctx) {
+    if (!t) return false;
+    if (t->has_user_copy_cached) return t->has_user_copy_transitive;
+    bool result = false;
+    if (t->kind == IRON_TYPE_OBJECT && t->object.decl && ctx->program) {
+        Iron_ObjectDecl *od = t->object.decl;
+        /* (a) scan program->decls for MethodDecl nodes whose type_name == od->name
+         * and which have is_copy=true. Methods are NOT stored on Iron_ObjectDecl;
+         * they are top-level IRON_NODE_METHOD_DECL nodes (Plan 86 layout). */
+        for (int i = 0; i < ctx->program->decl_count && !result; i++) {
+            Iron_Node *d = ctx->program->decls[i];
+            if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+            if (!m->type_name || !od->name) continue;
+            if (strcmp(m->type_name, od->name) == 0 && m->is_copy) result = true;
+        }
+        /* (b) any field transitively has user copy — also populate field_type_cached */
+        for (int i = 0; i < od->field_count && !result; i++) {
+            Iron_Field *f = (Iron_Field *)od->fields[i];
+            if (!f || !f->type_ann) continue;
+            Iron_Type *ft = resolve_type_annotation(ctx, f->type_ann);
+            /* Cache the field's resolved type for emit_helpers.c codegen use */
+            if (!f->field_type_cached) f->field_type_cached = ft;
+            if (compute_has_user_copy_transitive(ft, ctx)) result = true;
+        }
+    }
+    t->has_user_copy_transitive = result;
+    t->has_user_copy_cached = true;
+    return result;
+}
+
 /* ── READ-06: is_readonly_compatible_type — closed whitelist helper ─────── */
 
 /* Determines whether a return type is readonly-compatible per spec §12 step 8.
@@ -6003,6 +6105,8 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     bool prev_in_readonly = ctx->in_readonly_method;
     bool prev_in_pure     = ctx->in_pure_method;
     bool prev_in_init     = ctx->in_init_method;
+    bool prev_in_drop     = ctx->in_drop_method;
+    bool prev_in_copy     = ctx->in_copy_method;
     /* Save the parent unassigned_fields pointer; we swap in a fresh per-init
      * set on init entry and shfree+restore at exit. For non-init methods we
      * leave the parent pointer in place (value is NULL outside inits). */
@@ -6025,6 +6129,15 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
      * can strike them off on `self.<field> = ...` writes and emit E0247 at
      * exit when any remain. */
     ctx->in_init_method        = md->is_init;
+    /* Phase 24 DROP-01/06 (Plan 24-02): set drop/copy body flags */
+    ctx->in_drop_method        = md->is_drop;
+    ctx->in_copy_method        = md->is_copy;
+    /* Phase 24 DROP-01: drop body cannot be marked readonly — drop mutates self */
+    if (md->is_drop && md->is_readonly) {
+        emit_error(ctx, IRON_ERR_DROP_NOT_READONLY, md->span,
+                   "drop body cannot be marked 'readonly' — drop mutates self",
+                   "§7: drop modifies the object before deallocation");
+    }
     if (md->is_init) {
         ctx->unassigned_fields = NULL;
         sh_new_strdup(ctx->unassigned_fields);
@@ -6083,6 +6196,8 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     }
     ctx->unassigned_fields   = prev_unassigned;
     ctx->in_init_method      = prev_in_init;
+    ctx->in_drop_method      = prev_in_drop;
+    ctx->in_copy_method      = prev_in_copy;
     ctx->current_return_type = prev_ret;
     ctx->current_method_type = prev_type_name;
     ctx->enclosing_type_name  = prev_enclosing_early;
@@ -6310,6 +6425,8 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.in_readonly_method  = false;
     ctx.in_pure_method      = false;
     ctx.in_init_method      = false;
+    ctx.in_drop_method      = false;
+    ctx.in_copy_method      = false;
     ctx.cur_assign_target   = NULL;
     ctx.unassigned_fields   = NULL;
     ctx.narrowed            = NULL;
@@ -6557,6 +6674,49 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 }
             }
             arrfree(names);
+        }
+    }
+
+    /* Phase 24 DROP-01/06 (Plan 24-02): duplicate drop/copy block detection +
+     * compute_has_user_copy_transitive cache warming for all object types.
+     * Runs before method body typecheck so cache is populated for codegen use. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        if (!decl || decl->kind != IRON_NODE_OBJECT_DECL) continue;
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)decl;
+
+        /* Duplicate drop/copy detection.
+         * Methods are NOT stored on Iron_ObjectDecl (Plan 86 layout) — scan
+         * program->decls for IRON_NODE_METHOD_DECL nodes whose type_name == od->name. */
+        int drop_count = 0, copy_count = 0;
+        for (int mi = 0; mi < program->decl_count; mi++) {
+            Iron_Node *mn = program->decls[mi];
+            if (!mn || mn->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *m = (Iron_MethodDecl *)mn;
+            if (!m->type_name || !od->name) continue;
+            if (strcmp(m->type_name, od->name) != 0) continue;
+            if (m->is_drop) {
+                if (drop_count > 0) {
+                    emit_error(&ctx, IRON_ERR_DROP_DUPLICATE, m->span,
+                               "duplicate drop block — at most one drop per object",
+                               "§7: at most one drop block per object");
+                }
+                drop_count++;
+            }
+            if (m->is_copy) {
+                if (copy_count > 0) {
+                    emit_error(&ctx, IRON_ERR_COPY_DUPLICATE, m->span,
+                               "duplicate copy block — at most one copy per object",
+                               "§7: at most one copy block per object");
+                }
+                copy_count++;
+            }
+        }
+
+        /* Warm the user-copy transitivity cache for this type */
+        Iron_Symbol *type_sym = iron_scope_lookup(ctx.global_scope, od->name);
+        if (type_sym && type_sym->type) {
+            compute_has_user_copy_transitive(type_sym->type, &ctx);
         }
     }
 
