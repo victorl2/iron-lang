@@ -289,6 +289,12 @@ void iron_diaglist_free(Iron_DiagList *list);
 /* Phase 23 VEC: bounded vector [T; <=N] type-level surface */
 #define IRON_ERR_VEC_STRICT_LENGTH_MISMATCH    282  /* VEC-04 (typecheck.c VAL_DECL/VAR_DECL ARRAY_LIT element-count mismatch; Plan 23-01) */
 #define IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN 283  /* VEC: [T;<=N]<->[T;N] disjoint cross-assign (typecheck.c types_assignable + VAL_DECL/VAR_DECL specialization; Plan 23-01) */
+/* Phase 24 Resource Types — drop / copy / nocopy (DROP-01/06/08 + Area 5) */
+#define IRON_ERR_DROP_DUPLICATE              284  /* DROP-01 duplicate drop block (Plan 24-01) */
+#define IRON_ERR_COPY_DUPLICATE              285  /* DROP-06 duplicate copy block (Plan 24-01) */
+#define IRON_ERR_COPY_OF_NOCOPY_TYPE         286  /* DROP-08 copy/assign/pass-by-value of nocopy type (Plan 24-01) */
+#define IRON_ERR_DROP_NOT_READONLY           287  /* drop body marked readonly — incompatible (Plan 24-01) */
+#define IRON_ERR_DROP_NO_EARLY_RETURN        288  /* drop body uses `return` early — incompatible with field-destructor sweep (Plan 24-01, CONTEXT Area 5) */
 
 /* Phase 86 PATCH: open-extension diagnostics.
  *

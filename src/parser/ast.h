@@ -232,6 +232,12 @@ typedef struct Iron_ObjectDecl {
      * visibility to members. Resolver reads this onto Iron_Symbol.is_pub
      * for cross-module visibility. */
     bool          is_pub;
+    /* Phase 24 DROP-08 (Plan 24-01): nocopy modifier on object declaration.
+     * True when source is `nocopy object T { ... }`. Default false via
+     * arena-zalloc. Plan 24-02 typecheck arm emits IRON_ERR_COPY_OF_NOCOPY_TYPE
+     * (286) at every copy site (assignment, param-pass-by-value, return) when
+     * the source type has is_nocopy=true. */
+    bool          is_nocopy;
 } Iron_ObjectDecl;
 
 typedef struct Iron_InterfaceDecl {
@@ -375,6 +381,12 @@ typedef struct {
      * when a non-patch `pub object T` exists in the same source file
      * (regular object's methods survive, patch's don't). */
     bool               is_patch_member;
+    /* Phase 24 DROP-01/06 (Plan 24-01): flag drop/copy blocks.
+     * is_drop  true when the source token was `drop { ... }`.
+     * is_copy  true when the source token was `copy { ... }`.
+     * Both default false via arena-zalloc; mutually exclusive. */
+    bool               is_drop;
+    bool               is_copy;
     /* Phase 20 PTR-10 (Plan 20-02a): set by mark_takes_local_addr_pass
      * when the method body contains `&local` OR an is_auto_address_target
      * flag rooted at a stack-local. Mirrors the Iron_FuncDecl bit; same

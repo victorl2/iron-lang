@@ -1,0 +1,18 @@
+-- @expected-pass-after: phase-24-02
+-- Phase 24: drop body cannot be marked readonly → E0287
+object Resource {
+    var handle: Int
+
+    init(handle: Int) {
+        self.handle = handle
+    }
+
+    readonly drop {
+        -- drop body marked readonly — incompatible since drop mutates self
+    }
+}
+
+func main() -> Int {
+    val r = Resource(handle: 0)
+    return 0
+}

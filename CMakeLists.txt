@@ -1165,6 +1165,41 @@ if(NOT WIN32)
     set_tests_properties(v4_4.5_nested_bvec PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
 endif()
 
+# `ctest -L phase24-invariant` aggregates the Wave 0 RED corpus for Phase 24
+# Resource Types (drop/copy/nocopy).  These tests search for diagnostic
+# substrings that are ONLY emitted after Plan 24-02 typecheck emission lands.
+# Pre-Plan-24-02 state: ironc check exits 0 (no diagnostic), grep fails →
+# CTest records FAIL (RED).  Plan 24-02 atomic commit flips them GREEN.
+if(NOT WIN32)
+    add_test(
+        NAME v4_fail_4.6_drop_duplicate
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/drop_duplicate.iron 2>&1 | grep -qF E0284"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.6_drop_duplicate PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.6_copy_duplicate
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/copy_duplicate.iron 2>&1 | grep -qF E0285"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.6_copy_duplicate PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.6_drop_readonly
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/drop_readonly.iron 2>&1 | grep -qF E0287"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.6_drop_readonly PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.6_drop_early_return
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/drop_early_return.iron 2>&1 | grep -qF E0288"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.6_drop_early_return PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+endif()
+
 # ---- Install rules ----
 if(IRON_BUILD_LSP)
     install(TARGETS ironc iron ironls DESTINATION bin)

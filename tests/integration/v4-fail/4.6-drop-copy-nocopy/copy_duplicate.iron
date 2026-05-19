@@ -1,0 +1,22 @@
+-- @expected-pass-after: phase-24-02
+-- Phase 24 DROP-06: duplicate copy block on same object → E0285
+object Buffer {
+    var data: Int
+
+    init(data: Int) {
+        self.data = data
+    }
+
+    copy {
+        -- first copy block
+    }
+
+    copy {
+        -- second copy block — must trigger E0285
+    }
+}
+
+func main() -> Int {
+    val b = Buffer(data: 0)
+    return 0
+}

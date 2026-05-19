@@ -1,0 +1,22 @@
+-- @expected-pass-after: phase-24-02
+-- Phase 24 DROP-01: duplicate drop block on same object → E0284
+object Resource {
+    var handle: Int
+
+    init(handle: Int) {
+        self.handle = handle
+    }
+
+    drop {
+        -- first drop block
+    }
+
+    drop {
+        -- second drop block — must trigger E0284
+    }
+}
+
+func main() -> Int {
+    val r = Resource(handle: 0)
+    return 0
+}

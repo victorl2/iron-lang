@@ -159,13 +159,13 @@ static Iron_Node *iron_parse_block_impl(Iron_Parser *p);
 static Iron_Node *iron_parse_block(Iron_Parser *p);
 static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p);
 static Iron_Node *iron_parse_type_annotation(Iron_Parser *p);
-static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_pub, Iron_Node ***extra_decls_out);
-static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private, bool is_pub, Iron_Node ***extra_decls_out);
+static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_pub, bool is_nocopy, Iron_Node ***extra_decls_out);
+static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private, bool is_pub, bool is_nocopy, Iron_Node ***extra_decls_out);
 /* NAV-14: forward decl for doc-comment attachment helper used by
  * iron_parse_decl's post-hook. Definition lives after iron_parse_decl_impl. */
 static void iron_attach_doc_comment(Iron_Node *n, const char *doc);
 static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, bool is_pub);
-static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool is_pub, Iron_Node ***extra_decls_out);
+static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool is_pub, bool is_nocopy, Iron_Node ***extra_decls_out);
 static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub, Iron_Node ***extra_decls_out);
 static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private);
 static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub);
@@ -3321,7 +3321,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
 }
 
 static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool is_pub,
-                                         Iron_Node ***extra_decls_out) {
+                                         bool is_nocopy, Iron_Node ***extra_decls_out) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'object' */
 
@@ -3518,6 +3518,9 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->is_init              = false;
             m->init_name            = NULL;
             m->is_patch_member      = false;
+            /* Phase 24 DROP-01/06 (Plan 24-01): flag drop/copy blocks */
+            m->is_drop              = (strcmp(kw_name, "drop") == 0);
+            m->is_copy              = (strcmp(kw_name, "copy") == 0);
 
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
@@ -4434,6 +4437,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
     /* Phase 93 VIS-01: top-level pub bit lands on the ObjectDecl. Plan 93-03
      * reads it onto Iron_Symbol.is_pub for the cross-module check. */
     n->is_pub                  = is_pub;
+    n->is_nocopy               = is_nocopy;  /* Phase 24 DROP-08 (Plan 24-01) */
     (void)is_private;  /* stored but not used in AST yet */
     return (Iron_Node *)n;
 }
@@ -4635,6 +4639,9 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->is_init              = false;
             m->init_name            = NULL;
             m->is_patch_member      = true;
+            /* Phase 24 DROP-01/06 (Plan 24-01): flag drop/copy blocks — patch-body mirror (Pitfall 1) */
+            m->is_drop              = (strcmp(kw_name, "drop") == 0);
+            m->is_copy              = (strcmp(kw_name, "copy") == 0);
 
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
@@ -5251,7 +5258,7 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub) {
  * to it. iron_parse_decl_impl captures the run at entry (before p->pos
  * advances). */
 static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private, bool is_pub,
-                                  Iron_Node ***extra_decls_out) {
+                                  bool is_nocopy, Iron_Node ***extra_decls_out) {
     if (iron_parser_depth_exceeded(p)) {
         return iron_make_error(p);
     }
@@ -5260,7 +5267,7 @@ static Iron_Node *iron_parse_decl(Iron_Parser *p, bool is_private, bool is_pub,
      * moves p->pos. The run is anchored to the position of the decl's
      * first token. */
     const char *doc = iron_collect_doc_run(p, p->arena);
-    Iron_Node *r = iron_parse_decl_impl(p, is_private, is_pub, extra_decls_out);
+    Iron_Node *r = iron_parse_decl_impl(p, is_private, is_pub, is_nocopy, extra_decls_out);
     iron_attach_doc_comment(r, doc);
     p->recur_depth--;
     return r;
@@ -5301,7 +5308,7 @@ static void iron_attach_doc_comment(Iron_Node *n, const char *doc) {
 }
 
 static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_pub,
-                                       Iron_Node ***extra_decls_out) {
+                                       bool is_nocopy, Iron_Node ***extra_decls_out) {
     /* HARD-05: cancel poll at declaration parser entry. */
     if (iron_cancel_requested(p->cancel_flag)) {
         return iron_make_error(p);
@@ -5386,7 +5393,7 @@ static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_
             return n;
         }
         case IRON_TOK_OBJECT:    {
-            Iron_Node *n = iron_parse_object_decl(p, is_private, is_pub, extra_decls_out);
+            Iron_Node *n = iron_parse_object_decl(p, is_private, is_pub, is_nocopy, extra_decls_out);
             p->in_error_recovery = false;
             return n;
         }
@@ -5499,21 +5506,22 @@ Iron_Node *iron_parse(Iron_Parser *p) {
             iron_parser_sync_toplevel(p);
             continue;
         }
-        /* Phase 16: `nocopy` is only valid as a leading modifier on `object`
-         * decls (e.g., `nocopy object Mutex { ... }`). At top level without
-         * a following `object`, fail fast with the dedicated parser-range
-         * error code IRON_ERR_KEYWORD_NOT_BINDING_NAME. Phase 24 will add
-         * the actual nocopy modifier handling on object decls. */
+        /* Phase 24 DROP-08 (Plan 24-01): `nocopy object T { ... }` modifier.
+         * Detect `nocopy` prefix, consume it, and require `object` to follow.
+         * Threads is_nocopy into iron_parse_decl → iron_parse_object_decl. */
+        bool is_nocopy = false;
         if (iron_check(p, IRON_TOK_NOCOPY)) {
-            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                           IRON_ERR_KEYWORD_NOT_BINDING_NAME,
-                           iron_token_span(p, iron_current(p)),
-                           "'nocopy' modifier only valid on `object` declarations "
-                           "(reserved for Phase 24 semantics)",
-                           NULL);
-            iron_advance(p);
-            iron_parser_sync_toplevel(p);
-            continue;
+            is_nocopy = true;
+            iron_advance(p);  /* consume 'nocopy' */
+            if (!iron_check(p, IRON_TOK_OBJECT)) {
+                iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNEXPECTED_TOKEN,
+                               iron_token_span(p, iron_current(p)),
+                               "'nocopy' modifier only valid on `object` declarations",
+                               NULL);
+                iron_parser_sync_toplevel(p);
+                continue;
+            }
         }
 
         /* Phase 93 VIS-01: accept `pub` and `private` at top level in either
@@ -5562,7 +5570,7 @@ Iron_Node *iron_parse(Iron_Parser *p) {
             break;
         }
 
-        Iron_Node *d = iron_parse_decl(p, is_private, is_pub, &extra_decls);
+        Iron_Node *d = iron_parse_decl(p, is_private, is_pub, is_nocopy, &extra_decls);
         arrput(decls, d);
         decl_count++;
         /* Phase 82: flush any in-block methods synthesized during this decl
