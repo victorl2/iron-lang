@@ -1333,6 +1333,34 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* 1l. Phase 25 STDLIB-05: always prepend box.iron — Box[T] is available
+     * on any source file that uses Box.new / Box.unwrap / Box.free /
+     * Box.null / Box.is_null without an explicit import. Mirror of check.c
+     * arm (Phase 25 Anti-Pattern: prepending ONLY in build.c misses the
+     * check.c path; prepending ONLY in check.c misses the build path). */
+    {
+        char *box_path = make_path(base_dir, "stdlib/box.iron");
+        if (box_path) {
+            long sz = 0;
+            char *src = read_file(box_path, &sz);
+            free(box_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
     } else {
         /* Phase 94 LIB-03 polyfill-duplication fix: emit_archive mode skipped
          * the stdlib auto-prepend region. Free the detect arena that the

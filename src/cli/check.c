@@ -428,6 +428,35 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
         }
     }
 
+    /* Phase 25 STDLIB-05: always prepend box.iron — Box[T] is available on
+     * any source file that uses Box.new / Box.unwrap / Box.free / Box.null /
+     * Box.is_null without an explicit import. Mirror of build.c arm 1l.
+     * ANTI-PATTERN: prepending ONLY in build.c misses the check.c arm;
+     * iron_analyze_buffer (CORE-22 LSP facade) calls check.c path and would
+     * fail to resolve Box[T] usage if this block is absent. */
+    {
+        char *box_path = check_make_path(base_dir, "stdlib/box.iron");
+        if (box_path) {
+            long sz = 0;
+            char *src = check_read_stdlib(box_path, &sz);
+            free(box_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
     /* 2. Set up arena and diagnostics */
     Iron_Arena arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags = iron_diaglist_create();

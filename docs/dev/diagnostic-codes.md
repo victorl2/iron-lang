@@ -292,6 +292,87 @@ codes should accept either the bare integer or the `E<NNN>` string.
 
 9. **DROP-01 PARTIAL `[~]` in REQUIREMENTS.md** — The rc last-reference drop path is deferred to Phase 26 (`PHASE-26 HOOK` stubs left in `emit_c.c` + `emit_helpers.c`). Stack scope-exit drop and heap-`free`-site drop are complete as of Phase 24. REQUIREMENTS.md marks DROP-01 as `[~]` (partial) with citation `Plan 24-02 + Plan 24-03 + Phase 26 forward`. DROP-02/03/06/07/08 are `[x]` Complete.
 
+## Phase 25 — `*unchecked T` + Box[T] (§4.3-§4.4 + §3.4 + §12 step 11)
+
+| Code | Symbol | Message (locked substring) | Hint | Quickfix-Target (Phase 34 LSP-10) | Phase | Spec § |
+|-----:|--------|----------------------------|------|-----------------------------------|------:|--------|
+| 289 | `IRON_ERR_PTR_REGIME_MISMATCH` | `pointer regime mismatch` | `§4.3-§4.4: *T and *unchecked T are disjoint; use Box.unwrap() to escape to *unchecked T` | Wrap value in `Box.new()` and call `Box.unwrap()` (LSP-10) | 25 (Plan 25-01) | §4.3-§4.4 |
+| 294 | `IRON_ERR_PTR_AMP_NOT_UNCHECKED` | `& cannot produce unchecked pointer` | `§4.3: only Box.unwrap() (Phase 25) or RawPtr (Phase 33) can produce *unchecked T` | Replace `&expr` with `Box.new(expr).unwrap()` (LSP-10) | 25 (Plan 25-01) | §4.3 |
+| 295 | `IRON_ERR_PTR_ARITH_CHECKED` | `pointer arithmetic requires unchecked regime` | `§4.3: Ptr.offset / Ptr.diff operate only on *unchecked T; use Box.unwrap() to escape` | Wrap pointer in `Box.new()` and `unwrap()` before Ptr.offset (LSP-10) | 25 (Plan 25-02) | §4.3 |
+
+### Notes
+
+1. **Codes 290-293 SKIPPED in Phase 25.** These slots are pre-allocated to
+   LSP-internal codes and must NOT be used for compiler diagnostic emission:
+   - 290: `IRON_ERR_CANCELLED` (LSP request-cancellation code, src/lsp/)
+   - 291: `IRON_ERR_COMPTIME_FS_DISABLED_IN_LSP_MODE` (LSP comptime-filesystem guard)
+   - 292: `IRON_ERR_TYPE_MISMATCH_LITERAL` (LSP type-mismatch for literals)
+   - 293: `IRON_ERR_MISSING_RETURN` (LSP missing-return detection)
+   Phase 25 skips from 289 to 294 (then 295) to avoid colliding with these
+   pre-allocated slots. See `src/diagnostics/diagnostics.h` gap comment
+   ("DO NOT USE 290-293 — pre-allocated to LSP-internal codes").
+
+2. **E0289 emission at THREE sites.** `IRON_ERR_PTR_REGIME_MISMATCH` (289) is
+   emitted in three positions in `src/analyzer/typecheck.c`:
+   - `VAL_DECL`/`VAR_DECL` arm: when RHS type has a different `is_unchecked`
+     value from LHS type annotation (both must be IRON_TYPE_PTR).
+   - Call-argument arm: when actual argument type is `*T` and parameter type is
+     `*unchecked T` or vice versa (distinct from E0294 which fires when `&`
+     produces an unchecked target).
+   - `RETURN` arm: when returned pointer type differs in `is_unchecked` from the
+     declared return type.
+   E0289 fires only when BOTH sides are `IRON_TYPE_PTR` with differing
+   `is_unchecked`; plain-type vs `*unchecked T` mismatch uses existing E0217
+   (general type mismatch) path.
+
+3. **E0294 emission site.** `IRON_ERR_PTR_AMP_NOT_UNCHECKED` (294) is emitted
+   at the `VAL_DECL`/`VAR_DECL` arm of `typecheck.c` when the LHS type
+   annotation has `is_unchecked=true` AND the RHS is `IRON_NODE_UNARY` with
+   operator `IRON_TOK_AMP`. This unifies PTR-05: `&` is forbidden on rc values
+   (Phase 26, POL-07), on rvalues (Phase 20, IRON_ERR_PTR_AMP_ON_RVALUE), and
+   on `*unchecked T` targets (Phase 25, E0294).
+
+4. **E0295 emission site.** `IRON_ERR_PTR_ARITH_CHECKED` (295) is emitted at
+   the `IRON_NODE_METHOD_CALL` case in `typecheck.c` when the callee is
+   `Ptr.offset` or `Ptr.diff` (detected by uppercase-initial `Ptr` heuristic)
+   and the first argument is `*T` (checked regime, `is_unchecked=false`).
+   The resolver guard in `resolve.c` skips `resolve_expr(mc->object)` for
+   `Ptr` to prevent E0200 "undefined identifier Ptr".
+
+5. **STDLIB-05 `Box[T]` introduced this phase.** `src/stdlib/box.iron` declares
+   the Iron-side surface for `Box[T]`: `nocopy object Box[T]` with `Box.new`,
+   `Box.null`, `Box.unwrap`, `Box.free`, `Box.is_null` function signatures.
+   Always-prepended in both `src/cli/check.c` AND `src/cli/build.c` (identical
+   to Phase 23 `list.iron` prepend pattern). Anti-Pattern: prepending only in
+   `build.c` misses the `check.c` arm and makes `iron_analyze_buffer` (CORE-22
+   LSP facade) unable to resolve `Box[T]` usage.
+
+6. **Phase 26 forward-reference (rc Box[T]).** `PHASE-26 HOOK` comments in
+   `src/analyzer/typecheck.c` and `src/lir/emit_helpers.c` mark the integration
+   points for Phase 26 rc Policy. Whether `rc Box[T]` is a compile error or a
+   valid combination is TBD (rc + nocopy may be forbidden). Until Phase 26,
+   `rc Box[T]` triggers E0286 (copy of nocopy type) at the `rc` allocation site.
+
+7. **Phase 30 forward-reference (unchecked-deref elision).** `*unchecked T`
+   deref already performs zero runtime check (bare `*p`, no `iron_check_pointer_gen`
+   call). Phase 30 (Pointer Check Elision Optimizer) targets only checked-deref
+   paths (`iron_check_pointer_gen` / `iron_check_stack_pointer_gen`). No Phase 30
+   work is required for `*unchecked T` paths. `IRON_LIR_PTR_OFFSET` /
+   `IRON_LIR_PTR_DIFF` opcodes give Phase 30 explicit opcode-level visibility
+   for pointer-arithmetic pattern-matching (OQ-1 RESOLVED, Plan 25-02).
+
+8. **Phase 33 forward-reference (RawPtr + Ptr.cast).** `RawPtr` (STDLIB-10)
+   and extended `Ptr.cast` between regimes ship in Phase 33. Phase 25 error
+   hints reference Phase 33 as the migration path for type-erased pointer casts.
+   `Box.unwrap()` is the ONLY escape from the checked world to the unchecked
+   world in Phase 25.
+
+9. **Phase 26 (rc Policy, HIGH RISK) UNBLOCKED.** Phase 25 delivers the complete
+   `*unchecked T` regime: type-system disjointness (Plans 25-01), codegen + Box
+   synthesis (Plan 25-02), stdlib surface (Plan 25-03). Phase 26 depends on
+   Phase 25 (rc must NOT be confusable with `&`-able checked pointer). Phase 25
+   satisfies this dependency gate.
+
 ## Adding new codes
 
 1. Allocate the next free slot in the appropriate range. Verify uniqueness

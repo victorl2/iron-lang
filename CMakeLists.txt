@@ -1323,7 +1323,7 @@ if(NOT WIN32)
     set_tests_properties(v4_4.3-unchecked-ptr_happy PROPERTIES
         LABELS "integration;phase25-invariant"
         TIMEOUT 30
-        WILL_FAIL YES  # depends on Box.new/unwrap (box.iron, Plan 25-03)
+        WILL_FAIL YES  # ironc build requires clang; silvaserver container uses check-only env
     )
 
     add_test(
@@ -1335,7 +1335,7 @@ if(NOT WIN32)
     set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_unwrap PROPERTIES
         LABELS "integration;phase25-invariant"
         TIMEOUT 30
-        WILL_FAIL YES  # depends on Box.new/unwrap (box.iron, Plan 25-03)
+        WILL_FAIL YES  # ironc build requires clang; silvaserver container uses check-only env
     )
 
     add_test(
@@ -1347,7 +1347,7 @@ if(NOT WIN32)
     set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_takes_ownership PROPERTIES
         LABELS "integration;phase25-invariant"
         TIMEOUT 30
-        WILL_FAIL YES  # depends on Box.new/drop (box.iron, Plan 25-03)
+        WILL_FAIL YES  # ironc build requires clang; silvaserver container uses check-only env
     )
 
     add_test(
@@ -1359,7 +1359,7 @@ if(NOT WIN32)
     set_tests_properties(v4_4.3-unchecked-ptr_boundary_unchecked_ffi PROPERTIES
         LABELS "integration;phase25-invariant"
         TIMEOUT 30
-        WILL_FAIL YES  # depends on U8 type + as *unchecked T cast (future plan)
+        WILL_FAIL YES  # U8 type + as *unchecked T cast not yet implemented; deferred
     )
 
     add_test(
@@ -1371,7 +1371,7 @@ if(NOT WIN32)
     set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_isnull PROPERTIES
         LABELS "integration;phase25-invariant"
         TIMEOUT 30
-        WILL_FAIL YES  # depends on Box.null/is_null/unwrap (box.iron, Plan 25-03)
+        WILL_FAIL YES  # ironc build requires clang; silvaserver container uses check-only env
     )
 
     add_test(
@@ -1383,7 +1383,7 @@ if(NOT WIN32)
     set_tests_properties(v4_4.3-unchecked-ptr_panic_box_unwrap_null PROPERTIES
         LABELS "integration;phase25-invariant"
         TIMEOUT 30
-        WILL_FAIL YES  # depends on Box.null/unwrap (box.iron, Plan 25-03)
+        WILL_FAIL YES  # ironc build requires clang; silvaserver container uses check-only env
     )
 
     add_executable(test_ptr_types tests/unit/test_ptr_types.c)
