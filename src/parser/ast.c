@@ -41,6 +41,7 @@ static const char *s_node_kind_names[IRON_NODE_COUNT] = {
     [IRON_NODE_LAMBDA]          = "LambdaExpr",
     [IRON_NODE_HEAP]            = "HeapExpr",
     [IRON_NODE_RC]              = "RcExpr",
+    [IRON_NODE_WEAK_RC_NULL]    = "WeakRcNullExpr",  /* Phase 27 POL-08 */
     [IRON_NODE_COMPTIME]        = "ComptimeExpr",
     [IRON_NODE_IS]              = "IsExpr",
     [IRON_NODE_CONSTRUCT]       = "ConstructExpr",
@@ -302,6 +303,9 @@ void iron_ast_walk(Iron_Node *root, Iron_Visitor *v) {
             walk_child(n->inner, v);
             break;
         }
+        case IRON_NODE_WEAK_RC_NULL:
+            /* Phase 27 POL-08: leaf node — no children to walk. */
+            break;
         case IRON_NODE_COMPTIME: {
             Iron_ComptimeExpr *n = (Iron_ComptimeExpr *)root;
             walk_child(n->inner, v);

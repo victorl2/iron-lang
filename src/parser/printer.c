@@ -903,6 +903,12 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        case IRON_NODE_WEAK_RC_NULL: {
+            /* Phase 27 POL-08 (Plan 27-02): `weak rc null` constructor. */
+            iron_strbuf_appendf(ctx->sb, "weak rc null");
+            break;
+        }
+
         case IRON_NODE_COMPTIME: {
             Iron_ComptimeExpr *n = (Iron_ComptimeExpr *)node;
             iron_strbuf_appendf(ctx->sb, "comptime ");

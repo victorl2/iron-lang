@@ -921,6 +921,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        case IRON_NODE_WEAK_RC_NULL:
+            /* Phase 27 POL-08 (Plan 27-02): leaf — no symbols to resolve. */
+            break;
+
         case IRON_NODE_COMPTIME: {
             Iron_ComptimeExpr *ce = (Iron_ComptimeExpr *)node;
             resolve_expr(ctx, ce->inner);

@@ -193,6 +193,24 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
             return result;
         }
 
+        /* Phase 27 POL-08 (Plan 27-02): weak rc T lowers to the SAME C type
+         * as rc T (a payload-typed pointer).  The Plan 27-01 runtime model
+         * treats `iron_rc_downgrade(rc)` as returning the same user pointer
+         * with the weak_count bumped — the type-system distinction is purely
+         * compile-time.  emit_c.c arms for IRON_LIR_WEAK_RC_* opcodes drive
+         * the runtime semantics via iron_weak_rc_retain/release. */
+        case IRON_TYPE_WEAK_RC: {
+            const char *inner_c = emit_type_to_c(t->weak_rc.inner, ctx);
+            Iron_StrBuf sb = iron_strbuf_create(64);
+            iron_strbuf_appendf(&sb, "%s*", inner_c);
+            const char *result = iron_arena_strdup(ctx->arena,
+                                                    iron_strbuf_get(&sb),
+                                                    sb.len);
+            if (!result) iron_oom_abort("emit_helpers.c:emit_type_to_c WEAK_RC");
+            iron_strbuf_free(&sb);
+            return result;
+        }
+
         /* Phase 20 PTR-01: checked pointers lower to the 16B Iron_FatPtr ABI
          * defined in src/runtime/iron_runtime.h (Phase 19 substrate lock).
          * Phase 25 UNCK-03 (Plan 25-02): unchecked pointers lower to bare T*

@@ -508,6 +508,45 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         return iron_make_error(p);
     }
 
+    /* Phase 27 POL-08 (Plan 27-02): `weak rc T` type-annotation parse.
+     * Placement: BEFORE the rc rejection below so the `weak rc` sequence is
+     * recognized as a legitimate type form. Produces an Iron_TypeAnnotation
+     * with name=inner-name and a weak-rc marker that resolve_type_annotation
+     * lowers to IRON_TYPE_WEAK_RC.
+     *
+     * Encoding choice: we synthesize a wrapper TypeAnnotation node with
+     * `is_weak_rc=true` and `weak_rc_inner` pointing at the inner annotation.
+     * No new flag bits introduced on the existing TypeAnnotation struct —
+     * see ast.h Iron_TypeAnnotation extension. */
+    if (iron_check(p, IRON_TOK_WEAK)) {
+        Iron_Token *weak_tok = iron_current(p);
+        iron_advance(p);  /* consume `weak` */
+        if (!iron_check(p, IRON_TOK_RC)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_CLOSED_POLICY_KEYWORD,
+                           iron_token_span(p, weak_tok),
+                           "expected `rc` after `weak` in type annotation"
+                           " (use `weak rc T`)",
+                           NULL);
+            return iron_make_error(p);
+        }
+        iron_advance(p);  /* consume `rc` */
+        Iron_Node *inner_ann = iron_parse_type_annotation_impl(p);
+        Iron_TypeAnnotation *outer = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+        if (!outer) {
+            p->in_error_recovery = true;
+            return iron_make_error(p);
+        }
+        memset(outer, 0, sizeof(*outer));
+        outer->kind         = IRON_NODE_TYPE_ANNOTATION;
+        outer->span         = iron_span_merge(iron_token_span(p, weak_tok),
+                                              inner_ann ? inner_ann->span
+                                                        : iron_token_span(p, weak_tok));
+        outer->is_weak_rc   = true;
+        outer->weak_rc_inner = inner_ann;
+        return (Iron_Node *)outer;
+    }
+
     /* Phase 21 POL-03: heap keyword is illegal in type-annotation position.
      * Consume + recover so the rest of the annotation parses cleanly.
      * Placement: BEFORE the Phase 20 leading-`?` and leading-`*` guards so
@@ -1467,35 +1506,77 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         }
         /* Phase 26 POL-11 (Plan 26-02): closed-policy guard for reserved
          * lifecycle-policy keywords that are NOT yet accepted at allocation
-         * expression. `pool` and `weak` are pre-tokenized (IRON_TOK_POOL,
-         * IRON_TOK_WEAK — both reserved in Phase 16 keyword reservation).
-         * `arena` is not yet a keyword (Phase 28 lands it); its rejection
-         * lives in the IRON_TOK_IDENTIFIER arm below.
+         * expression. `pool` is pre-tokenized (IRON_TOK_POOL, reserved in
+         * Phase 16); `arena` is not yet a keyword (Phase 28 lands it; its
+         * rejection lives in the IRON_TOK_IDENTIFIER arm below).
          *
-         * Canonical closed set: {stack, heap, rc, weak rc}. `weak rc` ships
-         * in Phase 27; `pool` is not in the closed set. */
-        case IRON_TOK_POOL:
-        case IRON_TOK_WEAK: {
-            const char *kw_name = (t->kind == IRON_TOK_POOL) ? "pool" : "weak";
+         * Canonical closed set: {stack, heap, rc, weak rc}. `pool` is not in
+         * the closed set. */
+        case IRON_TOK_POOL: {
             char msg[256];
             snprintf(msg, sizeof(msg),
                      "lifecycle policy keyword in closed set"
                      " {stack, heap, rc, weak rc};"
-                     " `%s` is not a recognized lifecycle"
-                     " policy keyword at allocation expression",
-                     kw_name);
+                     " `pool` is not a recognized lifecycle"
+                     " policy keyword at allocation expression");
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_CLOSED_POLICY_KEYWORD,
                            iron_token_span(p, t),
                            msg,
                            "Phase 26 lifecycle policy closed set is"
                            " {stack, heap, rc, weak rc};"
-                           " `pool`, `arena`, `weak` not supported as"
+                           " `pool` and `arena` not supported as"
                            " lifecycle policy keywords at allocation"
-                           " expression (weak rc ships in Phase 27)");
+                           " expression");
             iron_advance(p);  /* consume the reserved keyword */
             /* Recover by parsing the following sub-expression as the body
              * — same recovery shape as the rc allocation arm. */
+            Iron_Node *inner = iron_parse_expr_prec(p, PREC_UNARY);
+            return inner ? inner : iron_make_error(p);
+        }
+        /* Phase 27 POL-08 (Plan 27-02): `weak` at expression position. Two
+         * valid forms:
+         *   (a) `weak rc null` → IRON_NODE_WEAK_RC_NULL constructor.
+         *   (b) anything else → E0298 (closed-policy guard) with a hint
+         *       redirecting to `.downgrade()` for value construction.
+         * The `weak rc T` TYPE annotation lives in iron_parse_type_annotation
+         * (above, gated by iron_check(p, IRON_TOK_WEAK) before the rc/heap
+         * rejection arms). */
+        case IRON_TOK_WEAK: {
+            Iron_Token *weak_tok = t;
+            iron_advance(p);  /* consume `weak` */
+            if (iron_check(p, IRON_TOK_RC) && p->pos + 1 < p->token_count &&
+                p->tokens[p->pos + 1].kind == IRON_TOK_NULL_KW) {
+                iron_advance(p);  /* consume `rc` */
+                Iron_Token *null_tok = iron_current(p);
+                iron_advance(p);  /* consume `null` */
+                Iron_WeakRcNullExpr *node = ARENA_ALLOC(p->arena,
+                                                         Iron_WeakRcNullExpr);
+                if (!node) {
+                    p->in_error_recovery = true;
+                    return iron_make_error(p);
+                }
+                node->kind = IRON_NODE_WEAK_RC_NULL;
+                node->span = iron_span_merge(iron_token_span(p, weak_tok),
+                                              iron_token_span(p, null_tok));
+                node->resolved_type = NULL;  /* set by typecheck from context */
+                return (Iron_Node *)node;
+            }
+            /* Not `weak rc null` — emit E0298. The legitimate value-form is
+             * `weak rc null` constructor or `<rc_value>.downgrade()` method
+             * call; bare `weak T(...)` is not a valid allocation form. */
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_CLOSED_POLICY_KEYWORD,
+                           iron_token_span(p, weak_tok),
+                           "weak rc allocation form is invalid; use"
+                           " `weak rc null` or `<rc_value>.downgrade()`"
+                           " to construct a weak reference",
+                           "Phase 27 lifecycle policy closed set is"
+                           " {stack, heap, rc, weak rc};"
+                           " weak rc values are constructed via"
+                           " `weak rc null` (constructor) or"
+                           " `<rc_value>.downgrade()` (method call)");
+            /* Recover by parsing whatever follows as a primary expression. */
             Iron_Node *inner = iron_parse_expr_prec(p, PREC_UNARY);
             return inner ? inner : iron_make_error(p);
         }

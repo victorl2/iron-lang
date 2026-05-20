@@ -66,6 +66,7 @@ typedef enum {
     IRON_NODE_LAMBDA,
     IRON_NODE_HEAP,
     IRON_NODE_RC,
+    IRON_NODE_WEAK_RC_NULL,  /* Phase 27 POL-08 (Plan 27-02): `weak rc null` constructor expression */
     IRON_NODE_COMPTIME,
     IRON_NODE_IS,
     IRON_NODE_CONSTRUCT,
@@ -494,6 +495,11 @@ typedef struct {
      * Default-zero via arena-zalloc at every allocation site.
      * Source surface: `*unchecked T` and `*var unchecked T`. */
     bool          is_unchecked;
+    /* Phase 27 POL-08 (Plan 27-02): `weak rc T` type annotation marker.
+     * is_weak_rc=true wraps weak_rc_inner; resolve_type_annotation lowers
+     * this to IRON_TYPE_WEAK_RC(inner). Default-zero via arena-zalloc. */
+    bool          is_weak_rc;
+    Iron_Node    *weak_rc_inner;
 } Iron_TypeAnnotation;
 
 #define IRON_LAYOUT_HINT_NONE 0
@@ -831,6 +837,17 @@ typedef struct {
     Iron_Node         *inner;
 } Iron_RcExpr;
 
+/* Phase 27 POL-08 (Plan 27-02): `weak rc null` constructor expression.
+ * Produces a null weak rc — lowered by HIR to IRON_HIR_EXPR_WEAK_RC_NULL
+ * and by emit_c to a literal NULL pointer in the weak slot. The inner
+ * type is inferred from the variable annotation context (no inner-type
+ * field here in Plan 27-02; future syntax `weak rc Foo:null` may add one). */
+typedef struct {
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_WEAK_RC_NULL */
+    struct Iron_Type  *resolved_type;  /* set by type checker — IRON_TYPE_WEAK_RC(inner) when context-typed */
+} Iron_WeakRcNullExpr;
+
 typedef struct {
     Iron_Span          span;
     Iron_NodeKind      kind;   /* IRON_NODE_COMPTIME */
@@ -937,6 +954,7 @@ IRON_ASSERT_EXPR_PREFIX(Iron_SliceExpr);
 IRON_ASSERT_EXPR_PREFIX(Iron_LambdaExpr);
 IRON_ASSERT_EXPR_PREFIX(Iron_HeapExpr);
 IRON_ASSERT_EXPR_PREFIX(Iron_RcExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_WeakRcNullExpr);  /* Phase 27 POL-08 (Plan 27-02) */
 IRON_ASSERT_EXPR_PREFIX(Iron_ComptimeExpr);
 IRON_ASSERT_EXPR_PREFIX(Iron_IsExpr);
 IRON_ASSERT_EXPR_PREFIX(Iron_AwaitExpr);

@@ -45,6 +45,7 @@ typedef enum {
     IRON_TYPE_FUNC,          /* func(...)->R */
     IRON_TYPE_ARRAY,         /* [T; N] or [T] */
     IRON_TYPE_RC,            /* rc T       */
+    IRON_TYPE_WEAK_RC,       /* weak rc T  (Phase 27 POL-08 — non-owning ref; implicitly nullable) */
     IRON_TYPE_PTR,           /* Phase 20 — *T or *var T (PTR-01) */
 
     /* Meta types */
@@ -90,6 +91,16 @@ typedef struct Iron_Type {
         struct {
             struct Iron_Type          *inner;
         } rc;
+
+        /* IRON_TYPE_WEAK_RC — Phase 27 POL-08 (Plan 27-02). Non-owning
+         * reference into the same allocation block as the strong rc
+         * counterpart. Constructed via `.downgrade()` on rc T or
+         * `weak rc null`. Cannot be dereferenced directly (E0299).
+         * `.upgrade()` returns a nullable strong reference (T?) atomically
+         * against the last strong drop (POL-09). */
+        struct {
+            struct Iron_Type          *inner;
+        } weak_rc;
 
         /* IRON_TYPE_PTR — Phase 20 PTR-01 + Phase 25 PTR-02.
          * `*T` carries pointee=T, is_var=false, is_unchecked=false.
@@ -170,6 +181,13 @@ Iron_Type *iron_type_make_nullable(Iron_Arena *a, Iron_Type *inner);
 
 /* Construct an Rc<T> wrapper type */
 Iron_Type *iron_type_make_rc(Iron_Arena *a, Iron_Type *inner);
+
+/* Phase 27 POL-08 (Plan 27-02): construct a weak rc T wrapper type.
+ * Mirrors iron_type_make_rc; structurally distinct enum tag so the
+ * -Werror=switch-enum guard surfaces every consumer site at build time.
+ * Constructor never returns NULL on success; OOM propagates to the
+ * established IRON_TYPE_ERROR poison via the caller (HARD-09 pattern). */
+Iron_Type *iron_type_make_weak_rc(Iron_Arena *a, Iron_Type *inner);
 
 /* Phase 20 PTR-01: construct a checked pointer type (`*T` or `*var T`).
  * No interning — distinct (pointee, is_var) combinations always yield a

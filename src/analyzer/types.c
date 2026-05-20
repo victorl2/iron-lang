@@ -99,6 +99,19 @@ Iron_Type *iron_type_make_rc(Iron_Arena *a, Iron_Type *inner) {
     return t;
 }
 
+/* Phase 27 POL-08 (Plan 27-02): weak rc T constructor — mirrors the rc
+ * constructor with a distinct enum tag so consumers branch on kind without
+ * a flag check.  HARD-09 OOM contract: returns NULL on allocation failure
+ * for the caller to propagate as IRON_TYPE_ERROR poison. */
+Iron_Type *iron_type_make_weak_rc(Iron_Arena *a, Iron_Type *inner) {
+    Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
+    if (!t) return NULL;
+    memset(t, 0, sizeof(*t));
+    t->kind          = IRON_TYPE_WEAK_RC;
+    t->weak_rc.inner = inner;
+    return t;
+}
+
 /* Phase 20 PTR-01 + Phase 25 PTR-02: pointer type constructor.
  * Mirrors iron_type_make_nullable shape; no interning because
  * (pointee, is_var, is_unchecked) identity is structural and pointer types
@@ -282,6 +295,13 @@ bool iron_type_equals(const Iron_Type *a, const Iron_Type *b) {
         case IRON_TYPE_RC:
             return iron_type_equals(a->rc.inner, b->rc.inner);
 
+        /* Phase 27 POL-08 (Plan 27-02): weak rc T equality is structural on
+         * the inner type — mirrors the rc arm.  weak rc T and rc T are NEVER
+         * equal (distinct enum tags); the caller must explicitly upgrade()
+         * or downgrade() to move between the two regimes. */
+        case IRON_TYPE_WEAK_RC:
+            return iron_type_equals(a->weak_rc.inner, b->weak_rc.inner);
+
         /* Phase 20 PTR-01 + Phase 25 PTR-02: structural equality on
          * (pointee, is_var, is_unchecked). RESEARCH Pitfall 2: is_unchecked
          * MUST be included so `*T` and `*unchecked T` are NOT equal. Without
@@ -386,6 +406,16 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
             /* HARD-09 REPLACE (CR-02, types.c:iron_type_to_string RC). */
             if (!buf) return "<oom rc>";
             snprintf(buf, len, "rc %s", inner);
+            return buf;
+        }
+
+        /* Phase 27 POL-08 (Plan 27-02): weak rc T rendering. */
+        case IRON_TYPE_WEAK_RC: {
+            const char *inner = iron_type_to_string(t->weak_rc.inner, a);
+            size_t len = strlen(inner) + 9; /* "weak rc " + inner + '\0' */
+            char *buf = (char *)iron_arena_alloc(a, len, 1);
+            if (!buf) return "<oom weak rc>";
+            snprintf(buf, len, "weak rc %s", inner);
             return buf;
         }
 

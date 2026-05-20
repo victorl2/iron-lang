@@ -775,6 +775,22 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
         return true;
     }
 
+    /* Phase 27 POL-08 (Plan 27-02): `weak rc T` is implicitly nullable.
+     * `var w: weak rc T = weak rc null` lowers to an assignment from
+     * IRON_TYPE_WEAK_RC(NULL sentinel) into IRON_TYPE_WEAK_RC(T) — accept
+     * regardless of inner-type match because the runtime carries a literal
+     * NULL pointer in either case. Also accept bare `null` so
+     * `var w: weak rc T = null` works (desugars to weak rc null per GA3). */
+    if (decl_t->kind == IRON_TYPE_WEAK_RC &&
+        init_t->kind == IRON_TYPE_WEAK_RC &&
+        init_t->weak_rc.inner &&
+        init_t->weak_rc.inner->kind == IRON_TYPE_NULL) {
+        return true;
+    }
+    if (decl_t->kind == IRON_TYPE_WEAK_RC && init_t->kind == IRON_TYPE_NULL) {
+        return true;
+    }
+
     /* Phase 25 PTR-02/03 (Plan 25-01): unchecked regime is DISJOINT from
      * the checked regime. (*T <-> *unchecked T) and (*var T <-> *var unchecked T)
      * are never assignable in either direction.
@@ -1054,6 +1070,18 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     }
 
     Iron_TypeAnnotation *ann = (Iron_TypeAnnotation *)ann_node;
+
+    /* Phase 27 POL-08 (Plan 27-02): lower `weak rc T` to IRON_TYPE_WEAK_RC.
+     * Placement: BEFORE the pointer arm so `weak rc T` annotations never
+     * dispatch through the pointer-lowering path. */
+    if (ann->is_weak_rc) {
+        Iron_Type *inner_t = ann->weak_rc_inner
+            ? resolve_type_annotation(ctx, ann->weak_rc_inner)
+            : iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (!inner_t) inner_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+        Iron_Type *wt = iron_type_make_weak_rc(ctx->arena, inner_t);
+        return wt ? wt : iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
 
     /* Phase 20 PTR-01/13: lower `*T` / `*var T` / `?*T` / `?*var T`. The
      * outer is_nullable on a pointer annotation surfaces as
@@ -2055,20 +2083,25 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     ue->resolved_type = result;
                     break;
                 }
-                /* Phase 26 POL-07 (Plan 26-02): `&` on an rc value is
-                 * forbidden — refcounted values cannot produce non-owning
-                 * pointer references. Hint redirects to `weak rc T`
-                 * (Phase 27). Placed AFTER operand typecheck so we know
-                 * the operand resolves to IRON_TYPE_RC, but BEFORE the
+                /* Phase 26 POL-07 (Plan 26-02) + Phase 27 GA4 (Plan 27-02):
+                 * `&` on an rc OR weak rc value is forbidden — refcounted
+                 * values cannot produce non-owning pointer references.
+                 * Hint redirects to `weak rc T` for a non-owning reference;
+                 * `.upgrade()` returns a nullable strong reference. Placed
+                 * AFTER operand typecheck so we know the operand resolves
+                 * to IRON_TYPE_RC / IRON_TYPE_WEAK_RC, but BEFORE the
                  * iron_type_make_ptr construction below so the &-on-rc
                  * path short-circuits cleanly to ERROR. */
-                if (operand_t->kind == IRON_TYPE_RC) {
+                if (operand_t->kind == IRON_TYPE_RC ||
+                    operand_t->kind == IRON_TYPE_WEAK_RC) {
                     emit_error(ctx, IRON_ERR_PTR_AMP_ON_RC, ue->span,
-                               "cannot take `&` of an `rc` value"
-                               " \342\200\224 refcounted values cannot"
-                               " produce non-owning pointer references",
-                               "use `weak rc T` (Phase 27) for a"
-                               " non-owning reference to an rc value");
+                               "cannot take address of rc/weak rc;"
+                               " use weak rc T or upgrade() to obtain"
+                               " a nullable strong reference",
+                               "use `weak rc T` for a non-owning"
+                               " reference to an rc value; call"
+                               " `.upgrade()` on a weak rc to obtain"
+                               " a nullable strong reference (T?)");
                     result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     ue->resolved_type = result;
                     break;
@@ -4025,6 +4058,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_ComptimeExpr *ce = (Iron_ComptimeExpr *)node;
             result = check_expr(ctx, ce->inner);
             ce->resolved_type = result;
+            break;
+        }
+
+        /* Phase 27 POL-08 (Plan 27-02): `weak rc null` constructor expression.
+         * Resolves to IRON_TYPE_WEAK_RC of an unresolved inner type — the
+         * variable-annotation context coerces the inner via types_assignable
+         * (when the LHS annotation has kind IRON_TYPE_WEAK_RC). When no
+         * context-typing is available, the expression typechecks but produces
+         * a weak rc of NULL inner — emit_c renders it as a literal NULL. */
+        case IRON_NODE_WEAK_RC_NULL: {
+            Iron_WeakRcNullExpr *wn = (Iron_WeakRcNullExpr *)node;
+            /* Use IRON_TYPE_NULL as the inner sentinel — the assignment site
+             * will rewrite resolved_type when binding to a `weak rc T` LHS. */
+            Iron_Type *null_inner = iron_type_make_primitive(IRON_TYPE_NULL);
+            result = iron_type_make_weak_rc(ctx->arena, null_inner);
+            if (!result) result = iron_type_make_primitive(IRON_TYPE_ERROR);
+            wn->resolved_type = result;
             break;
         }
 
@@ -6206,6 +6256,7 @@ static bool is_readonly_compatible_type(const Iron_Type *t, TypeCtx *ctx) {
 
         /* ── All other types — not readonly-compatible ───────────────────── */
         case IRON_TYPE_RC:
+        case IRON_TYPE_WEAK_RC:  /* Phase 27 POL-08: weak rc shares rc's non-readonly-compat stance */
         case IRON_TYPE_FUNC:
         case IRON_TYPE_INTERFACE:
         case IRON_TYPE_ENUM:

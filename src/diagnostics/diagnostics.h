@@ -355,9 +355,37 @@ void iron_diaglist_free(Iron_DiagList *list);
  *         this Phase 24/25 diagnostic (Box[T] is nocopy; rc requires copy).
  *         See docs/dev/RC-LAYOUT.md §3.1.
  */
-#define IRON_ERR_PTR_AMP_ON_RC            296  /* POL-07 (Phase 26-02) — `&` on rc value; typecheck.c IRON_NODE_UNARY-AMP arm */
+#define IRON_ERR_PTR_AMP_ON_RC            296  /* POL-07 (Phase 26-02) — `&` on rc/weak rc value; typecheck.c IRON_NODE_UNARY-AMP arm. Phase 27 GA4: message extended to name both rc and weak rc. */
 #define IRON_ERR_RC_BAD_POSITION          297  /* POL-11 (Phase 26-02) — rc in type-anno / binding / parameter / nullable; parser.c 4 sites */
 #define IRON_ERR_CLOSED_POLICY_KEYWORD    298  /* POL-11 (Phase 26-02) — unknown lifecycle keyword at allocation-expression; parser.c */
+
+/* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc compiler-surface diagnostics.
+ * Built atop the Plan 27-01 runtime substrate (24B Iron_RcHeader with
+ * weak_count@16 + iron_weak_rc_retain/release + iron_rc_downgrade/upgrade).
+ *
+ *   299 (Plan 27-02): POL-08 — direct dereference of `weak rc T`.  weak rc
+ *                     references are non-owning and may point at a destructed
+ *                     payload; the type system forbids `w.field`, `*w`, `w[i]`,
+ *                     and `w.method()` on weak-rc receivers.  Hint redirects to
+ *                     `.upgrade()` which returns the nullable strong reference
+ *                     `T?` (atomic against the last drop per POL-09).
+ *   300 (Plan 27-02): POL-08 — calling `.downgrade()` on a non-rc receiver.
+ *                     `.downgrade()` is only available on `rc T` values; calls
+ *                     against primitives, objects, pointers, etc., emit E0300.
+ *
+ * Companion reuses (no new code):
+ *   E0296 IRON_ERR_PTR_AMP_ON_RC — extended (no new code) to also reject `&`
+ *         on weak rc receivers; the canonical message now names both rc and
+ *         weak rc per CONTEXT.md GA4.
+ *   E0217 IRON_ERR_TYPE_MISMATCH — passing `weak rc T` where `rc T` is
+ *         expected reuses the existing type-mismatch diagnostic; users are
+ *         expected to call `.upgrade()` explicitly.
+ *   E0279 IRON_ERR_READONLY_HEAP_ESCAPE — NOT extended.  `.upgrade()` is a
+ *         read-only operation (CAS-loop on refcount; no allocation, no I/O)
+ *         and is allowed in readonly methods per CONTEXT.md GA2.
+ */
+#define IRON_ERR_WEAK_RC_DEREF             299  /* POL-08 (Phase 27-02) — direct deref of weak rc T (w.field, w.method(), *w, w[i]); typecheck.c */
+#define IRON_ERR_WEAK_RC_DOWNGRADE_NOT_RC  300  /* POL-08 (Phase 27-02) — .downgrade() on non-rc receiver; typecheck.c IRON_NODE_METHOD_CALL arm */
 
 /* Phase 86 PATCH: open-extension diagnostics.
  *
