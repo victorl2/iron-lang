@@ -68,6 +68,17 @@ typedef struct {
      * Parallel to emitted_bvecs; same arrput/arrlen/strcmp shape. */
     char        **emitted_drops;
     char        **emitted_copies;
+    /* Phase 26 POL-06 (Plan 26-03): per-type rc-drop trampoline synthesis dedup.
+     * Parallel to emitted_drops; same arrput/arrlen/strcmp shape. The trampoline
+     * <TypeName>_rc_drop(void *self_void) is a type-erased wrapper around the
+     * Phase 24 <TypeName>_drop helper, suitable for storage in
+     * Iron_RcHeader.drop_fn (function-pointer field with void* arg). */
+    char        **emitted_rc_drops;
+    /* Phase 26 OQ-03 (Plan 26-03): per-lifted-func closure env-drop synthesis dedup.
+     * Stores lifted_func_name keys. The companion <func_name>_env_drop(void*)
+     * function emitted into ctx->lifted_funcs releases each rc-typed captured
+     * field and frees the env block. */
+    char        **emitted_env_drops;
     /* Phase 25 UNCK-01/02 (Plan 25-02): per-T Iron_Box_<T> dedup.
      * Parallel to emitted_bvecs/drops/copies; same arrput/strcmp shape. */
     char        **emitted_boxes;
@@ -231,6 +242,26 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
  * (Plan 86 layout), NOT stored on Iron_ObjectDecl.
  * Used by emit_c.c and emit_helpers.c to gate drop synthesis. */
 bool od_has_drop_lir(EmitCtx *ctx, struct Iron_ObjectDecl *od);
+
+/* Phase 26 POL-06 (Plan 26-03): synthesize <TypeName>_rc_drop trampoline.
+ *
+ * The trampoline is a void*-signature wrapper around the Phase 24
+ * <TypeName>_drop helper, suitable for storage in Iron_RcHeader.drop_fn
+ * (function-pointer field with type-erased void* arg).
+ *
+ * Only synthesizes when od_has_drop_lir(ctx, od) OR any field has its
+ * own drop (RESEARCH Anti-Pattern 4). For types without any drop need,
+ * the caller passes NULL to iron_rc_alloc and the trampoline is never
+ * emitted (iron_rc_release simply frees the block on refcount=0).
+ *
+ * Dedup via ctx->emitted_rc_drops (mirrors Phase 24 emitted_drops). */
+void emit_ensure_rc_drop(EmitCtx *ctx, const char *obj_c_name,
+                         struct Iron_ObjectDecl *od);
+
+/* Phase 26 POL-06 (Plan 26-03): returns true when object type od has a
+ * drop need (user drop body OR any field with its own drop). Used by
+ * emit_c.c IRON_LIR_RC_ALLOC arm to gate trampoline synthesis. */
+bool od_has_rc_drop_need(EmitCtx *ctx, struct Iron_ObjectDecl *od);
 
 /* Phase 24 DROP-06 (Plan 24-02): synthesize a shallow copy function for an
  * object type. Emits `static void <TypeName>_copy(<TypeName> *dest, const

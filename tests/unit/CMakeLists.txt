@@ -1340,3 +1340,15 @@ set_tests_properties(test_runtime_rc_concurrent PROPERTIES
     LABELS "unit;phase26-invariant;tsan"
     TIMEOUT 60
     FAIL_REGULAR_EXPRESSION "WARNING: ThreadSanitizer")
+
+# ── Phase 26 POL-06 (Plan 26-03 Task 1): rc drop chain order codegen test ───
+# Verifies emit_ensure_rc_drop trampoline synthesis + IRON_LIR_RC_ALLOC drop_fn
+# wiring: type with user drop gets <TypeName>_rc_drop trampoline pointer, type
+# without drop need passes NULL. Static dispatch (GA5 lock); no vtable.
+add_executable(test_rc_drop_chain_order test_rc_drop_chain_order.c)
+target_link_libraries(test_rc_drop_chain_order PRIVATE iron_compiler iron_runtime unity m pthread)
+target_include_directories(test_rc_drop_chain_order PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/vendor)
+add_test(NAME test_rc_drop_chain_order COMMAND test_rc_drop_chain_order)
+set_tests_properties(test_rc_drop_chain_order PROPERTIES
+    LABELS "unit;phase26-invariant"
+    TIMEOUT 30)

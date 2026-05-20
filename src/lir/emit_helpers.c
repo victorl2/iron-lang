@@ -806,6 +806,75 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
     iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
 }
 
+/* Phase 26 POL-06 (Plan 26-03): does this object type have any drop need
+ * (user drop body OR any field with its own drop)?
+ *
+ * Mirrors emit_ensure_rc_drop's drop-need check so emit_c.c IRON_LIR_RC_ALLOC
+ * can decide whether to pass <TypeName>_rc_drop or NULL as drop_fn. Anti-Pattern
+ * 4 (RESEARCH:251): types without drop need pass NULL — iron_rc_release just
+ * frees the block. */
+bool od_has_rc_drop_need(EmitCtx *ctx, struct Iron_ObjectDecl *od) {
+    if (!ctx || !od) return false;
+    if (od_has_drop_lir(ctx, od)) return true;
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->field_type_cached) continue;
+        Iron_Type *ft = f->field_type_cached;
+        if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
+            od_has_drop_lir(ctx, ft->object.decl)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Phase 26 POL-06 (Plan 26-03): synthesize <TypeName>_rc_drop trampoline.
+ *
+ * Emits a void*-signature wrapper around the Phase 24 <TypeName>_drop helper:
+ *   static void <TypeName>_rc_drop(void *self_void) {
+ *       <TypeName>_drop((<TypeName> *)self_void);
+ *   }
+ *
+ * The trampoline goes into ctx->lifted_funcs (NOT struct_bodies, Pitfall 3).
+ * Iron_RcHeader.drop_fn stores this function pointer; iron_rc_release invokes
+ * it on the last-reference path before freeing the block (drop chain order:
+ * user drop -> field destructors reverse-decl -> free, all inherited from
+ * Phase 24 _drop machinery).
+ *
+ * Only emits when the type has drop need (od_has_rc_drop_need). For pure-data
+ * rc types, the caller passes NULL drop_fn at iron_rc_alloc time.
+ *
+ * Dedup via ctx->emitted_rc_drops (mirrors Phase 24 emitted_drops). */
+void emit_ensure_rc_drop(EmitCtx *ctx, const char *obj_c_name,
+                          struct Iron_ObjectDecl *od) {
+    if (!ctx || !obj_c_name || !od) return;
+    if (!od_has_rc_drop_need(ctx, od)) return;
+
+    /* Dedup */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_rc_drops); i++) {
+        if (strcmp(ctx->emitted_rc_drops[i], obj_c_name) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, obj_c_name, strlen(obj_c_name));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_rc_drop name_copy");
+    arrput(ctx->emitted_rc_drops, name_copy);
+
+    /* Ensure the Phase 24 <TypeName>_drop exists (trampoline calls into it) */
+    emit_ensure_drop(ctx, obj_c_name, od);
+
+    /* Synthesize the trampoline into ctx->lifted_funcs */
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "/* Phase 26 POL-06 (Plan 26-03): rc drop trampoline for %s.\n"
+        " * Iron_RcHeader.drop_fn stores this; iron_rc_release calls it\n"
+        " * on last reference (before freeing the block). Delegates to\n"
+        " * the Phase 24 <TypeName>_drop machinery: user drop body ->\n"
+        " * field destructors reverse-decl -> free. */\n"
+        "static void %s_rc_drop(void *self_void) {\n"
+        "    if (!self_void) return;\n"
+        "    %s_drop((%s *)self_void);\n"
+        "}\n\n",
+        obj_c_name, obj_c_name, obj_c_name, obj_c_name);
+}
+
 /* Synthesize a shallow copy function for an object type.
  * Emits `static void <TypeName>_copy(<TypeName> *dest, const <TypeName> *src)`
  * into ctx->lifted_funcs. Dedupes via ctx->emitted_copies.
@@ -877,6 +946,8 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
     arrfree(ctx->emitted_drops);
     arrfree(ctx->emitted_copies);
     arrfree(ctx->emitted_boxes);  /* Phase 25 UNCK-01/02 (Plan 25-02) */
+    arrfree(ctx->emitted_rc_drops);  /* Phase 26 POL-06 (Plan 26-03) */
+    arrfree(ctx->emitted_env_drops); /* Phase 26 OQ-03 (Plan 26-03) */
     shfree(ctx->mono_registry);
     hmfree(ctx->param_alias_ids);
     hmfree(ctx->split_collection_ids);

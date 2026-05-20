@@ -3698,26 +3698,46 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 
     case IRON_LIR_RC_ALLOC: {
-        /* Phase 26 POL-06 (Plan 26-02): header-prepended atomic refcount
-         * allocation via iron_rc_alloc (Plan 26-01 runtime substrate).
-         * The Plan 26-03 closeout fills the drop_fn argument with
-         * <TypeName>_rc_drop for object types; Plan 26-02 emits NULL here,
-         * which makes iron_rc_release free the block without invoking a
-         * destructor — correct for primitives and types without user drop
-         * blocks.
+        /* Phase 26 POL-06 (Plan 26-02 + Plan 26-03): header-prepended atomic
+         * refcount allocation via iron_rc_alloc (Plan 26-01 runtime substrate).
+         *
+         * Plan 26-03 wires the drop_fn argument: object types with a drop
+         * need (user drop body OR any field with its own drop) get a
+         * synthesized <TypeName>_rc_drop trampoline pointer (Iron_RcHeader
+         * stores it; iron_rc_release invokes it at refcount=0). Primitives
+         * and types without drop need pass NULL — iron_rc_release simply
+         * frees the block on the last reference.
          *
          * FIX-01 rank 4 (Phase 67-02 inheritance): OOM guard before deref. */
         const char *val_type = NULL;
+        struct Iron_ObjectDecl *od = NULL;
         if (instr->type && instr->type->kind == IRON_TYPE_RC && instr->type->rc.inner) {
             val_type = emit_type_to_c(instr->type->rc.inner, ctx);
+            if (instr->type->rc.inner->kind == IRON_TYPE_OBJECT) {
+                od = instr->type->rc.inner->object.decl;
+            }
         } else {
             val_type = emit_type_to_c(instr->type, ctx);
         }
+
+        /* Phase 26 POL-06 (Plan 26-03): pass <TypeName>_rc_drop trampoline
+         * fn-ptr for types with drop need; NULL for primitives / no-drop. */
+        const char *drop_fn_arg = "NULL";
+        char drop_fn_name_buf[256];
+        if (od && od_has_rc_drop_need(ctx, od)) {
+            emit_ensure_rc_drop(ctx, val_type, od);
+            int n = snprintf(drop_fn_name_buf, sizeof(drop_fn_name_buf),
+                             "%s_rc_drop", val_type);
+            if (n > 0 && (size_t)n < sizeof(drop_fn_name_buf)) {
+                drop_fn_arg = drop_fn_name_buf;
+            }
+        }
+
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "%s *", val_type);
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = (%s *)iron_rc_alloc(sizeof(%s), NULL);\n",
-                            val_type, val_type);
+        iron_strbuf_appendf(sb, " = (%s *)iron_rc_alloc(sizeof(%s), %s);\n",
+                            val_type, val_type, drop_fn_arg);
         /* FIX-01 rank 4: OOM guard before dereference */
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "if (!");
