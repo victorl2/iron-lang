@@ -3698,13 +3698,15 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 
     case IRON_LIR_RC_ALLOC: {
-        /* rc allocates via malloc (simplified: no actual ref-count tracking yet).
-         * instr->type is IRON_TYPE_RC wrapping an inner type; result is a pointer
-         * to the inner type (e.g. rc Config -> Iron_Config *).
+        /* Phase 26 POL-06 (Plan 26-02): header-prepended atomic refcount
+         * allocation via iron_rc_alloc (Plan 26-01 runtime substrate).
+         * The Plan 26-03 closeout fills the drop_fn argument with
+         * <TypeName>_rc_drop for object types; Plan 26-02 emits NULL here,
+         * which makes iron_rc_release free the block without invoking a
+         * destructor — correct for primitives and types without user drop
+         * blocks.
          *
-         * FIX-01 rank 4 (Phase 67-02): same pattern as rank 3 above — pre-fix
-         * the emitted C dereferenced the malloc result without a NULL check,
-         * so every `rc` use was one OOM away from silent segfault. */
+         * FIX-01 rank 4 (Phase 67-02 inheritance): OOM guard before deref. */
         const char *val_type = NULL;
         if (instr->type && instr->type->kind == IRON_TYPE_RC && instr->type->rc.inner) {
             val_type = emit_type_to_c(instr->type->rc.inner, ctx);
@@ -3714,7 +3716,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "%s *", val_type);
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = (%s *)malloc(sizeof(%s));\n", val_type, val_type);
+        iron_strbuf_appendf(sb, " = (%s *)iron_rc_alloc(sizeof(%s), NULL);\n",
+                            val_type, val_type);
         /* FIX-01 rank 4: OOM guard before dereference */
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "if (!");
@@ -3726,6 +3729,30 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->rc_alloc.inner_val, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
+        break;
+    }
+
+    case IRON_LIR_RC_RETAIN: {
+        /* Phase 26 POL-06 (Plan 26-02): atomic relaxed-increment of the
+         * refcount header on the rc payload pointer. The runtime helper
+         * iron_rc_retain recovers Iron_RcHeader via pointer arithmetic
+         * (see Plan 26-01 iron_rc.c). */
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_rc_retain((void *)");
+        emit_val(sb, instr->rc_retain.target);
+        iron_strbuf_appendf(sb, ");\n");
+        break;
+    }
+
+    case IRON_LIR_RC_RELEASE: {
+        /* Phase 26 POL-06 (Plan 26-02): atomic release-decrement +
+         * acquire-fence + drop_fn trampoline on last-reference. The runtime
+         * helper iron_rc_release handles the full last-drop machinery (see
+         * Plan 26-01 iron_rc.c). */
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_rc_release((void *)");
+        emit_val(sb, instr->rc_release.target);
+        iron_strbuf_appendf(sb, ");\n");
         break;
     }
 
@@ -3754,7 +3781,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_expr_to_buf(sb, instr->free_instr.value, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ").addr);\n");  /* Iron_FatPtr .addr — Phase 19 ABI */
                 emit_indent(sb, ind);
-                iron_strbuf_appendf(sb, "/* PHASE-26 HOOK: vtable drop dispatch for rc T */\n");
+                iron_strbuf_appendf(sb, "/* Phase 26 POL-06: rc drop dispatch via IRON_LIR_RC_RELEASE -> iron_rc_release in iron_rc.c (last-reference fires drop_fn trampoline + free). This arm is the heap FREE path only -- see RESEARCH Pitfall 7. */\n");
             }
         }
         emit_indent(sb, ind);

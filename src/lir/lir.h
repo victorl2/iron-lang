@@ -95,6 +95,13 @@ typedef enum {
     /* Memory management */
     IRON_LIR_HEAP_ALLOC,
     IRON_LIR_RC_ALLOC,
+    /* Phase 26 POL-06 (Plan 26-02): rc retain/release opcodes — emitted at
+     * HIR-to-LIR copy sites (STORE / CALL arg / RETURN with IRON_TYPE_RC
+     * target) and at scope-exit drop entries. emit_c.c lowers these to
+     * iron_rc_retain / iron_rc_release calls; the Plan 26-01 substrate
+     * (Iron_RcHeader + atomic discipline) does the heavy lifting. */
+    IRON_LIR_RC_RETAIN,
+    IRON_LIR_RC_RELEASE,
     IRON_LIR_FREE,
 
     /* Concurrency */
@@ -259,6 +266,10 @@ struct IronLIR_Instr {
 
         /* IRON_LIR_RC_ALLOC */
         struct { IronLIR_ValueId inner_val; } rc_alloc;
+
+        /* IRON_LIR_RC_RETAIN / IRON_LIR_RC_RELEASE (Phase 26 POL-06) */
+        struct { IronLIR_ValueId target; } rc_retain;
+        struct { IronLIR_ValueId target; } rc_release;
 
         /* IRON_LIR_FREE -- named free_instr to avoid conflict with C stdlib free() */
         struct { IronLIR_ValueId value; } free_instr;
@@ -618,6 +629,10 @@ IronLIR_Instr *iron_lir_heap_alloc(IronLIR_Func *fn, IronLIR_Block *block,
 IronLIR_Instr *iron_lir_rc_alloc(IronLIR_Func *fn, IronLIR_Block *block,
                                 IronLIR_ValueId inner_val,
                                 Iron_Type *type, Iron_Span span);
+IronLIR_Instr *iron_lir_rc_retain(IronLIR_Func *fn, IronLIR_Block *block,
+                                  IronLIR_ValueId target, Iron_Span span);
+IronLIR_Instr *iron_lir_rc_release(IronLIR_Func *fn, IronLIR_Block *block,
+                                   IronLIR_ValueId target, Iron_Span span);
 IronLIR_Instr *iron_lir_free(IronLIR_Func *fn, IronLIR_Block *block,
                             IronLIR_ValueId value, Iron_Span span);
 IronLIR_Instr *iron_lir_construct(IronLIR_Func *fn, IronLIR_Block *block,

@@ -196,14 +196,30 @@ static void pop_defer_scope(HIR_to_LIR_Ctx *ctx) {
 }
 
 /* Phase 24 DROP-01 (Plan 24-02): emit drop calls for the drop_stacks entries
- * from scope depth d, in LIFO order (most-recently-bound dropped first). */
+ * from scope depth d, in LIFO order (most-recently-bound dropped first).
+ *
+ * Phase 26 POL-06 (Plan 26-02): IRON_TYPE_RC entries emit IRON_LIR_RC_RELEASE
+ * (NOT a direct <Type>_drop call) — iron_rc_release decides whether to
+ * invoke the destructor based on refcount, per RESEARCH §249 Anti-Pattern. */
 static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span span) {
     if (!ctx->drop_stacks || d >= (int)arrlen(ctx->drop_stacks)) return;
     IronLIR_DropEntry *drop_list = ctx->drop_stacks[d];
     int n = (int)arrlen(drop_list);
     for (int i = n - 1; i >= 0; i--) {
         IronLIR_DropEntry *entry = &drop_list[i];
-        if (!entry->object_type || entry->object_type->kind != IRON_TYPE_OBJECT) continue;
+        if (!entry->object_type) continue;
+        /* Phase 26 POL-06 (Plan 26-02): IRON_TYPE_RC scope-exit emits
+         * IRON_LIR_RC_RELEASE on the binding value. Plan 26-03 will swap
+         * in the <TypeName>_rc_drop trampoline at iron_rc_alloc time;
+         * Plan 26-02 leaves drop_fn=NULL so iron_rc_release simply
+         * frees the block once refcount reaches 0. */
+        if (entry->object_type->kind == IRON_TYPE_RC) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            iron_lir_rc_release(ctx->current_func, ctx->current_block,
+                                entry->alloca_id, span);
+            continue;
+        }
+        if (entry->object_type->kind != IRON_TYPE_OBJECT) continue;
         struct Iron_ObjectDecl *od = entry->object_type->object.decl;
         if (!od) continue;
 
@@ -1159,6 +1175,17 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         IronLIR_ValueId *args = NULL;
         for (int i = 0; i < expr->call.arg_count; i++) {
             IronLIR_ValueId av = lower_expr(ctx, expr->call.args[i]);
+            /* Phase 26 POL-06 (Plan 26-02): rc copy site — passing an
+             * IRON_TYPE_RC value as a CALL arg bumps the refcount so the
+             * callee receives a counted reference. Mirrors C++ shared_ptr
+             * pass-by-value semantics. The retain is emitted BEFORE the
+             * call so the count is accurate at function entry. */
+            if (expr->call.args[i] && expr->call.args[i]->type &&
+                expr->call.args[i]->type->kind == IRON_TYPE_RC &&
+                ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                iron_lir_rc_retain(ctx->current_func, ctx->current_block,
+                                   av, span);
+            }
             arrput(args, av);
         }
         /* For direct calls: callee is an IDENT or FUNC_REF → look up func_decl */
@@ -2043,6 +2070,34 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 if (stmt->let.init) {
                     IronLIR_ValueId init_val = lower_expr(ctx, stmt->let.init);
                     hmput(ctx->val_binding_map, vid, init_val);
+                    /* Phase 26 POL-06 (Plan 26-02): IRON_TYPE_RC val bindings.
+                     * Lifecycle:
+                     *   - fresh rc allocation (IRON_HIR_EXPR_RC) produces T*
+                     *     with refcount=1 — NO retain needed at binding.
+                     *   - aliasing an existing rc binding (init kind != _RC)
+                     *     copies a pointer to the same payload — emit retain
+                     *     so the alias has its own counted reference.
+                     *   - scope exit emits rc_release (per drop_stacks entry
+                     *     pushed here) regardless of source.
+                     * Note: the .alloca_id field of IronLIR_DropEntry actually
+                     * holds the direct-value ID for rc; the release-emit path
+                     * in emit_drop_entries_at_depth recognizes IRON_TYPE_RC
+                     * and uses the value directly (no `&` indirection). */
+                    if (type && type->kind == IRON_TYPE_RC &&
+                        ctx->defer_depth > 0 &&
+                        ctx->drop_stacks &&
+                        ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
+                        /* Retain on alias (init != fresh allocation) */
+                        if (stmt->let.init->kind != IRON_HIR_EXPR_RC &&
+                            ctx->current_block &&
+                            !block_is_terminated(ctx->current_block)) {
+                            iron_lir_rc_retain(ctx->current_func,
+                                               ctx->current_block,
+                                               init_val, span);
+                        }
+                        IronLIR_DropEntry de = { init_val, type, true };
+                        arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+                    }
                 }
             }
         }
@@ -2053,6 +2108,16 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         /* Evaluate RHS value */
         IronLIR_ValueId val = lower_expr(ctx, stmt->assign.value);
         if (!ctx->current_block || block_is_terminated(ctx->current_block)) break;
+
+        /* Phase 26 POL-06 (Plan 26-02): rc copy site — assignment of an
+         * IRON_TYPE_RC value bumps the refcount on the source. The retain
+         * is emitted BEFORE the store so the count is accurate when any
+         * subsequent observer reads through the target. */
+        bool rhs_is_rc = stmt->assign.value && stmt->assign.value->type &&
+                         stmt->assign.value->type->kind == IRON_TYPE_RC;
+        if (rhs_is_rc) {
+            iron_lir_rc_retain(ctx->current_func, ctx->current_block, val, span);
+        }
 
         /* Determine target: IDENT -> store to alloca, FIELD_ACCESS -> SET_FIELD, INDEX -> SET_INDEX */
         IronHIR_Expr *target = stmt->assign.target;
@@ -2427,6 +2492,15 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         if (!block_is_terminated(ctx->current_block)) {
             if (stmt->return_stmt.value) {
                 IronLIR_ValueId val = lower_expr(ctx, stmt->return_stmt.value);
+                /* Phase 26 POL-06 (Plan 26-02): rc copy site — returning an
+                 * IRON_TYPE_RC value bumps the refcount so the caller's
+                 * received reference is independently lifetime-tracked. */
+                if (stmt->return_stmt.value->type &&
+                    stmt->return_stmt.value->type->kind == IRON_TYPE_RC &&
+                    ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                    iron_lir_rc_retain(ctx->current_func, ctx->current_block,
+                                       val, span);
+                }
                 iron_lir_return(ctx->current_func, ctx->current_block,
                                 val, false, stmt->return_stmt.value->type, span);
             } else {

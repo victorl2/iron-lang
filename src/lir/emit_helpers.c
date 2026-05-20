@@ -409,8 +409,10 @@ void emit_ensure_bvec(EmitCtx *ctx, const Iron_Type *bvec_ty) {
  *   lifted_funcs renders after struct_bodies so forward-reference is safe.
  * Pitfall 5 (RESEARCH): Box_T_unwrap returns bare T* (8B), NOT Iron_FatPtr (16B).
  *
- * PHASE-26 HOOK: rc Box[T] interaction — rc + nocopy may forbid combination;
- *   Phase 26 (rc Policy) decides. See Box_T_free body below. */
+ * Phase 26 (Plan 26-02): rc Box[T] rejected via E0286 — see RC-LAYOUT.md §3.1.
+ *   No new diagnostic code allocated; the existing Phase 24 DROP-08 nocopy-
+ *   copy violation fires at the rc allocation site because rc requires copy
+ *   semantics (refcount-bump on each copy) which Box[T] forbids (nocopy). */
 void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
     if (!elem_type) return;
 
@@ -466,8 +468,8 @@ void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
         "    %s box; box.inner.addr = NULL; box.inner.gen = 0; return box;\n"
         "}\n"
         "static void %s_free(%s *box) {\n"
-        "    /* PHASE-26 HOOK: rc Box[T] interaction — rc + nocopy may forbid "
-        "combination; Phase 26 decides */\n"
+        "    /* Phase 26 (Plan 26-02): rc Box[T] rejected via E0286 -- "
+        "see RC-LAYOUT.md section 3.1 */\n"
         "    if (box && box->inner.addr) { iron_heap_free(box->inner); "
         "box->inner.addr = NULL; }\n"
         "}\n\n",
@@ -756,7 +758,9 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
     /* Synthesize <TypeName>_drop into ctx->lifted_funcs (Pitfall 3 — NOT struct_bodies) */
     iron_strbuf_appendf(&ctx->lifted_funcs,
         "/* Phase 24 DROP-01: destructor for %s — static-type dispatch (DROP-03) */\n"
-        "/* PHASE-26 HOOK: vtable drop dispatch for rc T — static dispatch only here */\n"
+        "/* Phase 26 POL-06: static dispatch via <TypeName>_rc_drop symbol -- "
+        "synthesized by emit_ensure_rc_drop in Plan 26-03; called by "
+        "iron_rc_release on refcount == 0. */\n"
         "static void %s_drop(%s *self) {\n"
         "    if (!self) return;\n",
         obj_c_name, obj_c_name, obj_c_name);

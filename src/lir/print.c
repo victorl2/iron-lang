@@ -377,6 +377,14 @@ static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, "\n");
         break;
 
+    case IRON_LIR_RC_RETAIN:
+        iron_strbuf_appendf(sb, "  rc_retain %%%u\n", instr->rc_retain.target);
+        break;
+
+    case IRON_LIR_RC_RELEASE:
+        iron_strbuf_appendf(sb, "  rc_release %%%u\n", instr->rc_release.target);
+        break;
+
     case IRON_LIR_FREE:
         iron_strbuf_appendf(sb, "  free %%%u\n", instr->free_instr.value);
         break;

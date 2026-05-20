@@ -1456,18 +1456,16 @@ if(NOT WIN32)
     set_tests_properties(v4_fail_4.8-rc-policy_address_of_rc PROPERTIES
         LABELS "integration;phase26-invariant" TIMEOUT 30)
 
-    # Phase 26 Plan 26-02 -> Plan 26-03 handoff: this fixture lands RED here
-    # and flips GREEN once Plan 26-02 Task 3 extends E0279 to IRON_NODE_RC
-    # (parallel to the Phase 22 READ-05 IRON_NODE_HEAP arm). WILL_FAIL TRUE
-    # is removed in Plan 26-02 Task 3 step 13.
+    # Phase 26 Plan 26-02 Task 3 lands the E0279 extension at the
+    # IRON_NODE_RC arm of typecheck.c (parallel to the Phase 22 READ-05
+    # IRON_NODE_HEAP arm). The fixture now expects E0279 on stderr.
     add_test(
         NAME v4_fail_4.8-rc-policy_readonly_rc_escape
         COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/readonly_rc_escape.iron 2>&1 | grep -qF E0279"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.8-rc-policy_readonly_rc_escape PROPERTIES
-        LABELS "integration;phase26-invariant" TIMEOUT 30
-        WILL_FAIL TRUE)
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
 endif()
 
 # ---- Install rules ----

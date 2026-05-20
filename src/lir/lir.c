@@ -369,6 +369,29 @@ IronLIR_Instr *iron_lir_rc_alloc(IronLIR_Func *fn, IronLIR_Block *block,
     return i;
 }
 
+/* Phase 26 POL-06 (Plan 26-02): IRON_LIR_RC_RETAIN constructor.
+ * Void-result opcode (produces_value = false) — wraps an atomic relaxed
+ * increment of the refcount header. Emitted by HIR-to-LIR at copy sites
+ * (STORE / CALL arg / RETURN with IRON_TYPE_RC target). */
+IronLIR_Instr *iron_lir_rc_retain(IronLIR_Func *fn, IronLIR_Block *block,
+                                  IronLIR_ValueId target, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_RC_RETAIN, NULL, span, false);
+    i->rc_retain.target = target;
+    return i;
+}
+
+/* Phase 26 POL-06 (Plan 26-02): IRON_LIR_RC_RELEASE constructor.
+ * Void-result opcode (produces_value = false) — wraps an atomic release
+ * decrement of the refcount header + acquire-fence + drop_fn trampoline
+ * on last-reference. Emitted by HIR-to-LIR at scope-exit drop entries
+ * for IRON_TYPE_RC bindings. */
+IronLIR_Instr *iron_lir_rc_release(IronLIR_Func *fn, IronLIR_Block *block,
+                                   IronLIR_ValueId target, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_RC_RELEASE, NULL, span, false);
+    i->rc_release.target = target;
+    return i;
+}
+
 IronLIR_Instr *iron_lir_free(IronLIR_Func *fn, IronLIR_Block *block,
                             IronLIR_ValueId value, Iron_Span span) {
     IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_FREE, NULL, span, false);

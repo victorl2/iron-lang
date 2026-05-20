@@ -143,6 +143,14 @@ static void collect_operands(const IronLIR_Instr *instr,
         PUSH(instr->rc_alloc.inner_val);
         break;
 
+    case IRON_LIR_RC_RETAIN:
+        PUSH(instr->rc_retain.target);
+        break;
+
+    case IRON_LIR_RC_RELEASE:
+        PUSH(instr->rc_release.target);
+        break;
+
     case IRON_LIR_FREE:
         PUSH(instr->free_instr.value);
         break;

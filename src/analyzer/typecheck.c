@@ -2055,6 +2055,24 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     ue->resolved_type = result;
                     break;
                 }
+                /* Phase 26 POL-07 (Plan 26-02): `&` on an rc value is
+                 * forbidden — refcounted values cannot produce non-owning
+                 * pointer references. Hint redirects to `weak rc T`
+                 * (Phase 27). Placed AFTER operand typecheck so we know
+                 * the operand resolves to IRON_TYPE_RC, but BEFORE the
+                 * iron_type_make_ptr construction below so the &-on-rc
+                 * path short-circuits cleanly to ERROR. */
+                if (operand_t->kind == IRON_TYPE_RC) {
+                    emit_error(ctx, IRON_ERR_PTR_AMP_ON_RC, ue->span,
+                               "cannot take `&` of an `rc` value"
+                               " \342\200\224 refcounted values cannot"
+                               " produce non-owning pointer references",
+                               "use `weak rc T` (Phase 27) for a"
+                               " non-owning reference to an rc value");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ue->resolved_type = result;
+                    break;
+                }
                 bool is_var_src = arg_source_is_mutable(ctx, ue->operand);
                 Iron_Type *ptr_t = iron_type_make_ptr(ctx->arena,
                                                        operand_t,
@@ -3983,6 +4001,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             result = inner ? iron_type_make_rc(ctx->arena, inner)
                            : iron_type_make_primitive(IRON_TYPE_ERROR);
             re->resolved_type = result;
+            /* Phase 26 READ-05 extension (Plan 26-02): `rc T(...)` in
+             * readonly method is forbidden — mirrors the Phase 22 IRON_NODE_
+             * HEAP arm above (lines ~3957-3978). The Phase 22 §6 hint already
+             * names both `heap T(...)` AND `rc T(...)` anticipating this
+             * Phase 26 extension. */
+            if (ctx->in_readonly_method && !ctx->in_pure_method) {
+                const char *type_nm = (inner && inner->kind == IRON_TYPE_OBJECT
+                                       && inner->object.decl
+                                       && inner->object.decl->name)
+                                      ? inner->object.decl->name : "T";
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "cannot allocate 'rc %s(...)' in readonly method",
+                         type_nm);
+                emit_error(ctx, IRON_ERR_READONLY_HEAP_ESCAPE, re->span, msg,
+                           "§6: readonly methods may not allocate heap T(...) or rc T(...)");
+            }
             break;
         }
 
@@ -4592,8 +4627,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                  * rhs is a unary `&` expression, emit E0294 before
                  * types_assignable runs (which would emit the generic E0289).
                  * Only Box.unwrap() or RawPtr (Phase 33) can produce *unchecked T.
-                 * PHASE-26 HOOK: rc Box[T] interaction — rc + nocopy may be
-                 * incompatible; Phase 26 decides. */
+                 * Phase 26 (Plan 26-02): rc Box[T] rejected via E0286
+                 * (nocopy-copy violation) — see RC-LAYOUT.md §3.1. No new
+                 * diagnostic code; the rc allocation site already triggers
+                 * E0286 when the inner type is a nocopy `Box[T]`. */
                 if (decl_type && decl_type->kind == IRON_TYPE_PTR &&
                     decl_type->ptr.is_unchecked &&
                     vd->init && vd->init->kind == IRON_NODE_UNARY &&
@@ -4752,9 +4789,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     : init_type;
 
                 /* Phase 25 PTR-05/UNCK-04 (Plan 25-01): `&` cannot produce
-                 * *unchecked T at a var declaration site. PHASE-26 HOOK: rc
-                 * Box[T] interaction — rc + nocopy may be incompatible; Phase 26
-                 * decides. */
+                 * *unchecked T at a var declaration site. Phase 26 (Plan
+                 * 26-02): rc Box[T] rejected via E0286 (nocopy-copy
+                 * violation) — see RC-LAYOUT.md §3.1. No new diagnostic
+                 * code; the rc allocation site already triggers E0286 when
+                 * the inner type is a nocopy `Box[T]`. */
                 if (decl_type && decl_type->kind == IRON_TYPE_PTR &&
                     decl_type->ptr.is_unchecked &&
                     vd->init && vd->init->kind == IRON_NODE_UNARY &&
