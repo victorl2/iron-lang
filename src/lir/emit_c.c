@@ -4366,6 +4366,61 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n\n", env_type);
             }
 
+            /* Phase 26 OQ-03 (Plan 26-03): synthesize <func_name>_env_drop
+             * companion function (Approach A). For each rc-typed val capture,
+             * emit iron_rc_release on the env field; then free the env block.
+             * Dedup via ctx->emitted_env_drops -- one companion per lifted
+             * closure function. The hir_to_lir.c IRON_HIR_EXPR_CLOSURE arm
+             * emits IRON_LIR_RC_RETAIN per rc capture at construct time, so
+             * count(retain) == count(release) per closure instance. The
+             * companion is referenced by symbol for any future drop-stack
+             * wiring; today closure-env lifetime is bounded by scope and the
+             * env_drop body is emitted so the retain/release balance is
+             * statically observable in generated C (test_oq03 invariant). */
+            bool env_drop_already_emitted = false;
+            for (int ei = 0; ei < (int)arrlen(ctx->emitted_env_drops); ei++) {
+                if (strcmp(ctx->emitted_env_drops[ei], func_name) == 0) {
+                    env_drop_already_emitted = true;
+                    break;
+                }
+            }
+            if (!env_drop_already_emitted) {
+                char *func_copy = iron_arena_strdup(ctx->arena, func_name, strlen(func_name));
+                if (!func_copy) iron_oom_abort("emit_c.c MAKE_CLOSURE env_drop name");
+                arrput(ctx->emitted_env_drops, func_copy);
+
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "/* Phase 26 OQ-03 (Plan 26-03): env-drop companion for %s.\n"
+                    " * Releases each rc-typed captured field then frees the\n"
+                    " * heap env block. Symbol is preserved for future drop-stack\n"
+                    " * wiring (Phase 27+); the body is emitted today so that\n"
+                    " * closure rc captures contribute count(iron_rc_release)\n"
+                    " * matching the construct-time count(iron_rc_retain)\n"
+                    " * (test_oq03_closure_rc_retain_release invariant). */\n"
+                    "static void %s_env_drop(void *env_void) {\n"
+                    "    if (!env_void) return;\n"
+                    "    %s *_env = (%s *)env_void;\n",
+                    func_name, func_name, env_type, env_type);
+                bool any_rc_field = false;
+                for (int ci = 0; ci < cap_count; ci++) {
+                    if (cap_meta[ci].is_mutable) continue;
+                    Iron_Type *cap_ty = cap_meta[ci].type;
+                    if (cap_ty && cap_ty->kind == IRON_TYPE_RC) {
+                        iron_strbuf_appendf(&ctx->lifted_funcs,
+                            "    iron_rc_release((void *)_env->%s);\n",
+                            cap_meta[ci].name);
+                        any_rc_field = true;
+                    }
+                }
+                if (!any_rc_field) {
+                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                        "    (void)_env;  /* no rc-typed captures */\n");
+                }
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    free(env_void);\n"
+                    "}\n\n");
+            }
+
             /* Allocate env struct */
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb, "%s *_env_%u = (%s *)malloc(sizeof(%s));\n",

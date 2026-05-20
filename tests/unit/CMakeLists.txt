@@ -1352,3 +1352,17 @@ add_test(NAME test_rc_drop_chain_order COMMAND test_rc_drop_chain_order)
 set_tests_properties(test_rc_drop_chain_order PROPERTIES
     LABELS "unit;phase26-invariant"
     TIMEOUT 30)
+
+# ── Phase 26 OQ-03 (Plan 26-03 Task 2): closure capture retain/release ──
+# Verifies hir_to_lir.c IRON_HIR_EXPR_CLOSURE arm emits IRON_LIR_RC_RETAIN
+# per rc-typed val capture AND emit_c.c IRON_LIR_MAKE_CLOSURE arm synthesizes
+# <func_name>_env_drop companion releasing each rc env field. Major #5
+# hardening: BOTH count(retain) >= 1 minimum AND count(retain) == count(release)
+# 1:1 balance assertions.
+add_executable(test_oq03_closure_rc_retain_release test_oq03_closure_rc_retain_release.c)
+target_link_libraries(test_oq03_closure_rc_retain_release PRIVATE iron_compiler iron_runtime unity m pthread)
+target_include_directories(test_oq03_closure_rc_retain_release PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/vendor)
+add_test(NAME test_oq03_closure_rc_retain_release COMMAND test_oq03_closure_rc_retain_release)
+set_tests_properties(test_oq03_closure_rc_retain_release PROPERTIES
+    LABELS "unit;phase26-invariant"
+    TIMEOUT 30)

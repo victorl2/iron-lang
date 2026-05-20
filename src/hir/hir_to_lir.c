@@ -1679,6 +1679,36 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             }
         }
 
+        /* Phase 26 OQ-03 (Plan 26-03): closure captures rc T by value into
+         * the env struct. The capture path (this arm) does NOT go through
+         * IRON_LIR_STORE -- captures are loaded into cap_vals[] and packed
+         * into the env at MAKE_CLOSURE emission time (emit_c.c:4280-4360).
+         * Therefore Plan 26-02's STORE+IRON_TYPE_RC retain does NOT cover
+         * closure capture; we emit an explicit IRON_LIR_RC_RETAIN per
+         * rc-typed val capture BEFORE the iron_lir_make_closure call.
+         *
+         * Pitfall 3 (double-retain) is N/A because STORE is not on this
+         * code path. The drop-side counterpart -- per-rc-field
+         * iron_rc_release in a synthesized <func_name>_env_drop companion
+         * -- is emitted in the IRON_LIR_MAKE_CLOSURE arm of emit_c.c.
+         * 1:1 balance is verified by test_oq03_closure_rc_retain_release. */
+        if (expr->closure.captures && cap_count > 0 &&
+            ctx->current_block && !block_is_terminated(ctx->current_block)) {
+            for (int ci = 0; ci < cap_count; ci++) {
+                /* Only val captures of rc T need a retain; var captures
+                 * carry a pointer to the outer alloca and are not refcount
+                 * events on the rc payload. */
+                if (expr->closure.captures[ci].is_mutable) continue;
+                Iron_Type *cap_ty = expr->closure.captures[ci].type;
+                if (cap_ty && cap_ty->kind == IRON_TYPE_RC &&
+                    cap_vals && cap_vals[ci] != IRON_LIR_VALUE_INVALID) {
+                    iron_lir_rc_retain(ctx->current_func,
+                                       ctx->current_block,
+                                       cap_vals[ci], span);
+                }
+            }
+        }
+
         IronLIR_Instr *mc = iron_lir_make_closure(ctx->current_func, ctx->current_block,
                                                     lifted_name, cap_vals, cap_count,
                                                     type, span);
