@@ -196,7 +196,84 @@ void iron_rc_release(void *user_ptr) {
             rch->drop_fn(user_ptr);
         }
 
-        /* Free the entire block (header + IronAllocHdr + payload). */
-        free((char *)user_ptr - IRON_RC_HEADER_TOTAL_SIZE);
+        /* Phase 27 GA1 + RESEARCH §7 Pitfall 2 — block free condition is
+         * weak_count == 0 AND strong_count == 0. mirror of the acquire-load
+         * on refcount in iron_weak_rc_release. If weak_count > 0 the header
+         * MUST persist so weak holders can observe refcount==0 via the
+         * Rust-Arc-canonical upgrade() CAS loop (which returns NULL on
+         * observed strong==0). The eventual weak=0 transition in
+         * iron_weak_rc_release will free the block at that point. */
+        if (IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count) == 0) {
+            free((char *)user_ptr - IRON_RC_HEADER_TOTAL_SIZE);
+        }
+        /* else: weak refs outlive payload; weak=0 transition will free. */
+    }
+}
+
+/* ===== Phase 27 weak rc API ============================================= */
+
+/* ── iron_weak_rc_retain — relaxed-inc weak_count bump ──────────────────────
+ *
+ * Atomic discipline (Phase 27 GA1):
+ *   weak_count fetch_add: RELAXED. Iron does not surface get_mut-style
+ *   exclusive-access APIs so Mara Bos's Acquire-on-weak-inc pairing is
+ *   unnecessary. The block-free guard (acquire-load on refcount in
+ *   iron_weak_rc_release) carries the cross-counter synchronization edge.
+ *
+ * Pitfall 4 mitigation: iron_rc_alloc zero-initialises weak_count so the
+ * first call after alloc observes 0, not garbage.
+ *
+ * Debug saturation guard: UINT64_MAX-1 retain count fires iron_oom_abort;
+ * matches the precedent in iron_rc_retain (physically unreachable but
+ * defines behavior over wrap).
+ */
+void iron_weak_rc_retain(void *user_ptr) {
+    if (!user_ptr) return;
+    Iron_RcHeader *rch = iron_rc_header_of(user_ptr);
+#ifndef NDEBUG
+    uint64_t cur = IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count);
+    if (cur >= UINT64_MAX - 1) {
+        iron_oom_abort("iron_weak_rc_retain: weak_count saturation (UINT64_MAX-1)");
+    }
+#endif
+    (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(rch->weak_count, 1);
+}
+
+/* ── iron_weak_rc_release — relaxed-dec weak_count + conditional block free ─
+ *
+ * Atomic discipline (Phase 27 GA1 + RESEARCH §7 Pitfall 2):
+ *   weak_count fetch_sub: RELAXED (matches retain pair; non-synchronizing).
+ *   refcount load:        ACQUIRE — synchronize-with the strong holder
+ *                         that may have committed strong=0 via release-dec.
+ *                         The acquire matches the release-dec in
+ *                         iron_rc_release.
+ *
+ * Block free condition: weak transitioned to 0 AND strong is at 0. This
+ * is the mirror of iron_rc_release's weak-aware guard; whichever counter
+ * trips zero LAST is responsible for freeing the block. The acquire-load
+ * on refcount is the cross-counter synchronization edge that makes the
+ * deferred-free path race-free.
+ *
+ * Debug underflow guard: prev == 0 indicates a double-release programmer
+ * bug; fires iron_oom_abort deterministically (matches iron_rc_release
+ * underflow handling).
+ */
+void iron_weak_rc_release(void *user_ptr) {
+    if (!user_ptr) return;
+    Iron_RcHeader *rch = iron_rc_header_of(user_ptr);
+    uint64_t prev = IRON_ATOMIC_U64_FETCH_SUB_RELAXED(rch->weak_count, 1);
+#ifndef NDEBUG
+    if (prev == 0) {
+        iron_oom_abort("iron_weak_rc_release: weak_count underflow "
+                       "(programmer bug — double release?)");
+    }
+#endif
+    if (prev == 1) {
+        /* Last weak gone. Free only if strong is also at 0; else strong's
+         * eventual final-drop in iron_rc_release will observe weak_count==0
+         * and free at that point. */
+        if (IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->refcount) == 0) {
+            free((char *)user_ptr - IRON_RC_HEADER_TOTAL_SIZE);
+        }
     }
 }

@@ -1377,3 +1377,34 @@ add_test(NAME test_weak_rc_layout COMMAND test_weak_rc_layout)
 set_tests_properties(test_weak_rc_layout PROPERTIES
     LABELS "unit;phase27-invariant"
     TIMEOUT 30)
+
+# ── Phase 27 GA1 (Plan 27-01 Task 2): weak rc atomic ordering invariants ───
+# Exercises iron_weak_rc_retain/release + the extended iron_rc_release
+# block-free guard. Single-thread proof of the deferred-free path: strong=0
+# with weak alive defers block free; weak=0 with strong alive does NOT free;
+# weak=0 with strong=0 completes the deferred free.
+add_executable(test_weak_rc_atomic_ordering test_weak_rc_atomic_ordering.c)
+target_link_libraries(test_weak_rc_atomic_ordering iron_runtime unity)
+add_test(NAME test_weak_rc_atomic_ordering COMMAND test_weak_rc_atomic_ordering)
+set_tests_properties(test_weak_rc_atomic_ordering PROPERTIES
+    LABELS "unit;phase27-invariant"
+    TIMEOUT 30)
+
+# ── Phase 27 GA1 (Plan 27-01 Task 2): weak rc TSan concurrent stress ───────
+# 8 threads × 100k iterations interleaving strong-retain/strong-release with
+# weak-retain/weak-release; final counters must return to baseline. TSan-only.
+# Known issue inheritance (Phase 26 Plan 03 SUMMARY #1): podman Rocky 9 may
+# need libtsan.so symlink for TSan-instrumented binaries to run. SKIP on the
+# non-TSan path keeps the phase27-invariant gate green.
+add_executable(test_runtime_weak_rc_concurrent test_runtime_weak_rc_concurrent.c)
+target_link_libraries(test_runtime_weak_rc_concurrent iron_runtime unity)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_options(test_runtime_weak_rc_concurrent PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(test_runtime_weak_rc_concurrent PRIVATE -fsanitize=thread)
+endif()
+add_test(NAME test_runtime_weak_rc_concurrent COMMAND test_runtime_weak_rc_concurrent)
+set_tests_properties(test_runtime_weak_rc_concurrent PROPERTIES
+    LABELS "unit;phase27-invariant;tsan"
+    TIMEOUT 60
+    FAIL_REGULAR_EXPRESSION "WARNING: ThreadSanitizer"
+    SKIP_REGULAR_EXPRESSION "BAD_COMMAND")

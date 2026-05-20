@@ -74,6 +74,13 @@
    * are identical across platforms. */
   #define IRON_ATOMIC_U64_FETCH_SUB_RELEASE(v, n) \
       ((uint64_t)InterlockedExchangeAdd64((volatile LONG64 *)&(v), -(LONG64)(n)))
+  /* Phase 27 GA1: relaxed fetch_sub for weak_count (and any future
+   * monotonic-decrement counter that does NOT carry destructor-sync
+   * semantics). Interlocked*64 on Win32 is unconditionally seq-cst,
+   * which trivially satisfies relaxed; source-level parity with the
+   * POSIX path preserved. */
+  #define IRON_ATOMIC_U64_FETCH_SUB_RELAXED(v, n) \
+      ((uint64_t)InterlockedExchangeAdd64((volatile LONG64 *)&(v), -(LONG64)(n)))
   #define IRON_ATOMIC_FENCE_ACQUIRE() \
       ((void)0)  /* Interlocked*64 on Win32 are unconditionally seq-cst */
 #else
@@ -100,6 +107,13 @@
    * https://github.com/rust-lang/rust/issues/62230 . */
   #define IRON_ATOMIC_U64_FETCH_SUB_RELEASE(v, n) \
       atomic_fetch_sub_explicit(&(v), (n), memory_order_release)
+  /* Phase 27 GA1: relaxed fetch_sub for weak_count. weak ops are
+   * non-synchronizing — they only require monotonicity. The block-free
+   * guards (iron_rc_release and iron_weak_rc_release) carry the cross-
+   * counter acquire-load on the OTHER counter, so the relaxed dec on
+   * weak_count is sufficient. */
+  #define IRON_ATOMIC_U64_FETCH_SUB_RELAXED(v, n) \
+      atomic_fetch_sub_explicit(&(v), (n), memory_order_relaxed)
   #define IRON_ATOMIC_FENCE_ACQUIRE() \
       atomic_thread_fence(memory_order_acquire)
 #endif
@@ -451,6 +465,33 @@ void          *iron_rc_alloc(size_t size, void (*drop_fn)(void *));
 void           iron_rc_retain(void *user_ptr);
 void           iron_rc_release(void *user_ptr);
 Iron_RcHeader *iron_rc_header_of(void *user_ptr);
+
+/* ── Phase 27 weak rc API ────────────────────────────────────────────────────
+ *
+ * `weak rc T` is a non-owning reference (POL-08). Block layout is unchanged
+ * — weak handles point at the same user pointer the strong rc carried, just
+ * tagged by the static type IRON_TYPE_WEAK_RC at the compiler level.
+ *
+ * Lifecycle (CONTEXT.md GA1):
+ *   strong → 0   : drop_fn fires (Phase 26); block freed ONLY when
+ *                  weak_count == 0 (acquire-load). Else block retained.
+ *   weak   → 0   : block freed ONLY when refcount == 0 (acquire-load).
+ *                  Else strong's eventual final-drop frees.
+ *
+ * Atomic discipline (CONTEXT.md GA1 + GA2):
+ *   weak_count inc/dec : memory_order_relaxed (Iron does not surface
+ *                        get_mut so Mara Bos's Acquire/Release is N/A;
+ *                        see RC-LAYOUT.md §8 for the rationale).
+ *   upgrade()          : Rust Arc canonical — acquire-load on refcount +
+ *                        relaxed/relaxed CAS loop; returns NULL on
+ *                        observed refcount==0 (covers mid-destructor race).
+ *
+ * See docs/dev/RC-LAYOUT.md §8 for the full state machine, upgrade race
+ * diagram, and Mara-vs-Iron memory-ordering divergence rationale. */
+void  iron_weak_rc_retain(void *user_ptr);
+void  iron_weak_rc_release(void *user_ptr);
+void *iron_rc_downgrade(void *strong_user_ptr);   /* rc T -> weak rc T */
+void *iron_rc_upgrade(void *weak_user_ptr);       /* weak rc T -> T? (NULL on dead) */
 
 /* ── Iron_Error ──────────────────────────────────────────────────────────────
  * Lightweight error type (no heap allocation).
