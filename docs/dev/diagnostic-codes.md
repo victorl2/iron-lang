@@ -373,6 +373,109 @@ codes should accept either the bare integer or the `E<NNN>` string.
    Phase 25 (rc must NOT be confusable with `&`-able checked pointer). Phase 25
    satisfies this dependency gate.
 
+## Phase 26 — `rc` Policy (§4.5 + §12 step 12 — POL-06/07/10/11 + OQ-03)
+
+| Code | Symbol | Message (locked substring) | Hint | Quickfix-Target (Phase 34 LSP-10) | Phase | Spec § |
+|-----:|--------|----------------------------|------|-----------------------------------|------:|--------|
+| 296 | `IRON_ERR_PTR_AMP_ON_RC` | `cannot take \`&\` of an \`rc\` value` | `use \`weak rc T\` (Phase 27) for a non-owning reference to an rc value` | Replace `&p` with a `weak rc` handle (Phase 27 lands the keyword) | 26 (Plan 26-02) | §4.5 (POL-07) |
+| 297 | `IRON_ERR_RC_BAD_POSITION` | `` `rc` only valid at allocation expression `` | (position-distinguishing — see Notes #1) | Move `rc T(...)` to allocation expression position, drop `rc` from type annotation (LSP-10) | 26 (Plan 26-02) | §4.5 (POL-11) |
+| 298 | `IRON_ERR_CLOSED_POLICY_KEYWORD` | `lifecycle policy keyword in closed set {stack, heap, rc, weak rc}` | `Phase 26 lifecycle policy closed set is {stack, heap, rc, weak rc}; \`pool\`, \`arena\`, \`weak\` not supported as lifecycle policy keywords at allocation expression (weak rc ships in Phase 27)` | Replace `pool T(...)`/`arena T(...)` with `rc T(...)` or `heap T(...)` (LSP-10) | 26 (Plan 26-02) | §4.5 (POL-11) |
+
+### Notes
+
+1. **E0297 position-distinguishing hint substrings.** `IRON_ERR_RC_BAD_POSITION`
+   is emitted at FOUR sites in `src/parser/parser.c`, mirroring the Phase 21
+   POL-03 E0273 (heap bad position) pattern. The hint string distinguishes
+   the parse position so quickfix routing (Phase 34 LSP-10) can target the
+   right edit:
+   - **Type-annotation site** (parser.c:~516, parallel to E0273 heap arm):
+     `` `rc` only valid at allocation expression — got `rc` in type annotation ``
+   - **Binding-declaration site** (parser.c:~2561, parallel to E0273 heap arm):
+     `` `rc` only valid at allocation expression — got `rc` in binding declaration ``
+   - **Parameter-list site** (parser.c:~936, parallel to E0273 heap arm):
+     `` `rc` only valid at allocation expression — got `rc` in parameter declaration ``
+   - **Nullable variant** (`?rc T`, redirect to weak rc Phase 27):
+     `` `rc` only valid at allocation expression — `?rc T` not supported; use `weak rc T?` (Phase 27) ``
+
+   This is the same single-code-with-position-hint discipline used by Phase 17
+   VAL-01, Phase 18 PARM-03, Phase 21 POL-03 (E0273), and Phase 25 PTR-05
+   (E0294). Phase 34 LSP-06 quickfix routing keys on the hint substring
+   rather than the diagnostic code.
+
+2. **POL-07 `weak rc` hint forward-references Phase 27.** The E0296 hint
+   names `weak rc T` (Phase 27) as the non-owning reference path. Phase 27
+   ships the `weak rc` keyword + `upgrade()` runtime. Until then, the hint is
+   a forward-reference: it informs the user about the v4 lifecycle policy
+   surface but does NOT promise that `weak rc` resolves today. POL-06 omits
+   null semantics for strong rc — strong rc is non-nullable. `?rc T`
+   (nullable strong rc) is rejected by E0297 with redirect to `weak rc T?`.
+   E0296 fires exclusively at the `IRON_NODE_UNARY-AMP` arm in
+   `src/analyzer/typecheck.c` when the operand's `resolved_type->kind ==
+   IRON_TYPE_RC`; the check is placed BEFORE the existing `&`-on-rvalue +
+   `*unchecked T`-target checks so it short-circuits on rc-typed operands.
+
+3. **POL-11 canonical closed set is `{stack, heap, rc, weak rc}`.** The
+   user-visible E0298 hint MUST reference the full §4.5 closed lifecycle-policy set,
+   matching ROADMAP success criterion #4 + REQUIREMENTS POL-11. `stack` is the
+   implicit default at allocation expression (no keyword required — the absence
+   of a keyword IS the stack policy). `weak rc` ships in Phase 27 — the
+   keyword is reserved here for closed-set fidelity. `arena` is keyword-reserved
+   for the Phase 28 type-system Arena (the value-type, NOT a lifecycle policy);
+   it appears in the rejection set below to give users a clear error if they
+   mistake `arena` for a lifecycle policy keyword. The closed-set guard fires
+   at the lexer/parser boundary on the rejection identifier set
+   `{"pool", "arena", "weak"}`; any new keyword addition requires a deliberate
+   code change. E0298 is emitted at the allocation-expression dispatch in
+   `src/parser/parser.c` alongside the existing `case IRON_TOK_HEAP:` and
+   `case IRON_TOK_RC:` arms; it triggers when the lookahead is an identifier
+   whose text matches the rejection set.
+
+4. **E0279 reuse for `rc T(...)` in readonly methods.** No new diagnostic code
+   is allocated for the readonly + rc combination. The existing Phase 22
+   READ-05 `IRON_ERR_READONLY_HEAP_ESCAPE` (279) is reused — the
+   `src/analyzer/typecheck.c` IRON_NODE_RC arm gains a parallel check to the
+   existing IRON_NODE_HEAP arm at lines 3957-3978, with the message extended
+   to read `cannot allocate 'rc T(...)' in readonly method` (rather than
+   `'heap T(...)'`). The §6 hint substring carried by E0279 ("§6: readonly
+   methods may not allocate heap T(...) or rc T(...)") was already drafted in
+   Phase 22 anticipating Phase 26.
+
+5. **E0286 reuse for `rc Box[T]`.** No new diagnostic code is allocated for the
+   `rc Box[T]` combination. Box[T] is `nocopy` (Phase 24); `rc T` requires
+   copy semantics (refcount-bump on each copy). The combination triggers
+   E0286 `IRON_ERR_COPY_OF_NOCOPY_TYPE` (Phase 24 DROP-08) at the rc
+   allocation site. Documented in `docs/dev/RC-LAYOUT.md` §3.1. The
+   `PHASE-26 HOOK` comments at `src/lir/emit_helpers.c:412`, `:469` and
+   `src/analyzer/typecheck.c:4595`, `:4755` were updated in Plan 26-02 Task 3
+   to reference RC-LAYOUT.md §3.1 (no functional change — E0286 was already
+   the diagnostic).
+
+6. **Nullable strong rc (`?rc T`) is rejected.** Per CONTEXT.md GA2 +
+   REQUIREMENTS POL-06: strong rc is non-nullable. `?rc T` in a type
+   annotation emits E0297 with the redirect hint pointing at `weak rc T?`
+   (Phase 27). Nullable weak rc IS valid because the upgrade operation
+   naturally yields a nullable strong rc; that machinery ships in Phase 27.
+
+7. **LIR opcode additions (Plan 26-02 Task 3).** Plan 26-02 adds
+   `IRON_LIR_RC_RETAIN` and `IRON_LIR_RC_RELEASE` opcodes alongside the
+   existing `IRON_LIR_RC_ALLOC` (Phase 26-01 substrate). These are
+   compiler-internal — they do not surface user diagnostics — but the LIR
+   verify.c / print.c / emit_c.c parity is required for the codegen path to
+   be operational. The HIR-to-LIR lowering emits RETAIN at copy sites
+   (IRON_LIR_STORE with IRON_TYPE_RC target, IRON_LIR_CALL arg-prep with
+   IRON_TYPE_RC, IRON_LIR_RETURN with IRON_TYPE_RC) and RELEASE at scope-exit
+   drop entries for IRON_TYPE_RC bindings.
+
+8. **Plan 26-03 forward-reference (closures + drop dispatch).** Closure
+   capture retain/release (OQ-03) and `<TypeName>_rc_drop` trampoline
+   synthesis land in Plan 26-03. The substrate hooks at
+   `src/lir/emit_helpers.c:759` (static dispatch synthesis site) and
+   `src/lir/emit_c.c:3757` (release-time drop dispatch) are wired to call
+   `iron_rc_release` in Plan 26-02; Plan 26-03 fills the `drop_fn`
+   parameter (currently `NULL` at the iron_rc_alloc call site, which means
+   refcount-only with no user destructor — correct for primitives and types
+   without user drop blocks).
+
 ## Adding new codes
 
 1. Allocate the next free slot in the appropriate range. Verify uniqueness

@@ -324,6 +324,41 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_PTR_AMP_NOT_UNCHECKED   294  /* PTR-05/UNCK-04 '&' cannot produce *unchecked T (Plan 25-01) */
 #define IRON_ERR_PTR_ARITH_CHECKED       295  /* UNCK-06 Ptr.offset/Ptr.diff require *unchecked T (Plan 25-01 reserves; Plan 25-02 emits) */
 
+/* Phase 26 — rc Policy (§4.5 + §12 step 12 — POL-06/07/10/11 + OQ-03)
+ *
+ * Three new diagnostic codes layered on the Plan 26-01 runtime substrate
+ * (Iron_RcHeader + iron_rc_alloc/retain/release). Single-code-with-position-
+ * hint discipline mirrors Phase 21 E0273 (heap bad position).
+ *
+ *   296 (Plan 26-02): POL-07 — `&` on rc value forbidden. Emitted at
+ *                     typecheck.c IRON_NODE_UNARY-AMP arm when operand
+ *                     resolved_type kind == IRON_TYPE_RC. Hint cites
+ *                     `weak rc T` (Phase 27) as the non-owning reference path.
+ *   297 (Plan 26-02): POL-11 — `rc` in illegal position. Single code with
+ *                     position-distinguishing hint, emitted at FOUR parser.c
+ *                     sites (mirrors POL-03 E0273 pattern):
+ *                       - type-annotation parser (parser.c:~516)
+ *                       - binding-declaration parser (parser.c:~2561)
+ *                       - parameter-list parser (parser.c:~936)
+ *                       - nullable `?rc T` variant (redirect to `weak rc T?` Phase 27)
+ *   298 (Plan 26-02): POL-11 — closed-policy guard. Emitted at parser.c
+ *                     allocation-expression dispatch when the token is an
+ *                     identifier matching the known-future reserved set
+ *                     {"pool", "arena", "weak"}. Hint references the canonical
+ *                     closed lifecycle policy set {stack, heap, rc, weak rc}.
+ *
+ * Companion reuses (no new code):
+ *   E0279 IRON_ERR_READONLY_HEAP_ESCAPE — extended in typecheck.c IRON_NODE_RC
+ *         arm to also reject `rc T(...)` in readonly methods (parallel to the
+ *         existing IRON_NODE_HEAP arm; Phase 22 READ-05 extension).
+ *   E0286 IRON_ERR_COPY_OF_NOCOPY_TYPE — `rc Box[T]` rejected naturally via
+ *         this Phase 24/25 diagnostic (Box[T] is nocopy; rc requires copy).
+ *         See docs/dev/RC-LAYOUT.md §3.1.
+ */
+#define IRON_ERR_PTR_AMP_ON_RC            296  /* POL-07 (Phase 26-02) — `&` on rc value; typecheck.c IRON_NODE_UNARY-AMP arm */
+#define IRON_ERR_RC_BAD_POSITION          297  /* POL-11 (Phase 26-02) — rc in type-anno / binding / parameter / nullable; parser.c 4 sites */
+#define IRON_ERR_CLOSED_POLICY_KEYWORD    298  /* POL-11 (Phase 26-02) — unknown lifecycle keyword at allocation-expression; parser.c */
+
 /* Phase 86 PATCH: open-extension diagnostics.
  *
  * PATCH-01 lands the parse-surface for `patch object T { ... }`; the parser
