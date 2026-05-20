@@ -1307,6 +1307,85 @@ if(NOT WIN32)
     )
     set_tests_properties(v4_fail_4.3-unchecked-ptr_ptr_arith_checked PROPERTIES LABELS "integration;phase25-invariant" TIMEOUT 30)
 
+    # Phase 25 Plan 25-02: 6 positive XFAIL fixtures (v4/4.3-unchecked-ptr/)
+    # @expected-pass-after: phase-25.  Registered here under phase25-invariant.
+    # 5 of 6 fixtures depend on Box.new/unwrap/null/is_null which require
+    # box.iron stdlib (Plan 25-03); they are XFAIL (WILL_FAIL YES) until 25-03.
+    # boundary_unchecked_ffi.iron depends on U8 type + as-cast to *unchecked T
+    # (also deferred); it is also XFAIL (WILL_FAIL YES) here.
+
+    add_test(
+        NAME v4_4.3-unchecked-ptr_happy
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/happy.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.3-unchecked-ptr_happy PROPERTIES
+        LABELS "integration;phase25-invariant"
+        TIMEOUT 30
+        WILL_FAIL YES  # depends on Box.new/unwrap (box.iron, Plan 25-03)
+    )
+
+    add_test(
+        NAME v4_4.3-unchecked-ptr_boundary_box_unwrap
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_unwrap.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_unwrap PROPERTIES
+        LABELS "integration;phase25-invariant"
+        TIMEOUT 30
+        WILL_FAIL YES  # depends on Box.new/unwrap (box.iron, Plan 25-03)
+    )
+
+    add_test(
+        NAME v4_4.3-unchecked-ptr_boundary_box_takes_ownership
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_takes_ownership.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_takes_ownership PROPERTIES
+        LABELS "integration;phase25-invariant"
+        TIMEOUT 30
+        WILL_FAIL YES  # depends on Box.new/drop (box.iron, Plan 25-03)
+    )
+
+    add_test(
+        NAME v4_4.3-unchecked-ptr_boundary_unchecked_ffi
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_unchecked_ffi.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.3-unchecked-ptr_boundary_unchecked_ffi PROPERTIES
+        LABELS "integration;phase25-invariant"
+        TIMEOUT 30
+        WILL_FAIL YES  # depends on U8 type + as *unchecked T cast (future plan)
+    )
+
+    add_test(
+        NAME v4_4.3-unchecked-ptr_boundary_box_isnull
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_isnull.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_isnull PROPERTIES
+        LABELS "integration;phase25-invariant"
+        TIMEOUT 30
+        WILL_FAIL YES  # depends on Box.null/is_null/unwrap (box.iron, Plan 25-03)
+    )
+
+    add_test(
+        NAME v4_4.3-unchecked-ptr_panic_box_unwrap_null
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/panic_box_unwrap_null.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.3-unchecked-ptr_panic_box_unwrap_null PROPERTIES
+        LABELS "integration;phase25-invariant"
+        TIMEOUT 30
+        WILL_FAIL YES  # depends on Box.null/unwrap (box.iron, Plan 25-03)
+    )
+
     add_executable(test_ptr_types tests/unit/test_ptr_types.c)
     target_link_libraries(test_ptr_types PRIVATE iron_compiler iron_runtime unity m pthread)
     target_include_directories(test_ptr_types PRIVATE src src/vendor)

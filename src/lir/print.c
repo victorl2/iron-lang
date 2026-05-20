@@ -574,6 +574,23 @@ static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
                                 ? "heap" : "stack");
         break;
 
+    /* Phase 25 UNCK-06 (Plan 25-02): pointer arithmetic on *unchecked T */
+    case IRON_LIR_PTR_OFFSET:
+        iron_strbuf_appendf(sb, "  %%%u = ptr_offset %%%u + %%%u (elem_size=%zu) : ",
+                            instr->id, instr->ptr_offset.ptr,
+                            instr->ptr_offset.offset, instr->ptr_offset.elem_size);
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_PTR_DIFF:
+        iron_strbuf_appendf(sb, "  %%%u = ptr_diff %%%u - %%%u (elem_size=%zu) : ",
+                            instr->id, instr->ptr_diff.a,
+                            instr->ptr_diff.b, instr->ptr_diff.elem_size);
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
     case IRON_LIR_INSTR_COUNT:
         /* sentinel — never a real instruction kind */
         break;

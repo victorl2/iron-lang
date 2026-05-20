@@ -853,7 +853,19 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
-            resolve_expr(ctx, mc->object);
+            /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset / Ptr.diff are
+             * compiler builtins accessed through the synthetic "Ptr" namespace.
+             * "Ptr" is NOT a user-defined identifier — skip the normal
+             * resolve_expr path that would emit E0200 "undefined identifier". */
+            bool is_ptr_builtin_call =
+                mc->object && mc->object->kind == IRON_NODE_IDENT &&
+                mc->method &&
+                ((Iron_Ident *)mc->object)->name &&
+                strcmp(((Iron_Ident *)mc->object)->name, "Ptr") == 0 &&
+                (strcmp(mc->method, "offset") == 0 || strcmp(mc->method, "diff") == 0);
+            if (!is_ptr_builtin_call) {
+                resolve_expr(ctx, mc->object);
+            }
             resolve_node_list(ctx, mc->args, mc->arg_count);
             break;
         }

@@ -4885,54 +4885,134 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     /* IRON_LIR_PTR_LOAD: dispatch heap vs stack check, then load through
      * fp.addr. Pitfall 7 isomorphism: both check helpers are static-inline
      * with identical shapes so Phase 30 elision works on both with the
-     * same template. */
+     * same template.
+     * Phase 25 UNCK-03 (Plan 25-02): branch on is_unchecked — unchecked
+     * pointers are bare C T* (8B); no gen check, no .addr indirection.
+     * Pitfall 4 honored: checked ABI (Iron_FatPtr .addr) vs unchecked ABI
+     * (bare T*) are structurally distinct in codegen. */
     case IRON_LIR_PTR_LOAD: {
-        const char *check_fn =
-            (instr->ptr_load.gen_source == IRON_LIR_GEN_STACK)
-                ? "iron_check_stack_pointer_gen"
-                : "iron_check_pointer_gen";
-        const char *df = instr->span.filename ? instr->span.filename : "<unknown>";
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s(", check_fn);
-        emit_val(sb, instr->ptr_load.fp);
-        iron_strbuf_appendf(sb, ", \"%s\", %u);\n",
-                            df, (unsigned)instr->span.line);
-        emit_indent(sb, ind);
-        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
-        emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = *((%s *)", emit_type_to_c(instr->type, ctx));
-        emit_val(sb, instr->ptr_load.fp);
-        iron_strbuf_appendf(sb, ".addr);\n");
+        /* Recover fp's Iron_Type to check is_unchecked flag */
+        IronLIR_Instr *fp_instr =
+            (instr->ptr_load.fp < (IronLIR_ValueId)arrlen(fn->value_table))
+                ? fn->value_table[instr->ptr_load.fp] : NULL;
+        Iron_Type *fp_type = (fp_instr) ? fp_instr->type : NULL;
+        bool is_unchecked_load = (fp_type &&
+                                  fp_type->kind == IRON_TYPE_PTR &&
+                                  fp_type->ptr.is_unchecked);
+
+        if (is_unchecked_load) {
+            /* Phase 25 UNCK-03: bare C dereference — no gen check.
+             * fp holds raw T* (8B per UNCHECKED-LAYOUT.md ABI).
+             * Pitfall 4: no .addr indirection — fp IS the bare pointer. */
+            emit_indent(sb, ind);
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = *");
+            emit_val(sb, instr->ptr_load.fp);
+            iron_strbuf_appendf(sb, ";\n");
+        } else {
+            /* Existing Phase 20 checked path — iron_check_pointer_gen + .addr */
+            const char *check_fn =
+                (instr->ptr_load.gen_source == IRON_LIR_GEN_STACK)
+                    ? "iron_check_stack_pointer_gen"
+                    : "iron_check_pointer_gen";
+            const char *df = instr->span.filename ? instr->span.filename : "<unknown>";
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "%s(", check_fn);
+            emit_val(sb, instr->ptr_load.fp);
+            iron_strbuf_appendf(sb, ", \"%s\", %u);\n",
+                                df, (unsigned)instr->span.line);
+            emit_indent(sb, ind);
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = *((%s *)", emit_type_to_c(instr->type, ctx));
+            emit_val(sb, instr->ptr_load.fp);
+            iron_strbuf_appendf(sb, ".addr);\n");
+        }
         break;
     }
 
     /* IRON_LIR_PTR_STORE (OQ-A write half): same dispatch as PTR_LOAD,
-     * then store value through fp.addr. */
+     * then store value through fp.addr.
+     * Phase 25 UNCK-03 (Plan 25-02): symmetric is_unchecked branch — bare
+     * C store `*fp = value;` for unchecked regime; checked path unchanged. */
     case IRON_LIR_PTR_STORE: {
-        const char *check_fn =
-            (instr->ptr_store.gen_source == IRON_LIR_GEN_STACK)
-                ? "iron_check_stack_pointer_gen"
-                : "iron_check_pointer_gen";
-        const char *df = instr->span.filename ? instr->span.filename : "<unknown>";
+        /* Recover fp's Iron_Type to check is_unchecked flag */
+        IronLIR_Instr *fp_store_instr =
+            (instr->ptr_store.fp < (IronLIR_ValueId)arrlen(fn->value_table))
+                ? fn->value_table[instr->ptr_store.fp] : NULL;
+        Iron_Type *fp_store_type = (fp_store_instr) ? fp_store_instr->type : NULL;
+        bool is_unchecked_store = (fp_store_type &&
+                                   fp_store_type->kind == IRON_TYPE_PTR &&
+                                   fp_store_type->ptr.is_unchecked);
+
+        if (is_unchecked_store) {
+            /* Phase 25 UNCK-03: bare C store — no gen check.
+             * Symmetric to PTR_LOAD unchecked branch. */
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "*");
+            emit_val(sb, instr->ptr_store.fp);
+            iron_strbuf_appendf(sb, " = ");
+            emit_val(sb, instr->ptr_store.value);
+            iron_strbuf_appendf(sb, ";\n");
+        } else {
+            /* Existing Phase 20 checked path — iron_check_pointer_gen + .addr */
+            const char *check_fn =
+                (instr->ptr_store.gen_source == IRON_LIR_GEN_STACK)
+                    ? "iron_check_stack_pointer_gen"
+                    : "iron_check_pointer_gen";
+            const char *df = instr->span.filename ? instr->span.filename : "<unknown>";
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "%s(", check_fn);
+            emit_val(sb, instr->ptr_store.fp);
+            iron_strbuf_appendf(sb, ", \"%s\", %u);\n",
+                                df, (unsigned)instr->span.line);
+            /* The pointee-type for the store is the type of the value being
+             * stored; lower layer guarantees value's lir type matches. */
+            IronLIR_Instr *vinstr =
+                (instr->ptr_store.value < (IronLIR_ValueId)arrlen(fn->value_table))
+                    ? fn->value_table[instr->ptr_store.value] : NULL;
+            const char *value_c =
+                (vinstr && vinstr->type) ? emit_type_to_c(vinstr->type, ctx)
+                                         : "void *";
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "*((%s *)", value_c);
+            emit_val(sb, instr->ptr_store.fp);
+            iron_strbuf_appendf(sb, ".addr) = ");
+            emit_val(sb, instr->ptr_store.value);
+            iron_strbuf_appendf(sb, ";\n");
+        }
+        break;
+    }
+
+    /* Phase 25 UNCK-06 (Plan 25-02): pointer arithmetic on *unchecked T.
+     * New opcodes (OQ-1 RESOLVED: cleaner than flag-on-CallExpr; gives Phase
+     * 30 explicit pattern visibility for pointer-check elision pass). */
+    case IRON_LIR_PTR_OFFSET: {
+        /* C pointer arithmetic intrinsically scales by sizeof(T) — no explicit
+         * * sizeof(T) needed. Bare arithmetic, no runtime check (UNCK-03). */
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s(", check_fn);
-        emit_val(sb, instr->ptr_store.fp);
-        iron_strbuf_appendf(sb, ", \"%s\", %u);\n",
-                            df, (unsigned)instr->span.line);
-        /* The pointee-type for the store is the type of the value being
-         * stored; lower layer guarantees value's lir type matches. */
-        IronLIR_Instr *vinstr =
-            (instr->ptr_store.value < (IronLIR_ValueId)arrlen(fn->value_table))
-                ? fn->value_table[instr->ptr_store.value] : NULL;
-        const char *value_c =
-            (vinstr && vinstr->type) ? emit_type_to_c(vinstr->type, ctx)
-                                     : "void *";
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "*((%s *)", value_c);
-        emit_val(sb, instr->ptr_store.fp);
-        iron_strbuf_appendf(sb, ".addr) = ");
-        emit_val(sb, instr->ptr_store.value);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = ");
+        emit_val(sb, instr->ptr_offset.ptr);
+        iron_strbuf_appendf(sb, " + ");
+        emit_val(sb, instr->ptr_offset.offset);
         iron_strbuf_appendf(sb, ";\n");
+        break;
+    }
+
+    case IRON_LIR_PTR_DIFF: {
+        /* C pointer subtraction returns ptrdiff_t (element count); cast to
+         * Iron Int (int64_t). Bare subtraction, no runtime check (UNCK-03). */
+        emit_indent(sb, ind);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = (int64_t)((");
+        emit_val(sb, instr->ptr_diff.a);
+        iron_strbuf_appendf(sb, ") - (");
+        emit_val(sb, instr->ptr_diff.b);
+        iron_strbuf_appendf(sb, "));\n");
         break;
     }
 

@@ -123,6 +123,15 @@ typedef enum {
     IRON_LIR_ADDR_OF,
     IRON_LIR_PTR_LOAD,
     IRON_LIR_PTR_STORE,
+    /* Phase 25 UNCK-06 (Plan 25-02): pointer arithmetic on *unchecked T.
+     * OQ-1 RESOLVED: new opcodes (not flag-on-Iron_CallExpr) for Phase 30
+     * optimizer pattern-match visibility.
+     * IRON_LIR_PTR_OFFSET: (p: *unchecked T, n: Int) -> *unchecked T
+     *   C codegen: `T *r = p + n;`  (C arith scales by sizeof(T) intrinsically)
+     * IRON_LIR_PTR_DIFF: (p: *unchecked T, q: *unchecked T) -> Int
+     *   C codegen: `int64_t r = (int64_t)((p) - (q));`  (element count) */
+    IRON_LIR_PTR_OFFSET,
+    IRON_LIR_PTR_DIFF,
 
     IRON_LIR_INSTR_COUNT
 } IronLIR_InstrKind;
@@ -357,6 +366,25 @@ struct IronLIR_Instr {
             IronLIR_ValueId    value;
             IronLIR_GenSource gen_source;
         } ptr_store;
+
+        /* IRON_LIR_PTR_OFFSET — Phase 25 UNCK-06 (Plan 25-02).
+         * Pointer arithmetic: result = ptr + offset (element units).
+         * C arith intrinsically scales by sizeof(T); elem_size carried for
+         * verifier + Phase 30 optimizer (does not affect codegen itself). */
+        struct {
+            IronLIR_ValueId ptr;       /* *unchecked T */
+            IronLIR_ValueId offset;    /* Int — element offset */
+            size_t          elem_size; /* sizeof(T) for verifier/optimizer */
+        } ptr_offset;
+
+        /* IRON_LIR_PTR_DIFF — Phase 25 UNCK-06 (Plan 25-02).
+         * Pointer subtraction: result = (a - b) / sizeof(T) (element count).
+         * Both operands must be *unchecked T with same pointee. */
+        struct {
+            IronLIR_ValueId a;         /* *unchecked T */
+            IronLIR_ValueId b;         /* *unchecked T (same pointee as a) */
+            size_t          elem_size; /* sizeof(T) for verifier/optimizer */
+        } ptr_diff;
     };
 };
 
@@ -652,6 +680,16 @@ IronLIR_Instr *iron_lir_ptr_load(IronLIR_Func *fn, IronLIR_Block *block,
 IronLIR_Instr *iron_lir_ptr_store(IronLIR_Func *fn, IronLIR_Block *block,
                                   IronLIR_ValueId fp, IronLIR_ValueId value,
                                   IronLIR_GenSource gen_source, Iron_Span span);
+
+/* Phase 25 UNCK-06 (Plan 25-02): pointer arithmetic on *unchecked T. */
+IronLIR_Instr *iron_lir_ptr_offset(IronLIR_Func *fn, IronLIR_Block *block,
+                                   IronLIR_ValueId ptr, IronLIR_ValueId offset,
+                                   size_t elem_size,
+                                   Iron_Type *result_type, Iron_Span span);
+IronLIR_Instr *iron_lir_ptr_diff(IronLIR_Func *fn, IronLIR_Block *block,
+                                 IronLIR_ValueId a, IronLIR_ValueId b,
+                                 size_t elem_size,
+                                 Iron_Type *result_type, Iron_Span span);
 
 /* Phi manipulation */
 void iron_lir_phi_add_incoming(IronLIR_Instr *phi, IronLIR_ValueId value,

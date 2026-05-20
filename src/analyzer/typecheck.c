@@ -2925,6 +2925,114 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+
+            /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset + Ptr.diff compiler
+             * builtins.  The Iron parser applies the Method-Call heuristic:
+             * when the left-hand ident starts with an uppercase letter and the
+             * right-hand field starts with lowercase, it produces
+             * IRON_NODE_METHOD_CALL(object=IDENT("Ptr"), method="offset"|"diff")
+             * rather than IRON_NODE_CALL with an IRON_NODE_FIELD_ACCESS callee.
+             *
+             * We intercept BEFORE the generic check_expr(mc->object) call so
+             * that "Ptr" is never looked up in the symbol table (it isn't a
+             * user-defined identifier) and no spurious E0200 is emitted.
+             *
+             * Option C: NO flag stored on Iron_MethodCallExpr.  hir_to_lir.c
+             * re-runs the same by-name predicate to emit IRON_LIR_PTR_OFFSET /
+             * IRON_LIR_PTR_DIFF without touching ast.h in Plan 25-02. */
+            if (mc->object && mc->object->kind == IRON_NODE_IDENT && mc->method) {
+                Iron_Ident *obj_id_ptr = (Iron_Ident *)mc->object;
+                bool is_ptr_ns = obj_id_ptr->name &&
+                                 strcmp(obj_id_ptr->name, "Ptr") == 0;
+                bool is_ptr_offset = is_ptr_ns && strcmp(mc->method, "offset") == 0;
+                bool is_ptr_diff   = is_ptr_ns && strcmp(mc->method, "diff")   == 0;
+
+                if (is_ptr_offset) {
+                    /* Ptr.offset(p: *unchecked T, n: Int) -> *unchecked T */
+                    if (mc->arg_count != 2) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "Ptr.offset expects 2 arguments (p, n), got %d",
+                                 mc->arg_count);
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    Iron_Type *arg0_t = check_expr(ctx, mc->args[0]);
+                    Iron_Type *arg1_t = check_expr(ctx, mc->args[1]);
+                    if (!arg0_t || arg0_t->kind != IRON_TYPE_PTR ||
+                        !arg0_t->ptr.is_unchecked) {
+                        emit_error(ctx, IRON_ERR_PTR_ARITH_CHECKED,
+                                   mc->args[0]->span,
+                                   "Ptr.offset requires *unchecked T as first argument",
+                                   "S4.3: Ptr.offset requires *unchecked T; use "
+                                   "Box.unwrap() or RawPtr (Phase 33) for explicit "
+                                   "pointer arithmetic");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (!arg1_t || arg1_t->kind != IRON_TYPE_INT) {
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->args[1]->span,
+                                   "Ptr.offset second argument must be Int (element "
+                                   "offset)",
+                                   NULL);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    result = arg0_t;       /* *unchecked T — same as arg0 */
+                    mc->resolved_type = result;
+                    break;
+                }
+
+                if (is_ptr_diff) {
+                    /* Ptr.diff(p: *unchecked T, q: *unchecked T) -> Int */
+                    if (mc->arg_count != 2) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "Ptr.diff expects 2 arguments (p, q), got %d",
+                                 mc->arg_count);
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    Iron_Type *arg0_t = check_expr(ctx, mc->args[0]);
+                    Iron_Type *arg1_t = check_expr(ctx, mc->args[1]);
+                    if (!arg0_t || arg0_t->kind != IRON_TYPE_PTR ||
+                        !arg0_t->ptr.is_unchecked) {
+                        emit_error(ctx, IRON_ERR_PTR_ARITH_CHECKED,
+                                   mc->args[0]->span,
+                                   "Ptr.diff requires *unchecked T as first argument",
+                                   "S4.3: Ptr.diff requires *unchecked T; use "
+                                   "Box.unwrap() or RawPtr (Phase 33) for explicit "
+                                   "pointer arithmetic");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (!arg1_t || arg1_t->kind != IRON_TYPE_PTR ||
+                        !arg1_t->ptr.is_unchecked) {
+                        emit_error(ctx, IRON_ERR_PTR_ARITH_CHECKED,
+                                   mc->args[1]->span,
+                                   "Ptr.diff requires *unchecked T as second argument",
+                                   "S4.3: Ptr.diff requires *unchecked T; use "
+                                   "Box.unwrap() or RawPtr (Phase 33) for explicit "
+                                   "pointer arithmetic");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    result = iron_type_make_primitive(IRON_TYPE_INT);
+                    mc->resolved_type = result;
+                    break;
+                }
+            }
+
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
 

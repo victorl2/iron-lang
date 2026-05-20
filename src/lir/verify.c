@@ -225,6 +225,17 @@ static void collect_operands(const IronLIR_Instr *instr,
         PUSH(instr->ptr_store.value);
         break;
 
+    /* Phase 25 UNCK-06 (Plan 25-02): pointer arithmetic — collect operands */
+    case IRON_LIR_PTR_OFFSET:
+        PUSH(instr->ptr_offset.ptr);
+        PUSH(instr->ptr_offset.offset);
+        break;
+
+    case IRON_LIR_PTR_DIFF:
+        PUSH(instr->ptr_diff.a);
+        PUSH(instr->ptr_diff.b);
+        break;
+
     /* -Wswitch-enum opt-out: collect_operands enumerates every opcode that
      * consumes a typed value operand; opcodes whose data lives entirely in
      * the arena-allocated per-op union (and the IRON_LIR_INSTR_COUNT

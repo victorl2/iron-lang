@@ -575,6 +575,32 @@ IronLIR_Instr *iron_lir_ptr_store(IronLIR_Func *fn, IronLIR_Block *block,
     return i;
 }
 
+/* Phase 25 UNCK-06 (Plan 25-02) — IRON_LIR_PTR_OFFSET constructor.
+ * Emits pointer arithmetic: result = ptr + offset (element units). */
+IronLIR_Instr *iron_lir_ptr_offset(IronLIR_Func *fn, IronLIR_Block *block,
+                                   IronLIR_ValueId ptr, IronLIR_ValueId offset,
+                                   size_t elem_size,
+                                   Iron_Type *result_type, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_PTR_OFFSET, result_type, span, true);
+    i->ptr_offset.ptr       = ptr;
+    i->ptr_offset.offset    = offset;
+    i->ptr_offset.elem_size = elem_size;
+    return i;
+}
+
+/* Phase 25 UNCK-06 (Plan 25-02) — IRON_LIR_PTR_DIFF constructor.
+ * Emits pointer subtraction: result = (a - b) in element units. */
+IronLIR_Instr *iron_lir_ptr_diff(IronLIR_Func *fn, IronLIR_Block *block,
+                                 IronLIR_ValueId a, IronLIR_ValueId b,
+                                 size_t elem_size,
+                                 Iron_Type *result_type, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_PTR_DIFF, result_type, span, true);
+    i->ptr_diff.a         = a;
+    i->ptr_diff.b         = b;
+    i->ptr_diff.elem_size = elem_size;
+    return i;
+}
+
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 
 bool iron_lir_is_terminator(IronLIR_InstrKind kind) {

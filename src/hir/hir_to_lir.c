@@ -1195,6 +1195,42 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     }
 
     case IRON_HIR_EXPR_METHOD_CALL: {
+        /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset / Ptr.diff compiler builtins.
+         * `Ptr.offset(p, n)` parses as IRON_NODE_METHOD_CALL (uppercase "Ptr" +
+         * lowercase "offset" heuristic) and lowers to IRON_HIR_EXPR_METHOD_CALL
+         * with object = FUNC_REF("Ptr") and method = "offset" | "diff".
+         * Option C: re-run by-name predicate; no flag stored on the HIR node. */
+        if (expr->method_call.object &&
+            expr->method_call.object->kind == IRON_HIR_EXPR_FUNC_REF &&
+            expr->method_call.object->func_ref.func_name &&
+            strcmp(expr->method_call.object->func_ref.func_name, "Ptr") == 0 &&
+            expr->method_call.method) {
+            bool hir_is_ptr_offset = strcmp(expr->method_call.method, "offset") == 0;
+            bool hir_is_ptr_diff   = strcmp(expr->method_call.method, "diff")   == 0;
+
+            if (hir_is_ptr_offset && expr->method_call.arg_count == 2 &&
+                expr->method_call.args[0] && expr->method_call.args[1]) {
+                /* emit IRON_LIR_PTR_OFFSET: result_ptr = ptr + n */
+                IronLIR_ValueId ptr_v = lower_expr(ctx, expr->method_call.args[0]);
+                IronLIR_ValueId off_v = lower_expr(ctx, expr->method_call.args[1]);
+                IronLIR_Instr *oi = iron_lir_ptr_offset(
+                    ctx->current_func, ctx->current_block,
+                    ptr_v, off_v, 0, type, span);
+                return oi->id;
+            }
+
+            if (hir_is_ptr_diff && expr->method_call.arg_count == 2 &&
+                expr->method_call.args[0] && expr->method_call.args[1]) {
+                /* emit IRON_LIR_PTR_DIFF: count = (a - b) / sizeof(T) */
+                IronLIR_ValueId a_v = lower_expr(ctx, expr->method_call.args[0]);
+                IronLIR_ValueId b_v = lower_expr(ctx, expr->method_call.args[1]);
+                IronLIR_Instr *di = iron_lir_ptr_diff(
+                    ctx->current_func, ctx->current_block,
+                    a_v, b_v, 0, type, span);
+                return di->id;
+            }
+        }
+
         /* Determine receiver type name for mangling */
         const char *type_name = "Unknown";
         bool is_static_call = false;

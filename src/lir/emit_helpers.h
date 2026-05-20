@@ -68,6 +68,9 @@ typedef struct {
      * Parallel to emitted_bvecs; same arrput/arrlen/strcmp shape. */
     char        **emitted_drops;
     char        **emitted_copies;
+    /* Phase 25 UNCK-01/02 (Plan 25-02): per-T Iron_Box_<T> dedup.
+     * Parallel to emitted_bvecs/drops/copies; same arrput/strcmp shape. */
+    char        **emitted_boxes;
 
     /* Phase 24 DROP-05 (Plan 24-03): partial-init cleanup instrumentation.
      * in_init_method: true when currently emitting an init method body; set
@@ -235,6 +238,11 @@ bool od_has_drop_lir(EmitCtx *ctx, struct Iron_ObjectDecl *od);
  * ctx->emitted_copies. No-op when od->is_nocopy (Pitfall 5).
  * Per-field copy hooks call <FieldType>_copy for fields whose
  * Iron_Type.has_user_copy_transitive is true (cached by typecheck). */
+/* Phase 25 UNCK-01/02 (Plan 25-02): synthesize Iron_Box_<T> typedef + helpers.
+ * elem_type is the pointee type T (not *unchecked T). Idempotent via
+ * emitted_boxes dedup (Phase 23 emitted_bvecs precedent). */
+void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type);
+
 void emit_ensure_copy(EmitCtx *ctx, const char *obj_c_name,
                       struct Iron_ObjectDecl *od);
 

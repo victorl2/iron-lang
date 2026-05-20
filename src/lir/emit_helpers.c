@@ -195,8 +195,26 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
 
         /* Phase 20 PTR-01: checked pointers lower to the 16B Iron_FatPtr ABI
          * defined in src/runtime/iron_runtime.h (Phase 19 substrate lock).
-         * Plan 20-01 declares the kind; Plan 20-02 wires actual codegen. */
+         * Phase 25 UNCK-03 (Plan 25-02): unchecked pointers lower to bare T*
+         * (8B) — no generation tracking, zero runtime check (UNCK-03). */
         case IRON_TYPE_PTR:
+            if (t->ptr.is_unchecked) {
+                /* Phase 25 UNCK-03 (Plan 25-02): bare C T* (8B) ABI.
+                 * NOT Iron_FatPtr (16B) — Pitfall 5 honored. */
+                const char *pointee_c = emit_type_to_c(t->ptr.pointee, ctx);
+                /* Synthesize Iron_Box_<pointee> if not yet done — ensures the
+                 * Box struct is available when this pointer type appears in
+                 * function signatures or return types. */
+                emit_ensure_box(ctx, t->ptr.pointee);
+                Iron_StrBuf sb_ptr = iron_strbuf_create(32);
+                iron_strbuf_appendf(&sb_ptr, "%s *", pointee_c);
+                const char *result = iron_arena_strdup(ctx->arena,
+                                                        iron_strbuf_get(&sb_ptr),
+                                                        sb_ptr.len);
+                iron_strbuf_free(&sb_ptr);
+                if (!result) iron_oom_abort("emit_helpers.c:emit_type_to_c unchecked PTR");
+                return result;
+            }
             return "Iron_FatPtr";
 
         case IRON_TYPE_FUNC:
@@ -381,6 +399,86 @@ void emit_ensure_bvec(EmitCtx *ctx, const Iron_Type *bvec_ty) {
         "/* Phase 23 VEC-01: bounded vector [%s; <=%d] */\n"
         "typedef struct { uint32_t len; %s data[%d]; } %s;\n",
         elem_c, N, elem_c, N, struct_name);
+}
+
+/* Phase 25 UNCK-01/02 (Plan 25-02): Per-T Box synthesis — mirrors emit_ensure_bvec (line 341).
+ * Synthesizes typedef + Box_T_new/Box_T_unwrap/Box_T_free helpers for each
+ * concrete instantiation Iron_Box_<T>. Idempotent via emitted_boxes dedup.
+ *
+ * Pitfall 3 (RESEARCH): helpers go in ctx->lifted_funcs, NOT struct_bodies —
+ *   lifted_funcs renders after struct_bodies so forward-reference is safe.
+ * Pitfall 5 (RESEARCH): Box_T_unwrap returns bare T* (8B), NOT Iron_FatPtr (16B).
+ *
+ * PHASE-26 HOOK: rc Box[T] interaction — rc + nocopy may forbid combination;
+ *   Phase 26 (rc Policy) decides. See Box_T_free body below. */
+void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
+    if (!elem_type) return;
+
+    const char *elem_c = emit_type_to_c(elem_type, ctx);
+    if (!elem_c) return;
+
+    /* Build mangled name: Iron_Box_<elem_c> with space and * escaped to _ */
+    Iron_StrBuf sb = iron_strbuf_create(64);
+    iron_strbuf_appendf(&sb, "Iron_Box_");
+    for (const char *p = elem_c; *p; p++) {
+        if (*p == ' ' || *p == '*') {
+            iron_strbuf_appendf(&sb, "_");
+        } else {
+            char ch[2] = { *p, '\0' };
+            iron_strbuf_appendf(&sb, "%s", ch);
+        }
+    }
+    const char *struct_name = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    if (!struct_name) iron_oom_abort("emit_helpers.c:emit_ensure_box struct_name");
+
+    /* Dedupe — Phase 23/24 emitted_* pattern */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_boxes); i++) {
+        if (strcmp(ctx->emitted_boxes[i], struct_name) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, struct_name, strlen(struct_name));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_box name_copy");
+    arrput(ctx->emitted_boxes, name_copy);
+
+    /* Emit typedef into struct_bodies (Pitfall 3: struct_bodies for typedef;
+     * lifted_funcs for helpers — forward-reference is safe). */
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "/* Phase 25 UNCK-01/02: Box[%s] per-T synthesis */\n"
+        "typedef struct { Iron_FatPtr inner; } %s;\n",
+        elem_c, struct_name);
+
+    /* Emit helpers into lifted_funcs (NOT struct_bodies — Pitfall 3). */
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static %s %s_new(%s value) {\n"
+        "    Iron_FatPtr fp = iron_heap_alloc(__FILE__, __LINE__, sizeof(%s));\n"
+        "    ((%s *)fp.addr)[0] = value;\n"
+        "    %s box; box.inner = fp; return box;\n"
+        "}\n"
+        "static %s *%s_unwrap(%s *box) {\n"
+        "    /* Pitfall 5: returns bare T* (8B), NOT Iron_FatPtr (16B) */\n"
+        "    if (!box || !box->inner.addr) { iron_panic(\"null Box\", \"<box>\", 0); }\n"
+        "    return (%s *)box->inner.addr;\n"
+        "}\n"
+        "static bool %s_is_null(const %s *box) {\n"
+        "    return !box || !box->inner.addr;\n"
+        "}\n"
+        "static %s %s_null_val(void) {\n"
+        "    %s box; box.inner.addr = NULL; box.inner.gen = 0; return box;\n"
+        "}\n"
+        "static void %s_free(%s *box) {\n"
+        "    /* PHASE-26 HOOK: rc Box[T] interaction — rc + nocopy may forbid "
+        "combination; Phase 26 decides */\n"
+        "    if (box && box->inner.addr) { iron_heap_free(box->inner); "
+        "box->inner.addr = NULL; }\n"
+        "}\n\n",
+        /* _new */ struct_name, struct_name, elem_c,
+        elem_c, elem_c, struct_name,
+        /* _unwrap */ elem_c, struct_name, struct_name,
+        elem_c,
+        /* _is_null */ struct_name, struct_name,
+        /* _null_val */ struct_name, struct_name,
+        struct_name,
+        /* _free */ struct_name, struct_name);
 }
 
 /* Map a type annotation name to a C type string without needing Iron_Codegen */
@@ -774,6 +872,7 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
     arrfree(ctx->emitted_bvecs);
     arrfree(ctx->emitted_drops);
     arrfree(ctx->emitted_copies);
+    arrfree(ctx->emitted_boxes);  /* Phase 25 UNCK-01/02 (Plan 25-02) */
     shfree(ctx->mono_registry);
     hmfree(ctx->param_alias_ids);
     hmfree(ctx->split_collection_ids);
