@@ -273,6 +273,28 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             TIMEOUT 60
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
 
+        # Phase 26 Plan 26-03 closeout: POL-07 (E0296) + POL-11 (E0297, E0298)
+        # publishDiagnostics regression-anchor smoke. CORE-22 facade invariant:
+        # zero src/lsp/ source modifications across Phase 26.
+        # The E0298 assertion verifies the canonical closed set
+        # {stack, heap, rc, weak rc} surfaces through publishDiagnostics
+        # (Blocker #1: full lattice, NOT a reduced {heap, rc} subset).
+        # Phase 34 LSP-06 leans on this assertion shape when wiring quickfix
+        # code-actions for E0296/E0297/E0298 diagnostics.
+        add_test(
+            NAME lsp_phase26_smoke
+            COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_did_publish_rc_violation.py
+                --lsp-binary=$<TARGET_FILE:ironls>
+                --no-header
+                -p no:cacheprovider
+                -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(lsp_phase26_smoke PROPERTIES
+            LABELS "smoke;lsp_smoke;phase26-invariant"
+            TIMEOUT 60
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+
         # Phase 14 Plan 14-02 (CMD-01, CMD-03): test_iron_migrate_command --
         # Wave 0 smoke for workspace/executeCommand iron.migrate.
         # Covers: capability-advertised, workspace-edit happy path,
