@@ -66,6 +66,16 @@
       ((uint64_t)InterlockedCompareExchange64((volatile LONG64 *)&(v), 0, 0))
   #define IRON_ATOMIC_U64_FETCH_ADD_RELAXED(v, n) \
       ((uint64_t)InterlockedExchangeAdd64((volatile LONG64 *)&(v), (LONG64)(n)))
+  /* Phase 26 POL-06: release-decrement + acquire-fence for rc final-drop.
+   * Interlocked*64 on Win32 are unconditionally seq-cst (stronger than
+   * release/acquire), so the "release" semantics are trivially satisfied
+   * and the acquire-fence is a no-op. The macro family is added for
+   * source-level parity with the POSIX path; codegen and call-site shape
+   * are identical across platforms. */
+  #define IRON_ATOMIC_U64_FETCH_SUB_RELEASE(v, n) \
+      ((uint64_t)InterlockedExchangeAdd64((volatile LONG64 *)&(v), -(LONG64)(n)))
+  #define IRON_ATOMIC_FENCE_ACQUIRE() \
+      ((void)0)  /* Interlocked*64 on Win32 are unconditionally seq-cst */
 #else
   /* <stdatomic.h> already included on POSIX path above. */
   typedef _Atomic uint64_t iron_atomic_u64;
@@ -75,6 +85,23 @@
       atomic_load_explicit(&(v), memory_order_acquire)
   #define IRON_ATOMIC_U64_FETCH_ADD_RELAXED(v, n) \
       atomic_fetch_add_explicit(&(v), (n), memory_order_relaxed)
+  /* Phase 26 POL-06: release-decrement + acquire-fence for rc final-drop.
+   *
+   * Atomic discipline (Rust Arc canonical, cross-verified RustBelt-Relaxed +
+   * mara.nl "Building Our Own Arc"):
+   *   retain:      FETCH_ADD_RELAXED on refcount (monotonic increment).
+   *   release:     FETCH_SUB_RELEASE on refcount (callers' prior writes
+   *                synchronize-with the eventual destructor).
+   *   final-drop:  when fetch_sub returns 1, FENCE_ACQUIRE before invoking
+   *                drop_fn so the destructor observes writes from other
+   *                holders.
+   *
+   * References: https://mara.nl/atomics/building-arc.html ;
+   * https://github.com/rust-lang/rust/issues/62230 . */
+  #define IRON_ATOMIC_U64_FETCH_SUB_RELEASE(v, n) \
+      atomic_fetch_sub_explicit(&(v), (n), memory_order_release)
+  #define IRON_ATOMIC_FENCE_ACQUIRE() \
+      atomic_thread_fence(memory_order_acquire)
 #endif
 
 /* ── Phase 19: Generational pointer infrastructure (heap-only this phase) ──
@@ -126,6 +153,34 @@ typedef struct IronAllocHdr {
   _Static_assert(sizeof(IronAllocHdr) == 16,
                  "IronAllocHdr (release) must be 16B — Plan 19-01 layout lock");
 #endif
+
+/* ── Phase 26 POL-06: rc policy refcount header ─────────────────────────────
+ * Block layout: [Iron_RcHeader][IronAllocHdr][user payload].
+ * User pointer points at payload start — Phase 19 ABI invariant preserved.
+ * Recovery: iron_rc_header_of(user) walks back
+ *   sizeof(IronAllocHdr) + sizeof(Iron_RcHeader).
+ *
+ * Field-layout lock (16B on 64-bit POSIX + Win32):
+ *   offset 0: refcount  (8B atomic u64; relaxed-inc on retain,
+ *             release-dec + acquire-fence on final drop)
+ *   offset 8: drop_fn   (8B function pointer; <TypeName>_rc_drop
+ *             trampoline synthesized in Plan 26-03; NULL for
+ *             primitive payloads with no user destructor)
+ *
+ * Lock-document: docs/dev/RC-LAYOUT.md (Phase 26 Plan 26-01 closeout).
+ * Non-transitivity (POL-10): outer rc policy governs only its own
+ * struct memory; internal field allocations carry their own policy.
+ *
+ * Forward-compat with Phase 27 (`weak rc`): a future `weak_count` field
+ * MAY append at offset 16, but refcount@0 + drop_fn@8 are ABI-frozen. */
+typedef struct Iron_RcHeader {
+    iron_atomic_u64  refcount;
+    void           (*drop_fn)(void *self);
+} Iron_RcHeader;
+
+_Static_assert(sizeof(Iron_RcHeader) == 16,
+               "Iron_RcHeader ABI lock — 16B on 64-bit POSIX/Win32. "
+               "See docs/dev/RC-LAYOUT.md §1 for the public commitment.");
 
 /* Public API — definitions in src/runtime/iron_heap_track.c. */
 Iron_FatPtr iron_heap_alloc(const char *site_file, int site_line, size_t size);
@@ -357,30 +412,32 @@ bool         iron_string_equals(const Iron_String *a, const Iron_String *b);
 Iron_String  iron_string_concat(const Iron_String *a, const Iron_String *b);
 Iron_String  iron_string_intern(Iron_String s);
 
-/* ── Iron_Rc / Iron_Weak ─────────────────────────────────────────────────────
- * Atomic reference-counted heap value.  Iron_Weak holds a non-owning
- * reference that returns NULL after the last strong ref is dropped.
- */
-typedef struct {
-    iron_atomic_int  strong_count;
-    iron_atomic_int  weak_count;
-    void      (*destructor)(void *value);
-} Iron_RcControl;
-
-typedef struct {
-    Iron_RcControl *ctrl;
-    void           *value;
-} Iron_Rc;
-
-typedef struct {
-    Iron_RcControl *ctrl;
-} Iron_Weak;
-
-Iron_Rc  iron_rc_create(void *value, size_t size, void (*destructor)(void *));
-void     iron_rc_retain(Iron_Rc *rc);
-void     iron_rc_release(Iron_Rc *rc);
-Iron_Weak iron_rc_downgrade(const Iron_Rc *rc);
-Iron_Rc  iron_weak_upgrade(const Iron_Weak *weak);
+/* ── Phase 26 POL-06: rc policy runtime API ──────────────────────────────────
+ *
+ * Replaces the pre-v4 control-block-plus-value shape entirely.
+ * The legacy v1.x design (separate control block + value pointer) is gone
+ * because it predated the Phase 19 atomic-ordering convention and had zero
+ * codegen call sites (verified via `grep iron_rc_retain\|iron_rc_release
+ * src/lir/ src/hir/ src/cli/` → zero hits).
+ *
+ * Allocation: iron_rc_alloc(size, drop_fn) returns the user pointer; the
+ * Iron_RcHeader is the prefix of the block, recoverable in O(1) via
+ * iron_rc_header_of(user_ptr).
+ *
+ * Atomic discipline (mirrors Phase 19 macros + new FETCH_SUB_RELEASE /
+ * FENCE_ACQUIRE pair above): retain = relaxed-inc; release = release-dec;
+ * on prev == 1, acquire-fence then drop_fn(user_ptr) then free(block).
+ *
+ * Underflow detection: assert prev > 0 in debug builds; silent wrap in
+ * release. Overflow detection: saturate at UINT64_MAX-1 (iron_oom_abort
+ * deterministically — UINT64_MAX retains is physically unreachable).
+ *
+ * Phase 27 will add weak rc + upgrade; Iron_RcHeader will grow a
+ * weak_count field but the refcount@0 + drop_fn@8 layout is ABI-frozen. */
+void          *iron_rc_alloc(size_t size, void (*drop_fn)(void *));
+void           iron_rc_retain(void *user_ptr);
+void           iron_rc_release(void *user_ptr);
+Iron_RcHeader *iron_rc_header_of(void *user_ptr);
 
 /* ── Iron_Error ──────────────────────────────────────────────────────────────
  * Lightweight error type (no heap allocation).

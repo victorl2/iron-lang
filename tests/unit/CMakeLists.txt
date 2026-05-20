@@ -1302,3 +1302,41 @@ add_executable(test_bvec_oob_panic test_bvec_oob_panic.c)
 target_link_libraries(test_bvec_oob_panic iron_compiler iron_runtime unity)
 add_test(NAME test_bvec_oob_panic COMMAND test_bvec_oob_panic)
 set_tests_properties(test_bvec_oob_panic PROPERTIES LABELS "unit;phase23-invariant" TIMEOUT 30)
+
+# ── Phase 26 POL-06: rc policy refcount substrate (Plan 26-01) ───────────────
+# Wave 0 RED → GREEN after Task 2 lands the iron_rc_alloc / iron_rc_retain /
+# iron_rc_release implementation on Iron_RcHeader.
+#
+# test_rc_layout — ABI layout invariants (sizeof + offsetof) + alloc/release
+#                  smoke. Locks the 16B header layout at runtime in addition
+#                  to the _Static_assert at TU scope.
+# test_rc_atomic_ordering — single-thread atomic ordering proof (retain
+#                  monotonic, drop_fn invoked exactly once on final release,
+#                  NULL drop_fn skipped cleanly).
+# test_runtime_rc_concurrent — Linux+TSan 8-thread × 100k retain/release
+#                  stress; SKIPs cleanly on macOS / non-TSan Linux.
+add_executable(test_rc_layout test_rc_layout.c)
+target_link_libraries(test_rc_layout iron_runtime unity)
+add_test(NAME test_rc_layout COMMAND test_rc_layout)
+set_tests_properties(test_rc_layout PROPERTIES
+    LABELS "unit;phase26-invariant"
+    TIMEOUT 30)
+
+add_executable(test_rc_atomic_ordering test_rc_atomic_ordering.c)
+target_link_libraries(test_rc_atomic_ordering iron_runtime unity)
+add_test(NAME test_rc_atomic_ordering COMMAND test_rc_atomic_ordering)
+set_tests_properties(test_rc_atomic_ordering PROPERTIES
+    LABELS "unit;phase26-invariant"
+    TIMEOUT 30)
+
+add_executable(test_runtime_rc_concurrent test_runtime_rc_concurrent.c)
+target_link_libraries(test_runtime_rc_concurrent iron_runtime unity)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_options(test_runtime_rc_concurrent PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(test_runtime_rc_concurrent PRIVATE -fsanitize=thread)
+endif()
+add_test(NAME test_runtime_rc_concurrent COMMAND test_runtime_rc_concurrent)
+set_tests_properties(test_runtime_rc_concurrent PROPERTIES
+    LABELS "unit;phase26-invariant;tsan"
+    TIMEOUT 60
+    FAIL_REGULAR_EXPRESSION "WARNING: ThreadSanitizer")
