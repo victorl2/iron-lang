@@ -277,3 +277,73 @@ void iron_weak_rc_release(void *user_ptr) {
         }
     }
 }
+
+/* ── iron_rc_downgrade — strong rc → weak rc by bumping weak_count ──────────
+ *
+ * Atomic discipline (Phase 27 CONTEXT.md GA1):
+ *   weak_count fetch_add: RELAXED. Iron does not surface get_mut so
+ *   Mara Bos's Acquire/Release weak_count pairing is not needed — see
+ *   docs/dev/RC-LAYOUT.md §8 for the divergence rationale.
+ *
+ * Returns the SAME user pointer the strong rc had. `weak rc T` is an alias
+ * into the same allocation block, distinguished only by the static type
+ * IRON_TYPE_WEAK_RC at the compiler level (lands in Plan 27-02).
+ *
+ * NULL discipline: NULL input → NULL output (Phase 19/26 mirror).
+ *
+ * Debug saturation guard: UINT64_MAX-1 weak_count fires iron_oom_abort
+ * deterministically; mirrors iron_rc_retain's overflow band.
+ */
+void *iron_rc_downgrade(void *strong_user_ptr) {
+    if (!strong_user_ptr) return NULL;
+    Iron_RcHeader *rch = iron_rc_header_of(strong_user_ptr);
+#ifndef NDEBUG
+    uint64_t cur = IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count);
+    if (cur >= UINT64_MAX - 1) {
+        iron_oom_abort("iron_rc_downgrade: weak_count saturation (UINT64_MAX-1)");
+    }
+#endif
+    (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(rch->weak_count, 1);
+    return strong_user_ptr;
+}
+
+/* ── iron_rc_upgrade — Rust-Arc-canonical CAS loop reserving a strong ref ───
+ *
+ * Atomic discipline (Mara Bos "Building Our Own Arc" Ch. 6 +
+ *                    Rust library/alloc/src/sync.rs Weak::upgrade):
+ *   load:  ACQUIRE on refcount — synchronize-with prior release-dec from
+ *          the holder that may have triggered destruction. This is the
+ *          critical sync edge that lets Thread B (upgrader) observe Thread
+ *          A's (strong-final-dropper) commitment to refcount=0.
+ *   CAS:   RELAXED/RELAXED on both success and failure — the acquire-load
+ *          above already established happens-before; the CAS itself does
+ *          not need to be a synchronization point.
+ *
+ * Returns user_ptr (the strong rc T payload pointer) on successful CAS;
+ * NULL when the loop observes refcount == 0 (covers mid-destructor race —
+ * payload has been or is being destroyed; upgrade must return NULL).
+ *
+ * The Iron type system surfaces the NULL as T? (nullable strong rc) per
+ * POL-09. Lands at parser/typecheck in Plan 27-02.
+ *
+ * Pitfall 1 (RESEARCH.md §7): the acquire-load + relaxed/relaxed CAS pattern
+ * guarantees B never reserves a strong ref to a soon-to-be-destructed
+ * payload. CAS-success implies B observed refcount > 0 strictly AFTER A's
+ * release-dec (otherwise the acquire-load would have observed 0).
+ *
+ * Pitfall 10: u64 CAS macro is defined adjacent to IRON_ATOMIC_CAS_WEAK in
+ * iron_runtime.h with POSIX (relaxed/relaxed) and Win32 (seq-cst via
+ * InterlockedCompareExchange64) branches.
+ */
+void *iron_rc_upgrade(void *weak_user_ptr) {
+    if (!weak_user_ptr) return NULL;   /* weak rc null → upgrade always null */
+    Iron_RcHeader *rch = iron_rc_header_of(weak_user_ptr);
+    uint64_t s = IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->refcount);
+    while (s != 0) {
+        if (IRON_ATOMIC_U64_CAS_WEAK_RELAXED(rch->refcount, &s, s + 1)) {
+            return weak_user_ptr;  /* race-won; new strong ref reserved */
+        }
+        /* CAS failed; the macro updated `s` to the observed value. Loop. */
+    }
+    return NULL;  /* refcount observed at 0 — payload destroyed (or in-flight). */
+}

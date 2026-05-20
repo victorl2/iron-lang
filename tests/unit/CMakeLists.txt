@@ -1408,3 +1408,16 @@ set_tests_properties(test_runtime_weak_rc_concurrent PROPERTIES
     TIMEOUT 60
     FAIL_REGULAR_EXPRESSION "WARNING: ThreadSanitizer"
     SKIP_REGULAR_EXPRESSION "BAD_COMMAND")
+
+# ── Phase 27 GA2 (Plan 27-01 Task 3): weak rc upgrade race coverage ────────
+# Exercises iron_rc_downgrade + iron_rc_upgrade with the Rust Arc canonical
+# CAS loop. The 4th test runs a 10000-iteration mid-destructor race using
+# 2 pthread workers (drop-last-strong vs. attempt-upgrade) and asserts the
+# CAS protocol prevents UAF on the upgrade path. NULL discipline + success
+# path + post-strong-drop NULL covered by the first 3 tests.
+add_executable(test_weak_rc_upgrade_race test_weak_rc_upgrade_race.c)
+target_link_libraries(test_weak_rc_upgrade_race iron_runtime unity pthread)
+add_test(NAME test_weak_rc_upgrade_race COMMAND test_weak_rc_upgrade_race)
+set_tests_properties(test_weak_rc_upgrade_race PROPERTIES
+    LABELS "unit;phase27-invariant"
+    TIMEOUT 60)

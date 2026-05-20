@@ -81,6 +81,21 @@
    * POSIX path preserved. */
   #define IRON_ATOMIC_U64_FETCH_SUB_RELAXED(v, n) \
       ((uint64_t)InterlockedExchangeAdd64((volatile LONG64 *)&(v), -(LONG64)(n)))
+  /* Phase 27 GA2: u64 CAS for the Rust-Arc-canonical upgrade loop. Win32
+   * InterlockedCompareExchange64 is seq-cst (stronger than relaxed/relaxed);
+   * acceptable since Windows is excluded from CI today (CLAUDE.md tech-stack
+   * Windows-excluded policy). */
+  static inline bool iron__win_cas_u64_relaxed(volatile LONG64 *v,
+                                                uint64_t *expected,
+                                                uint64_t desired) {
+      LONG64 old = InterlockedCompareExchange64(v, (LONG64)desired,
+                                                (LONG64)*expected);
+      bool ok = (old == (LONG64)*expected);
+      if (!ok) *expected = (uint64_t)old;
+      return ok;
+  }
+  #define IRON_ATOMIC_U64_CAS_WEAK_RELAXED(v, exp, des) \
+      iron__win_cas_u64_relaxed((volatile LONG64 *)&(v), (exp), (des))
   #define IRON_ATOMIC_FENCE_ACQUIRE() \
       ((void)0)  /* Interlocked*64 on Win32 are unconditionally seq-cst */
 #else
@@ -114,6 +129,15 @@
    * weak_count is sufficient. */
   #define IRON_ATOMIC_U64_FETCH_SUB_RELAXED(v, n) \
       atomic_fetch_sub_explicit(&(v), (n), memory_order_relaxed)
+  /* Phase 27 GA2: u64 CAS for the Rust-Arc-canonical upgrade loop. Relaxed
+   * on both success and failure paths — the acquire-load preceding the
+   * loop already established the happens-before edge with the prior
+   * release-dec from the strong holder; the CAS itself does not need to
+   * be a synchronizing operation. */
+  #define IRON_ATOMIC_U64_CAS_WEAK_RELAXED(v, exp, des) \
+      atomic_compare_exchange_weak_explicit(&(v), (exp), (des), \
+                                            memory_order_relaxed, \
+                                            memory_order_relaxed)
   #define IRON_ATOMIC_FENCE_ACQUIRE() \
       atomic_thread_fence(memory_order_acquire)
 #endif
