@@ -523,6 +523,21 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         iron_advance(p);  /* consume `heap`, re-parse as if absent */
     }
 
+    /* Phase 26 POL-11 (Plan 26-02): rc keyword is illegal in type-annotation
+     * position. Mirrors the POL-03 IRON_TOK_HEAP rejection above. The
+     * legitimate `rc T(...)` allocation lives in iron_parse_primary's
+     * `case IRON_TOK_RC:` arm — NOT here. Position-distinguishing hint
+     * per E0297 GA2 convention. */
+    if (iron_check(p, IRON_TOK_RC)) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_RC_BAD_POSITION,
+                       iron_token_span(p, iron_current(p)),
+                       "`rc` only valid at allocation expression"
+                       " \342\200\224 got `rc` in type annotation",
+                       NULL);
+        iron_advance(p);  /* consume `rc`, re-parse as if absent */
+    }
+
     Iron_Token *start = iron_current(p);
 
     /* Phase 20 PTR-13: leading `?` for `?*T` / `?*var T`. The leading-`?`
@@ -533,6 +548,26 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
     if (iron_check(p, IRON_TOK_QUESTION)) {
         Iron_Span q_span = iron_token_span(p, iron_current(p));
         iron_advance(p);  /* consume `?` */
+        /* Phase 26 POL-11 (Plan 26-02): `?rc T` (nullable strong rc) is
+         * rejected with redirect hint pointing at `weak rc T?` (Phase 27).
+         * POL-06 omits null semantics for strong rc — strong rc is non-
+         * nullable. Detection must happen BEFORE the recursive type-
+         * annotation parse so we suppress the type-annotation IRON_TOK_RC
+         * check above (which would emit a less helpful "got `rc` in type
+         * annotation" hint). */
+        if (iron_check(p, IRON_TOK_RC)) {
+            Iron_Span rc_span = iron_token_span(p, iron_current(p));
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_RC_BAD_POSITION,
+                           iron_span_merge(q_span, rc_span),
+                           "`rc` only valid at allocation expression"
+                           " \342\200\224 `?rc T` not supported;"
+                           " use `weak rc T?` (Phase 27)",
+                           NULL);
+            iron_advance(p);  /* consume `rc`; recover by parsing inner */
+            /* Fall through and parse remaining inner type so cascading
+             * errors are suppressed. */
+        }
         Iron_Node *inner = iron_parse_type_annotation_impl(p);
         if (inner && inner->kind == IRON_NODE_TYPE_ANNOTATION) {
             Iron_TypeAnnotation *ia = (Iron_TypeAnnotation *)inner;
@@ -941,6 +976,18 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
                            " \342\200\224 got `heap` in parameter declaration",
                            NULL);
             iron_advance(p);  /* consume `heap`, continue with name-token */
+        }
+
+        /* Phase 26 POL-11 (Plan 26-02): rc keyword is illegal as a parameter
+         * qualifier. Mirrors POL-03 IRON_TOK_HEAP rejection above. */
+        if (iron_check(p, IRON_TOK_RC)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_RC_BAD_POSITION,
+                           iron_token_span(p, iron_current(p)),
+                           "`rc` only valid at allocation expression"
+                           " \342\200\224 got `rc` in parameter declaration",
+                           NULL);
+            iron_advance(p);  /* consume `rc`, continue with name-token */
         }
 
         /* Phase 85 INIT: accept IRON_TOK_INIT as a parameter name so stdlib
@@ -1418,6 +1465,40 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             n->inner         = inner;
             return (Iron_Node *)n;
         }
+        /* Phase 26 POL-11 (Plan 26-02): closed-policy guard for reserved
+         * lifecycle-policy keywords that are NOT yet accepted at allocation
+         * expression. `pool` and `weak` are pre-tokenized (IRON_TOK_POOL,
+         * IRON_TOK_WEAK — both reserved in Phase 16 keyword reservation).
+         * `arena` is not yet a keyword (Phase 28 lands it); its rejection
+         * lives in the IRON_TOK_IDENTIFIER arm below.
+         *
+         * Canonical closed set: {stack, heap, rc, weak rc}. `weak rc` ships
+         * in Phase 27; `pool` is not in the closed set. */
+        case IRON_TOK_POOL:
+        case IRON_TOK_WEAK: {
+            const char *kw_name = (t->kind == IRON_TOK_POOL) ? "pool" : "weak";
+            char msg[256];
+            snprintf(msg, sizeof(msg),
+                     "lifecycle policy keyword in closed set"
+                     " {stack, heap, rc, weak rc};"
+                     " `%s` is not a recognized lifecycle"
+                     " policy keyword at allocation expression",
+                     kw_name);
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_CLOSED_POLICY_KEYWORD,
+                           iron_token_span(p, t),
+                           msg,
+                           "Phase 26 lifecycle policy closed set is"
+                           " {stack, heap, rc, weak rc};"
+                           " `pool`, `arena`, `weak` not supported as"
+                           " lifecycle policy keywords at allocation"
+                           " expression (weak rc ships in Phase 27)");
+            iron_advance(p);  /* consume the reserved keyword */
+            /* Recover by parsing the following sub-expression as the body
+             * — same recovery shape as the rc allocation arm. */
+            Iron_Node *inner = iron_parse_expr_prec(p, PREC_UNARY);
+            return inner ? inner : iron_make_error(p);
+        }
         /* comptime expr */
         case IRON_TOK_COMPTIME: {
             iron_advance(p);
@@ -1502,6 +1583,66 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         }
         /* Identifier: name, or TypeName(...) construct */
         case IRON_TOK_IDENTIFIER: {
+            /* Phase 26 POL-11 (Plan 26-02): closed-policy guard at lexer/
+             * parser boundary.
+             *
+             * Canonical closed set per ROADMAP success criterion #4 +
+             * REQUIREMENTS POL-11:
+             *   {stack, heap, rc, weak rc}
+             *
+             * NOTE: `stack` is the implicit default at allocation expression
+             *       (no keyword required — the absence of a keyword IS the
+             *       stack policy).
+             * NOTE: `weak rc` ships in Phase 27 — keyword-reserved here for
+             *       closed-set fidelity.
+             * NOTE: `arena` is keyword-reserved for the Phase 28 type-system
+             *       Arena (the value-type, NOT a lifecycle policy). It
+             *       appears in the rejection set below to give users a clear
+             *       error if they mistake `arena` for a lifecycle policy
+             *       keyword.
+             *
+             * Trigger condition: the identifier is followed by another
+             * IDENTIFIER + `(` token sequence — pattern `pool Point(`,
+             * `arena Point(`, `weak Point(`. The plain identifier (e.g.
+             * just `pool` as a variable read) is NOT rejected here — only
+             * the allocation-expression pattern is. */
+            if (t->value && p->pos + 2 < p->token_count) {
+                Iron_TokenKind next1 = p->tokens[p->pos + 1].kind;
+                Iron_TokenKind next2 = p->tokens[p->pos + 2].kind;
+                if (next1 == IRON_TOK_IDENTIFIER && next2 == IRON_TOK_LPAREN) {
+                    size_t tlen = strlen(t->value);
+                    static const char *const closed_set_rejections[] = {
+                        "pool", "arena", "weak"
+                    };
+                    for (size_t i = 0;
+                         i < sizeof(closed_set_rejections) /
+                             sizeof(closed_set_rejections[0]);
+                         i++) {
+                        size_t rlen = strlen(closed_set_rejections[i]);
+                        if (rlen == tlen &&
+                            memcmp(t->value, closed_set_rejections[i], rlen) == 0) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "lifecycle policy keyword in closed set"
+                                     " {stack, heap, rc, weak rc};"
+                                     " `%s` is not a recognized lifecycle"
+                                     " policy keyword",
+                                     closed_set_rejections[i]);
+                            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                           IRON_ERR_CLOSED_POLICY_KEYWORD,
+                                           iron_token_span(p, t),
+                                           msg,
+                                           "Phase 26 lifecycle policy closed set"
+                                           " is {stack, heap, rc, weak rc};"
+                                           " `pool`, `arena`, `weak` not"
+                                           " supported as lifecycle policy"
+                                           " keywords at allocation expression"
+                                           " (weak rc ships in Phase 27)");
+                            break;
+                        }
+                    }
+                }
+            }
             iron_advance(p);
             Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
             if (!id) { /* HARD-09 REPLACE (iron_parse_primary Ident) */ p->in_error_recovery = true; return iron_make_error(p); }
@@ -2570,6 +2711,39 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
                        NULL);
         iron_advance(p);  /* consume `heap`, re-dispatch to val/var */
         /* fall through: switch below sees IRON_TOK_VAL or IRON_TOK_VAR */
+    }
+
+    /* Phase 26 POL-11 (Plan 26-02): `rc val p = ...` / `rc var p = ...` /
+     * `rc x = 42` is illegal — `rc` is not a binding modifier (it only
+     * appears in allocation expressions: `val p = rc T(...)`). Mirrors
+     * POL-03 IRON_TOK_HEAP rejection above.
+     * Two patterns to detect:
+     *   (a) [RC][VAL|VAR][IDENT]... — same as the heap case
+     *   (b) [RC][IDENT][=][expr]... — bare binding form like `rc x = 42`
+     * Both are illegal because `rc` is an allocation-expression keyword.
+     * The legal `val p = rc T(...)` form lexes as [VAL][IDENT][=][RC]
+     * which never enters this guard. */
+    if (iron_peek(p) == IRON_TOK_RC &&
+        p->pos + 1 < p->token_count) {
+        Iron_TokenKind next = p->tokens[p->pos + 1].kind;
+        Iron_TokenKind after = (p->pos + 2 < p->token_count)
+                               ? p->tokens[p->pos + 2].kind
+                               : IRON_TOK_EOF;
+        bool is_bad_binding =
+            /* (a) rc {val|var} ... */
+            (next == IRON_TOK_VAL || next == IRON_TOK_VAR) ||
+            /* (b) rc IDENT = ... (binding form without val/var keyword) */
+            (next == IRON_TOK_IDENTIFIER && after == IRON_TOK_ASSIGN);
+        if (is_bad_binding) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_RC_BAD_POSITION,
+                           iron_token_span(p, iron_current(p)),
+                           "`rc` only valid at allocation expression"
+                           " \342\200\224 got `rc` in binding declaration",
+                           NULL);
+            iron_advance(p);  /* consume `rc`, re-dispatch */
+            /* fall through: switch below picks up the next token */
+        }
     }
 
     Iron_Token *t = iron_current(p);

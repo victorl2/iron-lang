@@ -1,0 +1,9 @@
+-- section 4.8 negative: `rc T(...)` allocation in readonly method (READ-05 extension)
+-- @req: POL-06
+-- @expected-pass-after: phase-26
+-- E0279 IRON_ERR_READONLY_HEAP_ESCAPE — readonly forbids rc T(...) (parallel to heap T(...))
+object Point { val x: Int; val y: Int }
+object Builder {
+    readonly func make(): rc Point { return rc Point(1, 2) }
+}
+func main(): Int { return 0 }

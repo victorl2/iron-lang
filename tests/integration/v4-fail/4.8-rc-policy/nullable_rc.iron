@@ -1,0 +1,9 @@
+-- section 4.8 negative: `?rc T` (nullable strong rc) rejected with weak-rc redirect
+-- @req: POL-11
+-- @expected-pass-after: phase-26
+-- E0297 IRON_ERR_RC_BAD_POSITION — strong rc is non-nullable; weak rc ships Phase 27
+object Point { val x: Int; val y: Int }
+func main(): Int {
+    val maybe: ?rc Point = null
+    return 0
+}

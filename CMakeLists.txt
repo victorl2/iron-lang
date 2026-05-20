@@ -1393,6 +1393,83 @@ if(NOT WIN32)
     set_tests_properties(test_ptr_types PROPERTIES LABELS "unit;phase25-invariant")
 endif()
 
+# `ctest -L phase26-invariant` aggregates the Wave 1 RED→GREEN corpus for
+# Phase 26 rc Policy (POL-06/07/10/11 + OQ-03). Plan 26-01 wired the runtime
+# substrate + unit tests (test_rc_layout + test_rc_atomic_ordering +
+# test_runtime_rc_concurrent under tests/unit/CMakeLists.txt). Plan 26-02
+# adds 8 negative integration fixtures under v4-fail/4.8-rc-policy/.
+# Plan 26-03 lands the positive corpus.
+if(NOT WIN32)
+    add_test(
+        NAME v4_fail_4.8-rc-policy_rc_in_type_annotation
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/rc_in_type_annotation.iron 2>&1 | grep -qF E0297"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_rc_in_type_annotation PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.8-rc-policy_rc_in_binding
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/rc_in_binding.iron 2>&1 | grep -qF E0297"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_rc_in_binding PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.8-rc-policy_rc_in_parameter
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/rc_in_parameter.iron 2>&1 | grep -qF E0297"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_rc_in_parameter PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.8-rc-policy_nullable_rc
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/nullable_rc.iron 2>&1 | grep -qF 'weak rc T?'"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_nullable_rc PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.8-rc-policy_pool_keyword
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/pool_keyword.iron 2>&1 | grep -qF '{stack, heap, rc, weak rc}'"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_pool_keyword PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.8-rc-policy_arena_keyword
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/arena_keyword.iron 2>&1 | grep -qF E0298"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_arena_keyword PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.8-rc-policy_address_of_rc
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/address_of_rc.iron 2>&1 | grep -qF E0296"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_address_of_rc PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    # Phase 26 Plan 26-02 -> Plan 26-03 handoff: this fixture lands RED here
+    # and flips GREEN once Plan 26-02 Task 3 extends E0279 to IRON_NODE_RC
+    # (parallel to the Phase 22 READ-05 IRON_NODE_HEAP arm). WILL_FAIL TRUE
+    # is removed in Plan 26-02 Task 3 step 13.
+    add_test(
+        NAME v4_fail_4.8-rc-policy_readonly_rc_escape
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/readonly_rc_escape.iron 2>&1 | grep -qF E0279"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_readonly_rc_escape PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30
+        WILL_FAIL TRUE)
+endif()
+
 # ---- Install rules ----
 if(IRON_BUILD_LSP)
     install(TARGETS ironc iron ironls DESTINATION bin)
