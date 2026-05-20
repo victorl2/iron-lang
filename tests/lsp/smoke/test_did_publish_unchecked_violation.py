@@ -41,12 +41,13 @@ from lsprotocol import types
 # §4.3-§4.4: *T and *unchecked T are disjoint; no implicit conversion either direction.
 _CROSS_REGIME_ASSIGN_SOURCE = (
     "object Point {\n"
-    "    val x: Int\n"
-    "    val y: Int\n"
+    "    var x: Int\n"
+    "    init() { self.x = 0 }\n"
     "}\n"
     "func main() {\n"
-    "    val p = heap Point(x: 1, y: 2)\n"
-    "    val raw_ptr: *unchecked Point = p\n"
+    "    var p: Point = Point()\n"
+    "    val checked_ptr: *Point = &p\n"
+    "    val raw_ptr: *unchecked Point = checked_ptr\n"
     "}\n"
 )
 
@@ -57,11 +58,11 @@ _CROSS_REGIME_ASSIGN_SOURCE = (
 # §4.3: only Box.unwrap() can produce *unchecked T; `&` is not a valid source.
 _AMP_PRODUCES_UNCHECKED_SOURCE = (
     "object Point {\n"
-    "    val x: Int\n"
-    "    val y: Int\n"
+    "    var x: Int\n"
+    "    init() { self.x = 0 }\n"
     "}\n"
     "func main() {\n"
-    "    val local_point = Point(x: 3, y: 4)\n"
+    "    var local_point: Point = Point()\n"
     "    val raw_ptr: *unchecked Point = &local_point\n"
     "}\n"
 )
@@ -74,12 +75,13 @@ _AMP_PRODUCES_UNCHECKED_SOURCE = (
 # §4.3: Ptr.offset / Ptr.diff operate only on *unchecked T.
 _PTR_ARITH_CHECKED_SOURCE = (
     "object Point {\n"
-    "    val x: Int\n"
-    "    val y: Int\n"
+    "    var x: Int\n"
+    "    init() { self.x = 0 }\n"
     "}\n"
     "func main() {\n"
-    "    val p = heap Point(x: 5, y: 6)\n"
-    "    val next = Ptr.offset(p, 1)\n"
+    "    var p: Point = Point()\n"
+    "    val checked: *Point = &p\n"
+    "    val offset_ptr = Ptr.offset(checked, 1)\n"
     "}\n"
 )
 
