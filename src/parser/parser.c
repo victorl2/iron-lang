@@ -551,12 +551,22 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         return inner ? inner : iron_make_error(p);
     }
 
-    /* Phase 20 PTR-13/14: pointer type `*T` or `*var T`. The optional `var`
-     * modifier marks the pointer as mutable (locked by 20-CONTEXT.md). */
+    /* Phase 20 PTR-13/14 + Phase 25 PTR-02 (Plan 25-01): pointer type
+     * `*T`, `*var T`, `*unchecked T`, or `*var unchecked T`.
+     * The optional `var` modifier marks the pointer as mutable (locked by
+     * 20-CONTEXT.md). The optional `unchecked` modifier marks the pointer as
+     * belonging to the unchecked regime (bare 8B C pointer, no gen tracking).
+     * IRON_TOK_UNCHECKED is reserved since Phase 16 (lexer.c:66).
+     * is_var_ptr + is_unchecked are orthogonal: `*var unchecked T` is valid.
+     * RESEARCH Pattern 1 verbatim. */
     if (iron_check(p, IRON_TOK_STAR)) {
         Iron_Span star_span = iron_token_span(p, iron_current(p));
         iron_advance(p);  /* consume `*` */
         bool is_var_ptr = iron_match(p, IRON_TOK_VAR);
+        /* Phase 25 PTR-02: `*unchecked T` or `*var unchecked T` — unchecked
+         * regime. IRON_TOK_UNCHECKED reserved Phase 16, lexer.c:66.
+         * is_var_ptr + is_unchecked are orthogonal: `*var unchecked T` valid. */
+        bool is_unchecked = iron_match(p, IRON_TOK_UNCHECKED);
         Iron_Node *pointee = iron_parse_type_annotation(p);
         Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
         if (!ann) { /* HARD-09 REPLACE (iron_parse_type_annotation pointer) */ p->in_error_recovery = true; return iron_make_error(p); }
@@ -565,6 +575,7 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         ann->name            = "*";
         ann->is_pointer      = true;
         ann->is_var_pointer  = is_var_ptr;
+        ann->is_unchecked    = is_unchecked; /* Phase 25 PTR-02 (Plan 25-01) */
         ann->pointer_pointee = pointee;
         ann->span = iron_span_merge(star_span,
                                     pointee ? pointee->span : star_span);

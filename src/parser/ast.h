@@ -489,6 +489,11 @@ typedef struct {
     bool          is_pointer;
     bool          is_var_pointer;
     Iron_Node    *pointer_pointee;
+    /* Phase 25 PTR-02 (Plan 25-01): unchecked regime flag — orthogonal to
+     * is_var_pointer. is_unchecked=true only when is_pointer=true.
+     * Default-zero via arena-zalloc at every allocation site.
+     * Source surface: `*unchecked T` and `*var unchecked T`. */
+    bool          is_unchecked;
 } Iron_TypeAnnotation;
 
 #define IRON_LAYOUT_HINT_NONE 0

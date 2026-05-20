@@ -296,6 +296,34 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_DROP_NOT_READONLY           287  /* drop body marked readonly — incompatible (Plan 24-01) */
 #define IRON_ERR_DROP_NO_EARLY_RETURN        288  /* drop body uses `return` early — incompatible with field-destructor sweep (Plan 24-01, CONTEXT Area 5) */
 
+/* Phase 25 — *unchecked T + Box[T] (§4.3-§4.4 + §3.4 + §12 step 11)
+ *
+ * Code allocation note (RESEARCH Pitfall 1): 289 is the only free slot at
+ * the top of the semantic range after Phase 24's E0288. Codes 290-293 are
+ * PRE-ALLOCATED to LSP/typecheck-internal codes:
+ *   290 = IRON_ERR_CANCELLED             (LSP request-cancellation)
+ *   291 = IRON_ERR_COMPTIME_FS_DISABLED_IN_LSP_MODE
+ *   292 = IRON_ERR_TYPE_MISMATCH_LITERAL (retyped-literal narrowing)
+ *   293 = IRON_ERR_MISSING_RETURN        (missing return path)
+ * DO NOT REUSE 290-293. Next free slots are 289, 294, 295, 296+.
+ *
+ *   289 (Plan 25-01): PTR-02/03 cross-regime assign/call/return. Emitted at
+ *                     val/var-decl, call-arg, and return sites when one
+ *                     pointer is *T (checked) and the other is *unchecked T.
+ *                     Hint cites §4.3-§4.4 and points to Box.unwrap().
+ *   294 (Plan 25-01): PTR-05/UNCK-04 — `&` cannot produce *unchecked T.
+ *                     Emitted at val/var declaration when lhs is *unchecked T
+ *                     and rhs is a unary `&` expression. Hint cites §4.3 and
+ *                     points to Box.unwrap() or RawPtr (Phase 33).
+ *   295 (Plan 25-01 reserves; Plan 25-02 emits): UNCK-06 — Ptr.offset and
+ *                     Ptr.diff require *unchecked T argument. Emitted when
+ *                     these compiler builtins receive a checked pointer.
+ *                     Hint cites §4.3 and points to Box.unwrap(). */
+#define IRON_ERR_PTR_REGIME_MISMATCH     289  /* PTR-02/03 cross-regime assign/call/return (Plan 25-01) */
+/* Codes 290-293: DO NOT USE — pre-allocated (see comment above).           */
+#define IRON_ERR_PTR_AMP_NOT_UNCHECKED   294  /* PTR-05/UNCK-04 '&' cannot produce *unchecked T (Plan 25-01) */
+#define IRON_ERR_PTR_ARITH_CHECKED       295  /* UNCK-06 Ptr.offset/Ptr.diff require *unchecked T (Plan 25-01 reserves; Plan 25-02 emits) */
+
 /* Phase 86 PATCH: open-extension diagnostics.
  *
  * PATCH-01 lands the parse-surface for `patch object T { ... }`; the parser

@@ -1271,6 +1271,49 @@ if(NOT WIN32)
     set_tests_properties(v4_7_boundary_partial_init_cleanup PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
 endif()
 
+# `ctest -L phase25-invariant` aggregates the Wave 0 RED→GREEN corpus for Phase 25
+# *unchecked T + Box[T] (PTR-02/03/05, UNCK-04/05). Three negative fixtures flip
+# RED→GREEN within the Plan 25-01 atomic commit (typecheck E0289 + E0294 land here).
+# One negative fixture (ptr_arith_checked) stays XFAIL until Plan 25-02 (Ptr.offset
+# builtin). One unit test validates iron_type_equals is_unchecked distinctness.
+if(NOT WIN32)
+    add_test(
+        NAME v4_fail_4.3-unchecked-ptr_cross_regime_assign
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/cross_regime_assign.iron 2>&1 | grep -qF E0289"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.3-unchecked-ptr_cross_regime_assign PROPERTIES LABELS "integration;phase25-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.3-unchecked-ptr_amp_produces_unchecked
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/amp_produces_unchecked.iron 2>&1 | grep -qF E0294"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.3-unchecked-ptr_amp_produces_unchecked PROPERTIES LABELS "integration;phase25-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.3-unchecked-ptr_unchecked_param_auto_addr
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/unchecked_param_auto_addr.iron 2>&1 | grep -qF '*unchecked Point'"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.3-unchecked-ptr_unchecked_param_auto_addr PROPERTIES LABELS "integration;phase25-invariant" TIMEOUT 30)
+
+    # ptr_arith_checked: XFAIL until Plan 25-02 (Ptr.offset builtin emission)
+    # The test is registered but expected to fail until Plan 25-02 atomic commit.
+    add_test(
+        NAME v4_fail_4.3-unchecked-ptr_ptr_arith_checked
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/ptr_arith_checked.iron 2>&1 | grep -qF E0295"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.3-unchecked-ptr_ptr_arith_checked PROPERTIES LABELS "integration;phase25-invariant" TIMEOUT 30)
+
+    add_executable(test_ptr_types tests/unit/test_ptr_types.c)
+    target_link_libraries(test_ptr_types PRIVATE iron_compiler iron_runtime unity m pthread)
+    target_include_directories(test_ptr_types PRIVATE src src/vendor)
+    add_test(NAME test_ptr_types COMMAND test_ptr_types)
+    set_tests_properties(test_ptr_types PROPERTIES LABELS "unit;phase25-invariant")
+endif()
+
 # ---- Install rules ----
 if(IRON_BUILD_LSP)
     install(TARGETS ironc iron ironls DESTINATION bin)

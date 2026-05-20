@@ -775,6 +775,17 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
         return true;
     }
 
+    /* Phase 25 PTR-02/03 (Plan 25-01): unchecked regime is DISJOINT from
+     * the checked regime. (*T <-> *unchecked T) and (*var T <-> *var unchecked T)
+     * are never assignable in either direction.
+     * The caller emits IRON_ERR_PTR_REGIME_MISMATCH (289) when this returns
+     * false and both kinds are IRON_TYPE_PTR (regime mismatch, not T mismatch).
+     * RESEARCH Pattern 2 verbatim. Inserted BEFORE the PTR-12 covariance block
+     * so regime isolation takes precedence over covariance. */
+    if (decl_t->kind == IRON_TYPE_PTR && init_t->kind == IRON_TYPE_PTR) {
+        if (decl_t->ptr.is_unchecked != init_t->ptr.is_unchecked) return false;
+    }
+
     /* Phase 20 PTR-12: pointer covariance.
      *   *var T -> *T  : ALLOWED  (drop mutability is safe).
      *   *T     -> *var T : REJECTED (var-invariance).
@@ -1054,7 +1065,8 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
             : iron_type_make_primitive(IRON_TYPE_ERROR);
         if (!pointee_t) pointee_t = iron_type_make_primitive(IRON_TYPE_ERROR);
         Iron_Type *pt = iron_type_make_ptr(ctx->arena, pointee_t,
-                                            ann->is_var_pointer);
+                                            ann->is_var_pointer,
+                                            ann->is_unchecked); /* Phase 25 PTR-02 */
         if (!pt) pt = iron_type_make_primitive(IRON_TYPE_ERROR);
         if (ann->is_nullable) {
             Iron_Type *np = iron_type_make_nullable(ctx->arena, pt);
@@ -2046,7 +2058,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 bool is_var_src = arg_source_is_mutable(ctx, ue->operand);
                 Iron_Type *ptr_t = iron_type_make_ptr(ctx->arena,
                                                        operand_t,
-                                                       is_var_src);
+                                                       is_var_src,
+                                                       false); /* &expr always yields checked *T (UNCK-04) */
                 result = ptr_t ? ptr_t
                                : iron_type_make_primitive(IRON_TYPE_ERROR);
                 ue->resolved_type = result;
@@ -2189,10 +2202,12 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                 ce->resolved_type = result;
                                 break;
                             }
-                            /* Success: return *T preserving is_var. */
+                            /* Success: return *T preserving is_var.
+                             * Ptr.cast stays in checked regime (UNCK-04). */
                             Iron_Type *out_t = iron_type_make_ptr(
                                 ctx->arena, target_t,
-                                src_arg_t->ptr.is_var);
+                                src_arg_t->ptr.is_var,
+                                false); /* Ptr.cast preserves checked regime */
                             result = out_t
                                 ? out_t
                                 : iron_type_make_primitive(IRON_TYPE_ERROR);
@@ -2719,6 +2734,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                      * rvalue) / E0267 (on val→*var T) where applicable. */
                     bool auto_address_applies =
                         param_type && param_type->kind == IRON_TYPE_PTR &&
+                        !param_type->ptr.is_unchecked && /* Phase 25 UNCK-05 (Plan 25-01): suppress auto-address for *unchecked T params */
                         arg_type && arg_type->kind != IRON_TYPE_PTR &&
                         arg_type->kind != IRON_TYPE_ERROR &&
                         param_type->ptr.pointee &&
@@ -2729,13 +2745,35 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         !auto_address_applies &&
                         !types_assignable(param_type, arg_type) &&
                         !is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
-                        char msg[256];
-                        snprintf(msg, sizeof(msg),
-                                 "argument %d type mismatch: expected '%s', got '%s'",
-                                 i + 1,
-                                 iron_type_to_string(param_type, ctx->arena),
-                                 iron_type_to_string(arg_type, ctx->arena));
-                        emit_error(ctx, IRON_ERR_ARG_TYPE, ce->args[i]->span, msg, NULL);
+                        /* Phase 25 PTR-02/03/UNCK-05 (Plan 25-01): specialize to
+                         * E0289 IRON_ERR_PTR_REGIME_MISMATCH when both types are
+                         * IRON_TYPE_PTR and is_unchecked differs (regime crossing
+                         * at call-arg site). Specificity over generic IRON_ERR_ARG_TYPE.
+                         * RESEARCH Pitfall 2: same regime-mismatch predicate fires at
+                         * val/var-decl + call-arg + return (three sites). */
+                        if (param_type->kind == IRON_TYPE_PTR &&
+                            arg_type->kind   == IRON_TYPE_PTR &&
+                            param_type->ptr.is_unchecked != arg_type->ptr.is_unchecked) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "argument %d regime mismatch: expected '%s', got '%s'; "
+                                     "checked and unchecked pointer regimes are disjoint",
+                                     i + 1,
+                                     iron_type_to_string(param_type, ctx->arena),
+                                     iron_type_to_string(arg_type, ctx->arena));
+                            emit_error(ctx, IRON_ERR_PTR_REGIME_MISMATCH,
+                                       ce->args[i]->span, msg,
+                                       "§4.3-§4.4: checked and unchecked pointer regimes are disjoint; "
+                                       "use Box.unwrap() to escape from Box[T] to *unchecked T");
+                        } else {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "argument %d type mismatch: expected '%s', got '%s'",
+                                     i + 1,
+                                     iron_type_to_string(param_type, ctx->arena),
+                                     iron_type_to_string(arg_type, ctx->arena));
+                            emit_error(ctx, IRON_ERR_ARG_TYPE, ce->args[i]->span, msg, NULL);
+                        }
                     }
                     /* Narrow literal args to match parameter type */
                     if (is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
@@ -4440,6 +4478,26 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 init_type = vd->init ? (vd->init->kind == IRON_NODE_ENUM_CONSTRUCT
                     ? ((Iron_EnumConstruct *)vd->init)->resolved_type : init_type)
                     : init_type;
+
+                /* Phase 25 PTR-05/UNCK-04 (Plan 25-01): `&` cannot produce
+                 * *unchecked T. If the declared type is `*unchecked T` AND the
+                 * rhs is a unary `&` expression, emit E0294 before
+                 * types_assignable runs (which would emit the generic E0289).
+                 * Only Box.unwrap() or RawPtr (Phase 33) can produce *unchecked T.
+                 * PHASE-26 HOOK: rc Box[T] interaction — rc + nocopy may be
+                 * incompatible; Phase 26 decides. */
+                if (decl_type && decl_type->kind == IRON_TYPE_PTR &&
+                    decl_type->ptr.is_unchecked &&
+                    vd->init && vd->init->kind == IRON_NODE_UNARY &&
+                    ((Iron_UnaryExpr *)vd->init)->op == (Iron_OpKind)IRON_TOK_AMP) {
+                    emit_error(ctx, IRON_ERR_PTR_AMP_NOT_UNCHECKED, vd->init->span,
+                               "cannot produce '*unchecked T' via '&'; "
+                               "'&' always yields a checked pointer",
+                               "§4.3: '&' cannot produce unchecked pointers; "
+                               "use Box.unwrap() or RawPtr (Phase 33) "
+                               "for explicit unchecked pointer construction");
+                }
+
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
@@ -4453,6 +4511,23 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                      * cleanly via NULL-handling on nullables. */
                     Iron_Span lit_span = (vd->init) ? vd->init->span : vd->span;
                     if (decl_type->kind == IRON_TYPE_PTR &&
+                        init_type->kind == IRON_TYPE_PTR &&
+                        decl_type->ptr.is_unchecked != init_type->ptr.is_unchecked) {
+                        /* Phase 25 PTR-02/03 (Plan 25-01): cross-regime pointer assignment.
+                         * Emit E0289 IRON_ERR_PTR_REGIME_MISMATCH with §4.3-§4.4 spec hint.
+                         * Specificity over E0202: programmer needs to know it's a regime
+                         * crossing, not a T mismatch (RESEARCH Specifics). */
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot assign '%s' to '%s': "
+                                 "checked and unchecked pointer regimes are disjoint",
+                                 iron_type_to_string(init_type, ctx->arena),
+                                 iron_type_to_string(decl_type, ctx->arena));
+                        emit_error(ctx, IRON_ERR_PTR_REGIME_MISMATCH, lit_span,
+                                   msg,
+                                   "§4.3-§4.4: checked and unchecked pointer regimes are disjoint; "
+                                   "use Box.unwrap() to escape from Box[T] to *unchecked T");
+                    } else if (decl_type->kind == IRON_TYPE_PTR &&
                         init_type->kind == IRON_TYPE_NULL) {
                         const char *pt_str = iron_type_to_string(decl_type, ctx->arena);
                         char msg[256];
@@ -4567,6 +4642,23 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 init_type = vd->init ? (vd->init->kind == IRON_NODE_ENUM_CONSTRUCT
                     ? ((Iron_EnumConstruct *)vd->init)->resolved_type : init_type)
                     : init_type;
+
+                /* Phase 25 PTR-05/UNCK-04 (Plan 25-01): `&` cannot produce
+                 * *unchecked T at a var declaration site. PHASE-26 HOOK: rc
+                 * Box[T] interaction — rc + nocopy may be incompatible; Phase 26
+                 * decides. */
+                if (decl_type && decl_type->kind == IRON_TYPE_PTR &&
+                    decl_type->ptr.is_unchecked &&
+                    vd->init && vd->init->kind == IRON_NODE_UNARY &&
+                    ((Iron_UnaryExpr *)vd->init)->op == (Iron_OpKind)IRON_TOK_AMP) {
+                    emit_error(ctx, IRON_ERR_PTR_AMP_NOT_UNCHECKED, vd->init->span,
+                               "cannot produce '*unchecked T' via '&'; "
+                               "'&' always yields a checked pointer",
+                               "§4.3: '&' cannot produce unchecked pointers; "
+                               "use Box.unwrap() or RawPtr (Phase 33) "
+                               "for explicit unchecked pointer construction");
+                }
+
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
@@ -4579,7 +4671,22 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                      * decl_type because that path goes through types_assignable
                      * cleanly via NULL-handling on nullables. */
                     Iron_Span lit_span = (vd->init) ? vd->init->span : vd->span;
-                    if (decl_type->kind == IRON_TYPE_ARRAY && init_type->kind == IRON_TYPE_ARRAY &&
+                    if (decl_type->kind == IRON_TYPE_PTR &&
+                        init_type->kind == IRON_TYPE_PTR &&
+                        decl_type->ptr.is_unchecked != init_type->ptr.is_unchecked) {
+                        /* Phase 25 PTR-02/03 (Plan 25-01): cross-regime assignment at
+                         * var declaration. E0289 IRON_ERR_PTR_REGIME_MISMATCH. */
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot assign '%s' to '%s': "
+                                 "checked and unchecked pointer regimes are disjoint",
+                                 iron_type_to_string(init_type, ctx->arena),
+                                 iron_type_to_string(decl_type, ctx->arena));
+                        emit_error(ctx, IRON_ERR_PTR_REGIME_MISMATCH, lit_span,
+                                   msg,
+                                   "§4.3-§4.4: checked and unchecked pointer regimes are disjoint; "
+                                   "use Box.unwrap() to escape from Box[T] to *unchecked T");
+                    } else if (decl_type->kind == IRON_TYPE_ARRAY && init_type->kind == IRON_TYPE_ARRAY &&
                         decl_type->array.size >= 0 && init_type->array.size >= 0 &&
                         decl_type->array.is_bounded != init_type->array.is_bounded) {
                         /* Phase 23 VEC-283: specialize bounded<->strict cross-assign.
@@ -5196,12 +5303,32 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                    "Check for null before returning");
                     } else if (!types_assignable(ctx->current_return_type, ret_type) &&
                                !is_int_literal_narrowing(ctx->current_return_type, ret_type, rs->value)) {
-                        char msg[256];
-                        snprintf(msg, sizeof(msg),
-                                 "return type mismatch: function returns '%s', got '%s'",
-                                 iron_type_to_string(ctx->current_return_type, ctx->arena),
-                                 iron_type_to_string(ret_type, ctx->arena));
-                        emit_error(ctx, IRON_ERR_RETURN_TYPE, rs->span, msg, NULL);
+                        /* Phase 25 PTR-03 (Plan 25-01): specialize to E0289
+                         * IRON_ERR_PTR_REGIME_MISMATCH when both types are
+                         * IRON_TYPE_PTR with differing is_unchecked (regime
+                         * mismatch at return site). RESEARCH Pitfall 2: third
+                         * site of the three-site coverage (val/var-decl +
+                         * call-arg + return). */
+                        if (ctx->current_return_type->kind == IRON_TYPE_PTR &&
+                            ret_type->kind == IRON_TYPE_PTR &&
+                            ctx->current_return_type->ptr.is_unchecked != ret_type->ptr.is_unchecked) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "return type regime mismatch: function returns '%s', got '%s'; "
+                                     "checked and unchecked pointer regimes are disjoint",
+                                     iron_type_to_string(ctx->current_return_type, ctx->arena),
+                                     iron_type_to_string(ret_type, ctx->arena));
+                            emit_error(ctx, IRON_ERR_PTR_REGIME_MISMATCH, rs->span, msg,
+                                       "§4.3-§4.4: checked and unchecked pointer regimes are disjoint; "
+                                       "use Box.unwrap() to escape from Box[T] to *unchecked T");
+                        } else {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "return type mismatch: function returns '%s', got '%s'",
+                                     iron_type_to_string(ctx->current_return_type, ctx->arena),
+                                     iron_type_to_string(ret_type, ctx->arena));
+                            emit_error(ctx, IRON_ERR_RETURN_TYPE, rs->span, msg, NULL);
+                        }
                     }
                     /* Narrow literal in return (e.g., return 42 in Int32 func) */
                     if (is_int_literal_narrowing(ctx->current_return_type, ret_type, rs->value)) {

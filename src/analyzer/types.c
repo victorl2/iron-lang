@@ -99,17 +99,22 @@ Iron_Type *iron_type_make_rc(Iron_Arena *a, Iron_Type *inner) {
     return t;
 }
 
-/* Phase 20 PTR-01: checked pointer type constructor. Mirrors
- * iron_type_make_nullable shape; no interning because (pointee, is_var)
- * identity is structural and pointer types are routinely used in unique
- * combinations across the program. */
-Iron_Type *iron_type_make_ptr(Iron_Arena *a, Iron_Type *pointee, bool is_var) {
+/* Phase 20 PTR-01 + Phase 25 PTR-02: pointer type constructor.
+ * Mirrors iron_type_make_nullable shape; no interning because
+ * (pointee, is_var, is_unchecked) identity is structural and pointer types
+ * are routinely used in unique combinations across the program.
+ * Phase 25: third bool is_unchecked distinguishes *unchecked T (bare 8B C
+ * pointer, no generation tracking) from *T (Iron_FatPtr 16B checked pointer).
+ * All existing call sites for checked-regime pointers pass is_unchecked=false.
+ * RESEARCH Pitfall 3: C compiler flags any missed call site immediately. */
+Iron_Type *iron_type_make_ptr(Iron_Arena *a, Iron_Type *pointee, bool is_var, bool is_unchecked) {
     Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
     if (!t) return NULL;
     memset(t, 0, sizeof(*t));
-    t->kind        = IRON_TYPE_PTR;
-    t->ptr.pointee = pointee;
-    t->ptr.is_var  = is_var;
+    t->kind             = IRON_TYPE_PTR;
+    t->ptr.pointee      = pointee;
+    t->ptr.is_var       = is_var;
+    t->ptr.is_unchecked = is_unchecked; /* Phase 25 PTR-02 (Plan 25-01) */
     return t;
 }
 
@@ -277,9 +282,13 @@ bool iron_type_equals(const Iron_Type *a, const Iron_Type *b) {
         case IRON_TYPE_RC:
             return iron_type_equals(a->rc.inner, b->rc.inner);
 
-        /* Phase 20 PTR-01: structural equality on (pointee, is_var). */
+        /* Phase 20 PTR-01 + Phase 25 PTR-02: structural equality on
+         * (pointee, is_var, is_unchecked). RESEARCH Pitfall 2: is_unchecked
+         * MUST be included so `*T` and `*unchecked T` are NOT equal. Without
+         * this, regime isolation in types_assignable would be silently broken. */
         case IRON_TYPE_PTR:
             return a->ptr.is_var == b->ptr.is_var &&
+                   a->ptr.is_unchecked == b->ptr.is_unchecked &&
                    iron_type_equals(a->ptr.pointee, b->ptr.pointee);
 
         case IRON_TYPE_ARRAY:
@@ -380,14 +389,19 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
             return buf;
         }
 
-        /* Phase 20 PTR-01: render as `*T` or `*var T`. Composes with
+        /* Phase 20 PTR-01 + Phase 25 PTR-02: render as `*T`, `*var T`,
+         * `*unchecked T`, or `*var unchecked T`. Composes with
          * IRON_TYPE_NULLABLE outer wrap for `?*T` rendering. */
         case IRON_TYPE_PTR: {
             const char *inner = iron_type_to_string(t->ptr.pointee, a);
-            size_t len = strlen(inner) + 8; /* "*var " + inner + '\0' */
+            /* "*var unchecked " + inner + '\0' = 17 + strlen(inner) */
+            size_t len = strlen(inner) + 20;
             char *buf = (char *)iron_arena_alloc(a, len, 1);
             if (!buf) return "<oom ptr>";
-            snprintf(buf, len, "*%s%s", t->ptr.is_var ? "var " : "", inner);
+            snprintf(buf, len, "*%s%s%s",
+                     t->ptr.is_var       ? "var "       : "",
+                     t->ptr.is_unchecked ? "unchecked " : "",
+                     inner);
             return buf;
         }
 

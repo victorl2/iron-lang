@@ -91,12 +91,18 @@ typedef struct Iron_Type {
             struct Iron_Type          *inner;
         } rc;
 
-        /* IRON_TYPE_PTR — Phase 20 PTR-01.
-         * `*T` carries pointee=T, is_var=false; `*var T` carries is_var=true.
-         * `?*T` is encoded as IRON_TYPE_NULLABLE wrapping IRON_TYPE_PTR. */
+        /* IRON_TYPE_PTR — Phase 20 PTR-01 + Phase 25 PTR-02.
+         * `*T` carries pointee=T, is_var=false, is_unchecked=false.
+         * `*var T` carries is_var=true; `*unchecked T` carries is_unchecked=true.
+         * `*var unchecked T` carries both. `?*T` is encoded as
+         * IRON_TYPE_NULLABLE wrapping IRON_TYPE_PTR.
+         * Four distinct types: *T, *var T, *unchecked T, *var unchecked T.
+         * Anti-Pattern 1 (RESEARCH) honored: no new IRON_TYPE_UNCHECKED_PTR
+         * variant — is_unchecked flag avoids switch-on-kind churn. */
         struct {
             struct Iron_Type          *pointee;
             bool                       is_var;
+            bool                       is_unchecked; /* Phase 25 PTR-02 (Plan 25-01) */
         } ptr;
 
         /* IRON_TYPE_FUNC */
@@ -169,7 +175,7 @@ Iron_Type *iron_type_make_rc(Iron_Arena *a, Iron_Type *inner);
  * No interning — distinct (pointee, is_var) combinations always yield a
  * fresh Iron_Type. Returns NULL on OOM (caller propagates to
  * IRON_TYPE_ERROR poison per the established convention). */
-Iron_Type *iron_type_make_ptr(Iron_Arena *a, Iron_Type *pointee, bool is_var);
+Iron_Type *iron_type_make_ptr(Iron_Arena *a, Iron_Type *pointee, bool is_var, bool is_unchecked);
 
 /* Construct a function type func(params...) -> ret */
 Iron_Type *iron_type_make_func(Iron_Arena *a, Iron_Type **params, int count, Iron_Type *ret);

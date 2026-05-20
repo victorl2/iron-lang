@@ -1,0 +1,14 @@
+-- section 4.3 negative: cross-regime pointer assignment
+-- @req: PTR-02, PTR-03
+-- Assigning a checked *Point to *unchecked Point (or vice versa) is a
+-- compile error. Checked and unchecked pointer regimes are disjoint.
+-- Expected: E0289 IRON_ERR_PTR_REGIME_MISMATCH with substring "regime"
+object Point {
+    var x: Int
+    init() { self.x = 0 }
+}
+func main() {
+    var p: Point = Point()
+    val checked_ptr: *Point = &p
+    val raw_ptr: *unchecked Point = checked_ptr
+}

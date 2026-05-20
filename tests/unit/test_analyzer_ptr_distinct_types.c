@@ -63,8 +63,8 @@ static int total_errors(void) {
 void test_ptr_kind_distinct(void) {
     Iron_Type *int_t = iron_type_make_primitive(IRON_TYPE_INT);
     TEST_ASSERT_NOT_NULL(int_t);
-    Iron_Type *ptr_int      = iron_type_make_ptr(&arena, int_t, false);
-    Iron_Type *ptr_var_int  = iron_type_make_ptr(&arena, int_t, true);
+    Iron_Type *ptr_int      = iron_type_make_ptr(&arena, int_t, false, false); /* Phase 25: pass is_unchecked=false */
+    Iron_Type *ptr_var_int  = iron_type_make_ptr(&arena, int_t, true,  false);
     TEST_ASSERT_NOT_NULL(ptr_int);
     TEST_ASSERT_NOT_NULL(ptr_var_int);
     TEST_ASSERT_EQUAL_INT(IRON_TYPE_PTR, ptr_int->kind);
@@ -78,8 +78,8 @@ void test_ptr_kind_distinct(void) {
 /* `*T` equals another `*T` with same pointee (structural equality). */
 void test_ptr_kind_structural_equality(void) {
     Iron_Type *int_t = iron_type_make_primitive(IRON_TYPE_INT);
-    Iron_Type *a = iron_type_make_ptr(&arena, int_t, false);
-    Iron_Type *b = iron_type_make_ptr(&arena, int_t, false);
+    Iron_Type *a = iron_type_make_ptr(&arena, int_t, false, false); /* Phase 25: pass is_unchecked=false */
+    Iron_Type *b = iron_type_make_ptr(&arena, int_t, false, false);
     TEST_ASSERT_TRUE(iron_type_equals(a, b));
 }
 
@@ -125,8 +125,8 @@ void test_ptr_assign_nonvar_to_var_rejected(void) {
 void test_ptr_cross_pointee_rejected(void) {
     Iron_Type *int_t   = iron_type_make_primitive(IRON_TYPE_INT);
     Iron_Type *bool_t  = iron_type_make_primitive(IRON_TYPE_BOOL);
-    Iron_Type *p_int   = iron_type_make_ptr(&arena, int_t,   false);
-    Iron_Type *p_bool  = iron_type_make_ptr(&arena, bool_t,  false);
+    Iron_Type *p_int   = iron_type_make_ptr(&arena, int_t,   false, false); /* Phase 25: pass is_unchecked=false */
+    Iron_Type *p_bool  = iron_type_make_ptr(&arena, bool_t,  false, false);
     /* Different pointees: structural equality MUST be false. */
     TEST_ASSERT_FALSE(iron_type_equals(p_int, p_bool));
 }
