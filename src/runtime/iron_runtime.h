@@ -154,33 +154,46 @@ typedef struct IronAllocHdr {
                  "IronAllocHdr (release) must be 16B — Plan 19-01 layout lock");
 #endif
 
-/* ── Phase 26 POL-06: rc policy refcount header ─────────────────────────────
+/* ── Phase 26 POL-06 + Phase 27 GA1: rc/weak-rc policy refcount header ──────
  * Block layout: [Iron_RcHeader][IronAllocHdr][user payload].
  * User pointer points at payload start — Phase 19 ABI invariant preserved.
  * Recovery: iron_rc_header_of(user) walks back
  *   sizeof(IronAllocHdr) + sizeof(Iron_RcHeader).
  *
- * Field-layout lock (16B on 64-bit POSIX + Win32):
- *   offset 0: refcount  (8B atomic u64; relaxed-inc on retain,
- *             release-dec + acquire-fence on final drop)
- *   offset 8: drop_fn   (8B function pointer; <TypeName>_rc_drop
- *             trampoline synthesized in Plan 26-03; NULL for
- *             primitive payloads with no user destructor)
+ * Field-layout lock (24B on 64-bit POSIX + Win32 — Phase 27 ABI re-lock):
+ *   offset 0:  refcount    (8B atomic u64 — ABI-frozen Phase 26;
+ *              relaxed-inc on retain, release-dec + acquire-fence
+ *              on final drop)
+ *   offset 8:  drop_fn     (8B function pointer — ABI-frozen Phase 26;
+ *              <TypeName>_rc_drop trampoline synthesized in Plan 26-03;
+ *              NULL for primitive payloads with no user destructor)
+ *   offset 16: weak_count  (8B atomic u64 — Phase 27 GA1 lock; relaxed
+ *              inc/dec; block free condition is
+ *              weak_count == 0 AND refcount == 0)
  *
- * Lock-document: docs/dev/RC-LAYOUT.md (Phase 26 Plan 26-01 closeout).
+ * Lock-document: docs/dev/RC-LAYOUT.md §1 + §7 + §8 (Phase 27 closeout).
  * Non-transitivity (POL-10): outer rc policy governs only its own
  * struct memory; internal field allocations carry their own policy.
  *
- * Forward-compat with Phase 27 (`weak rc`): a future `weak_count` field
- * MAY append at offset 16, but refcount@0 + drop_fn@8 are ABI-frozen. */
+ * Phase 27 GA1: weak_count appended at offset 16; relaxed/relaxed for inc
+ * and dec per CONTEXT.md GA1 (Iron does not surface get_mut so Mara Bos's
+ * Acquire/Release pairing is not needed — see RC-LAYOUT.md §8 for rationale). */
 typedef struct Iron_RcHeader {
     iron_atomic_u64  refcount;
     void           (*drop_fn)(void *self);
+    iron_atomic_u64  weak_count;   /* Phase 27 GA1 — relaxed inc/dec; CONTEXT.md GA1 */
 } Iron_RcHeader;
 
-_Static_assert(sizeof(Iron_RcHeader) == 16,
-               "Iron_RcHeader ABI lock — 16B on 64-bit POSIX/Win32. "
+_Static_assert(sizeof(Iron_RcHeader) == 24,
+               "Iron_RcHeader ABI re-lock — 24B on 64-bit POSIX/Win32 "
+               "(Phase 27 weak_count append). "
                "See docs/dev/RC-LAYOUT.md §1 for the public commitment.");
+_Static_assert(offsetof(Iron_RcHeader, refcount)   == 0,
+               "refcount@0  ABI-frozen (Phase 26)");
+_Static_assert(offsetof(Iron_RcHeader, drop_fn)    == 8,
+               "drop_fn@8   ABI-frozen (Phase 26)");
+_Static_assert(offsetof(Iron_RcHeader, weak_count) == 16,
+               "weak_count@16 Phase 27 ABI lock");
 
 /* Public API — definitions in src/runtime/iron_heap_track.c. */
 Iron_FatPtr iron_heap_alloc(const char *site_file, int site_line, size_t size);

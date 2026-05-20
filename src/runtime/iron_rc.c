@@ -105,6 +105,11 @@ void *iron_rc_alloc(size_t size, void (*drop_fn)(void *)) {
     Iron_RcHeader *rch = (Iron_RcHeader *)block;
     IRON_ATOMIC_U64_INIT(rch->refcount, 1);
     rch->drop_fn = drop_fn;
+    /* Phase 27 Pitfall 4 — initial weak_count MUST be 0 or a subsequent
+     * fetch_add observes garbage; downstream weak_release would never
+     * trip the free condition. CONTEXT.md GA1 free condition is
+     * weak_count == 0 AND refcount == 0. */
+    IRON_ATOMIC_U64_INIT(rch->weak_count, 0);
 
     IronAllocHdr *ahd =
         (IronAllocHdr *)((char *)block + sizeof(Iron_RcHeader));

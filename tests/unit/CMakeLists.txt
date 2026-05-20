@@ -1366,3 +1366,14 @@ add_test(NAME test_oq03_closure_rc_retain_release COMMAND test_oq03_closure_rc_r
 set_tests_properties(test_oq03_closure_rc_retain_release PROPERTIES
     LABELS "unit;phase26-invariant"
     TIMEOUT 30)
+
+# ── Phase 27 GA1 (Plan 27-01 Task 1): weak rc 24B header layout invariants ──
+# test_weak_rc_layout — Wave 0 RED for Plan 27-01 Task 1; flips GREEN when
+# Iron_RcHeader grows from 16B → 24B with weak_count at offset 16, and
+# iron_rc_alloc zero-initialises the field per CONTEXT.md GA1 Pitfall 4.
+add_executable(test_weak_rc_layout test_weak_rc_layout.c)
+target_link_libraries(test_weak_rc_layout iron_runtime unity)
+add_test(NAME test_weak_rc_layout COMMAND test_weak_rc_layout)
+set_tests_properties(test_weak_rc_layout PROPERTIES
+    LABELS "unit;phase27-invariant"
+    TIMEOUT 30)
