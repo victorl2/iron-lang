@@ -1,0 +1,23 @@
+-- section 4.8 rc policy: atomic refcount correctness under concurrency
+-- @req: POL-06, ATOMIC-01
+-- extends-spec: ATOMIC-01 soundness barrier - atomic refcount integrity on spawn/await
+
+object SharedData {
+    val value: Int
+
+    drop {
+        println("drop: shared {value}")
+    }
+}
+
+func worker(data: rc SharedData) {
+    println("worker sees: {data.value}")
+}
+
+func main() {
+    val shared = rc SharedData(value: 100)
+    val copy_for_worker = shared
+    val t = spawn worker(copy_for_worker)
+    await t
+    println("main sees: {shared.value}")
+}

@@ -1,0 +1,4 @@
+inner value: 42
+outer tag: 7
+drop inner: 42
+drop container: 7

@@ -1,0 +1,33 @@
+-- section 4.8 rc policy: POL-10 non-transitivity demonstration
+-- @req: POL-06, POL-10
+-- extends-spec: rc holds heap-allocated container; freeing rc payload at last
+-- drop runs the inner heap free as part of the user drop body — but only
+-- because the user drop explicitly invokes it. Outer rc lifetime does NOT
+-- automatically govern inner heap lifetime; policies compose by user code,
+-- not by implicit cascade. The rc field at boundary_field_holds_rc is the
+-- mirror case (rc INSIDE another object).
+
+object Inner {
+    val value: Int
+
+    drop {
+        println("drop inner: {value}")
+    }
+}
+
+object Container {
+    val tag: Int
+
+    drop {
+        println("drop container: {tag}")
+    }
+}
+
+func main() {
+    -- two independent rc allocations; non-transitivity means each is
+    -- governed by its own refcount, not by a containing scope's policy.
+    val outer = rc Container(tag: 7)
+    val inner = rc Inner(value: 42)
+    println("inner value: {inner.value}")
+    println("outer tag: {outer.tag}")
+}

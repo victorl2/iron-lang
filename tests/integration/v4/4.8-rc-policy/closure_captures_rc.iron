@@ -1,0 +1,22 @@
+-- section 4.8 rc policy: OQ-03 closure captures rc T
+-- @req: POL-06, OQ-03
+-- extends-spec: lambda captures rc T by value; closure outlives original
+-- binding; refcount stays > 0 across original drop; closure drop releases.
+
+object Counter {
+    val tag: Int
+
+    drop {
+        println("drop counter: {tag}")
+    }
+}
+
+func main() {
+    val original = rc Counter(tag: 99)
+    val show = func() {
+        println("captured: {original.tag}")
+    }
+    show()
+    show()
+    println("main done")
+}

@@ -1,0 +1,17 @@
+-- section 4.8 rc policy: shared ownership via reference counting
+-- @req: POL-06, POL-07
+-- canonical rc copy + drop probe; drop fires once after both leave scope
+
+object Texture {
+    val path: String
+
+    drop {
+        println("free: {path}")
+    }
+}
+
+func main() {
+    val sprite = rc Texture(path: "hero.png")
+    val also = sprite
+    println("loaded: {sprite.path}")
+}
