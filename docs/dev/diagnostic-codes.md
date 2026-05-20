@@ -476,6 +476,63 @@ codes should accept either the bare integer or the `E<NNN>` string.
    refcount-only with no user destructor — correct for primitives and types
    without user drop blocks).
 
+## Phase 27 — `weak rc` Policy (POL-08, POL-09)
+
+Codes allocated: **E0299** (`IRON_ERR_WEAK_RC_DEREF`) and **E0300**
+(`IRON_ERR_WEAK_RC_DOWNGRADE_NOT_RC`). Substrate landed in Plan 27-01;
+parser/typecheck sites land in Plan 27-02.
+
+| Code | Name | Message | Hint | Quickfix | Phase | Spec §  |
+|------|------|---------|------|----------|-------|---------|
+| 299  | `IRON_ERR_WEAK_RC_DEREF` | `cannot dereference \`weak rc T\` directly` | `use \`upgrade()\` to obtain a strong reference; check for null before dereferencing` | _(diagnostic message + parser site allocated in Plan 27-02)_ | 27 (Plan 27-02) | §4.6 (POL-08) |
+| 300  | `IRON_ERR_WEAK_RC_DOWNGRADE_NOT_RC` | `\`.downgrade()\` is only available on \`rc T\` values` | `downgrade() converts \`rc T\` to \`weak rc T\`; the receiver must be a strong rc reference` | _(diagnostic message + parser site allocated in Plan 27-02)_ | 27 (Plan 27-02) | §4.6 (POL-08) |
+
+### Notes — Phase 27
+
+1. **E0296 `IRON_ERR_PTR_AMP_ON_RC` extended (no new code).** Plan 27-02
+   broadens the diagnostic message to apply to both `rc T` and `weak rc T`
+   receivers; the hint references `weak rc T` (now landed) as the
+   non-owning reference path. No additional code allocation.
+
+2. **Type mismatch (passing `weak rc T` where `rc T` expected):** reuses
+   existing `E0217 IRON_ERR_TYPE_MISMATCH`. No new code; the canonical
+   `expected T, got U` message surfaces the mismatch with full type names.
+
+3. **`upgrade()` in `readonly` context is allowed.** Plan 27-02 commits to
+   a positive integration fixture `readonly_can_upgrade.iron` proving that
+   `E0279 IRON_ERR_READONLY_HEAP_ESCAPE` is NOT extended to weak-rc
+   upgrades. Upgrade is a read-only operation (atomic load + CAS, no
+   allocation, no I/O).
+
+4. **`weak rc null` representation (GA3).** `weak rc T` is implicitly
+   nullable; `weak rc null` is a constructor expression producing the
+   empty form. Lowers to a literal NULL pointer in the weak-header slot
+   with `weak_count` not bumped. `upgrade()` on a null weak rc returns
+   null `T?` — no panic, no crash.
+
+5. **LIR opcodes** (Plan 27-02 substrate): `IRON_LIR_WEAK_RC_RETAIN`,
+   `IRON_LIR_WEAK_RC_RELEASE`, `IRON_LIR_WEAK_RC_DOWNGRADE`,
+   `IRON_LIR_WEAK_RC_UPGRADE`. Distinct opcodes (not flags on existing
+   `IRON_LIR_RC_*`) so the Phase 29 elision pass can pattern-match
+   cleanly. Verify.c, print.c, emit_c.c parity for all 4 opcodes.
+
+6. **Runtime substrate (Plan 27-01 closed).** `Iron_RcHeader` extended
+   from 16B to 24B with `weak_count` at offset 16 (relaxed inc/dec).
+   `iron_weak_rc_retain`, `iron_weak_rc_release`, `iron_rc_downgrade`,
+   `iron_rc_upgrade` (Rust Arc canonical CAS loop) landed in
+   `src/runtime/iron_rc.c`. Block free condition is
+   `weak_count == 0 AND strong_count == 0`. Full state machine + upgrade
+   race state diagram + Mara-vs-Iron memory-ordering rationale in
+   `docs/dev/RC-LAYOUT.md` §8.
+
+7. **Closure capture of `weak rc` (OQ-04, Plan 27-03).** Mirrors Phase 26
+   OQ-03 verbatim with weak-rc opcodes. HIR-to-LIR emits
+   `IRON_LIR_WEAK_RC_RETAIN` per weak-rc captured field at the
+   `IRON_HIR_EXPR_CLOSURE` arm. `MAKE_CLOSURE` in `emit_c.c` synthesizes
+   `<func_name>_env_drop` companion calling `iron_weak_rc_release` per
+   field. Codegen invariant test pin:
+   `count(weak_release) == count(weak_retain) + count(weak_alloc_via_downgrade)`.
+
 ## Adding new codes
 
 1. Allocate the next free slot in the appropriate range. Verify uniqueness

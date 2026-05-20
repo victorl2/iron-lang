@@ -1,6 +1,6 @@
 # RC-LAYOUT.md — Iron `rc` Policy ABI Lock
 
-**Phase 26, locked 2026-05-20. Mirror template: POINTER-LAYOUT.md, DROP-LAYOUT.md, UNCHECKED-LAYOUT.md.**
+**Phase 26 locked 2026-05-20; Phase 27 re-locked 2026-05-20 (24B header for weak rc). Mirror template: POINTER-LAYOUT.md, DROP-LAYOUT.md, UNCHECKED-LAYOUT.md.**
 
 ## Overview
 
@@ -37,20 +37,26 @@ The runtime substrate is the `Iron_RcHeader` struct prepended before
 
 ```c
 typedef struct Iron_RcHeader {
-    iron_atomic_u64  refcount;    /* offset 0, 8 bytes — relaxed-inc on retain,
-                                     release-dec + acquire-fence on final drop */
-    void           (*drop_fn)(void *self);  /* offset 8, 8 bytes — <TypeName>_rc_drop
-                                               trampoline (Plan 26-03); NULL for
-                                               primitive payloads */
+    iron_atomic_u64  refcount;    /* offset 0, 8 bytes — ABI-frozen (Phase 26).
+                                     Relaxed-inc on retain, release-dec on
+                                     release, acquire-fence on final drop. */
+    void           (*drop_fn)(void *self);  /* offset 8, 8 bytes — ABI-frozen
+                                               (Phase 26). <TypeName>_rc_drop
+                                               trampoline (Plan 26-03); NULL
+                                               for primitive payloads. */
+    iron_atomic_u64  weak_count;  /* offset 16, 8 bytes — ABI-locked Phase 27.
+                                     Relaxed inc on downgrade, relaxed dec on
+                                     weak release. Block free condition is
+                                     weak_count == 0 AND strong_count == 0. */
 } Iron_RcHeader;
-_Static_assert(sizeof(Iron_RcHeader) == 16, "Iron_RcHeader ABI lock — 16B on 64-bit POSIX/Win32");
+_Static_assert(sizeof(Iron_RcHeader) == 24, "Iron_RcHeader ABI re-lock — 24B on 64-bit POSIX/Win32");
 ```
 
 **Block layout:**
 
 ```
 +-------------------+  block start
-| Iron_RcHeader     |   16 bytes (refcount + drop_fn)
+| Iron_RcHeader     |   24 bytes (refcount + drop_fn + weak_count)
 +-------------------+
 | IronAllocHdr      |   16 bytes release / 32 bytes debug (gen + size [+ site])
 +-------------------+
@@ -215,6 +221,13 @@ to Phase 32 (init inlining limitation). Phase 26 extends the mechanism; the
 end-to-end pump that drives `_init` function bodies remains future work. The
 substrate is ready for the Phase 32 push.
 
+**Phase 27 weak rc extension.** Weak rc fields participate in partial-init
+cleanup via `iron_weak_rc_release` mirror of the rc path: for a field of
+type `weak rc T` initialised before a mid-init panic, the cleanup stack
+entry's `drop_fn` is `iron_weak_rc_release`. Same mechanism, same Phase 32
+end-to-end coverage gap (init inlining limitation). Cross-reference:
+DROP-05 PARTIAL in REQUIREMENTS.md.
+
 ## 5. Panic-Trap Reuse from Phase 24
 
 Cross-reference: DROP-LAYOUT.md §5 + `src/lir/emit_c.c:5802-5810` (Phase 24
@@ -280,39 +293,211 @@ Plan 26-03 wires the LIR-level synthesis in `emit_helpers.c` alongside the
 Phase 24 copy/drop block emission, with the dedup pin
 `emitted_rc_drops` mirroring Phase 24's `emitted_drops`.
 
-## 7. Phase 27 Forward-Reference (weak rc)
+## 7. Phase 27 weak rc — Live Spec
 
-Phase 27 adds `weak rc T` and `upgrade(): T?`. The `Iron_RcHeader` structure
-**may** gain a `weak_count` field at that time, but the layout extension
-**must** preserve:
+Phase 27 lands `weak rc T` (POL-08) and `upgrade(): T?` (POL-09). The
+`Iron_RcHeader` structure is now 24B with the new `weak_count` field
+appended at offset 16. The Phase 26 ABI invariants are preserved verbatim:
 
 - (a) `refcount` stays at offset 0 (relaxed-inc / release-dec hot path
-  unchanged; matters for the Phase 29 elision optimizer's pattern-matching).
-- (b) `drop_fn` stays at offset 8 (final-drop call site; matters for the
-  static-dispatch convention locked by GA5).
+  unchanged; required by the Phase 29 elision optimizer's pattern-matching).
+- (b) `drop_fn` stays at offset 8 (final-drop call site; required by the
+  static-dispatch convention locked by GA5 in Phase 26).
+- (c) `weak_count` appended at offset 16 (relaxed inc/dec; CONTEXT.md GA1).
 
-Any `weak_count` field appends at offset 16. New header total size (likely
-24B with 8B padding for cache-line alignment, but the exact layout is a
-Phase 27 decision) requires re-locking via a new `_Static_assert` and an
-update to RC-LAYOUT.md §1.
+**Block free condition:** `weak_count == 0 AND strong_count == 0`. Whichever
+counter trips zero LAST is responsible for `free(block)`. The intermediate
+state (strong=0, weak>0) means the payload destructor has run but the
+header persists so weak refs remain readable — upgrade() observes
+refcount==0 and returns NULL (safe; no UAF).
 
-Phase 26 ships **strong refs only**. The trio
-`iron_rc_downgrade` / `iron_weak_upgrade` is OUT.
+The strong-rc trio (`iron_rc_alloc`, `iron_rc_retain`, `iron_rc_release`)
+remains the Phase 26 substrate; Phase 27 adds the weak-side quartet
+(`iron_weak_rc_retain`, `iron_weak_rc_release`, `iron_rc_downgrade`,
+`iron_rc_upgrade`). See §8 for the semantics + upgrade race state diagram
+and §9 for the closure-capture-of-weak-rc invariant.
 
-## 8. Stability Commitment
+## 8. Weak Count Semantics + Upgrade Race
+
+### 8.1 API summary
+
+| Function                  | Strong/Weak | Returns                          | Effect                                          |
+|---------------------------|-------------|----------------------------------|-------------------------------------------------|
+| `iron_rc_alloc(s, drop)`  | strong=1, weak=0 | user_ptr                    | Allocates block; both counters initialised      |
+| `iron_rc_retain(p)`       | strong+=1   | void                             | Relaxed fetch_add on refcount                   |
+| `iron_rc_release(p)`      | strong-=1   | void                             | Release fetch_sub; on prev==1: drop_fn + free(block) iff weak_count==0 |
+| `iron_rc_downgrade(p)`    | weak+=1     | user_ptr (same)                  | Relaxed fetch_add on weak_count                 |
+| `iron_weak_rc_retain(p)`  | weak+=1     | void                             | Relaxed fetch_add on weak_count                 |
+| `iron_weak_rc_release(p)` | weak-=1     | void                             | Relaxed fetch_sub; on prev==1: free(block) iff refcount==0 |
+| `iron_rc_upgrade(p)`      | strong+=1 (race-won) | user_ptr OR NULL        | Rust-Arc CAS loop; NULL on observed refcount==0 |
+
+`iron_rc_downgrade` and `iron_weak_rc_retain` are semantically equivalent
+for an existing live block; the distinction is type-system level —
+`downgrade` converts the static type `rc T` to `weak rc T` and is the
+entry point from compiler-emitted strong-to-weak transitions, while
+`iron_weak_rc_retain` is invoked by Phase 27 OQ-04 closure-capture code
+synthesis on a value already typed `weak rc T`.
+
+### 8.2 Block lifecycle state machine
+
+Adapted from Mara Bos *Rust Atomics and Locks* Ch. 6 + Rust
+`library/alloc/src/sync.rs` Weak::upgrade:
+
+```
+State 1: ALIVE
+  - strong_count > 0, weak_count >= 0
+  - Payload valid; header valid; all operations supported.
+
+State 2: PAYLOAD_DESTROYED (strong=0, weak>0)
+  - drop_fn has run; user payload memory is logically dead but the block
+    is NOT yet freed.
+  - Header (Iron_RcHeader) still resident; weak refs remain readable.
+  - upgrade() loads refcount and observes 0 -> returns NULL safely.
+  - downgrade() N/A (no strong handle exists at this state).
+
+State 3: HEADER_FREED (strong=0, weak=0)
+  - Block malloc-freed; ALL pointers (strong and weak) dangling.
+  - Reaching this state requires the last weak_count decrement to
+    observe strong_count == 0 (acquire-load in iron_weak_rc_release).
+
+TRANSIENT: in-destructor (strong=0, weak>=0, drop_fn running)
+  - Covered by Phase 24 iron_in_destructor TLS flag.
+  - upgrade() during this window observes refcount==0 -> returns NULL.
+  - Phase 26 DROP-04 panic-trap covers panicking destructor.
+```
+
+**Transition gates:**
+
+- `strong -> 0`: in `iron_rc_release` when prev==1. Acquire-fence + drop_fn
+  + conditional `free(block)` gated by `IRON_ATOMIC_U64_LOAD_ACQUIRE(weak_count) == 0`.
+  If weak>0: free deferred to weak=0 transition.
+- `weak -> 0`: in `iron_weak_rc_release` when prev==1 AND
+  `IRON_ATOMIC_U64_LOAD_ACQUIRE(refcount) == 0`. Triggers `free(block)`.
+
+### 8.3 Upgrade race state diagram (POL-09 critical correctness)
+
+```
+Thread A (holds last strong)     Thread B (holds weak, wants upgrade)
+─────────────────────────────    ─────────────────────────────────────
+FETCH_SUB_RELEASE(refcount, 1)
+  prev = 1                       LOAD_ACQUIRE(refcount)
+                                   sees 0  -> return NULL    [safe]
+                                 OR
+                                   sees N>0 -> CAS(refcount, N, N+1)
+                                     fails (A's dec committed) -> loop
+                                     loads 0 -> return NULL  [safe]
+                                 OR
+                                   sees N>0 -> CAS(refcount, N, N+1)
+                                     succeeds (race won)
+                                     return user_ptr         [safe;
+                                                              A has not
+                                                              yet hit
+                                                              prev==1]
+ACQUIRE_FENCE
+drop_fn(user_ptr)
+if LOAD_ACQUIRE(weak_count)==0
+  free(block)
+else
+  retain block — B may still hold weak handle
+```
+
+The acquire-load + relaxed/relaxed CAS pattern guarantees: B never reserves
+a strong ref to a soon-to-be-destructed payload. **CAS-success implies B
+observed refcount > 0 strictly AFTER A's release-dec** (otherwise B's
+acquire-load would have synchronized with A's release-dec and seen 0).
+If A's release-dec lands BEFORE B's CAS commits, A's prev returns
+something > 1 and A skips the destructor — B's bumped ref is then the new
+last-strong and A's release counts as a non-final release.
+
+### 8.4 Memory ordering rationale — Iron diverges from Mara Bos
+
+Mara Bos's *Rust Atomics and Locks* Chapter 6 ("Building Our Own Arc")
+uses **Acquire on weak_count downgrade-inc** and **Release on weak_count
+drop-dec**. Iron uses **Relaxed for both** (CONTEXT.md GA1).
+
+**Why Iron diverges:** Mara's Acquire/Release weak_count pairing exists
+specifically to synchronize with `Arc::get_mut`, which checks
+`weak_count == 1 && strong_count == 1` and needs both counters observed
+consistently to make exclusive-access claims about the inner value. Iron
+v3.0 does **not** surface get_mut-style exclusive-access APIs (no
+`Arc::make_mut`, no `Arc::get_mut`); `rc T` is shared by design, and
+`*T` access goes through Phase 19's generation-tracked deref check, not
+through refcount-based exclusivity.
+
+Relaxed/Relaxed is therefore canonical for Iron's contract. The cross-
+counter synchronization edges that DO matter (block-free predicates in
+`iron_rc_release` and `iron_weak_rc_release`) are carried by the explicit
+acquire-load on the OTHER counter, not by the weak_count operation itself.
+Eliding the redundant fence cost matters for the Phase 29 elision
+optimizer's pattern-matching: every weak_count atomic is a candidate
+for elision when the surrounding scope can prove a reduction in the
+total count of paired retain/release operations.
+
+### 8.5 References
+
+- Mara Bos, *Rust Atomics and Locks* Ch. 6 — https://marabos.nl/atomics/building-arc.html
+- Rust std `library/alloc/src/sync.rs` — `Weak::upgrade` (canonical CAS loop)
+- RustBelt-Relaxed: Ralf Jung, "The Tale of a Bug in Arc" — https://www.ralfj.de/blog/2018/07/19/arc.html
+- C11 §7.17.4.3 (`atomic_compare_exchange_weak_explicit`)
+
+## 9. Closure Capture of `weak rc` (OQ-04)
+
+Phase 27 mirrors Phase 26 OQ-03 closure-capture verbatim with weak-rc
+opcodes. The pattern (closure captures a weak rc field by value):
+
+- **At closure construction:** synthesized retain block calls
+  `iron_weak_rc_retain` per captured `weak rc T` field — one bump per new
+  closure instance. The captured-state struct is allocated and field-
+  initialized; the retain is emitted alongside the field-initializer.
+- **At closure copy:** synthesized copy block calls
+  `iron_weak_rc_retain` on each captured weak-rc field. Each closure-
+  instance copy is a shallow C struct-copy of the captured-state struct;
+  the synthesized copy block adds the retains to balance the future drops.
+- **At closure drop:** synthesized drop block calls
+  `iron_weak_rc_release` on each captured weak-rc field. Each closure-
+  instance drop releases exactly the weak refs it owns.
+
+**Invariant** (mirror of Phase 26 OQ-03 Major #5 hardened invariant):
+
+```
+count(iron_weak_rc_release)
+    == count(iron_weak_rc_retain) + count(iron_rc_downgrade)
+```
+
+The asymmetric ground truth (downgrade creates +1 weak_count with no
+paired retain emit) matches Phase 26's "alloc creates refcount=1 with no
+paired retain" precedent. Verified by the codegen invariant test
+`tests/unit/test_oq04_closure_weak_rc_retain_release.c`.
+
+**Implementation sites** (Plan 27-03 Task 1):
+
+- `src/hir/hir_to_lir.c` IRON_HIR_EXPR_CLOSURE arm (current pinned line
+  1629; mirrors Phase 26 OQ-03 retain block).
+- `src/lir/emit_c.c` IRON_LIR_MAKE_CLOSURE arm (current pinned line 4327;
+  mirrors Phase 26 Approach A env_drop synthesis).
+
+The synthesized companion `<func_name>_env_drop` releases each weak-rc
+env field via `iron_weak_rc_release`. The closure's drop_fn pointer is
+filled with this synthesized companion at MAKE_CLOSURE time.
+
+## 10. Stability Commitment
 
 Iron v3.0+:
 
-- `Iron_RcHeader` field layout (refcount @ 0, drop_fn @ 8) is **ABI-frozen**.
-  Programs compiled against v3.0 must continue to interoperate at the binary
-  level with v3.x runtimes.
+- `Iron_RcHeader` field layout (refcount @ 0, drop_fn @ 8, weak_count @ 16)
+  is **ABI-frozen**. Programs compiled against v3.0 must continue to
+  interoperate at the binary level with v3.x runtimes.
 - The retain/release atomic discipline (relaxed-inc / release-dec /
-  acquire-fence on last-drop) is **correctness-frozen**. Alternative orderings
-  are out of scope; the elision optimizer (Phase 29) operates on pair-pattern
-  matching (matched retain/release pairs across a function body), NOT on
-  weakening individual atomic operations.
+  acquire-fence on last-drop for strong; relaxed inc/dec for weak) is
+  **correctness-frozen**. Alternative orderings are out of scope; the
+  elision optimizer (Phase 29) operates on pair-pattern matching (matched
+  retain/release pairs across a function body), NOT on weakening
+  individual atomic operations.
 - The block layout `[Iron_RcHeader][IronAllocHdr][payload]` is **ABI-frozen**.
   The user pointer + Phase 19 deref-check invariant is preserved.
+- The block free condition `weak_count == 0 AND strong_count == 0` is
+  **correctness-frozen**. Phase 28 arena interaction MUST preserve this
+  predicate.
 
 Any future change requires:
 
@@ -326,6 +511,8 @@ Any future change requires:
   recompilation requirement documented in the major-version release notes.
 
 Cross-reference: REQUIREMENTS POL-06 (allocation form), POL-07 (no `&` on
-rc), POL-10 (non-transitivity), POL-11 (closed-policy lifecycle set), OQ-03
-(closure rc semantics). The Iron v3.0 milestone success criterion #4 (closed
-policy set = `{stack, heap, rc, weak rc}`) is locked here.
+rc/weak rc), POL-08 (weak rc non-owning), POL-09 (upgrade against last
+drop), POL-10 (non-transitivity), POL-11 (closed-policy lifecycle set),
+OQ-03 (closure rc semantics), OQ-04 (closure weak rc semantics). The Iron
+v3.0 milestone success criterion #4 (closed policy set =
+`{stack, heap, rc, weak rc}`) is locked here.
