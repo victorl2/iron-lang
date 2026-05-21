@@ -219,6 +219,20 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
                                 entry->alloca_id, span);
             continue;
         }
+        /* Phase 27 POL-08 (Plan 27-03): IRON_TYPE_WEAK_RC scope-exit emits
+         * IRON_LIR_WEAK_RC_RELEASE on the binding value. Closes the
+         * weak-count balance equation for OQ-04: every weak rc binding
+         * created via downgrade() contributes +1 to weak_count at
+         * construction, which must be paired with exactly one release at
+         * scope exit. The runtime helper iron_weak_rc_release decrements
+         * weak_count relaxed and conditionally frees the block when both
+         * weak_count and strong_count have reached 0 (RC-LAYOUT.md §8). */
+        if (entry->object_type->kind == IRON_TYPE_WEAK_RC) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            iron_lir_weak_rc_release(ctx->current_func, ctx->current_block,
+                                     entry->alloca_id, span);
+            continue;
+        }
         if (entry->object_type->kind != IRON_TYPE_OBJECT) continue;
         struct Iron_ObjectDecl *od = entry->object_type->object.decl;
         if (!od) continue;
@@ -1679,32 +1693,48 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             }
         }
 
-        /* Phase 26 OQ-03 (Plan 26-03): closure captures rc T by value into
-         * the env struct. The capture path (this arm) does NOT go through
-         * IRON_LIR_STORE -- captures are loaded into cap_vals[] and packed
-         * into the env at MAKE_CLOSURE emission time (emit_c.c:4280-4360).
-         * Therefore Plan 26-02's STORE+IRON_TYPE_RC retain does NOT cover
-         * closure capture; we emit an explicit IRON_LIR_RC_RETAIN per
-         * rc-typed val capture BEFORE the iron_lir_make_closure call.
+        /* Phase 26 OQ-03 + Phase 27 OQ-04: closure capture retain emission.
+         * For each val-captured field whose type is rc OR weak rc, emit a
+         * corresponding RETAIN opcode BEFORE iron_lir_make_closure. The pairing
+         * release lives in the synthesized <func_name>_env_drop companion
+         * emitted by the IRON_LIR_MAKE_CLOSURE arm in emit_c.c (Approach A —
+         * companion-in-lifted_funcs). var captures (is_mutable=true) are skipped:
+         * they are pointer-to-binding, not weak/strong refs themselves.
+         *
+         * The capture path (this arm) does NOT go through IRON_LIR_STORE --
+         * captures are loaded into cap_vals[] and packed into the env at
+         * MAKE_CLOSURE emission time (emit_c.c:4280-4360). Therefore Plan
+         * 26-02's STORE+IRON_TYPE_RC retain does NOT cover closure capture;
+         * we emit an explicit retain opcode per rc/weak-rc val capture.
          *
          * Pitfall 3 (double-retain) is N/A because STORE is not on this
-         * code path. The drop-side counterpart -- per-rc-field
-         * iron_rc_release in a synthesized <func_name>_env_drop companion
-         * -- is emitted in the IRON_LIR_MAKE_CLOSURE arm of emit_c.c.
-         * 1:1 balance is verified by test_oq03_closure_rc_retain_release. */
+         * code path. 1:1 balance is verified by
+         * test_oq03_closure_rc_retain_release (Phase 26) and
+         * test_oq04_closure_weak_rc_retain_release (Phase 27). */
         if (expr->closure.captures && cap_count > 0 &&
             ctx->current_block && !block_is_terminated(ctx->current_block)) {
             for (int ci = 0; ci < cap_count; ci++) {
-                /* Only val captures of rc T need a retain; var captures
-                 * carry a pointer to the outer alloca and are not refcount
-                 * events on the rc payload. */
+                /* Only val captures of rc/weak rc T need a retain; var
+                 * captures carry a pointer to the outer alloca and are not
+                 * refcount events on the rc payload. */
                 if (expr->closure.captures[ci].is_mutable) continue;
                 Iron_Type *cap_ty = expr->closure.captures[ci].type;
-                if (cap_ty && cap_ty->kind == IRON_TYPE_RC &&
-                    cap_vals && cap_vals[ci] != IRON_LIR_VALUE_INVALID) {
+                if (!cap_ty || !cap_vals ||
+                    cap_vals[ci] == IRON_LIR_VALUE_INVALID) continue;
+                if (cap_ty->kind == IRON_TYPE_RC) {
                     iron_lir_rc_retain(ctx->current_func,
                                        ctx->current_block,
                                        cap_vals[ci], span);
+                } else if (cap_ty->kind == IRON_TYPE_WEAK_RC) {
+                    /* Phase 27 OQ-04: mirror of Phase 26 OQ-03 for weak rc
+                     * closure capture. Construction-time retain emitted
+                     * ONCE per closure-instance creation; paired with
+                     * iron_weak_rc_release in the synthesized env_drop
+                     * companion. See docs/dev/RC-LAYOUT.md §9 + Major #5
+                     * hardened invariant. */
+                    iron_lir_weak_rc_retain(ctx->current_func,
+                                            ctx->current_block,
+                                            cap_vals[ci], span);
                 }
             }
         }
@@ -2148,6 +2178,37 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                             iron_lir_rc_retain(ctx->current_func,
                                                ctx->current_block,
                                                init_val, span);
+                        }
+                        IronLIR_DropEntry de = { init_val, type, true };
+                        arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+                    }
+                    /* Phase 27 POL-08 (Plan 27-03): IRON_TYPE_WEAK_RC val bindings.
+                     * Lifecycle (mirrors the rc path; ground-truth source is
+                     * .downgrade() instead of fresh allocation):
+                     *   - fresh weak rc null literal (IRON_HIR_EXPR_WEAK_RC_NULL)
+                     *     produces a NULL header pointer — weak_count unchanged.
+                     *   - .downgrade() expression (IRON_HIR_EXPR_WEAK_RC_DOWNGRADE)
+                     *     bumps weak_count by 1 — NO retain needed at binding.
+                     *   - aliasing an existing weak rc binding copies a pointer
+                     *     to the same header — emit weak_rc_retain so the alias
+                     *     has its own counted weak reference.
+                     *   - scope exit emits weak_rc_release (per drop_stacks
+                     *     entry pushed here) regardless of source. */
+                    if (type && type->kind == IRON_TYPE_WEAK_RC &&
+                        ctx->defer_depth > 0 &&
+                        ctx->drop_stacks &&
+                        ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
+                        /* Retain on alias (init != fresh downgrade/null) */
+                        IronHIR_ExprKind ik = stmt->let.init->kind;
+                        bool init_is_fresh =
+                            (ik == IRON_HIR_EXPR_WEAK_RC_NULL) ||
+                            (ik == IRON_HIR_EXPR_WEAK_RC_DOWNGRADE);
+                        if (!init_is_fresh &&
+                            ctx->current_block &&
+                            !block_is_terminated(ctx->current_block)) {
+                            iron_lir_weak_rc_retain(ctx->current_func,
+                                                    ctx->current_block,
+                                                    init_val, span);
                         }
                         IronLIR_DropEntry de = { init_val, type, true };
                         arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);

@@ -1367,6 +1367,21 @@ set_tests_properties(test_oq03_closure_rc_retain_release PROPERTIES
     LABELS "unit;phase26-invariant"
     TIMEOUT 30)
 
+# ── Phase 27 OQ-04 (Plan 27-03 Task 1): closure capture weak-rc retain/release ──
+# Verifies hir_to_lir.c IRON_HIR_EXPR_CLOSURE arm emits IRON_LIR_WEAK_RC_RETAIN
+# per weak-rc-typed val capture AND emit_c.c IRON_LIR_MAKE_CLOSURE arm
+# extends the env_drop body to emit iron_weak_rc_release on each weak-rc env
+# field (alongside the Phase 26 rc-side branch). Major #5 hardening (inherited
+# from Phase 26): BOTH count(retain) >= 1 minimum AND
+# count(release) == count(retain) + count(downgrade) balance assertions.
+add_executable(test_oq04_closure_weak_rc_retain_release test_oq04_closure_weak_rc_retain_release.c)
+target_link_libraries(test_oq04_closure_weak_rc_retain_release PRIVATE iron_compiler iron_runtime unity m pthread)
+target_include_directories(test_oq04_closure_weak_rc_retain_release PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/vendor)
+add_test(NAME test_oq04_closure_weak_rc_retain_release COMMAND test_oq04_closure_weak_rc_retain_release)
+set_tests_properties(test_oq04_closure_weak_rc_retain_release PROPERTIES
+    LABELS "unit;phase27-invariant"
+    TIMEOUT 30)
+
 # ── Phase 27 GA1 (Plan 27-01 Task 1): weak rc 24B header layout invariants ──
 # test_weak_rc_layout — Wave 0 RED for Plan 27-01 Task 1; flips GREEN when
 # Iron_RcHeader grows from 16B → 24B with weak_count at offset 16, and

@@ -4439,13 +4439,15 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 arrput(ctx->emitted_env_drops, func_copy);
 
                 iron_strbuf_appendf(&ctx->lifted_funcs,
-                    "/* Phase 26 OQ-03 (Plan 26-03): env-drop companion for %s.\n"
-                    " * Releases each rc-typed captured field then frees the\n"
+                    "/* Phase 26 OQ-03 (Plan 26-03) + Phase 27 OQ-04 (Plan 27-03):\n"
+                    " * env-drop companion for %s.\n"
+                    " * Releases each rc/weak-rc-typed captured field then frees the\n"
                     " * heap env block. Symbol is preserved for future drop-stack\n"
-                    " * wiring (Phase 27+); the body is emitted today so that\n"
-                    " * closure rc captures contribute count(iron_rc_release)\n"
-                    " * matching the construct-time count(iron_rc_retain)\n"
-                    " * (test_oq03_closure_rc_retain_release invariant). */\n"
+                    " * wiring; the body is emitted today so that closure rc/weak-rc\n"
+                    " * captures contribute count(iron_rc_release) +\n"
+                    " * count(iron_weak_rc_release) matching the construct-time\n"
+                    " * count(iron_rc_retain) + count(iron_weak_rc_retain)\n"
+                    " * (test_oq03 + test_oq04 closure_retain_release invariants). */\n"
                     "static void %s_env_drop(void *env_void) {\n"
                     "    if (!env_void) return;\n"
                     "    %s *_env = (%s *)env_void;\n",
@@ -4454,11 +4456,21 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 for (int ci = 0; ci < cap_count; ci++) {
                     if (cap_meta[ci].is_mutable) continue;
                     Iron_Type *cap_ty = cap_meta[ci].type;
-                    if (cap_ty && cap_ty->kind == IRON_TYPE_RC) {
+                    if (!cap_ty) continue;
+                    if (cap_ty->kind == IRON_TYPE_RC) {
                         iron_strbuf_appendf(&ctx->lifted_funcs,
                             "    iron_rc_release((void *)_env->%s);\n",
                             cap_meta[ci].name);
                         any_rc_field = true;
+                    } else if (cap_ty->kind == IRON_TYPE_WEAK_RC) {
+                        /* Phase 27 OQ-04: env_drop releases weak-rc capture,
+                         * mirror of Phase 26 OQ-03. iron_weak_rc_release
+                         * relaxed-decs weak_count; if both counts hit 0
+                         * the block is freed (Plan 27-01 substrate). */
+                        iron_strbuf_appendf(&ctx->lifted_funcs,
+                            "    iron_weak_rc_release((void *)_env->%s);\n",
+                            cap_meta[ci].name);
+                        any_rc_field = true;  /* triggers env_drop emission for weak-rc-only captures */
                     }
                 }
                 if (!any_rc_field) {
