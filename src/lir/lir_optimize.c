@@ -3052,6 +3052,288 @@ bool iron_lir_instr_is_pure(IronLIR_InstrKind kind) {
     }
 }
 
+/* ── Phase 29 OPT-01: atomic refcount elision (deletion-only pair elim) ─────── */
+
+/* Find the index of `instr` within `blk->instrs`, or -1 if not present. */
+static int rcpe_instr_index(IronLIR_Block *blk, IronLIR_Instr *instr) {
+    for (int i = 0; i < blk->instr_count; i++) {
+        if (blk->instrs[i] == instr) return i;
+    }
+    return -1;
+}
+
+/* Classify a single instruction as a barrier for the elision of a pair on
+ * `target`. A barrier is any instruction across which deleting the matched
+ * retain/release would be unsound (CONTEXT GA2 (b)+(c)):
+ *   - SPAWN / PARALLEL_FOR  — spawned thread may observe post-retain refcount
+ *   - WEAK_RC_UPGRADE whose source == target — observes the strong refcount
+ *   - HEAP_ALLOC / RC_ALLOC / ARENA_ALLOC / ARENA_PUSH / ARENA_POP — allocation
+ *     may re-enter the runtime / move ownership (Pitfall 5)
+ *   - CALL — extern / indirect-unresolved / may_spawn / may_free (per summary),
+ *     OR the target ValueId flows into the call's arg list (escape; Pitfall 3)
+ * Everything else is non-barrier. The switch is exhaustive over
+ * IronLIR_InstrKind so -Werror=switch-enum stays clean. */
+static bool rcpe_instr_is_barrier(IronLIR_Func *fn, IronLIR_Instr *in,
+                                  IronLIR_ValueId target,
+                                  IronLIR_FuncSummaryEntry *summaries) {
+    switch (in->kind) {
+        case IRON_LIR_SPAWN:
+        case IRON_LIR_PARALLEL_FOR:
+            return true;
+
+        case IRON_LIR_WEAK_RC_UPGRADE:
+            return in->weak_rc_upgrade.source == target;
+
+        case IRON_LIR_HEAP_ALLOC:
+        case IRON_LIR_RC_ALLOC:
+        case IRON_LIR_ARENA_ALLOC:
+        case IRON_LIR_ARENA_PUSH:
+        case IRON_LIR_ARENA_POP:
+            return true;
+
+        case IRON_LIR_CALL: {
+            /* Escape: the rc target flows into the callee as an argument. */
+            for (int ai = 0; ai < in->call.arg_count; ai++) {
+                if (in->call.args[ai] == target) return true;
+            }
+            /* Opaque/extern/indirect callee → pessimistic full barrier. */
+            const char *callee = NULL;
+            if (in->call.func_decl) {
+                if (in->call.func_decl->is_extern) return true; /* FFI barrier */
+                callee = in->call.func_decl->name;
+            } else {
+                IronLIR_ValueId fptr = in->call.func_ptr;
+                if (fptr != IRON_LIR_VALUE_INVALID &&
+                    fptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                    fn->value_table[fptr] != NULL &&
+                    fn->value_table[fptr]->kind == IRON_LIR_FUNC_REF) {
+                    callee = fn->value_table[fptr]->func_ref.func_name;
+                }
+            }
+            if (!callee) return true; /* indirect-unresolved → pessimistic */
+            IronLIR_FuncSummary s = iron_lir_func_summary_lookup(summaries, callee);
+            return s.may_spawn || s.may_free;
+        }
+
+        /* Non-barriers: every other opcode is either pure or has no bearing on
+         * an rc pair's soundness in v1 (deletion-only; we never reorder). */
+        case IRON_LIR_CONST_INT:
+        case IRON_LIR_CONST_FLOAT:
+        case IRON_LIR_CONST_BOOL:
+        case IRON_LIR_CONST_STRING:
+        case IRON_LIR_CONST_NULL:
+        case IRON_LIR_ADD:
+        case IRON_LIR_SUB:
+        case IRON_LIR_MUL:
+        case IRON_LIR_DIV:
+        case IRON_LIR_MOD:
+        case IRON_LIR_EQ:
+        case IRON_LIR_NEQ:
+        case IRON_LIR_LT:
+        case IRON_LIR_LTE:
+        case IRON_LIR_GT:
+        case IRON_LIR_GTE:
+        case IRON_LIR_AND:
+        case IRON_LIR_OR:
+        case IRON_LIR_SHL:
+        case IRON_LIR_SHR:
+        case IRON_LIR_BAND:
+        case IRON_LIR_BOR:
+        case IRON_LIR_BXOR:
+        case IRON_LIR_NEG:
+        case IRON_LIR_NOT:
+        case IRON_LIR_BNOT:
+        case IRON_LIR_ALLOCA:
+        case IRON_LIR_LOAD:
+        case IRON_LIR_STORE:
+        case IRON_LIR_GET_FIELD:
+        case IRON_LIR_SET_FIELD:
+        case IRON_LIR_GET_INDEX:
+        case IRON_LIR_SET_INDEX:
+        case IRON_LIR_JUMP:
+        case IRON_LIR_BRANCH:
+        case IRON_LIR_SWITCH:
+        case IRON_LIR_RETURN:
+        case IRON_LIR_CAST:
+        case IRON_LIR_CONSTRUCT:
+        case IRON_LIR_ARRAY_LIT:
+        case IRON_LIR_SLICE:
+        case IRON_LIR_IS_NULL:
+        case IRON_LIR_IS_NOT_NULL:
+        case IRON_LIR_INTERP_STRING:
+        case IRON_LIR_RC_RETAIN:
+        case IRON_LIR_RC_RELEASE:
+        case IRON_LIR_WEAK_RC_RETAIN:
+        case IRON_LIR_WEAK_RC_RELEASE:
+        case IRON_LIR_WEAK_RC_DOWNGRADE:
+        case IRON_LIR_FREE:
+        case IRON_LIR_MAKE_CLOSURE:
+        case IRON_LIR_FUNC_REF:
+        case IRON_LIR_AWAIT:
+        case IRON_LIR_PHI:
+        case IRON_LIR_POISON:
+        case IRON_LIR_ADDR_OF:
+        case IRON_LIR_PTR_LOAD:
+        case IRON_LIR_PTR_STORE:
+        case IRON_LIR_PTR_OFFSET:
+        case IRON_LIR_PTR_DIFF:
+        case IRON_LIR_INSTR_COUNT:
+            return false;
+    }
+    return false;
+}
+
+/* Conservative may-execute-region barrier scan between a matched retain `r`
+ * (in block `r_blk`) and release `rel` (in block `rel_blk`) on `target`.
+ *
+ * Same block: scan instructions strictly between r and rel.
+ * Cross block (r_blk strictly dominates rel_blk): scan the tail of r_blk after
+ * r, the head of rel_blk before rel, and EVERY instruction of EVERY other block
+ * that lies on a forward path from r_blk to rel_blk (collected via a succs walk
+ * intersected with blocks that can reach rel_blk). Any barrier instruction in
+ * the region rejects the candidate. Deletion-only — nothing is reordered. */
+static bool region_between_has_barrier(IronLIR_Func *fn,
+                                       IronLIR_Block *r_blk, IronLIR_Instr *r,
+                                       IronLIR_Block *rel_blk, IronLIR_Instr *rel,
+                                       IronLIR_ValueId target,
+                                       IronLIR_FuncSummaryEntry *summaries) {
+    int r_idx   = rcpe_instr_index(r_blk, r);
+    int rel_idx = rcpe_instr_index(rel_blk, rel);
+    if (r_idx < 0 || rel_idx < 0) return true; /* defensive: treat as barrier */
+
+    if (r_blk == rel_blk) {
+        for (int i = r_idx + 1; i < rel_idx; i++) {
+            if (rcpe_instr_is_barrier(fn, r_blk->instrs[i], target, summaries)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /* Tail of r_blk after the retain. */
+    for (int i = r_idx + 1; i < r_blk->instr_count; i++) {
+        if (rcpe_instr_is_barrier(fn, r_blk->instrs[i], target, summaries)) return true;
+    }
+    /* Head of rel_blk before the release. */
+    for (int i = 0; i < rel_idx; i++) {
+        if (rcpe_instr_is_barrier(fn, rel_blk->instrs[i], target, summaries)) return true;
+    }
+
+    /* Intermediate blocks: forward-reachable from r_blk (excluding r_blk and
+     * rel_blk) via succs. Conservative — scans every such block fully. */
+    struct { IronLIR_BlockId key; bool value; } *seen = NULL;
+    IronLIR_BlockId *worklist = NULL;
+    for (int si = 0; si < (int)arrlen(r_blk->succs); si++) {
+        arrput(worklist, r_blk->succs[si]);
+    }
+    bool barrier = false;
+    for (int wi = 0; wi < (int)arrlen(worklist) && !barrier; wi++) {
+        IronLIR_BlockId bid = worklist[wi];
+        if (bid == rel_blk->id) continue;       /* rel_blk handled above */
+        if (bid == r_blk->id) continue;
+        if (hmgeti(seen, bid) >= 0) continue;
+        hmput(seen, bid, true);
+        IronLIR_Block *blk = find_block(fn, bid);
+        if (!blk) continue;
+        for (int i = 0; i < blk->instr_count; i++) {
+            if (rcpe_instr_is_barrier(fn, blk->instrs[i], target, summaries)) {
+                barrier = true;
+                break;
+            }
+        }
+        for (int si = 0; si < (int)arrlen(blk->succs); si++) {
+            arrput(worklist, blk->succs[si]);
+        }
+    }
+    hmfree(seen);
+    arrfree(worklist);
+    return barrier;
+}
+
+bool run_rc_pair_elimination(IronLIR_Module *module, IronLIR_ElisionStat *stat) {
+    if (stat) stat->pairs_eliminated = 0;
+    if (!module) return false;
+
+    IronLIR_FuncSummaryEntry *summaries = iron_lir_compute_func_summaries(module);
+    bool any_deleted = false;
+
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        IronLIR_DomEntry *idom = build_domtree(fn);
+
+        /* Track instructions selected for deletion (by pointer identity) and the
+         * releases already matched, so each retain pairs with at most one
+         * release and vice versa. */
+        struct { IronLIR_Instr *key; bool value; } *deleted = NULL;
+
+        for (int rbi = 0; rbi < fn->block_count; rbi++) {
+            IronLIR_Block *r_blk = fn->blocks[rbi];
+            for (int rii = 0; rii < r_blk->instr_count; rii++) {
+                IronLIR_Instr *r = r_blk->instrs[rii];
+                if (r->kind != IRON_LIR_RC_RETAIN) continue;
+                if (hmgeti(deleted, r) >= 0) continue;
+                IronLIR_ValueId target = r->rc_retain.target;
+
+                bool matched = false;
+                for (int sbi = 0; sbi < fn->block_count && !matched; sbi++) {
+                    IronLIR_Block *rel_blk = fn->blocks[sbi];
+                    for (int sii = 0; sii < rel_blk->instr_count; sii++) {
+                        IronLIR_Instr *rel = rel_blk->instrs[sii];
+                        if (rel->kind != IRON_LIR_RC_RELEASE) continue;
+                        if (rel->rc_release.target != target) continue;
+                        if (hmgeti(deleted, rel) >= 0) continue;
+
+                        /* (a) DOMINANCE: retain dominates release; for same-block
+                         * the retain must precede the release in instr order. */
+                        if (r_blk == rel_blk) {
+                            if (sii <= rii) continue; /* release before/at retain */
+                        } else if (!dominates(idom, r_blk->id, rel_blk->id)) {
+                            continue;
+                        }
+
+                        /* (b)+(c) NON-ESCAPE + NO-BARRIER between the pair. */
+                        if (region_between_has_barrier(fn, r_blk, r, rel_blk, rel,
+                                                       target, summaries)) {
+                            continue;
+                        }
+
+                        /* All three obligations hold — delete the pair. */
+                        hmput(deleted, r, true);
+                        hmput(deleted, rel, true);
+                        if (stat) stat->pairs_eliminated++;
+                        any_deleted = true;
+                        matched = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        /* Compact each block, dropping the matched retain/release instrs. They
+         * are void-result (id == INVALID), so no value_table fixup is needed. */
+        if (hmlen(deleted) > 0) {
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                int new_count = 0;
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *in = blk->instrs[ii];
+                    if (hmgeti(deleted, in) >= 0) continue; /* drop */
+                    blk->instrs[new_count++] = in;
+                }
+                blk->instr_count = new_count;
+            }
+        }
+
+        hmfree(deleted);
+        hmfree(idom);
+    }
+
+    iron_lir_func_summaries_free(summaries);
+    return any_deleted;
+}
+
 /* ── Function inlining pass ───────────────────────────────────────────────── */
 
 /* Count total instructions in a function (for size threshold). */
