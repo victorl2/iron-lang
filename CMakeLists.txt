@@ -1636,7 +1636,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_3.7-arena_rc_in_arena PROPERTIES
-        LABELS "integration;phase28-invariant" TIMEOUT 30)
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 30)
 
     # GA3 weak-rc-in-arena extension (Wave 0 fixture) → SAME E0301 code.
     add_test(
@@ -1645,7 +1645,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_3.7-arena_weak_rc_in_arena PROPERTIES
-        LABELS "integration;phase28-invariant" TIMEOUT 30)
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 30)
 
     # ARENA-09 non-trivial-destructor warning (Wave 0 fixture) → W06xx (W0605).
     add_test(
@@ -1654,7 +1654,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_3.7-arena_arena_nontrivial_dtor PROPERTIES
-        LABELS "integration;phase28-invariant" TIMEOUT 30)
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 30)
 
     # ── Positive check-only row (compile-clean, no run; no W06xx warning) ──
     # ARENA-09 allow_drop_skip suppression: exits 0 AND emits no W06xx warning.
