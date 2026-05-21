@@ -1361,6 +1361,35 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* 1m. Phase 28 STDLIB-06 (Plan 28-03): always prepend arena.iron — Arena /
+     * ArenaSave + Arena.new / new_threadsafe / with_capacity / save / restore /
+     * reset / used / capacity are available on any source file that uses an
+     * arena without an explicit import. Mirror of check.c arm (Pitfall 4:
+     * prepending ONLY in build.c misses the check.c / iron_analyze_buffer
+     * CORE-22 LSP path; prepending ONLY in check.c misses the build path). */
+    {
+        char *arena_path = make_path(base_dir, "stdlib/arena.iron");
+        if (arena_path) {
+            long sz = 0;
+            char *src = read_file(arena_path, &sz);
+            free(arena_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
     } else {
         /* Phase 94 LIB-03 polyfill-duplication fix: emit_archive mode skipped
          * the stdlib auto-prepend region. Free the detect arena that the

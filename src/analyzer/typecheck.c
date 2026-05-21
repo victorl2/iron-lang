@@ -128,6 +128,14 @@ typedef struct {
      * Consulted by resolve_type_annotation when ann->is_self_type is true
      * to substitute the concrete enclosing type instead of Self. */
     const char        *enclosing_type_name;
+    /* Phase 28 ARENA-08 (Plan 28-03): lexical nesting depth of `in arena {}`
+     * blocks (IRON_NODE_IN_ARENA). Incremented on body entry, decremented on
+     * exit (mirrors the readonly/init save-restore bookkeeping). When > 0, an
+     * `rc T(...)` (IRON_NODE_RC) or `weak rc null` (IRON_NODE_WEAK_RC_NULL)
+     * allocation textually inside the block emits E0301 (IRON_ERR_RC_IN_ARENA)
+     * — the closed-policy lattice {stack, heap, rc, weak rc, arena} forbids
+     * refcounted policies inside an arena. */
+    int                in_arena_block_depth;
     const _Atomic bool *cancel_flag;         /* HARD-05: NULL means never cancel */
 } TypeCtx;
 
@@ -144,6 +152,9 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
 static void check_stmt(TypeCtx *ctx, Iron_Node *node);
 static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count);
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node);
+/* Phase 28 ARENA-09 (Plan 28-03): transitive non-trivial-destructor walk. */
+static bool arena_type_has_nontrivial_dtor(Iron_Type *t, TypeCtx *ctx,
+                                           int depth);
 
 /* ── Mangling helpers ────────────────────────────────────────────────────── */
 
@@ -4132,6 +4143,34 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 emit_error(ctx, IRON_ERR_READONLY_HEAP_ESCAPE, he->span, msg,
                            "§6: readonly methods may not allocate heap T(...) or rc T(...)");
             }
+            /* Phase 28 ARENA-09 (Plan 28-03): arena-allocated type with a
+             * transitive non-trivial destructor. Fires when this `heap` targets
+             * an arena — either explicitly via `heap(in: arena) T(...)`
+             * (he->arena_expr != NULL) or implicitly because the alloc sits
+             * lexically inside an `in arena {}` block — and the allocated type
+             * T transitively carries a user `drop` block. The arena bulk-frees
+             * on reset()/restore() WITHOUT running per-object destructors, so
+             * the drop silently never executes. `allow_drop_skip: true`
+             * acknowledges this and suppresses the warning (W0605). */
+            if (he->arena_expr) (void)check_expr(ctx, he->arena_expr);
+            bool targets_arena = (he->arena_expr != NULL) ||
+                                 (ctx->in_arena_block_depth > 0);
+            if (targets_arena && !he->allow_drop_skip &&
+                arena_type_has_nontrivial_dtor(result, ctx, 0)) {
+                const char *type_nm = (result && result->kind == IRON_TYPE_OBJECT
+                                       && result->object.decl
+                                       && result->object.decl->name)
+                                      ? result->object.decl->name : "T";
+                char wmsg[256];
+                snprintf(wmsg, sizeof(wmsg),
+                         "arena-allocated %s has a non-trivial destructor "
+                         "that will be skipped", type_nm);
+                emit_warning(ctx, IRON_WARN_ARENA_NONTRIVIAL_DTOR, he->span,
+                             wmsg,
+                             "the arena bulk-frees memory on reset() without "
+                             "running drop; pass allow_drop_skip: true to "
+                             "acknowledge, or allocate outside the arena");
+            }
             break;
         }
 
@@ -4141,6 +4180,20 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             result = inner ? iron_type_make_rc(ctx->arena, inner)
                            : iron_type_make_primitive(IRON_TYPE_ERROR);
             re->resolved_type = result;
+            /* Phase 28 ARENA-08 (Plan 28-03): `rc T(...)` allocation inside a
+             * lexical `in arena {}` block is forbidden — the closed-policy
+             * lattice {stack, heap, rc, weak rc, arena} rejects refcounted
+             * policies inside an arena (rc drop discipline conflicts with the
+             * arena's batch mass-invalidation on reset). Message contains the
+             * substring `arena` per rc_in_arena.expected. */
+            if (ctx->in_arena_block_depth > 0) {
+                emit_error(ctx, IRON_ERR_RC_IN_ARENA, re->span,
+                           "rc cannot be allocated in an arena",
+                           "rc lifecycle is incompatible with arena reset "
+                           "semantics; allocate the rc value outside the "
+                           "`in arena {}` block, or use a non-rc allocation "
+                           "(stack or heap) inside the arena");
+            }
             /* Phase 26 READ-05 extension (Plan 26-02): `rc T(...)` in
              * readonly method is forbidden — mirrors the Phase 22 IRON_NODE_
              * HEAP arm above (lines ~3957-3978). The Phase 22 §6 hint already
@@ -4176,6 +4229,32 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
          * a weak rc of NULL inner — emit_c renders it as a literal NULL. */
         case IRON_NODE_WEAK_RC_NULL: {
             Iron_WeakRcNullExpr *wn = (Iron_WeakRcNullExpr *)node;
+            /* Phase 28 ARENA-08 (Plan 28-03): the `weak rc <expr>` allocation
+             * form (is_alloc_form) is parser-deferred. Decide here:
+             *   - inside `in arena {}` (depth>0) → E0301 (weak rc in arena);
+             *   - outside an arena → E0298 (closed-policy: bare weak-rc alloc
+             *     is invalid; use `<rc>.downgrade()` or `weak rc null`). This
+             *     preserves the pre-Phase-28 rejection the parser used to emit
+             *     directly for `weak rc T(...)`. */
+            if (wn->is_alloc_form) {
+                if (wn->alloc_inner) (void)check_expr(ctx, wn->alloc_inner);
+                if (ctx->in_arena_block_depth > 0) {
+                    emit_error(ctx, IRON_ERR_RC_IN_ARENA, wn->span,
+                               "weak rc cannot be allocated in an arena",
+                               "weak rc lifecycle is incompatible with arena "
+                               "reset/batch-invalidation; allocate the value "
+                               "outside the `in arena {}` block");
+                } else {
+                    emit_error(ctx, IRON_ERR_CLOSED_POLICY_KEYWORD, wn->span,
+                               "weak rc allocation form is invalid; use "
+                               "`weak rc null` or `<rc_value>.downgrade()` "
+                               "to construct a weak reference",
+                               "Phase 27 lifecycle policy closed set is "
+                               "{stack, heap, rc, weak rc}; weak rc values are "
+                               "constructed via `weak rc null` or "
+                               "`<rc_value>.downgrade()`");
+                }
+            }
             /* Use IRON_TYPE_NULL as the inner sentinel — the assignment site
              * will rewrite resolved_type when binding to a `weak rc T` LHS. */
             Iron_Type *null_inner = iron_type_make_primitive(IRON_TYPE_NULL);
@@ -5848,6 +5927,22 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        case IRON_NODE_IN_ARENA: {  /* Phase 28 ARENA-02/08 (Plan 28-03) */
+            Iron_InArenaBlock *ia = (Iron_InArenaBlock *)node;
+            /* Type-check the arena expression; it should be an Arena value
+             * (declared in arena.iron). We don't hard-reject non-Arena types
+             * here (Plan 04 lowering will rely on the resolved type) but a
+             * type-mismatch surfaces naturally if it is used as an arena. */
+            if (ia->arena_expr) (void)check_expr(ctx, ia->arena_expr);
+            /* ARENA-08: bump the lexical in-arena depth across the body so any
+             * `rc`/`weak rc` allocation textually inside emits E0301. The body
+             * is an IRON_NODE_BLOCK that establishes its own scope. */
+            ctx->in_arena_block_depth++;
+            if (ia->body) check_stmt(ctx, ia->body);
+            ctx->in_arena_block_depth--;
+            break;
+        }
+
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
             Iron_Type *iter_t = check_expr(ctx, fs->iterable);
@@ -6265,6 +6360,41 @@ static bool compute_has_user_copy_transitive(Iron_Type *t, TypeCtx *ctx) {
     t->has_user_copy_transitive = result;
     t->has_user_copy_cached = true;
     return result;
+}
+
+/* ── Phase 28 ARENA-09 (Plan 28-03): transitive non-trivial-destructor walk ─
+ * True if this Iron_Type (or any field type recursively) has a user-defined
+ * `drop` block — i.e. a non-trivial destructor that an arena would skip on
+ * reset()/restore(). Mirrors compute_has_user_copy_transitive but keys on
+ * is_drop and does NOT cache (no dedicated Iron_Type cache field; the warning
+ * fires at most once per heap(in:) / arena-block alloc site so the cost is
+ * negligible). The `seen` depth guard prevents runaway recursion on cyclic
+ * type graphs (forward-reference safety). */
+static bool arena_type_has_nontrivial_dtor(Iron_Type *t, TypeCtx *ctx,
+                                            int depth) {
+    if (!t || depth > 32) return false;
+    if (t->kind != IRON_TYPE_OBJECT || !t->object.decl || !ctx->program)
+        return false;
+    Iron_ObjectDecl *od = t->object.decl;
+    /* (a) direct user `drop` block: methods live as top-level
+     * IRON_NODE_METHOD_DECL nodes with type_name == od->name (Plan 86 layout). */
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+        if (!m->type_name || !od->name) continue;
+        if (strcmp(m->type_name, od->name) == 0 && m->is_drop) return true;
+    }
+    /* (b) any field whose type transitively has a non-trivial destructor. */
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->type_ann) continue;
+        Iron_Type *ft = f->field_type_cached
+                        ? f->field_type_cached
+                        : resolve_type_annotation(ctx, f->type_ann);
+        if (arena_type_has_nontrivial_dtor(ft, ctx, depth + 1)) return true;
+    }
+    return false;
 }
 
 /* ── READ-06: is_readonly_compatible_type — closed whitelist helper ─────── */

@@ -865,6 +865,14 @@ typedef struct {
     Iron_Span          span;
     Iron_NodeKind      kind;   /* IRON_NODE_WEAK_RC_NULL */
     struct Iron_Type  *resolved_type;  /* set by type checker — IRON_TYPE_WEAK_RC(inner) when context-typed */
+    /* Phase 28 ARENA-08 (Plan 28-03): true when this node was produced by the
+     * `weak rc <expr>` allocation form (NOT `weak rc null`). The parser cannot
+     * know the lexical arena depth, so it defers: typecheck emits E0301 when
+     * in_arena_block_depth>0, otherwise E0298 (the closed-policy rejection that
+     * the parser used to emit directly for this form). false for true
+     * `weak rc null`. */
+    bool               is_alloc_form;
+    Iron_Node         *alloc_inner;    /* the <expr> for is_alloc_form (recovery / span) */
 } Iron_WeakRcNullExpr;
 
 typedef struct {

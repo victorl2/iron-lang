@@ -1486,21 +1486,28 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
              *   heap (expr)                                  (parenthesised inner — unchanged)
              *   heap(in: arena, allow_drop_skip: true) T(...) (named options)
              * Disambiguation: after consuming `heap`, IF the next token is `(`
-             * AND the token after `(` is IDENTIFIER followed by `:`, this is a
-             * named-option list (keys `in:` and `allow_drop_skip:`, any order,
-             * both optional). Otherwise leave the existing `heap (expr)` /
+             * AND the token after `(` is the `in` keyword (IRON_TOK_IN) or an
+             * IDENTIFIER, AND that is followed by `:`, this is a named-option
+             * list (keys `in:` and `allow_drop_skip:`, any order, both
+             * optional). NOTE: `in` is the IRON_TOK_IN keyword (reused — `arena`
+             * stays a non-keyword), while `allow_drop_skip` is a plain
+             * IDENTIFIER. Otherwise leave the existing `heap (expr)` /
              * `heap T(...)` paths untouched. */
             Iron_Node *arena_expr  = NULL;
             bool       drop_skip   = false;
             if (iron_check(p, IRON_TOK_LPAREN) &&
                 p->pos + 2 < p->token_count &&
-                p->tokens[p->pos + 1].kind == IRON_TOK_IDENTIFIER &&
+                (p->tokens[p->pos + 1].kind == IRON_TOK_IN ||
+                 p->tokens[p->pos + 1].kind == IRON_TOK_IDENTIFIER) &&
                 p->tokens[p->pos + 2].kind == IRON_TOK_COLON) {
                 iron_advance(p);  /* consume `(` */
                 while (!iron_check(p, IRON_TOK_RPAREN) &&
                        !iron_check(p, IRON_TOK_EOF)) {
                     Iron_Token *key = iron_current(p);
-                    if (!iron_check(p, IRON_TOK_IDENTIFIER) || !key->value) {
+                    bool is_in_key  = (key->kind == IRON_TOK_IN);
+                    bool is_ident   = (key->kind == IRON_TOK_IDENTIFIER &&
+                                       key->value);
+                    if (!is_in_key && !is_ident) {
                         iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                                        iron_token_span(p, key),
                                        "expected `in` or `allow_drop_skip`"
@@ -1509,7 +1516,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                     }
                     iron_advance(p);             /* consume key */
                     iron_expect(p, IRON_TOK_COLON);
-                    if (strcmp(key->value, "in") == 0) {
+                    if (is_in_key) {
                         arena_expr = iron_parse_expr(p);
                     } else if (strcmp(key->value, "allow_drop_skip") == 0) {
                         if (iron_check(p, IRON_TOK_TRUE)) {
@@ -1619,9 +1626,38 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                 node->span = iron_span_merge(iron_token_span(p, weak_tok),
                                               iron_token_span(p, null_tok));
                 node->resolved_type = NULL;  /* set by typecheck from context */
+                node->is_alloc_form = false; /* true `weak rc null` */
+                node->alloc_inner   = NULL;
                 return (Iron_Node *)node;
             }
-            /* Not `weak rc null` — emit E0298. The legitimate value-form is
+            /* Phase 28 ARENA-08 (Plan 28-03): `weak rc <expr>` allocation form
+             * (e.g. `weak rc Texture.load(...)`). Bare weak-rc allocation is
+             * not a supported lifecycle form OUTSIDE an arena (it must be
+             * constructed via `<rc_value>.downgrade()` or `weak rc null`); but
+             * INSIDE an `in arena {}` block it must surface E0301 (ARENA-08).
+             * The parser cannot know the lexical arena depth, so it parses the
+             * form into a IRON_NODE_WEAK_RC_NULL node (consuming the inner for
+             * recovery) and defers the E0301-vs-E0298 decision to typecheck.c
+             * (the WEAK_RC_NULL arm reads ctx->in_arena_block_depth). */
+            if (iron_check(p, IRON_TOK_RC)) {
+                iron_advance(p);  /* consume `rc` */
+                Iron_Node *inner = iron_parse_expr_prec(p, PREC_UNARY);
+                Iron_WeakRcNullExpr *node = ARENA_ALLOC(p->arena,
+                                                         Iron_WeakRcNullExpr);
+                if (!node) {
+                    p->in_error_recovery = true;
+                    return iron_make_error(p);
+                }
+                node->kind = IRON_NODE_WEAK_RC_NULL;
+                node->span = iron_span_merge(iron_token_span(p, weak_tok),
+                                              inner ? inner->span
+                                                    : iron_token_span(p, weak_tok));
+                node->resolved_type = NULL;  /* set by typecheck */
+                node->is_alloc_form = true;  /* `weak rc <expr>` alloc form */
+                node->alloc_inner   = inner;
+                return (Iron_Node *)node;
+            }
+            /* Not `weak rc null` nor `weak rc <expr>` — emit E0298. The legitimate value-form is
              * `weak rc null` constructor or `<rc_value>.downgrade()` method
              * call; bare `weak T(...)` is not a valid allocation form. */
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
