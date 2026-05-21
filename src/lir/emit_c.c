@@ -1503,9 +1503,15 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 ? fn->value_table[instr->field.object] : NULL;
             if (obj_instr2 && obj_instr2->kind == IRON_LIR_ADDR_OF) {
                 const char *df2 = instr->span.filename ? instr->span.filename : "<unknown>";
+                /* Phase 28 ARENA-06 (Plan 28-04): 3-way deref-check routing.
+                 * STACK → iron_check_stack_pointer_gen, ARENA →
+                 * iron_check_arena_pointer_gen, else (HEAP) →
+                 * iron_check_pointer_gen. */
                 const char *check_fn2 =
                     (obj_instr2->addr_of.gen_source == IRON_LIR_GEN_STACK)
                         ? "iron_check_stack_pointer_gen"
+                    : (obj_instr2->addr_of.gen_source == IRON_LIR_GEN_ARENA)
+                        ? "iron_check_arena_pointer_gen"
                         : "iron_check_pointer_gen";
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "%s(", check_fn2);
@@ -3752,6 +3758,65 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         break;
     }
 
+    case IRON_LIR_ARENA_ALLOC: {
+        /* Phase 28 ARENA-03/05 (Plan 28-04): bump-allocate from an arena via
+         * the Plan 28-02 runtime. Mirrors IRON_LIR_HEAP_ALLOC (:3669) — the
+         * result is an Iron_FatPtr whose .gen snapshots the arena's live
+         * generation; deref routing tags it IRON_LIR_GEN_ARENA so field access
+         * goes through iron_check_arena_pointer_gen.
+         *
+         * arena_val resolved → iron_arena_rt_alloc(<arena>, sizeof(T));
+         * arena_val INVALID (bare heap inside `in arena {}`) →
+         *   iron_arena_rt_alloc(iron_arena_rt_current(), sizeof(T))
+         * (ARENA-05/11 TLS-default resolution). */
+        const char *val_type = emit_type_to_c(instr->type, ctx);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "Iron_FatPtr ");
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = iron_arena_rt_alloc(");
+        if (instr->arena_alloc.arena_val != IRON_LIR_VALUE_INVALID) {
+            emit_expr_to_buf(sb, instr->arena_alloc.arena_val, fn, ctx,
+                             ctx->current_block_id, 0);
+        } else {
+            iron_strbuf_appendf(sb, "iron_arena_rt_current()");
+        }
+        iron_strbuf_appendf(sb, ", sizeof(%s));\n", val_type);
+        /* OOM guard: iron_arena_rt_alloc panics on OOM (ARENA-10), but guard
+         * the .addr anyway to mirror the heap arm's defensive shape. */
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "if (!");
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, ".addr) iron_oom_abort(\"emit_c ARENA_ALLOC\");\n");
+        /* Store the inner value into the arena-allocated memory. */
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "*((%s *)", val_type);
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, ".addr) = ");
+        emit_expr_to_buf(sb, instr->arena_alloc.inner_val, fn, ctx,
+                         ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ";\n");
+        break;
+    }
+
+    case IRON_LIR_ARENA_PUSH: {
+        /* Phase 28 ARENA-04 (Plan 28-04): push the arena onto the runtime TLS
+         * active-arena stack so bare `heap T(...)` inside resolves to it. */
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_arena_rt_push(");
+        emit_expr_to_buf(sb, instr->arena_push.arena_val, fn, ctx,
+                         ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ");\n");
+        break;
+    }
+
+    case IRON_LIR_ARENA_POP: {
+        /* Phase 28 ARENA-04 (Plan 28-04): pop the TLS active-arena top. Emitted
+         * on every exit edge of the `in arena {}` block (scope-exit pump). */
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_arena_rt_pop();\n");
+        break;
+    }
+
     case IRON_LIR_RC_RETAIN: {
         /* Phase 26 POL-06 (Plan 26-02): atomic relaxed-increment of the
          * refcount header on the rc payload pointer. The runtime helper
@@ -3836,6 +3901,27 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                            ? fn->value_table[instr->free_instr.value]->type : NULL)
                         : NULL;
         struct Iron_ObjectDecl *od = (vt && vt->kind == IRON_TYPE_OBJECT) ? vt->object.decl : NULL;
+        /* Phase 28 ARENA (Plan 28-04, Open Q3): the stdlib `Arena` type carries
+         * a synthesized drop that releases its malloc-backed region via
+         * iron_arena_rt_destroy. arena.iron declares no user `drop` block (it
+         * uses `val` fields to avoid E0264), so emit the destroy here on the
+         * FREE path. This composes with Phase 24 drop machinery under both
+         * `defer free` (8.6 fixtures) and scope exit: both lower to IRON_LIR_FREE
+         * on the Arena fat ptr. We do NOT run destructors on arena reset
+         * (Anti-Pattern — reset is bulk-free; see W0605). */
+        if (od && od->name && strcmp(od->name, "Arena") == 0) {
+            const char *arena_c = emit_type_to_c(vt, ctx);
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "iron_arena_rt_destroy(*(Iron_Arena_RT **)(");
+            emit_expr_to_buf(sb, instr->free_instr.value, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ").addr);  /* Arena synthesized drop -> bulk free */\n");
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "iron_heap_free(");
+            emit_expr_to_buf(sb, instr->free_instr.value, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ");\n");
+            (void)arena_c;
+            break;
+        }
         if (od) {
             /* Check that this object type has a drop block via od_has_drop_lir.
              * Methods are LIR top-level functions (Plan 86), NOT od->methods. */
@@ -5074,10 +5160,13 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_val(sb, instr->ptr_load.fp);
             iron_strbuf_appendf(sb, ";\n");
         } else {
-            /* Existing Phase 20 checked path — iron_check_pointer_gen + .addr */
+            /* Existing Phase 20 checked path — iron_check_pointer_gen + .addr.
+             * Phase 28 ARENA-06 (Plan 28-04): 3-way routing extension. */
             const char *check_fn =
                 (instr->ptr_load.gen_source == IRON_LIR_GEN_STACK)
                     ? "iron_check_stack_pointer_gen"
+                : (instr->ptr_load.gen_source == IRON_LIR_GEN_ARENA)
+                    ? "iron_check_arena_pointer_gen"
                     : "iron_check_pointer_gen";
             const char *df = instr->span.filename ? instr->span.filename : "<unknown>";
             emit_indent(sb, ind);
@@ -5119,10 +5208,13 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_val(sb, instr->ptr_store.value);
             iron_strbuf_appendf(sb, ";\n");
         } else {
-            /* Existing Phase 20 checked path — iron_check_pointer_gen + .addr */
+            /* Existing Phase 20 checked path — iron_check_pointer_gen + .addr.
+             * Phase 28 ARENA-06 (Plan 28-04): 3-way routing extension. */
             const char *check_fn =
                 (instr->ptr_store.gen_source == IRON_LIR_GEN_STACK)
                     ? "iron_check_stack_pointer_gen"
+                : (instr->ptr_store.gen_source == IRON_LIR_GEN_ARENA)
+                    ? "iron_check_arena_pointer_gen"
                     : "iron_check_pointer_gen";
             const char *df = instr->span.filename ? instr->span.filename : "<unknown>";
             emit_indent(sb, ind);
@@ -6691,6 +6783,10 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     /* ── Phase 1: Includes ───────────────────────────────────────────────── */
     iron_strbuf_appendf(&ctx.includes,
                          "#include \"runtime/iron_runtime.h\"\n");
+    /* Phase 28 ARENA (Plan 28-04): arena runtime API + Iron_Arena_RT type used
+     * by IRON_LIR_ARENA_ALLOC/PUSH/POP and the Arena drop -> iron_arena_rt_destroy. */
+    iron_strbuf_appendf(&ctx.includes,
+                         "#include \"runtime/iron_arena_rt.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdint.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdbool.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdlib.h>\n");

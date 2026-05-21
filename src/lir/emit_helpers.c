@@ -640,7 +640,11 @@ bool emit_val_is_heap_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
     if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
     IronLIR_Instr *instr = fn->value_table[vid];
     if (!instr) return false;
-    return instr->kind == IRON_LIR_HEAP_ALLOC;
+    /* Phase 28 ARENA-03 (Plan 28-04): IRON_LIR_ARENA_ALLOC also produces an
+     * Iron_FatPtr local whose .addr points at the arena-allocated object, so
+     * ADDR_OF / field-access through it uses the same ((T *)_vN.addr) form. */
+    return instr->kind == IRON_LIR_HEAP_ALLOC ||
+           instr->kind == IRON_LIR_ARENA_ALLOC;
 }
 
 /* Phase 21: Returns true when a value is ANY Iron_FatPtr at runtime:
@@ -652,7 +656,11 @@ bool emit_val_is_any_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
     if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
     IronLIR_Instr *instr = fn->value_table[vid];
     if (!instr) return false;
-    return instr->kind == IRON_LIR_HEAP_ALLOC || instr->kind == IRON_LIR_ADDR_OF;
+    /* Phase 28 ARENA-03 (Plan 28-04): IRON_LIR_ARENA_ALLOC joins HEAP_ALLOC /
+     * ADDR_OF as an Iron_FatPtr-producing opcode. */
+    return instr->kind == IRON_LIR_HEAP_ALLOC ||
+           instr->kind == IRON_LIR_ARENA_ALLOC ||
+           instr->kind == IRON_LIR_ADDR_OF;
 }
 
 /* Phase 21: Return the C pointee-type string for any Iron_FatPtr value.
@@ -665,7 +673,10 @@ const char *emit_fat_ptr_pointee_type_c(IronLIR_Func *fn, IronLIR_ValueId vid, E
     if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return NULL;
     IronLIR_Instr *instr = fn->value_table[vid];
     if (!instr) return NULL;
-    if (instr->kind == IRON_LIR_HEAP_ALLOC) {
+    /* Phase 28 ARENA-03 (Plan 28-04): arena alloc pointee type is instr->type,
+     * exactly like a heap alloc. */
+    if (instr->kind == IRON_LIR_HEAP_ALLOC ||
+        instr->kind == IRON_LIR_ARENA_ALLOC) {
         return emit_type_to_c(instr->type, ctx);
     }
     if (instr->kind == IRON_LIR_ADDR_OF) {
