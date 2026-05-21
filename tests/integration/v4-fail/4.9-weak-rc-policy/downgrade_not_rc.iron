@@ -1,0 +1,11 @@
+-- section 4.9 negative: .downgrade() on a heap T value (non-rc) is forbidden (POL-08)
+-- @req: POL-08
+-- @expected-pass-after: phase-27
+-- E0300 IRON_ERR_WEAK_RC_DOWNGRADE_NOT_RC — downgrade requires rc T receiver
+object Foo { val v: Int }
+
+func main(): Int {
+    val h = heap Foo(42)
+    val w = h.downgrade()   -- E0300: .downgrade() requires rc T receiver
+    return 0
+}

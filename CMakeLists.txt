@@ -1502,6 +1502,72 @@ if(NOT WIN32)
     endforeach()
 endif()
 
+# `ctest -L phase27-invariant` aggregates the Wave 1 RED corpus for
+# Phase 27 weak rc Policy (POL-08/09). Plan 27-01 wired the runtime
+# substrate + 4 unit tests (test_weak_rc_layout/atomic_ordering/concurrent/
+# upgrade_race under tests/unit/CMakeLists.txt). Plan 27-02 adds 6 negative
+# integration fixtures under v4-fail/4.9-weak-rc-policy/ covering:
+#   - E0299 (deref weak rc T)  x2 — direct field + method-call deref
+#   - E0300 (.downgrade() on non-rc) x2 — heap T receiver + primitive receiver
+#   - E0296 extended message (no new code) — `&` on weak rc value
+#   - E0217 reuse (no new code) — passing weak rc T where rc T expected
+# Plan 27-03 lands the positive corpus + LSP smoke regression-anchor.
+if(NOT WIN32)
+    add_test(
+        NAME v4_fail_4.9-weak-rc-policy_deref_weak_rc
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/deref_weak_rc.iron 2>&1 | grep -qF E0299"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.9-weak-rc-policy_deref_weak_rc PROPERTIES
+        LABELS "integration;phase27-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.9-weak-rc-policy_deref_weak_rc_method
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/deref_weak_rc_method.iron 2>&1 | grep -qF E0299"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.9-weak-rc-policy_deref_weak_rc_method PROPERTIES
+        LABELS "integration;phase27-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.9-weak-rc-policy_downgrade_not_rc
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/downgrade_not_rc.iron 2>&1 | grep -qF E0300"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.9-weak-rc-policy_downgrade_not_rc PROPERTIES
+        LABELS "integration;phase27-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.9-weak-rc-policy_downgrade_not_rc_primitive
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/downgrade_not_rc_primitive.iron 2>&1 | grep -qF E0300"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.9-weak-rc-policy_downgrade_not_rc_primitive PROPERTIES
+        LABELS "integration;phase27-invariant" TIMEOUT 30)
+
+    # E0296 extension: message updated to name both rc and weak rc per
+    # Phase 27 CONTEXT.md GA4 — no new diagnostic code. The substring
+    # `rc/weak rc` is what proves the extension landed (the bare phrase
+    # `address of rc` matched the Phase 26 message too).
+    add_test(
+        NAME v4_fail_4.9-weak-rc-policy_amp_on_weak_rc
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/amp_on_weak_rc.iron 2>&1 | grep -qF 'rc/weak rc'"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.9-weak-rc-policy_amp_on_weak_rc PROPERTIES
+        LABELS "integration;phase27-invariant" TIMEOUT 30)
+
+    # E0217 type-mismatch reuse: passing weak rc T where rc T expected
+    # must NOT allocate a new diagnostic code (CONTEXT.md GA4 lock).
+    add_test(
+        NAME v4_fail_4.9-weak-rc-policy_type_mismatch_weak_to_strong
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/type_mismatch_weak_to_strong.iron 2>&1 | grep -qF E0217"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.9-weak-rc-policy_type_mismatch_weak_to_strong PROPERTIES
+        LABELS "integration;phase27-invariant" TIMEOUT 30)
+endif()
+
 # ---- Install rules ----
 if(IRON_BUILD_LSP)
     install(TARGETS ironc iron ironls DESTINATION bin)
