@@ -689,6 +689,15 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        case IRON_NODE_IN_ARENA: {  /* Phase 28 ARENA-02 (Plan 28-03) */
+            Iron_InArenaBlock *n = (Iron_InArenaBlock *)node;
+            iron_strbuf_appendf(ctx->sb, "in ");
+            print_node(ctx, n->arena_expr);
+            iron_strbuf_appendf(ctx->sb, " ");
+            print_block(ctx, n->body);
+            break;
+        }
+
         case IRON_NODE_MATCH: {
             Iron_MatchStmt *n = (Iron_MatchStmt *)node;
             iron_strbuf_appendf(ctx->sb, "match ");

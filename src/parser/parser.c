@@ -1480,6 +1480,63 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
         /* heap expr */
         case IRON_TOK_HEAP: {
             iron_advance(p);
+            /* Phase 28 ARENA-02 (Plan 28-03): optional named-option list after
+             * `heap`. Forms:
+             *   heap T(...)                                  (bare — unchanged)
+             *   heap (expr)                                  (parenthesised inner — unchanged)
+             *   heap(in: arena, allow_drop_skip: true) T(...) (named options)
+             * Disambiguation: after consuming `heap`, IF the next token is `(`
+             * AND the token after `(` is IDENTIFIER followed by `:`, this is a
+             * named-option list (keys `in:` and `allow_drop_skip:`, any order,
+             * both optional). Otherwise leave the existing `heap (expr)` /
+             * `heap T(...)` paths untouched. */
+            Iron_Node *arena_expr  = NULL;
+            bool       drop_skip   = false;
+            if (iron_check(p, IRON_TOK_LPAREN) &&
+                p->pos + 2 < p->token_count &&
+                p->tokens[p->pos + 1].kind == IRON_TOK_IDENTIFIER &&
+                p->tokens[p->pos + 2].kind == IRON_TOK_COLON) {
+                iron_advance(p);  /* consume `(` */
+                while (!iron_check(p, IRON_TOK_RPAREN) &&
+                       !iron_check(p, IRON_TOK_EOF)) {
+                    Iron_Token *key = iron_current(p);
+                    if (!iron_check(p, IRON_TOK_IDENTIFIER) || !key->value) {
+                        iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                                       iron_token_span(p, key),
+                                       "expected `in` or `allow_drop_skip`"
+                                       " option key in heap(...)");
+                        break;
+                    }
+                    iron_advance(p);             /* consume key */
+                    iron_expect(p, IRON_TOK_COLON);
+                    if (strcmp(key->value, "in") == 0) {
+                        arena_expr = iron_parse_expr(p);
+                    } else if (strcmp(key->value, "allow_drop_skip") == 0) {
+                        if (iron_check(p, IRON_TOK_TRUE)) {
+                            drop_skip = true;
+                            iron_advance(p);
+                        } else if (iron_check(p, IRON_TOK_FALSE)) {
+                            drop_skip = false;
+                            iron_advance(p);
+                        } else {
+                            /* tolerate a general bool expr for recovery */
+                            (void)iron_parse_expr(p);
+                        }
+                    } else {
+                        iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                                       iron_token_span(p, key),
+                                       "unknown heap(...) option;"
+                                       " expected `in` or `allow_drop_skip`");
+                        (void)iron_parse_expr(p);
+                    }
+                    if (iron_check(p, IRON_TOK_COMMA)) {
+                        iron_advance(p);
+                    } else {
+                        break;
+                    }
+                }
+                iron_expect(p, IRON_TOK_RPAREN);
+            }
             /* Use PREC_UNARY (9) so PREC_CALL infix operators (., [], ()) are
              * captured as part of the inner expression (e.g. heap Enemy(args)) */
             Iron_Node *inner   = iron_parse_expr_prec(p, PREC_UNARY);
@@ -1491,6 +1548,8 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             n->resolved_type   = NULL;   /* set by type checker */
             n->auto_free       = false;  /* set by escape analyzer */
             n->escapes         = false;  /* set by escape analyzer */
+            n->arena_expr      = arena_expr;   /* Phase 28: NULL for bare heap */
+            n->allow_drop_skip = drop_skip;    /* Phase 28: false for bare heap */
             return (Iron_Node *)n;
         }
         /* rc expr */
@@ -2911,6 +2970,27 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
             return iron_parse_spawn_stmt(p);
         case IRON_TOK_LBRACE:
             return iron_parse_block(p);
+        case IRON_TOK_IN: {
+            /* Phase 28 ARENA-02 (Plan 28-03): `in <arena_expr> { ... }`
+             * default-arena block. Reuses IRON_TOK_IN — `arena` is NOT a
+             * keyword. The for-header consumes its own `in` internally (see
+             * iron_parse_for_stmt) and never reaches statement dispatch, so
+             * this arm only fires for statement-position `in`. */
+            Iron_Token *in_tok = t;
+            iron_advance(p);  /* consume `in` */
+            Iron_Node *arena_expr = iron_parse_expr(p);
+            iron_skip_newlines(p);
+            Iron_Node *body = iron_parse_block(p);
+            Iron_InArenaBlock *n = ARENA_ALLOC(p->arena, Iron_InArenaBlock);
+            if (!n) { /* HARD-09 REPLACE (iron_parse_stmt InArenaBlock) */ p->in_error_recovery = true; return iron_make_error(p); }
+            n->kind       = IRON_NODE_IN_ARENA;
+            n->span       = iron_span_merge(iron_token_span(p, in_tok),
+                                            body ? body->span
+                                                 : iron_token_span(p, in_tok));
+            n->arena_expr = arena_expr;
+            n->body       = body;
+            return (Iron_Node *)n;
+        }
         case IRON_TOK_MUT:
             /* Phase 88 BREAK-04: 'mut' as a statement-level prefix is removed in v3.0.
              * When strict-v3 is ON emit E0263; consume 'mut' and parse the remainder

@@ -750,6 +750,16 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        case IRON_NODE_IN_ARENA: {  /* Phase 28 ARENA-02 (Plan 28-03) */
+            Iron_InArenaBlock *ia = (Iron_InArenaBlock *)node;
+            /* Resolve the arena expression in the current scope; the body is a
+             * BLOCK that pushes its own scope. The lexical in-arena depth that
+             * drives E0301 (ARENA-08) is tracked in typecheck.c, not here. */
+            if (ia->arena_expr) resolve_expr(ctx, ia->arena_expr);
+            if (ia->body) resolve_node(ctx, ia->body);
+            break;
+        }
+
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
             /* Resolve iterable in current scope (not the for's inner scope) */

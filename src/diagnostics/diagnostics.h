@@ -387,6 +387,26 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_WEAK_RC_DEREF             299  /* POL-08 (Phase 27-02) — direct deref of weak rc T (w.field, w.method(), *w, w[i]); typecheck.c */
 #define IRON_ERR_WEAK_RC_DOWNGRADE_NOT_RC  300  /* POL-08 (Phase 27-02) — .downgrade() on non-rc receiver; typecheck.c IRON_NODE_METHOD_CALL arm */
 
+/* Phase 28 ARENA-08 (Plan 28-03): rc / weak rc allocation inside an arena.
+ *
+ * The closed-policy lifecycle lattice is {stack, heap, rc, weak rc, arena}.
+ * `rc` and `weak rc` carry refcount discipline whose per-object drop semantics
+ * are fundamentally incompatible with an arena's O(1) batch mass-invalidation
+ * on reset()/restore() — the arena never runs per-object destructors, so the
+ * refcount would leak and weak observers could never learn the strong count
+ * hit zero. The error therefore rejects BOTH `rc T(...)` and `weak rc T(...)`
+ * allocation forms that appear (lexically) inside an `in arena { ... }` block.
+ *
+ * The trigger is the LEXICAL `in arena {}` block depth (typecheck.c
+ * in_arena_block_depth context flag), NOT the `heap(in:)` named-option list —
+ * `rc`/`heap` are distinct allocation keywords (Pitfall 6); an arena only
+ * forbids the *refcounted* policies that appear textually within its block.
+ *
+ * The canonical message names the offending policy (`rc` or `weak rc`) and the
+ * substring `arena`; the weak variant additionally carries `weak rc` so
+ * weak_rc_in_arena.expected + test_did_publish_arena_violation.py pin it. */
+#define IRON_ERR_RC_IN_ARENA               301  /* ARENA-08 (Phase 28-03) — rc/weak rc allocation inside `in arena {}`; typecheck.c lexical in_arena_block_depth */
+
 /* Phase 86 PATCH: open-extension diagnostics.
  *
  * PATCH-01 lands the parse-surface for `patch object T { ... }`; the parser
@@ -516,6 +536,19 @@ void iron_diaglist_free(Iron_DiagList *list);
  * differs ("change var → val" vs "drop var modifier") and the warning
  * text also differs ("never reassigned" vs "never mutated"). */
 #define IRON_WARN_UNUSED_VAR_PARAM  614   /* VAL-06 */
+
+/* Phase 28 ARENA-09 (Plan 28-03): arena-allocated type with a transitive
+ * non-trivial destructor. A type warns if it (or a field whose type
+ * transitively does) carries a user `drop` block: the arena bulk-frees its
+ * backing memory on reset()/restore() WITHOUT running per-object destructors,
+ * so the drop body silently never executes. `allow_drop_skip: true` on the
+ * `heap(in: arena, allow_drop_skip: true) T(...)` form acknowledges the
+ * skipped destructor explicitly and suppresses this warning.
+ *
+ * Reserved as W0605 by Plan 28-01 (600-604 + 610-614 were already taken;
+ * W0605 is the first free slot in the W06xx block). The message names the
+ * type and notes drops are skipped on arena reset. */
+#define IRON_WARN_ARENA_NONTRIVIAL_DTOR  605   /* ARENA-09 (Phase 28-03) — arena alloc of type with transitive non-trivial drop; allow_drop_skip:true suppresses */
 
 /* Type validation warnings (601+ range) */
 #define IRON_WARN_NARROWING_CAST        601
@@ -658,5 +691,37 @@ __attribute__((noreturn))
 void iron_panic_stale_stack_pointer(const char *deref_file,
                                     int deref_line,
                                     uint64_t captured_frame_gen);
+
+/* Phase 28 GA1 (Plan 28-02): arena-stale-pointer panic helper.
+ *
+ * Same emission channels as iron_panic_stale_pointer (text + JSON); distinct
+ * header substring ("stale arena pointer dereference") and JSON
+ * "panic":"arena_pointer". Fired by iron_check_arena_pointer_gen when a fat
+ * pointer's generation snapshot no longer matches the owning arena's live
+ * generation (reset()/restore() bumped it). IronArenaAllocHdr is forward-
+ * declared (full def + ABI lock in runtime/iron_arena_rt.h). Definition in
+ * src/runtime/iron_panic.c. */
+struct IronArenaAllocHdr;  /* forward declaration; full def in runtime/iron_arena_rt.h */
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_arena_stale(const char *deref_file,
+                            int deref_line,
+                            const struct IronArenaAllocHdr *hdr);
+
+/* Phase 28 ARENA-10 (Plan 28-02): arena out-of-memory panic helper.
+ *
+ * Fired by iron_arena_alloc / iron_arena_new when an allocation would exceed
+ * the arena's fixed capacity. The bump-pointer contract never returns null —
+ * this is the deterministic abort path. Message carries the arena name, the
+ * requested size, and the arena capacity (ARENA-10). Definition in
+ * src/runtime/iron_panic.c. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_arena_oom(const char *arena_name,
+                          uint64_t requested_size,
+                          uint64_t capacity);
 
 #endif /* IRON_DIAGNOSTICS_H */

@@ -47,6 +47,7 @@ typedef enum {
     IRON_NODE_LEAK,
     IRON_NODE_SPAWN,
     IRON_NODE_BLOCK,
+    IRON_NODE_IN_ARENA,  /* Phase 28 ARENA-02 (Plan 28-03): `in <arena> { ... }` default-arena block; reuses IRON_TOK_IN */
 
     /* Expressions */
     IRON_NODE_INT_LIT,
@@ -589,6 +590,20 @@ typedef struct {
     Iron_Node    *body;
 } Iron_WhileStmt;
 
+/* Phase 28 ARENA-02 (Plan 28-03): `in <arena_expr> { ... }` default-arena
+ * block. Reuses IRON_TOK_IN (the same token the for-header consumes) — `arena`
+ * is NOT a keyword. On entry the runtime pushes arena_expr onto the
+ * thread-local active-arena stack (innermost wins, ARENA-11); on exit it pops.
+ * The analyzer increments a lexical in_arena_block_depth across the body so
+ * `rc`/`weak rc` allocations inside emit E0301 (ARENA-08). Codegen is Plan 04;
+ * this struct is the front-end surface only. */
+typedef struct {
+    Iron_Span     span;
+    Iron_NodeKind kind;      /* IRON_NODE_IN_ARENA */
+    Iron_Node    *arena_expr; /* the arena expression after `in` */
+    Iron_Node    *body;       /* IRON_NODE_BLOCK */
+} Iron_InArenaBlock;
+
 typedef struct {
     Iron_Span          span;
     Iron_NodeKind      kind;        /* IRON_NODE_FOR */
@@ -828,6 +843,10 @@ typedef struct {
     Iron_Node         *inner;
     bool               auto_free;  /* set by escape analyzer */
     bool               escapes;    /* set by escape analyzer */
+    /* Phase 28 ARENA-02 (Plan 28-03): named-option list after `heap`.
+     * `heap(in: arena_expr, allow_drop_skip: true) T(...)`. */
+    Iron_Node         *arena_expr;      /* NULL = no `in:` (TLS active-arena default at lowering) */
+    bool               allow_drop_skip; /* `allow_drop_skip: true` suppresses W0605 (ARENA-09) */
 } Iron_HeapExpr;
 
 typedef struct {

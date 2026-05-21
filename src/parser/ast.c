@@ -24,6 +24,7 @@ static const char *s_node_kind_names[IRON_NODE_COUNT] = {
     [IRON_NODE_LEAK]            = "LeakStmt",
     [IRON_NODE_SPAWN]           = "SpawnStmt",
     [IRON_NODE_BLOCK]           = "Block",
+    [IRON_NODE_IN_ARENA]        = "InArenaBlock",  /* Phase 28 ARENA-02 */
     [IRON_NODE_INT_LIT]         = "IntLit",
     [IRON_NODE_FLOAT_LIT]       = "FloatLit",
     [IRON_NODE_STRING_LIT]      = "StringLit",
@@ -189,6 +190,12 @@ void iron_ast_walk(Iron_Node *root, Iron_Visitor *v) {
             Iron_ForStmt *n = (Iron_ForStmt *)root;
             walk_child(n->iterable, v);
             walk_child(n->pool_expr, v);
+            walk_child(n->body, v);
+            break;
+        }
+        case IRON_NODE_IN_ARENA: {  /* Phase 28 ARENA-02 (Plan 28-03) */
+            Iron_InArenaBlock *n = (Iron_InArenaBlock *)root;
+            walk_child(n->arena_expr, v);
             walk_child(n->body, v);
             break;
         }
