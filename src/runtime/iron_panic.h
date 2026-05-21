@@ -66,6 +66,28 @@ void iron_panic_destructor_aborted(const char *type_name,
                                     const char *drop_site_file,
                                     int drop_site_line);
 
+/* Phase 28 GA1 / ARENA-10 (Plan 28-02): arena panic helpers.
+ * Re-declared here (canonical declarations in diagnostics.h) so callers inside
+ * src/runtime/ — notably iron_arena_rt.c's capacity-exhaustion path and the
+ * static-inline iron_check_arena_pointer_gen in iron_runtime.h — resolve the
+ * symbols with __attribute__((noreturn)) intact. Definitions in
+ * src/runtime/iron_panic.c. */
+struct IronArenaAllocHdr;  /* forward declaration; full def in runtime/iron_arena_rt.h */
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_arena_stale(const char *deref_file,
+                            int deref_line,
+                            const struct IronArenaAllocHdr *hdr);
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_arena_oom(const char *arena_name,
+                          uint64_t requested_size,
+                          uint64_t capacity);
+
 /* Phase 24 DROP-05 (Plan 24-03): partial-init cleanup machinery.
  * HIR-lower instrumentation registers each self.field assignment in an init
  * body via iron_init_cleanup_register so that a panic mid-init unwinds

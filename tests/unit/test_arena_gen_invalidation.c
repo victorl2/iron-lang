@@ -90,9 +90,9 @@ static void run_arena_panic_case(void (*child_fn)(void)) {
 /* ARENA-06 — deref a pointer after arena.reset() must panic. */
 static void child_deref_after_reset(void) {
     iron_runtime_init(0, NULL);
-    Iron_Arena_RT *a = iron_arena_new(4096, false, "reset_arena");
-    Iron_FatPtr fp = iron_arena_alloc(a, 32);
-    iron_arena_reset(a);  /* bumps arena generation — fp now stale */
+    Iron_Arena_RT *a = iron_arena_rt_new(4096, false, "reset_arena");
+    Iron_FatPtr fp = iron_arena_rt_alloc(a, 32);
+    iron_arena_rt_reset(a);  /* bumps arena generation — fp now stale */
     iron_check_arena_pointer_gen(fp, __FILE__, __LINE__);  /* must PANIC */
     /* unreachable */
 }
@@ -101,11 +101,11 @@ static void child_deref_after_reset(void) {
  * must panic (restore bumps the generation). */
 static void child_deref_after_restore(void) {
     iron_runtime_init(0, NULL);
-    Iron_Arena_RT *a = iron_arena_new(4096, false, "restore_arena");
-    (void)iron_arena_alloc(a, 16);          /* baseline alloc (kept) */
-    Iron_ArenaSave save = iron_arena_save(a);
-    Iron_FatPtr fp2 = iron_arena_alloc(a, 16);  /* allocated AFTER save */
-    iron_arena_restore(a, save);            /* bumps generation — fp2 stale */
+    Iron_Arena_RT *a = iron_arena_rt_new(4096, false, "restore_arena");
+    (void)iron_arena_rt_alloc(a, 16);          /* baseline alloc (kept) */
+    Iron_ArenaSave save = iron_arena_rt_save(a);
+    Iron_FatPtr fp2 = iron_arena_rt_alloc(a, 16);  /* allocated AFTER save */
+    iron_arena_rt_restore(a, save);            /* bumps generation — fp2 stale */
     iron_check_arena_pointer_gen(fp2, __FILE__, __LINE__);  /* must PANIC */
     /* unreachable */
 }
@@ -125,15 +125,15 @@ void test_deref_after_restore_panics(void) {
  * must NOT panic. Run in-process: if it aborts, this test binary dies and
  * Unity reports the failure — that is the intended negative-of-panic check. */
 void test_deref_before_save_survives_restore(void) {
-    Iron_Arena_RT *a = iron_arena_new(4096, false, "restore_arena");
-    Iron_FatPtr base = iron_arena_alloc(a, 16);   /* allocated BEFORE save */
-    Iron_ArenaSave save = iron_arena_save(a);
-    (void)iron_arena_alloc(a, 16);
-    iron_arena_restore(a, save);
+    Iron_Arena_RT *a = iron_arena_rt_new(4096, false, "restore_arena");
+    Iron_FatPtr base = iron_arena_rt_alloc(a, 16);   /* allocated BEFORE save */
+    Iron_ArenaSave save = iron_arena_rt_save(a);
+    (void)iron_arena_rt_alloc(a, 16);
+    iron_arena_rt_restore(a, save);
     /* base predates the save point — restore must NOT invalidate it. */
     iron_check_arena_pointer_gen(base, __FILE__, __LINE__);  /* must NOT panic */
     TEST_PASS();
-    iron_arena_destroy(a);
+    iron_arena_rt_destroy(a);
 }
 
 /* ── Unity entrypoint ─────────────────────────────────────────────────── */

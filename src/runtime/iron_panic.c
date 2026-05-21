@@ -20,6 +20,7 @@
  */
 
 #include "runtime/iron_runtime.h"   /* IronAllocHdr full definition; needed for hdr->fields access */
+#include "runtime/iron_arena_rt.h"  /* IronArenaAllocHdr full def — iron_panic_arena_stale reads hdr->size */
 #include "runtime/iron_panic.h"
 #include "diagnostics/diagnostics.h"
 
@@ -203,6 +204,91 @@ void iron_panic_destructor_aborted(const char *type_name,
         fputs("iron: destructor panicked\n", stderr);
         fprintf(stderr, "  type: %s\n", tn);
         fprintf(stderr, "  drop site: %s:%d\n", df, drop_site_line);
+    }
+    fflush(stderr);
+    abort();
+}
+
+/* Phase 28 GA1 (Plan 28-02): arena-stale-pointer panic helper.
+ *
+ * Fired by iron_check_arena_pointer_gen when a fat pointer's generation
+ * snapshot no longer matches the arena's live generation — i.e. the arena was
+ * reset()/restore()'d since the pointer was taken. Mirrors
+ * iron_panic_stale_pointer's dual text/JSON channel, in-destructor divert, and
+ * init-cleanup pump. Distinct header substring ("stale arena pointer
+ * dereference") + JSON "panic":"arena_pointer" tag. hdr->size is reported when
+ * available. noreturn (abort). */
+void iron_panic_arena_stale(const char *deref_file,
+                            int deref_line,
+                            const struct IronArenaAllocHdr *hdr) {
+    /* Phase 24 DROP-04/05: init-time cleanup + drop-time abort divert */
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        /* noreturn — abort() inside */
+    }
+    const char *df = deref_file ? deref_file : "<unknown>";
+
+    if (s_iron_panic_format == 1) {
+        /* JSON line — distinct "panic":"arena_pointer" tag. */
+        fputs("{\"panic\":\"arena_pointer\",", stderr);
+        fprintf(stderr, "\"deref_site\":{\"file\":\"%s\",\"line\":%d}",
+                df, deref_line);
+        if (hdr) {
+            fprintf(stderr, ",\"allocation\":{\"size\":%llu}",
+                    (unsigned long long)hdr->size);
+        } else {
+            fputs(",\"allocation\":null", stderr);
+        }
+        fputc('}', stderr);
+        fputc('\n', stderr);
+    } else {
+        /* Text format — distinct header substring. */
+        fputs("iron: stale arena pointer dereference\n", stderr);
+        fprintf(stderr, "  deref site: %s:%d\n", df, deref_line);
+        if (hdr) {
+            fprintf(stderr, "  allocation: size=%llu\n",
+                    (unsigned long long)hdr->size);
+        }
+    }
+    fflush(stderr);
+    abort();
+}
+
+/* Phase 28 ARENA-10 (Plan 28-02): arena out-of-memory panic helper.
+ *
+ * Fired by iron_arena_rt_alloc / iron_arena_rt_new when an allocation would exceed
+ * the arena's fixed capacity. The bump-pointer contract never returns null —
+ * this is the deterministic abort path. Message carries the arena name, the
+ * requested size, and the arena capacity (ARENA-10). Mirrors
+ * iron_panic_stale_pointer's channels + divert. noreturn (abort). */
+void iron_panic_arena_oom(const char *arena_name,
+                          uint64_t requested_size,
+                          uint64_t capacity) {
+    /* Phase 24 DROP-04/05: init-time cleanup + drop-time abort divert */
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        /* noreturn — abort() inside */
+    }
+    const char *an = arena_name ? arena_name : "<unnamed>";
+
+    if (s_iron_panic_format == 1) {
+        /* JSON line — distinct "panic":"arena_oom" tag. */
+        fputs("{\"panic\":\"arena_oom\",", stderr);
+        fprintf(stderr, "\"arena\":\"%s\"", an);
+        fprintf(stderr, ",\"requested\":%llu,\"capacity\":%llu",
+                (unsigned long long)requested_size,
+                (unsigned long long)capacity);
+        fputc('}', stderr);
+        fputc('\n', stderr);
+    } else {
+        /* Text format. */
+        fputs("iron: arena out of memory\n", stderr);
+        fprintf(stderr, "  arena: %s\n", an);
+        fprintf(stderr, "  requested: %llu bytes (capacity: %llu bytes)\n",
+                (unsigned long long)requested_size,
+                (unsigned long long)capacity);
     }
     fflush(stderr);
     abort();

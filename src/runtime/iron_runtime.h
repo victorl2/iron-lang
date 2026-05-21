@@ -368,6 +368,65 @@ static inline void iron_check_stack_pointer_gen(Iron_FatPtr fp,
     }
 }
 
+/* ── Phase 28 GA1: arena-pointer deref check (3rd isomorphic sibling) ───────
+ * Arena fat pointers carry a SNAPSHOT of the owning Arena's live generation
+ * counter; their minimal prefix header (IronArenaAllocHdr — defined in
+ * runtime/iron_arena_rt.h, 16B: arena_gen@0 + size@8) holds a back-reference
+ * to that counter at offset 0. Deref recovers the header via
+ * `((IronArenaAllocHdr*)addr)-1`, loads *hdr->arena_gen (the arena's CURRENT
+ * generation), and panics on mismatch — i.e. when reset()/restore() bumped the
+ * generation since the pointer was taken (O(1) mass-invalidation; GA1).
+ *
+ * Distinct from iron_check_pointer_gen (heap: gen lives INSIDE the per-alloc
+ * header) and iron_check_stack_pointer_gen (stack: gen is a TLS counter): the
+ * arena helper reads through a POINTER to the arena's shared counter. Per the
+ * CONTEXT-locked note above (iron_runtime.h:285-290), Phase 19's substrate
+ * stays UNTOUCHED — this is a separate isomorphic sibling so Phase 30's
+ * elision pass templates over all three with the same shape.
+ *
+ * IronArenaAllocHdr and iron_panic_arena_stale are forward-declared here so
+ * this static-inline can be defined WITHOUT iron_runtime.h pulling in
+ * runtime/iron_arena_rt.h — mirroring how the heap/stack siblings forward-
+ * declare their panic functions above. The header's arena_gen back-ref is the
+ * first field (offset 0, ABI-locked in iron_arena_rt.h), so the recovered
+ * pointer-to-counter is read directly without the full struct definition. The
+ * full IronArenaAllocHdr definition + ABI _Static_asserts live in
+ * runtime/iron_arena_rt.h, included by every consumer that allocates from an
+ * arena. */
+struct IronArenaAllocHdr;  /* full def + ABI lock in runtime/iron_arena_rt.h */
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_arena_stale(const char *deref_file,
+                            int deref_line,
+                            const struct IronArenaAllocHdr *hdr);
+
+static inline void iron_check_arena_pointer_gen(Iron_FatPtr fp,
+                                                const char *deref_file,
+                                                int deref_line) {
+    if (!fp.addr) {
+        iron_panic_stale_pointer(deref_file, deref_line, NULL);
+    }
+    /* Recover the header: it sits 16B (sizeof IronArenaAllocHdr) before the
+     * payload. Its first field (offset 0) is the iron_atomic_u64* back-ref to
+     * the arena's live generation counter. */
+    iron_atomic_u64 *arena_gen = ((iron_atomic_u64 **)fp.addr)[-2];
+    uint64_t cur = IRON_ATOMIC_U64_LOAD_ACQUIRE(*arena_gen);
+    /* Arena allocations carry a MONOTONIC per-allocation snapshot (the live
+     * counter's value at alloc time). The pointer is valid iff its snapshot is
+     * still below the live counter: snapshot < cur. reset()/restore() lower the
+     * live counter (to the floor 1, or to the save's gen_snapshot), so every
+     * pointer whose snapshot is now >= cur was reclaimed and must panic. This
+     * lets restore() selectively invalidate post-save allocations while pre-save
+     * pointers (snapshot < gen_snapshot == cur) survive. */
+    if (fp.gen >= cur) {
+        iron_panic_arena_stale(deref_file, deref_line,
+                               (const struct IronArenaAllocHdr *)
+                               ((const char *)fp.addr - 16));
+    }
+}
+
 /* ── Platform threading abstraction ──────────────────────────────────────── */
 #ifdef _WIN32
 
