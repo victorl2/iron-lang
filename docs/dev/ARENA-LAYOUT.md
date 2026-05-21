@@ -166,7 +166,61 @@ Iron_Arena_RT *iron_arena_rt_current(void);   /* NULL = general allocator (ARENA
 
 ---
 
-## 6. References
+## 6. Scope Boundary (OQ-11 / OQ-12 / OQ-13 — locked at Phase 28 closeout)
+
+The three open questions that bound the arena phase are resolved as follows.
+This section is the authoritative scope lock; the design rationale lives in
+`28-CONTEXT.md` GA3/GA4.
+
+### OQ-11 — allocator interface: RESOLVED, internal-only (this phase)
+
+`Arena` exposes its allocation API but Phase 28 surfaces **no public
+`interface Allocator`**. The minimal internal allocator signature
+(`iron_arena_rt_alloc(arena, size) -> Iron_FatPtr`, conceptually
+`(self, size) -> ptr`) is documented in §4 as an INTERNAL contract only — it
+carries no `interface` declaration and is NOT a stable user-facing polymorphic
+surface. User-defined polymorphic allocators are out of scope for v4.
+
+### OQ-12 — cross-arena pointer escape static warning: DEFERRED to Phase 30
+
+A *static* analysis warning for a pointer that escapes the arena it was
+allocated in (e.g. returning an arena-allocated `heap(in: arena) T` past the
+arena's lifetime) is **DEFERRED to Phase 30** (the pointer-check-elision
+optimizer phase), per the requirement text. Phase 28 ships ONLY the **runtime
+generation-panic safety net**: a stale cross-arena pointer dereferenced after
+the owning arena is `reset()`/`restore()`/`destroy()`-ed panics deterministically
+via `iron_check_arena_pointer_gen` -> `iron_panic_arena_stale` (§3). The runtime
+guarantee is sound today; the *compile-time* escape diagnostic is the Phase 30
+deliverable. No E03xx/W06xx escape-warning code is allocated in Phase 28.
+
+### OQ-13 — nested arena-in-arena allocation composition: OUT OF SCOPE
+
+Allocating one arena's backing region *out of another arena* (allocation
+composition — an arena whose bump region is itself sub-allocated from a parent
+arena) is **reaffirmed OUT OF SCOPE** (default = no). This is NOT revisited in
+v4 unless explicitly lifted at milestone close.
+
+**Important distinction — lexical nesting IS allowed (ARENA-11).** Writing
+
+```iron
+in outer_arena {
+    in inner_arena {        -- lexical scope nesting: legal
+        val x = heap T(...)  -- resolves to inner_arena (innermost active wins)
+    }
+}
+```
+
+is **scope nesting**, NOT allocation composition: each `in arena {}` block
+pushes/pops the thread-local active-arena stack (§5
+`iron_arena_rt_push`/`pop`/`current`), and bare `heap` inside resolves to the
+innermost active arena. The two arenas are independent malloc-backed regions;
+neither is sub-allocated from the other. OQ-13's "out of scope" forbids the
+*composition* (inner arena's memory drawn from outer arena), never the lexical
+nesting.
+
+---
+
+## 7. References
 
 - `src/runtime/iron_arena_rt.{c,h}` — implementation + ABI `_Static_assert`s.
 - `src/runtime/iron_runtime.h` — `iron_check_arena_pointer_gen` (3rd sibling),
