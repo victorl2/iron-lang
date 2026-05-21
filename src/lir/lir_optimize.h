@@ -2,6 +2,7 @@
 #define IRON_LIR_OPTIMIZE_H
 
 #include "lir/lir.h"
+#include "lir/func_summary.h"   /* Phase 29 OPT-02: reusable conservative summaries */
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
 
@@ -93,6 +94,26 @@ void iron_lir_compute_inline_eligible(IronLIR_Func *fn, IronLIR_OptimizeInfo *in
 
 /* Returns true if the instruction kind has no observable side effects. */
 bool iron_lir_instr_is_pure(IronLIR_InstrKind kind);
+
+/* ── Phase 29 OPT-01: atomic refcount elision ──────────────────────────────── */
+
+/* Deterministic elision statistics — the regression-test oracle. Tests assert
+ * the EXACT pairs_eliminated count (count-based, never timing-based) on small
+ * hand-built LIR fixtures. */
+typedef struct {
+    int pairs_eliminated; /* exact count of retain/release pairs deleted */
+} IronLIR_ElisionStat;
+
+/* Test seam (also used by the driver in iron_lir_optimize). Runs the matched
+ * redundant retain/release pair elimination over the whole module, mutating it
+ * in place, and fills *stat. Returns true if it changed the module.
+ *
+ * The existing iron_lir_optimize() signature is intentionally NOT changed in
+ * this plan — Plan 03 extends it with the opt-level gate and wires this pass
+ * into the driver. The implementation of this function lands in Plan 03
+ * (src/lir/lir_optimize.c); until then the symbol is unresolved and any test
+ * calling it fails to link — the intended Wave 0 TDD RED state. */
+bool run_rc_pair_elimination(IronLIR_Module *module, IronLIR_ElisionStat *stat);
 
 /* Look up the array parameter mode. Non-static so emit_c.c can call it.
  * Note: stb_ds shgeti modifies the map header internally, so info cannot be const. */
