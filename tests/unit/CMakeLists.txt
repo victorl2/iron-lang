@@ -1436,3 +1436,50 @@ add_test(NAME test_weak_rc_upgrade_race COMMAND test_weak_rc_upgrade_race)
 set_tests_properties(test_weak_rc_upgrade_race PROPERTIES
     LABELS "unit;phase27-invariant"
     TIMEOUT 60)
+
+# ── Phase 28 GA1 (Plan 28-01 Task 1): arena runtime Wave 0 RED unit tests ───
+# Three Unity tests written AGAINST the not-yet-existing arena runtime API
+# (src/runtime/iron_arena_rt.{c,h}) + the arena-aware deref guard
+# iron_check_arena_pointer_gen (static-inline in iron_runtime.h). They are the
+# TDD RED anchor for Phase 28; Plan 28-02 lands the header + impl and flips
+# them GREEN.
+#
+# HEADER-EXISTENCE GUARD: because tests/unit/test_arena_*.c #include
+# "runtime/iron_arena_rt.h" which does NOT exist until Plan 28-02, registering
+# these executables unconditionally would HARD-BREAK configure/compile for the
+# whole suite. The guard below registers the three test executables ONLY when
+# the header is present, so `cmake -B build` still configures green during
+# Wave 0 (header absent). Plan 28-02 REMOVES this guard when iron_arena_rt.h
+# lands so the tests become an unconditional phase28-invariant gate.
+#   test_arena_layout            — ABI lock mirror (IronArenaAllocHdr 16B + Iron_ArenaSave)
+#   test_arena_rt                — happy-path bump/reset/save/restore + threadsafe variant
+#   test_arena_gen_invalidation  — headline soundness: deref after reset/restore panics
+if(EXISTS ${CMAKE_SOURCE_DIR}/src/runtime/iron_arena_rt.h)
+    add_executable(test_arena_layout test_arena_layout.c)
+    target_link_libraries(test_arena_layout iron_runtime unity)
+    add_test(NAME test_arena_layout COMMAND test_arena_layout)
+    set_tests_properties(test_arena_layout PROPERTIES
+        LABELS "unit;phase28-invariant"
+        TIMEOUT 30)
+
+    add_executable(test_arena_rt test_arena_rt.c)
+    target_link_libraries(test_arena_rt iron_runtime unity)
+    add_test(NAME test_arena_rt COMMAND test_arena_rt)
+    set_tests_properties(test_arena_rt PROPERTIES
+        LABELS "unit;phase28-invariant"
+        TIMEOUT 30)
+
+    add_executable(test_arena_gen_invalidation test_arena_gen_invalidation.c)
+    target_link_libraries(test_arena_gen_invalidation iron_runtime unity)
+    add_test(NAME test_arena_gen_invalidation COMMAND test_arena_gen_invalidation)
+    set_tests_properties(test_arena_gen_invalidation PROPERTIES
+        LABELS "unit;phase28-invariant"
+        TIMEOUT 30)
+else()
+    message(STATUS
+        "Phase 28 Wave 0 RED: src/runtime/iron_arena_rt.h absent -- "
+        "test_arena_layout/test_arena_rt/test_arena_gen_invalidation are "
+        "NOT YET registered (header-existence guard). Plan 28-02 lands the "
+        "header + impl and removes this guard so the phase28-invariant unit "
+        "gate becomes unconditional.")
+endif()
