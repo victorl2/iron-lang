@@ -1526,7 +1526,8 @@ int iron_build(const char *source_path, const char *output_path,
     /* 7a. IR optimization passes */
     IronLIR_OptimizeInfo optimize_info;
     iron_lir_optimize(ir_module, &optimize_info, &arena,
-                     opts.dump_ir_passes, opts.no_optimize);
+                     opts.dump_ir_passes, opts.no_optimize,
+                     /*elision_enabled=*/ !opts.no_optimize && !opts.debug_build);
 
     /* 7b. Phase 5: LIR main-loop split pass (WEB-EMIT-01..04).
      *

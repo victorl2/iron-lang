@@ -3880,7 +3880,8 @@ void iron_lir_compute_inline_info(IronLIR_Module *module, IronLIR_OptimizeInfo *
 }
 
 bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
-                      Iron_Arena *arena, bool dump_passes, bool skip_new_passes) {
+                      Iron_Arena *arena, bool dump_passes, bool skip_new_passes,
+                      bool elision_enabled) {
     if (!module) return false;
 
     /* Initialize info maps to NULL (stb_ds convention) */
@@ -3976,6 +3977,28 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
     if (dump_passes) {
         char *ir_text = iron_lir_print(module, true);
         if (ir_text) { fprintf(stderr, "=== After dead-alloca-elim ===\n%s\n", ir_text); free(ir_text); }
+    }
+
+    /* Phase 29 OPT-01: atomic refcount elision. Runs after the fixpoint and
+     * dead-alloca-elim — CFG/sequences are settled (CONTEXT GA3 "after CFG
+     * simplification / before final lowering"). Gated: OFF at -O0/debug.
+     * Deletion-only, then re-verify the mutated stream (mirror the per-pass
+     * verify discipline above). */
+    if (elision_enabled) {
+        IronLIR_ElisionStat elision_stat = {0};
+        run_rc_pair_elimination(module, &elision_stat);
+        if (dump_passes) {
+            char *ir_text = iron_lir_print(module, true);
+            if (ir_text) {
+                fprintf(stderr, "=== After rc-pair-elim: %d pairs eliminated ===\n%s\n",
+                        elision_stat.pairs_eliminated, ir_text);
+                free(ir_text);
+            }
+        }
+        Iron_DiagList verify_diags2;
+        memset(&verify_diags2, 0, sizeof(verify_diags2));
+        iron_lir_verify(module, &verify_diags2, arena);
+        iron_diaglist_free(&verify_diags2);
     }
 
     /* Phase 16: compute module-wide function purity and set up inline info */

@@ -84,7 +84,7 @@ static const char *compile_to_c_mode(const char *src,
 
     if (lir_out) *lir_out = lir;
 
-    iron_lir_optimize(lir, opt_out, &g_out_arena, false, true);
+    iron_lir_optimize(lir, opt_out, &g_out_arena, false, true, false);
 
     const char *c_src = iron_lir_emit_c(lir, &g_out_arena, &g_diags,
                                          opt_out, NULL, false, false);

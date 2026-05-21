@@ -159,7 +159,7 @@ void test_copy_propagation_single_store_alloca(void) {
     int before = entry->instr_count;
 
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* After copy propagation + DCE:
      * - block should have fewer instructions (LOAD eliminated)
@@ -219,7 +219,7 @@ void test_copy_propagation_multi_store_skipped(void) {
     IronLIR_ValueId add_id  = add->id;
 
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* copy_prop skips multi-store allocas, but store/load elim tracks the last store.
      * After the full pass pipeline:
@@ -269,7 +269,7 @@ void test_dce_removes_unused_pure_instruction(void) {
     int before = entry->instr_count;
 
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* After DCE the block should have fewer instructions (ADD was removed).
      * Only the RETURN and possibly no live constants should remain. */
@@ -308,7 +308,7 @@ void test_dce_preserves_side_effecting(void) {
     iron_lir_return(fn, entry, IRON_LIR_VALUE_INVALID, true, NULL, sp);
 
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* CALL must still be present */
     TEST_ASSERT_EQUAL_INT(1, count_kind_in_block(entry, IRON_LIR_CALL));
@@ -345,7 +345,7 @@ void test_constant_folding_add(void) {
     iron_lir_return(fn, entry, add_id, false, int_type, sp);
 
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* The ADD instruction should have been replaced by CONST_INT(7) in-place */
     IronLIR_Instr *after = fn->value_table[add_id];
@@ -385,7 +385,7 @@ void test_constant_folding_div_by_zero_skipped(void) {
     iron_lir_return(fn, entry, div_id, false, int_type, sp);
 
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* DIV must still be present — not folded */
     IronLIR_Instr *after = fn->value_table[div_id];
@@ -433,7 +433,7 @@ void test_fixpoint_copy_prop_then_dce(void) {
     int before = entry->instr_count;
 
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* The fixpoint loop should have reduced the instruction count */
     TEST_ASSERT_LESS_THAN_INT(before, entry->instr_count);
@@ -463,7 +463,7 @@ void test_optimize_empty_function(void) {
 
     IronLIR_OptimizeInfo info;
     /* Must not crash */
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* RETURN is side-effecting; it must be preserved */
     TEST_ASSERT_EQUAL_INT(before, entry->instr_count);
@@ -488,7 +488,7 @@ void test_optimize_extern_function_skipped(void) {
 
     IronLIR_OptimizeInfo info;
     /* Must not crash even though there are no blocks */
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* Extern fn should remain unchanged */
     TEST_ASSERT_TRUE(fn->is_extern);
@@ -617,7 +617,7 @@ void test_inline_eligible_side_effect_excluded(void) {
 
     /* Run full optimize (this populates func_purity); "impure_external" not in module */
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* Now compute per-function eligibility */
     iron_lir_compute_use_counts(fn, &info);
@@ -718,7 +718,7 @@ void test_func_purity_analysis(void) {
 
     /* Run optimizer to populate func_purity */
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* pure_const has no CALLs and all instructions are pure -> in func_purity */
     TEST_ASSERT_NOT_NULL(info.func_purity);
@@ -773,7 +773,7 @@ void test_store_load_elim_basic_scalar(void) {
     iron_lir_return(fn, entry, add->id, false, int_type, sp);
 
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* After store/load elim + DCE: the LOAD should be eliminated */
     TEST_ASSERT_EQUAL_INT(0, count_kind_in_block(entry, IRON_LIR_LOAD));
@@ -821,7 +821,7 @@ void test_store_load_elim_call_non_escaped(void) {
     iron_lir_return(fn, entry, loaded->id, false, int_type, sp);
 
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* Non-escaped alloca survives CALL: LOAD should be eliminated */
     TEST_ASSERT_EQUAL_INT(0, count_kind_in_block(entry, IRON_LIR_LOAD));
@@ -869,7 +869,7 @@ void test_store_load_elim_set_index_clobbers(void) {
     iron_lir_return(fn, entry, loaded->id, false, arr_type, sp);
 
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* SET_INDEX clobbers the array alloca — LOAD must NOT be eliminated */
     TEST_ASSERT_GREATER_OR_EQUAL_INT(1, count_kind_in_block(entry, IRON_LIR_LOAD));
@@ -985,7 +985,7 @@ void test_strength_reduction_basic_loop(void) {
     (void)mul_id;
 
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* After strength reduction:
      * - The body block should have NO MUL instructions
@@ -1019,7 +1019,7 @@ void test_strength_reduction_no_loop(void) {
 
     /* Should not crash */
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* No MUL instructions in the function at all */
     TEST_ASSERT_EQUAL_INT(0, count_kind_in_block(entry, IRON_LIR_MUL));
@@ -1134,7 +1134,7 @@ void test_strength_reduction_loop_invariant_check(void) {
     iron_lir_return(fn, exit_b, load_res->id, false, int_type, sp);
 
     IronLIR_OptimizeInfo info;
-    iron_lir_optimize(mod, &info, &ir_arena, false, false);
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
 
     /* The MUL should still be present in the body block — j is not loop-invariant.
      * Check value_table: the MUL instruction should not have been removed. */

@@ -75,9 +75,13 @@ typedef struct {
  * arena: used for string key allocation in analyze_array_param_modes.
  * dump_passes: print IR after each pass (--dump-ir-passes).
  * skip_new_passes: skip copy-prop/const-fold/DCE (--no-optimize).
+ * elision_enabled: run the Phase 29 OPT-01 atomic refcount elision sub-pass in
+ *   the driver tail (gated: !no_optimize && !debug_build — OFF at -O0/debug so
+ *   the Phase 31 leak detector observes true refcount activity).
  * Returns true if any new optimization pass made changes. */
 bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
-                      Iron_Arena *arena, bool dump_passes, bool skip_new_passes);
+                      Iron_Arena *arena, bool dump_passes, bool skip_new_passes,
+                      bool elision_enabled);
 
 /* Free stb_ds maps inside an OptimizeInfo. */
 void iron_lir_optimize_info_free(IronLIR_OptimizeInfo *info);
