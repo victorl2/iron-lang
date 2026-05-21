@@ -1777,6 +1777,46 @@ if(NOT WIN32)
         WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
 endif()
 
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 29 Atomic Refcount Elision — `phase29-invariant` Wave 0 RED anchor
+# ─────────────────────────────────────────────────────────────────────────
+# `ctest -L phase29-invariant` aggregates the Wave 0 TDD RED anchor for Phase
+# 29 (§12 step 15): the two LIR unit harnesses (registered in
+# tests/lir/CMakeLists.txt with the phase29-invariant label) PLUS the six
+# soundness-trap behavior fixtures below — one per documented trap
+# (spawn/parallel, FFI/extern, weak.upgrade, panic-unwind, allocation,
+# comptime). Each .iron is constructed so a NAIVE elision WOULD be unsound (a
+# retain/release pair straddles the barrier), yet correct compilation must
+# produce the .expected stdout whether or not the pass runs. They pin behavior
+# BEFORE the elision pass exists (Plans 02/03), so they are GREEN-by-behavior.
+#
+# Container caveat (mirrors Phase 25/27/28): the silvaserver podman container
+# is CHECK-ONLY (no clang to run `ironc build` output binaries), so each row is
+# WILL_FAIL YES with the explanatory comment; they flip on a clang host. They
+# additionally inherit the pre-existing box.iron stdlib-prepend syntax blocker
+# (STDLIB-05; deferred to Phase 33) that gates the entire positive v4 corpus.
+if(NOT WIN32)
+    set(_PHASE_29_TRAP_FIXTURES
+        spawn_pair
+        extern_pair
+        weak_upgrade_pair
+        panic_pair
+        alloc_pair
+        comptime_pair
+    )
+    foreach(_fix IN LISTS _PHASE_29_TRAP_FIXTURES)
+        add_test(
+            NAME v4_4.10-rc-elision_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        set_tests_properties(v4_4.10-rc-elision_${_fix} PROPERTIES
+            LABELS "integration;phase29-invariant;v4-acceptance"
+            TIMEOUT 60
+            WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+    endforeach()
+endif()
+
 # ---- Install rules ----
 if(IRON_BUILD_LSP)
     install(TARGETS ironc iron ironls DESTINATION bin)

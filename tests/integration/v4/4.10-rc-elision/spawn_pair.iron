@@ -1,0 +1,27 @@
+-- section 4.10 rc elision: SPAWN soundness trap
+-- @req: OPT-01
+-- A retain/release pair straddles a `spawn`: the rc value is cloned and passed
+-- to the spawned worker, then dropped on the main side. A naive elision that
+-- deleted the pair would race the worker's view of the refcount. Correct
+-- compilation must keep the object live in the spawned thread and print its
+-- value regardless of whether the pass runs.
+
+object SharedData {
+    val value: Int
+
+    drop {
+        println("drop: shared {value}")
+    }
+}
+
+func worker(data: rc SharedData) {
+    println("worker sees: {data.value}")
+}
+
+func main() {
+    val shared = rc SharedData(value: 100)
+    val copy_for_worker = shared
+    val t = spawn worker(copy_for_worker)
+    await t
+    println("main sees: {shared.value}")
+}

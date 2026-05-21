@@ -1,0 +1,23 @@
+-- section 4.10 rc elision: FFI/extern soundness trap
+-- @req: OPT-01
+-- A retain/release pair straddles a call to an `extern` function. The extern
+-- callee is opaque (may capture the pointer or observe the refcount), so it is
+-- a hard barrier: the pair must NOT be eliminated. Correct output prints the
+-- payload after the extern call returns.
+
+object Tag {
+    val n: Int
+
+    drop {
+        println("drop: tag {n}")
+    }
+}
+
+extern func strlen(s: String) -> Int
+
+func main() {
+    val t = rc Tag(n: 42)
+    val len = strlen("iron")
+    println("len: {len}")
+    println("tag: {t.n}")
+}
