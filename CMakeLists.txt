@@ -1607,6 +1607,175 @@ if(NOT WIN32)
     endforeach()
 endif()
 
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 28 Arena Allocation — `phase28-invariant` RED corpus + baseline wiring
+# ─────────────────────────────────────────────────────────────────────────
+# `ctest -L phase28-invariant` aggregates the Wave 0 TDD RED anchor for Phase
+# 28 (§12 step 14): the new Wave 0 fixtures (Plan 28-01 Task 2) PLUS the six
+# pre-existing-but-unregistered baseline 3.7-arena fixtures and the three
+# 8.6-composition-arena fixtures. Nothing under src/ exists yet — these rows
+# are intentionally RED until Plans 28-02/03/04 land the runtime + E0301 +
+# W0605 + codegen.
+#
+# Container caveat (mirrors Phase 25/27): the silvaserver podman container is
+# CHECK-ONLY (no clang available to run `ironc build` output binaries). Rows
+# that require `ironc build` + run (positive run fixtures + panic fixtures) are
+# registered WILL_FAIL YES with the explanatory comment; they flip when run on
+# a clang host. `ironc check`-based negative rows are RED (no impl yet) and
+# flip GREEN as soon as E0301/W0605 land.
+#
+# The LSP smoke anchor is NOT registered here — it lives in
+# tests/lsp/smoke/CMakeLists.txt as a dual (real + exit-77 SKIP shim) pair.
+if(NOT WIN32)
+    # ── Negative check-based rows (RED until Plan 28-03 lands E0301/W0605) ──
+    # ARENA-08 rc-in-arena (baseline fixture, pre-existing) → E0301.
+    add_test(
+        NAME v4_fail_3.7-arena_rc_in_arena
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/rc_in_arena.iron 2>&1 | grep -qF E0301"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_3.7-arena_rc_in_arena PROPERTIES
+        LABELS "integration;phase28-invariant" TIMEOUT 30)
+
+    # GA3 weak-rc-in-arena extension (Wave 0 fixture) → SAME E0301 code.
+    add_test(
+        NAME v4_fail_3.7-arena_weak_rc_in_arena
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/weak_rc_in_arena.iron 2>&1 | grep -qF E0301"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_3.7-arena_weak_rc_in_arena PROPERTIES
+        LABELS "integration;phase28-invariant" TIMEOUT 30)
+
+    # ARENA-09 non-trivial-destructor warning (Wave 0 fixture) → W06xx (W0605).
+    add_test(
+        NAME v4_fail_3.7-arena_arena_nontrivial_dtor
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_nontrivial_dtor.iron 2>&1 | grep -qE 'W06[0-9][0-9]'"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_3.7-arena_arena_nontrivial_dtor PROPERTIES
+        LABELS "integration;phase28-invariant" TIMEOUT 30)
+
+    # ── Positive check-only row (compile-clean, no run; no W06xx warning) ──
+    # ARENA-09 allow_drop_skip suppression: exits 0 AND emits no W06xx warning.
+    add_test(
+        NAME v4_3.7-arena_arena_allow_drop_skip
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/arena_allow_drop_skip.iron 2>&1 | (! grep -qE 'W06[0-9][0-9]')"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_3.7-arena_arena_allow_drop_skip PROPERTIES
+        LABELS "integration;phase28-invariant" TIMEOUT 30)
+
+    # ── Positive `ironc build` + run rows (need clang to run the binary) ──
+    # The silvaserver container is check-only, so each is WILL_FAIL YES; they
+    # flip when run on a clang host. Pattern mirrors Phase 26/27 build+run rows.
+    # Explicit per-fixture rows (not a foreach) so each carries the literal
+    # phase28-invariant label for ctest -L enumeration + drift auditing.
+    add_test(
+        NAME v4_3.7-arena_happy
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/happy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/happy.iron && actual=\$(\"\$d/happy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_3.7-arena_happy PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+
+    add_test(
+        NAME v4_3.7-arena_boundary_with_capacity
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_with_capacity.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_with_capacity.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_3.7-arena_boundary_with_capacity PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+
+    add_test(
+        NAME v4_3.7-arena_boundary_in_arena_block
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_in_arena_block.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_in_arena_block.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_3.7-arena_boundary_in_arena_block PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+
+    add_test(
+        NAME v4_3.7-arena_boundary_save_restore
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_save_restore.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_save_restore.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_3.7-arena_boundary_save_restore PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+
+    add_test(
+        NAME v4_3.7-arena_boundary_alloc_reset
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_alloc_reset.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_alloc_reset.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_3.7-arena_boundary_alloc_reset PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+
+    # ARENA-11 innermost-wins (Wave 0 fixture) — build + run.
+    add_test(
+        NAME v4_3.7-arena_nested_in_arena
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/nested_in_arena.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/nested_in_arena.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_3.7-arena_nested_in_arena PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+
+    add_test(
+        NAME v4_8.6-composition-arena_happy
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/happy.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_8.6-composition-arena_happy PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+
+    add_test(
+        NAME v4_8.6-composition-arena_extends_save_restore
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_save_restore.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_save_restore.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_8.6-composition-arena_extends_save_restore PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+
+    add_test(
+        NAME v4_8.6-composition-arena_extends_rc_in_arena_xref
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_rc_in_arena_xref.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_rc_in_arena_xref.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_8.6-composition-arena_extends_rc_in_arena_xref PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+
+    # ── Panic / run rows (ARENA-06 reset→panic; ARENA-10 OOM) ──
+    # Require `ironc build` + run to observe the abort, so WILL_FAIL YES with
+    # the same check-only-container rationale; flip on a clang host. The run
+    # asserts the expected panic substring appears in the binary's stderr.
+    add_test(
+        NAME v4_3.7-arena_panic_after_reset
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/panic_after_reset.iron && actual=\$(\"\$d/b\" 2>&1 || true) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/panic_after_reset.expected) && echo \"\$actual\" | grep -qF \"\$expected\" && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_3.7-arena_panic_after_reset PROPERTIES
+        LABELS "integration;phase28-invariant" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+
+    # ARENA-10 OOM panic: arena "scratch" out of memory in stderr.
+    add_test(
+        NAME v4_fail_3.7-arena_arena_oom
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_oom.iron && actual=\$(\"\$d/b\" 2>&1 || true) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_oom.expected) && echo \"\$actual\" | grep -qF \"\$expected\" && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_fail_3.7-arena_arena_oom PROPERTIES
+        LABELS "integration;phase28-invariant" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+endif()
+
 # ---- Install rules ----
 if(IRON_BUILD_LSP)
     install(TARGETS ironc iron ironls DESTINATION bin)

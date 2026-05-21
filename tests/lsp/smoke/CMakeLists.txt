@@ -317,6 +317,31 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             TIMEOUT 60
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
 
+        # Phase 28 Plan 28-01 Task 3: lsp_phase28_smoke (CORE-22 arena facade).
+        # Wave 0 RED regression-anchor verifying E0301 (rc/weak-rc-in-arena)
+        # surfaces through publishDiagnostics for an `in arena { val x = rc T(...) }`
+        # buffer. CORE-22 facade invariant: zero src/lsp/ source modifications —
+        # the existing facade auto-pipes new compiler-side diagnostics, so LSP
+        # E0301 == CLI E0301 with no LSP code change. RED until Plan 28-03 lands
+        # IRON_ERR_RC_IN_ARENA=301; mirrors the Phase 27 lsp_phase27_smoke pair.
+        # FLAT path (test_did_publish_arena_violation.py lives directly in
+        # tests/lsp/smoke/, NOT a phase28/ subdir) so it shares the existing
+        # conftest.py and is also picked up by the directory-level lsp_smoke row;
+        # this dedicated row gives it an independent phase28-invariant gate.
+        add_test(
+            NAME lsp_phase28_smoke
+            COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_did_publish_arena_violation.py
+                --lsp-binary=$<TARGET_FILE:ironls>
+                --no-header
+                -p no:cacheprovider
+                -v
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(lsp_phase28_smoke PROPERTIES
+            LABELS "smoke;lsp_smoke;phase28-invariant"
+            TIMEOUT 60
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}")
+
         # Phase 14 Plan 14-02 (CMD-01, CMD-03): test_iron_migrate_command --
         # Wave 0 smoke for workspace/executeCommand iron.migrate.
         # Covers: capability-advertised, workspace-edit happy path,
@@ -483,6 +508,16 @@ if(Python3_FOUND AND IRON_BUILD_LSP)
             COMMAND ${Python3_EXECUTABLE} -c "print('pytest-lsp not installed'); raise SystemExit(77)")
         set_tests_properties(lsp_phase27_smoke PROPERTIES
             LABELS "smoke;lsp_smoke;phase27-invariant"
+            SKIP_RETURN_CODE 77
+            TIMEOUT 30)
+
+        # Phase 28 Plan 28-01 Task 3: SKIP shim for lsp_phase28_smoke when
+        # pytest-lsp is absent. ctest -L phase28-invariant stays green.
+        add_test(
+            NAME lsp_phase28_smoke
+            COMMAND ${Python3_EXECUTABLE} -c "print('pytest-lsp not installed'); raise SystemExit(77)")
+        set_tests_properties(lsp_phase28_smoke PROPERTIES
+            LABELS "smoke;lsp_smoke;phase28-invariant"
             SKIP_RETURN_CODE 77
             TIMEOUT 30)
 
