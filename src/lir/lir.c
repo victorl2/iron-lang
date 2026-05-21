@@ -369,6 +369,33 @@ IronLIR_Instr *iron_lir_rc_alloc(IronLIR_Func *fn, IronLIR_Block *block,
     return i;
 }
 
+/* Phase 28 ARENA-03/05 (Plan 28-04): arena allocation — value-producing
+ * (Iron_FatPtr). arena_val == IRON_LIR_VALUE_INVALID → TLS-current default. */
+IronLIR_Instr *iron_lir_arena_alloc(IronLIR_Func *fn, IronLIR_Block *block,
+                                    IronLIR_ValueId inner_val,
+                                    IronLIR_ValueId arena_val,
+                                    bool allow_drop_skip,
+                                    Iron_Type *type, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_ARENA_ALLOC, type, span, true);
+    i->arena_alloc.inner_val       = inner_val;
+    i->arena_alloc.arena_val       = arena_val;
+    i->arena_alloc.allow_drop_skip = allow_drop_skip;
+    return i;
+}
+
+/* Phase 28 ARENA-04 (Plan 28-04): TLS active-arena push/pop — void-result. */
+IronLIR_Instr *iron_lir_arena_push(IronLIR_Func *fn, IronLIR_Block *block,
+                                   IronLIR_ValueId arena_val, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_ARENA_PUSH, NULL, span, false);
+    i->arena_push.arena_val = arena_val;
+    return i;
+}
+
+IronLIR_Instr *iron_lir_arena_pop(IronLIR_Func *fn, IronLIR_Block *block,
+                                  Iron_Span span) {
+    return alloc_instr(fn, block, IRON_LIR_ARENA_POP, NULL, span, false);
+}
+
 /* Phase 26 POL-06 (Plan 26-02): IRON_LIR_RC_RETAIN constructor.
  * Void-result opcode (produces_value = false) — wraps an atomic relaxed
  * increment of the refcount header. Emitted by HIR-to-LIR at copy sites

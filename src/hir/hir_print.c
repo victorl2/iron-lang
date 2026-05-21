@@ -257,6 +257,17 @@ static void print_stmt(Iron_StrBuf *sb, const IronHIR_Stmt *stmt,
         }
         break;
 
+    case IRON_HIR_STMT_IN_ARENA:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "InArenaStmt\n");
+        if (stmt->in_arena.arena) {
+            print_expr(sb, stmt->in_arena.arena, mod, depth + 1, tmp);
+        }
+        if (stmt->in_arena.body) {
+            print_block(sb, stmt->in_arena.body, mod, depth + 1, tmp);
+        }
+        break;
+
     default:
         do_indent(sb, depth);
         iron_strbuf_appendf(sb, "UnknownStmt\n");
@@ -424,6 +435,17 @@ static void print_expr(Iron_StrBuf *sb, const IronHIR_Expr *expr,
         iron_strbuf_appendf(sb, "Heap\n");
         if (expr->heap.inner) {
             print_expr(sb, expr->heap.inner, mod, depth + 1, tmp);
+        }
+        break;
+
+    case IRON_HIR_EXPR_ARENA_ALLOC:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "ArenaAlloc\n");
+        if (expr->arena_alloc.arena) {
+            print_expr(sb, expr->arena_alloc.arena, mod, depth + 1, tmp);
+        }
+        if (expr->arena_alloc.inner) {
+            print_expr(sb, expr->arena_alloc.inner, mod, depth + 1, tmp);
         }
         break;
 

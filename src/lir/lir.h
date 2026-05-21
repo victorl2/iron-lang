@@ -95,6 +95,19 @@ typedef enum {
     /* Memory management */
     IRON_LIR_HEAP_ALLOC,
     IRON_LIR_RC_ALLOC,
+    /* Phase 28 ARENA-03/04/05 (Plan 28-04): arena opcodes.
+     * IRON_LIR_ARENA_ALLOC: bump-allocate from a named arena (arena_val) or,
+     *   when arena_val == IRON_LIR_VALUE_INVALID, the TLS-current arena via
+     *   iron_arena_rt_current(). Produces an Iron_FatPtr whose .gen snapshots
+     *   the arena's live generation; deref routes to iron_check_arena_pointer_gen
+     *   via the IRON_LIR_GEN_ARENA tag. A NEW opcode (not HEAP_ALLOC reuse) so
+     *   the Phase 29/30 optimizers pattern-match on opcode identity (Open Q1).
+     * IRON_LIR_ARENA_PUSH / IRON_LIR_ARENA_POP: lower `in arena {}` — push the
+     *   arena onto the runtime TLS active-arena stack on entry, pop on EVERY
+     *   exit edge (emitted through the scope-exit drop-stack pump). */
+    IRON_LIR_ARENA_ALLOC,
+    IRON_LIR_ARENA_PUSH,
+    IRON_LIR_ARENA_POP,
     /* Phase 26 POL-06 (Plan 26-02): rc retain/release opcodes — emitted at
      * HIR-to-LIR copy sites (STORE / CALL arg / RETURN with IRON_TYPE_RC
      * target) and at scope-exit drop entries. emit_c.c lowers these to
@@ -165,7 +178,15 @@ typedef enum {
  * symbol is heap-tracked; STACK otherwise (locals / params). */
 typedef enum IronLIR_GenSource {
     IRON_LIR_GEN_HEAP,
-    IRON_LIR_GEN_STACK
+    IRON_LIR_GEN_STACK,
+    /* Phase 28 ARENA-03/06 (Plan 28-04): the third deref-routing member.
+     * An arena-sourced fat pointer's generation lives in the arena's live
+     * counter (reached via the per-alloc prefix header's back-ref). emit_c
+     * routes ADDR_OF / FIELD_ACCESS / PTR_LOAD / PTR_STORE through this tag
+     * to iron_check_arena_pointer_gen (the third isomorphic deref-check
+     * sibling). Pitfall 1: an untagged arena ptr would be checked by the heap
+     * helper and read garbage. */
+    IRON_LIR_GEN_ARENA
 } IronLIR_GenSource;
 
 /* ── Instruction (tagged union) ───────────────────────────────────────────── */
@@ -276,6 +297,18 @@ struct IronLIR_Instr {
 
         /* IRON_LIR_RC_ALLOC */
         struct { IronLIR_ValueId inner_val; } rc_alloc;
+
+        /* IRON_LIR_ARENA_ALLOC (Phase 28 ARENA-03/05, Plan 28-04) — mirror
+         * heap_alloc. arena_val == IRON_LIR_VALUE_INVALID → iron_arena_rt_current(). */
+        struct {
+            IronLIR_ValueId inner_val;
+            IronLIR_ValueId arena_val;      /* INVALID = TLS-current default */
+            bool           allow_drop_skip;
+        } arena_alloc;
+
+        /* IRON_LIR_ARENA_PUSH (Phase 28 ARENA-04) — push arena onto TLS stack.
+         * IRON_LIR_ARENA_POP carries no operands (pops the TLS top). */
+        struct { IronLIR_ValueId arena_val; } arena_push;
 
         /* IRON_LIR_RC_RETAIN / IRON_LIR_RC_RELEASE (Phase 26 POL-06) */
         struct { IronLIR_ValueId target; } rc_retain;
@@ -648,6 +681,17 @@ IronLIR_Instr *iron_lir_heap_alloc(IronLIR_Func *fn, IronLIR_Block *block,
 IronLIR_Instr *iron_lir_rc_alloc(IronLIR_Func *fn, IronLIR_Block *block,
                                 IronLIR_ValueId inner_val,
                                 Iron_Type *type, Iron_Span span);
+/* Phase 28 ARENA-03/04/05 (Plan 28-04): arena opcode builders.
+ * arena_val == IRON_LIR_VALUE_INVALID for arena_alloc means TLS-current. */
+IronLIR_Instr *iron_lir_arena_alloc(IronLIR_Func *fn, IronLIR_Block *block,
+                                    IronLIR_ValueId inner_val,
+                                    IronLIR_ValueId arena_val,
+                                    bool allow_drop_skip,
+                                    Iron_Type *type, Iron_Span span);
+IronLIR_Instr *iron_lir_arena_push(IronLIR_Func *fn, IronLIR_Block *block,
+                                   IronLIR_ValueId arena_val, Iron_Span span);
+IronLIR_Instr *iron_lir_arena_pop(IronLIR_Func *fn, IronLIR_Block *block,
+                                  Iron_Span span);
 IronLIR_Instr *iron_lir_rc_retain(IronLIR_Func *fn, IronLIR_Block *block,
                                   IronLIR_ValueId target, Iron_Span span);
 IronLIR_Instr *iron_lir_rc_release(IronLIR_Func *fn, IronLIR_Block *block,

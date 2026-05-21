@@ -292,6 +292,19 @@ IronHIR_Stmt *iron_hir_stmt_leak(IronHIR_Module *mod, IronHIR_Expr *value,
     return s;
 }
 
+/* Phase 28 ARENA-04 (Plan 28-04): `in <arena> { ... }` default-arena block. */
+IronHIR_Stmt *iron_hir_stmt_in_arena(IronHIR_Module *mod, IronHIR_Expr *arena,
+                                      IronHIR_Block *body, Iron_Span span) {
+    IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_in_arena");
+    memset(s, 0, sizeof(*s));
+    s->kind           = IRON_HIR_STMT_IN_ARENA;
+    s->span           = span;
+    s->in_arena.arena = arena;
+    s->in_arena.body  = body;
+    return s;
+}
+
 /* ── Expression constructors ─────────────────────────────────────────────── */
 
 IronHIR_Expr *iron_hir_expr_int_lit(IronHIR_Module *mod, int64_t value,
@@ -532,6 +545,22 @@ IronHIR_Expr *iron_hir_expr_rc(IronHIR_Module *mod, IronHIR_Expr *inner,
     e->span     = span;
     e->type     = type;
     e->rc.inner = inner;
+    return e;
+}
+
+/* Phase 28 ARENA-03/05 (Plan 28-04): arena allocation constructor. */
+IronHIR_Expr *iron_hir_expr_arena_alloc(IronHIR_Module *mod, IronHIR_Expr *inner,
+                                         IronHIR_Expr *arena, bool allow_drop_skip,
+                                         Iron_Type *type, Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_arena_alloc");
+    memset(e, 0, sizeof(*e));
+    e->kind                      = IRON_HIR_EXPR_ARENA_ALLOC;
+    e->span                      = span;
+    e->type                      = type;
+    e->arena_alloc.inner         = inner;
+    e->arena_alloc.arena         = arena;
+    e->arena_alloc.allow_drop_skip = allow_drop_skip;
     return e;
 }
 

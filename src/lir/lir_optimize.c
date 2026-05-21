@@ -734,6 +734,17 @@ static bool apply_replacements(IronLIR_Instr *instr, ValueReplEntry *repl_map) {
         REPL(instr->rc_alloc.inner_val);
         break;
 
+    /* Phase 28 ARENA-03/04 (Plan 28-04): arena opcode operand replacement. */
+    case IRON_LIR_ARENA_ALLOC:
+        REPL(instr->arena_alloc.inner_val);
+        if (instr->arena_alloc.arena_val != IRON_LIR_VALUE_INVALID)
+            REPL(instr->arena_alloc.arena_val);
+        break;
+
+    case IRON_LIR_ARENA_PUSH:
+        REPL(instr->arena_push.arena_val);
+        break;
+
     case IRON_LIR_FREE:
         REPL(instr->free_instr.value);
         break;
@@ -932,6 +943,18 @@ static void opt_collect_operands(const IronLIR_Instr *instr,
 
     case IRON_LIR_RC_ALLOC:
         PUSH(instr->rc_alloc.inner_val);
+        break;
+
+    /* Phase 28 ARENA-03/04 (Plan 28-04): arena opcode use-counting. */
+    case IRON_LIR_ARENA_ALLOC:
+        PUSH(instr->arena_alloc.inner_val);
+        if (instr->arena_alloc.arena_val != IRON_LIR_VALUE_INVALID) {
+            PUSH(instr->arena_alloc.arena_val);
+        }
+        break;
+
+    case IRON_LIR_ARENA_PUSH:
+        PUSH(instr->arena_push.arena_val);
         break;
 
     case IRON_LIR_FREE:
@@ -1904,6 +1927,12 @@ static bool instr_mutates_memory(IronLIR_InstrKind kind) {
     case IRON_LIR_CALL:
     case IRON_LIR_HEAP_ALLOC:
     case IRON_LIR_RC_ALLOC:
+    /* Phase 28 ARENA-03/04 (Plan 28-04): arena ops bump the arena's
+     * bump-pointer / mutate the TLS active-arena stack — treat as
+     * memory-mutating so the optimizer never reorders or DCEs them. */
+    case IRON_LIR_ARENA_ALLOC:
+    case IRON_LIR_ARENA_PUSH:
+    case IRON_LIR_ARENA_POP:
     case IRON_LIR_FREE:
         return true;
     /* -Wswitch-enum opt-out: predicate is strictly memory-mutating opcodes;

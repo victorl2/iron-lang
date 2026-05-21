@@ -38,7 +38,12 @@ typedef enum {
     IRON_HIR_STMT_EXPR,       /* expression statement              */
     IRON_HIR_STMT_FREE,       /* explicit memory free              */
     IRON_HIR_STMT_SPAWN,      /* spawn concurrent task             */
-    IRON_HIR_STMT_LEAK        /* intentional memory leak           */
+    IRON_HIR_STMT_LEAK,       /* intentional memory leak           */
+    /* Phase 28 ARENA-04 (Plan 28-04): `in <arena> { ... }` default-arena
+     * block. Lowers to IRON_LIR_ARENA_PUSH(arena) ... body ... ARENA_POP,
+     * with the POP emitted on EVERY exit edge via the scope-exit drop-stack
+     * pump (survives early return / break / panic). */
+    IRON_HIR_STMT_IN_ARENA
 } IronHIR_StmtKind;
 
 /* ── Expression kind enum ────────────────────────────────────────────────── */
@@ -72,6 +77,14 @@ typedef enum {
     /* Memory management */
     IRON_HIR_EXPR_HEAP,          /* heap allocation                */
     IRON_HIR_EXPR_RC,            /* reference-counted allocation   */
+    /* Phase 28 ARENA-03/05 (Plan 28-04): arena allocation.
+     * `heap(in: arena) T(...)` (arena resolved) OR a bare `heap T(...)`
+     * lexically inside an `in arena {}` block (arena NULL → TLS-current at
+     * runtime). Lowers to IRON_LIR_ARENA_ALLOC. Distinct from
+     * IRON_HIR_EXPR_HEAP so hir_to_lir tags the result gen_source =
+     * IRON_LIR_GEN_ARENA and so arena allocs are excluded from the
+     * scope-exit drop stack (the arena owns + bulk-frees the memory). */
+    IRON_HIR_EXPR_ARENA_ALLOC,
     /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc expression kinds.
      * Distinct from IRON_HIR_EXPR_METHOD_CALL so hir_to_lir can pattern-match
      * cleanly and emit the dedicated IRON_LIR_WEAK_RC_* opcodes without
@@ -272,6 +285,12 @@ struct IronHIR_Stmt {
         struct {
             IronHIR_Expr *value;
         } leak;
+
+        /* IRON_HIR_STMT_IN_ARENA (Phase 28 ARENA-04, Plan 28-04) */
+        struct {
+            IronHIR_Expr  *arena;  /* the arena expression after `in` */
+            IronHIR_Block *body;
+        } in_arena;
     };
 };
 
@@ -380,6 +399,15 @@ struct IronHIR_Expr {
         struct {
             IronHIR_Expr *inner;
         } rc;
+
+        /* IRON_HIR_EXPR_ARENA_ALLOC (Phase 28 ARENA-03/05, Plan 28-04).
+         * `arena` is NULL when relying on the TLS-current arena (bare heap
+         * inside an `in arena {}` block); emit_c emits iron_arena_rt_current(). */
+        struct {
+            IronHIR_Expr *inner;
+            IronHIR_Expr *arena;          /* NULL = TLS-current default */
+            bool          allow_drop_skip; /* ARENA-09 W0605 suppression */
+        } arena_alloc;
 
         /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc HIR payloads.
          * IRON_HIR_EXPR_WEAK_RC_NULL carries no operands — emit_c lowers it
@@ -591,6 +619,9 @@ IronHIR_Stmt *iron_hir_stmt_spawn(IronHIR_Module *mod, const char *handle_name,
                                    Iron_Span span);
 IronHIR_Stmt *iron_hir_stmt_leak(IronHIR_Module *mod, IronHIR_Expr *value,
                                   Iron_Span span);
+/* Phase 28 ARENA-04 (Plan 28-04): `in <arena> { ... }` default-arena block. */
+IronHIR_Stmt *iron_hir_stmt_in_arena(IronHIR_Module *mod, IronHIR_Expr *arena,
+                                      IronHIR_Block *body, Iron_Span span);
 
 /* Expression constructors (28) */
 IronHIR_Expr *iron_hir_expr_int_lit(IronHIR_Module *mod, int64_t value,
@@ -642,6 +673,11 @@ IronHIR_Expr *iron_hir_expr_heap(IronHIR_Module *mod, IronHIR_Expr *inner,
                                   Iron_Type *type, Iron_Span span);
 IronHIR_Expr *iron_hir_expr_rc(IronHIR_Module *mod, IronHIR_Expr *inner,
                                 Iron_Type *type, Iron_Span span);
+/* Phase 28 ARENA-03/05 (Plan 28-04): arena allocation. `arena` NULL = use
+ * the TLS-current arena (bare heap inside an `in arena {}` block). */
+IronHIR_Expr *iron_hir_expr_arena_alloc(IronHIR_Module *mod, IronHIR_Expr *inner,
+                                         IronHIR_Expr *arena, bool allow_drop_skip,
+                                         Iron_Type *type, Iron_Span span);
 
 /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc HIR constructors. */
 IronHIR_Expr *iron_hir_expr_weak_rc_null(IronHIR_Module *mod,

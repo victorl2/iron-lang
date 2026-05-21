@@ -377,6 +377,30 @@ static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, "\n");
         break;
 
+    case IRON_LIR_ARENA_ALLOC:
+        if (instr->arena_alloc.arena_val != IRON_LIR_VALUE_INVALID) {
+            iron_strbuf_appendf(sb, "  %%%u = arena_alloc %%%u in %%%u : ",
+                                instr->id, instr->arena_alloc.inner_val,
+                                instr->arena_alloc.arena_val);
+        } else {
+            iron_strbuf_appendf(sb, "  %%%u = arena_alloc %%%u in <tls-current> : ",
+                                instr->id, instr->arena_alloc.inner_val);
+        }
+        append_type(sb, instr->type, tmp);
+        if (show_annotations && instr->arena_alloc.allow_drop_skip) {
+            iron_strbuf_appendf(sb, " ; allow_drop_skip");
+        }
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_ARENA_PUSH:
+        iron_strbuf_appendf(sb, "  arena_push %%%u\n", instr->arena_push.arena_val);
+        break;
+
+    case IRON_LIR_ARENA_POP:
+        iron_strbuf_appendf(sb, "  arena_pop\n");
+        break;
+
     case IRON_LIR_RC_RETAIN:
         iron_strbuf_appendf(sb, "  rc_retain %%%u\n", instr->rc_retain.target);
         break;

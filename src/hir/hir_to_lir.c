@@ -60,6 +60,12 @@ typedef struct IronLIR_DropEntry_s {
     Iron_Type      *object_type; /* Iron_Type* of the object (kind == IRON_TYPE_OBJECT) */
     bool            is_direct_value; /* true: alloca_id is a direct value (immutable val); */
                                      /* false: alloca_id is a pointer to load from (mutable var) */
+    /* Phase 28 ARENA-04 (Plan 28-04): when true this entry is NOT an object
+     * destructor — it is an `in arena {}` scope-exit marker that emits
+     * IRON_LIR_ARENA_POP. Registered on block entry so the pop fires on EVERY
+     * exit edge (normal fall-through, early return, break/continue) through the
+     * same drop-stack pump that runs defer/drop cleanup. object_type is NULL. */
+    bool            is_arena_pop;
 } IronLIR_DropEntry;
 
 /* ── Lowering context ────────────────────────────────────────────────────── */
@@ -207,6 +213,16 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
     int n = (int)arrlen(drop_list);
     for (int i = n - 1; i >= 0; i--) {
         IronLIR_DropEntry *entry = &drop_list[i];
+        /* Phase 28 ARENA-04 (Plan 28-04): arena-pop scope marker. Emit
+         * IRON_LIR_ARENA_POP so the `in arena {}` block pops the TLS
+         * active-arena on this exit edge. Fires from BOTH emit_scope_defers
+         * (normal exit) and emit_defer_cleanup (early return), so the pop
+         * survives every exit edge (Pitfall 2). */
+        if (entry->is_arena_pop) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            iron_lir_arena_pop(ctx->current_func, ctx->current_block, span);
+            continue;
+        }
         if (!entry->object_type) continue;
         /* Phase 26 POL-06 (Plan 26-02): IRON_TYPE_RC scope-exit emits
          * IRON_LIR_RC_RELEASE on the binding value. Plan 26-03 will swap
@@ -1817,6 +1833,24 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                   inner, type, span)->id;
     }
 
+    /* Phase 28 ARENA-03/05 (Plan 28-04): arena allocation. Mirror the heap/rc
+     * arms. arena == NULL → IRON_LIR_VALUE_INVALID (emit_c emits
+     * iron_arena_rt_current()). The result is an Iron_FatPtr; deref-routing is
+     * driven by the IRON_LIR_GEN_ARENA tag (the LET-binding pump below excludes
+     * arena allocs from the scope-exit drop stack — the arena owns the memory
+     * and frees it in bulk at reset / arena-drop). */
+    case IRON_HIR_EXPR_ARENA_ALLOC: {
+        IronLIR_ValueId inner = lower_expr(ctx, expr->arena_alloc.inner);
+        IronLIR_ValueId arena_val = IRON_LIR_VALUE_INVALID;
+        if (expr->arena_alloc.arena) {
+            arena_val = lower_expr(ctx, expr->arena_alloc.arena);
+        }
+        return iron_lir_arena_alloc(ctx->current_func, ctx->current_block,
+                                     inner, arena_val,
+                                     expr->arena_alloc.allow_drop_skip,
+                                     type, span)->id;
+    }
+
     /* Phase 27 POL-08 (Plan 27-02): `weak rc null` lowers to a literal
      * NULL pointer. The C emit for IRON_LIR_CONST_NULL emits a typed NULL
      * which works for any weak rc T (alias-typed payload pointer). */
@@ -2073,7 +2107,11 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             Iron_Type *alloca_type = type;
             if (stmt->let.init) {
                 IronHIR_ExprKind ik = stmt->let.init->kind;
-                if ((ik == IRON_HIR_EXPR_HEAP || ik == IRON_HIR_EXPR_RC) && type) {
+                /* Phase 28 ARENA-03 (Plan 28-04): arena allocs produce an
+                 * Iron_FatPtr (like heap), so wrap the alloca as a pointer slot
+                 * the same way heap/rc are wrapped. */
+                if ((ik == IRON_HIR_EXPR_HEAP || ik == IRON_HIR_EXPR_RC ||
+                     ik == IRON_HIR_EXPR_ARENA_ALLOC) && type) {
                     /* Use RC wrapper to signal "this alloca holds a pointer" */
                     alloca_type = iron_type_make_rc(ctx->lir_arena, type);
                 }
@@ -2092,7 +2130,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             /* Phase 24 DROP-01 (Plan 24-02): push drop entry for mutable binding */
             if (type_has_drop_block(type, ctx->program) && ctx->defer_depth > 0 &&
                 ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
-                IronLIR_DropEntry de = { alloca_id, type, false };
+                IronLIR_DropEntry de = { alloca_id, type, false, false };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             }
         } else if (type && type->kind == IRON_TYPE_INTERFACE) {
@@ -2113,7 +2151,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             /* Phase 24 DROP-01 (Plan 24-02): push drop entry for interface-alloca binding */
             if (type_has_drop_block(type, ctx->program) && ctx->defer_depth > 0 &&
                 ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
-                IronLIR_DropEntry de = { alloca_id, type, false };
+                IronLIR_DropEntry de = { alloca_id, type, false, false };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             }
         } else {
@@ -2128,9 +2166,15 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
              * their drop fires on the explicit `free` instruction, NOT at scope
              * exit.  Promoting them to alloca here would store Iron_FatPtr into
              * a T-sized slot → C type mismatch.  Exclude them. */
+            /* Phase 28 ARENA-03 (Plan 28-04): arena allocations are owned by
+             * the arena and freed in bulk at reset / arena-drop — they MUST
+             * NOT push a scope-exit drop entry (this is the codegen counterpart
+             * of the W0605 non-trivial-destructor warning). Treat them exactly
+             * like heap/rc bindings, which already skip the drop alloca. */
             bool init_is_heap_or_rc = stmt->let.init &&
                 (stmt->let.init->kind == IRON_HIR_EXPR_HEAP ||
-                 stmt->let.init->kind == IRON_HIR_EXPR_RC);
+                 stmt->let.init->kind == IRON_HIR_EXPR_RC ||
+                 stmt->let.init->kind == IRON_HIR_EXPR_ARENA_ALLOC);
             bool needs_drop_alloca = stmt->let.init &&
                                      !init_is_heap_or_rc &&
                                      type_has_drop_block(type, ctx->program) &&
@@ -2148,7 +2192,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                                    alloca_id, init_val, span);
                 }
                 /* Push drop entry using alloca_id (is_direct_value=false → &alloca) */
-                IronLIR_DropEntry de = { alloca_id, type, false };
+                IronLIR_DropEntry de = { alloca_id, type, false, false };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             } else {
                 if (stmt->let.init) {
@@ -2179,7 +2223,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                                                ctx->current_block,
                                                init_val, span);
                         }
-                        IronLIR_DropEntry de = { init_val, type, true };
+                        IronLIR_DropEntry de = { init_val, type, true, false };
                         arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
                     }
                     /* Phase 27 POL-08 (Plan 27-03): IRON_TYPE_WEAK_RC val bindings.
@@ -2210,7 +2254,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                                                     ctx->current_block,
                                                     init_val, span);
                         }
-                        IronLIR_DropEntry de = { init_val, type, true };
+                        IronLIR_DropEntry de = { init_val, type, true, false };
                         arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
                     }
                 }
@@ -2649,6 +2693,36 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         lower_block_stmts(ctx, stmt->block.block);
         if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
             emit_scope_defers(ctx, block_base_depth - 1, span);
+        }
+        pop_defer_scope(ctx);
+        break;
+    }
+
+    /* Phase 28 ARENA-04 (Plan 28-04): `in <arena> { ... }` default-arena block.
+     * Lowers to IRON_LIR_ARENA_PUSH(arena) ... body ... IRON_LIR_ARENA_POP.
+     * The POP is registered as an arena-pop drop entry at this scope depth so
+     * the existing scope-exit pump emits it on EVERY exit edge — normal
+     * fall-through (emit_scope_defers below) AND early return (emit_defer_cleanup
+     * walks every depth down to the function base). This guarantees the TLS
+     * active-arena stack is balanced even when the body returns/panics. */
+    case IRON_HIR_STMT_IN_ARENA: {
+        IronLIR_ValueId arena_val = IRON_LIR_VALUE_INVALID;
+        if (stmt->in_arena.arena) {
+            arena_val = lower_expr(ctx, stmt->in_arena.arena);
+        }
+        if (!ctx->current_block || block_is_terminated(ctx->current_block)) break;
+        iron_lir_arena_push(ctx->current_func, ctx->current_block, arena_val, span);
+
+        push_defer_scope(ctx);
+        int arena_base_depth = ctx->defer_depth;
+        /* Register the arena-pop marker so every exit edge runs the pop. */
+        if (ctx->drop_stacks && arena_base_depth <= (int)arrlen(ctx->drop_stacks)) {
+            IronLIR_DropEntry pop_entry = { IRON_LIR_VALUE_INVALID, NULL, false, true };
+            arrput(ctx->drop_stacks[arena_base_depth - 1], pop_entry);
+        }
+        lower_block_stmts(ctx, stmt->in_arena.body);
+        if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+            emit_scope_defers(ctx, arena_base_depth - 1, span);
         }
         pop_defer_scope(ctx);
         break;

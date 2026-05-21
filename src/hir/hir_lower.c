@@ -98,6 +98,13 @@ typedef struct {
 
     /* Tracks which globals have been lowered (name -> VarId) */
     struct { char *key; IronHIR_VarId value; } *global_lowered_map;
+
+    /* Phase 28 ARENA-05 (Plan 28-04): lexical `in arena {}` nesting depth.
+     * Incremented on entry to an Iron_InArenaBlock body, decremented on exit.
+     * A bare `heap T(...)` lowered while depth > 0 becomes an arena allocation
+     * against the TLS-current arena (arena_expr NULL); outside any block it
+     * stays a plain IRON_HIR_EXPR_HEAP. */
+    int              in_arena_depth;
 } IronHIR_LowerCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -1127,6 +1134,27 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         return NULL;
     }
 
+    /* Phase 28 ARENA-04/05 (Plan 28-04): `in <arena> { ... }` default-arena
+     * block. Lower the arena expression, then the body with in_arena_depth
+     * bumped so bare `heap T(...)` inside resolves to the TLS-current arena.
+     * hir_to_lir emits ARENA_PUSH on entry + ARENA_POP on every exit edge. */
+    case IRON_NODE_IN_ARENA: {
+        Iron_InArenaBlock *ia = (Iron_InArenaBlock *)node;
+        IronHIR_Expr *arena = ia->arena_expr
+            ? lower_expr_hir(ctx, ia->arena_expr) : NULL;
+        IronHIR_Block *hblk = iron_hir_block_create(mod);
+        ctx->in_arena_depth++;
+        push_scope(ctx);
+        if (ia->body && ia->body->kind == IRON_NODE_BLOCK) {
+            lower_block_hir(ctx, (Iron_Block *)ia->body, hblk);
+        }
+        pop_scope(ctx);
+        ctx->in_arena_depth--;
+        IronHIR_Stmt *s = iron_hir_stmt_in_arena(mod, arena, hblk, span);
+        iron_hir_block_add_stmt(blk, s);
+        return NULL;
+    }
+
     /* ── Expression statement ──────────────────────────────────────────────── */
     /* -Wswitch-enum opt-out: statement lowering handles every real statement
      * kind explicitly above; every other Iron_NodeKind is an expression used
@@ -1593,6 +1621,19 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_HEAP: {
         Iron_HeapExpr *he = (Iron_HeapExpr *)node;
         IronHIR_Expr  *inner = lower_expr_hir(ctx, he->inner);
+        /* Phase 28 ARENA-03/05 (Plan 28-04): route to arena allocation when
+         * the explicit `heap(in: arena)` form is used, OR when a bare
+         * `heap T(...)` appears lexically inside an `in arena {}` block (the
+         * arena is then the TLS-current arena, arena_expr NULL → emit_c emits
+         * iron_arena_rt_current()). Outside any block, bare heap stays a plain
+         * IRON_HIR_EXPR_HEAP. */
+        if (he->arena_expr || ctx->in_arena_depth > 0) {
+            IronHIR_Expr *arena = he->arena_expr
+                ? lower_expr_hir(ctx, he->arena_expr) : NULL;
+            return iron_hir_expr_arena_alloc(mod, inner, arena,
+                                             he->allow_drop_skip,
+                                             he->resolved_type, span);
+        }
         return iron_hir_expr_heap(mod, inner, he->auto_free, he->escapes,
                                    he->resolved_type, span);
     }

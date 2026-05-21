@@ -288,6 +288,15 @@ static void verify_stmt(const IronHIR_Stmt *stmt, const IronHIR_Module *mod,
         }
         break;
 
+    case IRON_HIR_STMT_IN_ARENA:
+        if (stmt->in_arena.arena) {
+            verify_expr(stmt->in_arena.arena, mod, stack, diags, arena);
+        }
+        if (stmt->in_arena.body) {
+            verify_block(stmt->in_arena.body, mod, stack, diags, arena);
+        }
+        break;
+
     /* -Wswitch-enum opt-out: verify_stmt handles every statement kind with
      * sub-expressions; any remaining IronHIR_StmtKind has no verifier state. */
     default:
@@ -493,6 +502,20 @@ static void verify_expr(const IronHIR_Expr *expr, const IronHIR_Module *mod,
                            IRON_ERR_HIR_STRUCTURAL, expr->span,
                            "rc expression has NULL inner value",
                            "provide an inner expression");
+        }
+        break;
+
+    case IRON_HIR_EXPR_ARENA_ALLOC:
+        if (expr->arena_alloc.inner) {
+            verify_expr(expr->arena_alloc.inner, mod, stack, diags, arena);
+        } else {
+            iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                           IRON_ERR_HIR_STRUCTURAL, expr->span,
+                           "arena alloc expression has NULL inner value",
+                           "provide an inner expression");
+        }
+        if (expr->arena_alloc.arena) {
+            verify_expr(expr->arena_alloc.arena, mod, stack, diags, arena);
         }
         break;
 

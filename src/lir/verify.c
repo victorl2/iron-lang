@@ -143,6 +143,22 @@ static void collect_operands(const IronLIR_Instr *instr,
         PUSH(instr->rc_alloc.inner_val);
         break;
 
+    /* Phase 28 ARENA-03/04/05 (Plan 28-04): arena opcode verify arms. */
+    case IRON_LIR_ARENA_ALLOC:
+        PUSH(instr->arena_alloc.inner_val);
+        if (instr->arena_alloc.arena_val != IRON_LIR_VALUE_INVALID) {
+            PUSH(instr->arena_alloc.arena_val);
+        }
+        break;
+
+    case IRON_LIR_ARENA_PUSH:
+        PUSH(instr->arena_push.arena_val);
+        break;
+
+    case IRON_LIR_ARENA_POP:
+        /* No operands — pops the TLS active-arena top. */
+        break;
+
     case IRON_LIR_RC_RETAIN:
         PUSH(instr->rc_retain.target);
         break;
