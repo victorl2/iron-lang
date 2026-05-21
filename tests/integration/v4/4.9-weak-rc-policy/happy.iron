@@ -1,0 +1,19 @@
+-- section 4.9 weak rc policy: non-owning reference via weak rc
+-- @req: POL-08, POL-09
+-- canonical downgrade + upgrade probe; upgrade observes payload alive
+-- while strong is in scope; T? returned by upgrade.
+
+object Texture {
+    val path: String
+
+    drop {
+        println("free: {path}")
+    }
+}
+
+func main() {
+    val strong = rc Texture(path: "hero.png")
+    val observer = strong.downgrade()
+    val maybe = observer.upgrade()
+    println("loaded: {strong.path}")
+}

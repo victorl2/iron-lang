@@ -1,0 +1,3 @@
+inner: strong alive
+drop Foo: 123
+outer: payload destroyed; header alive via weak

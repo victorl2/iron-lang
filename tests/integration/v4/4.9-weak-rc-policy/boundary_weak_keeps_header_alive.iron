@@ -1,0 +1,24 @@
+-- section 4.9 weak rc policy: block lifecycle State 2
+-- @req: POL-08, POL-09
+-- payload destroyed at strong=0 but header alive while weak>0; upgrade
+-- after last strong dropped returns null T?; header freed when last
+-- weak drops at outer scope exit (RC-LAYOUT.md §8 state machine).
+
+object Foo {
+    val v: Int
+
+    drop {
+        println("drop Foo: {v}")
+    }
+}
+
+func main() {
+    var observer: weak rc Foo = weak rc null
+    {
+        val strong = rc Foo(v: 123)
+        observer = strong.downgrade()
+        println("inner: strong alive")
+    }
+    println("outer: payload destroyed; header alive via weak")
+    val maybe = observer.upgrade()
+}

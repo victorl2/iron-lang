@@ -1,0 +1,19 @@
+-- section 4.9 weak rc policy: block lifecycle State 3 (HEADER_FREED)
+-- @req: POL-08, POL-09
+-- both strong and weak drop at end of scope; strong=0 destroys payload
+-- but defers free because weak>0; subsequent weak=0 frees the block
+-- (whichever counter trips zero LAST frees per RC-LAYOUT.md §8).
+
+object Foo {
+    val v: Int
+
+    drop {
+        println("drop Foo: {v}")
+    }
+}
+
+func main() {
+    val strong = rc Foo(v: 5)
+    val observer = strong.downgrade()
+    println("both alive in scope")
+}

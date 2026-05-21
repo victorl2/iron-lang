@@ -1566,6 +1566,45 @@ if(NOT WIN32)
     )
     set_tests_properties(v4_fail_4.9-weak-rc-policy_type_mismatch_weak_to_strong PROPERTIES
         LABELS "integration;phase27-invariant" TIMEOUT 30)
+
+    # Phase 27 Plan 27-03 Task 2: positive integration corpus for weak rc Policy.
+    # 7 fixtures: happy + upgrade_after_drop + upgrade_returns_nullable +
+    # readonly_can_upgrade + closure_captures_weak_rc (OQ-04 witness) +
+    # boundary_weak_keeps_header_alive (State 2) +
+    # boundary_block_freed_when_weak_zero (State 3).
+    # Each fixture: compile via ironc build → run binary → diff stdout against
+    # the .expected file (mirrors Phase 26 4.8-rc-policy fixture pattern at
+    # CMakeLists.txt:1492-1502).
+    #
+    # Status: WILL_FAIL TRUE on each due to the pre-existing box.iron stdlib
+    # prepend syntax errors (E0264/E0101 noise blocking compilation). Same
+    # known limitation inherited from Phase 25 Plan 25-03 SUMMARY ("WILL_FAIL
+    # YES on 5 positive fixtures blocked by ironc-build container /lib path
+    # limitation") and Phase 26 Plan 26-03 SUMMARY Deviation #2 (box.iron
+    # WILL_FAIL TRUE inheritance). The Phase 27 codegen substrate is verified
+    # by test_oq04_closure_weak_rc_retain_release at the codegen layer; end-
+    # to-end execution unblocks when the box.iron parser path lands (out-of-
+    # scope of Phase 27).
+    set(_PHASE_27_POS_FIXTURES
+        happy
+        upgrade_after_drop
+        upgrade_returns_nullable
+        readonly_can_upgrade
+        closure_captures_weak_rc
+        boundary_weak_keeps_header_alive
+        boundary_block_freed_when_weak_zero
+    )
+    foreach(_fix IN LISTS _PHASE_27_POS_FIXTURES)
+        add_test(
+            NAME v4_4.9-weak-rc-policy_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        set_tests_properties(v4_4.9-weak-rc-policy_${_fix} PROPERTIES
+            LABELS "integration;phase27-invariant;v4-acceptance"
+            TIMEOUT 60
+            WILL_FAIL TRUE)
+    endforeach()
 endif()
 
 # ---- Install rules ----
