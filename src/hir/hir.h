@@ -72,6 +72,13 @@ typedef enum {
     /* Memory management */
     IRON_HIR_EXPR_HEAP,          /* heap allocation                */
     IRON_HIR_EXPR_RC,            /* reference-counted allocation   */
+    /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc expression kinds.
+     * Distinct from IRON_HIR_EXPR_METHOD_CALL so hir_to_lir can pattern-match
+     * cleanly and emit the dedicated IRON_LIR_WEAK_RC_* opcodes without
+     * re-running method-name discrimination. */
+    IRON_HIR_EXPR_WEAK_RC_NULL,      /* `weak rc null` constructor — lowers to NULL pointer */
+    IRON_HIR_EXPR_WEAK_RC_DOWNGRADE, /* `rc_val.downgrade()` — IRON_LIR_WEAK_RC_DOWNGRADE */
+    IRON_HIR_EXPR_WEAK_RC_UPGRADE,   /* `weak_val.upgrade()` — IRON_LIR_WEAK_RC_UPGRADE; result is T? */
 
     /* Construction and type operations */
     IRON_HIR_EXPR_CONSTRUCT,     /* struct/object construction     */
@@ -374,6 +381,17 @@ struct IronHIR_Expr {
             IronHIR_Expr *inner;
         } rc;
 
+        /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc HIR payloads.
+         * IRON_HIR_EXPR_WEAK_RC_NULL carries no operands — emit_c lowers it
+         * to a literal NULL pointer expression. DOWNGRADE/UPGRADE each
+         * carry the receiver value (strong rc / weak rc respectively). */
+        struct {
+            IronHIR_Expr *strong_rc_val;  /* receiver — IRON_TYPE_RC value */
+        } weak_rc_downgrade;
+        struct {
+            IronHIR_Expr *weak_rc_val;    /* receiver — IRON_TYPE_WEAK_RC value */
+        } weak_rc_upgrade;
+
         /* IRON_HIR_EXPR_CONSTRUCT */
         struct {
             Iron_Type     *type;
@@ -624,6 +642,16 @@ IronHIR_Expr *iron_hir_expr_heap(IronHIR_Module *mod, IronHIR_Expr *inner,
                                   Iron_Type *type, Iron_Span span);
 IronHIR_Expr *iron_hir_expr_rc(IronHIR_Module *mod, IronHIR_Expr *inner,
                                 Iron_Type *type, Iron_Span span);
+
+/* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc HIR constructors. */
+IronHIR_Expr *iron_hir_expr_weak_rc_null(IronHIR_Module *mod,
+                                          Iron_Type *type, Iron_Span span);
+IronHIR_Expr *iron_hir_expr_weak_rc_downgrade(IronHIR_Module *mod,
+                                               IronHIR_Expr *strong_rc_val,
+                                               Iron_Type *type, Iron_Span span);
+IronHIR_Expr *iron_hir_expr_weak_rc_upgrade(IronHIR_Module *mod,
+                                             IronHIR_Expr *weak_rc_val,
+                                             Iron_Type *type, Iron_Span span);
 IronHIR_Expr *iron_hir_expr_construct(IronHIR_Module *mod, Iron_Type *type,
                                        const char **field_names,
                                        IronHIR_Expr **field_values, int field_count,

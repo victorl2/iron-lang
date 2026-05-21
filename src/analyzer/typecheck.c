@@ -3087,6 +3087,97 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
 
+            /* Phase 27 POL-08 / POL-09 (Plan 27-02): dispatch .downgrade()
+             * and .upgrade() built-in method calls.
+             *   - .downgrade() requires receiver of kind IRON_TYPE_RC;
+             *     E0300 fires when the receiver is anything else. Result is
+             *     IRON_TYPE_WEAK_RC of the receiver's inner.
+             *   - .upgrade() requires receiver of kind IRON_TYPE_WEAK_RC;
+             *     result is IRON_TYPE_NULLABLE(IRON_TYPE_RC(inner)) — i.e.,
+             *     T?. Call on non-weak-rc receiver: emit E0299 (cannot deref
+             *     weak rc directly OR equivalent "no upgrade on rc T" path).
+             *   - Per CONTEXT.md GA4 .upgrade() does NOT trip E0279 in
+             *     readonly methods; we deliberately do NOT extend the
+             *     readonly check here.
+             *
+             * Placed BEFORE the auto-deref + method-lookup path below so
+             * .downgrade()/.upgrade() short-circuit cleanly even when the
+             * existing object-method-table machinery doesn't recognize
+             * "downgrade" or "upgrade" as user-defined methods. */
+            if (mc->method && obj_type_mc) {
+                if (strcmp(mc->method, "downgrade") == 0) {
+                    if (obj_type_mc->kind != IRON_TYPE_RC) {
+                        emit_error(ctx, IRON_ERR_WEAK_RC_DOWNGRADE_NOT_RC,
+                                   mc->span,
+                                   "`.downgrade()` is only available on rc T",
+                                   "to obtain a weak reference, the receiver"
+                                   " must be an rc T value; got a"
+                                   " non-rc receiver");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (mc->arg_count != 0) {
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span,
+                                   "`.downgrade()` takes no arguments", NULL);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    result = iron_type_make_weak_rc(ctx->arena,
+                                                     obj_type_mc->rc.inner);
+                    if (!result) result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(mc->method, "upgrade") == 0) {
+                    if (obj_type_mc->kind != IRON_TYPE_WEAK_RC) {
+                        emit_error(ctx, IRON_ERR_WEAK_RC_DEREF, mc->span,
+                                   "`.upgrade()` is only available on weak rc T",
+                                   "to obtain a strong reference from a"
+                                   " weak rc, the receiver must be a weak rc"
+                                   " T value");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (mc->arg_count != 0) {
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span,
+                                   "`.upgrade()` takes no arguments", NULL);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    Iron_Type *strong = iron_type_make_rc(ctx->arena,
+                                                          obj_type_mc->weak_rc.inner);
+                    if (!strong) {
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    result = iron_type_make_nullable(ctx->arena, strong);
+                    if (!result) result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
+            }
+
+            /* Phase 27 POL-08 (Plan 27-02): direct method call on a weak rc
+             * receiver (any method other than .upgrade()) emits E0299. This
+             * catches `w.field` indirected through a method call shape and
+             * `w.user_method()` patterns that would otherwise fall through
+             * to the auto-deref/method-table lookup below. */
+            if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_WEAK_RC) {
+                emit_error(ctx, IRON_ERR_WEAK_RC_DEREF, mc->span,
+                           "cannot dereference `weak rc T` directly"
+                           " (method call on weak rc)",
+                           "use `.upgrade()` to obtain a strong reference;"
+                           " check for null before dereferencing");
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                mc->resolved_type = result;
+                break;
+            }
+
             /* Phase 20 PTR-06 (Plan 20-02a): auto-deref the receiver when
              * its resolved type is `*T` / `*var T`. Set is_auto_deref on the
              * Iron_MethodCallExpr so HIR lowering (Plan 20-02b) emits a
@@ -3694,6 +3785,22 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     emit_error(ctx, IRON_ERR_INIT_READ_BEFORE_ASSIGN,
                                fa->span, msg, NULL);
                 }
+            }
+
+            /* Phase 27 POL-08 (Plan 27-02): direct field access on a weak rc
+             * receiver is forbidden — weak rc references may point at a
+             * destructed payload. E0299 IRON_ERR_WEAK_RC_DEREF emits with
+             * the locked GA4 hint. Placed BEFORE the rc unwrap so the
+             * weak-side path short-circuits without surfacing irrelevant
+             * follow-on diagnostics. */
+            if (obj_type->kind == IRON_TYPE_WEAK_RC) {
+                emit_error(ctx, IRON_ERR_WEAK_RC_DEREF, fa->span,
+                           "cannot dereference `weak rc T` directly",
+                           "use `.upgrade()` to obtain a strong reference;"
+                           " check for null before dereferencing");
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                fa->resolved_type = result;
+                break;
             }
 
             /* Unwrap rc pointer types to access the inner object type.

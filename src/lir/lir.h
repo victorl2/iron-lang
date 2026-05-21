@@ -102,6 +102,16 @@ typedef enum {
      * (Iron_RcHeader + atomic discipline) does the heavy lifting. */
     IRON_LIR_RC_RETAIN,
     IRON_LIR_RC_RELEASE,
+    /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc opcodes.
+     * Distinct from the Phase 26 IRON_LIR_RC_* opcodes so the Phase 29
+     * atomic refcount elision optimizer can pattern-match cleanly without
+     * additional discriminator flags. emit_c.c lowers these to the Plan
+     * 27-01 runtime helpers (iron_weak_rc_retain/release + iron_rc_downgrade/
+     * upgrade). */
+    IRON_LIR_WEAK_RC_RETAIN,
+    IRON_LIR_WEAK_RC_RELEASE,
+    IRON_LIR_WEAK_RC_DOWNGRADE,    /* operand: strong rc val; result: weak rc val (same ptr) */
+    IRON_LIR_WEAK_RC_UPGRADE,      /* operand: weak rc val; result: nullable rc val (T?) */
     IRON_LIR_FREE,
 
     /* Concurrency */
@@ -270,6 +280,15 @@ struct IronLIR_Instr {
         /* IRON_LIR_RC_RETAIN / IRON_LIR_RC_RELEASE (Phase 26 POL-06) */
         struct { IronLIR_ValueId target; } rc_retain;
         struct { IronLIR_ValueId target; } rc_release;
+
+        /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc payloads.
+         * RETAIN/RELEASE are void-result; DOWNGRADE/UPGRADE produce a value
+         * matching their result type slot (Iron_Type held in the instr->type
+         * field is the weak rc T for DOWNGRADE; nullable rc T for UPGRADE). */
+        struct { IronLIR_ValueId target; } weak_rc_retain;
+        struct { IronLIR_ValueId target; } weak_rc_release;
+        struct { IronLIR_ValueId source; } weak_rc_downgrade;
+        struct { IronLIR_ValueId source; } weak_rc_upgrade;
 
         /* IRON_LIR_FREE -- named free_instr to avoid conflict with C stdlib free() */
         struct { IronLIR_ValueId value; } free_instr;
@@ -633,6 +652,19 @@ IronLIR_Instr *iron_lir_rc_retain(IronLIR_Func *fn, IronLIR_Block *block,
                                   IronLIR_ValueId target, Iron_Span span);
 IronLIR_Instr *iron_lir_rc_release(IronLIR_Func *fn, IronLIR_Block *block,
                                    IronLIR_ValueId target, Iron_Span span);
+/* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc opcode builders.
+ * RETAIN/RELEASE are void-result (produces_value=false).
+ * DOWNGRADE/UPGRADE produce a value typed by the supplied Iron_Type. */
+IronLIR_Instr *iron_lir_weak_rc_retain(IronLIR_Func *fn, IronLIR_Block *block,
+                                        IronLIR_ValueId target, Iron_Span span);
+IronLIR_Instr *iron_lir_weak_rc_release(IronLIR_Func *fn, IronLIR_Block *block,
+                                         IronLIR_ValueId target, Iron_Span span);
+IronLIR_Instr *iron_lir_weak_rc_downgrade(IronLIR_Func *fn, IronLIR_Block *block,
+                                           IronLIR_ValueId source,
+                                           Iron_Type *type, Iron_Span span);
+IronLIR_Instr *iron_lir_weak_rc_upgrade(IronLIR_Func *fn, IronLIR_Block *block,
+                                         IronLIR_ValueId source,
+                                         Iron_Type *type, Iron_Span span);
 IronLIR_Instr *iron_lir_free(IronLIR_Func *fn, IronLIR_Block *block,
                             IronLIR_ValueId value, Iron_Span span);
 IronLIR_Instr *iron_lir_construct(IronLIR_Func *fn, IronLIR_Block *block,

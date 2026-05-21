@@ -535,6 +535,51 @@ IronHIR_Expr *iron_hir_expr_rc(IronHIR_Module *mod, IronHIR_Expr *inner,
     return e;
 }
 
+/* Phase 27 POL-08 (Plan 27-02): weak rc null constructor. No operands —
+ * lowers to a literal NULL pointer at emit_c. */
+IronHIR_Expr *iron_hir_expr_weak_rc_null(IronHIR_Module *mod,
+                                          Iron_Type *type, Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_weak_rc_null");
+    memset(e, 0, sizeof(*e));
+    e->kind = IRON_HIR_EXPR_WEAK_RC_NULL;
+    e->span = span;
+    e->type = type;
+    return e;
+}
+
+/* Phase 27 POL-08 (Plan 27-02): rc_val.downgrade() → weak rc T. Receiver
+ * is a strong rc; result is the same payload pointer with weak_count
+ * bumped by the Plan 27-01 runtime. */
+IronHIR_Expr *iron_hir_expr_weak_rc_downgrade(IronHIR_Module *mod,
+                                               IronHIR_Expr *strong_rc_val,
+                                               Iron_Type *type, Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_weak_rc_downgrade");
+    memset(e, 0, sizeof(*e));
+    e->kind = IRON_HIR_EXPR_WEAK_RC_DOWNGRADE;
+    e->span = span;
+    e->type = type;
+    e->weak_rc_downgrade.strong_rc_val = strong_rc_val;
+    return e;
+}
+
+/* Phase 27 POL-09 (Plan 27-02): weak_val.upgrade() → T? (nullable strong).
+ * Lowers to the Rust Arc canonical CAS loop in iron_rc_upgrade (Plan 27-01).
+ * Returns NULL when strong_count has dropped to 0. */
+IronHIR_Expr *iron_hir_expr_weak_rc_upgrade(IronHIR_Module *mod,
+                                             IronHIR_Expr *weak_rc_val,
+                                             Iron_Type *type, Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_weak_rc_upgrade");
+    memset(e, 0, sizeof(*e));
+    e->kind = IRON_HIR_EXPR_WEAK_RC_UPGRADE;
+    e->span = span;
+    e->type = type;
+    e->weak_rc_upgrade.weak_rc_val = weak_rc_val;
+    return e;
+}
+
 IronHIR_Expr *iron_hir_expr_construct(IronHIR_Module *mod, Iron_Type *type,
                                         const char **field_names,
                                         IronHIR_Expr **field_values, int field_count,

@@ -392,6 +392,52 @@ IronLIR_Instr *iron_lir_rc_release(IronLIR_Func *fn, IronLIR_Block *block,
     return i;
 }
 
+/* Phase 27 POL-08 (Plan 27-02): IRON_LIR_WEAK_RC_RETAIN — atomic relaxed
+ * increment of weak_count via iron_weak_rc_retain (Plan 27-01 runtime).
+ * Void result; emitted at closure-capture sites (Plan 27-03) and any
+ * future weak-rc copy site. */
+IronLIR_Instr *iron_lir_weak_rc_retain(IronLIR_Func *fn, IronLIR_Block *block,
+                                        IronLIR_ValueId target, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_WEAK_RC_RETAIN, NULL, span, false);
+    i->weak_rc_retain.target = target;
+    return i;
+}
+
+/* Phase 27 POL-08 (Plan 27-02): IRON_LIR_WEAK_RC_RELEASE — atomic relaxed
+ * decrement of weak_count via iron_weak_rc_release (Plan 27-01 runtime).
+ * Releases the header allocation when weak=0 AND strong=0 (the runtime
+ * does the cross-counter acquire-load + conditional free). */
+IronLIR_Instr *iron_lir_weak_rc_release(IronLIR_Func *fn, IronLIR_Block *block,
+                                         IronLIR_ValueId target, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_WEAK_RC_RELEASE, NULL, span, false);
+    i->weak_rc_release.target = target;
+    return i;
+}
+
+/* Phase 27 POL-08 (Plan 27-02): IRON_LIR_WEAK_RC_DOWNGRADE — rc → weak rc
+ * via iron_rc_downgrade (Plan 27-01). Bumps weak_count and returns the
+ * same user-pointer (weak rc T is alias-typed at compile time). Result
+ * type is IRON_TYPE_WEAK_RC of the source's inner. */
+IronLIR_Instr *iron_lir_weak_rc_downgrade(IronLIR_Func *fn, IronLIR_Block *block,
+                                           IronLIR_ValueId source,
+                                           Iron_Type *type, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_WEAK_RC_DOWNGRADE, type, span, true);
+    i->weak_rc_downgrade.source = source;
+    return i;
+}
+
+/* Phase 27 POL-09 (Plan 27-02): IRON_LIR_WEAK_RC_UPGRADE — weak rc → T?
+ * via iron_rc_upgrade (Plan 27-01 Rust Arc canonical CAS loop). Returns
+ * NULL when strong_count has dropped to 0. Result type is the IRON_TYPE_
+ * NULLABLE wrapper around IRON_TYPE_RC of the inner. */
+IronLIR_Instr *iron_lir_weak_rc_upgrade(IronLIR_Func *fn, IronLIR_Block *block,
+                                         IronLIR_ValueId source,
+                                         Iron_Type *type, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_WEAK_RC_UPGRADE, type, span, true);
+    i->weak_rc_upgrade.source = source;
+    return i;
+}
+
 IronLIR_Instr *iron_lir_free(IronLIR_Func *fn, IronLIR_Block *block,
                             IronLIR_ValueId value, Iron_Span span) {
     IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_FREE, NULL, span, false);

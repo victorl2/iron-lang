@@ -1787,6 +1787,30 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                   inner, type, span)->id;
     }
 
+    /* Phase 27 POL-08 (Plan 27-02): `weak rc null` lowers to a literal
+     * NULL pointer. The C emit for IRON_LIR_CONST_NULL emits a typed NULL
+     * which works for any weak rc T (alias-typed payload pointer). */
+    case IRON_HIR_EXPR_WEAK_RC_NULL: {
+        return iron_lir_const_null(ctx->current_func, ctx->current_block,
+                                    type, span)->id;
+    }
+
+    /* Phase 27 POL-08 (Plan 27-02): rc_val.downgrade() → IRON_LIR_WEAK_RC_DOWNGRADE. */
+    case IRON_HIR_EXPR_WEAK_RC_DOWNGRADE: {
+        IronLIR_ValueId src = lower_expr(ctx,
+            expr->weak_rc_downgrade.strong_rc_val);
+        return iron_lir_weak_rc_downgrade(ctx->current_func, ctx->current_block,
+                                           src, type, span)->id;
+    }
+
+    /* Phase 27 POL-09 (Plan 27-02): weak_val.upgrade() → IRON_LIR_WEAK_RC_UPGRADE. */
+    case IRON_HIR_EXPR_WEAK_RC_UPGRADE: {
+        IronLIR_ValueId src = lower_expr(ctx,
+            expr->weak_rc_upgrade.weak_rc_val);
+        return iron_lir_weak_rc_upgrade(ctx->current_func, ctx->current_block,
+                                         src, type, span)->id;
+    }
+
     case IRON_HIR_EXPR_CONSTRUCT: {
         /* Lower field values, build field_vals array in declaration order */
         IronLIR_ValueId *field_vals = NULL;

@@ -496,6 +496,33 @@ static void verify_expr(const IronHIR_Expr *expr, const IronHIR_Module *mod,
         }
         break;
 
+    /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc HIR verify arms. */
+    case IRON_HIR_EXPR_WEAK_RC_NULL:
+        /* Leaf — no operands to verify. */
+        break;
+
+    case IRON_HIR_EXPR_WEAK_RC_DOWNGRADE:
+        if (expr->weak_rc_downgrade.strong_rc_val) {
+            verify_expr(expr->weak_rc_downgrade.strong_rc_val, mod, stack, diags, arena);
+        } else {
+            iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                           IRON_ERR_HIR_STRUCTURAL, expr->span,
+                           "weak_rc_downgrade has NULL receiver",
+                           "provide a strong rc receiver");
+        }
+        break;
+
+    case IRON_HIR_EXPR_WEAK_RC_UPGRADE:
+        if (expr->weak_rc_upgrade.weak_rc_val) {
+            verify_expr(expr->weak_rc_upgrade.weak_rc_val, mod, stack, diags, arena);
+        } else {
+            iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                           IRON_ERR_HIR_STRUCTURAL, expr->span,
+                           "weak_rc_upgrade has NULL receiver",
+                           "provide a weak rc receiver");
+        }
+        break;
+
     case IRON_HIR_EXPR_CONSTRUCT:
         for (int i = 0; i < expr->construct.field_count; i++) {
             if (expr->construct.field_values) {

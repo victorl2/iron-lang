@@ -3776,6 +3776,55 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         break;
     }
 
+    /* Phase 27 POL-08 (Plan 27-02): weak rc atomic relaxed inc/dec.
+     * Plan 27-01 runtime exposes iron_weak_rc_retain (relaxed fetch_add on
+     * weak_count) and iron_weak_rc_release (relaxed fetch_sub + acquire-load
+     * on refcount; conditional free at weak=0 AND strong=0). */
+    case IRON_LIR_WEAK_RC_RETAIN: {
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_weak_rc_retain((void *)");
+        emit_val(sb, instr->weak_rc_retain.target);
+        iron_strbuf_appendf(sb, ");\n");
+        break;
+    }
+
+    case IRON_LIR_WEAK_RC_RELEASE: {
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_weak_rc_release((void *)");
+        emit_val(sb, instr->weak_rc_release.target);
+        iron_strbuf_appendf(sb, ");\n");
+        break;
+    }
+
+    /* Phase 27 POL-08 (Plan 27-02): rc.downgrade() → weak rc. Plan 27-01
+     * runtime exposes iron_rc_downgrade — bumps weak_count and returns the
+     * SAME user pointer (alias-typed at compile time via IRON_TYPE_WEAK_RC). */
+    case IRON_LIR_WEAK_RC_DOWNGRADE: {
+        const char *val_type = emit_type_to_c(instr->type, ctx);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s ", val_type);
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = (%s)iron_rc_downgrade((void *)", val_type);
+        emit_val(sb, instr->weak_rc_downgrade.source);
+        iron_strbuf_appendf(sb, ");\n");
+        break;
+    }
+
+    /* Phase 27 POL-09 (Plan 27-02): weak.upgrade() → T?. Plan 27-01 runtime
+     * exposes iron_rc_upgrade — Rust Arc canonical CAS loop on refcount;
+     * returns NULL on observed strong==0 (mid-destructor race safe). The
+     * IR result type is the IRON_TYPE_NULLABLE wrapping IRON_TYPE_RC. */
+    case IRON_LIR_WEAK_RC_UPGRADE: {
+        const char *val_type = emit_type_to_c(instr->type, ctx);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s ", val_type);
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = (%s)iron_rc_upgrade((void *)", val_type);
+        emit_val(sb, instr->weak_rc_upgrade.source);
+        iron_strbuf_appendf(sb, ");  /* Phase 27 GA2 — returns NULL when strong==0 */\n");
+        break;
+    }
+
     case IRON_LIR_FREE: {
         /* Phase 24 DROP-01 (Plan 24-02): call <TypeName>_drop before freeing.
          * B2: recover Iron_ObjectDecl* DIRECTLY from the freed value's Iron_Type.

@@ -435,6 +435,28 @@ static void print_expr(Iron_StrBuf *sb, const IronHIR_Expr *expr,
         }
         break;
 
+    /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc HIR print arms. */
+    case IRON_HIR_EXPR_WEAK_RC_NULL:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "WeakRcNull\n");
+        break;
+
+    case IRON_HIR_EXPR_WEAK_RC_DOWNGRADE:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "WeakRcDowngrade\n");
+        if (expr->weak_rc_downgrade.strong_rc_val) {
+            print_expr(sb, expr->weak_rc_downgrade.strong_rc_val, mod, depth + 1, tmp);
+        }
+        break;
+
+    case IRON_HIR_EXPR_WEAK_RC_UPGRADE:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "WeakRcUpgrade\n");
+        if (expr->weak_rc_upgrade.weak_rc_val) {
+            print_expr(sb, expr->weak_rc_upgrade.weak_rc_val, mod, depth + 1, tmp);
+        }
+        break;
+
     case IRON_HIR_EXPR_CONSTRUCT:
         do_indent(sb, depth);
         iron_strbuf_appendf(sb, "Construct\n");

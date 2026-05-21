@@ -1414,6 +1414,31 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Method call ─────────────────────────────────────────────────────── */
     case IRON_NODE_METHOD_CALL: {
         Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+
+        /* Phase 27 POL-08 / POL-09 (Plan 27-02): intercept .downgrade() and
+         * .upgrade() built-in method calls before generic method-call
+         * lowering. Typecheck has already validated the receiver kind and
+         * argument count (E0300 / E0299 fired upstream when the receiver
+         * was wrong); here we just dispatch to the dedicated HIR kind.
+         * All expression AST nodes share the Iron_ExprNode prefix
+         * (PROT-01 — see ast.h IRON_ASSERT_EXPR_PREFIX), so we read
+         * resolved_type generically without dispatching on node kind. */
+        if (mc->method && mc->object) {
+            Iron_Type *recv_t = ((Iron_ExprNode *)mc->object)->resolved_type;
+            if (recv_t && recv_t->kind == IRON_TYPE_RC &&
+                strcmp(mc->method, "downgrade") == 0) {
+                IronHIR_Expr *strong = lower_expr_hir(ctx, mc->object);
+                return iron_hir_expr_weak_rc_downgrade(
+                    mod, strong, mc->resolved_type, span);
+            }
+            if (recv_t && recv_t->kind == IRON_TYPE_WEAK_RC &&
+                strcmp(mc->method, "upgrade") == 0) {
+                IronHIR_Expr *weak = lower_expr_hir(ctx, mc->object);
+                return iron_hir_expr_weak_rc_upgrade(
+                    mod, weak, mc->resolved_type, span);
+            }
+        }
+
         IronHIR_Expr **args = NULL;
         for (int i = 0; i < mc->arg_count; i++) {
             IronHIR_Expr *a = lower_expr_hir(ctx, mc->args[i]);
@@ -1577,6 +1602,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_RcExpr  *rc    = (Iron_RcExpr *)node;
         IronHIR_Expr *inner = lower_expr_hir(ctx, rc->inner);
         return iron_hir_expr_rc(mod, inner, rc->resolved_type, span);
+    }
+
+    /* Phase 27 POL-08 (Plan 27-02): `weak rc null` constructor lowers to a
+     * dedicated HIR expression kind that emit_c renders as a literal NULL
+     * pointer in the weak slot. */
+    case IRON_NODE_WEAK_RC_NULL: {
+        Iron_WeakRcNullExpr *wn = (Iron_WeakRcNullExpr *)node;
+        return iron_hir_expr_weak_rc_null(mod, wn->resolved_type, span);
     }
 
     /* ── Object construction ─────────────────────────────────────────────── */

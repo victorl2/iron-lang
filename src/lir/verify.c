@@ -151,6 +151,23 @@ static void collect_operands(const IronLIR_Instr *instr,
         PUSH(instr->rc_release.target);
         break;
 
+    /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc opcode verify arms. */
+    case IRON_LIR_WEAK_RC_RETAIN:
+        PUSH(instr->weak_rc_retain.target);
+        break;
+
+    case IRON_LIR_WEAK_RC_RELEASE:
+        PUSH(instr->weak_rc_release.target);
+        break;
+
+    case IRON_LIR_WEAK_RC_DOWNGRADE:
+        PUSH(instr->weak_rc_downgrade.source);
+        break;
+
+    case IRON_LIR_WEAK_RC_UPGRADE:
+        PUSH(instr->weak_rc_upgrade.source);
+        break;
+
     case IRON_LIR_FREE:
         PUSH(instr->free_instr.value);
         break;
