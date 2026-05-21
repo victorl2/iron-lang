@@ -55,6 +55,53 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/* ── Phase 29 OPT-08 input: opt-in rc-op counter ─────────────────────────────
+ *
+ * Behind IRON_RC_COUNT (OFF by default), a pair of `_Atomic uint64_t` counters
+ * increment (relaxed) inside iron_rc_retain / iron_rc_release. They feed the
+ * deferred OPT-08 measurement that informs the deferred OQ-07 `arc`-policy
+ * decision (docs/dev/RC-ELISION.md). The macro must NOT alter the hot path in
+ * normal builds — when undefined, IRON_RC_COUNT_BUMP_* expand to nothing and
+ * the accessor reports zeros, so production refcount performance and the
+ * deterministic phase-invariant test counts are unaffected.
+ *
+ * Relaxed ordering is correct for a pure observation counter: it tracks a
+ * monotone op tally with no happens-before obligation toward the refcount
+ * fields, mirroring the iron_rc_retain relaxed-inc discipline. */
+#ifdef IRON_RC_COUNT
+static _Atomic uint64_t s_rc_retain_count;
+static _Atomic uint64_t s_rc_release_count;
+#  define IRON_RC_COUNT_BUMP_RETAIN()  \
+       (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(s_rc_retain_count, 1)
+#  define IRON_RC_COUNT_BUMP_RELEASE() \
+       (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(s_rc_release_count, 1)
+#else
+#  define IRON_RC_COUNT_BUMP_RETAIN()  ((void)0)
+#  define IRON_RC_COUNT_BUMP_RELEASE() ((void)0)
+#endif
+
+/* iron_rc_op_counts — read the opt-in retain/release tallies.
+ *
+ * Always defined (stable symbol). When IRON_RC_COUNT is undefined both
+ * out-params receive 0. NULL out-params are tolerated (partial read). */
+void iron_rc_op_counts(uint64_t *retains, uint64_t *releases) {
+#ifdef IRON_RC_COUNT
+    if (retains)  *retains  = IRON_ATOMIC_U64_LOAD_ACQUIRE(s_rc_retain_count);
+    if (releases) *releases = IRON_ATOMIC_U64_LOAD_ACQUIRE(s_rc_release_count);
+#else
+    if (retains)  *retains  = 0;
+    if (releases) *releases = 0;
+#endif
+}
+
+/* iron_rc_op_counts_reset — zero the tallies. No-op when the macro is off. */
+void iron_rc_op_counts_reset(void) {
+#ifdef IRON_RC_COUNT
+    IRON_ATOMIC_U64_INIT(s_rc_retain_count, 0);
+    IRON_ATOMIC_U64_INIT(s_rc_release_count, 0);
+#endif
+}
+
 /* Block size: [Iron_RcHeader][IronAllocHdr][payload].
  *
  * The two-header prefix is recovered in O(1) by walking the user pointer back
@@ -146,6 +193,7 @@ void iron_rc_retain(void *user_ptr) {
     }
 #endif
     (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(rch->refcount, 1);
+    IRON_RC_COUNT_BUMP_RETAIN();  /* Phase 29 OPT-08: no-op unless IRON_RC_COUNT */
 }
 
 /* ── iron_rc_release — release-dec with acquire-fence on final drop ─────────
@@ -174,6 +222,7 @@ void iron_rc_release(void *user_ptr) {
     Iron_RcHeader *rch = iron_rc_header_of(user_ptr);
 
     uint64_t prev = IRON_ATOMIC_U64_FETCH_SUB_RELEASE(rch->refcount, 1);
+    IRON_RC_COUNT_BUMP_RELEASE();  /* Phase 29 OPT-08: no-op unless IRON_RC_COUNT */
 
 #ifndef NDEBUG
     if (prev == 0) {

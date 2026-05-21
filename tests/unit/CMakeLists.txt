@@ -1437,6 +1437,31 @@ set_tests_properties(test_weak_rc_upgrade_race PROPERTIES
     LABELS "unit;phase27-invariant"
     TIMEOUT 60)
 
+# ── Phase 29 Plan 04 (OPT-08 input): opt-in rc-op counter ──────────────────
+# iron_rc.c carries an IRON_RC_COUNT-guarded pair of _Atomic uint64_t counters
+# that increment inside iron_rc_retain / iron_rc_release. The macro is OFF by
+# default so normal builds (and the deterministic phase-invariant test counts)
+# are unaffected.
+#
+# To exercise the ON path, this test compiles its OWN instrumented copy of
+# iron_rc.c WITH -DIRON_RC_COUNT (target_compile_definitions reaches that TU
+# because it is part of THIS executable's source list). The iron_runtime static
+# archive is still linked for iron_runtime_init / iron_oom_abort / the atomic
+# substrate, but its own (un-instrumented) iron_rc.o member is NOT pulled — the
+# test object already resolves every iron_rc_* symbol, so the archive member
+# stays dormant (standard static-archive symbol-resolution rule). The result:
+# exactly one definition of the rc API, built with the counter ON. This is the
+# verified data source the deferred OPT-08 `arc`-policy benchmark (OQ-07) reads.
+add_executable(test_rc_op_counter
+    test_rc_op_counter.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_rc.c)
+target_link_libraries(test_rc_op_counter iron_runtime unity)
+target_compile_definitions(test_rc_op_counter PRIVATE IRON_RC_COUNT)
+add_test(NAME test_rc_op_counter COMMAND test_rc_op_counter)
+set_tests_properties(test_rc_op_counter PROPERTIES
+    LABELS "unit;phase29-invariant"
+    TIMEOUT 30)
+
 # ── Phase 28 GA1 (Plan 28-01 Task 1): arena runtime Wave 0 RED unit tests ───
 # Three Unity tests written AGAINST the not-yet-existing arena runtime API
 # (src/runtime/iron_arena_rt.{c,h}) + the arena-aware deref guard

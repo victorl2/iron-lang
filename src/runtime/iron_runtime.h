@@ -576,6 +576,23 @@ void  iron_weak_rc_release(void *user_ptr);
 void *iron_rc_downgrade(void *strong_user_ptr);   /* rc T -> weak rc T */
 void *iron_rc_upgrade(void *weak_user_ptr);       /* weak rc T -> T? (NULL on dead) */
 
+/* ── Phase 29 OPT-08 input: opt-in rc-op counter ─────────────────────────────
+ *
+ * `iron_rc_retain` / `iron_rc_release` carry a pair of `_Atomic uint64_t`
+ * counters guarded by the IRON_RC_COUNT compile-time macro. The macro is OFF
+ * by default — normal builds add ZERO instructions to the hot path and the
+ * deterministic phase-invariant test counts are unaffected.
+ *
+ * Defining IRON_RC_COUNT (e.g. an instrumented OPT-08 benchmark build) turns
+ * the counters ON. They feed the deferred OPT-08 measurement that informs the
+ * deferred OQ-07 `arc`-policy decision (see docs/dev/RC-ELISION.md).
+ *
+ * The accessor + reset are ALWAYS declared (stable symbol regardless of the
+ * macro). When IRON_RC_COUNT is undefined they report zeros and reset is a
+ * no-op, so callers compile and link identically in both configurations. */
+void iron_rc_op_counts(uint64_t *retains, uint64_t *releases);
+void iron_rc_op_counts_reset(void);
+
 /* ── Iron_Error ──────────────────────────────────────────────────────────────
  * Lightweight error type (no heap allocation).
  */
