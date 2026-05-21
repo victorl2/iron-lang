@@ -200,6 +200,7 @@ add_library(iron_runtime STATIC
     src/runtime/iron_oom.c
     src/runtime/iron_heap_track.c
     src/runtime/iron_panic.c
+    src/runtime/iron_arena_rt.c
 )
 target_include_directories(iron_runtime PUBLIC src src/vendor)
 if(NOT WIN32)
