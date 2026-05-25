@@ -1,0 +1,12 @@
+-- section: 7.5-stdlib (negative)
+-- @req: STDLIB-07
+-- @expected-error: E0286
+-- @expected-pass-after: phase-33 (Wave 5 Mutex[T] nocopy)
+-- Mutex[T] is nocopy; copying a Mutex binding → E0286 (copy of nocopy type).
+-- RED until Wave 5 lands the nocopy Mutex[T] surface.
+
+func main() {
+    var a: Mutex[Int] = Mutex.new(0)
+    var b = a
+    println("unreachable")
+}

@@ -1,0 +1,12 @@
+-- section: 7.5-stdlib (negative)
+-- @req: STDLIB-08
+-- @expected-error: E0286
+-- @expected-pass-after: phase-33 (Wave 5 Channel[T] nocopy)
+-- Channel[T] is nocopy; copying a Channel binding → E0286.
+-- RED until Wave 5 lands the nocopy Channel[T] surface.
+
+func main() {
+    var a: Channel[Int] = Channel.new(1)
+    var b = a
+    println("unreachable")
+}

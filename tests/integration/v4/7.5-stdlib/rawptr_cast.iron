@@ -1,0 +1,12 @@
+-- section: 7.5-stdlib
+-- @req: STDLIB-10
+-- @expected-pass-after: phase-33 (Wave 6 RawPtr + Ptr.cast type-erasure)
+-- RawPtr type-erased pointer + Ptr.cast/offset/diff (offset/diff shipped Phase 25).
+-- RED until Wave 6 lands the RawPtr surface + Ptr.cast extension.
+
+func main() {
+    var x: Int = 7
+    val raw: RawPtr = RawPtr.of(x)
+    val p: *unchecked Int = Ptr.cast[Int](raw)
+    println("val: {p}")
+}

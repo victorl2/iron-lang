@@ -1584,3 +1584,21 @@ add_test(NAME test_arena_gen_invalidation COMMAND test_arena_gen_invalidation)
 set_tests_properties(test_arena_gen_invalidation PROPERTIES
     LABELS "unit;phase28-invariant"
     TIMEOUT 30)
+
+# Phase 33 Wave 0 RED anchors (OQ-01 generic constraints + STDLIB-02 element
+# destructors). Both are intentionally RED placeholders (TEST_FAIL bodies) that
+# compile + link clean today; their bodies become real assertions in Wave 2
+# (Hashable resolution) and Wave 4 (container element-destructor codegen).
+add_executable(test_constraints test_constraints.c)
+target_link_libraries(test_constraints iron_compiler unity)
+add_test(NAME test_constraints COMMAND test_constraints)
+set_tests_properties(test_constraints PROPERTIES
+    LABELS "unit;phase33-invariant"
+    TIMEOUT 30)
+
+add_executable(test_container_drop test_container_drop.c)
+target_link_libraries(test_container_drop iron_compiler unity)
+add_test(NAME test_container_drop COMMAND test_container_drop)
+set_tests_properties(test_container_drop PROPERTIES
+    LABELS "unit;phase33-invariant"
+    TIMEOUT 30)

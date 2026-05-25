@@ -1,0 +1,16 @@
+-- section: 7.5-stdlib (negative)
+-- @req: OQ-01
+-- @expected-error: E0206
+-- @expected-pass-after: phase-33 (Wave 2 Hashable constraint enforcement at instantiation)
+-- Map[NonHashable, V]: the key type does not satisfy the Hashable bound → E0206.
+-- RED until Wave 2 declares Map[K: Hashable, V] + the Hashable interface so the
+-- check actually bites (a constraint that can't resolve silently passes).
+
+object NonHashable {
+    val payload: Int
+}
+
+func main() {
+    var m: Map[NonHashable, Int] = Map.new()
+    m.set(NonHashable(payload: 1), 10)
+}

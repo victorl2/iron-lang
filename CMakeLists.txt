@@ -2016,6 +2016,104 @@ if(NOT WIN32)
     endforeach()
 endif()
 
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 33 Stdlib Container Rewrite — `phase33-invariant` Wave 0 RED corpus
+# ─────────────────────────────────────────────────────────────────────────
+# `ctest -L phase33-invariant` aggregates the Wave 0 TDD RED anchor for Phase
+# 33 (resolves OQ-01, OQ-06; STDLIB-01..04/07/08/09/10). The features land in
+# Waves 2-6; these rows are intentionally RED now and turn GREEN wave-by-wave.
+#
+# TWO row classes (mirrors the Phase 28/32 split):
+#
+#   CHECK-PATH rows (run directly in the silvaserver check-only container):
+#     - POSITIVE accept: whole-pipeline NEGATION `! ( ironc check ... | grep -qF <CODE> )`.
+#       NEVER `grep -qvF` — Iron diagnostics are multi-line (the `error: E0206`
+#       line PLUS a `--> file:line` context window), so a per-line inversion
+#       exits 0 (false GREEN) the moment the `-->` line matches. The whole-
+#       pipeline negation FAILS whenever the code appears ANYWHERE in output.
+#     - NEGATIVE: grep the EXACT expected code (E0206 / E0286).
+#     These flip GREEN when their owning wave lands (no WILL_FAIL).
+#
+#   BUILD+RUN rows (assert byte-exact stdout): `ironc build` + execute. These
+#     need a clang+libtsan host (full-tree build hits the libtsan link failure;
+#     build specific targets). Registered WILL_FAIL YES with the documented
+#     comment; they flip on a clang host once their wave lands.
+#
+# box_roundtrip (the load-bearing Box[T] end-to-end acceptance row for the
+# Task 2 box.iron unblock) is appended by Plan 33-01 Task 3.
+if(NOT WIN32)
+    # ── NEGATIVE check-path rows (RED until their wave lands) ──
+    # OQ-01: Map[NonHashable, V] → E0206 (constraint unsatisfied). Wave 2.
+    add_test(
+        NAME v4_fail_7.5-stdlib_map_nonhashable
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/map_nonhashable.iron 2>&1 | grep -qF E0206"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_7.5-stdlib_map_nonhashable PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 30)
+
+    # STDLIB-07: copy of nocopy Mutex[T] → E0286. Wave 5.
+    add_test(
+        NAME v4_fail_7.5-stdlib_mutex_copy
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/mutex_copy.iron 2>&1 | grep -qF E0286"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_7.5-stdlib_mutex_copy PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 30)
+
+    # STDLIB-08: copy of nocopy Channel[T] → E0286. Wave 5.
+    add_test(
+        NAME v4_fail_7.5-stdlib_channel_copy
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/channel_copy.iron 2>&1 | grep -qF E0286"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_7.5-stdlib_channel_copy PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 30)
+
+    # STDLIB-09: copy of nocopy FileHandle → E0286. Wave 5.
+    add_test(
+        NAME v4_fail_7.5-stdlib_filehandle_copy
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/filehandle_copy.iron 2>&1 | grep -qF E0286"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_7.5-stdlib_filehandle_copy PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 30)
+
+    # ── POSITIVE check-path accept row (whole-pipeline negation oracle) ──
+    # OQ-01: Map[String, Int] is well-formed — assert E0206 ABSENT. Wave 2.
+    add_test(
+        NAME v4_7.5-stdlib_map_hashable_ok
+        COMMAND sh -c "! ( ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/map_hashable_ok.iron 2>&1 | grep -qF E0206 )"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_7.5-stdlib_map_hashable_ok PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 30)
+
+    # ── BUILD+RUN rows (byte-exact stdout; WILL_FAIL — need clang host) ──
+    # Each flips GREEN on a clang host once its wave lands.
+    set(_PHASE_33_BUILDRUN_FIXTURES
+        list_drop_filehandle   # STDLIB-02 + STDLIB-09 (Wave 4 + 5)
+        list_copy_elements     # STDLIB-02 (Wave 4)
+        set_basic              # STDLIB-04 (Wave 2 + 4)
+        list_shape_dispatch    # OQ-06 (Wave 3)
+        mutex_guard            # STDLIB-07 (Wave 5)
+        channel_bounded        # STDLIB-08 (Wave 5)
+        filehandle_drop        # STDLIB-09 (Wave 5)
+        rawptr_cast            # STDLIB-10 (Wave 6)
+    )
+    foreach(_fix IN LISTS _PHASE_33_BUILDRUN_FIXTURES)
+        add_test(
+            NAME v4_7.5-stdlib_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        set_tests_properties(v4_7.5-stdlib_${_fix} PROPERTIES
+            LABELS "integration;phase33-invariant;v4-acceptance"
+            TIMEOUT 60
+            WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+    endforeach()
+endif()
+
 # ---- Install rules ----
 if(IRON_BUILD_LSP)
     install(TARGETS ironc iron ironls DESTINATION bin)

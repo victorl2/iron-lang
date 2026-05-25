@@ -1,0 +1,16 @@
+-- section: 7.5-stdlib
+-- @req: STDLIB-07
+-- @expected-pass-after: phase-33 (Wave 5 Mutex[T] + scoped guard)
+-- Mutex[T] scoped guard releases on scope exit (ties to Phase 32 defer/drop).
+-- RED until Wave 5 lands Mutex[T] nocopy + guard.
+
+func main() {
+    var m: Mutex[Int] = Mutex.new(0)
+    {
+        var guard = m.lock()
+        guard.set(42)
+        println("locked: {guard.get()}")
+        -- scope exit: guard drop releases the mutex
+    }
+    println("released")
+}

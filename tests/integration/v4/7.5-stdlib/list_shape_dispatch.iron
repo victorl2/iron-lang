@@ -1,0 +1,33 @@
+-- section: 7.5-stdlib
+-- @req: OQ-06
+-- @expected-pass-after: phase-33 (Wave 3 interface-element collections)
+-- List[Shape] holding Circle/Square; call a Shape method on each element →
+-- correct tagged-union dispatch + per-element drop.
+-- RED until Wave 3 routes List[Interface] through the existing iface dispatch.
+
+interface Shape {
+    func area() -> Int
+}
+
+object Circle {
+    val r: Int
+    func area() -> Int {
+        return self.r * self.r * 3
+    }
+}
+
+object Square {
+    val s: Int
+    func area() -> Int {
+        return self.s * self.s
+    }
+}
+
+func main() {
+    var shapes: [Shape] = []
+    shapes.push(Circle(r: 2))
+    shapes.push(Square(s: 3))
+    for shape in shapes {
+        println("area: {shape.area()}")
+    }
+}
