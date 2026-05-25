@@ -2954,13 +2954,15 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
             return iron_parse_match_stmt(p);
         case IRON_TOK_DEFER: {
             iron_advance(p);
-            /* Phase 21 DEFER-02: `defer free <ident>` is the only supported
-             * defer form in v3.0-alpha.1.  When the next token is `free`, parse
-             * `free <expr>` into an Iron_FreeStmt node so that hir_lower.c's
-             * structural check (ds->expr->kind == IRON_NODE_FREE) fires
-             * correctly.  Other defer body forms remain parsed via
-             * iron_parse_expr so their expr kind is captured for the E0276
-             * rejection in hir_lower.c. */
+            /* Phase 32 DEFER-01: `defer` accepts ANY statement. The
+             * `defer free <ident>` idiom (DEFER-02, Phase 21) keeps its
+             * special-case parse into an Iron_FreeStmt so the downstream
+             * structural fast-path (ds->expr->kind == IRON_NODE_FREE) in
+             * hir_lower.c stays byte-identical to Phase 21. Every other
+             * form is parsed as a general statement: a `{ ... }` block via
+             * iron_parse_block, otherwise iron_parse_stmt (so `defer return`,
+             * `defer foo()`, `defer x = 1`, etc. all parse). Iron_DeferStmt.expr
+             * is `Iron_Node *` and holds any statement node. */
             Iron_Node *expr;
             if (iron_check(p, IRON_TOK_FREE)) {
                 Iron_Token *free_tok = iron_current(p);
@@ -2972,9 +2974,12 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
                 fs->span = iron_span_merge(iron_token_span(p, free_tok), free_target->span);
                 fs->expr = free_target;
                 expr = (Iron_Node *)fs;
+            } else if (iron_check(p, IRON_TOK_LBRACE)) {
+                expr = iron_parse_block(p);   /* `defer { ... }` block body */
             } else {
-                expr = iron_parse_expr(p);
+                expr = iron_parse_stmt(p);    /* `defer <statement>` general body */
             }
+            if (!expr) { /* HARD-09 REPLACE (iron_parse_stmt DeferStmt body) */ p->in_error_recovery = true; return iron_make_error(p); }
             Iron_DeferStmt *n = ARENA_ALLOC(p->arena, Iron_DeferStmt);
             if (!n) { /* HARD-09 REPLACE (iron_parse_stmt DeferStmt) */ p->in_error_recovery = true; return iron_make_error(p); }
             n->kind           = IRON_NODE_DEFER;

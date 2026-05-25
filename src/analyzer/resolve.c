@@ -795,7 +795,12 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_DEFER: {
             Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
-            resolve_expr(ctx, ds->expr);
+            /* Phase 32 DEFER-01: the defer body is a general statement
+             * (block / return / call / assignment / `free`). resolve_node
+             * dispatches every node kind — and the IRON_NODE_BLOCK arm pushes
+             * its own child scope — so locals declared inside `defer { ... }`
+             * resolve correctly (Pitfall 5). */
+            resolve_node(ctx, ds->expr);
             break;
         }
 
