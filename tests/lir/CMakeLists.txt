@@ -56,7 +56,7 @@ set_tests_properties(test_func_summary PROPERTIES LABELS "lir;phase29-invariant"
 # run_pointer_check_elimination, so the executable links against iron_compiler
 # without unresolved symbols.
 add_executable(test_gencheck_elision test_gencheck_elision.c)
-target_compile_definitions(test_gencheck_elision PRIVATE GENCHECK_LOWER_READY)
+target_compile_definitions(test_gencheck_elision PRIVATE GENCHECK_LOWER_READY GENCHECK_PASS_READY)
 target_link_libraries(test_gencheck_elision iron_compiler unity)
 add_test(NAME test_gencheck_elision COMMAND test_gencheck_elision)
 set_tests_properties(test_gencheck_elision PROPERTIES LABELS "lir;phase30-invariant")

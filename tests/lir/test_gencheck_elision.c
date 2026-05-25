@@ -257,8 +257,53 @@ void test_t1_dominator_redundant(void) {
     iron_lir_module_destroy(mod);
 }
 
-/* OPT-05 Tier 2: GENCHECK on a non-escaping &local (STACK) → elided. */
+/* Tier 1 negative: g1 does NOT dominate g2 (they sit on disjoint branches that
+ * join). Without a dominating prior check, the second check is NOT redundant. */
+void test_t1_non_dominated_preserved(void) {
+    IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_t1nd");
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_t1nd", NULL, 0, int_type);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *then_b = iron_lir_block_create(fn, "then");
+    IronLIR_Block *join_b = iron_lir_block_create(fn, "join");
+
+    IronLIR_Instr *seed = iron_lir_const_int(fn, entry, 7, int_type, sp());
+    IronLIR_Instr *ha = iron_lir_heap_alloc(fn, entry, seed->id, false, false,
+                                            int_type, sp());
+    IronLIR_Instr *cond = iron_lir_const_bool(fn, entry, true, bool_type, sp());
+    iron_lir_branch(fn, entry, cond->id, then_b->id, join_b->id, sp());
+
+    /* then: a checked deref (g1) — only on this branch. */
+    IronLIR_Instr *a1 = iron_lir_addr_of(fn, then_b, ha->id,
+                                         IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_ptr_load(fn, then_b, a1->id, IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_jump(fn, then_b, join_b->id, sp());
+
+    /* join: a checked deref (g2). entry dominates join, but `then` (where g1
+     * lives) does NOT — g2 must be preserved. */
+    IronLIR_Instr *a2 = iron_lir_addr_of(fn, join_b, ha->id,
+                                         IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_ptr_load(fn, join_b, a2->id, IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_return(fn, join_b, ha->id, false, int_type, sp());
+
+    lower_genchecks(mod);
+    IronLIR_GenCheckElisionStat stat;
+    memset(&stat, 0, sizeof(stat));
+    run_pointer_check_elimination(mod, &stat);
+
+    TEST_ASSERT_EQUAL_INT(2, stat.checks_total);
+    TEST_ASSERT_EQUAL_INT(0, stat.by_tier[0]);   /* g1 does not dominate g2 */
+    TEST_ASSERT_EQUAL_INT(0, stat.checks_elided);
+
+    iron_lir_module_destroy(mod);
+}
+
+/* OPT-05 Tier 2: GENCHECK on a non-escaping &local (STACK) → elided.
+ * Tier 2 lands in Task 2 — staged IGNORE in the Task-1 commit. */
 void test_t2_escape_local(void) {
+#ifdef GENCHECK_TIER23_READY
     IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_t2");
     Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
 
@@ -278,22 +323,106 @@ void test_t2_escape_local(void) {
     TEST_ASSERT_EQUAL_INT(1, stat.by_tier[1]);   /* non-escaping local elided */
 
     iron_lir_module_destroy(mod);
+#else
+    TEST_IGNORE_MESSAGE("Tier 2 escape elision lands in Task 2");
+#endif
 }
 
 /* OPT-06 Tier 3: loop-invariant root, no may-free body, entered loop → hoist. */
 void test_t3_licm_hoist(void) {
     /* Constructed in Plan 30-03 against the real loop substrate; asserts
      * by_tier[2] == 1. */
-    TEST_IGNORE_MESSAGE("T3 LICM fixture authored in Plan 30-03");
+    TEST_IGNORE_MESSAGE("T3 LICM fixture authored in Task 2");
 }
 
-/* OPT-07 Tier 4: clean-summary CALL is NOT a barrier; extern/indirect is. */
+/* OPT-07 Tier 4: a CALL to a CLEAN module function (summary.may_free==false) is
+ * NOT a may-free barrier — a check straddling it is still elided by Tier 1. */
 void test_t4_clean_call_not_barrier(void) {
-    TEST_IGNORE_MESSAGE("T4 func-summary fixture authored in Plan 30-03");
+    IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_t4clean");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+
+    /* A clean callee: body is `return 0` — no FREE / *_ALLOC / CALL → may_free
+     * is provably false, so it appears in the summary table with may_free=0. */
+    IronLIR_Func *clean = iron_lir_func_create(mod, "Iron_clean", NULL, 0, int_type);
+    IronLIR_Block *cb = iron_lir_block_create(clean, "entry");
+    IronLIR_Instr *z = iron_lir_const_int(clean, cb, 0, int_type, sp());
+    iron_lir_return(clean, cb, z->id, false, int_type, sp());
+
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_t4clean", NULL, 0, int_type);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Instr *seed = iron_lir_const_int(fn, entry, 7, int_type, sp());
+    IronLIR_Instr *ha = iron_lir_heap_alloc(fn, entry, seed->id, false, false,
+                                            int_type, sp());
+    IronLIR_Instr *a1 = iron_lir_addr_of(fn, entry, ha->id,
+                                         IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_ptr_load(fn, entry, a1->id, IRON_LIR_GEN_HEAP, int_type, sp());
+    /* Indirect call to the clean callee (FUNC_REF + func_ptr). The root `ha` is
+     * NOT passed as an arg, so no escape; the summary says no free. */
+    IronLIR_Instr *fref = iron_lir_func_ref(fn, entry, "Iron_clean", int_type, sp());
+    iron_lir_call(fn, entry, NULL, fref->id, NULL, 0, int_type, sp());
+    IronLIR_Instr *a2 = iron_lir_addr_of(fn, entry, ha->id,
+                                         IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_ptr_load(fn, entry, a2->id, IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_return(fn, entry, ha->id, false, int_type, sp());
+
+    lower_genchecks(mod);
+    IronLIR_GenCheckElisionStat stat;
+    memset(&stat, 0, sizeof(stat));
+    run_pointer_check_elimination(mod, &stat);
+
+    /* Clean call does not break the redundancy → second check elided by T1. */
+    TEST_ASSERT_EQUAL_INT(1, stat.by_tier[0]);
+    TEST_ASSERT_EQUAL_INT(1, stat.checks_elided);
+
+    iron_lir_module_destroy(mod);
 }
 
-/* OQ-08: each barrier-straddling case → checks_elided == 0, verifies clean. */
-void test_barrier_straddle_preserved(void) {
+/* OPT-07 Tier 4 negative: a CALL to an EXTERN function is a pessimistic may-free
+ * barrier — the check straddling it must be preserved. */
+void test_t4_extern_call_is_barrier(void) {
+    IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_t4dirty");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+
+    /* A direct call to an extern func_decl → pessimistic barrier. */
+    Iron_FuncDecl xdecl;
+    memset(&xdecl, 0, sizeof(xdecl));
+    xdecl.name      = "ExternThing";
+    xdecl.is_extern = true;
+
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_t4dirty", NULL, 0, int_type);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Instr *seed = iron_lir_const_int(fn, entry, 7, int_type, sp());
+    IronLIR_Instr *ha = iron_lir_heap_alloc(fn, entry, seed->id, false, false,
+                                            int_type, sp());
+    IronLIR_Instr *a1 = iron_lir_addr_of(fn, entry, ha->id,
+                                         IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_ptr_load(fn, entry, a1->id, IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_call(fn, entry, &xdecl, IRON_LIR_VALUE_INVALID, NULL, 0,
+                  int_type, sp());
+    IronLIR_Instr *a2 = iron_lir_addr_of(fn, entry, ha->id,
+                                         IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_ptr_load(fn, entry, a2->id, IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_return(fn, entry, ha->id, false, int_type, sp());
+
+    lower_genchecks(mod);
+    IronLIR_GenCheckElisionStat stat;
+    memset(&stat, 0, sizeof(stat));
+    run_pointer_check_elimination(mod, &stat);
+
+    TEST_ASSERT_EQUAL_INT(0, stat.checks_elided);   /* extern call preserves */
+
+    iron_lir_module_destroy(mod);
+}
+
+/* OQ-08 barrier matrix: each may-free barrier straddling two same-root checks
+ * must PRESERVE both (checks_elided == 0). Build a 2-check function with the
+ * given barrier instruction between the checks. The `which` selector keeps the
+ * cases share one body. Post-pass verify is clean. */
+typedef enum {
+    BAR_SPAWN, BAR_FREE, BAR_RC_RELEASE, BAR_HEAP_ALLOC, BAR_STORE
+} BarrierKind;
+
+static void run_barrier_case(BarrierKind which) {
     IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_barrier");
     Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
 
@@ -302,11 +431,32 @@ void test_barrier_straddle_preserved(void) {
     IronLIR_Instr *seed = iron_lir_const_int(fn, entry, 7, int_type, sp());
     IronLIR_Instr *ha = iron_lir_heap_alloc(fn, entry, seed->id, false, false,
                                             int_type, sp());
+    IronLIR_Instr *slot = iron_lir_alloca(fn, entry, int_type, "slot", sp());
     IronLIR_Instr *a1 = iron_lir_addr_of(fn, entry, ha->id,
                                          IRON_LIR_GEN_HEAP, int_type, sp());
     iron_lir_ptr_load(fn, entry, a1->id, IRON_LIR_GEN_HEAP, int_type, sp());
-    iron_lir_spawn(fn, entry, "Iron_worker", IRON_LIR_VALUE_INVALID, "h",
-                   NULL, sp(), NULL, 0, NULL);   /* hard may-free barrier */
+
+    switch (which) {
+    case BAR_SPAWN:
+        iron_lir_spawn(fn, entry, "Iron_worker", IRON_LIR_VALUE_INVALID, "h",
+                       NULL, sp(), NULL, 0, NULL);
+        break;
+    case BAR_FREE:
+        iron_lir_free(fn, entry, ha->id, sp());
+        break;
+    case BAR_RC_RELEASE:
+        iron_lir_rc_release(fn, entry, ha->id, sp());
+        break;
+    case BAR_HEAP_ALLOC: {
+        IronLIR_Instr *s2 = iron_lir_const_int(fn, entry, 9, int_type, sp());
+        iron_lir_heap_alloc(fn, entry, s2->id, false, false, int_type, sp());
+        break;
+    }
+    case BAR_STORE:
+        iron_lir_store(fn, entry, slot->id, seed->id, sp());
+        break;
+    }
+
     IronLIR_Instr *a2 = iron_lir_addr_of(fn, entry, ha->id,
                                          IRON_LIR_GEN_HEAP, int_type, sp());
     iron_lir_ptr_load(fn, entry, a2->id, IRON_LIR_GEN_HEAP, int_type, sp());
@@ -325,6 +475,14 @@ void test_barrier_straddle_preserved(void) {
     iron_diaglist_free(&diags);
 
     iron_lir_module_destroy(mod);
+}
+
+void test_barrier_straddle_preserved(void) {
+    run_barrier_case(BAR_SPAWN);
+    run_barrier_case(BAR_FREE);
+    run_barrier_case(BAR_RC_RELEASE);
+    run_barrier_case(BAR_HEAP_ALLOC);
+    run_barrier_case(BAR_STORE);
 }
 
 /* Gate off (pass not run) → all GENCHECKs survive, checks_elided == 0.
@@ -367,9 +525,11 @@ int main(void) {
 #endif
 #ifdef GENCHECK_PASS_READY
     RUN_TEST(test_t1_dominator_redundant);
+    RUN_TEST(test_t1_non_dominated_preserved);
     RUN_TEST(test_t2_escape_local);
     RUN_TEST(test_t3_licm_hoist);
     RUN_TEST(test_t4_clean_call_not_barrier);
+    RUN_TEST(test_t4_extern_call_is_barrier);
     RUN_TEST(test_barrier_straddle_preserved);
     RUN_TEST(test_gate_off_preserves);
 #endif
