@@ -1,32 +1,46 @@
 -- section: 7.5-stdlib
 -- @req: OQ-06
--- @expected-pass-after: phase-33 (Wave 3 interface-element collections)
--- List[Shape] holding Circle/Square; call a Shape method on each element →
--- correct tagged-union dispatch + per-element drop.
--- RED until Wave 3 routes List[Interface] through the existing iface dispatch.
+-- @expected-pass-after: phase-33 (Wave 2 interface-element collections)
+-- [Shape] holding Circle/Square; call a Shape method on each element →
+-- correct tagged-union dispatch via Iron_<iface>_<method>(self){switch(self.tag)}.
+-- Elements are stored via Iron_SplitList_Iron_Shape (interface-element list).
+-- The initial literal seeds BOTH implementors so the collection does not
+-- monomorphic-collapse to a single concrete type.
 
 interface Shape {
     func area() -> Int
 }
 
-object Circle {
-    val r: Int
-    func area() -> Int {
+object Circle impl Shape {
+    var r: Int
+
+    init(r: Int) {
+        self.r = r
+    }
+}
+
+object Square impl Shape {
+    var s: Int
+
+    init(s: Int) {
+        self.s = s
+    }
+}
+
+patch object Circle {
+    readonly func area() -> Int {
         return self.r * self.r * 3
     }
 }
 
-object Square {
-    val s: Int
-    func area() -> Int {
+patch object Square {
+    readonly func area() -> Int {
         return self.s * self.s
     }
 }
 
 func main() {
-    var shapes: [Shape] = []
-    shapes.push(Circle(r: 2))
-    shapes.push(Square(s: 3))
+    var shapes = [Circle(2), Square(3)]
     for shape in shapes {
         println("area: {shape.area()}")
     }

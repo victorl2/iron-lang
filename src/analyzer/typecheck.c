@@ -7211,6 +7211,28 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         if (!decl) continue;
         if (decl->kind == IRON_NODE_FUNC_DECL) {
             Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
+            /* Phase 33 OQ-02 unblock: register func-level generic params in a
+             * temporary child scope so `Box[T]` / `*unchecked T` annotations
+             * resolve here in the signature pre-pass (not just in
+             * check_func_decl). Without it, box.iron's prepended generic
+             * methods emit E0202 in THIS loop, poisoning every compilation.
+             * Mirrors the enum-mono binding pattern (typecheck.c:1309). */
+            Iron_Scope *pp_saved = ctx.global_scope;
+            if (fd->generic_param_count > 0 && fd->generic_params) {
+                Iron_Scope *gs = iron_scope_create(ctx.arena, ctx.global_scope,
+                                                   IRON_SCOPE_BLOCK);
+                for (int gi = 0; gi < fd->generic_param_count; gi++) {
+                    if (fd->generic_params[gi])
+                        IRON_NODE_ASSERT_KIND(fd->generic_params[gi], IRON_NODE_IDENT);
+                    Iron_Ident *gp = (Iron_Ident *)fd->generic_params[gi];
+                    if (!gp || !gp->name) continue;
+                    Iron_Symbol *gsym = iron_symbol_create(ctx.arena, gp->name,
+                        IRON_SYM_TYPE, NULL, (Iron_Span){0, 0, 0, 0, 0});
+                    gsym->type = iron_type_make_generic_param(ctx.arena, gp->name, NULL);
+                    iron_scope_define(gs, ctx.arena, gsym);
+                }
+                ctx.global_scope = gs;
+            }
             Iron_Type *ret_type = fd->return_type
                 ? resolve_type_annotation(&ctx, fd->return_type)
                 : iron_type_make_primitive(IRON_TYPE_VOID);
@@ -7225,6 +7247,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                     param_types[j] = resolve_type_annotation(&ctx, p->type_ann);
                 }
             }
+            ctx.global_scope = pp_saved;  /* Phase 33 OQ-02: restore */
             Iron_Type *func_type = iron_type_make_func(ctx.arena, param_types,
                                                         fd->param_count, ret_type);
             Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, fd->name);
@@ -7239,14 +7262,38 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
              * return annotation of `Self` resolves correctly (and does not
              * trigger E0259) during this pre-pass signature building step. */
             ctx.enclosing_type_name = md->type_name;
+            /* Phase 33 OQ-02 unblock: register method-level generic params
+             * (`func Box.unwrap[T]() -> *unchecked T`) so the return + param
+             * annotations resolve in this pre-pass. This is the site that was
+             * still emitting E0202 for parameterless generic methods like
+             * unwrap (whose `[T]` only appears in the return type). */
+            Iron_Scope *pp_md_saved = ctx.global_scope;
+            if (md->generic_param_count > 0 && md->generic_params) {
+                Iron_Scope *gs = iron_scope_create(ctx.arena, ctx.global_scope,
+                                                   IRON_SCOPE_BLOCK);
+                for (int gi = 0; gi < md->generic_param_count; gi++) {
+                    if (md->generic_params[gi])
+                        IRON_NODE_ASSERT_KIND(md->generic_params[gi], IRON_NODE_IDENT);
+                    Iron_Ident *gp = (Iron_Ident *)md->generic_params[gi];
+                    if (!gp || !gp->name) continue;
+                    Iron_Symbol *gsym = iron_symbol_create(ctx.arena, gp->name,
+                        IRON_SYM_TYPE, NULL, (Iron_Span){0, 0, 0, 0, 0});
+                    gsym->type = iron_type_make_generic_param(ctx.arena, gp->name, NULL);
+                    iron_scope_define(gs, ctx.arena, gsym);
+                }
+                ctx.global_scope = gs;
+            }
             Iron_Type *ret_type = md->return_type
                 ? resolve_type_annotation(&ctx, md->return_type)
                 : iron_type_make_primitive(IRON_TYPE_VOID);
             ctx.enclosing_type_name = NULL;  /* restore after pre-pass sig build */
-            /* Method signatures are looked up by mangled name (type_method) */
+            /* Method signatures are looked up by mangled name (type_method).
+             * Phase 33 OQ-02: lookup runs against the REAL global scope, but
+             * param-annotation resolution below stays under the generic scope
+             * so `value: T` resolves; restore after the param loop. */
             char mangled[256];
             snprintf(mangled, sizeof(mangled), "%s_%s", md->type_name, md->method_name);
-            Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, mangled);
+            Iron_Symbol *sym = iron_scope_lookup(pp_md_saved, mangled);
             if (sym && !sym->type) {
                 Iron_Type **param_types = NULL;
                 int pc = md->param_count;
@@ -7254,7 +7301,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                     param_types = (Iron_Type **)iron_arena_alloc(
                         ctx.arena, (size_t)pc * sizeof(Iron_Type *),
                         _Alignof(Iron_Type *));
-                    if (!param_types) { /* HARD-09 REPLACE (typecheck.c:iron_typecheck METHOD_DECL param_types) */ return; }
+                    if (!param_types) { /* HARD-09 REPLACE (typecheck.c:iron_typecheck METHOD_DECL param_types) */ ctx.global_scope = pp_md_saved; return; }
                     for (int j = 0; j < pc; j++) {
                         Iron_Param *p = (Iron_Param *)md->params[j];
                         param_types[j] = resolve_type_annotation(&ctx, p->type_ann);
@@ -7262,6 +7309,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 }
                 sym->type = iron_type_make_func(ctx.arena, param_types, pc, ret_type);
             }
+            ctx.global_scope = pp_md_saved;  /* Phase 33 OQ-02: restore */
         }
     }
 

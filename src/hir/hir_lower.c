@@ -1870,6 +1870,21 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
         case IRON_NODE_METHOD_DECL: {
             Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
 
+            /* Phase 33 OQ-02 unblock: the box.iron `func Box.new[T]() / unwrap[T]()
+             * / is_null() / free()` declarations are BY-NAME compiler builtins
+             * (the Ptr.cast precedent), NOT real foreign-stub functions. Their
+             * empty bodies + method-level generic return types would otherwise
+             * lower to broken foreign C prototypes (e.g. `Iron_box_new(void value)`
+             * because `value: T` collapses to void, plus a missing C symbol),
+             * which fails clang for EVERY compilation since box.iron is always
+             * prepended. Skip lowering them entirely; real Box dispatch + the
+             * emit_ensure_box codegen is the dedicated OQ-02 follow-up plan
+             * (deferred-items 33-01). This keeps all non-Box compilation — and
+             * the OQ-06 interface-collection corpus — clean. */
+            if (md->type_name && strcmp(md->type_name, "Box") == 0) {
+                break;
+            }
+
             /* Build mangled name: typeName_methodName (lowercase type name
              * to match Iron's C convention: Iron_io_read_file, not Iron_IO_read_file) */
             char mangled[256];
