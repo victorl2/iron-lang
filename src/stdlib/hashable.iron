@@ -1,0 +1,34 @@
+-- hashable.iron -- the Hashable constraint interface (Phase 33 OQ-01 / GA1)
+-- Phase 33 STDLIB-03/04: the minimal generic-constraint interface the hash
+-- containers (Map[K: Hashable, V], Set[T: Hashable]) bind their key/element
+-- parameter to.
+--
+-- WHY a real interface (not just a parser-fixture name): the constraint
+-- enforcement in src/analyzer/typecheck.c (type_satisfies_constraint /
+-- check_generic_constraints, E0206) only bites when the constraint NAME
+-- resolves to a genuine IRON_SYM_INTERFACE. Until Phase 33 this interface
+-- lived only in a parser unit-test fixture (tests/unit/test_parser.c:1255),
+-- so the bound silently passed (type_satisfies_constraint returns true for an
+-- unresolved constraint by design — "don't false-positive"). Prepending this
+-- surface UNCONDITIONALLY on BOTH the build.c and check.c paths (mirroring the
+-- box.iron / arena.iron decision from Phase 25-03 / 28-03) makes `Hashable`
+-- resolve before any user Map/Set instantiation is checked.
+--
+-- PRIMITIVE CARVE-OUT: the built-in hashable primitives (Int, the sized
+-- Int/UInt family, Bool, and String) satisfy Hashable WITHOUT an explicit
+-- `implements Hashable` — they are recognized directly in
+-- type_satisfies_constraint (the "minimal built-in constraint set" decision in
+-- CONTEXT GA1). User objects satisfy Hashable the normal way: by declaring
+-- `implements Hashable` or by structurally providing the method surface below.
+--
+-- SCOPE: this is the minimal container-key constraint, NOT a general
+-- user-defined trait/where-clause algebra (explicitly deferred in CONTEXT).
+--
+-- Method surface (matches the parser fixture shape): a `hash() -> Int`
+-- digest plus an `equals(other) -> Bool` identity used by the hash-bucket
+-- backing (IRON_MAP_IMPL / IRON_SET_IMPL in src/runtime/iron_runtime.h).
+
+interface Hashable {
+    pure func hash() -> Int
+    pure func equals(other: Hashable) -> Bool
+}

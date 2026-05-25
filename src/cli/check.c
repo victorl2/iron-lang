@@ -487,6 +487,37 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
         }
     }
 
+    /* Phase 33 OQ-01 (Plan 33-02): always prepend hashable.iron — the Hashable
+     * constraint interface must resolve as IRON_SYM_INTERFACE BEFORE any Map/Set
+     * instantiation is checked, else the K: Hashable bound silently passes
+     * (type_satisfies_constraint returns true for an unresolved constraint).
+     * Ordered before map.iron/set.iron below. Mirror of build.c arm 1n.
+     * ANTI-PATTERN (Pitfall 4, Phase 25-03 / 28-03): prepending ONLY in build.c
+     * misses the check.c arm; iron_analyze_buffer (CORE-22 LSP facade) routes
+     * through this path and would fail to resolve the Hashable bound. */
+    {
+        char *hashable_path = check_make_path(base_dir, "stdlib/hashable.iron");
+        if (hashable_path) {
+            long sz = 0;
+            char *src = check_read_stdlib(hashable_path, &sz);
+            free(hashable_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
     /* 2. Set up arena and diagnostics */
     Iron_Arena arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags = iron_diaglist_create();

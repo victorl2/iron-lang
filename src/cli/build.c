@@ -1416,6 +1416,37 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* 1n. Phase 33 OQ-01 (Plan 33-02): always prepend hashable.iron — the
+     * Hashable constraint interface must resolve as IRON_SYM_INTERFACE BEFORE
+     * any Map/Set instantiation is checked, else the K: Hashable bound silently
+     * passes (type_satisfies_constraint returns true for an unresolved
+     * constraint). Ordered before map.iron/set.iron below. Mirror of check.c
+     * arm (Pitfall 4: prepending ONLY in build.c misses the check.c /
+     * iron_analyze_buffer CORE-22 LSP path; prepending ONLY in check.c misses
+     * the build path). */
+    {
+        char *hashable_path = make_path(base_dir, "stdlib/hashable.iron");
+        if (hashable_path) {
+            long sz = 0;
+            char *src = read_file(hashable_path, &sz);
+            free(hashable_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
     } else {
         /* Phase 94 LIB-03 polyfill-duplication fix: emit_archive mode skipped
          * the stdlib auto-prepend region. Free the detect arena that the
