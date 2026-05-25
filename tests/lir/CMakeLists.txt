@@ -66,3 +66,17 @@ set_tests_properties(test_gencheck_elision PROPERTIES LABELS "lir;phase30-invari
 # test_gate_off_preserves within the same binary (active once GENCHECK_PASS_READY).
 add_test(NAME test_gencheck_elision_gate COMMAND test_gencheck_elision)
 set_tests_properties(test_gencheck_elision_gate PROPERTIES LABELS "lir;phase30-invariant")
+
+# ── Phase 32 `defer` Statement — phase32-invariant Wave 0 codegen-order anchor ─
+# test_defer_general runs its `defer free` still-compiles case now (proves the
+# full pipeline links). The 4 general-defer codegen-order asserts (LIFO,
+# defer-then-drop, early-return, read-at-exit) are staged behind
+# #ifdef DEFER_GENERAL_READY — they compile GENERAL defer programs that the
+# Phase-21 E0276 gate currently rejects, so they stay dormant until Plan 32-02
+# removes the gate and -D's DEFER_GENERAL_READY on (or drops the guard) to flip
+# them live. The executable links against iron_compiler with no unresolved
+# symbols today. These #ifdef cases are the GREEN targets Plan 32-02 enables.
+add_executable(test_defer_general test_defer_general.c)
+target_link_libraries(test_defer_general iron_compiler unity)
+add_test(NAME test_defer_general COMMAND test_defer_general)
+set_tests_properties(test_defer_general PROPERTIES LABELS "lir;phase32-invariant;v4-acceptance")
