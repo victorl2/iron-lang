@@ -1,0 +1,23 @@
+-- set.iron -- Set[T: Hashable]: hash-based membership container (Phase 33 STDLIB-04)
+-- Phase 33 OQ-01 / GA1: declares the generic Hashable BOUND on the element
+-- parameter so the constraint enforcement in src/analyzer/typecheck.c
+-- (check_generic_constraints, E0206) bites at every `Set[T]` instantiation:
+-- `Set[Int]` / `Set[String]` are well-formed (Int/String satisfy Hashable via
+-- the primitive carve-out), while `Set[NonHashable]` is a compile error naming
+-- the unsatisfied bound.
+--
+-- SCOPE (Plan 33-02): TYPE + Hashable bound only — enough for the OQ-01
+-- constraint check to fire on the check path. The full method surface
+-- (Set.new / add / has / remove / len + the element drop/copy protocol over the
+-- IRON_SET_IMPL backing in src/runtime/iron_runtime.h) is the Wave-4 container
+-- rewrite (STDLIB-04 proper) and is intentionally NOT declared here.
+--
+-- The hash-based backing (Iron_Set_<T>, name-mangled per
+-- src/runtime/iron_runtime.h:983) is preserved and unchanged by this plan.
+--
+-- `val inner` opaque storage (not `var`) so v3.0 E0264 does not fire on the
+-- stdlib surface — mirrors arena.iron / box.iron / map.iron.
+
+object Set[T: Hashable] {
+    val inner: Int  -- opaque storage; the C runtime holds the real Iron_Set_<T>
+}

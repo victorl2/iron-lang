@@ -518,6 +518,36 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
         }
     }
 
+    /* Phase 33 STDLIB-03/04 (Plan 33-02): always prepend map.iron + set.iron —
+     * Map[K: Hashable, V] / Set[T: Hashable] declare the generic bound so the
+     * OQ-01 constraint check fires at user instantiation sites. MUST come after
+     * hashable.iron above (the Hashable interface must resolve first). Mirror of
+     * build.c arms 1o/1p. */
+    {
+        const char *containers[] = { "stdlib/map.iron", "stdlib/set.iron" };
+        for (size_t ci = 0; ci < sizeof(containers) / sizeof(containers[0]); ci++) {
+            char *path = check_make_path(base_dir, containers[ci]);
+            if (!path) continue;
+            long sz = 0;
+            char *src = check_read_stdlib(path, &sz);
+            free(path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
     /* 2. Set up arena and diagnostics */
     Iron_Arena arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags = iron_diaglist_create();
