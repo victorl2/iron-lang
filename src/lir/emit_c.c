@@ -3897,9 +3897,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_expr_to_buf(sb, instr->free_instr.value, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ").addr);  /* Arena synthesized drop -> bulk free */\n");
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "iron_heap_free(");
+            /* Phase 31 DBG-04: route through iron_heap_free_dbg so the free-site
+             * (__FILE__/__LINE__ in the generated C) is recorded; debug builds
+             * report it on a double-free, release builds ignore it. */
+            iron_strbuf_appendf(sb, "iron_heap_free_dbg(");
             emit_expr_to_buf(sb, instr->free_instr.value, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, ");\n");
+            iron_strbuf_appendf(sb, ", __FILE__, __LINE__);\n");
             (void)arena_c;
             break;
         }
@@ -3921,9 +3924,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "iron_heap_free(");
+        /* Phase 31 DBG-04: route through iron_heap_free_dbg so the free-site
+         * (__FILE__/__LINE__ in the generated C) is recorded; debug builds
+         * report BOTH sites on a double-free, release builds ignore the site. */
+        iron_strbuf_appendf(sb, "iron_heap_free_dbg(");
         emit_expr_to_buf(sb, instr->free_instr.value, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ");\n");
+        iron_strbuf_appendf(sb, ", __FILE__, __LINE__);\n");
         break;
     }
 

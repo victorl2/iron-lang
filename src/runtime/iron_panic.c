@@ -294,6 +294,75 @@ void iron_panic_arena_oom(const char *arena_name,
     abort();
 }
 
+/* Phase 31 DBG-04 (Plan 31-01): double-free panic — reports BOTH free-sites.
+ *
+ * Fired by iron_heap_free_dbg when the gen-mismatch branch detects a second
+ * free of an already-freed allocation. The header still holds the FIRST
+ * free-site (recorded on the first free before the gen bump); the SECOND
+ * free-site is the caller's current __FILE__:__LINE__. Both — plus the
+ * alloc-site (debug header) — are reported so the diagnostic is actionable.
+ *
+ * Mirrors iron_panic_stale_pointer's dual text/JSON channels, in-destructor
+ * divert, init-cleanup pump, and panic-during-panic discipline (no malloc,
+ * fputs/fprintf with stack buffers only; __FILE__ strings are static-storage
+ * literals). The text channel emits two distinct "<file>:<line>" site
+ * substrings so a double-free test can grep both. noreturn (abort). */
+void iron_panic_double_free(const char *first_free_file,
+                            int first_free_line,
+                            const char *second_free_file,
+                            int second_free_line,
+                            const struct IronAllocHdr *hdr) {
+    /* Phase 24 DROP-04/05: init-time cleanup + drop-time abort divert */
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        /* noreturn — abort() inside */
+    }
+    const char *ff = first_free_file  ? first_free_file  : "<unknown>";
+    const char *sf = second_free_file ? second_free_file : "<unknown>";
+
+    if (s_iron_panic_format == 1) {
+        /* JSON line — distinct "panic":"double_free" tag with both sites. */
+        fputs("{\"panic\":\"double_free\",", stderr);
+        fprintf(stderr, "\"first_free\":{\"file\":\"%s\",\"line\":%d}",
+                ff, first_free_line);
+        fprintf(stderr, ",\"second_free\":{\"file\":\"%s\",\"line\":%d}",
+                sf, second_free_line);
+#ifdef IRON_DEBUG_ALLOCATOR
+        if (hdr) {
+            const char *af = hdr->alloc_site_file ? hdr->alloc_site_file
+                                                  : "<unknown>";
+            fprintf(stderr, ",\"alloc_site\":{\"file\":\"%s\",\"line\":%u}",
+                    af, (unsigned)hdr->alloc_site_line);
+        } else {
+            fputs(",\"alloc_site\":null", stderr);
+        }
+#else
+        (void)hdr;
+        fputs(",\"alloc_site\":null", stderr);
+#endif
+        fputc('}', stderr);
+        fputc('\n', stderr);
+    } else {
+        /* Text format — two distinct site lines (grep-able by tests). */
+        fputs("iron: double free detected\n", stderr);
+        fprintf(stderr, "  first free site: %s:%d\n", ff, first_free_line);
+        fprintf(stderr, "  second free site: %s:%d\n", sf, second_free_line);
+#ifdef IRON_DEBUG_ALLOCATOR
+        if (hdr) {
+            const char *af = hdr->alloc_site_file ? hdr->alloc_site_file
+                                                  : "<unknown>";
+            fprintf(stderr, "  allocation site: %s:%u\n",
+                    af, (unsigned)hdr->alloc_site_line);
+        }
+#else
+        (void)hdr;
+#endif
+    }
+    fflush(stderr);
+    abort();
+}
+
 void iron_panic_stale_pointer(const char *deref_file,
                               int deref_line,
                               const struct IronAllocHdr *hdr) {

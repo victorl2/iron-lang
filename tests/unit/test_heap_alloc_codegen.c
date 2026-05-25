@@ -149,9 +149,11 @@ void test_heap_free_emits_iron_heap_free_and_phase24_hook(void) {
     const char *c_src = compile_to_c(src, &opt, NULL);
     TEST_ASSERT_NOT_NULL_MESSAGE(c_src, "compile_to_c returned NULL");
 
-    /* Post-migration: iron_heap_free must be called */
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, "iron_heap_free("),
-        "Expected iron_heap_free( in emitted C (IRON_LIR_FREE migration)");
+    /* Post-migration: iron_heap_free must be called. Phase 31 DBG-04 routes
+     * the free through iron_heap_free_dbg(<expr>, __FILE__, __LINE__) so the
+     * free-site is recorded for double-free both-sites reporting. */
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, "iron_heap_free_dbg("),
+        "Expected iron_heap_free_dbg( in emitted C (Phase 31 DBG-04 free-site)");
 
     /* Phase 24 implemented: PHASE-24 HOOK is now live code (drop call before free).
      * The old stub comment is gone. For objects without drop blocks (like Point),
@@ -281,10 +283,11 @@ void test_defer_free_emits_iron_heap_free_in_epilogue(void) {
     const char *c_src = compile_to_c(src, &opt, NULL);
     TEST_ASSERT_NOT_NULL_MESSAGE(c_src, "compile_to_c returned NULL");
 
-    /* Post-migration: emit_defer_cleanup LIFO machinery emits iron_heap_free
-     * before IRON_LIR_RETURN. The call must appear in the emitted C. */
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, "iron_heap_free("),
-        "Expected iron_heap_free( in emitted C via defer-free epilogue (DEFER-02)");
+    /* Post-migration: emit_defer_cleanup LIFO machinery emits the free call
+     * before IRON_LIR_RETURN. Phase 31 DBG-04 routes it through
+     * iron_heap_free_dbg(<expr>, __FILE__, __LINE__). */
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, "iron_heap_free_dbg("),
+        "Expected iron_heap_free_dbg( in emitted C via defer-free epilogue (DEFER-02)");
 
     /* Post-migration: iron_heap_alloc must also be present (alloc side) */
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, "iron_heap_alloc("),

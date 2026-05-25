@@ -253,17 +253,22 @@ void        iron_heap_free(Iron_FatPtr fp);
  * the registry/poison/double-free machinery (release header is 16B and has no
  * registry slots — see the #else _Static_assert above).
  *
- *   iron_heap_free_dbg  — debug-gated free with an explicit free-site; codegen
- *                         (emit_c.c) emits this under IRON_DEBUG_ALLOCATOR so a
- *                         double-free reports the SECOND/current free-site too.
- *                         iron_heap_free(fp) forwards to (fp, NULL, 0) in debug.
+ *   iron_heap_free_dbg  — free with an explicit free-site. Codegen (emit_c.c)
+ *                         ALWAYS emits this so the call site is stable across
+ *                         build modes. In a debug build it records the free-
+ *                         site, unlinks the registry, poisons, and reports the
+ *                         SECOND/current free-site on a double-free. In a
+ *                         release build it is a thin wrapper that ignores the
+ *                         site and runs the plain generation-checked free.
+ *                         Declared UNCONDITIONALLY so generated C links in
+ *                         both modes.
  *   iron_leak_dump      — atexit handler (registered in iron_runtime_init);
  *                         walks the registry and reports still-live allocations
  *                         to STDERR with their alloc-site provenance (DBG-03).
  *   iron_debug_alloc_init — idempotent registry-lock initializer (DBG-03).
  */
-#ifdef IRON_DEBUG_ALLOCATOR
 void iron_heap_free_dbg(Iron_FatPtr fp, const char *free_file, int free_line);
+#ifdef IRON_DEBUG_ALLOCATOR
 void iron_leak_dump(void);
 void iron_debug_alloc_init(void);
 #endif
