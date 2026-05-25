@@ -200,9 +200,14 @@ void test_defer_then_drop(void) {
 
     long defer2   = find_order(c_src, "defer2");
     long defer1   = find_order(c_src, "defer1");
-    long drop_call = find_order(c_src, "Resource_drop");
+    /* The drop function is emitted as `Iron_<lowercased-type>_drop` (Iron_
+     * prefix + lowercased object name). Key on the CALL site specifically
+     * (`_resource_drop(&` — a pointer argument) rather than the forward
+     * declaration / definition (`_resource_drop(Iron_Resource ...`), which
+     * appear earlier in the file and would defeat the ordering assert. */
+    long drop_call = find_order(c_src, "_resource_drop(&");
     TEST_ASSERT_TRUE_MESSAGE(defer2 >= 0 && defer1 >= 0 && drop_call >= 0,
-        "Expected defer1/defer2 literals + Resource_drop call in emitted C");
+        "Expected defer1/defer2 literals + the resource drop call in emitted C");
     /* defers LIFO (defer2 < defer1) THEN the first drop call (DEFER-04). */
     TEST_ASSERT_TRUE_MESSAGE(defer2 < defer1,
         "Expected LIFO defer order: defer2 before defer1");
@@ -242,10 +247,15 @@ void test_early_return_runs_defer(void) {
  * body's load of x is emitted AFTER the `x = 2` store (positional read-at-exit,
  * NOT a snapshot at defer-registration time). */
 void test_read_at_exit(void) {
+    /* `print` is registered as print(String); printing the Int `x` uses
+     * string interpolation `"{x}"`, which lowers to a load of x at the call
+     * site. Because the defer body is inline-lowered at the EXIT edge (after
+     * `x = 2`), the interpolation's load reads the updated value — the
+     * read-at-exit witness. */
     static const char *src =
         "func main() {\n"
         "    var x = 1\n"
-        "    defer print(x)\n"
+        "    defer println(\"{x}\")\n"
         "    x = 2\n"
         "}\n";
 
@@ -253,18 +263,18 @@ void test_read_at_exit(void) {
     const char *c_src = compile_to_c_mode(src, &opt, NULL, IRON_ANALYSIS_MODE_CLI_LENIENT);
     TEST_ASSERT_NOT_NULL_MESSAGE(c_src, "compile_to_c_mode returned NULL for read-at-exit defer");
 
-    /* The store `= 2` must be emitted before the deferred body's load of x.
-     * NOTE: the exact print-call symbol is finalized in Plan 32-02 when this
-     * case flips live; key on the last `= 2` store offset vs the final emitted
-     * x reference. The positional invariant (store-before-deferred-load) is the
-     * read-at-exit witness, immune to the precise print emission form. */
-    long store = find_order(c_src, "= 2");
-    const char *after = strstr(c_src, "= 2");
-    long later_x = (after && strstr(after, "x")) ? store + 1 : -1L;
+    /* The `2LL` store (`x = 2`) is emitted in the function body; the deferred
+     * `println("{x}")` body is emitted at the scope-exit edge under the
+     * `defer_cleanup` label. The store must precede the deferred body's load,
+     * proving the load happens at exit (read-at-exit), not at registration. */
+    long store        = find_order(c_src, "2LL");
+    long defer_label  = find_order(c_src, "defer_cleanup");
     TEST_ASSERT_TRUE_MESSAGE(store >= 0,
-        "Expected the `= 2` store in emitted C");
-    TEST_ASSERT_TRUE_MESSAGE(later_x > store,
-        "Expected an x reference after the `x = 2` store (read-at-exit, not snapshot)");
+        "Expected the `x = 2` store (2LL) in emitted C");
+    TEST_ASSERT_TRUE_MESSAGE(defer_label >= 0,
+        "Expected a defer_cleanup exit-edge label in emitted C");
+    TEST_ASSERT_TRUE_MESSAGE(store < defer_label,
+        "Expected the `x = 2` store before the deferred body (read-at-exit, not snapshot)");
 
     iron_lir_optimize_info_free(&opt);
 }
