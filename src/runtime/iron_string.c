@@ -291,6 +291,26 @@ void iron_runtime_init(int argc, char **argv) {
      * iron_threads_init conventions in this file. */
     IRON_ATOMIC_U64_INIT(iron_alloc_id_counter, 0);
 
+#ifdef IRON_DEBUG_ALLOCATOR
+    /* Phase 31 GA1 (Plan 31-01): debug allocator init + atexit leak dump.
+     * iron_debug_alloc_init() is idempotent (guards its own once-flag). The
+     * atexit registration is guarded by a local once-flag so a repeated
+     * iron_runtime_init in a unit-test harness does NOT double-register the
+     * dump (atexit has no deregister; double-registering would print twice).
+     * The DBG-07 release opt-in (#else) lands in Plan 31-03; leave a marker.
+     *   Plan 31-03: iron_leakcheck_init_from_env()   (IRON_LEAK_CHECK opt-in) */
+    iron_debug_alloc_init();
+    {
+        static bool s_leak_dump_registered = false;
+        if (!s_leak_dump_registered) {
+            atexit(iron_leak_dump);
+            s_leak_dump_registered = true;
+        }
+    }
+#else
+    /* Plan 31-03: iron_leakcheck_init_from_env()  (DBG-07 release opt-in) */
+#endif
+
     /* Phase 19-02: cache IRON_PANIC_FORMAT env variable BEFORE any
      * allocation can panic (Pitfall 6: getenv-once-at-init). Idempotent
      * across repeated iron_runtime_init calls. Must come AFTER alloc-id

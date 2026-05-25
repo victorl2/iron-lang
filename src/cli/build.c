@@ -537,6 +537,14 @@ static int build_src_list(const char **argv_buf, int *ai_out,
          * argv parsing means this overrides the -O3 above. */
         argv_buf[ai++] = "-O2";
     }
+    /* Phase 31 GA3 (Plan 31-01): debug builds get the full debug allocator —
+     * 64B IronAllocHdr + poison-on-free + leak registry + atexit dump +
+     * double-free both-sites. This define was NEVER wired before Phase 31; it
+     * is the load-bearing switch that compiles the debug header into the
+     * generated user binary's runtime TUs. Release builds keep the 16B header. */
+    if (opts.debug_build && !opts.release) {
+        argv_buf[ai++] = "-DIRON_DEBUG_ALLOCATOR";
+    }
     argv_buf[ai++] = "-o";
     argv_buf[ai++] = output;
     argv_buf[ai++] = c_file;
@@ -695,6 +703,13 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
         argv_buf[ai++] = "-O2";
     } else {
         argv_buf[ai++] = "-O0";
+    }
+    /* Phase 31 GA3 (Plan 31-01): mirror the main-link path — debug archive
+     * members must compile the 64B debug IronAllocHdr so the registry/poison/
+     * double-free machinery is consistent across the .o objects and the final
+     * link. Load-bearing wiring (the define was never set before Phase 31). */
+    if (opts.debug_build && !opts.release) {
+        argv_buf[ai++] = "-DIRON_DEBUG_ALLOCATOR";
     }
     /* Phase 94: archive members must keep the AST-emitted symbols externally
      * visible so consumers can link them. -fvisibility=default is the clang

@@ -178,15 +178,25 @@ typedef struct IronAllocHdr {
     const char     *alloc_site_file;  /* string-literal __FILE__ pointer; no strdup */
     uint32_t        alloc_site_line;  /* __LINE__ */
     uint32_t        alloc_id;         /* unique id from iron_alloc_id_counter (Phase 31 leak detector reuses) */
-    /* Total debug-build size: 16B release fields + 8B ptr + 4B + 4B = 32B.
-     * Phase 31 may extend with poison/double-free fields; doing so requires
-     * an explicit ABI bump documented in POINTER-LAYOUT.md. */
+    /* ── Phase 31 GA1 (Plan 31-01) — debug-allocator extension ──────────────
+     * The debug header GROWS 32B → 64B (16-multiple preserved) to carry the
+     * intrusive leak registry links + the free-site for double-free both-sites
+     * reporting. Release layout (16B) is UNCHANGED. */
+    struct IronAllocHdr *reg_next;    /* DBG-03: intrusive doubly-linked registry next */
+    struct IronAllocHdr *reg_prev;    /* DBG-03: intrusive doubly-linked registry prev */
+    const char          *free_site_file;  /* DBG-04: first free-site __FILE__; NULL until first free */
+    uint32_t             free_site_line;  /* DBG-04: first free-site __LINE__ */
+    uint32_t             _pad;            /* keep sizeof a 16-multiple (64B total) */
+    /* Total debug-build size: 16B (gen+size) + 16B (Phase 19 site fields)
+     * + 16B (reg_next/reg_prev) + 16B (free_site_file+line+pad) = 64B.
+     * Phase 31 ABI bump documented in POINTER-LAYOUT.md. */
 #endif
 } IronAllocHdr;
 
 #ifdef IRON_DEBUG_ALLOCATOR
-  _Static_assert(sizeof(IronAllocHdr) == 32,
-                 "IronAllocHdr (debug) must be 32B — Plan 19-01 layout lock");
+  _Static_assert(sizeof(IronAllocHdr) == 64,
+                 "IronAllocHdr (debug) must be 64B — Plan 31 layout re-lock "
+                 "(Phase 31 ABI bump: registry links + free-site appended)");
 #else
   _Static_assert(sizeof(IronAllocHdr) == 16,
                  "IronAllocHdr (release) must be 16B — Plan 19-01 layout lock");
@@ -236,6 +246,41 @@ _Static_assert(offsetof(Iron_RcHeader, weak_count) == 16,
 /* Public API — definitions in src/runtime/iron_heap_track.c. */
 Iron_FatPtr iron_heap_alloc(const char *site_file, int site_line, size_t size);
 void        iron_heap_free(Iron_FatPtr fp);
+
+/* ── Phase 31 GA1 (Plan 31-01) — debug-allocator surface ───────────────────
+ * All of the following are debug-build-only behaviorally; the SYMBOLS are
+ * declared/defined under IRON_DEBUG_ALLOCATOR so a release build never carries
+ * the registry/poison/double-free machinery (release header is 16B and has no
+ * registry slots — see the #else _Static_assert above).
+ *
+ *   iron_heap_free_dbg  — debug-gated free with an explicit free-site; codegen
+ *                         (emit_c.c) emits this under IRON_DEBUG_ALLOCATOR so a
+ *                         double-free reports the SECOND/current free-site too.
+ *                         iron_heap_free(fp) forwards to (fp, NULL, 0) in debug.
+ *   iron_leak_dump      — atexit handler (registered in iron_runtime_init);
+ *                         walks the registry and reports still-live allocations
+ *                         to STDERR with their alloc-site provenance (DBG-03).
+ *   iron_debug_alloc_init — idempotent registry-lock initializer (DBG-03).
+ */
+#ifdef IRON_DEBUG_ALLOCATOR
+void iron_heap_free_dbg(Iron_FatPtr fp, const char *free_file, int free_line);
+void iron_leak_dump(void);
+void iron_debug_alloc_init(void);
+#endif
+
+/* Phase 31 DBG-04: double-free panic — reports BOTH the first free-site (held
+ * in the header) and the second/current free-site, plus the alloc-site. noreturn
+ * (abort). Definition in src/runtime/iron_panic.c (Plan 31-01 Task 3). Mirrors
+ * iron_panic_stale_pointer's no-malloc, stderr-only, dual text/JSON discipline.
+ * Declared unconditionally (symbol harmless in release; only CALLED in debug). */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_double_free(const char *first_free_file,
+                            int first_free_line,
+                            const char *second_free_file,
+                            int second_free_line,
+                            const struct IronAllocHdr *hdr);
 
 /* Forward declaration — definition lands in Plan 19-02 (src/runtime/iron_panic.c).
  * Declared here so the static-inline iron_check_pointer_gen below can call it
