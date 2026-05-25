@@ -1527,6 +1527,30 @@ set_tests_properties(test_double_free PROPERTIES
     LABELS "unit;phase31-invariant"
     TIMEOUT 30)
 
+# ── Phase 31 Plan 31-03 (DBG-07): release-build opt-in leak check ───────────
+# IRON_LEAK_CHECK is the RELEASE escape hatch: the 16B release IronAllocHdr has
+# no registry slots, so iron_leakcheck.c tracks live allocations in a side-table
+# keyed by the user pointer, armed only when IRON_LEAK_CHECK=1 (read once at
+# init). This test exercises the RELEASE path — it is compiled WITHOUT
+# IRON_DEBUG_ALLOCATOR and lists iron_leakcheck.c + iron_heap_track.c +
+# iron_string.c + iron_panic.c directly so its own (release) copies of those
+# TUs resolve every symbol, leaving the iron_runtime archive members dormant
+# (standard static-archive symbol-resolution rule). _GNU_SOURCE is needed for
+# setenv/unsetenv in the env-on/off fork children. Covers env-on dump,
+# env-off silent, and no-poison-in-release.
+add_executable(test_leakcheck_release
+    test_leakcheck_release.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_leakcheck.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_heap_track.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_string.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_panic.c)
+target_link_libraries(test_leakcheck_release iron_runtime unity)
+target_compile_definitions(test_leakcheck_release PRIVATE _GNU_SOURCE)
+add_test(NAME test_leakcheck_release COMMAND test_leakcheck_release)
+set_tests_properties(test_leakcheck_release PROPERTIES
+    LABELS "unit;phase31-invariant"
+    TIMEOUT 30)
+
 # ── Phase 28 GA1 (Plan 28-01 Task 1): arena runtime Wave 0 RED unit tests ───
 # Three Unity tests written AGAINST the not-yet-existing arena runtime API
 # (src/runtime/iron_arena_rt.{c,h}) + the arena-aware deref guard

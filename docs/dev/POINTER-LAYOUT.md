@@ -33,7 +33,8 @@ read the **Stability Commitment** section first.
 The contract on this page is **stable**. Any change to:
 
 - `sizeof(Iron_FatPtr)` (currently 16 bytes)
-- `sizeof(IronAllocHdr)` in release (currently 16) or debug (currently 32)
+- `sizeof(IronAllocHdr)` in release (currently 16) or debug (currently 64
+  after the Phase 31 re-lock; was 32 in Phase 19)
 - `Iron_FatPtr` field offsets (currently `addr` at 0, `gen` at 8)
 - The atomic memory ordering pair (currently `memory_order_relaxed` on
   generation increment, `memory_order_acquire` on deref-check load)
@@ -45,15 +46,18 @@ The contract on this page is **stable**. Any change to:
 requires an **explicit `IRON_VERSION_FULL` major-or-minor version bump**
 plus a documented migration plan. Internal helper symbol renames,
 additional `#ifdef IRON_DEBUG_ALLOCATOR`-gated fields that preserve the
-32-byte debug header size lock, comment edits, and refactoring that
+**64-byte** debug header size lock, comment edits, and refactoring that
 leaves the tested substrings intact are permitted without a version bump.
+The Phase 31 debug grow (32 → 64 bytes) was such an authorized, debug-only
+ABI bump; the release 16-byte header was NOT touched.
 
 Compile-time enforcement lives in `src/runtime/iron_runtime.h` and
 `src/runtime/iron_heap_track.c`:
 
 - `_Static_assert(sizeof(Iron_FatPtr) == 16, "...")`
 - `_Static_assert(sizeof(IronAllocHdr) == 16, "...")` in release branch
-- `_Static_assert(sizeof(IronAllocHdr) == 32, "...")` in debug branch
+- `_Static_assert(sizeof(IronAllocHdr) == 64, "...")` in debug branch
+  (re-locked from 32 in Phase 31)
 - `_Static_assert(ATOMIC_LLONG_LOCK_FREE == 2, "...")` in
   `src/runtime/iron_heap_track.c`
 
@@ -89,10 +93,20 @@ regression on every pointer pass through a generated `func` parameter.
 `addr=NULL, gen=0` is the canonical null/freed sentinel. The first
 valid generation is 1.
 
-## IronAllocHdr layout (release: 16 bytes / debug: 32 bytes)
+## IronAllocHdr layout (release: 16 bytes / debug: 64 bytes)
 
 The header is **prepended** to every `iron_heap_alloc` block. Recovery
 is O(1) pointer arithmetic: `((IronAllocHdr *)fp.addr) - 1`.
+
+> **Phase 31 ABI re-lock (Plan 31-01 / 31-03).** The debug header grew
+> from 32 bytes (Phase 19) to **64 bytes** to carry the leak-detection
+> registry links and double-free free-site (DBG-03/DBG-04). The release
+> header is **UNCHANGED at 16 bytes** — byte-frozen. The release-build
+> opt-in leak check (DBG-07, `IRON_LEAK_CHECK=1`) does NOT touch the
+> release header: it tracks live allocations in a separate side-table
+> (`src/runtime/iron_leakcheck.c`) keyed by the user pointer, so the 16B
+> release ABI commitment below holds in every release build regardless of
+> the env flag.
 
 ### Release build (16 bytes)
 
@@ -102,29 +116,38 @@ offset  size  field
   0      8    iron_atomic_u64 gen   ; atomic generation counter
   8      8    uint64_t        size  ; user payload size in bytes
 ───────────────────────────────────────────────────────────
-total: 16 bytes
+total: 16 bytes   ; UNCHANGED across Phase 19 → Phase 31
 ```
 
-### Debug build (`-DIRON_DEBUG_ALLOCATOR`, 32 bytes)
+### Debug build (`-DIRON_DEBUG_ALLOCATOR`, 64 bytes — Phase 31 re-lock)
 
 ```
 offset  size  field
 ───────────────────────────────────────────────────────────
-  0      8    iron_atomic_u64 gen              ; atomic generation counter
-  8      8    uint64_t        size             ; user payload size in bytes
- 16      8    const char     *alloc_site_file  ; __FILE__ literal pointer
- 24      4    uint32_t        alloc_site_line  ; __LINE__
- 28      4    uint32_t        alloc_id         ; unique id from iron_alloc_id_counter
- 32      ─    (next field would start here)    ; size lock at 32 bytes exact
+  0      8    iron_atomic_u64      gen              ; atomic generation counter
+  8      8    uint64_t             size             ; user payload size in bytes
+ 16      8    const char          *alloc_site_file  ; __FILE__ literal pointer  (Phase 19 DBG-02)
+ 24      4    uint32_t             alloc_site_line  ; __LINE__                   (Phase 19)
+ 28      4    uint32_t             alloc_id         ; unique id from iron_alloc_id_counter (Phase 19)
+ 32      8    struct IronAllocHdr *reg_next         ; intrusive leak registry    (Phase 31 DBG-03)
+ 40      8    struct IronAllocHdr *reg_prev         ; intrusive leak registry    (Phase 31 DBG-03)
+ 48      8    const char          *free_site_file   ; first free-site, NULL until first free (Phase 31 DBG-04)
+ 56      4    uint32_t             free_site_line   ; first free-site line       (Phase 31 DBG-04)
+ 60      4    uint32_t             _pad             ; keeps the size a 16-byte multiple
+ 64      ─    (next field would start here)         ; size lock at 64 bytes exact
 ───────────────────────────────────────────────────────────
-total: 32 bytes
+total: 64 bytes   ; was 32B in Phase 19; re-locked to 64B in Phase 31
 ```
+
+Why 64 (a 16-byte multiple) and not 60: keeping `sizeof(IronAllocHdr)` a
+multiple of 16 preserves the "user pointer stays 16-byte-aligned" guarantee
+given malloc's `max_align_t` alignment. The trailing `_pad` exists solely to
+round the debug header up to the next 16-byte boundary.
 
 Both layouts yield a 16-byte-aligned user pointer given malloc's
 `max_align_t` alignment guarantee on Linux glibc and macOS Libc.
-Over-aligned types (e.g. `_Alignas(32) AVXVec`) are deferred to
-Phase 31 (debug allocator); Phase 19 documents `max_align_t` as the
-guarantee.
+Over-aligned types (e.g. `_Alignas(32) AVXVec`) remain out of scope; both
+Phase 19 and Phase 31 document `max_align_t` as the guarantee.
 
 ## Atomic memory ordering
 
@@ -305,12 +328,40 @@ deliberately bypass the tracker:
 Phase 19 makes this explicit by ensuring `iron_heap_alloc` is the ONLY
 tracker-registering API.
 
+### Leak-detection scope: intended false-negative (Phase 31)
+
+Because only `iron_heap_alloc` routes through the tracker, the Phase 31 leak
+machinery (the debug intrusive registry / atexit dump AND the DBG-07 release
+side-table) sees **heap allocations only**. `Iron_Rc` (`iron_rc.c`) and arena
+allocations (`iron_arena_rt.c`) each `malloc` their own block and hand-init an
+`IronAllocHdr` with `gen` + `size` only — they never call `iron_heap_alloc`
+and therefore **never appear in the leak dump**. This is a deliberate, documented
+false-negative (CONTEXT GA3 scope: "heap allocator only"), NOT a bug; both dump
+headers state "heap allocations only; rc/arena not tracked". A leaked `rc` value
+will not show in either dump — by design.
+
+### DBG-07 release opt-in leak check (side-table, no header growth)
+
+The release 16B `IronAllocHdr` has **no registry slots** (and growing it is
+forbidden by the stability commitment above). The release-build opt-in leak
+check therefore lives entirely OUTSIDE the header, in
+`src/runtime/iron_leakcheck.c`: a hand-rolled `malloc`'d node list keyed by the
+returned user pointer, armed only when `IRON_LEAK_CHECK=1` (read once at init,
+never per allocation). When the env var is unset — the default — the alloc/free
+hooks early-return on a single `if (!s_leak_check_enabled) return;` branch, take
+no lock, allocate no node, and never poison, so the env-unset release binary is
+byte-for-byte behaviourally identical to the pre-Phase-31 release allocator. No
+poison is ever applied in release (poison is debug-only). The dump goes to
+stderr (Pitfall 7: stdout stays byte-identical across build modes / env
+settings).
+
 ## Verification
 
 | Property | Test |
 |----------|------|
 | `sizeof(Iron_FatPtr) == 16` | `_Static_assert` in `iron_runtime.h` + runtime probe in `tests/unit/test_runtime_heap_alloc.c::test_iron_fatptr_layout_is_16_bytes` |
-| `sizeof(IronAllocHdr) == 16/32` | `_Static_assert` in `iron_runtime.h` + runtime probes in `test_iron_alloc_hdr_release_is_16_bytes` and `test_iron_alloc_hdr_debug_is_32_bytes` |
+| `sizeof(IronAllocHdr) == 16` (release) / `== 64` (debug, Phase 31 re-lock) | `_Static_assert` in `iron_runtime.h` + runtime probes in `test_iron_alloc_hdr_release_is_16_bytes` (and the debug-header probe) |
+| DBG-07 release opt-in leak check (env-on dump / env-off silent / no poison) | `tests/unit/test_leakcheck_release.c` (release-path TU, no `IRON_DEBUG_ALLOCATOR`) |
 | Unique generations across N allocs | `tests/unit/test_runtime_heap_alloc.c::test_iron_heap_alloc_returns_unique_gens` |
 | Generation bump on free | `tests/unit/test_runtime_heap_free.c::test_iron_heap_free_increments_gen` |
 | Double-free panic | `tests/unit/test_runtime_heap_free.c::test_iron_heap_free_double_free_detected` |
