@@ -368,6 +368,24 @@ static bool iron_check_name_or_block_kw(Iron_Parser *p) {
         || k == IRON_TOK_DROP;
 }
 
+/* Phase 33 STDLIB-05: decl-only widening of the method-name slot to also accept
+ * the `null` and `free` KEYWORD tokens, so stdlib `func Box.null[T]()` /
+ * `func Box.free[T]()` (box.iron) parse under the `patch object` form. This is
+ * SEPARATE from iron_check_name_or_block_kw on purpose: that shared helper is
+ * also used at expression-level field/method-access sites (e.g. parser.c ~1035,
+ * ~1919) where widening to null/free would change user-code parse semantics
+ * (`x.null` / `x.free` have user-code blast-radius). This predicate is used
+ * ONLY at the two declaration/patch-body method-name sites (the standalone-form
+ * decl site and the patch-body func site). Keyword tokens carry their lexeme as
+ * `value` (lexer make-token), so downstream by-name dispatch (typecheck.c
+ * strcmp(method,"free")/"null") works unchanged once the token reaches it. */
+static bool iron_check_method_name_decl(Iron_Parser *p) {
+    Iron_TokenKind k = iron_peek(p);
+    return iron_check_name_or_block_kw(p)   /* IDENTIFIER/INIT/COPY/DROP */
+        || k == IRON_TOK_NULL_KW            /* allow Box.null */
+        || k == IRON_TOK_FREE;              /* allow Box.free */
+}
+
 static bool iron_match(Iron_Parser *p, Iron_TokenKind kind) {
     if (iron_check(p, kind)) { iron_advance(p); return true; }
     return false;
@@ -3614,7 +3632,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
          * `func Audio.init()` continue to parse under pure-superset.
          * Phase 16: also accept IRON_TOK_COPY + IRON_TOK_DROP so that
          * `func Image.copy() -> Image { ... }` declarations parse correctly. */
-        if (!iron_check_name_or_block_kw(p)) {
+        if (!iron_check_method_name_decl(p)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
@@ -5196,7 +5214,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
              * keyword, which would collide with the parser auto-synth
              * anonymous init at parser.c:3652.
              * Phase 16: also accept IRON_TOK_COPY + IRON_TOK_DROP (via helper). */
-            if (!iron_check_name_or_block_kw(p)) {
+            if (!iron_check_method_name_decl(p)) {
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNEXPECTED_TOKEN,
                                iron_token_span(p, iron_current(p)),
@@ -5206,6 +5224,19 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
                 continue;
             }
             Iron_Token *mname_tok = iron_advance(p);
+
+            /* Phase 33 STDLIB-05: optional per-method generic params after the
+             * name (`func new[T](...)`), mirroring the standalone-form decl
+             * site. Required so generic stdlib associated funcs (box.iron's
+             * Box.new[T] / Box.null[T] / ...) migrate into a NON-generic
+             * `patch object Box { ... }` body — the per-method `[T]` carries
+             * the type parameter (generic patch TARGETS are v3.0-rejected). */
+            Iron_Node **method_generic_params = NULL;
+            int         method_generic_count  = 0;
+            if (iron_check(p, IRON_TOK_LBRACKET)) {
+                method_generic_params =
+                    iron_parse_generic_params(p, &method_generic_count, p->arena);
+            }
 
             int explicit_count = 0;
             Iron_Node **explicit_params = iron_parse_param_list(p, &explicit_count);
@@ -5265,8 +5296,8 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->return_type          = mret;
             m->body                 = mbody;
             m->is_private           = false;
-            m->generic_params       = NULL;
-            m->generic_param_count  = 0;
+            m->generic_params       = method_generic_params;
+            m->generic_param_count  = method_generic_count;
             m->resolved_return_type = NULL;
             m->owner_sym            = NULL;
             m->is_array_extension   = false;
