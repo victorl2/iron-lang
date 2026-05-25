@@ -50,6 +50,13 @@ typedef struct {
     /* Names that escape (appear in return or outer assignment) */
     const char   **escaped_names;  /* stb_ds dynamic array */
 
+    /* Phase 31 DBG-06: names that have already had a `free` recorded in
+     * lexical order within the current function. A later `free` of a name
+     * already in this set is an unreachable-free (static double-free) → W0607.
+     * Per-function ordered detection (NOT true block-scoping) is the agreed
+     * best-effort granularity (31-RESEARCH Open Question 2). */
+    const char   **seen_freed_names;  /* stb_ds dynamic array */
+
     /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
     const _Atomic bool *cancel_flag;
 } EscapeCtx;
@@ -296,6 +303,28 @@ static void validate_node(EscapeCtx *ctx, Iron_Node *node) {
                     snprintf(msg, sizeof(msg),
                              "'free' on '%s': not a heap-allocated value", name);
                     emit_err(ctx, IRON_ERR_FREE_NON_HEAP, fs->span, msg);
+                } else {
+                    /* Phase 31 DBG-06 (W0607 unreachable-free): a heap binding
+                     * freed a second time in lexical order within the same
+                     * function is a static double-free — the second `free` is
+                     * unreachable (the value is already gone). validate_node
+                     * walks statements in lexical order, so the first `free`
+                     * records the name and a later `free` of the same name
+                     * fires the warning. Best-effort intra-procedural lint
+                     * (WARNING level, never blocks compilation). LIMITATION:
+                     * per-function ordered detection — two frees in
+                     * mutually-exclusive match arms / if-else branches may
+                     * false-positive; accepted for best-effort per CONTEXT
+                     * (31-RESEARCH Open Question 2). */
+                    if (name_in_list(ctx->seen_freed_names, name)) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "'free %s' is unreachable: '%s' was already "
+                                 "freed earlier in this function", name, name);
+                        emit_warn(ctx, IRON_WARN_UNREACHABLE_FREE, fs->span, msg);
+                    } else {
+                        arrpush(ctx->seen_freed_names, name);
+                    }
                 }
             }
             break;
@@ -448,6 +477,7 @@ static void analyze_function_body(EscapeCtx *ctx, Iron_Node *body_node) {
     arrsetlen(ctx->freed_names,   0);
     arrsetlen(ctx->leaked_names,  0);
     arrsetlen(ctx->escaped_names, 0);
+    arrsetlen(ctx->seen_freed_names, 0);  /* Phase 31 DBG-06 */
 
     /* Collect heap bindings, free/leak targets, and escape sources */
     collect_stmts(ctx, body->stmts, body->stmt_count);
@@ -525,6 +555,7 @@ void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
     ctx.freed_names   = NULL;
     ctx.leaked_names  = NULL;
     ctx.escaped_names = NULL;
+    ctx.seen_freed_names = NULL;  /* Phase 31 DBG-06 */
     ctx.cancel_flag   = cancel_flag;
 
     for (int i = 0; i < program->decl_count; i++) {
@@ -559,4 +590,5 @@ void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
     arrfree(ctx.freed_names);
     arrfree(ctx.leaked_names);
     arrfree(ctx.escaped_names);
+    arrfree(ctx.seen_freed_names);  /* Phase 31 DBG-06 */
 }
