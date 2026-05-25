@@ -119,6 +119,41 @@ typedef struct {
  * calling it fails to link — the intended Wave 0 TDD RED state. */
 bool run_rc_pair_elimination(IronLIR_Module *module, IronLIR_ElisionStat *stat);
 
+/* ── Phase 30 OPT-03/OPT-08: pointer (generation) check elision ────────────── */
+
+/* Deterministic gen-check elision statistics — the OPT-08 regression-test
+ * oracle. Tests assert the EXACT counts (count-based, never timing-based) on
+ * small hand-built LIR fixtures. by_tier indexes the four elision tiers:
+ *   [0] Tier 1 — dominator-based redundant-check elimination (EarlyCSE)
+ *   [1] Tier 2 — locally-fresh / non-escaping stack-local elision
+ *   [2] Tier 3 — LICM check hoisting
+ *   [3] Tier 4 — reserved (function-summary refinement; woven into the barrier
+ *                classifier consumed by Tiers 1 & 3, not a separate deletion). */
+typedef struct {
+    int checks_total;   /* GENCHECKs present before the pass (= deref sites) */
+    int checks_elided;  /* total deleted/hoisted across all tiers */
+    int by_tier[4];     /* per-tier elision counts (see above) */
+} IronLIR_GenCheckElisionStat;
+
+/* Pre-optimizer GENCHECK insertion. Walks each function and inserts an
+ * IRON_LIR_GENCHECK before every checked deref site (GET_FIELD-on-fat-ptr /
+ * PTR_LOAD / PTR_STORE), copying gen_source + span from the deref so the late
+ * emit_c expansion is byte-identical to today's inline check. Runs
+ * UNCONDITIONALLY (even at -O0) so emit_c always has a GENCHECK to expand.
+ *
+ * Test seam (also used by the driver in iron_lir_optimize). Runs the 4-tier
+ * pointer-check elimination over the whole module, mutating it in place, and
+ * fills *stat. Returns true if it changed the module.
+ *
+ * IMPLEMENTATIONS LAND IN Plans 30-02 (lower_genchecks) / 30-03
+ * (run_pointer_check_elimination). In Plan 30-01 these symbols are DECLARED but
+ * NOT DEFINED — any test calling them fails to link, the intended Wave 0 TDD
+ * RED. The test harness gates those call sites behind GENCHECK_PASS_READY so it
+ * still links now; the asserts flip on when the passes land. */
+bool run_pointer_check_elimination(IronLIR_Module *module,
+                                   IronLIR_GenCheckElisionStat *stat);
+void lower_genchecks(IronLIR_Module *module);
+
 /* Look up the array parameter mode. Non-static so emit_c.c can call it.
  * Note: stb_ds shgeti modifies the map header internally, so info cannot be const. */
 ArrayParamMode iron_lir_get_array_param_mode(IronLIR_OptimizeInfo *info,

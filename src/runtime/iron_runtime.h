@@ -249,6 +249,42 @@ void iron_panic_stale_pointer(const char *deref_file,
                               int deref_line,
                               const IronAllocHdr *hdr);
 
+/* ── Phase 30 OPT-08 input: opt-in generation-check counter ──────────────────
+ *
+ * Behind IRON_GENCHECK_COUNT (OFF by default), three `_Atomic uint64_t`
+ * counters increment (relaxed) inside the three static-inline deref guards
+ * below — one per generation source (heap / stack / arena). They feed the
+ * deferred OPT-08 published elision-rate report (Phase 36; docs/dev/
+ * POINTER-CHECK-ELISION.md). The macro must NOT alter the hot path in normal
+ * builds — when undefined, IRON_GENCHECK_COUNT_BUMP_* expand to nothing and the
+ * accessor reports zeros, so production deref performance and the deterministic
+ * phase-invariant test counts are unaffected.
+ *
+ * The counter storage + the always-declared accessors are defined out-of-line
+ * in src/runtime/iron_gencheck_count.c (mirroring iron_rc.c's IRON_RC_COUNT
+ * block). Relaxed ordering is correct for a pure observation counter (no
+ * happens-before obligation), mirroring the iron_rc.c counter discipline. */
+#ifdef IRON_GENCHECK_COUNT
+extern iron_atomic_u64 iron_gencheck_heap_count;
+extern iron_atomic_u64 iron_gencheck_stack_count;
+extern iron_atomic_u64 iron_gencheck_arena_count;
+#  define IRON_GENCHECK_COUNT_BUMP_HEAP() \
+       (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(iron_gencheck_heap_count, 1)
+#  define IRON_GENCHECK_COUNT_BUMP_STACK() \
+       (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(iron_gencheck_stack_count, 1)
+#  define IRON_GENCHECK_COUNT_BUMP_ARENA() \
+       (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(iron_gencheck_arena_count, 1)
+#else
+#  define IRON_GENCHECK_COUNT_BUMP_HEAP()  ((void)0)
+#  define IRON_GENCHECK_COUNT_BUMP_STACK() ((void)0)
+#  define IRON_GENCHECK_COUNT_BUMP_ARENA() ((void)0)
+#endif
+
+/* Always-declared (stable symbols). When IRON_GENCHECK_COUNT is undefined all
+ * out-params receive 0 and reset is a no-op. NULL out-params are tolerated. */
+void iron_gencheck_counts(uint64_t *heap, uint64_t *stack, uint64_t *arena);
+void iron_gencheck_counts_reset(void);
+
 /* Static-inline so Phase 30 optimizer can elide redundant checks at the
  * call site. Iron's release codegen will inline this trivially.
  * CONTEXT-locked: do not change to out-of-line without coordinating with
@@ -256,6 +292,7 @@ void iron_panic_stale_pointer(const char *deref_file,
 static inline void iron_check_pointer_gen(Iron_FatPtr fp,
                                           const char *deref_file,
                                           int deref_line) {
+    IRON_GENCHECK_COUNT_BUMP_HEAP();  /* Phase 30 OPT-08: no-op unless IRON_GENCHECK_COUNT */
     if (!fp.addr) {
         iron_panic_stale_pointer(deref_file, deref_line, NULL);
     }
@@ -360,6 +397,7 @@ void iron_panic_destructor_aborted(const char *type_name,
 static inline void iron_check_stack_pointer_gen(Iron_FatPtr fp,
                                                 const char *deref_file,
                                                 int deref_line) {
+    IRON_GENCHECK_COUNT_BUMP_STACK();  /* Phase 30 OPT-08: no-op unless IRON_GENCHECK_COUNT */
     if (!fp.addr) {
         iron_panic_stale_pointer(deref_file, deref_line, NULL);
     }
@@ -405,6 +443,7 @@ void iron_panic_arena_stale(const char *deref_file,
 static inline void iron_check_arena_pointer_gen(Iron_FatPtr fp,
                                                 const char *deref_file,
                                                 int deref_line) {
+    IRON_GENCHECK_COUNT_BUMP_ARENA();  /* Phase 30 OPT-08: no-op unless IRON_GENCHECK_COUNT */
     if (!fp.addr) {
         iron_panic_stale_pointer(deref_file, deref_line, NULL);
     }
