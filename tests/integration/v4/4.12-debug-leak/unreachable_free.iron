@@ -1,0 +1,14 @@
+-- section 4.12 debug-leak: unreachable-free lint (DBG-06)
+-- @req: DBG-06
+-- @expected-pass-after: phase-31
+-- Freeing the same binding twice in the same scope must raise the W0607
+-- unreachable-free warning (the second 'free p' is unreachable / a static
+-- double-free). The lint lands in Plan 31-02; this fixture is the RED target.
+
+object Point { var x: Int; var y: Int }
+
+func main() {
+    val p = heap Point(1, 2)
+    free p
+    free p
+}

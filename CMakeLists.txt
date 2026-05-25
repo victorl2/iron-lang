@@ -1611,6 +1611,53 @@ if(NOT WIN32)
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────
+# Phase 31 Debug Allocator + Leak Detection — `phase31-invariant` lint corpus
+# ─────────────────────────────────────────────────────────────────────────
+# Wave 0 RED anchor for the §12 step 17 compile-time lints (DBG-05/06). These
+# are `ironc check` (analyzer-only) rows — no clang-as-subprocess, so NO
+# WILL_FAIL needed; they run directly in the silvaserver check-only container.
+# They are RED until Plan 31-02 lands the W0606 forgotten-free + W0607
+# unreachable-free analyzer dataflow, then flip GREEN.
+#
+#   forgotten_free       → W0606 must appear (positive grep)
+#   leak_suppresses      → W0606 must be ABSENT ('leak' suppresses; inverted)
+#   defer_free_satisfies → W0606 must be ABSENT ('defer free' satisfies; inverted)
+#   unreachable_free     → W0607 must appear (positive grep)
+if(NOT WIN32)
+    add_test(
+        NAME v4_4.12-debug-leak_forgotten_free
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/forgotten_free.iron 2>&1 | grep -qF W0606"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_4.12-debug-leak_forgotten_free PROPERTIES
+        LABELS "integration;phase31-invariant;v4-acceptance" TIMEOUT 30)
+
+    add_test(
+        NAME v4_4.12-debug-leak_leak_suppresses
+        COMMAND sh -c "! ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/leak_suppresses.iron 2>&1 | grep -qF W0606"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_4.12-debug-leak_leak_suppresses PROPERTIES
+        LABELS "integration;phase31-invariant;v4-acceptance" TIMEOUT 30)
+
+    add_test(
+        NAME v4_4.12-debug-leak_defer_free_satisfies
+        COMMAND sh -c "! ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/defer_free_satisfies.iron 2>&1 | grep -qF W0606"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_4.12-debug-leak_defer_free_satisfies PROPERTIES
+        LABELS "integration;phase31-invariant;v4-acceptance" TIMEOUT 30)
+
+    add_test(
+        NAME v4_4.12-debug-leak_unreachable_free
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/unreachable_free.iron 2>&1 | grep -qF W0607"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_4.12-debug-leak_unreachable_free PROPERTIES
+        LABELS "integration;phase31-invariant;v4-acceptance" TIMEOUT 30)
+endif()
+
+# ─────────────────────────────────────────────────────────────────────────
 # Phase 28 Arena Allocation — `phase28-invariant` RED corpus + baseline wiring
 # ─────────────────────────────────────────────────────────────────────────
 # `ctest -L phase28-invariant` aggregates the Wave 0 TDD RED anchor for Phase

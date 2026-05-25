@@ -1484,6 +1484,49 @@ set_tests_properties(test_gencheck_counter PROPERTIES
     LABELS "unit;phase30-invariant"
     TIMEOUT 30)
 
+# ── Phase 31 Plan 31-01 (DBG-01/02/03/04): debug allocator + leak detection ──
+# The debug allocator (poison-on-free, intrusive leak registry + atexit dump,
+# double-free both-sites report) lives behind -DIRON_DEBUG_ALLOCATOR in
+# src/runtime/iron_heap_track.c (+ iron_panic.c for iron_panic_double_free,
+# + iron_string.c for the atexit(iron_leak_dump) registration in
+# iron_runtime_init). The macro is OFF by default so the iron_runtime archive
+# is compiled with the 16B release header.
+#
+# To exercise the ON path, these two tests compile their OWN copies of those
+# three runtime TUs WITH -DIRON_DEBUG_ALLOCATOR (target_compile_definitions
+# reaches them because they are part of THIS executable's source list, which
+# turns the 64B debug header ON in the test TU). The iron_runtime archive is
+# still linked for the rest of the runtime substrate (threads/net/oom/arena/
+# atomics); its own un-instrumented iron_heap_track.o / iron_panic.o /
+# iron_string.o members stay dormant because the listed TUs already resolve
+# every symbol they define (standard static-archive symbol-resolution rule).
+# Mirrors the Phase 29 test_rc_op_counter / Phase 30 test_gencheck_counter
+# recompile-with-define wiring.
+set(PHASE31_DEBUG_ALLOC_SRCS
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_heap_track.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_panic.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_string.c)
+
+add_executable(test_debug_allocator
+    test_debug_allocator.c
+    ${PHASE31_DEBUG_ALLOC_SRCS})
+target_link_libraries(test_debug_allocator iron_runtime unity)
+target_compile_definitions(test_debug_allocator PRIVATE IRON_DEBUG_ALLOCATOR _GNU_SOURCE)
+add_test(NAME test_debug_allocator COMMAND test_debug_allocator)
+set_tests_properties(test_debug_allocator PROPERTIES
+    LABELS "unit;phase31-invariant"
+    TIMEOUT 30)
+
+add_executable(test_double_free
+    test_double_free.c
+    ${PHASE31_DEBUG_ALLOC_SRCS})
+target_link_libraries(test_double_free iron_runtime unity)
+target_compile_definitions(test_double_free PRIVATE IRON_DEBUG_ALLOCATOR _GNU_SOURCE)
+add_test(NAME test_double_free COMMAND test_double_free)
+set_tests_properties(test_double_free PROPERTIES
+    LABELS "unit;phase31-invariant"
+    TIMEOUT 30)
+
 # ── Phase 28 GA1 (Plan 28-01 Task 1): arena runtime Wave 0 RED unit tests ───
 # Three Unity tests written AGAINST the not-yet-existing arena runtime API
 # (src/runtime/iron_arena_rt.{c,h}) + the arena-aware deref guard

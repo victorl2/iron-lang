@@ -1,0 +1,12 @@
+-- section 4.12 debug-leak: 'leak' suppresses forgotten-free (DBG-05 / POL-05)
+-- @req: DBG-05
+-- @expected-pass-after: phase-31
+-- A heap binding marked with the 'leak' keyword is an intentional leak and
+-- must NOT raise W0606. The CTest inverts the grep (W0606 must be ABSENT).
+
+object Point { var x: Int; var y: Int }
+
+func main() {
+    val p = leak heap Point(1, 2)
+    println("x: {p.x}")
+}
