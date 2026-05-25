@@ -1,0 +1,14 @@
+-- section 4.13 defer: read-at-exit semantics (NOT Go-style snapshotting)
+-- @req: DEFER-01
+-- @expected-pass-after: phase-32
+-- A deferred statement reads its variables at SCOPE-EXIT time, not at the
+-- `defer` registration site. Because the defer body is inline-lowered at the
+-- exit edge, the `print(x)` load runs after `x = 2`. Intended stdout: `2`
+-- (NOT 1 — confirms read-at-exit, not argument snapshotting). Build+run
+-- fixture (WILL_FAIL in the check-only container).
+
+func main() {
+    var x = 1
+    defer print(x)
+    x = 2
+}
