@@ -83,6 +83,17 @@ static void emit_err(EscapeCtx *ctx, int code, Iron_Span span, const char *msg) 
                    msg_copy, NULL);
 }
 
+/* Phase 31 DBG-05/06: emit a WARNING-level diagnostic. Mirrors emit_err but at
+ * IRON_DIAG_WARNING level — best-effort lints must NOT set any error flag that
+ * blocks compilation (ironc check still exits 0). Renders as `W06xx`
+ * (diagnostics.c:141 uses 'W' for IRON_DIAG_WARNING + %04d). */
+static void emit_warn(EscapeCtx *ctx, int code, Iron_Span span, const char *msg) {
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) { /* HARD-09 REPLACE (escape.c:emit_warn msg) */ msg_copy = "analyzer warning"; }
+    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING, code, span,
+                   msg_copy, NULL);
+}
+
 /* ── Name extraction from expression nodes ───────────────────────────────── */
 
 /* Get the root identifier name from an expression.  Recurses through
@@ -476,6 +487,23 @@ static void analyze_function_body(EscapeCtx *ctx, Iron_Node *body_node) {
             /* Does not escape — auto-freed at block exit */
             he->auto_free = true;
             he->escapes   = false;
+            /* Phase 31 DBG-05 (W0606 forgotten-free): a non-escaping heap
+             * binding that is never freed and never leaked genuinely leaks at
+             * runtime (emit_c.c deliberately never built the auto_free codegen
+             * — emit_c.c:3662 "PHASE-31"). Best-effort lint, WARNING level.
+             * Suppressed by `leak <binding>` (POL-05, is_leaked → leaked_names)
+             * and satisfied by `defer free <binding>` (the IRON_NODE_DEFER arm
+             * in collect_stmt recurses into the inner free → freed_names).
+             * Emitted ONLY here (the non-escaping branch); the escaping branch
+             * already emits E0207. */
+            if (!is_freed && !is_leaked) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "heap value '%s' is never freed "
+                         "(use 'free %s', 'defer free %s', or 'leak %s')",
+                         name, name, name, name);
+                emit_warn(ctx, IRON_WARN_FORGOTTEN_FREE, he->span, msg);
+            }
         }
     }
 }

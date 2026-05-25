@@ -550,6 +550,13 @@ void iron_diaglist_free(Iron_DiagList *list);
  * type and notes drops are skipped on arena reset. */
 #define IRON_WARN_ARENA_NONTRIVIAL_DTOR  605   /* ARENA-09 (Phase 28-03) — arena alloc of type with transitive non-trivial drop; allow_drop_skip:true suppresses */
 
+/* Phase 31 GA2 (Plan 31-02) — debug-allocator compile-time lints (best-effort,
+ * WARNING level, never block compilation). Codes 606/607 were the first free
+ * slots in the W06xx block (600-605 + 610-614 taken). Both surface identically
+ * in `ironc check` and LSP publishDiagnostics via iron_analyze (CORE-22). */
+#define IRON_WARN_FORGOTTEN_FREE        606   /* DBG-05: non-escaping heap binding never freed/leaked */
+#define IRON_WARN_UNREACHABLE_FREE      607   /* DBG-06: second free of an already-freed binding in the same function */
+
 /* Type validation warnings (601+ range) */
 #define IRON_WARN_NARROWING_CAST        601
 #define IRON_WARN_NOT_STRINGABLE        602
