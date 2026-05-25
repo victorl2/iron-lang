@@ -945,6 +945,33 @@ static bool type_satisfies_constraint(TypeCtx *ctx, Iron_Type *concrete_type,
     if (!concrete_type || !constraint_name) return true;
     if (concrete_type->kind == IRON_TYPE_ERROR) return true;
 
+    /* Phase 33 OQ-01 / GA1: primitive-key carve-out. The built-in hashable
+     * primitives satisfy `Hashable` directly — without an explicit
+     * `implements Hashable` or a structural method match — because the hash
+     * container backing (IRON_MAP_IMPL / IRON_SET_IMPL) hashes them natively.
+     * This is the "minimal built-in constraint set" decision in CONTEXT GA1;
+     * it is scoped strictly to constraint_name == "Hashable" so it does NOT
+     * leak into any future user-defined constraint. The set: the Int/UInt
+     * sized family, Bool, and String (UTF-8 String hashes by bytes). Floats
+     * are deliberately EXCLUDED (NaN/-0.0 hashing hazards). This branch runs
+     * BEFORE the interface-resolution lookup so it fires even on the (now
+     * rare) path where Hashable has not yet resolved as an interface. */
+    if (strcmp(constraint_name, "Hashable") == 0) {
+        /* if-chain (not switch) deliberately — the file is built under
+         * -Werror=switch-enum, which rejects a default-covered switch over
+         * Iron_TypeKind; an if-chain sidesteps the exhaustiveness demand for
+         * this small allowlist. */
+        Iron_TypeKind k = concrete_type->kind;
+        if (k == IRON_TYPE_INT    || k == IRON_TYPE_INT8   || k == IRON_TYPE_INT16  ||
+            k == IRON_TYPE_INT32  || k == IRON_TYPE_INT64  ||
+            k == IRON_TYPE_UINT   || k == IRON_TYPE_UINT8  || k == IRON_TYPE_UINT16 ||
+            k == IRON_TYPE_UINT32 || k == IRON_TYPE_UINT64 ||
+            k == IRON_TYPE_BOOL   || k == IRON_TYPE_STRING) {
+            return true;  /* built-in hashable primitive */
+        }
+        /* else fall through to the object/interface satisfaction path */
+    }
+
     /* Look up the constraint as an interface */
     Iron_Symbol *csym = iron_scope_lookup(ctx->global_scope, constraint_name);
     if (!csym || csym->sym_kind != IRON_SYM_INTERFACE) return true;
@@ -1237,6 +1264,35 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, name);
         if (sym) {
             base = sym->type;
+            /* Phase 33 OQ-01 (Plan 33-02): enforce generic-object constraints
+             * at the TYPE-ANNOTATION site. `Map[K: Hashable, V]` /
+             * `Set[T: Hashable]` are generic OBJECTs; a binding like
+             * `var m: Map[NonHashable, Int]` resolves here, NOT through an
+             * object-literal construction call, so the construction-site
+             * check_generic_constraints calls (lines ~2624/3995/2559) never
+             * fire for them. Resolve each supplied type arg and run the SAME
+             * check_generic_constraints helper so the K: Hashable bound bites
+             * (E0206) on bad keys. Object-literal construction keeps its own
+             * checks; this is the missing annotation-site arm. */
+            if (base && base->kind == IRON_TYPE_OBJECT &&
+                base->object.decl &&
+                base->object.decl->generic_param_count > 0 &&
+                base->object.decl->generic_params &&
+                ann->generic_arg_count > 0) {
+                Iron_ObjectDecl *od = base->object.decl;
+                int gc = od->generic_param_count < 16 ? od->generic_param_count : 16;
+                Iron_Type *concrete[16];
+                int ac = ann->generic_arg_count < gc ? ann->generic_arg_count : gc;
+                for (int gi = 0; gi < gc; gi++) {
+                    concrete[gi] = NULL;
+                    if (gi < ac && ann->generic_args[gi]) {
+                        concrete[gi] = resolve_type_annotation(ctx, ann->generic_args[gi]);
+                    }
+                }
+                check_generic_constraints(ctx, od->generic_params,
+                                          od->generic_param_count,
+                                          concrete, gc, ann_node->span);
+            }
             /* Generic enum instantiation: Option[Int], Result[T, E] */
             if (base && base->kind == IRON_TYPE_ENUM &&
                 base->enu.decl && base->enu.decl->generic_param_count > 0 &&
@@ -6500,6 +6556,37 @@ static bool is_readonly_compatible_type(const Iron_Type *t, TypeCtx *ctx) {
 /* ── Check function / method declarations ────────────────────────────────── */
 
 static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
+    /* Phase 33 OQ-02 unblock: register method-/func-level generic params
+     * (`func Box.new[T]() -> Box[T]`, `func Box.unwrap[T]() -> *unchecked T`)
+     * as in-scope IRON_TYPE_GENERIC_PARAM type symbols BEFORE resolving the
+     * return-type and param-type annotations. Without this, the leading `[T]`
+     * generic is never resolvable: resolve_type_annotation looks names up only
+     * in ctx->global_scope (typecheck.c:1237), so `Box[T]` / `*unchecked T`
+     * each emit E0202 "unknown type 'T'". Because box.iron is ALWAYS prepended
+     * (check.c:431 / build.c), that single E0202 poisons EVERY compilation —
+     * blocking the whole positive v4 corpus (deferred-items 33-01). We mirror
+     * the enum-mono generic-binding pattern (typecheck.c:1309-1330): push a
+     * temporary child scope holding the generic-param names, resolve
+     * annotations against it, then restore. Narrow blast radius — only the
+     * annotation-resolution window of one func decl is affected. */
+    Iron_Scope *saved_global_scope = ctx->global_scope;
+    if (fd->generic_param_count > 0 && fd->generic_params) {
+        Iron_Scope *gen_scope = iron_scope_create(ctx->arena,
+            ctx->global_scope, IRON_SCOPE_BLOCK);
+        for (int gi = 0; gi < fd->generic_param_count; gi++) {
+            /* PROT-03: assert kind on the generic-param node before the cast. */
+            if (fd->generic_params[gi])
+                IRON_NODE_ASSERT_KIND(fd->generic_params[gi], IRON_NODE_IDENT);
+            Iron_Ident *gp = (Iron_Ident *)fd->generic_params[gi];
+            if (!gp || !gp->name) continue;
+            Iron_Symbol *gsym = iron_symbol_create(ctx->arena, gp->name,
+                IRON_SYM_TYPE, NULL, (Iron_Span){0, 0, 0, 0, 0});
+            gsym->type = iron_type_make_generic_param(ctx->arena, gp->name, NULL);
+            iron_scope_define(gen_scope, ctx->arena, gsym);
+        }
+        ctx->global_scope = gen_scope;
+    }
+
     /* Resolve return type */
     Iron_Type *ret_type = NULL;
     if (fd->return_type) {
@@ -6532,12 +6619,18 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
         param_types = (Iron_Type **)iron_arena_alloc(
             ctx->arena, (size_t)fd->param_count * sizeof(Iron_Type *),
             _Alignof(Iron_Type *));
-        if (!param_types) { /* HARD-09 REPLACE (typecheck.c:check_func_decl param_types) */ return; }
+        if (!param_types) { /* HARD-09 REPLACE (typecheck.c:check_func_decl param_types) */ ctx->global_scope = saved_global_scope; return; }
     }
     for (int i = 0; i < fd->param_count; i++) {
         Iron_Param *p = (Iron_Param *)fd->params[i];
         param_types[i] = resolve_type_annotation(ctx, p->type_ann);
     }
+
+    /* Phase 33 OQ-02: restore the real global scope now that all annotation
+     * resolution (return + params) is done. Body checking + the function
+     * symbol scope below must chain off the original global scope, not the
+     * temporary generic-param scope. */
+    ctx->global_scope = saved_global_scope;
 
     fd->resolved_param_types = param_types;
 
@@ -6601,6 +6694,35 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     const char *prev_enclosing_early = ctx->enclosing_type_name;
     ctx->enclosing_type_name = md->type_name;
 
+    /* Phase 33 OQ-02 unblock: register method-level generic params
+     * (`func Box.new[T](value: T) -> Box[T]`, `func Box.unwrap[T]() -> *unchecked T`)
+     * as in-scope IRON_TYPE_GENERIC_PARAM type symbols BEFORE resolving the
+     * return-type and param-type annotations. Standalone `Type.method[T]`
+     * declarations parse as IRON_NODE_METHOD_DECL (not FUNC_DECL), so the
+     * sibling fix in check_func_decl does NOT cover them. Without this,
+     * `Box[T]` / `*unchecked T` emit E0202 "unknown type 'T'", and because
+     * box.iron is ALWAYS prepended (check.c:431 / build.c) that single E0202
+     * poisoned EVERY compilation (deferred-items 33-01). Mirrors the enum-mono
+     * binding pattern (typecheck.c:1309-1330): temp child scope holding the
+     * generic-param names, resolve annotations against it, restore. Narrow
+     * blast radius — only the annotation-resolution window. */
+    Iron_Scope *md_saved_global_scope = ctx->global_scope;
+    if (md->generic_param_count > 0 && md->generic_params) {
+        Iron_Scope *gen_scope = iron_scope_create(ctx->arena,
+            ctx->global_scope, IRON_SCOPE_BLOCK);
+        for (int gi = 0; gi < md->generic_param_count; gi++) {
+            if (md->generic_params[gi])
+                IRON_NODE_ASSERT_KIND(md->generic_params[gi], IRON_NODE_IDENT);
+            Iron_Ident *gp = (Iron_Ident *)md->generic_params[gi];
+            if (!gp || !gp->name) continue;
+            Iron_Symbol *gsym = iron_symbol_create(ctx->arena, gp->name,
+                IRON_SYM_TYPE, NULL, (Iron_Span){0, 0, 0, 0, 0});
+            gsym->type = iron_type_make_generic_param(ctx->arena, gp->name, NULL);
+            iron_scope_define(gen_scope, ctx->arena, gsym);
+        }
+        ctx->global_scope = gen_scope;
+    }
+
     Iron_Type *ret_type = NULL;
     if (md->is_init && md->type_name) {
         Iron_Symbol *type_sym = iron_scope_lookup(ctx->global_scope, md->type_name);
@@ -6642,12 +6764,17 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
         param_types = (Iron_Type **)iron_arena_alloc(
             ctx->arena, (size_t)md->param_count * sizeof(Iron_Type *),
             _Alignof(Iron_Type *));
-        if (!param_types) { /* HARD-09 REPLACE (typecheck.c:check_method_decl param_types) */ return; }
+        if (!param_types) { /* HARD-09 REPLACE (typecheck.c:check_method_decl param_types) */ ctx->global_scope = md_saved_global_scope; return; }
     }
     for (int i = 0; i < md->param_count; i++) {
         Iron_Param *p = (Iron_Param *)md->params[i];
         param_types[i] = resolve_type_annotation(ctx, p->type_ann);
     }
+
+    /* Phase 33 OQ-02: restore the real global scope now that return + param
+     * annotation resolution is complete. The method body scope below must
+     * chain off the original global scope, not the temporary generic scope. */
+    ctx->global_scope = md_saved_global_scope;
 
     Iron_Type *prev_ret = ctx->current_return_type;
     const char *prev_type_name = ctx->current_method_type;
