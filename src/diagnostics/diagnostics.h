@@ -265,7 +265,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_HEAP_BAD_POSITION        273  /* POL-03 (3 positions; hint distinguishes type-annotation/binding/parameter) */
 #define IRON_ERR_FREE_NOT_BINDING         274  /* POL-04 (free target must be IRON_NODE_IDENT; emitted Plan 21-01 Task 3) */
 #define IRON_ERR_LEAK_NOT_BINDING         275  /* POL-05 (leak target must be IRON_NODE_IDENT; emitted Plan 21-01 Task 3) */
-#define IRON_ERR_DEFER_FORM_UNSUPPORTED   276  /* DEFER-02 (only `defer free <ident>` accepted in v3.0-alpha.1; emitted Plan 21-01 Task 4 in hir_lower.c) */
+#define IRON_ERR_DEFER_FORM_UNSUPPORTED   276  /* DEFER-02 — RETIRED Phase 32 (defer now accepts any statement; code 276 reserved, no longer emitted) */
 
 /* Phase 22 — readonly Purity Tightening (READ-* / OQ-04 / OQ-05)
  *

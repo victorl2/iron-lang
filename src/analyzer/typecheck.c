@@ -6195,26 +6195,16 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_DEFER: {
             Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
-            check_expr(ctx, ds->expr);
-            /* Phase 21 DEFER-02: only `defer free <ident>` is supported in
-             * v3.0-alpha.1; full defer semantics ship in Phase 32.
-             * Primary emission site: typecheck.c so `ironc check` surfaces
-             * the error (check does not run hir_lower). hir_lower.c retains
-             * the structural check as a safety net (Pitfall 4). */
-            {
-                bool is_defer_free_ident =
-                    ds->expr &&
-                    ds->expr->kind == IRON_NODE_FREE &&
-                    ((Iron_FreeStmt *)ds->expr)->expr &&
-                    ((Iron_FreeStmt *)ds->expr)->expr->kind == IRON_NODE_IDENT;
-                if (!is_defer_free_ident) {
-                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
-                                   IRON_ERR_DEFER_FORM_UNSUPPORTED, ds->span,
-                                   "only `defer free <binding>` is supported"
-                                   " in v3.0-alpha.1",
-                                   "full `defer` semantics ship in Phase 32");
-                }
-            }
+            /* Phase 32 DEFER-01: `defer` accepts any statement. The body is
+             * type-checked as a STATEMENT (check_stmt) in the enclosing scope.
+             * check_stmt's IRON_NODE_BLOCK arm pushes its own child scope, so
+             * locals declared inside `defer { ... }` type-check; the
+             * IRON_NODE_FREE arm preserves the `defer free` validation; plain
+             * expression-statements fall through to check_stmt's expression
+             * handling. The Phase-21 E0276 gate is GONE — this is the
+             * LSP-parity-relevant change (`ironc check` stops after analyze,
+             * so removal here is what makes general defer pass `check`). */
+            if (ds->expr) check_stmt(ctx, ds->expr);
             break;
         }
 

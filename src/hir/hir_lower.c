@@ -1008,40 +1008,41 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_DEFER: {
         Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
 
-        /* Phase 21 DEFER-02: only `defer free <ident>` is supported in
-         * v3.0-alpha.1; full defer semantics ship in Phase 32.
-         * Insert at TOP of arm, BEFORE existing lowering (Pitfall 4: return NULL
-         * before any HIR emission to avoid segfault in hir_to_lir). */
-        bool is_defer_free_ident =
-            ds->expr &&
-            ds->expr->kind == IRON_NODE_FREE &&
-            ((Iron_FreeStmt *)ds->expr)->expr &&
-            ((Iron_FreeStmt *)ds->expr)->expr->kind == IRON_NODE_IDENT;
-
-        if (!is_defer_free_ident) {
-            iron_diag_emit(ctx->diags, ctx->module->arena, IRON_DIAG_ERROR,
-                           IRON_ERR_DEFER_FORM_UNSUPPORTED, ds->span,
-                           "only `defer free <binding>` is supported"
-                           " in v3.0-alpha.1",
-                           "full `defer` semantics ship in Phase 32");
-            return NULL;  /* produce NO HIR node — Pitfall 4 */
+        /* Phase 32 DEFER-01: `defer` accepts any statement. Build a defer
+         * body (an IronHIR_Block) by lowering ds->expr; the downstream
+         * emit_scope_defers / emit_defer_cleanup inline-lower whatever
+         * statements defer_body holds at every normal exit edge, in LIFO order
+         * (DEFER-03) ahead of local drops (DEFER-04). No machinery change.
+         *
+         * Pitfall 4: produce NO HIR node before lowering on a genuinely
+         * un-lowerable body (NULL / error). */
+        if (!ds->expr || ds->expr->kind == IRON_NODE_ERROR) {
+            return NULL;
         }
 
-        /* Accepted: `defer free <ident>` — lower the inner FREE node as an
-         * HIR free statement and push it onto the defer_stack.
-         * The existing emit_defer_cleanup at hir_to_lir.c:1730 emits LIFO
-         * cleanup before every IRON_LIR_RETURN. The IRON_LIR_FREE codegen
-         * at emit_c.c calls iron_heap_free post-Plan-21-02 migration.
-         *
-         * NOTE: ds->expr is IRON_NODE_FREE (a statement node, not an expression).
-         * lower_expr_hir cannot lower FREE; we extract the operand ident directly
-         * and build an IRON_HIR_STMT_FREE with the lowered operand. */
         IronHIR_Block  *defer_body = iron_hir_block_create(mod);
-        {
+        if (ds->expr->kind == IRON_NODE_FREE) {
+            /* `defer free <ident>` fast-path — kept byte-identical to Phase 21
+             * so existing `defer free` codegen is unchanged. ds->expr is the
+             * IRON_NODE_FREE statement node; lower_expr_hir cannot lower FREE,
+             * so we lower its operand and build an IRON_HIR_STMT_FREE. */
             Iron_FreeStmt *fs = (Iron_FreeStmt *)ds->expr;
             IronHIR_Expr *free_val = lower_expr_hir(ctx, fs->expr);
             IronHIR_Stmt *dstmt = iron_hir_stmt_free(mod, free_val, span);
             iron_hir_block_add_stmt(defer_body, dstmt);
+        } else if (ds->expr->kind == IRON_NODE_BLOCK) {
+            /* `defer { ... }` — lower each inner statement into defer_body
+             * (lower_block_hir swaps ctx->current_block + brackets a defer
+             * scope around the inner statements). */
+            lower_block_hir(ctx, (Iron_Block *)ds->expr, defer_body);
+        } else {
+            /* General single statement — lower it directly into defer_body by
+             * temporarily retargeting ctx->current_block (mirrors the
+             * self-append discipline lower_block_hir relies on). */
+            IronHIR_Block *saved_block = ctx->current_block;
+            ctx->current_block = defer_body;
+            lower_stmt_hir(ctx, ds->expr);
+            ctx->current_block = saved_block;
         }
         IronHIR_Stmt *s = iron_hir_stmt_defer(mod, defer_body, span);
         iron_hir_block_add_stmt(blk, s);
