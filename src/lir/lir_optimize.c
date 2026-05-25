@@ -3767,6 +3767,107 @@ static bool gencheck_region_has_may_free(IronLIR_Func *fn,
     return barrier;
 }
 
+/* Tier 2 escape analysis: build a per-function map root_alloc -> escaped.
+ *
+ * A STACK-sourced local root (an ALLOCA) is non-escaping when its address never
+ * leaves the frame. We over-approximate escape conservatively: a value escapes
+ * if it (or any ADDR_OF taken on it) flows into a heap STORE value, a SET_FIELD
+ * /SET_INDEX value, a non-void RETURN, a MAKE_CLOSURE capture, or any CALL arg
+ * (v1 coarse — any arg may escape). Marking ANY of these escapes the underlying
+ * ALLOCA (canonicalize_root maps the derived pointer back to it). Anything not
+ * marked is provably non-escaping → its frame storage cannot be freed while the
+ * frame is live, so the gen-check is dead. Only ever PREVENTS elision when
+ * uncertain (sound). */
+/* Mark the root of `value` as escaped IFF `value` is a fat POINTER to a local
+ * (its producer is ADDR_OF or a PTR_OFFSET thereof) — i.e. the *address* of the
+ * local leaves the frame. Flowing the local's loaded scalar VALUE out (e.g.
+ * returning an Int slot) is NOT a pointer escape and does not enable a stale
+ * deref. canonicalize_root maps the fat ptr back to its ALLOCA. */
+static void gencheck_mark_ptr_escape(IronLIR_Func *fn, IronLIR_ValueId value,
+                                     IronLIR_EscapeEntry **escaped) {
+    if (value == IRON_LIR_VALUE_INVALID ||
+        value >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+        !fn->value_table[value]) {
+        return;
+    }
+    IronLIR_InstrKind k = fn->value_table[value]->kind;
+    if (k == IRON_LIR_ADDR_OF || k == IRON_LIR_PTR_OFFSET ||
+        k == IRON_LIR_GET_FIELD || k == IRON_LIR_GET_INDEX) {
+        hmput(*escaped, canonicalize_root(fn, value), true);
+    }
+}
+
+static IronLIR_EscapeEntry *gencheck_build_escape_map(IronLIR_Func *fn) {
+    IronLIR_EscapeEntry *escaped = NULL;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            /* if/else-if chain (not a switch) so -Werror=switch-enum does not
+             * require listing every opcode; only the escape-inducing opcodes
+             * matter — everything else is a non-escape no-op. A local escapes
+             * only when a POINTER to it flows out (gencheck_mark_ptr_escape). */
+            if (in->kind == IRON_LIR_STORE) {
+                gencheck_mark_ptr_escape(fn, in->store.value, &escaped);
+            } else if (in->kind == IRON_LIR_SET_FIELD) {
+                gencheck_mark_ptr_escape(fn, in->field.value, &escaped);
+            } else if (in->kind == IRON_LIR_SET_INDEX) {
+                gencheck_mark_ptr_escape(fn, in->index.value, &escaped);
+            } else if (in->kind == IRON_LIR_RETURN) {
+                if (!in->ret.is_void) {
+                    gencheck_mark_ptr_escape(fn, in->ret.value, &escaped);
+                }
+            } else if (in->kind == IRON_LIR_MAKE_CLOSURE) {
+                for (int ci = 0; ci < in->make_closure.capture_count; ci++) {
+                    gencheck_mark_ptr_escape(fn, in->make_closure.captures[ci], &escaped);
+                }
+            } else if (in->kind == IRON_LIR_CALL) {
+                /* Any CALL arg may escape (v1 coarse) — mark pointer args. */
+                for (int ai = 0; ai < in->call.arg_count; ai++) {
+                    gencheck_mark_ptr_escape(fn, in->call.args[ai], &escaped);
+                }
+            } else if (in->kind == IRON_LIR_SPAWN) {
+                for (int ci = 0; ci < in->spawn.capture_count; ci++) {
+                    gencheck_mark_ptr_escape(fn, in->spawn.captures[ci], &escaped);
+                }
+            } else if (in->kind == IRON_LIR_PARALLEL_FOR) {
+                for (int ci = 0; ci < in->parallel_for.capture_count; ci++) {
+                    gencheck_mark_ptr_escape(fn, in->parallel_for.captures[ci], &escaped);
+                }
+            }
+        }
+    }
+    return escaped;
+}
+
+/* Does block `bid` lie in loop `L`'s body? */
+static bool gencheck_block_in_loop(IronLIR_LoopInfo *L, IronLIR_BlockId bid) {
+    return hmgeti(L->body_blocks, bid) >= 0;
+}
+
+/* Is `root_alloc` loop-invariant w.r.t. loop `L`? It is invariant when its
+ * defining instruction lives OUTSIDE the loop body (so re-entering the loop
+ * never redefines it). Uses the existing body_blocks membership hashmap. */
+static bool gencheck_root_is_loop_invariant(IronLIR_Func *fn, IronLIR_LoopInfo *L,
+                                            IronLIR_ValueId root_alloc) {
+    if (root_alloc == IRON_LIR_VALUE_INVALID) return false;
+    if (root_alloc >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *def = fn->value_table[root_alloc];
+    if (!def) return false;
+    /* Find the block that contains `def`. */
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            if (blk->instrs[ii] == def) {
+                return !gencheck_block_in_loop(L, blk->id);
+            }
+        }
+    }
+    /* Def not found in any block (e.g. a synthetic param id) → treat as
+     * defined-outside / invariant (params live across the whole function). */
+    return true;
+}
+
 bool run_pointer_check_elimination(IronLIR_Module *module,
                                    IronLIR_GenCheckElisionStat *stat) {
     if (stat) memset(stat, 0, sizeof(*stat));
@@ -3792,10 +3893,43 @@ bool run_pointer_check_elimination(IronLIR_Module *module,
         IronLIR_Func *fn = module->funcs[fi];
         if (fn->is_extern || fn->block_count == 0) continue;
 
+        /* The IR constructors do not auto-populate preds/succs; rebuild the CFG
+         * edges before domtree / loop analysis (mirror the strength-reduction
+         * driver). Required because this pass is also a direct test seam. */
+        rebuild_cfg_edges(fn);
         IronLIR_DomEntry *idom = build_domtree(fn);
 
         /* GENCHECKs selected for deletion (by pointer identity). */
         struct { IronLIR_Instr *key; bool value; } *deleted = NULL;
+
+        /* ── Tier 2: escape elision (runs first — never breaks Tier 1) ──────
+         * A GENCHECK whose root is a non-escaping STACK-sourced local is dead:
+         * frame storage cannot be freed while the frame is live. Per Deferred,
+         * we only elide the check (the generation slot stays). */
+        IronLIR_EscapeEntry *escaped = gencheck_build_escape_map(fn);
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *g = blk->instrs[ii];
+                if (g->kind != IRON_LIR_GENCHECK) continue;
+                if (hmgeti(deleted, g) >= 0) continue;
+                if (g->gencheck.gen_source != IRON_LIR_GEN_STACK) continue;
+                IronLIR_ValueId root = g->gencheck.root_alloc;
+                /* Root must be a real ALLOCA in this frame and provably
+                 * non-escaping. */
+                if (root == IRON_LIR_VALUE_INVALID ||
+                    root >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+                    !fn->value_table[root] ||
+                    fn->value_table[root]->kind != IRON_LIR_ALLOCA) {
+                    continue;
+                }
+                if (hmgeti(escaped, root) >= 0) continue; /* escapes → keep */
+                hmput(deleted, g, true);
+                if (stat) { stat->by_tier[1]++; stat->checks_elided++; }
+                any_changed = true;
+            }
+        }
+        hmfree(escaped);
 
         /* ── Tier 1: dominator redundant-check ─────────────────────────────── */
         for (int g2bi = 0; g2bi < fn->block_count; g2bi++) {
@@ -3858,6 +3992,103 @@ bool run_pointer_check_elimination(IronLIR_Module *module,
                 blk->instr_count = new_count;
             }
         }
+
+        /* ── Tier 3: LICM check hoisting ───────────────────────────────────
+         * For each natural loop with a real preheader that PROVABLY dominates
+         * the header (zero-trip loops are never hoisted into — Anti-Pattern),
+         * hoist a GENCHECK whose root is loop-invariant and whose loop body
+         * contains no may-free op to the END of the preheader. The check then
+         * runs once per loop entry instead of once per iteration. */
+        int loop_count = 0;
+        IronLIR_LoopInfo *loops = build_loop_info(fn, idom, &loop_count);
+        for (int li = 0; li < loop_count; li++) {
+            IronLIR_LoopInfo *L = &loops[li];
+            if (L->preheader == 0) continue;                       /* no preheader */
+            if (!dominates(idom, L->preheader, L->header)) continue; /* zero-trip */
+
+            IronLIR_Block *pre = find_block(fn, L->preheader);
+            if (!pre) continue;
+
+            /* Does the loop body contain any may-free op?  If so, never hoist
+             * (the root may be freed mid-iteration). Scanned once per loop;
+             * root_alloc passed as INVALID so escape-into-call isn't double
+             * counted — the classifier's escape arm keys on root which we
+             * don't have a single value for here, so use INVALID (never an
+             * arg) and rely on the opcode set. */
+            bool body_may_free = false;
+            for (int bi = 0; bi < fn->block_count && !body_may_free; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                if (!gencheck_block_in_loop(L, blk->id)) continue;
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    if (gencheck_instr_is_may_free(fn, blk->instrs[ii],
+                                                   IRON_LIR_VALUE_INVALID, summaries)) {
+                        body_may_free = true;
+                        break;
+                    }
+                }
+            }
+            if (body_may_free) continue;
+
+            /* Hoist eligible loop-invariant checks. Collect first (so we don't
+             * mutate a block's instr stream mid-iteration), then splice. */
+            IronLIR_Instr **to_hoist = NULL;
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                if (!gencheck_block_in_loop(L, blk->id)) continue;
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *g = blk->instrs[ii];
+                    if (g->kind != IRON_LIR_GENCHECK) continue;
+                    if (!gencheck_root_is_loop_invariant(fn, L, g->gencheck.root_alloc))
+                        continue;
+                    arrput(to_hoist, g);
+                }
+            }
+
+            for (int hi = 0; hi < (int)arrlen(to_hoist); hi++) {
+                IronLIR_Instr *g = to_hoist[hi];
+                /* Remove g from its block. */
+                for (int bi = 0; bi < fn->block_count; bi++) {
+                    IronLIR_Block *blk = fn->blocks[bi];
+                    int new_count = 0;
+                    bool found = false;
+                    for (int ii = 0; ii < blk->instr_count; ii++) {
+                        if (blk->instrs[ii] == g) { found = true; continue; }
+                        blk->instrs[new_count++] = blk->instrs[ii];
+                    }
+                    blk->instr_count = new_count;
+                    if (found) break;
+                }
+                /* Append to the END of the preheader (before its terminator).
+                 * The preheader's last instr is its JUMP to the header; insert
+                 * the GENCHECK just before it so block structure stays valid.
+                 * Manual splice into a fresh array (avoids the stb_ds arrins
+                 * macro, which trips -Werror=sign-compare in this build). */
+                int insert_at = pre->instr_count;
+                if (insert_at > 0) {
+                    IronLIR_InstrKind tk = pre->instrs[insert_at - 1]->kind;
+                    if (tk == IRON_LIR_JUMP || tk == IRON_LIR_BRANCH ||
+                        tk == IRON_LIR_SWITCH || tk == IRON_LIR_RETURN) {
+                        insert_at--;
+                    }
+                }
+                IronLIR_Instr **spliced = NULL;
+                for (int ii = 0; ii < pre->instr_count; ii++) {
+                    if (ii == insert_at) arrput(spliced, g);
+                    arrput(spliced, pre->instrs[ii]);
+                }
+                if (insert_at == pre->instr_count) arrput(spliced, g);
+                arrfree(pre->instrs);
+                pre->instrs      = spliced;
+                pre->instr_count = (int)arrlen(spliced);
+                if (stat) { stat->by_tier[2]++; stat->checks_elided++; }
+                any_changed = true;
+            }
+            arrfree(to_hoist);
+        }
+        for (int li = 0; li < loop_count; li++) {
+            hmfree(loops[li].body_blocks);
+        }
+        arrfree(loops);
 
         hmfree(deleted);
         hmfree(idom);
@@ -4543,6 +4774,24 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
                 free(ir_text);
             }
         }
+
+        /* Phase 30 OPT-03..07: 4-tier pointer (generation) check elision. Runs
+         * after rc-pair-elim under the same gate (OFF at -O0/debug so the Phase
+         * 31 debug allocator observes every deref). lower_genchecks (driver top,
+         * Plan 02) already inserted the GENCHECK intrinsics this pass deletes. */
+        IronLIR_GenCheckElisionStat gc_stat = {0};
+        run_pointer_check_elimination(module, &gc_stat);
+        if (dump_passes) {
+            char *ir_text = iron_lir_print(module, true);
+            if (ir_text) {
+                fprintf(stderr,
+                        "=== After gencheck-elim: %d checks elided (T1=%d T2=%d T3=%d) ===\n%s\n",
+                        gc_stat.checks_elided, gc_stat.by_tier[0],
+                        gc_stat.by_tier[1], gc_stat.by_tier[2], ir_text);
+                free(ir_text);
+            }
+        }
+
         Iron_DiagList verify_diags2;
         memset(&verify_diags2, 0, sizeof(verify_diags2));
         iron_lir_verify(module, &verify_diags2, arena);

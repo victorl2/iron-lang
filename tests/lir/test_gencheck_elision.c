@@ -328,11 +328,160 @@ void test_t2_escape_local(void) {
 #endif
 }
 
-/* OPT-06 Tier 3: loop-invariant root, no may-free body, entered loop → hoist. */
+/* OPT-06 Tier 3: loop-invariant root, no may-free body, provably-entered loop →
+ * the GENCHECK is hoisted to the preheader (by_tier[2] == 1).
+ *
+ * CFG (preheader dominates header; back-edge latch->header):
+ *   entry:     %ha = heap_alloc; jump preheader
+ *   preheader: jump header              (single succ = header; dominates header)
+ *   header:    %ad = addr_of %ha; ptr_load %ad (the CHECKED deref); jump latch
+ *   latch:     branch cond, header, exit   (back-edge to header)
+ *   exit:      return %ha
+ * The root %ha is defined in entry (outside the loop) → loop-invariant; the loop
+ * body has no may-free op → the check hoists. */
 void test_t3_licm_hoist(void) {
-    /* Constructed in Plan 30-03 against the real loop substrate; asserts
-     * by_tier[2] == 1. */
-    TEST_IGNORE_MESSAGE("T3 LICM fixture authored in Task 2");
+#ifdef GENCHECK_TIER23_READY
+    IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_t3");
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_t3", NULL, 0, int_type);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *pre   = iron_lir_block_create(fn, "preheader");
+    IronLIR_Block *hdr   = iron_lir_block_create(fn, "header");
+    IronLIR_Block *latch = iron_lir_block_create(fn, "latch");
+    IronLIR_Block *exit_b = iron_lir_block_create(fn, "exit");
+
+    IronLIR_Instr *seed = iron_lir_const_int(fn, entry, 7, int_type, sp());
+    IronLIR_Instr *ha = iron_lir_heap_alloc(fn, entry, seed->id, false, false,
+                                            int_type, sp());
+    iron_lir_jump(fn, entry, pre->id, sp());
+
+    iron_lir_jump(fn, pre, hdr->id, sp());   /* preheader: only succ = header */
+
+    IronLIR_Instr *ad = iron_lir_addr_of(fn, hdr, ha->id,
+                                         IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_ptr_load(fn, hdr, ad->id, IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_jump(fn, hdr, latch->id, sp());
+
+    IronLIR_Instr *cond = iron_lir_const_bool(fn, latch, true, bool_type, sp());
+    iron_lir_branch(fn, latch, cond->id, hdr->id, exit_b->id, sp());  /* back-edge */
+
+    iron_lir_return(fn, exit_b, ha->id, false, int_type, sp());
+
+    lower_genchecks(mod);
+    IronLIR_GenCheckElisionStat stat;
+    memset(&stat, 0, sizeof(stat));
+    run_pointer_check_elimination(mod, &stat);
+
+    TEST_ASSERT_EQUAL_INT(1, stat.by_tier[2]);    /* hoisted to preheader */
+    TEST_ASSERT_EQUAL_INT(1, count_kind_in_block(pre, IRON_LIR_GENCHECK));
+    TEST_ASSERT_EQUAL_INT(0, count_kind_in_block(hdr, IRON_LIR_GENCHECK));
+
+    Iron_DiagList diags = iron_diaglist_create();
+    bool ok = iron_lir_verify(mod, &diags, &g_arena);
+    TEST_ASSERT_TRUE(ok);
+    iron_diaglist_free(&diags);
+
+    iron_lir_module_destroy(mod);
+#else
+    TEST_IGNORE_MESSAGE("Tier 3 LICM hoist lands in Task 2");
+#endif
+}
+
+/* T3 negative — zero-trip: the header has TWO outside-loop predecessors (no
+ * single preheader), so build_loop_info finds preheader==0 and the loop is
+ * never hoisted into. The GENCHECK survives in the loop body. */
+void test_t3_zerotrip_not_hoisted(void) {
+#ifdef GENCHECK_TIER23_READY
+    IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_t3zt");
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_t3zt", NULL, 0, int_type);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *p1    = iron_lir_block_create(fn, "p1");
+    IronLIR_Block *p2    = iron_lir_block_create(fn, "p2");
+    IronLIR_Block *hdr   = iron_lir_block_create(fn, "header");
+    IronLIR_Block *latch = iron_lir_block_create(fn, "latch");
+    IronLIR_Block *exit_b = iron_lir_block_create(fn, "exit");
+
+    IronLIR_Instr *seed = iron_lir_const_int(fn, entry, 7, int_type, sp());
+    IronLIR_Instr *ha = iron_lir_heap_alloc(fn, entry, seed->id, false, false,
+                                            int_type, sp());
+    IronLIR_Instr *ec = iron_lir_const_bool(fn, entry, true, bool_type, sp());
+    iron_lir_branch(fn, entry, ec->id, p1->id, p2->id, sp());
+
+    iron_lir_jump(fn, p1, hdr->id, sp());   /* two distinct outside preds → */
+    iron_lir_jump(fn, p2, hdr->id, sp());   /* header has no single preheader */
+
+    IronLIR_Instr *ad = iron_lir_addr_of(fn, hdr, ha->id,
+                                         IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_ptr_load(fn, hdr, ad->id, IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_jump(fn, hdr, latch->id, sp());
+
+    IronLIR_Instr *cond = iron_lir_const_bool(fn, latch, true, bool_type, sp());
+    iron_lir_branch(fn, latch, cond->id, hdr->id, exit_b->id, sp());
+
+    iron_lir_return(fn, exit_b, ha->id, false, int_type, sp());
+
+    lower_genchecks(mod);
+    IronLIR_GenCheckElisionStat stat;
+    memset(&stat, 0, sizeof(stat));
+    run_pointer_check_elimination(mod, &stat);
+
+    TEST_ASSERT_EQUAL_INT(0, stat.by_tier[2]);   /* no preheader → not hoisted */
+    TEST_ASSERT_EQUAL_INT(1, count_kind_in_block(hdr, IRON_LIR_GENCHECK));
+
+    iron_lir_module_destroy(mod);
+#else
+    TEST_IGNORE_MESSAGE("Tier 3 LICM hoist lands in Task 2");
+#endif
+}
+
+/* T3 negative — may-free body: the loop body contains a FREE, so the root may
+ * be freed mid-iteration; the check must NOT be hoisted. */
+void test_t3_mayfree_body_not_hoisted(void) {
+#ifdef GENCHECK_TIER23_READY
+    IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_t3mf");
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_t3mf", NULL, 0, int_type);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *pre   = iron_lir_block_create(fn, "preheader");
+    IronLIR_Block *hdr   = iron_lir_block_create(fn, "header");
+    IronLIR_Block *latch = iron_lir_block_create(fn, "latch");
+    IronLIR_Block *exit_b = iron_lir_block_create(fn, "exit");
+
+    IronLIR_Instr *seed = iron_lir_const_int(fn, entry, 7, int_type, sp());
+    IronLIR_Instr *ha = iron_lir_heap_alloc(fn, entry, seed->id, false, false,
+                                            int_type, sp());
+    iron_lir_jump(fn, entry, pre->id, sp());
+    iron_lir_jump(fn, pre, hdr->id, sp());
+
+    IronLIR_Instr *ad = iron_lir_addr_of(fn, hdr, ha->id,
+                                         IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_ptr_load(fn, hdr, ad->id, IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_free(fn, hdr, ha->id, sp());   /* may-free inside the loop body */
+    iron_lir_jump(fn, hdr, latch->id, sp());
+
+    IronLIR_Instr *cond = iron_lir_const_bool(fn, latch, true, bool_type, sp());
+    iron_lir_branch(fn, latch, cond->id, hdr->id, exit_b->id, sp());
+
+    iron_lir_return(fn, exit_b, ha->id, false, int_type, sp());
+
+    lower_genchecks(mod);
+    IronLIR_GenCheckElisionStat stat;
+    memset(&stat, 0, sizeof(stat));
+    run_pointer_check_elimination(mod, &stat);
+
+    TEST_ASSERT_EQUAL_INT(0, stat.by_tier[2]);   /* may-free body → not hoisted */
+
+    iron_lir_module_destroy(mod);
+#else
+    TEST_IGNORE_MESSAGE("Tier 3 LICM hoist lands in Task 2");
+#endif
 }
 
 /* OPT-07 Tier 4: a CALL to a CLEAN module function (summary.may_free==false) is
@@ -528,6 +677,8 @@ int main(void) {
     RUN_TEST(test_t1_non_dominated_preserved);
     RUN_TEST(test_t2_escape_local);
     RUN_TEST(test_t3_licm_hoist);
+    RUN_TEST(test_t3_zerotrip_not_hoisted);
+    RUN_TEST(test_t3_mayfree_body_not_hoisted);
     RUN_TEST(test_t4_clean_call_not_barrier);
     RUN_TEST(test_t4_extern_call_is_barrier);
     RUN_TEST(test_barrier_straddle_preserved);
