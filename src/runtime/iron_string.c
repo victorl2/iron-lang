@@ -308,7 +308,13 @@ void iron_runtime_init(int argc, char **argv) {
         }
     }
 #else
-    /* Plan 31-03: iron_leakcheck_init_from_env()  (DBG-07 release opt-in) */
+    /* Phase 31 DBG-07 (Plan 31-03): release-build opt-in leak check. Reads
+     * IRON_LEAK_CHECK once and, only when set to "1", arms the side-table
+     * (src/runtime/iron_leakcheck.c) + registers atexit(iron_leakcheck_dump).
+     * When unset (the default) this does nothing — no lock, no atexit, and the
+     * alloc/free hooks early-return at zero cost so the release binary is
+     * byte-for-byte behaviourally unchanged. No poison in release. */
+    iron_leakcheck_init_from_env();
 #endif
 
     /* Phase 19-02: cache IRON_PANIC_FORMAT env variable BEFORE any

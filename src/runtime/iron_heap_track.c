@@ -169,12 +169,19 @@ Iron_FatPtr iron_heap_alloc(const char *site_file, int site_line, size_t size) {
     hdr->_pad = 0;
     /* DBG-03: link into the leak registry (O(1) head insert under lock). */
     iron_debug_registry_link(hdr);
-#else
-    (void)site_file;
-    (void)site_line;
 #endif
 
     void *user = (void *)((uint8_t *)block + sizeof(IronAllocHdr));
+
+#ifndef IRON_DEBUG_ALLOCATOR
+    /* Phase 31 DBG-07 (Plan 31-03): release-build opt-in leak check. The 16B
+     * release header has no registry slots, so a side-table keyed by the user
+     * pointer tracks live allocations when IRON_LEAK_CHECK=1. This call
+     * early-returns at zero cost when the env flag is unset (the common case);
+     * debug builds use the in-header registry instead (no double-tracking). */
+    iron_leakcheck_register(user, site_file, site_line, (uint64_t)size);
+#endif
+
     return (Iron_FatPtr){user, IRON_ATOMIC_U64_LOAD_ACQUIRE(hdr->gen)};
 }
 
@@ -251,6 +258,12 @@ void iron_heap_free(Iron_FatPtr fp) {
     if (cur >= UINT64_MAX - 1) {
         iron_oom_abort("iron_heap_free: generation counter overflow");
     }
+
+    /* Phase 31 DBG-07 (Plan 31-03): release-build opt-in leak check — unlink
+     * this allocation from the side-table (keyed by the user pointer fp.addr,
+     * still valid until free(hdr) below). Early-returns at zero cost when
+     * IRON_LEAK_CHECK is unset. No poison in release. */
+    iron_leakcheck_unregister(fp.addr);
 
     /* Bump generation BEFORE freeing memory so any racing acquire-load
      * on a stale fp.gen sees the new value (mismatches -> triggers panic

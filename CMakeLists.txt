@@ -202,6 +202,7 @@ add_library(iron_runtime STATIC
     src/runtime/iron_panic.c
     src/runtime/iron_arena_rt.c
     src/runtime/iron_gencheck_count.c
+    src/runtime/iron_leakcheck.c
 )
 target_include_directories(iron_runtime PUBLIC src src/vendor)
 if(NOT WIN32)

@@ -287,6 +287,21 @@ void iron_panic_double_free(const char *first_free_file,
                             int second_free_line,
                             const struct IronAllocHdr *hdr);
 
+/* ── Phase 31 GA3 (Plan 31-03) — DBG-07 release opt-in leak check ───────────
+ * The release 16B IronAllocHdr has no registry slots, so the release leak check
+ * tracks live allocations in a SEPARATE side-table (src/runtime/iron_leakcheck.c)
+ * keyed by the user pointer, armed only when IRON_LEAK_CHECK=1 (read once at
+ * init). All four symbols are declared UNCONDITIONALLY and always linked: the
+ * release alloc/free path calls _register/_unregister, which early-return at
+ * zero cost when the env flag is unset (the common case). No poison in release.
+ * In a debug build these are never CALLED (the in-header registry from Plan
+ * 31-01 is the active mechanism), so the two trackers never double-count. */
+void iron_leakcheck_init_from_env(void);
+void iron_leakcheck_register(void *user_ptr, const char *site_file,
+                             int site_line, uint64_t size);
+void iron_leakcheck_unregister(void *user_ptr);
+void iron_leakcheck_dump(void);
+
 /* Forward declaration — definition lands in Plan 19-02 (src/runtime/iron_panic.c).
  * Declared here so the static-inline iron_check_pointer_gen below can call it
  * without needing diagnostics.h transitively included by every iron_runtime.h
