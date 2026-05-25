@@ -1858,6 +1858,30 @@ if(NOT WIN32)
             TIMEOUT 60
             WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
     endforeach()
+
+    # OPT-08 microbench corpus: idiomatic positive fixtures (getter chain off one
+    # root, tight loop with a loop-invariant deref). These exercise the shapes the
+    # deterministic OPT-08 count oracle asserts on in tests/lir/test_gencheck_elision.c
+    # (test_microbench_multi_field / test_microbench_tight_loop). They are
+    # BEHAVIORAL — correct stdout regardless of elision — so they pin
+    # parity-by-construction; the exact per-tier elision COUNTS live in the unit
+    # harness, never in these fixtures. Same WILL_FAIL/box.iron blocker discipline
+    # as the trap fixtures above (check-only container + STDLIB-05).
+    set(_PHASE_30_BENCH_FIXTURES
+        getter_chain
+        tight_loop
+    )
+    foreach(_fix IN LISTS _PHASE_30_BENCH_FIXTURES)
+        add_test(
+            NAME v4_4.11-ptr-check-elision_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        set_tests_properties(v4_4.11-ptr-check-elision_${_fix} PROPERTIES
+            LABELS "integration;phase30-invariant;v4-acceptance"
+            TIMEOUT 60
+            WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+    endforeach()
 endif()
 
 # ---- Install rules ----

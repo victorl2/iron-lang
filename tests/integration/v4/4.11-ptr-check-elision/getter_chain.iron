@@ -1,0 +1,23 @@
+-- section 4.11 pointer-check elision: getter-chain microbench corpus (OPT-08)
+-- @req: OPT-08, OQ-08
+-- Idiomatic shape for the OPT-08 microbench: repeated field access off a single
+-- heap allocation with no may-free op between the reads. The first generation
+-- check establishes liveness of the root; the rest are provably redundant and
+-- collapse under Tier 1 (dominator redundant-check). This fixture is BEHAVIORAL
+-- — its output is correct regardless of whether any check is elided — so it pins
+-- parity-by-construction; the exact per-tier elision COUNTS are asserted in the
+-- unit oracle (tests/lir/test_gencheck_elision.c test_microbench_multi_field).
+
+object Point {
+    val x: Int
+    val y: Int
+    val z: Int
+}
+
+func main() {
+    val p = heap Point(x: 10, y: 20, z: 30)
+    -- four field reads off the same root, no intervening free → getter chain
+    val ptr: *Point = &p
+    val sum = ptr.x + ptr.y + ptr.z + ptr.x
+    println("sum: {sum}")
+}

@@ -634,6 +634,130 @@ void test_barrier_straddle_preserved(void) {
     run_barrier_case(BAR_STORE);
 }
 
+/* ── OPT-08 microbench oracle (deterministic per-tier + elision-rate) ──────────
+ *
+ * These cases are the deterministic OPT-08 microbenchmark: they build idiomatic
+ * LIR shapes (multi-field access off one root, a tight loop, and a composed
+ * fixture) and assert EXACT checks_total / checks_elided / by_tier counts plus
+ * the computed elision RATE. They are never timing-based — the "benchmark" is a
+ * count oracle. The published elision-rate REPORT is deferred to Phase 36; this
+ * harness only emits and asserts the raw counters. */
+
+/* OPT-08 multi-field: N field reads off ONE heap root, no may-free between, so
+ * the first GENCHECK covers the rest — the getter-chain collapse. N checks,
+ * N-1 elided by Tier 1, by_tier[0]==N-1. */
+void test_microbench_multi_field(void) {
+    enum { N = 5 };
+    IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_mb_mf");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_mb_mf", NULL, 0, int_type);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Instr *seed = iron_lir_const_int(fn, entry, 7, int_type, sp());
+    IronLIR_Instr *ha = iron_lir_heap_alloc(fn, entry, seed->id, false, false,
+                                            int_type, sp());
+    /* N checked field reads off the same root, no may-free op between any. */
+    for (int i = 0; i < N; i++) {
+        IronLIR_Instr *ad = iron_lir_addr_of(fn, entry, ha->id,
+                                             IRON_LIR_GEN_HEAP, int_type, sp());
+        iron_lir_ptr_load(fn, entry, ad->id, IRON_LIR_GEN_HEAP, int_type, sp());
+    }
+    iron_lir_return(fn, entry, ha->id, false, int_type, sp());
+
+    lower_genchecks(mod);
+    IronLIR_GenCheckElisionStat stat;
+    memset(&stat, 0, sizeof(stat));
+    run_pointer_check_elimination(mod, &stat);
+
+    TEST_ASSERT_EQUAL_INT(N,     stat.checks_total);      /* N deref sites */
+    TEST_ASSERT_EQUAL_INT(N - 1, stat.by_tier[0]);        /* dominator collapse */
+    TEST_ASSERT_EQUAL_INT(N - 1, stat.checks_elided);     /* one survivor */
+
+    iron_lir_module_destroy(mod);
+}
+
+/* OPT-08 tight loop: a loop-invariant root checked once per iteration, no
+ * may-free body, provably-entered (single preheader dominates header) → the
+ * per-iteration check is hoisted to the preheader. by_tier[2]==1, one elided. */
+void test_microbench_tight_loop(void) {
+    IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_mb_tl");
+    Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_mb_tl", NULL, 0, int_type);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *pre   = iron_lir_block_create(fn, "preheader");
+    IronLIR_Block *hdr   = iron_lir_block_create(fn, "header");
+    IronLIR_Block *latch = iron_lir_block_create(fn, "latch");
+    IronLIR_Block *exit_b = iron_lir_block_create(fn, "exit");
+
+    IronLIR_Instr *seed = iron_lir_const_int(fn, entry, 7, int_type, sp());
+    IronLIR_Instr *ha = iron_lir_heap_alloc(fn, entry, seed->id, false, false,
+                                            int_type, sp());
+    iron_lir_jump(fn, entry, pre->id, sp());
+    iron_lir_jump(fn, pre, hdr->id, sp());
+
+    IronLIR_Instr *ad = iron_lir_addr_of(fn, hdr, ha->id,
+                                         IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_ptr_load(fn, hdr, ad->id, IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_jump(fn, hdr, latch->id, sp());
+
+    IronLIR_Instr *cond = iron_lir_const_bool(fn, latch, true, bool_type, sp());
+    iron_lir_branch(fn, latch, cond->id, hdr->id, exit_b->id, sp());
+    iron_lir_return(fn, exit_b, ha->id, false, int_type, sp());
+
+    lower_genchecks(mod);
+    IronLIR_GenCheckElisionStat stat;
+    memset(&stat, 0, sizeof(stat));
+    run_pointer_check_elimination(mod, &stat);
+
+    TEST_ASSERT_EQUAL_INT(1, stat.checks_total);   /* one per-iter deref site */
+    TEST_ASSERT_EQUAL_INT(1, stat.by_tier[2]);     /* hoisted to preheader */
+    TEST_ASSERT_EQUAL_INT(1, stat.checks_elided);
+    TEST_ASSERT_EQUAL_INT(1, count_kind_in_block(pre, IRON_LIR_GENCHECK));
+    TEST_ASSERT_EQUAL_INT(0, count_kind_in_block(hdr, IRON_LIR_GENCHECK));
+
+    iron_lir_module_destroy(mod);
+}
+
+/* OPT-08 elision-rate: a composed fixture — a multi-field getter chain (M
+ * checks, M-1 collapsed by T1) — asserts the computed rate
+ * checks_elided/checks_total matches the expected fraction EXACTLY (integer
+ * cross-multiply to avoid float). This is the deterministic rate oracle the
+ * Phase 36 report will aggregate. */
+void test_microbench_elision_rate(void) {
+    enum { M = 4 };  /* 4 field reads off one root → 3 elided → rate 3/4 */
+    IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_mb_rate");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_mb_rate", NULL, 0, int_type);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Instr *seed = iron_lir_const_int(fn, entry, 7, int_type, sp());
+    IronLIR_Instr *ha = iron_lir_heap_alloc(fn, entry, seed->id, false, false,
+                                            int_type, sp());
+    for (int i = 0; i < M; i++) {
+        IronLIR_Instr *ad = iron_lir_addr_of(fn, entry, ha->id,
+                                             IRON_LIR_GEN_HEAP, int_type, sp());
+        iron_lir_ptr_load(fn, entry, ad->id, IRON_LIR_GEN_HEAP, int_type, sp());
+    }
+    iron_lir_return(fn, entry, ha->id, false, int_type, sp());
+
+    lower_genchecks(mod);
+    IronLIR_GenCheckElisionStat stat;
+    memset(&stat, 0, sizeof(stat));
+    run_pointer_check_elimination(mod, &stat);
+
+    TEST_ASSERT_EQUAL_INT(M,     stat.checks_total);
+    TEST_ASSERT_EQUAL_INT(M - 1, stat.checks_elided);
+    /* Expected elision rate = 3/4. Assert via integer cross-multiply so the
+     * oracle is exact and never floating-point-fuzzy. */
+    TEST_ASSERT_TRUE(stat.checks_total > 0);
+    TEST_ASSERT_EQUAL_INT(stat.checks_elided * 4, (M - 1) * 4);
+    TEST_ASSERT_EQUAL_INT(stat.checks_elided * 4, stat.checks_total * 3);
+
+    iron_lir_module_destroy(mod);
+}
+
 /* Gate off (pass not run) → all GENCHECKs survive, checks_elided == 0.
  * This is the body the 2nd CTest NAME test_gencheck_elision_gate exercises. */
 void test_gate_off_preserves(void) {
@@ -682,6 +806,9 @@ int main(void) {
     RUN_TEST(test_t4_clean_call_not_barrier);
     RUN_TEST(test_t4_extern_call_is_barrier);
     RUN_TEST(test_barrier_straddle_preserved);
+    RUN_TEST(test_microbench_multi_field);
+    RUN_TEST(test_microbench_tight_loop);
+    RUN_TEST(test_microbench_elision_rate);
     RUN_TEST(test_gate_off_preserves);
 #endif
     return UNITY_END();
