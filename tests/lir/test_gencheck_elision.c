@@ -51,7 +51,7 @@ void tearDown(void) {
 
 static Iron_Span sp(void) { return iron_span_make("test.iron", 1, 1, 1, 1); }
 
-#ifdef GENCHECK_PASS_READY
+#if defined(GENCHECK_LOWER_READY) || defined(GENCHECK_PASS_READY)
 static int count_kind_in_block(IronLIR_Block *blk, IronLIR_InstrKind kind) {
     int n = 0;
     for (int i = 0; i < blk->instr_count; i++) {
@@ -95,13 +95,16 @@ void test_gencheck_opcode_constructs(void) {
     iron_lir_module_destroy(mod);
 }
 
-/* ── (b) STAGED for Plans 30-02 / 30-03 (GENCHECK_PASS_READY) ─────────────── */
+/* ── (b) Plan 30-02 GENCHECK lowering (GENCHECK_LOWER_READY) ───────────────── */
 
-#ifdef GENCHECK_PASS_READY
+#ifdef GENCHECK_LOWER_READY
 
-/* OPT-03 refactor identity: one deref → exactly one surviving check, no elision.
- * (Asserts byte-identity of the emitted check string is performed in the
- * v4-acceptance corpus; here we assert the GENCHECK survives + verifies.) */
+/* OPT-03 refactor identity (Plan 30-02): one checked deref → lower_genchecks
+ * inserts exactly one GENCHECK before it, and the GENCHECK canonicalizes its
+ * root to the underlying ALLOCA. This case depends ONLY on lower_genchecks +
+ * canonicalize_root (NOT on run_pointer_check_elimination, which lands in Plan
+ * 30-03), so it flips GREEN now. The byte-identity of the emitted check string
+ * is the regression-safety invariant proven by the v4-acceptance corpus. */
 void test_refactor_identity(void) {
     IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_identity");
     Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
@@ -114,19 +117,64 @@ void test_refactor_identity(void) {
     iron_lir_ptr_load(fn, entry, ad->id, IRON_LIR_GEN_STACK, int_type, sp());
     iron_lir_return(fn, entry, al->id, false, int_type, sp());
 
-    lower_genchecks(mod);   /* inserts one GENCHECK before the PTR_LOAD */
+    /* lower_genchecks inserts exactly one GENCHECK before the checked PTR_LOAD. */
+    lower_genchecks(mod);
     TEST_ASSERT_EQUAL_INT(1, count_kind_in_block(entry, IRON_LIR_GENCHECK));
 
-    IronLIR_GenCheckElisionStat stat;
-    memset(&stat, 0, sizeof(stat));
-    run_pointer_check_elimination(mod, &stat);
-    /* Single check, nothing to elide. */
-    TEST_ASSERT_EQUAL_INT(1, stat.checks_total);
-    TEST_ASSERT_EQUAL_INT(0, stat.checks_elided);
-    TEST_ASSERT_EQUAL_INT(1, count_kind_in_block(entry, IRON_LIR_GENCHECK));
+    /* The inserted GENCHECK: ptr is the ADDR_OF fat ptr; root canonicalizes
+     * through ADDR_OF to the ALLOCA; gen_source copied from the deref. */
+    IronLIR_Instr *gc = NULL;
+    for (int i = 0; i < entry->instr_count; i++) {
+        if (entry->instrs[i]->kind == IRON_LIR_GENCHECK) { gc = entry->instrs[i]; break; }
+    }
+    TEST_ASSERT_NOT_NULL(gc);
+    TEST_ASSERT_EQUAL_UINT(ad->id, gc->gencheck.ptr);
+    TEST_ASSERT_EQUAL_UINT(al->id, gc->gencheck.root_alloc);
+    TEST_ASSERT_EQUAL_INT(IRON_LIR_GEN_STACK, gc->gencheck.gen_source);
+
+    /* The GENCHECK sits IMMEDIATELY before the PTR_LOAD it guards. */
+    int gc_idx = -1, load_idx = -1;
+    for (int i = 0; i < entry->instr_count; i++) {
+        if (entry->instrs[i]->kind == IRON_LIR_GENCHECK) gc_idx = i;
+        if (entry->instrs[i]->kind == IRON_LIR_PTR_LOAD)  load_idx = i;
+    }
+    TEST_ASSERT_EQUAL_INT(load_idx - 1, gc_idx);
+
+    /* Post-lowering the module still verifies clean (no 300-range errors). */
+    Iron_DiagList diags = iron_diaglist_create();
+    bool ok = iron_lir_verify(mod, &diags, &g_arena);
+    TEST_ASSERT_TRUE(ok);
+    iron_diaglist_free(&diags);
 
     iron_lir_module_destroy(mod);
 }
+
+/* Unchecked PTR_LOAD gets NO GENCHECK — is_unchecked derefs are untouched. */
+void test_unchecked_load_no_gencheck(void) {
+    IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_unchecked");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    /* *unchecked Int — bare C pointer, no gen check, no GENCHECK. */
+    Iron_Type *unck_ptr =
+        iron_type_make_ptr(&g_arena, int_type, /*is_var=*/false, /*is_unchecked=*/true);
+
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_unchecked", NULL, 0, int_type);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Instr *al = iron_lir_alloca(fn, entry, unck_ptr, "p", sp());
+    IronLIR_Instr *ld = iron_lir_load(fn, entry, al->id, unck_ptr, sp());
+    iron_lir_ptr_load(fn, entry, ld->id, IRON_LIR_GEN_HEAP, int_type, sp());
+    iron_lir_return(fn, entry, al->id, false, int_type, sp());
+
+    lower_genchecks(mod);
+    TEST_ASSERT_EQUAL_INT(0, count_kind_in_block(entry, IRON_LIR_GENCHECK));
+
+    iron_lir_module_destroy(mod);
+}
+
+#endif /* GENCHECK_LOWER_READY */
+
+/* ── (c) STAGED for Plan 30-03 elision pass (GENCHECK_PASS_READY) ─────────── */
+
+#ifdef GENCHECK_PASS_READY
 
 /* OPT-04 Tier 1: two field reads off the same root, no may-free between → 1. */
 void test_t1_dominator_redundant(void) {
@@ -261,8 +309,11 @@ void test_gate_off_preserves(void) {
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_gencheck_opcode_constructs);
-#ifdef GENCHECK_PASS_READY
+#ifdef GENCHECK_LOWER_READY
     RUN_TEST(test_refactor_identity);
+    RUN_TEST(test_unchecked_load_no_gencheck);
+#endif
+#ifdef GENCHECK_PASS_READY
     RUN_TEST(test_t1_dominator_redundant);
     RUN_TEST(test_t2_escape_local);
     RUN_TEST(test_t3_licm_hoist);

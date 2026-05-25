@@ -1024,6 +1024,18 @@ static void opt_collect_operands(const IronLIR_Instr *instr,
     case IRON_LIR_POISON:
         break;
 
+    /* Phase 30 OPT-03 (Plan 30-02): a GENCHECK consumes its checked fat-ptr
+     * (`ptr`) and the canonicalized root-allocation (`root_alloc`). Counting
+     * `ptr` here is load-bearing for byte-identity: after lower_genchecks
+     * strips the inline check from the deref arm, the GENCHECK is the second
+     * use of `ptr` (alongside the deref), keeping `ptr` multi-use so it is NOT
+     * inline-eligible and emit renders it as `_vN` — exactly as the pre-refactor
+     * inline check did. (Mirrors the PTR_LOAD `fp` operand push above.) */
+    case IRON_LIR_GENCHECK:
+        PUSH(instr->gencheck.ptr);
+        PUSH(instr->gencheck.root_alloc);
+        break;
+
     /* -Wswitch-enum opt-out: LIR operand collector handles every value-bearing
      * opcode; opcodes with no value operands (and the INSTR_COUNT sentinel)
      * intentionally produce an empty operand list. */
@@ -3259,6 +3271,191 @@ static bool region_between_has_barrier(IronLIR_Func *fn,
     return barrier;
 }
 
+/* ── Phase 30 OPT-03 (Plan 30-02): GENCHECK lowering ─────────────────────────
+ *
+ * lower_genchecks() moves generation-check generation from inline-at-C-emit to
+ * a first-class IRON_LIR_GENCHECK instruction inserted immediately before every
+ * checked deref site. This makes checks visible to the optimizer (Plan 30-03's
+ * 4-tier elision pass) WITHOUT changing emitted output when nothing is elided:
+ * emit_c's GENCHECK arm expands a surviving check to the byte-identical 3-way
+ * iron_check_{heap,stack,arena}_pointer_gen(...) string the inline path emits.
+ *
+ * Runs UNCONDITIONALLY (even at -O0) so the intrinsics always exist for emit_c
+ * to expand — emit_c no longer inlines the checks. */
+
+/* canonicalize_root(fn, ptr_value): trace the SSA producer chain back to the
+ * outermost allocation, following derived-pointer producers
+ * (ADDR_OF / GET_FIELD / GET_INDEX / LOAD / PTR_OFFSET) until we reach the root
+ * allocation (HEAP_ALLOC / RC_ALLOC / ARENA_ALLOC / ALLOCA), which we return.
+ *
+ * Root-allocation identity (CONTEXT GA2 / OQ-08): &world.terrain and
+ * &world.spawn share the root `world` allocation, so the elision relation keys
+ * on the root, not on pointer identity.
+ *
+ * Defensive: if a producer can't be found (invalid id, NULL slot) we return the
+ * input value unchanged — conservatively keeping each pointer its own root,
+ * which only ever PREVENTS elision (never unsound). A bounded iteration guard
+ * (against a malformed cyclic SSA graph) also returns the current value. */
+static IronLIR_ValueId canonicalize_root(IronLIR_Func *fn,
+                                         IronLIR_ValueId ptr_value) {
+    IronLIR_ValueId cur = ptr_value;
+    /* SSA is acyclic; the bound is a belt-and-suspenders guard. */
+    for (int guard = 0; guard < 4096; guard++) {
+        if (cur == IRON_LIR_VALUE_INVALID) return ptr_value;
+        if (cur >= (IronLIR_ValueId)arrlen(fn->value_table)) return cur;
+        IronLIR_Instr *prod = fn->value_table[cur];
+        if (!prod) return cur;
+
+        switch ((int)(prod->kind)) {
+        case IRON_LIR_ADDR_OF:
+            cur = prod->addr_of.target;
+            break;
+        case IRON_LIR_GET_FIELD:
+            /* field access keys to the parent object's root */
+            cur = prod->field.object;
+            break;
+        case IRON_LIR_GET_INDEX:
+            cur = prod->index.array;
+            break;
+        case IRON_LIR_LOAD:
+            cur = prod->load.ptr;
+            break;
+        case IRON_LIR_PTR_OFFSET:
+            cur = prod->ptr_offset.ptr;
+            break;
+
+        /* Roots: stop here. */
+        case IRON_LIR_HEAP_ALLOC:
+        case IRON_LIR_RC_ALLOC:
+        case IRON_LIR_ARENA_ALLOC:
+        case IRON_LIR_ALLOCA:
+            return cur;
+
+        /* Any other producer is treated as a root (conservative: cur is its
+         * own root — prevents elision but is always sound). */
+        default:
+            return cur;
+        }
+    }
+    return cur;
+}
+
+/* Does the CHECKED deref instruction `in` require a GENCHECK?  Replicates the
+ * EXACT three emit_c conditions under which the inline check fires today:
+ *   - PTR_LOAD  with a CHECKED (not is_unchecked) fat pointer
+ *   - PTR_STORE with a CHECKED (not is_unchecked) fat pointer
+ *   - GET_FIELD whose object producer is an IRON_LIR_ADDR_OF (the fat-ptr
+ *     field-access case; HEAP_ALLOC/ARENA_ALLOC objects are owners → no check)
+ * On a match, *out_ptr / *out_gen are filled with the checked fat-ptr value and
+ * its gen_source (copied from the deref instr / its ADDR_OF object), so the
+ * inserted GENCHECK and the late emit expansion are byte-identical. */
+static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
+                                       IronLIR_ValueId *out_ptr,
+                                       IronLIR_GenSource *out_gen) {
+    switch ((int)(in->kind)) {
+    case IRON_LIR_PTR_LOAD: {
+        /* emit_c.c:5142-5183 — is_unchecked branch emits NO check (unchanged). */
+        IronLIR_Instr *fp_instr =
+            (in->ptr_load.fp < (IronLIR_ValueId)arrlen(fn->value_table))
+                ? fn->value_table[in->ptr_load.fp] : NULL;
+        Iron_Type *fp_type = (fp_instr) ? fp_instr->type : NULL;
+        bool is_unchecked = (fp_type && fp_type->kind == IRON_TYPE_PTR &&
+                             fp_type->ptr.is_unchecked);
+        if (is_unchecked) return false;
+        *out_ptr = in->ptr_load.fp;
+        *out_gen = in->ptr_load.gen_source;
+        return true;
+    }
+    case IRON_LIR_PTR_STORE: {
+        /* emit_c.c:5191-5239 — is_unchecked branch emits NO check (unchanged). */
+        IronLIR_Instr *fp_instr =
+            (in->ptr_store.fp < (IronLIR_ValueId)arrlen(fn->value_table))
+                ? fn->value_table[in->ptr_store.fp] : NULL;
+        Iron_Type *fp_type = (fp_instr) ? fp_instr->type : NULL;
+        bool is_unchecked = (fp_type && fp_type->kind == IRON_TYPE_PTR &&
+                             fp_type->ptr.is_unchecked);
+        if (is_unchecked) return false;
+        *out_ptr = in->ptr_store.fp;
+        *out_gen = in->ptr_store.gen_source;
+        return true;
+    }
+    case IRON_LIR_GET_FIELD: {
+        /* emit_c.c:1499-1521 — check fires only when the object is a fat ptr
+         * whose producer is an ADDR_OF (gen_source from that ADDR_OF). */
+        IronLIR_ValueId obj = in->field.object;
+        IronLIR_Instr *obj_instr =
+            (obj != IRON_LIR_VALUE_INVALID &&
+             obj < (IronLIR_ValueId)arrlen(fn->value_table))
+                ? fn->value_table[obj] : NULL;
+        if (obj_instr && obj_instr->kind == IRON_LIR_ADDR_OF) {
+            *out_ptr = obj;
+            *out_gen = obj_instr->addr_of.gen_source;
+            return true;
+        }
+        return false;
+    }
+    default:
+        return false;
+    }
+}
+
+void lower_genchecks(IronLIR_Module *module) {
+    if (!module) return;
+
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+
+            /* Single forward pass: rebuild the block's instr stream, inserting a
+             * GENCHECK immediately before each checked deref site. We splice
+             * into a fresh stb_ds array rather than using the appending
+             * iron_lir_gencheck() constructor (which would push to the block
+             * tail), then swap it in. */
+            IronLIR_Instr **rebuilt = NULL;
+            bool inserted_any = false;
+
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+
+                IronLIR_ValueId ptr = IRON_LIR_VALUE_INVALID;
+                IronLIR_GenSource gen = IRON_LIR_GEN_HEAP;
+                if (gencheck_deref_needs_check(fn, in, &ptr, &gen)) {
+                    /* Build a void-result GENCHECK without appending to the
+                     * block (alloc_instr would push to the tail). Mirrors
+                     * alloc_instr's void-result path: zeroed, INVALID id, span
+                     * copied from the deref so the late expansion reproduces the
+                     * exact filename + line. */
+                    IronLIR_Instr *gc = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+                    if (!gc) iron_oom_abort("lir_optimize.c:lower_genchecks");
+                    memset(gc, 0, sizeof(*gc));
+                    gc->kind               = IRON_LIR_GENCHECK;
+                    gc->type               = NULL;
+                    gc->id                 = IRON_LIR_VALUE_INVALID;
+                    gc->span               = in->span;
+                    gc->gencheck.ptr        = ptr;
+                    gc->gencheck.root_alloc = canonicalize_root(fn, ptr);
+                    gc->gencheck.gen_source = gen;
+                    arrput(rebuilt, gc);
+                    inserted_any = true;
+                }
+
+                arrput(rebuilt, in);
+            }
+
+            if (inserted_any) {
+                arrfree(blk->instrs);
+                blk->instrs      = rebuilt;
+                blk->instr_count = (int)arrlen(rebuilt);
+            } else {
+                arrfree(rebuilt);
+            }
+        }
+    }
+}
+
 bool run_rc_pair_elimination(IronLIR_Module *module, IronLIR_ElisionStat *stat) {
     if (stat) stat->pairs_eliminated = 0;
     if (!module) return false;
@@ -3926,6 +4123,21 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
     if (dump_passes) {
         char *ir_text = iron_lir_print(module, true);
         if (ir_text) { fprintf(stderr, "=== After array-repr (post-inline) ===\n%s\n", ir_text); free(ir_text); }
+    }
+
+    /* Phase 30 OPT-03 (Plan 30-02): lower generation checks to first-class
+     * IRON_LIR_GENCHECK intrinsics BEFORE the fixpoint/elision loop and BEFORE
+     * the skip_new_passes early-return below. UNCONDITIONAL (even at -O0 /
+     * no_optimize): emit_c no longer inlines checks, so the GENCHECK intrinsics
+     * MUST exist for emit_c to expand — otherwise checks would vanish. At -O0
+     * the Plan 30-03 elision pass is skipped, so every GENCHECK survives →
+     * emitted C is byte-identical to today. Placed after the structural passes
+     * (phi-eliminate / inlining / array-repr) so all value-id remapping is done
+     * before the GENCHECK operands are pinned. */
+    lower_genchecks(module);
+    if (dump_passes) {
+        char *ir_text = iron_lir_print(module, true);
+        if (ir_text) { fprintf(stderr, "=== After lower-genchecks ===\n%s\n", ir_text); free(ir_text); }
     }
 
     if (skip_new_passes) return false;

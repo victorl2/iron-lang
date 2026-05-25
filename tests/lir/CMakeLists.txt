@@ -47,13 +47,16 @@ target_link_libraries(test_func_summary iron_compiler unity)
 add_test(NAME test_func_summary COMMAND test_func_summary)
 set_tests_properties(test_func_summary PROPERTIES LABELS "lir;phase29-invariant")
 
-# ── Phase 30 Pointer Check Elision — phase30-invariant Wave 0 RED anchor ─────
-# test_gencheck_elision runs its opcode-exists case NOW (IRON_LIR_GENCHECK
-# constructs + round-trips). The 4-tier pass-dependent cases are staged behind
-# #ifdef GENCHECK_PASS_READY (compiled-out here) so the executable links against
-# iron_compiler today; Plans 30-02 (lower_genchecks) / 30-03
-# (run_pointer_check_elimination) define the symbols and flip those asserts on.
+# ── Phase 30 Pointer Check Elision — phase30-invariant ───────────────────────
+# test_gencheck_elision runs its opcode-exists case (IRON_LIR_GENCHECK
+# constructs + round-trips) plus the Plan 30-02 lowering cases (refactor-identity
+# + unchecked-no-gencheck) gated by GENCHECK_LOWER_READY: these depend only on
+# lower_genchecks + canonicalize_root (defined in Plan 30-02). The 4-tier
+# elision cases stay behind GENCHECK_PASS_READY until Plan 30-03 defines
+# run_pointer_check_elimination, so the executable links against iron_compiler
+# without unresolved symbols.
 add_executable(test_gencheck_elision test_gencheck_elision.c)
+target_compile_definitions(test_gencheck_elision PRIVATE GENCHECK_LOWER_READY)
 target_link_libraries(test_gencheck_elision iron_compiler unity)
 add_test(NAME test_gencheck_elision COMMAND test_gencheck_elision)
 set_tests_properties(test_gencheck_elision PROPERTIES LABELS "lir;phase30-invariant")
