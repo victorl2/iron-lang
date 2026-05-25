@@ -31,6 +31,7 @@
 #include "lir/lir.h"
 #include "lir/lir_optimize.h"
 #include "lir/verify.h"
+#include "lir/emit_c.h"
 #include "analyzer/types.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
@@ -167,6 +168,56 @@ void test_unchecked_load_no_gencheck(void) {
     lower_genchecks(mod);
     TEST_ASSERT_EQUAL_INT(0, count_kind_in_block(entry, IRON_LIR_GENCHECK));
 
+    iron_lir_module_destroy(mod);
+}
+
+/* OPT-03 byte-identity (Plan 30-02): drive the REAL emit path. Build a function
+ * with one checked stack PTR_LOAD, run iron_lir_optimize() with elision OFF (so
+ * lower_genchecks runs but nothing is elided), emit C, and assert the emitted
+ * source contains EXACTLY ONE iron_check_stack_pointer_gen( call — i.e. the
+ * GENCHECK expansion reproduces the inline check (not zero, not double). This is
+ * the regression-safety invariant: the check moved from inline-at-deref to a
+ * separate GENCHECK instr expanded late, with no change in emitted output. */
+static int count_substr(const char *hay, const char *needle) {
+    int n = 0; const char *p = hay;
+    while ((p = strstr(p, needle)) != NULL) { n++; p += strlen(needle); }
+    return n;
+}
+
+void test_emit_byte_identity_single_check(void) {
+    IronLIR_Module *mod = iron_lir_module_create(&g_arena, "m_emit");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_emit", NULL, 0, int_type);
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Instr *al = iron_lir_alloca(fn, entry, int_type, "x", sp());
+    IronLIR_Instr *ad = iron_lir_addr_of(fn, entry, al->id,
+                                         IRON_LIR_GEN_STACK, int_type, sp());
+    IronLIR_Instr *ld = iron_lir_ptr_load(fn, entry, ad->id,
+                                          IRON_LIR_GEN_STACK, int_type, sp());
+    iron_lir_return(fn, entry, ld->id, false, int_type, sp());
+
+    /* elision_enabled = false → lower_genchecks runs, nothing is elided. */
+    IronLIR_OptimizeInfo info;
+    iron_lir_optimize(mod, &info, &g_arena,
+                      /*dump_passes=*/false, /*skip_new_passes=*/false,
+                      /*elision_enabled=*/false);
+
+    Iron_DiagList diags = iron_diaglist_create();
+    const char *c_src = iron_lir_emit_c(mod, &g_arena, &diags, &info,
+                                        /*iface_reg=*/NULL,
+                                        /*warn_fusion_break=*/false,
+                                        /*report_compression=*/false);
+    TEST_ASSERT_NOT_NULL(c_src);
+
+    /* Exactly one stack-pointer gen check (the surviving GENCHECK expansion);
+     * no heap/arena variant for a STACK-sourced check. */
+    TEST_ASSERT_EQUAL_INT(1, count_substr(c_src, "iron_check_stack_pointer_gen("));
+    TEST_ASSERT_EQUAL_INT(0, count_substr(c_src, "iron_check_pointer_gen("));
+    TEST_ASSERT_EQUAL_INT(0, count_substr(c_src, "iron_check_arena_pointer_gen("));
+
+    iron_lir_optimize_info_free(&info);
+    iron_diaglist_free(&diags);
     iron_lir_module_destroy(mod);
 }
 
@@ -312,6 +363,7 @@ int main(void) {
 #ifdef GENCHECK_LOWER_READY
     RUN_TEST(test_refactor_identity);
     RUN_TEST(test_unchecked_load_no_gencheck);
+    RUN_TEST(test_emit_byte_identity_single_check);
 #endif
 #ifdef GENCHECK_PASS_READY
     RUN_TEST(test_t1_dominator_redundant);

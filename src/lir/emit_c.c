@@ -1493,32 +1493,13 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * Excludes fat-ptr values (handled via obj_is_fat_ptr above). */
         bool obj_is_ptr = !obj_is_fat_ptr && emit_val_is_heap_ptr(fn, instr->field.object);
 
-        /* Phase 21 SAFE-01: For ADDR_OF fat-ptr field access, emit generation
-         * check BEFORE the assignment to catch use-after-free at runtime.
-         * HEAP_ALLOC bindings are owners — no check needed for those. */
-        if (obj_is_fat_ptr) {
-            IronLIR_Instr *obj_instr2 =
-                (instr->field.object != IRON_LIR_VALUE_INVALID &&
-                 instr->field.object < (IronLIR_ValueId)arrlen(fn->value_table))
-                ? fn->value_table[instr->field.object] : NULL;
-            if (obj_instr2 && obj_instr2->kind == IRON_LIR_ADDR_OF) {
-                const char *df2 = instr->span.filename ? instr->span.filename : "<unknown>";
-                /* Phase 28 ARENA-06 (Plan 28-04): 3-way deref-check routing.
-                 * STACK → iron_check_stack_pointer_gen, ARENA →
-                 * iron_check_arena_pointer_gen, else (HEAP) →
-                 * iron_check_pointer_gen. */
-                const char *check_fn2 =
-                    (obj_instr2->addr_of.gen_source == IRON_LIR_GEN_STACK)
-                        ? "iron_check_stack_pointer_gen"
-                    : (obj_instr2->addr_of.gen_source == IRON_LIR_GEN_ARENA)
-                        ? "iron_check_arena_pointer_gen"
-                        : "iron_check_pointer_gen";
-                emit_indent(sb, ind);
-                iron_strbuf_appendf(sb, "%s(", check_fn2);
-                emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
-                iron_strbuf_appendf(sb, ", \"%s\", %u);\n", df2, (unsigned)instr->span.line);
-            }
-        }
+        /* Phase 21 SAFE-01 / Phase 30 OPT-03 (Plan 30-02): the ADDR_OF fat-ptr
+         * field-access generation check is NO LONGER emitted inline here. It is
+         * now a first-class IRON_LIR_GENCHECK inserted immediately before this
+         * GET_FIELD by lower_genchecks() (lir_optimize.c) and expanded in the
+         * IRON_LIR_GENCHECK arm (byte-identical string). HEAP_ALLOC bindings are
+         * owners → lower_genchecks inserts no GENCHECK for them (only when the
+         * object producer is an ADDR_OF), matching the prior inline condition. */
 
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
@@ -5160,20 +5141,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_val(sb, instr->ptr_load.fp);
             iron_strbuf_appendf(sb, ";\n");
         } else {
-            /* Existing Phase 20 checked path — iron_check_pointer_gen + .addr.
-             * Phase 28 ARENA-06 (Plan 28-04): 3-way routing extension. */
-            const char *check_fn =
-                (instr->ptr_load.gen_source == IRON_LIR_GEN_STACK)
-                    ? "iron_check_stack_pointer_gen"
-                : (instr->ptr_load.gen_source == IRON_LIR_GEN_ARENA)
-                    ? "iron_check_arena_pointer_gen"
-                    : "iron_check_pointer_gen";
-            const char *df = instr->span.filename ? instr->span.filename : "<unknown>";
-            emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s(", check_fn);
-            emit_val(sb, instr->ptr_load.fp);
-            iron_strbuf_appendf(sb, ", \"%s\", %u);\n",
-                                df, (unsigned)instr->span.line);
+            /* Existing Phase 20 checked path — load through .addr.
+             * Phase 30 OPT-03 (Plan 30-02): the generation check is NO LONGER
+             * emitted inline here. lower_genchecks() inserts an
+             * IRON_LIR_GENCHECK immediately before this PTR_LOAD; the GENCHECK
+             * arm expands it to the byte-identical iron_check_*_pointer_gen
+             * string. This arm now emits ONLY the load body. */
             emit_indent(sb, ind);
             if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
             emit_val(sb, instr->id);
@@ -5208,20 +5181,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_val(sb, instr->ptr_store.value);
             iron_strbuf_appendf(sb, ";\n");
         } else {
-            /* Existing Phase 20 checked path — iron_check_pointer_gen + .addr.
-             * Phase 28 ARENA-06 (Plan 28-04): 3-way routing extension. */
-            const char *check_fn =
-                (instr->ptr_store.gen_source == IRON_LIR_GEN_STACK)
-                    ? "iron_check_stack_pointer_gen"
-                : (instr->ptr_store.gen_source == IRON_LIR_GEN_ARENA)
-                    ? "iron_check_arena_pointer_gen"
-                    : "iron_check_pointer_gen";
-            const char *df = instr->span.filename ? instr->span.filename : "<unknown>";
-            emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s(", check_fn);
-            emit_val(sb, instr->ptr_store.fp);
-            iron_strbuf_appendf(sb, ", \"%s\", %u);\n",
-                                df, (unsigned)instr->span.line);
+            /* Existing Phase 20 checked path — store through .addr.
+             * Phase 30 OPT-03 (Plan 30-02): the generation check is NO LONGER
+             * emitted inline here. lower_genchecks() inserts an
+             * IRON_LIR_GENCHECK immediately before this PTR_STORE; the GENCHECK
+             * arm expands it to the byte-identical iron_check_*_pointer_gen
+             * string. This arm now emits ONLY the store body. */
             /* The pointee-type for the store is the type of the value being
              * stored; lower layer guarantees value's lir type matches. */
             IronLIR_Instr *vinstr =
@@ -5271,15 +5236,34 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         break;
     }
 
-    /* Phase 30 OPT-03 (Plan 30-01): generation-check intrinsic.
-     * NEUTRAL no-op in this plan — lower_genchecks does not run yet, so zero
-     * GENCHECKs reach emit_c and behavior is byte-identical to today (checks
-     * still inline in the GET_FIELD / PTR_LOAD / PTR_STORE arms). This arm
-     * exists only to satisfy -Werror=switch-enum. Plan 30-02 replaces it with
-     * the 3-way iron_check_{heap,stack,arena}_pointer_gen expansion (routed by
-     * gencheck.gen_source) and strips the inline checks from the deref arms. */
-    case IRON_LIR_GENCHECK:
+    /* Phase 30 OPT-03 (Plan 30-02): generation-check intrinsic EXPANSION.
+     * lower_genchecks() (lir_optimize.c) inserts an IRON_LIR_GENCHECK
+     * immediately before each checked deref; the deref arms (GET_FIELD :1499,
+     * PTR_LOAD :5152, PTR_STORE :5191) no longer emit the inline check. A
+     * SURVIVING gencheck here expands to the BYTE-IDENTICAL 3-way check string
+     * the inline path emitted: `<check_fn>(<ptr>, "<file>", <line>);` routed on
+     * gencheck.gen_source (STACK→stack, ARENA→arena, else HEAP→pointer_gen).
+     *
+     * The ptr is rendered via emit_val (`_vN`) — exactly as the pre-refactor
+     * PTR_LOAD/PTR_STORE sites rendered `fp` and (because lower_genchecks keeps
+     * `ptr` multi-use via the GENCHECK operand, so it is never inline-eligible)
+     * exactly as the GET_FIELD site's emit_expr_to_buf(object) rendered too.
+     * With nothing elided the emitted C is byte-identical to today; only the
+     * generation *site* moved (separate instr vs inline). */
+    case IRON_LIR_GENCHECK: {
+        const char *check_fn =
+            (instr->gencheck.gen_source == IRON_LIR_GEN_STACK)
+                ? "iron_check_stack_pointer_gen"
+            : (instr->gencheck.gen_source == IRON_LIR_GEN_ARENA)
+                ? "iron_check_arena_pointer_gen"
+                : "iron_check_pointer_gen";
+        const char *df = instr->span.filename ? instr->span.filename : "<unknown>";
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s(", check_fn);
+        emit_val(sb, instr->gencheck.ptr);
+        iron_strbuf_appendf(sb, ", \"%s\", %u);\n", df, (unsigned)instr->span.line);
         break;
+    }
 
     /* ── Sentinel ───────────────────────────────────────────────────────── */
 
