@@ -2091,7 +2091,13 @@ if(NOT WIN32)
 
     # ── BUILD+RUN rows (byte-exact stdout; WILL_FAIL — need clang host) ──
     # Each flips GREEN on a clang host once its wave lands.
+    # box_roundtrip is the load-bearing Box[T] end-to-end acceptance row (OQ-02).
+    # box.iron now PARSES clean (Plan 33-01 Task 2), but Box.new/unwrap/is_null
+    # by-name dispatch is NOT yet wired (the generic stdlib-method return types
+    # resolve to <error>; see deferred-items.md [33-01]). Stays WILL_FAIL until
+    # the follow-up Box by-name compiler-builtin interception lands.
     set(_PHASE_33_BUILDRUN_FIXTURES
+        box_roundtrip          # STDLIB-05 / OQ-02 (Box by-name dispatch follow-up)
         list_drop_filehandle   # STDLIB-02 + STDLIB-09 (Wave 4 + 5)
         list_copy_elements     # STDLIB-02 (Wave 4)
         set_basic              # STDLIB-04 (Wave 2 + 4)
