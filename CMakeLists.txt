@@ -201,6 +201,7 @@ add_library(iron_runtime STATIC
     src/runtime/iron_heap_track.c
     src/runtime/iron_panic.c
     src/runtime/iron_arena_rt.c
+    src/runtime/iron_gencheck_count.c
 )
 target_include_directories(iron_runtime PUBLIC src src/vendor)
 if(NOT WIN32)
@@ -1813,6 +1814,47 @@ if(NOT WIN32)
         )
         set_tests_properties(v4_4.10-rc-elision_${_fix} PROPERTIES
             LABELS "integration;phase29-invariant;v4-acceptance"
+            TIMEOUT 60
+            WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+    endforeach()
+endif()
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 30 Pointer Check Elision — `phase30-invariant` Wave 0 RED anchor
+# ─────────────────────────────────────────────────────────────────────────
+# `ctest -L phase30-invariant` aggregates the Wave 0 contract for Phase 30
+# (§12 step 16): the LIR unit harness test_gencheck_elision (+ _gate) and the
+# unit counter test_gencheck_counter (registered with the phase30-invariant
+# label in tests/lir/CMakeLists.txt and tests/unit/CMakeLists.txt) PLUS the five
+# soundness-trap behavior fixtures below — one per documented trap
+# (concurrent-mutation, stale-after-grow, drop-on-assignment, defer/panic,
+# polymorphic-dispatch). Each .iron is constructed so a NAIVE elision WOULD be
+# unsound (a generation check straddles a may-free barrier), yet correct
+# compilation must preserve the check; the .expected pins the program's correct
+# stdout up to the (preserved) check's outcome. They pin behavior BEFORE the
+# elision pass exists (Plans 30-02/03), so they are GREEN-by-behavior.
+#
+# Container caveat (mirrors Phase 25/27/28/29): the silvaserver podman container
+# is CHECK-ONLY (no clang to run `ironc build` output binaries), so each row is
+# WILL_FAIL YES with this explanatory comment; they flip on a clang host. They
+# additionally inherit the pre-existing box.iron stdlib-prepend syntax blocker
+# (STDLIB-05; deferred to Phase 33) that gates the entire positive v4 corpus.
+if(NOT WIN32)
+    set(_PHASE_30_TRAP_FIXTURES
+        concurrent_mutation
+        stale_after_grow
+        drop_on_assignment
+        defer_panic
+        polymorphic_dispatch
+    )
+    foreach(_fix IN LISTS _PHASE_30_TRAP_FIXTURES)
+        add_test(
+            NAME v4_4.11-ptr-check-elision_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        set_tests_properties(v4_4.11-ptr-check-elision_${_fix} PROPERTIES
+            LABELS "integration;phase30-invariant;v4-acceptance"
             TIMEOUT 60
             WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
     endforeach()

@@ -46,3 +46,20 @@ add_executable(test_func_summary test_func_summary.c)
 target_link_libraries(test_func_summary iron_compiler unity)
 add_test(NAME test_func_summary COMMAND test_func_summary)
 set_tests_properties(test_func_summary PROPERTIES LABELS "lir;phase29-invariant")
+
+# ── Phase 30 Pointer Check Elision — phase30-invariant Wave 0 RED anchor ─────
+# test_gencheck_elision runs its opcode-exists case NOW (IRON_LIR_GENCHECK
+# constructs + round-trips). The 4-tier pass-dependent cases are staged behind
+# #ifdef GENCHECK_PASS_READY (compiled-out here) so the executable links against
+# iron_compiler today; Plans 30-02 (lower_genchecks) / 30-03
+# (run_pointer_check_elimination) define the symbols and flip those asserts on.
+add_executable(test_gencheck_elision test_gencheck_elision.c)
+target_link_libraries(test_gencheck_elision iron_compiler unity)
+add_test(NAME test_gencheck_elision COMMAND test_gencheck_elision)
+set_tests_properties(test_gencheck_elision PROPERTIES LABELS "lir;phase30-invariant")
+
+# OPT-03 gate row: a separate CTest NAME pointing at the same executable. The
+# gate-off contract (pass mutates only when invoked) is asserted by
+# test_gate_off_preserves within the same binary (active once GENCHECK_PASS_READY).
+add_test(NAME test_gencheck_elision_gate COMMAND test_gencheck_elision)
+set_tests_properties(test_gencheck_elision_gate PROPERTIES LABELS "lir;phase30-invariant")

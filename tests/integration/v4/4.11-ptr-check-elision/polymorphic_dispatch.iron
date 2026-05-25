@@ -1,0 +1,38 @@
+-- section 4.11 pointer-check elision: polymorphic-dispatch soundness trap
+-- @req: OPT-03, OPT-07, OQ-08
+-- extends-spec: POINTER-CHECK-ELISION.md soundness trap "polymorphic dispatch
+-- joins" — a generation check straddles a virtual/interface method call
+-- resolved at runtime. A naive elision that trusted a single implementation's
+-- (clean) may-free summary would be unsound: the call site's effective summary
+-- must be the JOIN over every implementation, which is conservatively may-free
+-- until a per-call-site type-set narrows it (deferred). The indirect call is
+-- therefore a may-free barrier and the check is PRESERVED. This run uses an
+-- implementation that does not free, so the value prints correctly.
+
+interface Greeter {
+    func greet(self) -> Int
+}
+
+object Friendly {
+    val level: Int
+}
+
+impl Greeter for Friendly {
+    func greet(self) -> Int {
+        return self.level
+    }
+}
+
+func run(g: Greeter, ptr: *Friendly) {
+    -- virtual dispatch through the interface — opaque may-free join
+    val n = g.greet()
+    println("greeted: {n}")
+    -- deref AFTER the indirect call — its gen-check must NOT be elided
+    println("after dispatch: {ptr.level}")
+}
+
+func main() {
+    val f = Friendly(level: 9)
+    println("before: {f.level}")
+    run(f, &f)
+}

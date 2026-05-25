@@ -1462,6 +1462,28 @@ set_tests_properties(test_rc_op_counter PROPERTIES
     LABELS "unit;phase29-invariant"
     TIMEOUT 30)
 
+# ── Phase 30 OPT-08 input: opt-in generation-check counter ──────────────────
+# iron_gencheck_count.c carries three IRON_GENCHECK_COUNT-guarded _Atomic
+# uint64_t counters (heap/stack/arena) bumped inside the static-inline
+# iron_check_*_pointer_gen guards in iron_runtime.h. The macro is OFF by default
+# so normal builds (and the deterministic phase-invariant test counts) are
+# unaffected. To exercise the ON path, this test compiles its OWN instrumented
+# copy of iron_gencheck_count.c WITH -DIRON_GENCHECK_COUNT and includes the
+# header with the macro defined so the inline bumps fire (its own TU resolves
+# every iron_gencheck_* symbol, so the iron_runtime archive's un-instrumented
+# member stays dormant — standard static-archive symbol-resolution rule). This
+# is the verified data source the deferred OPT-08 elision-rate report (Phase 36)
+# reads. Mirrors the Phase 29 test_rc_op_counter wiring.
+add_executable(test_gencheck_counter
+    test_gencheck_counter.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_gencheck_count.c)
+target_link_libraries(test_gencheck_counter iron_runtime unity)
+target_compile_definitions(test_gencheck_counter PRIVATE IRON_GENCHECK_COUNT)
+add_test(NAME test_gencheck_counter COMMAND test_gencheck_counter)
+set_tests_properties(test_gencheck_counter PROPERTIES
+    LABELS "unit;phase30-invariant"
+    TIMEOUT 30)
+
 # ── Phase 28 GA1 (Plan 28-01 Task 1): arena runtime Wave 0 RED unit tests ───
 # Three Unity tests written AGAINST the not-yet-existing arena runtime API
 # (src/runtime/iron_arena_rt.{c,h}) + the arena-aware deref guard

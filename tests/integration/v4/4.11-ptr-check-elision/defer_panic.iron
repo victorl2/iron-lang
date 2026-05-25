@@ -1,0 +1,29 @@
+-- section 4.11 pointer-check elision: defer/panic-unwind soundness trap
+-- @req: OPT-03, OQ-08
+-- @expect-panic: stale pointer dereference
+-- extends-spec: POINTER-CHECK-ELISION.md soundness trap "defer / panic
+-- unwinding" — a generation check straddles a `defer free` body that runs out
+-- of explicit flow order. A naive elision that assumed the allocation stays
+-- live to the end of the scope would be unsound: the deferred free runs before
+-- the trailing deref on the relevant exit edge. The defer body is a may-free
+-- barrier, so the check is PRESERVED and fires on the post-free deref.
+
+object Buffer {
+    val cap: Int
+}
+
+func release(b: heap Buffer) {
+    -- the deferred body runs the free out of the caller's explicit flow order
+    defer free b
+    println("releasing: {b.cap}")
+}
+
+func main() {
+    val buf = heap Buffer(cap: 256)
+    val ptr: *Buffer = &buf
+    println("live: {ptr.cap}")
+    -- the callee's `defer free b` frees the allocation on its exit edge
+    release(buf)
+    -- stale deref: `buf` was freed by the deferred body; the gen-check must fire
+    println("freed: {ptr.cap}")
+}
