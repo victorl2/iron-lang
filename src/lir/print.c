@@ -648,6 +648,16 @@ static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, "\n");
         break;
 
+    /* Phase 30 OPT-03 (Plan 30-01): generation-check intrinsic. */
+    case IRON_LIR_GENCHECK:
+        iron_strbuf_appendf(sb, "  gencheck %%%u root=%%%u (%s)\n",
+                            instr->gencheck.ptr, instr->gencheck.root_alloc,
+                            instr->gencheck.gen_source == IRON_LIR_GEN_HEAP
+                                ? "heap"
+                            : instr->gencheck.gen_source == IRON_LIR_GEN_ARENA
+                                ? "arena" : "stack");
+        break;
+
     case IRON_LIR_INSTR_COUNT:
         /* sentinel — never a real instruction kind */
         break;

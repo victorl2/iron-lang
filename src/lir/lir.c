@@ -697,6 +697,21 @@ IronLIR_Instr *iron_lir_ptr_diff(IronLIR_Func *fn, IronLIR_Block *block,
     return i;
 }
 
+/* Phase 30 OPT-03 (Plan 30-01) — IRON_LIR_GENCHECK constructor.
+ * Void-result opcode (produces_value = false), like RC_RETAIN/RC_RELEASE, so
+ * block compaction needs no value_table fixup when the elision pass deletes a
+ * gencheck. Carries the checked fat-ptr value, its canonicalized
+ * root-allocation SSA value (OQ-08 keying), and the gen_source routing tag. */
+IronLIR_Instr *iron_lir_gencheck(IronLIR_Func *fn, IronLIR_Block *block,
+                                 IronLIR_ValueId ptr, IronLIR_ValueId root_alloc,
+                                 IronLIR_GenSource gen_source, Iron_Span span) {
+    IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_GENCHECK, NULL, span, false);
+    i->gencheck.ptr        = ptr;
+    i->gencheck.root_alloc = root_alloc;
+    i->gencheck.gen_source = gen_source;
+    return i;
+}
+
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 
 bool iron_lir_is_terminator(IronLIR_InstrKind kind) {

@@ -3043,6 +3043,12 @@ bool iron_lir_instr_is_pure(IronLIR_InstrKind kind) {
     case IRON_LIR_MAKE_CLOSURE: case IRON_LIR_FUNC_REF:
         return true;
     /* Side-effecting — everything else */
+    /* Phase 30 OPT-03 (Plan 30-01): a gencheck "may trap" → NOT pure (it must
+     * not be reordered/eliminated by generic DCE; only the dedicated elision
+     * pass deletes it after proving redundancy). Explicit for clarity even
+     * though the default below would also classify it side-effecting. */
+    case IRON_LIR_GENCHECK:
+        return false;
     /* -Wswitch-enum opt-out: predicate lists every side-effect-free opcode;
      * all remaining opcodes (STORE, SET_*, CALL, HEAP_ALLOC, RC_ALLOC, FREE,
      * SPAWN, PARALLEL_FOR, AWAIT, terminators, PHI, POISON, sentinel) are
@@ -3177,6 +3183,9 @@ static bool rcpe_instr_is_barrier(IronLIR_Func *fn, IronLIR_Instr *in,
         case IRON_LIR_PTR_STORE:
         case IRON_LIR_PTR_OFFSET:
         case IRON_LIR_PTR_DIFF:
+        /* Phase 30 OPT-03 (Plan 30-01): a gencheck is not an rc barrier — it
+         * may trap but never frees / spawns / mutates an rc target. */
+        case IRON_LIR_GENCHECK:
         case IRON_LIR_INSTR_COUNT:
             return false;
     }

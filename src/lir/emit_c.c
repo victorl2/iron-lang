@@ -5271,6 +5271,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         break;
     }
 
+    /* Phase 30 OPT-03 (Plan 30-01): generation-check intrinsic.
+     * NEUTRAL no-op in this plan — lower_genchecks does not run yet, so zero
+     * GENCHECKs reach emit_c and behavior is byte-identical to today (checks
+     * still inline in the GET_FIELD / PTR_LOAD / PTR_STORE arms). This arm
+     * exists only to satisfy -Werror=switch-enum. Plan 30-02 replaces it with
+     * the 3-way iron_check_{heap,stack,arena}_pointer_gen expansion (routed by
+     * gencheck.gen_source) and strips the inline checks from the deref arms. */
+    case IRON_LIR_GENCHECK:
+        break;
+
     /* ── Sentinel ───────────────────────────────────────────────────────── */
 
     case IRON_LIR_INSTR_COUNT:

@@ -162,6 +162,19 @@ typedef enum {
      *   C codegen: `int64_t r = (int64_t)((p) - (q));`  (element count) */
     IRON_LIR_PTR_OFFSET,
     IRON_LIR_PTR_DIFF,
+    /* Phase 30 OPT-03 (Plan 30-01): first-class generation-check intrinsic.
+     * "May trap, otherwise no side effect, deterministic." A void-result
+     * instruction (id == IRON_LIR_VALUE_INVALID, like RC_RETAIN/RC_RELEASE)
+     * inserted before each deref of a checked *T. A SURVIVING gencheck expands
+     * (late in emit_c, Plan 30-02) to the byte-identical 3-way
+     * iron_check_{heap,stack,arena}_pointer_gen string the inline path emits
+     * today; the elision pass (Plan 30-03) DELETES provably-redundant ones.
+     * In THIS plan (30-01) the opcode merely exists + compiles; lower_genchecks
+     * does not yet run, so zero GENCHECKs are produced and behavior is
+     * byte-identical to today. New opcode (not a flag on PTR_LOAD/PTR_STORE) so
+     * stock CSE/LICM/DCE can pattern-match it and so the check can move
+     * independently of the load (LICM hoists the check, not the deref). */
+    IRON_LIR_GENCHECK,
 
     IRON_LIR_INSTR_COUNT
 } IronLIR_InstrKind;
@@ -448,6 +461,21 @@ struct IronLIR_Instr {
             IronLIR_ValueId b;         /* *unchecked T (same pointee as a) */
             size_t          elem_size; /* sizeof(T) for verifier/optimizer */
         } ptr_diff;
+
+        /* IRON_LIR_GENCHECK — Phase 30 OPT-03 (Plan 30-01).
+         * "May trap, otherwise no side effect, deterministic." Void-result
+         * (id == IRON_LIR_VALUE_INVALID). emit_c expands a SURVIVING gencheck
+         * to the 3-way iron_check_{heap,stack,arena}_pointer_gen string
+         * (byte-identical to the pre-refactor inline check); the elision pass
+         * DELETES provably-redundant ones. The elision relation (OQ-08) is
+         * keyed on `root_alloc` (the canonicalized outermost-allocation SSA
+         * value) + `gen_source`, NOT on `ptr` identity. Mirrors ptr_load/
+         * addr_of payload shape (lir.h ~:410-431). */
+        struct {
+            IronLIR_ValueId    ptr;         /* fat-ptr value whose .addr/.gen is checked */
+            IronLIR_ValueId    root_alloc;  /* canonicalized outermost-allocation SSA (OQ-08 keying) */
+            IronLIR_GenSource gen_source;  /* HEAP / STACK / ARENA → 3-way expansion routing */
+        } gencheck;
     };
 };
 
@@ -781,6 +809,15 @@ IronLIR_Instr *iron_lir_ptr_diff(IronLIR_Func *fn, IronLIR_Block *block,
                                  IronLIR_ValueId a, IronLIR_ValueId b,
                                  size_t elem_size,
                                  Iron_Type *result_type, Iron_Span span);
+
+/* Phase 30 OPT-03 (Plan 30-01): generation-check intrinsic constructor.
+ * Void-result (id == IRON_LIR_VALUE_INVALID), like iron_lir_rc_retain/release.
+ * `root_alloc` is the canonicalized outermost-allocation SSA value (OQ-08
+ * keying); `gen_source` is copied from the deref instruction so the late
+ * emit_c expansion (Plan 30-02) is byte-identical to today's inline check. */
+IronLIR_Instr *iron_lir_gencheck(IronLIR_Func *fn, IronLIR_Block *block,
+                                 IronLIR_ValueId ptr, IronLIR_ValueId root_alloc,
+                                 IronLIR_GenSource gen_source, Iron_Span span);
 
 /* Phi manipulation */
 void iron_lir_phi_add_incoming(IronLIR_Instr *phi, IronLIR_ValueId value,

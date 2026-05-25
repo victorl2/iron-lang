@@ -277,6 +277,14 @@ static void collect_operands(const IronLIR_Instr *instr,
         PUSH(instr->ptr_diff.b);
         break;
 
+    /* Phase 30 OPT-03 (Plan 30-01): gencheck consumes the checked fat-ptr and
+     * its canonicalized root-allocation SSA value; both must read as used so
+     * the verifier's def/use accounting (and any DCE) keeps them live. */
+    case IRON_LIR_GENCHECK:
+        PUSH(instr->gencheck.ptr);
+        PUSH(instr->gencheck.root_alloc);
+        break;
+
     /* -Wswitch-enum opt-out: collect_operands enumerates every opcode that
      * consumes a typed value operand; opcodes whose data lives entirely in
      * the arena-allocated per-op union (and the IRON_LIR_INSTR_COUNT

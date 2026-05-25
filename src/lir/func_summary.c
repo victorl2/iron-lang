@@ -181,6 +181,10 @@ static void seed_func(IronLIR_Func *fn, IronLIR_FuncSummary *out) {
                 case IRON_LIR_PTR_STORE:
                 case IRON_LIR_PTR_OFFSET:
                 case IRON_LIR_PTR_DIFF:
+                /* Phase 30 OPT-03 (Plan 30-01): a gencheck is may-trap but NOT
+                 * may-free / may-spawn / escapes-rc-args — it sets no summary
+                 * bit. Neutral. */
+                case IRON_LIR_GENCHECK:
                 case IRON_LIR_INSTR_COUNT:
                     break;
             }
