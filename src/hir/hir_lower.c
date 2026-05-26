@@ -1885,6 +1885,27 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                 break;
             }
 
+            /* Phase 33 STDLIB-07/08/09 (Plan 33-05): the nocopy resource-type
+             * surfaces (mutex/rwlock/channel/filehandle.iron) are by-name
+             * compiler builtins exactly like Box above — their empty-body
+             * `func Mutex.new[T] / lock[T] / Channel.send[T] / ...` stubs would
+             * otherwise lower to broken foreign C prototypes (`void value`
+             * params from method-level `T`) and collide with the pre-existing
+             * runtime Iron_Mutex / Iron_Channel typedefs + Iron_channel_send/recv
+             * symbols, breaking EVERY compilation (these surfaces are always
+             * prepended). Skip lowering them; real dispatch + emit_ensure_*
+             * codegen is the positive-path follow-up. */
+            if (md->type_name &&
+                (strcmp(md->type_name, "Mutex") == 0 ||
+                 strcmp(md->type_name, "MutexGuard") == 0 ||
+                 strcmp(md->type_name, "RWLock") == 0 ||
+                 strcmp(md->type_name, "RWReadGuard") == 0 ||
+                 strcmp(md->type_name, "RWWriteGuard") == 0 ||
+                 strcmp(md->type_name, "Channel") == 0 ||
+                 strcmp(md->type_name, "FileHandle") == 0)) {
+                break;
+            }
+
             /* Build mangled name: typeName_methodName (lowercase type name
              * to match Iron's C convention: Iron_io_read_file, not Iron_IO_read_file) */
             char mangled[256];

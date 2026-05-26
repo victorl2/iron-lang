@@ -64,7 +64,21 @@ static bool ir_is_runtime_provided_type(const char *name) {
     if (!name) return false;
     return strcmp(name, "Arena")     == 0 ||
            strcmp(name, "ArenaSave") == 0 ||
-           strcmp(name, "Box")       == 0;
+           strcmp(name, "Box")       == 0 ||
+           /* Phase 33 STDLIB-07/08/09 (Plan 33-05): the nocopy resource-type
+            * surfaces are Iron-side stand-ins. Mutex / Channel collide with the
+            * runtime-owned Iron_Mutex / Iron_Channel typedefs in iron_runtime.h;
+            * RWLock + the *Guard surfaces have no plain C struct (their real
+            * storage is emit_ensure_*-synthesized on the positive path). Skip
+            * the forward decl + struct body for all of them so the always-
+            * prepended surfaces never break a compilation. */
+           strcmp(name, "Mutex")        == 0 ||
+           strcmp(name, "MutexGuard")   == 0 ||
+           strcmp(name, "RWLock")       == 0 ||
+           strcmp(name, "RWReadGuard")  == 0 ||
+           strcmp(name, "RWWriteGuard") == 0 ||
+           strcmp(name, "Channel")      == 0 ||
+           strcmp(name, "FileHandle")   == 0;
 }
 
 /* Find object type_decl index by type name */
