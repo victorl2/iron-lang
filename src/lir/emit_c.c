@@ -511,6 +511,14 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         }
         bool obj_is_fat_ptr = emit_val_is_any_fat_ptr(fn, instr->field.object);
         bool obj_is_ptr = !obj_is_fat_ptr && emit_val_is_heap_ptr(fn, instr->field.object);
+        /* Phase 33 OQ-02 (Plan 33-07): field access through a `*unchecked T`
+         * value (e.g. `Box.unwrap()` result `s.a`) lowers to bare C `T*` (8B),
+         * so the field reference must use `->`, not `.`. */
+        if (!obj_is_fat_ptr && !obj_is_ptr) {
+            Iron_Type *fo_t = emit_get_value_type(fn, instr->field.object);
+            if (fo_t && fo_t->kind == IRON_TYPE_PTR && fo_t->ptr.is_unchecked)
+                obj_is_ptr = true;
+        }
         if (obj_is_fat_ptr) {
             /* Phase 21 Pitfall 1: heap binding OR addr-of result is Iron_FatPtr;
              * must cast .addr to reach the pointee fields. Works for both

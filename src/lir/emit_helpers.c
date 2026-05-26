@@ -164,6 +164,29 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
         case IRON_TYPE_ERROR:   return "int";
 
         case IRON_TYPE_OBJECT:
+            /* Phase 33 OQ-02 (Plan 33-07): the builtin generic object Box[T]
+             * has no plain C struct — it lowers to the per-T synthesized
+             * Iron_Box_<elemC> typedef (emit_ensure_box). object.elem carries
+             * the concrete element from the by-name Box dispatch in
+             * typecheck.c. Trigger synthesis here so the typedef + helpers are
+             * available wherever a Box value type appears, then return the
+             * mangled name (identical formula to emit_ensure_box). */
+            if (t->object.decl && t->object.decl->name &&
+                strcmp(t->object.decl->name, "Box") == 0 && t->object.elem) {
+                emit_ensure_box(ctx, t->object.elem);
+                const char *elem_c = emit_type_to_c(t->object.elem, ctx);
+                Iron_StrBuf sb = iron_strbuf_create(64);
+                iron_strbuf_appendf(&sb, "Iron_Box_");
+                for (const char *p = elem_c; *p; p++) {
+                    if (*p == ' ' || *p == '*') iron_strbuf_appendf(&sb, "_");
+                    else { char ch[2] = { *p, '\0' }; iron_strbuf_appendf(&sb, "%s", ch); }
+                }
+                const char *result = iron_arena_strdup(ctx->arena,
+                                                        iron_strbuf_get(&sb), sb.len);
+                iron_strbuf_free(&sb);
+                if (!result) iron_oom_abort("emit_helpers.c:emit_type_to_c Box");
+                return result;
+            }
             return emit_object_type_name(t->object.decl->name, ctx);
 
         case IRON_TYPE_ENUM:
@@ -476,7 +499,10 @@ void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
         "}\n"
         "static %s *%s_unwrap(%s *box) {\n"
         "    /* Pitfall 5: returns bare T* (8B), NOT Iron_FatPtr (16B) */\n"
-        "    if (!box || !box->inner.addr) { iron_panic(\"null Box\", \"<box>\", 0); }\n"
+        "    if (!box || !box->inner.addr) {\n"
+        "        fprintf(stderr, \"iron: panic: unwrap() on null Box\\n\");\n"
+        "        abort();\n"
+        "    }\n"
         "    return (%s *)box->inner.addr;\n"
         "}\n"
         "static bool %s_is_null(const %s *box) {\n"

@@ -12,7 +12,7 @@ object Sample {
 }
 
 func main() {
-    var boxed = Box.new(Sample(a: 7, b: 35))
+    var boxed = Box.new(Sample(7, 35))
     val nul: Bool = boxed.is_null()
     println("is_null: {nul}")
     val s: *unchecked Sample = boxed.unwrap()

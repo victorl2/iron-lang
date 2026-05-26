@@ -65,6 +65,16 @@ typedef struct Iron_Type {
         /* IRON_TYPE_OBJECT */
         struct {
             struct Iron_ObjectDecl    *decl;
+            /* Phase 33 OQ-02 (Plan 33-07): Box[T] element type. Set ONLY for
+             * the builtin generic object `Box` by the by-name Box dispatch in
+             * typecheck.c (Box.new / Box.null). NULL for every other object
+             * type — arena-zeroed, so the 126 pre-existing `object.decl`-only
+             * sites are unaffected. Carries the concrete element through to
+             * `boxed.unwrap()` (which returns `*unchecked elem`) and to
+             * emit_ensure_box at codegen. Box has no general object-monomorph
+             * machinery (only enums carry enu.type_args), so this single-arg
+             * side channel is the narrowest Box-specific representation. */
+            struct Iron_Type          *elem;
         } object;
 
         /* IRON_TYPE_INTERFACE */

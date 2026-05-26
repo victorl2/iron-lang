@@ -108,6 +108,8 @@ typedef struct {
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
 static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr);
+static const char *emit_type_to_c_name_for_box(HIR_to_LIR_Ctx *ctx,
+                                                const Iron_Type *elem);
 static void lower_block_stmts(HIR_to_LIR_Ctx *ctx, IronHIR_Block *block);
 static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt);
 static void ssa_construct_func(IronLIR_Func *fn);
@@ -252,6 +254,31 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
         if (entry->object_type->kind != IRON_TYPE_OBJECT) continue;
         struct Iron_ObjectDecl *od = entry->object_type->object.decl;
         if (!od) continue;
+
+        /* Phase 33 OQ-02 (Plan 33-07): a Box[T] binding's scope-exit drop runs
+         * the per-T synthesized free helper Iron_Box_<elemC>_free (NOT the
+         * generic box.iron drop stub, which is never lowered). The element type
+         * is carried on object.elem by the by-name Box dispatch. */
+        if (od->name && strcmp(od->name, "Box") == 0 &&
+            entry->object_type->object.elem) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block))
+                continue;
+            const char *box_prefix = emit_type_to_c_name_for_box(ctx,
+                entry->object_type->object.elem);
+            if (!box_prefix) continue;
+            size_t flen = strlen(box_prefix) + 6; /* "_free" + NUL */
+            char *free_name = (char *)iron_arena_alloc(ctx->lir_arena, flen, 1);
+            if (!free_name) continue;
+            snprintf(free_name, flen, "%s_free", box_prefix);
+            IronLIR_Instr *bfref = iron_lir_func_ref(ctx->current_func,
+                ctx->current_block, free_name, NULL, span);
+            if (!bfref) continue;
+            IronLIR_ValueId bargs[1] = { entry->alloca_id };
+            IronLIR_Instr *bcall = iron_lir_call(ctx->current_func,
+                ctx->current_block, NULL, bfref->id, bargs, 1, NULL, span);
+            if (bcall) bcall->call.self_by_addr = true;
+            continue;
+        }
 
         /* Find the drop method's LIR mangled name */
         const char *type_name = od->name;
@@ -1076,6 +1103,77 @@ static IronLIR_ValueId lower_short_circuit_or(HIR_to_LIR_Ctx *ctx,
 
 /* ── Pass 1: Expression lowering ─────────────────────────────────────────── */
 
+/* Phase 33 OQ-02 (Plan 33-07): build the `Iron_Box_<elemC>` mangled prefix for
+ * a Box element type, matching emit_type_to_c (emit_helpers.c) + emit_ensure_box
+ * EXACTLY so the LIR-time call name equals the emit-time synthesized helper +
+ * typedef name. Box elements are realistically primitives or named
+ * object/enum/interface types. The element-C mapping below mirrors
+ * emit_type_to_c's primitive arms and emit_object_type_name's `Iron_<name>`
+ * mangle; the space/`*`-escaping loop mirrors emit_ensure_box's name builder. */
+static const char *emit_type_to_c_name_for_box(HIR_to_LIR_Ctx *ctx,
+                                                const Iron_Type *elem) {
+    if (!elem) return NULL;
+    const char *elem_c = NULL;
+    char obj_buf[256];
+    switch ((int)elem->kind) {
+        case IRON_TYPE_INT:     elem_c = "int64_t";     break;
+        case IRON_TYPE_INT8:    elem_c = "int8_t";      break;
+        case IRON_TYPE_INT16:   elem_c = "int16_t";     break;
+        case IRON_TYPE_INT32:   elem_c = "int32_t";     break;
+        case IRON_TYPE_INT64:   elem_c = "int64_t";     break;
+        case IRON_TYPE_UINT:    elem_c = "uint64_t";    break;
+        case IRON_TYPE_UINT8:   elem_c = "uint8_t";     break;
+        case IRON_TYPE_UINT16:  elem_c = "uint16_t";    break;
+        case IRON_TYPE_UINT32:  elem_c = "uint32_t";    break;
+        case IRON_TYPE_UINT64:  elem_c = "uint64_t";    break;
+        case IRON_TYPE_FLOAT:   elem_c = "double";      break;
+        case IRON_TYPE_FLOAT32: elem_c = "float";       break;
+        case IRON_TYPE_FLOAT64: elem_c = "double";      break;
+        case IRON_TYPE_BOOL:    elem_c = "bool";        break;
+        case IRON_TYPE_STRING:  elem_c = "Iron_String"; break;
+        case IRON_TYPE_OBJECT:
+            if (elem->object.decl && elem->object.decl->name) {
+                snprintf(obj_buf, sizeof(obj_buf), "Iron_%s",
+                         elem->object.decl->name);
+                elem_c = obj_buf;
+            }
+            break;
+        case IRON_TYPE_ENUM:
+            if (elem->enu.mangled_name) elem_c = elem->enu.mangled_name;
+            else if (elem->enu.decl && elem->enu.decl->name) {
+                snprintf(obj_buf, sizeof(obj_buf), "Iron_%s",
+                         elem->enu.decl->name);
+                elem_c = obj_buf;
+            }
+            break;
+        case IRON_TYPE_INTERFACE:
+            if (elem->interface.decl && elem->interface.decl->name) {
+                snprintf(obj_buf, sizeof(obj_buf), "Iron_%s",
+                         elem->interface.decl->name);
+                elem_c = obj_buf;
+            }
+            break;
+        /* -Wswitch-enum opt-out: composite/meta element kinds are not
+         * supported as Box elements yet; return NULL so the caller falls
+         * back to the generic method path. */
+        default: break;
+    }
+    if (!elem_c) return NULL;
+    /* Build "Iron_Box_<escaped elem_c>" with space/`*` escaped to `_`
+     * (identical formula to emit_ensure_box). */
+    const char prefix[] = "Iron_Box_";
+    size_t plen = sizeof(prefix) - 1;
+    size_t elen = strlen(elem_c);
+    char *buf = (char *)iron_arena_alloc(ctx->lir_arena, plen + elen + 1, 1);
+    if (!buf) iron_oom_abort("hir_to_lir.c:emit_type_to_c_name_for_box");
+    memcpy(buf, prefix, plen);
+    size_t w = plen;
+    for (const char *p = elem_c; *p; p++)
+        buf[w++] = (*p == ' ' || *p == '*') ? '_' : *p;
+    buf[w] = '\0';
+    return buf;
+}
+
 static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     if (!expr) return IRON_LIR_VALUE_INVALID;
     if (!ctx->current_block) return IRON_LIR_VALUE_INVALID; /* dead code after return */
@@ -1285,6 +1383,85 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                     ctx->current_func, ctx->current_block,
                     a_v, b_v, 0, type, span);
                 return di->id;
+            }
+        }
+
+        /* Phase 33 OQ-02 (Plan 33-07): Box CONSTRUCTOR lowering — `Box.new(v)`
+         * / `Box.null()`. The object is FUNC_REF("Box"). Lowers to a CALL to
+         * the per-T synthesized helper Iron_Box_<elemC>_{new,null_val}; the
+         * result `type` is the Box object type (object.elem set), so the CALL
+         * result renders via emit_type_to_c -> emit_ensure_box (typedef +
+         * helpers). Mirrors the Ptr.offset/diff builtin shape above. */
+        if (expr->method_call.object &&
+            expr->method_call.object->kind == IRON_HIR_EXPR_FUNC_REF &&
+            expr->method_call.object->func_ref.func_name &&
+            strcmp(expr->method_call.object->func_ref.func_name, "Box") == 0 &&
+            expr->method_call.method && type &&
+            type->kind == IRON_TYPE_OBJECT && type->object.elem) {
+            const char *elem_c = emit_type_to_c_name_for_box(ctx, type->object.elem);
+            const char *suffix = NULL;
+            if (strcmp(expr->method_call.method, "new") == 0)  suffix = "new";
+            else if (strcmp(expr->method_call.method, "null") == 0) suffix = "null_val";
+            if (suffix && elem_c) {
+                size_t nlen = strlen(elem_c) + strlen(suffix) + 2;
+                char *fname = (char *)iron_arena_alloc(ctx->lir_arena, nlen, 1);
+                if (!fname) iron_oom_abort("hir_to_lir.c:box_ctor_name");
+                snprintf(fname, nlen, "%s_%s", elem_c, suffix);
+                IronLIR_ValueId *bargs = NULL;
+                for (int i = 0; i < expr->method_call.arg_count; i++) {
+                    IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+                    arrput(bargs, av);
+                }
+                int bargc = (int)arrlen(bargs);
+                IronLIR_Instr *bref = iron_lir_func_ref(ctx->current_func,
+                    ctx->current_block, fname, NULL, span);
+                IronLIR_Instr *bcall = iron_lir_call(ctx->current_func,
+                    ctx->current_block, NULL, bref->id, bargs, bargc, type, span);
+                arrfree(bargs);
+                return bcall->id;
+            }
+        }
+
+        /* Phase 33 OQ-02 (Plan 33-07): Box RECEIVER-form lowering —
+         * `boxed.unwrap()` / `boxed.is_null()` / `boxed.free()`. The receiver
+         * resolves to the Box object type (object.elem set). Lowers to a CALL
+         * to Iron_Box_<elemC>_{unwrap,is_null,free} passing &box (self_by_addr,
+         * matching the collection-method ABI: helpers take Box* / const Box*). */
+        if (expr->method_call.object && expr->method_call.object->type &&
+            expr->method_call.object->type->kind == IRON_TYPE_OBJECT &&
+            expr->method_call.object->type->object.decl &&
+            expr->method_call.object->type->object.decl->name &&
+            strcmp(expr->method_call.object->type->object.decl->name, "Box") == 0 &&
+            expr->method_call.object->type->object.elem &&
+            expr->method_call.method) {
+            const char *m = expr->method_call.method;
+            bool b_unwrap = strcmp(m, "unwrap")  == 0;
+            bool b_isnull = strcmp(m, "is_null") == 0;
+            bool b_free   = strcmp(m, "free")    == 0;
+            if (b_unwrap || b_isnull || b_free) {
+                const char *elem_c = emit_type_to_c_name_for_box(ctx,
+                    expr->method_call.object->type->object.elem);
+                const char *suffix = b_unwrap ? "unwrap"
+                                   : b_isnull ? "is_null" : "free";
+                if (elem_c) {
+                    size_t nlen = strlen(elem_c) + strlen(suffix) + 2;
+                    char *fname = (char *)iron_arena_alloc(ctx->lir_arena, nlen, 1);
+                    if (!fname) iron_oom_abort("hir_to_lir.c:box_recv_name");
+                    snprintf(fname, nlen, "%s_%s", elem_c, suffix);
+                    IronLIR_ValueId self_val =
+                        lower_expr(ctx, expr->method_call.object);
+                    IronLIR_ValueId *bargs = NULL;
+                    arrput(bargs, self_val);
+                    int bargc = (int)arrlen(bargs);
+                    IronLIR_Instr *bref = iron_lir_func_ref(ctx->current_func,
+                        ctx->current_block, fname, NULL, span);
+                    IronLIR_Instr *bcall = iron_lir_call(ctx->current_func,
+                        ctx->current_block, NULL, bref->id, bargs, bargc,
+                        type, span);
+                    bcall->call.self_by_addr = true;  /* helpers take Box* */
+                    arrfree(bargs);
+                    return bcall->id;
+                }
             }
         }
 

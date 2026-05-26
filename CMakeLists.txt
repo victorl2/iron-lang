@@ -2089,15 +2089,25 @@ if(NOT WIN32)
     set_tests_properties(v4_7.5-stdlib_map_hashable_ok PROPERTIES
         LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 30)
 
+    # ── POSITIVE BUILD+RUN row: box_roundtrip (OQ-02 GREEN, Plan 33-07) ──
+    # The load-bearing Box[T] end-to-end acceptance row. Box.new / boxed.unwrap /
+    # boxed.is_null / synthesized scope-exit drop now dispatch by-name (Plan
+    # 33-07 LAYER 2: typecheck.c Box constructor + receiver interception ->
+    # object.elem channel; hir_to_lir.c Iron_Box_<T>_{new,unwrap,is_null,free}
+    # call lowering; emit_helpers.c Box typedef synthesis; emit_c.c
+    # *unchecked-T field-access `->`). Byte-exact stdout vs .expected. This is
+    # NOT WILL_FAIL — it runs and must pass on a clang host.
+    add_test(
+        NAME v4_7.5-stdlib_box_roundtrip
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/box_roundtrip\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/box_roundtrip.iron && actual=\$(\"\$d/box_roundtrip\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/box_roundtrip.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7.5-stdlib_box_roundtrip PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 60)
+
     # ── BUILD+RUN rows (byte-exact stdout; WILL_FAIL — need clang host) ──
     # Each flips GREEN on a clang host once its wave lands.
-    # box_roundtrip is the load-bearing Box[T] end-to-end acceptance row (OQ-02).
-    # box.iron now PARSES clean (Plan 33-01 Task 2), but Box.new/unwrap/is_null
-    # by-name dispatch is NOT yet wired (the generic stdlib-method return types
-    # resolve to <error>; see deferred-items.md [33-01]). Stays WILL_FAIL until
-    # the follow-up Box by-name compiler-builtin interception lands.
     set(_PHASE_33_BUILDRUN_FIXTURES
-        box_roundtrip          # STDLIB-05 / OQ-02 (Box by-name dispatch follow-up)
         list_drop_filehandle   # STDLIB-02 + STDLIB-09 (Wave 4 + 5)
         list_copy_elements     # STDLIB-02 (Wave 4)
         set_basic              # STDLIB-04 (Wave 2 + 4)

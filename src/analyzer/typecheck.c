@@ -3149,6 +3149,83 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     mc->resolved_type = result;
                     break;
                 }
+
+                /* Phase 33 OQ-02 (Plan 33-07): Box CONSTRUCTOR by-name dispatch
+                 * — `Box.new(value)` and `Box.null[T]()`. Mirrors the Ptr.*
+                 * builtin path above (RESEARCH Pattern 3 / deferred-items
+                 * Option B): intercept BEFORE check_expr(mc->object) so the
+                 * uppercase ident "Box" is never symbol-looked-up (no spurious
+                 * E0200) and the result type `Box[elem]` is synthesized WITHOUT
+                 * going through generic signature monomorphization (which would
+                 * re-resolve box.iron's `value: T` annotation and re-fire E0202).
+                 * The element type is carried on Iron_Type.object.elem. */
+                bool is_box_ns = obj_id_ptr->name &&
+                                 strcmp(obj_id_ptr->name, "Box") == 0;
+                if (is_box_ns && strcmp(mc->method, "new") == 0) {
+                    /* Box.new(value: T) -> Box[T]. The element type is the
+                     * type of the single argument. */
+                    if (mc->arg_count != 1) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "Box.new expects 1 argument (value), got %d",
+                                 mc->arg_count);
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        for (int i = 0; i < mc->arg_count; i++)
+                            check_expr(ctx, mc->args[i]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    Iron_Type *elem_t = check_expr(ctx, mc->args[0]);
+                    if (!elem_t || elem_t->kind == IRON_TYPE_ERROR) {
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    Iron_Symbol *box_sym =
+                        iron_scope_lookup(ctx->global_scope, "Box");
+                    Iron_Type *box_t = (box_sym && box_sym->type &&
+                                        box_sym->type->kind == IRON_TYPE_OBJECT)
+                        ? iron_type_make_object(ctx->arena,
+                                                box_sym->type->object.decl)
+                        : iron_type_make_object(ctx->arena, NULL);
+                    if (!box_t) box_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    if (box_t->kind == IRON_TYPE_OBJECT) box_t->object.elem = elem_t;
+                    result = box_t;
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (is_box_ns && strcmp(mc->method, "null") == 0) {
+                    /* Box.null() -> Box[T]. The bare receiver-method shape
+                     * carries no call-site element type, so the Box is left
+                     * elem-less; the binding-site annotation (e.g.
+                     * `val b: Box[Sample] = Box.null()`) is the channel that
+                     * supplies the concrete element. With no annotation the
+                     * elem stays NULL and unwrap() would surface an error. */
+                    if (mc->arg_count != 0) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "Box.null takes no arguments, got %d",
+                                 mc->arg_count);
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        for (int i = 0; i < mc->arg_count; i++)
+                            check_expr(ctx, mc->args[i]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    Iron_Symbol *box_sym =
+                        iron_scope_lookup(ctx->global_scope, "Box");
+                    Iron_Type *box_t = (box_sym && box_sym->type &&
+                                        box_sym->type->kind == IRON_TYPE_OBJECT)
+                        ? iron_type_make_object(ctx->arena,
+                                                box_sym->type->object.decl)
+                        : iron_type_make_object(ctx->arena, NULL);
+                    if (!box_t) box_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    result = box_t;
+                    mc->resolved_type = result;
+                    break;
+                }
             }
 
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
@@ -3257,6 +3334,68 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 obj_type_mc->ptr.pointee->kind != IRON_TYPE_PTR) {
                 obj_type_mc = obj_type_mc->ptr.pointee;
                 mc->is_auto_deref = true;
+            }
+
+            /* Phase 33 OQ-02 (Plan 33-07): Box RECEIVER-form by-name dispatch
+             * — `boxed.unwrap()` / `boxed.is_null()` / `boxed.free()`. The
+             * receiver `boxed` resolves to the builtin `Box` object type whose
+             * element was stashed on object.elem by Box.new/Box.null above.
+             * Placed AFTER auto-deref so a `*Box[T]` receiver folds to the Box
+             * object, and BEFORE the user-method-table lookup so the builtin
+             * dispatch wins (box.iron's Box.* stubs are never lowered — see
+             * hir_lower.c skip + emit_ensure_box synthesis). Result types:
+             *   unwrap  -> *unchecked elem   (bare T*, escapes the Box)
+             *   is_null -> Bool
+             *   free    -> Void              (drops the heap allocation) */
+            if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_OBJECT &&
+                obj_type_mc->object.decl &&
+                obj_type_mc->object.decl->name &&
+                strcmp(obj_type_mc->object.decl->name, "Box") == 0 &&
+                mc->method) {
+                bool box_unwrap  = strcmp(mc->method, "unwrap")  == 0;
+                bool box_is_null = strcmp(mc->method, "is_null") == 0;
+                bool box_free    = strcmp(mc->method, "free")    == 0;
+                if (box_unwrap || box_is_null || box_free) {
+                    if (mc->arg_count != 0) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "Box.%s takes no arguments, got %d",
+                                 mc->method, mc->arg_count);
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (box_unwrap) {
+                        Iron_Type *elem_t = obj_type_mc->object.elem;
+                        if (!elem_t) {
+                            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->span,
+                                       "cannot infer Box element type for "
+                                       "unwrap(); annotate the Box binding "
+                                       "(e.g. `val b: Box[T] = ...`)",
+                                       NULL);
+                            result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                            mc->resolved_type = result;
+                            break;
+                        }
+                        /* Box.unwrap() -> *unchecked elem (bare T*, 8B). */
+                        Iron_Type *out = iron_type_make_ptr(ctx->arena, elem_t,
+                                                            false, true);
+                        result = out ? out
+                            : iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (box_is_null) {
+                        result = iron_type_make_primitive(IRON_TYPE_BOOL);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    /* box_free */
+                    result = iron_type_make_primitive(IRON_TYPE_VOID);
+                    mc->resolved_type = result;
+                    break;
+                }
             }
 
             /* Phase 85 INIT-09 E0249 + INIT-14 E0251: inside an init body,
