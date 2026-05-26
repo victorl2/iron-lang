@@ -40,7 +40,7 @@ patch object Square {
 }
 
 func main() {
-    var shapes = [Circle(2), Square(3)]
+    val shapes = [Circle(2), Square(3)]
     for shape in shapes {
         println("area: {shape.area()}")
     }

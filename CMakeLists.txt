@@ -2105,13 +2105,30 @@ if(NOT WIN32)
     set_tests_properties(v4_7.5-stdlib_box_roundtrip PROPERTIES
         LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 60)
 
+    # ── POSITIVE BUILD+RUN row: list_shape_dispatch (OQ-06 GREEN, Plan 33-03) ──
+    # The OQ-06 acceptance row. A List[Shape] holding Circle(2)+Square(3)
+    # dispatches Shape.area() per element through the EXISTING tagged-union
+    # Iron_<iface>_<method>(self){ switch(self.tag) } mechanism (emit_c.c) with
+    # element storage via the EXISTING Iron_SplitList_<Iface> (emit_split.c) —
+    # no new vtable struct. The codegen blocker that previously gated this
+    # (Arena/Box typedef collision) was resolved in Plan 33-07; element method
+    # dispatch is verified-reused. Byte-exact stdout vs .expected. NOT WILL_FAIL —
+    # it runs and must pass on a clang host. Per-element interface drop INVOCATION
+    # on container drop is owned by Plan 33-04 (Wave 3, depends_on 33-03).
+    add_test(
+        NAME v4_7.5-stdlib_list_shape_dispatch
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/list_shape_dispatch\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/list_shape_dispatch.iron && actual=\$(\"\$d/list_shape_dispatch\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/list_shape_dispatch.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7.5-stdlib_list_shape_dispatch PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 60)
+
     # ── BUILD+RUN rows (byte-exact stdout; WILL_FAIL — need clang host) ──
     # Each flips GREEN on a clang host once its wave lands.
     set(_PHASE_33_BUILDRUN_FIXTURES
         list_drop_filehandle   # STDLIB-02 + STDLIB-09 (Wave 4 + 5)
         list_copy_elements     # STDLIB-02 (Wave 4)
         set_basic              # STDLIB-04 (Wave 2 + 4)
-        list_shape_dispatch    # OQ-06 (Wave 3)
         mutex_guard            # STDLIB-07 (Wave 5)
         channel_bounded        # STDLIB-08 (Wave 5)
         filehandle_drop        # STDLIB-09 (Wave 5)
