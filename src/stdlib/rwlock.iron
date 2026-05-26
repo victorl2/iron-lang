@@ -1,0 +1,49 @@
+-- rwlock.iron -- RWLock[T]: nocopy reader-writer lock wrapping a value of type T.
+-- Phase 33 STDLIB-07 (Plan 33-05): Iron-side declaration surface for RWLock[T].
+--
+-- Actual implementations are provided by the C runtime (emit_ensure_rwlock synthesis
+-- in src/lir/emit_helpers.c) over the IRON_RWLOCK_* macros (POSIX pthread_rwlock_t,
+-- Win32 SRWLOCK). The compiler recognizes RWLock.new / l.read / l.write by name and
+-- intercepts them in typecheck.c (by-name dispatch, Box[T] precedent — Plan 33-07).
+--
+-- RWLock[T] is nocopy (Phase 24 substrate): copying a RWLock[T] binding is a compile
+-- error (E0286). read()/write() return scoped guards whose drop releases the lock on
+-- scope exit (Phase 32 defer/scope-exit drop, DEFER-04). A read guard exposes get();
+-- a write guard exposes get()/set(v).
+
+nocopy object RWLock[T] {
+    val inner: Int  -- opaque storage; emit_ensure_rwlock synthesizes Iron_RWLock_<T>
+
+    drop {
+        -- Synthesized: Iron_RWLock_<T>_destroy at scope exit.
+    }
+}
+
+nocopy object RWReadGuard[T] {
+    val inner: Int  -- back-pointer to the owning RWLock_<T>
+
+    drop {
+        -- Synthesized: Iron_RWLock_<T>_rdunlock (release shared lock) at scope exit.
+    }
+}
+
+nocopy object RWWriteGuard[T] {
+    val inner: Int  -- back-pointer to the owning RWLock_<T>
+
+    drop {
+        -- Synthesized: Iron_RWLock_<T>_wrunlock (release exclusive lock) at scope exit.
+    }
+}
+
+-- RWLock.new(value: T) -> RWLock[T]
+func RWLock.new[T](value: T) -> RWLock[T] {}
+
+-- l.read() -> RWReadGuard[T]   (receiver-form): acquires the shared (read) lock.
+func RWLock.read[T]() -> RWReadGuard[T] {}
+
+-- l.write() -> RWWriteGuard[T] (receiver-form): acquires the exclusive (write) lock.
+func RWLock.write[T]() -> RWWriteGuard[T] {}
+
+func RWReadGuard.get[T]() -> T {}
+func RWWriteGuard.get[T]() -> T {}
+func RWWriteGuard.set[T](value: T) {}

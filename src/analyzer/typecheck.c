@@ -3226,6 +3226,64 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     mc->resolved_type = result;
                     break;
                 }
+
+                /* Phase 33 STDLIB-07/08/09 (Plan 33-05): nocopy resource-type
+                 * CONSTRUCTOR by-name dispatch — Mutex.new / RWLock.new /
+                 * Channel.new / FileHandle.open. Mirrors the Box constructor
+                 * dispatch above (RESEARCH Pattern 3 / Box[T] precedent): the
+                 * uppercase namespace ident is never symbol-looked-up, the
+                 * arguments are still type-checked, and the result is the
+                 * synthesized nocopy object type (with object.elem set for the
+                 * generic ones so the receiver-form methods + emit synthesis
+                 * can recover the element type). Because the result object's
+                 * decl->is_nocopy is true, `var b = a` then trips E0286 at the
+                 * VAL_DECL nocopy-copy guard below. */
+                {
+                    struct { const char *ns; const char *method; bool generic; }
+                        ctors[] = {
+                            { "Mutex",      "new",  true  },
+                            { "RWLock",     "new",  true  },
+                            { "Channel",    "new",  true  },
+                            { "FileHandle", "open", false },
+                        };
+                    for (size_t ci = 0;
+                         ci < sizeof(ctors) / sizeof(ctors[0]); ci++) {
+                        if (!obj_id_ptr->name ||
+                            strcmp(obj_id_ptr->name, ctors[ci].ns) != 0 ||
+                            strcmp(mc->method, ctors[ci].method) != 0)
+                            continue;
+                        /* Type-check the argument(s) (value/capacity/path). The
+                         * element type is the first arg for the generic ctors. */
+                        Iron_Type *arg0_t = NULL;
+                        for (int ai = 0; ai < mc->arg_count; ai++) {
+                            Iron_Type *t = check_expr(ctx, mc->args[ai]);
+                            if (ai == 0) arg0_t = t;
+                        }
+                        Iron_Symbol *sym =
+                            iron_scope_lookup(ctx->global_scope, ctors[ci].ns);
+                        Iron_Type *obj_t = (sym && sym->type &&
+                                            sym->type->kind == IRON_TYPE_OBJECT)
+                            ? iron_type_make_object(ctx->arena,
+                                                    sym->type->object.decl)
+                            : iron_type_make_object(ctx->arena, NULL);
+                        if (!obj_t)
+                            obj_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        if (obj_t->kind == IRON_TYPE_OBJECT &&
+                            ctors[ci].generic && arg0_t &&
+                            arg0_t->kind != IRON_TYPE_ERROR) {
+                            /* For Channel.new(capacity), the element type is NOT
+                             * the capacity arg — leave elem NULL there and let
+                             * the binding annotation supply it (like Box.null).
+                             * For Mutex/RWLock.new(value), arg0 IS the element. */
+                            if (strcmp(ctors[ci].ns, "Channel") != 0)
+                                obj_t->object.elem = arg0_t;
+                        }
+                        result = obj_t;
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (result) break;
+                }
             }
 
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);

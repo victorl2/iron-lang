@@ -548,6 +548,41 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
         }
     }
 
+    /* Phase 33 STDLIB-07/08/09 (Plan 33-05): always prepend the nocopy resource
+     * types — Mutex[T] / RWLock[T] / Channel[T] / FileHandle. Each is a nocopy
+     * object surface whose C backing is synthesized by emit_ensure_* in
+     * emit_helpers.c; the by-name dispatch in typecheck.c recognizes
+     * Mutex.new / m.lock / Channel.new / FileHandle.open / etc. Mirror of build.c.
+     * ANTI-PATTERN (Pitfall 4): prepending ONLY in build.c misses the check.c arm;
+     * iron_analyze_buffer (CORE-22 LSP facade) routes through this path. */
+    {
+        const char *nocopy_types[] = {
+            "stdlib/mutex.iron", "stdlib/rwlock.iron",
+            "stdlib/channel.iron", "stdlib/filehandle.iron"
+        };
+        for (size_t ci = 0; ci < sizeof(nocopy_types) / sizeof(nocopy_types[0]); ci++) {
+            char *path = check_make_path(base_dir, nocopy_types[ci]);
+            if (!path) continue;
+            long sz = 0;
+            char *src = check_read_stdlib(path, &sz);
+            free(path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
     /* 2. Set up arena and diagnostics */
     Iron_Arena arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags = iron_diaglist_create();

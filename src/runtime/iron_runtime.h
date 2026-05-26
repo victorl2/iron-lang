@@ -537,6 +537,7 @@ static inline void iron_check_arena_pointer_gen(Iron_FatPtr fp,
   typedef HANDLE               iron_thread_t;
   typedef CRITICAL_SECTION     iron_mutex_t;
   typedef CONDITION_VARIABLE   iron_cond_t;
+  typedef SRWLOCK              iron_rwlock_t;
 
   /* Thread wrapper: Win32 thread proc signature differs from pthreads */
   typedef struct { void *(*fn)(void*); void *arg; } iron__win_trampoline_t;
@@ -566,11 +567,20 @@ static inline void iron_check_arena_pointer_gen(Iron_FatPtr fp,
   #define IRON_COND_SIGNAL(c)            WakeConditionVariable(&(c))
   #define IRON_COND_BROADCAST(c)         WakeAllConditionVariable(&(c))
   #define IRON_COND_DESTROY(c)           ((void)(c))  /* Win32 CV needs no destroy */
+  /* Phase 33 STDLIB-07 (Plan 33-05): RWLock primitive — Win32 SRWLOCK.
+   * SRWLOCK is initialized statically/by macro and needs no destroy. */
+  #define IRON_RWLOCK_INIT(l)            InitializeSRWLock(&(l))
+  #define IRON_RWLOCK_RDLOCK(l)          AcquireSRWLockShared(&(l))
+  #define IRON_RWLOCK_WRLOCK(l)          AcquireSRWLockExclusive(&(l))
+  #define IRON_RWLOCK_RDUNLOCK(l)        ReleaseSRWLockShared(&(l))
+  #define IRON_RWLOCK_WRUNLOCK(l)        ReleaseSRWLockExclusive(&(l))
+  #define IRON_RWLOCK_DESTROY(l)         ((void)(l))  /* Win32 SRWLOCK needs no destroy */
 #else
   #include <pthread.h>
   typedef pthread_t          iron_thread_t;
   typedef pthread_mutex_t    iron_mutex_t;
   typedef pthread_cond_t     iron_cond_t;
+  typedef pthread_rwlock_t   iron_rwlock_t;
 
   #define IRON_THREAD_CREATE(t,fn,arg)   pthread_create(&(t),NULL,(fn),(arg))
   #define IRON_THREAD_JOIN(t)            pthread_join((t), NULL)
@@ -583,6 +593,16 @@ static inline void iron_check_arena_pointer_gen(Iron_FatPtr fp,
   #define IRON_COND_SIGNAL(c)            pthread_cond_signal(&(c))
   #define IRON_COND_BROADCAST(c)         pthread_cond_broadcast(&(c))
   #define IRON_COND_DESTROY(c)           pthread_cond_destroy(&(c))
+  /* Phase 33 STDLIB-07 (Plan 33-05): RWLock primitive — POSIX pthread_rwlock_t.
+   * Mirrors the IRON_MUTEX_* block; read/write acquire share one unlock under
+   * pthreads but the macro pair keeps the read/write unlock names symmetric
+   * with the Win32 SRWLOCK shared/exclusive release split. */
+  #define IRON_RWLOCK_INIT(l)            pthread_rwlock_init(&(l), NULL)
+  #define IRON_RWLOCK_RDLOCK(l)          pthread_rwlock_rdlock(&(l))
+  #define IRON_RWLOCK_WRLOCK(l)          pthread_rwlock_wrlock(&(l))
+  #define IRON_RWLOCK_RDUNLOCK(l)        pthread_rwlock_unlock(&(l))
+  #define IRON_RWLOCK_WRUNLOCK(l)        pthread_rwlock_unlock(&(l))
+  #define IRON_RWLOCK_DESTROY(l)         pthread_rwlock_destroy(&(l))
 #endif
 
 /* ── Iron_String ────────────────────────────────────────────────────────────
