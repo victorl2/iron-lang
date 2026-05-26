@@ -47,6 +47,26 @@ typedef struct {
     bool              has_cycle;
 } IrTopoState;
 
+/* Phase 33 OQ-02 / box-arena-codegen unblock: a small set of stdlib SURFACE
+ * object decls (arena.iron's `object Arena` / `object ArenaSave`, box.iron's
+ * `nocopy object Box[T]`) are Iron-side stand-ins for types the C RUNTIME
+ * already defines in its own headers (src/util/arena.h `Iron_Arena`,
+ * src/runtime/iron_arena_rt.h `Iron_ArenaSave`, and the emit_ensure_box-
+ * synthesized Iron_Box storage). Emitting a forward typedef + a struct body
+ * for these collides with the runtime-owned definitions the generated C
+ * #includes — `typedef redefinition with different types ('struct Iron_Arena'
+ * vs 'Iron_Arena')`, which fails clang for EVERY compilation (box.iron +
+ * arena.iron are unconditionally prepended). Skip both the forward decl and
+ * the struct body for these names so the runtime header owns the layout.
+ * Keyed on the surface type NAME (pre-mangle); the matching C typedefs are
+ * Iron_Arena / Iron_ArenaSave / Iron_Box. */
+static bool ir_is_runtime_provided_type(const char *name) {
+    if (!name) return false;
+    return strcmp(name, "Arena")     == 0 ||
+           strcmp(name, "ArenaSave") == 0 ||
+           strcmp(name, "Box")       == 0;
+}
+
 /* Find object type_decl index by type name */
 static int find_ir_type_decl_idx(IronLIR_Module *module, const char *name) {
     for (int i = 0; i < module->type_decl_count; i++) {
@@ -441,6 +461,12 @@ static bool ir_has_subtype(IronLIR_Module *module, const char *name) {
 
 static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                                      int type_tag) {
+    /* Phase 33: runtime-provided surface types (Arena/ArenaSave/Box) have their
+     * struct layout owned by the runtime headers; skip the body so we don't
+     * redefine the runtime's Iron_Arena / Iron_ArenaSave / Iron_Box struct. */
+    if (ir_is_runtime_provided_type(td->name)) {
+        return;
+    }
     const char *mangled = emit_object_type_name(td->name, ctx);
     iron_strbuf_appendf(&ctx->struct_bodies, "struct %s {\n", mangled);
 
@@ -554,6 +580,13 @@ void emit_type_decls(EmitCtx *ctx) {
     /* Forward declarations for all object and interface types */
     for (int i = 0; i < module->type_decl_count; i++) {
         IronLIR_TypeDecl *td = module->type_decls[i];
+        /* Phase 33: runtime-provided surface types (Arena/ArenaSave/Box) are
+         * already typedef'd by the runtime headers the generated C includes;
+         * emitting a forward typedef here causes a redefinition error. */
+        if (td->kind == IRON_LIR_TYPE_OBJECT &&
+            ir_is_runtime_provided_type(td->name)) {
+            continue;
+        }
         if (td->kind == IRON_LIR_TYPE_OBJECT ||
             td->kind == IRON_LIR_TYPE_INTERFACE) {
             const char *type_name = (td->kind == IRON_LIR_TYPE_OBJECT)
