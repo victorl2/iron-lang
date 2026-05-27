@@ -110,6 +110,8 @@ typedef struct {
 static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr);
 static const char *emit_type_to_c_name_for_box(HIR_to_LIR_Ctx *ctx,
                                                 const Iron_Type *elem);
+static const char *emit_resource_elem_escaped(HIR_to_LIR_Ctx *ctx,
+                                              const Iron_Type *elem);
 static void lower_block_stmts(HIR_to_LIR_Ctx *ctx, IronHIR_Block *block);
 static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt);
 static void ssa_construct_func(IronLIR_Func *fn);
@@ -278,6 +280,60 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
                 ctx->current_block, NULL, bfref->id, bargs, 1, NULL, span);
             if (bcall) bcall->call.self_by_addr = true;
             continue;
+        }
+
+        /* Phase 33 STDLIB-07/08/09 (Plan 33-05): scope-exit drop for the
+         * nocopy resource types runs the synthesized destructor helper:
+         *   Mutex[T]      -> Iron_Mutex_<T>_destroy
+         *   MutexGuard[T] -> Iron_MutexGuard_<T>_unlock  (releases the lock)
+         *   Channel[T]    -> Iron_Channel_<T>_destroy
+         *   FileHandle    -> Iron_FileHandle_drop        (closes the fd)
+         * Each takes the binding by address (self_by_addr). The surface
+         * drop stubs are never lowered, so this is the only release path. */
+        if (od->name) {
+            const char *drop_helper = NULL;
+            char namebuf[64];
+            const char *elem_esc = NULL;
+            if (entry->object_type->object.elem) {
+                elem_esc = emit_resource_elem_escaped(ctx,
+                    entry->object_type->object.elem);
+            }
+            if (strcmp(od->name, "Mutex") == 0 && elem_esc) {
+                snprintf(namebuf, sizeof(namebuf), "Iron_Mutex_%s_destroy", elem_esc);
+                drop_helper = namebuf;
+            } else if (strcmp(od->name, "MutexGuard") == 0 && elem_esc) {
+                snprintf(namebuf, sizeof(namebuf), "Iron_MutexGuard_%s_unlock", elem_esc);
+                drop_helper = namebuf;
+            } else if (strcmp(od->name, "Channel") == 0 && elem_esc) {
+                snprintf(namebuf, sizeof(namebuf), "Iron_Channel_%s_destroy", elem_esc);
+                drop_helper = namebuf;
+            } else if (strcmp(od->name, "RWLock") == 0 && elem_esc) {
+                snprintf(namebuf, sizeof(namebuf), "Iron_RWLock_%s_destroy", elem_esc);
+                drop_helper = namebuf;
+            } else if (strcmp(od->name, "RWReadGuard") == 0 && elem_esc) {
+                snprintf(namebuf, sizeof(namebuf), "Iron_RWReadGuard_%s_rdunlock", elem_esc);
+                drop_helper = namebuf;
+            } else if (strcmp(od->name, "RWWriteGuard") == 0 && elem_esc) {
+                snprintf(namebuf, sizeof(namebuf), "Iron_RWWriteGuard_%s_wrunlock", elem_esc);
+                drop_helper = namebuf;
+            } else if (strcmp(od->name, "FileHandle") == 0) {
+                drop_helper = "Iron_FileHandle_drop";
+            }
+            if (drop_helper) {
+                if (!ctx->current_block || block_is_terminated(ctx->current_block))
+                    continue;
+                const char *dn = iron_arena_strdup(ctx->lir_arena, drop_helper,
+                                                   strlen(drop_helper));
+                if (!dn) continue;
+                IronLIR_Instr *dref = iron_lir_func_ref(ctx->current_func,
+                    ctx->current_block, dn, NULL, span);
+                if (!dref) continue;
+                IronLIR_ValueId dargs[1] = { entry->alloca_id };
+                IronLIR_Instr *dcall = iron_lir_call(ctx->current_func,
+                    ctx->current_block, NULL, dref->id, dargs, 1, NULL, span);
+                if (dcall) dcall->call.self_by_addr = true;
+                continue;
+            }
         }
 
         /* Find the drop method's LIR mangled name */
@@ -1174,6 +1230,23 @@ static const char *emit_type_to_c_name_for_box(HIR_to_LIR_Ctx *ctx,
     return buf;
 }
 
+/* Phase 33 STDLIB-07/08 (Plan 33-05): build the escaped element-C suffix for
+ * a Mutex/Channel element type (e.g. "int64_t"), matching emit_elem_c_escaped
+ * in emit_helpers.c so the LIR-time call name equals the emit-time synthesized
+ * helper name. Reuses the element-C mapping from emit_type_to_c_name_for_box by
+ * stripping its "Iron_Box_" prefix. Returns NULL for unsupported element kinds
+ * so the caller falls back to the generic method path. */
+static const char *emit_resource_elem_escaped(HIR_to_LIR_Ctx *ctx,
+                                               const Iron_Type *elem) {
+    const char *boxname = emit_type_to_c_name_for_box(ctx, elem);
+    if (!boxname) return NULL;
+    /* boxname == "Iron_Box_<escaped>" — return the suffix after the prefix. */
+    const char prefix[] = "Iron_Box_";
+    size_t plen = sizeof(prefix) - 1;
+    if (strncmp(boxname, prefix, plen) != 0) return NULL;
+    return boxname + plen;
+}
+
 static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     if (!expr) return IRON_LIR_VALUE_INVALID;
     if (!ctx->current_block) return IRON_LIR_VALUE_INVALID; /* dead code after return */
@@ -1462,6 +1535,162 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                     arrfree(bargs);
                     return bcall->id;
                 }
+            }
+        }
+
+        /* Phase 33 STDLIB-07/08/09 (Plan 33-05): nocopy resource-type
+         * CONSTRUCTOR lowering — Mutex.new / Channel.new / FileHandle.open.
+         * The object is FUNC_REF("<Namespace>"). Lowers to a CALL to the
+         * per-T (or non-generic) synthesized helper. The result `type` is the
+         * resource object type (object.elem set for the generic ones), so the
+         * CALL result renders via emit_type_to_c -> emit_ensure_* (typedef +
+         * helpers). Mirrors the Box constructor lowering above. */
+        if (expr->method_call.object &&
+            expr->method_call.object->kind == IRON_HIR_EXPR_FUNC_REF &&
+            expr->method_call.object->func_ref.func_name &&
+            expr->method_call.method && type &&
+            type->kind == IRON_TYPE_OBJECT && type->object.decl &&
+            type->object.decl->name) {
+            const char *ns = expr->method_call.object->func_ref.func_name;
+            const char *on = type->object.decl->name;
+            const char *fname = NULL;
+            /* Mutex.new(v) -> Iron_Mutex_<T>_new ; Channel.new(cap) ->
+             * Iron_Channel_<T>_new ; FileHandle.open(path) ->
+             * Iron_FileHandle_open. */
+            if (strcmp(ns, "Mutex") == 0 && strcmp(expr->method_call.method, "new") == 0 &&
+                strcmp(on, "Mutex") == 0 && type->object.elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, type->object.elem);
+                if (esc) {
+                    size_t nl = strlen(esc) + 16;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:mutex_new_name");
+                    snprintf(fn, nl, "Iron_Mutex_%s_new", esc);
+                    fname = fn;
+                }
+            } else if (strcmp(ns, "Channel") == 0 && strcmp(expr->method_call.method, "new") == 0 &&
+                       strcmp(on, "Channel") == 0) {
+                /* Channel.new(capacity) is element-agnostic: it constructs an
+                 * opaque Iron_Channel* via the runtime create. The per-T glue
+                 * is only needed for send/recv, so no elem is required here. */
+                fname = "Iron_channel_create_i64";
+            } else if (strcmp(ns, "RWLock") == 0 && strcmp(expr->method_call.method, "new") == 0 &&
+                       strcmp(on, "RWLock") == 0 && type->object.elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, type->object.elem);
+                if (esc) {
+                    size_t nl = strlen(esc) + 20;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:rwlock_new_name");
+                    snprintf(fn, nl, "Iron_RWLock_%s_new", esc);
+                    fname = fn;
+                }
+            } else if (strcmp(ns, "FileHandle") == 0 &&
+                       strcmp(expr->method_call.method, "open") == 0 &&
+                       strcmp(on, "FileHandle") == 0) {
+                fname = "Iron_FileHandle_open";
+            }
+            if (fname) {
+                IronLIR_ValueId *cargs = NULL;
+                for (int i = 0; i < expr->method_call.arg_count; i++) {
+                    IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+                    arrput(cargs, av);
+                }
+                int cargc = (int)arrlen(cargs);
+                IronLIR_Instr *cref = iron_lir_func_ref(ctx->current_func,
+                    ctx->current_block, fname, NULL, span);
+                IronLIR_Instr *ccall = iron_lir_call(ctx->current_func,
+                    ctx->current_block, NULL, cref->id, cargs, cargc, type, span);
+                arrfree(cargs);
+                return ccall->id;
+            }
+        }
+
+        /* Phase 33 STDLIB-07/08/09 (Plan 33-05): nocopy resource-type
+         * RECEIVER-form lowering — m.lock() / guard.get() / guard.set(v) /
+         * ch.send(v) / ch.recv() / fh.close(). The receiver resolves to the
+         * resource object type. Lowers to a CALL to the synthesized helper,
+         * passing the receiver by address (self_by_addr) so the helpers can
+         * mutate the by-value resource-pointer slot. Mirrors the Box receiver
+         * lowering above. */
+        if (expr->method_call.object && expr->method_call.object->type &&
+            expr->method_call.object->type->kind == IRON_TYPE_OBJECT &&
+            expr->method_call.object->type->object.decl &&
+            expr->method_call.object->type->object.decl->name &&
+            expr->method_call.method) {
+            const char *rn = expr->method_call.object->type->object.decl->name;
+            const char *m  = expr->method_call.method;
+            Iron_Type *elem = expr->method_call.object->type->object.elem;
+            const char *fname = NULL;
+            if (strcmp(rn, "Mutex") == 0 && strcmp(m, "lock") == 0 && elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, elem);
+                if (esc) {
+                    size_t nl = strlen(esc) + 24;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:guard_lock_name");
+                    snprintf(fn, nl, "Iron_MutexGuard_%s_lock", esc);
+                    fname = fn;
+                }
+            } else if (strcmp(rn, "MutexGuard") == 0 &&
+                       (strcmp(m, "get") == 0 || strcmp(m, "set") == 0) && elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, elem);
+                if (esc) {
+                    size_t nl = strlen(esc) + 24;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:guard_getset_name");
+                    snprintf(fn, nl, "Iron_MutexGuard_%s_%s", esc, m);
+                    fname = fn;
+                }
+            } else if (strcmp(rn, "Channel") == 0 &&
+                       (strcmp(m, "send") == 0 || strcmp(m, "recv") == 0) && elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, elem);
+                if (esc) {
+                    size_t nl = strlen(esc) + 20;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:channel_sendrecv_name");
+                    snprintf(fn, nl, "Iron_Channel_%s_%s", esc, m);
+                    fname = fn;
+                }
+            } else if (strcmp(rn, "FileHandle") == 0 && strcmp(m, "close") == 0) {
+                fname = "Iron_FileHandle_close";
+            } else if (strcmp(rn, "RWLock") == 0 &&
+                       (strcmp(m, "read") == 0 || strcmp(m, "write") == 0) && elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, elem);
+                if (esc) {
+                    const char *gp = strcmp(m, "read") == 0
+                        ? "RWReadGuard" : "RWWriteGuard";
+                    size_t nl = strlen(esc) + strlen(gp) + 16;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:rwlock_rw_name");
+                    snprintf(fn, nl, "Iron_%s_%s_%s", gp, esc, m);
+                    fname = fn;
+                }
+            } else if ((strcmp(rn, "RWReadGuard") == 0 ||
+                        strcmp(rn, "RWWriteGuard") == 0) &&
+                       (strcmp(m, "get") == 0 || strcmp(m, "set") == 0) && elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, elem);
+                if (esc) {
+                    size_t nl = strlen(esc) + strlen(rn) + 16;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:rwguard_getset_name");
+                    snprintf(fn, nl, "Iron_%s_%s_%s", rn, esc, m);
+                    fname = fn;
+                }
+            }
+            if (fname) {
+                IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
+                IronLIR_ValueId *cargs = NULL;
+                arrput(cargs, self_val);
+                for (int i = 0; i < expr->method_call.arg_count; i++) {
+                    IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+                    arrput(cargs, av);
+                }
+                int cargc = (int)arrlen(cargs);
+                IronLIR_Instr *cref = iron_lir_func_ref(ctx->current_func,
+                    ctx->current_block, fname, NULL, span);
+                IronLIR_Instr *ccall = iron_lir_call(ctx->current_func,
+                    ctx->current_block, NULL, cref->id, cargs, cargc, type, span);
+                ccall->call.self_by_addr = true;  /* helpers take T* / Iron_*** */
+                arrfree(cargs);
+                return ccall->id;
             }
         }
 

@@ -83,6 +83,16 @@ typedef struct {
      * Parallel to emitted_bvecs/drops/copies; same arrput/strcmp shape. */
     char        **emitted_boxes;
 
+    /* Phase 33 STDLIB-07/08/09 (Plan 33-05): per-T nocopy resource glue dedup.
+     * emitted_mutexes keys the synthesized Iron_Mutex_<T>_* helper set;
+     * emitted_channels keys the Iron_Channel_<T>_* send/recv glue; the
+     * FileHandle glue is non-generic so a single bool guards it. Same
+     * arrput/arrlen/strcmp shape as emitted_boxes. */
+    char        **emitted_mutexes;
+    char        **emitted_channels;
+    char        **emitted_rwlocks;
+    bool          emitted_filehandle;
+
     /* Phase 24 DROP-05 (Plan 24-03): partial-init cleanup instrumentation.
      * in_init_method: true when currently emitting an init method body; set
      *   by emit_func_body when the function name ends with "_init".
@@ -273,6 +283,40 @@ bool od_has_rc_drop_need(EmitCtx *ctx, struct Iron_ObjectDecl *od);
  * elem_type is the pointee type T (not *unchecked T). Idempotent via
  * emitted_boxes dedup (Phase 23 emitted_bvecs precedent). */
 void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type);
+
+/* Phase 33 STDLIB-07 (Plan 33-05): synthesize the per-T Mutex glue.
+ *   - Iron_Mutex_<T>_new(T v)            -> Iron_Mutex* (Iron_mutex_create)
+ *   - typedef struct { Iron_Mutex *owner; T *valptr; } Iron_MutexGuard_<T>;
+ *   - Iron_MutexGuard_<T>_lock(Iron_Mutex *m)  -> guard (Iron_mutex_lock)
+ *   - Iron_MutexGuard_<T>_get(guard*)    -> T   (*valptr)
+ *   - Iron_MutexGuard_<T>_set(guard*, T) -> void (*valptr = v)
+ *   - Iron_Mutex_<T>_destroy(Iron_Mutex**) / Iron_MutexGuard_<T>_unlock(guard*)
+ * Helpers land in ctx->lifted_funcs, the guard typedef in ctx->struct_bodies.
+ * Idempotent via emitted_mutexes (mirrors emit_ensure_box). */
+void emit_ensure_mutex(EmitCtx *ctx, const Iron_Type *elem_type);
+
+/* Phase 33 STDLIB-08 (Plan 33-05): synthesize the per-T Channel glue.
+ *   - Iron_Channel_<T>_send(Iron_Channel*, T)  heap-boxes the value, enqueues
+ *   - Iron_Channel_<T>_recv(Iron_Channel*) -> T dequeues, unboxes, frees
+ * Iron_Channel_<T>_new is the bare runtime Iron_channel_create(capacity).
+ * Idempotent via emitted_channels. */
+void emit_ensure_channel(EmitCtx *ctx, const Iron_Type *elem_type);
+
+/* Phase 33 STDLIB-07 (Plan 33-05): synthesize the per-T RWLock glue over the
+ * IRON_RWLOCK_* macros (POSIX pthread_rwlock_t / Win32 SRWLOCK):
+ *   - typedef struct { iron_rwlock_t lk; T value; } Iron_RWLock_<T>;
+ *   - read/write guard typedefs (back-pointer to the lock)
+ *   - new / destroy / read / write / rdunlock / wrunlock / get / set helpers
+ * Idempotent via emitted_rwlocks. */
+void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type);
+
+/* Phase 33 STDLIB-09 (Plan 33-05): synthesize the (non-generic) FileHandle glue.
+ *   - typedef struct { int fd; } Iron_FileHandle;
+ *   - Iron_FileHandle_open(Iron_String path) -> Iron_FileHandle
+ *   - Iron_FileHandle_close(Iron_FileHandle*) closes + prints "closed fd"
+ *   - Iron_FileHandle_drop(Iron_FileHandle*) scope-exit close
+ * Idempotent via emitted_filehandle. */
+void emit_ensure_filehandle(EmitCtx *ctx);
 
 void emit_ensure_copy(EmitCtx *ctx, const char *obj_c_name,
                       struct Iron_ObjectDecl *od);

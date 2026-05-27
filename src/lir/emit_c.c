@@ -6800,6 +6800,10 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     iron_strbuf_appendf(&ctx.includes, "#include <stdlib.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <string.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdio.h>\n");
+    /* Phase 33 STDLIB-09 (Plan 33-05): FileHandle glue uses fileno()/close(). */
+    iron_strbuf_appendf(&ctx.includes,
+                        "#ifndef _WIN32\n#include <unistd.h>\n"
+                        "#else\n#include <io.h>\n#define close _close\n#endif\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_math.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_io.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#define IRON_TIMER_STRUCT_DEFINED\n");

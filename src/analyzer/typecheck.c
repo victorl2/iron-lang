@@ -1292,6 +1292,28 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                 check_generic_constraints(ctx, od->generic_params,
                                           od->generic_param_count,
                                           concrete, gc, ann_node->span);
+
+                /* Phase 33 STDLIB-07/08 (Plan 33-05): the builtin generic
+                 * nocopy resource surfaces carry their element on
+                 * object.elem (not the enum-style monomorphization path).
+                 * The constructor sets elem for Mutex/RWLock, but Channel's
+                 * ctor argument (capacity) is NOT the element, so the
+                 * `Channel[Int]` annotation is the only channel for the elem.
+                 * Build a FRESH object type so we never mutate the shared
+                 * sym->type singleton, and stash the (single) resolved arg. */
+                if (od->name && ac >= 1 && concrete[0] &&
+                    (strcmp(od->name, "Mutex") == 0 ||
+                     strcmp(od->name, "MutexGuard") == 0 ||
+                     strcmp(od->name, "RWLock") == 0 ||
+                     strcmp(od->name, "RWReadGuard") == 0 ||
+                     strcmp(od->name, "RWWriteGuard") == 0 ||
+                     strcmp(od->name, "Channel") == 0)) {
+                    Iron_Type *fresh = iron_type_make_object(ctx->arena, od);
+                    if (fresh && fresh->kind == IRON_TYPE_OBJECT) {
+                        fresh->object.elem = concrete[0];
+                        base = fresh;
+                    }
+                }
             }
             /* Generic enum instantiation: Option[Int], Result[T, E] */
             if (base && base->kind == IRON_TYPE_ENUM &&
@@ -3450,6 +3472,113 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         break;
                     }
                     /* box_free */
+                    result = iron_type_make_primitive(IRON_TYPE_VOID);
+                    mc->resolved_type = result;
+                    break;
+                }
+            }
+
+            /* Phase 33 STDLIB-07/08/09 (Plan 33-05): nocopy resource-type
+             * RECEIVER-form by-name dispatch. Mirrors the Box receiver block
+             * above: runs AFTER auto-deref + BEFORE the user-method-table
+             * lookup so the by-name builtin dispatch wins (the surface stubs
+             * are never lowered). The receiver's object decl name selects the
+             * family; object.elem carries the element type (set by the ctor
+             * for Mutex, by the annotation for Channel, and propagated to the
+             * guard here). Result types:
+             *   m.lock()      -> MutexGuard[T]   (elem propagated from m)
+             *   guard.get()   -> T
+             *   guard.set(v)  -> Void
+             *   ch.send(v)    -> Void
+             *   ch.recv()     -> T
+             *   fh.close()    -> Void */
+            if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_OBJECT &&
+                obj_type_mc->object.decl &&
+                obj_type_mc->object.decl->name &&
+                mc->method) {
+                const char *rn = obj_type_mc->object.decl->name;
+                Iron_Type *elem = obj_type_mc->object.elem;
+
+                if (strcmp(rn, "Mutex") == 0 &&
+                    strcmp(mc->method, "lock") == 0) {
+                    /* m.lock() -> MutexGuard[elem]. Build a fresh MutexGuard
+                     * object type carrying the same element as the Mutex. */
+                    Iron_Symbol *gsym =
+                        iron_scope_lookup(ctx->global_scope, "MutexGuard");
+                    Iron_Type *gt = (gsym && gsym->type &&
+                                     gsym->type->kind == IRON_TYPE_OBJECT)
+                        ? iron_type_make_object(ctx->arena,
+                                                gsym->type->object.decl)
+                        : iron_type_make_object(ctx->arena, NULL);
+                    if (!gt) gt = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    if (gt->kind == IRON_TYPE_OBJECT) gt->object.elem = elem;
+                    result = gt;
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(rn, "MutexGuard") == 0 &&
+                    strcmp(mc->method, "get") == 0) {
+                    result = elem ? elem
+                        : iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(rn, "MutexGuard") == 0 &&
+                    strcmp(mc->method, "set") == 0) {
+                    result = iron_type_make_primitive(IRON_TYPE_VOID);
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(rn, "Channel") == 0 &&
+                    strcmp(mc->method, "send") == 0) {
+                    result = iron_type_make_primitive(IRON_TYPE_VOID);
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(rn, "Channel") == 0 &&
+                    strcmp(mc->method, "recv") == 0) {
+                    result = elem ? elem
+                        : iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(rn, "FileHandle") == 0 &&
+                    strcmp(mc->method, "close") == 0) {
+                    result = iron_type_make_primitive(IRON_TYPE_VOID);
+                    mc->resolved_type = result;
+                    break;
+                }
+                /* RWLock family: l.read() -> RWReadGuard[T],
+                 * l.write() -> RWWriteGuard[T], guard.get() -> T,
+                 * write_guard.set(v) -> Void. Guards carry elem from the lock. */
+                if (strcmp(rn, "RWLock") == 0 &&
+                    (strcmp(mc->method, "read") == 0 ||
+                     strcmp(mc->method, "write") == 0)) {
+                    const char *gname = strcmp(mc->method, "read") == 0
+                        ? "RWReadGuard" : "RWWriteGuard";
+                    Iron_Symbol *gsym =
+                        iron_scope_lookup(ctx->global_scope, gname);
+                    Iron_Type *gt = (gsym && gsym->type &&
+                                     gsym->type->kind == IRON_TYPE_OBJECT)
+                        ? iron_type_make_object(ctx->arena,
+                                                gsym->type->object.decl)
+                        : iron_type_make_object(ctx->arena, NULL);
+                    if (!gt) gt = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    if (gt->kind == IRON_TYPE_OBJECT) gt->object.elem = elem;
+                    result = gt;
+                    mc->resolved_type = result;
+                    break;
+                }
+                if ((strcmp(rn, "RWReadGuard") == 0 ||
+                     strcmp(rn, "RWWriteGuard") == 0) &&
+                    strcmp(mc->method, "get") == 0) {
+                    result = elem ? elem
+                        : iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(rn, "RWWriteGuard") == 0 &&
+                    strcmp(mc->method, "set") == 0) {
                     result = iron_type_make_primitive(IRON_TYPE_VOID);
                     mc->resolved_type = result;
                     break;

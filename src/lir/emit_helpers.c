@@ -16,6 +16,10 @@
 #include <stdbool.h>
 #include <assert.h>
 
+/* Phase 33 STDLIB-07/08 (Plan 33-05): forward decl — defined below near the
+ * emit_ensure_mutex/channel synthesis. Used by emit_type_to_c's resource arms. */
+static const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem);
+
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
 
 const char *emit_mangle_name(const char *name, Iron_Arena *arena) {
@@ -186,6 +190,62 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
                 iron_strbuf_free(&sb);
                 if (!result) iron_oom_abort("emit_helpers.c:emit_type_to_c Box");
                 return result;
+            }
+            /* Phase 33 STDLIB-07/08/09 (Plan 33-05): the nocopy resource-type
+             * surfaces have no plain C struct — they map to the runtime types
+             * (Iron_Mutex* / Iron_Channel*) or per-T / non-generic synthesized
+             * typedefs. Trigger synthesis here so the typedef + helpers are
+             * available wherever the value type appears, then return the C
+             * type. Keyed on the surface decl name. */
+            if (t->object.decl && t->object.decl->name) {
+                const char *on = t->object.decl->name;
+                if (strcmp(on, "Mutex") == 0) {
+                    if (t->object.elem) emit_ensure_mutex(ctx, t->object.elem);
+                    return "Iron_Mutex *";
+                }
+                if (strcmp(on, "Channel") == 0) {
+                    if (t->object.elem) emit_ensure_channel(ctx, t->object.elem);
+                    return "Iron_Channel *";
+                }
+                if (strcmp(on, "MutexGuard") == 0 && t->object.elem) {
+                    emit_ensure_mutex(ctx, t->object.elem);
+                    const char *esc = emit_elem_c_escaped(ctx, t->object.elem);
+                    Iron_StrBuf sb = iron_strbuf_create(48);
+                    iron_strbuf_appendf(&sb, "Iron_MutexGuard_%s", esc ? esc : "");
+                    const char *r = iron_arena_strdup(ctx->arena,
+                                                      iron_strbuf_get(&sb), sb.len);
+                    iron_strbuf_free(&sb);
+                    if (!r) iron_oom_abort("emit_helpers.c:emit_type_to_c MutexGuard");
+                    return r;
+                }
+                if (strcmp(on, "FileHandle") == 0) {
+                    emit_ensure_filehandle(ctx);
+                    return "Iron_FileHandle";
+                }
+                if (strcmp(on, "RWLock") == 0) {
+                    if (t->object.elem) emit_ensure_rwlock(ctx, t->object.elem);
+                    const char *esc = t->object.elem
+                        ? emit_elem_c_escaped(ctx, t->object.elem) : "";
+                    Iron_StrBuf sb = iron_strbuf_create(48);
+                    iron_strbuf_appendf(&sb, "Iron_RWLock_%s *", esc ? esc : "");
+                    const char *r = iron_arena_strdup(ctx->arena,
+                                                      iron_strbuf_get(&sb), sb.len);
+                    iron_strbuf_free(&sb);
+                    if (!r) iron_oom_abort("emit_helpers.c:emit_type_to_c RWLock");
+                    return r;
+                }
+                if ((strcmp(on, "RWReadGuard") == 0 ||
+                     strcmp(on, "RWWriteGuard") == 0) && t->object.elem) {
+                    emit_ensure_rwlock(ctx, t->object.elem);
+                    const char *esc = emit_elem_c_escaped(ctx, t->object.elem);
+                    Iron_StrBuf sb = iron_strbuf_create(48);
+                    iron_strbuf_appendf(&sb, "Iron_%s_%s", on, esc ? esc : "");
+                    const char *r = iron_arena_strdup(ctx->arena,
+                                                      iron_strbuf_get(&sb), sb.len);
+                    iron_strbuf_free(&sb);
+                    if (!r) iron_oom_abort("emit_helpers.c:emit_type_to_c RWGuard");
+                    return r;
+                }
             }
             return emit_object_type_name(t->object.decl->name, ctx);
 
@@ -525,6 +585,233 @@ void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
         /* _null_val */ struct_name, struct_name,
         struct_name,
         /* _free */ struct_name, struct_name);
+}
+
+/* Phase 33 STDLIB-07/08 (Plan 33-05): build the escaped element-C suffix shared
+ * by the Mutex/Channel glue mangling (mirrors emit_ensure_box's name builder).
+ * Returns an arena string like "int64_t" with space/`*` escaped to `_`. */
+static const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem) {
+    const char *elem_c = emit_type_to_c(elem, ctx);
+    if (!elem_c) return NULL;
+    Iron_StrBuf sb = iron_strbuf_create(32);
+    for (const char *p = elem_c; *p; p++) {
+        if (*p == ' ' || *p == '*') iron_strbuf_appendf(&sb, "_");
+        else { char ch[2] = { *p, '\0' }; iron_strbuf_appendf(&sb, "%s", ch); }
+    }
+    const char *result = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    if (!result) iron_oom_abort("emit_helpers.c:emit_elem_c_escaped");
+    return result;
+}
+
+void emit_ensure_mutex(EmitCtx *ctx, const Iron_Type *elem_type) {
+    if (!elem_type) return;
+    const char *elem_c = emit_type_to_c(elem_type, ctx);
+    if (!elem_c) return;
+    const char *esc = emit_elem_c_escaped(ctx, elem_type);
+    if (!esc) return;
+
+    /* Guard typedef name: Iron_MutexGuard_<esc> */
+    Iron_StrBuf gsb = iron_strbuf_create(48);
+    iron_strbuf_appendf(&gsb, "Iron_MutexGuard_%s", esc);
+    const char *guard_name = iron_arena_strdup(ctx->arena, iron_strbuf_get(&gsb), gsb.len);
+    iron_strbuf_free(&gsb);
+    if (!guard_name) iron_oom_abort("emit_helpers.c:emit_ensure_mutex guard_name");
+
+    /* Dedupe on the guard name (covers the whole Mutex_<T> family). */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_mutexes); i++) {
+        if (strcmp(ctx->emitted_mutexes[i], guard_name) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, guard_name, strlen(guard_name));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_mutex name_copy");
+    arrput(ctx->emitted_mutexes, name_copy);
+
+    /* Guard typedef into struct_bodies (Pitfall 3: typedef before helpers). */
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "/* Phase 33 STDLIB-07: Mutex[%s] per-T glue */\n"
+        "typedef struct { Iron_Mutex *owner; %s *valptr; } %s;\n",
+        elem_c, elem_c, guard_name);
+
+    /* Helpers into lifted_funcs. */
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static Iron_Mutex *Iron_Mutex_%s_new(%s value) {\n"
+        "    return Iron_mutex_create(&value, sizeof(%s));\n"
+        "}\n"
+        "static void Iron_Mutex_%s_destroy(Iron_Mutex **m) {\n"
+        "    if (m && *m) { Iron_mutex_destroy(*m); *m = NULL; }\n"
+        "}\n"
+        "static %s Iron_MutexGuard_%s_lock(Iron_Mutex **m) {\n"
+        "    %s guard; guard.owner = *m;\n"
+        "    guard.valptr = (%s *)Iron_mutex_lock(*m);\n"
+        "    return guard;\n"
+        "}\n"
+        "static %s Iron_MutexGuard_%s_get(%s *g) {\n"
+        "    return *g->valptr;\n"
+        "}\n"
+        "static void Iron_MutexGuard_%s_set(%s *g, %s value) {\n"
+        "    *g->valptr = value;\n"
+        "}\n"
+        "static void Iron_MutexGuard_%s_unlock(%s *g) {\n"
+        "    if (g && g->owner) { Iron_mutex_unlock(g->owner); g->owner = NULL; }\n"
+        "}\n\n",
+        /* _new */    esc, elem_c, elem_c,
+        /* _destroy */ esc,
+        /* _lock */   guard_name, esc, guard_name, elem_c,
+        /* _get */    elem_c, esc, guard_name,
+        /* _set */    esc, guard_name, elem_c,
+        /* _unlock */ esc, guard_name);
+}
+
+void emit_ensure_channel(EmitCtx *ctx, const Iron_Type *elem_type) {
+    if (!elem_type) return;
+    const char *elem_c = emit_type_to_c(elem_type, ctx);
+    if (!elem_c) return;
+    const char *esc = emit_elem_c_escaped(ctx, elem_type);
+    if (!esc) return;
+
+    /* Dedupe key: the escaped element suffix. */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_channels); i++) {
+        if (strcmp(ctx->emitted_channels[i], esc) == 0) return;
+    }
+    char *esc_copy = iron_arena_strdup(ctx->arena, esc, strlen(esc));
+    if (!esc_copy) iron_oom_abort("emit_helpers.c:emit_ensure_channel esc_copy");
+    arrput(ctx->emitted_channels, esc_copy);
+
+    /* send heap-boxes the value (the runtime ring stores void*); recv unboxes
+     * and frees the box. The element-agnostic int64->int capacity wrapper is
+     * emitted once via the emitted_channels guard (first instantiation wins). */
+    if (arrlen(ctx->emitted_channels) == 1) {
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "static Iron_Channel *Iron_channel_create_i64(int64_t capacity) {\n"
+            "    return Iron_channel_create((int)capacity);\n"
+            "}\n");
+    }
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "/* Phase 33 STDLIB-08: Channel[%s] per-T glue */\n"
+        "static void Iron_Channel_%s_send(Iron_Channel **ch, %s value) {\n"
+        "    %s *box = (%s *)malloc(sizeof(%s));\n"
+        "    if (!box) iron_oom_abort(\"Channel send\");\n"
+        "    *box = value;\n"
+        "    Iron_channel_send(*ch, box);\n"
+        "}\n"
+        "static %s Iron_Channel_%s_recv(Iron_Channel **ch) {\n"
+        "    %s *box = (%s *)Iron_channel_recv(*ch);\n"
+        "    %s out; memset(&out, 0, sizeof(out));\n"
+        "    if (box) { out = *box; free(box); }\n"
+        "    return out;\n"
+        "}\n"
+        "static void Iron_Channel_%s_destroy(Iron_Channel **ch) {\n"
+        "    if (ch && *ch) { Iron_channel_destroy(*ch); *ch = NULL; }\n"
+        "}\n\n",
+        /* comment */ elem_c,
+        /* _send */   esc, elem_c, elem_c, elem_c, elem_c,
+        /* _recv */   elem_c, esc, elem_c, elem_c, elem_c,
+        /* _destroy */ esc);
+}
+
+void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
+    if (!elem_type) return;
+    const char *elem_c = emit_type_to_c(elem_type, ctx);
+    if (!elem_c) return;
+    const char *esc = emit_elem_c_escaped(ctx, elem_type);
+    if (!esc) return;
+
+    /* Lock typedef name: Iron_RWLock_<esc> */
+    Iron_StrBuf lsb = iron_strbuf_create(48);
+    iron_strbuf_appendf(&lsb, "Iron_RWLock_%s", esc);
+    const char *lock_name = iron_arena_strdup(ctx->arena, iron_strbuf_get(&lsb), lsb.len);
+    iron_strbuf_free(&lsb);
+    if (!lock_name) iron_oom_abort("emit_helpers.c:emit_ensure_rwlock lock_name");
+
+    for (int i = 0; i < (int)arrlen(ctx->emitted_rwlocks); i++) {
+        if (strcmp(ctx->emitted_rwlocks[i], lock_name) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, lock_name, strlen(lock_name));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_rwlock name_copy");
+    arrput(ctx->emitted_rwlocks, name_copy);
+
+    /* Typedefs (lock + read/write guards) into struct_bodies. */
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "/* Phase 33 STDLIB-07: RWLock[%s] per-T glue */\n"
+        "typedef struct { iron_rwlock_t lk; %s value; } %s;\n"
+        "typedef struct { %s *owner; } Iron_RWReadGuard_%s;\n"
+        "typedef struct { %s *owner; } Iron_RWWriteGuard_%s;\n",
+        elem_c, elem_c, lock_name,
+        lock_name, esc,
+        lock_name, esc);
+
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static %s *Iron_RWLock_%s_new(%s value) {\n"
+        "    %s *l = (%s *)malloc(sizeof(%s));\n"
+        "    if (!l) iron_oom_abort(\"RWLock new\");\n"
+        "    IRON_RWLOCK_INIT(l->lk); l->value = value; return l;\n"
+        "}\n"
+        "static void Iron_RWLock_%s_destroy(%s **l) {\n"
+        "    if (l && *l) { IRON_RWLOCK_DESTROY((*l)->lk); free(*l); *l = NULL; }\n"
+        "}\n"
+        "static Iron_RWReadGuard_%s Iron_RWReadGuard_%s_read(%s **l) {\n"
+        "    Iron_RWReadGuard_%s g; g.owner = *l;\n"
+        "    IRON_RWLOCK_RDLOCK((*l)->lk); return g;\n"
+        "}\n"
+        "static Iron_RWWriteGuard_%s Iron_RWWriteGuard_%s_write(%s **l) {\n"
+        "    Iron_RWWriteGuard_%s g; g.owner = *l;\n"
+        "    IRON_RWLOCK_WRLOCK((*l)->lk); return g;\n"
+        "}\n"
+        "static %s Iron_RWReadGuard_%s_get(Iron_RWReadGuard_%s *g) {\n"
+        "    return g->owner->value;\n"
+        "}\n"
+        "static %s Iron_RWWriteGuard_%s_get(Iron_RWWriteGuard_%s *g) {\n"
+        "    return g->owner->value;\n"
+        "}\n"
+        "static void Iron_RWWriteGuard_%s_set(Iron_RWWriteGuard_%s *g, %s value) {\n"
+        "    g->owner->value = value;\n"
+        "}\n"
+        "static void Iron_RWReadGuard_%s_rdunlock(Iron_RWReadGuard_%s *g) {\n"
+        "    if (g && g->owner) { IRON_RWLOCK_RDUNLOCK(g->owner->lk); g->owner = NULL; }\n"
+        "}\n"
+        "static void Iron_RWWriteGuard_%s_wrunlock(Iron_RWWriteGuard_%s *g) {\n"
+        "    if (g && g->owner) { IRON_RWLOCK_WRUNLOCK(g->owner->lk); g->owner = NULL; }\n"
+        "}\n\n",
+        /* _new */      lock_name, esc, elem_c, lock_name, lock_name, lock_name,
+        /* _destroy */  esc, lock_name,
+        /* _read */     esc, esc, lock_name, esc,
+        /* _write */    esc, esc, lock_name, esc,
+        /* read_get */  elem_c, esc, esc,
+        /* write_get */ elem_c, esc, esc,
+        /* write_set */ esc, esc, elem_c,
+        /* rdunlock */  esc, esc,
+        /* wrunlock */  esc, esc);
+}
+
+void emit_ensure_filehandle(EmitCtx *ctx) {
+    if (ctx->emitted_filehandle) return;
+    ctx->emitted_filehandle = true;
+
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "/* Phase 33 STDLIB-09: FileHandle nocopy fd wrapper */\n"
+        "typedef struct { int fd; } Iron_FileHandle;\n");
+
+    /* open creates/truncates the file; close prints "closed fd" then closes.
+     * Uses fopen/fileno (portable, no <fcntl.h> needed) — the value is the
+     * underlying fd so the drop path matches the surface contract. */
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static Iron_FileHandle Iron_FileHandle_open(Iron_String path) {\n"
+        "    Iron_FileHandle fh; fh.fd = -1;\n"
+        "    const char *p = iron_string_cstr(&path);\n"
+        "    FILE *f = fopen(p ? p : \"\", \"w\");\n"
+        "    if (f) fh.fd = fileno(f);\n"
+        "    return fh;\n"
+        "}\n"
+        "static void Iron_FileHandle_close(Iron_FileHandle *fh) {\n"
+        "    if (fh && fh->fd >= 0) {\n"
+        "        printf(\"closed fd\\n\");\n"
+        "        close(fh->fd);\n"
+        "        fh->fd = -1;\n"
+        "    }\n"
+        "}\n"
+        "static void Iron_FileHandle_drop(Iron_FileHandle *fh) {\n"
+        "    Iron_FileHandle_close(fh);\n"
+        "}\n\n");
 }
 
 /* Map a type annotation name to a C type string without needing Iron_Codegen */
