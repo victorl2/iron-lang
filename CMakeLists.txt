@@ -2124,14 +2124,13 @@ if(NOT WIN32)
         LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 60)
 
     # ── BUILD+RUN rows (byte-exact stdout; WILL_FAIL — need clang host) ──
-    # Each flips GREEN on a clang host once its wave lands.
+    # Each flips GREEN on a clang host once its wave lands. The fixtures left
+    # here belong to other waves/plans (Wave 4 container element-destructors,
+    # Wave 6 RawPtr) and still require their own landings.
     set(_PHASE_33_BUILDRUN_FIXTURES
         list_drop_filehandle   # STDLIB-02 + STDLIB-09 (Wave 4 + 5)
         list_copy_elements     # STDLIB-02 (Wave 4)
         set_basic              # STDLIB-04 (Wave 2 + 4)
-        mutex_guard            # STDLIB-07 (Wave 5)
-        channel_bounded        # STDLIB-08 (Wave 5)
-        filehandle_drop        # STDLIB-09 (Wave 5)
         rawptr_cast            # STDLIB-10 (Wave 6)
     )
     foreach(_fix IN LISTS _PHASE_33_BUILDRUN_FIXTURES)
@@ -2144,6 +2143,26 @@ if(NOT WIN32)
             LABELS "integration;phase33-invariant;v4-acceptance"
             TIMEOUT 60
             WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+    endforeach()
+
+    # ── POSITIVE BUILD+RUN rows: Wave 5 nocopy resource receiver methods ──
+    # STDLIB-07/08/09 (Plan 33-05). The receiver-form methods + per-T codegen
+    # synthesis (emit_ensure_mutex/channel/filehandle) landed, so these now
+    # genuinely build+run on a clang host. Split out of the WILL_FAIL loop
+    # above (mirrors v4_7.5-stdlib_box_roundtrip): they RUN and must PASS.
+    set(_PHASE_33_NOCOPY_BUILDRUN_FIXTURES
+        mutex_guard            # STDLIB-07 (Mutex[T] scoped guard)
+        channel_bounded        # STDLIB-08 (Channel[T] bounded send/recv)
+        filehandle_drop        # STDLIB-09 (FileHandle drop-closes-fd)
+    )
+    foreach(_fix IN LISTS _PHASE_33_NOCOPY_BUILDRUN_FIXTURES)
+        add_test(
+            NAME v4_7.5-stdlib_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        set_tests_properties(v4_7.5-stdlib_${_fix} PROPERTIES
+            LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 60)
     endforeach()
 endif()
 
