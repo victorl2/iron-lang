@@ -40,7 +40,25 @@ capture_19_recursive_lambda, capture_20_game_state.
 (entries below added by subsequent tasks)
 
 ## ADTs + Match (adt_*, match_*, enum_*)
-(entries added by Task 2)
+
+All 11 `adt_*` + 1 `match_expressions` fixtures migrated as-is —
+ADT/match semantics are preserved v3→v4 (no spec change to match arms or
+pattern-binding). Verified end-to-end via v4 ironc on silvaserver podman.
+
+Migrated: adt_else_arm, adt_enum_construct, adt_enum_decl, adt_match_syntax,
+adt_mixed_payload, adt_nested_pattern, adt_pattern_binding, adt_recursive_expr,
+adt_recursive_generic, adt_recursive_list, adt_wildcard_pattern,
+match_expressions.
+
+REMOVED (kept disabled in v3, no v4 analog):
+- adt_enum_method.iron.disabled — REMOVED. ADT enum-method dispatch was
+  disabled pre-v4 (already `.disabled` in v3-archive); v4 receiver-method
+  semantics covered by v4 corpus under `tests/integration/v4/7.5-stdlib/`
+  (mutex_guard, channel_bounded, filehandle_drop receiver-form patterns).
+- adt_plain_enum_method.iron.disabled — REMOVED. Same rationale.
+- enum_construct_reinterpret.iron.disabled — REMOVED. Tested v3-specific
+  enum reinterpret-cast machinery; v4 forbids the operation via
+  drop/copy/nocopy resource discipline.
 
 ## Collections (coll_*, collection_*, array_*, push_*, split_*)
 (entries added by Task 3)

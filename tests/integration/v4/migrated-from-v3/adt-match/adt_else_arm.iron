@@ -1,0 +1,23 @@
+-- ADT else arm test: else catches remaining variants
+
+enum Color {
+  Red,
+  Green,
+  Blue,
+  Custom(Int, Int, Int),
+}
+
+func describe(c: Color) -> String {
+  match c {
+    Color.Custom(r, g, b) -> return "custom {r},{g},{b}"
+    else -> return "basic"
+  }
+  return "unknown"
+}
+
+func main() {
+  val c1 = Color.Red
+  val c2 = Color.Custom(255, 128, 0)
+  println(describe(c1))
+  println(describe(c2))
+}

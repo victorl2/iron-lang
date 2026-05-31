@@ -1,0 +1,25 @@
+-- ADT nested pattern test (MATCH-06): destructure nested variant payloads
+
+enum Inner {
+  Val(Int),
+}
+
+enum Outer {
+  Wrap(Inner),
+  Plain(Int),
+}
+
+func extract(o: Outer) -> Int {
+  match o {
+    Outer.Wrap(Inner.Val(n)) -> return n
+    Outer.Plain(n) -> return n
+  }
+  return -1
+}
+
+func main() {
+  val a = Outer.Wrap(Inner.Val(42))
+  val b = Outer.Plain(99)
+  println("a: {extract(a)}")
+  println("b: {extract(b)}")
+}

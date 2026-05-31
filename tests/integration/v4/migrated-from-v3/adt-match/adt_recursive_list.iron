@@ -1,0 +1,23 @@
+-- ADT recursive linked list test (EDATA-04): auto-boxed Cons variant
+
+enum List {
+  Nil,
+  Cons(Int, List),
+}
+
+func sum_list(l: List) -> Int {
+  match l {
+    List.Nil -> return 0
+    List.Cons(head, tail) -> return head + sum_list(tail)
+  }
+  return 0
+}
+
+func main() {
+  val list = List.Cons(1, List.Cons(2, List.Cons(3, List.Nil)))
+  println("sum: {sum_list(list)}")
+  match list {
+    List.Nil -> println("empty")
+    List.Cons(h, _) -> println("head: {h}")
+  }
+}
