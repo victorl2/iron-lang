@@ -1,0 +1,50 @@
+-- Integration test: MATH-01..10
+-- Covers all 10 new math functions added in Phase 39.
+-- Avoids printing float results directly (platform formatting varies).
+import math
+
+func main() {
+    -- MATH-01: asin
+    val a = Math.asin(0.0)
+    println("asin ok")
+
+    -- MATH-02: acos
+    val b = Math.acos(1.0)
+    println("acos ok")
+
+    -- MATH-03: atan2
+    val c = Math.atan2(0.0, 1.0)
+    println("atan2 ok")
+
+    -- MATH-04: sign (returns Int — safe to print via interpolation)
+    val s1 = Math.sign(-5.0)
+    println("{s1}")
+    val s2 = Math.sign(0.0)
+    println("{s2}")
+    val s3 = Math.sign(3.0)
+    println("{s3}")
+
+    -- MATH-05: seed
+    Math.seed(42)
+    println("seed ok")
+
+    -- MATH-06: random_float (Float — do not print)
+    val rf = Math.random_float(0.0, 1.0)
+    println("random_float ok")
+
+    -- MATH-07: log
+    val lg = Math.log(1.0)
+    println("log ok")
+
+    -- MATH-08: log2
+    val l2 = Math.log2(8.0)
+    println("log2 ok")
+
+    -- MATH-09: exp
+    val ex = Math.exp(0.0)
+    println("exp ok")
+
+    -- MATH-10: hypot
+    val h = Math.hypot(3.0, 4.0)
+    println("hypot ok")
+}

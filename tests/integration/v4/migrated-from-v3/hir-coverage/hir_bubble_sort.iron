@@ -1,0 +1,23 @@
+func bubble_sort(arr: [Int], n: Int) {
+  var i = 0
+  while i < n - 1 {
+    var j = 0
+    while j < n - i - 1 {
+      if arr[j] > arr[j + 1] {
+        val tmp = arr[j]
+        arr[j] = arr[j + 1]
+        arr[j + 1] = tmp
+      }
+      j = j + 1
+    }
+    i = i + 1
+  }
+}
+
+func main() {
+  var arr = [5, 3, 8, 1, 9, 2]
+  bubble_sort(arr, 6)
+  for x in arr {
+    println("{x}")
+  }
+}

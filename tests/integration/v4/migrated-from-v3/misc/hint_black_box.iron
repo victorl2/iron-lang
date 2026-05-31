@@ -1,0 +1,51 @@
+import hint
+
+func main() {
+    -- Assertion 1: black_box(x) returns x unchanged for a small positive int
+    val a = Hint.black_box(42)
+    if a == 42 {
+        println("identity_pos ok")
+    } else {
+        println("identity_pos FAIL (got {a})")
+    }
+
+    -- Assertion 2: black_box(0) returns 0
+    val b = Hint.black_box(0)
+    if b == 0 {
+        println("identity_zero ok")
+    } else {
+        println("identity_zero FAIL (got {b})")
+    }
+
+    -- Assertion 3: black_box(x) preserves negative ints
+    val c = Hint.black_box(-1000)
+    if c == -1000 {
+        println("identity_neg ok")
+    } else {
+        println("identity_neg FAIL (got {c})")
+    }
+
+    -- Assertion 4: black_box(x) preserves large int64 values
+    val d = Hint.black_box(9223372036854775807)
+    if d == 9223372036854775807 {
+        println("identity_max ok")
+    } else {
+        println("identity_max FAIL (got {d})")
+    }
+
+    -- Assertion 5: summation loop using black_box computes correct result.
+    -- Without black_box, clang would constant-fold the loop because i*2 is
+    -- loop-invariant modulo the loop counter; with black_box, clang must
+    -- execute each iteration and materialize the sum.
+    --
+    -- Expected: 2*(0+1+2+...+99) = 2*(99*100/2) = 9900.
+    var sum = 0
+    for i in range(100) {
+        sum = sum + Hint.black_box(i * 2)
+    }
+    if sum == 9900 {
+        println("accumulator ok")
+    } else {
+        println("accumulator FAIL (got {sum})")
+    }
+}

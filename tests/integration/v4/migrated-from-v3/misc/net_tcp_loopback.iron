@@ -1,0 +1,23 @@
+-- net_tcp_loopback.iron — Phase 59 P02 TCP integration test (listen + accept timeout path).
+--
+-- Cross-process loopback roundtrip coverage lives in the Unity test
+-- tests/unit/test_stdlib_net_tcp.c :: test_tcp_dial_loopback_roundtrip
+-- which spawns a helper pthread/Win32 thread. This Iron-side test
+-- focuses on the listener + accept-with-timeout path exercisable in a
+-- single Iron process without cross-thread coordination.
+import net
+
+func main() {
+    val (listener, lerr) = Net.tcp_listen("127.0.0.1", 34501)
+    if lerr.code != 0 {
+        println("listen failed")
+        return
+    }
+    val (sock, aerr) = TcpListener.accept(listener, 100)
+    if aerr.code == 1004 {
+        println("accept timeout ok")
+    } else {
+        println("unexpected")
+    }
+    TcpListener.close(listener)
+}

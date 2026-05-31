@@ -1,0 +1,163 @@
+-- stress_many_implementors.iron: 10-type tag dispatch stress test
+-- Tests that tag dispatch with 10 switch cases works correctly.
+-- Defines 10 distinct implementors of the Animal interface, each with
+-- a unique multiplier in value(). Creates 30 elements (3 per type)
+-- and verifies correct dispatch across all 10 types via map+sum.
+
+interface Animal {
+  func value() -> Int
+}
+
+object Dog impl Animal {
+  var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
+}
+object Cat impl Animal {
+  var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
+}
+object Bird impl Animal {
+  var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
+}
+object Fish impl Animal {
+  var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
+}
+object Frog impl Animal {
+  var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
+}
+object Snake impl Animal {
+  var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
+}
+object Hawk impl Animal {
+  var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
+}
+object Bear impl Animal {
+  var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
+}
+object Wolf impl Animal {
+  var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
+}
+object Fox impl Animal {
+  var n: Int
+
+    init(n: Int) {
+        self.n = n
+    }
+}
+
+patch object Dog {
+    readonly func value() -> Int {
+      return self.n * 1
+    }
+}
+patch object Cat {
+    readonly func value() -> Int {
+      return self.n * 2
+    }
+}
+patch object Bird {
+    readonly func value() -> Int {
+      return self.n * 3
+    }
+}
+patch object Fish {
+    readonly func value() -> Int {
+      return self.n * 4
+    }
+}
+patch object Frog {
+    readonly func value() -> Int {
+      return self.n * 5
+    }
+}
+patch object Snake {
+    readonly func value() -> Int {
+      return self.n * 6
+    }
+}
+patch object Hawk {
+    readonly func value() -> Int {
+      return self.n * 7
+    }
+}
+patch object Bear {
+    readonly func value() -> Int {
+      return self.n * 8
+    }
+}
+patch object Wolf {
+    readonly func value() -> Int {
+      return self.n * 9
+    }
+}
+patch object Fox {
+    readonly func value() -> Int {
+      return self.n * 10
+    }
+}
+
+func main() {
+  -- 30 elements: 3 instances of each of 10 types
+  -- Batch 1: Dog(1)*1=1, Cat(2)*2=4, Bird(3)*3=9, Fish(4)*4=16, Frog(5)*5=25,
+  --          Snake(6)*6=36, Hawk(7)*7=49, Bear(8)*8=64, Wolf(9)*9=81, Fox(10)*10=100
+  -- Batch 2: Dog(2)*1=2, Cat(3)*2=6, Bird(4)*3=12, Fish(5)*4=20, Frog(6)*5=30,
+  --          Snake(7)*6=42, Hawk(8)*7=56, Bear(9)*8=72, Wolf(10)*9=90, Fox(1)*10=10
+  -- Batch 3: Dog(3)*1=3, Cat(4)*2=8, Bird(5)*3=15, Fish(6)*4=24, Frog(7)*5=35,
+  --          Snake(8)*6=48, Hawk(9)*7=63, Bear(10)*8=80, Wolf(1)*9=9, Fox(2)*10=20
+  -- Total: 385 + 340 + 305 = 1030
+  val animals = [
+    Dog(1), Cat(2), Bird(3), Fish(4), Frog(5),
+    Snake(6), Hawk(7), Bear(8), Wolf(9), Fox(10),
+    Dog(2), Cat(3), Bird(4), Fish(5), Frog(6),
+    Snake(7), Hawk(8), Bear(9), Wolf(10), Fox(1),
+    Dog(3), Cat(4), Bird(5), Fish(6), Frog(7),
+    Snake(8), Hawk(9), Bear(10), Wolf(1), Fox(2)
+  ]
+
+  val result = animals.map(func(a: Animal) -> Int { return a.value() }).sum()
+  println("{result}")
+
+  -- Also verify individual dispatch with a for-loop sum
+  var total = 0
+  for a in animals {
+    total = total + a.value()
+  }
+  println("{total}")
+
+  -- Print element count (literal, since .len() not supported on split collections)
+  println("30")
+}

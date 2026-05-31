@@ -1,0 +1,50 @@
+-- Regression: REG-02 crash-canary for IRON_HIR_STMT_FOR (for-in-range).
+--
+-- **Motivating Incident.** Phase 37-02's collect_mono_enums_node AST
+-- walker crashed on if/elif/else lowering because its locally-shadowed
+-- struct typedef omitted elif_conds[]/elif_bodies[] fields. The same
+-- walker-incompleteness class can re-emerge for any other HIR
+-- statement kind. Iron_ForStmt carries an iterator expression and a
+-- body block, and walker cases that mis-recurse into those slots will
+-- silently drop sub-expressions from the lowered LIR. Phase 66 added
+-- _Static_assert on Iron_ExprNode common prefixes and enabled
+-- -Werror=switch-enum globally; this canary is the runtime regression
+-- net so any future walker regression for IRON_NODE_FOR turns red in
+-- both Debug and Release CI.
+--
+-- **Layout Diagram.** Iron_ForStmt carries
+--   { span, kind, iterator_var, iterable_expr, body, parallel_flag }
+-- Walker cases that fail to recurse into `iterable_expr` silently drop
+-- expressions like range(n) from the lowered LIR. Walker cases that
+-- fail to recurse into `body` drop every statement inside the loop.
+--
+-- **Fix Summary.** Phase 67-08 added this fixture as a REG-02 crash
+-- canary. CI integration: runs in both Debug and Release via Phase
+-- 66-04's build-and-test-release job.
+--
+-- **Severity.** H (regression potential). A missing for-case recursion
+-- would silently drop every loop body from the lowered LIR -- the same
+-- class of "quiet wrong codegen" the Phase 37-02 IF walker had.
+
+func factorial(n: Int) -> Int {
+  var result = 1
+  var i = 1
+  while i <= n {
+    result = result * i
+    i = i + 1
+  }
+  return result
+}
+
+func sum_squares(n: Int) -> Int {
+  var total = 0
+  for i in range(n) {
+    total = total + (i * i)
+  }
+  return total
+}
+
+func main() {
+  println("fact: {factorial(10)}")
+  println("sq: {sum_squares(5)}")
+}

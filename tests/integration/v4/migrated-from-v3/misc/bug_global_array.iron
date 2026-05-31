@@ -1,0 +1,7 @@
+var scores = [10, 20, 30]
+
+func main() {
+  println("before: {scores[0]}, {scores[1]}, {scores[2]}")
+  scores[1] = 99
+  println("after: {scores[0]}, {scores[1]}, {scores[2]}")
+}

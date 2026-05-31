@@ -1,0 +1,52 @@
+import time
+
+func main() {
+    -- Assertion 1: monotonic (two successive calls, second >= first)
+    val a = Time.now_ns()
+    val b = Time.now_ns()
+    if b >= a {
+        println("monotonic ok")
+    } else {
+        println("monotonic FAIL")
+    }
+
+    -- Assertion 2: nonzero delta across a short busy loop.
+    -- The loop body mixes in a runtime-sampled value (`a`) so the C
+    -- optimizer cannot constant-fold the sum to a compile-time literal
+    -- and collapse the loop to a no-op.
+    val c = Time.now_ns()
+    var acc = a
+    for i in range(10000) {
+        acc = acc + Time.now_ns()
+    }
+    val d = Time.now_ns()
+    val delta_work = d - c
+    if delta_work > 0 {
+        println("nonzero ok")
+    } else {
+        println("nonzero FAIL (delta={delta_work}, acc={acc})")
+    }
+
+    -- Assertion 3: ns granularity — delta for 10000 iterations must be
+    -- at least 10000 (>= 1 ns/iter) and at most 100000000000 (<= 10 ms/iter).
+    -- The upper bound is generous because each iteration calls Time.now_ns()
+    -- (a syscall) to defeat constant-folding; syscall cost dominates. The
+    -- point of this assertion is unit-sanity: catch accidental ms/us return
+    -- values (delta would be <10000 for 10000 iters) or seconds (delta=0).
+    val e = Time.now_ns()
+    var acc2 = a
+    for i in range(10000) {
+        acc2 = acc2 + Time.now_ns()
+    }
+    val f = Time.now_ns()
+    val delta_ns = f - e
+    if delta_ns > 10000 {
+        if delta_ns < 100000000000 {
+            println("ns_granularity ok")
+        } else {
+            println("ns_granularity FAIL (delta_ns={delta_ns} > 100000000000, looks like wrong unit)")
+        }
+    } else {
+        println("ns_granularity FAIL (delta_ns={delta_ns} < 10000, looks like wrong unit)")
+    }
+}

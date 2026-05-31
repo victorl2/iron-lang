@@ -1,0 +1,12 @@
+(3,4)
+(0,5)
+(5,12)
+p1 dist sq: 25
+p3 dist sq: 169
+s1 len sq: 25
+s2 len sq: 25
+r1: area=20 perim=18
+r2: area=30 perim=26
+total dist sq: 60
+chain result: 200
+done

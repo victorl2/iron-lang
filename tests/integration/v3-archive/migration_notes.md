@@ -137,10 +137,111 @@ Migrated to expressions/ (verified v4-compatible by silvaserver podman):
 - variables.iron — val/var binding surface smoke
 
 ## HIR coverage (hir_*, mono_*, fusion_*, compose_*)
-(entries added by Task 6)
 
-## v3-specific (v3_*, bug_audit_mut_*, etc.)
-(entries added by Task 6 — all marked REMOVED; v3 syntax is gone)
+**Bulk INTERNAL_IR + OPTIMIZER classification.** The hir_*, mono_*, fusion_*,
+and compose_* fixture families collectively exercise compiler internal IR
+behavior (HIR-printer / HIR-lowering / LIR monomorphization / SoA fusion /
+arena-soa-dead composition) rather than user-observable surface semantics.
+These responsibilities are covered by v4's dedicated unit tests under
+`tests/hir/` (test_hir_*.c, test_hir_lower.c, etc.) and `tests/lir/`
+(test_lir_*.c, test_lir_mono_*.c, test_lir_fusion_*.c, test_value_range_*.c),
+with more focused assertions than the integration round-trip can provide.
+
+**INTERNAL_IR (hir_*, 125 fixtures):**
+All 125 hir_* fixtures — INTERNAL_IR. Each fixture asserts hir_print or
+HIR-lowering output for a specific surface construct (arithmetic, control
+flow, closure, ADT, generic, heap expr, array literal, etc.). v4 covers
+these with focused tests/hir/ unit tests against fresh HIR construction.
+Representative essence-migrated samples land under hir-coverage/:
+hir_array_literal, hir_binary_search, hir_bubble_sort,
+hir_canary_closure_capture, hir_canary_for, hir_canary_heap_expr.
+
+**OPTIMIZER (mono_*, fusion_*, compose_*, 29 fixtures):**
+All 16 mono_*, 8 fusion_*, and 5 compose_* fixtures — OPTIMIZER. Mono
+fusion, SoA fusion, dead-field compression, and arena-soa-dead composition
+are pass-level invariants exercised by tests/lir/ unit tests
+(test_lir_mono_*.c, test_lir_fusion_*.c). The integration fixtures only
+prove the optimizer didn't crash on a surface example; the unit tests prove
+the optimizer produces the expected IR shape, which is the load-bearing
+property.
+
+## v3-specific (v3_*, plus v4-removed surface)
+
+**Bulk REMOVED classification — v3 syntax / v3-only semantics that v4
+removed or replaced.** Even though most v3_* fixtures happen to still
+compile under v4 (because they exercise constructs that survived the v4
+transition), they were originally authored to lock v3-spec semantics. The
+v4 corpus has its own targeted fixtures for the same surface under
+`tests/integration/v4/4.4-readonly/` (readonly), `4.8-rc-policy` (rc),
+`4.9-weak-rc-policy` (weak rc), etc.
+
+**REMOVED (v3_*, 13 fixtures):**
+v3_iface_default_body, v3_init_anonymous_and_named, v3_init_fieldless_marker,
+v3_methods_in_block, v3_patch_implements, v3_patch_primitive,
+v3_pub_field_synthesis, v3_pure_method, v3_readonly_transitive, v3_self_return,
+v3_spec_visibility_example, v3_str_concat_chained, v3_str_describable_example
+— all REMOVED. v3-spec lock fixtures. v3_pure_method also genuinely fails
+under v4 ironc (pure-method body restrictions changed v3→v4). The other 12
+happen to still compile under v4 but exist for v3 traceability and don't
+add coverage beyond v4-corpus equivalents.
+
+**REMOVED (v4 surface no longer accepts):**
+- audit_struct_method_mutation — `patch object` + readonly receiver-method
+  pattern; build fails under v4 ironc. v4 receiver-method semantics covered
+  by `tests/integration/v4/7.5-stdlib/` (mutex_guard, channel_bounded, etc.).
+- empty_literal_return — `return []` empty-literal type inference; build
+  fails under v4 ironc. v4 covers concrete empty-collection construction
+  via dedicated 7.5-stdlib fixtures.
+
+## Misc bulk-migrated surface fixtures
+
+In addition to the per-category essence migrations above, **95 surface-level
+fixtures from miscellaneous v3 prefixes** were verified to run cleanly under
+v4 ironc and migrated to `tests/integration/v4/migrated-from-v3/misc/`. These
+exercise small surface-feature smoke tests (arena, audit, bug regressions,
+comptime, copy/dce/const-fold optimizer probes from the surface side,
+empty-collection construction, extern, fill, fmt, generic dispatch, heap,
+hex literals, hint, import, inline, interface dispatch, io/log/math/time
+stdlib, lambda capture, loop patterns, nested control flow, net stdlib,
+null heap/rc alloc, parallel for, rc patterns, smoke, soa fusion surface,
+spawn/await, stack arrays, static dispatch, store/load elim surface,
+strength reduction surface, stress fixtures, test_ stdlib, url stdlib,
+value-range surface) that complement the structured per-category subdirs.
+
+See `tests/integration/v4/migrated-from-v3/misc/` for the file list — the
+fixtures are name-prefixed by feature group (audit_*, bug_*, comptime_*,
+const_*, copy_*, dce_*, empty_*, extern_*, fill_*, fmt_*, generic_*,
+heap_*, hex_*, hint_*, import_*, inline_*, interface_*, io_*, lambda_*,
+log_*, loop_*, math_*, nested_*, net_*, null_*, parallel_*, rc_*, smoke_*,
+soa_*, spawn_*, stack_*, static_*, store_*, strength_*, stress_*, test_*,
+time_*, url_*, value_*, plus arena_cross_arena_fix and arena_split_collection).
+Total: 95.
+
+---
+
+## Final accounting
+
+| Bucket | Count |
+|---|---|
+| v3-archive .iron total | **388** |
+| Migrated to v4/migrated-from-v3/ | **225** |
+|   ├── closures/ (capture_*) | 20 |
+|   ├── adt-match/ (adt_*, match_*) | 12 |
+|   ├── collections/ (coll_*, collection_*, array_*, push_*, split_*) | 30 |
+|   ├── control-flow/ (control_*, defer_*, early_*, edge_*, args_*, audit_defer_*) | 10 |
+|   ├── expressions/ (bitwise_*, binary_*, str_*, tuple_*, expr_*, blind_*, layout_*, int_*, int32_*, functions, hello, objects, variables) | 52 |
+|   ├── hir-coverage/ (representative hir_* essence samples) | 6 |
+|   └── misc/ (bulk surface fixtures from 41 remaining prefixes) | 95 |
+| Documented as REMOVED/INTERNAL_IR/OPTIMIZER (not migrated) | **163** |
+|   ├── hir_* (INTERNAL_IR, minus 6 essence samples) | 119 |
+|   ├── mono_* (OPTIMIZER) | 16 |
+|   ├── fusion_* (OPTIMIZER) | 8 |
+|   ├── compose_* (OPTIMIZER) | 5 |
+|   ├── v3_* (REMOVED — v3-spec lock fixtures) | 13 |
+|   └── v4-removed surface fixtures (audit_struct_method_mutation, empty_literal_return) | 2 |
+| **Migrated + Documented** | **388** ✓ |
+
+No archived fixture is left unaccounted for.
 
 <!-- (Single-occurrence prefixes consolidated into the Expressions section above.) -->
 <!-- Additional bulk-documented singletons logged by Task 6. -->

@@ -1,0 +1,11 @@
+-- Hex integer literal parsing.
+-- Decimal conversion happens in the lexer; downstream passes see Int values.
+
+func main() {
+    println("{0xFF}")        -- 255
+    println("{0Xff}")        -- 255 (uppercase X, lowercase digits)
+    println("{0x10}")        -- 16
+    println("{0xDEADBEEF}")  -- 3735928559
+    println("{0x0}")         -- 0
+    println("{0x1 << 8}")    -- 256 — confirms hex literal is usable inside bitwise expressions
+}

@@ -1,0 +1,21 @@
+-- Generic enum match: Option[Int] pattern binding
+
+enum Option[T] {
+  Some(T),
+  None,
+}
+
+func unwrap_or(o: Option[Int], default_val: Int) -> Int {
+  match o {
+    Option.Some(v) -> return v
+    Option.None -> return default_val
+  }
+  return default_val
+}
+
+func main() {
+  val a: Option[Int] = Option.Some(42)
+  val b: Option[Int] = Option.None
+  println("{unwrap_or(a, 0)}")
+  println("{unwrap_or(b, -1)}")
+}
