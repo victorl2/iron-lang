@@ -1,0 +1,10 @@
+-- Binary integer literal parsing.
+
+func main() {
+    println("{0b0}")          -- 0
+    println("{0b1}")          -- 1
+    println("{0b1010}")       -- 10
+    println("{0B0110}")       -- 6 (uppercase B)
+    println("{0b11111111}")   -- 255
+    println("{0b1 | 0b10}")   -- 3 — confirms binary literal usable in bitwise expr
+}

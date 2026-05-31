@@ -1,0 +1,8 @@
+-- Test: STR-04 (contains)
+func main() {
+    val s = "hello world"
+    val r1 = s.contains("world")
+    val r2 = s.contains("xyz")
+    println("{r1}")
+    println("{r2}")
+}

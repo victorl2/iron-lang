@@ -1,0 +1,52 @@
+-- Int32 basic: variable declarations, casts, arithmetic, comparisons
+
+func add_int32(a: Int32, b: Int32) -> Int32 {
+    return a + b
+}
+
+func widen_to_int(x: Int32) -> Int {
+    return x
+}
+
+func main() {
+    -- val with Int32 annotation and integer literal
+    val x: Int32 = 42
+    println("{x}")
+
+    -- Int32() cast from Int
+    val n: Int = 100
+    val y: Int32 = Int32(n)
+    println("{y}")
+
+    -- Int32 arithmetic (same-width)
+    val z: Int32 = x + y
+    println("{z}")
+
+    -- Function with Int32 params and return
+    val sum: Int32 = add_int32(Int32(10), Int32(20))
+    println("{sum}")
+
+    -- Widening: Int32 -> Int (implicit)
+    val w: Int = z
+    println("{w}")
+
+    -- Function returning widened Int32 -> Int
+    val wide = widen_to_int(Int32(7))
+    println("{wide}")
+
+    -- Comparison: Int32 < Int (auto-widening)
+    val limit: Int = 200
+    if z < limit {
+        println("less")
+    } else {
+        println("not less")
+    }
+
+    -- Comparison: Int == Int32 (auto-widening)
+    val check: Int = 42
+    if check == x {
+        println("equal")
+    } else {
+        println("not equal")
+    }
+}

@@ -1,0 +1,7 @@
+-- Test: STR-11 (char_at)
+func main() {
+    val s = "hello"
+    println(s.char_at(0))
+    println(s.char_at(1))
+    println(s.char_at(4))
+}

@@ -1,0 +1,82 @@
+-- Regression: Iron_ExprNode common layout assumption (runtime safety net).
+--
+-- **Motivating Incident.** Phase 65 AUDIT-01 rank 9 flagged
+-- src/hir/hir_lower.c:109 for locally defining an Iron_ExprNode typedef
+-- that assumed every expression AST type begins with
+-- {Iron_Span span; Iron_NodeKind kind; struct Iron_Type *resolved_type;}.
+-- If any expression type ever deviated from that prefix, the expr_type()
+-- helper would silently read garbage for resolved_type and propagate
+-- wrong types through HIR lowering — the class of bug that motivated
+-- the whole v0.1.4-alpha Compiler Correctness milestone.
+--
+-- **Layout Diagram.**
+--   Every expression AST type (Iron_IntLit, Iron_FloatLit, Iron_StringLit,
+--   Iron_BoolLit, Iron_NullLit, Iron_Ident, Iron_BinaryExpr, Iron_UnaryExpr,
+--   Iron_CallExpr, Iron_MethodCallExpr, Iron_FieldAccess, Iron_IndexExpr,
+--   Iron_SliceExpr, Iron_LambdaExpr, Iron_HeapExpr, Iron_RcExpr,
+--   Iron_ComptimeExpr, Iron_IsExpr, Iron_ConstructExpr, Iron_ArrayLit,
+--   Iron_EnumConstruct, Iron_AwaitExpr, Iron_InterpString) must begin
+--   with the exact prefix:
+--     [Iron_Span span][Iron_NodeKind kind][struct Iron_Type *resolved_type]
+--   Compile-time enforcement via _Static_assert in src/parser/ast.h
+--   (PROT-01, Phase 66 Plan 01) is the primary defense. This fixture is
+--   the runtime belt-and-braces: it funnels many concrete expression
+--   kinds through HIR lowering's expr_type() so a wrong resolved_type
+--   read surfaces as a type error or a runtime crash instead of silent
+--   bad codegen.
+--
+-- **Fix Summary.** Plan 01 moved Iron_ExprNode to src/parser/ast.h and
+-- added _Static_assert prefix enforcement on every expression type
+-- (IRON_ASSERT_EXPR_PREFIX macro applied 23 times). This fixture is the
+-- RUNTIME safety net that protects against a future refactor which
+-- somehow bypasses the static asserts (e.g., conditional compilation,
+-- a new expression type someone forgets to register, or a #pragma pack
+-- change). If the compile-time checks ever miss a drift, a wrong
+-- resolved_type read on any of the exercised kinds produces a visible
+-- failure here. PROT-04 belt-and-braces runtime fixture, Phase 66 Plan
+-- 03.
+--
+-- **Severity.** H. Protects HIR lowering's type propagation for every
+-- Iron program — the common layout assumption is the foundation every
+-- expression-kind switch relies on.
+
+func add(x: Int, y: Int) -> Int {
+    return x + y
+}
+
+object Pair {
+    val a: Int
+    val b: Int
+}
+
+func main() {
+    -- Exercise a wide set of expression AST kinds. Each of these
+    -- expressions flows through expr_type() during HIR lowering; if the
+    -- Iron_ExprNode common prefix ever breaks for any concrete expression
+    -- type, the resolved_type read on that kind will produce either a
+    -- type error (caught by typecheck) or a wrong codegen (caught by
+    -- the println interpolation below).
+    val int_lit  = 42                    -- Iron_IntLit
+    val str_lit  = "hello"               -- Iron_StringLit
+    val bool_lit = true                  -- Iron_BoolLit
+    val ident    = int_lit               -- Iron_Ident
+    val binop    = int_lit + 1           -- Iron_BinaryExpr
+    val unary    = -int_lit              -- Iron_UnaryExpr
+    val call     = add(int_lit, 1)       -- Iron_CallExpr
+    val pair     = Pair(int_lit, call)   -- Iron_CallExpr -> ObjectDecl construct
+    val field    = pair.a                -- Iron_FieldAccess
+    val arr      = [1, 2, 3]             -- Iron_ArrayLit
+    val index    = arr[0]                -- Iron_IndexExpr
+    val interp   = "value: {int_lit}"    -- Iron_InterpString
+
+    println("int: {int_lit}")
+    println("str: {str_lit}")
+    println("bool: {bool_lit}")
+    println("ident: {ident}")
+    println("binop: {binop}")
+    println("unary: {unary}")
+    println("call: {call}")
+    println("field: {field}")
+    println("index: {index}")
+    println(interp)
+}

@@ -1,0 +1,10 @@
+-- Test: STR-07 (split), STR-14 (join)
+func main() {
+    val parts = "a,b,c".split(",")
+    val joined = ",".join(parts)
+    println(joined)
+    val words = "hello world foo".split(" ")
+    println(words[0])
+    println(words[1])
+    println(words[2])
+}

@@ -1,0 +1,27 @@
+-- Test: expression inlining for arithmetic chains
+-- Verifies that compound arithmetic expressions produce correct results
+-- when single-use values are inlined during C emission.
+
+func main() {
+    val a = 10
+    val b = 20
+    val c = a + b
+    val d = c * 3
+    println("{d}")
+
+    val x = 7
+    val y = 3
+    val z = x * y + x - y
+    println("{z}")
+
+    val p = 100
+    val q = p / 5
+    val r = q + p % 7
+    println("{r}")
+
+    val m = 2
+    val n = 3
+    val o = 4
+    val result = (m + n) * o - m
+    println("{result}")
+}

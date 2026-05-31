@@ -1,0 +1,9 @@
+func coords() -> (Int, (Int, Int)) {
+    return (1, (2, 3))
+}
+
+func main() {
+    val (a, bc) = coords()
+    val (b, c) = bc
+    println("{a} {b} {c}")
+}

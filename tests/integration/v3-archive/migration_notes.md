@@ -99,7 +99,42 @@ Migrated:
 - audit_defer_in_for_body
 
 ## Expressions (bitwise_*, binary_*, int_*, str_*, tuple_*, expr_*, blind_cast_*, layout_*)
-(entries added by Task 5)
+
+All 47 expression fixtures + 4 singleton surface fixtures migrated as-is.
+Pure-expression semantics (arithmetic, bitwise, string ops, tuple
+destructure, comptime int folding, SoA layout, blind-cast escape hatch)
+are preserved v3→v4. `blind_cast_*` fixtures map to v4 `Ptr.cast[T]`
+through the Phase 25 + Phase 33-06 RawPtr surface — no syntactic changes
+in user code. Verified end-to-end via v4 ironc on silvaserver podman.
+
+Migrated:
+- bitwise_*: bitwise_and_or_xor, bitwise_compound_assign, bitwise_not,
+  bitwise_precedence, bitwise_shift
+- binary_*: binary_literal
+- str_*: str_char_at, str_contains, str_count, str_len_repeat, str_pad,
+  str_parse, str_replace, str_split_join, str_starts_ends,
+  str_substring_indexof, str_trim, str_upper_lower
+- tuple_*: tuple_equality, tuple_local_and_param, tuple_nested,
+  tuple_return_basic, tuple_return_heterogeneous, tuple_return_smoke,
+  tuple_wildcard_destructure
+- expr_*: expr_inline_arithmetic, expr_inline_closures,
+  expr_inline_generics, expr_inline_load, expr_inline_nested
+- blind_cast_*: blind_cast_expr_common_layout, blind_cast_expr_resolved_type,
+  blind_cast_leak_ident, blind_cast_owner_decl, blind_cast_type_sym_decl
+- layout_*: layout_annotation, layout_annotation_warn, layout_bench,
+  layout_common_field, layout_dead_field, layout_soa_select,
+  layout_variant_split
+- int_*: int_comptime_arith_overflow, int_comptime_neg_min,
+  int_enum_value_overflow
+- int32_*: int32_array, int32_basic, int32_narrowing
+
+## Single-occurrence prefixes
+
+Migrated to expressions/ (verified v4-compatible by silvaserver podman):
+- functions.iron — function-decl surface smoke
+- hello.iron — minimal hello-world smoke
+- objects.iron — object-decl surface smoke
+- variables.iron — val/var binding surface smoke
 
 ## HIR coverage (hir_*, mono_*, fusion_*, compose_*)
 (entries added by Task 6)
@@ -107,5 +142,6 @@ Migrated:
 ## v3-specific (v3_*, bug_audit_mut_*, etc.)
 (entries added by Task 6 — all marked REMOVED; v3 syntax is gone)
 
-## Single-occurrence prefixes
-(entries added by Task 5/6 misc bucket)
+<!-- (Single-occurrence prefixes consolidated into the Expressions section above.) -->
+<!-- Additional bulk-documented singletons logged by Task 6. -->
+

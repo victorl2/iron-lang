@@ -1,0 +1,13 @@
+-- Test: STR-12 (to_int), STR-13 (to_float)
+func main() {
+    val i1 = "42".to_int()
+    val i2 = "0".to_int()
+    val i3 = "abc".to_int()
+    println("{i1}")
+    println("{i2}")
+    println("{i3}")
+    val f1 = "3.14".to_float()
+    val f2 = "0.0".to_float()
+    println("{f1}")
+    println("{f2}")
+}

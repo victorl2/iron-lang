@@ -1,0 +1,29 @@
+-- Test: expression inlining with closures
+-- Verifies that inlining works correctly when lambda expressions
+-- compute results and call through the full pipeline.
+
+func main() {
+    val transform = func(x: Int) -> Int {
+        return x * 3 + 10
+    }
+
+    val result = transform(5)
+    println("{result}")
+
+    val double_it = func(x: Int) -> Int {
+        return x + x
+    }
+
+    val doubled = double_it(7)
+    println("{doubled}")
+
+    val composed = transform(doubled)
+    println("{composed}")
+
+    val add = func(a: Int, b: Int) -> Int {
+        return a + b
+    }
+
+    val sum = add(doubled, result)
+    println("{sum}")
+}

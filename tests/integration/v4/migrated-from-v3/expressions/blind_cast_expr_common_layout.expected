@@ -1,0 +1,10 @@
+int: 42
+str: hello
+bool: true
+ident: 42
+binop: 43
+unary: -42
+call: 43
+field: 42
+index: 1
+value: 42

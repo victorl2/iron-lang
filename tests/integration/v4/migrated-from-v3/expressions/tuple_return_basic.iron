@@ -1,0 +1,8 @@
+func make_pair(a: Int, b: Int) -> (Int, Int) {
+    return (a, b)
+}
+
+func main() {
+    val (x, y) = make_pair(3, 4)
+    println("{x} {y}")
+}
