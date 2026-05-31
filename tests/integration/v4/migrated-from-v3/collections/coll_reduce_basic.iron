@@ -1,0 +1,6 @@
+-- coll_reduce_basic.iron: Test arr.reduce() accumulating a single value
+func main() {
+  val arr = [1, 2, 3, 4, 5]
+  val total = arr.reduce(0, func(acc: Int, x: Int) -> Int { return acc + x })
+  println("{total}")
+}

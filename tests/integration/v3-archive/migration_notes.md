@@ -61,7 +61,26 @@ REMOVED (kept disabled in v3, no v4 analog):
   drop/copy/nocopy resource discipline.
 
 ## Collections (coll_*, collection_*, array_*, push_*, split_*)
-(entries added by Task 3)
+
+All 30 collection fixtures migrated as-is — surface API (List/Map/Set
+iteration, push/pop/foreach/map/filter/reduce, split methods) is preserved
+v3→v4 (Phase 33 stdlib container rewrite kept the user-facing call shapes
+stable). Verified end-to-end via v4 ironc on silvaserver podman.
+
+Migrated:
+- coll_*: coll_chain_advanced, coll_chain_map_filter_sum, coll_empty_array,
+  coll_filter_basic, coll_float_sum, coll_foreach_basic, coll_map_basic,
+  coll_reduce_basic, coll_split_filter, coll_split_map, coll_split_reduce,
+  coll_sum_basic
+- collection_*: collection_lifecycle
+- array_*: array_param_passing
+- push_*: push_interface_after_op, push_interface_collection,
+  push_interface_get, push_interface_get_after_push, push_interface_len_empty,
+  push_interface_len_pop, push_interface_loop_100, push_interface_multi_type,
+  push_interface_pop_order, push_interface_prepopulated,
+  push_interface_set_same_type, push_interface_typed_var
+- split_*: split_collection, split_collection_basic,
+  split_collection_multi_method, split_collection_param
 
 ## Control flow (control_*, defer_*, early_*, edge_*, args_*)
 (entries added by Task 4)

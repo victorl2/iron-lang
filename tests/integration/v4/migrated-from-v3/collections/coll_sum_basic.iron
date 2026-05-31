@@ -1,0 +1,6 @@
+-- coll_sum_basic.iron: Test arr.sum() returning the total of all elements
+func main() {
+  val arr = [1, 2, 3, 4, 5]
+  val total = arr.sum()
+  println("{total}")
+}
