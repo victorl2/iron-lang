@@ -29,49 +29,48 @@ add_subdirectory(invariant)
 # tests/lsp/fixtures/ and follow the format documented in
 # .planning/phases/34-lsp-adaptation/34-01-PLAN.md Task 1.
 
-set(PHASE34_HOVER_FIXTURES
-    hover_policy_heap
-    hover_policy_rc
-    hover_policy_weak_rc
-    hover_policy_stack
-    hover_regime_unchecked
-    hover_readonly_func
-    hover_nocopy_object)
-foreach(fix ${PHASE34_HOVER_FIXTURES})
-    add_test(NAME lsp_hover_${fix}
-        COMMAND sh -c "echo 'TODO Phase 34 Wave 1a: hover driver pending for ${fix}'; exit 1")
-    set_tests_properties(lsp_hover_${fix} PROPERTIES
-        LABELS "phase34-invariant"
-        WILL_FAIL TRUE)
-endforeach()
+# === Phase 34-02 hover tests ===
+# Plan 34-02 retires the 7 WILL_FAIL hover stubs from Plan 34-01 and
+# replaces them with the real driver under tests/lsp/hover/. The fixtures
+# themselves still live under tests/lsp/fixtures/hover_*.{iron,expected};
+# only the test wiring moved.
+#
+# add_subdirectory(hover) below registers test_hover_memory_model with
+# labels "phase34-invariant;hover;lsp-unit", so `ctest -L phase34-invariant`
+# now exercises the real fixture corpus end-to-end instead of TODO stubs.
+add_subdirectory(hover)
+# === end Phase 34-02 hover tests ===
 
-set(PHASE34_COMPLETE_FIXTURES
-    complete_keyword_heap
-    complete_keyword_rc
-    complete_keyword_weak
-    complete_keyword_unchecked
-    complete_keyword_defer
-    complete_keyword_drop
-    complete_keyword_copy
-    complete_keyword_nocopy
-    complete_keyword_leak
-    complete_keyword_in
-    complete_defer_free_heap
-    complete_defer_free_rc
-    complete_defer_free_none)
-foreach(fix ${PHASE34_COMPLETE_FIXTURES})
-    add_test(NAME lsp_complete_${fix}
-        COMMAND sh -c "echo 'TODO Phase 34 Wave 1b/2a: completion driver pending for ${fix}'; exit 1")
-    set_tests_properties(lsp_complete_${fix} PROPERTIES
-        LABELS "phase34-invariant"
-        WILL_FAIL TRUE)
-endforeach()
+# === Phase 34-04 quickfix tests ===
+# Plan 34-04 retires the LSP-06..09 WILL_FAIL stubs (4 of 5 quickfix
+# fixture slots) and wires the per-fixture drivers under
+# tests/lsp/quickfix/. The 5th slot (quickfix_readonly_memory / LSP-10)
+# flips in Task 2 of this same plan.
+add_subdirectory(quickfix)
+# === end Phase 34-04 quickfix tests ===
 
+# === Phase 34-03 completion tests ===
+# Plan 34-03 retires the 13 completion WILL_FAIL stubs from Plan 34-01
+# (10 keyword fixtures + 3 defer-free snippet fixtures) and wires the
+# real Unity drivers under tests/lsp/complete/. The fixtures themselves
+# (tests/lsp/fixtures/complete_*.iron) remain on disk as reference
+# documentation — the drivers mirror their scenarios inline to keep the
+# test binaries self-contained (no runtime file I/O off the source tree).
+#
+# add_subdirectory(complete) below registers:
+#   - test_complete_v4_keywords (Task 1 — 10 keyword arms)
+#   - test_complete_defer_free_snippet (Task 2 — 3 snippet scenarios)
+# both labeled "phase34-invariant;complete".
+add_subdirectory(complete)
+# === end Phase 34-03 completion tests ===
+
+# Phase 34 Plan 34-04 Task 1 retired the WILL_FAIL stubs for
+# quickfix_missing_val_var, quickfix_forgotten_free, quickfix_unused_var_alloc,
+# and quickfix_amp_rc. Their drivers live in tests/lsp/quickfix/ as
+# test_quickfix_lsp_{06,07,08,09}_* (labels phase34-invariant + quickfix).
+# Only quickfix_readonly_memory (LSP-10) remains WILL_FAIL until Task 2
+# of this same plan lands its handler.
 set(PHASE34_QUICKFIX_FIXTURES
-    quickfix_missing_val_var
-    quickfix_forgotten_free
-    quickfix_unused_var_alloc
-    quickfix_amp_rc
     quickfix_readonly_memory)
 foreach(fix ${PHASE34_QUICKFIX_FIXTURES})
     add_test(NAME lsp_${fix}

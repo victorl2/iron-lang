@@ -101,6 +101,91 @@ static bool kw_mut_in_receiver_pos(const IronLsp_Document *doc,
     return !is_ident_char(doc->text[i - 5]);
 }
 
+/* Phase 34 LSP-03 — rhs-of-assign-on-line helper.
+ *
+ * True when the cursor's line contains a single `=` (not `==`, `!=`, `<=`,
+ * `>=`, `:=`) at some column earlier than the cursor. Used by `heap`,
+ * `rc`, `weak` visibility arms: these keywords appear in val/var initializer
+ * RHS positions (`val x = heap T(...)`, `val w = weak rc null`). The check
+ * is byte-walk-only — no analyzer, no tokenizer — so it tolerates broken
+ * syntax (mid-typing). T-12-02-01 mitigation: all loops bounded by line
+ * range; no read past doc->text_len. */
+static bool kw_rhs_of_assign_on_line(const IronLsp_Document *doc,
+                                       uint32_t cursor_line_0,
+                                       size_t cursor_byte) {
+    if (!doc || !doc->text) return false;
+    size_t line_start = ilsp_byte_of_line(&doc->line_idx, cursor_line_0);
+    if (line_start > doc->text_len) line_start = doc->text_len;
+    if (cursor_byte > doc->text_len) cursor_byte = doc->text_len;
+    if (line_start > cursor_byte) return false;
+    /* Walk forward from line_start to cursor_byte; look for a single `=`
+     * not adjacent to another comparison operator. */
+    for (size_t i = line_start; i < cursor_byte; i++) {
+        char c = doc->text[i];
+        if (c != '=') continue;
+        /* Skip == */
+        if (i + 1 < cursor_byte && doc->text[i + 1] == '=') { i++; continue; }
+        /* Skip prefixed != <= >= := */
+        char prev = (i > line_start) ? doc->text[i - 1] : ' ';
+        if (prev == '!' || prev == '<' || prev == '>' || prev == ':') continue;
+        return true;
+    }
+    return false;
+}
+
+/* Phase 34 LSP-03 — `*`-precedes helper for the `unchecked` arm.
+ *
+ * True when (after skipping the cursor's partial identifier backward)
+ * the immediately-preceding non-whitespace byte on the same line is `*`.
+ * Catches `*unchecked` type annotations where the cursor sits inside
+ * the `unchecked` token mid-typing. */
+static bool kw_star_precedes_on_line(const IronLsp_Document *doc,
+                                       uint32_t cursor_line_0,
+                                       size_t cursor_byte) {
+    if (!doc || !doc->text) return false;
+    size_t line_start = ilsp_byte_of_line(&doc->line_idx, cursor_line_0);
+    if (line_start > doc->text_len) line_start = doc->text_len;
+    if (cursor_byte > doc->text_len) cursor_byte = doc->text_len;
+    if (line_start > cursor_byte) return false;
+    size_t i = cursor_byte;
+    /* Skip the partial identifier (e.g. user has typed `unche`). */
+    while (i > line_start && is_ident_char(doc->text[i - 1])) i--;
+    /* Skip whitespace. */
+    while (i > line_start && (doc->text[i - 1] == ' ' || doc->text[i - 1] == '\t')) i--;
+    if (i == line_start) return false;
+    return doc->text[i - 1] == '*';
+}
+
+/* Phase 34 LSP-03 — `for`-precedes helper for the `in` arm.
+ *
+ * True when scanning backward from cursor on the same line, after the
+ * cursor's partial ident + the loop-variable identifier + intervening
+ * whitespace, we hit a literal `for` keyword. Matches the v3
+ * `for <var> in <iter>` shape verbatim. */
+static bool kw_for_precedes_on_line(const IronLsp_Document *doc,
+                                      uint32_t cursor_line_0,
+                                      size_t cursor_byte) {
+    if (!doc || !doc->text) return false;
+    size_t line_start = ilsp_byte_of_line(&doc->line_idx, cursor_line_0);
+    if (line_start > doc->text_len) line_start = doc->text_len;
+    if (cursor_byte > doc->text_len) cursor_byte = doc->text_len;
+    if (line_start > cursor_byte) return false;
+    size_t i = cursor_byte;
+    /* Step 1: skip cursor's partial identifier (typed-so-far for `in`). */
+    while (i > line_start && is_ident_char(doc->text[i - 1])) i--;
+    /* Step 2: skip whitespace. */
+    while (i > line_start && (doc->text[i - 1] == ' ' || doc->text[i - 1] == '\t')) i--;
+    /* Step 3: skip a single identifier (the loop variable). */
+    while (i > line_start && is_ident_char(doc->text[i - 1])) i--;
+    /* Step 4: skip whitespace. */
+    while (i > line_start && (doc->text[i - 1] == ' ' || doc->text[i - 1] == '\t')) i--;
+    /* Step 5: previous 3 bytes must be `for` with non-ident boundary. */
+    if (i < line_start + 3) return false;
+    if (memcmp(doc->text + i - 3, "for", 3) != 0) return false;
+    if (i - 3 == line_start) return true;
+    return !is_ident_char(doc->text[i - 4]);
+}
+
 /* Decl-head text-only check: every byte from line-start to cursor_byte
  * is whitespace OR ident-char. Operators/parens/semicolons/dots
  * disqualify. Bounded by line length. */
@@ -189,15 +274,102 @@ bool ilsp_keyword_visible_at(const char               *kw,
         if (strcmp(kw, "mut") == 0) {
             return kw_mut_in_receiver_pos(doc, cur_byte);
         }
+
+        /* ── Phase 34 LSP-03: v3/v4 memory-model keyword visibility. ── */
+
+        /* `heap`, `rc`, `weak`: visible at type-expression positions OR
+         * RHS-of-`=` on the current line. Hidden at member/import/
+         * statement-head pure-expression positions. */
+        if (strcmp(kw, "heap") == 0 ||
+            strcmp(kw, "rc")   == 0 ||
+            strcmp(kw, "weak") == 0) {
+            if (ctx == ILSP_CCTX_MEMBER_AFTER_DOT ||
+                ctx == ILSP_CCTX_IMPORT_PATH ||
+                ctx == ILSP_CCTX_QUALIFIED_AFTER_COLON) {
+                return false;
+            }
+            if (ctx == ILSP_CCTX_TYPE_POSITION) return true;
+            return kw_rhs_of_assign_on_line(doc, cursor_line, cur_byte);
+        }
+
+        /* `unchecked`: visible at type-expression positions OR after `*`
+         * on the same line (`*unchecked T` annotation form). */
+        if (strcmp(kw, "unchecked") == 0) {
+            if (ctx == ILSP_CCTX_MEMBER_AFTER_DOT ||
+                ctx == ILSP_CCTX_IMPORT_PATH ||
+                ctx == ILSP_CCTX_QUALIFIED_AFTER_COLON) {
+                return false;
+            }
+            if (ctx == ILSP_CCTX_TYPE_POSITION) return true;
+            if (kw_star_precedes_on_line(doc, cursor_line, cur_byte)) return true;
+            return kw_rhs_of_assign_on_line(doc, cursor_line, cur_byte);
+        }
+
+        /* `defer`: visible only at statement-head positions. */
+        if (strcmp(kw, "defer") == 0) {
+            return ctx == ILSP_CCTX_STATEMENT_HEAD;
+        }
+
+        /* `drop`, `copy`: visible only inside an Iron_ObjectDecl body
+         * (classic or patch) at decl-head text-position. Hidden in
+         * function bodies and module top-level. */
+        if (strcmp(kw, "drop") == 0 ||
+            strcmp(kw, "copy") == 0) {
+            const Iron_Node *enc = enclosing_object_decl(program, cursor_line_1);
+            if (!enc) return false;
+            return kw_pub_at_decl_head_textonly(doc, cursor_line, cur_byte);
+        }
+
+        /* `nocopy`: visible at module-decl-head positions (before an
+         * `object` keyword: `nocopy object FileHandle { ... }`). Hidden
+         * in expression / type-annotation positions. We approximate
+         * decl-head with STATEMENT_HEAD ctx plus the decl-head
+         * text-only line predicate so `nocopy ` followed by `object`
+         * is the canonical visible site. */
+        if (strcmp(kw, "nocopy") == 0) {
+            if (ctx == ILSP_CCTX_MEMBER_AFTER_DOT ||
+                ctx == ILSP_CCTX_IMPORT_PATH ||
+                ctx == ILSP_CCTX_QUALIFIED_AFTER_COLON ||
+                ctx == ILSP_CCTX_TYPE_POSITION) {
+                return false;
+            }
+            if (ctx != ILSP_CCTX_STATEMENT_HEAD) return false;
+            return kw_pub_at_decl_head_textonly(doc, cursor_line, cur_byte);
+        }
+
+        /* `leak`: visible at expression / statement-head positions; hidden
+         * in type-annotation, member, qualified, and import contexts. */
+        if (strcmp(kw, "leak") == 0) {
+            return (ctx == ILSP_CCTX_EXPR_HEAD ||
+                    ctx == ILSP_CCTX_STATEMENT_HEAD);
+        }
+
+        /* `in`: visible only when a `for` token precedes on the same line
+         * (the `for <var> in <iter>` shape). Hidden everywhere else. */
+        if (strcmp(kw, "in") == 0) {
+            return kw_for_precedes_on_line(doc, cursor_line, cur_byte);
+        }
     } else {
         /* doc == NULL: refuse the 5 v3 arms that need a byte buffer or
          * staged program. The sixth v3 keyword (`patch`) is context-free
-         * at decl-head and falls through to the default arm. */
+         * at decl-head and falls through to the default arm. Phase 34
+         * additions also refuse without doc (all 10 arms need byte-buffer
+         * + program access). */
         if (strcmp(kw, "pub")      == 0) return false;
         if (strcmp(kw, "init")     == 0) return false;
         if (strcmp(kw, "readonly") == 0) return false;
         if (strcmp(kw, "pure")     == 0) return false;
         if (strcmp(kw, "mut")      == 0) return false;
+        if (strcmp(kw, "heap")      == 0) return false;
+        if (strcmp(kw, "rc")        == 0) return false;
+        if (strcmp(kw, "weak")      == 0) return false;
+        if (strcmp(kw, "unchecked") == 0) return false;
+        if (strcmp(kw, "defer")     == 0) return false;
+        if (strcmp(kw, "drop")      == 0) return false;
+        if (strcmp(kw, "copy")      == 0) return false;
+        if (strcmp(kw, "nocopy")    == 0) return false;
+        if (strcmp(kw, "leak")      == 0) return false;
+        if (strcmp(kw, "in")        == 0) return false;
     }
 
     /* Default for the 38 pre-v3 keywords (D-10 — preserves Phase 4
