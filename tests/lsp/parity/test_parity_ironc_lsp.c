@@ -172,10 +172,12 @@ static int fixture_is_known_baseline_failure(const char *name) {
 
 /* HARD-11 + HARD-12 main body. */
 void test_parity_all_integration_fixtures(void) {
-    const char *dir_path = "tests/integration";
+    /* Phase 35 MIG-08: v3 root corpus moved to tests/integration/v3-archive/;
+     * parity sweep follows the rename so HARD-24 stays GREEN. */
+    const char *dir_path = "tests/integration/v3-archive";
     DIR *dir = opendir(dir_path);
     TEST_ASSERT_NOT_NULL_MESSAGE(dir,
-        "cannot open tests/integration — check WORKING_DIRECTORY");
+        "cannot open tests/integration/v3-archive — check WORKING_DIRECTORY");
 
     int fixtures_checked            = 0;
     int fixtures_skipped_baseline   = 0;
@@ -269,7 +271,7 @@ void test_parity_all_integration_fixtures(void) {
      * WR-05: must be >= 300, not strictly > 300 — prior _GREATER_THAN_
      * assertion required 301+ which contradicted the comment. */
     TEST_ASSERT_GREATER_OR_EQUAL_MESSAGE(300, fixtures_checked,
-        "tests/integration/ fixture count dropped below 300 — intentional?");
+        "tests/integration/v3-archive fixture count dropped below 300 — intentional?");
 
     /* Zero tolerance for unexplained LSP/CLI divergence. */
     if (lsp_cli_diffs_unexplained > 0) {
