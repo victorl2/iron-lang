@@ -26,5 +26,22 @@ if(IRON_BUILD_LSP)
         TIMEOUT 60)
 
     # ── Task 2: `defer free <binding>` snippet ──────────────────────────
-    # Wired by Task 2 of Plan 34-03.
+    # Links defer_free.c + snippet.c — the two units that together implement
+    # the LSP-04 snippet: defer_free.c owns the AST backward-scan, snippet.c
+    # owns the LSP-grammar body with PITFALL D escape discipline.
+    add_executable(test_complete_defer_free_snippet
+        test_complete_defer_free_snippet.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/defer_free.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/snippet.c)
+    target_include_directories(test_complete_defer_free_snippet PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/vendor
+        ${CMAKE_BINARY_DIR}/generated)
+    target_link_libraries(test_complete_defer_free_snippet
+        iron_compiler iron_runtime iron_stdlib unity pthread m)
+    add_test(NAME test_complete_defer_free_snippet
+        COMMAND test_complete_defer_free_snippet)
+    set_tests_properties(test_complete_defer_free_snippet PROPERTIES
+        LABELS "phase34-invariant;complete"
+        TIMEOUT 60)
 endif()

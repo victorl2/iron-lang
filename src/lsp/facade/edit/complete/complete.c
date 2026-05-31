@@ -13,6 +13,7 @@
 #include "lsp/facade/edit/complete/buckets.h"
 #include "lsp/facade/edit/complete/context_classify.h"
 #include "lsp/facade/edit/complete/auto_import.h"
+#include "lsp/facade/edit/complete/defer_free.h"
 #include "lsp/facade/edit/complete/snippet.h"
 #include "lsp/facade/compile.h"
 #include "lsp/server/server.h"
@@ -22,6 +23,7 @@
 #include "diagnostics/diagnostics.h"
 #include "parser/ast.h"
 #include "util/arena.h"
+#include "vendor/stb_ds.h"
 
 #include <math.h>
 #include <stdatomic.h>
@@ -224,6 +226,12 @@ static void attach_auto_import_and_snippets(
     bool snippets_ok = server ? server->client_supports_snippet : false;
     for (size_t i = 0; i < n; i++) {
         IronLsp_CompletionCandidate *c = &cands[i];
+        /* Phase 34 LSP-04: candidates emitted by emit_defer_free_snippets
+         * arrive pre-snippet (insert_text_format=2). Do not stomp their
+         * format with the PlainText default — they have no decl_node and
+         * would otherwise fall through to a re-render that doesn't match
+         * any of the existing per-kind arms. */
+        if (c->insert_text_format == 2) continue;
         /* Default: PlainText. */
         c->insert_text_format = 1;
         c->additional_text_edit = NULL;
@@ -337,6 +345,92 @@ static void attach_auto_import_and_snippets(
     }
 }
 
+/* ── Phase 34 LSP-04: defer-free snippet wiring ──────────────────── */
+
+/* True when `prefix` (the user's typed-so-far ident or partial phrase) is
+ * a prefix of any of: "d", "de", "def", "defe", "defer", "defer ",
+ * "defer f", ..., "defer free". Empty prefix counts as a prefix. The
+ * predicate is liberal so the snippet starts appearing as soon as the
+ * user types `d` — the editor's fuzzy-matcher narrows it further. */
+static bool has_prefix_of_defer_free(const char *prefix) {
+    static const char *kTarget = "defer free";
+    if (!prefix || !*prefix) return true;
+    size_t plen = strlen(prefix);
+    if (plen > strlen(kTarget)) return false;
+    return strncmp(prefix, kTarget, plen) == 0;
+}
+
+/* Append the defer-free snippet candidates (one per eligible binding) to
+ * the candidate list emitted by the bucket builder. Called from
+ * ilsp_facade_complete after buckets_build, before qsort+cap. The
+ * snippets carry CompletionItemKind=KEYWORD so they cluster with `defer`
+ * keyword candidates in the editor UI; their fuzzy_score is set high
+ * (above generic keyword score) so the most-recent binding sorts first
+ * within the bucket.
+ *
+ * The backward-scan over the program AST lives in defer_free.{c,h} so
+ * the test driver tests/lsp/complete/test_complete_defer_free_snippet.c
+ * can exercise it against synthetic programs without dragging in the
+ * full facade stack. */
+static void emit_defer_free_snippets(struct IronLsp_Server          *server,
+                                       const Iron_Program             *program,
+                                       IronLsp_CompletionContext       ctx,
+                                       const char                     *query_prefix,
+                                       uint32_t                        cursor_line_1,
+                                       Iron_Arena                     *arena,
+                                       IronLsp_CompletionCandidate  **cands,
+                                       size_t                         *n) {
+    if (!server || !server->client_supports_snippet) return;
+    if (ctx != ILSP_CCTX_STATEMENT_HEAD) return;
+    if (!has_prefix_of_defer_free(query_prefix)) return;
+    if (!cands || !n || !arena) return;
+
+    const char *names[ILSP_DEFER_FREE_MAX_CANDIDATES] = {0};
+    size_t cnt = ilsp_collect_recent_heap_rc_bindings(
+        program, cursor_line_1, arena, names,
+        ILSP_DEFER_FREE_MAX_CANDIDATES);
+    if (cnt == 0) return;
+
+    /* For each binding, build an arena-owned label + snippet body and
+     * append a new IronLsp_CompletionCandidate via the stb_ds array. */
+    for (size_t i = 0; i < cnt; i++) {
+        IronLsp_CompletionCandidate c;
+        memset(&c, 0, sizeof(c));
+
+        IronLsp_SnippetMeta meta = {0};
+        meta.name = names[i];
+        const char *body = ilsp_snippet_render(ILSP_SNIPPET_DEFER_FREE,
+                                                  &meta, arena);
+        if (!body) continue;
+
+        /* Build the human-readable label `defer free <name>`. */
+        size_t label_len = strlen("defer free ") + strlen(names[i]) + 1;
+        char *label = (char *)iron_arena_alloc(arena, label_len, 1);
+        if (!label) continue;
+        snprintf(label, label_len, "defer free %s", names[i]);
+
+        c.label             = label;
+        c.insert_text       = body;
+        c.insert_text_format = 2;  /* Snippet */
+        c.kind              = 14;  /* KEYWORD bucket so it sits with `defer`. */
+        c.bucket            = 6;   /* ILSP_COMPLETION_BUCKET_KEYWORDS */
+        /* Most-recent binding sorts highest. Stay well above the generic
+         * fuzzy_score range so the snippet ranks above the bare `defer`
+         * keyword candidate within the same bucket. */
+        c.fuzzy_score       = 1000.0 - (double)i;
+        c.canonical_path    = "";
+        c.name_path         = label;
+        c.is_extern         = false;
+        c.needs_auto_import = false;
+        c.content_hash      = 0;
+        c.additional_text_edit = NULL;
+        c.detail            = "snippet — auto-discovered heap/rc binding";
+
+        arrput(*cands, c);
+        (*n)++;
+    }
+}
+
 /* ── qsort comparator ─────────────────────────────────────────────── */
 
 static int candidate_cmp(const void *pa, const void *pb) {
@@ -390,6 +484,20 @@ void ilsp_facade_complete(struct IronLsp_Server          *server,
     ilsp_complete_buckets_build(server, doc, program, cursor_byte,
                                   ctx, qp, cancel, arena, &cands, &n);
     if (cancel && atomic_load(cancel)) goto done;
+
+    /* Phase 34 LSP-04: append defer-free snippets (one per recent heap/rc
+     * binding in the cursor's enclosing function body). Runs after the
+     * buckets build so the snippets ride the same qsort + cap + auto-
+     * import + snippet-format pipeline as every other candidate. Reuses
+     * `program` from the single ilsp_facade_compile_for_nav call above
+     * — CORE-22 single-call-site invariant preserved. */
+    {
+        uint32_t cursor_line_0 = ilsp_line_of_byte(&doc->line_idx, cursor_byte);
+        emit_defer_free_snippets(server, program, ctx, qp,
+                                    cursor_line_0 + 1,
+                                    arena, &cands, &n);
+    }
+
     if (n == 0) goto done;
 
     qsort(cands, n, sizeof(*cands), candidate_cmp);
