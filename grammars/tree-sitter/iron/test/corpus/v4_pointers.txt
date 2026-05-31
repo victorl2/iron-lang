@@ -1,0 +1,18 @@
+==========
+pointer type checked
+==========
+
+func f(p: *Int) { }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (pointer_type
+          (type_identifier
+            (identifier)))))
+    body: (block)))
