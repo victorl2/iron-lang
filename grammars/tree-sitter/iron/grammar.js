@@ -507,6 +507,7 @@ module.exports = grammar({
       $.heap_expression,
       $.rc_expression,
       $.weak_rc_expression,
+      $.leak_expression,
       $.comptime_expression,
       $.await_expression,
       $.spawn_expression,
@@ -614,6 +615,13 @@ module.exports = grammar({
     weak_rc_expression:  $ => prec.right(13, seq(
       'weak', 'rc', $._expression,
     )),
+    // Phase 35 GRM-06 (Plan 35-01) [Rule 1 - Bug]: leak as prefix-expression
+    // form. Real v4 fixtures use `val p = leak heap Point(...)` (4.12-debug-
+    // leak/leak_suppresses.iron:10 + 10-tooling/boundary_leak_detected.iron:13)
+    // so `leak` must bind at UNARY precedence to fit at expression-RHS
+    // position. The bare-statement form `leak <expr>` remains supported via
+    // leak_statement in the _statement choice for parser.c:3018 parity.
+    leak_expression:     $ => prec.right(13, seq('leak',     $._expression)),
     comptime_expression: $ => prec.right(13, seq('comptime', $._expression)),
     await_expression:    $ => prec.right(13, seq('await',    $._expression)),
 
@@ -663,6 +671,8 @@ module.exports = grammar({
       $.function_type,
       $.tuple_type,
       $.pointer_type,
+      $.rc_type,
+      $.weak_rc_type,
       $.nullable_type,
       $.generic_type,
       $.type_identifier,
@@ -716,6 +726,15 @@ module.exports = grammar({
       optional(field('regime', 'unchecked')),
       $._type,
     )),
+
+    // Phase 35 GRM-06 (Plan 35-01) [Rule 2 - Missing Critical]: rc_type and
+    // weak_rc_type — type-position counterparts to rc_expression /
+    // weak_rc_expression. Real v4 fixtures bind `weak rc Foo` as a type
+    // (`var observer: weak rc Foo = weak rc null`); without these rules the
+    // type annotation would surface as an ERROR node. `rc T` and `weak rc T`
+    // are surface aliases for ownership-flavored references to T.
+    rc_type:      $ => prec.right(seq('rc',   $._type)),
+    weak_rc_type: $ => prec.right(seq('weak', 'rc', $._type)),
 
     // Phase 35 GRM-06 (Plan 35-01): nocopy_modifier — a one-token marker
     // that may prefix an object_declaration or patch_declaration (`nocopy
