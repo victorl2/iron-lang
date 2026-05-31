@@ -342,6 +342,17 @@ static void attach_method(ResolveCtx *ctx, Iron_Node *node) {
     /* Array extension methods (func [T].map(...)) have no owning type in scope */
     if (md->is_array_extension) return;
 
+    /* Phase 33 STDLIB-10 (Plan 33-06): RawPtr is a synthetic builtin type
+     * (resolved by name in typecheck.c::resolve_type_annotation, with no
+     * scope-level symbol). The standalone `func RawPtr.of[T](...)` decl in
+     * the always-prepended stdlib/rawptr.iron is a by-name compiler builtin
+     * — it has no owner symbol, dispatch happens through the dedicated arm
+     * in typecheck.c, and hir_lower.c skips lowering it. Skip the attach
+     * step so the synthetic decl doesn't trip "method on undeclared type". */
+    if (md->type_name && strcmp(md->type_name, "RawPtr") == 0) {
+        return;
+    }
+
     Iron_Symbol *owner = iron_scope_lookup(ctx->global_scope, md->type_name);
     if (!owner) {
         /* Phase 4 Plan 04-01 (EDIT-07): seed .suggestion with typo candidate. */
@@ -871,14 +882,23 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset / Ptr.diff are
              * compiler builtins accessed through the synthetic "Ptr" namespace.
              * "Ptr" is NOT a user-defined identifier — skip the normal
-             * resolve_expr path that would emit E0200 "undefined identifier". */
+             * resolve_expr path that would emit E0200 "undefined identifier".
+             * Phase 33 STDLIB-10 (Plan 33-06): same carve-out for the synthetic
+             * "RawPtr" namespace — `RawPtr.of(x)` is a compiler builtin and the
+             * uppercase ident "RawPtr" is never user-bound. */
             bool is_ptr_builtin_call =
                 mc->object && mc->object->kind == IRON_NODE_IDENT &&
                 mc->method &&
                 ((Iron_Ident *)mc->object)->name &&
                 strcmp(((Iron_Ident *)mc->object)->name, "Ptr") == 0 &&
                 (strcmp(mc->method, "offset") == 0 || strcmp(mc->method, "diff") == 0);
-            if (!is_ptr_builtin_call) {
+            bool is_rawptr_builtin_call =
+                mc->object && mc->object->kind == IRON_NODE_IDENT &&
+                mc->method &&
+                ((Iron_Ident *)mc->object)->name &&
+                strcmp(((Iron_Ident *)mc->object)->name, "RawPtr") == 0 &&
+                strcmp(mc->method, "of") == 0;
+            if (!is_ptr_builtin_call && !is_rawptr_builtin_call) {
                 resolve_expr(ctx, mc->object);
             }
             resolve_node_list(ctx, mc->args, mc->arg_count);
@@ -887,6 +907,17 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FIELD_ACCESS: {
             Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
+            /* Phase 20 OQ-D + Phase 33 STDLIB-10: skip resolve when the
+             * field access is on the synthetic "Ptr" namespace (Ptr.cast /
+             * Ptr.offset / Ptr.diff compiler builtins). The typechecker's
+             * dedicated Ptr.cast dispatch (typecheck.c) reads the field name
+             * directly off the AST without needing a resolved object. */
+            if (fa->object && fa->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *obj_id = (Iron_Ident *)fa->object;
+                if (obj_id->name && strcmp(obj_id->name, "Ptr") == 0) {
+                    break;
+                }
+            }
             resolve_expr(ctx, fa->object);
             break;
         }

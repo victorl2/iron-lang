@@ -1926,6 +1926,34 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 break;  /* skip normal CALL emission */
             }
         }
+        /* Phase 33 STDLIB-10 (Plan 33-06): RawPtr.of helper synthesis trigger.
+         * If the callee FUNC_REF name starts with "Iron_RawPtr_of_", recover
+         * the element type from the single argument's value type and call
+         * emit_ensure_rawptr so the per-T helper Iron_RawPtr_of_<elemC>(<elemC>*)
+         * is emitted before the call site references it. Mirrors the Box helper
+         * synthesis trigger pattern (which fires from emit_type_to_c when the
+         * Box object type is encountered — RawPtr has no carrier OBJECT, so the
+         * trigger must live at the call site). */
+        {
+            IronLIR_ValueId fptr = instr->call.func_ptr;
+            if (fptr != IRON_LIR_VALUE_INVALID &&
+                fptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                fn->value_table[fptr] != NULL &&
+                fn->value_table[fptr]->kind == IRON_LIR_FUNC_REF &&
+                fn->value_table[fptr]->func_ref.func_name &&
+                strncmp(fn->value_table[fptr]->func_ref.func_name,
+                        "Iron_RawPtr_of_", 15) == 0 &&
+                instr->call.arg_count == 1) {
+                IronLIR_ValueId arg_v = instr->call.args[0];
+                if (arg_v != IRON_LIR_VALUE_INVALID &&
+                    arg_v < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                    fn->value_table[arg_v] != NULL &&
+                    fn->value_table[arg_v]->type) {
+                    emit_ensure_rawptr(ctx, fn->value_table[arg_v]->type);
+                }
+            }
+        }
+
         /* Check for __builtin_fill(count, value) -> stack array or Iron_List_T */
         {
             IronLIR_ValueId fptr = instr->call.func_ptr;
@@ -4311,6 +4339,41 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         /* emitted as ternary inline */
                         fmt_spec = "%s";
                         break;
+                    /* Phase 33 STDLIB-10 (Plan 33-06): *unchecked T pointers
+                     * (including the RawPtr alias for *unchecked Int) interpolate
+                     * as their dereferenced primitive value — `{p}` for
+                     * `p: *unchecked Int` prints the Int the pointer references.
+                     * Matches the UNCHECKED-LAYOUT.md spec: the unchecked regime
+                     * is bare C-style pointer dereferencing (UNCK-03). Only the
+                     * primitive pointees get a dedicated specifier; structured
+                     * pointees fall through to %s (string fallback) because
+                     * to_string()-via-iron_string_cstr is not defined for a bare
+                     * pointer to a struct. */
+                    case IRON_TYPE_PTR:
+                        if (part_type->ptr.is_unchecked && part_type->ptr.pointee) {
+                            switch ((int)part_type->ptr.pointee->kind) {
+                                case IRON_TYPE_INT:
+                                case IRON_TYPE_INT8:
+                                case IRON_TYPE_INT16:
+                                case IRON_TYPE_INT32:
+                                case IRON_TYPE_INT64:
+                                case IRON_TYPE_UINT:
+                                case IRON_TYPE_UINT8:
+                                case IRON_TYPE_UINT16:
+                                case IRON_TYPE_UINT32:
+                                case IRON_TYPE_UINT64:
+                                    fmt_spec = "%lld"; break;
+                                case IRON_TYPE_FLOAT:
+                                case IRON_TYPE_FLOAT32:
+                                case IRON_TYPE_FLOAT64:
+                                    fmt_spec = "%g"; break;
+                                case IRON_TYPE_BOOL:
+                                    fmt_spec = "%s"; break;
+                                default:
+                                    fmt_spec = "%s"; break;
+                            }
+                        }
+                        break;
                     /* -Wswitch-enum opt-out: interp-string format selector
                      * only distinguishes integer / float / bool from the
                      * generic string path; every other kind goes through
@@ -4374,6 +4437,52 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         iron_strbuf_free(&tmp);
                         break;
                     }
+                    /* Phase 33 STDLIB-10 (Plan 33-06): *unchecked T (incl. RawPtr)
+                     * interpolates as dereferenced pointee. Bare C `*p` — no
+                     * generation check (UNCK-03 contract). UB if p is dangling
+                     * (DROP-07 / UNCHECKED-LAYOUT §4); the user is responsible
+                     * for keeping the underlying storage alive. */
+                    case IRON_TYPE_PTR:
+                        if (part_type->ptr.is_unchecked && part_type->ptr.pointee) {
+                            Iron_StrBuf tmp = iron_strbuf_create(32);
+                            emit_val(&tmp, part_id);
+                            switch ((int)part_type->ptr.pointee->kind) {
+                                case IRON_TYPE_INT:
+                                case IRON_TYPE_INT8:
+                                case IRON_TYPE_INT16:
+                                case IRON_TYPE_INT32:
+                                case IRON_TYPE_INT64:
+                                case IRON_TYPE_UINT:
+                                case IRON_TYPE_UINT8:
+                                case IRON_TYPE_UINT16:
+                                case IRON_TYPE_UINT32:
+                                case IRON_TYPE_UINT64:
+                                    iron_strbuf_appendf(&args_sb,
+                                        "(long long)(*(%s))",
+                                        iron_strbuf_get(&tmp));
+                                    break;
+                                case IRON_TYPE_FLOAT:
+                                case IRON_TYPE_FLOAT32:
+                                case IRON_TYPE_FLOAT64:
+                                    iron_strbuf_appendf(&args_sb,
+                                        "(double)(*(%s))",
+                                        iron_strbuf_get(&tmp));
+                                    break;
+                                case IRON_TYPE_BOOL:
+                                    iron_strbuf_appendf(&args_sb,
+                                        "(*(%s) ? \"true\" : \"false\")",
+                                        iron_strbuf_get(&tmp));
+                                    break;
+                                default:
+                                    iron_strbuf_appendf(&args_sb, "\"<unchecked ptr>\"");
+                                    break;
+                            }
+                            iron_strbuf_free(&tmp);
+                        } else {
+                            /* Checked-regime PTR fallback — opaque "<ptr>". */
+                            iron_strbuf_appendf(&args_sb, "\"<ptr>\"");
+                        }
+                        break;
                     /* -Wswitch-enum opt-out: interp-string argument emitter
                      * handles primitives + String explicitly; every other
                      * Iron_TypeKind (OBJECT, INTERFACE, ENUM, ARRAY, etc.)

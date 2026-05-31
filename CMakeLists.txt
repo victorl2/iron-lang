@@ -2141,7 +2141,6 @@ if(NOT WIN32)
         # explicitly defers methods to a later landing (Plan 33-02 note). Stays
         # WILL_FAIL until STDLIB-04 method surface + OQ-02 land.
         set_basic              # STDLIB-04 (needs method surface + OQ-02)
-        rawptr_cast            # STDLIB-10 (Wave 6)
     )
     foreach(_fix IN LISTS _PHASE_33_BUILDRUN_FIXTURES)
         add_test(
@@ -2174,6 +2173,12 @@ if(NOT WIN32)
         # the container fast path is correct and UTF-8 byte length is preserved
         # across value copy AND List[String] store/retrieve. Byte-exact stdout.
         string_utf8_roundtrip  # STDLIB-01 (String drop/copy preserving UTF-8)
+        # Plan 33-06: RawPtr type-erased member of *unchecked T regime +
+        # Ptr.cast[T] dispatch + per-T Iron_RawPtr_of_<elemC> helper. Genuinely
+        # builds+runs on a clang host — `RawPtr.of(x)` produces an int64_t*
+        # to a fresh stack slot holding x's value; `Ptr.cast[Int](raw)` is a
+        # no-op pointer reinterpretation; `*p` is interpolated as the Int.
+        rawptr_cast            # STDLIB-10 (Wave 6 RawPtr + Ptr.cast)
     )
     foreach(_fix IN LISTS _PHASE_33_NOCOPY_BUILDRUN_FIXTURES)
         add_test(

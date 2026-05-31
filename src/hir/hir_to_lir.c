@@ -1459,6 +1459,69 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             }
         }
 
+        /* Phase 33 STDLIB-10 (Plan 33-06): RawPtr.of(x) lowering — produces a
+         * type-erased bare `int64_t *` pointing at the argument's storage.
+         * Implementation strategy: ALLOCA a fresh temp slot of arg's type,
+         * STORE the arg value into it, then CALL the per-T helper
+         * Iron_RawPtr_of_<elemC>(<elemC>*) passing the ALLOCA pointer directly
+         * (NO self_by_addr — the ALLOCA result is already a typed pointer to
+         * stack storage). This sidesteps the inline-constant trap (`&7LL` is
+         * an invalid C lvalue) and gives the helper a real stack slot whose
+         * address is stable for the rest of the enclosing scope. Bypasses the
+         * E0294 `&`-cannot-produce-unchecked guard because the lowering is
+         * compiler-internal, not a user `&` expression. */
+        if (expr->method_call.object &&
+            expr->method_call.object->kind == IRON_HIR_EXPR_FUNC_REF &&
+            expr->method_call.object->func_ref.func_name &&
+            strcmp(expr->method_call.object->func_ref.func_name, "RawPtr") == 0 &&
+            expr->method_call.method &&
+            strcmp(expr->method_call.method, "of") == 0 &&
+            expr->method_call.arg_count == 1 &&
+            expr->method_call.args[0] &&
+            expr->method_call.args[0]->type) {
+            Iron_Type *arg_t = (Iron_Type *)expr->method_call.args[0]->type;
+            const char *elem_c =
+                emit_type_to_c_name_for_box(ctx, arg_t);
+            /* emit_type_to_c_name_for_box returns "Iron_Box_<esc>"; strip the
+             * prefix to recover the bare escaped element-C name. */
+            const char prefix[] = "Iron_Box_";
+            size_t plen = sizeof(prefix) - 1;
+            const char *esc = (elem_c && strncmp(elem_c, prefix, plen) == 0)
+                ? elem_c + plen : NULL;
+            if (esc) {
+                size_t nl = strlen(esc) + 20;
+                char *fname = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                if (!fname) iron_oom_abort("hir_to_lir.c:rawptr_of_name");
+                snprintf(fname, nl, "Iron_RawPtr_of_%s", esc);
+
+                /* Lower the argument expression, then materialize it into a
+                 * fresh stack slot via ALLOCA + STORE so the helper receives
+                 * a stable pointer (inline-constant trap workaround). */
+                IronLIR_ValueId arg_v = lower_expr(ctx, expr->method_call.args[0]);
+                IronLIR_Instr *slot = iron_lir_alloca(ctx->current_func,
+                    ctx->current_block, arg_t, "rawptr_of_tmp", span);
+                iron_lir_store(ctx->current_func, ctx->current_block,
+                    slot->id, arg_v, span);
+
+                IronLIR_ValueId *rargs = NULL;
+                arrput(rargs, slot->id);
+                int rargc = (int)arrlen(rargs);
+                IronLIR_Instr *rref = iron_lir_func_ref(ctx->current_func,
+                    ctx->current_block, fname, NULL, span);
+                IronLIR_Instr *rcall = iron_lir_call(ctx->current_func,
+                    ctx->current_block, NULL, rref->id, rargs, rargc,
+                    type, span);
+                /* ALLOCA emits as a plain variable `_vN`; the helper expects
+                 * `<elemC> *`, so we ask the call site to prefix with `&` via
+                 * self_by_addr (taking the address of the alloca variable —
+                 * which is a real stack lvalue, unlike the inline literal in
+                 * the prior implementation). */
+                rcall->call.self_by_addr = true;
+                arrfree(rargs);
+                return rcall->id;
+            }
+        }
+
         /* Phase 33 OQ-02 (Plan 33-07): Box CONSTRUCTOR lowering — `Box.new(v)`
          * / `Box.null()`. The object is FUNC_REF("Box"). Lowers to a CALL to
          * the per-T synthesized helper Iron_Box_<elemC>_{new,null_val}; the

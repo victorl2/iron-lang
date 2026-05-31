@@ -1410,6 +1410,30 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_CALL: {
         Iron_CallExpr *ce = (Iron_CallExpr *)node;
 
+        /* Phase 20 OQ-D + Phase 33 STDLIB-10: Ptr.cast[T](p) compiler builtin.
+         * Lowers to a no-op HIR CAST node — the C output is a pointer
+         * reinterpretation (typecheck.c verified pointee size equality for the
+         * checked regime and skipped the check for the unchecked regime). The
+         * source is `*S` (or `*unchecked S`); the target carried on
+         * ce->resolved_type is `*T` (or `*unchecked T`). At the C level both
+         * are pointer values, so a single iron_hir_expr_cast does the job.
+         * Sidesteps the broken generic-CALL fallthrough where the callee
+         * INDEX(FIELD_ACCESS) would produce an undeclared `_v` reference. */
+        if (ce->callee && ce->callee->kind == IRON_NODE_INDEX) {
+            Iron_IndexExpr *idx = (Iron_IndexExpr *)ce->callee;
+            if (idx->object && idx->object->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_FieldAccess *fa = (Iron_FieldAccess *)idx->object;
+                if (fa->object && fa->object->kind == IRON_NODE_IDENT &&
+                    fa->field && strcmp(fa->field, "cast") == 0 &&
+                    ((Iron_Ident *)fa->object)->name &&
+                    strcmp(((Iron_Ident *)fa->object)->name, "Ptr") == 0 &&
+                    ce->arg_count == 1) {
+                    IronHIR_Expr *src = lower_expr_hir(ctx, ce->args[0]);
+                    return iron_hir_expr_cast(mod, src, ce->resolved_type, span);
+                }
+            }
+        }
+
         /* Primitive cast: Float(x), Int(x), etc. */
         if (ce->is_primitive_cast && ce->arg_count == 1) {
             /* Determine target type from callee name */
@@ -1903,6 +1927,15 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                  strcmp(md->type_name, "RWWriteGuard") == 0 ||
                  strcmp(md->type_name, "Channel") == 0 ||
                  strcmp(md->type_name, "FileHandle") == 0)) {
+                break;
+            }
+
+            /* Phase 33 STDLIB-10 (Plan 33-06): rawptr.iron's `func RawPtr.of[T]`
+             * is a by-name compiler builtin (Box / Mutex precedent). The empty
+             * body + method-level T return type would otherwise lower to a
+             * broken foreign C prototype. The real dispatch + value production
+             * happens in typecheck.c + hir_to_lir.c. Skip lowering. */
+            if (md->type_name && strcmp(md->type_name, "RawPtr") == 0) {
                 break;
             }
 

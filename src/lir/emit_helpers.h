@@ -92,6 +92,12 @@ typedef struct {
     char        **emitted_channels;
     char        **emitted_rwlocks;
     bool          emitted_filehandle;
+    /* Phase 33 STDLIB-10 (Plan 33-06): per-T Iron_RawPtr_of_<elemC> dedup.
+     * Each entry is the escaped element-C suffix (e.g. "int64_t"); the helper
+     * Iron_RawPtr_of_<suffix>(<elemC>*) is emitted once into lifted_funcs and
+     * casts its argument to (int64_t*) so the RawPtr (= *unchecked Int) ABI
+     * is preserved. Same arrput/strcmp shape as emitted_boxes. */
+    char        **emitted_rawptrs;
 
     /* Phase 24 DROP-05 (Plan 24-03): partial-init cleanup instrumentation.
      * in_init_method: true when currently emitting an init method body; set
@@ -317,6 +323,15 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type);
  *   - Iron_FileHandle_drop(Iron_FileHandle*) scope-exit close
  * Idempotent via emitted_filehandle. */
 void emit_ensure_filehandle(EmitCtx *ctx);
+
+/* Phase 33 STDLIB-10 (Plan 33-06): synthesize the per-T RawPtr.of helper
+ *   - Iron_RawPtr_of_<elemC>(<elemC>*) -> int64_t*
+ * Body is a single cast: returns its argument re-typed as int64_t* so the
+ * type-erased RawPtr (= *unchecked Int internally) ABI is preserved. The
+ * by-name dispatch in typecheck.c + the lowering in hir_to_lir.c emit a
+ * CALL passing &x as the single argument (self_by_addr=true at the LIR
+ * level). Idempotent via emitted_rawptrs. */
+void emit_ensure_rawptr(EmitCtx *ctx, const Iron_Type *elem_type);
 
 void emit_ensure_copy(EmitCtx *ctx, const char *obj_c_name,
                       struct Iron_ObjectDecl *od);

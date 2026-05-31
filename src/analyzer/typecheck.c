@@ -646,6 +646,15 @@ static bool is_stringifiable(TypeCtx *ctx, const Iron_Type *t) {
     if (t->kind == IRON_TYPE_BOOL) return true;
     if (t->kind == IRON_TYPE_STRING) return true;
     if (t->kind == IRON_TYPE_ENUM) return true;
+    /* Phase 33 STDLIB-10 (Plan 33-06): *unchecked T (and the RawPtr alias)
+     * with a primitive pointee is stringifiable — emit_c interpolates as the
+     * dereferenced value. Matches the new interp-string formatter arm in
+     * emit_c.c IRON_LIR_INTERP_STRING. Structured pointees still trigger
+     * W0602 (no to_string contract for bare pointer to struct). */
+    if (t->kind == IRON_TYPE_PTR && t->ptr.is_unchecked && t->ptr.pointee) {
+        const Iron_Type *p = t->ptr.pointee;
+        if (iron_type_is_numeric(p) || p->kind == IRON_TYPE_BOOL) return true;
+    }
     if (t->kind == IRON_TYPE_OBJECT && t->object.decl && ctx->program) {
         const char *tname = t->object.decl->name;
         for (int i = 0; i < ctx->program->decl_count; i++) {
@@ -1259,6 +1268,21 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     else if (strcmp(name, "String")  == 0) base = iron_type_make_primitive(IRON_TYPE_STRING);
     else if (strcmp(name, "void")    == 0) base = iron_type_make_primitive(IRON_TYPE_VOID);
     else if (strcmp(name, "Void")    == 0) base = iron_type_make_primitive(IRON_TYPE_VOID);
+    /* Phase 33 STDLIB-10 (Plan 33-06): RawPtr is the type-erased member of the
+     * *unchecked T regime. Internally represented as IRON_TYPE_PTR with
+     * is_unchecked=true and pointee=Int (a stand-in for the 8-byte erased
+     * payload). The type-erasure semantics are enforced in the Ptr.cast
+     * dispatch (skips size-equality when source is *unchecked) and in
+     * RawPtr.of (compiler-builtin address-producer that bypasses the E0294
+     * `&`-cannot-produce-unchecked guard). Auto-address still does NOT apply
+     * because is_unchecked=true (UNCK-05 guard unchanged). */
+    else if (strcmp(name, "RawPtr")  == 0) {
+        Iron_Type *pointee = iron_type_make_primitive(IRON_TYPE_INT);
+        base = iron_type_make_ptr(ctx->arena, pointee,
+                                  /*is_var=*/false,
+                                  /*is_unchecked=*/true);
+        if (!base) base = iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
     else {
         /* User-defined type: look up in global scope */
         Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, name);
@@ -2317,10 +2341,18 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             break;
                         }
                         if (target_t) {
+                            /* Phase 33 STDLIB-10 (Plan 33-06): when the source
+                             * pointer is in the unchecked regime (RawPtr or any
+                             * *unchecked T), Ptr.cast is type-erased — skip the
+                             * size-equality check and stay in the unchecked
+                             * regime on output. The checked-regime cast path
+                             * keeps its UNCK-04 size-equality contract. */
+                            bool src_is_unchecked = src_arg_t->ptr.is_unchecked;
                             int sz_target = iron_type_pointee_size(target_t);
                             int sz_source = iron_type_pointee_size(
                                 src_arg_t->ptr.pointee);
-                            if (sz_target > 0 && sz_source > 0 &&
+                            if (!src_is_unchecked &&
+                                sz_target > 0 && sz_source > 0 &&
                                 sz_target != sz_source) {
                                 char msg[320];
                                 snprintf(msg, sizeof(msg),
@@ -2342,12 +2374,15 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                 ce->resolved_type = result;
                                 break;
                             }
-                            /* Success: return *T preserving is_var.
-                             * Ptr.cast stays in checked regime (UNCK-04). */
+                            /* Success: return *T preserving is_var. The
+                             * regime is inherited from the source pointer
+                             * (Phase 25 UNCK-04 for checked; Phase 33 STDLIB-10
+                             * for unchecked/RawPtr — type-erased cast stays
+                             * in the unchecked regime). */
                             Iron_Type *out_t = iron_type_make_ptr(
                                 ctx->arena, target_t,
                                 src_arg_t->ptr.is_var,
-                                false); /* Ptr.cast preserves checked regime */
+                                src_is_unchecked);
                             result = out_t
                                 ? out_t
                                 : iron_type_make_primitive(IRON_TYPE_ERROR);
@@ -3245,6 +3280,44 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         : iron_type_make_object(ctx->arena, NULL);
                     if (!box_t) box_t = iron_type_make_primitive(IRON_TYPE_ERROR);
                     result = box_t;
+                    mc->resolved_type = result;
+                    break;
+                }
+
+                /* Phase 33 STDLIB-10 (Plan 33-06): RawPtr.of(x) CONSTRUCTOR
+                 * by-name dispatch — the type-erased member of the *unchecked T
+                 * regime. Mirrors the Box.new dispatch above. RawPtr.of IS the
+                 * address-producer for the unchecked regime (the E0294 `&`-
+                 * cannot-produce-unchecked guard remains intact for user code;
+                 * this compiler-builtin bypasses it explicitly). Returns the
+                 * same erased type that the `RawPtr` annotation resolves to
+                 * (*unchecked Int — the Int pointee is a stand-in 8B size,
+                 * type-erasure is enforced in the Ptr.cast dispatch below). */
+                if (obj_id_ptr->name &&
+                    strcmp(obj_id_ptr->name, "RawPtr") == 0 &&
+                    mc->method && strcmp(mc->method, "of") == 0) {
+                    if (mc->arg_count != 1) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "RawPtr.of expects 1 argument (value), got %d",
+                                 mc->arg_count);
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        for (int i = 0; i < mc->arg_count; i++)
+                            check_expr(ctx, mc->args[i]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    /* Type-check the argument; its concrete type is erased on
+                     * the result but the check must run for diagnostics. */
+                    (void)check_expr(ctx, mc->args[0]);
+                    Iron_Type *pointee = iron_type_make_primitive(IRON_TYPE_INT);
+                    Iron_Type *rp_t = iron_type_make_ptr(
+                        ctx->arena, pointee,
+                        /*is_var=*/false,
+                        /*is_unchecked=*/true);
+                    result = rp_t ? rp_t
+                                  : iron_type_make_primitive(IRON_TYPE_ERROR);
                     mc->resolved_type = result;
                     break;
                 }

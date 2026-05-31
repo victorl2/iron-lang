@@ -1511,6 +1511,34 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* 1r. Phase 33 STDLIB-10 (Plan 33-06): always prepend rawptr.iron — RawPtr
+     * is the type-erased member of the *unchecked T regime. Its `RawPtr.of(x)`
+     * compiler-builtin is dispatched in typecheck.c and the by-name dispatch
+     * needs the `RawPtr` symbol in scope to resolve the type annotation
+     * `val raw: RawPtr`. Mirror of check.c arm. */
+    {
+        char *rawptr_path = make_path(base_dir, "stdlib/rawptr.iron");
+        if (rawptr_path) {
+            long sz = 0;
+            char *src = read_file(rawptr_path, &sz);
+            free(rawptr_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
     } else {
         /* Phase 94 LIB-03 polyfill-duplication fix: emit_archive mode skipped
          * the stdlib auto-prepend region. Free the detect arena that the

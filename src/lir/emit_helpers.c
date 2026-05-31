@@ -821,6 +821,57 @@ void emit_ensure_filehandle(EmitCtx *ctx) {
         "}\n\n");
 }
 
+/* Phase 33 STDLIB-10 (Plan 33-06): per-T RawPtr.of helper synthesis.
+ * Emits Iron_RawPtr_of_<elemC>(<elemC>*) -> int64_t* into lifted_funcs.
+ * Body is a single cast: returns its argument re-typed as int64_t*. RawPtr
+ * is the type-erased member of the *unchecked T regime; internally we
+ * represent it as IRON_TYPE_PTR { is_unchecked=true, pointee=Int } (a bare
+ * 8B int64_t* in C). The per-T helper exists so the SIGNATURE matches the
+ * call site (the call site passes &x typed as <elemC>*, not void*, which
+ * keeps -Wpedantic / -Werror clean across element types). Idempotent via
+ * emitted_rawptrs (mirrors emit_ensure_box's dedup pattern). */
+void emit_ensure_rawptr(EmitCtx *ctx, const Iron_Type *elem_type) {
+    if (!elem_type) return;
+
+    const char *elem_c = emit_type_to_c(elem_type, ctx);
+    if (!elem_c) return;
+
+    /* Build escaped suffix: replace ` ` and `*` with `_`. */
+    Iron_StrBuf sb = iron_strbuf_create(48);
+    for (const char *p = elem_c; *p; p++) {
+        if (*p == ' ' || *p == '*') iron_strbuf_appendf(&sb, "_");
+        else { char ch[2] = { *p, '\0' }; iron_strbuf_appendf(&sb, "%s", ch); }
+    }
+    const char *esc = iron_arena_strdup(ctx->arena,
+                                         iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    if (!esc) iron_oom_abort("emit_helpers.c:emit_ensure_rawptr esc");
+
+    /* Dedupe — Phase 25 emitted_boxes precedent. */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_rawptrs); i++) {
+        if (strcmp(ctx->emitted_rawptrs[i], esc) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, esc, strlen(esc));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_rawptr name_copy");
+    arrput(ctx->emitted_rawptrs, name_copy);
+
+    /* The function pre-declaration lands in struct_bodies so call sites
+     * compiled earlier in the .c output resolve cleanly (mirrors the
+     * FileHandle/Box forward-prototype pattern). The body lands in
+     * lifted_funcs (renders after struct_bodies). */
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "/* Phase 33 STDLIB-10: RawPtr.of[%s] per-T type-erasure helper */\n"
+        "static int64_t *Iron_RawPtr_of_%s(%s *p);\n",
+        elem_c, esc, elem_c);
+
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static int64_t *Iron_RawPtr_of_%s(%s *p) {\n"
+        "    /* Type-erased cast — RawPtr is the unchecked-regime void*. */\n"
+        "    return (int64_t *)(void *)p;\n"
+        "}\n\n",
+        esc, elem_c);
+}
+
 /* Map a type annotation name to a C type string without needing Iron_Codegen */
 const char *emit_annotation_to_c(const char *name, EmitCtx *ctx) {
     if (strcmp(name, "Int") == 0)     return "int64_t";
