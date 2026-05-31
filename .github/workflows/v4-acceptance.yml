@@ -1,0 +1,75 @@
+name: v4-acceptance
+
+# Phase 36 REL-09 — dedicated milestone-v3.0 headline-metric gate.
+#
+# A single-job workflow produces a stable GitHub-status-check name
+# (`v4-acceptance`) that can be wired into branch protection as a required
+# status check. This is intentionally NOT a matrix: branch-protection
+# required-check names match exactly, so `v4-acceptance` is load-bearing —
+# do not rename, do not introduce a matrix, do not wrap in a containing job.
+# See docs/dev/ci-gates.md.
+#
+# The v4-acceptance ctest label aggregates every per-phase v4 fixture set
+# (phase15..phase35 inclusive) plus the hand-migrated v3 corpus under
+# tests/integration/v4/migrated-from-v3/. A regression in this label means
+# the Iron v4 surface or codegen has lost capability — block the PR.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  v4-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang cmake \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libasound2-dev
+
+      - name: Configure (Release)
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build iron + ironc + test binaries
+        run: cmake --build build -j4
+
+      - name: Run v4-acceptance label
+        id: v4_acceptance
+        run: |
+          set -o pipefail
+          if ctest --test-dir build -L v4-acceptance --output-on-failure -j4 2>&1 | tee v4-acceptance.log; then
+            echo "v4-acceptance: PASS" >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## v4-acceptance regression detected"
+              echo ""
+              echo "The milestone-v3.0 headline-metric gate (\`ctest -L v4-acceptance\`) failed."
+              echo "A regression in this label means the Iron v4 surface or codegen has lost capability."
+              echo ""
+              echo "### First failing tests (first 80 lines of failure context):"
+              echo ""
+              echo '```'
+              grep -A 50 -iE 'FAIL|Failed|Expected|Actual' v4-acceptance.log | head -80
+              echo '```'
+              echo ""
+              echo "See \`docs/dev/ci-gates.md\` for the zero-bypass policy."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Upload v4-acceptance log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v4-acceptance-log
+          path: v4-acceptance.log
+          retention-days: 14

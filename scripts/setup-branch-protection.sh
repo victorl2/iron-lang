@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/setup-branch-protection.sh
 # Phase 14 REL-04 — configure main branch protection via gh api.
+# Phase 36 REL-09 — extended to 9 checks (added v4-acceptance milestone-v3.0 gate).
 # Idempotent: re-running with the same input produces no observable diff.
 #
 # Required: authenticated `gh` CLI with administration:write permission on the
@@ -9,10 +10,11 @@
 # Usage:
 #   bash scripts/setup-branch-protection.sh
 #
-# Sources the canonical 8-check list from docs/dev/ci-gates.md (Phase 7 HARD-23).
-# If docs/dev/ci-gates.md is absent, falls back to an inline array.
+# Sources the canonical 9-check list from docs/dev/ci-gates.md (Phase 7 HARD-23
+# + Phase 36 REL-09). If docs/dev/ci-gates.md is absent, falls back to an
+# inline array.
 # TODO (if fallback fires): verify check names against actual CI workflows in
-# .github/workflows/ci.yml, parity.yml, tsan.yml, slos.yml.
+# .github/workflows/ci.yml, parity.yml, tsan.yml, slos.yml, v4-acceptance.yml.
 
 set -euo pipefail
 
@@ -27,8 +29,9 @@ if ! gh auth status >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# Resolve the 8 required check names.
-# Primary source: docs/dev/ci-gates.md (Phase 7 HARD-23 single source of truth).
+# Resolve the 9 required check names.
+# Primary source: docs/dev/ci-gates.md (Phase 7 HARD-23 + Phase 36 REL-09
+# single source of truth).
 # Fallback: inline array (see TODO above).
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,15 +40,22 @@ CI_GATES_FILE="${REPO_ROOT}/docs/dev/ci-gates.md"
 
 if [ -f "${CI_GATES_FILE}" ]; then
   echo "Reading required checks from docs/dev/ci-gates.md..."
-  # Extract the backtick-quoted check names from the table rows.
-  # Each row has a leading backtick: | # | `check-name` | ...
+  # Extract the check-name (first backtick group) from each numbered table
+  # row: lines that begin with `| <digit> |`. Prose backticks elsewhere in
+  # the document (e.g. `main`, `ironc`, `parity` in the Purpose section)
+  # are intentionally excluded.
+  #
+  # Phase 36 REL-09 hardening: prior implementation used `grep -oE ... |
+  # head -8` and silently emitted junk like `main`, `ironc`, `parity`
+  # plus workflow filenames; that worked by accident only because the
+  # branch-protection PUT was never re-run with a divergent doc. Use a
+  # targeted awk extractor instead.
   mapfile -t CHECKS < <(
-    grep -oE '`[^`]+`' "${CI_GATES_FILE}" \
-      | head -8 \
-      | tr -d '`'
+    awk -F'`' '/^\| *[0-9]+ *\|/ { print $2 }' "${CI_GATES_FILE}" \
+      | head -9
   )
-  if [ "${#CHECKS[@]}" -lt 8 ]; then
-    echo "WARNING: could not parse 8 checks from ci-gates.md (got ${#CHECKS[@]}). Falling back to inline list." >&2
+  if [ "${#CHECKS[@]}" -lt 9 ]; then
+    echo "WARNING: could not parse 9 checks from ci-gates.md (got ${#CHECKS[@]}). Falling back to inline list." >&2
     CHECKS=(
       "build-and-test (ubuntu-latest)"
       "build-and-test (macos-latest)"
@@ -55,6 +65,8 @@ if [ -f "${CI_GATES_FILE}" ]; then
       "parity"
       "tsan"
       "slos"
+      # Phase 36 REL-09: v4-acceptance milestone-v3.0 headline metric.
+      "v4-acceptance"
     )
   fi
 else
@@ -69,6 +81,8 @@ else
     "parity"
     "tsan"
     "slos"
+    # Phase 36 REL-09: v4-acceptance milestone-v3.0 headline metric.
+    "v4-acceptance"
   )
 fi
 
