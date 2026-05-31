@@ -3,6 +3,19 @@
 All notable changes to the `iron-lsp` Zed extension are documented in
 this file.
 
+## v4.0.0-alpha.1
+
+- Bumped `compatible_ironls` and `[version_constraints].ironls`
+  constraints to `">= 4.0.0, < 5.0.0"`; v3 ironls binaries now
+  hard-refused by the Phase 7 D-10 gate (`src/lib.rs` reads
+  `IRONLS_COMPATIBLE_RANGE` and returns an `Err` from
+  `language_server_command()` on mismatch).
+- Added snippet pack `snippets/iron.toml` for Iron v4 idioms:
+  `defer free <binding>` (Phase 21), `heap T(...)` constructor
+  (Phase 21), `in arena { ... }` block (Phase 28). Triggers match the
+  Phase 34 LSP completion snippets and the VSCode + Neovim packs.
+- Extension version bumped to `0.4.0` for v4 LSP compatibility.
+
 ## 0.1.0 — initial release
 
 - Native Zed extension (Rust → `wasm32-wasip2`) via

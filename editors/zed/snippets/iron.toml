@@ -1,0 +1,25 @@
+# Iron v4 snippet pack (Phase 35-02 / EXT-15).
+#
+# Triggers mirror the Phase 34 LSP completion snippets and the sibling
+# VSCode + Neovim snippet packs, so users see the same surface across
+# all three editors.
+#
+# Format: per-snippet TOML tables keyed by snippet name. `prefix` is the
+# trigger word; `body` is an array of lines (joined with newlines on
+# expansion); `description` shows in the picker UI. ${N:default}
+# placeholders follow LSP snippet syntax; $0 is the final cursor stop.
+
+[defer_free]
+prefix = "defer"
+body = ["defer free ${1:binding}$0"]
+description = "Iron v4: schedule heap/rc free at scope exit (Phase 21 idiom)"
+
+[heap_ctor]
+prefix = "heap"
+body = ["heap ${1:TypeName}(${2:args})$0"]
+description = "Iron v4: allocate on heap with generation tracking (Phase 21)"
+
+[arena_block]
+prefix = "arena"
+body = ["in ${1:arena_name} {", "\t$0", "}"]
+description = "Iron v4: scoped arena allocation block (Phase 28)"
