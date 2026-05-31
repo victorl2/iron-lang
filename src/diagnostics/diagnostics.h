@@ -79,6 +79,34 @@ void iron_diaglist_free(Iron_DiagList *list);
 
 /* ── Error codes ─────────────────────────────────────────────────────────── */
 
+/* ── IRON_ERR_RANGES (Phase 34 LSP-05): canonical namespace map.
+ *
+ * Consult this map before allocating new codes. Each per-range block
+ * below carries the emit-guidance for its range; this block is the
+ * top-level index.
+ *
+ *    1 –  99 : lexer
+ *  101 – 199 : parser
+ *  200 – 299 : semantic (resolve / typecheck / capture / escape)
+ *  300 – 399 : LIR verifier
+ *  400 – 499 : lowering (HIR -> LIR)
+ *  500 – 599 : HIR verifier
+ *  600 – 699 : warnings (analyzer + parser)
+ *  700 – 799 : web-target LIR
+ *  800 – 899 : v4 memory-model diagnostics (Phase 34)
+ *               800 – 809 : lifecycle-policy errors
+ *               810 – 819 : regime errors
+ *               820 – 829 : readonly/purity (memory-model-specific only;
+ *                            existing 277/281 cover non-memory readonly)
+ *               830 – 839 : drop / copy / nocopy violations
+ *               840 – 899 : reserved for follow-up phases
+ *  900 +     : reserved
+ *
+ * All 800-range emit sites MUST live in iron_compiler (NOT src/lsp/).
+ * See `tests/lsp/invariant/test_core22_single_analyze.c` and
+ * Phase 34 RESEARCH.md Pitfall 4 for the parity-preserving discipline.
+ */
+
 /* Lexer errors */
 #define IRON_ERR_UNTERMINATED_STRING   1
 #define IRON_ERR_INVALID_CHAR          2
@@ -586,6 +614,32 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_WEB_NON_CANONICAL_MAIN_LOOP   701
 #define IRON_ERR_WEB_NESTED_MAIN_LOOP          702
 #define IRON_ERR_WEB_MAIN_LOOP_WRONG_FUNCTION  703
+
+/* ── 800-899: v4 memory-model diagnostics (Phase 34 LSP-05) ──────────────────
+ *
+ * Range claimed by Plan 34-01 to give Wave 2 quickfix authoring stable
+ * IRON_ERR_* symbols to match against. See the IRON_ERR_RANGES block at
+ * the top of this error-codes section for the canonical sub-allocation.
+ *
+ * CRITICAL DISCIPLINE: emit sites for 800-range codes MUST live inside
+ * iron_compiler (typically src/analyzer/typecheck.c). Emitting an
+ * 800-range diagnostic from a src/lsp/ code path would break HARD-24
+ * parity instantly (CLI mode wouldn't see it, LSP mode would).
+ */
+
+/* 800-809: lifecycle-policy errors. Reserved; emit sites land in a
+ *          follow-up Phase 34 plan that adds compiler-side emission. */
+
+/* 810-819: regime errors. Existing IRON_ERR_PTR_AMP_ON_RC=296 stays in
+ *          the 200-range per Phase 26 plan; new regime-specific codes
+ *          go here when needed. */
+
+/* 820-829: readonly / purity (memory-model-specific). */
+#define IRON_ERR_READONLY_MEMORY            820  /* readonly fn touches heap/rc/weak rc allocation (Phase 34 LSP-10) */
+
+/* 830-839: drop / copy / nocopy violations (reserved). */
+
+/* 840-899: reserved for follow-up phases. */
 
 /* ── Internal compiler error (ICE) helper (PROT-03) ──────────────────────────
  * iron_ice is the canonical abort path for compiler-internal invariants that

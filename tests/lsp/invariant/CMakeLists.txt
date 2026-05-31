@@ -217,3 +217,24 @@ print(f'OK: {len(b)} total; ' + ', '.join(f'{k}={v}' for k, v in sorted(per_os.i
         ENVIRONMENT "IRON_BUILD_DIR=${CMAKE_BINARY_DIR}"
         TIMEOUT 30)
 endif()
+
+# ── Phase 34 LSP-13 / CORE-22: single iron_analyze_buffer call site ──────────
+#
+# Structural grep-based invariant: enforces that `iron_analyze_buffer(` is
+# called from exactly one location under src/lsp/, and that location is
+# src/lsp/facade/compile.c. Catches any regression that adds a second
+# analyze call from a hover/completion/quickfix code path — a regression
+# that would otherwise only surface as a parity-gate drift (HARD-24)
+# after enough fixtures exercise the second site.
+#
+# Pure text-only test (Unity + popen grep), no analyzer runtime invocation.
+# Working directory is CMAKE_SOURCE_DIR so the relative `src/lsp/` path
+# resolves regardless of build-tree layout.
+add_executable(test_core22_single_analyze test_core22_single_analyze.c)
+target_link_libraries(test_core22_single_analyze PRIVATE unity)
+add_test(NAME test_core22_single_analyze
+    COMMAND test_core22_single_analyze
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(test_core22_single_analyze PROPERTIES
+    LABELS "phase34-invariant;invariant"
+    TIMEOUT 30)
