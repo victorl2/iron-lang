@@ -116,6 +116,23 @@ if(IRON_BUILD_GRAMMARS AND IRON_NPM_EXECUTABLE AND IRON_NODE_EXECUTABLE AND BASH
         FIXTURES_REQUIRED tree_sitter_deps
         SKIP_RETURN_CODE 77
         TIMEOUT 120)
+
+    # Phase 35 Plan 35-01 Task 3 (GRM-11): v4-rule coverage gate. Fails red
+    # if any rule added by Plan 35-01 (weak_rc_expression, pointer_type,
+    # bounded_vector_type, arena_block, drop_block, copy_block,
+    # nocopy_modifier, leak_statement, plus rc_type/weak_rc_type and the
+    # heap_options extension) breaks against the curated v4_* corpus
+    # fixtures, OR if any of the 7 expected v4_*.txt files goes missing.
+    # Sibling to test_tree_sitter_corpus — that one runs the whole corpus;
+    # this one narrows the failure dimension to v4 surface for fast triage.
+    add_test(NAME test_tree_sitter_v4_rules
+        COMMAND ${BASH_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tests/grammars/tree_sitter/run_v4_corpus.sh")
+    set_tests_properties(test_tree_sitter_v4_rules PROPERTIES
+        LABELS "phase-m5-invariant;phase35-invariant"
+        FIXTURES_REQUIRED tree_sitter_deps
+        SKIP_RETURN_CODE 77
+        TIMEOUT 60)
 else()
     add_test(NAME test_tree_sitter_corpus
         COMMAND ${CMAKE_COMMAND} -E echo
@@ -129,6 +146,16 @@ else()
                 "SKIPPED: tree-sitter-cli pre-reqs missing (npm/node/bash)")
     set_tests_properties(test_tree_sitter_parses_integration_corpus PROPERTIES
         LABELS "phase-m5-invariant"
+        SKIP_REGULAR_EXPRESSION "SKIPPED")
+
+    # Phase 35 Plan 35-01 Task 3 (GRM-11): SKIP shim mirroring the other
+    # tree-sitter gates so missing tooling produces an audit-trail entry
+    # rather than configure-time failure.
+    add_test(NAME test_tree_sitter_v4_rules
+        COMMAND ${CMAKE_COMMAND} -E echo
+                "SKIPPED: tree-sitter-cli pre-reqs missing (npm/node/bash)")
+    set_tests_properties(test_tree_sitter_v4_rules PROPERTIES
+        LABELS "phase-m5-invariant;phase35-invariant"
         SKIP_REGULAR_EXPRESSION "SKIPPED")
 endif()
 
