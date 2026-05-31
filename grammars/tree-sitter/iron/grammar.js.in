@@ -120,7 +120,10 @@ module.exports = grammar({
     import_path: $ => seq($.identifier, repeat(seq('.', $.identifier))),
 
     // object Name[<GenericParams>] [extends Parent] [impl I1, I2] { val name: T, var name: T }
+    // Phase 35 GRM-06 (Plan 35-01): optional `nocopy` prefix modifier
+    // (`nocopy object FileHandle { ... }`) via $.nocopy_modifier named child.
     object_declaration: $ => seq(
+      optional(field('marker', $.nocopy_modifier)),
       'object',
       field('name', $.identifier),
       optional($.generic_params),
@@ -134,10 +137,14 @@ module.exports = grammar({
 
     // D-06: _object_member expanded to include init_declaration and
     // block_method_declaration alongside the pre-v3 field_declaration.
+    // Phase 35 GRM-06 (Plan 35-01): drop_block + copy_block added so v4
+    // `drop { ... }` / `copy { ... }` hooks inside object bodies parse.
     _object_member: $ => choice(
       $.field_declaration,
       $.init_declaration,
       $.block_method_declaration,
+      $.drop_block,
+      $.copy_block,
     ),
     // D-19/D-23 (Plan 13-02): optional `pub` prefix on field_declaration so
     // v3 `pub val id: Int` / `pub var health: Int` (per
@@ -328,6 +335,7 @@ module.exports = grammar({
     // 13-03's KNOWN_SKIPS trim — the integration fixture's `implements`
     // keyword was previously masked by the Phase-8 v3 skip list.
     patch_declaration: $ => seq(
+      optional(field('marker', $.nocopy_modifier)),
       'patch',
       'object',
       field('target', $.identifier),
@@ -372,6 +380,9 @@ module.exports = grammar({
       $.break_statement,
       $.continue_statement,
       $.defer_statement,
+      $.free_statement,
+      $.leak_statement,
+      $.arena_block,
       $.expression_statement,
     ),
 
@@ -446,10 +457,35 @@ module.exports = grammar({
     continue_statement: $ => 'continue',
 
     // defer { block } | defer single_statement (e.g. `defer println(...)`)
+    // Phase 35 GRM-06 (Plan 35-01): defer free <expr> form added so the
+    // canonical v4 defer-free pattern (`defer free p`) parses as a
+    // defer_statement wrapping a free_statement.
     defer_statement: $ => seq('defer', choice(
       $.block,
+      $.free_statement,
       $._expression,
     )),
+
+    // Phase 35 GRM-06 (Plan 35-01): free <expr> statement form mirrors
+    // parser.c:3008 IRON_TOK_FREE handling. The full free_statement is
+    // reachable both bare (`free p`) and inside defer (`defer free p`).
+    free_statement: $ => prec.right(seq('free', $._expression)),
+
+    // Phase 35 GRM-06 (Plan 35-01): leak <expr> statement form mirrors
+    // parser.c:3018 IRON_TOK_LEAK handling. Iron's `leak` is a statement-
+    // position keyword (NOT a prefix-expression keyword), and the inner
+    // expression is the heap/rc binding being intentionally leaked.
+    leak_statement: $ => prec.right(seq('leak', $._expression)),
+
+    // Phase 35 GRM-06 (Plan 35-01): in <arena_expr> { ... } block form
+    // mirrors parser.c:3032 IRON_TOK_IN statement-position dispatch. The
+    // arena expression can be any expression (typically an identifier or
+    // member access like `game.frame_arena`).
+    arena_block: $ => seq(
+      'in',
+      field('arena', $._expression),
+      field('body', $.block),
+    ),
 
     // Guard expression_statement with low precedence so other statement
     // keywords win in the _statement choice.
@@ -470,6 +506,7 @@ module.exports = grammar({
       $.lambda_expression,
       $.heap_expression,
       $.rc_expression,
+      $.weak_rc_expression,
       $.comptime_expression,
       $.await_expression,
       $.spawn_expression,
@@ -550,8 +587,33 @@ module.exports = grammar({
     self_expression: $ => 'self',
 
     // Prefix-keyword expressions — all bind at UNARY precedence (13).
-    heap_expression:     $ => prec.right(13, seq('heap',     $._expression)),
+    // Phase 35 GRM-06 (Plan 35-01): heap_expression accepts an optional
+    // heap_options clause (`heap(in: arena, allow_drop_skip: true) T(...)`)
+    // mirroring parser.c:1499 IRON_TOK_HEAP named-option-list path; bare
+    // `heap T(...)` form remains unchanged.
+    heap_expression:     $ => prec.right(13, seq(
+      'heap',
+      optional($.heap_options),
+      $._expression,
+    )),
+    heap_options: $ => seq(
+      '(',
+      $.heap_option,
+      repeat(seq(',', $.heap_option)),
+      ')',
+    ),
+    heap_option: $ => seq(
+      field('key', choice('in', $.identifier)),
+      ':',
+      field('value', $._expression),
+    ),
     rc_expression:       $ => prec.right(13, seq('rc',       $._expression)),
+    // Phase 35 GRM-06 (Plan 35-01): weak_rc_expression covers both the
+    // null form (`weak rc null`) and the bound form (`weak rc Foo(...)`);
+    // `weak` is a keyword (lexer.c:76 IRON_TOK_WEAK).
+    weak_rc_expression:  $ => prec.right(13, seq(
+      'weak', 'rc', $._expression,
+    )),
     comptime_expression: $ => prec.right(13, seq('comptime', $._expression)),
     await_expression:    $ => prec.right(13, seq('await',    $._expression)),
 
@@ -597,8 +659,10 @@ module.exports = grammar({
 
     _type: $ => choice(
       $.array_type,
+      $.bounded_vector_type,
       $.function_type,
       $.tuple_type,
+      $.pointer_type,
       $.nullable_type,
       $.generic_type,
       $.type_identifier,
@@ -627,6 +691,46 @@ module.exports = grammar({
       ))),
       ']',
     )),
+
+    // Phase 35 GRM-06 (Plan 35-01): bounded vector type `[T; <=N]` (VEC-01).
+    // Distinguished from array_type by the literal `<=` token between `;`
+    // and the size expression — tree-sitter's GLR picks the right form by
+    // lookahead. Strict form `[T; N]` stays in array_type.
+    bounded_vector_type: $ => prec(3, seq(
+      '[', $._type, ';', '<=', $._expression, ']',
+    )),
+
+    // Phase 35 GRM-06 (Plan 35-01): pointer_type covers the Iron v4 checked
+    // and unchecked pointer surface (parser.c:600-674):
+    //   *T               — checked pointer
+    //   *var T           — mutable checked pointer
+    //   *unchecked T     — bare 8B C pointer (no gen tracking)
+    //   *var unchecked T — mutable unchecked
+    //   ?*T / ?*var T    — nullable pointer (leading `?` per PTR-13)
+    // Single rule with optional `nullable` / `mutable` / `regime` named
+    // children per 35-CONTEXT.md decision (avoids 4 sibling rules).
+    pointer_type: $ => prec.right(seq(
+      optional(field('nullable', '?')),
+      '*',
+      optional(field('mutable', 'var')),
+      optional(field('regime', 'unchecked')),
+      $._type,
+    )),
+
+    // Phase 35 GRM-06 (Plan 35-01): nocopy_modifier — a one-token marker
+    // that may prefix an object_declaration or patch_declaration (`nocopy
+    // object FileHandle { ... }`). Reserved as IRON_TOK_NOCOPY since
+    // Phase 16 (lexer.c:55). Modeled as a named rule (not an inline token)
+    // so downstream tree-queries can target the marker structurally.
+    nocopy_modifier: $ => 'nocopy',
+
+    // Phase 35 GRM-06 (Plan 35-01): drop_block / copy_block — destructor +
+    // copy hooks inside an object/patch body (DROP-01 / COPY-01).
+    //   drop { println("free: {self.name}") }
+    //   copy { val dummy = 0 }
+    // Both reuse the existing $.block rule for the body.
+    drop_block: $ => seq('drop', field('body', $.block)),
+    copy_block: $ => seq('copy', field('body', $.block)),
 
     // func(T, U) -> R
     function_type: $ => prec(4, seq(
