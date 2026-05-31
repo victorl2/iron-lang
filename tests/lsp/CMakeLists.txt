@@ -64,21 +64,12 @@ add_subdirectory(quickfix)
 add_subdirectory(complete)
 # === end Phase 34-03 completion tests ===
 
-# Phase 34 Plan 34-04 Task 1 retired the WILL_FAIL stubs for
-# quickfix_missing_val_var, quickfix_forgotten_free, quickfix_unused_var_alloc,
-# and quickfix_amp_rc. Their drivers live in tests/lsp/quickfix/ as
-# test_quickfix_lsp_{06,07,08,09}_* (labels phase34-invariant + quickfix).
-# Only quickfix_readonly_memory (LSP-10) remains WILL_FAIL until Task 2
-# of this same plan lands its handler.
-set(PHASE34_QUICKFIX_FIXTURES
-    quickfix_readonly_memory)
-foreach(fix ${PHASE34_QUICKFIX_FIXTURES})
-    add_test(NAME lsp_${fix}
-        COMMAND sh -c "echo 'TODO Phase 34 Wave 2b: quickfix driver pending for ${fix}'; exit 1")
-    set_tests_properties(lsp_${fix} PROPERTIES
-        LABELS "phase34-invariant"
-        WILL_FAIL TRUE)
-endforeach()
+# Phase 34 Plan 34-04 retired all 5 WILL_FAIL quickfix stubs.
+# - Task 1: LSP-06..09 (codes 176, 296, 606, 613) — drivers in
+#   tests/lsp/quickfix/test_quickfix_lsp_{06,07,08,09}_*.
+# - Task 2: LSP-10 (code 820) — driver in
+#   tests/lsp/quickfix/test_quickfix_lsp_10_readonly_memory.c.
+# All carry labels "phase34-invariant;quickfix".
 
 # Publish_diag_820 — depends on IRON_ERR_READONLY_MEMORY=820 (Task 2 of
 # Plan 34-01) AND on the compiler-side emit site landing in a follow-up

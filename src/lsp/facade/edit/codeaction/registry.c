@@ -30,6 +30,7 @@ const IronLsp_QuickfixEntry ilsp_quickfix_table[] = {
     /* 611  */ { IRON_WARN_UNUSED_IMPORT,           ilsp_quickfix_unused_import            },
     /* 612  */ { IRON_WARN_REDUNDANT_CAST,          ilsp_quickfix_redundant_cast           },
     /* 613  */ { IRON_WARN_UNUSED_VAR,              ilsp_quickfix_unused_var_alloc         },  /* Phase 34 LSP-08 */
+    /* 820  */ { IRON_ERR_READONLY_MEMORY,          ilsp_quickfix_readonly_memory          },  /* Phase 34 LSP-10 */
 };
 const size_t ilsp_quickfix_table_size =
     sizeof(ilsp_quickfix_table) / sizeof(ilsp_quickfix_table[0]);

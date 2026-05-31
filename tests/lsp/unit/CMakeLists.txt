@@ -189,6 +189,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/resolve.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/auto_import.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/snippet.c
+        # Phase 34 Plan 34-03 (LSP-04): defer-free backward-scan helper
+        # consumed by complete.c's emit_defer_free_snippets hook.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/defer_free.c
         # Phase 12 Plan 12-02 (KW-03): per-keyword visibility predicate
         # consumed by buckets.c emit_keywords.
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/keyword_filter.c
@@ -222,6 +225,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_forgotten_free.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_unused_var_alloc.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_amp_rc.c
+        # Phase 34 Plan 34-04 (LSP-10): two-action readonly-memory handler.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_memory.c
         # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
         # by quickfix_missing_return.c (and QF-02/QF-03 in later plans).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
@@ -1449,6 +1454,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/resolve.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/auto_import.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/snippet.c
+        # Phase 34 Plan 34-03 (LSP-04): defer-free backward-scan helper
+        # consumed by complete.c's emit_defer_free_snippets hook.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/defer_free.c
         # Phase 12 Plan 12-02 (KW-03): per-keyword visibility predicate
         # consumed by buckets.c emit_keywords.
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/keyword_filter.c
@@ -1482,6 +1490,8 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_forgotten_free.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_unused_var_alloc.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_amp_rc.c
+        # Phase 34 Plan 34-04 (LSP-10): two-action readonly-memory handler.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_memory.c
         # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
         # by quickfix_missing_return.c (and QF-02/QF-03 in later plans).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c

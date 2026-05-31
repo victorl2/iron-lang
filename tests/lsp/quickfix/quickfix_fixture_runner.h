@@ -50,7 +50,18 @@
 #define IRON_SOURCE_TREE_ROOT "."
 #endif
 
-static char *qf34_slurp(const char *path) {
+/* All helpers are marked __attribute__((unused)) — each per-fixture
+ * test driver includes this header but uses only a subset of helpers
+ * (e.g., LSP-10 uses parse_multi only, LSP-06..09 use parse_single
+ * only). -Werror=unused-function would otherwise reject the unused
+ * helpers in each driver TU. */
+#if defined(__GNUC__) || defined(__clang__)
+#define QF34_UNUSED __attribute__((unused))
+#else
+#define QF34_UNUSED
+#endif
+
+static QF34_UNUSED char *qf34_slurp(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) return NULL;
     if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
@@ -68,7 +79,7 @@ static char *qf34_slurp(const char *path) {
  * Writes to a caller-provided buffer; returns the new length. The
  * fixture parser stores newlines as the 2-byte escape "\\n" so the
  * .expected_edit file stays single-line per field. */
-static size_t qf34_decode_escapes(const char *src, size_t len,
+static QF34_UNUSED size_t qf34_decode_escapes(const char *src, size_t len,
                                      char *dst, size_t cap) {
     size_t o = 0;
     for (size_t i = 0; i < len && o + 1 < cap; i++) {
@@ -86,7 +97,7 @@ static size_t qf34_decode_escapes(const char *src, size_t len,
 /* Parse a single-action .expected_edit. Writes the title, range, and
  * new_text into caller buffers (capacity 512 each). Returns true on
  * success. */
-static bool qf34_parse_single(const char *content,
+static QF34_UNUSED bool qf34_parse_single(const char *content,
                                  char *title, size_t title_cap,
                                  uint32_t *sl, uint32_t *sc,
                                  uint32_t *el, uint32_t *ec,
@@ -121,7 +132,7 @@ static bool qf34_parse_single(const char *content,
 }
 
 /* Build a synthesized Iron_Diagnostic at the given 1-indexed coords. */
-static Iron_Diagnostic qf34_mk_diag(int code,
+static QF34_UNUSED Iron_Diagnostic qf34_mk_diag(int code,
                                        uint32_t line_1, uint32_t col_1,
                                        uint32_t end_line_1, uint32_t end_col_1,
                                        const char *filename,
@@ -140,7 +151,7 @@ static Iron_Diagnostic qf34_mk_diag(int code,
 }
 
 /* Resolve a fixture path relative to the source tree root. */
-static const char *qf34_fixture_path(char *buf, size_t cap, const char *name) {
+static QF34_UNUSED const char *qf34_fixture_path(char *buf, size_t cap, const char *name) {
     snprintf(buf, cap, "%s/tests/lsp/fixtures/%s",
              IRON_SOURCE_TREE_ROOT, name);
     return buf;

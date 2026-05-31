@@ -1,9 +1,9 @@
 variant: 0
 title: Remove 'readonly'
-range: 6:0-6:9
+range: 5:0-5:9
 new_text:
 
 variant: 1
 title: Extract mutating block into helper
-range: 7:0-9:42
+range: 6:0-8:30
 new_text:     return grow_impl(b)

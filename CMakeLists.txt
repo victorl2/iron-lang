@@ -599,6 +599,12 @@ if(IRON_BUILD_LSP)
         # handlers_edit.c + handlers_lifecycle.c.
         src/lsp/facade/edit/complete/auto_import.c
         src/lsp/facade/edit/complete/snippet.c
+        # Phase 34 Plan 34-03 (LSP-04): `defer free <binding>` backward-scan
+        # — collects up to 5 most-recent heap/rc-allocated bindings from
+        # the cursor's enclosing function body. Called by complete.c's
+        # emit_defer_free_snippets hook; consumes the Iron_Program from
+        # the single ilsp_facade_compile_for_nav call (CORE-22 intact).
+        src/lsp/facade/edit/complete/defer_free.c
         # Phase 4 Plan 04-04 (EDIT-07, EDIT-08, D-06, D-07): code-action
         # registry + 5 P1 quickfix handler TUs. handlers_edit.c hosts the
         # textDocument/codeAction + codeAction/resolve handlers that
@@ -641,6 +647,10 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/edit/codeaction/quickfix_forgotten_free.c
         src/lsp/facade/edit/codeaction/quickfix_unused_var_alloc.c
         src/lsp/facade/edit/codeaction/quickfix_amp_rc.c
+        # Phase 34 Plan 34-04 (LSP-10): two-action quickfix for code 820
+        # (IRON_ERR_READONLY_MEMORY). Both variants is_preferred = false
+        # per D-31 semantic ambiguity.
+        src/lsp/facade/edit/codeaction/quickfix_readonly_memory.c
         # Plan 04-04 Task 02: code-action orchestrator + codeAction/resolve
         # facade (lazy edit compute, version-gated per D-07).
         src/lsp/facade/edit/codeaction/codeaction.c

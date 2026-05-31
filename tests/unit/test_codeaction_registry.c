@@ -93,8 +93,8 @@ static void test_table_sorted_asc_by_code(void) {
      * (16 entries) shapes so it stays GREEN throughout Plan 34-04.
      * The strict ASC invariant is checked unconditionally. */
     size_t n = ilsp_quickfix_table_size;
-    TEST_ASSERT_TRUE_MESSAGE(n == 15 || n == 16,
-        "ilsp_quickfix_table_size must be 15 (post Task 1) or 16 (post Task 2)");
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(16, n,
+        "ilsp_quickfix_table_size must be 16 (post Plan 34-04 Task 2)");
     for (size_t i = 1; i < n; i++) {
         TEST_ASSERT_TRUE_MESSAGE(
             ilsp_quickfix_table[i - 1].code < ilsp_quickfix_table[i].code,
@@ -116,9 +116,7 @@ static void test_table_sorted_asc_by_code(void) {
     TEST_ASSERT_EQUAL_INT(IRON_WARN_UNUSED_IMPORT,           ilsp_quickfix_table[12].code);
     TEST_ASSERT_EQUAL_INT(IRON_WARN_REDUNDANT_CAST,          ilsp_quickfix_table[13].code);
     TEST_ASSERT_EQUAL_INT(IRON_WARN_UNUSED_VAR,              ilsp_quickfix_table[14].code);
-    if (n == 16) {
-        TEST_ASSERT_EQUAL_INT(IRON_ERR_READONLY_MEMORY,      ilsp_quickfix_table[15].code);
-    }
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_READONLY_MEMORY,          ilsp_quickfix_table[15].code);
     /* Codes 260 + 261 share the same handler (D-18). */
     TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_missing_val_var,
                             ilsp_quickfix_table[0].handler);
@@ -140,6 +138,8 @@ static void test_table_sorted_asc_by_code(void) {
                             ilsp_quickfix_table[11].handler);
     TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_unused_var_alloc,
                             ilsp_quickfix_table[14].handler);
+    TEST_ASSERT_EQUAL_PTR(ilsp_quickfix_readonly_memory,
+                            ilsp_quickfix_table[15].handler);
 }
 
 /* ── Shared fixture helpers ───────────────────────────────────────── */

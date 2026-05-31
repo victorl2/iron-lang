@@ -40,6 +40,7 @@ set(_PHASE34_QF_CODEACTION_SRC
     ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_forgotten_free.c
     ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_unused_var_alloc.c
     ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_amp_rc.c
+    ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_memory.c
     ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
     ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
     ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
@@ -64,7 +65,8 @@ foreach(slug
         lsp_06_missing_val_var
         lsp_07_forgotten_free
         lsp_08_unused_var_alloc
-        lsp_09_amp_rc)
+        lsp_09_amp_rc
+        lsp_10_readonly_memory)
     add_executable(test_quickfix_${slug}
         test_quickfix_${slug}.c
         ${_PHASE34_QF_CODEACTION_SRC})

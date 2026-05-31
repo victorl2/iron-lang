@@ -231,6 +231,15 @@ void ilsp_quickfix_unused_var_alloc(const Iron_Diagnostic *, struct IronLsp_Docu
  * is_preferred = true (mechanical fix). */
 void ilsp_quickfix_amp_on_rc(const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
 
+/* Phase 34 Plan 34-04 (LSP-10): code 820 / IRON_ERR_READONLY_MEMORY.
+ * Two-action quickfix — only memory-model code with semantic ambiguity:
+ *   variant 0 "Remove 'readonly'": deletes the `readonly ` token from
+ *             the enclosing func signature
+ *   variant 1 "Extract mutating block into helper": replaces the body
+ *             content with a `return <name>_impl(<param>)` placeholder
+ * Both is_preferred = false (D-31 — never auto-pick when ambiguous). */
+void ilsp_quickfix_readonly_memory(const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
+
 #ifdef __cplusplus
 }
 #endif
