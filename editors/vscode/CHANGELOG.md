@@ -3,18 +3,48 @@
 All notable changes to the `iron-lsp` VSCode extension are documented
 in this file.
 
-## v4.0.0-alpha.1
+## 4.0.0-alpha.1 — 2026-05-31
+
+Iron LSP extension updated for Iron v4 (memory-model overhaul). Requires
+`ironls >= 4.0.0, < 5.0.0` (range enforced — older `ironls` is structurally
+refused).
+
+### New in this release
+
+- Hover surfaces the new v4 memory-model regime (`val`/`var`, `heap`/`rc`/`weak rc`, `*T`/`*var T`, `readonly`, `nocopy`) on every binding.
+- Completion proposes the 10 new v4 keywords (`heap`, `rc`, `weak`, `unchecked`, `defer`, `drop`, `copy`, `nocopy`, `leak`, `in`) with context-aware visibility.
+- `defer free <binding>` snippet auto-emitted when the cursor is at the end of a `heap` allocation.
+- 5 new quickfixes for v4 memory-model errors (add `val`, insert `defer free`, drop `var` modifier, use `weak rc`, remove `readonly` + extract helper).
+- TextMate grammar updated for every v4 surface construct.
+
+### Compatibility
+
+- `ironls` server: `>= 4.0.0, < 5.0.0`. Older servers (3.x) are
+  structurally refused at extension start (Phase 7 HARD-22 / D-10 gate).
+- VSCode: `^1.92.0` (unchanged).
+
+### Migration
+
+See the [v3 → v4 migration guide](https://github.com/iron-lang/iron-lang/blob/main/docs/site/migration-v3-to-v4.md)
+if your code stops compiling against the new `ironc`.
+
+### Full release notes
+
+The full v4.0.0-alpha.1 release notes are
+[in the iron-lang repo](https://github.com/iron-lang/iron-lang/blob/main/docs/release/v4.0.0-alpha.1.md).
+
+### Additional changes in this release
 
 - Bumped `ironLspCompatibleIronlsRange` to `">= 4.0.0, < 5.0.0"`; v3
-  ironls binaries now hard-refused by the Phase 7 D-10 gate.
+  `ironls` binaries now hard-refused by the Phase 7 D-10 gate.
 - Added snippet pack `snippets/iron.code-snippets` for Iron v4 idioms:
   `defer free <binding>` (Phase 21), `heap T(...)` constructor
   (Phase 21), `in arena { ... }` block (Phase 28). Triggers match
   Phase 34 LSP completion snippets for cross-surface consistency.
-- Compatible with the Iron v4 memory model: val/var discipline,
-  heap/rc/weak rc policies, `*T` / `*var T` / `*unchecked T` pointers,
-  `[T; <=N]` bounded vectors, drop/copy/nocopy resource types,
-  `defer` statement, arena allocation.
+- Compatible with the Iron v4 memory model: `val`/`var` discipline,
+  `heap`/`rc`/`weak rc` policies, `*T` / `*var T` / `*unchecked T`
+  pointers, `[T; <=N]` bounded vectors, `drop`/`copy`/`nocopy` resource
+  types, `defer` statement, arena allocation.
 - Extension version bumped to `4.0.0-alpha.1` for v4 LSP compatibility.
 
 ## 0.1.0 — initial release

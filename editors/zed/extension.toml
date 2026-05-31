@@ -1,6 +1,6 @@
 id = "iron-lsp"
 name = "Iron LSP"
-version = "0.4.0"
+version = "0.5.0"
 schema_version = 1
 authors = ["iron-lang"]
 description = "Language support for the Iron programming language"
