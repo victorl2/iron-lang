@@ -1,0 +1,8 @@
+func main() {
+  var factorial: func(Int) -> Int = func(n: Int) -> Int { return 0 }
+  factorial = func(n: Int) -> Int {
+    if n <= 1 { return 1 }
+    return n * factorial(n - 1)
+  }
+  println("{factorial(6)}")
+}

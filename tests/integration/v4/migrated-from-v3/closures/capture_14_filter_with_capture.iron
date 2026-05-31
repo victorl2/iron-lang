@@ -1,0 +1,16 @@
+func count_matching(items: [Int], predicate: func(Int) -> Bool) -> Int {
+  var count = 0
+  for item in items {
+    if predicate(item) {
+      count += 1
+    }
+  }
+  return count
+}
+
+func main() {
+  val threshold = 5
+  val nums = [1, 3, 5, 7, 9]
+  val big_count = count_matching(nums, func(n: Int) -> Bool { return n > threshold })
+  println("{big_count}")
+}

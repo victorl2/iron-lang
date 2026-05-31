@@ -53,6 +53,10 @@ elif [ "${CATEGORY}" = "v4-fail" ]; then
     TEST_DIR="${SCRIPT_DIR}/integration/v4-fail"
 elif [ "${CATEGORY}" = "v3-archive" ]; then
     TEST_DIR="${SCRIPT_DIR}/integration/v3-archive"
+elif [ "${CATEGORY}" = "v4-migrated" ]; then
+    # Phase 35 MIG-09: dedicated category for the hand-migrated v3 corpus.
+    # Uses the same recursive walk as the v4 category by aliasing CATEGORY.
+    TEST_DIR="${SCRIPT_DIR}/integration/v4/migrated-from-v3"
 fi
 
 if [ -z "${IRON_BIN_ARG}" ]; then
@@ -299,16 +303,17 @@ if [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/lib_consume" ]; then
 fi
 
 # v4 corpus uses §-section subdirs (e.g. v4/3.2-heap/happy.iron); walk recursively.
+# v4-migrated likewise (Phase 35 MIG-09: hand-migrated v3 corpus under v4/migrated-from-v3/<category>/).
 # Other categories use flat glob.
-if [ "${CATEGORY}" = "v4" ]; then
-    # Recursive walk; each §-section subdir contains .iron + .expected pairs.
+if [ "${CATEGORY}" = "v4" ] || [ "${CATEGORY}" = "v4-migrated" ]; then
+    # Recursive walk; each subdir contains .iron + .expected pairs.
     iron_files_v4=$(find "${TEST_DIR}" -type f -name '*.iron' | sort)
 else
     iron_files_v4=""
 fi
 
 _main_loop_files=""
-if [ "${CATEGORY}" = "v4" ]; then
+if [ "${CATEGORY}" = "v4" ] || [ "${CATEGORY}" = "v4-migrated" ]; then
     _main_loop_files="${iron_files_v4}"
 else
     # Build a newline-delimited list from the flat glob (nullglob already set).
@@ -322,7 +327,7 @@ for test_file in ${_main_loop_files}; do
     [ -f "${test_file}" ] || continue
     test_name=$(basename "${test_file}" .iron)
     # v4 fixtures live in §-section subdirs; derive expected_file from the sibling path.
-    if [ "${CATEGORY}" = "v4" ]; then
+    if [ "${CATEGORY}" = "v4" ] || [ "${CATEGORY}" = "v4-migrated" ]; then
         expected_file="$(dirname "${test_file}")/${test_name}.expected"
     else
         expected_file="${TEST_DIR}/${test_name}.expected"

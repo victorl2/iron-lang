@@ -13,3 +13,6 @@ if(NOT WIN32)
     )
     set_tests_properties(test_v4_acceptance PROPERTIES LABELS "v4-acceptance")
 endif()
+
+# Phase 35 MIG-09: migrated-from-v3/ subdir hosts the hand-migrated v3 corpus.
+add_subdirectory(migrated-from-v3)

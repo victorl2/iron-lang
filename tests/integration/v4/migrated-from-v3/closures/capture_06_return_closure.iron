@@ -1,0 +1,13 @@
+func make_counter() -> func() -> Int {
+  var n = 0
+  return func() -> Int {
+    n += 1
+    return n
+  }
+}
+
+func main() {
+  val counter = make_counter()
+  println("{counter()}")
+  println("{counter()}")
+}
