@@ -2128,9 +2128,19 @@ if(NOT WIN32)
     # here belong to other waves/plans (Wave 4 container element-destructors,
     # Wave 6 RawPtr) and still require their own landings.
     set(_PHASE_33_BUILDRUN_FIXTURES
-        list_drop_filehandle   # STDLIB-02 + STDLIB-09 (Wave 4 + 5)
-        list_copy_elements     # STDLIB-02 (Wave 4)
-        set_basic              # STDLIB-04 (Wave 2 + 4)
+        # list_copy_elements: the per-element Iron_<Elem>_copy _clone loop is
+        # emitted (Plan 33-04), BUT list value-assignment (`val dst = src`) does
+        # NOT call Iron_List_<T>_clone in this build — lists alias on `=` (shallow
+        # struct copy of the items pointer). Wiring copy-on-assignment for lists
+        # is a separate codegen feature (broad blast radius / double-free risk);
+        # tracked as a follow-up. Stays WILL_FAIL until that lands.
+        list_copy_elements     # STDLIB-02 (Wave 4; needs list copy-on-assign)
+        # set_basic: requires the Set method surface (Set.new/add/has/len) +
+        # by-name dispatch interception (OQ-02 generic-method dispatch, still
+        # unresolved) + runtime Set monomorphization wiring. The set.iron surface
+        # explicitly defers methods to a later landing (Plan 33-02 note). Stays
+        # WILL_FAIL until STDLIB-04 method surface + OQ-02 land.
+        set_basic              # STDLIB-04 (needs method surface + OQ-02)
         rawptr_cast            # STDLIB-10 (Wave 6)
     )
     foreach(_fix IN LISTS _PHASE_33_BUILDRUN_FIXTURES)
@@ -2154,6 +2164,16 @@ if(NOT WIN32)
         mutex_guard            # STDLIB-07 (Mutex[T] scoped guard)
         channel_bounded        # STDLIB-08 (Channel[T] bounded send/recv)
         filehandle_drop        # STDLIB-09 (FileHandle drop-closes-fd)
+        # Plan 33-04: element-destructor-aware List _free now runs each
+        # element's drop at scope exit. A List[FileHandle] dropped at scope
+        # exit closes each contained fd ("closed fd" per element). Genuinely
+        # builds+runs on a clang host — split out of the WILL_FAIL loop.
+        list_drop_filehandle   # STDLIB-02 + STDLIB-09 (Wave 4 element dtors)
+        # Plan 33-04 STDLIB-01 / Open Question 3: Iron_String is a trivially-
+        # copied value handle (SSO inline / heap interned + shutdown-freed), so
+        # the container fast path is correct and UTF-8 byte length is preserved
+        # across value copy AND List[String] store/retrieve. Byte-exact stdout.
+        string_utf8_roundtrip  # STDLIB-01 (String drop/copy preserving UTF-8)
     )
     foreach(_fix IN LISTS _PHASE_33_NOCOPY_BUILDRUN_FIXTURES)
         add_test(
