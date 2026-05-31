@@ -1,0 +1,26 @@
+# Iron v4 snippet pack (Phase 35-02 / EXT-15).
+#
+# Format: SnipMate-compatible .snippets file. Loadable by:
+#   * LuaSnip via require('luasnip.loaders.from_snipmate').lazy_load({
+#         paths = vim.fn.stdpath('config') .. '/snippets'
+#     })
+#   * vim-snipmate / UltiSnips with `:UltiSnipsAddFiletypes iron`
+#
+# Triggers mirror the Phase 34 LSP completion snippets and the sibling
+# VSCode + Zed snippet packs, so users see the same surface across all
+# three editors. ${N:default} placeholders follow standard snippet
+# syntax; $0 is the final cursor stop.
+
+snippet defer "Iron v4: schedule heap/rc free at scope exit (Phase 21)"
+defer free ${1:binding}$0
+endsnippet
+
+snippet heap "Iron v4: allocate on heap with generation tracking (Phase 21)"
+heap ${1:TypeName}(${2:args})$0
+endsnippet
+
+snippet arena "Iron v4: scoped arena allocation block (Phase 28)"
+in ${1:arena_name} {
+    $0
+}
+endsnippet
