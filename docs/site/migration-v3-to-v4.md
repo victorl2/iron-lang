@@ -249,20 +249,11 @@ xs.push(3)        -- E0202: bvec capacity exceeded
 
 ### §3.7 Resource types: `drop` / `copy` / `nocopy` (Phase 24)
 
-Object declarations opt into resource discipline:
+Object declarations opt into resource discipline. **`drop`** declares a destructor that runs at scope exit (LIFO with `defer`). **`copy`** declares deep-copy semantics — assignments duplicate the object. **`nocopy`** forbids implicit duplication — the object is move-only; aliasing is rejected by the analyzer.
 
-- **`drop`** declares a destructor that runs at scope exit (LIFO with `defer`).
-- **`copy`** declares deep-copy semantics — assignments duplicate the object.
-- **`nocopy`** forbids implicit duplication — the object is move-only; aliasing is rejected by the analyzer.
-
-**v3 (implicit deep-copy for some types, ad-hoc cleanup):**
+**v3 (ad-hoc cleanup):**
 
 ```iron
-object Logger {
-    let path: String
-    let fd: Int
-}
-
 func main() {
     let log = Logger.open("/tmp/log.txt")
     write(log, "hello")
@@ -277,9 +268,7 @@ nocopy object Logger {
     val path: String
     val fd: Int
 
-    drop {
-        close(self.fd)
-    }
+    drop { close(self.fd) }
 }
 
 func main() {
@@ -311,12 +300,8 @@ func main() {
 **Owned heap value via `Box[T]`:**
 
 ```iron
-func make_config() -> Box[Config] {
-    return Box.new(Config(width: 1920, height: 1080, title: "Iron App"))
-}
-
 func main() {
-    val boxed = make_config()
+    val boxed = Box.new(Config(width: 1920, height: 1080, title: "Iron App"))
     val cfg: *unchecked Config = boxed.unwrap()
     println("config: {cfg.width}x{cfg.height}")
 }
@@ -458,28 +443,7 @@ func main() {
 }
 ```
 
-**Ordering example** (two `defer` + two droppable locals):
-
-```iron
-object Resource {
-    val name: String
-    drop { println("drop{self.name}") }
-}
-
-func main() {
-    val local1 = Resource("1")
-    val local2 = Resource("2")
-    defer println("defer1")
-    defer println("defer2")
-    println("body")
-}
--- output:
--- body
--- defer2
--- defer1
--- drop2
--- drop1
-```
+**Ordering:** body executes, then all `defer` blocks LIFO, then local destructors in reverse declaration order. Two `defer` + two locals named `local1`, `local2` produces: `body`, `defer2`, `defer1`, `drop2`, `drop1`.
 
 `defer` pairs naturally with `heap` / `free` and resource types. The LSP-07 "Insert 'defer free \<binding\>'" quickfix is the canonical first use; see §3.4.
 
@@ -544,13 +508,293 @@ Decision tree for choosing the right policy. Start at the top, follow the first 
 - **`copy` vs `nocopy`** → `nocopy` for resource types (file handles, locks, sockets, mutex guards, network connections). `copy` for value types with deep-copy semantics. The default (neither) is move-only.
 - **Arena vs rc** → arena when the lifetime is structural (one bump-frame fits all allocations). `rc` when ownership is shared dynamically across the lifetime axis.
 
-**Composition rules (Phase 8 composition tests pin these):**
+**Composition rules.** Plain and `nocopy` objects compose with every policy (stack, `heap`, `rc`, `weak rc`, `Box[T]`, `arena`). The one analyzer-enforced exception: `rc` and `weak rc` are rejected as field types of an arena-allocated object (drop-ordering invariant).
 
-| Container               | Stack | `heap` | `rc` | `weak rc` | `Box[T]` | `arena` |
-| ----------------------- | :---: | :----: | :--: | :-------: | :------: | :-----: |
-| Plain object            |   Y   |   Y    |  Y   |    Y      |    Y     |    Y    |
-| `nocopy` object         |   Y   |   Y    |  Y   |    Y      |    Y     |    Y    |
-| `rc` field inside `rc`  |   —   |   —    |  Y   |    Y      |    —     |    N    |
-| `rc` field inside arena |   —   |   —    |  —   |    —      |    —     |    N    |
+## §5 Before / after gallery
 
-(N = rejected by analyzer; — = not meaningful.)
+Seven worked examples drawn from the Phase 35 hand-migration of the v3 acceptance corpus. Each shows a real v3 pattern, the v4 rewrite, and a one-line note on why the change is structural (not just cosmetic). Source fixtures live under `tests/integration/v4/` and `tests/integration/v4/migrated-from-v3/`.
+
+### §5.1 Shared ownership: implicit alias to explicit `rc`
+
+In v3, two bindings pointing at the same object silently shared ownership; the destructor ran twice or leaked depending on which type was involved. In v4, the pattern is forced into the open: shared ownership picks `rc`, and the refcount tells you what's happening.
+
+**v3:**
+
+```iron
+object Texture {
+    let path: String
+}
+
+func main() {
+    let sprite = Texture(path: "hero.png")
+    let also   = sprite
+    use(sprite)
+    use(also)
+}
+```
+
+**v4** (from `tests/integration/v4/3.3-rc/happy.iron`):
+
+```iron
+object Texture {
+    val path: String
+    drop { println("free: {path}") }
+}
+
+func main() {
+    val sprite = rc Texture(path: "hero.png")
+    val also = sprite
+    println("loaded: {sprite.path}")
+}
+```
+
+**Structural reason:** `rc` is the only way to get shared ownership in v4. The refcount semantics (incremented at clone, decremented at scope exit, drop runs once at zero) are what made the v3 "implicit share" sometimes-correct; v4 makes them explicit.
+
+### §5.2 Manual cleanup: `try/finally`-style to `defer`
+
+`defer` collapses "open / use / close" into one declaration that cannot be skipped by an early return.
+
+**v3:**
+
+```iron
+func process(x: Int) -> String {
+    let resource = acquire()
+    if x < 0 {
+        release(resource)
+        return "negative"
+    }
+    let result = work(resource, x)
+    release(resource)
+    return result
+}
+```
+
+**v4** (from `tests/integration/v4/migrated-from-v3/control-flow/early_return_defer.iron`):
+
+```iron
+func process(x: Int) -> String {
+    defer println("cleanup A")
+    if x < 0 { return "negative" }
+    defer println("cleanup B")
+    if x == 0 { return "zero" }
+    defer println("cleanup C")
+    return "positive"
+}
+```
+
+**Structural reason:** every early-return path is automatically wired through every `defer` declared before it (LIFO). The original code had two release sites; the v4 version has one.
+
+### §5.3 Bounded buffer: dynamic vector to `[T; <=N]`
+
+When the upper bound on a sequence is known statically, `[T; <=N]` puts the storage on the stack and lets the compiler typecheck overflow.
+
+**v3:**
+
+```iron
+func sample() {
+    var xs: [Int] = []
+    xs.push(10)
+    xs.push(20)
+    xs.push(30)
+    xs.push(40)
+    println("{xs.len()}")
+}
+```
+
+**v4** (from `tests/integration/v4/4.5-bounded-vector/happy.iron`):
+
+```iron
+func main() {
+    var bv: [Int; <=4]
+    bv.push(10); bv.push(20); bv.push(30)
+    println("{bv[0]}, {bv[1]}, {bv[2]}, len={bv.len()}")
+}
+```
+
+**Structural reason:** the v4 version never touches the heap. Push beyond `<=4` is a compile-time error when the count is statically known; otherwise it's a runtime panic with a clear diagnostic.
+
+### §5.4 Resource hand-off: implicit move to `nocopy + drop`
+
+v3 file handles, sockets, and locks all leaked unless the caller remembered to release them. v4 makes "the destructor closes the handle" a structural property of the type.
+
+**v3:**
+
+```iron
+object FileHandle {
+    let path: String
+    let fd: Int
+}
+
+func main() {
+    let fh = FileHandle.open("/tmp/data.txt")
+    work(fh)
+    close(fh.fd)
+}
+```
+
+**v4** (from `tests/integration/v4/7.5-stdlib/filehandle_drop.iron`):
+
+```iron
+func main() {
+    {
+        var fh = FileHandle.open("/tmp/iron_fh_drop.txt")
+        println("opened")
+        -- scope exit: FileHandle drop closes fd
+    }
+    println("done")
+}
+```
+
+**Structural reason:** `FileHandle` is `nocopy` (the analyzer rejects aliasing, so `val other = fh` is an error) and carries a `drop` block that closes the fd. The caller does not need to remember anything.
+
+### §5.5 Read-only method: advisory `readonly` to enforced `readonly`
+
+v3 `readonly` was a hint to the reader. v4 `readonly` is a type-level promise; mutating through any binding transitively reachable from `self` is rejected with `E0820 IRON_ERR_READONLY_MEMORY`.
+
+**v3 (silently accepted the mutation):**
+
+```iron
+object Buffer {
+    var data: [Int; <=64]
+
+    readonly func sample_and_grow() -> Int {
+        self.data.push(0)
+        return self.data.len()
+    }
+}
+```
+
+**v4** (from the Phase 34 quickfix LSP-10 fixture pattern):
+
+```iron
+object Buffer {
+    var data: [Int; <=64]
+
+    readonly func sample(self: *Buffer) -> Int {
+        return self.data.len()
+    }
+
+    func sample_and_grow(self: *var Buffer) -> Int {
+        self.data.push(0)
+        return self.data.len()
+    }
+}
+```
+
+**Structural reason:** v4 splits the method in two. The read-only one really is read-only (and can be called from any `readonly` or `pure` context); the mutating one carries `*var Buffer` so the type system knows. The LSP-10 quickfix surfaces the rename / split as a two-action code-action.
+
+### §5.6 Cycle breaker: `rc` cycle to `rc` + `weak rc`
+
+v3 had no escape from refcount cycles; v4 introduces `weak rc` specifically for the back-reference case (parent ↔ child trees, observer back-pointers, doubly-linked structures).
+
+**v3 (leaks at scope exit):**
+
+```iron
+object Node {
+    let id: Int
+    let back: Node       -- v3: implicit alias; cycle leaks
+}
+```
+
+**v4** (from `tests/integration/v4/3.4-weak-rc/boundary_cycle_break.iron`):
+
+```iron
+object NodeB {
+    val id: Int
+    drop { println("drop: B-{id}") }
+}
+
+object NodeA {
+    val id: Int
+    val b_link: rc NodeB
+    var back: weak rc NodeA
+
+    drop { println("drop: A-{id}") }
+}
+
+func main() {
+    val node_a = rc NodeA(id: 1, b_link: rc NodeB(id: 2), back: weak rc null)
+    node_a.back = node_a.demote()
+    println("cycle set up")
+}
+```
+
+**Structural reason:** `weak rc NodeA` does not bump the strong refcount, so the cycle does not pin the payload. At scope exit, `node_a`'s refcount drops to zero, `NodeA.drop` runs, the `rc NodeB` is released, `NodeB.drop` runs.
+
+### §5.7 Batch processing: ad-hoc allocations to `arena { ... }`
+
+Per-frame, per-request, or per-batch allocations consolidate into a single bump-allocator that releases everything at once.
+
+**v3:**
+
+```iron
+func render_frame() {
+    let cmd1 = DrawCmd(id: 1)
+    let cmd2 = DrawCmd(id: 2)
+    let cmd3 = DrawCmd(id: 3)
+    -- ... 100 more draw cmds, all on the heap, all freed individually
+}
+```
+
+**v4** (from `tests/integration/v4/3.7-arena/happy.iron`):
+
+```iron
+object DrawCmd {
+    val id: Int
+    drop { println("drop cmd: {id}") }
+}
+
+func main() {
+    val frame_arena = Arena.with_capacity(65536)
+    val cmd1 = heap(in: frame_arena) DrawCmd(id: 1)
+    val cmd2 = heap(in: frame_arena) DrawCmd(id: 2)
+    val cmd3 = heap(in: frame_arena) DrawCmd(id: 3)
+    println("cmds: {cmd1.id}, {cmd2.id}, {cmd3.id}")
+}
+```
+
+**Structural reason:** N allocations cost one `Arena.with_capacity` call plus N pointer-bumps; release is one bulk operation when `frame_arena` leaves scope. The per-allocation drop blocks still run, but the underlying memory is released en-masse. Forbidden inside the arena: `rc` and `weak rc` (drop-ordering invariant).
+
+## §6 Common errors and quickfixes
+
+The Phase 34 LSP adaptation ships 5 quickfixes for the most common v3 → v4 mechanical failures. Each is keyed off a v4 diagnostic; the table below pairs the diagnostic with the quickfix that resolves it.
+
+| Diagnostic code | Symbol                                | Cause                                                  | LSP quickfix                                                                                   |
+| --------------- | ------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| 176             | `IRON_ERR_MISSING_VAL_VAR`            | Binding declared without `val` / `var` tier            | **LSP-06**: Add `val`                                                                          |
+| 296             | `IRON_ERR_PTR_AMP_ON_RC`              | `&x` taken on an `rc` binding (cycle risk)             | **LSP-09**: Use `weak rc`                                                                      |
+| 606             | `IRON_WARN_FORGOTTEN_FREE`            | `heap` binding has no matching `free` in scope         | **LSP-07**: Insert `defer free <binding>`                                                      |
+| 613             | `IRON_WARN_UNUSED_VAR`                | Parameter declared `var` but body never mutates        | **LSP-08**: Drop `var` modifier                                                                |
+| 820             | `IRON_ERR_READONLY_MEMORY`            | `readonly` method tries to mutate                      | **LSP-10**: Remove `readonly` (action 1) + Extract mutating block into helper (action 2, alpha-placeholder) |
+
+The new 800-range error namespace is sub-allocated as:
+
+- `800-809` — lifecycle (drop / free violations)
+- `810-819` — pointer regime (mutability mismatch, generation-guard failures)
+- `820-829` — readonly / purity (`820 IRON_ERR_READONLY_MEMORY` is the only stable symbol shipped in alpha; additional codes allocate as compiler emit sites surface)
+- `830-839` — drop / copy / nocopy (resource discipline)
+- `840-899` — reserved for follow-up phases
+
+Full reference: [`docs/dev/LSP-MEMORY-MODEL.md`](../dev/LSP-MEMORY-MODEL.md). All five quickfixes are consumer-only: zero compiler-side emit-site changes in Phase 34 by design — the LSP synthesizes the diagnostic from already-resolved AST + symbol-table information.
+
+## §7 What's not yet stable
+
+v4.0.0-alpha.1 is an alpha. Expect:
+
+- **Minor surface refinements** before beta. Pin your editor extension to `>= 4.0.0, < 5.0.0` (the default range in all three editor extensions) but be prepared to update on alpha → beta.
+- **Additional 800-range error codes** as compiler emit sites surface. The 5 quickfixes above cover the highest-volume v3 → v4 mechanical failures; some long-tail violations will surface as plain diagnostics without a quickfix in alpha.
+- **LSP-10 second action is a placeholder.** "Extract mutating block into helper" surfaces as a code-action title but the actual refactor is a no-op in alpha. Manual extraction is the workaround.
+- **No automatic codemod.** Roadmap decision: `ironc migrate --from v3 --to v4` is **not** planned for the v4.0 line. Hand-migration with this guide plus the LSP quickfixes is the supported path. If the alpha period surfaces a clear case for a codemod, it would land in v4.1+.
+- **Pre-existing residuals carried forward.** A small number of failing tests from earlier phases (TSan link, certain WILL_FAIL inversions, a couple of missing fixture `.expected` files) are documented in `docs/dev/PHASE-35-CLOSEOUT.md` and do not affect end-user code. They are tracked for v4.0.0-beta.
+
+## §8 Where to ask for help
+
+- **Compiler bug or LSP regression:** open an issue at [https://github.com/iron-lang/iron-lang/issues](https://github.com/iron-lang/iron-lang/issues). Tag with `v4-alpha` and include the minimal `.iron` reproducer.
+- **Migration question** (e.g., "what policy fits this pattern?"): open a discussion thread in the repo. Include the v3 code that's failing.
+- **LSP-vs-ironc divergence:** this is a Core Value regression. File the issue with both the LSP diagnostic and the `ironc check` output attached — the `parity` CI gate should have caught it; if it didn't, that's a gate bug too.
+
+The maintainer is the project author; response time is best-effort during the alpha period.
+
+---
+
+*Companion: [v4.0.0-alpha.1 release notes](../release/v4.0.0-alpha.1.md), [LSP memory-model reference](../dev/LSP-MEMORY-MODEL.md), [stdlib container reference](../dev/STDLIB-CONTAINERS.md).*
