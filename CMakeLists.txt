@@ -29,6 +29,13 @@ option(IRON_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSani
 option(IRON_ENABLE_FUZZING "Build libFuzzer fuzz targets (requires clang)" OFF)
 option(IRON_ENABLE_COVERAGE "Build with llvm-cov instrumentation (requires clang)" OFF)
 
+# Phase 35 MIG-08: archived v3 integration corpus opt-in. Default OFF so the
+# v3 fixtures (now under tests/integration/v3-archive/) do NOT run on default
+# ctest invocations. Set ON for archeological diffs against v3-era compiler
+# behavior; v3 fixtures are NOT expected to pass under the v4 compiler. The
+# gated add_subdirectory(v3-archive) lives in tests/integration/CMakeLists.txt.
+option(IRON_RUN_ARCHIVED_V3_CORPUS "Run archived v3 integration corpus (opt-in; off by default)" OFF)
+
 # Phase 7 Plan 07-03 (HARD-17, D-05) -- IRON_SANITIZER selector.
 # When IRON_ENABLE_SANITIZERS=ON, this selects which sanitizer flavour to use:
 #   address  -- AddressSanitizer + UndefinedBehaviorSanitizer (existing default)

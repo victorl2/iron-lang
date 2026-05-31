@@ -45,10 +45,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_DIR="${SCRIPT_DIR}/${CATEGORY}"
 
 # v4-acceptance corpus lives under tests/integration/v4* not tests/v4*; reroute.
+# Phase 35 MIG-08: v3-archive (opt-in via IRON_RUN_ARCHIVED_V3_CORPUS) lives at
+# tests/integration/v3-archive/; reroute the same way.
 if [ "${CATEGORY}" = "v4" ]; then
     TEST_DIR="${SCRIPT_DIR}/integration/v4"
 elif [ "${CATEGORY}" = "v4-fail" ]; then
     TEST_DIR="${SCRIPT_DIR}/integration/v4-fail"
+elif [ "${CATEGORY}" = "v3-archive" ]; then
+    TEST_DIR="${SCRIPT_DIR}/integration/v3-archive"
 fi
 
 if [ -z "${IRON_BIN_ARG}" ]; then
