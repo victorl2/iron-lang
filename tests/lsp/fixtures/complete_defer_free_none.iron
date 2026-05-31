@@ -1,0 +1,9 @@
+// Phase 34 LSP-04: NO `defer free <binding>` snippet offered when no recent
+// heap/rc binding exists. Cursor is on a statement-head with only a plain
+// stack-local binding in scope; snippet must NOT appear.
+func main() {
+    val count = 42
+    // COMPLETE@6:5
+    // EXPECT_NO_SNIPPET: defer free
+
+}

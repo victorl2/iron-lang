@@ -1,0 +1,13 @@
+// Phase 34 LSP-03: `in` visible only after a `for` token. Hidden in plain
+// statement-head positions.
+func main() {
+    // COMPLETE@4:13
+    // EXPECT_VISIBLE: in
+    for i in 0..10 {
+        val n = i
+    }
+
+    // COMPLETE@10:5
+    // EXPECT_HIDDEN: in
+    val n = 1
+}

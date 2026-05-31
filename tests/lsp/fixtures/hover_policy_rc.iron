@@ -1,0 +1,7 @@
+// Phase 34 LSP-01: hover renders policy=rc for an rc-allocated binding.
+//
+// HOVER@4:9
+object Point { val x: Int val y: Int }
+func main() {
+    val shared = rc Point(1, 2)
+}

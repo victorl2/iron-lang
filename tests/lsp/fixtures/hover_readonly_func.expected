@@ -1,0 +1,5 @@
+```iron
+readonly func describe(b: Buffer) -> Int
+```
+
+readonly: yes

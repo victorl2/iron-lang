@@ -1,0 +1,6 @@
+// Phase 34 LSP-02: hover renders regime=unchecked for an *unchecked T binding.
+//
+// HOVER@4:9
+func main() {
+    val raw: *unchecked Int = RawPtr.of(0)
+}

@@ -1,0 +1,8 @@
+// Phase 34 LSP-02: hover on a binding whose object type is `nocopy` renders
+// the nocopy: yes annotation field. The type itself is FileHandle (Phase 33
+// nocopy resource surface — see docs/dev/STDLIB-CONTAINERS.md).
+//
+// HOVER@5:9
+func main() {
+    val handle = FileHandle.open("data.txt")
+}

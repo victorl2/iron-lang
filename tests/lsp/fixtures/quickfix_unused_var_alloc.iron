@@ -1,0 +1,8 @@
+// Phase 34 LSP-08: `var` binding whose mutable slot is never reassigned
+// triggers IRON_WARN_UNUSED_VAR=613 when the initializer allocates.
+// Quickfix replaces `var` with `val`.
+object Buffer { val size: Int }
+func main() {
+    var buf = heap Buffer(1024)
+    defer free buf
+}

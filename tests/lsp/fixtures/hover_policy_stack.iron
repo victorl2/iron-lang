@@ -1,0 +1,8 @@
+// Phase 34 LSP-01: hover on a plain (default-stack) binding renders NO
+// annotation block — all fields are at their defaults (policy=stack,
+// regime=checked, readonly=no, nocopy=no).
+//
+// HOVER@5:9
+func main() {
+    val count: Int = 42
+}

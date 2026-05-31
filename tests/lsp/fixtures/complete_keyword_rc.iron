@@ -1,0 +1,12 @@
+// Phase 34 LSP-03: `rc` visible in type-expression position + RHS of
+// val/var initializers. Hidden in pure-expression-statement positions.
+object Point { val x: Int val y: Int }
+func main() {
+    // COMPLETE@5:17
+    // EXPECT_VISIBLE: rc
+    val p = rc Point(1, 2)
+
+    // COMPLETE@8:5
+    // EXPECT_HIDDEN: rc
+    val y = 7
+}

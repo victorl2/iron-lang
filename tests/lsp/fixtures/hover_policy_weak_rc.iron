@@ -1,0 +1,8 @@
+// Phase 34 LSP-01: hover renders policy="weak rc" for a weak rc binding.
+//
+// HOVER@5:9
+object Point { val x: Int val y: Int }
+func main() {
+    val strong = rc Point(1, 2)
+    val weak_ref = strong.downgrade()
+}

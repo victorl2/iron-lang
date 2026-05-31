@@ -1,0 +1,10 @@
+// Phase 34 LSP-10: readonly fn touches heap/rc/weak-rc allocation.
+// Triggers the new IRON_ERR_READONLY_MEMORY=820 diagnostic. Two
+// alternative quickfixes: remove the `readonly` modifier OR extract
+// the mutating block into a separate non-readonly helper.
+object Buffer { var size: Int }
+readonly func grow(b: Buffer) -> Int {
+    val extra = heap Buffer(64)
+    defer free extra
+    return b.size + extra.size
+}

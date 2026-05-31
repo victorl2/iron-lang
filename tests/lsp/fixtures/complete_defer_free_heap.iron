@@ -1,0 +1,10 @@
+// Phase 34 LSP-04: `defer free <binding>` snippet offered after a recent
+// `heap` binding. Cursor sits on the next statement-head line, expecting
+// the snippet "defer free buffer" with the binding pre-filled.
+object Buffer { val size: Int }
+func main() {
+    val buffer = heap Buffer(1024)
+    // COMPLETE@7:5
+    // EXPECT_SNIPPET: defer free ${1:buffer}
+
+}

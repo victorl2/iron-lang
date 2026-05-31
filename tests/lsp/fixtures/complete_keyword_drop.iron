@@ -1,0 +1,13 @@
+// Phase 34 LSP-03: `drop` visible in object-body decl-head position;
+// hidden in function-body statement positions.
+object FileHandle {
+    val fd: Int
+    // COMPLETE@5:5
+    // EXPECT_VISIBLE: drop
+    drop {}
+}
+func main() {
+    // COMPLETE@10:5
+    // EXPECT_HIDDEN: drop
+    val x = 1
+}
