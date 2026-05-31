@@ -633,6 +633,14 @@ if(IRON_BUILD_LSP)
         # + idempotency (D-34 stdlib carve-out, DEF-12-11 cross-file
         # deferral). Cross-file callees → Action A only.
         src/lsp/facade/edit/codeaction/quickfix_readonly_calls_mutating.c
+        # Phase 34 Plan 34-04 (LSP-06..09): 4 new memory-model quickfix
+        # handlers. Each is a single-action consumer-only handler routed
+        # through ilsp_facade_compile_for_nav (CORE-22). Codes 176, 296,
+        # 606, 613 — registered ASC-sorted in registry.c.
+        src/lsp/facade/edit/codeaction/quickfix_missing_val_var.c
+        src/lsp/facade/edit/codeaction/quickfix_forgotten_free.c
+        src/lsp/facade/edit/codeaction/quickfix_unused_var_alloc.c
+        src/lsp/facade/edit/codeaction/quickfix_amp_rc.c
         # Plan 04-04 Task 02: code-action orchestrator + codeAction/resolve
         # facade (lazy edit compute, version-gated per D-07).
         src/lsp/facade/edit/codeaction/codeaction.c

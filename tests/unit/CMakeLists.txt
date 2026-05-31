@@ -662,6 +662,13 @@ if(IRON_BUILD_LSP)
         # Phase 12 Plan 12-03 (QF-05): 1-or-2 action handler for code 239.
         # Calls ilsp_nav_path_is_stdlib (already linked via nav_common.c).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_calls_mutating.c
+        # Phase 34 Plan 34-04 (LSP-06..09): 4 new single-action memory-model
+        # quickfix handlers. test_table_sorted_asc_by_code references the
+        # symbols so each TU must be compiled into this test binary.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_val_var.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_forgotten_free.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_unused_var_alloc.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_amp_rc.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c
