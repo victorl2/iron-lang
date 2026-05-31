@@ -1,8 +1,13 @@
-// Phase 34 LSP-02: hover on a binding whose object type is `nocopy` renders
-// the nocopy: yes annotation field. The type itself is FileHandle (Phase 33
-// nocopy resource surface — see docs/dev/STDLIB-CONTAINERS.md).
-//
-// HOVER@5:9
+-- Phase 34 LSP-02: hover on a binding whose object type is `nocopy`
+-- renders the nocopy: yes annotation field. The fixture defines its
+-- own nocopy object inline so the test does not depend on the stdlib
+-- FileHandle import path (auto-import depends on workspace_index
+-- initialization which the test harness skips for speed).
+--
+-- HOVER@12:9
+nocopy object FileHandle {
+    val fd: Int
+}
 func main() {
-    val handle = FileHandle.open("data.txt")
+    val handle = FileHandle(0)
 }

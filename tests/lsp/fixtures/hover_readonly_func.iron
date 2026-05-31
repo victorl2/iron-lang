@@ -1,9 +1,17 @@
-// Phase 34 LSP-02: hover renders readonly: yes on a readonly func signature.
-// The signature line already includes "readonly func" via hover.c:138-139;
-// the annotation block reinforces it as a discoverable field.
-//
-// HOVER@6:14
-object Buffer { val size: Int }
-readonly func describe(b: Buffer) -> Int {
-    return b.size
+-- Phase 34 LSP-02: hover renders readonly: yes on a readonly method
+-- signature. v3 Phase 87 (IFACE-01) restricts the readonly modifier to
+-- methods inside object/patch/interface bodies; top-level free funcs
+-- reject it via IRON_ERR_TIER_MODIFIER_PLACEMENT. The hover annotation
+-- fires on the resolved method decl regardless of where the body
+-- lives, so the in-block form is the canonical fixture.
+--
+-- HOVER@14:19
+object Buffer {
+    val size: Int
+}
+object Reader {
+    val buf: Buffer
+    readonly func describe() -> Int {
+        return self.buf.size
+    }
 }

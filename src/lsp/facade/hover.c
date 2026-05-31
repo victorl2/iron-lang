@@ -16,6 +16,8 @@
 #include "lsp/facade/compile.h"
 #include "lsp/facade/span.h"
 #include "lsp/store/document.h"
+#include "lsp/store/line_index.h"
+#include "lsp/store/utf.h"
 #include "lsp/server/server.h"
 #include "analyzer/analyzer.h"
 #include "analyzer/scope.h"
@@ -27,6 +29,7 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -304,22 +307,28 @@ static const char *signature_enum(Iron_EnumDecl *ed, Iron_Arena *arena) {
     return sb.buf ? sb.buf : "";
 }
 
-/* Phase 34 LSP-01 (Plan 34-02): fall back to the resolved/declared type when
- * the source has no explicit type annotation (e.g. `val buffer = heap T(...)`).
- * Without this, signature_val/var rendered "Void" for every inferred binding,
- * losing the policy prefix on the signature line ("val buffer: Buffer" became
- * "val buffer: Void"). Read order:
- *   1. AST type_ann -- richest source when present (preserves source spelling)
- *   2. vd->declared_type cached by typecheck
- *   3. sym->type from the resolved Iron_Symbol
- *   4. final fallback: literal "Void" (matches pre-Phase-34 behavior). */
+/* Phase 34 LSP-01 (Plan 34-02): render the binding's effective type.
+ *
+ * Read priority is `declared_type` first, then `sym->type`, then the
+ * source-level type_ann as last resort. The flip-from-source-first is
+ * deliberate: render_type_ann only knows the AST shapes ("Path style":
+ * name + ? + array brackets) per its inline doc, which means it
+ * silently truncates `*unchecked Int` to `*` and `rc Point` to `Point`.
+ * iron_type_to_string in analyzer/types.c handles every Iron_TypeKind
+ * including pointers, rc, weak rc, arrays, tuples, generic enum
+ * mangling, and is what `ironc` already uses for diagnostic
+ * formatting -- so HARD-24 parity intent is preserved.
+ *
+ * Falls back to render_type_ann only when the analyzer never populated
+ * a resolved type (e.g. on a fixture that parses cleanly but fails type
+ * checking before reaching the binding); final fallback is "Void". */
 static const char *render_decl_type(Iron_Node *type_ann,
                                        struct Iron_Type *declared_type,
                                        const Iron_Symbol *sym,
                                        Iron_Arena *arena) {
-    if (type_ann) return render_type_ann(type_ann, arena);
     if (declared_type) return iron_type_to_string(declared_type, arena);
     if (sym && sym->type) return iron_type_to_string(sym->type, arena);
+    if (type_ann) return render_type_ann(type_ann, arena);
     return "Void";
 }
 
@@ -362,6 +371,25 @@ static const char *signature_var(Iron_VarDecl *vd,
  * Rendering a hover with no non-default fields produces NO annotation
  * block at all (verified by hover_policy_stack fixture). */
 
+/* Resolve the effective Iron_Type for a binding/decl. Reads in priority
+ * order: resolved Iron_Symbol, val/var declared_type cache (set by the
+ * type checker on every binding regardless of source annotation),
+ * NULL. Used by all four derive_* helpers so they work whether the
+ * cursor landed on an IDENT (sym non-NULL) or directly on a VAL_DECL /
+ * VAR_DECL (sym NULL after hover_descend_into_func_body). */
+static const Iron_Type *effective_type(const Iron_Node *decl,
+                                          const Iron_Symbol *sym) {
+    if (sym && sym->type) return sym->type;
+    if (!decl) return NULL;
+    if (decl->kind == IRON_NODE_VAL_DECL) {
+        return ((const Iron_ValDecl *)decl)->declared_type;
+    }
+    if (decl->kind == IRON_NODE_VAR_DECL) {
+        return ((const Iron_VarDecl *)decl)->declared_type;
+    }
+    return NULL;
+}
+
 /* Derive lifecycle policy from val/var init shape + type kind.
  * Returns "heap" | "rc" | "weak rc" | NULL (= stack, default, omit). */
 static const char *derive_policy(const Iron_Node *decl,
@@ -384,19 +412,21 @@ static const char *derive_policy(const Iron_Node *decl,
     /* Step 2: fall back to the resolved type kind. Catches bindings whose
      * initializer hides the policy behind a method call (`.downgrade()`
      * yields IRON_TYPE_WEAK_RC; rc-typed parameters; etc.). */
-    if (sym && sym->type) {
-        if (sym->type->kind == IRON_TYPE_RC)      return "rc";
-        if (sym->type->kind == IRON_TYPE_WEAK_RC) return "weak rc";
+    const Iron_Type *t = effective_type(decl, sym);
+    if (t) {
+        if (t->kind == IRON_TYPE_RC)      return "rc";
+        if (t->kind == IRON_TYPE_WEAK_RC) return "weak rc";
     }
     return NULL;  /* default = stack; omit. */
 }
 
 /* Derive safety regime from Iron_Type.ptr.is_unchecked.
  * Returns "unchecked" | NULL (= checked, default, omit). */
-static const char *derive_regime(const Iron_Symbol *sym) {
-    if (!sym || !sym->type) return NULL;
-    if (sym->type->kind != IRON_TYPE_PTR) return NULL;
-    return sym->type->ptr.is_unchecked ? "unchecked" : NULL;
+static const char *derive_regime(const Iron_Node *decl,
+                                    const Iron_Symbol *sym) {
+    const Iron_Type *t = effective_type(decl, sym);
+    if (!t || t->kind != IRON_TYPE_PTR) return NULL;
+    return t->ptr.is_unchecked ? "unchecked" : NULL;
 }
 
 /* Derive the readonly flag.
@@ -415,19 +445,17 @@ static bool derive_readonly(const Iron_Node *decl, const Iron_Symbol *sym) {
             return ((const Iron_MethodDecl *)decl)->is_readonly;
         }
     }
-    if (sym && sym->type && sym->type->is_readonly_compatible) {
-        return true;
-    }
+    const Iron_Type *t = effective_type(decl, sym);
+    if (t && t->is_readonly_compatible) return true;
     return false;
 }
 
 /* Derive the nocopy flag via two-step deref (RESEARCH Pitfall 10):
- *   sym->type (IRON_TYPE_OBJECT) -> object.decl (Iron_ObjectDecl) -> is_nocopy.
- * Returns true (= render `nocopy: yes`) or false (= default, omit). */
-static bool derive_nocopy(const Iron_Symbol *sym) {
-    if (!sym || !sym->type) return false;
-    if (sym->type->kind != IRON_TYPE_OBJECT) return false;
-    const Iron_ObjectDecl *od = (const Iron_ObjectDecl *)sym->type->object.decl;
+ *   type (IRON_TYPE_OBJECT) -> object.decl (Iron_ObjectDecl) -> is_nocopy. */
+static bool derive_nocopy(const Iron_Node *decl, const Iron_Symbol *sym) {
+    const Iron_Type *t = effective_type(decl, sym);
+    if (!t || t->kind != IRON_TYPE_OBJECT) return false;
+    const Iron_ObjectDecl *od = (const Iron_ObjectDecl *)t->object.decl;
     if (!od) return false;
     return od->is_nocopy;
 }
@@ -492,6 +520,210 @@ static const char *find_field_owner(const Iron_Program *program,
         }
     }
     return NULL;
+}
+
+/* ── Hover-only body walker (Phase 34 LSP-01) ─────────────────────────
+ *
+ * The shared ilsp_nav_node_at (src/lsp/facade/nav/node_at.c) returns the
+ * top-level decl whose span covers the cursor and explicitly STOPS at
+ * function/method bodies (see node_at.c:130-133 comment). That's the
+ * right default for definition/references/declaration but it leaves
+ * cursor-on-binding-inside-body queries unresolved -- hover on
+ * `val buffer = heap T(...)` inside a func body always returned the
+ * enclosing FUNC_DECL pre-Phase-34, so the policy annotation never had
+ * a binding to attach to.
+ *
+ * descend_into_body walks the function/method body block looking for
+ * the smallest-covering VAL_DECL / VAR_DECL / PARAM / IDENT whose span
+ * (or, for decls, whose name span -- approximated by the decl span)
+ * covers (line, col). Walks parallel statement structures (if/while/
+ * for/match/spawn/defer/block) recursively so nested bindings resolve.
+ *
+ * Scoped narrowly to hover.c so other nav endpoints retain their
+ * existing decl-level behavior. Idempotent in the sense that if no
+ * narrower node covers, returns NULL and the caller keeps the
+ * original FUNC_DECL fallback. */
+
+static bool hover_span_covers(const Iron_Span *sp, uint32_t line, uint32_t col) {
+    if (!sp) return false;
+    if (line < sp->line || line > sp->end_line) return false;
+    if (line == sp->line && col < sp->col) return false;
+    if (line == sp->end_line && col > sp->end_col) return false;
+    return true;
+}
+
+/* Forward decl: mutually recursive with walk_stmt_for_hover. */
+static Iron_Node *walk_node_for_hover(Iron_Node *n, uint32_t line, uint32_t col);
+
+static Iron_Node *walk_block_for_hover(Iron_Node *blk_node,
+                                         uint32_t line, uint32_t col) {
+    if (!blk_node || blk_node->kind != IRON_NODE_BLOCK) return NULL;
+    Iron_Block *b = (Iron_Block *)blk_node;
+    for (int i = 0; i < b->stmt_count; i++) {
+        Iron_Node *r = walk_node_for_hover(b->stmts[i], line, col);
+        if (r) return r;
+    }
+    return NULL;
+}
+
+static Iron_Node *walk_node_for_hover(Iron_Node *n, uint32_t line, uint32_t col) {
+    if (!n) return NULL;
+    if (n->kind == IRON_NODE_ERROR) return NULL;
+    if (!hover_span_covers(&n->span, line, col)) return NULL;
+
+    /* Bindings + identifiers: return the smallest covering instance. The
+     * caller resolves the ident -> Iron_Symbol -> decl_node chain so
+     * returning a bare IDENT is fine here. */
+    switch ((int)n->kind) {
+        case IRON_NODE_VAL_DECL:
+        case IRON_NODE_VAR_DECL:
+        case IRON_NODE_PARAM:
+        case IRON_NODE_IDENT:
+            /* Recurse into init to catch identifier-on-RHS hover.
+             * Inits are often binops/calls -- those types aren't in our
+             * walk vocabulary, so the recursion is bounded and falls
+             * back to the binding itself when nothing narrower covers. */
+            if (n->kind == IRON_NODE_VAL_DECL) {
+                Iron_ValDecl *v = (Iron_ValDecl *)n;
+                Iron_Node *r = walk_node_for_hover(v->init, line, col);
+                if (r) return r;
+            } else if (n->kind == IRON_NODE_VAR_DECL) {
+                Iron_VarDecl *v = (Iron_VarDecl *)n;
+                Iron_Node *r = walk_node_for_hover(v->init, line, col);
+                if (r) return r;
+            }
+            return n;
+
+        /* Composite statements: recurse into children. */
+        case IRON_NODE_BLOCK:
+            return walk_block_for_hover(n, line, col);
+        case IRON_NODE_IF: {
+            Iron_IfStmt *s = (Iron_IfStmt *)n;
+            Iron_Node *r = walk_node_for_hover(s->condition, line, col);
+            if (r) return r;
+            r = walk_node_for_hover(s->body, line, col);
+            if (r) return r;
+            for (int i = 0; i < s->elif_count; i++) {
+                r = walk_node_for_hover(s->elif_conds[i], line, col);
+                if (r) return r;
+                r = walk_node_for_hover(s->elif_bodies[i], line, col);
+                if (r) return r;
+            }
+            r = walk_node_for_hover(s->else_body, line, col);
+            return r;
+        }
+        case IRON_NODE_WHILE: {
+            Iron_WhileStmt *s = (Iron_WhileStmt *)n;
+            Iron_Node *r = walk_node_for_hover(s->condition, line, col);
+            if (r) return r;
+            return walk_node_for_hover(s->body, line, col);
+        }
+        case IRON_NODE_FOR: {
+            Iron_ForStmt *s = (Iron_ForStmt *)n;
+            Iron_Node *r = walk_node_for_hover(s->iterable, line, col);
+            if (r) return r;
+            return walk_node_for_hover(s->body, line, col);
+        }
+        case IRON_NODE_MATCH: {
+            Iron_MatchStmt *s = (Iron_MatchStmt *)n;
+            Iron_Node *r = walk_node_for_hover(s->subject, line, col);
+            if (r) return r;
+            for (int i = 0; i < s->case_count; i++) {
+                r = walk_node_for_hover(s->cases[i], line, col);
+                if (r) return r;
+            }
+            return walk_node_for_hover(s->else_body, line, col);
+        }
+        case IRON_NODE_MATCH_CASE: {
+            Iron_MatchCase *mc = (Iron_MatchCase *)n;
+            return walk_node_for_hover(mc->body, line, col);
+        }
+        case IRON_NODE_DEFER: {
+            Iron_DeferStmt *s = (Iron_DeferStmt *)n;
+            return walk_node_for_hover(s->expr, line, col);
+        }
+        case IRON_NODE_FREE: {
+            Iron_FreeStmt *s = (Iron_FreeStmt *)n;
+            return walk_node_for_hover(s->expr, line, col);
+        }
+        case IRON_NODE_LEAK: {
+            Iron_LeakStmt *s = (Iron_LeakStmt *)n;
+            return walk_node_for_hover(s->expr, line, col);
+        }
+        case IRON_NODE_SPAWN: {
+            Iron_SpawnStmt *s = (Iron_SpawnStmt *)n;
+            Iron_Node *r = walk_node_for_hover(s->pool_expr, line, col);
+            if (r) return r;
+            return walk_node_for_hover(s->body, line, col);
+        }
+        case IRON_NODE_ASSIGN: {
+            Iron_AssignStmt *s = (Iron_AssignStmt *)n;
+            Iron_Node *r = walk_node_for_hover(s->target, line, col);
+            if (r) return r;
+            return walk_node_for_hover(s->value, line, col);
+        }
+        case IRON_NODE_RETURN: {
+            Iron_ReturnStmt *s = (Iron_ReturnStmt *)n;
+            return walk_node_for_hover(s->value, line, col);
+        }
+
+        default:
+            /* Expressions (binop/call/etc): we do not walk every shape.
+             * The covering check above already passed; return the node
+             * itself so callers can still resolve the type. The bare
+             * decl-level fallback below handles the common case. */
+            return n;
+    }
+}
+
+/* Public-to-hover.c entry: given the FUNC_DECL or METHOD_DECL returned
+ * by ilsp_nav_node_at, descend into the body looking for the smallest
+ * binding-shape node that covers (line, col). Returns NULL on no match
+ * so the caller falls back to the original FUNC_DECL. */
+static Iron_Node *hover_descend_into_func_body(Iron_Node *decl,
+                                                 uint32_t line, uint32_t col) {
+    if (!decl) return NULL;
+    Iron_Node *body = NULL;
+    if (decl->kind == IRON_NODE_FUNC_DECL) {
+        body = ((Iron_FuncDecl *)decl)->body;
+    } else if (decl->kind == IRON_NODE_METHOD_DECL) {
+        body = ((Iron_MethodDecl *)decl)->body;
+    } else {
+        return NULL;
+    }
+    if (!body) return NULL;
+    return walk_block_for_hover(body, line, col);
+}
+
+/* Convert IronLsp_Position -> 1-based (line, col) the way Iron_Span uses.
+ * Mirrors position_to_iron_line_col in node_at.c; we re-derive here so
+ * the hover-only walker is not coupled to node_at's internal helpers. */
+static bool hover_pos_to_line_col(struct IronLsp_Document *doc,
+                                     IronLsp_Position pos,
+                                     IronLsp_PositionEncoding enc,
+                                     uint32_t *out_line, uint32_t *out_col) {
+    if (!doc || !doc->text) return false;
+    uint32_t line0 = pos.line;
+    size_t line_start = ilsp_byte_of_line(&doc->line_idx, line0);
+    if (line_start > doc->text_len) return false;
+    size_t next_start = line_start;
+    while (next_start < doc->text_len && doc->text[next_start] != '\n') {
+        next_start++;
+    }
+    size_t line_len = next_start - line_start;
+    const char *line_text = doc->text + line_start;
+    size_t byte_in_line;
+    if (enc == ILSP_ENC_UTF16) {
+        byte_in_line = ilsp_utf16_column_to_utf8_byte(line_text, line_len,
+                                                       pos.character);
+    } else {
+        byte_in_line = ilsp_utf8_column_to_utf8_byte(line_text, line_len,
+                                                      pos.character);
+    }
+    if (byte_in_line > line_len) byte_in_line = line_len;
+    *out_line = line0 + 1;
+    *out_col  = (uint32_t)byte_in_line + 1;
+    return true;
 }
 
 /* ── Markdown assembly (D-04 ordering) ────────────────────────────── */
@@ -572,6 +804,20 @@ void ilsp_facade_hover(struct IronLsp_Server   *server,
 
     Iron_Node *node = ilsp_nav_node_at(doc, program, pos, enc);
     if (!node) goto done;
+
+    /* Phase 34 LSP-01 (Plan 34-02): hover-only descent into function
+     * bodies. The shared node_at stops at FUNC_DECL / METHOD_DECL
+     * boundaries by design (definition + references want the enclosing
+     * decl, not the bindings inside). Hover needs the binding so the
+     * memory-model annotation block has something to annotate. */
+    if (node->kind == IRON_NODE_FUNC_DECL ||
+        node->kind == IRON_NODE_METHOD_DECL) {
+        uint32_t line = 0, col = 0;
+        if (hover_pos_to_line_col(doc, pos, enc, &line, &col)) {
+            Iron_Node *inner = hover_descend_into_func_body(node, line, col);
+            if (inner) node = inner;
+        }
+    }
 
     const Iron_Symbol *sym = NULL;
     Iron_Node *decl = NULL;
@@ -725,9 +971,9 @@ void ilsp_facade_hover(struct IronLsp_Server   *server,
      * Multiple fields stack vertically with single \n separators; the
      * whole block is separated from the fenced signature by \n\n. */
     const char *policy = derive_policy(decl, sym);
-    const char *regime = derive_regime(sym);
+    const char *regime = derive_regime(decl, sym);
     bool        ro     = derive_readonly(decl, sym);
-    bool        nocopy = derive_nocopy(sym);
+    bool        nocopy = derive_nocopy(decl, sym);
     if (policy || regime || ro || nocopy) {
         sb_append(&md, "\n\n");
         bool first = true;
