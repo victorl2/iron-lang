@@ -1,0 +1,49 @@
+==========
+weak rc null type and value
+==========
+
+val w: weak rc Foo = weak rc null
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    type: (weak_rc_type
+      (type_identifier
+        (identifier)))
+    value: (weak_rc_expression
+      (null_literal))))
+
+==========
+weak rc bound to call expression
+==========
+
+val w = weak rc Foo
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    value: (weak_rc_expression
+      (identifier))))
+
+==========
+weak rc upgrade returns rc T nullable
+==========
+
+val r: rc Foo = w.upgrade()
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    type: (rc_type
+      (type_identifier
+        (identifier)))
+    value: (call_expression
+      function: (member_expression
+        object: (identifier)
+        property: (identifier)))))

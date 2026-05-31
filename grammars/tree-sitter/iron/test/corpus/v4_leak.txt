@@ -1,0 +1,78 @@
+==========
+leak statement form on heap binding
+==========
+
+func main() {
+  val p = heap Point(1, 2)
+  leak p
+}
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (val_declaration
+        binding: (identifier)
+        value: (heap_expression
+          (call_expression
+            function: (identifier)
+            (integer_literal)
+            (integer_literal))))
+      (leak_statement
+        (identifier)))))
+
+==========
+leak statement form on rc binding
+==========
+
+func main() {
+  val r = rc Foo(1)
+  leak r
+}
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (val_declaration
+        binding: (identifier)
+        value: (rc_expression
+          (call_expression
+            function: (identifier)
+            (integer_literal))))
+      (leak_statement
+        (identifier)))))
+
+==========
+leak statement followed by call expression
+==========
+
+func main() {
+  val box = heap Buffer(1024)
+  leak box.allocate()
+}
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (val_declaration
+        binding: (identifier)
+        value: (heap_expression
+          (call_expression
+            function: (identifier)
+            (integer_literal))))
+      (leak_statement
+        (call_expression
+          function: (member_expression
+            object: (identifier)
+            property: (identifier)))))))

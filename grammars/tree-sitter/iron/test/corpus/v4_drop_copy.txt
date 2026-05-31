@@ -1,0 +1,48 @@
+==========
+drop block inside object body
+==========
+
+object Texture {
+  val path: String
+  drop { println("free") }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (drop_block
+      body: (block
+        (expression_statement
+          (call_expression
+            function: (identifier)
+            (string_literal)))))))
+
+==========
+copy block inside object body
+==========
+
+object Buffer {
+  var data: Int
+  copy { val dummy = 0 }
+}
+
+---
+
+(source_file
+  (object_declaration
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (copy_block
+      body: (block
+        (val_declaration
+          binding: (identifier)
+          value: (integer_literal))))))

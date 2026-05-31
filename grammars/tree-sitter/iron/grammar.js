@@ -472,10 +472,13 @@ module.exports = grammar({
     free_statement: $ => prec.right(seq('free', $._expression)),
 
     // Phase 35 GRM-06 (Plan 35-01): leak <expr> statement form mirrors
-    // parser.c:3018 IRON_TOK_LEAK handling. Iron's `leak` is a statement-
-    // position keyword (NOT a prefix-expression keyword), and the inner
-    // expression is the heap/rc binding being intentionally leaked.
-    leak_statement: $ => prec.right(seq('leak', $._expression)),
+    // parser.c:3018 IRON_TOK_LEAK handling. Iron's `leak` works both as a
+    // bare statement (`leak p`) AND as a prefix expression (`val p = leak
+    // heap Point(...)`). At statement-position we prefer leak_statement
+    // (prec 2) over expression_statement (prec -1) wrapping leak_expression
+    // so 4.12-debug-leak/leak_suppresses style fixtures parse as the
+    // semantically-correct leak_statement node.
+    leak_statement: $ => prec.right(2, seq('leak', $._expression)),
 
     // Phase 35 GRM-06 (Plan 35-01): in <arena_expr> { ... } block form
     // mirrors parser.c:3032 IRON_TOK_IN statement-position dispatch. The
@@ -507,7 +510,6 @@ module.exports = grammar({
       $.heap_expression,
       $.rc_expression,
       $.weak_rc_expression,
-      $.leak_expression,
       $.comptime_expression,
       $.await_expression,
       $.spawn_expression,
@@ -615,13 +617,13 @@ module.exports = grammar({
     weak_rc_expression:  $ => prec.right(13, seq(
       'weak', 'rc', $._expression,
     )),
-    // Phase 35 GRM-06 (Plan 35-01) [Rule 1 - Bug]: leak as prefix-expression
-    // form. Real v4 fixtures use `val p = leak heap Point(...)` (4.12-debug-
-    // leak/leak_suppresses.iron:10 + 10-tooling/boundary_leak_detected.iron:13)
-    // so `leak` must bind at UNARY precedence to fit at expression-RHS
-    // position. The bare-statement form `leak <expr>` remains supported via
-    // leak_statement in the _statement choice for parser.c:3018 parity.
-    leak_expression:     $ => prec.right(13, seq('leak',     $._expression)),
+    // NOTE: `leak` lives ONLY at statement position (see leak_statement in
+    // _statement choice). Parser.c:3018 IRON_TOK_LEAK is reached exclusively
+    // from iron_parse_stmt — there is no leak case in iron_parse_primary, so
+    // `val p = leak heap Point(...)` does NOT parse in ironc today (the v4
+    // fixtures using that form may rely on a future parser extension or are
+    // intentional negatives gated by @expected-pass-after: phase-31). The
+    // tree-sitter grammar matches ironc's surface here.
     comptime_expression: $ => prec.right(13, seq('comptime', $._expression)),
     await_expression:    $ => prec.right(13, seq('await',    $._expression)),
 

@@ -1,0 +1,73 @@
+==========
+arena_block statement form
+==========
+
+func main() { in arena { val x = 1 } }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (arena_block
+        arena: (identifier)
+        body: (block
+          (val_declaration
+            binding: (identifier)
+            value: (integer_literal)))))))
+
+==========
+heap with named arena option
+==========
+
+func main() { val p = heap(in: arena) Point(1, 2) }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (val_declaration
+        binding: (identifier)
+        value: (heap_expression
+          (heap_options
+            (heap_option
+              value: (identifier)))
+          (call_expression
+            function: (identifier)
+            (integer_literal)
+            (integer_literal)))))))
+
+==========
+arena combined val plus in-block
+==========
+
+func main() {
+  val a = Arena.with_capacity(8192)
+  in a { val x = 1 }
+}
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (val_declaration
+        binding: (identifier)
+        value: (call_expression
+          function: (member_expression
+            object: (identifier)
+            property: (identifier))
+          (integer_literal)))
+      (arena_block
+        arena: (identifier)
+        body: (block
+          (val_declaration
+            binding: (identifier)
+            value: (integer_literal)))))))
