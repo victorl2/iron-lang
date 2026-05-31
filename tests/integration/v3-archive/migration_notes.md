@@ -83,7 +83,20 @@ Migrated:
   split_collection_multi_method, split_collection_param
 
 ## Control flow (control_*, defer_*, early_*, edge_*, args_*)
-(entries added by Task 4)
+
+All 10 control-flow fixtures migrated as-is — defer surface
+unchanged v3→v4 (Phase 32 defer-statement extended semantics without
+breaking the v3 `defer free <binding>` ergonomic). Verified end-to-end via
+v4 ironc on silvaserver podman.
+
+Migrated:
+- control_flow
+- defer_multi_exit
+- early_return_defer
+- edge_all_filtered_out, edge_empty_collection, edge_single_element,
+  edge_single_implementor, edge_zero_field
+- args_threading
+- audit_defer_in_for_body
 
 ## Expressions (bitwise_*, binary_*, int_*, str_*, tuple_*, expr_*, blind_cast_*, layout_*)
 (entries added by Task 5)

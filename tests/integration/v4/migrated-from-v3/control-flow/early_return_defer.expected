@@ -1,0 +1,26 @@
+cleanup A
+negative
+---
+cleanup B
+cleanup A
+zero
+---
+cleanup C
+cleanup B
+cleanup A
+positive
+---
+bad code cleanup
+exit validate
+invalid: negative
+---
+overflow cleanup
+exit validate
+invalid: overflow
+---
+exit validate
+empty
+---
+exit validate
+ok
+done

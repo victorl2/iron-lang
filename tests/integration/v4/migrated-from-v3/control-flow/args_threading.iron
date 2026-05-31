@@ -1,0 +1,4 @@
+-- args_threading: smoke test that iron_runtime_init(argc, argv) wiring compiles and runs
+func main() {
+    println("args ok")
+}
