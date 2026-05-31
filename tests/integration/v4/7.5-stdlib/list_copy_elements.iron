@@ -7,14 +7,14 @@
 object Tracked {
     val id: Int
     copy {
-        println("copy {id}")
+        println("copy {self.id}")
     }
 }
 
 func main() {
     var src: [Tracked] = []
-    src.push(Tracked(id: 1))
-    src.push(Tracked(id: 2))
+    src.push(Tracked(1))
+    src.push(Tracked(2))
     val dst = src
     println("dst: {dst.len()}")
 }

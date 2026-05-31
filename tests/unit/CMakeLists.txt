@@ -1597,7 +1597,7 @@ set_tests_properties(test_constraints PROPERTIES
     TIMEOUT 30)
 
 add_executable(test_container_drop test_container_drop.c)
-target_link_libraries(test_container_drop iron_compiler unity)
+target_link_libraries(test_container_drop iron_compiler iron_runtime unity m pthread)
 add_test(NAME test_container_drop COMMAND test_container_drop)
 set_tests_properties(test_container_drop PROPERTIES
     LABELS "unit;phase33-invariant"

@@ -1031,6 +1031,86 @@ typedef struct {
     int64_t            Iron_List_##suffix##_len(const Iron_List_##suffix *self); \
     void               Iron_List_##suffix##_free(Iron_List_##suffix *self);
 
+/* Phase 33 STDLIB-02 (Plan 33-04): IRON_LIST_IMPL is split into
+ *   - IRON_LIST_IMPL_CORE  : create / create_with_capacity / push / get / set /
+ *                            pop / len  (the lifecycle-agnostic surface)
+ *   - the trivial _clone (memcpy) + _free (free(items)) bodies
+ * IRON_LIST_IMPL composes CORE + trivial lifecycle (the fast path, used for
+ * primitive / trivial-struct element types — Pitfall 5). For element types
+ * whose destructor/copy must run per element, the emitter (emit_structs.c
+ * emit_mono_list_decls) instead emits IRON_LIST_IMPL_CORE plus a custom
+ * element-destructor-aware _free / _clone — see the per-element drop/copy loop
+ * gated on od_has_drop_lir / the FileHandle nocopy surface. */
+#define IRON_LIST_IMPL_CORE(T, suffix) \
+    Iron_List_##suffix Iron_List_##suffix##_create(void) { \
+        Iron_List_##suffix l; \
+        l.items = NULL; l.count = 0; l.capacity = 0; \
+        return l; \
+    } \
+    Iron_List_##suffix Iron_List_##suffix##_create_with_capacity(int64_t cap) { \
+        Iron_List_##suffix l; \
+        l.count = 0; \
+        l.capacity = cap; \
+        l.items = NULL; \
+        if (cap > 0) { \
+            l.items = (T *)malloc((size_t)cap * sizeof(T)); \
+            if (!l.items) iron_oom_abort("Iron_List_" #suffix "_create_with_capacity"); \
+        } \
+        return l; \
+    } \
+    void Iron_List_##suffix##_push(Iron_List_##suffix *self, T item) { \
+        if (self->count >= self->capacity) { \
+            int64_t new_cap = self->capacity ? self->capacity * 2 : 8; \
+            /* FIX-01/FIX-02: capacity doubling must not wrap int64_t (audit row 18) */ \
+            if (new_cap < self->capacity) { \
+                iron_oom_abort("Iron_List_" #suffix "_push: capacity overflow"); \
+            } \
+            T *new_items = (T *)realloc(self->items, (size_t)new_cap * sizeof(T)); \
+            if (!new_items) iron_oom_abort("Iron_List_" #suffix "_push"); \
+            self->items = new_items; \
+            self->capacity = new_cap; \
+        } \
+        self->items[self->count++] = item; \
+    } \
+    T Iron_List_##suffix##_get(const Iron_List_##suffix *self, int64_t index) { \
+        return self->items[index]; \
+    } \
+    void Iron_List_##suffix##_set(Iron_List_##suffix *self, int64_t index, T item) { \
+        self->items[index] = item; \
+    } \
+    T Iron_List_##suffix##_pop(Iron_List_##suffix *self) { \
+        return self->items[--self->count]; \
+    } \
+    int64_t Iron_List_##suffix##_len(const Iron_List_##suffix *self) { \
+        return self->count; \
+    }
+
+/* Trivial (fast-path) _clone + _free: memcpy / free(items). Used for primitive
+ * and trivial-struct element types where no per-element destructor/copy runs. */
+#define IRON_LIST_IMPL_TRIVIAL_LIFECYCLE(T, suffix) \
+    Iron_List_##suffix Iron_List_##suffix##_clone(const Iron_List_##suffix *src) { \
+        Iron_List_##suffix dst; \
+        dst.count = src->count; \
+        dst.capacity = src->count; \
+        if (src->count > 0) { \
+            dst.items = (T *)malloc((size_t)src->count * sizeof(T)); \
+            if (!dst.items) iron_oom_abort("Iron_List_" #suffix "_clone"); \
+            memcpy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
+        } else { \
+            dst.items = NULL; \
+        } \
+        return dst; \
+    } \
+    void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
+        free(self->items); \
+        self->items = NULL; self->count = 0; self->capacity = 0; \
+    }
+
+/* IRON_LIST_IMPL is a full standalone body (NOT a composition of CORE +
+ * TRIVIAL) so the `##suffix` paste happens before `suffix` is argument-
+ * prescanned — composing would expand `bool`->`_Bool` and break the paste.
+ * The CORE / TRIVIAL macros above are for the emitter, which always passes
+ * already-mangled (non-keyword) names. */
 #define IRON_LIST_IMPL(T, suffix) \
     Iron_List_##suffix Iron_List_##suffix##_create(void) { \
         Iron_List_##suffix l; \
@@ -1064,7 +1144,6 @@ typedef struct {
     void Iron_List_##suffix##_push(Iron_List_##suffix *self, T item) { \
         if (self->count >= self->capacity) { \
             int64_t new_cap = self->capacity ? self->capacity * 2 : 8; \
-            /* FIX-01/FIX-02: capacity doubling must not wrap int64_t (audit row 18) */ \
             if (new_cap < self->capacity) { \
                 iron_oom_abort("Iron_List_" #suffix "_push: capacity overflow"); \
             } \

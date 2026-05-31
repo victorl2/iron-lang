@@ -169,6 +169,153 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
  * struct body has already been emitted by emit_object_struct_body;
  * IRON_LIST_DECL and IRON_LIST_IMPL expand into function prototypes and
  * bodies that reference Iron_<Type> as a complete type. */
+/* ── Phase 33 STDLIB-02 (Plan 33-04): element-destructor-aware list lifecycle ──
+ *
+ * Emit the IRON_LIST_DECL + the list IMPL for a mono-list whose mangled name is
+ * `mangled` (e.g. "Iron_Tracked") and whose element C type is also `mangled`.
+ *
+ * `has_drop`  : the element type has a per-element destructor named
+ *               "<mangled>_drop(<mangled> *)".  When true, _free iterates and
+ *               calls it on every element BEFORE free(items) (Pattern 4).
+ * `has_copy`  : the element type has a per-element copy hook named
+ *               "<mangled>_copy(<mangled> *dest, const <mangled> *src)".  When
+ *               true, _clone deep-copies each element instead of bulk memcpy.
+ *
+ * When neither flag is set this collapses to IRON_LIST_IMPL (the fast path:
+ * free(items) / memcpy — Pitfall 5: no spurious per-element calls for
+ * primitives / trivial structs).
+ *
+ * The DECL + struct typedef are the caller's responsibility (emitted just
+ * before calling this); this routine appends only the IMPL bodies. */
+static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
+                                     bool has_drop, bool has_copy) {
+    if (!has_drop && !has_copy) {
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "IRON_LIST_IMPL(%s, %s)\n\n", mangled, mangled);
+        return;
+    }
+
+    /* Forward prototypes: the per-element <mangled>_drop / _copy helpers are
+     * synthesized into ctx->lifted_funcs (which renders AFTER struct_bodies),
+     * but the list _free/_clone bodies below live in struct_bodies and call
+     * them — declare them first to avoid implicit-declaration / static-after-
+     * nonstatic errors. */
+    if (has_drop) {
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "static void %s_drop(%s *self);\n", mangled, mangled);
+    }
+    if (has_copy) {
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "static void %s_copy(%s *dest, const %s *src);\n",
+            mangled, mangled, mangled);
+    }
+
+    /* Core surface (create/push/get/set/pop/len) is always the macro body. */
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "IRON_LIST_IMPL_CORE(%s, %s)\n", mangled, mangled);
+
+    /* Custom _clone: deep element copy when the element has a copy hook,
+     * else the trivial memcpy body. */
+    if (has_copy) {
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "/* Phase 33 STDLIB-02: element-copy _clone for %s */\n"
+            "Iron_List_%s Iron_List_%s_clone(const Iron_List_%s *src) {\n"
+            "    Iron_List_%s dst;\n"
+            "    dst.count = src->count;\n"
+            "    dst.capacity = src->count;\n"
+            "    if (src->count > 0) {\n"
+            "        dst.items = (%s *)malloc((size_t)src->count * sizeof(%s));\n"
+            "        if (!dst.items) iron_oom_abort(\"Iron_List_%s_clone\");\n"
+            "        for (int64_t _i = 0; _i < src->count; _i++) {\n"
+            "            %s_copy(&dst.items[_i], &src->items[_i]);\n"
+            "        }\n"
+            "    } else {\n"
+            "        dst.items = NULL;\n"
+            "    }\n"
+            "    return dst;\n"
+            "}\n",
+            mangled,
+            mangled, mangled, mangled,
+            mangled,
+            mangled, mangled,
+            mangled,
+            mangled);
+    } else {
+        /* nocopy / drop-only element: keep memcpy clone (the binding-copy is a
+         * compile error upstream for nocopy types, but the _clone symbol must
+         * still exist to satisfy the link). */
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "Iron_List_%s Iron_List_%s_clone(const Iron_List_%s *src) {\n"
+            "    Iron_List_%s dst;\n"
+            "    dst.count = src->count;\n"
+            "    dst.capacity = src->count;\n"
+            "    if (src->count > 0) {\n"
+            "        dst.items = (%s *)malloc((size_t)src->count * sizeof(%s));\n"
+            "        if (!dst.items) iron_oom_abort(\"Iron_List_%s_clone\");\n"
+            "        memcpy(dst.items, src->items, (size_t)src->count * sizeof(%s));\n"
+            "    } else {\n"
+            "        dst.items = NULL;\n"
+            "    }\n"
+            "    return dst;\n"
+            "}\n",
+            mangled, mangled, mangled,
+            mangled,
+            mangled, mangled,
+            mangled,
+            mangled);
+    }
+
+    /* Custom _free: per-element destructor loop (Pattern 4) when has_drop,
+     * else trivial free(items). */
+    if (has_drop) {
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "/* Phase 33 STDLIB-02: per-element destructor _free for %s */\n"
+            "void Iron_List_%s_free(Iron_List_%s *self) {\n"
+            "    if (self->items) {\n"
+            "        for (int64_t _i = 0; _i < self->count; _i++) {\n"
+            "            %s_drop(&self->items[_i]);\n"
+            "        }\n"
+            "    }\n"
+            "    free(self->items);\n"
+            "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
+            "}\n\n",
+            mangled,
+            mangled, mangled,
+            mangled);
+    } else {
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "void Iron_List_%s_free(Iron_List_%s *self) {\n"
+            "    free(self->items);\n"
+            "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
+            "}\n\n",
+            mangled, mangled);
+    }
+}
+
+/* Detect whether a synthesized "<mangled>_drop" / "<mangled>_copy" function
+ * applies to the given element object type.  Covers BOTH the user-object path
+ * (od_has_drop_lir / has_user_copy) AND the nocopy resource surfaces
+ * (FileHandle), whose drop is emit-synthesized by emit_ensure_filehandle
+ * rather than lowered through od_has_drop_lir. */
+static void elem_lifecycle_flags(EmitCtx *ctx, Iron_Type *et,
+                                 const char *bare_name,
+                                 bool *out_has_drop, bool *out_has_copy) {
+    bool has_drop = false, has_copy = false;
+    if (bare_name && strcmp(bare_name, "FileHandle") == 0) {
+        /* nocopy fd wrapper: drop closes the fd; no element copy. */
+        has_drop = true;
+    } else if (et && et->kind == IRON_TYPE_OBJECT && et->object.decl) {
+        struct Iron_ObjectDecl *od = et->object.decl;
+        if (od_has_drop_lir(ctx, od)) has_drop = true;
+        if (!od->is_nocopy && et->has_user_copy_cached &&
+            et->has_user_copy_transitive) {
+            has_copy = true;
+        }
+    }
+    *out_has_drop = has_drop;
+    *out_has_copy = has_copy;
+}
+
 static void emit_mono_list_decls(EmitCtx *ctx) {
     IronLIR_Module *module = ctx->module;
     if (!module) return;
@@ -212,9 +359,32 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
                 if (shgeti(emitted_mono_list_types, mangled) >= 0) continue;
                 shput(emitted_mono_list_types, mangled, true);
 
+                /* Phase 33 STDLIB-09 (Plan 33-04): for the FileHandle nocopy
+                 * surface the Iron_FileHandle typedef + Iron_FileHandle_drop are
+                 * emit-synthesized lazily — ensure they land in struct_bodies
+                 * BEFORE the Iron_List_Iron_FileHandle typedef references them
+                 * (Pitfall 5 ordering). */
+                if (strcmp(bare_type, "FileHandle") == 0) {
+                    emit_ensure_filehandle(ctx);
+                }
+
+                /* Phase 33 STDLIB-02 (Plan 33-04): determine element drop/copy
+                 * so the list _free/_clone can run per-element destructors. */
+                bool elem_has_drop = false, elem_has_copy = false;
+                elem_lifecycle_flags(ctx, et, bare_type,
+                                     &elem_has_drop, &elem_has_copy);
+                /* Synthesize the per-object drop/copy helpers the list bodies
+                 * call (no-op for FileHandle whose drop is already emitted). */
+                if (elem_has_drop && strcmp(bare_type, "FileHandle") != 0) {
+                    emit_ensure_drop(ctx, mangled, et->object.decl);
+                }
+                if (elem_has_copy) {
+                    emit_ensure_copy(ctx, mangled, et->object.decl);
+                }
+
                 /* Emit Iron_List_<mangled> struct typedef.  The
-                 * IRON_LIST_DECL and IRON_LIST_IMPL macros assume this
-                 * struct is already declared with fields
+                 * IRON_LIST_DECL and the IMPL bodies assume this struct is
+                 * already declared with fields
                  *   { T *items; int64_t count; int64_t capacity; }. */
                 iron_strbuf_appendf(&ctx->struct_bodies,
                     "/* Phase 56: Iron_List type for mono-collapsed %s */\n"
@@ -230,13 +400,12 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
                     "IRON_LIST_DECL(%s, %s)\n",
                     mangled, mangled);
 
-                /* Emit IRON_LIST_IMPL(T, suffix) — non-static function
-                 * bodies.  Safe at translation-unit level because each
-                 * mangled name is unique per compilation unit (Iron
-                 * compiles to a single .c file per program). */
-                iron_strbuf_appendf(&ctx->struct_bodies,
-                    "IRON_LIST_IMPL(%s, %s)\n\n",
-                    mangled, mangled);
+                /* Emit the IMPL — element-destructor-aware when the element
+                 * type owns a drop/copy, else the fast free(items)/memcpy path
+                 * (Pitfall 5).  Safe at TU level: each mangled name is unique
+                 * per compilation unit. */
+                emit_list_impl_lifecycle(ctx, mangled,
+                                         elem_has_drop, elem_has_copy);
             }
         }
     }

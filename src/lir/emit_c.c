@@ -5394,6 +5394,40 @@ void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
     }
 }
 
+/* Phase 33 STDLIB-02 (Plan 33-04): true when `instr` is a CALL to a
+ * Iron_List_<T>_create / _create_with_capacity whose element type T owns a
+ * per-element destructor (FileHandle nocopy surface, or a user object whose
+ * drop lowered to LIR).  Used to track empty-`[]` lists for scope-exit _free
+ * so contained elements get dropped.  Returns false (fast path) for primitive
+ * / trivial element types — they keep create-without-free, unchanged. */
+static bool instr_list_create_has_managed_elem(EmitCtx *ctx, IronLIR_Func *fn,
+                                               IronLIR_Instr *instr,
+                                               IronLIR_ValueId fptr) {
+    if (!instr || !instr->type || instr->type->kind != IRON_TYPE_ARRAY)
+        return false;
+    if (fptr == IRON_LIR_VALUE_INVALID ||
+        fptr >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+        fn->value_table[fptr] == NULL ||
+        fn->value_table[fptr]->kind != IRON_LIR_FUNC_REF)
+        return false;
+    const char *fname = fn->value_table[fptr]->func_ref.func_name;
+    if (!fname) return false;
+    /* Match Iron_List_<...>_create or _create_with_capacity. */
+    if (strncmp(fname, "Iron_List_", 10) != 0) return false;
+    size_t flen = strlen(fname);
+    bool is_create =
+        (flen >= 7 && strcmp(fname + flen - 7, "_create") == 0) ||
+        (strstr(fname, "_create_with_capacity") != NULL);
+    if (!is_create) return false;
+
+    Iron_Type *elem = instr->type->array.elem;
+    if (!elem || elem->kind != IRON_TYPE_OBJECT || !elem->object.decl)
+        return false;
+    struct Iron_ObjectDecl *od = elem->object.decl;
+    if (od->name && strcmp(od->name, "FileHandle") == 0) return true;
+    return od_has_drop_lir(ctx, od);
+}
+
 void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     /* Choose target buffer: lifted functions go to lifted_funcs */
     Iron_StrBuf *sb = is_lifted_func(fn->name)
@@ -5555,6 +5589,20 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                             hmput(ha_pre, instr->id, instr->id);
                         }
                     }
+                    /* Phase 33 STDLIB-02 (Plan 33-04): an empty `[]` list lowers
+                     * to Iron_List_<T>_create()/_create_with_capacity() (a CALL
+                     * with array result type), NOT an ARRAY_LIT — so the scan
+                     * above misses it.  Track these AS heap origins ONLY when the
+                     * element type owns a per-element destructor (FileHandle /
+                     * user drop), so scope-exit _free runs each element's drop.
+                     * Gating on managed elements keeps the primitive fast path
+                     * untouched (no behavior change for List[Int] etc.). */
+                    else if (instr_list_create_has_managed_elem(ctx, fn,
+                                                                instr, fptr)) {
+                        if (hmgeti(ctx->opt_info->stack_array_ids, instr->id) < 0) {
+                            hmput(ha_pre, instr->id, instr->id);
+                        }
+                    }
                 }
             }
         }
@@ -5614,9 +5662,37 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                 }
                 /* Escapes via CALL argument (passed to another function) */
                 if (instr->kind == IRON_LIR_CALL) {
-                    for (int ai = 0; ai < instr->call.arg_count; ai++) {
-                        ptrdiff_t vi = hmgeti(ha_pre, instr->call.args[ai]);
-                        if (vi >= 0) hmput(ctx->opt_info->escaped_heap_ids, ha_pre[vi].value, true);
+                    /* Phase 33 STDLIB-02 (Plan 33-04): passing a list to its OWN
+                     * runtime method (Iron_List_<T>_push / _get / _set / _pop /
+                     * _len) is NOT an escape — those methods operate on the list
+                     * in place and never retain the pointer.  Treating them as
+                     * escapes suppressed the scope-exit _free that runs each
+                     * element's destructor for managed-element lists.  Skip the
+                     * escape mark for these self-mutating calls. */
+                    bool is_list_self_method = false;
+                    IronLIR_ValueId fpref = instr->call.func_ptr;
+                    if (fpref != IRON_LIR_VALUE_INVALID &&
+                        fpref < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                        fn->value_table[fpref] != NULL &&
+                        fn->value_table[fpref]->kind == IRON_LIR_FUNC_REF) {
+                        const char *fnm =
+                            fn->value_table[fpref]->func_ref.func_name;
+                        if (fnm && strncmp(fnm, "Iron_List_", 10) == 0) {
+                            size_t L = strlen(fnm);
+                            if ((L >= 5 && strcmp(fnm + L - 5, "_push") == 0) ||
+                                (L >= 4 && strcmp(fnm + L - 4, "_get") == 0) ||
+                                (L >= 4 && strcmp(fnm + L - 4, "_set") == 0) ||
+                                (L >= 4 && strcmp(fnm + L - 4, "_pop") == 0) ||
+                                (L >= 4 && strcmp(fnm + L - 4, "_len") == 0)) {
+                                is_list_self_method = true;
+                            }
+                        }
+                    }
+                    if (!is_list_self_method) {
+                        for (int ai = 0; ai < instr->call.arg_count; ai++) {
+                            ptrdiff_t vi = hmgeti(ha_pre, instr->call.args[ai]);
+                            if (vi >= 0) hmput(ctx->opt_info->escaped_heap_ids, ha_pre[vi].value, true);
+                        }
                     }
                 }
                 /* Escapes via MAKE_CLOSURE capture */

@@ -789,7 +789,14 @@ void emit_ensure_filehandle(EmitCtx *ctx) {
 
     iron_strbuf_appendf(&ctx->struct_bodies,
         "/* Phase 33 STDLIB-09: FileHandle nocopy fd wrapper */\n"
-        "typedef struct { int fd; } Iron_FileHandle;\n");
+        "typedef struct { int fd; } Iron_FileHandle;\n"
+        /* Phase 33 STDLIB-02 (Plan 33-04): forward prototypes so a
+         * Iron_List_Iron_FileHandle _free emitted into struct_bodies (which
+         * renders before lifted_funcs) can call the per-element drop without
+         * an implicit-declaration error. */
+        "static Iron_FileHandle Iron_FileHandle_open(Iron_String path);\n"
+        "static void Iron_FileHandle_close(Iron_FileHandle *fh);\n"
+        "static void Iron_FileHandle_drop(Iron_FileHandle *fh);\n");
 
     /* open creates/truncates the file; close prints "closed fd" then closes.
      * Uses fopen/fileno (portable, no <fcntl.h> needed) — the value is the
