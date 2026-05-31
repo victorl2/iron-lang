@@ -3,6 +3,20 @@
 All notable changes to the `iron-lsp` VSCode extension are documented
 in this file.
 
+## v4.0.0-alpha.1
+
+- Bumped `ironLspCompatibleIronlsRange` to `">= 4.0.0, < 5.0.0"`; v3
+  ironls binaries now hard-refused by the Phase 7 D-10 gate.
+- Added snippet pack `snippets/iron.code-snippets` for Iron v4 idioms:
+  `defer free <binding>` (Phase 21), `heap T(...)` constructor
+  (Phase 21), `in arena { ... }` block (Phase 28). Triggers match
+  Phase 34 LSP completion snippets for cross-surface consistency.
+- Compatible with the Iron v4 memory model: val/var discipline,
+  heap/rc/weak rc policies, `*T` / `*var T` / `*unchecked T` pointers,
+  `[T; <=N]` bounded vectors, drop/copy/nocopy resource types,
+  `defer` statement, arena allocation.
+- Extension version bumped to `4.0.0-alpha.1` for v4 LSP compatibility.
+
 ## 0.1.0 — initial release
 
 - LSP 3.17 client via `vscode-languageclient@9.0.1`; spawns `ironls`
