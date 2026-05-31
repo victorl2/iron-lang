@@ -1,0 +1,23 @@
+-- section: 7.5-stdlib
+-- @req: STDLIB-01
+-- @expected-pass-after: phase-33 (Wave 4 String drop/copy preserving UTF-8)
+-- Open Question 3 resolution: Iron_String is a trivially-copied VALUE HANDLE.
+-- SSO strings (<=23 bytes) are stored inline; heap strings are interned and
+-- owned by the global intern table (freed once at process shutdown). A
+-- bitwise copy is therefore safe — no per-element String drop/copy is needed,
+-- and a container of String uses the fast memcpy/free(items) path. UTF-8 byte
+-- semantics are preserved because byte_length travels with the struct and the
+-- bytes are never re-encoded. This fixture asserts the byte length is
+-- unchanged across a value copy AND across List[String] store/retrieve.
+
+func main() {
+    val s = "héllo→世界"   -- 15 UTF-8 bytes (1+2+3+3+3+3)
+    val t = s             -- value copy (no re-encode, no double-free)
+    println("len: {s.len()}")
+    println("copy_len: {t.len()}")
+
+    var xs: [String] = []
+    xs.push(s)
+    val got = xs.get(0)
+    println("list_len: {got.len()}")
+}
