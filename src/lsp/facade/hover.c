@@ -304,22 +304,132 @@ static const char *signature_enum(Iron_EnumDecl *ed, Iron_Arena *arena) {
     return sb.buf ? sb.buf : "";
 }
 
-static const char *signature_val(Iron_ValDecl *vd, Iron_Arena *arena) {
+/* Phase 34 LSP-01 (Plan 34-02): fall back to the resolved/declared type when
+ * the source has no explicit type annotation (e.g. `val buffer = heap T(...)`).
+ * Without this, signature_val/var rendered "Void" for every inferred binding,
+ * losing the policy prefix on the signature line ("val buffer: Buffer" became
+ * "val buffer: Void"). Read order:
+ *   1. AST type_ann -- richest source when present (preserves source spelling)
+ *   2. vd->declared_type cached by typecheck
+ *   3. sym->type from the resolved Iron_Symbol
+ *   4. final fallback: literal "Void" (matches pre-Phase-34 behavior). */
+static const char *render_decl_type(Iron_Node *type_ann,
+                                       struct Iron_Type *declared_type,
+                                       const Iron_Symbol *sym,
+                                       Iron_Arena *arena) {
+    if (type_ann) return render_type_ann(type_ann, arena);
+    if (declared_type) return iron_type_to_string(declared_type, arena);
+    if (sym && sym->type) return iron_type_to_string(sym->type, arena);
+    return "Void";
+}
+
+static const char *signature_val(Iron_ValDecl *vd,
+                                    const Iron_Symbol *sym,
+                                    Iron_Arena *arena) {
     SB sb; sb_init(&sb, arena);
     sb_append(&sb, "val ");
     sb_append(&sb, vd->name ? vd->name : "_");
     sb_append(&sb, ": ");
-    sb_append(&sb, render_type_ann(vd->type_ann, arena));
+    sb_append(&sb, render_decl_type(vd->type_ann, vd->declared_type, sym, arena));
     return sb.buf ? sb.buf : "";
 }
 
-static const char *signature_var(Iron_VarDecl *vd, Iron_Arena *arena) {
+static const char *signature_var(Iron_VarDecl *vd,
+                                    const Iron_Symbol *sym,
+                                    Iron_Arena *arena) {
     SB sb; sb_init(&sb, arena);
     sb_append(&sb, "var ");
     sb_append(&sb, vd->name ? vd->name : "_");
     sb_append(&sb, ": ");
-    sb_append(&sb, render_type_ann(vd->type_ann, arena));
+    sb_append(&sb, render_decl_type(vd->type_ann, vd->declared_type, sym, arena));
     return sb.buf ? sb.buf : "";
+}
+
+/* ── Phase 34 LSP-01/LSP-02 (Plan 34-02): memory-model annotation block ──
+ *
+ * Each derive_* helper inspects the already-resolved Iron_Symbol/Iron_Type
+ * on the AST and returns either a const char* (NULL = field is at its
+ * default, omit from output) or a bool (false = default, omit). The
+ * derivations NEVER call iron_analyze_buffer -- CORE-22 invariant. They
+ * read fields populated by the single per-document compile pass.
+ *
+ * Field default convention (per 34-CONTEXT.md "Hover content"):
+ *   policy   default = stack    (omit when NULL)
+ *   regime   default = checked  (omit when NULL)
+ *   readonly default = no       (omit when false)
+ *   nocopy   default = no       (omit when false)
+ *
+ * Rendering a hover with no non-default fields produces NO annotation
+ * block at all (verified by hover_policy_stack fixture). */
+
+/* Derive lifecycle policy from val/var init shape + type kind.
+ * Returns "heap" | "rc" | "weak rc" | NULL (= stack, default, omit). */
+static const char *derive_policy(const Iron_Node *decl,
+                                    const Iron_Symbol *sym) {
+    /* Step 1: inspect val/var init expression shape. The init kind is the
+     * direct evidence of policy at the binding site (RESEARCH §1). */
+    if (decl) {
+        const Iron_Node *init = NULL;
+        if (decl->kind == IRON_NODE_VAL_DECL) {
+            init = ((const Iron_ValDecl *)decl)->init;
+        } else if (decl->kind == IRON_NODE_VAR_DECL) {
+            init = ((const Iron_VarDecl *)decl)->init;
+        }
+        if (init) {
+            if (init->kind == IRON_NODE_HEAP)         return "heap";
+            if (init->kind == IRON_NODE_RC)           return "rc";
+            if (init->kind == IRON_NODE_WEAK_RC_NULL) return "weak rc";
+        }
+    }
+    /* Step 2: fall back to the resolved type kind. Catches bindings whose
+     * initializer hides the policy behind a method call (`.downgrade()`
+     * yields IRON_TYPE_WEAK_RC; rc-typed parameters; etc.). */
+    if (sym && sym->type) {
+        if (sym->type->kind == IRON_TYPE_RC)      return "rc";
+        if (sym->type->kind == IRON_TYPE_WEAK_RC) return "weak rc";
+    }
+    return NULL;  /* default = stack; omit. */
+}
+
+/* Derive safety regime from Iron_Type.ptr.is_unchecked.
+ * Returns "unchecked" | NULL (= checked, default, omit). */
+static const char *derive_regime(const Iron_Symbol *sym) {
+    if (!sym || !sym->type) return NULL;
+    if (sym->type->kind != IRON_TYPE_PTR) return NULL;
+    return sym->type->ptr.is_unchecked ? "unchecked" : NULL;
+}
+
+/* Derive the readonly flag.
+ *   - For Iron_FuncDecl / Iron_MethodDecl: direct AST bit (always present).
+ *   - For value bindings: Phase 22 READ-06 transitivity cache on the
+ *     resolved type. The cache may be conservative-zero until the analyzer
+ *     populates it on first walk; we only render `readonly: yes` when the
+ *     cache is positively true.
+ * Returns true (= render `readonly: yes`) or false (= default, omit). */
+static bool derive_readonly(const Iron_Node *decl, const Iron_Symbol *sym) {
+    if (decl) {
+        if (decl->kind == IRON_NODE_FUNC_DECL) {
+            return ((const Iron_FuncDecl *)decl)->is_readonly;
+        }
+        if (decl->kind == IRON_NODE_METHOD_DECL) {
+            return ((const Iron_MethodDecl *)decl)->is_readonly;
+        }
+    }
+    if (sym && sym->type && sym->type->is_readonly_compatible) {
+        return true;
+    }
+    return false;
+}
+
+/* Derive the nocopy flag via two-step deref (RESEARCH Pitfall 10):
+ *   sym->type (IRON_TYPE_OBJECT) -> object.decl (Iron_ObjectDecl) -> is_nocopy.
+ * Returns true (= render `nocopy: yes`) or false (= default, omit). */
+static bool derive_nocopy(const Iron_Symbol *sym) {
+    if (!sym || !sym->type) return false;
+    if (sym->type->kind != IRON_TYPE_OBJECT) return false;
+    const Iron_ObjectDecl *od = (const Iron_ObjectDecl *)sym->type->object.decl;
+    if (!od) return false;
+    return od->is_nocopy;
 }
 
 static const char *signature_field(Iron_Field *fd,
@@ -525,12 +635,12 @@ void ilsp_facade_hover(struct IronLsp_Server   *server,
         }
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)decl;
-            sig = signature_val(vd, arena);
+            sig = signature_val(vd, sym, arena);
             break;
         }
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *vd = (Iron_VarDecl *)decl;
-            sig = signature_var(vd, arena);
+            sig = signature_var(vd, sym, arena);
             break;
         }
         case IRON_NODE_FIELD: {
@@ -599,6 +709,51 @@ void ilsp_facade_hover(struct IronLsp_Server   *server,
     sb_append(&md, "```iron\n");
     sb_append(&md, sig);
     sb_append(&md, "\n```");
+
+    /* Phase 34 LSP-01/LSP-02 (Plan 34-02): memory-model annotation block.
+     * Read every field from the already-resolved sym/decl/type populated
+     * by the single per-document compile pass -- never re-derive, never
+     * call iron_analyze_buffer again (CORE-22). Omit fields at their
+     * default value to keep tooltips quiet on simple primitives
+     * (verified by hover_policy_stack fixture: empty annotation block on
+     * `val count: Int = 42`).
+     *
+     * Field order locked by 34-CONTEXT.md "Hover content":
+     *   policy -> regime -> readonly -> nocopy
+     * Each non-default field renders on its own line as
+     *   <field>: <value>
+     * Multiple fields stack vertically with single \n separators; the
+     * whole block is separated from the fenced signature by \n\n. */
+    const char *policy = derive_policy(decl, sym);
+    const char *regime = derive_regime(sym);
+    bool        ro     = derive_readonly(decl, sym);
+    bool        nocopy = derive_nocopy(sym);
+    if (policy || regime || ro || nocopy) {
+        sb_append(&md, "\n\n");
+        bool first = true;
+        if (policy) {
+            sb_append(&md, "policy: ");
+            sb_append(&md, policy);
+            first = false;
+        }
+        if (regime) {
+            if (!first) sb_append(&md, "\n");
+            sb_append(&md, "regime: ");
+            sb_append(&md, regime);
+            first = false;
+        }
+        if (ro) {
+            if (!first) sb_append(&md, "\n");
+            sb_append(&md, "readonly: yes");
+            first = false;
+        }
+        if (nocopy) {
+            if (!first) sb_append(&md, "\n");
+            sb_append(&md, "nocopy: yes");
+            first = false;
+        }
+    }
+
     if (dc && *dc) {
         sb_append(&md, "\n\n");
         sb_append(&md, dc);
