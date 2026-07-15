@@ -161,24 +161,24 @@ process_binary() {
     return 1
   fi
 
-  # (d) staple the notarization ticket onto the binary.
-  echo "[4/5] xcrun stapler staple ${base}..."
-  if ! xcrun stapler staple "${bin}"; then
-    echo "ERROR [${bin}]: stapler staple failed." >&2
-    rm -f "${zip_path}"
-    return 1
-  fi
+  # (d) NOTE: no staple step. `xcrun stapler staple` CANNOT staple a
+  # standalone Mach-O executable (Apple limitation — Error 73; stapling
+  # requires a bundle container: .app/.dmg/.pkg). The notarization ticket
+  # from step (c) is registered with Apple's servers, so Gatekeeper
+  # validates the binary online on first run. If offline-first-run matters,
+  # distribute inside a .dmg/.pkg and staple THAT container instead.
+  echo "[4/5] staple skipped (bare Mach-O binaries cannot be stapled; ticket is online)"
 
-  # (e) verify: codesign --verify, spctl --assess, stapler validate.
-  echo "[5/5] verify (codesign --verify, spctl --assess, stapler validate)..."
+  # (e) verify: codesign --verify + spctl --assess (needs network to see
+  # the notarization ticket for an unstapled binary).
+  echo "[5/5] verify (codesign --verify, spctl --assess)..."
   codesign --verify --verbose=2 "${bin}"
   spctl --assess --type execute --verbose "${bin}"
-  xcrun stapler validate "${bin}"
 
   # Cleanup temp zip.
   rm -f "${zip_path}"
 
-  echo "OK   [${bin}]: signed, notarized, stapled, verified."
+  echo "OK   [${bin}]: signed, notarized (online ticket), verified."
   return 0
 }
 

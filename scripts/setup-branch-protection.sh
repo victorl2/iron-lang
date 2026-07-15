@@ -18,8 +18,18 @@
 
 set -euo pipefail
 
-OWNER="${GITHUB_REPOSITORY_OWNER:-iron-lang}"
-REPO="${GITHUB_REPOSITORY_NAME:-iron-lang}"
+# Default owner/repo resolve from the local git remote when unset, so running
+# the playbook from a checkout targets the right repository (the previous
+# hardcoded default `iron-lang/iron-lang` pointed at a repo that is not this
+# one). Env vars still override for CI use.
+detect_nwo() { git remote get-url origin 2>/dev/null | sed -E 's#^(git@[^:]+:|https://[^/]+/)##; s#\.git$##'; }
+OWNER="${GITHUB_REPOSITORY_OWNER:-$(detect_nwo | cut -d/ -f1)}"
+REPO="${GITHUB_REPOSITORY_NAME:-$(detect_nwo | cut -d/ -f2)}"
+if [ -z "${OWNER}" ] || [ -z "${REPO}" ]; then
+  echo "ERROR: could not determine owner/repo (no origin remote?). Set" >&2
+  echo "GITHUB_REPOSITORY_OWNER and GITHUB_REPOSITORY_NAME explicitly." >&2
+  exit 2
+fi
 
 # Verify gh is authenticated; fail fast with a clear error if not (Pitfall 5).
 if ! gh auth status >/dev/null 2>&1; then
