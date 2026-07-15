@@ -10,7 +10,7 @@ object World {
 }
 
 func main() {
-    val w = leak heap World(seed: 1, size: 64)
+    val w = leak heap World(1, 64)
     -- 'leak' keyword marks intentional leak; allocation is not freed
     -- section 10.5: debug build reports "leaked at exit: World@<addr> (1 allocation)"
     -- harness verifies non-zero exit AND stderr contains "leaked at exit:"

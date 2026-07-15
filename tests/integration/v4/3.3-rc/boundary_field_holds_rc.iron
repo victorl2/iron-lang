@@ -7,7 +7,7 @@ object Texture {
     val path: String
 
     drop {
-        println("free texture: {path}")
+        println("free texture: {self.path}")
     }
 }
 
@@ -16,12 +16,12 @@ object Container {
     val id: Int
 
     drop {
-        println("drop container: {id}")
+        println("drop container: {self.id}")
     }
 }
 
 func main() {
-    val tex = rc Texture(path: "sprite.png")
-    val c = Container(tex: tex, id: 1)
+    val tex = rc Texture("sprite.png")
+    val c = Container(tex, 1)
     println("container id: {c.id}, tex: {c.tex.path}")
 }

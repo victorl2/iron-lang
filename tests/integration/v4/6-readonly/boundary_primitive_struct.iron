@@ -16,11 +16,11 @@ object Unit {
 readonly func compute_stat(u: *Unit) -> Stat {
     val combined = u.base + u.bonus
     val doubled = combined * 2
-    return Stat(a: combined, b: doubled)
+    return Stat(combined, doubled)
 }
 
 func main() {
-    val u = Unit(base: 10, bonus: 5)
+    val u = Unit(10, 5)
     val s = compute_stat(&u)
     println("a={s.a} b={s.b}")
 }

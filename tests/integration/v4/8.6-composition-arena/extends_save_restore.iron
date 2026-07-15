@@ -7,21 +7,21 @@ object Temp {
     val id: Int
 
     drop {
-        println("temp {id} freed")
+        println("temp {self.id} freed")
     }
 }
 
 func main() {
-    val arena = heap Arena.new(size: 1024 * 1024)
+    val arena = heap Arena.new(1024 * 1024)
     defer free arena
 
     val mark = arena.save()
 
     -- allocate 3 temporaries inside the mark boundary
     in arena {
-        val t1 = heap Temp(id: 1)
-        val t2 = heap Temp(id: 2)
-        val t3 = heap Temp(id: 3)
+        val t1 = heap Temp(1)
+        val t2 = heap Temp(2)
+        val t3 = heap Temp(3)
         println("temps allocated")
     }
 
@@ -31,7 +31,7 @@ func main() {
 
     -- one more allocation after restore; proves arena is still usable
     in arena {
-        val t4 = heap Temp(id: 4)
+        val t4 = heap Temp(4)
         println("t4 allocated")
     }
     arena.reset()

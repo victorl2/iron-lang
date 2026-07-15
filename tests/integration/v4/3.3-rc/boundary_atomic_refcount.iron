@@ -7,7 +7,7 @@ object SharedData {
     val value: Int
 
     drop {
-        println("drop: shared {value}")
+        println("drop: shared {self.value}")
     }
 }
 
@@ -16,7 +16,7 @@ func worker(data: rc SharedData) {
 }
 
 func main() {
-    val shared = rc SharedData(value: 100)
+    val shared = rc SharedData(100)
     val copy_for_worker = shared
     val t = spawn worker(copy_for_worker)
     await t

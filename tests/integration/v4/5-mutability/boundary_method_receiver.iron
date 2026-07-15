@@ -16,7 +16,7 @@ object Counter {
 }
 
 func main() {
-    var c = Counter(count: 0)
+    var c = Counter(0)
     c.tick()
     c.tick()
     println("count={c.get()}")

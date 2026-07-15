@@ -17,7 +17,7 @@ readonly func double_area(r: *Rect) -> Int {
 }
 
 func main() {
-    val r = Rect(w: 4, h: 5)
+    val r = Rect(4, 5)
     val result = double_area(&r)
     println("double area: {result}")
 }

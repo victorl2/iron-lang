@@ -17,7 +17,7 @@ readonly func observe_attack(p: *var Player) -> Int {
 }
 
 func main() {
-    var player = Player(hp: 75, attack: 12)
+    var player = Player(75, 12)
     val hp = observe_hp(&player)
     val atk = observe_attack(&player)
     println("hp={hp} attack={atk}")

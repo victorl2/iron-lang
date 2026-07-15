@@ -11,9 +11,9 @@ func main() {
     val arena = Arena.with_capacity(4096)
     println("capacity: {arena.capacity()}")
     println("used before: {arena.used()}")
-    val b1 = heap(in: arena) Block(data: 1)
-    val b2 = heap(in: arena) Block(data: 2)
-    val b3 = heap(in: arena) Block(data: 3)
+    val b1 = heap(in: arena) Block(1)
+    val b2 = heap(in: arena) Block(2)
+    val b3 = heap(in: arena) Block(3)
     println("used after 3 allocs > 0: {arena.used() > 0}")
     println("data: {b1.data},{b2.data},{b3.data}")
 }

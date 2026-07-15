@@ -7,7 +7,7 @@ object StackVal {
     val id: Int
 
     drop {
-        println("stack {id} freed")
+        println("stack {self.id} freed")
     }
 }
 
@@ -15,7 +15,7 @@ object HeapObj {
     val id: Int
 
     drop {
-        println("heap {id} freed")
+        println("heap {self.id} freed")
     }
 }
 
@@ -23,7 +23,7 @@ object Shared {
     val id: Int
 
     drop {
-        println("shared {id} freed")
+        println("shared {self.id} freed")
     }
 }
 
@@ -31,7 +31,7 @@ object ArenaObj {
     val id: Int
 
     drop {
-        println("arena {id} freed")
+        println("arena {self.id} freed")
     }
 }
 
@@ -40,30 +40,30 @@ object Child {
     var parent: weak rc Shared
 
     drop {
-        println("child {id} freed")
+        println("child {self.id} freed")
     }
 }
 
 func main() {
     -- stack allocation: freed at scope exit
-    val sv = StackVal(id: 1)
+    val sv = StackVal(1)
 
     -- heap allocation: freed via defer
-    val ho = heap HeapObj(id: 2)
+    val ho = heap HeapObj(2)
     defer free ho
 
     -- rc allocation: freed when last reference goes out of scope
-    val sh = rc Shared(id: 3)
+    val sh = rc Shared(3)
 
     -- weak rc: child holds non-owning reference to shared
-    val ch = Child(id: 4, parent: weak rc sh)
+    val ch = Child(4, weak rc sh)
 
     -- arena allocation: freed at arena.reset()
-    val arena = heap Arena.new(size: 64 * 1024)
+    val arena = heap Arena.new(64 * 1024)
     defer free arena
 
     in arena {
-        val ao = heap ArenaObj(id: 5)
+        val ao = heap ArenaObj(5)
         println("arena obj alive")
     }
     arena.reset()

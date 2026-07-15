@@ -58,8 +58,8 @@ func main() {
     var players: List[Player] = List.new()
     var enemies: List[Enemy] = List.new()
 
-    val p = Player(hp: 100, attack: 20, attack_range: 10.0, pos: Vec2(x: 0.0, y: 0.0))
-    val e = Enemy(hp: 50, defense: 5, pos: Vec2(x: 3.0, y: 4.0))
+    val p = Player(100, 20, 10.0, Vec2(0.0, 0.0))
+    val e = Enemy(50, 5, Vec2(3.0, 4.0))
 
     players.add(p)
     enemies.add(e)

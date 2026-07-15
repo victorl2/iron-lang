@@ -18,7 +18,7 @@ func worker(s: rc SharedState) {
 }
 
 func main() {
-    val state = rc SharedState(value: 42)
+    val state = rc SharedState(42)
     val worker_copy = state         -- refcount = 2
     spawn worker(worker_copy)       -- worker takes ownership of the copy
     -- main's rc copy still alive here; refcount >= 1

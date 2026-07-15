@@ -13,7 +13,7 @@ readonly func scaled_damage(stats: *Stats, multiplier: Int) -> Int {
 }
 
 func main() {
-    val s = Stats(base_damage: 10, level: 3)
+    val s = Stats(10, 3)
     val dmg = scaled_damage(&s, 2)
     println("scaled: {dmg}")
 }

@@ -27,10 +27,10 @@ object World {
     var should_quit: Bool
 
     init(seed: Int) {
-        self.terrain = TerrainGrid(seed: seed)
-        self.entities = List.new(capacity: 4096)
-        self.physics = PhysicsState(gravity: 9.8)
-        self.spatial_index = SpatialHash(cell_size: 16.0)
+        self.terrain = TerrainGrid(seed)
+        self.entities = List.new(4096)
+        self.physics = PhysicsState(9.8)
+        self.spatial_index = SpatialHash(16.0)
         self.should_quit = false
     }
 
@@ -44,7 +44,7 @@ func game_loop(world: *var World) {
 }
 
 func main() {
-    val world = heap World(seed: 42)
+    val world = heap World(42)
     defer free world
     -- World is multi-megabyte; explicit heap allocation
     -- Explicit free at scope exit via defer

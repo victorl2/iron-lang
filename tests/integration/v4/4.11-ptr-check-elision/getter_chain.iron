@@ -15,7 +15,7 @@ object Point {
 }
 
 func main() {
-    val p = heap Point(x: 10, y: 20, z: 30)
+    val p = heap Point(10, 20, 30)
     -- four field reads off the same root, no intervening free → getter chain
     val ptr: *Point = &p
     val sum = ptr.x + ptr.y + ptr.z + ptr.x

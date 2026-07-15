@@ -12,5 +12,5 @@ object NonHashable {
 
 func main() {
     var m: Map[NonHashable, Int] = Map.new()
-    m.set(NonHashable(payload: 1), 10)
+    m.set(NonHashable(1), 10)
 }

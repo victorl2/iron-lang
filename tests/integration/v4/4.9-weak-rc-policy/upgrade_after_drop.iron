@@ -7,14 +7,14 @@ object Foo {
     val v: Int
 
     drop {
-        println("drop Foo: {v}")
+        println("drop Foo: {self.v}")
     }
 }
 
 func main() {
     var weak_holder: weak rc Foo = weak rc null
     {
-        val strong = rc Foo(v: 42)
+        val strong = rc Foo(42)
         weak_holder = strong.downgrade()
     }
     println("after inner scope")

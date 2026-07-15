@@ -20,8 +20,8 @@ readonly func compute_damage(attacker: *Player, target: *Enemy) -> Int {
 }
 
 func main() {
-    val player = Player(hp: 100, attack: 15)
-    val enemy = Enemy(hp: 50, defense: 5)
+    val player = Player(100, 15)
+    val enemy = Enemy(50, 5)
     val dmg = compute_damage(&player, &enemy)
     println("damage: {dmg}")
 }

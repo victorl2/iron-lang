@@ -7,7 +7,7 @@ object Texture {
     val path: String
 
     drop {
-        println("free texture: {path}")
+        println("free texture: {self.path}")
     }
 }
 
@@ -16,13 +16,13 @@ object Container {
     val tag: Int
 
     drop {
-        println("drop heap container: {tag}")
+        println("drop heap container: {self.tag}")
     }
 }
 
 func main() {
-    val tex = rc Texture(path: "sprites.png")
-    val c = heap Container(tex: tex, tag: 1)
+    val tex = rc Texture("sprites.png")
+    val c = heap Container(tex, 1)
     defer free c
     println("container tag: {c.tag}, tex: {c.tex.path}")
 }

@@ -7,14 +7,14 @@ object DrawCmd {
     val id: Int
 
     drop {
-        println("drop cmd: {id}")
+        println("drop cmd: {self.id}")
     }
 }
 
 func main() {
     val frame_arena = Arena.with_capacity(65536)
-    val cmd1 = heap(in: frame_arena) DrawCmd(id: 1)
-    val cmd2 = heap(in: frame_arena) DrawCmd(id: 2)
-    val cmd3 = heap(in: frame_arena) DrawCmd(id: 3)
+    val cmd1 = heap(in: frame_arena) DrawCmd(1)
+    val cmd2 = heap(in: frame_arena) DrawCmd(2)
+    val cmd3 = heap(in: frame_arena) DrawCmd(3)
     println("cmds: {cmd1.id}, {cmd2.id}, {cmd3.id}")
 }

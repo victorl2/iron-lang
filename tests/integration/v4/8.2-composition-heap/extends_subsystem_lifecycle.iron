@@ -30,9 +30,9 @@ object Renderer {
 }
 
 func main() {
-    val physics = heap Physics(gravity: 9.8)
+    val physics = heap Physics(9.8)
     defer free physics
-    val renderer = heap Renderer(width: 1920)
+    val renderer = heap Renderer(1920)
     defer free renderer
 
     -- defers run LIFO: renderer freed first, then physics

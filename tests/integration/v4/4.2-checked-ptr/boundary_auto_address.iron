@@ -13,7 +13,7 @@ func observe(p: *Player) {
 }
 
 func main() {
-    val player = Player(hp: 80, attack: 10)
+    val player = Player(80, 10)
     -- auto-address: compiler inserts implicit & before player
     observe(player)
 }

@@ -7,21 +7,21 @@ object Scratch {
     val tag: Int
 
     drop {
-        println("drop scratch: {tag}")
+        println("drop scratch: {self.tag}")
     }
 }
 
 func main() {
     val arena = Arena.with_capacity(65536)
-    val before = heap(in: arena) Scratch(tag: 0)
+    val before = heap(in: arena) Scratch(0)
     println("before save: tag={before.tag}")
     val save = arena.save()
-    val s1 = heap(in: arena) Scratch(tag: 1)
-    val s2 = heap(in: arena) Scratch(tag: 2)
-    val s3 = heap(in: arena) Scratch(tag: 3)
+    val s1 = heap(in: arena) Scratch(1)
+    val s2 = heap(in: arena) Scratch(2)
+    val s3 = heap(in: arena) Scratch(3)
     println("after alloc: tags={s1.tag},{s2.tag},{s3.tag}")
     arena.restore(save)
     println("after restore")
-    val after = heap(in: arena) Scratch(tag: 99)
+    val after = heap(in: arena) Scratch(99)
     println("new alloc: tag={after.tag}")
 }

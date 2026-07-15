@@ -1,5 +1,7 @@
 -- section 4.10 rc elision: SPAWN soundness trap
 -- @req: OPT-01
+-- @expected-pass-after: phase-37
+-- XFAIL (phase-37): spawn handle surface (`val t = spawn f(args)` + `await t`) not implemented — spawn takes a string task-name first.
 -- A retain/release pair straddles a `spawn`: the rc value is cloned and passed
 -- to the spawned worker, then dropped on the main side. A naive elision that
 -- deleted the pair would race the worker's view of the refcount. Correct
@@ -10,7 +12,7 @@ object SharedData {
     val value: Int
 
     drop {
-        println("drop: shared {value}")
+        println("drop: shared {self.value}")
     }
 }
 
@@ -19,7 +21,7 @@ func worker(data: rc SharedData) {
 }
 
 func main() {
-    val shared = rc SharedData(value: 100)
+    val shared = rc SharedData(100)
     val copy_for_worker = shared
     val t = spawn worker(copy_for_worker)
     await t

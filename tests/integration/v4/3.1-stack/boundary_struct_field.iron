@@ -7,7 +7,7 @@ object Probe {
     val name: String
 
     drop {
-        println("drop: {name}")
+        println("drop: {self.name}")
     }
 }
 
@@ -17,6 +17,6 @@ object Container {
 }
 
 func main() {
-    val c = Container(first: Probe(name: "first"), second: Probe(name: "second"))
+    val c = Container(Probe("first"), Probe("second"))
     println("alive")
 }

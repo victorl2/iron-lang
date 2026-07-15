@@ -6,17 +6,15 @@
 
 object Foo {
     val v: Int
-}
 
-impl Foo {
-    readonly func observe(self: *Foo, w: weak rc Foo) -> Int {
+    readonly func observe(self, w: weak rc Foo) -> Int {
         val maybe = w.upgrade()
         return self.v
     }
 }
 
 func main() {
-    val strong = rc Foo(v: 1)
+    val strong = rc Foo(1)
     val observer = strong.downgrade()
     val n = strong.observe(observer)
     println("observed v={n}")

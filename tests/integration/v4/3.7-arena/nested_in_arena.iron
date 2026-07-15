@@ -18,10 +18,10 @@ func main() {
     val b = Arena.with_capacity(65536)
 
     in a {
-        val outer = heap Node(id: 1)
+        val outer = heap Node(1)
         in b {
             -- bare heap here resolves to the INNERMOST active arena (b)
-            val x = heap Node(id: 2)
+            val x = heap Node(2)
             println("inner x: {x.id}")
         }
         println("outer: {outer.id}")
