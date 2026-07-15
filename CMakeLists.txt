@@ -1707,10 +1707,10 @@ endif()
 #     E0276 appears ANYWHERE in the combined output — the only sound oracle.
 #     RED now (gate still fires); flips GREEN in Plan 32-02.
 #
-#   WILL_FAIL BUILD+RUN (the container is check-only — no clang to run output):
-#     defer_then_drop, defer_early_return, defer_break_continue,
-#     defer_read_at_exit — `ironc build`+run rows registered WILL_FAIL YES;
-#     they flip GREEN on a clang-equipped host once 32-02 lands.
+#   BUILD+RUN (require clang on the host to run the produced binary):
+#     defer_then_drop, defer_early_return, defer_loop_iteration,
+#     defer_read_at_exit — plain rows (the historical WILL_FAIL YES marking
+#     inverted on clang hosts and was removed; see the note at the rows).
 #
 # No fixture asserts a defer running DURING a panic — Iron panic is abort()-based
 # (no unwinding); defers run only on NORMAL control-flow exit edges. See
@@ -1733,15 +1733,21 @@ if(NOT WIN32)
     set_tests_properties(v4_4.13-defer_block_accept PROPERTIES
         LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 30)
 
-    # ── WILL_FAIL build+run rows (check-only container; flip on a clang host) ──
+    # ── Build+run rows ──────────────────────────────────────────────────────
+    # These previously carried WILL_FAIL YES ("check-only container has no
+    # clang"), which INVERTS on any clang-equipped host — CI's ubuntu runner
+    # and local dev boxes reported the working fixtures as FAILED and hid a
+    # genuinely-broken fixture (defer_break_continue used `break`/`continue`,
+    # keywords Iron does not have; replaced by defer_loop_iteration). Do NOT
+    # re-add WILL_FAIL to encode environment limitations — gate on the
+    # environment instead if a check-only host ever needs to skip these.
     add_test(
         NAME v4_4.13-defer_then_drop
         COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_then_drop.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_then_drop.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_4.13-defer_then_drop PROPERTIES
-        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60)
 
     add_test(
         NAME v4_4.13-defer_early_return
@@ -1749,17 +1755,15 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_4.13-defer_early_return PROPERTIES
-        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60)
 
     add_test(
-        NAME v4_4.13-defer_break_continue
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_break_continue.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_break_continue.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        NAME v4_4.13-defer_loop_iteration
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_loop_iteration.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_loop_iteration.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_4.13-defer_break_continue PROPERTIES
-        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+    set_tests_properties(v4_4.13-defer_loop_iteration PROPERTIES
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60)
 
     add_test(
         NAME v4_4.13-defer_read_at_exit
@@ -1767,8 +1771,7 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_4.13-defer_read_at_exit PROPERTIES
-        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60)
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────

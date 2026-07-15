@@ -98,6 +98,20 @@ def _default_init_params() -> types.InitializeParams:
     )
 
 
+def _install_feature(client: LanguageClient, name: str, handler) -> None:
+    """Register a client feature, tolerating pygls versions that already
+    pre-register it. pygls >= 2.1 ships built-in handlers for some
+    server->client requests (e.g. workspace/diagnostic/refresh) and raises
+    ValidationError('Feature is already registered') on re-registration —
+    which previously crashed every smoke fixture at session start. An
+    already-present handler serves the same purpose as our no-op responder,
+    so skipping is correct."""
+    try:
+        client.feature(name)(handler)
+    except Exception:
+        pass  # already registered by this pygls version — keep the built-in
+
+
 def _install_register_capability_handler(client: LanguageClient) -> None:
     """The server emits `client/registerCapability` immediately after
     `initialized` to subscribe to workspace/didChangeWatchedFiles. The
@@ -105,11 +119,9 @@ def _install_register_capability_handler(client: LanguageClient) -> None:
     handler for it, so pygls raises MethodNotFound and corrupts the
     initialize future. Register a no-op responder per LSP 3.17 spec
     ({"result": null})."""
-    @client.feature("client/registerCapability")
     def _on_register_capability(_c: LanguageClient, _params):
         return None
 
-    @client.feature("client/unregisterCapability")
     def _on_unregister_capability(_c: LanguageClient, _params):
         return None
 
@@ -117,9 +129,13 @@ def _install_register_capability_handler(client: LanguageClient) -> None:
     # `workspace/diagnostic/refresh` (a server->client request) on
     # watched-file invalidation of non-open files. Respond with null so
     # pygls doesn't raise MethodNotFound and corrupt the test future.
-    @client.feature("workspace/diagnostic/refresh")
     def _on_workspace_diagnostic_refresh(_c: LanguageClient, _params):
         return None
+
+    _install_feature(client, "client/registerCapability", _on_register_capability)
+    _install_feature(client, "client/unregisterCapability", _on_unregister_capability)
+    _install_feature(client, "workspace/diagnostic/refresh",
+                     _on_workspace_diagnostic_refresh)
 
 
 @pytest_asyncio.fixture

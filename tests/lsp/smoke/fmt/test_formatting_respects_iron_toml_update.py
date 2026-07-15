@@ -17,17 +17,16 @@ from pytest_lsp import ClientServerConfig
 
 
 def _install_feature_stubs(lsp_client) -> None:
-    @lsp_client.feature("client/registerCapability")
-    def _on_register_capability(_c, _params):  # noqa: ARG001
-        return None
-
-    @lsp_client.feature("client/unregisterCapability")
-    def _on_unregister_capability(_c, _params):  # noqa: ARG001
-        return None
-
-    @lsp_client.feature("workspace/diagnostic/refresh")
-    def _on_ws_diag_refresh(_c, _params):  # noqa: ARG001
-        return None
+    # Newer pygls (>= 2.1) pre-registers some of these
+    # (workspace/diagnostic/refresh); skip already-registered
+    # features -- the built-in handler serves the same purpose.
+    for _feat in ("client/registerCapability",
+                  "client/unregisterCapability",
+                  "workspace/diagnostic/refresh"):
+        try:
+            lsp_client.feature(_feat)(lambda _params: None)
+        except Exception:
+            pass
 
 
 async def _force_stop(lsp_client) -> None:

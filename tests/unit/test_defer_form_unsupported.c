@@ -1,18 +1,19 @@
-/* Phase 21 Wave 0 (Plan 01): TDD scaffold for DEFER-02 — only
- * `defer free <ident>` is supported in v3.0-alpha.1; all other defer forms
- * emit IRON_ERR_DEFER_FORM_UNSUPPORTED=276.
+/* Phase 32 DEFER-01: `defer` accepts ANY statement — code 276
+ * (IRON_ERR_DEFER_FORM_UNSUPPORTED) is RETIRED (see diagnostics.h) and must
+ * never be emitted again, for any defer form.
  *
- * The structural check fires in hir_lower.c (IRON_NODE_DEFER arm) — AFTER
- * the parse+analyze pipeline — so each test runs:
- *   iron_analyze_buffer  -> Iron_AnalyzeResult (with program + global_scope)
- *   iron_hir_lower       -> IronHIR_Module (or NULL on error)
- * and then inspects the combined diag list for E0276.
+ * History: Phase 21 (DEFER-02) restricted defer to `defer free <ident>` and
+ * this file asserted E0276 fired for every other form. Phase 32 generalized
+ * defer (parser.c IRON_TOK_DEFER arm parses a full statement or block) but
+ * this test was left asserting the OLD contract, so it went permanently RED.
+ * It now locks the Phase 32 contract from both directions:
+ *   1. every previously-rejected form parses + lowers with ZERO E0276, and
+ *   2. the legal Phase 21 form (`defer free <ident>`) still emits ZERO E0276.
+ * Other diagnostics (e.g. free-target validation) are intentionally NOT
+ * asserted here — this file only guards the retirement of code 276.
  *
- * Authored RED first; flips GREEN once Plan 21-01 Task 4 inserts the
- * structural check at the TOP of the IRON_NODE_DEFER arm in hir_lower.c.
- *
- * Pattern source: tests/unit/test_analyzer_parm_var_slot.c +
- *                 tests/hir/test_hir_lower.c (hir_lower invocation) */
+ * Pipeline pattern unchanged: iron_analyze_buffer -> iron_hir_lower, then
+ * inspect the combined diag list. */
 
 #include "unity.h"
 #include "analyzer/analyzer.h"
@@ -46,7 +47,6 @@ static void run_pipeline(const char *src) {
         &arena, &diags, NULL,
         0);
     if (!r.program || !r.global_scope) return;
-    /* Run hir_lower — this is where IRON_ERR_DEFER_FORM_UNSUPPORTED fires */
     IronHIR_Module *mod = iron_hir_lower(r.program, r.global_scope,
                                           NULL, &diags);
     if (mod) iron_hir_module_destroy(mod);
@@ -60,69 +60,53 @@ static int count_with_code(int target) {
     return n;
 }
 
-static bool msg_contains(int target, const char *needle) {
-    for (int i = 0; i < arrlen(diags.items); i++) {
-        if (diags.items[i].code == target) {
-            if (diags.items[i].message && strstr(diags.items[i].message, needle))
-                return true;
-            if (diags.items[i].suggestion && strstr(diags.items[i].suggestion, needle))
-                return true;
-        }
-    }
-    return false;
-}
-
-/* DEFER-02: `defer println("x")` — function call is not `free <ident>`. */
-void test_defer_function_call_rejected(void) {
+/* DEFER-01: `defer println("x")` — function-call statement is legal. */
+void test_defer_function_call_accepted(void) {
     run_pipeline(
         "func main() {\n"
         "    defer println(\"cleanup\")\n"
         "}\n");
-    TEST_ASSERT_GREATER_THAN_INT(0,
+    TEST_ASSERT_EQUAL_INT(0,
         count_with_code(IRON_ERR_DEFER_FORM_UNSUPPORTED));
-    TEST_ASSERT_TRUE(msg_contains(IRON_ERR_DEFER_FORM_UNSUPPORTED,
-        "only `defer free <binding>` is supported"));
-    TEST_ASSERT_TRUE(msg_contains(IRON_ERR_DEFER_FORM_UNSUPPORTED,
-        "Phase 32"));
 }
 
-/* DEFER-02: `defer compute()` — generic function call rejected. */
-void test_defer_compute_call_rejected(void) {
+/* DEFER-01: `defer compute()` — generic call statement is legal. */
+void test_defer_compute_call_accepted(void) {
     run_pipeline(
         "func compute() {}\n"
         "func main() {\n"
         "    defer compute()\n"
         "}\n");
-    TEST_ASSERT_GREATER_THAN_INT(0,
+    TEST_ASSERT_EQUAL_INT(0,
         count_with_code(IRON_ERR_DEFER_FORM_UNSUPPORTED));
 }
 
-/* DEFER-02: `defer free p.field` — inner free target is field access, not ident. */
-void test_defer_free_field_rejected(void) {
+/* DEFER-01: `defer free p.field` — free of a field target never emits the
+ * retired 276 (free-target validity is a separate check, not asserted). */
+void test_defer_free_field_no_retired_code(void) {
     run_pipeline(
         "object Container { var inner: Int }\n"
         "func main() {\n"
         "    val c = heap Container(0)\n"
         "    defer free c.inner\n"
         "}\n");
-    TEST_ASSERT_GREATER_THAN_INT(0,
+    TEST_ASSERT_EQUAL_INT(0,
         count_with_code(IRON_ERR_DEFER_FORM_UNSUPPORTED));
 }
 
-/* DEFER-02: `defer free arr[i]` — inner free target is index expr, not ident. */
-void test_defer_free_index_rejected(void) {
+/* DEFER-01: `defer free arr[i]` — index target never emits the retired 276. */
+void test_defer_free_index_no_retired_code(void) {
     run_pipeline(
         "func main() {\n"
         "    val arr = [heap 42]\n"
         "    val i = 0\n"
         "    defer free arr[i]\n"
         "}\n");
-    TEST_ASSERT_GREATER_THAN_INT(0,
+    TEST_ASSERT_EQUAL_INT(0,
         count_with_code(IRON_ERR_DEFER_FORM_UNSUPPORTED));
 }
 
-/* Legal form: `defer free p` where p is a bare identifier — must emit ZERO E0276.
- * The defer lowers through the existing IRON_HIR_STMT_DEFER path. */
+/* Legal since Phase 21: `defer free p` with a bare identifier — zero E0276. */
 void test_defer_free_ident_legal(void) {
     run_pipeline(
         "object Point { var x: Int; var y: Int\n"
@@ -136,24 +120,24 @@ void test_defer_free_ident_legal(void) {
         count_with_code(IRON_ERR_DEFER_FORM_UNSUPPORTED));
 }
 
-/* DEFER-02: `defer x = 1` — assignment in defer body rejected. */
-void test_defer_assignment_rejected(void) {
+/* DEFER-01: `defer x = 1` — assignment statement is legal. */
+void test_defer_assignment_accepted(void) {
     run_pipeline(
         "func main() {\n"
         "    var x = 0\n"
         "    defer x = 1\n"
         "}\n");
-    TEST_ASSERT_GREATER_THAN_INT(0,
+    TEST_ASSERT_EQUAL_INT(0,
         count_with_code(IRON_ERR_DEFER_FORM_UNSUPPORTED));
 }
 
 int main(void) {
     UNITY_BEGIN();
-    RUN_TEST(test_defer_function_call_rejected);
-    RUN_TEST(test_defer_compute_call_rejected);
-    RUN_TEST(test_defer_free_field_rejected);
-    RUN_TEST(test_defer_free_index_rejected);
+    RUN_TEST(test_defer_function_call_accepted);
+    RUN_TEST(test_defer_compute_call_accepted);
+    RUN_TEST(test_defer_free_field_no_retired_code);
+    RUN_TEST(test_defer_free_index_no_retired_code);
     RUN_TEST(test_defer_free_ident_legal);
-    RUN_TEST(test_defer_assignment_rejected);
+    RUN_TEST(test_defer_assignment_accepted);
     return UNITY_END();
 }

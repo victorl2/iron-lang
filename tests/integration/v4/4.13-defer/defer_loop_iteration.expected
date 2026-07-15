@@ -1,7 +1,7 @@
-continue at 0
-iter-cleanup 0
-continue at 1
-iter-cleanup 1
-break at 2
-iter-cleanup 2
+body 0
+iter-cleanup
+body 1
+iter-cleanup
+body 2
+iter-cleanup
 done

@@ -64,6 +64,13 @@ static bool dir_exists(const char *path) {
 
 static const char *resolve_integration_dir(void) {
     static char buf[1024];
+    /* Phase 35 MIG-08 moved the flat v2/v3 corpus this test walks into
+     * tests/integration/v3-archive/ (tests/integration/ itself now only
+     * holds the v4/ and v4-fail/ subtrees, which this non-recursive walker
+     * never descended into anyway). Prefer the archive. */
+    snprintf(buf, sizeof(buf), "%s/tests/integration/v3-archive",
+             IRON_SOURCE_TREE_ROOT);
+    if (dir_exists(buf)) return buf;
     snprintf(buf, sizeof(buf), "%s/tests/integration", IRON_SOURCE_TREE_ROOT);
     if (dir_exists(buf)) return buf;
     return NULL;
