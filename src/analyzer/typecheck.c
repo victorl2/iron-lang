@@ -6853,11 +6853,13 @@ static bool arena_type_has_nontrivial_dtor(Iron_Type *t, TypeCtx *ctx,
  * Compatible types: primitives (Int/Float/Bool/String + width variants + Void),
  *   IRON_TYPE_ARRAY with size >= 0 (fixed-size), IRON_TYPE_NULLABLE recursing
  *   on inner, IRON_TYPE_TUPLE recursing on elements, IRON_TYPE_OBJECT iff every
- *   field's resolved_type is compatible (transitive struct walk with cache).
+ *   field's resolved_type is compatible (transitive struct walk with cache),
+ *   IRON_TYPE_ENUM iff every variant payload is compatible (payloadless
+ *   C-like enums trivially pass; auto-boxed recursive payloads reject).
  *
  * Incompatible: IRON_TYPE_RC, IRON_TYPE_PTR, IRON_TYPE_FUNC, IRON_TYPE_INTERFACE,
- *   IRON_TYPE_ENUM, IRON_TYPE_GENERIC_PARAM, IRON_TYPE_ERROR, IRON_TYPE_NULL,
- *   IRON_TYPE_ARRAY with size == -1 (dynamic = List[T]), and default (unknown).
+ *   IRON_TYPE_GENERIC_PARAM, IRON_TYPE_ERROR, IRON_TYPE_NULL, and default
+ *   (unknown). Dynamic arrays ([T], size == -1) are ALLOWED — see the ARRAY arm.
  */
 static bool is_readonly_compatible_type(const Iron_Type *t, TypeCtx *ctx) {
     if (!t) return true;  /* void / NULL — OK; void return is always compatible */
@@ -6936,12 +6938,57 @@ static bool is_readonly_compatible_type(const Iron_Type *t, TypeCtx *ctx) {
         case IRON_TYPE_PTR:
             return false;
 
+        /* ── Enum (ADT) — compatible iff every variant payload is ─────────
+         * Payloadless (C-like) enums — raylib's KeyboardKey, GamepadButton,
+         * Gesture, CameraProjection, … — are plain value scalars and always
+         * pass; rejecting them also transitively rejected every struct with
+         * an enum field (Camera3D) and every Result[T, E] return. Payload-
+         * carrying variants recurse into each payload type. Auto-boxed
+         * (recursive) payloads are heap pointers under the hood — rejected,
+         * mirroring the PTR arm's fail-safe stance. */
+        case IRON_TYPE_ENUM: {
+            if (t->readonly_compat_cached) return t->is_readonly_compatible;
+            Iron_EnumDecl *ed = t->enu.decl;
+            if (!ed) return false;
+            if (!ed->has_payloads) return true;
+            /* Optimistic-cache cycle break (mirrors the OBJECT arm): set the
+             * result true BEFORE recursing so a payload that references this
+             * enum terminates. Auto-boxed recursive payloads already reject via
+             * the payload_is_boxed guard below; this additionally covers any
+             * non-boxed indirect cycle (A payload B, B payload A). */
+            ((Iron_Type *)t)->readonly_compat_cached = true;
+            ((Iron_Type *)t)->is_readonly_compatible  = true;
+            for (int vi = 0; vi < ed->variant_count; vi++) {
+                Iron_EnumVariant *v = (Iron_EnumVariant *)ed->variants[vi];
+                if (!v) continue;
+                for (int pi = 0; pi < v->payload_count; pi++) {
+                    if (v->payload_is_boxed && v->payload_is_boxed[pi]) {
+                        ((Iron_Type *)t)->is_readonly_compatible = false;
+                        return false;
+                    }
+                    Iron_Type *pt = NULL;
+                    if (t->enu.variant_payload_types &&
+                        t->enu.variant_payload_types[vi]) {
+                        pt = t->enu.variant_payload_types[vi][pi];
+                    }
+                    if (!pt && v->payload_type_anns && v->payload_type_anns[pi]) {
+                        pt = resolve_type_annotation(ctx, v->payload_type_anns[pi]);
+                    }
+                    /* Pitfall 3 fail-safe: unresolvable payload rejects. */
+                    if (!pt || !is_readonly_compatible_type(pt, ctx)) {
+                        ((Iron_Type *)t)->is_readonly_compatible = false;
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
         /* ── All other types — not readonly-compatible ───────────────────── */
         case IRON_TYPE_RC:
         case IRON_TYPE_WEAK_RC:  /* Phase 27 POL-08: weak rc shares rc's non-readonly-compat stance */
         case IRON_TYPE_FUNC:
         case IRON_TYPE_INTERFACE:
-        case IRON_TYPE_ENUM:
         case IRON_TYPE_GENERIC_PARAM:
         case IRON_TYPE_ERROR:
         case IRON_TYPE_NULL:
@@ -7008,7 +7055,7 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
                  ts ? ts : "?");
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_READONLY_RETURN_TYPE, fd->span, msg,
-                       "§6: readonly return types: primitives, fixed structs,"
+                       "§6: readonly return types: primitives, enums, fixed structs,"
                        " [T; N], [T; <=N], tuples, T?");
     }
 
@@ -7153,7 +7200,7 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
                  ts ? ts : "?");
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_READONLY_RETURN_TYPE, md->span, msg,
-                       "§6: readonly return types: primitives, fixed structs,"
+                       "§6: readonly return types: primitives, enums, fixed structs,"
                        " [T; N], [T; <=N], tuples, T?");
     }
 

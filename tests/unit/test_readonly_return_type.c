@@ -82,7 +82,7 @@ void test_readonly_pointer_return_rejected(void) {
     TEST_ASSERT_EQUAL_INT(1, count_code(IRON_ERR_READONLY_RETURN_TYPE));
     TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_RETURN_TYPE, "6:"));
     TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_RETURN_TYPE,
-                                   "primitives, fixed structs"));
+                                   "primitives, enums, fixed structs"));
 }
 
 /* READ-06 case 3: readonly method returning Bool emits ZERO E0280. */

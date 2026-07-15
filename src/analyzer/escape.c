@@ -495,6 +495,14 @@ static void analyze_function_body(EscapeCtx *ctx, Iron_Node *body_node) {
         if (he->resolved_type && he->resolved_type->kind == IRON_TYPE_RC) {
             continue;
         }
+        /* Phase 28 ARENA-02: arena-targeted allocations
+         * (`heap(in: arena, ...) T(...)`) are reclaimed by the arena's
+         * reset/destroy, never by `free` — exempt from E0207/W0606. The
+         * skipped-destructor acknowledgement is W0605's job (ARENA-09
+         * allow_drop_skip), not the free lint's. */
+        if (he->arena_expr) {
+            continue;
+        }
         /* Check if the bound variable's type is rc (set by typechecker) */
         /* (The heap node might be wrapped in an rc expression; check inner) */
 
