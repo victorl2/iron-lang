@@ -55,10 +55,22 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
  * The five entry points form a SPANNING SET for the grammar's cycles: no
  * recursive chain of length > 1 can avoid all five. Therefore a runaway
  * input cannot climb recursion depth without crossing at least one wrap
- * per syntactic level, and the IRON_PARSER_MAX_DEPTH=1000 ceiling is hit
+ * per syntactic level, and the IRON_PARSER_MAX_DEPTH ceiling is hit
  * well before the 8 MB stack overflows. Grep invariant:
  *   grep -En 'iron_parser_depth_exceeded|p->recur_depth\+\+' src/parser/parser.c
  * must return exactly the five wrap sites listed above.
+ *
+ * Ceiling calibration note: the guard bounds PARSER stack only. The
+ * historical failure attributed to this ceiling (test_parser_recursion_guard
+ * SIGSEGV under Debug+ASan) was actually a post-trip amplifier: the Pratt
+ * climb loop is iterative, and during error recovery it wrapped the error
+ * node in one call layer per leftover token — an AST whose depth was
+ * bounded by INPUT LENGTH, not by this ceiling — and the analyzer (which
+ * has no depth guard) overflowed on it. That amplifier is now closed at
+ * the top of iron_parse_expr_prec_impl's climb loop (error nodes accrete
+ * no postfix layers during recovery). Measured under Debug+ASan (arm64,
+ * 8 MB stack): 900 nested parens parse clean, the trip at 1000 emits
+ * E0107 with room to spare — 1000 is a safe parser-frame bound.
  *
  * Defense-in-depth note (IN-07 flag): adding depth bumps to
  * func_or_method / object_decl would be harmless but redundant — these
@@ -1914,6 +1926,19 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
     Iron_Node *left = iron_parse_primary(p);
 
     for (;;) {
+        /* HARD-08 companion: never attach postfix/infix layers to an error
+         * node while recovering. The Pratt climb is ITERATIVE, so it costs
+         * no parser recursion depth — during error recovery of pathological
+         * input (e.g. thousands of unclosed '('), each leftover token used
+         * to wrap the error node in one more call/postfix layer, building
+         * an AST whose depth is bounded only by input length and bypassing
+         * the recursion guard entirely. The ANALYZER then recursed once per
+         * layer and overflowed the stack (check_expr, typecheck.c) even
+         * though the parser guard had tripped. An error node accretes no
+         * useful structure — stop climbing and let recovery consume tokens. */
+        if (left && left->kind == IRON_NODE_ERROR && p->in_error_recovery) {
+            return left;
+        }
         /* HARD-05: cancel poll at top of Pratt climb loop. */
         if (iron_cancel_requested(p->cancel_flag)) {
             return left; /* propagate partial result */
