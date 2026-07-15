@@ -46,22 +46,9 @@ The video requirement may be waived for:
 - Documentation-only changes (typos, wording fixes, README updates)
 - Dependency version bumps with no behavioral changes
 - Formatting or whitespace-only commits
-- **Recurring contributors with an established track record**, when submitting small, well-scoped changes — maintainers may grant this at their discretion based on the contributor's history of prior video walkthroughs
+- **Recurring contributors with an established track record**, when submitting well-scoped changes, maintainers may grant this at their discretion based on the contributor's history.
 
 If you believe your change qualifies for an exemption, state so explicitly in the PR description. Maintainers have final say.
-
----
-
-## Automated Enforcement
-
-This project uses automated bots to assist maintainers in enforcing contribution requirements. When you open a pull request, the following checks will run automatically:
-
-- **Video link detection** — the bot will verify that a valid YouTube link is present in the PR description. PRs without one will be automatically flagged as not ready for review
-- **Video accessibility check** — the bot will confirm the video is publicly accessible. A private or deleted video will trigger the same flag
-- **Transcript extraction** — once a valid link is detected, the bot will automatically fetch the YouTube transcript and attach it as a comment on the PR. This makes your explanation readable and searchable without requiring maintainers to watch the video
-- **PR labeling** — PRs will be automatically labeled as `needs-video`, `video-provided`, or `exempt` based on their status, keeping the review queue organized
-
-These checks are not a substitute for human review — they are a first pass to ensure contributions meet the baseline requirements before a maintainer's time is spent on them.
 
 ---
 
