@@ -58,10 +58,11 @@ void test_upgrade_while_strong_alive_succeeds(void) {
     TEST_ASSERT_NOT_NULL(p);
     Iron_RcHeader *rch = iron_rc_header_of(p);
 
-    /* Downgrade to obtain a weak handle; weak_count goes 0 -> 1. */
+    /* Downgrade to obtain a weak handle; weak_count goes 1 -> 2 (baseline
+     * 1 is the strong cohort's collective weak). */
     void *w = iron_rc_downgrade(p);
     TEST_ASSERT_EQUAL_PTR(p, w);
-    TEST_ASSERT_EQUAL_UINT64(1, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
+    TEST_ASSERT_EQUAL_UINT64(2, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
     TEST_ASSERT_EQUAL_UINT64(1, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->refcount));
 
     /* Upgrade — refcount goes 1 -> 2; returned ptr equals original. */
@@ -84,7 +85,7 @@ void test_upgrade_after_strong_drop_returns_null(void) {
     TEST_ASSERT_NOT_NULL(p);
     Iron_RcHeader *rch = iron_rc_header_of(p);
 
-    void *w = iron_rc_downgrade(p);  /* weak_count 0 -> 1 */
+    void *w = iron_rc_downgrade(p);  /* weak_count 1 -> 2 (collective +1) */
 
     /* Release the last strong. drop_fn fires; header stays alive (weak>0). */
     iron_rc_release(p);

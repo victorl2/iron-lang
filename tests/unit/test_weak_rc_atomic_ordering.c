@@ -47,22 +47,23 @@ static void probe_drop(void *self) {
 void test_weak_rc_retain_release_balance(void) {
     /* 100 weak retains + 100 weak releases on an rc that ALSO keeps a strong
      * holder alive (so the block is never freed); weak_count returns to its
-     * starting value (0). */
+     * starting value (1 — the strong cohort's collective weak, Rust Arc
+     * scheme; see iron_rc_alloc). */
     void *p = iron_rc_alloc(sizeof(int), NULL);
     TEST_ASSERT_NOT_NULL(p);
 
     Iron_RcHeader *rch = iron_rc_header_of(p);
-    TEST_ASSERT_EQUAL_UINT64(0, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
+    TEST_ASSERT_EQUAL_UINT64(1, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
 
     for (int i = 0; i < 100; i++) {
         iron_weak_rc_retain(p);
     }
-    TEST_ASSERT_EQUAL_UINT64(100, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
+    TEST_ASSERT_EQUAL_UINT64(101, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
 
     for (int i = 0; i < 100; i++) {
         iron_weak_rc_release(p);
     }
-    TEST_ASSERT_EQUAL_UINT64(0, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
+    TEST_ASSERT_EQUAL_UINT64(1, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
 
     /* Strong still 1. Final release frees the block (weak now 0). */
     TEST_ASSERT_EQUAL_UINT64(1, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->refcount));
@@ -81,16 +82,17 @@ void test_weak_release_does_not_free_when_strong_alive(void) {
     Iron_RcHeader *rch = iron_rc_header_of(p);
     *(int64_t *)p = 0xCAFEFACEull;
 
-    /* Bump weak to 1, then release. weak transitions 0 -> 1 -> 0. */
+    /* Bump weak, then release. weak transitions 1 -> 2 -> 1 around the
+     * collective-weak baseline of 1 (strong still alive). */
     iron_weak_rc_retain(p);
-    TEST_ASSERT_EQUAL_UINT64(1, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
+    TEST_ASSERT_EQUAL_UINT64(2, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
     iron_weak_rc_release(p);
 
     /* If the block had been wrongly freed, this load would be UAF (caught
      * by ASan under the silvaserver podman setup). Asserting both that the
      * refcount is still 1 AND the payload is still readable. */
     TEST_ASSERT_EQUAL_UINT64(1, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->refcount));
-    TEST_ASSERT_EQUAL_UINT64(0, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
+    TEST_ASSERT_EQUAL_UINT64(1, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
     TEST_ASSERT_EQUAL_INT64(0xCAFEFACEull, *(int64_t *)p);
     TEST_ASSERT_EQUAL_INT(0, g_drop_calls);
 
@@ -120,9 +122,10 @@ void test_strong_release_does_not_free_when_weak_alive(void) {
     Iron_RcHeader *rch = iron_rc_header_of(p);
 
     /* Snapshot the rch pointer for post-strong-drop probing (the block
-     * is intentionally NOT freed when strong hits 0 with weak alive). */
+     * is intentionally NOT freed when strong hits 0 with weak alive).
+     * weak_count = collective weak (1) + this real weak = 2. */
     iron_weak_rc_retain(p);
-    TEST_ASSERT_EQUAL_UINT64(1, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
+    TEST_ASSERT_EQUAL_UINT64(2, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
 
     /* Release the strong. drop_fn must fire (payload destructor runs);
      * the block stays alive because weak_count > 0. */

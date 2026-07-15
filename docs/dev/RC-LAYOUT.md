@@ -45,9 +45,11 @@ typedef struct Iron_RcHeader {
                                                trampoline (Plan 26-03); NULL
                                                for primitive payloads. */
     iron_atomic_u64  weak_count;  /* offset 16, 8 bytes — ABI-locked Phase 27.
-                                     Relaxed inc on downgrade, relaxed dec on
-                                     weak release. Block free condition is
-                                     weak_count == 0 AND strong_count == 0. */
+                                     Starts at 1: the strong cohort owns one
+                                     collective weak (Rust Arc scheme).
+                                     Relaxed inc on downgrade; RELEASE dec on
+                                     weak release. The weak counter's 1→0
+                                     edge is the single free point. */
 } Iron_RcHeader;
 _Static_assert(sizeof(Iron_RcHeader) == 24, "Iron_RcHeader ABI re-lock — 24B on 64-bit POSIX/Win32");
 ```
@@ -303,13 +305,27 @@ appended at offset 16. The Phase 26 ABI invariants are preserved verbatim:
   unchanged; required by the Phase 29 elision optimizer's pattern-matching).
 - (b) `drop_fn` stays at offset 8 (final-drop call site; required by the
   static-dispatch convention locked by GA5 in Phase 26).
-- (c) `weak_count` appended at offset 16 (relaxed inc/dec; CONTEXT.md GA1).
+- (c) `weak_count` appended at offset 16 (relaxed inc / RELEASE dec;
+  initialised to 1 — see below).
 
-**Block free condition:** `weak_count == 0 AND strong_count == 0`. Whichever
-counter trips zero LAST is responsible for `free(block)`. The intermediate
-state (strong=0, weak>0) means the payload destructor has run but the
-header persists so weak refs remain readable — upgrade() observes
-refcount==0 and returns NULL (safe; no UAF).
+**Block free condition:** the `weak_count` 1→0 edge. `iron_rc_alloc`
+initialises `weak_count = 1`: the strong cohort collectively owns ONE weak
+reference (Rust Arc's scheme, `library/alloc/src/sync.rs`). The final
+strong release runs `drop_fn` and then releases that collective weak; the
+thread whose weak decrement takes the counter to 0 frees the block. A
+SINGLE counter therefore linearizes the free.
+
+> Historical note: the original Phase 27 protocol ("free when
+> `weak_count == 0 AND strong_count == 0`, whichever counter trips zero
+> last frees") was a check-then-act race across two atomics — a racing
+> last-strong / last-weak release pair could each decrement its own
+> counter, then each observe the other counter at 0, and both free the
+> block (or the weak side could free while `drop_fn` was still running).
+> The collective-weak scheme closes that window.
+
+The intermediate state (strong=0, real weak refs > 0) means the payload
+destructor has run but the header persists so weak refs remain readable —
+upgrade() observes refcount==0 and returns NULL (safe; no UAF).
 
 The strong-rc trio (`iron_rc_alloc`, `iron_rc_retain`, `iron_rc_release`)
 remains the Phase 26 substrate; Phase 27 adds the weak-side quartet
@@ -323,12 +339,12 @@ and §9 for the closure-capture-of-weak-rc invariant.
 
 | Function                  | Strong/Weak | Returns                          | Effect                                          |
 |---------------------------|-------------|----------------------------------|-------------------------------------------------|
-| `iron_rc_alloc(s, drop)`  | strong=1, weak=0 | user_ptr                    | Allocates block; both counters initialised      |
+| `iron_rc_alloc(s, drop)`  | strong=1, weak=1 | user_ptr                    | Allocates block; weak=1 is the strong cohort's collective weak |
 | `iron_rc_retain(p)`       | strong+=1   | void                             | Relaxed fetch_add on refcount                   |
-| `iron_rc_release(p)`      | strong-=1   | void                             | Release fetch_sub; on prev==1: drop_fn + free(block) iff weak_count==0 |
+| `iron_rc_release(p)`      | strong-=1   | void                             | Release fetch_sub; on prev==1: acquire fence + drop_fn + release the collective weak (`iron_weak_rc_release`) |
 | `iron_rc_downgrade(p)`    | weak+=1     | user_ptr (same)                  | Relaxed fetch_add on weak_count                 |
 | `iron_weak_rc_retain(p)`  | weak+=1     | void                             | Relaxed fetch_add on weak_count                 |
-| `iron_weak_rc_release(p)` | weak-=1     | void                             | Relaxed fetch_sub; on prev==1: free(block) iff refcount==0 |
+| `iron_weak_rc_release(p)` | weak-=1     | void                             | RELEASE fetch_sub; on prev==1: acquire fence + free(block) |
 | `iron_rc_upgrade(p)`      | strong+=1 (race-won) | user_ptr OR NULL        | Rust-Arc CAS loop; NULL on observed refcount==0 |
 
 `iron_rc_downgrade` and `iron_weak_rc_retain` are semantically equivalent
@@ -355,10 +371,11 @@ State 2: PAYLOAD_DESTROYED (strong=0, weak>0)
   - upgrade() loads refcount and observes 0 -> returns NULL safely.
   - downgrade() N/A (no strong handle exists at this state).
 
-State 3: HEADER_FREED (strong=0, weak=0)
+State 3: HEADER_FREED (weak=0; strong necessarily 0)
   - Block malloc-freed; ALL pointers (strong and weak) dangling.
-  - Reaching this state requires the last weak_count decrement to
-    observe strong_count == 0 (acquire-load in iron_weak_rc_release).
+  - Reached exclusively via the weak_count 1→0 decrement in
+    iron_weak_rc_release (the collective weak guarantees strong hit 0
+    and drop_fn completed before weak can reach 0).
 
 TRANSIENT: in-destructor (strong=0, weak>=0, drop_fn running)
   - Covered by Phase 24 iron_in_destructor TLS flag.
@@ -368,11 +385,14 @@ TRANSIENT: in-destructor (strong=0, weak>=0, drop_fn running)
 
 **Transition gates:**
 
-- `strong -> 0`: in `iron_rc_release` when prev==1. Acquire-fence + drop_fn
-  + conditional `free(block)` gated by `IRON_ATOMIC_U64_LOAD_ACQUIRE(weak_count) == 0`.
-  If weak>0: free deferred to weak=0 transition.
-- `weak -> 0`: in `iron_weak_rc_release` when prev==1 AND
-  `IRON_ATOMIC_U64_LOAD_ACQUIRE(refcount) == 0`. Triggers `free(block)`.
+- `strong -> 0`: in `iron_rc_release` when prev==1. Acquire-fence + drop_fn,
+  then release the collective weak via `iron_weak_rc_release` (weak-=1).
+  If that decrement is the 1→0 edge the same call frees; otherwise real
+  weak holders keep the header alive.
+- `weak -> 0`: in `iron_weak_rc_release` when prev==1 (RELEASE fetch_sub;
+  acquire fence before the free). Triggers `free(block)` unconditionally —
+  weak reaching 0 implies the collective weak was already released, i.e.
+  strong hit 0 and drop_fn completed.
 
 ### 8.3 Upgrade race state diagram (POL-09 critical correctness)
 
@@ -395,10 +415,10 @@ FETCH_SUB_RELEASE(refcount, 1)
                                                               prev==1]
 ACQUIRE_FENCE
 drop_fn(user_ptr)
-if LOAD_ACQUIRE(weak_count)==0
-  free(block)
-else
-  retain block — B may still hold weak handle
+FETCH_SUB_RELEASE(weak_count, 1)   // release the collective weak
+  prev == 1 -> ACQUIRE_FENCE; free(block)
+  prev >  1 -> block persists — B still holds a weak handle; B's final
+               iron_weak_rc_release performs the free on its 1→0 edge
 ```
 
 The acquire-load + relaxed/relaxed CAS pattern guarantees: B never reserves
@@ -413,9 +433,10 @@ last-strong and A's release counts as a non-final release.
 
 Mara Bos's *Rust Atomics and Locks* Chapter 6 ("Building Our Own Arc")
 uses **Acquire on weak_count downgrade-inc** and **Release on weak_count
-drop-dec**. Iron uses **Relaxed for both** (CONTEXT.md GA1).
+drop-dec**. Iron uses **Relaxed on inc** and — like Mara/Rust — **Release
+on dec** (with an acquire fence on the freeing 1→0 edge).
 
-**Why Iron diverges:** Mara's Acquire/Release weak_count pairing exists
+**Why the inc can stay Relaxed:** Mara's Acquire on the weak-inc exists
 specifically to synchronize with `Arc::get_mut`, which checks
 `weak_count == 1 && strong_count == 1` and needs both counters observed
 consistently to make exclusive-access claims about the inner value. Iron
@@ -424,14 +445,13 @@ v3.0 does **not** surface get_mut-style exclusive-access APIs (no
 `*T` access goes through Phase 19's generation-tracked deref check, not
 through refcount-based exclusivity.
 
-Relaxed/Relaxed is therefore canonical for Iron's contract. The cross-
-counter synchronization edges that DO matter (block-free predicates in
-`iron_rc_release` and `iron_weak_rc_release`) are carried by the explicit
-acquire-load on the OTHER counter, not by the weak_count operation itself.
-Eliding the redundant fence cost matters for the Phase 29 elision
-optimizer's pattern-matching: every weak_count atomic is a candidate
-for elision when the surrounding scope can prove a reduction in the
-total count of paired retain/release operations.
+**Why the dec must be Release (+ acquire fence before free):** the thread
+that frees on the 1→0 edge must observe every other holder's last header
+access. Each holder's Release-dec pairs with the freeing thread's acquire
+fence, ordering all prior accesses (including drop_fn, which the final
+strong release sequences before its collective-weak dec) before the
+`free(block)`. A Relaxed dec would let another holder's header access
+race the deallocation.
 
 ### 8.5 References
 

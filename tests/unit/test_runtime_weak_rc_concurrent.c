@@ -84,14 +84,15 @@ static void *weak_rc_stress_worker(void *arg) {
 void test_iron_weak_rc_concurrent_interleaved_balanced(void) {
     g_weak_concurrent_drop_calls = 0;
 
-    /* Allocate ONE shared rc, refcount starts at 1, weak_count at 0. */
+    /* Allocate ONE shared rc, refcount starts at 1, weak_count at 1 (the
+     * strong cohort's collective weak — Rust Arc scheme, iron_rc_alloc). */
     void *shared = iron_rc_alloc(sizeof(int64_t), weak_concurrent_drop);
     TEST_ASSERT_NOT_NULL(shared);
     *(int64_t *)shared = 0x1234567890ABCDEFull;
 
     Iron_RcHeader *rch = iron_rc_header_of(shared);
     TEST_ASSERT_EQUAL_UINT64(1, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->refcount));
-    TEST_ASSERT_EQUAL_UINT64(0, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
+    TEST_ASSERT_EQUAL_UINT64(1, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
 
     /* 8 threads × 100k interleaved retain/release sequences. */
     pthread_t threads[WEAK_RC_STRESS_THREADS];
@@ -105,11 +106,11 @@ void test_iron_weak_rc_concurrent_interleaved_balanced(void) {
 
     /* After all threads join, both counters must be at their baselines. */
     TEST_ASSERT_EQUAL_UINT64(1, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->refcount));
-    TEST_ASSERT_EQUAL_UINT64(0, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
+    TEST_ASSERT_EQUAL_UINT64(1, IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
     TEST_ASSERT_EQUAL_INT(0, g_weak_concurrent_drop_calls);
 
-    /* Final release on main — drop_fn fires once (weak_count==0 so block
-     * is freed in the same call). */
+    /* Final release on main — drop_fn fires once, then the collective weak
+     * is released (weak 1→0) so the block is freed in the same call. */
     iron_rc_release(shared);
     TEST_ASSERT_EQUAL_INT(1, g_weak_concurrent_drop_calls);
 }

@@ -3858,10 +3858,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         break;
     }
 
-    /* Phase 27 POL-08 (Plan 27-02): weak rc atomic relaxed inc/dec.
+    /* Phase 27 POL-08 (Plan 27-02): weak rc runtime calls.
      * Plan 27-01 runtime exposes iron_weak_rc_retain (relaxed fetch_add on
-     * weak_count) and iron_weak_rc_release (relaxed fetch_sub + acquire-load
-     * on refcount; conditional free at weak=0 AND strong=0). */
+     * weak_count) and iron_weak_rc_release (RELEASE fetch_sub; frees on the
+     * weak 1→0 edge — the strong cohort's collective weak guarantees
+     * strong==0 and completed drop_fn by then; see RC-LAYOUT.md §7). */
     case IRON_LIR_WEAK_RC_RETAIN: {
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "iron_weak_rc_retain((void *)");

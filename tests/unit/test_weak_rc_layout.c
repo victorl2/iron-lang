@@ -2,15 +2,17 @@
  *
  * Wave 0 RED for Plan 27-01 Task 1; turns GREEN as soon as Iron_RcHeader is
  * extended from 16B to 24B with the new weak_count field at offset 16 and
- * iron_rc_alloc initializes the field to 0.
+ * iron_rc_alloc initializes the field (to 1 — the collective weak).
  *
  * What this test locks (CONTEXT.md GA1):
  *   - sizeof(Iron_RcHeader) == 24 (Phase 27 ABI re-lock)
  *   - offsetof(refcount)   == 0   (hot-path retain/release; Phase 26 frozen)
  *   - offsetof(drop_fn)    == 8   (cold-path final drop; Phase 26 frozen)
  *   - offsetof(weak_count) == 16  (Phase 27 GA1 append)
- *   - Initial weak_count == 0 on every fresh iron_rc_alloc (Pitfall 4 —
- *     uninitialised garbage would break the deferred-free condition).
+ *   - Initial weak_count == 1 on every fresh iron_rc_alloc — the strong
+ *     cohort's collective weak (Rust Arc scheme; the weak counter's 1→0
+ *     edge is the single free linearization point). Pitfall 4 still holds:
+ *     uninitialised garbage would break the free condition.
  *   - Initialization works identically for primitive (NULL drop_fn) and
  *     user-destructor (non-NULL drop_fn) payloads.
  *
@@ -52,26 +54,27 @@ void test_iron_rc_header_offsets(void) {
     TEST_ASSERT_EQUAL_UINT64(16, (uint64_t)offsetof(Iron_RcHeader, weak_count));
 }
 
-/* ── Test C — initial weak_count == 0 with NULL drop_fn ───────────────── */
+/* ── Test C — initial weak_count == 1 (collective weak) with NULL drop_fn ─ */
 
-void test_weak_count_initial_zero_after_alloc(void) {
+void test_weak_count_initial_collective_after_alloc(void) {
     /* Pitfall 4: an uninitialised weak_count would observe garbage on the
-     * first iron_rc_downgrade and prevent the deferred-free path from ever
-     * triggering. iron_rc_alloc MUST zero the field. */
+     * first iron_rc_downgrade and break the free condition. iron_rc_alloc
+     * MUST initialise the field — to 1, the strong cohort's collective
+     * weak (Rust Arc scheme). */
     void *p = iron_rc_alloc(sizeof(int), NULL);
     TEST_ASSERT_NOT_NULL(p);
 
     Iron_RcHeader *rch = iron_rc_header_of(p);
     TEST_ASSERT_NOT_NULL(rch);
-    TEST_ASSERT_EQUAL_UINT64(0,
+    TEST_ASSERT_EQUAL_UINT64(1,
         IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
 
-    iron_rc_release(p);  /* refcount 1 -> 0; weak_count still 0; block freed */
+    iron_rc_release(p);  /* refcount 1 -> 0; collective weak 1 -> 0; freed */
 }
 
-/* ── Test D — initial weak_count == 0 with non-NULL drop_fn ───────────── */
+/* ── Test D — initial weak_count == 1 (collective weak) with drop_fn ────── */
 
-void test_weak_count_initial_zero_with_drop_fn(void) {
+void test_weak_count_initial_collective_with_drop_fn(void) {
     /* Same invariant as Test C, but with a non-NULL drop_fn to prove the
      * field still initialises cleanly when the destructor slot is wired. */
     g_probe_drop_count = 0;
@@ -80,7 +83,7 @@ void test_weak_count_initial_zero_with_drop_fn(void) {
 
     Iron_RcHeader *rch = iron_rc_header_of(p);
     TEST_ASSERT_NOT_NULL(rch);
-    TEST_ASSERT_EQUAL_UINT64(0,
+    TEST_ASSERT_EQUAL_UINT64(1,
         IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->weak_count));
     TEST_ASSERT_EQUAL_UINT64(1,
         IRON_ATOMIC_U64_LOAD_ACQUIRE(rch->refcount));
@@ -95,7 +98,7 @@ int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_iron_rc_header_size_24);
     RUN_TEST(test_iron_rc_header_offsets);
-    RUN_TEST(test_weak_count_initial_zero_after_alloc);
-    RUN_TEST(test_weak_count_initial_zero_with_drop_fn);
+    RUN_TEST(test_weak_count_initial_collective_after_alloc);
+    RUN_TEST(test_weak_count_initial_collective_with_drop_fn);
     return UNITY_END();
 }

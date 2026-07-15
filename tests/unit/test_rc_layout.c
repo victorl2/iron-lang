@@ -68,8 +68,9 @@ void test_iron_rc_header_drop_fn_at_offset_8(void) {
 }
 
 void test_iron_rc_header_weak_count_at_offset_16(void) {
-    /* weak_count at offset 16 — Phase 27 GA1 ABI lock. Relaxed inc/dec;
-     * block free condition is weak_count == 0 AND refcount == 0. */
+    /* weak_count at offset 16 — Phase 27 GA1 ABI lock. Starts at 1 (the
+     * strong cohort's collective weak); the weak counter's 1→0 edge is the
+     * single block-free linearization point (Rust Arc scheme). */
     TEST_ASSERT_EQUAL_UINT64(16, (uint64_t)offsetof(Iron_RcHeader, weak_count));
 }
 

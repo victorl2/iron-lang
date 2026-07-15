@@ -62,6 +62,11 @@
   typedef volatile LONG64 iron_atomic_u64;
   #define IRON_ATOMIC_U64_INIT(v, val) \
       ((v) = (LONG64)(val))
+  /* Store on a LIVE atomic (post-init). IRON_ATOMIC_U64_INIT is only legal
+   * before the atomic is shared; use this for reset/restore paths that can
+   * race concurrent fetch_adds (iron_arena_rt_reset/restore). */
+  #define IRON_ATOMIC_U64_STORE_RELEASE(v, val) \
+      ((void)InterlockedExchange64((volatile LONG64 *)&(v), (LONG64)(val)))
   #define IRON_ATOMIC_U64_LOAD_ACQUIRE(v) \
       ((uint64_t)InterlockedCompareExchange64((volatile LONG64 *)&(v), 0, 0))
   #define IRON_ATOMIC_U64_FETCH_ADD_RELAXED(v, n) \
@@ -103,6 +108,12 @@
   typedef _Atomic uint64_t iron_atomic_u64;
   #define IRON_ATOMIC_U64_INIT(v, val) \
       atomic_init(&(v), (val))
+  /* Store on a LIVE atomic (post-init). atomic_init on an atomic that other
+   * threads are concurrently operating on is C11 UB; reset/restore paths
+   * (iron_arena_rt_reset/restore) must use a real atomic store. RELEASE
+   * pairs with the ACQUIRE loads in the gen-check / save paths. */
+  #define IRON_ATOMIC_U64_STORE_RELEASE(v, val) \
+      atomic_store_explicit(&(v), (val), memory_order_release)
   #define IRON_ATOMIC_U64_LOAD_ACQUIRE(v) \
       atomic_load_explicit(&(v), memory_order_acquire)
   #define IRON_ATOMIC_U64_FETCH_ADD_RELAXED(v, n) \
@@ -122,11 +133,10 @@
    * https://github.com/rust-lang/rust/issues/62230 . */
   #define IRON_ATOMIC_U64_FETCH_SUB_RELEASE(v, n) \
       atomic_fetch_sub_explicit(&(v), (n), memory_order_release)
-  /* Phase 27 GA1: relaxed fetch_sub for weak_count. weak ops are
-   * non-synchronizing — they only require monotonicity. The block-free
-   * guards (iron_rc_release and iron_weak_rc_release) carry the cross-
-   * counter acquire-load on the OTHER counter, so the relaxed dec on
-   * weak_count is sufficient. */
+  /* Phase 27 GA1 (amended): weak_count decs now use FETCH_SUB_RELEASE +
+   * an acquire fence on the freeing 1→0 edge (Rust Weak::drop discipline;
+   * see iron_weak_rc_release). This RELAXED variant remains for
+   * non-synchronizing counters (op tallies, saturating probes). */
   #define IRON_ATOMIC_U64_FETCH_SUB_RELAXED(v, n) \
       atomic_fetch_sub_explicit(&(v), (n), memory_order_relaxed)
   /* Phase 27 GA2: u64 CAS for the Rust-Arc-canonical upgrade loop. Relaxed
@@ -216,8 +226,12 @@ typedef struct IronAllocHdr {
  *              <TypeName>_rc_drop trampoline synthesized in Plan 26-03;
  *              NULL for primitive payloads with no user destructor)
  *   offset 16: weak_count  (8B atomic u64 — Phase 27 GA1 lock; relaxed
- *              inc/dec; block free condition is
- *              weak_count == 0 AND refcount == 0)
+ *              inc / RELEASE dec; starts at 1: the strong cohort owns a
+ *              collective weak (Rust Arc scheme). Block free condition is
+ *              the weak_count 1→0 edge — the final strong release runs
+ *              drop_fn then releases the collective weak, so weak==0
+ *              implies refcount==0. Single-counter free linearization;
+ *              see iron_rc.c)
  *
  * Lock-document: docs/dev/RC-LAYOUT.md §1 + §7 + §8 (Phase 27 closeout).
  * Non-transitivity (POL-10): outer rc policy governs only its own
