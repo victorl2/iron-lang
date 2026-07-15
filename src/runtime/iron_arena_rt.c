@@ -64,7 +64,15 @@ Iron_Arena_RT *iron_arena_rt_new(uint64_t capacity, bool threadsafe,
 }
 
 Iron_FatPtr iron_arena_rt_alloc(Iron_Arena_RT *a, uint64_t size) {
-    /* header + payload, payload 16B-aligned. */
+    /* header + payload, payload 16B-aligned. Overflow-harden the size math
+     * first: a size near UINT64_MAX would wrap `sizeof(hdr) + size` (and the
+     * align16 round-up), producing a tiny `need` that slips past the capacity
+     * check and writes the header/payload out of bounds. Reject before any
+     * arithmetic can wrap; the capacity comparison below is phrased to be
+     * wrap-proof as well. */
+    if (size > UINT64_MAX - sizeof(IronArenaAllocHdr) - 15u) {
+        iron_panic_arena_oom(a->name, size, a->capacity);  /* ARENA-10, noreturn */
+    }
     uint64_t need = iron_arena_rt_align16(sizeof(IronArenaAllocHdr) + size);
 
     uint64_t off;
@@ -76,7 +84,7 @@ Iron_FatPtr iron_arena_rt_alloc(Iron_Arena_RT *a, uint64_t size) {
         a->offset += need;
     }
 
-    if (off + need > a->capacity) {
+    if (need > a->capacity || off > a->capacity - need) {
         iron_panic_arena_oom(a->name, size, a->capacity);  /* ARENA-10, noreturn */
     }
 
@@ -107,14 +115,15 @@ Iron_FatPtr iron_arena_rt_alloc(Iron_Arena_RT *a, uint64_t size) {
 
 void iron_arena_rt_reset(Iron_Arena_RT *a) {                  /* ARENA-06 */
     if (a->threadsafe) {
-        IRON_ATOMIC_U64_INIT(a->atomic_offset, 0);
+        IRON_ATOMIC_U64_STORE_RELEASE(a->atomic_offset, 0);
     } else {
         a->offset = 0;
     }
     /* Lower the live counter to the floor (1). Every outstanding snapshot is
      * >= 1, so all become stale (snapshot >= cur) in O(1). Subsequent allocs
-     * resume handing out 1, 2, 3, ... again. */
-    IRON_ATOMIC_U64_INIT(a->gen, 1);
+     * resume handing out 1, 2, 3, ... again. (STORE, not INIT: atomic_init
+     * on a live atomic racing concurrent fetch_adds is C11 UB.) */
+    IRON_ATOMIC_U64_STORE_RELEASE(a->gen, 1);
 }
 
 Iron_ArenaSave iron_arena_rt_save(Iron_Arena_RT *a) {         /* ARENA-01 */
@@ -132,14 +141,15 @@ Iron_ArenaSave iron_arena_rt_save(Iron_Arena_RT *a) {         /* ARENA-01 */
 
 void iron_arena_rt_restore(Iron_Arena_RT *a, Iron_ArenaSave s) {  /* ARENA-07 */
     if (a->threadsafe) {
-        IRON_ATOMIC_U64_INIT(a->atomic_offset, s.offset);
+        IRON_ATOMIC_U64_STORE_RELEASE(a->atomic_offset, s.offset);
     } else {
         a->offset = s.offset;
     }
     /* Lower the live counter to the saved snapshot: invalidates exactly the
      * post-save allocations (snapshot >= gen_snapshot) while pre-save pointers
-     * (snapshot < gen_snapshot) stay valid. O(1). */
-    IRON_ATOMIC_U64_INIT(a->gen, s.gen_snapshot);
+     * (snapshot < gen_snapshot) stay valid. O(1). (STORE, not INIT — see
+     * iron_arena_rt_reset.) */
+    IRON_ATOMIC_U64_STORE_RELEASE(a->gen, s.gen_snapshot);
 }
 
 uint64_t iron_arena_rt_used(Iron_Arena_RT *a) {               /* ARENA-01 */

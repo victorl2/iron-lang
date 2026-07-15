@@ -867,6 +867,16 @@ void Iron_channel_close(Iron_Channel *ch) {
 
 void Iron_channel_destroy(Iron_Channel *ch) {
     if (!ch) return;
+    /* Drain undelivered items before freeing the ring. Every queued slot is
+     * a malloc'd box from the generated Iron_Channel_<T>_send glue
+     * (emit_helpers.c) — destroying a non-empty channel previously leaked
+     * one box per queued item. The runtime is type-erased here, so only the
+     * box memory is reclaimed; a resource-typed element's drop does NOT run
+     * on this path (destructor-on-container-drop for queued channel items
+     * is a documented gap — see STDLIB-08). */
+    for (int i = 0; i < ch->count; i++) {
+        free(ch->ring[(ch->head + i) % ch->capacity]);
+    }
     free(ch->ring);
     IRON_MUTEX_DESTROY(ch->lock);
     IRON_COND_DESTROY(ch->not_full);
