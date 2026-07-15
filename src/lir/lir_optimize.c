@@ -820,6 +820,16 @@ static bool apply_replacements(IronLIR_Instr *instr, ValueReplEntry *repl_map) {
     case IRON_LIR_POISON:
         break; /* no operands */
 
+    /* NB: rc/weak/ptr/gencheck operand REWRITING is intentionally NOT done
+     * here. Those arms exist in opt_collect_operands (DCE liveness — marking
+     * an operand live is always safe) but adding them to this copy-prop
+     * rewriter regressed convergence: rewriting an ADDR_OF/PTR/rc operand
+     * mid-fixpoint perturbed the store-load-elim escape analysis enough to
+     * blow past the iteration budget and exhaust memory on ordinary
+     * method-call code. The DCE liveness fix alone resolves the weak-rc
+     * codegen bug; operand rewriting for these opcodes is a separate,
+     * riskier change deferred out of this PR. */
+
     /* -Wswitch-enum opt-out: operand-replacement walker handles every opcode
      * that carries a value operand; opcodes with no value operands (sentinel
      * / never-reachable kinds) short-circuit through this arm. */
@@ -1034,6 +1044,54 @@ static void opt_collect_operands(const IronLIR_Instr *instr,
     case IRON_LIR_GENCHECK:
         PUSH(instr->gencheck.ptr);
         PUSH(instr->gencheck.root_alloc);
+        break;
+
+    /* Phase 19/20/25 pointer ops (drift fix — this collector's contract is
+     * to mirror verify.c's collect_operands EXACTLY, but these arms were
+     * missing). Without them DCE never marks the operands live. */
+    case IRON_LIR_ADDR_OF:
+        PUSH(instr->addr_of.target);
+        break;
+    case IRON_LIR_PTR_LOAD:
+        PUSH(instr->ptr_load.fp);
+        break;
+    case IRON_LIR_PTR_STORE:
+        PUSH(instr->ptr_store.fp);
+        PUSH(instr->ptr_store.value);
+        break;
+    case IRON_LIR_PTR_OFFSET:
+        PUSH(instr->ptr_offset.ptr);
+        PUSH(instr->ptr_offset.offset);
+        break;
+    case IRON_LIR_PTR_DIFF:
+        PUSH(instr->ptr_diff.a);
+        PUSH(instr->ptr_diff.b);
+        break;
+
+    /* Phase 26/27 rc + weak-rc ops (drift fix — mirrored from verify.c).
+     * Missing these made DCE treat a LOAD whose only user is an rc/weak op
+     * as dead: the load (and its alloca + stores) vanished while the rc op
+     * kept referencing the deleted value id, emitting C that references an
+     * undeclared _vN (weak-rc corpus: upgrade_after_drop et al). The LIR
+     * verifier's def/use walk has these arms and flagged the dangling
+     * operand after every pass — into a diag list nobody reads. */
+    case IRON_LIR_RC_RETAIN:
+        PUSH(instr->rc_retain.target);
+        break;
+    case IRON_LIR_RC_RELEASE:
+        PUSH(instr->rc_release.target);
+        break;
+    case IRON_LIR_WEAK_RC_RETAIN:
+        PUSH(instr->weak_rc_retain.target);
+        break;
+    case IRON_LIR_WEAK_RC_RELEASE:
+        PUSH(instr->weak_rc_release.target);
+        break;
+    case IRON_LIR_WEAK_RC_DOWNGRADE:
+        PUSH(instr->weak_rc_downgrade.source);
+        break;
+    case IRON_LIR_WEAK_RC_UPGRADE:
+        PUSH(instr->weak_rc_upgrade.source);
         break;
 
     /* -Wswitch-enum opt-out: LIR operand collector handles every value-bearing

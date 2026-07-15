@@ -3899,12 +3899,39 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
      * IR result type is the IRON_TYPE_NULLABLE wrapping IRON_TYPE_RC. */
     case IRON_LIR_WEAK_RC_UPGRADE: {
         const char *val_type = emit_type_to_c(instr->type, ctx);
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", val_type);
-        emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = (%s)iron_rc_upgrade((void *)", val_type);
-        emit_val(sb, instr->weak_rc_upgrade.source);
-        iron_strbuf_appendf(sb, ");  /* Phase 27 GA2 — returns NULL when strong==0 */\n");
+        /* The IR result type is IRON_TYPE_NULLABLE(rc T) — a C optional
+         * STRUCT { T* value; bool has_value; }. iron_rc_upgrade returns the
+         * raw payload pointer (NULL when strong==0), so the optional must be
+         * CONSTRUCTED field-by-field; the previous single-cast emission
+         * ((Optional)iron_rc_upgrade(...)) cast void* to a struct type and
+         * never compiled (masked by the corpus' broken weak-rc fixtures). */
+        if (instr->type && instr->type->kind == IRON_TYPE_NULLABLE) {
+            const char *inner_c = emit_type_to_c(instr->type->nullable.inner, ctx);
+            emit_indent(sb, ind);
+            if (!is_hoisted) {
+                iron_strbuf_appendf(sb, "%s ", val_type);
+            }
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, ";\n");
+            emit_indent(sb, ind);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, ".value = (%s)iron_rc_upgrade((void *)", inner_c);
+            emit_val(sb, instr->weak_rc_upgrade.source);
+            iron_strbuf_appendf(sb, ");  /* Phase 27 GA2 — NULL when strong==0 */\n");
+            emit_indent(sb, ind);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, ".has_value = (");
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, ".value != NULL);\n");
+        } else {
+            /* Non-nullable result (pointer-shaped) — direct cast is valid. */
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "%s ", val_type);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = (%s)iron_rc_upgrade((void *)", val_type);
+            emit_val(sb, instr->weak_rc_upgrade.source);
+            iron_strbuf_appendf(sb, ");  /* Phase 27 GA2 — returns NULL when strong==0 */\n");
+        }
         break;
     }
 
