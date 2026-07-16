@@ -7538,7 +7538,17 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     /* HARD-05: pre-entry cancel check. */
     if (iron_cancel_requested(cancel_flag)) return;
 
-    TypeCtx ctx;
+    /* Zero-initialize the whole context FIRST, then set fields explicitly.
+     * The field-by-field initialization below historically missed
+     * `in_arena_block_depth` (ARENA-08 E0301 driver): left as uninitialized
+     * stack garbage it reads nonzero under optimized (Release) builds, so a
+     * top-level `rc`/`weak rc` allocation with NO enclosing `in arena {}`
+     * falsely trips E0301 "rc cannot be allocated in an arena". Debug builds
+     * happened to zero the slot, hiding it; the rc/weak-policy corpus never
+     * caught it because those fixtures did not compile before this branch.
+     * The `= {0}` makes every field default to zero so no future field
+     * addition can reintroduce this class of bug. */
+    TypeCtx ctx = {0};
     ctx.arena               = arena;
     ctx.diags               = diags;
     ctx.global_scope        = global_scope;
