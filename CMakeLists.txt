@@ -1618,16 +1618,36 @@ if(NOT WIN32)
     # by test_oq04_closure_weak_rc_retain_release at the codegen layer; end-
     # to-end execution unblocks when the box.iron parser path lands (out-of-
     # scope of Phase 27).
-    set(_PHASE_27_POS_FIXTURES
-        happy
+    # WILL_FAIL split (same check-only-container inversion as Phase 29/30):
+    # after the TypeCtx zero-init fix these four weak-rc fixtures build, run,
+    # and match, so their command succeeds and WILL_FAIL reported them as
+    # failures on CI. They become plain build+run rows. The remaining three
+    # keep WILL_FAIL: `happy` and `upgrade_returns_nullable` exercise the
+    # deferred rc-release leak (a drop line the expected output requires does
+    # not print), and `readonly_can_upgrade` is not yet end-to-end correct.
+    set(_PHASE_27_POS_FIXTURES_OK
         upgrade_after_drop
-        upgrade_returns_nullable
-        readonly_can_upgrade
         closure_captures_weak_rc
         boundary_weak_keeps_header_alive
         boundary_block_freed_when_weak_zero
     )
-    foreach(_fix IN LISTS _PHASE_27_POS_FIXTURES)
+    foreach(_fix IN LISTS _PHASE_27_POS_FIXTURES_OK)
+        add_test(
+            NAME v4_4.9-weak-rc-policy_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        set_tests_properties(v4_4.9-weak-rc-policy_${_fix} PROPERTIES
+            LABELS "integration;phase27-invariant;v4-acceptance"
+            TIMEOUT 60)
+    endforeach()
+
+    set(_PHASE_27_POS_FIXTURES_XFAIL
+        happy
+        upgrade_returns_nullable
+        readonly_can_upgrade
+    )
+    foreach(_fix IN LISTS _PHASE_27_POS_FIXTURES_XFAIL)
         add_test(
             NAME v4_4.9-weak-rc-policy_${_fix}
             COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
@@ -1636,7 +1656,7 @@ if(NOT WIN32)
         set_tests_properties(v4_4.9-weak-rc-policy_${_fix} PROPERTIES
             LABELS "integration;phase27-invariant;v4-acceptance"
             TIMEOUT 60
-            WILL_FAIL TRUE)
+            WILL_FAIL TRUE)  # genuine gap: deferred rc-release leak / not yet e2e-correct
     endforeach()
 endif()
 
