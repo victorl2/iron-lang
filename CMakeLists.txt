@@ -1962,15 +1962,35 @@ endif()
 # additionally inherit the pre-existing box.iron stdlib-prepend syntax blocker
 # (STDLIB-05; deferred to Phase 33) that gates the entire positive v4 corpus.
 if(NOT WIN32)
-    set(_PHASE_29_TRAP_FIXTURES
-        spawn_pair
+    # The historical WILL_FAIL YES ("silvaserver container is check-only, no
+    # clang") inverts on every clang-equipped host (all CI runners): a fixture
+    # that now builds+runs+matches makes the command succeed, which WILL_FAIL
+    # reports as a failure. Split the list: fixtures that build+run+match run as
+    # normal build+run rows; the two that still don't compile (spawn-handle
+    # surface not implemented; weak-upgrade deferred-release leak) keep
+    # WILL_FAIL until those land.
+    set(_PHASE_29_TRAP_FIXTURES_OK
         extern_pair
-        weak_upgrade_pair
         panic_pair
         alloc_pair
         comptime_pair
     )
-    foreach(_fix IN LISTS _PHASE_29_TRAP_FIXTURES)
+    foreach(_fix IN LISTS _PHASE_29_TRAP_FIXTURES_OK)
+        add_test(
+            NAME v4_4.10-rc-elision_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        set_tests_properties(v4_4.10-rc-elision_${_fix} PROPERTIES
+            LABELS "integration;phase29-invariant;v4-acceptance"
+            TIMEOUT 60)
+    endforeach()
+
+    set(_PHASE_29_TRAP_FIXTURES_XFAIL
+        spawn_pair          # spawn-handle surface (`val t = spawn f()`) not implemented
+        weak_upgrade_pair   # upgrade()'s +1 strong ref not released at scope exit (leak)
+    )
+    foreach(_fix IN LISTS _PHASE_29_TRAP_FIXTURES_XFAIL)
         add_test(
             NAME v4_4.10-rc-elision_${_fix}
             COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
@@ -1979,7 +1999,7 @@ if(NOT WIN32)
         set_tests_properties(v4_4.10-rc-elision_${_fix} PROPERTIES
             LABELS "integration;phase29-invariant;v4-acceptance"
             TIMEOUT 60
-            WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+            WILL_FAIL YES)  # genuine gap: fixture does not yet compile/run correctly
     endforeach()
 endif()
 
@@ -2031,6 +2051,9 @@ if(NOT WIN32)
     # parity-by-construction; the exact per-tier elision COUNTS live in the unit
     # harness, never in these fixtures. Same WILL_FAIL/box.iron blocker discipline
     # as the trap fixtures above (check-only container + STDLIB-05).
+    # Behavioral microbench fixtures: build+run+match on any clang host. The
+    # historical WILL_FAIL YES (check-only silvaserver container) inverted on CI
+    # and is removed — these are plain build+run rows now.
     set(_PHASE_30_BENCH_FIXTURES
         getter_chain
         tight_loop
@@ -2043,8 +2066,7 @@ if(NOT WIN32)
         )
         set_tests_properties(v4_4.11-ptr-check-elision_${_fix} PROPERTIES
             LABELS "integration;phase30-invariant;v4-acceptance"
-            TIMEOUT 60
-            WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+            TIMEOUT 60)
     endforeach()
 endif()
 
