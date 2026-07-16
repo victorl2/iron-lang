@@ -8,7 +8,7 @@ object Node {
     val id: Int
 
     drop {
-        println("drop: node {self.id}")
+        println("drop: node {id}")
     }
 }
 

@@ -10,7 +10,7 @@ object DrawCmd {
 
 func main() {
     val arena = Arena.with_capacity(4096)
-    val cmd = heap(in: arena) DrawCmd(42)
+    val cmd = heap(in: arena) DrawCmd(id: 42)
     val ptr: *DrawCmd = &cmd
     arena.reset()
     println("id: {ptr.id}")

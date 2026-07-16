@@ -7,19 +7,19 @@ object Cmd {
     val seq: Int
 
     drop {
-        println("drop cmd: {self.seq}")
+        println("drop cmd: {seq}")
     }
 }
 
 func main() {
     val arena = Arena.with_capacity(65536)
-    val c1 = heap(in: arena) Cmd(1)
-    val c2 = heap(in: arena) Cmd(2)
-    val c3 = heap(in: arena) Cmd(3)
+    val c1 = heap(in: arena) Cmd(seq: 1)
+    val c2 = heap(in: arena) Cmd(seq: 2)
+    val c3 = heap(in: arena) Cmd(seq: 3)
     println("first batch: {c1.seq},{c2.seq},{c3.seq}")
     arena.reset()
     println("arena reset")
-    val d1 = heap(in: arena) Cmd(10)
-    val d2 = heap(in: arena) Cmd(20)
+    val d1 = heap(in: arena) Cmd(seq: 10)
+    val d2 = heap(in: arena) Cmd(seq: 20)
     println("second batch: {d1.seq},{d2.seq}")
 }

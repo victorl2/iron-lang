@@ -8,14 +8,14 @@ object Foo {
     val v: Int
 
     drop {
-        println("drop Foo: {self.v}")
+        println("drop Foo: {v}")
     }
 }
 
 func main() {
     var observer: weak rc Foo = weak rc null
     {
-        val strong = rc Foo(123)
+        val strong = rc Foo(v: 123)
         observer = strong.downgrade()
         println("inner: strong alive")
     }

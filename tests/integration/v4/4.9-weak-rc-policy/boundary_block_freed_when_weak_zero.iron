@@ -8,12 +8,12 @@ object Foo {
     val v: Int
 
     drop {
-        println("drop Foo: {self.v}")
+        println("drop Foo: {v}")
     }
 }
 
 func main() {
-    val strong = rc Foo(5)
+    val strong = rc Foo(v: 5)
     val observer = strong.downgrade()
     println("both alive in scope")
 }

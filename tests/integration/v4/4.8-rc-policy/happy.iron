@@ -6,12 +6,12 @@ object Texture {
     val path: String
 
     drop {
-        println("free: {self.path}")
+        println("free: {path}")
     }
 }
 
 func main() {
-    val sprite = rc Texture("hero.png")
+    val sprite = rc Texture(path: "hero.png")
     val also = sprite
     println("loaded: {sprite.path}")
 }

@@ -10,7 +10,7 @@ object Config {
 }
 
 func main() {
-    val boxed = Box.new(Config(1920, 1080, "Iron App"))
+    val boxed = Box.new(Config(width: 1920, height: 1080, title: "Iron App"))
     val cfg: *unchecked Config = boxed.unwrap()
     println("config: {cfg.width}x{cfg.height} title={cfg.title}")
 }

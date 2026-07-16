@@ -7,7 +7,7 @@ object Mat4 {
     val m00: Float
 
     readonly func mul(self: *Mat4, other: *Mat4) -> Mat4 {
-        return Mat4(self.m00 * other.m00)
+        return Mat4(m00: self.m00 * other.m00)
     }
 }
 
@@ -41,8 +41,8 @@ object SceneNode {
 }
 
 func main() {
-    val root = rc SceneNode(Mat4(1.0))
-    val child = rc SceneNode(Mat4(2.0))
+    val root = rc SceneNode(transform: Mat4(m00: 1.0))
+    val child = rc SceneNode(transform: Mat4(m00: 2.0))
     root.add_child(child)
     println("tree built")
     -- root and child freed when main exits; no cycle so both drop

@@ -7,12 +7,12 @@ object Resource {
     val id: Int
 
     drop {
-        println("drop resource {self.id}")
+        println("drop resource {id}")
     }
 }
 
 func main() {
-    val a = rc Resource(1)
+    val a = rc Resource(id: 1)
     println("a alive")
     {
         val b = a                  -- refcount = 2

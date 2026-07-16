@@ -11,7 +11,7 @@ nocopy object CounterBox {
     var data: Box[Counter]
 
     init(start: Int) {
-        self.data = Box.new(Counter(start))
+        self.data = Box.new(Counter(value: start))
     }
 
     func accumulate(self: *var CounterBox, n: Int) -> Int {
@@ -26,7 +26,7 @@ nocopy object CounterBox {
 }
 
 func main() {
-    var cb = CounterBox(0)
+    var cb = CounterBox(start: 0)
     val result = cb.accumulate(5)
     println("sum: {result}")
 }

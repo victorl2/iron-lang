@@ -2,10 +2,8 @@
 -- @req: DROP-08
 -- @expected-pass-after: phase-24
 -- extends-spec: nocopy object can be constructed, used, and dropped at scope exit
--- (local type renamed from FileHandle to ConfigFile when Phase 33 landed the
--- stdlib FileHandle — the old name now collides with the builtin, E0201)
 
-nocopy object ConfigFile {
+nocopy object FileHandle {
     val name: String
     drop {
         println("closing: {self.name}")
@@ -13,6 +11,6 @@ nocopy object ConfigFile {
 }
 
 func main() {
-    val fh = ConfigFile("config.txt")
+    val fh = FileHandle("config.txt")
     println("done with file")
 }

@@ -54,8 +54,8 @@ func submit_to_gpu(draw_cmds: *var [DrawCmd; <=8192]) {
 }
 
 func main() {
-    val frame_arena = heap Arena.new(64 * 1024 * 1024)
-    val perm_arena = heap Arena.new(32 * 1024 * 1024)
+    val frame_arena = heap Arena.new(size: 64 * 1024 * 1024)
+    val perm_arena = heap Arena.new(size: 32 * 1024 * 1024)
 
     defer free perm_arena
     defer free frame_arena

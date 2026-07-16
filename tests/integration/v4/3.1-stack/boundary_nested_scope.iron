@@ -7,14 +7,14 @@ object Probe {
     val name: String
 
     drop {
-        println("drop: {self.name}")
+        println("drop: {name}")
     }
 }
 
 func main() {
     println("before")
     {
-        val x = Probe("inner")
+        val x = Probe(name: "inner")
         println("inside")
     }
     println("after")

@@ -11,7 +11,7 @@ object Inner {
     val value: Int
 
     drop {
-        println("drop inner: {self.value}")
+        println("drop inner: {value}")
     }
 }
 
@@ -19,15 +19,15 @@ object Container {
     val tag: Int
 
     drop {
-        println("drop container: {self.tag}")
+        println("drop container: {tag}")
     }
 }
 
 func main() {
     -- two independent rc allocations; non-transitivity means each is
     -- governed by its own refcount, not by a containing scope's policy.
-    val outer = rc Container(7)
-    val inner = rc Inner(42)
+    val outer = rc Container(tag: 7)
+    val inner = rc Inner(value: 42)
     println("inner value: {inner.value}")
     println("outer tag: {outer.tag}")
 }

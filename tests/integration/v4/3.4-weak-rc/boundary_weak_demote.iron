@@ -7,12 +7,12 @@ object Item {
     val label: String
 
     drop {
-        println("drop: {self.label}")
+        println("drop: {label}")
     }
 }
 
 func main() {
-    val strong = rc Item("thing")
+    val strong = rc Item(label: "thing")
     val w1: weak rc Item = strong.demote()
     val w2: weak rc Item = strong.demote()
     println("strong alive")

@@ -7,12 +7,12 @@ object Texture {
     val path: String
 
     drop {
-        println("free: {self.path}")
+        println("free: {path}")
     }
 }
 
 func main() {
-    val outer = rc Texture("atlas.png")
+    val outer = rc Texture(path: "atlas.png")
     println("outer alive")
     {
         val inner = outer

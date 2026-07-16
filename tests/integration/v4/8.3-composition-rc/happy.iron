@@ -7,7 +7,7 @@ object Texture {
     val path: String
 
     drop {
-        println("freeing: {self.path}")
+        println("freeing: {path}")
     }
 }
 
@@ -28,7 +28,7 @@ object AssetManager {
         val existing = self.textures.get(path)
         if existing != null { return existing.value }
 
-        val tex = rc Texture(path)
+        val tex = rc Texture(path: path)
         self.textures.put(path, tex)
         return tex
     }

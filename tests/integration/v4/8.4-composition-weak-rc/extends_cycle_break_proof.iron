@@ -21,14 +21,14 @@ object Node {
     }
 
     drop {
-        println("drop node {self.id}")
+        println("drop node {id}")
     }
 }
 
 func main() {
-    val n1 = rc Node(1)
-    val n2 = rc Node(2)
-    val n3 = rc Node(3)
+    val n1 = rc Node(id: 1)
+    val n2 = rc Node(id: 2)
+    val n3 = rc Node(id: 3)
 
     n1.add_child(n2)
     n2.add_child(n3)

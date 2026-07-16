@@ -10,12 +10,14 @@
 -- implementation that does not free, so the value prints correctly.
 
 interface Greeter {
-    func greet() -> Int
+    func greet(self) -> Int
 }
 
-object Friendly impl Greeter {
+object Friendly {
     val level: Int
+}
 
+impl Greeter for Friendly {
     func greet(self) -> Int {
         return self.level
     }
@@ -30,7 +32,7 @@ func run(g: Greeter, ptr: *Friendly) {
 }
 
 func main() {
-    val f = Friendly(9)
+    val f = Friendly(level: 9)
     println("before: {f.level}")
     run(f, &f)
 }

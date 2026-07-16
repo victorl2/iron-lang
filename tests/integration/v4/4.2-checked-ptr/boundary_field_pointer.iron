@@ -14,7 +14,7 @@ object Container {
 }
 
 func main() {
-    val container = Container(Texture(64, 64), "atlas")
+    val container = Container(tex: Texture(width: 64, height: 64), name: "atlas")
     val tex_ptr: *Texture = &container.tex
     println("width: {tex_ptr.width}")
     println("height: {tex_ptr.height}")

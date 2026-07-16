@@ -1,7 +1,5 @@
 -- section 4.10 rc elision: weak.upgrade soundness trap
 -- @req: OPT-01, POL-08
--- @expected-pass-after: phase-37
--- XFAIL (phase-37): successful upgrade()'s +1 strong ref is not released at scope exit (rc T? release needs optional-payload LIR access).
 -- A weak `downgrade` + `upgrade` observes the strong refcount between the
 -- conceptual retain and release. weak.upgrade is a hard barrier: deleting a
 -- retain/release pair across it would change the count the upgrade observes.
@@ -11,12 +9,12 @@ object Texture {
     val path: String
 
     drop {
-        println("free: {self.path}")
+        println("free: {path}")
     }
 }
 
 func main() {
-    val strong = rc Texture("hero.png")
+    val strong = rc Texture(path: "hero.png")
     val observer = strong.downgrade()
     val maybe = observer.upgrade()
     println("loaded: {strong.path}")

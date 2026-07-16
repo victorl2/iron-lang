@@ -4,20 +4,17 @@
 -- Same non-trivial-destructor object as arena_nontrivial_dtor.iron, but the
 -- heap(in: arena, allow_drop_skip: true) form acknowledges the skipped
 -- destructor explicitly → NO W0605 warning. Compile-clean (check-only).
--- (local type renamed from FileHandle to ArenaFile when Phase 33 landed the
--- stdlib FileHandle; construction is positional — named args are not a
--- surface form)
 
-object ArenaFile {
+object FileHandle {
     val fd: Int
 
     drop {
-        println("closing fd {self.fd}")
+        println("closing fd {fd}")
     }
 }
 
 func main() {
     val arena = Arena.with_capacity(4096)
-    val fh = heap(in: arena, allow_drop_skip: true) ArenaFile(7)
+    val fh = heap(in: arena, allow_drop_skip: true) FileHandle(fd: 7)
     println("fd: {fh.fd}")
 }

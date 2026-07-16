@@ -7,7 +7,7 @@ object Buffer {
     val size: Int
 
     drop {
-        println("drop buffer: {self.size}")
+        println("drop buffer: {size}")
     }
 }
 
@@ -16,13 +16,13 @@ object Frame {
     val frame_id: Int
 
     drop {
-        println("drop frame: {self.frame_id}")
+        println("drop frame: {frame_id}")
     }
 }
 
 func main() {
-    val buf_val = heap Buffer(4096)
+    val buf_val = heap Buffer(size: 4096)
     defer free buf_val
-    val frame = Frame(buf_val, 42)
+    val frame = Frame(buf: buf_val, frame_id: 42)
     println("frame id: {frame.frame_id}, buf size: {frame.buf.size}")
 }

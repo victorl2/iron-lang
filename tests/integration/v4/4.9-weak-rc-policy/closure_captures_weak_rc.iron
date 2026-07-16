@@ -9,7 +9,7 @@ object Counter {
 }
 
 func main() {
-    val strong = rc Counter(99)
+    val strong = rc Counter(tag: 99)
     val observer = strong.downgrade()
     val check = func() {
         val maybe = observer.upgrade()

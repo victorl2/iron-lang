@@ -8,18 +8,18 @@ object Particle {
     val id: Int
 
     drop {
-        println("particle {self.id} freed")
+        println("particle {id} freed")
     }
 }
 
 func main() {
-    val arena = heap Arena.new(64 * 1024)
+    val arena = heap Arena.new(size: 64 * 1024)
     defer free arena
 
     -- heap(in: arena) is legal: arena-backed heap allocation
     in arena {
-        val p1 = heap Particle(1)
-        val p2 = heap Particle(2)
+        val p1 = heap Particle(id: 1)
+        val p2 = heap Particle(id: 2)
         println("particles in arena")
     }
 

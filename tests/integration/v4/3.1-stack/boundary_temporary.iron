@@ -8,12 +8,12 @@ object Probe {
     val value: Int
 
     drop {
-        println("drop: {self.name}")
+        println("drop: {name}")
     }
 }
 
 func make_probe(n: String) -> Probe {
-    return Probe(n, 42)
+    return Probe(name: n, value: 42)
 }
 
 func main() {

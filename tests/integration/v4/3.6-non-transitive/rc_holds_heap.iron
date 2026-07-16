@@ -7,7 +7,7 @@ object World {
     var seed: Int
 
     drop {
-        println("drop world: {self.seed}")
+        println("drop world: {seed}")
     }
 }
 
@@ -16,13 +16,13 @@ object Holder {
     val id: Int
 
     drop {
-        println("drop holder: {self.id}")
+        println("drop holder: {id}")
     }
 }
 
 func main() {
-    val world_val = heap World(42)
+    val world_val = heap World(seed: 42)
     defer free world_val
-    val h = rc Holder(world_val, 5)
+    val h = rc Holder(world: world_val, id: 5)
     println("holder id: {h.id}, world seed: {h.world.seed}")
 }

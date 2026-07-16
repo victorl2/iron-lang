@@ -8,7 +8,7 @@ object Sample {
 }
 
 func main() {
-    val boxed: Box[Sample] = Box.new(Sample(42))
+    val boxed: Box[Sample] = Box.new(Sample(value: 42))
     val sample = boxed.unwrap()
     println("value: {sample.value}")
 }

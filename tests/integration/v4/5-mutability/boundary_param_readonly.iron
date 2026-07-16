@@ -13,6 +13,6 @@ func observe(p: Player) {
 }
 
 func main() {
-    val player = Player(75, "hero")
+    val player = Player(hp: 75, name: "hero")
     observe(player)
 }

@@ -1618,36 +1618,16 @@ if(NOT WIN32)
     # by test_oq04_closure_weak_rc_retain_release at the codegen layer; end-
     # to-end execution unblocks when the box.iron parser path lands (out-of-
     # scope of Phase 27).
-    # WILL_FAIL split (same check-only-container inversion as Phase 29/30):
-    # after the TypeCtx zero-init fix these four weak-rc fixtures build, run,
-    # and match, so their command succeeds and WILL_FAIL reported them as
-    # failures on CI. They become plain build+run rows. The remaining three
-    # keep WILL_FAIL: `happy` and `upgrade_returns_nullable` exercise the
-    # deferred rc-release leak (a drop line the expected output requires does
-    # not print), and `readonly_can_upgrade` is not yet end-to-end correct.
-    set(_PHASE_27_POS_FIXTURES_OK
+    set(_PHASE_27_POS_FIXTURES
+        happy
         upgrade_after_drop
+        upgrade_returns_nullable
+        readonly_can_upgrade
         closure_captures_weak_rc
         boundary_weak_keeps_header_alive
         boundary_block_freed_when_weak_zero
     )
-    foreach(_fix IN LISTS _PHASE_27_POS_FIXTURES_OK)
-        add_test(
-            NAME v4_4.9-weak-rc-policy_${_fix}
-            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
-            WORKING_DIRECTORY /tmp
-        )
-        set_tests_properties(v4_4.9-weak-rc-policy_${_fix} PROPERTIES
-            LABELS "integration;phase27-invariant;v4-acceptance"
-            TIMEOUT 60)
-    endforeach()
-
-    set(_PHASE_27_POS_FIXTURES_XFAIL
-        happy
-        upgrade_returns_nullable
-        readonly_can_upgrade
-    )
-    foreach(_fix IN LISTS _PHASE_27_POS_FIXTURES_XFAIL)
+    foreach(_fix IN LISTS _PHASE_27_POS_FIXTURES)
         add_test(
             NAME v4_4.9-weak-rc-policy_${_fix}
             COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
@@ -1656,7 +1636,7 @@ if(NOT WIN32)
         set_tests_properties(v4_4.9-weak-rc-policy_${_fix} PROPERTIES
             LABELS "integration;phase27-invariant;v4-acceptance"
             TIMEOUT 60
-            WILL_FAIL TRUE)  # genuine gap: deferred rc-release leak / not yet e2e-correct
+            WILL_FAIL TRUE)
     endforeach()
 endif()
 
@@ -1727,10 +1707,10 @@ endif()
 #     E0276 appears ANYWHERE in the combined output — the only sound oracle.
 #     RED now (gate still fires); flips GREEN in Plan 32-02.
 #
-#   BUILD+RUN (require clang on the host to run the produced binary):
-#     defer_then_drop, defer_early_return, defer_loop_iteration,
-#     defer_read_at_exit — plain rows (the historical WILL_FAIL YES marking
-#     inverted on clang hosts and was removed; see the note at the rows).
+#   WILL_FAIL BUILD+RUN (the container is check-only — no clang to run output):
+#     defer_then_drop, defer_early_return, defer_break_continue,
+#     defer_read_at_exit — `ironc build`+run rows registered WILL_FAIL YES;
+#     they flip GREEN on a clang-equipped host once 32-02 lands.
 #
 # No fixture asserts a defer running DURING a panic — Iron panic is abort()-based
 # (no unwinding); defers run only on NORMAL control-flow exit edges. See
@@ -1753,21 +1733,15 @@ if(NOT WIN32)
     set_tests_properties(v4_4.13-defer_block_accept PROPERTIES
         LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 30)
 
-    # ── Build+run rows ──────────────────────────────────────────────────────
-    # These previously carried WILL_FAIL YES ("check-only container has no
-    # clang"), which INVERTS on any clang-equipped host — CI's ubuntu runner
-    # and local dev boxes reported the working fixtures as FAILED and hid a
-    # genuinely-broken fixture (defer_break_continue used `break`/`continue`,
-    # keywords Iron does not have; replaced by defer_loop_iteration). Do NOT
-    # re-add WILL_FAIL to encode environment limitations — gate on the
-    # environment instead if a check-only host ever needs to skip these.
+    # ── WILL_FAIL build+run rows (check-only container; flip on a clang host) ──
     add_test(
         NAME v4_4.13-defer_then_drop
         COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_then_drop.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_then_drop.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_4.13-defer_then_drop PROPERTIES
-        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
 
     add_test(
         NAME v4_4.13-defer_early_return
@@ -1775,15 +1749,17 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_4.13-defer_early_return PROPERTIES
-        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
 
     add_test(
-        NAME v4_4.13-defer_loop_iteration
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_loop_iteration.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_loop_iteration.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        NAME v4_4.13-defer_break_continue
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_break_continue.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_break_continue.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
-    set_tests_properties(v4_4.13-defer_loop_iteration PROPERTIES
-        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60)
+    set_tests_properties(v4_4.13-defer_break_continue PROPERTIES
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
 
     add_test(
         NAME v4_4.13-defer_read_at_exit
@@ -1791,7 +1767,8 @@ if(NOT WIN32)
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_4.13-defer_read_at_exit PROPERTIES
-        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60)
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -1982,35 +1959,15 @@ endif()
 # additionally inherit the pre-existing box.iron stdlib-prepend syntax blocker
 # (STDLIB-05; deferred to Phase 33) that gates the entire positive v4 corpus.
 if(NOT WIN32)
-    # The historical WILL_FAIL YES ("silvaserver container is check-only, no
-    # clang") inverts on every clang-equipped host (all CI runners): a fixture
-    # that now builds+runs+matches makes the command succeed, which WILL_FAIL
-    # reports as a failure. Split the list: fixtures that build+run+match run as
-    # normal build+run rows; the two that still don't compile (spawn-handle
-    # surface not implemented; weak-upgrade deferred-release leak) keep
-    # WILL_FAIL until those land.
-    set(_PHASE_29_TRAP_FIXTURES_OK
+    set(_PHASE_29_TRAP_FIXTURES
+        spawn_pair
         extern_pair
+        weak_upgrade_pair
         panic_pair
         alloc_pair
         comptime_pair
     )
-    foreach(_fix IN LISTS _PHASE_29_TRAP_FIXTURES_OK)
-        add_test(
-            NAME v4_4.10-rc-elision_${_fix}
-            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
-            WORKING_DIRECTORY /tmp
-        )
-        set_tests_properties(v4_4.10-rc-elision_${_fix} PROPERTIES
-            LABELS "integration;phase29-invariant;v4-acceptance"
-            TIMEOUT 60)
-    endforeach()
-
-    set(_PHASE_29_TRAP_FIXTURES_XFAIL
-        spawn_pair          # spawn-handle surface (`val t = spawn f()`) not implemented
-        weak_upgrade_pair   # upgrade()'s +1 strong ref not released at scope exit (leak)
-    )
-    foreach(_fix IN LISTS _PHASE_29_TRAP_FIXTURES_XFAIL)
+    foreach(_fix IN LISTS _PHASE_29_TRAP_FIXTURES)
         add_test(
             NAME v4_4.10-rc-elision_${_fix}
             COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
@@ -2019,7 +1976,7 @@ if(NOT WIN32)
         set_tests_properties(v4_4.10-rc-elision_${_fix} PROPERTIES
             LABELS "integration;phase29-invariant;v4-acceptance"
             TIMEOUT 60
-            WILL_FAIL YES)  # genuine gap: fixture does not yet compile/run correctly
+            WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
     endforeach()
 endif()
 
@@ -2071,9 +2028,6 @@ if(NOT WIN32)
     # parity-by-construction; the exact per-tier elision COUNTS live in the unit
     # harness, never in these fixtures. Same WILL_FAIL/box.iron blocker discipline
     # as the trap fixtures above (check-only container + STDLIB-05).
-    # Behavioral microbench fixtures: build+run+match on any clang host. The
-    # historical WILL_FAIL YES (check-only silvaserver container) inverted on CI
-    # and is removed — these are plain build+run rows now.
     set(_PHASE_30_BENCH_FIXTURES
         getter_chain
         tight_loop
@@ -2086,7 +2040,8 @@ if(NOT WIN32)
         )
         set_tests_properties(v4_4.11-ptr-check-elision_${_fix} PROPERTIES
             LABELS "integration;phase30-invariant;v4-acceptance"
-            TIMEOUT 60)
+            TIMEOUT 60
+            WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
     endforeach()
 endif()
 

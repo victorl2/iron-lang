@@ -28,8 +28,8 @@ readonly func calc_net_damage(attacker: *Fighter, defender: *Fighter) -> Int {
 }
 
 func main() {
-    val a = Fighter(30, Armor(5))
-    val b = Fighter(10, Armor(8))
+    val a = Fighter(attack: 30, armor: Armor(value: 5))
+    val b = Fighter(attack: 10, armor: Armor(value: 8))
     val dmg = calc_net_damage(&a, &b)
     println("damage: {dmg}")
 }

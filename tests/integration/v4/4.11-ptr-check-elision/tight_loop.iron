@@ -13,7 +13,7 @@ object Counter {
 }
 
 func main() {
-    val c = heap Counter(5)
+    val c = heap Counter(base: 5)
     val ptr: *Counter = &c
     var total = 0
     var i = 0

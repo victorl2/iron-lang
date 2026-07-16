@@ -9,7 +9,7 @@ object Buffer {
 }
 
 func main() {
-    val buf = heap Buffer(99)
+    val buf = heap Buffer(id: 99)
     free buf
     -- dereferencing freed allocation; debug allocator detects poisoned memory
     -- section 10.3: "Poisons freed memory; reports use-after-free deterministically"

@@ -7,18 +7,18 @@ object Item {
     val label: String
 
     drop {
-        println("drop: {self.label}")
+        println("drop: {label}")
     }
 }
 
 func main() {
-    val a = heap Item("a")
+    val a = heap Item(label: "a")
     defer free a
     println("registered a")
-    val b = heap Item("b")
+    val b = heap Item(label: "b")
     defer free b
     println("registered b")
-    val c = heap Item("c")
+    val c = heap Item(label: "c")
     defer free c
     println("registered c")
     println("scope exit")

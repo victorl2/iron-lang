@@ -7,14 +7,14 @@ object Resource {
     val id: Int
 
     drop {
-        println("drop: resource {self.id}")
+        println("drop: resource {id}")
     }
 }
 
 func main() {
     var weak_ref: weak rc Resource = weak rc null
     {
-        val strong = rc Resource(7)
+        val strong = rc Resource(id: 7)
         weak_ref = strong.demote()
         println("strong alive: id={strong.id}")
     }

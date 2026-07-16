@@ -28,7 +28,7 @@ nocopy object ParticleSystem {
     var storage: Box[ParticleArray]
 
     init() {
-        self.storage = Box.new(ParticleArray(0))
+        self.storage = Box.new(ParticleArray(count: 0))
     }
 }
 
@@ -54,13 +54,13 @@ object Game {
     var frame_arena: heap Arena                 -- arena for per-frame allocations
 
     init() {
-        self.assets = AssetManager(0)
+        self.assets = AssetManager(loaded: 0)
         self.enemies = List.new()
-        self.player = rc Player(100)
-        self.current_level = heap LevelData(1)
-        self.input_state = InputState(false)
+        self.player = rc Player(hp: 100)
+        self.current_level = heap LevelData(seed: 1)
+        self.input_state = InputState(quit: false)
         self.particles = ParticleSystem()
-        self.frame_arena = heap Arena.new(4 * 1024 * 1024)
+        self.frame_arena = heap Arena.new(size: 4 * 1024 * 1024)
     }
 
     func tick(self: *var Game, dt: Float) {

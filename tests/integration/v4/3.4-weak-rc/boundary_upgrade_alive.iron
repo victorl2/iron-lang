@@ -8,12 +8,12 @@ object Entity {
     val y: Int
 
     drop {
-        println("drop: entity ({self.x},{self.y})")
+        println("drop: entity ({x},{y})")
     }
 }
 
 func main() {
-    val strong = rc Entity(10, 20)
+    val strong = rc Entity(x: 10, y: 20)
     val weak_ref: weak rc Entity = strong.demote()
     val handle = weak_ref.upgrade()
     if handle != null {

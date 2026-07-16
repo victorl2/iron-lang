@@ -7,12 +7,12 @@ object Player {
     val name: String
 
     drop {
-        println("drop: {self.name}")
+        println("drop: {name}")
     }
 }
 
 func main() {
-    val strong = rc Player("Alice")
+    val strong = rc Player(name: "Alice")
     val weak_ref: weak rc Player = strong.demote()
     val maybe = weak_ref.upgrade()
     if maybe != null {

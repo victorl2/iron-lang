@@ -29,7 +29,7 @@ nocopy object ParticleSystem {
     var count: Int
 
     init(capacity: Int) {
-        self.storage = Box.new(ParticleArray(capacity))
+        self.storage = Box.new(ParticleArray(capacity: capacity))
         self.count = 0
     }
 
@@ -47,7 +47,7 @@ nocopy object ParticleSystem {
 }
 
 func main() {
-    var ps = ParticleSystem(4096)
+    var ps = ParticleSystem(capacity: 4096)
     ps.step(0.016)
     println("step complete")
 }

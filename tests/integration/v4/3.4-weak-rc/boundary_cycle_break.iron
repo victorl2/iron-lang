@@ -7,7 +7,7 @@ object NodeB {
     val id: Int
 
     drop {
-        println("drop: B-{self.id}")
+        println("drop: B-{id}")
     }
 }
 
@@ -17,12 +17,12 @@ object NodeA {
     var back: weak rc NodeA
 
     drop {
-        println("drop: A-{self.id}")
+        println("drop: A-{id}")
     }
 }
 
 func main() {
-    val node_a = rc NodeA(1, rc NodeB(2), weak rc null)
+    val node_a = rc NodeA(id: 1, b_link: rc NodeB(id: 2), back: weak rc null)
     node_a.back = node_a.demote()
     println("cycle set up")
 }

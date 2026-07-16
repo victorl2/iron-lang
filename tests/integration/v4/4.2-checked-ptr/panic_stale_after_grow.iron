@@ -5,7 +5,7 @@
 -- extends-spec: POINTER-CHECK-ELISION.md soundness trap "stale after grow" - List resize invalidates element pointer; SAFE-02 generational pointer guard catches the stale deref; this fixture deterministically panics
 
 func main() {
-    var list: List[Int] = List.new(4)
+    var list: List[Int] = List.new(capacity: 4)
     list.push(1)
     list.push(2)
     list.push(3)
