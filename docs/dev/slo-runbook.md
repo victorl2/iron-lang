@@ -112,23 +112,31 @@ run variance does not flake the gate.
 
 A separate `.github/workflows/build-time.yml` job measures
 `cmake -B build && cmake --build build -j4` wall-clock and
-compares it against a per-OS rolling 20-sample window stored in
-`build-time-baseline.json` at the repo root. Fires (CI fails) if
-the current build time exceeds `1.15 x rolling_average` for the
-current OS.
+compares it against a per-OS rolling 20-sample window in
+`build-time-baseline.json`. The check is ADVISORY: if the current
+build time exceeds `1.30 x rolling_average` for the current OS,
+the run gets a warning annotation but the job stays green.
+GitHub-hosted runner variance (~45% observed spread on
+macos-latest) makes a hard perf gate too flaky to block merges;
+pass `--strict` to the script locally to get exit-1 semantics
+when bisecting a suspected real regression.
 
-### Baseline seeding procedure
+### Baseline seeding + persistence
 
-The initial `build-time-baseline.json` ships with 5 seed samples
-per OS. These are calibration numbers based on observed cold-cache
-GitHub Actions runner times; the first 20 per-OS PRs will fill the
-rolling window and replace the seeds one-by-one via the push-to-
-main append path.
+The checked-in `build-time-baseline.json` ships with 5 seed
+samples per OS and acts only as the cold-cache seed. The live
+rolling window is persisted in the per-OS GitHub Actions cache:
+each push-to-main run restores the newest window
+(`build-time-baseline-<os>-` restore-key), appends its sample,
+FIFO-trims to 20 per OS, and saves under a fresh run-scoped key.
+It is NOT committed back to main -- branch protection (PR-only,
+required status checks) rejects bot pushes with GH013. PR runs
+read the newest main-scoped cache entry via the same restore-key.
 
 Warmup tolerance: until the window for a given OS has >= 5
 samples, `scripts/ci/build_time_check.py` skips the threshold
-comparison and prints `WARMUP: ...`. This keeps the gate safe
-while the window fills.
+comparison and prints `WARMUP: ...`. This keeps the check safe
+while the window fills (e.g. after a cache eviction).
 
 ### Local reproduction
 
@@ -136,7 +144,9 @@ while the window fills.
 # Self-test the build-time script (synthetic baselines, no build):
 python3 scripts/ci/build_time_check.py --self-test
 
-# Full run against the current tree (spawns cmake + ninja):
+# Full run against the current tree (spawns cmake + ninja).
+# Add --strict to exit 1 on a threshold breach (CI default is
+# advisory: warning annotation, exit 0):
 python3 scripts/ci/build_time_check.py \
     --mode check \
     --os ubuntu-latest \
@@ -146,7 +156,8 @@ python3 scripts/ci/build_time_check.py \
 ### Threshold-tuning policy (build-time)
 
 Identical shape to the SLO procedure: 5 PRs, p90, 1.2x for headroom.
-Current 1.15x is the HARD-23-locked threshold.
+Current 1.30x (relaxed post-Phase-14 from the original HARD-23 1.15x
+after measuring ~45% macos-latest runner spread) is advisory-only.
 
 ## Appendix: measurement boundary
 
