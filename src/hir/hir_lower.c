@@ -225,6 +225,27 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
         return base;
     }
 
+    /* Phase 27 POL-08: `weak rc T`. The parser zeroes the wrapper annotation and
+     * sets only is_weak_rc + weak_rc_inner, leaving `name` NULL, so this arm has
+     * to come before the name dispatch below — otherwise a method parameter of
+     * type `weak rc T` reaches strcmp(NULL) and segfaults the compiler.
+     * Function parameters happened to escape it: build_hir_params_named reuses
+     * the types the typechecker already resolved, and only method params
+     * (lower_module_decls_hir) re-resolve the raw annotation. Mirrors
+     * resolve_type_annotation in typecheck.c. */
+    if (ta->is_weak_rc) {
+        Iron_Type *inner_t = ta->weak_rc_inner
+            ? resolve_type_ann(ctx, ta->weak_rc_inner)
+            : iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (!inner_t) inner_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+        Iron_Type *wt = iron_type_make_weak_rc(ctx->module->arena, inner_t);
+        return wt ? wt : iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+
+    /* Any shape that reaches the name dispatch without a name is a gap in the
+     * arms above; report it as unresolved instead of dereferencing NULL. */
+    if (!ta->name) return NULL;
+
     if (strcmp(ta->name, "Int") == 0)         base = iron_type_make_primitive(IRON_TYPE_INT);
     else if (strcmp(ta->name, "Float") == 0)  base = iron_type_make_primitive(IRON_TYPE_FLOAT);
     else if (strcmp(ta->name, "Bool") == 0)   base = iron_type_make_primitive(IRON_TYPE_BOOL);
