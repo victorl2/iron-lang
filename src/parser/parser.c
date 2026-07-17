@@ -514,6 +514,30 @@ static void iron_parser_sync_stmt(Iron_Parser *p) {
     }
 }
 
+/* Synchronize after an error inside a brace-delimited member body, guaranteeing
+ * forward progress.
+ *
+ * iron_parser_sync_stmt returns immediately when the cursor already sits on a
+ * sync token, so a body loop that emits a diagnostic and re-dispatches on the
+ * same token spins forever. That is reachable from ordinary malformed input:
+ * `object A { return 1 }` lands the cursor on RETURN, which the object-body
+ * loop treats as a field with no val/var, emitting E0176 and re-syncing onto
+ * RETURN without moving — an unbounded diagnostic stream that exhausts memory
+ * and takes the whole process down.
+ *
+ * RBRACE and EOF are left alone: both terminate the caller's loop, so stepping
+ * over them would swallow the body terminator instead of ending the spin. */
+static void iron_parser_sync_member(Iron_Parser *p) {
+    int before = p->pos;
+    iron_parser_sync_stmt(p);
+    if (p->pos != before) return;                 /* already made progress */
+    if (iron_check(p, IRON_TOK_RBRACE) ||
+        iron_check(p, IRON_TOK_EOF)) return;      /* caller's loop stops here */
+    p->pos++;                                     /* step over the stuck token */
+    iron_skip_newlines(p);
+    iron_parser_sync_stmt(p);
+}
+
 /* ── Type annotation ─────────────────────────────────────────────────────── */
 
 /* Parse: TypeName[?][GenericArgs] or [TypeName; Size] or [TypeName] or func(T)->R
@@ -4143,11 +4167,16 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             Iron_Token *fstart = iron_current(p);
             iron_advance(p);  /* consume 'func' */
 
-            if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+            /* The block-introducer keywords are also legal method names once
+             * `func` has been consumed: the body loop branches on a bare
+             * COPY/DROP/INIT above, so `copy {}` still wins as a block and only
+             * `func copy()` reaches here. Keyword tokens carry their lexeme as
+             * `value`, so downstream by-name dispatch works unchanged. */
+            if (!iron_check_name_or_block_kw(p)) {
                 iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
                                iron_token_span(p, iron_current(p)),
                                "expected method name in object body");
-                iron_parser_sync_stmt(p);
+                iron_parser_sync_member(p);
                 iron_skip_newlines(p);
                 continue;
             }
@@ -4286,7 +4315,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
                            "must specify val or var",
                            "insert 'val' for an immutable binding "
                            "(or 'var' to allow reassignment)");
-            iron_parser_sync_stmt(p);
+            iron_parser_sync_member(p);
             continue;
         }
 
@@ -4295,7 +4324,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
                            IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
                            "expected field name", NULL);
-            iron_parser_sync_stmt(p);
+            iron_parser_sync_member(p);
             continue;
         }
         Iron_Token *fname = iron_advance(p);
