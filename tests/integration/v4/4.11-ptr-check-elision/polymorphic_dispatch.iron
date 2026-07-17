@@ -1,5 +1,25 @@
 -- section 4.11 pointer-check elision: polymorphic-dispatch soundness trap
 -- @req: OPT-03, OPT-07, OQ-08
+-- @expected-pass-after: phase-37
+-- XFAIL (phase-37): a checked pointer as a FUNCTION PARAMETER (`ptr: *Friendly`
+-- below) is not implemented in codegen. Two gaps, one of which needs a design
+-- decision:
+--   1. emit_val_is_any_fat_ptr / emit_fat_ptr_pointee_type_c key off the
+--      producing instruction (HEAP_ALLOC / ARENA_ALLOC / ADDR_OF). Parameters
+--      have no producing instr, so `ptr.level` emits `_v2.level` on an
+--      Iron_FatPtr and fails to compile. Reproduces without any interface:
+--      `func get(p: *P) -> Int { return p.x }`.
+--   2. The gen check cannot be lowered. gencheck_deref_needs_check picks one of
+--      three NON-interchangeable helpers (iron_check_pointer_gen /
+--      _stack_pointer_gen / _arena_pointer_gen) from the STATIC IronLIR_GenSource
+--      on the producing ADDR_OF. A parameter's gen source is caller-dependent, so
+--      there is nothing to read it from -- and mistagging is exactly the
+--      "checked by the heap helper and read garbage" pitfall lir.h:195-202 warns
+--      about. Carrying the tag at runtime would have to widen Iron_FatPtr, which
+--      is ABI-frozen at 16B by static_assert (iron_runtime.h:159-172).
+-- Emitting the deref without the check would compile and print the right answer
+-- while silently dropping the very check this fixture exists to pin, so it is
+-- left failing rather than papered over.
 -- extends-spec: POINTER-CHECK-ELISION.md soundness trap "polymorphic dispatch
 -- joins" — a generation check straddles a virtual/interface method call
 -- resolved at runtime. A naive elision that trusted a single implementation's
@@ -16,7 +36,7 @@ interface Greeter {
 object Friendly impl Greeter {
     val level: Int
 
-    func greet(self) -> Int {
+    func greet() -> Int {
         return self.level
     }
 }

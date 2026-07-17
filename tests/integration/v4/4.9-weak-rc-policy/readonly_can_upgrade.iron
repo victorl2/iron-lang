@@ -7,7 +7,7 @@
 object Foo {
     val v: Int
 
-    readonly func observe(self, w: weak rc Foo) -> Int {
+    readonly func observe(w: weak rc Foo) -> Int {
         val maybe = w.upgrade()
         return self.v
     }
