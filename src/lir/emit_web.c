@@ -354,6 +354,10 @@ const char *emit_web_module(IronLIR_Module *module, Iron_Arena *arena,
     /* WEB-EMIT-05: emscripten include MUST precede all other includes */
     iron_strbuf_appendf(&ctx.includes, "#include <emscripten/emscripten.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"runtime/iron_runtime.h\"\n");
+    /* Mirrors the native emitter (emit_c.c): emit_structs skips the struct
+     * bodies for the runtime-provided Arena/ArenaSave surfaces, so the
+     * Iron_ArenaSave in their extern prototypes only resolves via this header. */
+    iron_strbuf_appendf(&ctx.includes, "#include \"runtime/iron_arena_rt.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdint.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdbool.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdlib.h>\n");
