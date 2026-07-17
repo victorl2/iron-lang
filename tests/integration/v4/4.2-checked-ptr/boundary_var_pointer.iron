@@ -1,0 +1,11 @@
+-- section: 4.2-checked-ptr
+-- @req: PTR-02, PTR-06
+-- @expected-pass-after: phase-20
+-- extends-spec: *var T allows mutation through pointer; soundness: POINTER-CHECK-ELISION.md "implicit drops on assignment" - overwriting via *var pointer triggers generation check ensuring pointer still valid before mutation
+
+func main() {
+    var x = 10
+    val mut_ptr: *var Int = &x
+    mut_ptr := 42
+    println("x: {x}")
+}

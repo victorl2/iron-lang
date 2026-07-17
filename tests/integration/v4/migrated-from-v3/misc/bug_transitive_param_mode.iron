@@ -1,0 +1,44 @@
+-- Regression test: array passed through a chain of function calls
+-- should use pointer mode transitively (not fall back to Iron_List_T).
+
+func swap(arr: [Int], i: Int, j: Int) {
+    val tmp = arr[i]
+    arr[i] = arr[j]
+    arr[j] = tmp
+}
+
+func partition(arr: [Int], lo: Int, hi: Int) -> Int {
+    val pivot = arr[hi]
+    var i = lo - 1
+    var j = lo
+    while j < hi {
+        if arr[j] <= pivot {
+            i = i + 1
+            swap(arr, i, j)
+        }
+        j = j + 1
+    }
+    swap(arr, i + 1, hi)
+    return i + 1
+}
+
+func qsort(arr: [Int], lo: Int, hi: Int) {
+    if lo < hi {
+        val p = partition(arr, lo, hi)
+        qsort(arr, lo, p - 1)
+        qsort(arr, p + 1, hi)
+    }
+}
+
+func main() {
+    var arr = [5, 3, 8, 1, 9, 2, 7, 4, 6, 0]
+    qsort(arr, 0, 9)
+    var result = ""
+    for i in range(10) {
+        if i > 0 {
+            result = "{result} "
+        }
+        result = "{result}{arr[i]}"
+    }
+    println(result)
+}

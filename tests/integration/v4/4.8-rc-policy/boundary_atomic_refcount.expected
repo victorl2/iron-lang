@@ -1,0 +1,3 @@
+worker sees: 100
+main sees: 100
+drop: shared 100

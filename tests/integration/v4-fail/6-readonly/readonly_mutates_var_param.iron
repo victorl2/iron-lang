@@ -1,0 +1,7 @@
+-- section 6.3 negative: readonly method mutates a var parameter
+-- @req: READ-01
+-- @expected-pass-after: phase-22
+-- readonly purity forbids mutation even through var pointer parameters
+readonly func bad(x: *var Int) {
+    x = 5
+}

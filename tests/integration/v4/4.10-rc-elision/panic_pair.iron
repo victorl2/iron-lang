@@ -1,0 +1,22 @@
+-- section 4.10 rc elision: panic-unwind soundness trap
+-- @req: OPT-01
+-- A retain/release pair straddles a call that CAN reach a panic path (an index
+-- op into a list). When no panic occurs the value is printed; the pair must be
+-- preserved across the potentially-unwinding call so the refcount stays sound
+-- on any abnormal-exit edge. This run takes the no-panic path.
+
+object Item {
+    val id: Int
+
+    drop {
+        println("drop: item {self.id}")
+    }
+}
+
+func main() {
+    val it = rc Item(7)
+    val xs = [10, 20, 30]
+    val mid = xs[1]
+    println("mid: {mid}")
+    println("item: {it.id}")
+}

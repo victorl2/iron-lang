@@ -1,0 +1,30 @@
+-- Test: array parameter passing optimization (PARAM-01/PARAM-02)
+-- Verifies that array parameters can be passed as pointer+length pairs
+-- instead of Iron_List_T struct copies.
+
+func sum(arr: [Int], n: Int) -> Int {
+    var total = 0
+    var i = 0
+    while i < n {
+        total = total + arr[i]
+        i = i + 1
+    }
+    return total
+}
+
+func double_each(arr: [Int], n: Int) {
+    var i = 0
+    while i < n {
+        arr[i] = arr[i] * 2
+        i = i + 1
+    }
+}
+
+func main() {
+    val nums = [1, 2, 3, 4, 5]
+    println("Sum: {sum(nums, 5)}")
+
+    var data = [10, 20, 30]
+    double_each(data, 3)
+    println("After double: {data[0]} {data[1]} {data[2]}")
+}

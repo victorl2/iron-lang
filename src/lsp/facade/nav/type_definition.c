@@ -46,6 +46,17 @@ static Iron_Node *type_decl_node(const Iron_Type *t) {
             return type_decl_node(t->nullable.inner);
         case IRON_TYPE_RC:
             return type_decl_node(t->rc.inner);
+        /* Phase 27 POL-08 (Plan 27-02): weak rc T routes to its inner type,
+         * mirroring the rc arm — "Go to type definition" on a weak rc value
+         * lands on the underlying object decl. */
+        case IRON_TYPE_WEAK_RC:
+            return type_decl_node(t->weak_rc.inner);
+        /* Phase 20 PTR-01: route type-definition through to the pointee so
+         * "Go to type definition" on a `*Point` lvalue lands on `object Point`.
+         * Plan 20-01 declares the kind; this branch keeps Phase 3 NAV-08
+         * behavior consistent with the new type wrapper. */
+        case IRON_TYPE_PTR:
+            return type_decl_node(t->ptr.pointee);
         case IRON_TYPE_ARRAY:
             return type_decl_node(t->array.elem);
         /* Primitives + function + tuple + generic -> empty (D-05). */

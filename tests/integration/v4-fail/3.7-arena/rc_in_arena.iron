@@ -1,0 +1,10 @@
+-- section 3.7 negative: rc cannot be allocated in an arena
+-- @req: ARENA-01, POL-06
+-- @expected-pass-after: phase-28
+-- rc lifecycle is incompatible with arena reset semantics
+func main() {
+    val arena = Arena.with_capacity(4096)
+    in arena {
+        val tex = rc Texture.load("hero.png")
+    }
+}

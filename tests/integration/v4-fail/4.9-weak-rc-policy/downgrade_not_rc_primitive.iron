@@ -1,0 +1,9 @@
+-- section 4.9 negative: .downgrade() on a primitive Int is forbidden (POL-08)
+-- @req: POL-08
+-- @expected-pass-after: phase-27
+-- E0300 IRON_ERR_WEAK_RC_DOWNGRADE_NOT_RC — only rc T receivers allowed
+func main(): Int {
+    val x: Int = 42
+    val w = x.downgrade()   -- E0300: .downgrade() requires rc T receiver
+    return 0
+}

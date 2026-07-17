@@ -1,0 +1,12 @@
+-- section 4.9 negative: `&` on weak rc value forbidden (POL-07 extended in Phase 27)
+-- @req: POL-07, POL-08
+-- @expected-pass-after: phase-27
+-- E0296 IRON_ERR_PTR_AMP_ON_RC — message extended to name both rc and weak rc (CONTEXT.md GA4)
+object Foo { val v: Int }
+
+func main(): Int {
+    val r = rc Foo(1)
+    val w = r.downgrade()
+    val p = &w   -- E0296: cannot take address of rc/weak rc
+    return 0
+}

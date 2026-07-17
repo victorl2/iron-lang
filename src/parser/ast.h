@@ -47,6 +47,7 @@ typedef enum {
     IRON_NODE_LEAK,
     IRON_NODE_SPAWN,
     IRON_NODE_BLOCK,
+    IRON_NODE_IN_ARENA,  /* Phase 28 ARENA-02 (Plan 28-03): `in <arena> { ... }` default-arena block; reuses IRON_TOK_IN */
 
     /* Expressions */
     IRON_NODE_INT_LIT,
@@ -66,6 +67,7 @@ typedef enum {
     IRON_NODE_LAMBDA,
     IRON_NODE_HEAP,
     IRON_NODE_RC,
+    IRON_NODE_WEAK_RC_NULL,  /* Phase 27 POL-08 (Plan 27-02): `weak rc null` constructor expression */
     IRON_NODE_COMPTIME,
     IRON_NODE_IS,
     IRON_NODE_CONSTRUCT,
@@ -178,10 +180,15 @@ typedef struct {
  * fields, call IRON_AST_ASSERT_UNSEALED(program) before the write. The
  * full contract lives in docs/dev/AST_CONTRACT.md. */
 #ifndef NDEBUG
+/* Use a helper inline to avoid -Werror=address when caller passes &local. */
+static inline void iron_ast_assert_unsealed_impl(const Iron_Program *prog,
+                                                  const char *file, int line) {
+    if (prog && prog->sealed)
+        iron_ice("AST_CONTRACT breach: write after analyze at %s:%d", file, line);
+}
 #  define IRON_AST_ASSERT_UNSEALED(program)                                  \
-       do { if ((program) && ((const Iron_Program *)(program))->sealed)     \
-            iron_ice("AST_CONTRACT breach: write after analyze at %s:%d",   \
-                     __FILE__, __LINE__); } while (0)
+       iron_ast_assert_unsealed_impl((const Iron_Program *)(program),        \
+                                     __FILE__, __LINE__)
 #else
 #  define IRON_AST_ASSERT_UNSEALED(program) ((void)0)
 #endif
@@ -227,6 +234,12 @@ typedef struct Iron_ObjectDecl {
      * visibility to members. Resolver reads this onto Iron_Symbol.is_pub
      * for cross-module visibility. */
     bool          is_pub;
+    /* Phase 24 DROP-08 (Plan 24-01): nocopy modifier on object declaration.
+     * True when source is `nocopy object T { ... }`. Default false via
+     * arena-zalloc. Plan 24-02 typecheck arm emits IRON_ERR_COPY_OF_NOCOPY_TYPE
+     * (286) at every copy site (assignment, param-pass-by-value, return) when
+     * the source type has is_nocopy=true. */
+    bool          is_nocopy;
 } Iron_ObjectDecl;
 
 typedef struct Iron_InterfaceDecl {
@@ -289,6 +302,14 @@ typedef struct {
     bool               is_pure;
     /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
     const char        *doc_comment;
+    /* Phase 20 PTR-10 (Plan 20-02a): set by mark_takes_local_addr_pass after
+     * typecheck when the function body contains either an explicit `&local`
+     * unary expression OR an is_auto_address_target flag rooted at a stack-
+     * local Iron_Symbol. Plan 20-02b's emit_c.c reads this bit to inject
+     * `iron_stack_gen += 1;` prologue/epilogue around the function body
+     * (per-function-decl pessimistic detection per CONTEXT.md OQ-E lock;
+     * pure syntactic walk per RESEARCH Pitfall 6). Default false. */
+    bool               takes_local_addr;
 } Iron_FuncDecl;
 
 typedef struct {
@@ -362,6 +383,18 @@ typedef struct {
      * when a non-patch `pub object T` exists in the same source file
      * (regular object's methods survive, patch's don't). */
     bool               is_patch_member;
+    /* Phase 24 DROP-01/06 (Plan 24-01): flag drop/copy blocks.
+     * is_drop  true when the source token was `drop { ... }`.
+     * is_copy  true when the source token was `copy { ... }`.
+     * Both default false via arena-zalloc; mutually exclusive. */
+    bool               is_drop;
+    bool               is_copy;
+    /* Phase 20 PTR-10 (Plan 20-02a): set by mark_takes_local_addr_pass
+     * when the method body contains `&local` OR an is_auto_address_target
+     * flag rooted at a stack-local. Mirrors the Iron_FuncDecl bit; same
+     * semantics. Plan 20-02b's emit_c.c reads it on method bodies for
+     * the iron_stack_gen prologue/epilogue injection. Default false. */
+    bool               takes_local_addr;
 } Iron_MethodDecl;
 
 /* ── Helper node types ───────────────────────────────────────────────────── */
@@ -397,6 +430,11 @@ typedef struct {
     bool          is_pub;
     /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
     const char   *doc_comment;
+    /* Phase 24 DROP-06 (Plan 24-02): resolved Iron_Type* for this field,
+     * cached by compute_has_user_copy_transitive / check_method_decl during
+     * the analyzer pass so codegen can read field types without TypeCtx.
+     * Default NULL (arena-zalloc); populated on first resolver access. */
+    struct Iron_Type *field_type_cached;
 } Iron_Field;
 
 typedef struct {
@@ -429,6 +467,9 @@ typedef struct {
     /* Phase 48: layout annotations for array types [T, layout: soa/aos] [T, unordered] */
     int           layout_hint;      /* 0 = none, 1 = soa, 2 = aos */
     bool          is_unordered;     /* true if [T, unordered] */
+    /* Phase 23 VEC-01: true when source is `[T; <=N]` bounded-vector form.
+     * Propagated to Iron_Type.array.is_bounded by resolve_type_annotation. */
+    bool          bounded;
     /* Phase 59 01d: tuple type annotation — (T0, T1, ...) */
     bool          is_tuple;
     Iron_Node   **tuple_elems;      /* array of Iron_TypeAnnotation* for element types */
@@ -440,6 +481,26 @@ typedef struct {
      * TypeCtx.enclosing_type_name, or emits E0259 if used outside a
      * method/interface context. Defaults false at every allocation site. */
     bool          is_self_type;
+    /* Phase 20 PTR-* — checked pointer types (Plan 20-01).
+     * is_pointer       — true for `*T`, `*var T`, `?*T`, `?*var T` shapes.
+     * is_var_pointer   — true only when is_pointer; encodes the `var` modifier.
+     * pointer_pointee  — the inner type-annotation AST when is_pointer; NULL
+     *                    otherwise. For `?*T` the OUTER annotation carries
+     *                    is_pointer=true + is_nullable=true (leading-`?`
+     *                    surface form locked by 20-CONTEXT.md). */
+    bool          is_pointer;
+    bool          is_var_pointer;
+    Iron_Node    *pointer_pointee;
+    /* Phase 25 PTR-02 (Plan 25-01): unchecked regime flag — orthogonal to
+     * is_var_pointer. is_unchecked=true only when is_pointer=true.
+     * Default-zero via arena-zalloc at every allocation site.
+     * Source surface: `*unchecked T` and `*var unchecked T`. */
+    bool          is_unchecked;
+    /* Phase 27 POL-08 (Plan 27-02): `weak rc T` type annotation marker.
+     * is_weak_rc=true wraps weak_rc_inner; resolve_type_annotation lowers
+     * this to IRON_TYPE_WEAK_RC(inner). Default-zero via arena-zalloc. */
+    bool          is_weak_rc;
+    Iron_Node    *weak_rc_inner;
 } Iron_TypeAnnotation;
 
 #define IRON_LAYOUT_HINT_NONE 0
@@ -528,6 +589,20 @@ typedef struct {
     Iron_Node    *condition;
     Iron_Node    *body;
 } Iron_WhileStmt;
+
+/* Phase 28 ARENA-02 (Plan 28-03): `in <arena_expr> { ... }` default-arena
+ * block. Reuses IRON_TOK_IN (the same token the for-header consumes) — `arena`
+ * is NOT a keyword. On entry the runtime pushes arena_expr onto the
+ * thread-local active-arena stack (innermost wins, ARENA-11); on exit it pops.
+ * The analyzer increments a lexical in_arena_block_depth across the body so
+ * `rc`/`weak rc` allocations inside emit E0301 (ARENA-08). Codegen is Plan 04;
+ * this struct is the front-end surface only. */
+typedef struct {
+    Iron_Span     span;
+    Iron_NodeKind kind;      /* IRON_NODE_IN_ARENA */
+    Iron_Node    *arena_expr; /* the arena expression after `in` */
+    Iron_Node    *body;       /* IRON_NODE_BLOCK */
+} Iron_InArenaBlock;
 
 typedef struct {
     Iron_Span          span;
@@ -644,6 +719,11 @@ typedef struct {
     const char         *name;
     struct Iron_Symbol *resolved_sym;   /* set by resolver; NULL = unresolved */
     const char         *constraint_name;  /* generic param constraint; NULL if unconstrained */
+    /* Phase 20 PTR-07 (Plan 20-02a): set by typecheck.c when this ident is a
+     * call-arg that auto-addresses a *T / *var T parameter. HIR lowering
+     * (Plan 20-02b) reads this bit to emit a fat-pointer literal at the call
+     * site. Default false (arena zero-init covers non-auto-address idents). */
+    bool                is_auto_address_target;
 } Iron_Ident;
 
 typedef struct {
@@ -689,6 +769,11 @@ typedef struct {
     const char        *method;
     Iron_Node        **args;
     int                arg_count;
+    /* Phase 20 PTR-06 (Plan 20-02a): set by typecheck.c when the receiver
+     * `object` resolves to IRON_TYPE_PTR. HIR lowering (Plan 20-02b) reads
+     * this bit to emit `iron_check_pointer_gen` + load before dispatching the
+     * method against the pointee type. Default false (arena zero-init). */
+    bool               is_auto_deref;
 } Iron_MethodCallExpr;
 
 typedef struct {
@@ -703,6 +788,18 @@ typedef struct {
      * emitting a direct field load. Default false at every construction
      * site; arena zero-init covers non-pub field accesses. */
     bool               is_pub_access;
+    /* Phase 20 PTR-06 (Plan 20-02a): set by typecheck.c when the receiver
+     * `object` resolves to IRON_TYPE_PTR (read side) OR when this field-access
+     * is the LHS of an assignment whose receiver is *var T (OQ-A write side).
+     * HIR lowering (Plan 20-02b) reads this bit on read-side accesses to
+     * emit `iron_check_pointer_gen` + field-load and on write-side LHS to
+     * emit a deref-store. Default false (arena zero-init). */
+    bool               is_auto_deref;
+    /* Phase 20 PTR-07 (Plan 20-02a): set when a field-access is a call-arg
+     * that auto-addresses a *T / *var T parameter (e.g. `f(obj.field)` where
+     * f expects `*Int`). HIR lowering reads this bit at call sites to emit
+     * the field-pointer fat-ptr literal. Default false. */
+    bool               is_auto_address_target;
 } Iron_FieldAccess;
 
 typedef struct {
@@ -711,6 +808,11 @@ typedef struct {
     struct Iron_Type  *resolved_type;  /* set by type checker */
     Iron_Node         *object;
     Iron_Node         *index;
+    /* Phase 20 PTR-07 (Plan 20-02a): set when an index expression is a
+     * call-arg that auto-addresses a *T / *var T parameter (e.g. `f(arr[i])`
+     * where f expects `*Int`). HIR lowering reads this bit at call sites to
+     * emit the element-pointer fat-ptr literal. Default false. */
+    bool               is_auto_address_target;
 } Iron_IndexExpr;
 
 typedef struct {
@@ -741,6 +843,10 @@ typedef struct {
     Iron_Node         *inner;
     bool               auto_free;  /* set by escape analyzer */
     bool               escapes;    /* set by escape analyzer */
+    /* Phase 28 ARENA-02 (Plan 28-03): named-option list after `heap`.
+     * `heap(in: arena_expr, allow_drop_skip: true) T(...)`. */
+    Iron_Node         *arena_expr;      /* NULL = no `in:` (TLS active-arena default at lowering) */
+    bool               allow_drop_skip; /* `allow_drop_skip: true` suppresses W0605 (ARENA-09) */
 } Iron_HeapExpr;
 
 typedef struct {
@@ -749,6 +855,25 @@ typedef struct {
     struct Iron_Type  *resolved_type;  /* set by type checker */
     Iron_Node         *inner;
 } Iron_RcExpr;
+
+/* Phase 27 POL-08 (Plan 27-02): `weak rc null` constructor expression.
+ * Produces a null weak rc — lowered by HIR to IRON_HIR_EXPR_WEAK_RC_NULL
+ * and by emit_c to a literal NULL pointer in the weak slot. The inner
+ * type is inferred from the variable annotation context (no inner-type
+ * field here in Plan 27-02; future syntax `weak rc Foo:null` may add one). */
+typedef struct {
+    Iron_Span          span;
+    Iron_NodeKind      kind;   /* IRON_NODE_WEAK_RC_NULL */
+    struct Iron_Type  *resolved_type;  /* set by type checker — IRON_TYPE_WEAK_RC(inner) when context-typed */
+    /* Phase 28 ARENA-08 (Plan 28-03): true when this node was produced by the
+     * `weak rc <expr>` allocation form (NOT `weak rc null`). The parser cannot
+     * know the lexical arena depth, so it defers: typecheck emits E0301 when
+     * in_arena_block_depth>0, otherwise E0298 (the closed-policy rejection that
+     * the parser used to emit directly for this form). false for true
+     * `weak rc null`. */
+    bool               is_alloc_form;
+    Iron_Node         *alloc_inner;    /* the <expr> for is_alloc_form (recovery / span) */
+} Iron_WeakRcNullExpr;
 
 typedef struct {
     Iron_Span          span;
@@ -856,6 +981,7 @@ IRON_ASSERT_EXPR_PREFIX(Iron_SliceExpr);
 IRON_ASSERT_EXPR_PREFIX(Iron_LambdaExpr);
 IRON_ASSERT_EXPR_PREFIX(Iron_HeapExpr);
 IRON_ASSERT_EXPR_PREFIX(Iron_RcExpr);
+IRON_ASSERT_EXPR_PREFIX(Iron_WeakRcNullExpr);  /* Phase 27 POL-08 (Plan 27-02) */
 IRON_ASSERT_EXPR_PREFIX(Iron_ComptimeExpr);
 IRON_ASSERT_EXPR_PREFIX(Iron_IsExpr);
 IRON_ASSERT_EXPR_PREFIX(Iron_AwaitExpr);

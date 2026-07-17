@@ -1,0 +1,26 @@
+-- section 4.11 pointer-check elision: tight-loop microbench corpus (OPT-08)
+-- @req: OPT-08, OQ-08
+-- Idiomatic shape for the OPT-08 microbench: a loop-invariant pointer
+-- dereferenced once per iteration with no may-free op in the loop body. The root
+-- allocation is created outside the loop and never freed in it, so the
+-- per-iteration generation check is loop-invariant and hoists to the preheader
+-- under Tier 3 (LICM). This fixture is BEHAVIORAL — correct output regardless of
+-- elision — pinning parity-by-construction; the hoist COUNT (by_tier[2]==1) is
+-- asserted in the unit oracle (test_microbench_tight_loop).
+
+object Counter {
+    val base: Int
+}
+
+func main() {
+    val c = heap Counter(5)
+    val ptr: *Counter = &c
+    var total = 0
+    var i = 0
+    while i < 4 {
+        -- per-iteration deref of the loop-invariant pointer
+        total = total + ptr.base
+        i = i + 1
+    }
+    println("total: {total}")
+}

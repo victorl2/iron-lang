@@ -78,7 +78,9 @@ target_include_directories(test_parity_ironc_lsp_fmt PRIVATE
     ${CMAKE_SOURCE_DIR}/src/vendor)
 target_compile_definitions(test_parity_ironc_lsp_fmt PRIVATE
     _GNU_SOURCE
-    "TESTS_INTEGRATION_DIR=\"${CMAKE_SOURCE_DIR}/tests/integration\"")
+    # Phase 35 MIG-08: v3 root fixtures moved to v3-archive/; parity sweep
+    # tracks the same corpus by following the rename so HARD-24 stays GREEN.
+    "TESTS_INTEGRATION_DIR=\"${CMAKE_SOURCE_DIR}/tests/integration/v3-archive\"")
 target_link_libraries(test_parity_ironc_lsp_fmt
     iron_compiler
     iron_runtime
@@ -127,7 +129,9 @@ target_include_directories(test_parity_v3_print_fixed_point PRIVATE
     ${CMAKE_SOURCE_DIR}/src/vendor)
 target_compile_definitions(test_parity_v3_print_fixed_point PRIVATE
     _GNU_SOURCE
-    "TESTS_INTEGRATION_DIR=\"${CMAKE_SOURCE_DIR}/tests/integration\""
+    # Phase 35 MIG-08: v3 root fixtures moved to v3-archive/; parity sweep
+    # tracks the same corpus by following the rename so HARD-24 stays GREEN.
+    "TESTS_INTEGRATION_DIR=\"${CMAKE_SOURCE_DIR}/tests/integration/v3-archive\""
     "PRINTER_V2_BASELINE_DIR=\"${CMAKE_SOURCE_DIR}/tests/lsp/fixtures/printer_v2_baseline\"")
 target_link_libraries(test_parity_v3_print_fixed_point
     iron_compiler

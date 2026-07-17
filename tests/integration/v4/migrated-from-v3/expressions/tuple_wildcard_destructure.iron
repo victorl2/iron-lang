@@ -1,0 +1,8 @@
+func pair() -> (Int, Int) {
+    return (7, 99)
+}
+
+func main() {
+    val (x, _) = pair()
+    println("{x}")
+}

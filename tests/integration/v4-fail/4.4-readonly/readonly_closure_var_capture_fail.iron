@@ -1,0 +1,11 @@
+-- section 4.4 negative: readonly method closure capturing a var binding
+-- @req: OQ-04
+-- @expected-pass-after: phase-22
+
+object X {
+    readonly func f() -> Int {
+        var counter = 0
+        val cb = func() -> Int { return counter }
+        return 0
+    }
+}

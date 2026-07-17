@@ -1,0 +1,11 @@
+-- section: 5-mutability
+-- @req: VAL-01, VAL-04
+-- @expected-pass-after: phase-17
+-- description: val (immutable) vs var (mutable) local binding - verbatim from spec §5.1
+
+func main() {
+    val x = 10
+    var y = 20
+    y = 30
+    println("x={x} y={y}")
+}

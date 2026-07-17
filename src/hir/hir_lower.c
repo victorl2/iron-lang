@@ -42,6 +42,11 @@ typedef struct {
     IronHIR_VarId     *capture_var_ids; /* stb_ds array: outer-scope VarIds */
     Iron_CaptureEntry *captures;        /* capture metadata (name, type, is_mutable) */
     int                capture_count;
+    /* Phase 22 OQ-04 / READ-08: carries the enclosing readonly context bit
+     * forward from queue site to lift Pass 3. Plan 22-03 will define
+     * IronHIR_Func.is_readonly and consume this bit at lift time
+     * (lower_lift_pending_hir ~line 2027). */
+    bool               is_readonly_context;
 } LiftPending;
 
 /* ── Per-scope frame type ────────────────────────────────────────────────── */
@@ -81,12 +86,25 @@ typedef struct {
     /* Current enclosing function name (for lifted function naming) */
     const char      *current_func_name;
 
+    /* Phase 22 OQ-04: readonly flag of the current enclosing function/method;
+     * set by lower_func_body_hir / lower_method_body_hir; consumed by the
+     * lambda-queue site to populate LiftPending.is_readonly_context for
+     * Plan 22-03's IronHIR_Func.is_readonly assignment. */
+    bool             current_func_is_readonly;
+
     /* Global constant lazy lowering */
     struct { char *key; Iron_Node *value; } *global_constants_map;
     struct { char *key; int value; }        *global_mutable_set;
 
     /* Tracks which globals have been lowered (name -> VarId) */
     struct { char *key; IronHIR_VarId value; } *global_lowered_map;
+
+    /* Phase 28 ARENA-05 (Plan 28-04): lexical `in arena {}` nesting depth.
+     * Incremented on entry to an Iron_InArenaBlock body, decremented on exit.
+     * A bare `heap T(...)` lowered while depth > 0 becomes an arena allocation
+     * against the TLS-current arena (arena_expr NULL); outside any block it
+     * stays a plain IRON_HIR_EXPR_HEAP. */
+    int              in_arena_depth;
 } IronHIR_LowerCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -202,10 +220,31 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
             base = iron_type_make_nullable(ctx->module->arena, base);
         }
         if (ta->is_array && base) {
-            base = iron_type_make_array(ctx->module->arena, base, -1);
+            base = iron_type_make_array(ctx->module->arena, base, -1, false);
         }
         return base;
     }
+
+    /* Phase 27 POL-08: `weak rc T`. The parser zeroes the wrapper annotation and
+     * sets only is_weak_rc + weak_rc_inner, leaving `name` NULL, so this arm has
+     * to come before the name dispatch below — otherwise a method parameter of
+     * type `weak rc T` reaches strcmp(NULL) and segfaults the compiler.
+     * Function parameters happened to escape it: build_hir_params_named reuses
+     * the types the typechecker already resolved, and only method params
+     * (lower_module_decls_hir) re-resolve the raw annotation. Mirrors
+     * resolve_type_annotation in typecheck.c. */
+    if (ta->is_weak_rc) {
+        Iron_Type *inner_t = ta->weak_rc_inner
+            ? resolve_type_ann(ctx, ta->weak_rc_inner)
+            : iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (!inner_t) inner_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+        Iron_Type *wt = iron_type_make_weak_rc(ctx->module->arena, inner_t);
+        return wt ? wt : iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+
+    /* Any shape that reaches the name dispatch without a name is a gap in the
+     * arms above; report it as unresolved instead of dereferencing NULL. */
+    if (!ta->name) return NULL;
 
     if (strcmp(ta->name, "Int") == 0)         base = iron_type_make_primitive(IRON_TYPE_INT);
     else if (strcmp(ta->name, "Float") == 0)  base = iron_type_make_primitive(IRON_TYPE_FLOAT);
@@ -257,7 +296,7 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
     if (ta->is_array && base) {
         int size = -1;
         /* size node not used here for simplicity */
-        base = iron_type_make_array(ctx->module->arena, base, size);
+        base = iron_type_make_array(ctx->module->arena, base, size, false);
     }
     return base;
 }
@@ -989,11 +1028,43 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Defer ─────────────────────────────────────────────────────────────── */
     case IRON_NODE_DEFER: {
         Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
+
+        /* Phase 32 DEFER-01: `defer` accepts any statement. Build a defer
+         * body (an IronHIR_Block) by lowering ds->expr; the downstream
+         * emit_scope_defers / emit_defer_cleanup inline-lower whatever
+         * statements defer_body holds at every normal exit edge, in LIFO order
+         * (DEFER-03) ahead of local drops (DEFER-04). No machinery change.
+         *
+         * Pitfall 4: produce NO HIR node before lowering on a genuinely
+         * un-lowerable body (NULL / error). */
+        if (!ds->expr || ds->expr->kind == IRON_NODE_ERROR) {
+            return NULL;
+        }
+
         IronHIR_Block  *defer_body = iron_hir_block_create(mod);
-        /* Lower the deferred expression as a single expression statement */
-        IronHIR_Expr *dexpr = lower_expr_hir(ctx, ds->expr);
-        IronHIR_Stmt *dstmt = iron_hir_stmt_expr(mod, dexpr, span);
-        iron_hir_block_add_stmt(defer_body, dstmt);
+        if (ds->expr->kind == IRON_NODE_FREE) {
+            /* `defer free <ident>` fast-path — kept byte-identical to Phase 21
+             * so existing `defer free` codegen is unchanged. ds->expr is the
+             * IRON_NODE_FREE statement node; lower_expr_hir cannot lower FREE,
+             * so we lower its operand and build an IRON_HIR_STMT_FREE. */
+            Iron_FreeStmt *fs = (Iron_FreeStmt *)ds->expr;
+            IronHIR_Expr *free_val = lower_expr_hir(ctx, fs->expr);
+            IronHIR_Stmt *dstmt = iron_hir_stmt_free(mod, free_val, span);
+            iron_hir_block_add_stmt(defer_body, dstmt);
+        } else if (ds->expr->kind == IRON_NODE_BLOCK) {
+            /* `defer { ... }` — lower each inner statement into defer_body
+             * (lower_block_hir swaps ctx->current_block + brackets a defer
+             * scope around the inner statements). */
+            lower_block_hir(ctx, (Iron_Block *)ds->expr, defer_body);
+        } else {
+            /* General single statement — lower it directly into defer_body by
+             * temporarily retargeting ctx->current_block (mirrors the
+             * self-append discipline lower_block_hir relies on). */
+            IronHIR_Block *saved_block = ctx->current_block;
+            ctx->current_block = defer_body;
+            lower_stmt_hir(ctx, ds->expr);
+            ctx->current_block = saved_block;
+        }
         IronHIR_Stmt *s = iron_hir_stmt_defer(mod, defer_body, span);
         iron_hir_block_add_stmt(blk, s);
         /* Push deferred block onto the current scope's defer stack */
@@ -1081,6 +1152,27 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         lower_block_hir(ctx, inner, hblk);
         pop_scope(ctx);
         IronHIR_Stmt *s = iron_hir_stmt_block(mod, hblk, span);
+        iron_hir_block_add_stmt(blk, s);
+        return NULL;
+    }
+
+    /* Phase 28 ARENA-04/05 (Plan 28-04): `in <arena> { ... }` default-arena
+     * block. Lower the arena expression, then the body with in_arena_depth
+     * bumped so bare `heap T(...)` inside resolves to the TLS-current arena.
+     * hir_to_lir emits ARENA_PUSH on entry + ARENA_POP on every exit edge. */
+    case IRON_NODE_IN_ARENA: {
+        Iron_InArenaBlock *ia = (Iron_InArenaBlock *)node;
+        IronHIR_Expr *arena = ia->arena_expr
+            ? lower_expr_hir(ctx, ia->arena_expr) : NULL;
+        IronHIR_Block *hblk = iron_hir_block_create(mod);
+        ctx->in_arena_depth++;
+        push_scope(ctx);
+        if (ia->body && ia->body->kind == IRON_NODE_BLOCK) {
+            lower_block_hir(ctx, (Iron_Block *)ia->body, hblk);
+        }
+        pop_scope(ctx);
+        ctx->in_arena_depth--;
+        IronHIR_Stmt *s = iron_hir_stmt_in_arena(mod, arena, hblk, span);
         iron_hir_block_add_stmt(blk, s);
         return NULL;
     }
@@ -1183,6 +1275,16 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_IDENT: {
         Iron_Ident *id = (Iron_Ident *)node;
 
+        /* Phase 20 PTR-07 (Plan 20-02b): is_auto_address_target flag (set by
+         * Plan 20-02a typecheck.c when this ident is a call-arg matched
+         * against a *T / *var T parameter) marks the call-site auto-address
+         * insertion point. The HIR lowering for IRON_NODE_CALL is responsible
+         * for wrapping the materialized arg in IRON_HIR_EXPR_ADDR_OF when
+         * the AST flag is set; this IDENT path only reads the flag for
+         * documentation (Pitfall 4 honoured: AST stays unchanged; auto-
+         * address is HIR-only synthesis). */
+        (void)id->is_auto_address_target;
+
         /* 1. Look in lexical scope stack (locals and params) */
         IronHIR_VarId var_id = lookup_var(ctx, id->name);
         if (var_id != IRON_HIR_VAR_INVALID) {
@@ -1270,6 +1372,46 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Unary expression ────────────────────────────────────────────────── */
     case IRON_NODE_UNARY: {
         Iron_UnaryExpr *un = (Iron_UnaryExpr *)node;
+
+        /* Phase 20 PTR-04 (Plan 20-02b): &lvalue lowers to IRON_HIR_EXPR_ADDR_OF
+         * carrying a gen_source tag. As of Phase 20, all local bindings
+         * (val/var) are stack-allocated — Phase 21's heap T(...) syntax is
+         * the next step that introduces heap-source &-targets; until then,
+         * gen_source is unconditionally STACK. The OQ-C field-pointer
+         * "outermost-allocation gen" walk is therefore degenerate this
+         * phase; it becomes load-bearing once Phase 21 lands.
+         *
+         * The analyzer side (Plan 20-02a IRON_NODE_UNARY-AMP path) has
+         * already populated un->resolved_type with IRON_TYPE_PTR
+         * (with .ptr.is_var derived from the source binding's mutability),
+         * so HIR carries the typed result-of-& through unchanged. */
+        if ((int)un->op == IRON_TOK_AMP) {
+            IronHIR_Expr *target = lower_expr_hir(ctx, un->operand);
+            /* Phase 21 Plan 02: detect heap-allocated bindings so ADDR_OF
+             * carries IRON_HIR_GEN_HEAP when &binding targets heap T(...)
+             * storage. The deref-side runtime check then calls
+             * iron_check_pointer_gen (header-based) not iron_check_stack_pointer_gen
+             * (TLS-based) — correct for use-after-free detection (SAFE-01). */
+            IronHIR_GenSource gen_src = IRON_HIR_GEN_STACK;
+            if (un->operand && un->operand->kind == IRON_NODE_IDENT) {
+                Iron_Ident *id = (Iron_Ident *)un->operand;
+                if (id->resolved_sym && id->resolved_sym->decl_node) {
+                    Iron_Node *decl = id->resolved_sym->decl_node;
+                    Iron_Node *init_node = NULL;
+                    if (decl->kind == IRON_NODE_VAL_DECL) {
+                        init_node = ((Iron_ValDecl *)decl)->init;
+                    } else if (decl->kind == IRON_NODE_VAR_DECL) {
+                        init_node = ((Iron_VarDecl *)decl)->init;
+                    }
+                    if (init_node && init_node->kind == IRON_NODE_HEAP) {
+                        gen_src = IRON_HIR_GEN_HEAP;
+                    }
+                }
+            }
+            return iron_hir_expr_addr_of(mod, target, gen_src,
+                                         un->resolved_type, span);
+        }
+
         IronHIR_UnOp hop;
         switch ((int)un->op) {
             case IRON_TOK_MINUS: hop = IRON_HIR_UNOP_NEG;  break;
@@ -1288,6 +1430,30 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Call expression ─────────────────────────────────────────────────── */
     case IRON_NODE_CALL: {
         Iron_CallExpr *ce = (Iron_CallExpr *)node;
+
+        /* Phase 20 OQ-D + Phase 33 STDLIB-10: Ptr.cast[T](p) compiler builtin.
+         * Lowers to a no-op HIR CAST node — the C output is a pointer
+         * reinterpretation (typecheck.c verified pointee size equality for the
+         * checked regime and skipped the check for the unchecked regime). The
+         * source is `*S` (or `*unchecked S`); the target carried on
+         * ce->resolved_type is `*T` (or `*unchecked T`). At the C level both
+         * are pointer values, so a single iron_hir_expr_cast does the job.
+         * Sidesteps the broken generic-CALL fallthrough where the callee
+         * INDEX(FIELD_ACCESS) would produce an undeclared `_v` reference. */
+        if (ce->callee && ce->callee->kind == IRON_NODE_INDEX) {
+            Iron_IndexExpr *idx = (Iron_IndexExpr *)ce->callee;
+            if (idx->object && idx->object->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_FieldAccess *fa = (Iron_FieldAccess *)idx->object;
+                if (fa->object && fa->object->kind == IRON_NODE_IDENT &&
+                    fa->field && strcmp(fa->field, "cast") == 0 &&
+                    ((Iron_Ident *)fa->object)->name &&
+                    strcmp(((Iron_Ident *)fa->object)->name, "Ptr") == 0 &&
+                    ce->arg_count == 1) {
+                    IronHIR_Expr *src = lower_expr_hir(ctx, ce->args[0]);
+                    return iron_hir_expr_cast(mod, src, ce->resolved_type, span);
+                }
+            }
+        }
 
         /* Primitive cast: Float(x), Int(x), etc. */
         if (ce->is_primitive_cast && ce->arg_count == 1) {
@@ -1322,6 +1488,31 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Method call ─────────────────────────────────────────────────────── */
     case IRON_NODE_METHOD_CALL: {
         Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+
+        /* Phase 27 POL-08 / POL-09 (Plan 27-02): intercept .downgrade() and
+         * .upgrade() built-in method calls before generic method-call
+         * lowering. Typecheck has already validated the receiver kind and
+         * argument count (E0300 / E0299 fired upstream when the receiver
+         * was wrong); here we just dispatch to the dedicated HIR kind.
+         * All expression AST nodes share the Iron_ExprNode prefix
+         * (PROT-01 — see ast.h IRON_ASSERT_EXPR_PREFIX), so we read
+         * resolved_type generically without dispatching on node kind. */
+        if (mc->method && mc->object) {
+            Iron_Type *recv_t = ((Iron_ExprNode *)mc->object)->resolved_type;
+            if (recv_t && recv_t->kind == IRON_TYPE_RC &&
+                strcmp(mc->method, "downgrade") == 0) {
+                IronHIR_Expr *strong = lower_expr_hir(ctx, mc->object);
+                return iron_hir_expr_weak_rc_downgrade(
+                    mod, strong, mc->resolved_type, span);
+            }
+            if (recv_t && recv_t->kind == IRON_TYPE_WEAK_RC &&
+                strcmp(mc->method, "upgrade") == 0) {
+                IronHIR_Expr *weak = lower_expr_hir(ctx, mc->object);
+                return iron_hir_expr_weak_rc_upgrade(
+                    mod, weak, mc->resolved_type, span);
+            }
+        }
+
         IronHIR_Expr **args = NULL;
         for (int i = 0; i < mc->arg_count; i++) {
             IronHIR_Expr *a = lower_expr_hir(ctx, mc->args[i]);
@@ -1329,6 +1520,17 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         }
         int arg_count = (int)arrlen(args);
         IronHIR_Expr *obj  = lower_expr_hir(ctx, mc->object);
+        /* Phase 20 PTR-06 (Plan 20-02b): when the analyzer flagged
+         * mc->is_auto_deref=true (set by Plan 20-02a typecheck.c at
+         * IRON_NODE_METHOD_CALL when the receiver is *T), the receiver
+         * passed downstream is the pointee value reached through
+         * iron_check_pointer_gen. Today's lowering preserves that flag
+         * implicitly via mc->resolved_type pointing at the pointee — the
+         * full DEREF-before-dispatch wiring is deferred to the receiver-
+         * lvalue chain rework in Phase 20-03 (closure capture lifts the
+         * full DEREF semantics by-value). The flag-read here documents
+         * that the HIR layer is aware of the analyzer's tag. */
+        (void)mc->is_auto_deref;  /* read flag — explicit handling tracked in 20-03 */
         /* NOTE: args stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
         return iron_hir_expr_method_call(mod, obj, mc->method,
                                           args, arg_count,
@@ -1353,6 +1555,18 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                               args, 0,
                                               fa->resolved_type, span);
         }
+        /* Phase 20 PTR-06 (Plan 20-02b): is_auto_deref flag (set by Plan
+         * 20-02a typecheck.c when receiver resolves to IRON_TYPE_PTR)
+         * marks the receiver chain as needing iron_check_pointer_gen
+         * before the field load. The receiver's resolved_type already
+         * carries the pointee at this layer (analyzer unwraps for the
+         * field lookup), so the field-load path is shape-equivalent to
+         * the non-pointer path. End-to-end DEREF + LIR PTR_LOAD wiring
+         * for read-side field access lives in the lvalue-chain rework
+         * (Plan 20-03 closure work) — this read of fa->is_auto_deref
+         * documents the flag is consumed at HIR. */
+        (void)fa->is_auto_deref;  /* read flag — explicit handling tracked in 20-03 */
+        (void)fa->is_auto_address_target;  /* documented at CALL-arg lowering */
         return iron_hir_expr_field_access(mod, obj, fa->field,
                                            fa->resolved_type, span);
     }
@@ -1439,10 +1653,11 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         /* Queue for lifting */
         LiftPending lp;
         memset(&lp, 0, sizeof(lp));
-        lp.kind           = LIFT_LAMBDA;
-        lp.ast_node       = node;
-        lp.lifted_name    = name_copy;
-        lp.enclosing_func = ctx->current_func_name;
+        lp.kind                 = LIFT_LAMBDA;
+        lp.ast_node             = node;
+        lp.lifted_name          = name_copy;
+        lp.enclosing_func       = ctx->current_func_name;
+        lp.is_readonly_context  = ctx->current_func_is_readonly;
         arrput(ctx->pending_lifts, lp);
 
         return result;
@@ -1452,6 +1667,19 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_HEAP: {
         Iron_HeapExpr *he = (Iron_HeapExpr *)node;
         IronHIR_Expr  *inner = lower_expr_hir(ctx, he->inner);
+        /* Phase 28 ARENA-03/05 (Plan 28-04): route to arena allocation when
+         * the explicit `heap(in: arena)` form is used, OR when a bare
+         * `heap T(...)` appears lexically inside an `in arena {}` block (the
+         * arena is then the TLS-current arena, arena_expr NULL → emit_c emits
+         * iron_arena_rt_current()). Outside any block, bare heap stays a plain
+         * IRON_HIR_EXPR_HEAP. */
+        if (he->arena_expr || ctx->in_arena_depth > 0) {
+            IronHIR_Expr *arena = he->arena_expr
+                ? lower_expr_hir(ctx, he->arena_expr) : NULL;
+            return iron_hir_expr_arena_alloc(mod, inner, arena,
+                                             he->allow_drop_skip,
+                                             he->resolved_type, span);
+        }
         return iron_hir_expr_heap(mod, inner, he->auto_free, he->escapes,
                                    he->resolved_type, span);
     }
@@ -1461,6 +1689,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_RcExpr  *rc    = (Iron_RcExpr *)node;
         IronHIR_Expr *inner = lower_expr_hir(ctx, rc->inner);
         return iron_hir_expr_rc(mod, inner, rc->resolved_type, span);
+    }
+
+    /* Phase 27 POL-08 (Plan 27-02): `weak rc null` constructor lowers to a
+     * dedicated HIR expression kind that emit_c renders as a literal NULL
+     * pointer in the weak slot. */
+    case IRON_NODE_WEAK_RC_NULL: {
+        Iron_WeakRcNullExpr *wn = (Iron_WeakRcNullExpr *)node;
+        return iron_hir_expr_weak_rc_null(mod, wn->resolved_type, span);
     }
 
     /* ── Object construction ─────────────────────────────────────────────── */
@@ -1665,12 +1901,64 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                                                      ret_ty);
             f->is_extern    = fd->is_extern;
             f->extern_c_name = fd->extern_c_name;
+            /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr from
+             * AST decl (set by Plan 20-02a's mark_takes_local_addr_pass). */
+            f->takes_local_addr = fd->takes_local_addr;
+            /* Phase 22 READ-08: propagate is_readonly from AST FuncDecl.
+             * Top-level free functions use is_readonly directly (no is_pure
+             * on free functions per Iron design). */
+            f->is_readonly = fd->is_readonly;
             iron_hir_module_add_func(mod, f);
             break;
         }
 
         case IRON_NODE_METHOD_DECL: {
             Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
+
+            /* Phase 33 OQ-02 unblock: the box.iron `func Box.new[T]() / unwrap[T]()
+             * / is_null() / free()` declarations are BY-NAME compiler builtins
+             * (the Ptr.cast precedent), NOT real foreign-stub functions. Their
+             * empty bodies + method-level generic return types would otherwise
+             * lower to broken foreign C prototypes (e.g. `Iron_box_new(void value)`
+             * because `value: T` collapses to void, plus a missing C symbol),
+             * which fails clang for EVERY compilation since box.iron is always
+             * prepended. Skip lowering them entirely; real Box dispatch + the
+             * emit_ensure_box codegen is the dedicated OQ-02 follow-up plan
+             * (deferred-items 33-01). This keeps all non-Box compilation — and
+             * the OQ-06 interface-collection corpus — clean. */
+            if (md->type_name && strcmp(md->type_name, "Box") == 0) {
+                break;
+            }
+
+            /* Phase 33 STDLIB-07/08/09 (Plan 33-05): the nocopy resource-type
+             * surfaces (mutex/rwlock/channel/filehandle.iron) are by-name
+             * compiler builtins exactly like Box above — their empty-body
+             * `func Mutex.new[T] / lock[T] / Channel.send[T] / ...` stubs would
+             * otherwise lower to broken foreign C prototypes (`void value`
+             * params from method-level `T`) and collide with the pre-existing
+             * runtime Iron_Mutex / Iron_Channel typedefs + Iron_channel_send/recv
+             * symbols, breaking EVERY compilation (these surfaces are always
+             * prepended). Skip lowering them; real dispatch + emit_ensure_*
+             * codegen is the positive-path follow-up. */
+            if (md->type_name &&
+                (strcmp(md->type_name, "Mutex") == 0 ||
+                 strcmp(md->type_name, "MutexGuard") == 0 ||
+                 strcmp(md->type_name, "RWLock") == 0 ||
+                 strcmp(md->type_name, "RWReadGuard") == 0 ||
+                 strcmp(md->type_name, "RWWriteGuard") == 0 ||
+                 strcmp(md->type_name, "Channel") == 0 ||
+                 strcmp(md->type_name, "FileHandle") == 0)) {
+                break;
+            }
+
+            /* Phase 33 STDLIB-10 (Plan 33-06): rawptr.iron's `func RawPtr.of[T]`
+             * is a by-name compiler builtin (Box / Mutex precedent). The empty
+             * body + method-level T return type would otherwise lower to a
+             * broken foreign C prototype. The real dispatch + value production
+             * happens in typecheck.c + hir_to_lir.c. Skip lowering. */
+            if (md->type_name && strcmp(md->type_name, "RawPtr") == 0) {
+                break;
+            }
 
             /* Build mangled name: typeName_methodName (lowercase type name
              * to match Iron's C convention: Iron_io_read_file, not Iron_IO_read_file) */
@@ -1868,6 +2156,13 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                     f->is_mut_receiver_method = true;
                 }
             }
+            /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr from
+             * AST method decl (set by Plan 20-02a's mark_takes_local_addr_pass). */
+            f->takes_local_addr = md->takes_local_addr;
+            /* Phase 22 READ-08: propagate is_readonly from AST MethodDecl.
+             * Methods inherit readonly when EITHER is_readonly OR is_pure
+             * (pure >= readonly one-way subsumption per OQ-05). */
+            f->is_readonly = md->is_readonly || md->is_pure;
             iron_hir_module_add_func(mod, f);
             break;
         }
@@ -1916,8 +2211,11 @@ static void lower_func_body_hir(IronHIR_LowerCtx *ctx,
     IronHIR_Func *fn = find_hir_func(ctx->module, fd->name);
     if (!fn) return;
 
-    ctx->current_func      = fn;
-    ctx->current_func_name = fd->name;
+    ctx->current_func             = fn;
+    ctx->current_func_name        = fd->name;
+    /* Phase 22 OQ-04: propagate readonly bit so lambda-queue site can
+     * populate LiftPending.is_readonly_context. */
+    ctx->current_func_is_readonly = fd->is_readonly;
 
     /* Create the function body block */
     fn->body = iron_hir_block_create(ctx->module);
@@ -1963,8 +2261,10 @@ static void lower_method_body_hir(IronHIR_LowerCtx *ctx, Iron_MethodDecl *md) {
     IronHIR_Func *fn = find_hir_func(ctx->module, mangled);
     if (!fn) return;
 
-    ctx->current_func      = fn;
-    ctx->current_func_name = fn->name;
+    ctx->current_func             = fn;
+    ctx->current_func_name        = fn->name;
+    /* Phase 22 OQ-04: propagate readonly bit; pure methods are also readonly. */
+    ctx->current_func_is_readonly = (md->is_readonly || md->is_pure);
 
     fn->body = iron_hir_block_create(ctx->module);
 
@@ -2130,6 +2430,10 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
 
             pop_scope(ctx);
             ctx->current_func = NULL;
+            /* Phase 22 READ-08: consume LiftPending bit set by Plan 22-02 at
+             * queue site (~line 1561). The lifted lambda inherits readonly
+             * context from the enclosing function. */
+            lifted->is_readonly = lp->is_readonly_context;
             iron_hir_module_add_func(mod, lifted);
             break;
         }

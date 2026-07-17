@@ -1,0 +1,18 @@
+-- section: 5-mutability
+-- @req: PARM-01
+-- @expected-pass-after: phase-18
+-- extends-spec: default parameter is read-only inside callee body; PARM-01: no modifier required for read-only borrow; mutation inside body is a compile error (see v4-fail/5/param_readonly_mutation.iron)
+
+object Player {
+    val hp: Int
+    val name: String
+}
+
+func observe(p: Player) {
+    println("hp: {p.hp}")
+}
+
+func main() {
+    val player = Player(hp: 75, name: "hero")
+    observe(player)
+}

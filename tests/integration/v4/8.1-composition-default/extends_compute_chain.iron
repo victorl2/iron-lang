@@ -1,0 +1,35 @@
+-- section 8.1 extends-spec: compute_damage chained with armor lookup
+-- @req: PTR-01, PTR-06, READ-01, READ-04
+-- @expected-pass-after: phase-22
+-- extends-spec: verifies readonly composition; readonly func calls readonly func
+
+object Armor {
+    val value: Int
+}
+
+object Fighter {
+    val attack: Int
+    val armor: Armor
+
+    readonly func has_buff(self: *Fighter) -> Bool {
+        return false
+    }
+}
+
+readonly func lookup_armor(f: *Fighter) -> Int {
+    return f.armor.value
+}
+
+readonly func calc_net_damage(attacker: *Fighter, defender: *Fighter) -> Int {
+    val base = attacker.attack
+    val reduction = lookup_armor(defender)
+    val multiplier = if attacker.has_buff() { 1.5 } else { 1.0 }
+    return Int(Float(base - reduction) * multiplier)
+}
+
+func main() {
+    val a = Fighter(attack: 30, armor: Armor(value: 5))
+    val b = Fighter(attack: 10, armor: Armor(value: 8))
+    val dmg = calc_net_damage(&a, &b)
+    println("damage: {dmg}")
+}

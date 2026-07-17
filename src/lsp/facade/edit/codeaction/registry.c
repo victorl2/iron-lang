@@ -15,6 +15,7 @@
  * after the Phase 80 MUT renumber (see diagnostics.h:283-285); they
  * therefore sort AFTER 260/261, not before. */
 const IronLsp_QuickfixEntry ilsp_quickfix_table[] = {
+    /* 176  */ { IRON_ERR_MISSING_VAL_VAR,          ilsp_quickfix_missing_val_var          },  /* Phase 34 LSP-06 */
     /* 200  */ { IRON_ERR_UNDEFINED_VAR,            ilsp_quickfix_undefined_var            },
     /* 238  */ { IRON_ERR_READONLY_WRITE_SELF,      ilsp_quickfix_readonly_write_self      },
     /* 239  */ { IRON_ERR_READONLY_CALLS_MUTATING,  ilsp_quickfix_readonly_calls_mutating  },
@@ -24,8 +25,12 @@ const IronLsp_QuickfixEntry ilsp_quickfix_table[] = {
     /* 264  */ { IRON_ERR_V3_NO_INIT,               ilsp_quickfix_object_no_init           },
     /* 292  */ { IRON_ERR_TYPE_MISMATCH_LITERAL,    ilsp_quickfix_type_mismatch_literal    },
     /* 293  */ { IRON_ERR_MISSING_RETURN,           ilsp_quickfix_missing_return           },
+    /* 296  */ { IRON_ERR_PTR_AMP_ON_RC,            ilsp_quickfix_amp_on_rc                },  /* Phase 34 LSP-09 */
+    /* 606  */ { IRON_WARN_FORGOTTEN_FREE,          ilsp_quickfix_forgotten_free           },  /* Phase 34 LSP-07 */
     /* 611  */ { IRON_WARN_UNUSED_IMPORT,           ilsp_quickfix_unused_import            },
     /* 612  */ { IRON_WARN_REDUNDANT_CAST,          ilsp_quickfix_redundant_cast           },
+    /* 613  */ { IRON_WARN_UNUSED_VAR,              ilsp_quickfix_unused_var_alloc         },  /* Phase 34 LSP-08 */
+    /* 820  */ { IRON_ERR_READONLY_MEMORY,          ilsp_quickfix_readonly_memory          },  /* Phase 34 LSP-10 */
 };
 const size_t ilsp_quickfix_table_size =
     sizeof(ilsp_quickfix_table) / sizeof(ilsp_quickfix_table[0]);

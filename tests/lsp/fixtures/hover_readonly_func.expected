@@ -1,0 +1,5 @@
+```iron
+pub readonly func Reader.describe(self: Reader) -> Int
+```
+
+readonly: yes

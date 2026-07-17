@@ -1,0 +1,19 @@
+-- section 4.13 defer: DEFER-01 early-return exit edge
+-- @req: DEFER-01
+-- @expected-pass-after: phase-32
+-- A `defer` registered before an early `return` inside an `if` still runs on
+-- the early-return cleanup path (emit_defer_cleanup fires across all depths at
+-- return). Build+run fixture (WILL_FAIL in the check-only container).
+
+func run(early: Bool) {
+    defer println("cleanup")
+    if early {
+        println("returning early")
+        return
+    }
+    println("fell through")
+}
+
+func main() {
+    run(true)
+}

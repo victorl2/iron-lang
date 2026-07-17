@@ -1,0 +1,42 @@
+-- parallel_for_capture.iron: Parallel for loop with deterministic aggregate result
+-- Tests THARD-07: parallel for dispatches work across thread pool correctly.
+-- Output is deterministic: only main thread prints after parallel section completes.
+-- Note: reading outer variables inside parallel for body requires capture support;
+-- this test exercises the parallel for dispatch mechanism itself.
+
+func main() {
+  -- Pattern 1: parallel for over integer range (body uses only loop variable)
+  for i in 100 parallel {
+    -- Each iteration does work without capturing outer state
+    var work = i * i
+    work = work + 1
+  }
+  println("parallel 100 done")
+
+  -- Pattern 2: parallel for with known iteration count
+  for i in 50 parallel {
+    var x = i + 1
+    x = x * 2
+  }
+  println("parallel 50 done")
+
+  -- Pattern 3: sequential computation for comparison
+  var seq_sum = 0
+  for i in range(10) {
+    seq_sum = seq_sum + (i + 1)
+  }
+  println("seq sum 1-10: {seq_sum}")
+
+  -- Pattern 4: parallel for immediately followed by sequential work
+  for i in 20 parallel {
+    var t = i * 3
+    t = t + i
+  }
+  var post_count = 0
+  for i in range(5) {
+    post_count = post_count + 1
+  }
+  println("post parallel count: {post_count}")
+
+  println("done")
+}

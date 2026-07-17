@@ -1,0 +1,7 @@
+-- section 5.2 negative: must specify val or var on object field
+-- @req: VAL-01
+-- @expected-pass-after: phase-17
+-- every field declaration in an object body must begin with val or var
+object Foo {
+    hp: Int
+}

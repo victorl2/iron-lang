@@ -1,0 +1,15 @@
+-- section 4.13 defer: DEFER-01 general accept (check-only positive)
+-- @req: DEFER-01
+-- @expected-pass-after: phase-32
+-- A general `defer <statement>` (here: `defer println("{x}")`) must be accepted
+-- by the analyzer once the Phase-21 `defer free`-only gate (E0276) is removed.
+-- The CTest asserts E0276 is ABSENT via whole-pipeline negation (GREEN in Plan
+-- 32-02). The deferred statement runs at the normal fall-through exit edge, so
+-- intended stdout is `body` then `1`. (`print` takes a String, so the Int x is
+-- printed via interpolation.)
+
+func main() {
+    var x = 1
+    defer println("{x}")
+    println("body")
+}

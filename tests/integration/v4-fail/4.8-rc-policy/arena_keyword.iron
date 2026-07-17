@@ -1,0 +1,9 @@
+-- section 4.8 negative: closed-set guard rejects `arena` lifecycle keyword
+-- @req: POL-11
+-- @expected-pass-after: phase-26
+-- E0298 IRON_ERR_CLOSED_POLICY_KEYWORD — `arena` is the Phase 28 type, not policy
+object Point { val x: Int; val y: Int }
+func main(): Int {
+    val p = arena Point(1, 2)
+    return 0
+}

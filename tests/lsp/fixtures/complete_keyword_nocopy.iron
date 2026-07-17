@@ -1,0 +1,12 @@
+// Phase 34 LSP-03: `nocopy` visible in object-body / object-decl-head
+// position (Phase 33 nocopy resource surface). Hidden in expression position.
+// COMPLETE@5:1
+// EXPECT_VISIBLE: nocopy
+nocopy object FileHandle {
+    val fd: Int
+}
+func main() {
+    // COMPLETE@10:13
+    // EXPECT_HIDDEN: nocopy
+    val n = 1
+}

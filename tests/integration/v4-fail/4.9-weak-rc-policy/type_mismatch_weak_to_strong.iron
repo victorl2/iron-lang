@@ -1,0 +1,14 @@
+-- section 4.9 negative: passing weak rc T where rc T expected (E0217 reuse, no new code)
+-- @req: POL-08
+-- @expected-pass-after: phase-27
+-- E0217 IRON_ERR_TYPE_MISMATCH — call .upgrade() explicitly to convert weak to nullable strong
+object Foo { val v: Int }
+
+func consume_strong(p: rc Foo) -> Int { return p.v }
+
+func main(): Int {
+    val r = rc Foo(1)
+    val w = r.downgrade()
+    val x = consume_strong(w)   -- E0217: type mismatch (weak rc Foo -> rc Foo)
+    return x
+}

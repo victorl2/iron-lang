@@ -1,0 +1,27 @@
+-- Regression test: array variable initialized with fill() then reassigned
+-- from a function call returning an array must not cause type mismatch
+-- (int64_t* vs Iron_List_T).
+
+func double_array(arr: [Int], n: Int) -> [Int] {
+    var result = fill(n, 0)
+    for i in range(n) {
+        result[i] = arr[i] * 2
+    }
+    return result
+}
+
+func main() {
+    var data = fill(4, 0)
+    data[0] = 1
+    data[1] = 2
+    data[2] = 3
+    data[3] = 4
+
+    -- Reassign from function call (this caused type mismatch before fix)
+    data = double_array(data, 4)
+    println("{data[0]} {data[1]} {data[2]} {data[3]}")
+
+    -- Reassign again
+    data = double_array(data, 4)
+    println("{data[0]} {data[1]} {data[2]} {data[3]}")
+}

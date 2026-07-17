@@ -1,0 +1,29 @@
+-- section 4.10 rc elision: allocation soundness trap
+-- @req: OPT-01
+-- A retain/release pair straddles a heap allocation. Allocation may call into
+-- the runtime/allocator and is conservatively a barrier in v1 (deletion-only,
+-- no reordering across alloc). Correct output prints both the rc payload and
+-- the freshly heap-allocated value.
+
+object Node {
+    val tag: Int
+
+    drop {
+        println("drop: node {self.tag}")
+    }
+}
+
+object Cell {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+}
+
+func main() {
+    val a = rc Node(1)
+    val b = heap Cell(99)
+    defer free b
+    println("b: {b.n}")
+    println("a: {a.tag}")
+}

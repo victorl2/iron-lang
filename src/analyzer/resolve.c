@@ -59,6 +59,20 @@ typedef struct {
      * from Iron_Parser.user_source_start_line via Iron_Program at the
      * resolver entry point. */
     int user_source_start_line;
+
+    /* Phase 17 VAL-01: set true while resolving the LHS of an assignment
+     * statement whose target is a bare IDENT (e.g. `x = 30`). When the
+     * resolver finds the IDENT undefined under this flag, it emits
+     * IRON_ERR_MISSING_VAL_VAR ("must specify val or var") rather than
+     * the generic IRON_ERR_UNDEFINED_VAR — bare-assignment-with-no-binding
+     * is the canonical "you forgot val/var" syntax shape per spec §5.1.
+     *
+     * The flag is set ONLY when as->target->kind == IRON_NODE_IDENT, so
+     * `obj.field = ...` and `arr[i] = ...` continue to surface as
+     * IRON_ERR_UNDEFINED_VAR / field-access errors. The flag is cleared
+     * before walking as->value so a use of `y` in `x = y` (where neither
+     * is bound) still gets E0200 on `y`. */
+    bool is_assign_lhs;
 } ResolveCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -114,8 +128,27 @@ static void define_sym(ResolveCtx *ctx, const char *name, Iron_SymbolKind kind,
 
 /* Emit an "undefined variable" diagnostic for an unresolved identifier.
  * Phase 4 Plan 04-01 (EDIT-07): enrich with .suggestion = best Levenshtein
- * candidate from the visible scope chain (max distance 2). */
+ * candidate from the visible scope chain (max distance 2).
+ *
+ * Phase 17 VAL-01: when the IDENT is the LHS of a bare assignment
+ * (ctx->is_assign_lhs set), reroute to IRON_ERR_MISSING_VAL_VAR with the
+ * spec-mandated message + hint. The bare-`x = 30` shape with no `val`/`var`
+ * declarator is the spec's canonical "you forgot the modifier" syntax;
+ * surfacing it as "must specify val or var" gives the user a single
+ * actionable diagnostic with the same code as the field-decl site
+ * (parser.c:3702-3708) so Phase 34 LSP-06 quickfix can route both through
+ * one entry. Reassignment to existing `var` bindings (e.g.
+ * `var y = 20; y = 30`) is unaffected — the IDENT resolves successfully,
+ * neither E0200 nor E176 fires. */
 static void emit_undefined(ResolveCtx *ctx, const char *name, Iron_Span span) {
+    if (ctx->is_assign_lhs) {
+        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_MISSING_VAL_VAR, span,
+                       "must specify val or var",
+                       "insert 'val' for an immutable binding "
+                       "(or 'var' to allow reassignment)");
+        return;
+    }
     char msg[256];
     snprintf(msg, sizeof(msg), "undefined identifier '%s'", name);
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
@@ -308,6 +341,17 @@ static void attach_method(ResolveCtx *ctx, Iron_Node *node) {
 
     /* Array extension methods (func [T].map(...)) have no owning type in scope */
     if (md->is_array_extension) return;
+
+    /* Phase 33 STDLIB-10 (Plan 33-06): RawPtr is a synthetic builtin type
+     * (resolved by name in typecheck.c::resolve_type_annotation, with no
+     * scope-level symbol). The standalone `func RawPtr.of[T](...)` decl in
+     * the always-prepended stdlib/rawptr.iron is a by-name compiler builtin
+     * — it has no owner symbol, dispatch happens through the dedicated arm
+     * in typecheck.c, and hir_lower.c skips lowering it. Skip the attach
+     * step so the synthetic decl doesn't trip "method on undeclared type". */
+    if (md->type_name && strcmp(md->type_name, "RawPtr") == 0) {
+        return;
+    }
 
     Iron_Symbol *owner = iron_scope_lookup(ctx->global_scope, md->type_name);
     if (!owner) {
@@ -676,7 +720,17 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_ASSIGN: {
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+            /* Phase 17 VAL-01: tag the LHS walk so emit_undefined reroutes
+             * a bare-IDENT-undefined into IRON_ERR_MISSING_VAL_VAR. We tag
+             * ONLY when target is a bare IDENT — `obj.field = …`,
+             * `arr[i] = …`, etc. fall through with the flag clear so the
+             * receiver/index expressions still surface as E0200 when their
+             * own subexpressions are undefined. Save/restore in case of
+             * nested assigns inside RHS. */
+            bool prev_lhs = ctx->is_assign_lhs;
+            ctx->is_assign_lhs = (as->target && as->target->kind == IRON_NODE_IDENT);
             resolve_expr(ctx, as->target);
+            ctx->is_assign_lhs = prev_lhs;
             resolve_expr(ctx, as->value);
             break;
         }
@@ -704,6 +758,16 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             Iron_WhileStmt *ws = (Iron_WhileStmt *)node;
             resolve_expr(ctx, ws->condition);
             if (ws->body) resolve_node(ctx, ws->body);
+            break;
+        }
+
+        case IRON_NODE_IN_ARENA: {  /* Phase 28 ARENA-02 (Plan 28-03) */
+            Iron_InArenaBlock *ia = (Iron_InArenaBlock *)node;
+            /* Resolve the arena expression in the current scope; the body is a
+             * BLOCK that pushes its own scope. The lexical in-arena depth that
+             * drives E0301 (ARENA-08) is tracked in typecheck.c, not here. */
+            if (ia->arena_expr) resolve_expr(ctx, ia->arena_expr);
+            if (ia->body) resolve_node(ctx, ia->body);
             break;
         }
 
@@ -742,7 +806,12 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_DEFER: {
             Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
-            resolve_expr(ctx, ds->expr);
+            /* Phase 32 DEFER-01: the defer body is a general statement
+             * (block / return / call / assignment / `free`). resolve_node
+             * dispatches every node kind — and the IRON_NODE_BLOCK arm pushes
+             * its own child scope — so locals declared inside `defer { ... }`
+             * resolve correctly (Pitfall 5). */
+            resolve_node(ctx, ds->expr);
             break;
         }
 
@@ -755,6 +824,13 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
         case IRON_NODE_LEAK: {
             Iron_LeakStmt *ls = (Iron_LeakStmt *)node;
             resolve_expr(ctx, ls->expr);
+            /* Phase 21 POL-05: mark the symbol as intentionally leaked. */
+            if (ls->expr && ls->expr->kind == IRON_NODE_IDENT) {
+                Iron_Ident *id = (Iron_Ident *)ls->expr;
+                if (id->resolved_sym) {
+                    id->resolved_sym->is_leaked = true;
+                }
+            }
             break;
         }
 
@@ -803,13 +879,45 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
-            resolve_expr(ctx, mc->object);
+            /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset / Ptr.diff are
+             * compiler builtins accessed through the synthetic "Ptr" namespace.
+             * "Ptr" is NOT a user-defined identifier — skip the normal
+             * resolve_expr path that would emit E0200 "undefined identifier".
+             * Phase 33 STDLIB-10 (Plan 33-06): same carve-out for the synthetic
+             * "RawPtr" namespace — `RawPtr.of(x)` is a compiler builtin and the
+             * uppercase ident "RawPtr" is never user-bound. */
+            bool is_ptr_builtin_call =
+                mc->object && mc->object->kind == IRON_NODE_IDENT &&
+                mc->method &&
+                ((Iron_Ident *)mc->object)->name &&
+                strcmp(((Iron_Ident *)mc->object)->name, "Ptr") == 0 &&
+                (strcmp(mc->method, "offset") == 0 || strcmp(mc->method, "diff") == 0);
+            bool is_rawptr_builtin_call =
+                mc->object && mc->object->kind == IRON_NODE_IDENT &&
+                mc->method &&
+                ((Iron_Ident *)mc->object)->name &&
+                strcmp(((Iron_Ident *)mc->object)->name, "RawPtr") == 0 &&
+                strcmp(mc->method, "of") == 0;
+            if (!is_ptr_builtin_call && !is_rawptr_builtin_call) {
+                resolve_expr(ctx, mc->object);
+            }
             resolve_node_list(ctx, mc->args, mc->arg_count);
             break;
         }
 
         case IRON_NODE_FIELD_ACCESS: {
             Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
+            /* Phase 20 OQ-D + Phase 33 STDLIB-10: skip resolve when the
+             * field access is on the synthetic "Ptr" namespace (Ptr.cast /
+             * Ptr.offset / Ptr.diff compiler builtins). The typechecker's
+             * dedicated Ptr.cast dispatch (typecheck.c) reads the field name
+             * directly off the AST without needing a resolved object. */
+            if (fa->object && fa->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *obj_id = (Iron_Ident *)fa->object;
+                if (obj_id->name && strcmp(obj_id->name, "Ptr") == 0) {
+                    break;
+                }
+            }
             resolve_expr(ctx, fa->object);
             break;
         }
@@ -858,6 +966,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             resolve_expr(ctx, re->inner);
             break;
         }
+
+        case IRON_NODE_WEAK_RC_NULL:
+            /* Phase 27 POL-08 (Plan 27-02): leaf — no symbols to resolve. */
+            break;
 
         case IRON_NODE_COMPTIME: {
             Iron_ComptimeExpr *ce = (Iron_ComptimeExpr *)node;
@@ -1509,6 +1621,9 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
      * line < 0). */
     ctx.emitted_first_e0320    = false;
     ctx.user_source_start_line = program->user_source_start_line;
+    /* Phase 17 VAL-01: cleared by default; set true only inside the
+     * IRON_NODE_ASSIGN case while walking a bare-IDENT LHS. */
+    ctx.is_assign_lhs          = false;
 
     /* Initialize type system */
     iron_types_init(arena);
@@ -1648,7 +1763,7 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
         }
         /* fill(Int, Int) -> [Int]  (type checker special-cases to infer [T]) */
         {
-            Iron_Type *arr_t = iron_type_make_array(arena, int_t, -1);
+            Iron_Type *arr_t = iron_type_make_array(arena, int_t, -1, false);
             Iron_Type *params[2] = { int_t, int_t };
             Iron_Type *fn = iron_type_make_func(arena, params, 2, arr_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "fill",

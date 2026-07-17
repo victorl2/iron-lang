@@ -1,0 +1,5 @@
+```iron
+val shared: rc Point
+```
+
+policy: rc

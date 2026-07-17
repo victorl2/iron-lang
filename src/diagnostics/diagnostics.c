@@ -134,9 +134,13 @@ void iron_diag_print(const Iron_Diagnostic *d, const char *source_text) {
         break;
     }
 
-    /* Header: "error[E0001]: message" */
-    fprintf(stderr, "%s%s[E%04d]%s: %s\n",
-            color_start, level_str, d->code, color_end, d->message);
+    /* Header: "error[E0001]: message" / "warning[W0605]: message".
+     * Phase 28 (Plan 28-03): warnings carry the `W` code prefix (not `E`) so
+     * the W06xx warning range is distinguishable in tool output and matches
+     * the fixture/ctest contract (W0605 ARENA-09). Errors and notes keep `E`. */
+    char code_letter = (d->level == IRON_DIAG_WARNING) ? 'W' : 'E';
+    fprintf(stderr, "%s%s[%c%04d]%s: %s\n",
+            color_start, level_str, code_letter, d->code, color_end, d->message);
 
     /* Location: "  --> file.iron:5:10" */
     fprintf(stderr, "  --> %s:%u:%u\n",

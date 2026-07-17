@@ -125,60 +125,27 @@ void test_intern_different_strings(void) {
 }
 
 /* ── Iron_Rc tests ───────────────────────────────────────────────────────── */
-
-static void int_destructor(void *v) { (void)v; /* nothing to free for int */ }
-
-void test_rc_create_and_release(void) {
-    int val  = 42;
-    Iron_Rc rc = iron_rc_create(&val, sizeof(int), int_destructor);
-    TEST_ASSERT_NOT_NULL(rc.ctrl);
-    TEST_ASSERT_NOT_NULL(rc.value);
-    TEST_ASSERT_EQUAL_INT(42, *(int *)rc.value);
-    iron_rc_release(&rc);
-    TEST_ASSERT_NULL(rc.ctrl);
-}
-
-void test_rc_retain_release(void) {
-    int val = 7;
-    Iron_Rc rc  = iron_rc_create(&val, sizeof(int), int_destructor);
-    Iron_Rc rc2 = rc;
-    iron_rc_retain(&rc2);
-    iron_rc_release(&rc);
-    /* rc2 still alive */
-    TEST_ASSERT_NOT_NULL(rc2.ctrl);
-    TEST_ASSERT_EQUAL_INT(7, *(int *)rc2.value);
-    iron_rc_release(&rc2);
-}
-
-void test_rc_null_safe(void) {
-    Iron_Rc null_rc = {NULL, NULL};
-    /* Should not crash */
-    iron_rc_retain(&null_rc);
-    iron_rc_release(&null_rc);
-}
-
-/* ── Iron_Weak tests ─────────────────────────────────────────────────────── */
-
-void test_weak_upgrade_alive(void) {
-    int val = 99;
-    Iron_Rc   rc   = iron_rc_create(&val, sizeof(int), int_destructor);
-    Iron_Weak weak = iron_rc_downgrade(&rc);
-    Iron_Rc   rc2  = iron_weak_upgrade(&weak);
-    TEST_ASSERT_NOT_NULL(rc2.ctrl);
-    TEST_ASSERT_EQUAL_INT(99, *(int *)rc2.value);
-    iron_rc_release(&rc2);
-    iron_rc_release(&rc);
-}
-
-void test_weak_upgrade_dead(void) {
-    int val = 5;
-    Iron_Rc   rc   = iron_rc_create(&val, sizeof(int), int_destructor);
-    Iron_Weak weak = iron_rc_downgrade(&rc);
-    iron_rc_release(&rc);
-    /* Strong ref is dead — upgrade should return NULL ctrl */
-    Iron_Rc dead = iron_weak_upgrade(&weak);
-    TEST_ASSERT_NULL(dead.ctrl);
-}
+/*
+ * Phase 26 Plan 26-01: the pre-v4 Iron_Rc + Iron_Weak control-block-plus-value
+ * API was REMOVED entirely (Task 1 commit 50b3399 + Task 2 GREEN rewrite of
+ * iron_rc.c). The legacy API:
+ *   - Iron_Rc { ctrl, value }, Iron_RcControl { strong_count, weak_count,
+ *     destructor }, Iron_Weak
+ *   - iron_rc_create, iron_rc_downgrade, iron_weak_upgrade
+ * predated Phase 19's atomic-ordering convention (relaxed-inc / acquire-load)
+ * and had zero codegen call sites (verified via
+ *   grep iron_rc_retain\|iron_rc_release src/lir/ src/hir/ src/cli/
+ *   → zero hits).
+ *
+ * The Phase 26 surface (iron_rc_alloc(size, drop_fn) /
+ * iron_rc_retain(void *) / iron_rc_release(void *) +
+ * iron_rc_header_of) is covered by:
+ *   tests/unit/test_rc_layout.c            — sizeof/offsetof + balanced lifecycle
+ *   tests/unit/test_rc_atomic_ordering.c   — single-thread atomic-ordering proof
+ *   tests/unit/test_runtime_rc_concurrent.c — Linux+TSan 8-thread stress
+ *
+ * Weak rc support is deferred to Phase 27.
+ */
 
 /* ── Built-in function tests ─────────────────────────────────────────────── */
 
@@ -248,14 +215,10 @@ int main(void) {
     RUN_TEST(test_intern_deduplicates);
     RUN_TEST(test_intern_different_strings);
 
-    /* Iron_Rc */
-    RUN_TEST(test_rc_create_and_release);
-    RUN_TEST(test_rc_retain_release);
-    RUN_TEST(test_rc_null_safe);
-
-    /* Iron_Weak */
-    RUN_TEST(test_weak_upgrade_alive);
-    RUN_TEST(test_weak_upgrade_dead);
+    /* Iron_Rc + Iron_Weak: legacy v1.x API removed in Phase 26 Plan 26-01.
+     * Coverage migrated to tests/unit/test_rc_layout.c +
+     * tests/unit/test_rc_atomic_ordering.c +
+     * tests/unit/test_runtime_rc_concurrent.c. See note above. */
 
     /* Builtins */
     RUN_TEST(test_Iron_print_no_crash);

@@ -114,17 +114,16 @@ def _install_stubs(client: LanguageClient) -> None:
     """Install no-op handlers for server-initiated requests that pytest-lsp
     doesn't handle by default."""
 
-    @client.feature("client/registerCapability")
-    def _on_register_capability(_c, _params):
-        return None
-
-    @client.feature("client/unregisterCapability")
-    def _on_unregister_capability(_c, _params):
-        return None
-
-    @client.feature("workspace/diagnostic/refresh")
-    def _on_ws_diag_refresh(_c, _params):
-        return None
+    # Newer pygls (>= 2.1) pre-registers some of these
+    # (workspace/diagnostic/refresh); skip already-registered
+    # features -- the built-in handler serves the same purpose.
+    for _feat in ("client/registerCapability",
+                  "client/unregisterCapability",
+                  "workspace/diagnostic/refresh"):
+        try:
+            client.feature(_feat)(lambda _params: None)
+        except Exception:
+            pass
 
     @client.feature("workspace/applyEdit")
     def _on_apply_edit(_c, params):

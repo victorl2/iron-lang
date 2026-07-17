@@ -1,0 +1,30 @@
+-- section 3.7 arena allocation: nested in arena {} blocks — innermost wins
+-- @req: ARENA-11
+-- @expected-pass-after: phase-28
+-- @expect-panic: none (positive run fixture)
+-- extends-spec: lexically-nested `in arena {}` blocks form a thread-local
+-- active-arena stack; a bare `heap T(...)` inside the innermost block resolves
+-- to the INNERMOST active arena (ARENA-11). This is scope nesting, NOT
+-- allocation composition (OQ-13 stays out of scope). The fixture proves x
+-- lands in arena `b` (innermost), so resetting `b` reclaims it while `a`-bound
+-- allocations remain live.
+
+object Node {
+    val id: Int
+}
+
+func main() {
+    val a = Arena.with_capacity(65536)
+    val b = Arena.with_capacity(65536)
+
+    in a {
+        val outer = heap Node(id: 1)
+        in b {
+            -- bare heap here resolves to the INNERMOST active arena (b)
+            val x = heap Node(id: 2)
+            println("inner x: {x.id}")
+        }
+        println("outer: {outer.id}")
+    }
+    println("nested done")
+}

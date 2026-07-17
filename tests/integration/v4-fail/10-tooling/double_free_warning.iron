@@ -1,0 +1,9 @@
+-- section 10.2 negative: unreachable free after explicit deallocation
+-- @req: POL-04
+-- @expected-pass-after: phase-31
+-- double-free: defer free and explicit free on same allocation
+func main() {
+    val buf = heap Buffer.new(1024)
+    defer free buf
+    free buf
+}

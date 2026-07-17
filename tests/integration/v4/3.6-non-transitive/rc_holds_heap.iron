@@ -1,0 +1,28 @@
+-- section 3.6 policies are non-transitive
+-- @req: POL-02, POL-06, POL-10
+-- @expected-pass-after: phase-28
+-- extends-spec: rc container holding heap field; heap field freed when rc reaches refcount 0
+
+object World {
+    var seed: Int
+
+    drop {
+        println("drop world: {seed}")
+    }
+}
+
+object Holder {
+    val world: World
+    val id: Int
+
+    drop {
+        println("drop holder: {id}")
+    }
+}
+
+func main() {
+    val world_val = heap World(seed: 42)
+    defer free world_val
+    val h = rc Holder(world: world_val, id: 5)
+    println("holder id: {h.id}, world seed: {h.world.seed}")
+}

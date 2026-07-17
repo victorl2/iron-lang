@@ -2586,9 +2586,12 @@ void test_patched_pure_method_io_rejected(void) {
  * message substring verification. */
 
 void test_iface_readonly_impl_default_mutating_rejected(void) {
-    /* IFACE-02: readonly iface sig + mutating impl => E0257.
+    /* IFACE-02: readonly iface sig + mutating impl => E0281.
      * Implementation is an in-object in-block method (Phase 82) so it gets
-     * a MethodDecl with is_readonly=false, which is the mismatch. */
+     * a MethodDecl with is_readonly=false, which is the mismatch.
+     * Phase 22 READ-07 split the tier-mismatch code: a readonly-sig violation
+     * emits the readonly-specific E0281, and only a pure-sig violation still
+     * emits E0257 (check_iface_tier_strengthening, typecheck.c). */
     parse_and_resolve(
         "interface Cmp {\n"
         "    readonly func cmp() -> Int\n"
@@ -2599,14 +2602,14 @@ void test_iface_readonly_impl_default_mutating_rejected(void) {
         "}\n"
     );
     TEST_ASSERT_TRUE_MESSAGE(
-        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
-        "expected E0257 for mutating impl of readonly iface method");
+        has_error(IRON_ERR_READONLY_IFACE_CONFORMANCE),
+        "expected E0281 for mutating impl of readonly iface method");
     TEST_ASSERT_TRUE_MESSAGE(
         has_error_msg_substring("requires readonly"),
-        "expected 'requires readonly' in E0257 message");
+        "expected 'requires readonly' in E0281 message");
     TEST_ASSERT_TRUE_MESSAGE(
         has_error_msg_substring("implementation is"),
-        "expected 'implementation is' in E0257 message");
+        "expected 'implementation is' in E0281 message");
 }
 
 void test_iface_pure_impl_readonly_rejected(void) {
@@ -2945,7 +2948,9 @@ void test_patch_retroactive_with_default_body(void) {
 }
 
 /* test_patch_retroactive_tier_strengthening: interface has readonly method; patch
- * provides a mutating impl => E0257 fires (tier mismatch, not E0258). */
+ * provides a mutating impl => the tier-mismatch diagnostic fires (not E0258).
+ * Phase 22 READ-07 routes the readonly-sig case to E0281; E0257 now covers only
+ * the pure-sig case. */
 void test_patch_retroactive_tier_strengthening(void) {
     parse_and_resolve(
         "interface ReadOnly {\n"
@@ -2956,8 +2961,8 @@ void test_patch_retroactive_tier_strengthening(void) {
         "}\n"
     );
     TEST_ASSERT_TRUE_MESSAGE(
-        has_error(IRON_ERR_IFACE_METHOD_TIER_MISMATCH),
-        "expected E0257 for mutating patch impl of readonly iface method");
+        has_error(IRON_ERR_READONLY_IFACE_CONFORMANCE),
+        "expected E0281 for mutating patch impl of readonly iface method");
     TEST_ASSERT_FALSE_MESSAGE(
         has_error(IRON_ERR_IFACE_CONFORMANCE_MISSING),
         "E0258 should NOT fire when method is present but has wrong tier");

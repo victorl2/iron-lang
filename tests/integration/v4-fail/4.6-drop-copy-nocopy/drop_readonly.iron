@@ -1,0 +1,14 @@
+-- @expected-pass-after: phase-24-02
+-- Phase 24: drop body cannot be marked readonly → E0287
+object Resource {
+    val name: String
+
+    readonly drop {
+        -- drop body marked readonly — incompatible since drop mutates self
+    }
+}
+
+func main() -> Int {
+    val r = Resource("db")
+    return 0
+}

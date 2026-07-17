@@ -175,6 +175,21 @@ static void render_enum_variant(SB *sb, const IronLsp_SnippetMeta *meta) {
     sb_append(sb, "$0");
 }
 
+/* Phase 34 LSP-04: `defer free ${1:<binding>}$0` snippet.
+ *
+ * meta->name is the literal binding name (e.g. "buffer"). It is routed
+ * through sb_append_escaped (PITFALL D mitigation) inside
+ * sb_append_placeholder so a hostile identifier cannot inject a `${USER}`
+ * variable substitution. The terminal `$0` cursor stop sits after the
+ * placeholder so accepting the snippet leaves the cursor on the next line
+ * (the user typically types the next statement immediately). */
+static void render_defer_free(SB *sb, const IronLsp_SnippetMeta *meta) {
+    const char *binding = (meta && meta->name) ? meta->name : "";
+    sb_append(sb, "defer free ");
+    sb_append_placeholder(sb, 1, binding);
+    sb_append(sb, "$0");
+}
+
 /* ── Public API ──────────────────────────────────────────────────── */
 
 const char *ilsp_snippet_render(IronLsp_SnippetKind        kind,
@@ -201,6 +216,9 @@ const char *ilsp_snippet_render(IronLsp_SnippetKind        kind,
             break;
         case ILSP_SNIPPET_ENUM_VARIANT:
             render_enum_variant(&sb, meta);
+            break;
+        case ILSP_SNIPPET_DEFER_FREE:
+            render_defer_free(&sb, meta);
             break;
         default:
             /* Unknown kind: fall back to empty snippet body. */

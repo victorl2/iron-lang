@@ -1,0 +1,7 @@
+// Phase 34 LSP-07: heap binding without a subsequent free triggers
+// IRON_WARN_FORGOTTEN_FREE=606. Quickfix inserts `defer free <binding>`
+// on the line after the binding.
+object Buffer { val size: Int }
+func main() {
+    val buf = heap Buffer(1024)
+}

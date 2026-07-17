@@ -1,0 +1,40 @@
+-- section 8.2 extends-spec: subsystem init/shutdown order across 2 subsystems
+-- @req: POL-02, POL-04, DROP-01
+-- @expected-pass-after: phase-24
+-- extends-spec: probe verifies init-then-shutdown ordering in LIFO (defer-stack) order
+
+object Physics {
+    val gravity: Float
+
+    init(gravity: Float) {
+        self.gravity = gravity
+        println("physics init")
+    }
+
+    drop {
+        println("physics shutdown")
+    }
+}
+
+object Renderer {
+    val width: Int
+
+    init(width: Int) {
+        self.width = width
+        println("renderer init")
+    }
+
+    drop {
+        println("renderer shutdown")
+    }
+}
+
+func main() {
+    val physics = heap Physics(gravity: 9.8)
+    defer free physics
+    val renderer = heap Renderer(width: 1920)
+    defer free renderer
+
+    -- defers run LIFO: renderer freed first, then physics
+    println("running")
+}

@@ -1,0 +1,13 @@
+-- section: 7.5-stdlib
+-- @req: STDLIB-04, OQ-01
+-- @expected-pass-after: phase-33 (Wave 4 Set rewrite on the Hashable bound)
+-- Set[Int] basic insert + membership; Int satisfies the Hashable bound.
+-- RED until Wave 2 (Hashable) + Wave 4 (Set rewrite) land.
+
+func main() {
+    var s: Set[Int] = Set.new()
+    s.add(1)
+    s.add(2)
+    s.add(1)
+    println("size: {s.len()}")
+}

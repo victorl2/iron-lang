@@ -1,0 +1,14 @@
+// Phase 34 LSP-03: `copy` visible in object-body decl-head position;
+// hidden in function-body statement positions.
+object Point {
+    val x: Int
+    val y: Int
+    // COMPLETE@6:5
+    // EXPECT_VISIBLE: copy
+    copy {}
+}
+func main() {
+    // COMPLETE@11:5
+    // EXPECT_HIDDEN: copy
+    val n = 0
+}

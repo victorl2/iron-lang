@@ -143,6 +143,47 @@ static void collect_operands(const IronLIR_Instr *instr,
         PUSH(instr->rc_alloc.inner_val);
         break;
 
+    /* Phase 28 ARENA-03/04/05 (Plan 28-04): arena opcode verify arms. */
+    case IRON_LIR_ARENA_ALLOC:
+        PUSH(instr->arena_alloc.inner_val);
+        if (instr->arena_alloc.arena_val != IRON_LIR_VALUE_INVALID) {
+            PUSH(instr->arena_alloc.arena_val);
+        }
+        break;
+
+    case IRON_LIR_ARENA_PUSH:
+        PUSH(instr->arena_push.arena_val);
+        break;
+
+    case IRON_LIR_ARENA_POP:
+        /* No operands — pops the TLS active-arena top. */
+        break;
+
+    case IRON_LIR_RC_RETAIN:
+        PUSH(instr->rc_retain.target);
+        break;
+
+    case IRON_LIR_RC_RELEASE:
+        PUSH(instr->rc_release.target);
+        break;
+
+    /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc opcode verify arms. */
+    case IRON_LIR_WEAK_RC_RETAIN:
+        PUSH(instr->weak_rc_retain.target);
+        break;
+
+    case IRON_LIR_WEAK_RC_RELEASE:
+        PUSH(instr->weak_rc_release.target);
+        break;
+
+    case IRON_LIR_WEAK_RC_DOWNGRADE:
+        PUSH(instr->weak_rc_downgrade.source);
+        break;
+
+    case IRON_LIR_WEAK_RC_UPGRADE:
+        PUSH(instr->weak_rc_upgrade.source);
+        break;
+
     case IRON_LIR_FREE:
         PUSH(instr->free_instr.value);
         break;
@@ -206,6 +247,42 @@ static void collect_operands(const IronLIR_Instr *instr,
 
     case IRON_LIR_POISON:
         /* No operands — poison is a standalone error placeholder */
+        break;
+
+    /* Phase 20 PTR-04/08/09 (Plan 20-02b): pointer ops.
+     * Pitfall 9: explicit cases for the new opcodes so the operand-tracker
+     * sees their sub-values; gen_source is a tag-only field with no
+     * IronLIR_ValueId payload. */
+    case IRON_LIR_ADDR_OF:
+        PUSH(instr->addr_of.target);
+        break;
+
+    case IRON_LIR_PTR_LOAD:
+        PUSH(instr->ptr_load.fp);
+        break;
+
+    case IRON_LIR_PTR_STORE:
+        PUSH(instr->ptr_store.fp);
+        PUSH(instr->ptr_store.value);
+        break;
+
+    /* Phase 25 UNCK-06 (Plan 25-02): pointer arithmetic — collect operands */
+    case IRON_LIR_PTR_OFFSET:
+        PUSH(instr->ptr_offset.ptr);
+        PUSH(instr->ptr_offset.offset);
+        break;
+
+    case IRON_LIR_PTR_DIFF:
+        PUSH(instr->ptr_diff.a);
+        PUSH(instr->ptr_diff.b);
+        break;
+
+    /* Phase 30 OPT-03 (Plan 30-01): gencheck consumes the checked fat-ptr and
+     * its canonicalized root-allocation SSA value; both must read as used so
+     * the verifier's def/use accounting (and any DCE) keeps them live. */
+    case IRON_LIR_GENCHECK:
+        PUSH(instr->gencheck.ptr);
+        PUSH(instr->gencheck.root_alloc);
         break;
 
     /* -Wswitch-enum opt-out: collect_operands enumerates every opcode that

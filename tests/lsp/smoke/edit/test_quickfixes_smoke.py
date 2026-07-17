@@ -52,17 +52,16 @@ async def test_code_action_capability_advertised(lsp_binary):
     # pygls 2.x dispatches client-side @feature handlers with only
     # `params`. Register no-op responders for server->client requests
     # the ironls lifecycle emits immediately after `initialized`.
-    @lsp_client.feature("client/registerCapability")
-    def _on_reg(_params):
-        return None
-
-    @lsp_client.feature("client/unregisterCapability")
-    def _on_unreg(_params):
-        return None
-
-    @lsp_client.feature("workspace/diagnostic/refresh")
-    def _on_refresh(_params):
-        return None
+    # Newer pygls (>= 2.1) pre-registers some of these
+    # (workspace/diagnostic/refresh); skip already-registered
+    # features -- the built-in handler serves the same purpose.
+    for _feat in ("client/registerCapability",
+                  "client/unregisterCapability",
+                  "workspace/diagnostic/refresh"):
+        try:
+            lsp_client.feature(_feat)(lambda _params: None)
+        except Exception:
+            pass
     try:
         init_result = await lsp_client.initialize_session(
             types.InitializeParams(

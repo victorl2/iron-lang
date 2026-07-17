@@ -1,0 +1,26 @@
+-- Test: LOAD expression inlining within the same block
+-- Verifies that a stored-then-immediately-loaded mutable variable
+-- is inlined as a sub-expression rather than requiring a named temporary.
+
+func main() {
+    var x = 10
+    var y = 20
+    val sum = x + y
+    println("{sum}")
+
+    var a = 5
+    val doubled = a + a
+    println("{doubled}")
+
+    -- Cross-block test: var used after conditional should still work
+    var flag = 1
+    if flag > 0 {
+        var inner = 42
+        println("{inner}")
+    }
+
+    -- Multiple loads from same var in one expression
+    var m = 7
+    val triple = m + m + m
+    println("{triple}")
+}

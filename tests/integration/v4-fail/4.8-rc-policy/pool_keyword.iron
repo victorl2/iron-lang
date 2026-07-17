@@ -1,0 +1,9 @@
+-- section 4.8 negative: closed-set guard rejects `pool` lifecycle keyword
+-- @req: POL-11
+-- @expected-pass-after: phase-26
+-- E0298 IRON_ERR_CLOSED_POLICY_KEYWORD — closed set is {stack, heap, rc, weak rc}
+object Point { val x: Int; val y: Int }
+func main(): Int {
+    val p = pool Point(1, 2)
+    return 0
+}

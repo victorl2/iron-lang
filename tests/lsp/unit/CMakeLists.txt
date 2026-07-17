@@ -189,6 +189,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/resolve.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/auto_import.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/snippet.c
+        # Phase 34 Plan 34-03 (LSP-04): defer-free backward-scan helper
+        # consumed by complete.c's emit_defer_free_snippets hook.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/defer_free.c
         # Phase 12 Plan 12-02 (KW-03): per-keyword visibility predicate
         # consumed by buckets.c emit_keywords.
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/keyword_filter.c
@@ -214,6 +217,16 @@ if(IRON_BUILD_LSP)
         # Phase 12 Plan 12-03 (QF-05): 1-or-2 action handler for code 239
         # (cross-file feasibility + stdlib carve-out via ilsp_nav_path_is_stdlib).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_calls_mutating.c
+        # Phase 34 Plan 34-04 (LSP-06..09): 4 new single-action memory-model
+        # quickfix handlers. Registered ASC-sorted in registry.c; m1 server
+        # source list pulls them in so dispatch.c / codeaction.c resolve
+        # the new symbols at link time.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_val_var.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_forgotten_free.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_unused_var_alloc.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_amp_rc.c
+        # Phase 34 Plan 34-04 (LSP-10): two-action readonly-memory handler.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_memory.c
         # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
         # by quickfix_missing_return.c (and QF-02/QF-03 in later plans).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
@@ -1441,6 +1454,9 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/resolve.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/auto_import.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/snippet.c
+        # Phase 34 Plan 34-03 (LSP-04): defer-free backward-scan helper
+        # consumed by complete.c's emit_defer_free_snippets hook.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/defer_free.c
         # Phase 12 Plan 12-02 (KW-03): per-keyword visibility predicate
         # consumed by buckets.c emit_keywords.
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/keyword_filter.c
@@ -1466,6 +1482,16 @@ if(IRON_BUILD_LSP)
         # Phase 12 Plan 12-03 (QF-05): 1-or-2 action handler for code 239
         # (cross-file feasibility + stdlib carve-out via ilsp_nav_path_is_stdlib).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_calls_mutating.c
+        # Phase 34 Plan 34-04 (LSP-06..09): 4 new single-action memory-model
+        # quickfix handlers. Registered ASC-sorted in registry.c; m1 server
+        # source list pulls them in so dispatch.c / codeaction.c resolve
+        # the new symbols at link time.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_val_var.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_forgotten_free.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_unused_var_alloc.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_amp_rc.c
+        # Phase 34 Plan 34-04 (LSP-10): two-action readonly-memory handler.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_memory.c
         # Phase 12 Plan 12-01 (D-23): shared body-indent helper consumed
         # by quickfix_missing_return.c (and QF-02/QF-03 in later plans).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/codeaction_indent.c
@@ -1495,6 +1521,14 @@ if(IRON_BUILD_LSP)
     set_tests_properties(test_workspace_diagnostic PROPERTIES
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 60)
+
+    # Phase 34 Plan 02 (hover memory-model annotation): export the
+    # nav-facade source list to PARENT_SCOPE so the sibling tests/lsp/hover
+    # subdirectory can compose its driver against the same link graph as
+    # test_hover_formatter without copy-pasting the 50-line recipe. Any
+    # future change to _LSP_PHASE3_NAV_FACADE_SRC above automatically
+    # propagates to the hover driver.
+    set(_LSP_PHASE3_NAV_FACADE_SRC ${_LSP_PHASE3_NAV_FACADE_SRC} PARENT_SCOPE)
 
 else()
     message(STATUS "Skipping tests/lsp/unit: IRON_BUILD_LSP=OFF")

@@ -1,0 +1,22 @@
+-- section 3.7 arena allocation: out-of-memory panic (ARENA-10)
+-- @req: ARENA-10, SAFE-05
+-- @expected-pass-after: phase-28
+-- @expect-panic: arena "scratch" out of memory
+-- The bump-pointer contract NEVER returns null. When an allocation cannot fit
+-- the remaining arena capacity, the runtime PANICS via iron_panic_* with an
+-- arena-specific message carrying the arena name + requested size + capacity.
+-- Not recoverable. Here a 16-byte arena named "scratch" is overrun.
+
+object Big {
+    val a: Int
+    val b: Int
+    val c: Int
+    val d: Int
+}
+
+func main() {
+    val scratch = Arena.with_capacity(16)
+    -- Big needs more than 16 bytes; bump allocation overruns capacity → panic.
+    val big = heap(in: scratch) Big(a: 1, b: 2, c: 3, d: 4)
+    println("unreachable: {big.a}")
+}

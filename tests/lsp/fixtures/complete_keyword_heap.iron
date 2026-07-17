@@ -1,0 +1,13 @@
+// Phase 34 LSP-03: `heap` visible in type-expression position + RHS of
+// val/var initializers. Hidden in statement-head expression-only positions.
+object Buffer { val size: Int }
+func main() {
+    // COMPLETE@5:18
+    // EXPECT_VISIBLE: heap
+    val buf = heap Buffer(1024)
+    defer free buf
+
+    // COMPLETE@9:5
+    // EXPECT_HIDDEN: heap
+    val x = 10
+}

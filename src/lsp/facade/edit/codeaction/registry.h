@@ -209,6 +209,37 @@ void ilsp_quickfix_readonly_write_self  (const Iron_Diagnostic *, struct IronLsp
  * preceded by `readonly`. Cross-file Action B deferred (DEF-12-11). */
 void ilsp_quickfix_readonly_calls_mutating(const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
 
+/* Phase 34 Plan 34-04 (LSP-06): code 176 / IRON_ERR_MISSING_VAL_VAR.
+ * Single-action quickfix — zero-width insertion of "val " at the binding
+ * span start. is_preferred = true (mechanical fix). */
+void ilsp_quickfix_missing_val_var(const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
+
+/* Phase 34 Plan 34-04 (LSP-07): code 606 / IRON_WARN_FORGOTTEN_FREE.
+ * Single-action quickfix — insert `<indent>defer free <binding>\n` on
+ * the line AFTER the heap binding. Title interpolates the binding
+ * name. is_preferred = true (mechanical fix). */
+void ilsp_quickfix_forgotten_free(const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
+
+/* Phase 34 Plan 34-04 (LSP-08): code 613 / IRON_WARN_UNUSED_VAR.
+ * Single-action quickfix — replace the 3-char `var` keyword at the
+ * binding span with `val`. is_preferred = true (mechanical fix). */
+void ilsp_quickfix_unused_var_alloc(const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
+
+/* Phase 34 Plan 34-04 (LSP-09): code 296 / IRON_ERR_PTR_AMP_ON_RC.
+ * Single-action quickfix — rewrite `&<expr>` to `<expr>.downgrade()`
+ * (the canonical weak-rc obtain operation per docs/dev/RC-LAYOUT.md §7).
+ * is_preferred = true (mechanical fix). */
+void ilsp_quickfix_amp_on_rc(const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
+
+/* Phase 34 Plan 34-04 (LSP-10): code 820 / IRON_ERR_READONLY_MEMORY.
+ * Two-action quickfix — only memory-model code with semantic ambiguity:
+ *   variant 0 "Remove 'readonly'": deletes the `readonly ` token from
+ *             the enclosing func signature
+ *   variant 1 "Extract mutating block into helper": replaces the body
+ *             content with a `return <name>_impl(<param>)` placeholder
+ * Both is_preferred = false (D-31 — never auto-pick when ambiguous). */
+void ilsp_quickfix_readonly_memory(const Iron_Diagnostic *, struct IronLsp_Document *, struct IronLsp_WorkspaceIndex *, Iron_Arena *, IronLsp_CodeAction *out_arr, size_t out_cap, size_t *out_n);
+
 #ifdef __cplusplus
 }
 #endif

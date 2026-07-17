@@ -1,0 +1,13 @@
+-- Mixed payload and plain variant enum
+-- Phase 32: verifies parser accepts mixed variant types
+
+enum Token {
+  EOF,
+  Number(Int),
+  Plus,
+  Ident(String),
+}
+
+func main() {
+  println("adt_mixed_payload: ok")
+}

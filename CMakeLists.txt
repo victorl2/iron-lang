@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
-project(iron VERSION 3.3.0 LANGUAGES C)
+project(iron VERSION 4.0.0 LANGUAGES C)
 
 # Full release version, including any pre-release suffix (e.g. "1.0.0-alpha").
 # CMake's project(VERSION ...) only accepts numeric MAJOR.MINOR.PATCH[.TWEAK],
 # so the suffixed form lives in its own variable and is baked into the binaries
 # as IRON_VERSION_STRING below. Both this line and the project() line above are
 # kept in sync with the latest GitHub release by .github/workflows/changelog-on-release.yml.
-set(IRON_VERSION_FULL "3.3.0-alpha")
+set(IRON_VERSION_FULL "4.0.0-alpha.1")
 
 # ── Version info baked at compile time ─────────────────────────────────────
 execute_process(
@@ -28,6 +28,13 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 option(IRON_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer (requires Debug build)" OFF)
 option(IRON_ENABLE_FUZZING "Build libFuzzer fuzz targets (requires clang)" OFF)
 option(IRON_ENABLE_COVERAGE "Build with llvm-cov instrumentation (requires clang)" OFF)
+
+# Phase 35 MIG-08: archived v3 integration corpus opt-in. Default OFF so the
+# v3 fixtures (now under tests/integration/v3-archive/) do NOT run on default
+# ctest invocations. Set ON for archeological diffs against v3-era compiler
+# behavior; v3 fixtures are NOT expected to pass under the v4 compiler. The
+# gated add_subdirectory(v3-archive) lives in tests/integration/CMakeLists.txt.
+option(IRON_RUN_ARCHIVED_V3_CORPUS "Run archived v3 integration corpus (opt-in; off by default)" OFF)
 
 # Phase 7 Plan 07-03 (HARD-17, D-05) -- IRON_SANITIZER selector.
 # When IRON_ENABLE_SANITIZERS=ON, this selects which sanitizer flavour to use:
@@ -198,6 +205,11 @@ add_library(iron_runtime STATIC
     src/runtime/iron_collections.c
     src/runtime/iron_net_init.c
     src/runtime/iron_oom.c
+    src/runtime/iron_heap_track.c
+    src/runtime/iron_panic.c
+    src/runtime/iron_arena_rt.c
+    src/runtime/iron_gencheck_count.c
+    src/runtime/iron_leakcheck.c
 )
 target_include_directories(iron_runtime PUBLIC src src/vendor)
 if(NOT WIN32)
@@ -228,6 +240,7 @@ add_library(iron_compiler STATIC
     src/analyzer/web_await_check.c
     src/analyzer/web_top_level_loader_check.c
     src/analyzer/init_check.c
+    src/analyzer/unused_var.c
     src/analyzer/iface_collect.c
     src/analyzer/analyzer.c
     src/comptime/comptime.c
@@ -248,6 +261,7 @@ add_library(iron_compiler STATIC
     src/lir/print.c
     src/lir/verify.c
     src/lir/lir_optimize.c
+    src/lir/func_summary.c
     src/lir/web_main_loop_split.c
     # Phase 5 Plan 05-01 (FMT-01, FMT-05, D-01, D-02): src/fmt/ module.
     # Single library entry point for both `iron fmt` CLI and `ironls` LSP.
@@ -300,11 +314,60 @@ option(IRON_BUILD_LSP "Build ironls (Iron language server)" ON)
 # ── Tests ──────────────────────────────────────────────────────────────────
 enable_testing()
 
+# `ironc build` shells out to clang to compile the C it emits, so every row below
+# that builds and runs a fixture needs a clang on PATH. Hosts that have one (CI,
+# dev machines) run those rows for real; the check-only container has none, so
+# they are DISABLED there and reported as not-run.
+#
+# These rows used to carry `WILL_FAIL YES` to stand in for "no clang here". That
+# is an inversion, not a skip: on any clang-equipped host it flipped the moment a
+# fixture actually built and ran, marking the row red *for passing* — and while a
+# fixture was broken it reported green, hiding the breakage. Gate on the tool
+# instead, so a missing clang skips the row and a present clang makes it a real
+# assertion.
+find_program(IRON_TEST_CLANG clang)
+if(IRON_TEST_CLANG)
+    set(IRON_SKIP_CLANG_ROWS NO)
+else()
+    set(IRON_SKIP_CLANG_ROWS YES)
+    message(STATUS "clang not found — build+run fixture rows will be skipped")
+endif()
+
+# XFAIL for a per-fixture row, decided by the same rule tests/run_tests.sh uses
+# for the aggregate test_v4_acceptance row: a fixture whose header carries
+# `@expected-pass-after: phase-N` with N greater than IRON_CURRENT_PHASE is
+# expected to fail. run_tests.sh reads that marker at run time; a ctest row
+# cannot, so read it here at configure time and translate it to WILL_FAIL.
+#
+# Deriving both from the one marker is the point: the reason these rows drifted
+# is that each hand-maintained its own idea of what was expected to fail, so a
+# fixture could be XFAIL in the aggregate and required here (or vice versa), and
+# a stale entry sat green while the fixture was broken. Now the fixture header is
+# the single source of truth, and deleting a marker updates both at once.
+set(IRON_CURRENT_PHASE "15" CACHE STRING "Phase baseline for @expected-pass-after XFAIL gating")
+function(iron_fixture_xfail out_var fixture_path)
+    set(${out_var} NO PARENT_SCOPE)
+    if(NOT EXISTS "${fixture_path}")
+        return()
+    endif()
+    file(STRINGS "${fixture_path}" _lines LIMIT_COUNT 10)
+    foreach(_line IN LISTS _lines)
+        if(_line MATCHES "@expected-pass-after:[ \t]+phase-([0-9]+)")
+            if(CMAKE_MATCH_1 GREATER IRON_CURRENT_PHASE)
+                set(${out_var} YES PARENT_SCOPE)
+            endif()
+            return()
+        endif()
+    endforeach()
+endfunction()
+
 add_subdirectory(tests/unit)
 add_subdirectory(tests/lir)
 add_subdirectory(tests/hir)
 add_subdirectory(tests/lsp)                 # Phase 1 Plan 05: parity harness
 add_subdirectory(tests/integration)
+add_subdirectory(tests/integration/v4)
+add_subdirectory(tests/integration/v4-fail)
 add_subdirectory(tests/algorithms)
 add_subdirectory(tests/composite)
 add_subdirectory(tests/manual)
@@ -590,6 +653,12 @@ if(IRON_BUILD_LSP)
         # handlers_edit.c + handlers_lifecycle.c.
         src/lsp/facade/edit/complete/auto_import.c
         src/lsp/facade/edit/complete/snippet.c
+        # Phase 34 Plan 34-03 (LSP-04): `defer free <binding>` backward-scan
+        # — collects up to 5 most-recent heap/rc-allocated bindings from
+        # the cursor's enclosing function body. Called by complete.c's
+        # emit_defer_free_snippets hook; consumes the Iron_Program from
+        # the single ilsp_facade_compile_for_nav call (CORE-22 intact).
+        src/lsp/facade/edit/complete/defer_free.c
         # Phase 4 Plan 04-04 (EDIT-07, EDIT-08, D-06, D-07): code-action
         # registry + 5 P1 quickfix handler TUs. handlers_edit.c hosts the
         # textDocument/codeAction + codeAction/resolve handlers that
@@ -624,6 +693,18 @@ if(IRON_BUILD_LSP)
         # + idempotency (D-34 stdlib carve-out, DEF-12-11 cross-file
         # deferral). Cross-file callees → Action A only.
         src/lsp/facade/edit/codeaction/quickfix_readonly_calls_mutating.c
+        # Phase 34 Plan 34-04 (LSP-06..09): 4 new memory-model quickfix
+        # handlers. Each is a single-action consumer-only handler routed
+        # through ilsp_facade_compile_for_nav (CORE-22). Codes 176, 296,
+        # 606, 613 — registered ASC-sorted in registry.c.
+        src/lsp/facade/edit/codeaction/quickfix_missing_val_var.c
+        src/lsp/facade/edit/codeaction/quickfix_forgotten_free.c
+        src/lsp/facade/edit/codeaction/quickfix_unused_var_alloc.c
+        src/lsp/facade/edit/codeaction/quickfix_amp_rc.c
+        # Phase 34 Plan 34-04 (LSP-10): two-action quickfix for code 820
+        # (IRON_ERR_READONLY_MEMORY). Both variants is_preferred = false
+        # per D-31 semantic ambiguity.
+        src/lsp/facade/edit/codeaction/quickfix_readonly_memory.c
         # Plan 04-04 Task 02: code-action orchestrator + codeAction/resolve
         # facade (lazy edit compute, version-gated per D-07).
         src/lsp/facade/edit/codeaction/codeaction.c
@@ -1047,7 +1128,11 @@ target_include_directories(test_fmt_idempotent PRIVATE
     ${CMAKE_SOURCE_DIR}/src/vendor)
 target_compile_definitions(test_fmt_idempotent PRIVATE
     _GNU_SOURCE
-    "TESTS_INTEGRATION_DIR=\"${CMAKE_SOURCE_DIR}/tests/integration\"")
+    # Phase 35 MIG-08: v3 root fixtures moved to v3-archive/; idempotency
+    # corpus follows the rename. (Test currently TEST_IGNORE'd per a v3-era
+    # printer oscillation bug; this keeps the path correct for the eventual
+    # re-enable.)
+    "TESTS_INTEGRATION_DIR=\"${CMAKE_SOURCE_DIR}/tests/integration/v3-archive\"")
 target_link_libraries(test_fmt_idempotent
     iron_compiler iron_runtime iron_stdlib unity m pthread)
 add_test(NAME test_fmt_idempotent
@@ -1056,6 +1141,1180 @@ add_test(NAME test_fmt_idempotent
 set_tests_properties(test_fmt_idempotent PROPERTIES
     LABELS "integration;phase-m4-invariant"
     TIMEOUT 300)
+
+# ── Phase 21 invariant label declaration ─────────────────────────────────────
+# `ctest -L phase21-invariant` aggregates all Plan 21-01 + 21-02 + 21-03
+# invariant tests (3 unit tests from tests/unit/CMakeLists.txt with LABELS
+# "unit;phase21-invariant").  The LABEL is declared on each test entry in
+# tests/unit/CMakeLists.txt; this comment serves as the root-level anchor for
+# the phase21-invariant label, mirroring the phase20-invariant pattern.
+# Plans 21-01 through 21-03 each add tests to this label group.
+
+# ── Phase 22 invariant label declaration ─────────────────────────────────────
+# `ctest -L phase22-invariant` aggregates all Plan 22-01 + 22-02 + 22-03
+# invariant tests (unit tests from tests/unit/CMakeLists.txt with LABELS
+# "unit;phase22-invariant").  The LABEL is declared on each test entry in
+# tests/unit/CMakeLists.txt; this comment serves as the root-level anchor for
+# the phase22-invariant label, mirroring the phase21-invariant pattern.
+# Plans 22-01 through 22-03 each add tests to this label group.
+
+# Phase 23 VEC: bounded vector [T; <=N] type-level surface (Plan 23-01)
+# `ctest -L phase23-invariant` aggregates unit tests (from tests/unit/CMakeLists.txt)
+# and per-fixture negative corpus tests below.  Unit-test LABELS are declared in
+# tests/unit/CMakeLists.txt; corpus tests are registered here with LABELS
+# "integration;phase23-invariant".  The negative-corpus tests run `ironc check` directly
+# and assert that a known error code appears in stderr.
+if(NOT WIN32)
+    add_test(
+        NAME v4_fail_4.5_strict_mismatch
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.5-bounded-vector/strict_mismatch.iron 2>&1 | grep -qF E0282"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.5_strict_mismatch PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.5_bounded_to_fixed
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.5-bounded-vector/bounded_to_fixed.iron 2>&1 | grep -qF E0283"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.5_bounded_to_fixed PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    # Phase 23 Plan 23-02: positive corpus — bounded vector happy paths.
+    # Build-only checks (compile succeeds = codegen is correct); full output
+    # comparison is covered by the run_tests.sh v4 runner (test_v4_acceptance).
+    # LABELS "integration;phase23-invariant" so `ctest -L phase23-invariant`
+    # counts them toward the >=10 cumulative target.
+    add_test(
+        NAME v4_4.5_bvec_happy
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.5-bounded-vector/happy.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.5_bvec_happy PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_4.5_bvec_strict_happy
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.5-bounded-vector/strict_happy.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.5_bvec_strict_happy PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    # Phase 23 Plan 23-02: XFAIL-flip positive corpus — readonly + bounded vec.
+    # These fixtures were XFAIL in Phase 22 substrate; Plan 23-02 codegen flips GREEN.
+    add_test(
+        NAME v4_4.4_readonly_rvo_bounded_vector
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.4-readonly/readonly_rvo_bounded_vector.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.4_readonly_rvo_bounded_vector PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_6_boundary_returns_bounded_vec
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/6-readonly/boundary_returns_bounded_vec.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_6_boundary_returns_bounded_vec PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    # Phase 23 Plan 23-03: OQ-10 corpus — bvec-as-return-value + multi-type bvec.
+    # Check-only tests (ironc check) verifying emit_ensure_bvec fires for bvec
+    # types used as function parameters and return values (OQ-10 emit path).
+    # list_of_bvec: bvec created + passed through multiple functions (exercises
+    #   emit_ensure_bvec for [Int;<=4] during codegen).
+    # nested_bvec: two distinct bvec types [Int;<=4] + [Int;<=8] in same
+    #   compilation unit (exercises emit_ensure_bvec dedup for multiple (T,N) pairs).
+    # NOTE: List[[T;<=N]] direct type annotation requires parser support for
+    # nested bracket types (not in Phase 23 parser); that path is tested by
+    # the emit_mono_list_decls extension in emit_structs.c for when it lands.
+    add_test(
+        NAME v4_4.5_list_bvec
+        COMMAND ${CMAKE_BINARY_DIR}/ironc check
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.5-bounded-vector/list_of_bvec.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.5_list_bvec PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_4.5_nested_bvec
+        COMMAND ${CMAKE_BINARY_DIR}/ironc check
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.5-bounded-vector/nested_bvec.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.5_nested_bvec PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
+endif()
+
+# `ctest -L phase24-invariant` aggregates the Wave 0 RED corpus for Phase 24
+# Resource Types (drop/copy/nocopy).  These tests search for diagnostic
+# substrings that are ONLY emitted after Plan 24-02 typecheck emission lands.
+# Pre-Plan-24-02 state: ironc check exits 0 (no diagnostic), grep fails →
+# CTest records FAIL (RED).  Plan 24-02 atomic commit flips them GREEN.
+if(NOT WIN32)
+    add_test(
+        NAME v4_fail_4.6_drop_duplicate
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/drop_duplicate.iron 2>&1 | grep -qF E0284"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.6_drop_duplicate PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.6_copy_duplicate
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/copy_duplicate.iron 2>&1 | grep -qF E0285"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.6_copy_duplicate PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.6_drop_readonly
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/drop_readonly.iron 2>&1 | grep -qF E0287"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.6_drop_readonly PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.6_drop_early_return
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/drop_early_return.iron 2>&1 | grep -qF E0288"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.6_drop_early_return PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    # Phase 24 Plan 24-02: Wave 1 positive integration corpus (XFAIL → GREEN).
+    # These fixtures test runtime drop/copy/nocopy behaviour; they need build + run + output compare.
+    # NOTE: shell vars use \$ escaping so CMake does not expand them at configure time.
+    add_test(
+        NAME v4_7_drop_happy
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/happy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/happy.iron && actual=\$(\"\$d/happy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7_drop_happy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_7_boundary_drop_chain
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_drop_chain\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.iron && actual=\$(\"\$d/boundary_drop_chain\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7_boundary_drop_chain PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_7_boundary_copy_hook
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_copy_hook\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_copy_hook.iron && actual=\$(\"\$d/boundary_copy_hook\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_copy_hook.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7_boundary_copy_hook PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_7_boundary_nocopy
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_nocopy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_nocopy.iron && actual=\$(\"\$d/boundary_nocopy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_nocopy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7_boundary_nocopy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_3.2_boundary_destructor_runs
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_destructor_runs\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.2-heap/boundary_destructor_runs.iron && actual=\$(\"\$d/boundary_destructor_runs\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.2-heap/boundary_destructor_runs.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_3.2_boundary_destructor_runs PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    # Phase 24 Plan 24-02: v4-fail/7-drop-copy/copy_nocopy.iron (E0286 nocopy assignment) — flips GREEN here.
+    add_test(
+        NAME v4_fail_7_copy_nocopy
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7-drop-copy/copy_nocopy.iron 2>&1 | grep -qF E0286"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_7_copy_nocopy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    # Phase 24 DROP-03 unit test: static-dispatch destructor — no vtable.
+    add_executable(test_drop_static_dispatch tests/unit/test_drop_static_dispatch.c)
+    target_link_libraries(test_drop_static_dispatch PRIVATE iron_compiler iron_runtime unity m pthread)
+    target_include_directories(test_drop_static_dispatch PRIVATE src src/vendor)
+    add_test(NAME test_drop_static_dispatch COMMAND test_drop_static_dispatch)
+    set_tests_properties(test_drop_static_dispatch PROPERTIES LABELS "unit;phase24-invariant")
+
+    # Phase 24 Plan 24-03: DROP-04 panic-in-destructor aborts (iron_panic_destructor_aborted).
+    # Binary panics inside drop block → iron_in_destructor guard fires → stderr "destructor panicked".
+    add_test(
+        NAME v4_7_panic_destructor_panic
+        COMMAND sh -c "d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/panic_destructor_panic\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/panic_destructor_panic.iron && \"\$d/panic_destructor_panic\" 2>&1; rc=\$? ; rm -rf \"\$d\" ; [ \$rc -ne 0 ]"
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7_panic_destructor_panic PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+
+    # Phase 24 Plan 24-03: DROP-05 structural prerequisite — objects with droppable fields
+    # drop in declaration order at scope exit. Full panic-mid-init path deferred.
+    add_test(
+        NAME v4_7_boundary_partial_init_cleanup
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_partial_init_cleanup\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.iron && actual=\$(\"\$d/boundary_partial_init_cleanup\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7_boundary_partial_init_cleanup PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
+endif()
+
+# `ctest -L phase25-invariant` aggregates the Wave 0 RED→GREEN corpus for Phase 25
+# *unchecked T + Box[T] (PTR-02/03/05, UNCK-04/05). Three negative fixtures flip
+# RED→GREEN within the Plan 25-01 atomic commit (typecheck E0289 + E0294 land here).
+# One negative fixture (ptr_arith_checked) stays XFAIL until Plan 25-02 (Ptr.offset
+# builtin). One unit test validates iron_type_equals is_unchecked distinctness.
+if(NOT WIN32)
+    add_test(
+        NAME v4_fail_4.3-unchecked-ptr_cross_regime_assign
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/cross_regime_assign.iron 2>&1 | grep -qF E0289"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.3-unchecked-ptr_cross_regime_assign PROPERTIES LABELS "integration;phase25-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.3-unchecked-ptr_amp_produces_unchecked
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/amp_produces_unchecked.iron 2>&1 | grep -qF E0294"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.3-unchecked-ptr_amp_produces_unchecked PROPERTIES LABELS "integration;phase25-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.3-unchecked-ptr_unchecked_param_auto_addr
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/unchecked_param_auto_addr.iron 2>&1 | grep -qF '*unchecked Point'"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.3-unchecked-ptr_unchecked_param_auto_addr PROPERTIES LABELS "integration;phase25-invariant" TIMEOUT 30)
+
+    # ptr_arith_checked: XFAIL until Plan 25-02 (Ptr.offset builtin emission)
+    # The test is registered but expected to fail until Plan 25-02 atomic commit.
+    add_test(
+        NAME v4_fail_4.3-unchecked-ptr_ptr_arith_checked
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/ptr_arith_checked.iron 2>&1 | grep -qF E0295"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.3-unchecked-ptr_ptr_arith_checked PROPERTIES LABELS "integration;phase25-invariant" TIMEOUT 30)
+
+    # Phase 25 Plan 25-02: 6 positive XFAIL fixtures (v4/4.3-unchecked-ptr/)
+    # @expected-pass-after: phase-25.  Registered here under phase25-invariant.
+    # 5 of 6 fixtures depend on Box.new/unwrap/null/is_null which require
+    # box.iron stdlib (Plan 25-03); they are XFAIL (WILL_FAIL YES) until 25-03.
+    # boundary_unchecked_ffi.iron depends on U8 type + as-cast to *unchecked T
+    # (also deferred); it is also XFAIL (WILL_FAIL YES) here.
+
+    add_test(
+        NAME v4_4.3-unchecked-ptr_happy
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/happy.iron
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/happy.iron")
+    set_tests_properties(v4_4.3-unchecked-ptr_happy PROPERTIES
+        LABELS "integration;phase25-invariant"
+        TIMEOUT 30
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
+    )
+
+    add_test(
+        NAME v4_4.3-unchecked-ptr_boundary_box_unwrap
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_unwrap.iron
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_unwrap.iron")
+    set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_unwrap PROPERTIES
+        LABELS "integration;phase25-invariant"
+        TIMEOUT 30
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
+    )
+
+    add_test(
+        NAME v4_4.3-unchecked-ptr_boundary_box_takes_ownership
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_takes_ownership.iron
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_takes_ownership.iron")
+    set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_takes_ownership PROPERTIES
+        LABELS "integration;phase25-invariant"
+        TIMEOUT 30
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
+    )
+
+    add_test(
+        NAME v4_4.3-unchecked-ptr_boundary_unchecked_ffi
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_unchecked_ffi.iron
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.3-unchecked-ptr_boundary_unchecked_ffi PROPERTIES
+        LABELS "integration;phase25-invariant"
+        TIMEOUT 30
+        WILL_FAIL YES  # U8 type + as *unchecked T cast not yet implemented; deferred
+    )
+
+    add_test(
+        NAME v4_4.3-unchecked-ptr_boundary_box_isnull
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_isnull.iron
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_isnull.iron")
+    set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_isnull PROPERTIES
+        LABELS "integration;phase25-invariant"
+        TIMEOUT 30
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
+    )
+
+    add_test(
+        NAME v4_4.3-unchecked-ptr_panic_box_unwrap_null
+        COMMAND ${CMAKE_BINARY_DIR}/ironc build
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/panic_box_unwrap_null.iron
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/panic_box_unwrap_null.iron")
+    set_tests_properties(v4_4.3-unchecked-ptr_panic_box_unwrap_null PROPERTIES
+        LABELS "integration;phase25-invariant"
+        TIMEOUT 30
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
+    )
+
+    add_executable(test_ptr_types tests/unit/test_ptr_types.c)
+    target_link_libraries(test_ptr_types PRIVATE iron_compiler iron_runtime unity m pthread)
+    target_include_directories(test_ptr_types PRIVATE src src/vendor)
+    add_test(NAME test_ptr_types COMMAND test_ptr_types)
+    set_tests_properties(test_ptr_types PROPERTIES LABELS "unit;phase25-invariant")
+endif()
+
+# `ctest -L phase26-invariant` aggregates the Wave 1 RED→GREEN corpus for
+# Phase 26 rc Policy (POL-06/07/10/11 + OQ-03). Plan 26-01 wired the runtime
+# substrate + unit tests (test_rc_layout + test_rc_atomic_ordering +
+# test_runtime_rc_concurrent under tests/unit/CMakeLists.txt). Plan 26-02
+# adds 8 negative integration fixtures under v4-fail/4.8-rc-policy/.
+# Plan 26-03 lands the positive corpus.
+if(NOT WIN32)
+    add_test(
+        NAME v4_fail_4.8-rc-policy_rc_in_type_annotation
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/rc_in_type_annotation.iron 2>&1 | grep -qF E0297"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_rc_in_type_annotation PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.8-rc-policy_rc_in_binding
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/rc_in_binding.iron 2>&1 | grep -qF E0297"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_rc_in_binding PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.8-rc-policy_rc_in_parameter
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/rc_in_parameter.iron 2>&1 | grep -qF E0297"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_rc_in_parameter PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.8-rc-policy_nullable_rc
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/nullable_rc.iron 2>&1 | grep -qF 'weak rc T?'"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_nullable_rc PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.8-rc-policy_pool_keyword
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/pool_keyword.iron 2>&1 | grep -qF '{stack, heap, rc, weak rc}'"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_pool_keyword PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.8-rc-policy_arena_keyword
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/arena_keyword.iron 2>&1 | grep -qF E0298"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_arena_keyword PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.8-rc-policy_address_of_rc
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/address_of_rc.iron 2>&1 | grep -qF E0296"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_address_of_rc PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    # Phase 26 Plan 26-02 Task 3 lands the E0279 extension at the
+    # IRON_NODE_RC arm of typecheck.c (parallel to the Phase 22 READ-05
+    # IRON_NODE_HEAP arm). The fixture now expects E0279 on stderr.
+    add_test(
+        NAME v4_fail_4.8-rc-policy_readonly_rc_escape
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/readonly_rc_escape.iron 2>&1 | grep -qF E0279"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.8-rc-policy_readonly_rc_escape PROPERTIES
+        LABELS "integration;phase26-invariant" TIMEOUT 30)
+
+    # Phase 26 Plan 26-03 Task 2: positive integration corpus for rc Policy.
+    # 7 fixtures: happy + 4 boundary + nested_policy_isolation + closure_captures_rc.
+    # Each fixture: compile via ironc build → run binary → diff stdout against
+    # the .expected file (mirrors Phase 24 v4/7-drop-copy fixture pattern).
+    #
+    # Status: WILL_FAIL YES on each due to the pre-existing box.iron stdlib
+    # prepend syntax errors (E0264/E0101 noise blocking compilation). Same
+    # known limitation flagged by Phase 25 Plan 25-03 SUMMARY ("WILL_FAIL YES
+    # on 5 positive fixtures blocked by ironc-build container /lib path
+    # limitation"). The Phase 26 codegen substrate is verified by
+    # test_rc_drop_chain_order (Task 1) + test_oq03_closure_rc_retain_release
+    # (Task 2) at the codegen layer; end-to-end execution unblocks when the
+    # box.iron parser path lands (out-of-scope of Phase 26).
+    set(_PHASE_26_POS_FIXTURES
+        happy
+        boundary_copy_bumps_refcount
+        boundary_last_drop_destroys
+        boundary_field_holds_rc
+        boundary_atomic_refcount
+        nested_policy_isolation
+        closure_captures_rc
+    )
+    foreach(_fix IN LISTS _PHASE_26_POS_FIXTURES)
+        add_test(
+            NAME v4_4.8-rc-policy_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.8-rc-policy/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.8-rc-policy/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.8-rc-policy/${_fix}.iron")
+        set_tests_properties(v4_4.8-rc-policy_${_fix} PROPERTIES
+            LABELS "integration;phase26-invariant"
+            TIMEOUT 60
+            WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
+    endforeach()
+endif()
+
+# `ctest -L phase27-invariant` aggregates the Wave 1 RED corpus for
+# Phase 27 weak rc Policy (POL-08/09). Plan 27-01 wired the runtime
+# substrate + 4 unit tests (test_weak_rc_layout/atomic_ordering/concurrent/
+# upgrade_race under tests/unit/CMakeLists.txt). Plan 27-02 adds 6 negative
+# integration fixtures under v4-fail/4.9-weak-rc-policy/ covering:
+#   - E0299 (deref weak rc T)  x2 — direct field + method-call deref
+#   - E0300 (.downgrade() on non-rc) x2 — heap T receiver + primitive receiver
+#   - E0296 extended message (no new code) — `&` on weak rc value
+#   - E0217 reuse (no new code) — passing weak rc T where rc T expected
+# Plan 27-03 lands the positive corpus + LSP smoke regression-anchor.
+if(NOT WIN32)
+    add_test(
+        NAME v4_fail_4.9-weak-rc-policy_deref_weak_rc
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/deref_weak_rc.iron 2>&1 | grep -qF E0299"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.9-weak-rc-policy_deref_weak_rc PROPERTIES
+        LABELS "integration;phase27-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.9-weak-rc-policy_deref_weak_rc_method
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/deref_weak_rc_method.iron 2>&1 | grep -qF E0299"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.9-weak-rc-policy_deref_weak_rc_method PROPERTIES
+        LABELS "integration;phase27-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.9-weak-rc-policy_downgrade_not_rc
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/downgrade_not_rc.iron 2>&1 | grep -qF E0300"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.9-weak-rc-policy_downgrade_not_rc PROPERTIES
+        LABELS "integration;phase27-invariant" TIMEOUT 30)
+
+    add_test(
+        NAME v4_fail_4.9-weak-rc-policy_downgrade_not_rc_primitive
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/downgrade_not_rc_primitive.iron 2>&1 | grep -qF E0300"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.9-weak-rc-policy_downgrade_not_rc_primitive PROPERTIES
+        LABELS "integration;phase27-invariant" TIMEOUT 30)
+
+    # E0296 extension: message updated to name both rc and weak rc per
+    # Phase 27 CONTEXT.md GA4 — no new diagnostic code. The substring
+    # `rc/weak rc` is what proves the extension landed (the bare phrase
+    # `address of rc` matched the Phase 26 message too).
+    add_test(
+        NAME v4_fail_4.9-weak-rc-policy_amp_on_weak_rc
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/amp_on_weak_rc.iron 2>&1 | grep -qF 'rc/weak rc'"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.9-weak-rc-policy_amp_on_weak_rc PROPERTIES
+        LABELS "integration;phase27-invariant" TIMEOUT 30)
+
+    # E0217 type-mismatch reuse: passing weak rc T where rc T expected
+    # must NOT allocate a new diagnostic code (CONTEXT.md GA4 lock).
+    add_test(
+        NAME v4_fail_4.9-weak-rc-policy_type_mismatch_weak_to_strong
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/type_mismatch_weak_to_strong.iron 2>&1 | grep -qF E0217"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_4.9-weak-rc-policy_type_mismatch_weak_to_strong PROPERTIES
+        LABELS "integration;phase27-invariant" TIMEOUT 30)
+
+    # Phase 27 Plan 27-03 Task 2: positive integration corpus for weak rc Policy.
+    # 7 fixtures: happy + upgrade_after_drop + upgrade_returns_nullable +
+    # readonly_can_upgrade + closure_captures_weak_rc (OQ-04 witness) +
+    # boundary_weak_keeps_header_alive (State 2) +
+    # boundary_block_freed_when_weak_zero (State 3).
+    # Each fixture: compile via ironc build → run binary → diff stdout against
+    # the .expected file (mirrors Phase 26 4.8-rc-policy fixture pattern at
+    # CMakeLists.txt:1492-1502).
+    #
+    # Status: WILL_FAIL TRUE on each due to the pre-existing box.iron stdlib
+    # prepend syntax errors (E0264/E0101 noise blocking compilation). Same
+    # known limitation inherited from Phase 25 Plan 25-03 SUMMARY ("WILL_FAIL
+    # YES on 5 positive fixtures blocked by ironc-build container /lib path
+    # limitation") and Phase 26 Plan 26-03 SUMMARY Deviation #2 (box.iron
+    # WILL_FAIL TRUE inheritance). The Phase 27 codegen substrate is verified
+    # by test_oq04_closure_weak_rc_retain_release at the codegen layer; end-
+    # to-end execution unblocks when the box.iron parser path lands (out-of-
+    # scope of Phase 27).
+    set(_PHASE_27_POS_FIXTURES
+        happy
+        upgrade_after_drop
+        upgrade_returns_nullable
+        readonly_can_upgrade
+        closure_captures_weak_rc
+        boundary_weak_keeps_header_alive
+        boundary_block_freed_when_weak_zero
+    )
+    foreach(_fix IN LISTS _PHASE_27_POS_FIXTURES)
+        add_test(
+            NAME v4_4.9-weak-rc-policy_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.iron")
+        set_tests_properties(v4_4.9-weak-rc-policy_${_fix} PROPERTIES
+            LABELS "integration;phase27-invariant;v4-acceptance"
+            TIMEOUT 60
+            WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
+    endforeach()
+endif()
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 31 Debug Allocator + Leak Detection — `phase31-invariant` lint corpus
+# ─────────────────────────────────────────────────────────────────────────
+# Wave 0 RED anchor for the §12 step 17 compile-time lints (DBG-05/06). These
+# are `ironc check` (analyzer-only) rows — no clang-as-subprocess, so NO
+# WILL_FAIL needed; they run directly in the silvaserver check-only container.
+# They are RED until Plan 31-02 lands the W0606 forgotten-free + W0607
+# unreachable-free analyzer dataflow, then flip GREEN.
+#
+#   forgotten_free       → W0606 must appear (positive grep)
+#   leak_suppresses      → W0606 must be ABSENT ('leak' suppresses; inverted)
+#   defer_free_satisfies → W0606 must be ABSENT ('defer free' satisfies; inverted)
+#   unreachable_free     → W0607 must appear (positive grep)
+if(NOT WIN32)
+    add_test(
+        NAME v4_4.12-debug-leak_forgotten_free
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/forgotten_free.iron 2>&1 | grep -qF W0606"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_4.12-debug-leak_forgotten_free PROPERTIES
+        LABELS "integration;phase31-invariant;v4-acceptance" TIMEOUT 30)
+
+    add_test(
+        NAME v4_4.12-debug-leak_leak_suppresses
+        COMMAND sh -c "! ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/leak_suppresses.iron 2>&1 | grep -qF W0606"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_4.12-debug-leak_leak_suppresses PROPERTIES
+        LABELS "integration;phase31-invariant;v4-acceptance" TIMEOUT 30)
+
+    add_test(
+        NAME v4_4.12-debug-leak_defer_free_satisfies
+        COMMAND sh -c "! ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/defer_free_satisfies.iron 2>&1 | grep -qF W0606"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_4.12-debug-leak_defer_free_satisfies PROPERTIES
+        LABELS "integration;phase31-invariant;v4-acceptance" TIMEOUT 30)
+
+    add_test(
+        NAME v4_4.12-debug-leak_unreachable_free
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/unreachable_free.iron 2>&1 | grep -qF W0607"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_4.12-debug-leak_unreachable_free PROPERTIES
+        LABELS "integration;phase31-invariant;v4-acceptance" TIMEOUT 30)
+endif()
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 32 `defer` Statement — `phase32-invariant` Wave 0 RED corpus (§12 step 18)
+# ─────────────────────────────────────────────────────────────────────────
+# Wave 0 RED anchor for generalized `defer <statement>` (DEFER-01/03/04). The
+# Phase-21 machinery accepts only `defer free <binding>` and emits E0276
+# (IRON_ERR_DEFER_FORM_UNSUPPORTED) on every other form. These rows are
+# RED until Plan 32-02 removes that gate + widens the parser.
+#
+# TWO row classes (mirrors the Phase 31 check-only / Phase 28 WILL_FAIL split):
+#
+#   CHECK-ONLY POSITIVE (run directly in the silvaserver check-only container):
+#     defer_general, defer_block — assert E0276 is ABSENT.
+#     CRITICAL oracle form: whole-pipeline NEGATION `! ( ... | grep -qF E0276 )`,
+#     NOT per-line inversion `grep -qvF`. Iron diagnostics are multi-line (the
+#     `error: E0276 ...` line PLUS a `--> file:line` context window), so
+#     `grep -qvF E0276` exits 0 (false GREEN) the moment the `-->` line matches
+#     even while E0276 is emitted. The whole-pipeline negation FAILS whenever
+#     E0276 appears ANYWHERE in the combined output — the only sound oracle.
+#     RED now (gate still fires); flips GREEN in Plan 32-02.
+#
+#   WILL_FAIL BUILD+RUN (the container is check-only — no clang to run output):
+#     defer_then_drop, defer_early_return, defer_break_continue,
+#     defer_read_at_exit — `ironc build`+run rows registered WILL_FAIL YES;
+#     they flip GREEN on a clang-equipped host once 32-02 lands.
+#
+# No fixture asserts a defer running DURING a panic — Iron panic is abort()-based
+# (no unwinding); defers run only on NORMAL control-flow exit edges. See
+# docs/dev/DEFER-SEMANTICS.md.
+if(NOT WIN32)
+    # ── CHECK-ONLY POSITIVE accept rows (RED now; GREEN after 32-02) ──
+    add_test(
+        NAME v4_4.13-defer_general_accept
+        COMMAND sh -c "! ( ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_general.iron 2>&1 | grep -qF E0276 )"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_4.13-defer_general_accept PROPERTIES
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 30)
+
+    add_test(
+        NAME v4_4.13-defer_block_accept
+        COMMAND sh -c "! ( ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_block.iron 2>&1 | grep -qF E0276 )"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_4.13-defer_block_accept PROPERTIES
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 30)
+
+    # Build+run rows. These previously carried WILL_FAIL YES ("check-only
+    # container has no clang"), which INVERTS on every clang host (CI
+    # included) once the fixture builds+runs+matches — reporting the working
+    # fixtures as failures. defer is implemented, so these compile fast (no
+    # aggregate-timeout concern) and run correctly; drop WILL_FAIL.
+    # defer_break_continue used `break`/`continue`, which are not Iron
+    # keywords, so it is replaced by defer_loop_iteration.
+    add_test(
+        NAME v4_4.13-defer_then_drop
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_then_drop.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_then_drop.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.13-defer_then_drop PROPERTIES
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60)
+
+    add_test(
+        NAME v4_4.13-defer_early_return
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_early_return.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_early_return.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.13-defer_early_return PROPERTIES
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60)
+
+    add_test(
+        NAME v4_4.13-defer_loop_iteration
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_loop_iteration.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_loop_iteration.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.13-defer_loop_iteration PROPERTIES
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60)
+
+    add_test(
+        NAME v4_4.13-defer_read_at_exit
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_read_at_exit.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_read_at_exit.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_4.13-defer_read_at_exit PROPERTIES
+        LABELS "integration;phase32-invariant;v4-acceptance" TIMEOUT 60)
+endif()
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 28 Arena Allocation — `phase28-invariant` RED corpus + baseline wiring
+# ─────────────────────────────────────────────────────────────────────────
+# `ctest -L phase28-invariant` aggregates the Wave 0 TDD RED anchor for Phase
+# 28 (§12 step 14): the new Wave 0 fixtures (Plan 28-01 Task 2) PLUS the six
+# pre-existing-but-unregistered baseline 3.7-arena fixtures and the three
+# 8.6-composition-arena fixtures. Nothing under src/ exists yet — these rows
+# are intentionally RED until Plans 28-02/03/04 land the runtime + E0301 +
+# W0605 + codegen.
+#
+# Container caveat (mirrors Phase 25/27): the silvaserver podman container is
+# CHECK-ONLY (no clang available to run `ironc build` output binaries). Rows
+# that require `ironc build` + run (positive run fixtures + panic fixtures) are
+# registered WILL_FAIL YES with the explanatory comment; they flip when run on
+# a clang host. `ironc check`-based negative rows are RED (no impl yet) and
+# flip GREEN as soon as E0301/W0605 land.
+#
+# The LSP smoke anchor is NOT registered here — it lives in
+# tests/lsp/smoke/CMakeLists.txt as a dual (real + exit-77 SKIP shim) pair.
+if(NOT WIN32)
+    # ── Negative check-based rows (RED until Plan 28-03 lands E0301/W0605) ──
+    # ARENA-08 rc-in-arena (baseline fixture, pre-existing) → E0301.
+    add_test(
+        NAME v4_fail_3.7-arena_rc_in_arena
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/rc_in_arena.iron 2>&1 | grep -qF E0301"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_3.7-arena_rc_in_arena PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 30)
+
+    # GA3 weak-rc-in-arena extension (Wave 0 fixture) → SAME E0301 code.
+    add_test(
+        NAME v4_fail_3.7-arena_weak_rc_in_arena
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/weak_rc_in_arena.iron 2>&1 | grep -qF E0301"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_3.7-arena_weak_rc_in_arena PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 30)
+
+    # ARENA-09 non-trivial-destructor warning (Wave 0 fixture) → W06xx (W0605).
+    add_test(
+        NAME v4_fail_3.7-arena_arena_nontrivial_dtor
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_nontrivial_dtor.iron 2>&1 | grep -qE 'W06[0-9][0-9]'"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_3.7-arena_arena_nontrivial_dtor PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 30)
+
+    # ── Positive check-only row (compile-clean, no run; no W06xx warning) ──
+    # ARENA-09 allow_drop_skip suppression: exits 0 AND emits no W06xx warning.
+    add_test(
+        NAME v4_3.7-arena_arena_allow_drop_skip
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/arena_allow_drop_skip.iron 2>&1 | (! grep -qE 'W06[0-9][0-9]')"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_3.7-arena_arena_allow_drop_skip PROPERTIES
+        LABELS "integration;phase28-invariant" TIMEOUT 30)
+
+    # ── Positive `ironc build` + run rows (need clang to run the binary) ──
+    # The silvaserver container is check-only, so each is WILL_FAIL YES; they
+    # flip when run on a clang host. Pattern mirrors Phase 26/27 build+run rows.
+    # Explicit per-fixture rows (not a foreach) so each carries the literal
+    # phase28-invariant label for ctest -L enumeration + drift auditing.
+    add_test(
+        NAME v4_3.7-arena_happy
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/happy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/happy.iron && actual=\$(\"\$d/happy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/happy.iron")
+    set_tests_properties(v4_3.7-arena_happy PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
+
+    add_test(
+        NAME v4_3.7-arena_boundary_with_capacity
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_with_capacity.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_with_capacity.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_with_capacity.iron")
+    set_tests_properties(v4_3.7-arena_boundary_with_capacity PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
+
+    add_test(
+        NAME v4_3.7-arena_boundary_in_arena_block
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_in_arena_block.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_in_arena_block.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_in_arena_block.iron")
+    set_tests_properties(v4_3.7-arena_boundary_in_arena_block PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
+
+    add_test(
+        NAME v4_3.7-arena_boundary_save_restore
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_save_restore.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_save_restore.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_save_restore.iron")
+    set_tests_properties(v4_3.7-arena_boundary_save_restore PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
+
+    add_test(
+        NAME v4_3.7-arena_boundary_alloc_reset
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_alloc_reset.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_alloc_reset.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_alloc_reset.iron")
+    set_tests_properties(v4_3.7-arena_boundary_alloc_reset PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
+
+    # ARENA-11 innermost-wins (Wave 0 fixture) — build + run.
+    add_test(
+        NAME v4_3.7-arena_nested_in_arena
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/nested_in_arena.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/nested_in_arena.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/nested_in_arena.iron")
+    set_tests_properties(v4_3.7-arena_nested_in_arena PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
+
+    add_test(
+        NAME v4_8.6-composition-arena_happy
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/happy.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/happy.iron")
+    set_tests_properties(v4_8.6-composition-arena_happy PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
+
+    add_test(
+        NAME v4_8.6-composition-arena_extends_save_restore
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_save_restore.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_save_restore.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_save_restore.iron")
+    set_tests_properties(v4_8.6-composition-arena_extends_save_restore PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
+
+    add_test(
+        NAME v4_8.6-composition-arena_extends_rc_in_arena_xref
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_rc_in_arena_xref.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_rc_in_arena_xref.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_rc_in_arena_xref.iron")
+    set_tests_properties(v4_8.6-composition-arena_extends_rc_in_arena_xref PROPERTIES
+        LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
+
+    # ── Panic / run rows (ARENA-06 reset→panic; ARENA-10 OOM) ──
+    # Require `ironc build` + run to observe the abort, so WILL_FAIL YES with
+    # the same check-only-container rationale; flip on a clang host. The run
+    # asserts the expected panic substring appears in the binary's stderr.
+    add_test(
+        NAME v4_3.7-arena_panic_after_reset
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/panic_after_reset.iron && actual=\$(\"\$d/b\" 2>&1 || true) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/panic_after_reset.expected) && echo \"\$actual\" | grep -qF \"\$expected\" && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/panic_after_reset.iron")
+    set_tests_properties(v4_3.7-arena_panic_after_reset PROPERTIES
+        LABELS "integration;phase28-invariant" TIMEOUT 60
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
+
+    # ARENA-10 OOM panic: arena "scratch" out of memory in stderr.
+    add_test(
+        NAME v4_fail_3.7-arena_arena_oom
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_oom.iron && actual=\$(\"\$d/b\" 2>&1 || true) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_oom.expected) && echo \"\$actual\" | grep -qF \"\$expected\" && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_oom.iron")
+    set_tests_properties(v4_fail_3.7-arena_arena_oom PROPERTIES
+        LABELS "integration;phase28-invariant" TIMEOUT 60
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
+endif()
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 29 Atomic Refcount Elision — `phase29-invariant` Wave 0 RED anchor
+# ─────────────────────────────────────────────────────────────────────────
+# `ctest -L phase29-invariant` aggregates the Wave 0 TDD RED anchor for Phase
+# 29 (§12 step 15): the two LIR unit harnesses (registered in
+# tests/lir/CMakeLists.txt with the phase29-invariant label) PLUS the six
+# soundness-trap behavior fixtures below — one per documented trap
+# (spawn/parallel, FFI/extern, weak.upgrade, panic-unwind, allocation,
+# comptime). Each .iron is constructed so a NAIVE elision WOULD be unsound (a
+# retain/release pair straddles the barrier), yet correct compilation must
+# produce the .expected stdout whether or not the pass runs. They pin behavior
+# BEFORE the elision pass exists (Plans 02/03), so they are GREEN-by-behavior.
+#
+# Container caveat (mirrors Phase 25/27/28): the silvaserver podman container
+# is CHECK-ONLY (no clang to run `ironc build` output binaries), so each row is
+# WILL_FAIL YES with the explanatory comment; they flip on a clang host. They
+# additionally inherit the pre-existing box.iron stdlib-prepend syntax blocker
+# (STDLIB-05; deferred to Phase 33) that gates the entire positive v4 corpus.
+if(NOT WIN32)
+    set(_PHASE_29_TRAP_FIXTURES
+        spawn_pair
+        extern_pair
+        weak_upgrade_pair
+        panic_pair
+        alloc_pair
+        comptime_pair
+    )
+    foreach(_fix IN LISTS _PHASE_29_TRAP_FIXTURES)
+        add_test(
+            NAME v4_4.10-rc-elision_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron")
+        set_tests_properties(v4_4.10-rc-elision_${_fix} PROPERTIES
+            LABELS "integration;phase29-invariant;v4-acceptance"
+            TIMEOUT 60
+            WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
+    endforeach()
+endif()
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 30 Pointer Check Elision — `phase30-invariant` Wave 0 RED anchor
+# ─────────────────────────────────────────────────────────────────────────
+# `ctest -L phase30-invariant` aggregates the Wave 0 contract for Phase 30
+# (§12 step 16): the LIR unit harness test_gencheck_elision (+ _gate) and the
+# unit counter test_gencheck_counter (registered with the phase30-invariant
+# label in tests/lir/CMakeLists.txt and tests/unit/CMakeLists.txt) PLUS the five
+# soundness-trap behavior fixtures below — one per documented trap
+# (concurrent-mutation, stale-after-grow, drop-on-assignment, defer/panic,
+# polymorphic-dispatch). Each .iron is constructed so a NAIVE elision WOULD be
+# unsound (a generation check straddles a may-free barrier), yet correct
+# compilation must preserve the check; the .expected pins the program's correct
+# stdout up to the (preserved) check's outcome. They pin behavior BEFORE the
+# elision pass exists (Plans 30-02/03), so they are GREEN-by-behavior.
+#
+# Container caveat (mirrors Phase 25/27/28/29): the silvaserver podman container
+# is CHECK-ONLY (no clang to run `ironc build` output binaries), so each row is
+# WILL_FAIL YES with this explanatory comment; they flip on a clang host. They
+# additionally inherit the pre-existing box.iron stdlib-prepend syntax blocker
+# (STDLIB-05; deferred to Phase 33) that gates the entire positive v4 corpus.
+if(NOT WIN32)
+    set(_PHASE_30_TRAP_FIXTURES
+        concurrent_mutation
+        stale_after_grow
+        drop_on_assignment
+        defer_panic
+        polymorphic_dispatch
+    )
+    foreach(_fix IN LISTS _PHASE_30_TRAP_FIXTURES)
+        add_test(
+            NAME v4_4.11-ptr-check-elision_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        # Every fixture in this list still rests on an unimplemented surface and
+        # carries an @expected-pass-after marker in its header. The aggregate
+        # test_v4_acceptance runner reads that marker; these per-fixture rows
+        # cannot, so WILL_FAIL carries the same fact to ctest. It is a real
+        # assertion in both directions: the row turns red the day the surface
+        # lands, which is the prompt to drop the marker and this entry.
+        iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron")
+        set_tests_properties(v4_4.11-ptr-check-elision_${_fix} PROPERTIES
+            LABELS "integration;phase30-invariant;v4-acceptance"
+            TIMEOUT 60
+            WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
+    endforeach()
+
+    # OPT-08 microbench corpus: idiomatic positive fixtures (getter chain off one
+    # root, tight loop with a loop-invariant deref). These exercise the shapes the
+    # deterministic OPT-08 count oracle asserts on in tests/lir/test_gencheck_elision.c
+    # (test_microbench_multi_field / test_microbench_tight_loop). They are
+    # BEHAVIORAL — correct stdout regardless of elision — so they pin
+    # parity-by-construction; the exact per-tier elision COUNTS live in the unit
+    # harness, never in these fixtures. Same WILL_FAIL/box.iron blocker discipline
+    # as the trap fixtures above (check-only container + STDLIB-05).
+    set(_PHASE_30_BENCH_FIXTURES
+        getter_chain
+        tight_loop
+    )
+    foreach(_fix IN LISTS _PHASE_30_BENCH_FIXTURES)
+        add_test(
+            NAME v4_4.11-ptr-check-elision_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        set_tests_properties(v4_4.11-ptr-check-elision_${_fix} PROPERTIES
+            LABELS "integration;phase30-invariant;v4-acceptance"
+            TIMEOUT 60
+            DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
+    endforeach()
+endif()
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 33 Stdlib Container Rewrite — `phase33-invariant` Wave 0 RED corpus
+# ─────────────────────────────────────────────────────────────────────────
+# `ctest -L phase33-invariant` aggregates the Wave 0 TDD RED anchor for Phase
+# 33 (resolves OQ-01, OQ-06; STDLIB-01..04/07/08/09/10). The features land in
+# Waves 2-6; these rows are intentionally RED now and turn GREEN wave-by-wave.
+#
+# TWO row classes (mirrors the Phase 28/32 split):
+#
+#   CHECK-PATH rows (run directly in the silvaserver check-only container):
+#     - POSITIVE accept: whole-pipeline NEGATION `! ( ironc check ... | grep -qF <CODE> )`.
+#       NEVER `grep -qvF` — Iron diagnostics are multi-line (the `error: E0206`
+#       line PLUS a `--> file:line` context window), so a per-line inversion
+#       exits 0 (false GREEN) the moment the `-->` line matches. The whole-
+#       pipeline negation FAILS whenever the code appears ANYWHERE in output.
+#     - NEGATIVE: grep the EXACT expected code (E0206 / E0286).
+#     These flip GREEN when their owning wave lands (no WILL_FAIL).
+#
+#   BUILD+RUN rows (assert byte-exact stdout): `ironc build` + execute. These
+#     need a clang+libtsan host (full-tree build hits the libtsan link failure;
+#     build specific targets). Registered WILL_FAIL YES with the documented
+#     comment; they flip on a clang host once their wave lands.
+#
+# box_roundtrip (the load-bearing Box[T] end-to-end acceptance row for the
+# Task 2 box.iron unblock) is appended by Plan 33-01 Task 3.
+if(NOT WIN32)
+    # ── NEGATIVE check-path rows (RED until their wave lands) ──
+    # OQ-01: Map[NonHashable, V] → E0206 (constraint unsatisfied). Wave 2.
+    add_test(
+        NAME v4_fail_7.5-stdlib_map_nonhashable
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/map_nonhashable.iron 2>&1 | grep -qF E0206"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_7.5-stdlib_map_nonhashable PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 30)
+
+    # STDLIB-07: copy of nocopy Mutex[T] → E0286. Wave 5.
+    add_test(
+        NAME v4_fail_7.5-stdlib_mutex_copy
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/mutex_copy.iron 2>&1 | grep -qF E0286"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_7.5-stdlib_mutex_copy PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 30)
+
+    # STDLIB-08: copy of nocopy Channel[T] → E0286. Wave 5.
+    add_test(
+        NAME v4_fail_7.5-stdlib_channel_copy
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/channel_copy.iron 2>&1 | grep -qF E0286"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_7.5-stdlib_channel_copy PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 30)
+
+    # STDLIB-09: copy of nocopy FileHandle → E0286. Wave 5.
+    add_test(
+        NAME v4_fail_7.5-stdlib_filehandle_copy
+        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/filehandle_copy.iron 2>&1 | grep -qF E0286"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_7.5-stdlib_filehandle_copy PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 30)
+
+    # ── POSITIVE check-path accept row (whole-pipeline negation oracle) ──
+    # OQ-01: Map[String, Int] is well-formed — assert E0206 ABSENT. Wave 2.
+    add_test(
+        NAME v4_7.5-stdlib_map_hashable_ok
+        COMMAND sh -c "! ( ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/map_hashable_ok.iron 2>&1 | grep -qF E0206 )"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_7.5-stdlib_map_hashable_ok PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 30)
+
+    # ── POSITIVE BUILD+RUN row: box_roundtrip (OQ-02 GREEN, Plan 33-07) ──
+    # The load-bearing Box[T] end-to-end acceptance row. Box.new / boxed.unwrap /
+    # boxed.is_null / synthesized scope-exit drop now dispatch by-name (Plan
+    # 33-07 LAYER 2: typecheck.c Box constructor + receiver interception ->
+    # object.elem channel; hir_to_lir.c Iron_Box_<T>_{new,unwrap,is_null,free}
+    # call lowering; emit_helpers.c Box typedef synthesis; emit_c.c
+    # *unchecked-T field-access `->`). Byte-exact stdout vs .expected. This is
+    # NOT WILL_FAIL — it runs and must pass on a clang host.
+    add_test(
+        NAME v4_7.5-stdlib_box_roundtrip
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/box_roundtrip\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/box_roundtrip.iron && actual=\$(\"\$d/box_roundtrip\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/box_roundtrip.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7.5-stdlib_box_roundtrip PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 60)
+
+    # ── POSITIVE BUILD+RUN row: list_shape_dispatch (OQ-06 GREEN, Plan 33-03) ──
+    # The OQ-06 acceptance row. A List[Shape] holding Circle(2)+Square(3)
+    # dispatches Shape.area() per element through the EXISTING tagged-union
+    # Iron_<iface>_<method>(self){ switch(self.tag) } mechanism (emit_c.c) with
+    # element storage via the EXISTING Iron_SplitList_<Iface> (emit_split.c) —
+    # no new vtable struct. The codegen blocker that previously gated this
+    # (Arena/Box typedef collision) was resolved in Plan 33-07; element method
+    # dispatch is verified-reused. Byte-exact stdout vs .expected. NOT WILL_FAIL —
+    # it runs and must pass on a clang host. Per-element interface drop INVOCATION
+    # on container drop is owned by Plan 33-04 (Wave 3, depends_on 33-03).
+    add_test(
+        NAME v4_7.5-stdlib_list_shape_dispatch
+        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/list_shape_dispatch\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/list_shape_dispatch.iron && actual=\$(\"\$d/list_shape_dispatch\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/list_shape_dispatch.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(v4_7.5-stdlib_list_shape_dispatch PROPERTIES
+        LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 60)
+
+    # ── BUILD+RUN rows (byte-exact stdout; WILL_FAIL — need clang host) ──
+    # Each flips GREEN on a clang host once its wave lands. The fixtures left
+    # here belong to other waves/plans (Wave 4 container element-destructors,
+    # Wave 6 RawPtr) and still require their own landings.
+    set(_PHASE_33_BUILDRUN_FIXTURES
+        # list_copy_elements: the per-element Iron_<Elem>_copy _clone loop is
+        # emitted (Plan 33-04), BUT list value-assignment (`val dst = src`) does
+        # NOT call Iron_List_<T>_clone in this build — lists alias on `=` (shallow
+        # struct copy of the items pointer). Wiring copy-on-assignment for lists
+        # is a separate codegen feature (broad blast radius / double-free risk);
+        # tracked as a follow-up. Stays WILL_FAIL until that lands.
+        list_copy_elements     # STDLIB-02 (Wave 4; needs list copy-on-assign)
+        # set_basic: requires the Set method surface (Set.new/add/has/len) +
+        # by-name dispatch interception (OQ-02 generic-method dispatch, still
+        # unresolved) + runtime Set monomorphization wiring. The set.iron surface
+        # explicitly defers methods to a later landing (Plan 33-02 note). Stays
+        # WILL_FAIL until STDLIB-04 method surface + OQ-02 land.
+        set_basic              # STDLIB-04 (needs method surface + OQ-02)
+    )
+    foreach(_fix IN LISTS _PHASE_33_BUILDRUN_FIXTURES)
+        add_test(
+            NAME v4_7.5-stdlib_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        # Both entries above are unimplemented surfaces (list copy-on-assign,
+        # Set method surface + OQ-02), as their comments spell out, and each
+        # carries an @expected-pass-after marker the aggregate runner honors.
+        # WILL_FAIL states that to ctest and turns red once either lands.
+        iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.iron")
+        set_tests_properties(v4_7.5-stdlib_${_fix} PROPERTIES
+            LABELS "integration;phase33-invariant;v4-acceptance"
+            TIMEOUT 60
+            WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
+    endforeach()
+
+    # ── POSITIVE BUILD+RUN rows: Wave 5 nocopy resource receiver methods ──
+    # STDLIB-07/08/09 (Plan 33-05). The receiver-form methods + per-T codegen
+    # synthesis (emit_ensure_mutex/channel/filehandle) landed, so these now
+    # genuinely build+run on a clang host. Split out of the WILL_FAIL loop
+    # above (mirrors v4_7.5-stdlib_box_roundtrip): they RUN and must PASS.
+    set(_PHASE_33_NOCOPY_BUILDRUN_FIXTURES
+        mutex_guard            # STDLIB-07 (Mutex[T] scoped guard)
+        channel_bounded        # STDLIB-08 (Channel[T] bounded send/recv)
+        filehandle_drop        # STDLIB-09 (FileHandle drop-closes-fd)
+        # Plan 33-04: element-destructor-aware List _free now runs each
+        # element's drop at scope exit. A List[FileHandle] dropped at scope
+        # exit closes each contained fd ("closed fd" per element). Genuinely
+        # builds+runs on a clang host — split out of the WILL_FAIL loop.
+        list_drop_filehandle   # STDLIB-02 + STDLIB-09 (Wave 4 element dtors)
+        # Plan 33-04 STDLIB-01 / Open Question 3: Iron_String is a trivially-
+        # copied value handle (SSO inline / heap interned + shutdown-freed), so
+        # the container fast path is correct and UTF-8 byte length is preserved
+        # across value copy AND List[String] store/retrieve. Byte-exact stdout.
+        string_utf8_roundtrip  # STDLIB-01 (String drop/copy preserving UTF-8)
+        # Plan 33-06: RawPtr type-erased member of *unchecked T regime +
+        # Ptr.cast[T] dispatch + per-T Iron_RawPtr_of_<elemC> helper. Genuinely
+        # builds+runs on a clang host — `RawPtr.of(x)` produces an int64_t*
+        # to a fresh stack slot holding x's value; `Ptr.cast[Int](raw)` is a
+        # no-op pointer reinterpretation; `*p` is interpolated as the Int.
+        rawptr_cast            # STDLIB-10 (Wave 6 RawPtr + Ptr.cast)
+    )
+    foreach(_fix IN LISTS _PHASE_33_NOCOPY_BUILDRUN_FIXTURES)
+        add_test(
+            NAME v4_7.5-stdlib_${_fix}
+            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        set_tests_properties(v4_7.5-stdlib_${_fix} PROPERTIES
+            LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 60)
+    endforeach()
+endif()
 
 # ---- Install rules ----
 if(IRON_BUILD_LSP)

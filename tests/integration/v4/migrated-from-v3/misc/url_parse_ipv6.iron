@@ -1,0 +1,21 @@
+-- url_parse_ipv6.iron — Phase 59 P05 Success Criterion 3: IPv6 bracketed URL parse.
+-- Verifies bracketed v6 host extraction + port + path + query + fragment,
+-- plus the unclosed-bracket error path (IRON_ERR_URL_BAD_IPV6 = 2004).
+import url
+
+func main() {
+    val (u, err) = Url.parse("https://[2001:db8::1]:8443/path?q=1#frag")
+    if err.code != 0 {
+        println("failed")
+        return
+    }
+    println(u.scheme)
+    println(u.host)
+    println("{u.port}")
+    println(u.path)
+    println(u.query)
+    println(u.fragment)
+
+    val (u2, err2) = Url.parse("https://[unclosed")
+    if err2.code == 2004 { println("v6 error ok") }
+}

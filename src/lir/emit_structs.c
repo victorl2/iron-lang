@@ -47,6 +47,40 @@ typedef struct {
     bool              has_cycle;
 } IrTopoState;
 
+/* Phase 33 OQ-02 / box-arena-codegen unblock: a small set of stdlib SURFACE
+ * object decls (arena.iron's `object Arena` / `object ArenaSave`, box.iron's
+ * `nocopy object Box[T]`) are Iron-side stand-ins for types the C RUNTIME
+ * already defines in its own headers (src/util/arena.h `Iron_Arena`,
+ * src/runtime/iron_arena_rt.h `Iron_ArenaSave`, and the emit_ensure_box-
+ * synthesized Iron_Box storage). Emitting a forward typedef + a struct body
+ * for these collides with the runtime-owned definitions the generated C
+ * #includes — `typedef redefinition with different types ('struct Iron_Arena'
+ * vs 'Iron_Arena')`, which fails clang for EVERY compilation (box.iron +
+ * arena.iron are unconditionally prepended). Skip both the forward decl and
+ * the struct body for these names so the runtime header owns the layout.
+ * Keyed on the surface type NAME (pre-mangle); the matching C typedefs are
+ * Iron_Arena / Iron_ArenaSave / Iron_Box. */
+static bool ir_is_runtime_provided_type(const char *name) {
+    if (!name) return false;
+    return strcmp(name, "Arena")     == 0 ||
+           strcmp(name, "ArenaSave") == 0 ||
+           strcmp(name, "Box")       == 0 ||
+           /* Phase 33 STDLIB-07/08/09 (Plan 33-05): the nocopy resource-type
+            * surfaces are Iron-side stand-ins. Mutex / Channel collide with the
+            * runtime-owned Iron_Mutex / Iron_Channel typedefs in iron_runtime.h;
+            * RWLock + the *Guard surfaces have no plain C struct (their real
+            * storage is emit_ensure_*-synthesized on the positive path). Skip
+            * the forward decl + struct body for all of them so the always-
+            * prepended surfaces never break a compilation. */
+           strcmp(name, "Mutex")        == 0 ||
+           strcmp(name, "MutexGuard")   == 0 ||
+           strcmp(name, "RWLock")       == 0 ||
+           strcmp(name, "RWReadGuard")  == 0 ||
+           strcmp(name, "RWWriteGuard") == 0 ||
+           strcmp(name, "Channel")      == 0 ||
+           strcmp(name, "FileHandle")   == 0;
+}
+
 /* Find object type_decl index by type name */
 static int find_ir_type_decl_idx(IronLIR_Module *module, const char *name) {
     for (int i = 0; i < module->type_decl_count; i++) {
@@ -135,6 +169,153 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
  * struct body has already been emitted by emit_object_struct_body;
  * IRON_LIST_DECL and IRON_LIST_IMPL expand into function prototypes and
  * bodies that reference Iron_<Type> as a complete type. */
+/* ── Phase 33 STDLIB-02 (Plan 33-04): element-destructor-aware list lifecycle ──
+ *
+ * Emit the IRON_LIST_DECL + the list IMPL for a mono-list whose mangled name is
+ * `mangled` (e.g. "Iron_Tracked") and whose element C type is also `mangled`.
+ *
+ * `has_drop`  : the element type has a per-element destructor named
+ *               "<mangled>_drop(<mangled> *)".  When true, _free iterates and
+ *               calls it on every element BEFORE free(items) (Pattern 4).
+ * `has_copy`  : the element type has a per-element copy hook named
+ *               "<mangled>_copy(<mangled> *dest, const <mangled> *src)".  When
+ *               true, _clone deep-copies each element instead of bulk memcpy.
+ *
+ * When neither flag is set this collapses to IRON_LIST_IMPL (the fast path:
+ * free(items) / memcpy — Pitfall 5: no spurious per-element calls for
+ * primitives / trivial structs).
+ *
+ * The DECL + struct typedef are the caller's responsibility (emitted just
+ * before calling this); this routine appends only the IMPL bodies. */
+static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
+                                     bool has_drop, bool has_copy) {
+    if (!has_drop && !has_copy) {
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "IRON_LIST_IMPL(%s, %s)\n\n", mangled, mangled);
+        return;
+    }
+
+    /* Forward prototypes: the per-element <mangled>_drop / _copy helpers are
+     * synthesized into ctx->lifted_funcs (which renders AFTER struct_bodies),
+     * but the list _free/_clone bodies below live in struct_bodies and call
+     * them — declare them first to avoid implicit-declaration / static-after-
+     * nonstatic errors. */
+    if (has_drop) {
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "static void %s_drop(%s *self);\n", mangled, mangled);
+    }
+    if (has_copy) {
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "static void %s_copy(%s *dest, const %s *src);\n",
+            mangled, mangled, mangled);
+    }
+
+    /* Core surface (create/push/get/set/pop/len) is always the macro body. */
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "IRON_LIST_IMPL_CORE(%s, %s)\n", mangled, mangled);
+
+    /* Custom _clone: deep element copy when the element has a copy hook,
+     * else the trivial memcpy body. */
+    if (has_copy) {
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "/* Phase 33 STDLIB-02: element-copy _clone for %s */\n"
+            "Iron_List_%s Iron_List_%s_clone(const Iron_List_%s *src) {\n"
+            "    Iron_List_%s dst;\n"
+            "    dst.count = src->count;\n"
+            "    dst.capacity = src->count;\n"
+            "    if (src->count > 0) {\n"
+            "        dst.items = (%s *)malloc((size_t)src->count * sizeof(%s));\n"
+            "        if (!dst.items) iron_oom_abort(\"Iron_List_%s_clone\");\n"
+            "        for (int64_t _i = 0; _i < src->count; _i++) {\n"
+            "            %s_copy(&dst.items[_i], &src->items[_i]);\n"
+            "        }\n"
+            "    } else {\n"
+            "        dst.items = NULL;\n"
+            "    }\n"
+            "    return dst;\n"
+            "}\n",
+            mangled,
+            mangled, mangled, mangled,
+            mangled,
+            mangled, mangled,
+            mangled,
+            mangled);
+    } else {
+        /* nocopy / drop-only element: keep memcpy clone (the binding-copy is a
+         * compile error upstream for nocopy types, but the _clone symbol must
+         * still exist to satisfy the link). */
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "Iron_List_%s Iron_List_%s_clone(const Iron_List_%s *src) {\n"
+            "    Iron_List_%s dst;\n"
+            "    dst.count = src->count;\n"
+            "    dst.capacity = src->count;\n"
+            "    if (src->count > 0) {\n"
+            "        dst.items = (%s *)malloc((size_t)src->count * sizeof(%s));\n"
+            "        if (!dst.items) iron_oom_abort(\"Iron_List_%s_clone\");\n"
+            "        memcpy(dst.items, src->items, (size_t)src->count * sizeof(%s));\n"
+            "    } else {\n"
+            "        dst.items = NULL;\n"
+            "    }\n"
+            "    return dst;\n"
+            "}\n",
+            mangled, mangled, mangled,
+            mangled,
+            mangled, mangled,
+            mangled,
+            mangled);
+    }
+
+    /* Custom _free: per-element destructor loop (Pattern 4) when has_drop,
+     * else trivial free(items). */
+    if (has_drop) {
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "/* Phase 33 STDLIB-02: per-element destructor _free for %s */\n"
+            "void Iron_List_%s_free(Iron_List_%s *self) {\n"
+            "    if (self->items) {\n"
+            "        for (int64_t _i = 0; _i < self->count; _i++) {\n"
+            "            %s_drop(&self->items[_i]);\n"
+            "        }\n"
+            "    }\n"
+            "    free(self->items);\n"
+            "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
+            "}\n\n",
+            mangled,
+            mangled, mangled,
+            mangled);
+    } else {
+        iron_strbuf_appendf(&ctx->struct_bodies,
+            "void Iron_List_%s_free(Iron_List_%s *self) {\n"
+            "    free(self->items);\n"
+            "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
+            "}\n\n",
+            mangled, mangled);
+    }
+}
+
+/* Detect whether a synthesized "<mangled>_drop" / "<mangled>_copy" function
+ * applies to the given element object type.  Covers BOTH the user-object path
+ * (od_has_drop_lir / has_user_copy) AND the nocopy resource surfaces
+ * (FileHandle), whose drop is emit-synthesized by emit_ensure_filehandle
+ * rather than lowered through od_has_drop_lir. */
+static void elem_lifecycle_flags(EmitCtx *ctx, Iron_Type *et,
+                                 const char *bare_name,
+                                 bool *out_has_drop, bool *out_has_copy) {
+    bool has_drop = false, has_copy = false;
+    if (bare_name && strcmp(bare_name, "FileHandle") == 0) {
+        /* nocopy fd wrapper: drop closes the fd; no element copy. */
+        has_drop = true;
+    } else if (et && et->kind == IRON_TYPE_OBJECT && et->object.decl) {
+        struct Iron_ObjectDecl *od = et->object.decl;
+        if (od_has_drop_lir(ctx, od)) has_drop = true;
+        if (!od->is_nocopy && et->has_user_copy_cached &&
+            et->has_user_copy_transitive) {
+            has_copy = true;
+        }
+    }
+    *out_has_drop = has_drop;
+    *out_has_copy = has_copy;
+}
+
 static void emit_mono_list_decls(EmitCtx *ctx) {
     IronLIR_Module *module = ctx->module;
     if (!module) return;
@@ -178,9 +359,32 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
                 if (shgeti(emitted_mono_list_types, mangled) >= 0) continue;
                 shput(emitted_mono_list_types, mangled, true);
 
+                /* Phase 33 STDLIB-09 (Plan 33-04): for the FileHandle nocopy
+                 * surface the Iron_FileHandle typedef + Iron_FileHandle_drop are
+                 * emit-synthesized lazily — ensure they land in struct_bodies
+                 * BEFORE the Iron_List_Iron_FileHandle typedef references them
+                 * (Pitfall 5 ordering). */
+                if (strcmp(bare_type, "FileHandle") == 0) {
+                    emit_ensure_filehandle(ctx);
+                }
+
+                /* Phase 33 STDLIB-02 (Plan 33-04): determine element drop/copy
+                 * so the list _free/_clone can run per-element destructors. */
+                bool elem_has_drop = false, elem_has_copy = false;
+                elem_lifecycle_flags(ctx, et, bare_type,
+                                     &elem_has_drop, &elem_has_copy);
+                /* Synthesize the per-object drop/copy helpers the list bodies
+                 * call (no-op for FileHandle whose drop is already emitted). */
+                if (elem_has_drop && strcmp(bare_type, "FileHandle") != 0) {
+                    emit_ensure_drop(ctx, mangled, et->object.decl);
+                }
+                if (elem_has_copy) {
+                    emit_ensure_copy(ctx, mangled, et->object.decl);
+                }
+
                 /* Emit Iron_List_<mangled> struct typedef.  The
-                 * IRON_LIST_DECL and IRON_LIST_IMPL macros assume this
-                 * struct is already declared with fields
+                 * IRON_LIST_DECL and the IMPL bodies assume this struct is
+                 * already declared with fields
                  *   { T *items; int64_t count; int64_t capacity; }. */
                 iron_strbuf_appendf(&ctx->struct_bodies,
                     "/* Phase 56: Iron_List type for mono-collapsed %s */\n"
@@ -196,16 +400,93 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
                     "IRON_LIST_DECL(%s, %s)\n",
                     mangled, mangled);
 
-                /* Emit IRON_LIST_IMPL(T, suffix) — non-static function
-                 * bodies.  Safe at translation-unit level because each
-                 * mangled name is unique per compilation unit (Iron
-                 * compiles to a single .c file per program). */
-                iron_strbuf_appendf(&ctx->struct_bodies,
-                    "IRON_LIST_IMPL(%s, %s)\n\n",
-                    mangled, mangled);
+                /* Emit the IMPL — element-destructor-aware when the element
+                 * type owns a drop/copy, else the fast free(items)/memcpy path
+                 * (Pitfall 5).  Safe at TU level: each mangled name is unique
+                 * per compilation unit. */
+                emit_list_impl_lifecycle(ctx, mangled,
+                                         elem_has_drop, elem_has_copy);
             }
         }
     }
+    /* Phase 23 OQ-10: handle ARRAY_LIT whose elem_type is a bounded vector
+     * ([T; <=N]) — i.e. List[[T; <=N]].  The ARRAY_LIT scan above only
+     * handles IRON_TYPE_OBJECT elem types.  For bounded-vector elem types
+     * we must (a) call emit_ensure_bvec FIRST so Iron_BVec_T_N typedef
+     * lands in struct_bodies before Iron_List_Iron_BVec_T_N references it
+     * (Pitfall 5 mitigation), then (b) emit the Iron_List_Iron_BVec_T_N
+     * struct typedef + IRON_LIST_DECL + IRON_LIST_IMPL.
+     *
+     * The dedup key is the mangled bvec name (e.g. "Iron_BVec_int64_t_4")
+     * so duplicate ARRAY_LIT instructions for the same (T, N) only emit
+     * one set of declarations. */
+    for (int fi2 = 0; fi2 < module->func_count; fi2++) {
+        IronLIR_Func *fn2 = module->funcs[fi2];
+        if (!fn2 || fn2->is_extern || fn2->block_count == 0) continue;
+
+        for (int bi2 = 0; bi2 < fn2->block_count; bi2++) {
+            IronLIR_Block *blk2 = fn2->blocks[bi2];
+            for (int ii2 = 0; ii2 < blk2->instr_count; ii2++) {
+                IronLIR_Instr *in2 = blk2->instrs[ii2];
+                if (in2->kind != IRON_LIR_ARRAY_LIT) continue;
+                Iron_Type *et2 = in2->array_lit.elem_type;
+                if (!et2) continue;
+                /* Only bounded-vector element types are handled here;
+                 * IRON_TYPE_OBJECT is handled by the scan above. */
+                if (et2->kind != IRON_TYPE_ARRAY) continue;
+                if (!et2->array.is_bounded || et2->array.size < 0) continue;
+
+                /* Step A: ensure Iron_BVec_T_N typedef is emitted FIRST
+                 * (Pitfall 5: typedef must precede Iron_List_Iron_BVec_T_N). */
+                emit_ensure_bvec(ctx, et2);
+
+                /* Step B: compute mangled bvec name for the list dedup key.
+                 * Must match emit_ensure_bvec naming: Iron_BVec_<elem_c>_<N>
+                 * with spaces and * replaced by _. */
+                const char *inner_c = emit_type_to_c(et2->array.elem, ctx);
+                Iron_StrBuf bvec_sb = iron_strbuf_create(64);
+                iron_strbuf_appendf(&bvec_sb, "Iron_BVec_");
+                for (const char *cp = inner_c; *cp; cp++) {
+                    if (*cp == ' ' || *cp == '*') {
+                        iron_strbuf_appendf(&bvec_sb, "_");
+                    } else {
+                        char cc[2] = { *cp, '\0' };
+                        iron_strbuf_appendf(&bvec_sb, "%s", cc);
+                    }
+                }
+                iron_strbuf_appendf(&bvec_sb, "_%d", et2->array.size);
+                const char *bvec_name = iron_arena_strdup(ctx->arena,
+                    iron_strbuf_get(&bvec_sb), bvec_sb.len);
+                iron_strbuf_free(&bvec_sb);
+                if (!bvec_name)
+                    iron_oom_abort("emit_structs.c:emit_mono_list_decls bvec_name");
+
+                if (shgeti(emitted_mono_list_types, bvec_name) >= 0) continue;
+                shput(emitted_mono_list_types, bvec_name, true);
+
+                /* Step C: emit Iron_List_Iron_BVec_T_N struct typedef +
+                 * IRON_LIST_DECL + IRON_LIST_IMPL.  The list stores bvec
+                 * structs by value (VEC-01 inline-storage guarantee). */
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "/* Phase 23 OQ-10: Iron_List for bounded vector element %s */\n"
+                    "typedef struct Iron_List_%s {\n"
+                    "    %s    *items;\n"
+                    "    int64_t count;\n"
+                    "    int64_t capacity;\n"
+                    "} Iron_List_%s;\n",
+                    bvec_name, bvec_name, bvec_name, bvec_name);
+
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "IRON_LIST_DECL(%s, %s)\n",
+                    bvec_name, bvec_name);
+
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "IRON_LIST_IMPL(%s, %s)\n\n",
+                    bvec_name, bvec_name);
+            }
+        }
+    }
+
     /* Also iterate ctx->monomorphic_collections to pick up any concrete
      * types that arrived via Phase 49/53 mono collapse (interface-typed
      * ARRAY_LIT that got collapsed to a concrete type at the Phase 49
@@ -363,6 +644,12 @@ static bool ir_has_subtype(IronLIR_Module *module, const char *name) {
 
 static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                                      int type_tag) {
+    /* Phase 33: runtime-provided surface types (Arena/ArenaSave/Box) have their
+     * struct layout owned by the runtime headers; skip the body so we don't
+     * redefine the runtime's Iron_Arena / Iron_ArenaSave / Iron_Box struct. */
+    if (ir_is_runtime_provided_type(td->name)) {
+        return;
+    }
     const char *mangled = emit_object_type_name(td->name, ctx);
     iron_strbuf_appendf(&ctx->struct_bodies, "struct %s {\n", mangled);
 
@@ -476,6 +763,13 @@ void emit_type_decls(EmitCtx *ctx) {
     /* Forward declarations for all object and interface types */
     for (int i = 0; i < module->type_decl_count; i++) {
         IronLIR_TypeDecl *td = module->type_decls[i];
+        /* Phase 33: runtime-provided surface types (Arena/ArenaSave/Box) are
+         * already typedef'd by the runtime headers the generated C includes;
+         * emitting a forward typedef here causes a redefinition error. */
+        if (td->kind == IRON_LIR_TYPE_OBJECT &&
+            ir_is_runtime_provided_type(td->name)) {
+            continue;
+        }
         if (td->kind == IRON_LIR_TYPE_OBJECT ||
             td->kind == IRON_LIR_TYPE_INTERFACE) {
             const char *type_name = (td->kind == IRON_LIR_TYPE_OBJECT)

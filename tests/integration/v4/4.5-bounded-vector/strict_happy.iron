@@ -1,0 +1,12 @@
+-- section: 4.5-bounded-vector
+-- @req: VEC-01
+-- @expected-pass-after: phase-23
+-- extends-spec: strict fixed-length array [Int; 4] literal with exact count (§4.5)
+
+func main() {
+    val v: [Int; 4] = [1, 2, 3, 4]
+    println("{v[0]}")
+    println("{v[1]}")
+    println("{v[2]}")
+    println("{v[3]}")
+}

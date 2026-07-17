@@ -95,6 +95,36 @@ typedef enum {
     /* Memory management */
     IRON_LIR_HEAP_ALLOC,
     IRON_LIR_RC_ALLOC,
+    /* Phase 28 ARENA-03/04/05 (Plan 28-04): arena opcodes.
+     * IRON_LIR_ARENA_ALLOC: bump-allocate from a named arena (arena_val) or,
+     *   when arena_val == IRON_LIR_VALUE_INVALID, the TLS-current arena via
+     *   iron_arena_rt_current(). Produces an Iron_FatPtr whose .gen snapshots
+     *   the arena's live generation; deref routes to iron_check_arena_pointer_gen
+     *   via the IRON_LIR_GEN_ARENA tag. A NEW opcode (not HEAP_ALLOC reuse) so
+     *   the Phase 29/30 optimizers pattern-match on opcode identity (Open Q1).
+     * IRON_LIR_ARENA_PUSH / IRON_LIR_ARENA_POP: lower `in arena {}` — push the
+     *   arena onto the runtime TLS active-arena stack on entry, pop on EVERY
+     *   exit edge (emitted through the scope-exit drop-stack pump). */
+    IRON_LIR_ARENA_ALLOC,
+    IRON_LIR_ARENA_PUSH,
+    IRON_LIR_ARENA_POP,
+    /* Phase 26 POL-06 (Plan 26-02): rc retain/release opcodes — emitted at
+     * HIR-to-LIR copy sites (STORE / CALL arg / RETURN with IRON_TYPE_RC
+     * target) and at scope-exit drop entries. emit_c.c lowers these to
+     * iron_rc_retain / iron_rc_release calls; the Plan 26-01 substrate
+     * (Iron_RcHeader + atomic discipline) does the heavy lifting. */
+    IRON_LIR_RC_RETAIN,
+    IRON_LIR_RC_RELEASE,
+    /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc opcodes.
+     * Distinct from the Phase 26 IRON_LIR_RC_* opcodes so the Phase 29
+     * atomic refcount elision optimizer can pattern-match cleanly without
+     * additional discriminator flags. emit_c.c lowers these to the Plan
+     * 27-01 runtime helpers (iron_weak_rc_retain/release + iron_rc_downgrade/
+     * upgrade). */
+    IRON_LIR_WEAK_RC_RETAIN,
+    IRON_LIR_WEAK_RC_RELEASE,
+    IRON_LIR_WEAK_RC_DOWNGRADE,    /* operand: strong rc val; result: weak rc val (same ptr) */
+    IRON_LIR_WEAK_RC_UPGRADE,      /* operand: weak rc val; result: nullable rc val (T?) */
     IRON_LIR_FREE,
 
     /* Concurrency */
@@ -111,8 +141,66 @@ typedef enum {
     IRON_LIR_POISON,
 
     /* Sentinel */
+    /* Phase 20 PTR-04/06/08/09 (Plan 20-02b): pointer ops.
+     * IRON_LIR_ADDR_OF       — produces an Iron_FatPtr value from an lvalue
+     *                          + a generation source (HEAP recovers from
+     *                          IronAllocHdr, STACK reads iron_stack_gen).
+     * IRON_LIR_PTR_LOAD/STORE — call iron_check_pointer_gen (HEAP) or
+     *                          iron_check_stack_pointer_gen (STACK) and
+     *                          then load/store through fp.addr.
+     * Plan 20-02b's emit_c.c is the only consumer; verifier default-break
+     * covers structural emission until full e2e codegen lands. */
+    IRON_LIR_ADDR_OF,
+    IRON_LIR_PTR_LOAD,
+    IRON_LIR_PTR_STORE,
+    /* Phase 25 UNCK-06 (Plan 25-02): pointer arithmetic on *unchecked T.
+     * OQ-1 RESOLVED: new opcodes (not flag-on-Iron_CallExpr) for Phase 30
+     * optimizer pattern-match visibility.
+     * IRON_LIR_PTR_OFFSET: (p: *unchecked T, n: Int) -> *unchecked T
+     *   C codegen: `T *r = p + n;`  (C arith scales by sizeof(T) intrinsically)
+     * IRON_LIR_PTR_DIFF: (p: *unchecked T, q: *unchecked T) -> Int
+     *   C codegen: `int64_t r = (int64_t)((p) - (q));`  (element count) */
+    IRON_LIR_PTR_OFFSET,
+    IRON_LIR_PTR_DIFF,
+    /* Phase 30 OPT-03 (Plan 30-01): first-class generation-check intrinsic.
+     * "May trap, otherwise no side effect, deterministic." A void-result
+     * instruction (id == IRON_LIR_VALUE_INVALID, like RC_RETAIN/RC_RELEASE)
+     * inserted before each deref of a checked *T. A SURVIVING gencheck expands
+     * (late in emit_c, Plan 30-02) to the byte-identical 3-way
+     * iron_check_{heap,stack,arena}_pointer_gen string the inline path emits
+     * today; the elision pass (Plan 30-03) DELETES provably-redundant ones.
+     * In THIS plan (30-01) the opcode merely exists + compiles; lower_genchecks
+     * does not yet run, so zero GENCHECKs are produced and behavior is
+     * byte-identical to today. New opcode (not a flag on PTR_LOAD/PTR_STORE) so
+     * stock CSE/LICM/DCE can pattern-match it and so the check can move
+     * independently of the load (LICM hoists the check, not the deref). */
+    IRON_LIR_GENCHECK,
+
     IRON_LIR_INSTR_COUNT
 } IronLIR_InstrKind;
+
+/* Phase 20 PTR-04/06/08/09/10 (Plan 20-02b OQ-B Option C lock):
+ * source-tag carried by IRON_LIR_ADDR_OF / PTR_LOAD / PTR_STORE so emit_c.c
+ * can dispatch between iron_check_pointer_gen (heap) and
+ * iron_check_stack_pointer_gen (stack) and so ADDR_OF picks between
+ * IronAllocHdr-recovered gen vs iron_stack_gen TLS-counter gen.
+ *
+ * Derived during HIR lowering by walking the lvalue chain to its outermost
+ * binding (per OQ-C field-pointer rule: parent gen = outermost-allocation
+ * gen, not field-of-field intermediate). HEAP when the root binding's
+ * symbol is heap-tracked; STACK otherwise (locals / params). */
+typedef enum IronLIR_GenSource {
+    IRON_LIR_GEN_HEAP,
+    IRON_LIR_GEN_STACK,
+    /* Phase 28 ARENA-03/06 (Plan 28-04): the third deref-routing member.
+     * An arena-sourced fat pointer's generation lives in the arena's live
+     * counter (reached via the per-alloc prefix header's back-ref). emit_c
+     * routes ADDR_OF / FIELD_ACCESS / PTR_LOAD / PTR_STORE through this tag
+     * to iron_check_arena_pointer_gen (the third isomorphic deref-check
+     * sibling). Pitfall 1: an untagged arena ptr would be checked by the heap
+     * helper and read garbage. */
+    IRON_LIR_GEN_ARENA
+} IronLIR_GenSource;
 
 /* ── Instruction (tagged union) ───────────────────────────────────────────── */
 
@@ -223,6 +311,31 @@ struct IronLIR_Instr {
         /* IRON_LIR_RC_ALLOC */
         struct { IronLIR_ValueId inner_val; } rc_alloc;
 
+        /* IRON_LIR_ARENA_ALLOC (Phase 28 ARENA-03/05, Plan 28-04) — mirror
+         * heap_alloc. arena_val == IRON_LIR_VALUE_INVALID → iron_arena_rt_current(). */
+        struct {
+            IronLIR_ValueId inner_val;
+            IronLIR_ValueId arena_val;      /* INVALID = TLS-current default */
+            bool           allow_drop_skip;
+        } arena_alloc;
+
+        /* IRON_LIR_ARENA_PUSH (Phase 28 ARENA-04) — push arena onto TLS stack.
+         * IRON_LIR_ARENA_POP carries no operands (pops the TLS top). */
+        struct { IronLIR_ValueId arena_val; } arena_push;
+
+        /* IRON_LIR_RC_RETAIN / IRON_LIR_RC_RELEASE (Phase 26 POL-06) */
+        struct { IronLIR_ValueId target; } rc_retain;
+        struct { IronLIR_ValueId target; } rc_release;
+
+        /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc payloads.
+         * RETAIN/RELEASE are void-result; DOWNGRADE/UPGRADE produce a value
+         * matching their result type slot (Iron_Type held in the instr->type
+         * field is the weak rc T for DOWNGRADE; nullable rc T for UPGRADE). */
+        struct { IronLIR_ValueId target; } weak_rc_retain;
+        struct { IronLIR_ValueId target; } weak_rc_release;
+        struct { IronLIR_ValueId source; } weak_rc_downgrade;
+        struct { IronLIR_ValueId source; } weak_rc_upgrade;
+
         /* IRON_LIR_FREE -- named free_instr to avoid conflict with C stdlib free() */
         struct { IronLIR_ValueId value; } free_instr;
 
@@ -301,6 +414,68 @@ struct IronLIR_Instr {
 
         /* IRON_LIR_POISON */
         struct { int _pad; } poison;
+
+        /* IRON_LIR_ADDR_OF — Phase 20 PTR-04/08/09.
+         * Produces an Iron_FatPtr value: { .addr = &target, .gen = src }.
+         * gen_source==HEAP: emit_c recovers gen via
+         *   ((IronAllocHdr*)target.addr - 1)->gen
+         * gen_source==STACK: emit_c reads iron_stack_gen at &-site. */
+        struct {
+            IronLIR_ValueId    target;     /* lvalue whose address is taken */
+            IronLIR_GenSource gen_source;
+        } addr_of;
+
+        /* IRON_LIR_PTR_LOAD — Phase 20 PTR-06 read half.
+         * Calls iron_check_pointer_gen (HEAP) or
+         * iron_check_stack_pointer_gen (STACK) on `fp` then loads through
+         * fp.addr. dest_type is set on the instruction's `type` field. */
+        struct {
+            IronLIR_ValueId    fp;
+            IronLIR_GenSource gen_source;
+        } ptr_load;
+
+        /* IRON_LIR_PTR_STORE — Phase 20 PTR-06 OQ-A write half.
+         * Same dispatch as PTR_LOAD; stores `value` through fp.addr after
+         * the gen-check passes. */
+        struct {
+            IronLIR_ValueId    fp;
+            IronLIR_ValueId    value;
+            IronLIR_GenSource gen_source;
+        } ptr_store;
+
+        /* IRON_LIR_PTR_OFFSET — Phase 25 UNCK-06 (Plan 25-02).
+         * Pointer arithmetic: result = ptr + offset (element units).
+         * C arith intrinsically scales by sizeof(T); elem_size carried for
+         * verifier + Phase 30 optimizer (does not affect codegen itself). */
+        struct {
+            IronLIR_ValueId ptr;       /* *unchecked T */
+            IronLIR_ValueId offset;    /* Int — element offset */
+            size_t          elem_size; /* sizeof(T) for verifier/optimizer */
+        } ptr_offset;
+
+        /* IRON_LIR_PTR_DIFF — Phase 25 UNCK-06 (Plan 25-02).
+         * Pointer subtraction: result = (a - b) / sizeof(T) (element count).
+         * Both operands must be *unchecked T with same pointee. */
+        struct {
+            IronLIR_ValueId a;         /* *unchecked T */
+            IronLIR_ValueId b;         /* *unchecked T (same pointee as a) */
+            size_t          elem_size; /* sizeof(T) for verifier/optimizer */
+        } ptr_diff;
+
+        /* IRON_LIR_GENCHECK — Phase 30 OPT-03 (Plan 30-01).
+         * "May trap, otherwise no side effect, deterministic." Void-result
+         * (id == IRON_LIR_VALUE_INVALID). emit_c expands a SURVIVING gencheck
+         * to the 3-way iron_check_{heap,stack,arena}_pointer_gen string
+         * (byte-identical to the pre-refactor inline check); the elision pass
+         * DELETES provably-redundant ones. The elision relation (OQ-08) is
+         * keyed on `root_alloc` (the canonicalized outermost-allocation SSA
+         * value) + `gen_source`, NOT on `ptr` identity. Mirrors ptr_load/
+         * addr_of payload shape (lir.h ~:410-431). */
+        struct {
+            IronLIR_ValueId    ptr;         /* fat-ptr value whose .addr/.gen is checked */
+            IronLIR_ValueId    root_alloc;  /* canonicalized outermost-allocation SSA (OQ-08 keying) */
+            IronLIR_GenSource gen_source;  /* HEAP / STACK / ARENA → 3-way expansion routing */
+        } gencheck;
     };
 };
 
@@ -418,6 +593,20 @@ struct IronLIR_Func {
      * Do NOT add an explicit initializer there. */
     Iron_CaptureEntry *web_frame_captures;
     int                web_frame_capture_count;
+
+    /* Phase 20 PTR-10 (Plan 20-02b): propagated from
+     * IronHIR_Func.takes_local_addr (which mirrors Iron_FuncDecl /
+     * Iron_MethodDecl flag set by Plan 20-02a's mark_takes_local_addr_pass).
+     * emit_c.c reads this bit to inject `iron_stack_gen += 1;` in the
+     * function prologue and before every IRON_LIR_RETURN. OQ-E lock:
+     * per-call bump (recursive calls bump twice — entry + exit). Default
+     * false via iron_lir_func_create memset. */
+    bool               takes_local_addr;
+    /* Phase 22 READ-08: propagated from IronHIR_Func.is_readonly.
+     * Consumed by emit_c.c to emit sret ABI for fixed-array returns from
+     * readonly functions ([T; N] and [T; <=N] return by caller-provided slot).
+     * Default false via iron_lir_func_create memset. */
+    bool               is_readonly;
 };
 
 /* ── Module ───────────────────────────────────────────────────────────────── */
@@ -520,6 +709,34 @@ IronLIR_Instr *iron_lir_heap_alloc(IronLIR_Func *fn, IronLIR_Block *block,
 IronLIR_Instr *iron_lir_rc_alloc(IronLIR_Func *fn, IronLIR_Block *block,
                                 IronLIR_ValueId inner_val,
                                 Iron_Type *type, Iron_Span span);
+/* Phase 28 ARENA-03/04/05 (Plan 28-04): arena opcode builders.
+ * arena_val == IRON_LIR_VALUE_INVALID for arena_alloc means TLS-current. */
+IronLIR_Instr *iron_lir_arena_alloc(IronLIR_Func *fn, IronLIR_Block *block,
+                                    IronLIR_ValueId inner_val,
+                                    IronLIR_ValueId arena_val,
+                                    bool allow_drop_skip,
+                                    Iron_Type *type, Iron_Span span);
+IronLIR_Instr *iron_lir_arena_push(IronLIR_Func *fn, IronLIR_Block *block,
+                                   IronLIR_ValueId arena_val, Iron_Span span);
+IronLIR_Instr *iron_lir_arena_pop(IronLIR_Func *fn, IronLIR_Block *block,
+                                  Iron_Span span);
+IronLIR_Instr *iron_lir_rc_retain(IronLIR_Func *fn, IronLIR_Block *block,
+                                  IronLIR_ValueId target, Iron_Span span);
+IronLIR_Instr *iron_lir_rc_release(IronLIR_Func *fn, IronLIR_Block *block,
+                                   IronLIR_ValueId target, Iron_Span span);
+/* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc opcode builders.
+ * RETAIN/RELEASE are void-result (produces_value=false).
+ * DOWNGRADE/UPGRADE produce a value typed by the supplied Iron_Type. */
+IronLIR_Instr *iron_lir_weak_rc_retain(IronLIR_Func *fn, IronLIR_Block *block,
+                                        IronLIR_ValueId target, Iron_Span span);
+IronLIR_Instr *iron_lir_weak_rc_release(IronLIR_Func *fn, IronLIR_Block *block,
+                                         IronLIR_ValueId target, Iron_Span span);
+IronLIR_Instr *iron_lir_weak_rc_downgrade(IronLIR_Func *fn, IronLIR_Block *block,
+                                           IronLIR_ValueId source,
+                                           Iron_Type *type, Iron_Span span);
+IronLIR_Instr *iron_lir_weak_rc_upgrade(IronLIR_Func *fn, IronLIR_Block *block,
+                                         IronLIR_ValueId source,
+                                         Iron_Type *type, Iron_Span span);
 IronLIR_Instr *iron_lir_free(IronLIR_Func *fn, IronLIR_Block *block,
                             IronLIR_ValueId value, Iron_Span span);
 IronLIR_Instr *iron_lir_construct(IronLIR_Func *fn, IronLIR_Block *block,
@@ -569,6 +786,38 @@ IronLIR_Instr *iron_lir_phi(IronLIR_Func *fn, IronLIR_Block *block,
                            Iron_Type *type, Iron_Span span);
 IronLIR_Instr *iron_lir_poison(IronLIR_Func *fn, IronLIR_Block *block,
                               Iron_Type *type, Iron_Span span);
+
+/* Phase 20 PTR-04/06/08/09 — pointer ops constructors. */
+IronLIR_Instr *iron_lir_addr_of(IronLIR_Func *fn, IronLIR_Block *block,
+                                IronLIR_ValueId target,
+                                IronLIR_GenSource gen_source,
+                                Iron_Type *type, Iron_Span span);
+IronLIR_Instr *iron_lir_ptr_load(IronLIR_Func *fn, IronLIR_Block *block,
+                                 IronLIR_ValueId fp,
+                                 IronLIR_GenSource gen_source,
+                                 Iron_Type *type, Iron_Span span);
+IronLIR_Instr *iron_lir_ptr_store(IronLIR_Func *fn, IronLIR_Block *block,
+                                  IronLIR_ValueId fp, IronLIR_ValueId value,
+                                  IronLIR_GenSource gen_source, Iron_Span span);
+
+/* Phase 25 UNCK-06 (Plan 25-02): pointer arithmetic on *unchecked T. */
+IronLIR_Instr *iron_lir_ptr_offset(IronLIR_Func *fn, IronLIR_Block *block,
+                                   IronLIR_ValueId ptr, IronLIR_ValueId offset,
+                                   size_t elem_size,
+                                   Iron_Type *result_type, Iron_Span span);
+IronLIR_Instr *iron_lir_ptr_diff(IronLIR_Func *fn, IronLIR_Block *block,
+                                 IronLIR_ValueId a, IronLIR_ValueId b,
+                                 size_t elem_size,
+                                 Iron_Type *result_type, Iron_Span span);
+
+/* Phase 30 OPT-03 (Plan 30-01): generation-check intrinsic constructor.
+ * Void-result (id == IRON_LIR_VALUE_INVALID), like iron_lir_rc_retain/release.
+ * `root_alloc` is the canonicalized outermost-allocation SSA value (OQ-08
+ * keying); `gen_source` is copied from the deref instruction so the late
+ * emit_c expansion (Plan 30-02) is byte-identical to today's inline check. */
+IronLIR_Instr *iron_lir_gencheck(IronLIR_Func *fn, IronLIR_Block *block,
+                                 IronLIR_ValueId ptr, IronLIR_ValueId root_alloc,
+                                 IronLIR_GenSource gen_source, Iron_Span span);
 
 /* Phi manipulation */
 void iron_lir_phi_add_incoming(IronLIR_Instr *phi, IronLIR_ValueId value,

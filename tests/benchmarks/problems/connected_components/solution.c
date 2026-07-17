@@ -67,9 +67,26 @@ int main(void) {
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
+    /* count_components writes only locals, so a compiler that infers it readonly
+     * can hoist this loop-invariant call clean out of the timed loop. Neither
+     * existing guard stops that: `volatile result` pins the store rather than the
+     * call, and `noinline` prevents inlining, not LICM. Apple clang does hoist
+     * it — the loop reported 0.06ms for 180180 iterations (~0.3ns each, about one
+     * cycle) where the same source takes ~31-47ms on Linux, so the C baseline
+     * this benchmark compares Iron against was not running at all and the
+     * reported ratio measured nothing.
+     *
+     * Reading the argument through a volatile is what fixes it, rather than an
+     * asm memory clobber: ea3/eb3 are locals whose addresses never escape, so a
+     * clobber does not force a reload of them. `volatile` is a standard guarantee
+     * instead of an optimizer behaviour — the compiler must re-read vn on every
+     * iteration and cannot know its value, so the call is neither loop-invariant
+     * nor constant-foldable on any compiler. The measured work is identical:
+     * vn == n == 50 throughout. */
+    volatile int vn = n;
     volatile int result = 0;
     for (int it = 0; it < iterations; it++) {
-        result = count_components(ea3, eb3, 40, n);
+        result = count_components(ea3, eb3, 40, vn);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 

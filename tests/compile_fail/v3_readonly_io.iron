@@ -1,0 +1,17 @@
+-- v3_readonly_io.iron -- Phase 22 READ-04 lock.
+-- MUST fail with IRON_ERR_READONLY_IO (E0278).
+--
+-- Reject: readonly method performing I/O.
+-- Compile_fail verification: grep -qF on stderr against .expected substring.
+
+object X {
+    readonly func f() -> Int {
+        println("x")
+        return 0
+    }
+}
+
+func main() {
+    val x = X()
+    x.f()
+}

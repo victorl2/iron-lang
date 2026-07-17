@@ -50,6 +50,13 @@ typedef struct {
     /* Names that escape (appear in return or outer assignment) */
     const char   **escaped_names;  /* stb_ds dynamic array */
 
+    /* Phase 31 DBG-06: names that have already had a `free` recorded in
+     * lexical order within the current function. A later `free` of a name
+     * already in this set is an unreachable-free (static double-free) → W0607.
+     * Per-function ordered detection (NOT true block-scoping) is the agreed
+     * best-effort granularity (31-RESEARCH Open Question 2). */
+    const char   **seen_freed_names;  /* stb_ds dynamic array */
+
     /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
     const _Atomic bool *cancel_flag;
 } EscapeCtx;
@@ -80,6 +87,17 @@ static void emit_err(EscapeCtx *ctx, int code, Iron_Span span, const char *msg) 
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
     if (!msg_copy) { /* HARD-09 REPLACE (escape.c:emit_err msg) */ msg_copy = "analyzer error"; }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR, code, span,
+                   msg_copy, NULL);
+}
+
+/* Phase 31 DBG-05/06: emit a WARNING-level diagnostic. Mirrors emit_err but at
+ * IRON_DIAG_WARNING level — best-effort lints must NOT set any error flag that
+ * blocks compilation (ironc check still exits 0). Renders as `W06xx`
+ * (diagnostics.c:141 uses 'W' for IRON_DIAG_WARNING + %04d). */
+static void emit_warn(EscapeCtx *ctx, int code, Iron_Span span, const char *msg) {
+    const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+    if (!msg_copy) { /* HARD-09 REPLACE (escape.c:emit_warn msg) */ msg_copy = "analyzer warning"; }
+    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING, code, span,
                    msg_copy, NULL);
 }
 
@@ -285,6 +303,28 @@ static void validate_node(EscapeCtx *ctx, Iron_Node *node) {
                     snprintf(msg, sizeof(msg),
                              "'free' on '%s': not a heap-allocated value", name);
                     emit_err(ctx, IRON_ERR_FREE_NON_HEAP, fs->span, msg);
+                } else {
+                    /* Phase 31 DBG-06 (W0607 unreachable-free): a heap binding
+                     * freed a second time in lexical order within the same
+                     * function is a static double-free — the second `free` is
+                     * unreachable (the value is already gone). validate_node
+                     * walks statements in lexical order, so the first `free`
+                     * records the name and a later `free` of the same name
+                     * fires the warning. Best-effort intra-procedural lint
+                     * (WARNING level, never blocks compilation). LIMITATION:
+                     * per-function ordered detection — two frees in
+                     * mutually-exclusive match arms / if-else branches may
+                     * false-positive; accepted for best-effort per CONTEXT
+                     * (31-RESEARCH Open Question 2). */
+                    if (name_in_list(ctx->seen_freed_names, name)) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "'free %s' is unreachable: '%s' was already "
+                                 "freed earlier in this function", name, name);
+                        emit_warn(ctx, IRON_WARN_UNREACHABLE_FREE, fs->span, msg);
+                    } else {
+                        arrpush(ctx->seen_freed_names, name);
+                    }
                 }
             }
             break;
@@ -437,6 +477,7 @@ static void analyze_function_body(EscapeCtx *ctx, Iron_Node *body_node) {
     arrsetlen(ctx->freed_names,   0);
     arrsetlen(ctx->leaked_names,  0);
     arrsetlen(ctx->escaped_names, 0);
+    arrsetlen(ctx->seen_freed_names, 0);  /* Phase 31 DBG-06 */
 
     /* Collect heap bindings, free/leak targets, and escape sources */
     collect_stmts(ctx, body->stmts, body->stmt_count);
@@ -452,6 +493,14 @@ static void analyze_function_body(EscapeCtx *ctx, Iron_Node *body_node) {
 
         /* rc values are exempt from escape analysis */
         if (he->resolved_type && he->resolved_type->kind == IRON_TYPE_RC) {
+            continue;
+        }
+        /* Phase 28 ARENA-02: arena-targeted allocations
+         * (`heap(in: arena, ...) T(...)`) are reclaimed by the arena's
+         * reset/destroy, never by `free` — exempt from E0207/W0606. The
+         * skipped-destructor acknowledgement is W0605's job (ARENA-09
+         * allow_drop_skip), not the free lint's. */
+        if (he->arena_expr) {
             continue;
         }
         /* Check if the bound variable's type is rc (set by typechecker) */
@@ -476,6 +525,23 @@ static void analyze_function_body(EscapeCtx *ctx, Iron_Node *body_node) {
             /* Does not escape — auto-freed at block exit */
             he->auto_free = true;
             he->escapes   = false;
+            /* Phase 31 DBG-05 (W0606 forgotten-free): a non-escaping heap
+             * binding that is never freed and never leaked genuinely leaks at
+             * runtime (emit_c.c deliberately never built the auto_free codegen
+             * — emit_c.c:3662 "PHASE-31"). Best-effort lint, WARNING level.
+             * Suppressed by `leak <binding>` (POL-05, is_leaked → leaked_names)
+             * and satisfied by `defer free <binding>` (the IRON_NODE_DEFER arm
+             * in collect_stmt recurses into the inner free → freed_names).
+             * Emitted ONLY here (the non-escaping branch); the escaping branch
+             * already emits E0207. */
+            if (!is_freed && !is_leaked) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "heap value '%s' is never freed "
+                         "(use 'free %s', 'defer free %s', or 'leak %s')",
+                         name, name, name, name);
+                emit_warn(ctx, IRON_WARN_FORGOTTEN_FREE, he->span, msg);
+            }
         }
     }
 }
@@ -497,6 +563,7 @@ void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
     ctx.freed_names   = NULL;
     ctx.leaked_names  = NULL;
     ctx.escaped_names = NULL;
+    ctx.seen_freed_names = NULL;  /* Phase 31 DBG-06 */
     ctx.cancel_flag   = cancel_flag;
 
     for (int i = 0; i < program->decl_count; i++) {
@@ -531,4 +598,5 @@ void iron_escape_analyze(Iron_Program *program, Iron_Scope *global_scope,
     arrfree(ctx.freed_names);
     arrfree(ctx.leaked_names);
     arrfree(ctx.escaped_names);
+    arrfree(ctx.seen_freed_names);  /* Phase 31 DBG-06 */
 }

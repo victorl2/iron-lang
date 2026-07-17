@@ -38,7 +38,12 @@ typedef enum {
     IRON_HIR_STMT_EXPR,       /* expression statement              */
     IRON_HIR_STMT_FREE,       /* explicit memory free              */
     IRON_HIR_STMT_SPAWN,      /* spawn concurrent task             */
-    IRON_HIR_STMT_LEAK        /* intentional memory leak           */
+    IRON_HIR_STMT_LEAK,       /* intentional memory leak           */
+    /* Phase 28 ARENA-04 (Plan 28-04): `in <arena> { ... }` default-arena
+     * block. Lowers to IRON_LIR_ARENA_PUSH(arena) ... body ... ARENA_POP,
+     * with the POP emitted on EVERY exit edge via the scope-exit drop-stack
+     * pump (survives early return / break / panic). */
+    IRON_HIR_STMT_IN_ARENA
 } IronHIR_StmtKind;
 
 /* ── Expression kind enum ────────────────────────────────────────────────── */
@@ -72,6 +77,21 @@ typedef enum {
     /* Memory management */
     IRON_HIR_EXPR_HEAP,          /* heap allocation                */
     IRON_HIR_EXPR_RC,            /* reference-counted allocation   */
+    /* Phase 28 ARENA-03/05 (Plan 28-04): arena allocation.
+     * `heap(in: arena) T(...)` (arena resolved) OR a bare `heap T(...)`
+     * lexically inside an `in arena {}` block (arena NULL → TLS-current at
+     * runtime). Lowers to IRON_LIR_ARENA_ALLOC. Distinct from
+     * IRON_HIR_EXPR_HEAP so hir_to_lir tags the result gen_source =
+     * IRON_LIR_GEN_ARENA and so arena allocs are excluded from the
+     * scope-exit drop stack (the arena owns + bulk-frees the memory). */
+    IRON_HIR_EXPR_ARENA_ALLOC,
+    /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc expression kinds.
+     * Distinct from IRON_HIR_EXPR_METHOD_CALL so hir_to_lir can pattern-match
+     * cleanly and emit the dedicated IRON_LIR_WEAK_RC_* opcodes without
+     * re-running method-name discrimination. */
+    IRON_HIR_EXPR_WEAK_RC_NULL,      /* `weak rc null` constructor — lowers to NULL pointer */
+    IRON_HIR_EXPR_WEAK_RC_DOWNGRADE, /* `rc_val.downgrade()` — IRON_LIR_WEAK_RC_DOWNGRADE */
+    IRON_HIR_EXPR_WEAK_RC_UPGRADE,   /* `weak_val.upgrade()` — IRON_LIR_WEAK_RC_UPGRADE; result is T? */
 
     /* Construction and type operations */
     IRON_HIR_EXPR_CONSTRUCT,     /* struct/object construction     */
@@ -83,7 +103,27 @@ typedef enum {
     IRON_HIR_EXPR_FUNC_REF,      /* function reference             */
     IRON_HIR_EXPR_ENUM_CONSTRUCT, /* ADT enum variant construction  */
     IRON_HIR_EXPR_PATTERN,        /* match arm pattern (ADT)        */
-    IRON_HIR_EXPR_IS             /* type test / pattern match check */
+    IRON_HIR_EXPR_IS,             /* type test / pattern match check */
+
+    /* Phase 20 PTR-04/06/08/09 (Plan 20-02b): pointer ops.
+     *
+     * IRON_HIR_EXPR_ADDR_OF — produced by lowering of `&lvalue` AND by
+     * synthesis at call-sites where Iron_*.is_auto_address_target=true
+     * (set by Plan 20-02a typecheck.c). Lowers to IRON_LIR_ADDR_OF which
+     * emits an Iron_FatPtr compound literal.
+     *
+     * IRON_HIR_EXPR_DEREF — produced by lowering of FIELD_ACCESS /
+     * METHOD_CALL with is_auto_deref=true on a *T receiver, and by the
+     * OQ-A write-half lowering of assignment-LHS field-access on *var T.
+     * Lowers to IRON_LIR_PTR_LOAD or IRON_LIR_PTR_STORE which calls
+     * iron_check_pointer_gen (HEAP source) or iron_check_stack_pointer_gen
+     * (STACK source) before the load/store.
+     *
+     * Pitfall 9: hir_verify.c uses default-break, so adding new kinds at
+     * the end of the enum is safe; explicit case handlers cover NULL-
+     * subexpression checks where applicable. */
+    IRON_HIR_EXPR_ADDR_OF,
+    IRON_HIR_EXPR_DEREF
 } IronHIR_ExprKind;
 
 /* ── Binary operator ────────────────────────────────────────────────────── */
@@ -116,6 +156,16 @@ typedef enum {
     IRON_HIR_UNOP_NOT,   /* !x */
     IRON_HIR_UNOP_BNOT   /* ~x */
 } IronHIR_UnOp;
+
+/* ── Phase 20 PTR-04/06/08/09 (Plan 20-02b OQ-B Option C lock) ─────────────
+ * HIR-side mirror of IronLIR_GenSource so hir.h need not include lir.h.
+ * HIR-to-LIR lowering passes the value through unchanged (the two enums
+ * have identical numeric values). Selects between iron_check_pointer_gen
+ * (HEAP) and iron_check_stack_pointer_gen (STACK) at codegen time. */
+typedef enum {
+    IRON_HIR_GEN_HEAP,
+    IRON_HIR_GEN_STACK
+} IronHIR_GenSource;
 
 /* ── Helper structs ──────────────────────────────────────────────────────── */
 
@@ -235,6 +285,12 @@ struct IronHIR_Stmt {
         struct {
             IronHIR_Expr *value;
         } leak;
+
+        /* IRON_HIR_STMT_IN_ARENA (Phase 28 ARENA-04, Plan 28-04) */
+        struct {
+            IronHIR_Expr  *arena;  /* the arena expression after `in` */
+            IronHIR_Block *body;
+        } in_arena;
     };
 };
 
@@ -344,6 +400,26 @@ struct IronHIR_Expr {
             IronHIR_Expr *inner;
         } rc;
 
+        /* IRON_HIR_EXPR_ARENA_ALLOC (Phase 28 ARENA-03/05, Plan 28-04).
+         * `arena` is NULL when relying on the TLS-current arena (bare heap
+         * inside an `in arena {}` block); emit_c emits iron_arena_rt_current(). */
+        struct {
+            IronHIR_Expr *inner;
+            IronHIR_Expr *arena;          /* NULL = TLS-current default */
+            bool          allow_drop_skip; /* ARENA-09 W0605 suppression */
+        } arena_alloc;
+
+        /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc HIR payloads.
+         * IRON_HIR_EXPR_WEAK_RC_NULL carries no operands — emit_c lowers it
+         * to a literal NULL pointer expression. DOWNGRADE/UPGRADE each
+         * carry the receiver value (strong rc / weak rc respectively). */
+        struct {
+            IronHIR_Expr *strong_rc_val;  /* receiver — IRON_TYPE_RC value */
+        } weak_rc_downgrade;
+        struct {
+            IronHIR_Expr *weak_rc_val;    /* receiver — IRON_TYPE_WEAK_RC value */
+        } weak_rc_upgrade;
+
         /* IRON_HIR_EXPR_CONSTRUCT */
         struct {
             Iron_Type     *type;
@@ -421,6 +497,27 @@ struct IronHIR_Expr {
             IronHIR_Expr **nested_patterns; /* NULL entry = simple binding */
             int            binding_count;
         } pattern;
+
+        /* IRON_HIR_EXPR_ADDR_OF — Phase 20 PTR-04/08/09.
+         * Lowers from `&lvalue` and from auto-address materialization at
+         * call sites (Pitfall 4: AST stays unchanged; HIR materializes from
+         * is_auto_address_target flags set by Plan 20-02a typecheck.c). */
+        struct {
+            IronHIR_Expr     *target;       /* lvalue chain expression */
+            IronHIR_GenSource gen_source;   /* derived during lowering */
+        } addr_of;
+
+        /* IRON_HIR_EXPR_DEREF — Phase 20 PTR-06 read half.
+         * Synthesized at FIELD_ACCESS / METHOD_CALL receivers when
+         * is_auto_deref=true. The OQ-A write half lowers assignment-LHS
+         * field-access on *var T through the same DEREF kind followed by a
+         * HIR field-store; the LIR side picks PTR_LOAD vs PTR_STORE based
+         * on whether the deref appears on the read or write side of the
+         * enclosing expression. */
+        struct {
+            IronHIR_Expr     *target;       /* the *T value being deref'd */
+            IronHIR_GenSource gen_source;   /* propagated to LIR */
+        } deref;
     };
 };
 
@@ -442,6 +539,17 @@ struct IronHIR_Func {
      * receiver by pointer so field mutations persist to the caller's binding.
      * Default false (iron_hir_func_create memsets the struct). */
     bool               is_mut_receiver_method;
+    /* Phase 20 PTR-10 (Plan 20-02b): mirrors Iron_FuncDecl.takes_local_addr.
+     * Propagated by hir_lower from the AST decl; further propagated by
+     * hir_to_lir to IronLIR_Func.takes_local_addr so emit_c.c can inject
+     * `iron_stack_gen += 1;` prologue/epilogue. Default false via
+     * iron_hir_func_create memset. OQ-E lock: per-call bump semantics. */
+    bool               takes_local_addr;
+    /* Phase 22 READ-08: true when lowered from a readonly FuncDecl/MethodDecl.
+     * Consumed by hir_to_lir.c to propagate to IronLIR_Func for sret codegen.
+     * Consumes Plan 22-02 LiftPending.is_readonly_context for lifted lambdas.
+     * Default false via iron_hir_func_create memset. */
+    bool               is_readonly;
 };
 
 /* ── Module ──────────────────────────────────────────────────────────────── */
@@ -511,6 +619,9 @@ IronHIR_Stmt *iron_hir_stmt_spawn(IronHIR_Module *mod, const char *handle_name,
                                    Iron_Span span);
 IronHIR_Stmt *iron_hir_stmt_leak(IronHIR_Module *mod, IronHIR_Expr *value,
                                   Iron_Span span);
+/* Phase 28 ARENA-04 (Plan 28-04): `in <arena> { ... }` default-arena block. */
+IronHIR_Stmt *iron_hir_stmt_in_arena(IronHIR_Module *mod, IronHIR_Expr *arena,
+                                      IronHIR_Block *body, Iron_Span span);
 
 /* Expression constructors (28) */
 IronHIR_Expr *iron_hir_expr_int_lit(IronHIR_Module *mod, int64_t value,
@@ -562,6 +673,21 @@ IronHIR_Expr *iron_hir_expr_heap(IronHIR_Module *mod, IronHIR_Expr *inner,
                                   Iron_Type *type, Iron_Span span);
 IronHIR_Expr *iron_hir_expr_rc(IronHIR_Module *mod, IronHIR_Expr *inner,
                                 Iron_Type *type, Iron_Span span);
+/* Phase 28 ARENA-03/05 (Plan 28-04): arena allocation. `arena` NULL = use
+ * the TLS-current arena (bare heap inside an `in arena {}` block). */
+IronHIR_Expr *iron_hir_expr_arena_alloc(IronHIR_Module *mod, IronHIR_Expr *inner,
+                                         IronHIR_Expr *arena, bool allow_drop_skip,
+                                         Iron_Type *type, Iron_Span span);
+
+/* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc HIR constructors. */
+IronHIR_Expr *iron_hir_expr_weak_rc_null(IronHIR_Module *mod,
+                                          Iron_Type *type, Iron_Span span);
+IronHIR_Expr *iron_hir_expr_weak_rc_downgrade(IronHIR_Module *mod,
+                                               IronHIR_Expr *strong_rc_val,
+                                               Iron_Type *type, Iron_Span span);
+IronHIR_Expr *iron_hir_expr_weak_rc_upgrade(IronHIR_Module *mod,
+                                             IronHIR_Expr *weak_rc_val,
+                                             Iron_Type *type, Iron_Span span);
 IronHIR_Expr *iron_hir_expr_construct(IronHIR_Module *mod, Iron_Type *type,
                                        const char **field_names,
                                        IronHIR_Expr **field_values, int field_count,
@@ -603,6 +729,14 @@ IronHIR_Expr *iron_hir_expr_pattern(IronHIR_Module *mod,
                                      IronHIR_Expr **nested_patterns,
                                      int binding_count,
                                      Iron_Span span);
+
+/* Phase 20 PTR-04/06/08/09 — addr_of / deref constructors. */
+IronHIR_Expr *iron_hir_expr_addr_of(IronHIR_Module *mod, IronHIR_Expr *target,
+                                     IronHIR_GenSource gen_source,
+                                     Iron_Type *type, Iron_Span span);
+IronHIR_Expr *iron_hir_expr_deref(IronHIR_Module *mod, IronHIR_Expr *target,
+                                   IronHIR_GenSource gen_source,
+                                   Iron_Type *type, Iron_Span span);
 
 /* ---- Printer ---- */
 char *iron_hir_print(const IronHIR_Module *module);

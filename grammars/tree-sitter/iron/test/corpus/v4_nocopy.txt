@@ -1,0 +1,44 @@
+==========
+nocopy_modifier on object declaration
+==========
+
+nocopy object Mutex {
+  val handle: Int
+}
+
+---
+
+(source_file
+  (object_declaration
+    marker: (nocopy_modifier)
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))))
+
+==========
+nocopy with drop block
+==========
+
+nocopy object FileHandle {
+  val name: String
+  drop { println("close") }
+}
+
+---
+
+(source_file
+  (object_declaration
+    marker: (nocopy_modifier)
+    name: (identifier)
+    (field_declaration
+      name: (identifier)
+      type: (type_identifier
+        (identifier)))
+    (drop_block
+      body: (block
+        (expression_statement
+          (call_expression
+            function: (identifier)
+            (string_literal)))))))

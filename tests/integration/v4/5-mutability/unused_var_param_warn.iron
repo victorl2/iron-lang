@@ -1,0 +1,11 @@
+-- section 5.5 positive: var parameter never mutated (warning expected; runtime stdout asserted)
+-- @req: VAL-06
+-- @expected-pass-after: phase-17
+
+func greet(var name: String) {
+    println("Hi, {name}")
+}
+
+func main() {
+    greet("World")
+}

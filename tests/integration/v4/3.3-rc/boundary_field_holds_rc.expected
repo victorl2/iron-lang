@@ -1,0 +1,3 @@
+container id: 1, tex: sprite.png
+drop container: 1
+free texture: sprite.png

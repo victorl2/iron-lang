@@ -2205,7 +2205,7 @@ void test_hir_lower_index_of_call(void) {
 
 void test_hir_lower_array_literal_empty(void) {
     Iron_Type *int_ty = iron_type_make_primitive(IRON_TYPE_INT);
-    Iron_Type *arr_ty = iron_type_make_array(&g_ast_arena, int_ty, -1);
+    Iron_Type *arr_ty = iron_type_make_array(&g_ast_arena, int_ty, -1, false);
 
     Iron_ArrayLit *al = ARENA_ALLOC(&g_ast_arena, Iron_ArrayLit);
     memset(al, 0, sizeof(*al));

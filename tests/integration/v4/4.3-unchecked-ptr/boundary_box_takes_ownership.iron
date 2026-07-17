@@ -1,0 +1,18 @@
+-- section: 4.3-unchecked-ptr
+-- @req: UNCK-04
+-- @expected-pass-after: phase-25
+-- extends-spec: Box[T] is the unique-ownership escape hatch (nocopy); drop fires at scope exit; UNCK-04: Box is nocopy - cannot be assigned or passed by value without explicit transfer
+
+object Probe {
+    val name: String
+
+    drop {
+        println("dropped: {self.name}")
+    }
+}
+
+func main() {
+    val b = Box.new(Probe(name: "alice"))
+    println("alive")
+    -- b goes out of scope here; Box destructor fires, then Probe drop runs
+}

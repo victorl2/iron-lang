@@ -1,0 +1,32 @@
+-- channel.iron -- Channel[T]: nocopy bounded ring-buffer channel of values of type T.
+-- Phase 33 STDLIB-08 (Plan 33-05): Iron-side declaration surface for Channel[T].
+--
+-- Actual implementations are provided by the C runtime (emit_ensure_channel synthesis
+-- in src/lir/emit_helpers.c) over a bounded ring buffer + mutex + 2 cond vars
+-- (IRON_MUTEX_* / IRON_COND_*). The compiler recognizes Channel.new / ch.send /
+-- ch.recv by name and intercepts them in typecheck.c (Box[T] precedent — Plan 33-07).
+--
+-- Channel[T] is nocopy (Phase 24 substrate): copying a Channel[T] binding is a
+-- compile error (E0286) — the mutex + cond vars are non-copyable resources. send()
+-- blocks while the buffer is full; recv() blocks while empty (cond-var coordinated).
+-- For v1 this is a minimal bounded channel (no scheduler); true cross-thread
+-- contention is the documented manual-only TSAN soak (33-VALIDATION.md), not gating.
+
+nocopy object Channel[T] {
+    val inner: Int  -- opaque storage; emit_ensure_channel synthesizes Iron_Channel_<T>
+
+    drop {
+        -- Synthesized: Iron_Channel_<T>_destroy (free ring buffer + destroy
+        -- mutex/cond) at scope exit.
+    }
+}
+
+-- Channel.new(capacity: Int) -> Channel[T]
+-- Constructs a bounded channel holding up to `capacity` queued values.
+func Channel.new[T](capacity: Int) -> Channel[T] {}
+
+-- ch.send(value: T)   (receiver-form): enqueue, blocking while the buffer is full.
+func Channel.send[T](value: T) {}
+
+-- ch.recv() -> T       (receiver-form): dequeue, blocking while the buffer is empty.
+func Channel.recv[T]() -> T {}

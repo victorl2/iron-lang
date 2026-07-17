@@ -1,0 +1,6 @@
+-- Test: STR-01 (upper), STR-02 (lower)
+func main() {
+    val s = "Hello World"
+    println(s.upper())
+    println(s.lower())
+}

@@ -45,6 +45,8 @@ typedef enum {
     IRON_TYPE_FUNC,          /* func(...)->R */
     IRON_TYPE_ARRAY,         /* [T; N] or [T] */
     IRON_TYPE_RC,            /* rc T       */
+    IRON_TYPE_WEAK_RC,       /* weak rc T  (Phase 27 POL-08 — non-owning ref; implicitly nullable) */
+    IRON_TYPE_PTR,           /* Phase 20 — *T or *var T (PTR-01) */
 
     /* Meta types */
     IRON_TYPE_GENERIC_PARAM, /* generic type parameter */
@@ -63,6 +65,16 @@ typedef struct Iron_Type {
         /* IRON_TYPE_OBJECT */
         struct {
             struct Iron_ObjectDecl    *decl;
+            /* Phase 33 OQ-02 (Plan 33-07): Box[T] element type. Set ONLY for
+             * the builtin generic object `Box` by the by-name Box dispatch in
+             * typecheck.c (Box.new / Box.null). NULL for every other object
+             * type — arena-zeroed, so the 126 pre-existing `object.decl`-only
+             * sites are unaffected. Carries the concrete element through to
+             * `boxed.unwrap()` (which returns `*unchecked elem`) and to
+             * emit_ensure_box at codegen. Box has no general object-monomorph
+             * machinery (only enums carry enu.type_args), so this single-arg
+             * side channel is the narrowest Box-specific representation. */
+            struct Iron_Type          *elem;
         } object;
 
         /* IRON_TYPE_INTERFACE */
@@ -90,6 +102,30 @@ typedef struct Iron_Type {
             struct Iron_Type          *inner;
         } rc;
 
+        /* IRON_TYPE_WEAK_RC — Phase 27 POL-08 (Plan 27-02). Non-owning
+         * reference into the same allocation block as the strong rc
+         * counterpart. Constructed via `.downgrade()` on rc T or
+         * `weak rc null`. Cannot be dereferenced directly (E0299).
+         * `.upgrade()` returns a nullable strong reference (T?) atomically
+         * against the last strong drop (POL-09). */
+        struct {
+            struct Iron_Type          *inner;
+        } weak_rc;
+
+        /* IRON_TYPE_PTR — Phase 20 PTR-01 + Phase 25 PTR-02.
+         * `*T` carries pointee=T, is_var=false, is_unchecked=false.
+         * `*var T` carries is_var=true; `*unchecked T` carries is_unchecked=true.
+         * `*var unchecked T` carries both. `?*T` is encoded as
+         * IRON_TYPE_NULLABLE wrapping IRON_TYPE_PTR.
+         * Four distinct types: *T, *var T, *unchecked T, *var unchecked T.
+         * Anti-Pattern 1 (RESEARCH) honored: no new IRON_TYPE_UNCHECKED_PTR
+         * variant — is_unchecked flag avoids switch-on-kind churn. */
+        struct {
+            struct Iron_Type          *pointee;
+            bool                       is_var;
+            bool                       is_unchecked; /* Phase 25 PTR-02 (Plan 25-01) */
+        } ptr;
+
         /* IRON_TYPE_FUNC */
         struct {
             struct Iron_Type         **param_types;
@@ -103,6 +139,10 @@ typedef struct Iron_Type {
             int                        size;  /* -1 = dynamic */
             int                        layout_hint;   /* Phase 48: 0=none, 1=soa, 2=aos */
             bool                       is_unordered;  /* Phase 48: [T, unordered] */
+            /* Phase 23 VEC-01: distinguishes [T; <=N] (true) from [T; N] (false).
+             * Three states: dynamic (size=-1, is_bounded=false), strict (size>=0, is_bounded=false),
+             * bounded (size>=0, is_bounded=true). */
+            bool                       is_bounded;
         } array;
 
         /* IRON_TYPE_GENERIC_PARAM */
@@ -118,6 +158,20 @@ typedef struct Iron_Type {
             const char                *mangled_name; /* e.g. "Iron_Tuple_int64_t_Iron_Error" */
         } tuple;
     };
+
+    /* Phase 22 READ-06: cache for is_readonly_compatible_type to break
+     * self-referential recursion (RESEARCH Pitfall 6).
+     * Default-zeroed by iron_arena_alloc; uncached + not-compatible =
+     * conservative safe state until first walk populates. */
+    bool readonly_compat_cached;
+    bool is_readonly_compatible;
+    /* Phase 24 DROP-06 (Plan 24-02): user-copy transitivity cache.
+     * True when this IRON_TYPE_OBJECT type (or any field recursively)
+     * has a copy block. Populated by compute_has_user_copy_transitive
+     * during the analyzer pass; codegen reads the cached field directly
+     * without a cross-TU helper call (I8 fix). */
+    bool has_user_copy_transitive;
+    bool has_user_copy_cached;
 } Iron_Type;
 
 /* ── Public API ──────────────────────────────────────────────────────────── */
@@ -138,11 +192,25 @@ Iron_Type *iron_type_make_nullable(Iron_Arena *a, Iron_Type *inner);
 /* Construct an Rc<T> wrapper type */
 Iron_Type *iron_type_make_rc(Iron_Arena *a, Iron_Type *inner);
 
+/* Phase 27 POL-08 (Plan 27-02): construct a weak rc T wrapper type.
+ * Mirrors iron_type_make_rc; structurally distinct enum tag so the
+ * -Werror=switch-enum guard surfaces every consumer site at build time.
+ * Constructor never returns NULL on success; OOM propagates to the
+ * established IRON_TYPE_ERROR poison via the caller (HARD-09 pattern). */
+Iron_Type *iron_type_make_weak_rc(Iron_Arena *a, Iron_Type *inner);
+
+/* Phase 20 PTR-01: construct a checked pointer type (`*T` or `*var T`).
+ * No interning — distinct (pointee, is_var) combinations always yield a
+ * fresh Iron_Type. Returns NULL on OOM (caller propagates to
+ * IRON_TYPE_ERROR poison per the established convention). */
+Iron_Type *iron_type_make_ptr(Iron_Arena *a, Iron_Type *pointee, bool is_var, bool is_unchecked);
+
 /* Construct a function type func(params...) -> ret */
 Iron_Type *iron_type_make_func(Iron_Arena *a, Iron_Type **params, int count, Iron_Type *ret);
 
-/* Construct an array type [elem; size] (size == -1 for dynamic) */
-Iron_Type *iron_type_make_array(Iron_Arena *a, Iron_Type *elem, int size);
+/* Construct an array type [elem; size] (size == -1 for dynamic).
+ * Phase 23 VEC-01: is_bounded=true for [T; <=N], false for [T; N] / dynamic. */
+Iron_Type *iron_type_make_array(Iron_Arena *a, Iron_Type *elem, int size, bool is_bounded);
 
 /* Construct an object type backed by a declaration node */
 Iron_Type *iron_type_make_object(Iron_Arena *a, struct Iron_ObjectDecl *decl);

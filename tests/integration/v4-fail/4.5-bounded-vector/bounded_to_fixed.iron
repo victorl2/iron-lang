@@ -1,0 +1,8 @@
+-- section 4.5 negative: bounded vector assigned to strict array (disjoint types)
+-- @req: VEC-01
+-- @expected-pass-after: phase-23
+func main() -> Int {
+    val a: [Int; <=3] = [1]
+    val b: [Int; 3] = a
+    return 0
+}

@@ -1,0 +1,11 @@
+// Phase 34 LSP-03: `unchecked` visible in type-expression position
+// (e.g., `*unchecked T`). Hidden at expression-head positions.
+func main() {
+    // COMPLETE@4:18
+    // EXPECT_VISIBLE: unchecked
+    val raw: *unchecked Int = RawPtr.of(0)
+
+    // COMPLETE@8:5
+    // EXPECT_HIDDEN: unchecked
+    val x = 10
+}

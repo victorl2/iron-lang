@@ -1,0 +1,23 @@
+-- section: 7.5-stdlib
+-- @req: STDLIB-05, OQ-02
+-- @expected-pass-after: phase-33 (Plan 33-01 box.iron unblock)
+-- Load-bearing Box[T] end-to-end acceptance (Open Question 2): exercises
+-- Box.new / boxed.is_null / boxed.unwrap dispatch + emit_ensure_box + the
+-- synthesized scope-exit Box drop. Byte-exact stdout asserts the by-name
+-- dispatch still fires after the box.iron parse unblock.
+
+object Sample {
+    val a: Int
+    val b: Int
+}
+
+func main() {
+    var boxed = Box.new(Sample(7, 35))
+    val nul: Bool = boxed.is_null()
+    println("is_null: {nul}")
+    val s: *unchecked Sample = boxed.unwrap()
+    val sum: Int = s.a + s.b
+    println("sum: {sum}")
+    -- no explicit free: the synthesized Box drop releases the heap at scope exit
+    println("freed")
+}

@@ -1,0 +1,4 @@
+outer alive
+inner alive
+inner gone; outer still alive
+free: atlas.png

@@ -1,0 +1,16 @@
+data: 0
+data: 1
+data: 2
+data: 3
+data: 4
+loop done
+point: 3,6
+point: 4,8
+point: 5,10
+cond done
+sum1: 7
+sum2: 30
+diag: 0
+diag: 2
+diag: 4
+done

@@ -1,0 +1,17 @@
+{
+  "Defer free binding": {
+    "prefix": "defer",
+    "body": ["defer free ${1:binding}$0"],
+    "description": "Iron v4: schedule heap/rc free at scope exit (Phase 21 idiom)"
+  },
+  "Heap constructor": {
+    "prefix": "heap",
+    "body": ["heap ${1:TypeName}(${2:args})$0"],
+    "description": "Iron v4: allocate on heap with generation tracking (Phase 21)"
+  },
+  "Arena block": {
+    "prefix": "arena",
+    "body": ["in ${1:arena_name} {", "\t$0", "}"],
+    "description": "Iron v4: scoped arena allocation block (Phase 28)"
+  }
+}

@@ -1,0 +1,90 @@
+-- arena.iron -- Arena: malloc-backed bump allocator with generation-based mass invalidation
+-- Phase 28 STDLIB-06 (Plan 28-03): Iron-side declaration surface for Arena / ArenaSave.
+-- Actual implementations are provided by the C runtime (src/runtime/iron_arena_rt.c,
+-- the Plan 28-02 substrate: iron_arena_rt_new / alloc / reset / save / restore / used /
+-- capacity / destroy + the thread-local active-arena stack). The compiler recognizes
+-- Arena.new / new_threadsafe / with_capacity and the instance methods by name and
+-- resolves them through the normal stdlib-prepend path (mirroring string.iron / math.iron,
+-- Phase 98 patch-object form). Codegen (HIR / HIR->LIR / emit_c lowering of `heap(in:)`
+-- and `in arena {}` to arena alloc opcodes + active-arena push/pop) lands in Plan 28-04.
+--
+-- Phase 28 in-phase gap fix (post-28-VERIFICATION): migrated from the standalone
+-- `func Arena.method() {}` declaration form (REMOVED by Phase 98 PATCH-03,
+-- parser.c:3596 emits IRON_ERR_STANDALONE_METHOD_FORM) to the `patch object Arena { ... }`
+-- body form, mirroring src/stdlib/string.iron and src/stdlib/math.iron. The constructors
+-- (new / new_threadsafe / with_capacity) are associated-style calls (`Arena.with_capacity(n)`);
+-- the instance methods (save / restore / reset / used / capacity) are receiver-style calls
+-- (`arena.save()`, `arena.restore(point)`) where the patch-body func injects the implicit
+-- `self: Arena` receiver, so the explicit `a: Arena` first parameter of the old standalone
+-- form is dropped. NOTE: src/stdlib/box.iron remains on the removed standalone form and its
+-- migration (plus the null/free keyword-as-method-name parser allowance) is deferred to the
+-- Phase 33 stdlib container rewrite per the user decision; box.iron is still co-prepended, so
+-- the positive arena corpus stays gated on box.iron until then.
+--
+-- CLOSED-POLICY (ARENA-08): `rc T(...)` and `weak rc T(...)` allocation inside an
+-- `in arena { ... }` block is a compile error (E0301) — refcount discipline conflicts
+-- with the arena's O(1) batch mass-invalidation on reset()/restore().
+--
+-- NON-TRIVIAL DESTRUCTOR (ARENA-09): allocating a type with a transitive user `drop`
+-- block via `heap(in: arena) T(...)` warns (W0605) because the arena bulk-frees its
+-- backing memory WITHOUT running per-object destructors. `allow_drop_skip: true` on the
+-- heap form suppresses the warning.
+
+-- Arena: opaque handle to a malloc-backed bump allocator.
+-- inner is opaque storage; the C runtime stores the real Iron_Arena_RT* there.
+-- val (not var) field so v3.0 E0264 (mutable-field-needs-init) does not fire on
+-- the stdlib surface — the runtime constructs the handle directly (net.iron idiom).
+object Arena {
+    val inner: Int
+}
+
+-- ArenaSave: opaque value struct returned by save() and consumed by restore().
+-- offset is the captured bump offset; gen is the generation snapshot (ARENA-07).
+object ArenaSave {
+    val offset: Int
+    val gen: Int
+}
+
+patch object Arena {
+    -- Arena.new(size: Int) -> Arena
+    -- Creates a single-threaded bump arena with `size` bytes of capacity.
+    -- Wraps iron_arena_rt_new(capacity, threadsafe=false, name).
+    func new(size: Int) -> Arena {}
+
+    -- Arena.new_threadsafe(size: Int) -> Arena      (ARENA-02)
+    -- Creates an arena whose bump pointer increments atomically, safe for
+    -- concurrent allocation from multiple threads. Wraps iron_arena_rt_new(..., true, ...).
+    func new_threadsafe(size: Int) -> Arena {}
+
+    -- Arena.with_capacity(size: Int) -> Arena       (CONTEXT constructor-alias decision)
+    -- Alias for Arena.new(size:): resolves to the same runtime constructor
+    -- (iron_arena_rt_new). Exists because the v4-acceptance corpus uses both spellings.
+    func with_capacity(size: Int) -> Arena {}
+
+    -- arena.save() -> ArenaSave      (ARENA-01)
+    -- Captures the current bump offset + generation snapshot. Pair with restore().
+    -- Receiver-form: implicit `self: Arena`. Wraps iron_arena_rt_save.
+    func save() -> ArenaSave {}
+
+    -- arena.restore(point: ArenaSave)      (ARENA-07)
+    -- Lowers the bump pointer back to point.offset AND bumps the arena generation
+    -- so any pointer allocated after the save point panics on dereference.
+    -- Receiver-form: implicit `self: Arena`. Wraps iron_arena_rt_restore.
+    func restore(point: ArenaSave) {}
+
+    -- arena.reset()      (ARENA-06)
+    -- Restores the bump pointer to the arena origin and bumps the generation,
+    -- invalidating every pointer into the arena in O(1).
+    -- Receiver-form: implicit `self: Arena`. Wraps iron_arena_rt_reset.
+    func reset() {}
+
+    -- arena.used() -> Int      (ARENA-01)
+    -- Returns the number of bytes currently allocated from the arena.
+    -- Receiver-form: implicit `self: Arena`. Wraps iron_arena_rt_used.
+    func used() -> Int {}
+
+    -- arena.capacity() -> Int      (ARENA-01)
+    -- Returns the total byte capacity of the arena's backing region.
+    -- Receiver-form: implicit `self: Arena`. Wraps iron_arena_rt_capacity.
+    func capacity() -> Int {}
+}

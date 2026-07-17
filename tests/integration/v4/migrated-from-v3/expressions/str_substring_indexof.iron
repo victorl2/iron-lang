@@ -1,0 +1,10 @@
+-- Test: STR-09 (substring), STR-10 (index_of)
+func main() {
+    val s = "hello world"
+    println(s.substring(0, 5))
+    println(s.substring(6, 11))
+    val i1 = s.index_of("world")
+    val i2 = s.index_of("xyz")
+    println("{i1}")
+    println("{i2}")
+}

@@ -1,0 +1,25 @@
+-- section 4.10 rc elision: comptime soundness trap (structural)
+-- @req: OPT-01
+-- comptime is fully evaluated before HIR/LIR exist (analyzer step 10), so no
+-- comptime opcode ever reaches the elision pass — the trap is satisfied by
+-- construction. This fixture proves the constant-folding interaction: a
+-- comptime-produced value feeds an rc object that is cloned and dropped; the
+-- pass must not mis-handle the folded constant. Correct output prints the
+-- comptime constant carried through the rc payload.
+
+val SEED = comptime 6 * 7
+
+object Holder {
+    val v: Int
+
+    drop {
+        println("drop: holder {self.v}")
+    }
+}
+
+func main() {
+    val h = rc Holder(SEED)
+    val alias = h
+    println("seed: {SEED}")
+    println("held: {alias.v}")
+}

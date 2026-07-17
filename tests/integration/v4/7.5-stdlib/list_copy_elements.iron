@@ -1,0 +1,20 @@
+-- section: 7.5-stdlib
+-- @req: STDLIB-02
+-- @expected-pass-after: phase-33 (Wave 4 container element-copy)
+-- Copying a List[T] where T has a user copy block must deep-copy each element.
+-- RED until Wave 4 element-copy monomorphization lands.
+
+object Tracked {
+    val id: Int
+    copy {
+        println("copy {self.id}")
+    }
+}
+
+func main() {
+    var src: [Tracked] = []
+    src.push(Tracked(1))
+    src.push(Tracked(2))
+    val dst = src
+    println("dst: {dst.len()}")
+}

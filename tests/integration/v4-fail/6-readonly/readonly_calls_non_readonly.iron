@@ -1,0 +1,14 @@
+-- section 6.1 negative: readonly method calls a non-readonly helper
+-- @req: READ-01
+-- @expected-pass-after: phase-22
+-- readonly methods may only call other readonly methods
+object Player {
+    var hp: Int
+    func reset(self) {
+        self.hp = 100
+    }
+    readonly func get_summary(self) -> Int {
+        self.reset()
+        return self.hp
+    }
+}

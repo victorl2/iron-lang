@@ -1,0 +1,25 @@
+-- section: 7-drop-copy
+-- @req: DROP-06
+-- @expected-pass-after: phase-24
+-- extends-spec: object with copy block type-checks and drop fires at scope exit
+
+object Buffer {
+    var data: Int
+
+    init(d: Int) {
+        self.data = d
+    }
+
+    copy {
+        val dummy = 0
+    }
+
+    drop {
+        println("drop Buffer")
+    }
+}
+
+func main() {
+    val original = Buffer.init(42)
+    println("data: {original.data}")
+}

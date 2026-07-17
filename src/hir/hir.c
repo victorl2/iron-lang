@@ -292,6 +292,19 @@ IronHIR_Stmt *iron_hir_stmt_leak(IronHIR_Module *mod, IronHIR_Expr *value,
     return s;
 }
 
+/* Phase 28 ARENA-04 (Plan 28-04): `in <arena> { ... }` default-arena block. */
+IronHIR_Stmt *iron_hir_stmt_in_arena(IronHIR_Module *mod, IronHIR_Expr *arena,
+                                      IronHIR_Block *body, Iron_Span span) {
+    IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_in_arena");
+    memset(s, 0, sizeof(*s));
+    s->kind           = IRON_HIR_STMT_IN_ARENA;
+    s->span           = span;
+    s->in_arena.arena = arena;
+    s->in_arena.body  = body;
+    return s;
+}
+
 /* ── Expression constructors ─────────────────────────────────────────────── */
 
 IronHIR_Expr *iron_hir_expr_int_lit(IronHIR_Module *mod, int64_t value,
@@ -535,6 +548,67 @@ IronHIR_Expr *iron_hir_expr_rc(IronHIR_Module *mod, IronHIR_Expr *inner,
     return e;
 }
 
+/* Phase 28 ARENA-03/05 (Plan 28-04): arena allocation constructor. */
+IronHIR_Expr *iron_hir_expr_arena_alloc(IronHIR_Module *mod, IronHIR_Expr *inner,
+                                         IronHIR_Expr *arena, bool allow_drop_skip,
+                                         Iron_Type *type, Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_arena_alloc");
+    memset(e, 0, sizeof(*e));
+    e->kind                      = IRON_HIR_EXPR_ARENA_ALLOC;
+    e->span                      = span;
+    e->type                      = type;
+    e->arena_alloc.inner         = inner;
+    e->arena_alloc.arena         = arena;
+    e->arena_alloc.allow_drop_skip = allow_drop_skip;
+    return e;
+}
+
+/* Phase 27 POL-08 (Plan 27-02): weak rc null constructor. No operands —
+ * lowers to a literal NULL pointer at emit_c. */
+IronHIR_Expr *iron_hir_expr_weak_rc_null(IronHIR_Module *mod,
+                                          Iron_Type *type, Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_weak_rc_null");
+    memset(e, 0, sizeof(*e));
+    e->kind = IRON_HIR_EXPR_WEAK_RC_NULL;
+    e->span = span;
+    e->type = type;
+    return e;
+}
+
+/* Phase 27 POL-08 (Plan 27-02): rc_val.downgrade() → weak rc T. Receiver
+ * is a strong rc; result is the same payload pointer with weak_count
+ * bumped by the Plan 27-01 runtime. */
+IronHIR_Expr *iron_hir_expr_weak_rc_downgrade(IronHIR_Module *mod,
+                                               IronHIR_Expr *strong_rc_val,
+                                               Iron_Type *type, Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_weak_rc_downgrade");
+    memset(e, 0, sizeof(*e));
+    e->kind = IRON_HIR_EXPR_WEAK_RC_DOWNGRADE;
+    e->span = span;
+    e->type = type;
+    e->weak_rc_downgrade.strong_rc_val = strong_rc_val;
+    return e;
+}
+
+/* Phase 27 POL-09 (Plan 27-02): weak_val.upgrade() → T? (nullable strong).
+ * Lowers to the Rust Arc canonical CAS loop in iron_rc_upgrade (Plan 27-01).
+ * Returns NULL when strong_count has dropped to 0. */
+IronHIR_Expr *iron_hir_expr_weak_rc_upgrade(IronHIR_Module *mod,
+                                             IronHIR_Expr *weak_rc_val,
+                                             Iron_Type *type, Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_weak_rc_upgrade");
+    memset(e, 0, sizeof(*e));
+    e->kind = IRON_HIR_EXPR_WEAK_RC_UPGRADE;
+    e->span = span;
+    e->type = type;
+    e->weak_rc_upgrade.weak_rc_val = weak_rc_val;
+    return e;
+}
+
 IronHIR_Expr *iron_hir_expr_construct(IronHIR_Module *mod, Iron_Type *type,
                                         const char **field_names,
                                         IronHIR_Expr **field_values, int field_count,
@@ -713,5 +787,41 @@ IronHIR_Expr *iron_hir_expr_pattern(IronHIR_Module *mod,
     e->pattern.binding_names         = binding_names;
     e->pattern.nested_patterns       = nested_patterns;
     e->pattern.binding_count         = binding_count;
+    return e;
+}
+
+/* Phase 20 PTR-04/08/09 — &lvalue lowering + auto-address materialization.
+ * Mirrors iron_hir_expr_unop shape (single sub-expr + operator-style tag).
+ * gen_source is derived in hir_lower.c by walking to the outermost root
+ * binding (OQ-C: field-pointer parent gen = outermost-allocation gen). */
+IronHIR_Expr *iron_hir_expr_addr_of(IronHIR_Module *mod, IronHIR_Expr *target,
+                                     IronHIR_GenSource gen_source,
+                                     Iron_Type *type, Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_addr_of");
+    memset(e, 0, sizeof(*e));
+    e->kind             = IRON_HIR_EXPR_ADDR_OF;
+    e->span             = span;
+    e->type             = type;
+    e->addr_of.target     = target;
+    e->addr_of.gen_source = gen_source;
+    return e;
+}
+
+/* Phase 20 PTR-06 — auto-deref expansion at FIELD_ACCESS / METHOD_CALL on
+ * *T receivers (read half) AND OQ-A write half (assignment-LHS field-access
+ * on *var T, lowered to DEREF + field-store). LIR side picks PTR_LOAD vs
+ * PTR_STORE based on usage context. */
+IronHIR_Expr *iron_hir_expr_deref(IronHIR_Module *mod, IronHIR_Expr *target,
+                                   IronHIR_GenSource gen_source,
+                                   Iron_Type *type, Iron_Span span) {
+    IronHIR_Expr *e = ARENA_ALLOC(mod->arena, IronHIR_Expr);
+    if (!e) iron_oom_abort("hir.c:iron_hir_expr_deref");
+    memset(e, 0, sizeof(*e));
+    e->kind             = IRON_HIR_EXPR_DEREF;
+    e->span             = span;
+    e->type             = type;
+    e->deref.target     = target;
+    e->deref.gen_source = gen_source;
     return e;
 }

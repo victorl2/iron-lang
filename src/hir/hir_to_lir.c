@@ -33,6 +33,41 @@ typedef struct { IronHIR_VarId key; IronLIR_ValueId value; } VarAllocaEntry;
 typedef struct { IronHIR_VarId key; IronLIR_ValueId value; } VarValEntry;
 typedef struct { IronHIR_VarId key; IronLIR_ValueId value; } ParamEntry;
 
+/* Phase 24 DROP-01 (Plan 24-02): returns true if the type has a drop block.
+ * Methods are NOT stored on Iron_ObjectDecl (Plan 86 layout) — scan
+ * program->decls for IRON_NODE_METHOD_DECL with matching type_name + is_drop. */
+static bool type_has_drop_block(Iron_Type *t, Iron_Program *program) {
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl) return false;
+    if (!program) return false;
+    const char *type_name = t->object.decl->name;
+    if (!type_name) return false;
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+        if (!m->type_name || strcmp(m->type_name, type_name) != 0) continue;
+        if (m->is_drop) return true;
+    }
+    return false;
+}
+
+/* ── Phase 24 DROP-01 (Plan 24-02): drop-entry for scope cleanup ──────────── */
+/* Records a stack-local binding that needs its destructor called at scope exit.
+ * Pushed during val/var lowering when the binding's Iron_Type has a drop block.
+ * Emitted in LIFO order inside emit_defer_cleanup (after defer-free bodies). */
+typedef struct IronLIR_DropEntry_s {
+    IronLIR_ValueId alloca_id;   /* ALLOCA ValueId (or direct value if is_direct_value) */
+    Iron_Type      *object_type; /* Iron_Type* of the object (kind == IRON_TYPE_OBJECT) */
+    bool            is_direct_value; /* true: alloca_id is a direct value (immutable val); */
+                                     /* false: alloca_id is a pointer to load from (mutable var) */
+    /* Phase 28 ARENA-04 (Plan 28-04): when true this entry is NOT an object
+     * destructor — it is an `in arena {}` scope-exit marker that emits
+     * IRON_LIR_ARENA_POP. Registered on block entry so the pop fires on EVERY
+     * exit edge (normal fall-through, early return, break/continue) through the
+     * same drop-stack pump that runs defer/drop cleanup. object_type is NULL. */
+    bool            is_arena_pop;
+} IronLIR_DropEntry;
+
 /* ── Lowering context ────────────────────────────────────────────────────── */
 typedef struct {
     IronHIR_Module  *hir;
@@ -57,6 +92,13 @@ typedef struct {
     int              defer_depth;
     int              function_scope_depth;
 
+    /* Phase 24 DROP-01 (Plan 24-02): per-scope drop-call entries (LIFO).
+     * Parallel to defer_stacks — one stb_ds IronLIR_DropEntry array per
+     * scope depth. Entries are pushed at val/var bindings whose type has
+     * a drop block; emit_defer_cleanup emits drop calls AFTER defer-free
+     * bodies at the same depth (DROP-DEFER-04 ordering). */
+    IronLIR_DropEntry **drop_stacks; /* stb_ds array of stb_ds arrays of IronLIR_DropEntry */
+
     /* Cleanup blocks for defer */
     IronLIR_Block  **cleanup_blocks; /* stb_ds array, one per scope depth */
 
@@ -66,6 +108,10 @@ typedef struct {
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
 static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr);
+static const char *emit_type_to_c_name_for_box(HIR_to_LIR_Ctx *ctx,
+                                                const Iron_Type *elem);
+static const char *emit_resource_elem_escaped(HIR_to_LIR_Ctx *ctx,
+                                              const Iron_Type *elem);
 static void lower_block_stmts(HIR_to_LIR_Ctx *ctx, IronHIR_Block *block);
 static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt);
 static void ssa_construct_func(IronLIR_Func *fn);
@@ -138,6 +184,11 @@ static void push_defer_scope(HIR_to_LIR_Ctx *ctx) {
         arrput(ctx->defer_stacks, (IronHIR_Block **)NULL);
     }
     ctx->defer_stacks[ctx->defer_depth - 1] = NULL;
+    /* Phase 24 DROP-01 (Plan 24-02): parallel drop_stacks initialization */
+    while ((int)arrlen(ctx->drop_stacks) < ctx->defer_depth) {
+        arrput(ctx->drop_stacks, (IronLIR_DropEntry *)NULL);
+    }
+    ctx->drop_stacks[ctx->defer_depth - 1] = NULL;
 }
 
 static void pop_defer_scope(HIR_to_LIR_Ctx *ctx) {
@@ -146,6 +197,183 @@ static void pop_defer_scope(HIR_to_LIR_Ctx *ctx) {
     if (ctx->defer_depth < (int)arrlen(ctx->defer_stacks)) {
         arrfree(ctx->defer_stacks[ctx->defer_depth]);
         ctx->defer_stacks[ctx->defer_depth] = NULL;
+    }
+    /* Phase 24 DROP-01 (Plan 24-02): parallel drop_stacks cleanup */
+    if (ctx->defer_depth < (int)arrlen(ctx->drop_stacks)) {
+        arrfree(ctx->drop_stacks[ctx->defer_depth]);
+        ctx->drop_stacks[ctx->defer_depth] = NULL;
+    }
+}
+
+/* Phase 24 DROP-01 (Plan 24-02): emit drop calls for the drop_stacks entries
+ * from scope depth d, in LIFO order (most-recently-bound dropped first).
+ *
+ * Phase 26 POL-06 (Plan 26-02): IRON_TYPE_RC entries emit IRON_LIR_RC_RELEASE
+ * (NOT a direct <Type>_drop call) — iron_rc_release decides whether to
+ * invoke the destructor based on refcount, per RESEARCH §249 Anti-Pattern. */
+static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span span) {
+    if (!ctx->drop_stacks || d >= (int)arrlen(ctx->drop_stacks)) return;
+    IronLIR_DropEntry *drop_list = ctx->drop_stacks[d];
+    int n = (int)arrlen(drop_list);
+    for (int i = n - 1; i >= 0; i--) {
+        IronLIR_DropEntry *entry = &drop_list[i];
+        /* Phase 28 ARENA-04 (Plan 28-04): arena-pop scope marker. Emit
+         * IRON_LIR_ARENA_POP so the `in arena {}` block pops the TLS
+         * active-arena on this exit edge. Fires from BOTH emit_scope_defers
+         * (normal exit) and emit_defer_cleanup (early return), so the pop
+         * survives every exit edge (Pitfall 2). */
+        if (entry->is_arena_pop) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            iron_lir_arena_pop(ctx->current_func, ctx->current_block, span);
+            continue;
+        }
+        if (!entry->object_type) continue;
+        /* Phase 26 POL-06 (Plan 26-02): IRON_TYPE_RC scope-exit emits
+         * IRON_LIR_RC_RELEASE on the binding value. Plan 26-03 will swap
+         * in the <TypeName>_rc_drop trampoline at iron_rc_alloc time;
+         * Plan 26-02 leaves drop_fn=NULL so iron_rc_release simply
+         * frees the block once refcount reaches 0. */
+        if (entry->object_type->kind == IRON_TYPE_RC) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            iron_lir_rc_release(ctx->current_func, ctx->current_block,
+                                entry->alloca_id, span);
+            continue;
+        }
+        /* Phase 27 POL-08 (Plan 27-03): IRON_TYPE_WEAK_RC scope-exit emits
+         * IRON_LIR_WEAK_RC_RELEASE on the binding value. Closes the
+         * weak-count balance equation for OQ-04: every weak rc binding
+         * created via downgrade() contributes +1 to weak_count at
+         * construction, which must be paired with exactly one release at
+         * scope exit. The runtime helper iron_weak_rc_release decrements
+         * weak_count relaxed and conditionally frees the block when both
+         * weak_count and strong_count have reached 0 (RC-LAYOUT.md §8). */
+        if (entry->object_type->kind == IRON_TYPE_WEAK_RC) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            iron_lir_weak_rc_release(ctx->current_func, ctx->current_block,
+                                     entry->alloca_id, span);
+            continue;
+        }
+        if (entry->object_type->kind != IRON_TYPE_OBJECT) continue;
+        struct Iron_ObjectDecl *od = entry->object_type->object.decl;
+        if (!od) continue;
+
+        /* Phase 33 OQ-02 (Plan 33-07): a Box[T] binding's scope-exit drop runs
+         * the per-T synthesized free helper Iron_Box_<elemC>_free (NOT the
+         * generic box.iron drop stub, which is never lowered). The element type
+         * is carried on object.elem by the by-name Box dispatch. */
+        if (od->name && strcmp(od->name, "Box") == 0 &&
+            entry->object_type->object.elem) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block))
+                continue;
+            const char *box_prefix = emit_type_to_c_name_for_box(ctx,
+                entry->object_type->object.elem);
+            if (!box_prefix) continue;
+            size_t flen = strlen(box_prefix) + 6; /* "_free" + NUL */
+            char *free_name = (char *)iron_arena_alloc(ctx->lir_arena, flen, 1);
+            if (!free_name) continue;
+            snprintf(free_name, flen, "%s_free", box_prefix);
+            IronLIR_Instr *bfref = iron_lir_func_ref(ctx->current_func,
+                ctx->current_block, free_name, NULL, span);
+            if (!bfref) continue;
+            IronLIR_ValueId bargs[1] = { entry->alloca_id };
+            IronLIR_Instr *bcall = iron_lir_call(ctx->current_func,
+                ctx->current_block, NULL, bfref->id, bargs, 1, NULL, span);
+            if (bcall) bcall->call.self_by_addr = true;
+            continue;
+        }
+
+        /* Phase 33 STDLIB-07/08/09 (Plan 33-05): scope-exit drop for the
+         * nocopy resource types runs the synthesized destructor helper:
+         *   Mutex[T]      -> Iron_Mutex_<T>_destroy
+         *   MutexGuard[T] -> Iron_MutexGuard_<T>_unlock  (releases the lock)
+         *   Channel[T]    -> Iron_Channel_<T>_destroy
+         *   FileHandle    -> Iron_FileHandle_drop        (closes the fd)
+         * Each takes the binding by address (self_by_addr). The surface
+         * drop stubs are never lowered, so this is the only release path. */
+        if (od->name) {
+            const char *drop_helper = NULL;
+            char namebuf[64];
+            const char *elem_esc = NULL;
+            if (entry->object_type->object.elem) {
+                elem_esc = emit_resource_elem_escaped(ctx,
+                    entry->object_type->object.elem);
+            }
+            if (strcmp(od->name, "Mutex") == 0 && elem_esc) {
+                snprintf(namebuf, sizeof(namebuf), "Iron_Mutex_%s_destroy", elem_esc);
+                drop_helper = namebuf;
+            } else if (strcmp(od->name, "MutexGuard") == 0 && elem_esc) {
+                snprintf(namebuf, sizeof(namebuf), "Iron_MutexGuard_%s_unlock", elem_esc);
+                drop_helper = namebuf;
+            } else if (strcmp(od->name, "Channel") == 0 && elem_esc) {
+                snprintf(namebuf, sizeof(namebuf), "Iron_Channel_%s_destroy", elem_esc);
+                drop_helper = namebuf;
+            } else if (strcmp(od->name, "RWLock") == 0 && elem_esc) {
+                snprintf(namebuf, sizeof(namebuf), "Iron_RWLock_%s_destroy", elem_esc);
+                drop_helper = namebuf;
+            } else if (strcmp(od->name, "RWReadGuard") == 0 && elem_esc) {
+                snprintf(namebuf, sizeof(namebuf), "Iron_RWReadGuard_%s_rdunlock", elem_esc);
+                drop_helper = namebuf;
+            } else if (strcmp(od->name, "RWWriteGuard") == 0 && elem_esc) {
+                snprintf(namebuf, sizeof(namebuf), "Iron_RWWriteGuard_%s_wrunlock", elem_esc);
+                drop_helper = namebuf;
+            } else if (strcmp(od->name, "FileHandle") == 0) {
+                drop_helper = "Iron_FileHandle_drop";
+            }
+            if (drop_helper) {
+                if (!ctx->current_block || block_is_terminated(ctx->current_block))
+                    continue;
+                const char *dn = iron_arena_strdup(ctx->lir_arena, drop_helper,
+                                                   strlen(drop_helper));
+                if (!dn) continue;
+                IronLIR_Instr *dref = iron_lir_func_ref(ctx->current_func,
+                    ctx->current_block, dn, NULL, span);
+                if (!dref) continue;
+                IronLIR_ValueId dargs[1] = { entry->alloca_id };
+                IronLIR_Instr *dcall = iron_lir_call(ctx->current_func,
+                    ctx->current_block, NULL, dref->id, dargs, 1, NULL, span);
+                if (dcall) dcall->call.self_by_addr = true;
+                continue;
+            }
+        }
+
+        /* Find the drop method's LIR mangled name */
+        const char *type_name = od->name;
+        if (!type_name) continue;
+        size_t tlen = strlen(type_name);
+        if (tlen + 6 >= 256) continue;
+        char lir_drop_name[256];
+        memcpy(lir_drop_name, type_name, tlen);
+        lir_drop_name[tlen]   = '_';
+        lir_drop_name[tlen+1] = 'd';
+        lir_drop_name[tlen+2] = 'r';
+        lir_drop_name[tlen+3] = 'o';
+        lir_drop_name[tlen+4] = 'p';
+        lir_drop_name[tlen+5] = '\0';
+        /* Lowercase chars before first '_' (mirror hir_lower.c mangling) */
+        for (int ci = 0; lir_drop_name[ci] && lir_drop_name[ci] != '_'; ci++) {
+            if (lir_drop_name[ci] >= 'A' && lir_drop_name[ci] <= 'Z')
+                lir_drop_name[ci] = (char)(lir_drop_name[ci] + ('a' - 'A'));
+        }
+        /* Arena-copy the name so it outlives the stack buffer */
+        const char *drop_name_arena = iron_arena_strdup(ctx->lir_arena,
+                                                         lir_drop_name,
+                                                         strlen(lir_drop_name));
+        if (!drop_name_arena) continue;
+
+        /* Emit: call <type>_drop(&alloca) — alloca_id is always an alloca/slot
+         * pointer in the LIR. Set self_by_addr=true so emit_c.c emits "&arg"
+         * for the first argument (the compiled drop method takes T *self). */
+        if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+
+        /* func_ref for the drop method */
+        IronLIR_Instr *fref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
+                                                  drop_name_arena, NULL, span);
+        if (!fref) continue;
+        /* Pass alloca_id as the self argument; self_by_addr makes emit_c emit &arg */
+        IronLIR_ValueId args[1] = { entry->alloca_id };
+        IronLIR_Instr *call = iron_lir_call(ctx->current_func, ctx->current_block,
+                                             NULL, fref->id, args, 1, NULL, span);
+        if (call) call->call.self_by_addr = true;
     }
 }
 
@@ -169,6 +397,9 @@ static void emit_scope_defers(HIR_to_LIR_Ctx *ctx, int target_depth, Iron_Span s
                 }
             }
         }
+        /* Phase 24 DROP-01 (Plan 24-02): emit drop calls for this scope depth
+         * AFTER defer-free bodies (DROP-DEFER-04 ordering). */
+        emit_drop_entries_at_depth(ctx, d, span);
     }
 }
 
@@ -928,6 +1159,94 @@ static IronLIR_ValueId lower_short_circuit_or(HIR_to_LIR_Ctx *ctx,
 
 /* ── Pass 1: Expression lowering ─────────────────────────────────────────── */
 
+/* Phase 33 OQ-02 (Plan 33-07): build the `Iron_Box_<elemC>` mangled prefix for
+ * a Box element type, matching emit_type_to_c (emit_helpers.c) + emit_ensure_box
+ * EXACTLY so the LIR-time call name equals the emit-time synthesized helper +
+ * typedef name. Box elements are realistically primitives or named
+ * object/enum/interface types. The element-C mapping below mirrors
+ * emit_type_to_c's primitive arms and emit_object_type_name's `Iron_<name>`
+ * mangle; the space/`*`-escaping loop mirrors emit_ensure_box's name builder. */
+static const char *emit_type_to_c_name_for_box(HIR_to_LIR_Ctx *ctx,
+                                                const Iron_Type *elem) {
+    if (!elem) return NULL;
+    const char *elem_c = NULL;
+    char obj_buf[256];
+    switch ((int)elem->kind) {
+        case IRON_TYPE_INT:     elem_c = "int64_t";     break;
+        case IRON_TYPE_INT8:    elem_c = "int8_t";      break;
+        case IRON_TYPE_INT16:   elem_c = "int16_t";     break;
+        case IRON_TYPE_INT32:   elem_c = "int32_t";     break;
+        case IRON_TYPE_INT64:   elem_c = "int64_t";     break;
+        case IRON_TYPE_UINT:    elem_c = "uint64_t";    break;
+        case IRON_TYPE_UINT8:   elem_c = "uint8_t";     break;
+        case IRON_TYPE_UINT16:  elem_c = "uint16_t";    break;
+        case IRON_TYPE_UINT32:  elem_c = "uint32_t";    break;
+        case IRON_TYPE_UINT64:  elem_c = "uint64_t";    break;
+        case IRON_TYPE_FLOAT:   elem_c = "double";      break;
+        case IRON_TYPE_FLOAT32: elem_c = "float";       break;
+        case IRON_TYPE_FLOAT64: elem_c = "double";      break;
+        case IRON_TYPE_BOOL:    elem_c = "bool";        break;
+        case IRON_TYPE_STRING:  elem_c = "Iron_String"; break;
+        case IRON_TYPE_OBJECT:
+            if (elem->object.decl && elem->object.decl->name) {
+                snprintf(obj_buf, sizeof(obj_buf), "Iron_%s",
+                         elem->object.decl->name);
+                elem_c = obj_buf;
+            }
+            break;
+        case IRON_TYPE_ENUM:
+            if (elem->enu.mangled_name) elem_c = elem->enu.mangled_name;
+            else if (elem->enu.decl && elem->enu.decl->name) {
+                snprintf(obj_buf, sizeof(obj_buf), "Iron_%s",
+                         elem->enu.decl->name);
+                elem_c = obj_buf;
+            }
+            break;
+        case IRON_TYPE_INTERFACE:
+            if (elem->interface.decl && elem->interface.decl->name) {
+                snprintf(obj_buf, sizeof(obj_buf), "Iron_%s",
+                         elem->interface.decl->name);
+                elem_c = obj_buf;
+            }
+            break;
+        /* -Wswitch-enum opt-out: composite/meta element kinds are not
+         * supported as Box elements yet; return NULL so the caller falls
+         * back to the generic method path. */
+        default: break;
+    }
+    if (!elem_c) return NULL;
+    /* Build "Iron_Box_<escaped elem_c>" with space/`*` escaped to `_`
+     * (identical formula to emit_ensure_box). */
+    const char prefix[] = "Iron_Box_";
+    size_t plen = sizeof(prefix) - 1;
+    size_t elen = strlen(elem_c);
+    char *buf = (char *)iron_arena_alloc(ctx->lir_arena, plen + elen + 1, 1);
+    if (!buf) iron_oom_abort("hir_to_lir.c:emit_type_to_c_name_for_box");
+    memcpy(buf, prefix, plen);
+    size_t w = plen;
+    for (const char *p = elem_c; *p; p++)
+        buf[w++] = (*p == ' ' || *p == '*') ? '_' : *p;
+    buf[w] = '\0';
+    return buf;
+}
+
+/* Phase 33 STDLIB-07/08 (Plan 33-05): build the escaped element-C suffix for
+ * a Mutex/Channel element type (e.g. "int64_t"), matching emit_elem_c_escaped
+ * in emit_helpers.c so the LIR-time call name equals the emit-time synthesized
+ * helper name. Reuses the element-C mapping from emit_type_to_c_name_for_box by
+ * stripping its "Iron_Box_" prefix. Returns NULL for unsupported element kinds
+ * so the caller falls back to the generic method path. */
+static const char *emit_resource_elem_escaped(HIR_to_LIR_Ctx *ctx,
+                                               const Iron_Type *elem) {
+    const char *boxname = emit_type_to_c_name_for_box(ctx, elem);
+    if (!boxname) return NULL;
+    /* boxname == "Iron_Box_<escaped>" — return the suffix after the prefix. */
+    const char prefix[] = "Iron_Box_";
+    size_t plen = sizeof(prefix) - 1;
+    if (strncmp(boxname, prefix, plen) != 0) return NULL;
+    return boxname + plen;
+}
+
 static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     if (!expr) return IRON_LIR_VALUE_INVALID;
     if (!ctx->current_block) return IRON_LIR_VALUE_INVALID; /* dead code after return */
@@ -1057,6 +1376,17 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         IronLIR_ValueId *args = NULL;
         for (int i = 0; i < expr->call.arg_count; i++) {
             IronLIR_ValueId av = lower_expr(ctx, expr->call.args[i]);
+            /* Phase 26 POL-06 (Plan 26-02): rc copy site — passing an
+             * IRON_TYPE_RC value as a CALL arg bumps the refcount so the
+             * callee receives a counted reference. Mirrors C++ shared_ptr
+             * pass-by-value semantics. The retain is emitted BEFORE the
+             * call so the count is accurate at function entry. */
+            if (expr->call.args[i] && expr->call.args[i]->type &&
+                expr->call.args[i]->type->kind == IRON_TYPE_RC &&
+                ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                iron_lir_rc_retain(ctx->current_func, ctx->current_block,
+                                   av, span);
+            }
             arrput(args, av);
         }
         /* For direct calls: callee is an IDENT or FUNC_REF → look up func_decl */
@@ -1093,11 +1423,356 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     }
 
     case IRON_HIR_EXPR_METHOD_CALL: {
+        /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset / Ptr.diff compiler builtins.
+         * `Ptr.offset(p, n)` parses as IRON_NODE_METHOD_CALL (uppercase "Ptr" +
+         * lowercase "offset" heuristic) and lowers to IRON_HIR_EXPR_METHOD_CALL
+         * with object = FUNC_REF("Ptr") and method = "offset" | "diff".
+         * Option C: re-run by-name predicate; no flag stored on the HIR node. */
+        if (expr->method_call.object &&
+            expr->method_call.object->kind == IRON_HIR_EXPR_FUNC_REF &&
+            expr->method_call.object->func_ref.func_name &&
+            strcmp(expr->method_call.object->func_ref.func_name, "Ptr") == 0 &&
+            expr->method_call.method) {
+            bool hir_is_ptr_offset = strcmp(expr->method_call.method, "offset") == 0;
+            bool hir_is_ptr_diff   = strcmp(expr->method_call.method, "diff")   == 0;
+
+            if (hir_is_ptr_offset && expr->method_call.arg_count == 2 &&
+                expr->method_call.args[0] && expr->method_call.args[1]) {
+                /* emit IRON_LIR_PTR_OFFSET: result_ptr = ptr + n */
+                IronLIR_ValueId ptr_v = lower_expr(ctx, expr->method_call.args[0]);
+                IronLIR_ValueId off_v = lower_expr(ctx, expr->method_call.args[1]);
+                IronLIR_Instr *oi = iron_lir_ptr_offset(
+                    ctx->current_func, ctx->current_block,
+                    ptr_v, off_v, 0, type, span);
+                return oi->id;
+            }
+
+            if (hir_is_ptr_diff && expr->method_call.arg_count == 2 &&
+                expr->method_call.args[0] && expr->method_call.args[1]) {
+                /* emit IRON_LIR_PTR_DIFF: count = (a - b) / sizeof(T) */
+                IronLIR_ValueId a_v = lower_expr(ctx, expr->method_call.args[0]);
+                IronLIR_ValueId b_v = lower_expr(ctx, expr->method_call.args[1]);
+                IronLIR_Instr *di = iron_lir_ptr_diff(
+                    ctx->current_func, ctx->current_block,
+                    a_v, b_v, 0, type, span);
+                return di->id;
+            }
+        }
+
+        /* Phase 33 STDLIB-10 (Plan 33-06): RawPtr.of(x) lowering — produces a
+         * type-erased bare `int64_t *` pointing at the argument's storage.
+         * Implementation strategy: ALLOCA a fresh temp slot of arg's type,
+         * STORE the arg value into it, then CALL the per-T helper
+         * Iron_RawPtr_of_<elemC>(<elemC>*) passing the ALLOCA pointer directly
+         * (NO self_by_addr — the ALLOCA result is already a typed pointer to
+         * stack storage). This sidesteps the inline-constant trap (`&7LL` is
+         * an invalid C lvalue) and gives the helper a real stack slot whose
+         * address is stable for the rest of the enclosing scope. Bypasses the
+         * E0294 `&`-cannot-produce-unchecked guard because the lowering is
+         * compiler-internal, not a user `&` expression. */
+        if (expr->method_call.object &&
+            expr->method_call.object->kind == IRON_HIR_EXPR_FUNC_REF &&
+            expr->method_call.object->func_ref.func_name &&
+            strcmp(expr->method_call.object->func_ref.func_name, "RawPtr") == 0 &&
+            expr->method_call.method &&
+            strcmp(expr->method_call.method, "of") == 0 &&
+            expr->method_call.arg_count == 1 &&
+            expr->method_call.args[0] &&
+            expr->method_call.args[0]->type) {
+            Iron_Type *arg_t = (Iron_Type *)expr->method_call.args[0]->type;
+            const char *elem_c =
+                emit_type_to_c_name_for_box(ctx, arg_t);
+            /* emit_type_to_c_name_for_box returns "Iron_Box_<esc>"; strip the
+             * prefix to recover the bare escaped element-C name. */
+            const char prefix[] = "Iron_Box_";
+            size_t plen = sizeof(prefix) - 1;
+            const char *esc = (elem_c && strncmp(elem_c, prefix, plen) == 0)
+                ? elem_c + plen : NULL;
+            if (esc) {
+                size_t nl = strlen(esc) + 20;
+                char *fname = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                if (!fname) iron_oom_abort("hir_to_lir.c:rawptr_of_name");
+                snprintf(fname, nl, "Iron_RawPtr_of_%s", esc);
+
+                /* Lower the argument expression, then materialize it into a
+                 * fresh stack slot via ALLOCA + STORE so the helper receives
+                 * a stable pointer (inline-constant trap workaround). */
+                IronLIR_ValueId arg_v = lower_expr(ctx, expr->method_call.args[0]);
+                IronLIR_Instr *slot = iron_lir_alloca(ctx->current_func,
+                    ctx->current_block, arg_t, "rawptr_of_tmp", span);
+                iron_lir_store(ctx->current_func, ctx->current_block,
+                    slot->id, arg_v, span);
+
+                IronLIR_ValueId *rargs = NULL;
+                arrput(rargs, slot->id);
+                int rargc = (int)arrlen(rargs);
+                IronLIR_Instr *rref = iron_lir_func_ref(ctx->current_func,
+                    ctx->current_block, fname, NULL, span);
+                IronLIR_Instr *rcall = iron_lir_call(ctx->current_func,
+                    ctx->current_block, NULL, rref->id, rargs, rargc,
+                    type, span);
+                /* ALLOCA emits as a plain variable `_vN`; the helper expects
+                 * `<elemC> *`, so we ask the call site to prefix with `&` via
+                 * self_by_addr (taking the address of the alloca variable —
+                 * which is a real stack lvalue, unlike the inline literal in
+                 * the prior implementation). */
+                rcall->call.self_by_addr = true;
+                arrfree(rargs);
+                return rcall->id;
+            }
+        }
+
+        /* Phase 33 OQ-02 (Plan 33-07): Box CONSTRUCTOR lowering — `Box.new(v)`
+         * / `Box.null()`. The object is FUNC_REF("Box"). Lowers to a CALL to
+         * the per-T synthesized helper Iron_Box_<elemC>_{new,null_val}; the
+         * result `type` is the Box object type (object.elem set), so the CALL
+         * result renders via emit_type_to_c -> emit_ensure_box (typedef +
+         * helpers). Mirrors the Ptr.offset/diff builtin shape above. */
+        if (expr->method_call.object &&
+            expr->method_call.object->kind == IRON_HIR_EXPR_FUNC_REF &&
+            expr->method_call.object->func_ref.func_name &&
+            strcmp(expr->method_call.object->func_ref.func_name, "Box") == 0 &&
+            expr->method_call.method && type &&
+            type->kind == IRON_TYPE_OBJECT && type->object.elem) {
+            const char *elem_c = emit_type_to_c_name_for_box(ctx, type->object.elem);
+            const char *suffix = NULL;
+            if (strcmp(expr->method_call.method, "new") == 0)  suffix = "new";
+            else if (strcmp(expr->method_call.method, "null") == 0) suffix = "null_val";
+            if (suffix && elem_c) {
+                size_t nlen = strlen(elem_c) + strlen(suffix) + 2;
+                char *fname = (char *)iron_arena_alloc(ctx->lir_arena, nlen, 1);
+                if (!fname) iron_oom_abort("hir_to_lir.c:box_ctor_name");
+                snprintf(fname, nlen, "%s_%s", elem_c, suffix);
+                IronLIR_ValueId *bargs = NULL;
+                for (int i = 0; i < expr->method_call.arg_count; i++) {
+                    IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+                    arrput(bargs, av);
+                }
+                int bargc = (int)arrlen(bargs);
+                IronLIR_Instr *bref = iron_lir_func_ref(ctx->current_func,
+                    ctx->current_block, fname, NULL, span);
+                IronLIR_Instr *bcall = iron_lir_call(ctx->current_func,
+                    ctx->current_block, NULL, bref->id, bargs, bargc, type, span);
+                arrfree(bargs);
+                return bcall->id;
+            }
+        }
+
+        /* Phase 33 OQ-02 (Plan 33-07): Box RECEIVER-form lowering —
+         * `boxed.unwrap()` / `boxed.is_null()` / `boxed.free()`. The receiver
+         * resolves to the Box object type (object.elem set). Lowers to a CALL
+         * to Iron_Box_<elemC>_{unwrap,is_null,free} passing &box (self_by_addr,
+         * matching the collection-method ABI: helpers take Box* / const Box*). */
+        if (expr->method_call.object && expr->method_call.object->type &&
+            expr->method_call.object->type->kind == IRON_TYPE_OBJECT &&
+            expr->method_call.object->type->object.decl &&
+            expr->method_call.object->type->object.decl->name &&
+            strcmp(expr->method_call.object->type->object.decl->name, "Box") == 0 &&
+            expr->method_call.object->type->object.elem &&
+            expr->method_call.method) {
+            const char *m = expr->method_call.method;
+            bool b_unwrap = strcmp(m, "unwrap")  == 0;
+            bool b_isnull = strcmp(m, "is_null") == 0;
+            bool b_free   = strcmp(m, "free")    == 0;
+            if (b_unwrap || b_isnull || b_free) {
+                const char *elem_c = emit_type_to_c_name_for_box(ctx,
+                    expr->method_call.object->type->object.elem);
+                const char *suffix = b_unwrap ? "unwrap"
+                                   : b_isnull ? "is_null" : "free";
+                if (elem_c) {
+                    size_t nlen = strlen(elem_c) + strlen(suffix) + 2;
+                    char *fname = (char *)iron_arena_alloc(ctx->lir_arena, nlen, 1);
+                    if (!fname) iron_oom_abort("hir_to_lir.c:box_recv_name");
+                    snprintf(fname, nlen, "%s_%s", elem_c, suffix);
+                    IronLIR_ValueId self_val =
+                        lower_expr(ctx, expr->method_call.object);
+                    IronLIR_ValueId *bargs = NULL;
+                    arrput(bargs, self_val);
+                    int bargc = (int)arrlen(bargs);
+                    IronLIR_Instr *bref = iron_lir_func_ref(ctx->current_func,
+                        ctx->current_block, fname, NULL, span);
+                    IronLIR_Instr *bcall = iron_lir_call(ctx->current_func,
+                        ctx->current_block, NULL, bref->id, bargs, bargc,
+                        type, span);
+                    bcall->call.self_by_addr = true;  /* helpers take Box* */
+                    arrfree(bargs);
+                    return bcall->id;
+                }
+            }
+        }
+
+        /* Phase 33 STDLIB-07/08/09 (Plan 33-05): nocopy resource-type
+         * CONSTRUCTOR lowering — Mutex.new / Channel.new / FileHandle.open.
+         * The object is FUNC_REF("<Namespace>"). Lowers to a CALL to the
+         * per-T (or non-generic) synthesized helper. The result `type` is the
+         * resource object type (object.elem set for the generic ones), so the
+         * CALL result renders via emit_type_to_c -> emit_ensure_* (typedef +
+         * helpers). Mirrors the Box constructor lowering above. */
+        if (expr->method_call.object &&
+            expr->method_call.object->kind == IRON_HIR_EXPR_FUNC_REF &&
+            expr->method_call.object->func_ref.func_name &&
+            expr->method_call.method && type &&
+            type->kind == IRON_TYPE_OBJECT && type->object.decl &&
+            type->object.decl->name) {
+            const char *ns = expr->method_call.object->func_ref.func_name;
+            const char *on = type->object.decl->name;
+            const char *fname = NULL;
+            /* Mutex.new(v) -> Iron_Mutex_<T>_new ; Channel.new(cap) ->
+             * Iron_Channel_<T>_new ; FileHandle.open(path) ->
+             * Iron_FileHandle_open. */
+            if (strcmp(ns, "Mutex") == 0 && strcmp(expr->method_call.method, "new") == 0 &&
+                strcmp(on, "Mutex") == 0 && type->object.elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, type->object.elem);
+                if (esc) {
+                    size_t nl = strlen(esc) + 16;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:mutex_new_name");
+                    snprintf(fn, nl, "Iron_Mutex_%s_new", esc);
+                    fname = fn;
+                }
+            } else if (strcmp(ns, "Channel") == 0 && strcmp(expr->method_call.method, "new") == 0 &&
+                       strcmp(on, "Channel") == 0) {
+                /* Channel.new(capacity) is element-agnostic: it constructs an
+                 * opaque Iron_Channel* via the runtime create. The per-T glue
+                 * is only needed for send/recv, so no elem is required here. */
+                fname = "Iron_channel_create_i64";
+            } else if (strcmp(ns, "RWLock") == 0 && strcmp(expr->method_call.method, "new") == 0 &&
+                       strcmp(on, "RWLock") == 0 && type->object.elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, type->object.elem);
+                if (esc) {
+                    size_t nl = strlen(esc) + 20;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:rwlock_new_name");
+                    snprintf(fn, nl, "Iron_RWLock_%s_new", esc);
+                    fname = fn;
+                }
+            } else if (strcmp(ns, "FileHandle") == 0 &&
+                       strcmp(expr->method_call.method, "open") == 0 &&
+                       strcmp(on, "FileHandle") == 0) {
+                fname = "Iron_FileHandle_open";
+            }
+            if (fname) {
+                IronLIR_ValueId *cargs = NULL;
+                for (int i = 0; i < expr->method_call.arg_count; i++) {
+                    IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+                    arrput(cargs, av);
+                }
+                int cargc = (int)arrlen(cargs);
+                IronLIR_Instr *cref = iron_lir_func_ref(ctx->current_func,
+                    ctx->current_block, fname, NULL, span);
+                IronLIR_Instr *ccall = iron_lir_call(ctx->current_func,
+                    ctx->current_block, NULL, cref->id, cargs, cargc, type, span);
+                arrfree(cargs);
+                return ccall->id;
+            }
+        }
+
+        /* Phase 33 STDLIB-07/08/09 (Plan 33-05): nocopy resource-type
+         * RECEIVER-form lowering — m.lock() / guard.get() / guard.set(v) /
+         * ch.send(v) / ch.recv() / fh.close(). The receiver resolves to the
+         * resource object type. Lowers to a CALL to the synthesized helper,
+         * passing the receiver by address (self_by_addr) so the helpers can
+         * mutate the by-value resource-pointer slot. Mirrors the Box receiver
+         * lowering above. */
+        if (expr->method_call.object && expr->method_call.object->type &&
+            expr->method_call.object->type->kind == IRON_TYPE_OBJECT &&
+            expr->method_call.object->type->object.decl &&
+            expr->method_call.object->type->object.decl->name &&
+            expr->method_call.method) {
+            const char *rn = expr->method_call.object->type->object.decl->name;
+            const char *m  = expr->method_call.method;
+            Iron_Type *elem = expr->method_call.object->type->object.elem;
+            const char *fname = NULL;
+            if (strcmp(rn, "Mutex") == 0 && strcmp(m, "lock") == 0 && elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, elem);
+                if (esc) {
+                    size_t nl = strlen(esc) + 24;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:guard_lock_name");
+                    snprintf(fn, nl, "Iron_MutexGuard_%s_lock", esc);
+                    fname = fn;
+                }
+            } else if (strcmp(rn, "MutexGuard") == 0 &&
+                       (strcmp(m, "get") == 0 || strcmp(m, "set") == 0) && elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, elem);
+                if (esc) {
+                    size_t nl = strlen(esc) + 24;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:guard_getset_name");
+                    snprintf(fn, nl, "Iron_MutexGuard_%s_%s", esc, m);
+                    fname = fn;
+                }
+            } else if (strcmp(rn, "Channel") == 0 &&
+                       (strcmp(m, "send") == 0 || strcmp(m, "recv") == 0) && elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, elem);
+                if (esc) {
+                    size_t nl = strlen(esc) + 20;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:channel_sendrecv_name");
+                    snprintf(fn, nl, "Iron_Channel_%s_%s", esc, m);
+                    fname = fn;
+                }
+            } else if (strcmp(rn, "FileHandle") == 0 && strcmp(m, "close") == 0) {
+                fname = "Iron_FileHandle_close";
+            } else if (strcmp(rn, "RWLock") == 0 &&
+                       (strcmp(m, "read") == 0 || strcmp(m, "write") == 0) && elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, elem);
+                if (esc) {
+                    const char *gp = strcmp(m, "read") == 0
+                        ? "RWReadGuard" : "RWWriteGuard";
+                    size_t nl = strlen(esc) + strlen(gp) + 16;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:rwlock_rw_name");
+                    snprintf(fn, nl, "Iron_%s_%s_%s", gp, esc, m);
+                    fname = fn;
+                }
+            } else if ((strcmp(rn, "RWReadGuard") == 0 ||
+                        strcmp(rn, "RWWriteGuard") == 0) &&
+                       (strcmp(m, "get") == 0 || strcmp(m, "set") == 0) && elem) {
+                const char *esc = emit_resource_elem_escaped(ctx, elem);
+                if (esc) {
+                    size_t nl = strlen(esc) + strlen(rn) + 16;
+                    char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                    if (!fn) iron_oom_abort("hir_to_lir.c:rwguard_getset_name");
+                    snprintf(fn, nl, "Iron_%s_%s_%s", rn, esc, m);
+                    fname = fn;
+                }
+            }
+            if (fname) {
+                IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
+                IronLIR_ValueId *cargs = NULL;
+                arrput(cargs, self_val);
+                for (int i = 0; i < expr->method_call.arg_count; i++) {
+                    IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+                    arrput(cargs, av);
+                }
+                int cargc = (int)arrlen(cargs);
+                IronLIR_Instr *cref = iron_lir_func_ref(ctx->current_func,
+                    ctx->current_block, fname, NULL, span);
+                IronLIR_Instr *ccall = iron_lir_call(ctx->current_func,
+                    ctx->current_block, NULL, cref->id, cargs, cargc, type, span);
+                ccall->call.self_by_addr = true;  /* helpers take T* / Iron_*** */
+                arrfree(cargs);
+                return ccall->id;
+            }
+        }
+
         /* Determine receiver type name for mangling */
         const char *type_name = "Unknown";
         bool is_static_call = false;
         if (expr->method_call.object && expr->method_call.object->type) {
             Iron_Type *obj_type = expr->method_call.object->type;
+            /* `rc T` is an allocation policy applied to T, not a separate method
+             * namespace: a call on an rc-allocated receiver dispatches to T's
+             * method. Unwrap before the kind dispatch below, which otherwise
+             * matches no arm, leaves type_name as "Unknown", and emits a call to
+             * the nonexistent Iron_unknown_<method> — breaking every method call
+             * on an rc value. weak rc is deliberately NOT unwrapped: it cannot be
+             * dereferenced (E0299), and upgrade/downgrade lower to their own LIR
+             * ops rather than reaching this mangling path. */
+            if (obj_type->kind == IRON_TYPE_RC && obj_type->rc.inner) {
+                obj_type = obj_type->rc.inner;
+            }
             if (obj_type->kind == IRON_TYPE_OBJECT && obj_type->object.decl) {
                 type_name = obj_type->object.decl->name;
                 /* Check if method name is actually a func-typed field on the object.
@@ -1514,6 +2189,52 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             }
         }
 
+        /* Phase 26 OQ-03 + Phase 27 OQ-04: closure capture retain emission.
+         * For each val-captured field whose type is rc OR weak rc, emit a
+         * corresponding RETAIN opcode BEFORE iron_lir_make_closure. The pairing
+         * release lives in the synthesized <func_name>_env_drop companion
+         * emitted by the IRON_LIR_MAKE_CLOSURE arm in emit_c.c (Approach A —
+         * companion-in-lifted_funcs). var captures (is_mutable=true) are skipped:
+         * they are pointer-to-binding, not weak/strong refs themselves.
+         *
+         * The capture path (this arm) does NOT go through IRON_LIR_STORE --
+         * captures are loaded into cap_vals[] and packed into the env at
+         * MAKE_CLOSURE emission time (emit_c.c:4280-4360). Therefore Plan
+         * 26-02's STORE+IRON_TYPE_RC retain does NOT cover closure capture;
+         * we emit an explicit retain opcode per rc/weak-rc val capture.
+         *
+         * Pitfall 3 (double-retain) is N/A because STORE is not on this
+         * code path. 1:1 balance is verified by
+         * test_oq03_closure_rc_retain_release (Phase 26) and
+         * test_oq04_closure_weak_rc_retain_release (Phase 27). */
+        if (expr->closure.captures && cap_count > 0 &&
+            ctx->current_block && !block_is_terminated(ctx->current_block)) {
+            for (int ci = 0; ci < cap_count; ci++) {
+                /* Only val captures of rc/weak rc T need a retain; var
+                 * captures carry a pointer to the outer alloca and are not
+                 * refcount events on the rc payload. */
+                if (expr->closure.captures[ci].is_mutable) continue;
+                Iron_Type *cap_ty = expr->closure.captures[ci].type;
+                if (!cap_ty || !cap_vals ||
+                    cap_vals[ci] == IRON_LIR_VALUE_INVALID) continue;
+                if (cap_ty->kind == IRON_TYPE_RC) {
+                    iron_lir_rc_retain(ctx->current_func,
+                                       ctx->current_block,
+                                       cap_vals[ci], span);
+                } else if (cap_ty->kind == IRON_TYPE_WEAK_RC) {
+                    /* Phase 27 OQ-04: mirror of Phase 26 OQ-03 for weak rc
+                     * closure capture. Construction-time retain emitted
+                     * ONCE per closure-instance creation; paired with
+                     * iron_weak_rc_release in the synthesized env_drop
+                     * companion. See docs/dev/RC-LAYOUT.md §9 + Major #5
+                     * hardened invariant. */
+                    iron_lir_weak_rc_retain(ctx->current_func,
+                                            ctx->current_block,
+                                            cap_vals[ci], span);
+                }
+            }
+        }
+
         IronLIR_Instr *mc = iron_lir_make_closure(ctx->current_func, ctx->current_block,
                                                     lifted_name, cap_vals, cap_count,
                                                     type, span);
@@ -1590,6 +2311,48 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         IronLIR_ValueId inner = lower_expr(ctx, expr->rc.inner);
         return iron_lir_rc_alloc(ctx->current_func, ctx->current_block,
                                   inner, type, span)->id;
+    }
+
+    /* Phase 28 ARENA-03/05 (Plan 28-04): arena allocation. Mirror the heap/rc
+     * arms. arena == NULL → IRON_LIR_VALUE_INVALID (emit_c emits
+     * iron_arena_rt_current()). The result is an Iron_FatPtr; deref-routing is
+     * driven by the IRON_LIR_GEN_ARENA tag (the LET-binding pump below excludes
+     * arena allocs from the scope-exit drop stack — the arena owns the memory
+     * and frees it in bulk at reset / arena-drop). */
+    case IRON_HIR_EXPR_ARENA_ALLOC: {
+        IronLIR_ValueId inner = lower_expr(ctx, expr->arena_alloc.inner);
+        IronLIR_ValueId arena_val = IRON_LIR_VALUE_INVALID;
+        if (expr->arena_alloc.arena) {
+            arena_val = lower_expr(ctx, expr->arena_alloc.arena);
+        }
+        return iron_lir_arena_alloc(ctx->current_func, ctx->current_block,
+                                     inner, arena_val,
+                                     expr->arena_alloc.allow_drop_skip,
+                                     type, span)->id;
+    }
+
+    /* Phase 27 POL-08 (Plan 27-02): `weak rc null` lowers to a literal
+     * NULL pointer. The C emit for IRON_LIR_CONST_NULL emits a typed NULL
+     * which works for any weak rc T (alias-typed payload pointer). */
+    case IRON_HIR_EXPR_WEAK_RC_NULL: {
+        return iron_lir_const_null(ctx->current_func, ctx->current_block,
+                                    type, span)->id;
+    }
+
+    /* Phase 27 POL-08 (Plan 27-02): rc_val.downgrade() → IRON_LIR_WEAK_RC_DOWNGRADE. */
+    case IRON_HIR_EXPR_WEAK_RC_DOWNGRADE: {
+        IronLIR_ValueId src = lower_expr(ctx,
+            expr->weak_rc_downgrade.strong_rc_val);
+        return iron_lir_weak_rc_downgrade(ctx->current_func, ctx->current_block,
+                                           src, type, span)->id;
+    }
+
+    /* Phase 27 POL-09 (Plan 27-02): weak_val.upgrade() → IRON_LIR_WEAK_RC_UPGRADE. */
+    case IRON_HIR_EXPR_WEAK_RC_UPGRADE: {
+        IronLIR_ValueId src = lower_expr(ctx,
+            expr->weak_rc_upgrade.weak_rc_val);
+        return iron_lir_weak_rc_upgrade(ctx->current_func, ctx->current_block,
+                                         src, type, span)->id;
     }
 
     case IRON_HIR_EXPR_CONSTRUCT: {
@@ -1686,6 +2449,41 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * If somehow reached as an expression, emit poison. */
         return iron_lir_poison(ctx->current_func, ctx->current_block, type, span)->id;
 
+    /* Phase 20 PTR-04/06/08/09 (Plan 20-02b): pointer ops.
+     *
+     * IRON_HIR_EXPR_ADDR_OF lowers to IRON_LIR_ADDR_OF carrying the
+     * gen_source tag (HEAP / STACK) derived during HIR lowering. The LIR
+     * instruction's `target` operand is the result-id of the operand
+     * expression — emit_c.c assembles the Iron_FatPtr compound literal
+     * `{ .addr = &<lvalue>, .gen = <source-gen> }` from this.
+     *
+     * IRON_HIR_EXPR_DEREF lowers to IRON_LIR_PTR_LOAD by default; the
+     * IRON_HIR_STMT_ASSIGN handler upstream is responsible for the
+     * OQ-A write-half DEREF -> PTR_STORE rewrite when the deref appears
+     * on the LHS of an assignment.
+     *
+     * Both kinds propagate gen_source unchanged from HIR to LIR via the
+     * isomorphic enum mapping (IRON_HIR_GEN_HEAP <-> IRON_LIR_GEN_HEAP). */
+    case IRON_HIR_EXPR_ADDR_OF: {
+        IronLIR_ValueId target = lower_expr(ctx, expr->addr_of.target);
+        if (!ctx->current_block) return IRON_LIR_VALUE_INVALID;
+        IronLIR_GenSource gs =
+            (expr->addr_of.gen_source == IRON_HIR_GEN_HEAP)
+                ? IRON_LIR_GEN_HEAP : IRON_LIR_GEN_STACK;
+        return iron_lir_addr_of(ctx->current_func, ctx->current_block,
+                                target, gs, type, span)->id;
+    }
+
+    case IRON_HIR_EXPR_DEREF: {
+        IronLIR_ValueId fp = lower_expr(ctx, expr->deref.target);
+        if (!ctx->current_block) return IRON_LIR_VALUE_INVALID;
+        IronLIR_GenSource gs =
+            (expr->deref.gen_source == IRON_HIR_GEN_HEAP)
+                ? IRON_LIR_GEN_HEAP : IRON_LIR_GEN_STACK;
+        return iron_lir_ptr_load(ctx->current_func, ctx->current_block,
+                                 fp, gs, type, span)->id;
+    }
+
     default:
         return iron_lir_poison(ctx->current_func, ctx->current_block, type, span)->id;
     }
@@ -1723,6 +2521,22 @@ static void emit_defer_cleanup(HIR_to_LIR_Ctx *ctx, IronLIR_Block *after_block,
 
             switch_block(ctx, cleanup_blk);
             lower_block_stmts(ctx, defer_body);
+            prev_cleanup = ctx->current_block;
+        }
+        /* Phase 24 DROP-01 (Plan 24-02): emit drop calls for this scope depth
+         * AFTER defer-free bodies at the same depth (DROP-DEFER-04 ordering).
+         * Drop entries are emitted in the LAST cleanup block for this depth, or
+         * directly in the entry block chain if no defer blocks exist. */
+        if (ctx->drop_stacks && d < (int)arrlen(ctx->drop_stacks) &&
+            arrlen(ctx->drop_stacks[d]) > 0) {
+            IronLIR_Block *drop_blk = new_block(ctx, make_label(ctx, "drop_cleanup"));
+            if (!cleanup_entry) cleanup_entry = drop_blk;
+            IronLIR_Block *prev_blk = prev_cleanup ? prev_cleanup : entry_block;
+            if (prev_blk && !block_is_terminated(prev_blk)) {
+                iron_lir_jump(ctx->current_func, prev_blk, drop_blk->id, span);
+            }
+            switch_block(ctx, drop_blk);
+            emit_drop_entries_at_depth(ctx, d, span);
             prev_cleanup = ctx->current_block;
         }
     }
@@ -1773,7 +2587,11 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             Iron_Type *alloca_type = type;
             if (stmt->let.init) {
                 IronHIR_ExprKind ik = stmt->let.init->kind;
-                if ((ik == IRON_HIR_EXPR_HEAP || ik == IRON_HIR_EXPR_RC) && type) {
+                /* Phase 28 ARENA-03 (Plan 28-04): arena allocs produce an
+                 * Iron_FatPtr (like heap), so wrap the alloca as a pointer slot
+                 * the same way heap/rc are wrapped. */
+                if ((ik == IRON_HIR_EXPR_HEAP || ik == IRON_HIR_EXPR_RC ||
+                     ik == IRON_HIR_EXPR_ARENA_ALLOC) && type) {
                     /* Use RC wrapper to signal "this alloca holds a pointer" */
                     alloca_type = iron_type_make_rc(ctx->lir_arena, type);
                 }
@@ -1788,6 +2606,12 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                     iron_lir_store(ctx->current_func, ctx->current_block,
                                    alloca_id, init_val, span);
                 }
+            }
+            /* Phase 24 DROP-01 (Plan 24-02): push drop entry for mutable binding */
+            if (type_has_drop_block(type, ctx->program) && ctx->defer_depth > 0 &&
+                ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
+                IronLIR_DropEntry de = { alloca_id, type, false, false };
+                arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             }
         } else if (type && type->kind == IRON_TYPE_INTERFACE) {
             /* Interface-typed immutable val: use ALLOCA+STORE to preserve
@@ -1804,13 +2628,116 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                                    alloca_id, init_val, span);
                 }
             }
+            /* Phase 24 DROP-01 (Plan 24-02): push drop entry for interface-alloca binding */
+            if (type_has_drop_block(type, ctx->program) && ctx->defer_depth > 0 &&
+                ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
+                IronLIR_DropEntry de = { alloca_id, type, false, false };
+                arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+            }
         } else {
             /* Immutable val: bind directly to the init value (no alloca needed).
              * This avoids inserting an alloca into the entry block after it may
-             * have been terminated by a branch instruction. */
-            if (stmt->let.init) {
+             * have been terminated by a branch instruction.
+             * EXCEPTION: if the type has a drop block, we need a stable alloca
+             * address to pass as T* to the drop function at scope exit.
+             * In that case, promote to alloca+store even though it is nominally
+             * immutable (from the IR perspective there will be no further stores). */
+            /* Heap/rc allocations are tracked by value type Iron_FatPtr / T*;
+             * their drop fires on the explicit `free` instruction, NOT at scope
+             * exit.  Promoting them to alloca here would store Iron_FatPtr into
+             * a T-sized slot → C type mismatch.  Exclude them. */
+            /* Phase 28 ARENA-03 (Plan 28-04): arena allocations are owned by
+             * the arena and freed in bulk at reset / arena-drop — they MUST
+             * NOT push a scope-exit drop entry (this is the codegen counterpart
+             * of the W0605 non-trivial-destructor warning). Treat them exactly
+             * like heap/rc bindings, which already skip the drop alloca. */
+            bool init_is_heap_or_rc = stmt->let.init &&
+                (stmt->let.init->kind == IRON_HIR_EXPR_HEAP ||
+                 stmt->let.init->kind == IRON_HIR_EXPR_RC ||
+                 stmt->let.init->kind == IRON_HIR_EXPR_ARENA_ALLOC);
+            bool needs_drop_alloca = stmt->let.init &&
+                                     !init_is_heap_or_rc &&
+                                     type_has_drop_block(type, ctx->program) &&
+                                     ctx->defer_depth > 0 &&
+                                     ctx->drop_stacks &&
+                                     ctx->defer_depth <= (int)arrlen(ctx->drop_stacks);
+            if (needs_drop_alloca) {
+                /* Promote to alloca+store so we have a stable T* for drop. */
+                const char *vname = iron_hir_var_name(ctx->hir, vid);
+                IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, type, vname, span);
+                hmput(ctx->var_alloca_map, vid, alloca_id);
                 IronLIR_ValueId init_val = lower_expr(ctx, stmt->let.init);
-                hmput(ctx->val_binding_map, vid, init_val);
+                if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                    iron_lir_store(ctx->current_func, ctx->current_block,
+                                   alloca_id, init_val, span);
+                }
+                /* Push drop entry using alloca_id (is_direct_value=false → &alloca) */
+                IronLIR_DropEntry de = { alloca_id, type, false, false };
+                arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+            } else {
+                if (stmt->let.init) {
+                    IronLIR_ValueId init_val = lower_expr(ctx, stmt->let.init);
+                    hmput(ctx->val_binding_map, vid, init_val);
+                    /* Phase 26 POL-06 (Plan 26-02): IRON_TYPE_RC val bindings.
+                     * Lifecycle:
+                     *   - fresh rc allocation (IRON_HIR_EXPR_RC) produces T*
+                     *     with refcount=1 — NO retain needed at binding.
+                     *   - aliasing an existing rc binding (init kind != _RC)
+                     *     copies a pointer to the same payload — emit retain
+                     *     so the alias has its own counted reference.
+                     *   - scope exit emits rc_release (per drop_stacks entry
+                     *     pushed here) regardless of source.
+                     * Note: the .alloca_id field of IronLIR_DropEntry actually
+                     * holds the direct-value ID for rc; the release-emit path
+                     * in emit_drop_entries_at_depth recognizes IRON_TYPE_RC
+                     * and uses the value directly (no `&` indirection). */
+                    if (type && type->kind == IRON_TYPE_RC &&
+                        ctx->defer_depth > 0 &&
+                        ctx->drop_stacks &&
+                        ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
+                        /* Retain on alias (init != fresh allocation) */
+                        if (stmt->let.init->kind != IRON_HIR_EXPR_RC &&
+                            ctx->current_block &&
+                            !block_is_terminated(ctx->current_block)) {
+                            iron_lir_rc_retain(ctx->current_func,
+                                               ctx->current_block,
+                                               init_val, span);
+                        }
+                        IronLIR_DropEntry de = { init_val, type, true, false };
+                        arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+                    }
+                    /* Phase 27 POL-08 (Plan 27-03): IRON_TYPE_WEAK_RC val bindings.
+                     * Lifecycle (mirrors the rc path; ground-truth source is
+                     * .downgrade() instead of fresh allocation):
+                     *   - fresh weak rc null literal (IRON_HIR_EXPR_WEAK_RC_NULL)
+                     *     produces a NULL header pointer — weak_count unchanged.
+                     *   - .downgrade() expression (IRON_HIR_EXPR_WEAK_RC_DOWNGRADE)
+                     *     bumps weak_count by 1 — NO retain needed at binding.
+                     *   - aliasing an existing weak rc binding copies a pointer
+                     *     to the same header — emit weak_rc_retain so the alias
+                     *     has its own counted weak reference.
+                     *   - scope exit emits weak_rc_release (per drop_stacks
+                     *     entry pushed here) regardless of source. */
+                    if (type && type->kind == IRON_TYPE_WEAK_RC &&
+                        ctx->defer_depth > 0 &&
+                        ctx->drop_stacks &&
+                        ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
+                        /* Retain on alias (init != fresh downgrade/null) */
+                        IronHIR_ExprKind ik = stmt->let.init->kind;
+                        bool init_is_fresh =
+                            (ik == IRON_HIR_EXPR_WEAK_RC_NULL) ||
+                            (ik == IRON_HIR_EXPR_WEAK_RC_DOWNGRADE);
+                        if (!init_is_fresh &&
+                            ctx->current_block &&
+                            !block_is_terminated(ctx->current_block)) {
+                            iron_lir_weak_rc_retain(ctx->current_func,
+                                                    ctx->current_block,
+                                                    init_val, span);
+                        }
+                        IronLIR_DropEntry de = { init_val, type, true, false };
+                        arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+                    }
+                }
             }
         }
         break;
@@ -1820,6 +2747,16 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         /* Evaluate RHS value */
         IronLIR_ValueId val = lower_expr(ctx, stmt->assign.value);
         if (!ctx->current_block || block_is_terminated(ctx->current_block)) break;
+
+        /* Phase 26 POL-06 (Plan 26-02): rc copy site — assignment of an
+         * IRON_TYPE_RC value bumps the refcount on the source. The retain
+         * is emitted BEFORE the store so the count is accurate when any
+         * subsequent observer reads through the target. */
+        bool rhs_is_rc = stmt->assign.value && stmt->assign.value->type &&
+                         stmt->assign.value->type->kind == IRON_TYPE_RC;
+        if (rhs_is_rc) {
+            iron_lir_rc_retain(ctx->current_func, ctx->current_block, val, span);
+        }
 
         /* Determine target: IDENT -> store to alloca, FIELD_ACCESS -> SET_FIELD, INDEX -> SET_INDEX */
         IronHIR_Expr *target = stmt->assign.target;
@@ -2194,6 +3131,15 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         if (!block_is_terminated(ctx->current_block)) {
             if (stmt->return_stmt.value) {
                 IronLIR_ValueId val = lower_expr(ctx, stmt->return_stmt.value);
+                /* Phase 26 POL-06 (Plan 26-02): rc copy site — returning an
+                 * IRON_TYPE_RC value bumps the refcount so the caller's
+                 * received reference is independently lifetime-tracked. */
+                if (stmt->return_stmt.value->type &&
+                    stmt->return_stmt.value->type->kind == IRON_TYPE_RC &&
+                    ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                    iron_lir_rc_retain(ctx->current_func, ctx->current_block,
+                                       val, span);
+                }
                 iron_lir_return(ctx->current_func, ctx->current_block,
                                 val, false, stmt->return_stmt.value->type, span);
             } else {
@@ -2227,6 +3173,36 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         lower_block_stmts(ctx, stmt->block.block);
         if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
             emit_scope_defers(ctx, block_base_depth - 1, span);
+        }
+        pop_defer_scope(ctx);
+        break;
+    }
+
+    /* Phase 28 ARENA-04 (Plan 28-04): `in <arena> { ... }` default-arena block.
+     * Lowers to IRON_LIR_ARENA_PUSH(arena) ... body ... IRON_LIR_ARENA_POP.
+     * The POP is registered as an arena-pop drop entry at this scope depth so
+     * the existing scope-exit pump emits it on EVERY exit edge — normal
+     * fall-through (emit_scope_defers below) AND early return (emit_defer_cleanup
+     * walks every depth down to the function base). This guarantees the TLS
+     * active-arena stack is balanced even when the body returns/panics. */
+    case IRON_HIR_STMT_IN_ARENA: {
+        IronLIR_ValueId arena_val = IRON_LIR_VALUE_INVALID;
+        if (stmt->in_arena.arena) {
+            arena_val = lower_expr(ctx, stmt->in_arena.arena);
+        }
+        if (!ctx->current_block || block_is_terminated(ctx->current_block)) break;
+        iron_lir_arena_push(ctx->current_func, ctx->current_block, arena_val, span);
+
+        push_defer_scope(ctx);
+        int arena_base_depth = ctx->defer_depth;
+        /* Register the arena-pop marker so every exit edge runs the pop. */
+        if (ctx->drop_stacks && arena_base_depth <= (int)arrlen(ctx->drop_stacks)) {
+            IronLIR_DropEntry pop_entry = { IRON_LIR_VALUE_INVALID, NULL, false, true };
+            arrput(ctx->drop_stacks[arena_base_depth - 1], pop_entry);
+        }
+        lower_block_stmts(ctx, stmt->in_arena.body);
+        if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+            emit_scope_defers(ctx, arena_base_depth - 1, span);
         }
         pop_defer_scope(ctx);
         break;
@@ -2405,6 +3381,16 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
      * emit pointer-receiver signature + `->` field access for the body. */
     lir_func->is_mut_receiver_method = hir_func->is_mut_receiver_method;
 
+    /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr flag
+     * HIR -> LIR so emit_c.c can inject `iron_stack_gen += 1;` prologue
+     * + per-return-path bumps for functions whose body takes the address
+     * of a stack-local (set by Plan 20-02a's mark_takes_local_addr_pass). */
+    lir_func->takes_local_addr = hir_func->takes_local_addr;
+    /* Phase 22 READ-08: pure pass-through propagation HIR -> LIR.
+     * Consumed by emit_c.c emit_func_use_sret helper for symmetric
+     * sret ABI at function-decl and call-site emission. */
+    lir_func->is_readonly = hir_func->is_readonly;
+
     /* Set up context for this function */
     ctx->current_func = lir_func;
 
@@ -2428,6 +3414,14 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
         }
         arrfree(ctx->defer_stacks);
         ctx->defer_stacks = NULL;
+    }
+    /* Phase 24 DROP-01 (Plan 24-02): reset drop stacks */
+    if (ctx->drop_stacks) {
+        for (int d = 0; d < (int)arrlen(ctx->drop_stacks); d++) {
+            arrfree(ctx->drop_stacks[d]);
+        }
+        arrfree(ctx->drop_stacks);
+        ctx->drop_stacks = NULL;
     }
     ctx->defer_depth = 0;
     ctx->function_scope_depth = 0;

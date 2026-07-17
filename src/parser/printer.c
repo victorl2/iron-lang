@@ -186,6 +186,16 @@ static void print_type_ann(PrintCtx *ctx, Iron_Node *node) {
     if (!node) return;
     if (node->kind == IRON_NODE_TYPE_ANNOTATION) {
         Iron_TypeAnnotation *t = (Iron_TypeAnnotation *)node;
+        /* Phase 20 PTR-13/14: pointer types `*T` / `*var T` / `?*T` /
+         * `?*var T`. Leading-`?` precedes the `*`, `var` modifier follows
+         * the `*` with a trailing space (locked by 20-CONTEXT.md OQ-A). */
+        if (t->is_pointer) {
+            if (t->is_nullable) iron_strbuf_appendf(ctx->sb, "?");
+            iron_strbuf_appendf(ctx->sb, "*");
+            if (t->is_var_pointer) iron_strbuf_appendf(ctx->sb, "var ");
+            print_type_ann(ctx, t->pointer_pointee);
+            return;
+        }
         if (t->is_array) {
             iron_strbuf_appendf(ctx->sb, "[%s", t->name);
             if (t->array_size) {
@@ -679,6 +689,15 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        case IRON_NODE_IN_ARENA: {  /* Phase 28 ARENA-02 (Plan 28-03) */
+            Iron_InArenaBlock *n = (Iron_InArenaBlock *)node;
+            iron_strbuf_appendf(ctx->sb, "in ");
+            print_node(ctx, n->arena_expr);
+            iron_strbuf_appendf(ctx->sb, " ");
+            print_block(ctx, n->body);
+            break;
+        }
+
         case IRON_NODE_MATCH: {
             Iron_MatchStmt *n = (Iron_MatchStmt *)node;
             iron_strbuf_appendf(ctx->sb, "match ");
@@ -890,6 +909,12 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             Iron_RcExpr *n = (Iron_RcExpr *)node;
             iron_strbuf_appendf(ctx->sb, "rc ");
             print_node(ctx, n->inner);
+            break;
+        }
+
+        case IRON_NODE_WEAK_RC_NULL: {
+            /* Phase 27 POL-08 (Plan 27-02): `weak rc null` constructor. */
+            iron_strbuf_appendf(ctx->sb, "weak rc null");
             break;
         }
 
@@ -1106,6 +1131,9 @@ static int stub_cmp_method_name(const void *a, const void *b) {
     return strcmp(xn, yn);
 }
 
+/* Forward-declare so stub_emit_param can recurse into the shared helper. */
+static void stub_emit_type_ann(FILE *out, Iron_Node *node);
+
 /* Emit a parameter list: (name: Type, ...). Mirrors print_param/print_params
  * but writes directly to FILE *out so the stub generator avoids round-tripping
  * through the strbuf-backed PrintCtx machinery. */
@@ -1117,6 +1145,11 @@ static void stub_emit_param(FILE *out, Iron_Node *node) {
     if (p->type_ann && p->type_ann->kind == IRON_NODE_TYPE_ANNOTATION) {
         Iron_TypeAnnotation *t = (Iron_TypeAnnotation *)p->type_ann;
         fprintf(out, ": ");
+        /* Phase 20 PTR-13/14: pointer types (delegate to shared helper). */
+        if (t->is_pointer) {
+            stub_emit_type_ann(out, p->type_ann);
+            return;
+        }
         if (t->is_array) {
             fprintf(out, "[%s", t->name ? t->name : "");
             fprintf(out, "]");
@@ -1148,6 +1181,14 @@ static void stub_emit_params(FILE *out, Iron_Node **params, int count) {
 static void stub_emit_type_ann(FILE *out, Iron_Node *node) {
     if (!node || node->kind != IRON_NODE_TYPE_ANNOTATION) return;
     Iron_TypeAnnotation *t = (Iron_TypeAnnotation *)node;
+    /* Phase 20 PTR-13/14: pointer-type stub emission. */
+    if (t->is_pointer) {
+        if (t->is_nullable) fprintf(out, "?");
+        fprintf(out, "*");
+        if (t->is_var_pointer) fprintf(out, "var ");
+        stub_emit_type_ann(out, t->pointer_pointee);
+        return;
+    }
     if (t->is_array) {
         fprintf(out, "[%s]", t->name ? t->name : "");
     } else {

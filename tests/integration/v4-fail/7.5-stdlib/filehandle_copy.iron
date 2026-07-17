@@ -1,0 +1,12 @@
+-- section: 7.5-stdlib (negative)
+-- @req: STDLIB-09
+-- @expected-error: E0286
+-- @expected-pass-after: phase-33 (Wave 5 FileHandle nocopy)
+-- FileHandle is nocopy; copying a FileHandle binding → E0286.
+-- RED until Wave 5 lands the nocopy FileHandle surface.
+
+func main() {
+    var a = FileHandle.open("/tmp/iron_fh_copy.txt")
+    var b = a
+    println("unreachable")
+}

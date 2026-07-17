@@ -1,0 +1,18 @@
+-- section: 4.3-unchecked-ptr
+-- @req: UNCK-03
+-- @expected-pass-after: phase-25
+-- extends-spec: Box.is_null() probe before unwrap prevents null-Box panic; positive case - null branch taken without panic
+
+object Sample {
+    val value: Int
+}
+
+func main() {
+    val b: Box[Sample] = Box.null()
+    if b.is_null() {
+        println("null")
+    } else {
+        val s = b.unwrap()
+        println("value: {s.value}")
+    }
+}

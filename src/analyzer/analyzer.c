@@ -3,10 +3,12 @@
 #include "analyzer/typecheck.h"
 #include "analyzer/capture.h"
 #include "analyzer/init_check.h"
+#include "analyzer/unused_var.h"
 #include "analyzer/escape.h"
 #include "analyzer/concurrency.h"
 #include "analyzer/web_await_check.h"
 #include "analyzer/web_top_level_loader_check.h"
+#include "analyzer/scope.h"
 #include "comptime/comptime.h"
 #include "lexer/lexer.h"
 #include "parser/parser.h"
@@ -15,6 +17,102 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdatomic.h>
+
+/* Phase 20 PTR-10 (Plan 20-02a): mark_takes_local_addr_pass — pure
+ * syntactic AST walk that sets Iron_FuncDecl.takes_local_addr (and
+ * Iron_MethodDecl.takes_local_addr) on every declaration whose body
+ * contains either:
+ *   (A) an explicit `&` unary expression rooted at a stack-local symbol,
+ *   (B) an is_auto_address_target flag (set by typecheck.c during
+ *       PTR-07 auto-address insertion) rooted at a stack-local.
+ *
+ * Plan 20-02b's emit_c.c reads this bit to inject the iron_stack_gen
+ * prologue/epilogue around the function body. CONTEXT.md OQ-E lock:
+ * per-function flag, not per-call-site; runtime TLS bump in 20-02b is
+ * per-call. RESEARCH Pitfall 6 lock: PURE SYNTACTIC walk, NO transitive
+ * analysis — whole-function pessimistic detection only. */
+typedef struct {
+    bool found;
+} MarkLocalAddrCtx;
+
+static bool mlaa_sym_is_stack_local(const Iron_Symbol *sym) {
+    if (!sym) return false;
+    if (sym->sym_kind == IRON_SYM_PARAM) return true;
+    if (sym->sym_kind != IRON_SYM_VARIABLE) return false;
+    /* Mirrors typecheck.c::sym_is_stack_local conservative semantics:
+     * any IRON_SYM_VARIABLE counts as a stack-local for PTR-10 purposes
+     * (top-level globals are excluded from `&` syntax in this phase
+     * regardless). The runtime panic remains the safety net for any
+     * dynamic dispatch we can't see at compile time. */
+    return true;
+}
+
+static bool mlaa_visit(Iron_Visitor *v, Iron_Node *n) {
+    MarkLocalAddrCtx *ctx = (MarkLocalAddrCtx *)v->ctx;
+    if (ctx->found) return false;  /* short-circuit on first hit */
+    if (!n) return true;
+
+    /* Case A: explicit & operator on a stack-local. */
+    if (n->kind == IRON_NODE_UNARY) {
+        Iron_UnaryExpr *ue = (Iron_UnaryExpr *)n;
+        if ((int)ue->op == (int)IRON_TOK_AMP) {
+            Iron_Symbol *root = iron_walk_to_root_binding(ue->operand);
+            if (mlaa_sym_is_stack_local(root)) {
+                ctx->found = true;
+                return false;
+            }
+        }
+    }
+
+    /* Case B: is_auto_address_target flag rooted at a stack-local. */
+    bool is_auto = false;
+    Iron_Node *root_node = NULL;
+    if (n->kind == IRON_NODE_IDENT) {
+        is_auto = ((Iron_Ident *)n)->is_auto_address_target;
+        root_node = n;
+    } else if (n->kind == IRON_NODE_FIELD_ACCESS) {
+        is_auto = ((Iron_FieldAccess *)n)->is_auto_address_target;
+        root_node = n;
+    } else if (n->kind == IRON_NODE_INDEX) {
+        is_auto = ((Iron_IndexExpr *)n)->is_auto_address_target;
+        root_node = n;
+    }
+    if (is_auto && root_node) {
+        Iron_Symbol *root = iron_walk_to_root_binding(root_node);
+        if (mlaa_sym_is_stack_local(root)) {
+            ctx->found = true;
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool mark_one_body(Iron_Node *body) {
+    if (!body) return false;
+    MarkLocalAddrCtx ctx = { .found = false };
+    Iron_Visitor v = { .ctx = &ctx, .visit_node = mlaa_visit, .post_visit = NULL };
+    iron_ast_walk(body, &v);
+    return ctx.found;
+}
+
+static void mark_takes_local_addr_pass(Iron_Program *program) {
+    if (!program) return;
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d) continue;
+        if (d->kind == IRON_NODE_FUNC_DECL) {
+            Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+            fd->takes_local_addr = mark_one_body(fd->body);
+        } else if (d->kind == IRON_NODE_METHOD_DECL) {
+            /* Methods (in-object and patch) are flattened to top-level
+             * Iron_MethodDecl nodes by the parser's `extra_decls_out`
+             * mechanism. The walker visits each method body directly. */
+            Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+            md->takes_local_addr = mark_one_body(md->body);
+        }
+    }
+}
 
 /* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
 /* CONTEXT.md lock: NULL flag means never cancel; relaxed ordering ok. */
@@ -60,6 +158,16 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
 
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 
+    /* Step 3a: Phase 20 PTR-10 (Plan 20-02a) — mark every function/method
+     * decl whose body contains `&local` (or auto-address-target rooted at
+     * a stack-local) with takes_local_addr=true. Plan 20-02b's emit_c.c
+     * reads this bit to inject iron_stack_gen prologue/epilogue around
+     * the body. Pure syntactic walk; no transitive analysis. Runs after
+     * typecheck so is_auto_address_target flags are populated. */
+    mark_takes_local_addr_pass(program);
+
+    if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
+
     /* Step 3b: Capture analysis — annotate Iron_LambdaExpr.captures[] */
     iron_capture_analyze(program, result.global_scope, arena, diags, cancel_flag);
 
@@ -67,6 +175,14 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
 
     /* Step 3.5: Definite assignment analysis */
     iron_init_check(program, result.global_scope, arena, diags, cancel_flag);
+
+    if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
+
+    /* Step 3.6: Phase 17 VAL-05/VAL-06 unused-var warning pass.
+     * Pure read pass; no AST mutation. Safe to run unconditionally on any
+     * tree the resolver has seen, including ones with prior errors.
+     * Cancellation polled at per-function boundary inside the pass. */
+    iron_unused_var_check(program, result.global_scope, arena, diags, cancel_flag);
 
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 

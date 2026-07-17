@@ -83,13 +83,21 @@ static void harness_free(V3NavHarness *h) {
 }
 
 /* Locate fixture path: tests run from build/, fixtures live at
- * ../tests/integration/. Provide a portable resolver. */
+ * ../tests/integration/. Phase 35 MIG-08 moved the v3 fixtures to
+ * tests/integration/v3-archive/ — try that location too. */
 static const char *fixture_path(char *buf, size_t cap, const char *name) {
     snprintf(buf, cap, "../tests/integration/%s", name);
     FILE *f = fopen(buf, "rb");
     if (f) { fclose(f); return buf; }
+    snprintf(buf, cap, "../tests/integration/v3-archive/%s", name);
+    f = fopen(buf, "rb");
+    if (f) { fclose(f); return buf; }
 #ifdef IRON_SOURCE_TREE_ROOT
     snprintf(buf, cap, "%s/tests/integration/%s",
+             IRON_SOURCE_TREE_ROOT, name);
+    f = fopen(buf, "rb");
+    if (f) { fclose(f); return buf; }
+    snprintf(buf, cap, "%s/tests/integration/v3-archive/%s",
              IRON_SOURCE_TREE_ROOT, name);
     f = fopen(buf, "rb");
     if (f) { fclose(f); return buf; }

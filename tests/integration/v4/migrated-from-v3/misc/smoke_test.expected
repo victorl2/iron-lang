@@ -1,0 +1,9 @@
+basics: 42 Iron
+control: 1 10 3
+fib: 55
+arrays: 150 100 200 300
+structs: 3 4
+nested: 8
+sc: 0
+stdlib: true
+smoke_test: PASS

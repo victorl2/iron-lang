@@ -61,6 +61,63 @@ typedef struct {
     /* General emission state */
     char        **emitted_optionals;             /* stb_ds string array */
     char        **emitted_tuples;                /* Phase 59 01d: stb_ds string array of tuple mangled names */
+    /* Phase 23 VEC-01: per-(T, N) Iron_BVec_T_N typedef dedup.
+     * Parallel to emitted_tuples; same arrput/arrlen/strcmp shape. */
+    char        **emitted_bvecs;
+    /* Phase 24 DROP-01/06 (Plan 24-02): per-type drop/copy synthesis dedup.
+     * Parallel to emitted_bvecs; same arrput/arrlen/strcmp shape. */
+    char        **emitted_drops;
+    char        **emitted_copies;
+    /* Phase 26 POL-06 (Plan 26-03): per-type rc-drop trampoline synthesis dedup.
+     * Parallel to emitted_drops; same arrput/arrlen/strcmp shape. The trampoline
+     * <TypeName>_rc_drop(void *self_void) is a type-erased wrapper around the
+     * Phase 24 <TypeName>_drop helper, suitable for storage in
+     * Iron_RcHeader.drop_fn (function-pointer field with void* arg). */
+    char        **emitted_rc_drops;
+    /* Phase 26 OQ-03 (Plan 26-03): per-lifted-func closure env-drop synthesis dedup.
+     * Stores lifted_func_name keys. The companion <func_name>_env_drop(void*)
+     * function emitted into ctx->lifted_funcs releases each rc-typed captured
+     * field and frees the env block. */
+    char        **emitted_env_drops;
+    /* Phase 25 UNCK-01/02 (Plan 25-02): per-T Iron_Box_<T> dedup.
+     * Parallel to emitted_bvecs/drops/copies; same arrput/strcmp shape. */
+    char        **emitted_boxes;
+
+    /* Phase 33 STDLIB-07/08/09 (Plan 33-05): per-T nocopy resource glue dedup.
+     * emitted_mutexes keys the synthesized Iron_Mutex_<T>_* helper set;
+     * emitted_channels keys the Iron_Channel_<T>_* send/recv glue; the
+     * FileHandle glue is non-generic so a single bool guards it. Same
+     * arrput/arrlen/strcmp shape as emitted_boxes. */
+    char        **emitted_mutexes;
+    char        **emitted_channels;
+    char        **emitted_rwlocks;
+    bool          emitted_filehandle;
+    /* Phase 33 STDLIB-10 (Plan 33-06): per-T Iron_RawPtr_of_<elemC> dedup.
+     * Each entry is the escaped element-C suffix (e.g. "int64_t"); the helper
+     * Iron_RawPtr_of_<suffix>(<elemC>*) is emitted once into lifted_funcs and
+     * casts its argument to (int64_t*) so the RawPtr (= *unchecked Int) ABI
+     * is preserved. Same arrput/strcmp shape as emitted_boxes. */
+    char        **emitted_rawptrs;
+
+    /* Phase 24 DROP-05 (Plan 24-03): partial-init cleanup instrumentation.
+     * in_init_method: true when currently emitting an init method body; set
+     *   by emit_func_body when the function name ends with "_init".
+     * init_cleanup_counter: monotonic counter for unique _iron_cleanup_N
+     *   entry names per function; reset to 0 at each function entry. */
+    bool in_init_method;
+    int  init_cleanup_counter;
+
+    /* Phase 24 DROP-04 (Plan 24-03): drop-method panic trap.
+     * in_drop_method: true when currently emitting a user drop body (LIR
+     *   function whose name ends with "_drop"). The function prologue sets
+     *   iron_in_destructor=true and the RETURN handler clears it, so that
+     *   any iron_panic_* call inside the drop body re-routes to
+     *   iron_panic_destructor_aborted. The LIR drop name is the original
+     *   lowercased type name (e.g., "bomb_drop" for "Bomb"). */
+    bool in_drop_method;
+    /* Pointer to the type-name portion of fn->name for drop methods
+     * (the part before "_drop"), for use in the epilogue emit. */
+    const char *drop_method_type_name;
     struct { char *key; bool value; } *mono_registry; /* stb_ds string map */
     int           next_type_tag;                 /* starts at 1 */
     int           indent;
@@ -179,6 +236,106 @@ void emit_ensure_optional(EmitCtx *ctx, const Iron_Type *inner);
  * typedefs land first. No-op for non-tuple input. */
 void emit_ensure_tuple(EmitCtx *ctx, const Iron_Type *tuple_ty);
 
+/* Phase 23 VEC-01: synthesize a C typedef for a bounded vector type on demand.
+ * Emits `typedef struct { uint32_t len; T data[N]; } Iron_BVec_T_N;` into
+ * ctx->struct_bodies.  Dedupes via ctx->emitted_bvecs (same arrput/strcmp shape
+ * as emitted_tuples).  Recurses for nested-bvec elements so inner typedefs land
+ * first (Pitfall 3 mitigation).  No-op for non-bounded or non-array input. */
+void emit_ensure_bvec(EmitCtx *ctx, const Iron_Type *bvec_ty);
+
+/* Phase 24 DROP-01 (Plan 24-02): synthesize a static destructor function for an
+ * object type. Emits `static void <TypeName>_drop(<TypeName> *self) { ... }`
+ * into ctx->lifted_funcs (Pitfall 3: NOT struct_bodies). Dedupes via
+ * ctx->emitted_drops. Recurses for field types that have drop blocks (so inner
+ * destructors land before the outer one — forward-reference safe).
+ * The user drop body is lowered inline; field destructors run in REVERSE
+ * declaration order (Pitfall 6 + DROP-02). */
+void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
+                      struct Iron_ObjectDecl *od);
+
+/* Phase 24 DROP-01 (Plan 24-02): returns true if the object type od has a
+ * compiled drop method in the LIR module. Methods are LIR top-level functions
+ * (Plan 86 layout), NOT stored on Iron_ObjectDecl.
+ * Used by emit_c.c and emit_helpers.c to gate drop synthesis. */
+bool od_has_drop_lir(EmitCtx *ctx, struct Iron_ObjectDecl *od);
+
+/* Phase 26 POL-06 (Plan 26-03): synthesize <TypeName>_rc_drop trampoline.
+ *
+ * The trampoline is a void*-signature wrapper around the Phase 24
+ * <TypeName>_drop helper, suitable for storage in Iron_RcHeader.drop_fn
+ * (function-pointer field with type-erased void* arg).
+ *
+ * Only synthesizes when od_has_drop_lir(ctx, od) OR any field has its
+ * own drop (RESEARCH Anti-Pattern 4). For types without any drop need,
+ * the caller passes NULL to iron_rc_alloc and the trampoline is never
+ * emitted (iron_rc_release simply frees the block on refcount=0).
+ *
+ * Dedup via ctx->emitted_rc_drops (mirrors Phase 24 emitted_drops). */
+void emit_ensure_rc_drop(EmitCtx *ctx, const char *obj_c_name,
+                         struct Iron_ObjectDecl *od);
+
+/* Phase 26 POL-06 (Plan 26-03): returns true when object type od has a
+ * drop need (user drop body OR any field with its own drop). Used by
+ * emit_c.c IRON_LIR_RC_ALLOC arm to gate trampoline synthesis. */
+bool od_has_rc_drop_need(EmitCtx *ctx, struct Iron_ObjectDecl *od);
+
+/* Phase 24 DROP-06 (Plan 24-02): synthesize a shallow copy function for an
+ * object type. Emits `static void <TypeName>_copy(<TypeName> *dest, const
+ * <TypeName> *src) { ... }` into ctx->lifted_funcs. Dedupes via
+ * ctx->emitted_copies. No-op when od->is_nocopy (Pitfall 5).
+ * Per-field copy hooks call <FieldType>_copy for fields whose
+ * Iron_Type.has_user_copy_transitive is true (cached by typecheck). */
+/* Phase 25 UNCK-01/02 (Plan 25-02): synthesize Iron_Box_<T> typedef + helpers.
+ * elem_type is the pointee type T (not *unchecked T). Idempotent via
+ * emitted_boxes dedup (Phase 23 emitted_bvecs precedent). */
+void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type);
+
+/* Phase 33 STDLIB-07 (Plan 33-05): synthesize the per-T Mutex glue.
+ *   - Iron_Mutex_<T>_new(T v)            -> Iron_Mutex* (Iron_mutex_create)
+ *   - typedef struct { Iron_Mutex *owner; T *valptr; } Iron_MutexGuard_<T>;
+ *   - Iron_MutexGuard_<T>_lock(Iron_Mutex *m)  -> guard (Iron_mutex_lock)
+ *   - Iron_MutexGuard_<T>_get(guard*)    -> T   (*valptr)
+ *   - Iron_MutexGuard_<T>_set(guard*, T) -> void (*valptr = v)
+ *   - Iron_Mutex_<T>_destroy(Iron_Mutex**) / Iron_MutexGuard_<T>_unlock(guard*)
+ * Helpers land in ctx->lifted_funcs, the guard typedef in ctx->struct_bodies.
+ * Idempotent via emitted_mutexes (mirrors emit_ensure_box). */
+void emit_ensure_mutex(EmitCtx *ctx, const Iron_Type *elem_type);
+
+/* Phase 33 STDLIB-08 (Plan 33-05): synthesize the per-T Channel glue.
+ *   - Iron_Channel_<T>_send(Iron_Channel*, T)  heap-boxes the value, enqueues
+ *   - Iron_Channel_<T>_recv(Iron_Channel*) -> T dequeues, unboxes, frees
+ * Iron_Channel_<T>_new is the bare runtime Iron_channel_create(capacity).
+ * Idempotent via emitted_channels. */
+void emit_ensure_channel(EmitCtx *ctx, const Iron_Type *elem_type);
+
+/* Phase 33 STDLIB-07 (Plan 33-05): synthesize the per-T RWLock glue over the
+ * IRON_RWLOCK_* macros (POSIX pthread_rwlock_t / Win32 SRWLOCK):
+ *   - typedef struct { iron_rwlock_t lk; T value; } Iron_RWLock_<T>;
+ *   - read/write guard typedefs (back-pointer to the lock)
+ *   - new / destroy / read / write / rdunlock / wrunlock / get / set helpers
+ * Idempotent via emitted_rwlocks. */
+void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type);
+
+/* Phase 33 STDLIB-09 (Plan 33-05): synthesize the (non-generic) FileHandle glue.
+ *   - typedef struct { int fd; } Iron_FileHandle;
+ *   - Iron_FileHandle_open(Iron_String path) -> Iron_FileHandle
+ *   - Iron_FileHandle_close(Iron_FileHandle*) closes + prints "closed fd"
+ *   - Iron_FileHandle_drop(Iron_FileHandle*) scope-exit close
+ * Idempotent via emitted_filehandle. */
+void emit_ensure_filehandle(EmitCtx *ctx);
+
+/* Phase 33 STDLIB-10 (Plan 33-06): synthesize the per-T RawPtr.of helper
+ *   - Iron_RawPtr_of_<elemC>(<elemC>*) -> int64_t*
+ * Body is a single cast: returns its argument re-typed as int64_t* so the
+ * type-erased RawPtr (= *unchecked Int internally) ABI is preserved. The
+ * by-name dispatch in typecheck.c + the lowering in hir_to_lir.c emit a
+ * CALL passing &x as the single argument (self_by_addr=true at the LIR
+ * level). Idempotent via emitted_rawptrs. */
+void emit_ensure_rawptr(EmitCtx *ctx, const Iron_Type *elem_type);
+
+void emit_ensure_copy(EmitCtx *ctx, const char *obj_c_name,
+                      struct Iron_ObjectDecl *od);
+
 /* ── Emit utilities ──────────────────────────────────────────────────────── */
 
 void emit_indent(Iron_StrBuf *sb, int level);
@@ -188,6 +345,16 @@ void emit_val(Iron_StrBuf *sb, IronLIR_ValueId id);
 
 bool emit_type_is_pointer(const Iron_Type *t);
 bool emit_val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid);
+bool emit_val_is_heap_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid);
+/* Phase 21: Returns true when the value is ANY Iron_FatPtr at runtime:
+ * IRON_LIR_HEAP_ALLOC (heap binding) or IRON_LIR_ADDR_OF (pointer to heap/stack).
+ * Used at field-access sites to select the ((T *)_vN.addr)->field form. */
+bool emit_val_is_any_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid);
+/* Phase 21: Return the C pointee-type string for any Iron_FatPtr value.
+ * For HEAP_ALLOC: returns emit_type_to_c(instr->type, ctx).
+ * For ADDR_OF targeting HEAP_ALLOC: returns the heap alloc's C type.
+ * Returns NULL if not a fat ptr. */
+const char *emit_fat_ptr_pointee_type_c(IronLIR_Func *fn, IronLIR_ValueId vid, EmitCtx *ctx);
 bool emit_val_is_type_ref(IronLIR_Func *fn, IronLIR_ValueId vid);
 Iron_Type *emit_get_value_type(IronLIR_Func *fn, IronLIR_ValueId vid);
 IronLIR_Func *emit_find_ir_func(EmitCtx *ctx, const char *ir_name);

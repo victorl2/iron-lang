@@ -1,0 +1,9 @@
+-- section 4.4 negative: readonly method with non-readonly-compatible return type
+-- @req: READ-06
+-- @expected-pass-after: phase-22
+
+object X {
+    readonly func get_ptr() -> *Int {
+        return null
+    }
+}

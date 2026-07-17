@@ -1,0 +1,23 @@
+-- empty_literal_call_arg.iron: Empty literal as a function call argument
+-- Phase 55.1 test — proves check_expr_with_expected threads the formal
+-- parameter type into the argument check. count_ints([]) should resolve
+-- the empty literal to [Int] (the formal parameter type) instead of
+-- [<error>], and run with an empty collection.
+--
+-- Note: this test uses [Int] (concrete element type) rather than
+-- [Shape] (interface element type). A parallel interface-typed call-arg
+-- test (e.g., count_shapes(shapes: [Shape])) hits a pre-existing and
+-- separate codegen gap: passing interface arrays as function parameters
+-- currently generates Iron_List_Iron_Shape_len instead of routing
+-- through the split-collection interception block. That codegen gap is
+-- unrelated to the Phase 55.1 type-inference fix and is documented in
+-- 55.1-01-SUMMARY.md under "Deferred Issues" for a future phase.
+
+func count_ints(xs: [Int]) -> Int {
+  return xs.len()
+}
+
+func main() {
+  var n = count_ints([])
+  println("{n}")
+}

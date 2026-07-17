@@ -1,0 +1,16 @@
+-- section: 4.2-checked-ptr
+-- @req: PTR-01, PTR-06
+-- @expected-pass-after: phase-20
+-- description: auto-deref field access via checked pointer *T
+
+object Player {
+    val hp: Int
+    val attack: Int
+}
+
+func main() {
+    val player = Player(hp: 100, attack: 15)
+    val ptr: *Player = &player
+    println("hp: {ptr.hp}")
+    println("attack: {ptr.attack}")
+}

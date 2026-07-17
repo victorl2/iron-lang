@@ -26,3 +26,56 @@ add_executable(test_lir_optimize test_lir_optimize.c)
 target_link_libraries(test_lir_optimize iron_compiler unity)
 add_test(NAME test_lir_optimize COMMAND test_lir_optimize)
 set_tests_properties(test_lir_optimize PROPERTIES LABELS "lir")
+
+# ── Phase 29 Atomic Refcount Elision — phase29-invariant Wave 0 RED anchors ──
+# These two harnesses fail to LINK against iron_compiler until Plans 02/03 add
+# func_summary.c (iron_lir_compute_func_summaries et al.) and the
+# run_rc_pair_elimination definition in lir_optimize.c — the intended TDD RED.
+add_executable(test_rc_pair_elim test_rc_pair_elim.c)
+target_link_libraries(test_rc_pair_elim iron_compiler unity)
+add_test(NAME test_rc_pair_elim COMMAND test_rc_pair_elim)
+set_tests_properties(test_rc_pair_elim PROPERTIES LABELS "lir;phase29-invariant")
+
+# OPT-01 gate row: a separate CTest NAME pointing at the same executable. The
+# gate-off contract (pass mutates only when called) is asserted by
+# test_gate_off_leaves_count_zero within the same binary.
+add_test(NAME test_rc_pair_elim_gate COMMAND test_rc_pair_elim)
+set_tests_properties(test_rc_pair_elim_gate PROPERTIES LABELS "lir;phase29-invariant")
+
+add_executable(test_func_summary test_func_summary.c)
+target_link_libraries(test_func_summary iron_compiler unity)
+add_test(NAME test_func_summary COMMAND test_func_summary)
+set_tests_properties(test_func_summary PROPERTIES LABELS "lir;phase29-invariant")
+
+# ── Phase 30 Pointer Check Elision — phase30-invariant ───────────────────────
+# test_gencheck_elision runs its opcode-exists case (IRON_LIR_GENCHECK
+# constructs + round-trips) plus the Plan 30-02 lowering cases (refactor-identity
+# + unchecked-no-gencheck) gated by GENCHECK_LOWER_READY: these depend only on
+# lower_genchecks + canonicalize_root (defined in Plan 30-02). The 4-tier
+# elision cases stay behind GENCHECK_PASS_READY until Plan 30-03 defines
+# run_pointer_check_elimination, so the executable links against iron_compiler
+# without unresolved symbols.
+add_executable(test_gencheck_elision test_gencheck_elision.c)
+target_compile_definitions(test_gencheck_elision PRIVATE GENCHECK_LOWER_READY GENCHECK_PASS_READY GENCHECK_TIER23_READY)
+target_link_libraries(test_gencheck_elision iron_compiler unity)
+add_test(NAME test_gencheck_elision COMMAND test_gencheck_elision)
+set_tests_properties(test_gencheck_elision PROPERTIES LABELS "lir;phase30-invariant")
+
+# OPT-03 gate row: a separate CTest NAME pointing at the same executable. The
+# gate-off contract (pass mutates only when invoked) is asserted by
+# test_gate_off_preserves within the same binary (active once GENCHECK_PASS_READY).
+add_test(NAME test_gencheck_elision_gate COMMAND test_gencheck_elision)
+set_tests_properties(test_gencheck_elision_gate PROPERTIES LABELS "lir;phase30-invariant")
+
+# ── Phase 32 `defer` Statement — phase32-invariant Wave 0 codegen-order anchor ─
+# test_defer_general: the `defer free` still-compiles case + the 4 general-defer
+# codegen-order asserts (LIFO DEFER-03, defer-then-drop DEFER-04, early-return,
+# read-at-exit). Plan 32-02 removed the Phase-21 E0276 gate and widened the
+# parser/lower, so DEFER_GENERAL_READY is now defined to compile the staged
+# general-defer programs live (the find_order ordering oracle is guarded by the
+# same macro). All 5 cases run GREEN.
+add_executable(test_defer_general test_defer_general.c)
+target_compile_definitions(test_defer_general PRIVATE DEFER_GENERAL_READY)
+target_link_libraries(test_defer_general iron_compiler unity)
+add_test(NAME test_defer_general COMMAND test_defer_general)
+set_tests_properties(test_defer_general PROPERTIES LABELS "lir;phase32-invariant;v4-acceptance")

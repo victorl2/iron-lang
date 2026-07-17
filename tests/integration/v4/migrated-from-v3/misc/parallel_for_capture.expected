@@ -1,0 +1,5 @@
+parallel 100 done
+parallel 50 done
+seq sum 1-10: 55
+post parallel count: 5
+done

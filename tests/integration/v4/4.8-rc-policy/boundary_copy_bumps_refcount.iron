@@ -1,0 +1,21 @@
+-- section 4.8 rc policy: copy bumps refcount
+-- @req: POL-06, POL-07
+-- extends-spec: destructor fires exactly once at last drop after nested copy
+
+object Texture {
+    val path: String
+
+    drop {
+        println("free: {self.path}")
+    }
+}
+
+func main() {
+    val outer = rc Texture("atlas.png")
+    println("outer alive")
+    {
+        val inner = outer
+        println("inner alive")
+    }
+    println("inner gone; outer still alive")
+}

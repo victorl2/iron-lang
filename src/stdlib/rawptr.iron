@@ -1,0 +1,43 @@
+-- rawptr.iron -- RawPtr: type-erased member of the *unchecked T regime
+-- Phase 33 STDLIB-10 (Plan 33-06): Iron-side declaration surface for RawPtr.
+--
+-- RawPtr is the TYPE-ERASED arm of the Phase 25 unchecked regime — a thin
+-- handle equivalent to C's `void*` (a bare 8-byte pointer with no generation
+-- tracking and no compile-time pointee shape). It coexists with `*unchecked T`
+-- (which retains pointee type) and shares the SAME regime guards:
+--
+--   * Auto-address does NOT apply (Phase 25 UNCK-05: auto_address_applies
+--     guard suppresses for `is_unchecked` pointer params).
+--   * `&` cannot produce a RawPtr (Phase 25 PTR-05/UNCK-04: E0294 fires when
+--     declared type is `*unchecked T` AND the RHS is `&expr`). The only
+--     producers of RawPtr / *unchecked T are dedicated compiler builtins:
+--     `Box.unwrap()`, `RawPtr.of(x)`, and `Ptr.cast[T](raw)`.
+--   * `Ptr.offset` / `Ptr.diff` (Phase 25 UNCK-06, Plan 25-02; shipped) accept
+--     any `*unchecked T` first argument; RawPtr inherits transparently.
+--
+-- The compiler treats `RawPtr` as a TYPE ALIAS for an erased `*unchecked` —
+-- internally represented as IRON_TYPE_PTR { is_unchecked=true, pointee=Int }.
+-- The Int pointee is a stand-in size (8B); the type-erasure semantics are
+-- enforced in the Ptr.cast dispatch which permits casting FROM a RawPtr (or
+-- any other `*unchecked T`) TO `*unchecked Target` without the usual pointee-
+-- size equality check. Casting BETWEEN checked `*T` regimes still requires
+-- size equality (UNCK-04 spec: only the unchecked regime is type-erased).
+--
+-- RUNTIME REPRESENTATION: 8 bytes (a bare C pointer). NO Iron_FatPtr 16B
+-- wrapper, NO generation tag, NO heap-vs-stack discriminator. Dereferencing
+-- a RawPtr via `Ptr.cast[T]` and then loading T is UNDEFINED BEHAVIOR if the
+-- underlying storage has been freed or did not have type T (DROP-07 / UB
+-- contract; see docs/dev/UNCHECKED-LAYOUT.md §4).
+--
+-- METHODS — all by-name compiler builtins (dispatch in typecheck.c). Their
+-- bodies here are intentionally empty: hir_lower skips them (mirrors the
+-- box.iron / mutex.iron pattern from Plans 33-01 / 33-05), and the actual
+-- value is produced inline by the dispatch arm.
+--
+-- RawPtr.of(x: T) -> RawPtr
+-- Returns a RawPtr pointing at the storage of `x`. The compiler synthesizes
+-- a real address-of (bypassing the E0294 `&`-cannot-produce-unchecked guard
+-- because `RawPtr.of` IS the address-producer). The address remains valid
+-- only while `x`'s storage is live; after-scope use is UB (UNCHECKED-LAYOUT
+-- §4). The receiver-form `x.raw_ptr()` is NOT provided — call `RawPtr.of(x)`.
+func RawPtr.of[T](x: T) -> RawPtr {}

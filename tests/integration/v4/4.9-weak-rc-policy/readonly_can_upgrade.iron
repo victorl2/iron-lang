@@ -1,0 +1,21 @@
+-- section 4.9 weak rc policy: readonly may call upgrade()
+-- @req: POL-09
+-- CONTEXT.md GA2 explicitly allows weak rc upgrade in readonly context.
+-- E0279 IRON_ERR_READONLY_HEAP_ESCAPE is NOT extended to upgrade() —
+-- readonly is observation-side and upgrade() is an atomic read.
+
+object Foo {
+    val v: Int
+
+    readonly func observe(w: weak rc Foo) -> Int {
+        val maybe = w.upgrade()
+        return self.v
+    }
+}
+
+func main() {
+    val strong = rc Foo(1)
+    val observer = strong.downgrade()
+    val n = strong.observe(observer)
+    println("observed v={n}")
+}

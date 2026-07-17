@@ -1,0 +1,22 @@
+-- v3_readonly_heap_escape.iron -- Phase 22 READ-05 lock.
+-- MUST fail with IRON_ERR_READONLY_HEAP_ESCAPE (E0279).
+--
+-- Reject: readonly method allocating heap memory.
+-- Compile_fail verification: grep -qF on stderr against .expected substring.
+
+object Point {
+    var x: Int
+    var y: Int
+}
+
+object X {
+    readonly func f() -> Int {
+        val p = heap Point(1, 2)
+        return 0
+    }
+}
+
+func main() {
+    val x = X()
+    x.f()
+}

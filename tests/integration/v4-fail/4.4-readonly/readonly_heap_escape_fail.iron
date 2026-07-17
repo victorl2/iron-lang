@@ -1,0 +1,15 @@
+-- section 4.4 negative: readonly method allocating heap memory
+-- @req: READ-05
+-- @expected-pass-after: phase-22
+
+object Point {
+    var x: Int
+    var y: Int
+}
+
+object X {
+    readonly func f() -> Int {
+        val p = heap Point(1, 2)
+        return 0
+    }
+}

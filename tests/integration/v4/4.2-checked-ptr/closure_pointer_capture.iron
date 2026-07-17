@@ -1,0 +1,26 @@
+-- section: 4.2-checked-ptr
+-- @req: PTR-01, PTR-04, PTR-06, OQ-02
+-- @expected-pass-after: phase-20
+-- @expect-panic: dangling stack pointer to frame
+-- extends-spec: §13 OQ-02 closure capture of *T — lifetime-extension + panic-on-invocation. The closure captures the 16B Iron_FatPtr by value into its captured-state struct (Phase 19 substrate; emit_capture_rhs falls through to plain emit_val + C struct-copy). When the inner function returns, iron_stack_gen bumps via the takes_local_addr epilogue; the outer-scope `observer()` invocation then derefs the captured fp from a popped frame and panics deterministically through iron_check_stack_pointer_gen -> iron_panic_stale_stack_pointer.
+
+object Player {
+    val hp: Int
+    val attack: Int
+}
+
+func make_observer(p: *Player) -> func() -> Int {
+    return func() -> Int {
+        return p.hp
+    }
+}
+
+func build_observer() -> func() -> Int {
+    val player = Player(100, 15)
+    return make_observer(&player)
+}
+
+func main() {
+    val observer = build_observer()
+    println("hp: {observer()}")
+}

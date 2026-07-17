@@ -1,0 +1,21 @@
+object Small {
+    val x: Int
+    init() { self.x = 0 }
+}
+
+object Big {
+    val a: Int
+    val b: Int
+    val c: Int
+    init() {
+        self.a = 0
+        self.b = 0
+        self.c = 0
+    }
+}
+
+func main() {
+    val s = Small()
+    val p: *Small = &s
+    val q: *Big = Ptr.cast[Big](p)
+}

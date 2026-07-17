@@ -1,0 +1,28 @@
+-- section 3.4 weak rc: demote creates weak rc
+-- @req: POL-08
+-- @expected-pass-after: phase-27
+-- extends-spec: rc.demote() creates weak rc; weak ref count tracked independently of strong
+
+object Item {
+    val label: String
+
+    drop {
+        println("drop: {label}")
+    }
+}
+
+func main() {
+    val strong = rc Item(label: "thing")
+    val w1: weak rc Item = strong.demote()
+    val w2: weak rc Item = strong.demote()
+    println("strong alive")
+    -- both weak refs exist; strong still has refcount 1
+    val check = w1.upgrade()
+    if check != null {
+        println("w1 upgrade ok: {check.label}")
+    }
+    val check2 = w2.upgrade()
+    if check2 != null {
+        println("w2 upgrade ok: {check2.label}")
+    }
+}

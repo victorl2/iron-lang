@@ -1,0 +1,17 @@
+-- net_lookup_host_timeout.iron — Phase 59 P04 DNS failure path integration
+--
+-- Uses an invalid TLD so the system resolver fails fast (EAI_NONAME) on
+-- most platforms. The integration test verifies the wrapper surfaces a
+-- typed error, not a hang. The real stuck-worker timeout path is tested
+-- in the Unity synthetic slow-worker test, which is deterministic; this
+-- integration test just verifies the Iron-source ergonomics.
+import net
+
+func main() {
+    val (addrs, err) = Net.lookup_host("no-such-host.invalid", 2000)
+    if err.code != 0 {
+        println("expected failure")
+    } else {
+        println("unexpected success")
+    }
+}

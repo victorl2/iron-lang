@@ -1,0 +1,6 @@
+-- import_false_positive: tests that "import math" in a comment does NOT trigger module prepend
+-- This program does NOT actually import math. The line above is a comment.
+-- If the false positive is present, this program would silently get math.iron prepended.
+func main() {
+    println("no false positive")
+}

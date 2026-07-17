@@ -1,0 +1,31 @@
+==========
+bounded vector type
+==========
+
+var bv: [Int; <=4]
+
+---
+
+(source_file
+  (var_declaration
+    binding: (identifier)
+    type: (bounded_vector_type
+      (type_identifier
+        (identifier))
+      (integer_literal))))
+
+==========
+bounded vector strict size stays in array_type
+==========
+
+var arr: [Int; 4]
+
+---
+
+(source_file
+  (var_declaration
+    binding: (identifier)
+    type: (array_type
+      (type_identifier
+        (identifier))
+      (integer_literal))))

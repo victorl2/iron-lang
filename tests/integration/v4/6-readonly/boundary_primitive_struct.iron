@@ -1,0 +1,26 @@
+-- section: 6-readonly
+-- @req: READ-04, READ-06
+-- @expected-pass-after: phase-22
+-- extends-spec: readonly returning primitive-only struct (§6.4 compatible types)
+
+object Stat {
+    val a: Int
+    val b: Int
+}
+
+object Unit {
+    val base: Int
+    val bonus: Int
+}
+
+readonly func compute_stat(u: *Unit) -> Stat {
+    val combined = u.base + u.bonus
+    val doubled = combined * 2
+    return Stat(a: combined, b: doubled)
+}
+
+func main() {
+    val u = Unit(base: 10, bonus: 5)
+    val s = compute_stat(&u)
+    println("a={s.a} b={s.b}")
+}

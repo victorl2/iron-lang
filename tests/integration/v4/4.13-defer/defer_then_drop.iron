@@ -1,0 +1,22 @@
+-- section 4.13 defer: DEFER-04 headline — defers LIFO, THEN local drops
+-- @req: DEFER-04
+-- @expected-pass-after: phase-32
+-- At scope exit the unified unwind sequence emits all defers (LIFO) FIRST,
+-- then local destructors in reverse declaration order. Two defers + two
+-- droppable locals therefore produce: defer2, defer1, then drop(local2),
+-- drop(local1). Build+run fixture (WILL_FAIL in the check-only container).
+
+object Resource {
+    val name: String
+    drop {
+        println("drop{self.name}")
+    }
+}
+
+func main() {
+    val local1 = Resource("1")
+    val local2 = Resource("2")
+    defer println("defer1")
+    defer println("defer2")
+    println("body")
+}

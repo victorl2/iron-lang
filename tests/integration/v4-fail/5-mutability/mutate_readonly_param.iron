@@ -1,0 +1,7 @@
+-- section 5.3 negative: mutating a read-only parameter inside function body
+-- @req: PARM-01
+-- @expected-pass-after: phase-18
+-- parameters without var are read-only and cannot be assigned to
+func increment(x: Int) {
+    x = x + 1
+}

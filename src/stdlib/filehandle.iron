@@ -1,0 +1,31 @@
+-- filehandle.iron -- FileHandle: nocopy owning wrapper around an OS file descriptor.
+-- Phase 33 STDLIB-09 (Plan 33-05): Iron-side declaration surface for FileHandle.
+--
+-- Actual implementations are provided by the C runtime (iron_filehandle_open /
+-- iron_filehandle_close in src/runtime/iron_filehandle.c). The compiler recognizes
+-- FileHandle.open / fh.close by name and intercepts them in typecheck.c (Box[T]
+-- precedent — Plan 33-07). FileHandle is NOT generic, so no [T].
+--
+-- FileHandle is nocopy (Phase 24 substrate): copying a FileHandle binding is a
+-- compile error (E0286) — an fd is a unique owned resource; copying it would alias
+-- the descriptor and double-close. The synthesized drop block closes the fd at scope
+-- exit (Phase 24 drop synthesis + Phase 32 defer/scope-exit substrate). FileHandle's
+-- od_has_drop_lir is true, so a List[FileHandle] per-element drop loop (Wave 4)
+-- closes each contained fd.
+
+nocopy object FileHandle {
+    val fd: Int  -- owned OS file descriptor (-1 == closed/invalid)
+
+    drop {
+        -- Synthesized drop block: invokes iron_filehandle_close(self->fd).
+        -- Phase 24 drop synthesis fires because FileHandle owns an fd resource.
+    }
+}
+
+-- FileHandle.open(path: String) -> FileHandle
+-- Opens (creating if needed) `path` and returns an owning FileHandle.
+func FileHandle.open(path: String) -> FileHandle {}
+
+-- fh.close()   (receiver-form): explicitly closes the fd. After close(), drop is a
+-- no-op (fd set to -1). Faster than relying on the implicit scope-exit drop.
+func FileHandle.close() {}

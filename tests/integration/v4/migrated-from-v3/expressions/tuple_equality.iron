@@ -1,0 +1,7 @@
+func main() {
+    val a: (Int, String) = (1, "x")
+    val b: (Int, String) = (1, "x")
+    val c: (Int, String) = (2, "x")
+    if a == b { println("ab-eq") } else { println("ab-ne") }
+    if a == c { println("ac-eq") } else { println("ac-ne") }
+}

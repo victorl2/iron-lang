@@ -377,6 +377,63 @@ static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, "\n");
         break;
 
+    case IRON_LIR_ARENA_ALLOC:
+        if (instr->arena_alloc.arena_val != IRON_LIR_VALUE_INVALID) {
+            iron_strbuf_appendf(sb, "  %%%u = arena_alloc %%%u in %%%u : ",
+                                instr->id, instr->arena_alloc.inner_val,
+                                instr->arena_alloc.arena_val);
+        } else {
+            iron_strbuf_appendf(sb, "  %%%u = arena_alloc %%%u in <tls-current> : ",
+                                instr->id, instr->arena_alloc.inner_val);
+        }
+        append_type(sb, instr->type, tmp);
+        if (show_annotations && instr->arena_alloc.allow_drop_skip) {
+            iron_strbuf_appendf(sb, " ; allow_drop_skip");
+        }
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_ARENA_PUSH:
+        iron_strbuf_appendf(sb, "  arena_push %%%u\n", instr->arena_push.arena_val);
+        break;
+
+    case IRON_LIR_ARENA_POP:
+        iron_strbuf_appendf(sb, "  arena_pop\n");
+        break;
+
+    case IRON_LIR_RC_RETAIN:
+        iron_strbuf_appendf(sb, "  rc_retain %%%u\n", instr->rc_retain.target);
+        break;
+
+    case IRON_LIR_RC_RELEASE:
+        iron_strbuf_appendf(sb, "  rc_release %%%u\n", instr->rc_release.target);
+        break;
+
+    /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc opcode print arms. */
+    case IRON_LIR_WEAK_RC_RETAIN:
+        iron_strbuf_appendf(sb, "  weak_rc_retain %%%u\n",
+                            instr->weak_rc_retain.target);
+        break;
+
+    case IRON_LIR_WEAK_RC_RELEASE:
+        iron_strbuf_appendf(sb, "  weak_rc_release %%%u\n",
+                            instr->weak_rc_release.target);
+        break;
+
+    case IRON_LIR_WEAK_RC_DOWNGRADE:
+        iron_strbuf_appendf(sb, "  %%%u = weak_rc_downgrade %%%u : ",
+                            instr->id, instr->weak_rc_downgrade.source);
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_WEAK_RC_UPGRADE:
+        iron_strbuf_appendf(sb, "  %%%u = weak_rc_upgrade %%%u : ",
+                            instr->id, instr->weak_rc_upgrade.source);
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
     case IRON_LIR_FREE:
         iron_strbuf_appendf(sb, "  free %%%u\n", instr->free_instr.value);
         break;
@@ -546,6 +603,59 @@ static void print_instr(Iron_StrBuf *sb, const IronLIR_Instr *instr,
             append_type(sb, instr->type, tmp);
         }
         iron_strbuf_appendf(sb, "\n");
+        break;
+
+    /* Phase 20 PTR-04/06/08/09 (Plan 20-02b): pointer ops. */
+    case IRON_LIR_ADDR_OF:
+        iron_strbuf_appendf(sb, "  %%%u = addr_of %%%u (%s) : ",
+                            instr->id, instr->addr_of.target,
+                            instr->addr_of.gen_source == IRON_LIR_GEN_HEAP
+                                ? "heap" : "stack");
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_PTR_LOAD:
+        iron_strbuf_appendf(sb, "  %%%u = ptr_load %%%u (%s) : ",
+                            instr->id, instr->ptr_load.fp,
+                            instr->ptr_load.gen_source == IRON_LIR_GEN_HEAP
+                                ? "heap" : "stack");
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_PTR_STORE:
+        iron_strbuf_appendf(sb, "  ptr_store %%%u, %%%u (%s)\n",
+                            instr->ptr_store.fp, instr->ptr_store.value,
+                            instr->ptr_store.gen_source == IRON_LIR_GEN_HEAP
+                                ? "heap" : "stack");
+        break;
+
+    /* Phase 25 UNCK-06 (Plan 25-02): pointer arithmetic on *unchecked T */
+    case IRON_LIR_PTR_OFFSET:
+        iron_strbuf_appendf(sb, "  %%%u = ptr_offset %%%u + %%%u (elem_size=%zu) : ",
+                            instr->id, instr->ptr_offset.ptr,
+                            instr->ptr_offset.offset, instr->ptr_offset.elem_size);
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    case IRON_LIR_PTR_DIFF:
+        iron_strbuf_appendf(sb, "  %%%u = ptr_diff %%%u - %%%u (elem_size=%zu) : ",
+                            instr->id, instr->ptr_diff.a,
+                            instr->ptr_diff.b, instr->ptr_diff.elem_size);
+        append_type(sb, instr->type, tmp);
+        iron_strbuf_appendf(sb, "\n");
+        break;
+
+    /* Phase 30 OPT-03 (Plan 30-01): generation-check intrinsic. */
+    case IRON_LIR_GENCHECK:
+        iron_strbuf_appendf(sb, "  gencheck %%%u root=%%%u (%s)\n",
+                            instr->gencheck.ptr, instr->gencheck.root_alloc,
+                            instr->gencheck.gen_source == IRON_LIR_GEN_HEAP
+                                ? "heap"
+                            : instr->gencheck.gen_source == IRON_LIR_GEN_ARENA
+                                ? "arena" : "stack");
         break;
 
     case IRON_LIR_INSTR_COUNT:

@@ -1,0 +1,17 @@
+-- section 4.13 defer: DEFER-01 block form (check-only positive)
+-- @req: DEFER-01
+-- @expected-pass-after: phase-32
+-- The `defer { ... }` block form must parse and check once the gate (E0276) is
+-- removed and the parser widens the defer body from `iron_parse_expr` to a
+-- general statement. RED now: `ironc check` still emits E0276. The CTest
+-- asserts E0276 ABSENT via whole-pipeline negation; flips GREEN in Plan 32-02.
+-- Block defers run LIFO-as-a-unit at the fall-through exit, so the block body
+-- runs in source order on that single edge: intended stdout `body`, `a`, `b`.
+
+func main() {
+    defer {
+        print("a")
+        print("b")
+    }
+    print("body")
+}

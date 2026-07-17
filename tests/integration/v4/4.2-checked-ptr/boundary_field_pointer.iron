@@ -1,0 +1,21 @@
+-- section: 4.2-checked-ptr
+-- @req: PTR-01, PTR-08
+-- @expected-pass-after: phase-20
+-- extends-spec: field-pointer &obj.field carries parent's outermost-heap-allocation generation; soundness: POINTER-CHECK-ELISION.md "field-of-field through a non-T pointer" - field pointer keys to outermost allocation
+
+object Texture {
+    val width: Int
+    val height: Int
+}
+
+object Container {
+    val tex: Texture
+    val name: String
+}
+
+func main() {
+    val container = Container(tex: Texture(width: 64, height: 64), name: "atlas")
+    val tex_ptr: *Texture = &container.tex
+    println("width: {tex_ptr.width}")
+    println("height: {tex_ptr.height}")
+}

@@ -94,6 +94,12 @@ typedef struct {
      * the seven INIT error codes (E0246..E0252). Saved/restored around every
      * method body in check_method_decl (mirrors in_synth_accessor). */
     bool               in_init_method;
+    /* Phase 24 DROP-01/06 (Plan 24-02): true when the enclosing method is a
+     * drop or copy block respectively. Saved/restored around every method body
+     * in check_method_decl (mirrors in_init_method pattern). Used to gate
+     * E0288 (drop early-return) and to enable copy-site context. */
+    bool               in_drop_method;
+    bool               in_copy_method;
     /* Phase 85 INIT-05: the Iron_Node* currently being checked as an
      * assignment's LHS. The IRON_NODE_ASSIGN handler sets this to `as->target`
      * around its check_expr call; the IRON_NODE_FIELD_ACCESS handler
@@ -122,6 +128,14 @@ typedef struct {
      * Consulted by resolve_type_annotation when ann->is_self_type is true
      * to substitute the concrete enclosing type instead of Self. */
     const char        *enclosing_type_name;
+    /* Phase 28 ARENA-08 (Plan 28-03): lexical nesting depth of `in arena {}`
+     * blocks (IRON_NODE_IN_ARENA). Incremented on body entry, decremented on
+     * exit (mirrors the readonly/init save-restore bookkeeping). When > 0, an
+     * `rc T(...)` (IRON_NODE_RC) or `weak rc null` (IRON_NODE_WEAK_RC_NULL)
+     * allocation textually inside the block emits E0301 (IRON_ERR_RC_IN_ARENA)
+     * — the closed-policy lattice {stack, heap, rc, weak rc, arena} forbids
+     * refcounted policies inside an arena. */
+    int                in_arena_block_depth;
     const _Atomic bool *cancel_flag;         /* HARD-05: NULL means never cancel */
 } TypeCtx;
 
@@ -138,6 +152,9 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
 static void check_stmt(TypeCtx *ctx, Iron_Node *node);
 static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count);
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node);
+/* Phase 28 ARENA-09 (Plan 28-03): transitive non-trivial-destructor walk. */
+static bool arena_type_has_nontrivial_dtor(Iron_Type *t, TypeCtx *ctx,
+                                           int depth);
 
 /* ── Mangling helpers ────────────────────────────────────────────────────── */
 
@@ -225,6 +242,218 @@ static Iron_Symbol *tc_define(TypeCtx *ctx, const char *name, Iron_SymbolKind ki
 /* Look up a symbol in the type-checker's scope chain. */
 static Iron_Symbol *tc_lookup(TypeCtx *ctx, const char *name) {
     return iron_scope_lookup(ctx->current_scope, name);
+}
+
+/* Phase 18 PARM-03: derive whether an argument expression yields a
+ * mutable source.
+ *
+ * Walks IRON_NODE_IDENT and IRON_NODE_FIELD_ACCESS chains; every other
+ * expression kind is conservatively NOT mutable (literals, calls, binops,
+ * unary, casts, lambdas, struct/list/map literals are all rvalues).
+ *
+ * For a FIELD_ACCESS, both (a) the named field's is_var bit AND (b) the
+ * root binding's is_mutable must be true — a `var` field on a `val`-rooted
+ * object is still effectively immutable; a `val` field on a `var`-rooted
+ * object is also immutable (the field's storage class wins).
+ *
+ * Mirrors the chain walk pattern at typecheck.c:4075-4095 (Phase 80
+ * MUT-03 / Phase 17 VAL-03). IRON_TYPE_RC unwrapping handles `rc Box`
+ * receivers transparently. */
+static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
+    if (!arg) return false;
+    switch ((int)arg->kind) {
+        case IRON_NODE_IDENT: {
+            Iron_Ident *id = (Iron_Ident *)arg;
+            if (id->resolved_sym) return id->resolved_sym->is_mutable;
+            Iron_Symbol *s = id->name ? tc_lookup(ctx, id->name) : NULL;
+            return s ? s->is_mutable : false;
+        }
+        case IRON_NODE_FIELD_ACCESS: {
+            Iron_FieldAccess *fa = (Iron_FieldAccess *)arg;
+            /* Field-level mutability: walk obj's resolved_type → ObjectDecl,
+             * find the field, check is_var. Combined with root-binding
+             * mutability (recursive). Both must be mutable for the source
+             * to count as mutable. */
+            Iron_Type *obj_ty = fa->object
+                ? ((Iron_ExprNode *)fa->object)->resolved_type : NULL;
+            if (obj_ty && obj_ty->kind == IRON_TYPE_RC) obj_ty = obj_ty->rc.inner;
+            bool field_mut = false;
+            if (obj_ty && obj_ty->kind == IRON_TYPE_OBJECT && obj_ty->object.decl) {
+                Iron_ObjectDecl *od = obj_ty->object.decl;
+                for (int fi = 0; fi < od->field_count; fi++) {
+                    Iron_Field *f = (Iron_Field *)od->fields[fi];
+                    if (f && f->name && fa->field &&
+                        strcmp(f->name, fa->field) == 0) {
+                        field_mut = f->is_var;
+                        break;
+                    }
+                }
+            }
+            return field_mut && arg_source_is_mutable(ctx, fa->object);
+        }
+        /* Calls, literals, binops, unary, struct-literal, list-literal,
+         * map-literal, casts, lambdas — all rvalues, not mutable sources. */
+        default:
+            return false;
+    }
+}
+
+/* Phase 20 PTR-07 (Plan 20-02a): true when `expr` is a syntactic lvalue
+ * that auto-address can target (named binding, field, or array element).
+ * Function-call results, literals, binops, and explicit `&` are all
+ * rvalues for the purposes of auto-address insertion. */
+static bool is_lvalue_expression(const Iron_Node *expr) {
+    if (!expr) return false;
+    switch ((int)expr->kind) {
+        case IRON_NODE_IDENT:        return true;
+        case IRON_NODE_FIELD_ACCESS: return true;
+        case IRON_NODE_INDEX:        return true;
+        default:                     return false;
+    }
+}
+
+/* Phase 20 PTR-07 (Plan 20-02a): set is_auto_address_target=true on the
+ * given expression when its kind is one of the supported lvalue shapes
+ * (IDENT, FIELD_ACCESS, INDEX). Pitfall 4 lock: flag-on-existing-node
+ * pattern, NEVER synthesize a new Iron_UnaryExpr wrapper — formatter must
+ * stay unaware so the parity-fmt gate keeps green. */
+static void set_auto_address_target_flag(Iron_Node *expr) {
+    if (!expr) return;
+    switch ((int)expr->kind) {
+        case IRON_NODE_IDENT:
+            ((Iron_Ident *)expr)->is_auto_address_target = true;
+            break;
+        case IRON_NODE_FIELD_ACCESS:
+            ((Iron_FieldAccess *)expr)->is_auto_address_target = true;
+            break;
+        case IRON_NODE_INDEX:
+            ((Iron_IndexExpr *)expr)->is_auto_address_target = true;
+            break;
+        default:
+            break;
+    }
+}
+
+/* Phase 20 PTR-10 (Plan 20-02a): walk a chain of FIELD_ACCESS / INDEX
+ * back to the rooted IRON_NODE_IDENT and return its resolved Iron_Symbol.
+ * Used by (a) PTR-10 stack-escape detection at IRON_NODE_RETURN to ask
+ * "is this an address of a stack-local?", and (b) mark_takes_local_addr
+ * walker (analyzer.c) to flag functions whose body addresses any local.
+ * Returns NULL if the chain doesn't terminate at an Iron_Ident or if the
+ * ident has no resolved_sym (resolver error path). */
+Iron_Symbol *iron_walk_to_root_binding(Iron_Node *expr) {
+    while (expr) {
+        switch ((int)expr->kind) {
+            case IRON_NODE_IDENT: {
+                Iron_Ident *id = (Iron_Ident *)expr;
+                return id->resolved_sym;
+            }
+            case IRON_NODE_FIELD_ACCESS:
+                expr = ((Iron_FieldAccess *)expr)->object;
+                break;
+            case IRON_NODE_INDEX:
+                expr = ((Iron_IndexExpr *)expr)->object;
+                break;
+            default:
+                return NULL;
+        }
+    }
+    return NULL;
+}
+
+/* Phase 20 OQ-D (Plan 20-02a): pointee-size estimate for Ptr.cast[T]
+ * compile-time check. Returns a coarse byte estimate sufficient to
+ * distinguish "same-size" from "different-size" pointee types. Mirrors
+ * the existing emit_estimate_type_size logic in src/lir/emit_structs.c
+ * (8B fixed-width primitives, 16B String/Closure, 24B array, sum of
+ * field sizes for objects). Returns -1 for IRON_TYPE_ERROR / NULL so
+ * the caller can short-circuit. */
+static int iron_type_pointee_size(const Iron_Type *t) {
+    if (!t) return -1;
+    switch ((int)t->kind) {
+        case IRON_TYPE_INT8:
+        case IRON_TYPE_UINT8:
+        case IRON_TYPE_BOOL:
+            return 1;
+        case IRON_TYPE_INT16:
+        case IRON_TYPE_UINT16:
+            return 2;
+        case IRON_TYPE_INT32:
+        case IRON_TYPE_UINT32:
+        case IRON_TYPE_FLOAT32:
+            return 4;
+        case IRON_TYPE_INT:
+        case IRON_TYPE_INT64:
+        case IRON_TYPE_UINT:
+        case IRON_TYPE_UINT64:
+        case IRON_TYPE_FLOAT:
+        case IRON_TYPE_FLOAT64:
+            return 8;
+        case IRON_TYPE_STRING:
+            return 16;
+        case IRON_TYPE_FUNC:
+            return 16;
+        case IRON_TYPE_PTR:
+            return 16;
+        case IRON_TYPE_ARRAY:
+            return 24;
+        case IRON_TYPE_OBJECT: {
+            if (!t->object.decl) return 8;
+            Iron_ObjectDecl *od = t->object.decl;
+            int total = 0;
+            for (int i = 0; i < od->field_count; i++) {
+                if (!od->fields[i] ||
+                    od->fields[i]->kind != IRON_NODE_FIELD) continue;
+                Iron_Field *f = (Iron_Field *)od->fields[i];
+                if (!f->type_ann ||
+                    f->type_ann->kind != IRON_NODE_TYPE_ANNOTATION) {
+                    total += 8;
+                    continue;
+                }
+                Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
+                if (ta->is_pointer)     total += 16;
+                else if (ta->is_array)  total += 24;
+                else if (ta->is_func)   total += 16;
+                else if (ta->name && strcmp(ta->name, "String") == 0)
+                                        total += 16;
+                else                    total += 8;
+            }
+            return total > 0 ? total : 8;
+        }
+        case IRON_TYPE_NULLABLE:
+            return iron_type_pointee_size(t->nullable.inner);
+        default:
+            return 8;
+    }
+}
+
+/* Phase 20 PTR-10: returns true when `sym` represents a stack-local
+ * variable (val/var binding inside a function body). Resolver tags such
+ * bindings with sym_kind == IRON_SYM_VARIABLE and sets the symbol on the
+ * function's local scope; top-level globals share IRON_SYM_VARIABLE but
+ * live on the global scope. We discriminate via decl_node->kind: stack
+ * locals come from IRON_NODE_VAL_DECL / IRON_NODE_VAR_DECL inside a
+ * function, AND parameters (IRON_SYM_PARAM) are also stack-resident.
+ *
+ * For the conservative whole-function pessimistic detection (Pitfall 6),
+ * any IRON_SYM_VARIABLE or IRON_SYM_PARAM source counts. Top-level
+ * globals are excluded because their addresses (when supported in a
+ * later phase) carry static-storage-duration generation, not stack. */
+static bool sym_is_stack_local(const Iron_Symbol *sym) {
+    if (!sym) return false;
+    if (sym->sym_kind == IRON_SYM_PARAM) return true;
+    if (sym->sym_kind != IRON_SYM_VARIABLE) return false;
+    /* IRON_SYM_VARIABLE: differentiate top-level globals (decl from
+     * top-level VAL_DECL / VAR_DECL but resolver registers in global
+     * scope) vs locals (registered in function scope). The resolver
+     * does not currently expose `scope_kind` on the symbol; use
+     * decl_node->kind as a proxy — IRON_NODE_VAL_DECL / VAR_DECL are
+     * the only decl kinds that produce IRON_SYM_VARIABLE. Conservative
+     * choice: treat ALL IRON_SYM_VARIABLE as stack locals for PTR-10
+     * (matches CONTEXT.md "whole-function pessimistic" lock). Top-level
+     * globals are not common enough to matter, and the runtime panic
+     * path (Plan 20-02b) is the safety net regardless. */
+    return true;
 }
 
 /* Recursively define binding variables from a pattern into the current scope.
@@ -417,6 +646,15 @@ static bool is_stringifiable(TypeCtx *ctx, const Iron_Type *t) {
     if (t->kind == IRON_TYPE_BOOL) return true;
     if (t->kind == IRON_TYPE_STRING) return true;
     if (t->kind == IRON_TYPE_ENUM) return true;
+    /* Phase 33 STDLIB-10 (Plan 33-06): *unchecked T (and the RawPtr alias)
+     * with a primitive pointee is stringifiable — emit_c interpolates as the
+     * dereferenced value. Matches the new interp-string formatter arm in
+     * emit_c.c IRON_LIR_INTERP_STRING. Structured pointees still trigger
+     * W0602 (no to_string contract for bare pointer to struct). */
+    if (t->kind == IRON_TYPE_PTR && t->ptr.is_unchecked && t->ptr.pointee) {
+        const Iron_Type *p = t->ptr.pointee;
+        if (iron_type_is_numeric(p) || p->kind == IRON_TYPE_BOOL) return true;
+    }
     if (t->kind == IRON_TYPE_OBJECT && t->object.decl && ctx->program) {
         const char *tname = t->object.decl->name;
         for (int i = 0; i < ctx->program->decl_count; i++) {
@@ -533,9 +771,73 @@ static void emit_type_mismatch_maybe_literal(TypeCtx *ctx, Iron_Span span,
  */
 static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
     if (!decl_t || !init_t) return true;
+    /* Phase 23 VEC: [T;<=N] and [T;N] are disjoint types — reject cross-assignment.
+     * Caller specializes the diagnostic to E0283 when this returns false on
+     * matching elem + matching size + differing is_bounded. */
+    if (decl_t->kind == IRON_TYPE_ARRAY && init_t->kind == IRON_TYPE_ARRAY &&
+        decl_t->array.size >= 0 && init_t->array.size >= 0 &&
+        decl_t->array.is_bounded != init_t->array.is_bounded &&
+        iron_type_equals(decl_t->array.elem, init_t->array.elem)) {
+        return false;
+    }
     if (iron_type_equals(decl_t, init_t)) return true;
     /* Int32 -> Int: implicit widening (always safe) */
     if (decl_t->kind == IRON_TYPE_INT && init_t->kind == IRON_TYPE_INT32) return true;
+
+    /* Phase 20 PTR-13 (nullable accept): a `null` literal is assignable to
+     * any nullable type `T?`. Required so `val p: ?*Point = null` analyzes
+     * cleanly while `val p: *Point = null` still triggers the dedicated
+     * IRON_ERR_PTR_NULL_DEREF path at the val/var binding site. This rule
+     * also makes `val q: Int? = null` work at last; pre-Phase-20 the path
+     * silently fell through to E0202 because no NULL -> NULLABLE rule
+     * existed. */
+    if (decl_t->kind == IRON_TYPE_NULLABLE && init_t->kind == IRON_TYPE_NULL) {
+        return true;
+    }
+
+    /* Phase 27 POL-08 (Plan 27-02): `weak rc T` is implicitly nullable.
+     * `var w: weak rc T = weak rc null` lowers to an assignment from
+     * IRON_TYPE_WEAK_RC(NULL sentinel) into IRON_TYPE_WEAK_RC(T) — accept
+     * regardless of inner-type match because the runtime carries a literal
+     * NULL pointer in either case. Also accept bare `null` so
+     * `var w: weak rc T = null` works (desugars to weak rc null per GA3). */
+    if (decl_t->kind == IRON_TYPE_WEAK_RC &&
+        init_t->kind == IRON_TYPE_WEAK_RC &&
+        init_t->weak_rc.inner &&
+        init_t->weak_rc.inner->kind == IRON_TYPE_NULL) {
+        return true;
+    }
+    if (decl_t->kind == IRON_TYPE_WEAK_RC && init_t->kind == IRON_TYPE_NULL) {
+        return true;
+    }
+
+    /* Phase 25 PTR-02/03 (Plan 25-01): unchecked regime is DISJOINT from
+     * the checked regime. (*T <-> *unchecked T) and (*var T <-> *var unchecked T)
+     * are never assignable in either direction.
+     * The caller emits IRON_ERR_PTR_REGIME_MISMATCH (289) when this returns
+     * false and both kinds are IRON_TYPE_PTR (regime mismatch, not T mismatch).
+     * RESEARCH Pattern 2 verbatim. Inserted BEFORE the PTR-12 covariance block
+     * so regime isolation takes precedence over covariance. */
+    if (decl_t->kind == IRON_TYPE_PTR && init_t->kind == IRON_TYPE_PTR) {
+        if (decl_t->ptr.is_unchecked != init_t->ptr.is_unchecked) return false;
+    }
+
+    /* Phase 20 PTR-12: pointer covariance.
+     *   *var T -> *T  : ALLOWED  (drop mutability is safe).
+     *   *T     -> *var T : REJECTED (var-invariance).
+     *   *T1    -> *T2 : REJECTED unless pointees structurally equal.
+     *   T      <-> *T  : REJECTED (cross-kind).
+     */
+    if (decl_t->kind == IRON_TYPE_PTR && init_t->kind == IRON_TYPE_PTR) {
+        if (!iron_type_equals(decl_t->ptr.pointee, init_t->ptr.pointee)) return false;
+        if (decl_t->ptr.is_var && !init_t->ptr.is_var) return false;
+        return true;
+    }
+    /* Cross-kind PTR <-> non-PTR is never assignable. NULL-literal
+     * compatibility is handled separately (decl_t may be IRON_TYPE_NULLABLE
+     * wrapping IRON_TYPE_PTR for `?*T`). */
+    if (decl_t->kind == IRON_TYPE_PTR && init_t->kind != IRON_TYPE_PTR) return false;
+    if (decl_t->kind != IRON_TYPE_PTR && init_t->kind == IRON_TYPE_PTR) return false;
     /* func-type compatibility: two func types with equal param counts are compatible
      * when their return types are both "void-like" (either IRON_TYPE_VOID or NULL).
      * This allows lambdas with unresolved return type (NULL) to be passed to
@@ -651,6 +953,33 @@ static bool type_satisfies_constraint(TypeCtx *ctx, Iron_Type *concrete_type,
                                        const char *constraint_name) {
     if (!concrete_type || !constraint_name) return true;
     if (concrete_type->kind == IRON_TYPE_ERROR) return true;
+
+    /* Phase 33 OQ-01 / GA1: primitive-key carve-out. The built-in hashable
+     * primitives satisfy `Hashable` directly — without an explicit
+     * `implements Hashable` or a structural method match — because the hash
+     * container backing (IRON_MAP_IMPL / IRON_SET_IMPL) hashes them natively.
+     * This is the "minimal built-in constraint set" decision in CONTEXT GA1;
+     * it is scoped strictly to constraint_name == "Hashable" so it does NOT
+     * leak into any future user-defined constraint. The set: the Int/UInt
+     * sized family, Bool, and String (UTF-8 String hashes by bytes). Floats
+     * are deliberately EXCLUDED (NaN/-0.0 hashing hazards). This branch runs
+     * BEFORE the interface-resolution lookup so it fires even on the (now
+     * rare) path where Hashable has not yet resolved as an interface. */
+    if (strcmp(constraint_name, "Hashable") == 0) {
+        /* if-chain (not switch) deliberately — the file is built under
+         * -Werror=switch-enum, which rejects a default-covered switch over
+         * Iron_TypeKind; an if-chain sidesteps the exhaustiveness demand for
+         * this small allowlist. */
+        Iron_TypeKind k = concrete_type->kind;
+        if (k == IRON_TYPE_INT    || k == IRON_TYPE_INT8   || k == IRON_TYPE_INT16  ||
+            k == IRON_TYPE_INT32  || k == IRON_TYPE_INT64  ||
+            k == IRON_TYPE_UINT   || k == IRON_TYPE_UINT8  || k == IRON_TYPE_UINT16 ||
+            k == IRON_TYPE_UINT32 || k == IRON_TYPE_UINT64 ||
+            k == IRON_TYPE_BOOL   || k == IRON_TYPE_STRING) {
+            return true;  /* built-in hashable primitive */
+        }
+        /* else fall through to the object/interface satisfaction path */
+    }
 
     /* Look up the constraint as an interface */
     Iron_Symbol *csym = iron_scope_lookup(ctx->global_scope, constraint_name);
@@ -788,6 +1117,39 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     }
 
     Iron_TypeAnnotation *ann = (Iron_TypeAnnotation *)ann_node;
+
+    /* Phase 27 POL-08 (Plan 27-02): lower `weak rc T` to IRON_TYPE_WEAK_RC.
+     * Placement: BEFORE the pointer arm so `weak rc T` annotations never
+     * dispatch through the pointer-lowering path. */
+    if (ann->is_weak_rc) {
+        Iron_Type *inner_t = ann->weak_rc_inner
+            ? resolve_type_annotation(ctx, ann->weak_rc_inner)
+            : iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (!inner_t) inner_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+        Iron_Type *wt = iron_type_make_weak_rc(ctx->arena, inner_t);
+        return wt ? wt : iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+
+    /* Phase 20 PTR-01/13: lower `*T` / `*var T` / `?*T` / `?*var T`. The
+     * outer is_nullable on a pointer annotation surfaces as
+     * IRON_TYPE_NULLABLE wrapping IRON_TYPE_PTR — `?*T` composes the two
+     * existing constructors. */
+    if (ann->is_pointer) {
+        Iron_Type *pointee_t = ann->pointer_pointee
+            ? resolve_type_annotation(ctx, ann->pointer_pointee)
+            : iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (!pointee_t) pointee_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+        Iron_Type *pt = iron_type_make_ptr(ctx->arena, pointee_t,
+                                            ann->is_var_pointer,
+                                            ann->is_unchecked); /* Phase 25 PTR-02 */
+        if (!pt) pt = iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (ann->is_nullable) {
+            Iron_Type *np = iron_type_make_nullable(ctx->arena, pt);
+            return np ? np : iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
+        return pt;
+    }
+
     const char *name = ann->name;
     Iron_Type *base = NULL;
 
@@ -865,7 +1227,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                 Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
                 if (il->value) size = (int)strtol(il->value, NULL, 10);
             }
-            Iron_Type *arr = iron_type_make_array(ctx->arena, base, size);
+            Iron_Type *arr = iron_type_make_array(ctx->arena, base, size, ann->bounded);
             /* HARD-09 CR-02: NULL-propagation fallback. */
             if (!arr) arr = iron_type_make_primitive(IRON_TYPE_ERROR);
             base = arr;
@@ -874,6 +1236,8 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
             if (base && base->kind == IRON_TYPE_ARRAY) {
                 base->array.layout_hint  = ann->layout_hint;
                 base->array.is_unordered = ann->is_unordered;
+                /* Phase 23 VEC-01: propagate bounded flag from annotation to type */
+                base->array.is_bounded   = ann->bounded;
             }
         }
 
@@ -904,11 +1268,77 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     else if (strcmp(name, "String")  == 0) base = iron_type_make_primitive(IRON_TYPE_STRING);
     else if (strcmp(name, "void")    == 0) base = iron_type_make_primitive(IRON_TYPE_VOID);
     else if (strcmp(name, "Void")    == 0) base = iron_type_make_primitive(IRON_TYPE_VOID);
+    /* Phase 33 STDLIB-10 (Plan 33-06): RawPtr is the type-erased member of the
+     * *unchecked T regime. Internally represented as IRON_TYPE_PTR with
+     * is_unchecked=true and pointee=Int (a stand-in for the 8-byte erased
+     * payload). The type-erasure semantics are enforced in the Ptr.cast
+     * dispatch (skips size-equality when source is *unchecked) and in
+     * RawPtr.of (compiler-builtin address-producer that bypasses the E0294
+     * `&`-cannot-produce-unchecked guard). Auto-address still does NOT apply
+     * because is_unchecked=true (UNCK-05 guard unchanged). */
+    else if (strcmp(name, "RawPtr")  == 0) {
+        Iron_Type *pointee = iron_type_make_primitive(IRON_TYPE_INT);
+        base = iron_type_make_ptr(ctx->arena, pointee,
+                                  /*is_var=*/false,
+                                  /*is_unchecked=*/true);
+        if (!base) base = iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
     else {
         /* User-defined type: look up in global scope */
         Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, name);
         if (sym) {
             base = sym->type;
+            /* Phase 33 OQ-01 (Plan 33-02): enforce generic-object constraints
+             * at the TYPE-ANNOTATION site. `Map[K: Hashable, V]` /
+             * `Set[T: Hashable]` are generic OBJECTs; a binding like
+             * `var m: Map[NonHashable, Int]` resolves here, NOT through an
+             * object-literal construction call, so the construction-site
+             * check_generic_constraints calls (lines ~2624/3995/2559) never
+             * fire for them. Resolve each supplied type arg and run the SAME
+             * check_generic_constraints helper so the K: Hashable bound bites
+             * (E0206) on bad keys. Object-literal construction keeps its own
+             * checks; this is the missing annotation-site arm. */
+            if (base && base->kind == IRON_TYPE_OBJECT &&
+                base->object.decl &&
+                base->object.decl->generic_param_count > 0 &&
+                base->object.decl->generic_params &&
+                ann->generic_arg_count > 0) {
+                Iron_ObjectDecl *od = base->object.decl;
+                int gc = od->generic_param_count < 16 ? od->generic_param_count : 16;
+                Iron_Type *concrete[16];
+                int ac = ann->generic_arg_count < gc ? ann->generic_arg_count : gc;
+                for (int gi = 0; gi < gc; gi++) {
+                    concrete[gi] = NULL;
+                    if (gi < ac && ann->generic_args[gi]) {
+                        concrete[gi] = resolve_type_annotation(ctx, ann->generic_args[gi]);
+                    }
+                }
+                check_generic_constraints(ctx, od->generic_params,
+                                          od->generic_param_count,
+                                          concrete, gc, ann_node->span);
+
+                /* Phase 33 STDLIB-07/08 (Plan 33-05): the builtin generic
+                 * nocopy resource surfaces carry their element on
+                 * object.elem (not the enum-style monomorphization path).
+                 * The constructor sets elem for Mutex/RWLock, but Channel's
+                 * ctor argument (capacity) is NOT the element, so the
+                 * `Channel[Int]` annotation is the only channel for the elem.
+                 * Build a FRESH object type so we never mutate the shared
+                 * sym->type singleton, and stash the (single) resolved arg. */
+                if (od->name && ac >= 1 && concrete[0] &&
+                    (strcmp(od->name, "Mutex") == 0 ||
+                     strcmp(od->name, "MutexGuard") == 0 ||
+                     strcmp(od->name, "RWLock") == 0 ||
+                     strcmp(od->name, "RWReadGuard") == 0 ||
+                     strcmp(od->name, "RWWriteGuard") == 0 ||
+                     strcmp(od->name, "Channel") == 0)) {
+                    Iron_Type *fresh = iron_type_make_object(ctx->arena, od);
+                    if (fresh && fresh->kind == IRON_TYPE_OBJECT) {
+                        fresh->object.elem = concrete[0];
+                        base = fresh;
+                    }
+                }
+            }
             /* Generic enum instantiation: Option[Int], Result[T, E] */
             if (base && base->kind == IRON_TYPE_ENUM &&
                 base->enu.decl && base->enu.decl->generic_param_count > 0 &&
@@ -1073,7 +1503,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
             Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
             if (il->value) size = (int)strtol(il->value, NULL, 10);
         }
-        Iron_Type *arr = iron_type_make_array(ctx->arena, base, size);
+        Iron_Type *arr = iron_type_make_array(ctx->arena, base, size, ann->bounded);
         /* HARD-09 CR-02: NULL-propagation fallback. */
         if (!arr) arr = iron_type_make_primitive(IRON_TYPE_ERROR);
         base = arr;
@@ -1082,6 +1512,8 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         if (base && base->kind == IRON_TYPE_ARRAY) {
             base->array.layout_hint  = ann->layout_hint;
             base->array.is_unordered = ann->is_unordered;
+            /* Phase 23 VEC-01: propagate bounded flag from annotation to type */
+            base->array.is_bounded   = ann->bounded;
         }
     }
 
@@ -1317,7 +1749,7 @@ static Iron_Type *resolve_array_ext_method(TypeCtx *ctx,
                     }
                 }
                 if (inferred_u) {
-                    return iron_type_make_array(ctx->arena, inferred_u, -1);
+                    return iron_type_make_array(ctx->arena, inferred_u, -1, false);
                 }
                 return arr_type;
             }
@@ -1586,6 +2018,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                op == IRON_TOK_CARET);
 
             if (lt && rt && lt->kind != IRON_TYPE_ERROR && rt->kind != IRON_TYPE_ERROR) {
+                /* Phase 20 PTR-11: pointer arithmetic in checked regime is
+                 * forbidden. Fires for + - * / %% when EITHER operand is
+                 * IRON_TYPE_PTR. The diagnostic hint mentions Phase 25's
+                 * `*unchecked T` + `Ptr.offset` escape hatch as the
+                 * forward-migration path for performance-critical pointer
+                 * arithmetic code. */
+                if (is_arithmetic &&
+                    (lt->kind == IRON_TYPE_PTR || rt->kind == IRON_TYPE_PTR)) {
+                    emit_error(ctx, IRON_ERR_PTR_NO_ARITH, be->span,
+                               "no pointer arithmetic in checked regime; "
+                               "use Ptr.offset on *unchecked T",
+                               "checked-pointer arithmetic is deferred to "
+                               "Phase 25's *unchecked T regime via Ptr.offset");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    be->resolved_type = result;
+                    break;
+                }
                 bool lt_is_int   = (lt->kind == IRON_TYPE_INT);
                 bool lt_is_float = (lt->kind == IRON_TYPE_FLOAT ||
                                     lt->kind == IRON_TYPE_FLOAT32 ||
@@ -1716,6 +2165,70 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_UNARY: {
             Iron_UnaryExpr *ue = (Iron_UnaryExpr *)node;
+            /* Phase 20 PTR-04 / PTR-07 (Plan 20-02a): `&` resolves to *T at
+             * the analyzer level. The operand must be an lvalue (named
+             * binding, field, element); any rvalue (literal, function-call
+             * result, binop) emits E0270. The result is `*var T` when the
+             * operand source is mutable (var binding or var-rooted field)
+             * and `*T` otherwise. HIR/LIR lowering (Plan 20-02b) reads the
+             * resolved Iron_Type to emit Iron_FatPtr and tag the gen source.
+             *
+             * Order: handle AMP BEFORE the generic check_expr(operand) so
+             * we can short-circuit on rvalue operands and avoid surfacing
+             * unrelated diagnostics from re-checking. */
+            if (ue->op == (Iron_OpKind)IRON_TOK_AMP) {
+                if (!is_lvalue_expression(ue->operand)) {
+                    /* Still check the operand to surface its own
+                     * diagnostics (e.g. undefined call inside &g()). */
+                    check_expr(ctx, ue->operand);
+                    emit_error(ctx, IRON_ERR_PTR_AMP_ON_RVALUE, ue->span,
+                               "cannot take address of rvalue (literal or "
+                               "temporary)",
+                               "auto-address requires a named binding, "
+                               "field, or element");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ue->resolved_type = result;
+                    break;
+                }
+                Iron_Type *operand_t = check_expr(ctx, ue->operand);
+                if (!operand_t || operand_t->kind == IRON_TYPE_ERROR) {
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ue->resolved_type = result;
+                    break;
+                }
+                /* Phase 26 POL-07 (Plan 26-02) + Phase 27 GA4 (Plan 27-02):
+                 * `&` on an rc OR weak rc value is forbidden — refcounted
+                 * values cannot produce non-owning pointer references.
+                 * Hint redirects to `weak rc T` for a non-owning reference;
+                 * `.upgrade()` returns a nullable strong reference. Placed
+                 * AFTER operand typecheck so we know the operand resolves
+                 * to IRON_TYPE_RC / IRON_TYPE_WEAK_RC, but BEFORE the
+                 * iron_type_make_ptr construction below so the &-on-rc
+                 * path short-circuits cleanly to ERROR. */
+                if (operand_t->kind == IRON_TYPE_RC ||
+                    operand_t->kind == IRON_TYPE_WEAK_RC) {
+                    emit_error(ctx, IRON_ERR_PTR_AMP_ON_RC, ue->span,
+                               "cannot take address of rc/weak rc;"
+                               " use weak rc T or upgrade() to obtain"
+                               " a nullable strong reference",
+                               "use `weak rc T` for a non-owning"
+                               " reference to an rc value; call"
+                               " `.upgrade()` on a weak rc to obtain"
+                               " a nullable strong reference (T?)");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ue->resolved_type = result;
+                    break;
+                }
+                bool is_var_src = arg_source_is_mutable(ctx, ue->operand);
+                Iron_Type *ptr_t = iron_type_make_ptr(ctx->arena,
+                                                       operand_t,
+                                                       is_var_src,
+                                                       false); /* &expr always yields checked *T (UNCK-04) */
+                result = ptr_t ? ptr_t
+                               : iron_type_make_primitive(IRON_TYPE_ERROR);
+                ue->resolved_type = result;
+                break;
+            }
             Iron_Type *ot = check_expr(ctx, ue->operand);
             if (ue->op == IRON_TOK_NOT) {
                 if (ot && ot->kind != IRON_TYPE_BOOL && ot->kind != IRON_TYPE_ERROR) {
@@ -1749,6 +2262,139 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_CALL: {
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
+
+            /* Phase 20 OQ-D (Plan 20-02a): `Ptr.cast[T](p)` compiler
+             * builtin. Parses as CALL(callee=INDEX(object=FIELD_ACCESS(
+             * Ptr.cast), index=Ident(T)), args=[p]). Compile-time
+             * pointee-size check: sizeof(T) must equal sizeof(*S) where
+             * S is the pointee of arg p (an IRON_TYPE_PTR).
+             *   - Mismatch → IRON_ERR_PTR_CAST_SIZE_MISMATCH (E0269)
+             *   - Success → return *T preserving is_var from the source
+             *
+             * Per CONTEXT.md OQ-D lock: Ptr.cast is a compiler builtin in
+             * typecheck.c, NOT a stdlib function. Phase 25 ships the rest
+             * of the Ptr namespace as stdlib functions; the dedicated
+             * builtin path here owns the size check. */
+            if (ce->callee && ce->callee->kind == IRON_NODE_INDEX) {
+                Iron_IndexExpr *idx_callee = (Iron_IndexExpr *)ce->callee;
+                if (idx_callee->object &&
+                    idx_callee->object->kind == IRON_NODE_FIELD_ACCESS) {
+                    Iron_FieldAccess *fa_inner =
+                        (Iron_FieldAccess *)idx_callee->object;
+                    bool is_ptr_cast =
+                        fa_inner->object &&
+                        fa_inner->object->kind == IRON_NODE_IDENT &&
+                        ((Iron_Ident *)fa_inner->object)->name &&
+                        strcmp(((Iron_Ident *)fa_inner->object)->name,
+                               "Ptr") == 0 &&
+                        fa_inner->field &&
+                        strcmp(fa_inner->field, "cast") == 0;
+                    if (is_ptr_cast) {
+                        /* Resolve target type T from the index expression.
+                         * The parser produced an Iron_Ident or other
+                         * type-name expression; resolve it via scope
+                         * lookup against IRON_SYM_TYPE. */
+                        Iron_Type *target_t = NULL;
+                        if (idx_callee->index &&
+                            idx_callee->index->kind == IRON_NODE_IDENT) {
+                            Iron_Ident *tid = (Iron_Ident *)idx_callee->index;
+                            Iron_Symbol *tsym = tid->name
+                                ? iron_scope_lookup(ctx->global_scope, tid->name)
+                                : NULL;
+                            if (tsym && tsym->sym_kind == IRON_SYM_TYPE) {
+                                target_t = tsym->type;
+                            } else {
+                                target_t = iron_type_make_primitive(IRON_TYPE_INT);
+                                if (tsym == NULL) {
+                                    /* Try built-in primitives by name. */
+                                    if (strcmp(tid->name, "Int")  == 0) target_t = iron_type_make_primitive(IRON_TYPE_INT);
+                                    else if (strcmp(tid->name, "Bool")  == 0) target_t = iron_type_make_primitive(IRON_TYPE_BOOL);
+                                    else if (strcmp(tid->name, "Float") == 0) target_t = iron_type_make_primitive(IRON_TYPE_FLOAT);
+                                    else if (strcmp(tid->name, "String")== 0) target_t = iron_type_make_primitive(IRON_TYPE_STRING);
+                                }
+                            }
+                        }
+                        /* Validate exactly one positional arg of type *S. */
+                        if (ce->arg_count != 1) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "Ptr.cast[T] expects 1 argument, got %d",
+                                     ce->arg_count);
+                            emit_error(ctx, IRON_ERR_ARG_COUNT,
+                                       ce->span, msg, NULL);
+                            for (int i = 0; i < ce->arg_count; i++)
+                                check_expr(ctx, ce->args[i]);
+                            result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                            ce->resolved_type = result;
+                            break;
+                        }
+                        Iron_Type *src_arg_t = check_expr(ctx, ce->args[0]);
+                        if (!src_arg_t || src_arg_t->kind != IRON_TYPE_PTR ||
+                            !src_arg_t->ptr.pointee) {
+                            emit_error(ctx, IRON_ERR_TYPE_MISMATCH,
+                                       ce->args[0]->span,
+                                       "Ptr.cast[T] expects a pointer "
+                                       "argument",
+                                       NULL);
+                            result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                            ce->resolved_type = result;
+                            break;
+                        }
+                        if (target_t) {
+                            /* Phase 33 STDLIB-10 (Plan 33-06): when the source
+                             * pointer is in the unchecked regime (RawPtr or any
+                             * *unchecked T), Ptr.cast is type-erased — skip the
+                             * size-equality check and stay in the unchecked
+                             * regime on output. The checked-regime cast path
+                             * keeps its UNCK-04 size-equality contract. */
+                            bool src_is_unchecked = src_arg_t->ptr.is_unchecked;
+                            int sz_target = iron_type_pointee_size(target_t);
+                            int sz_source = iron_type_pointee_size(
+                                src_arg_t->ptr.pointee);
+                            if (!src_is_unchecked &&
+                                sz_target > 0 && sz_source > 0 &&
+                                sz_target != sz_source) {
+                                char msg[320];
+                                snprintf(msg, sizeof(msg),
+                                         "Ptr.cast pointee size mismatch: "
+                                         "cannot cast '*%s' (size %d) to "
+                                         "'*%s' (size %d); cast requires "
+                                         "sizeof(target) == sizeof(source)",
+                                         iron_type_to_string(
+                                             src_arg_t->ptr.pointee, ctx->arena),
+                                         sz_source,
+                                         iron_type_to_string(target_t, ctx->arena),
+                                         sz_target);
+                                emit_error(ctx,
+                                           IRON_ERR_PTR_CAST_SIZE_MISMATCH,
+                                           ce->span, msg,
+                                           "use *unchecked T (Phase 25) "
+                                           "for arbitrary pointer casts");
+                                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                                ce->resolved_type = result;
+                                break;
+                            }
+                            /* Success: return *T preserving is_var. The
+                             * regime is inherited from the source pointer
+                             * (Phase 25 UNCK-04 for checked; Phase 33 STDLIB-10
+                             * for unchecked/RawPtr — type-erased cast stays
+                             * in the unchecked regime). */
+                            Iron_Type *out_t = iron_type_make_ptr(
+                                ctx->arena, target_t,
+                                src_arg_t->ptr.is_var,
+                                src_is_unchecked);
+                            result = out_t
+                                ? out_t
+                                : iron_type_make_primitive(IRON_TYPE_ERROR);
+                            ce->resolved_type = result;
+                            break;
+                        }
+                        /* target_t couldn't be resolved — fall through to
+                         * the standard CALL path which will emit a more
+                         * generic diagnostic for the unknown callee. */
+                    }
+                }
+            }
 
             /* Phase 87-02 SELF-03: Self(args) inside a method body dispatches
              * to the enclosing type's anonymous init. Rewrite the callee ident
@@ -2146,6 +2792,36 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     }
                 }
             }
+            /* Phase 22 READ-04: readonly method calling I/O builtin function.
+             * Mirrors IRON_ERR_PURE_IO but for the readonly tier.
+             * §6: readonly methods may not perform I/O (file, network, console, log).
+             * Pitfall 1 guard: !in_pure_method prevents double-emit when the
+             * enclosing method is pure (ctx->in_readonly_method is true for BOTH
+             * pure and readonly methods — see typecheck.c:5700). */
+            if (ctx->in_readonly_method && !ctx->in_pure_method &&
+                ce->callee && ce->callee->kind == IRON_NODE_IDENT) {
+                Iron_Ident *fn_id_ro = (Iron_Ident *)ce->callee;
+                if (fn_id_ro->name) {
+                    /* REUSE IRON_PURE_IO_BUILTINS declared in the pure block above. */
+                    static const char *const IRON_RO_IO_BUILTINS[] = {
+                        "println", "print", "readline",
+                    };
+                    for (size_t i = 0;
+                         i < sizeof(IRON_RO_IO_BUILTINS) /
+                             sizeof(IRON_RO_IO_BUILTINS[0]);
+                         i++) {
+                        if (strcmp(fn_id_ro->name, IRON_RO_IO_BUILTINS[i]) == 0) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot call I/O function '%s' in readonly method",
+                                     fn_id_ro->name);
+                            emit_error(ctx, IRON_ERR_READONLY_IO, ce->span, msg,
+                                       "§6: readonly methods may not perform I/O");
+                            break;
+                        }
+                    }
+                }
+            }
 
             /* Special case: len(array) -> Int.
              * The len builtin is registered as len(String)->Int, but we also
@@ -2181,10 +2857,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     }
                     /* Return type is [T] where T is the type of val */
                     if (val_t) {
-                        result = iron_type_make_array(ctx->arena, val_t, -1);
+                        result = iron_type_make_array(ctx->arena, val_t, -1, false);
                     } else {
                         result = iron_type_make_array(ctx->arena,
-                                   iron_type_make_primitive(IRON_TYPE_INT), -1);
+                                   iron_type_make_primitive(IRON_TYPE_INT), -1, false);
                     }
                     ce->resolved_type = result;
                     break;
@@ -2193,6 +2869,25 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
             /* Check arg count */
             int expected_count = callee_type->func.param_count;
+
+            /* Phase 18 PARM-03: lookup callee FuncDecl once for per-param
+             * is_var enforcement at the call site. Free-function path; the
+             * IRON_NODE_METHOD_CALL handler below carries the method-call
+             * sibling check (Pitfall 3 method-call coverage lock). */
+            Iron_FuncDecl *fd_for_parm = NULL;
+            if (ce->callee && ce->callee->kind == IRON_NODE_IDENT) {
+                Iron_Ident *fn_id = (Iron_Ident *)ce->callee;
+                Iron_Symbol *fn_sym =
+                    fn_id->name
+                        ? iron_scope_lookup(ctx->global_scope, fn_id->name)
+                        : NULL;
+                if (fn_sym && fn_sym->sym_kind == IRON_SYM_FUNCTION &&
+                    fn_sym->decl_node &&
+                    fn_sym->decl_node->kind == IRON_NODE_FUNC_DECL) {
+                    fd_for_parm = (Iron_FuncDecl *)fn_sym->decl_node;
+                }
+            }
+
             if (ce->arg_count != expected_count) {
                 char msg[256];
                 snprintf(msg, sizeof(msg),
@@ -2205,22 +2900,142 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 for (int i = 0; i < ce->arg_count; i++) {
                     Iron_Type *param_type = callee_type->func.param_types[i];
                     Iron_Type *arg_type = check_expr_with_expected(ctx, ce->args[i], param_type);
+                    /* Phase 20 PTR-07: auto-address shape check. When the
+                     * param is `*T` / `*var T` and the arg is a non-pointer
+                     * matching the pointee structurally, the type-mismatch
+                     * branch is suppressed — auto-address (handled below)
+                     * inserts the implicit `&` and the call still type-
+                     * checks. The downstream PTR-07 block emits E0270 (on
+                     * rvalue) / E0267 (on val→*var T) where applicable. */
+                    bool auto_address_applies =
+                        param_type && param_type->kind == IRON_TYPE_PTR &&
+                        !param_type->ptr.is_unchecked && /* Phase 25 UNCK-05 (Plan 25-01): suppress auto-address for *unchecked T params */
+                        arg_type && arg_type->kind != IRON_TYPE_PTR &&
+                        arg_type->kind != IRON_TYPE_ERROR &&
+                        param_type->ptr.pointee &&
+                        iron_type_equals(param_type->ptr.pointee, arg_type);
                     if (param_type && arg_type &&
                         param_type->kind != IRON_TYPE_ERROR &&
                         arg_type->kind   != IRON_TYPE_ERROR &&
+                        !auto_address_applies &&
                         !types_assignable(param_type, arg_type) &&
                         !is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
-                        char msg[256];
-                        snprintf(msg, sizeof(msg),
-                                 "argument %d type mismatch: expected '%s', got '%s'",
-                                 i + 1,
-                                 iron_type_to_string(param_type, ctx->arena),
-                                 iron_type_to_string(arg_type, ctx->arena));
-                        emit_error(ctx, IRON_ERR_ARG_TYPE, ce->args[i]->span, msg, NULL);
+                        /* Phase 25 PTR-02/03/UNCK-05 (Plan 25-01): specialize to
+                         * E0289 IRON_ERR_PTR_REGIME_MISMATCH when both types are
+                         * IRON_TYPE_PTR and is_unchecked differs (regime crossing
+                         * at call-arg site). Specificity over generic IRON_ERR_ARG_TYPE.
+                         * RESEARCH Pitfall 2: same regime-mismatch predicate fires at
+                         * val/var-decl + call-arg + return (three sites). */
+                        if (param_type->kind == IRON_TYPE_PTR &&
+                            arg_type->kind   == IRON_TYPE_PTR &&
+                            param_type->ptr.is_unchecked != arg_type->ptr.is_unchecked) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "argument %d regime mismatch: expected '%s', got '%s'; "
+                                     "checked and unchecked pointer regimes are disjoint",
+                                     i + 1,
+                                     iron_type_to_string(param_type, ctx->arena),
+                                     iron_type_to_string(arg_type, ctx->arena));
+                            emit_error(ctx, IRON_ERR_PTR_REGIME_MISMATCH,
+                                       ce->args[i]->span, msg,
+                                       "§4.3-§4.4: checked and unchecked pointer regimes are disjoint; "
+                                       "use Box.unwrap() to escape from Box[T] to *unchecked T");
+                        } else {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "argument %d type mismatch: expected '%s', got '%s'",
+                                     i + 1,
+                                     iron_type_to_string(param_type, ctx->arena),
+                                     iron_type_to_string(arg_type, ctx->arena));
+                            emit_error(ctx, IRON_ERR_ARG_TYPE, ce->args[i]->span, msg, NULL);
+                        }
                     }
                     /* Narrow literal args to match parameter type */
                     if (is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
                         ((Iron_IntLit *)ce->args[i])->resolved_type = param_type;
+                    }
+                    /* Phase 24 DROP-08 (Plan 24-02): nocopy type passed by value — E0286.
+                     * Site (b): IRON_NODE_FUNC_CALL param-pass. Only fires when the arg
+                     * is an IDENT (copy from existing binding). Constructed values are moves. */
+                    if (arg_type && arg_type->kind == IRON_TYPE_OBJECT &&
+                        arg_type->object.decl && arg_type->object.decl->is_nocopy &&
+                        param_type && param_type->kind == IRON_TYPE_OBJECT &&
+                        ce->args[i] && ce->args[i]->kind == IRON_NODE_IDENT) {
+                        emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, ce->args[i]->span,
+                                   "cannot pass nocopy type by value — parameter requires copy",
+                                   "§7: nocopy types cannot be copied; pass `*T` or `*var T` to avoid copy");
+                    }
+                    /* Phase 18 PARM-03: read-only argument passed to a
+                     * 'var' parameter slot. arg_source_is_mutable returns
+                     * false for val bindings, val fields, literals, calls,
+                     * and any non-IDENT/non-FIELD_ACCESS rvalue (Pitfall 7
+                     * lock — hint mentions only `var`, not `*var`). */
+                    if (fd_for_parm && i < fd_for_parm->param_count &&
+                        fd_for_parm->params[i] &&
+                        fd_for_parm->params[i]->kind == IRON_NODE_PARAM) {
+                        Iron_Param *fp = (Iron_Param *)fd_for_parm->params[i];
+                        if (fp->is_var &&
+                            !arg_source_is_mutable(ctx, ce->args[i])) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot pass read-only argument to "
+                                     "'var' parameter '%s'",
+                                     fp->name ? fp->name : "<unnamed>");
+                            emit_error(ctx,
+                                       IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT,
+                                       ce->args[i]->span, msg,
+                                       "make the argument source mutable "
+                                       "(declare as 'var')");
+                        }
+                    }
+
+                    /* Phase 20 PTR-07 (Plan 20-02a): auto-address insertion
+                     * at call sites. When the param is `*T` / `*var T` and
+                     * the arg is a non-pointer expression matching the
+                     * pointee type, set is_auto_address_target on the arg
+                     * (flag-on-existing-node per Pitfall 4 — formatter must
+                     * not see a synthesized `&` wrapper, parity-fmt gate
+                     * stays green). Three branches:
+                     *   (a) arg is an rvalue (literal, call result, binop)
+                     *       → emit E0270 "& on rvalue".
+                     *   (b) param is *var T but arg source is not mutable
+                     *       → emit E0267 (PARM-03 reused per CONTEXT.md
+                     *       lock; same code Phase 18 ships for var params).
+                     *   (c) auto-address ok → set the flag.
+                     * Skip when the arg is already an Iron_UnaryExpr with
+                     * op==IRON_TOK_AMP (explicit & path resolves to *T at
+                     * the unary handler; types_assignable already accepted
+                     * it above). */
+                    if (param_type && param_type->kind == IRON_TYPE_PTR &&
+                        arg_type && arg_type->kind != IRON_TYPE_PTR &&
+                        arg_type->kind != IRON_TYPE_ERROR &&
+                        param_type->ptr.pointee &&
+                        iron_type_equals(param_type->ptr.pointee, arg_type)) {
+                        if (!is_lvalue_expression(ce->args[i])) {
+                            emit_error(ctx, IRON_ERR_PTR_AMP_ON_RVALUE,
+                                       ce->args[i]->span,
+                                       "cannot take address of rvalue "
+                                       "(literal or temporary)",
+                                       "auto-address requires a named "
+                                       "binding, field, or element; bind "
+                                       "to a local first");
+                        } else if (param_type->ptr.is_var &&
+                                   !arg_source_is_mutable(ctx, ce->args[i])) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot pass read-only argument to "
+                                     "'*var %s' parameter",
+                                     iron_type_to_string(
+                                         param_type->ptr.pointee, ctx->arena));
+                            emit_error(ctx,
+                                       IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT,
+                                       ce->args[i]->span, msg,
+                                       "make the argument source mutable "
+                                       "(declare as 'var') or pass an "
+                                       "explicit '&'");
+                        } else {
+                            set_auto_address_target_flag(ce->args[i]);
+                        }
                     }
                 }
             }
@@ -2285,8 +3100,563 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+
+            /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset + Ptr.diff compiler
+             * builtins.  The Iron parser applies the Method-Call heuristic:
+             * when the left-hand ident starts with an uppercase letter and the
+             * right-hand field starts with lowercase, it produces
+             * IRON_NODE_METHOD_CALL(object=IDENT("Ptr"), method="offset"|"diff")
+             * rather than IRON_NODE_CALL with an IRON_NODE_FIELD_ACCESS callee.
+             *
+             * We intercept BEFORE the generic check_expr(mc->object) call so
+             * that "Ptr" is never looked up in the symbol table (it isn't a
+             * user-defined identifier) and no spurious E0200 is emitted.
+             *
+             * Option C: NO flag stored on Iron_MethodCallExpr.  hir_to_lir.c
+             * re-runs the same by-name predicate to emit IRON_LIR_PTR_OFFSET /
+             * IRON_LIR_PTR_DIFF without touching ast.h in Plan 25-02. */
+            if (mc->object && mc->object->kind == IRON_NODE_IDENT && mc->method) {
+                Iron_Ident *obj_id_ptr = (Iron_Ident *)mc->object;
+                bool is_ptr_ns = obj_id_ptr->name &&
+                                 strcmp(obj_id_ptr->name, "Ptr") == 0;
+                bool is_ptr_offset = is_ptr_ns && strcmp(mc->method, "offset") == 0;
+                bool is_ptr_diff   = is_ptr_ns && strcmp(mc->method, "diff")   == 0;
+
+                if (is_ptr_offset) {
+                    /* Ptr.offset(p: *unchecked T, n: Int) -> *unchecked T */
+                    if (mc->arg_count != 2) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "Ptr.offset expects 2 arguments (p, n), got %d",
+                                 mc->arg_count);
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    Iron_Type *arg0_t = check_expr(ctx, mc->args[0]);
+                    Iron_Type *arg1_t = check_expr(ctx, mc->args[1]);
+                    if (!arg0_t || arg0_t->kind != IRON_TYPE_PTR ||
+                        !arg0_t->ptr.is_unchecked) {
+                        emit_error(ctx, IRON_ERR_PTR_ARITH_CHECKED,
+                                   mc->args[0]->span,
+                                   "Ptr.offset requires *unchecked T as first argument",
+                                   "S4.3: Ptr.offset requires *unchecked T; use "
+                                   "Box.unwrap() or RawPtr (Phase 33) for explicit "
+                                   "pointer arithmetic");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (!arg1_t || arg1_t->kind != IRON_TYPE_INT) {
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->args[1]->span,
+                                   "Ptr.offset second argument must be Int (element "
+                                   "offset)",
+                                   NULL);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    result = arg0_t;       /* *unchecked T — same as arg0 */
+                    mc->resolved_type = result;
+                    break;
+                }
+
+                if (is_ptr_diff) {
+                    /* Ptr.diff(p: *unchecked T, q: *unchecked T) -> Int */
+                    if (mc->arg_count != 2) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "Ptr.diff expects 2 arguments (p, q), got %d",
+                                 mc->arg_count);
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    Iron_Type *arg0_t = check_expr(ctx, mc->args[0]);
+                    Iron_Type *arg1_t = check_expr(ctx, mc->args[1]);
+                    if (!arg0_t || arg0_t->kind != IRON_TYPE_PTR ||
+                        !arg0_t->ptr.is_unchecked) {
+                        emit_error(ctx, IRON_ERR_PTR_ARITH_CHECKED,
+                                   mc->args[0]->span,
+                                   "Ptr.diff requires *unchecked T as first argument",
+                                   "S4.3: Ptr.diff requires *unchecked T; use "
+                                   "Box.unwrap() or RawPtr (Phase 33) for explicit "
+                                   "pointer arithmetic");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (!arg1_t || arg1_t->kind != IRON_TYPE_PTR ||
+                        !arg1_t->ptr.is_unchecked) {
+                        emit_error(ctx, IRON_ERR_PTR_ARITH_CHECKED,
+                                   mc->args[1]->span,
+                                   "Ptr.diff requires *unchecked T as second argument",
+                                   "S4.3: Ptr.diff requires *unchecked T; use "
+                                   "Box.unwrap() or RawPtr (Phase 33) for explicit "
+                                   "pointer arithmetic");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    result = iron_type_make_primitive(IRON_TYPE_INT);
+                    mc->resolved_type = result;
+                    break;
+                }
+
+                /* Phase 33 OQ-02 (Plan 33-07): Box CONSTRUCTOR by-name dispatch
+                 * — `Box.new(value)` and `Box.null[T]()`. Mirrors the Ptr.*
+                 * builtin path above (RESEARCH Pattern 3 / deferred-items
+                 * Option B): intercept BEFORE check_expr(mc->object) so the
+                 * uppercase ident "Box" is never symbol-looked-up (no spurious
+                 * E0200) and the result type `Box[elem]` is synthesized WITHOUT
+                 * going through generic signature monomorphization (which would
+                 * re-resolve box.iron's `value: T` annotation and re-fire E0202).
+                 * The element type is carried on Iron_Type.object.elem. */
+                bool is_box_ns = obj_id_ptr->name &&
+                                 strcmp(obj_id_ptr->name, "Box") == 0;
+                if (is_box_ns && strcmp(mc->method, "new") == 0) {
+                    /* Box.new(value: T) -> Box[T]. The element type is the
+                     * type of the single argument. */
+                    if (mc->arg_count != 1) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "Box.new expects 1 argument (value), got %d",
+                                 mc->arg_count);
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        for (int i = 0; i < mc->arg_count; i++)
+                            check_expr(ctx, mc->args[i]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    Iron_Type *elem_t = check_expr(ctx, mc->args[0]);
+                    if (!elem_t || elem_t->kind == IRON_TYPE_ERROR) {
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    Iron_Symbol *box_sym =
+                        iron_scope_lookup(ctx->global_scope, "Box");
+                    Iron_Type *box_t = (box_sym && box_sym->type &&
+                                        box_sym->type->kind == IRON_TYPE_OBJECT)
+                        ? iron_type_make_object(ctx->arena,
+                                                box_sym->type->object.decl)
+                        : iron_type_make_object(ctx->arena, NULL);
+                    if (!box_t) box_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    if (box_t->kind == IRON_TYPE_OBJECT) box_t->object.elem = elem_t;
+                    result = box_t;
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (is_box_ns && strcmp(mc->method, "null") == 0) {
+                    /* Box.null() -> Box[T]. The bare receiver-method shape
+                     * carries no call-site element type, so the Box is left
+                     * elem-less; the binding-site annotation (e.g.
+                     * `val b: Box[Sample] = Box.null()`) is the channel that
+                     * supplies the concrete element. With no annotation the
+                     * elem stays NULL and unwrap() would surface an error. */
+                    if (mc->arg_count != 0) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "Box.null takes no arguments, got %d",
+                                 mc->arg_count);
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        for (int i = 0; i < mc->arg_count; i++)
+                            check_expr(ctx, mc->args[i]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    Iron_Symbol *box_sym =
+                        iron_scope_lookup(ctx->global_scope, "Box");
+                    Iron_Type *box_t = (box_sym && box_sym->type &&
+                                        box_sym->type->kind == IRON_TYPE_OBJECT)
+                        ? iron_type_make_object(ctx->arena,
+                                                box_sym->type->object.decl)
+                        : iron_type_make_object(ctx->arena, NULL);
+                    if (!box_t) box_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    result = box_t;
+                    mc->resolved_type = result;
+                    break;
+                }
+
+                /* Phase 33 STDLIB-10 (Plan 33-06): RawPtr.of(x) CONSTRUCTOR
+                 * by-name dispatch — the type-erased member of the *unchecked T
+                 * regime. Mirrors the Box.new dispatch above. RawPtr.of IS the
+                 * address-producer for the unchecked regime (the E0294 `&`-
+                 * cannot-produce-unchecked guard remains intact for user code;
+                 * this compiler-builtin bypasses it explicitly). Returns the
+                 * same erased type that the `RawPtr` annotation resolves to
+                 * (*unchecked Int — the Int pointee is a stand-in 8B size,
+                 * type-erasure is enforced in the Ptr.cast dispatch below). */
+                if (obj_id_ptr->name &&
+                    strcmp(obj_id_ptr->name, "RawPtr") == 0 &&
+                    mc->method && strcmp(mc->method, "of") == 0) {
+                    if (mc->arg_count != 1) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "RawPtr.of expects 1 argument (value), got %d",
+                                 mc->arg_count);
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        for (int i = 0; i < mc->arg_count; i++)
+                            check_expr(ctx, mc->args[i]);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    /* Type-check the argument; its concrete type is erased on
+                     * the result but the check must run for diagnostics. */
+                    (void)check_expr(ctx, mc->args[0]);
+                    Iron_Type *pointee = iron_type_make_primitive(IRON_TYPE_INT);
+                    Iron_Type *rp_t = iron_type_make_ptr(
+                        ctx->arena, pointee,
+                        /*is_var=*/false,
+                        /*is_unchecked=*/true);
+                    result = rp_t ? rp_t
+                                  : iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
+
+                /* Phase 33 STDLIB-07/08/09 (Plan 33-05): nocopy resource-type
+                 * CONSTRUCTOR by-name dispatch — Mutex.new / RWLock.new /
+                 * Channel.new / FileHandle.open. Mirrors the Box constructor
+                 * dispatch above (RESEARCH Pattern 3 / Box[T] precedent): the
+                 * uppercase namespace ident is never symbol-looked-up, the
+                 * arguments are still type-checked, and the result is the
+                 * synthesized nocopy object type (with object.elem set for the
+                 * generic ones so the receiver-form methods + emit synthesis
+                 * can recover the element type). Because the result object's
+                 * decl->is_nocopy is true, `var b = a` then trips E0286 at the
+                 * VAL_DECL nocopy-copy guard below. */
+                {
+                    struct { const char *ns; const char *method; bool generic; }
+                        ctors[] = {
+                            { "Mutex",      "new",  true  },
+                            { "RWLock",     "new",  true  },
+                            { "Channel",    "new",  true  },
+                            { "FileHandle", "open", false },
+                        };
+                    for (size_t ci = 0;
+                         ci < sizeof(ctors) / sizeof(ctors[0]); ci++) {
+                        if (!obj_id_ptr->name ||
+                            strcmp(obj_id_ptr->name, ctors[ci].ns) != 0 ||
+                            strcmp(mc->method, ctors[ci].method) != 0)
+                            continue;
+                        /* Type-check the argument(s) (value/capacity/path). The
+                         * element type is the first arg for the generic ctors. */
+                        Iron_Type *arg0_t = NULL;
+                        for (int ai = 0; ai < mc->arg_count; ai++) {
+                            Iron_Type *t = check_expr(ctx, mc->args[ai]);
+                            if (ai == 0) arg0_t = t;
+                        }
+                        Iron_Symbol *sym =
+                            iron_scope_lookup(ctx->global_scope, ctors[ci].ns);
+                        Iron_Type *obj_t = (sym && sym->type &&
+                                            sym->type->kind == IRON_TYPE_OBJECT)
+                            ? iron_type_make_object(ctx->arena,
+                                                    sym->type->object.decl)
+                            : iron_type_make_object(ctx->arena, NULL);
+                        if (!obj_t)
+                            obj_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        if (obj_t->kind == IRON_TYPE_OBJECT &&
+                            ctors[ci].generic && arg0_t &&
+                            arg0_t->kind != IRON_TYPE_ERROR) {
+                            /* For Channel.new(capacity), the element type is NOT
+                             * the capacity arg — leave elem NULL there and let
+                             * the binding annotation supply it (like Box.null).
+                             * For Mutex/RWLock.new(value), arg0 IS the element. */
+                            if (strcmp(ctors[ci].ns, "Channel") != 0)
+                                obj_t->object.elem = arg0_t;
+                        }
+                        result = obj_t;
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (result) break;
+                }
+            }
+
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+
+            /* Phase 27 POL-08 / POL-09 (Plan 27-02): dispatch .downgrade()
+             * and .upgrade() built-in method calls.
+             *   - .downgrade() requires receiver of kind IRON_TYPE_RC;
+             *     E0300 fires when the receiver is anything else. Result is
+             *     IRON_TYPE_WEAK_RC of the receiver's inner.
+             *   - .upgrade() requires receiver of kind IRON_TYPE_WEAK_RC;
+             *     result is IRON_TYPE_NULLABLE(IRON_TYPE_RC(inner)) — i.e.,
+             *     T?. Call on non-weak-rc receiver: emit E0299 (cannot deref
+             *     weak rc directly OR equivalent "no upgrade on rc T" path).
+             *   - Per CONTEXT.md GA4 .upgrade() does NOT trip E0279 in
+             *     readonly methods; we deliberately do NOT extend the
+             *     readonly check here.
+             *
+             * Placed BEFORE the auto-deref + method-lookup path below so
+             * .downgrade()/.upgrade() short-circuit cleanly even when the
+             * existing object-method-table machinery doesn't recognize
+             * "downgrade" or "upgrade" as user-defined methods. */
+            if (mc->method && obj_type_mc) {
+                if (strcmp(mc->method, "downgrade") == 0) {
+                    if (obj_type_mc->kind != IRON_TYPE_RC) {
+                        emit_error(ctx, IRON_ERR_WEAK_RC_DOWNGRADE_NOT_RC,
+                                   mc->span,
+                                   "`.downgrade()` is only available on rc T",
+                                   "to obtain a weak reference, the receiver"
+                                   " must be an rc T value; got a"
+                                   " non-rc receiver");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (mc->arg_count != 0) {
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span,
+                                   "`.downgrade()` takes no arguments", NULL);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    result = iron_type_make_weak_rc(ctx->arena,
+                                                     obj_type_mc->rc.inner);
+                    if (!result) result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(mc->method, "upgrade") == 0) {
+                    if (obj_type_mc->kind != IRON_TYPE_WEAK_RC) {
+                        emit_error(ctx, IRON_ERR_WEAK_RC_DEREF, mc->span,
+                                   "`.upgrade()` is only available on weak rc T",
+                                   "to obtain a strong reference from a"
+                                   " weak rc, the receiver must be a weak rc"
+                                   " T value");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (mc->arg_count != 0) {
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span,
+                                   "`.upgrade()` takes no arguments", NULL);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    Iron_Type *strong = iron_type_make_rc(ctx->arena,
+                                                          obj_type_mc->weak_rc.inner);
+                    if (!strong) {
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    result = iron_type_make_nullable(ctx->arena, strong);
+                    if (!result) result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
+            }
+
+            /* Phase 27 POL-08 (Plan 27-02): direct method call on a weak rc
+             * receiver (any method other than .upgrade()) emits E0299. This
+             * catches `w.field` indirected through a method call shape and
+             * `w.user_method()` patterns that would otherwise fall through
+             * to the auto-deref/method-table lookup below. */
+            if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_WEAK_RC) {
+                emit_error(ctx, IRON_ERR_WEAK_RC_DEREF, mc->span,
+                           "cannot dereference `weak rc T` directly"
+                           " (method call on weak rc)",
+                           "use `.upgrade()` to obtain a strong reference;"
+                           " check for null before dereferencing");
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                mc->resolved_type = result;
+                break;
+            }
+
+            /* Phase 20 PTR-06 (Plan 20-02a): auto-deref the receiver when
+             * its resolved type is `*T` / `*var T`. Set is_auto_deref on the
+             * Iron_MethodCallExpr so HIR lowering (Plan 20-02b) emits a
+             * `iron_check_pointer_gen` + load before dispatching the method
+             * against the pointee type. Single-level only per CONTEXT.md
+             * lock; multi-level **T receivers fall through to existing
+             * not-found / not-callable diagnostics downstream. */
+            if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_PTR &&
+                obj_type_mc->ptr.pointee &&
+                obj_type_mc->ptr.pointee->kind != IRON_TYPE_PTR) {
+                obj_type_mc = obj_type_mc->ptr.pointee;
+                mc->is_auto_deref = true;
+            }
+
+            /* Phase 33 OQ-02 (Plan 33-07): Box RECEIVER-form by-name dispatch
+             * — `boxed.unwrap()` / `boxed.is_null()` / `boxed.free()`. The
+             * receiver `boxed` resolves to the builtin `Box` object type whose
+             * element was stashed on object.elem by Box.new/Box.null above.
+             * Placed AFTER auto-deref so a `*Box[T]` receiver folds to the Box
+             * object, and BEFORE the user-method-table lookup so the builtin
+             * dispatch wins (box.iron's Box.* stubs are never lowered — see
+             * hir_lower.c skip + emit_ensure_box synthesis). Result types:
+             *   unwrap  -> *unchecked elem   (bare T*, escapes the Box)
+             *   is_null -> Bool
+             *   free    -> Void              (drops the heap allocation) */
+            if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_OBJECT &&
+                obj_type_mc->object.decl &&
+                obj_type_mc->object.decl->name &&
+                strcmp(obj_type_mc->object.decl->name, "Box") == 0 &&
+                mc->method) {
+                bool box_unwrap  = strcmp(mc->method, "unwrap")  == 0;
+                bool box_is_null = strcmp(mc->method, "is_null") == 0;
+                bool box_free    = strcmp(mc->method, "free")    == 0;
+                if (box_unwrap || box_is_null || box_free) {
+                    if (mc->arg_count != 0) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg),
+                                 "Box.%s takes no arguments, got %d",
+                                 mc->method, mc->arg_count);
+                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (box_unwrap) {
+                        Iron_Type *elem_t = obj_type_mc->object.elem;
+                        if (!elem_t) {
+                            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->span,
+                                       "cannot infer Box element type for "
+                                       "unwrap(); annotate the Box binding "
+                                       "(e.g. `val b: Box[T] = ...`)",
+                                       NULL);
+                            result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                            mc->resolved_type = result;
+                            break;
+                        }
+                        /* Box.unwrap() -> *unchecked elem (bare T*, 8B). */
+                        Iron_Type *out = iron_type_make_ptr(ctx->arena, elem_t,
+                                                            false, true);
+                        result = out ? out
+                            : iron_type_make_primitive(IRON_TYPE_ERROR);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    if (box_is_null) {
+                        result = iron_type_make_primitive(IRON_TYPE_BOOL);
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    /* box_free */
+                    result = iron_type_make_primitive(IRON_TYPE_VOID);
+                    mc->resolved_type = result;
+                    break;
+                }
+            }
+
+            /* Phase 33 STDLIB-07/08/09 (Plan 33-05): nocopy resource-type
+             * RECEIVER-form by-name dispatch. Mirrors the Box receiver block
+             * above: runs AFTER auto-deref + BEFORE the user-method-table
+             * lookup so the by-name builtin dispatch wins (the surface stubs
+             * are never lowered). The receiver's object decl name selects the
+             * family; object.elem carries the element type (set by the ctor
+             * for Mutex, by the annotation for Channel, and propagated to the
+             * guard here). Result types:
+             *   m.lock()      -> MutexGuard[T]   (elem propagated from m)
+             *   guard.get()   -> T
+             *   guard.set(v)  -> Void
+             *   ch.send(v)    -> Void
+             *   ch.recv()     -> T
+             *   fh.close()    -> Void */
+            if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_OBJECT &&
+                obj_type_mc->object.decl &&
+                obj_type_mc->object.decl->name &&
+                mc->method) {
+                const char *rn = obj_type_mc->object.decl->name;
+                Iron_Type *elem = obj_type_mc->object.elem;
+
+                if (strcmp(rn, "Mutex") == 0 &&
+                    strcmp(mc->method, "lock") == 0) {
+                    /* m.lock() -> MutexGuard[elem]. Build a fresh MutexGuard
+                     * object type carrying the same element as the Mutex. */
+                    Iron_Symbol *gsym =
+                        iron_scope_lookup(ctx->global_scope, "MutexGuard");
+                    Iron_Type *gt = (gsym && gsym->type &&
+                                     gsym->type->kind == IRON_TYPE_OBJECT)
+                        ? iron_type_make_object(ctx->arena,
+                                                gsym->type->object.decl)
+                        : iron_type_make_object(ctx->arena, NULL);
+                    if (!gt) gt = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    if (gt->kind == IRON_TYPE_OBJECT) gt->object.elem = elem;
+                    result = gt;
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(rn, "MutexGuard") == 0 &&
+                    strcmp(mc->method, "get") == 0) {
+                    result = elem ? elem
+                        : iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(rn, "MutexGuard") == 0 &&
+                    strcmp(mc->method, "set") == 0) {
+                    result = iron_type_make_primitive(IRON_TYPE_VOID);
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(rn, "Channel") == 0 &&
+                    strcmp(mc->method, "send") == 0) {
+                    result = iron_type_make_primitive(IRON_TYPE_VOID);
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(rn, "Channel") == 0 &&
+                    strcmp(mc->method, "recv") == 0) {
+                    result = elem ? elem
+                        : iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(rn, "FileHandle") == 0 &&
+                    strcmp(mc->method, "close") == 0) {
+                    result = iron_type_make_primitive(IRON_TYPE_VOID);
+                    mc->resolved_type = result;
+                    break;
+                }
+                /* RWLock family: l.read() -> RWReadGuard[T],
+                 * l.write() -> RWWriteGuard[T], guard.get() -> T,
+                 * write_guard.set(v) -> Void. Guards carry elem from the lock. */
+                if (strcmp(rn, "RWLock") == 0 &&
+                    (strcmp(mc->method, "read") == 0 ||
+                     strcmp(mc->method, "write") == 0)) {
+                    const char *gname = strcmp(mc->method, "read") == 0
+                        ? "RWReadGuard" : "RWWriteGuard";
+                    Iron_Symbol *gsym =
+                        iron_scope_lookup(ctx->global_scope, gname);
+                    Iron_Type *gt = (gsym && gsym->type &&
+                                     gsym->type->kind == IRON_TYPE_OBJECT)
+                        ? iron_type_make_object(ctx->arena,
+                                                gsym->type->object.decl)
+                        : iron_type_make_object(ctx->arena, NULL);
+                    if (!gt) gt = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    if (gt->kind == IRON_TYPE_OBJECT) gt->object.elem = elem;
+                    result = gt;
+                    mc->resolved_type = result;
+                    break;
+                }
+                if ((strcmp(rn, "RWReadGuard") == 0 ||
+                     strcmp(rn, "RWWriteGuard") == 0) &&
+                    strcmp(mc->method, "get") == 0) {
+                    result = elem ? elem
+                        : iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
+                if (strcmp(rn, "RWWriteGuard") == 0 &&
+                    strcmp(mc->method, "set") == 0) {
+                    result = iron_type_make_primitive(IRON_TYPE_VOID);
+                    mc->resolved_type = result;
+                    break;
+                }
+            }
 
             /* Phase 85 INIT-09 E0249 + INIT-14 E0251: inside an init body,
              *   (a) calling self.<anything> while any field is still
@@ -2467,14 +3837,37 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             if (mc->object->kind == IRON_NODE_IDENT) {
                 Iron_Ident *obj_id = (Iron_Ident *)mc->object;
                 const char *type_name_mc = NULL;
+                /* Phase 20 PTR-06 (Plan 20-02a): when the receiver is `*T` or
+                 * `*var T`, resolve the method against the pointee's
+                 * ObjectDecl by treating the pointee as the effective
+                 * receiver type for dispatch. mc->is_auto_deref was set
+                 * earlier in this branch when the auto-deref kicked in. */
+                Iron_Type *eff_recv_t = obj_id->resolved_type;
+                /* `rc T` is an allocation policy on T, not a distinct method
+                 * namespace: dispatch against the inner object, mirroring the
+                 * unwrap the field-access path already performs. Without this,
+                 * an rc receiver matches no arm below, type_name_mc stays NULL
+                 * and the call keeps the VOID default above — so `val n =
+                 * rc_val.method()` silently discards the result and emits a
+                 * reference to an undeclared value. Placed before the pointer
+                 * arm, matching resolve_type_annotation's ordering. */
+                if (eff_recv_t && eff_recv_t->kind == IRON_TYPE_RC &&
+                    eff_recv_t->rc.inner) {
+                    eff_recv_t = eff_recv_t->rc.inner;
+                }
+                if (eff_recv_t && eff_recv_t->kind == IRON_TYPE_PTR &&
+                    eff_recv_t->ptr.pointee) {
+                    eff_recv_t = eff_recv_t->ptr.pointee;
+                }
                 if (obj_id->resolved_sym &&
                     obj_id->resolved_sym->sym_kind == IRON_SYM_TYPE) {
                     /* Auto-static: receiver is the type itself */
                     type_name_mc = obj_id->name;
-                } else if (obj_id->resolved_type &&
-                           obj_id->resolved_type->kind == IRON_TYPE_OBJECT) {
-                    /* Instance method: receiver has object type */
-                    type_name_mc = obj_id->resolved_type->object.decl->name;
+                } else if (eff_recv_t &&
+                           eff_recv_t->kind == IRON_TYPE_OBJECT) {
+                    /* Instance method: receiver has object type (post-auto-deref
+                     * for *T receivers). */
+                    type_name_mc = eff_recv_t->object.decl->name;
                 } else if (obj_id->resolved_type &&
                            obj_id->resolved_type->kind == IRON_TYPE_STRING) {
                     /* String instance method: resolve via string.iron wrapper decls */
@@ -2633,7 +4026,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                                  md->type_name, md->method_name);
                                         emit_error(ctx,
                                                    IRON_ERR_READONLY_CALLS_MUTATING,
-                                                   mc->span, msg, NULL);
+                                                   mc->span, msg,
+                                                   "§6: readonly methods may not call non-readonly functions");
                                     }
                                 }
                             }
@@ -2653,6 +4047,84 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                          md->type_name, md->method_name);
                                 emit_error(ctx, IRON_ERR_PURE_NON_PURE_CALL,
                                            mc->span, msg, NULL);
+                            }
+                            /* Phase 18 PARM-03: per-arg read-only-source check
+                             * at the method call site (Pitfall 3 method-call
+                             * coverage lock — free-function-only fix leaves
+                             * v4 method fixtures unprotected).
+                             *
+                             * For receiver-form methods, params[0] is the
+                             * receiver binding and user args start at
+                             * params[1]; offset accordingly so mc->args[i]
+                             * lines up with params[i + recv_off]. */
+                            int recv_off = md->is_receiver_form ? 1 : 0;
+                            for (int ai = 0; ai < mc->arg_count; ai++) {
+                                int pi = ai + recv_off;
+                                if (pi >= md->param_count) break;
+                                if (!md->params[pi] ||
+                                    md->params[pi]->kind != IRON_NODE_PARAM)
+                                    continue;
+                                Iron_Param *mp = (Iron_Param *)md->params[pi];
+                                if (mp->is_var &&
+                                    !arg_source_is_mutable(ctx, mc->args[ai])) {
+                                    char msg[256];
+                                    snprintf(msg, sizeof(msg),
+                                             "cannot pass read-only argument to "
+                                             "'var' parameter '%s'",
+                                             mp->name ? mp->name : "<unnamed>");
+                                    emit_error(ctx,
+                                               IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT,
+                                               mc->args[ai]->span, msg,
+                                               "make the argument source mutable "
+                                               "(declare as 'var')");
+                                }
+                                /* Phase 20 PTR-07 (Plan 20-02a): auto-address
+                                 * insertion at method call sites mirrors the
+                                 * IRON_NODE_CALL arg-loop. Param `*T` /
+                                 * `*var T` + non-pointer arg matching the
+                                 * pointee → set is_auto_address_target on
+                                 * the existing AST node (Pitfall 4 lock).
+                                 * E0270 on rvalue, E0267 on val→*var T. */
+                                Iron_Type *mp_t = resolve_type_annotation(
+                                    ctx, mp->type_ann);
+                                Iron_Type *ma_t = mc->args[ai]
+                                    ? ((Iron_ExprNode *)mc->args[ai])->resolved_type
+                                    : NULL;
+                                if (mp_t && mp_t->kind == IRON_TYPE_PTR &&
+                                    ma_t && ma_t->kind != IRON_TYPE_PTR &&
+                                    ma_t->kind != IRON_TYPE_ERROR &&
+                                    mp_t->ptr.pointee &&
+                                    iron_type_equals(mp_t->ptr.pointee, ma_t)) {
+                                    if (!is_lvalue_expression(mc->args[ai])) {
+                                        emit_error(ctx,
+                                                   IRON_ERR_PTR_AMP_ON_RVALUE,
+                                                   mc->args[ai]->span,
+                                                   "cannot take address of "
+                                                   "rvalue (literal or "
+                                                   "temporary)",
+                                                   "auto-address requires a "
+                                                   "named binding, field, or "
+                                                   "element");
+                                    } else if (mp_t->ptr.is_var &&
+                                               !arg_source_is_mutable(
+                                                    ctx, mc->args[ai])) {
+                                        char msg[256];
+                                        snprintf(msg, sizeof(msg),
+                                                 "cannot pass read-only "
+                                                 "argument to '*var %s' "
+                                                 "parameter",
+                                                 iron_type_to_string(
+                                                     mp_t->ptr.pointee,
+                                                     ctx->arena));
+                                        emit_error(ctx,
+                                                   IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT,
+                                                   mc->args[ai]->span, msg,
+                                                   "make the argument source "
+                                                   "mutable (declare as 'var')");
+                                    } else {
+                                        set_auto_address_target_flag(mc->args[ai]);
+                                    }
+                                }
                             }
                             break;
                         }
@@ -2726,6 +4198,37 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
             mc->resolved_type = result;
+
+            /* Phase 22 READ-04: readonly method calling I/O stdlib module method.
+             * Covers Log.info, IO.write_file, Net.connect, Raylib.draw_text, etc.
+             * The check fires when (1) the enclosing method is readonly (not pure —
+             * Pitfall 1 guard) AND (2) the call receiver is a known I/O module
+             * identifier. */
+            if (ctx->in_readonly_method && !ctx->in_pure_method &&
+                mc->object && mc->object->kind == IRON_NODE_IDENT) {
+                Iron_Ident *recv_id_ro = (Iron_Ident *)mc->object;
+                if (recv_id_ro->name) {
+                    static const char *const IRON_RO_IO_MODULES[] = {
+                        "IO", "Log", "Net", "Raylib",
+                    };
+                    for (size_t i = 0;
+                         i < sizeof(IRON_RO_IO_MODULES) /
+                             sizeof(IRON_RO_IO_MODULES[0]);
+                         i++) {
+                        if (strcmp(recv_id_ro->name, IRON_RO_IO_MODULES[i]) == 0) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot call I/O method '%s.%s' in readonly method",
+                                     recv_id_ro->name,
+                                     mc->method ? mc->method : "?");
+                            emit_error(ctx, IRON_ERR_READONLY_IO, mc->span, msg,
+                                       "§6: readonly methods may not perform I/O");
+                            break;
+                        }
+                    }
+                }
+            }
+
             break;
         }
 
@@ -2762,6 +4265,22 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
+            /* Phase 27 POL-08 (Plan 27-02): direct field access on a weak rc
+             * receiver is forbidden — weak rc references may point at a
+             * destructed payload. E0299 IRON_ERR_WEAK_RC_DEREF emits with
+             * the locked GA4 hint. Placed BEFORE the rc unwrap so the
+             * weak-side path short-circuits without surfacing irrelevant
+             * follow-on diagnostics. */
+            if (obj_type->kind == IRON_TYPE_WEAK_RC) {
+                emit_error(ctx, IRON_ERR_WEAK_RC_DEREF, fa->span,
+                           "cannot dereference `weak rc T` directly",
+                           "use `.upgrade()` to obtain a strong reference;"
+                           " check for null before dereferencing");
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                fa->resolved_type = result;
+                break;
+            }
+
             /* Unwrap rc pointer types to access the inner object type.
              * heap types already expose the inner object type directly (IRON_NODE_HEAP
              * sets resolved_type to the inner construct type, not an RC wrapper). */
@@ -2769,8 +4288,32 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 obj_type = obj_type->rc.inner;
             }
 
-            if (obj_type->kind != IRON_TYPE_OBJECT) {
-                if (obj_type->kind == IRON_TYPE_NULLABLE) {
+            /* Phase 20 PTR-06 (Plan 20-02a): auto-deref through `*T` /
+             * `*var T` receivers. Single-level only per CONTEXT.md lock —
+             * if the pointee is itself a pointer, emit an error and bail.
+             * `?*T` flow-typing narrowing reuses the existing nullable
+             * pipeline upstream of this handler: when an `if p != null`
+             * branch narrows IRON_TYPE_NULLABLE{IRON_TYPE_PTR} to its
+             * inner IRON_TYPE_PTR via narrowing_set, the IDENT lookup at
+             * 1645 returns the PTR type, and we land here naturally. */
+            if (obj_type->kind == IRON_TYPE_PTR) {
+                if (obj_type->ptr.pointee &&
+                    obj_type->ptr.pointee->kind == IRON_TYPE_PTR) {
+                    emit_error(ctx, IRON_ERR_PTR_NULL_DEREF, fa->span,
+                               "multi-level auto-deref through '**T' is not "
+                               "supported in checked regime",
+                               "use explicit dereference (Phase 25 Ptr.deref) "
+                               "or unwrap one level first");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    fa->resolved_type = result;
+                    break;
+                }
+                obj_type = obj_type->ptr.pointee;
+                fa->is_auto_deref = true;
+            }
+
+            if (!obj_type || obj_type->kind != IRON_TYPE_OBJECT) {
+                if (obj_type && obj_type->kind == IRON_TYPE_NULLABLE) {
                     emit_error(ctx, IRON_ERR_NULLABLE_ACCESS, fa->span,
                                "cannot access field of nullable type without null check",
                                "Check for null before accessing");
@@ -3051,6 +4594,50 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_HeapExpr *he = (Iron_HeapExpr *)node;
             result = check_expr(ctx, he->inner);
             he->resolved_type = result;
+            /* Phase 22 READ-05: readonly method allocating heap memory.
+             * Guard: Pitfall 1 — !ctx->in_pure_method prevents double-emit.
+             * (Pure-tier heap-escape is a separate future check; readonly-tier
+             * owns this diagnostic for non-pure readonly methods.) */
+            if (ctx->in_readonly_method && !ctx->in_pure_method) {
+                const char *type_nm = (result && result->kind == IRON_TYPE_OBJECT
+                                       && result->object.decl
+                                       && result->object.decl->name)
+                                      ? result->object.decl->name : "T";
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "cannot allocate 'heap %s(...)' in readonly method",
+                         type_nm);
+                emit_error(ctx, IRON_ERR_READONLY_HEAP_ESCAPE, he->span, msg,
+                           "§6: readonly methods may not allocate heap T(...) or rc T(...)");
+            }
+            /* Phase 28 ARENA-09 (Plan 28-03): arena-allocated type with a
+             * transitive non-trivial destructor. Fires when this `heap` targets
+             * an arena — either explicitly via `heap(in: arena) T(...)`
+             * (he->arena_expr != NULL) or implicitly because the alloc sits
+             * lexically inside an `in arena {}` block — and the allocated type
+             * T transitively carries a user `drop` block. The arena bulk-frees
+             * on reset()/restore() WITHOUT running per-object destructors, so
+             * the drop silently never executes. `allow_drop_skip: true`
+             * acknowledges this and suppresses the warning (W0605). */
+            if (he->arena_expr) (void)check_expr(ctx, he->arena_expr);
+            bool targets_arena = (he->arena_expr != NULL) ||
+                                 (ctx->in_arena_block_depth > 0);
+            if (targets_arena && !he->allow_drop_skip &&
+                arena_type_has_nontrivial_dtor(result, ctx, 0)) {
+                const char *type_nm = (result && result->kind == IRON_TYPE_OBJECT
+                                       && result->object.decl
+                                       && result->object.decl->name)
+                                      ? result->object.decl->name : "T";
+                char wmsg[256];
+                snprintf(wmsg, sizeof(wmsg),
+                         "arena-allocated %s has a non-trivial destructor "
+                         "that will be skipped", type_nm);
+                emit_warning(ctx, IRON_WARN_ARENA_NONTRIVIAL_DTOR, he->span,
+                             wmsg,
+                             "the arena bulk-frees memory on reset() without "
+                             "running drop; pass allow_drop_skip: true to "
+                             "acknowledge, or allocate outside the arena");
+            }
             break;
         }
 
@@ -3060,6 +4647,37 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             result = inner ? iron_type_make_rc(ctx->arena, inner)
                            : iron_type_make_primitive(IRON_TYPE_ERROR);
             re->resolved_type = result;
+            /* Phase 28 ARENA-08 (Plan 28-03): `rc T(...)` allocation inside a
+             * lexical `in arena {}` block is forbidden — the closed-policy
+             * lattice {stack, heap, rc, weak rc, arena} rejects refcounted
+             * policies inside an arena (rc drop discipline conflicts with the
+             * arena's batch mass-invalidation on reset). Message contains the
+             * substring `arena` per rc_in_arena.expected. */
+            if (ctx->in_arena_block_depth > 0) {
+                emit_error(ctx, IRON_ERR_RC_IN_ARENA, re->span,
+                           "rc cannot be allocated in an arena",
+                           "rc lifecycle is incompatible with arena reset "
+                           "semantics; allocate the rc value outside the "
+                           "`in arena {}` block, or use a non-rc allocation "
+                           "(stack or heap) inside the arena");
+            }
+            /* Phase 26 READ-05 extension (Plan 26-02): `rc T(...)` in
+             * readonly method is forbidden — mirrors the Phase 22 IRON_NODE_
+             * HEAP arm above (lines ~3957-3978). The Phase 22 §6 hint already
+             * names both `heap T(...)` AND `rc T(...)` anticipating this
+             * Phase 26 extension. */
+            if (ctx->in_readonly_method && !ctx->in_pure_method) {
+                const char *type_nm = (inner && inner->kind == IRON_TYPE_OBJECT
+                                       && inner->object.decl
+                                       && inner->object.decl->name)
+                                      ? inner->object.decl->name : "T";
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "cannot allocate 'rc %s(...)' in readonly method",
+                         type_nm);
+                emit_error(ctx, IRON_ERR_READONLY_HEAP_ESCAPE, re->span, msg,
+                           "§6: readonly methods may not allocate heap T(...) or rc T(...)");
+            }
             break;
         }
 
@@ -3067,6 +4685,49 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_ComptimeExpr *ce = (Iron_ComptimeExpr *)node;
             result = check_expr(ctx, ce->inner);
             ce->resolved_type = result;
+            break;
+        }
+
+        /* Phase 27 POL-08 (Plan 27-02): `weak rc null` constructor expression.
+         * Resolves to IRON_TYPE_WEAK_RC of an unresolved inner type — the
+         * variable-annotation context coerces the inner via types_assignable
+         * (when the LHS annotation has kind IRON_TYPE_WEAK_RC). When no
+         * context-typing is available, the expression typechecks but produces
+         * a weak rc of NULL inner — emit_c renders it as a literal NULL. */
+        case IRON_NODE_WEAK_RC_NULL: {
+            Iron_WeakRcNullExpr *wn = (Iron_WeakRcNullExpr *)node;
+            /* Phase 28 ARENA-08 (Plan 28-03): the `weak rc <expr>` allocation
+             * form (is_alloc_form) is parser-deferred. Decide here:
+             *   - inside `in arena {}` (depth>0) → E0301 (weak rc in arena);
+             *   - outside an arena → E0298 (closed-policy: bare weak-rc alloc
+             *     is invalid; use `<rc>.downgrade()` or `weak rc null`). This
+             *     preserves the pre-Phase-28 rejection the parser used to emit
+             *     directly for `weak rc T(...)`. */
+            if (wn->is_alloc_form) {
+                if (wn->alloc_inner) (void)check_expr(ctx, wn->alloc_inner);
+                if (ctx->in_arena_block_depth > 0) {
+                    emit_error(ctx, IRON_ERR_RC_IN_ARENA, wn->span,
+                               "weak rc cannot be allocated in an arena",
+                               "weak rc lifecycle is incompatible with arena "
+                               "reset/batch-invalidation; allocate the value "
+                               "outside the `in arena {}` block");
+                } else {
+                    emit_error(ctx, IRON_ERR_CLOSED_POLICY_KEYWORD, wn->span,
+                               "weak rc allocation form is invalid; use "
+                               "`weak rc null` or `<rc_value>.downgrade()` "
+                               "to construct a weak reference",
+                               "Phase 27 lifecycle policy closed set is "
+                               "{stack, heap, rc, weak rc}; weak rc values are "
+                               "constructed via `weak rc null` or "
+                               "`<rc_value>.downgrade()`");
+                }
+            }
+            /* Use IRON_TYPE_NULL as the inner sentinel — the assignment site
+             * will rewrite resolved_type when binding to a `weak rc T` LHS. */
+            Iron_Type *null_inner = iron_type_make_primitive(IRON_TYPE_NULL);
+            result = iron_type_make_weak_rc(ctx->arena, null_inner);
+            if (!result) result = iron_type_make_primitive(IRON_TYPE_ERROR);
+            wn->resolved_type = result;
             break;
         }
 
@@ -3226,7 +4887,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
                 elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
             }
-            result = iron_type_make_array(ctx->arena, elem_type, -1);
+            result = iron_type_make_array(ctx->arena, elem_type, -1, false);
             al->resolved_type = result;
             break;
         }
@@ -3564,7 +5225,6 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return;
     /* HARD-05: cancel poll at recursive statement walker entry. */
     if (iron_cancel_requested(ctx->cancel_flag)) return;
-
     switch ((int)(node->kind)) {
         case IRON_NODE_BLOCK: {
             Iron_Block *b = (Iron_Block *)node;
@@ -3664,10 +5324,102 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 init_type = vd->init ? (vd->init->kind == IRON_NODE_ENUM_CONSTRUCT
                     ? ((Iron_EnumConstruct *)vd->init)->resolved_type : init_type)
                     : init_type;
+
+                /* Phase 25 PTR-05/UNCK-04 (Plan 25-01): `&` cannot produce
+                 * *unchecked T. If the declared type is `*unchecked T` AND the
+                 * rhs is a unary `&` expression, emit E0294 before
+                 * types_assignable runs (which would emit the generic E0289).
+                 * Only Box.unwrap() or RawPtr (Phase 33) can produce *unchecked T.
+                 * Phase 26 (Plan 26-02): rc Box[T] rejected via E0286
+                 * (nocopy-copy violation) — see RC-LAYOUT.md §3.1. No new
+                 * diagnostic code; the rc allocation site already triggers
+                 * E0286 when the inner type is a nocopy `Box[T]`. */
+                if (decl_type && decl_type->kind == IRON_TYPE_PTR &&
+                    decl_type->ptr.is_unchecked &&
+                    vd->init && vd->init->kind == IRON_NODE_UNARY &&
+                    ((Iron_UnaryExpr *)vd->init)->op == (Iron_OpKind)IRON_TOK_AMP) {
+                    emit_error(ctx, IRON_ERR_PTR_AMP_NOT_UNCHECKED, vd->init->span,
+                               "cannot produce '*unchecked T' via '&'; "
+                               "'&' always yields a checked pointer",
+                               "§4.3: '&' cannot produce unchecked pointers; "
+                               "use Box.unwrap() or RawPtr (Phase 33) "
+                               "for explicit unchecked pointer construction");
+                }
+
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
                     !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
+                    /* Phase 20 PTR-13: null literal assigned to non-nullable
+                     * pointer type. Emit IRON_ERR_PTR_NULL_DEREF=272 with the
+                     * spec-locked substring "non-nullable pointer" and a hint
+                     * pointing to the `?*T` nullable variant. The check for
+                     * IRON_TYPE_NULLABLE inner=PTR is intentionally absent on
+                     * decl_type because that path goes through types_assignable
+                     * cleanly via NULL-handling on nullables. */
+                    Iron_Span lit_span = (vd->init) ? vd->init->span : vd->span;
+                    if (decl_type->kind == IRON_TYPE_PTR &&
+                        init_type->kind == IRON_TYPE_PTR &&
+                        decl_type->ptr.is_unchecked != init_type->ptr.is_unchecked) {
+                        /* Phase 25 PTR-02/03 (Plan 25-01): cross-regime pointer assignment.
+                         * Emit E0289 IRON_ERR_PTR_REGIME_MISMATCH with §4.3-§4.4 spec hint.
+                         * Specificity over E0202: programmer needs to know it's a regime
+                         * crossing, not a T mismatch (RESEARCH Specifics). */
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot assign '%s' to '%s': "
+                                 "checked and unchecked pointer regimes are disjoint",
+                                 iron_type_to_string(init_type, ctx->arena),
+                                 iron_type_to_string(decl_type, ctx->arena));
+                        emit_error(ctx, IRON_ERR_PTR_REGIME_MISMATCH, lit_span,
+                                   msg,
+                                   "§4.3-§4.4: checked and unchecked pointer regimes are disjoint; "
+                                   "use Box.unwrap() to escape from Box[T] to *unchecked T");
+                    } else if (decl_type->kind == IRON_TYPE_PTR &&
+                        init_type->kind == IRON_TYPE_NULL) {
+                        const char *pt_str = iron_type_to_string(decl_type, ctx->arena);
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot assign null to non-nullable pointer "
+                                 "type '%s'", pt_str ? pt_str : "*T");
+                        emit_error(ctx, IRON_ERR_PTR_NULL_DEREF, lit_span,
+                                   msg,
+                                   "use '?*T' for the nullable pointer variant");
+                    } else if (decl_type->kind == IRON_TYPE_ARRAY && init_type->kind == IRON_TYPE_ARRAY &&
+                               decl_type->array.size >= 0 && init_type->array.size >= 0 &&
+                               decl_type->array.is_bounded != init_type->array.is_bounded) {
+                        /* Phase 23 VEC-283: specialize bounded<->strict cross-assign.
+                         * §3.3: [T; <=N] and [T; N] are disjoint types. */
+                        emit_error(ctx, IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN, lit_span,
+                                   "cannot assign bounded vector to strict array or vice versa",
+                                   "§3.3: [T; <=N] and [T; N] are disjoint types; "
+                                   "Phase 33 ships to_fixed()/to_bounded() conversion helpers");
+                    } else if (decl_type->kind == IRON_TYPE_ARRAY &&
+                               decl_type->array.size >= 0 && !decl_type->array.is_bounded &&
+                               vd->init && vd->init->kind == IRON_NODE_ARRAY_LIT) {
+                        /* Phase 23 VEC-04: strict array declared with literal.
+                         * The literal's inferred type is [T] (dynamic, size=-1) so
+                         * types_assignable rejected it. Two sub-cases:
+                         *   - element count matches size → valid; suppress E0202.
+                         *   - element count differs → emit VEC-04 specialization (E0282).
+                         * §3.3: [T; N] requires exactly N elements in the initializer. */
+                        Iron_ArrayLit *al = (Iron_ArrayLit *)vd->init;
+                        if (al->element_count != decl_type->array.size) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "array literal has %d element(s) but '[%s; %d]' requires exactly %d",
+                                     al->element_count,
+                                     decl_type->array.elem
+                                         ? iron_type_to_string(decl_type->array.elem, ctx->arena) : "?",
+                                     decl_type->array.size, decl_type->array.size);
+                            const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                            if (!msg_copy) msg_copy = "array literal element count mismatch";
+                            emit_error(ctx, IRON_ERR_VEC_STRICT_LENGTH_MISMATCH,
+                                       vd->init->span, msg_copy,
+                                       "§3.3: [T; N] requires exactly N elements in the initializer literal");
+                        }
+                        /* If count matches, suppress the generic E0202: the literal is valid. */
+                    } else {
                     /* Phase 4 Plan 04-01 (EDIT-07): narrow literal RHS to
                      * IRON_ERR_TYPE_MISMATCH_LITERAL=235 with retyped-literal
                      * .suggestion. Non-literal RHS stays at 202 with NULL.
@@ -3678,14 +5430,28 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                      * the previous whole-decl span caused the quickfix
                      * to destroy the `val n: Int =` prefix. The 202
                      * general-form emit still uses vd->span below. */
-                    Iron_Span lit_span = (vd->init) ? vd->init->span : vd->span;
                     emit_type_mismatch_maybe_literal(ctx, lit_span, decl_type,
                                                       init_type, vd->init);
+                    }
                 }
                 /* Narrow literal type to match declaration (e.g., Int literal -> Int32) */
                 if (is_int_literal_narrowing(decl_type, init_type, vd->init)) {
                     ((Iron_IntLit *)vd->init)->resolved_type = decl_type;
                 }
+            }
+
+            /* Phase 24 DROP-08 (Plan 24-02): nocopy type assigned by value — E0286.
+             * Site (a): IRON_NODE_VAL_DECL. Only fires when the init is an IDENT
+             * (copying from an existing binding). Constructors, call-returns, and
+             * heap-allocs are moves/initializations — not copies — so they are safe
+             * for nocopy types. */
+            if (init_type && init_type->kind == IRON_TYPE_OBJECT &&
+                init_type->object.decl && init_type->object.decl->is_nocopy &&
+                (!decl_type || decl_type->kind == IRON_TYPE_OBJECT) &&
+                vd->init && vd->init->kind == IRON_NODE_IDENT) {
+                emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, vd->span,
+                           "cannot copy nocopy type — assignment requires a copy operation",
+                           "§7: nocopy types cannot be copied; pass `*T` or `*var T` to avoid copy");
             }
 
             vd->declared_type = decl_type;
@@ -3724,10 +5490,97 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 init_type = vd->init ? (vd->init->kind == IRON_NODE_ENUM_CONSTRUCT
                     ? ((Iron_EnumConstruct *)vd->init)->resolved_type : init_type)
                     : init_type;
+
+                /* Phase 25 PTR-05/UNCK-04 (Plan 25-01): `&` cannot produce
+                 * *unchecked T at a var declaration site. Phase 26 (Plan
+                 * 26-02): rc Box[T] rejected via E0286 (nocopy-copy
+                 * violation) — see RC-LAYOUT.md §3.1. No new diagnostic
+                 * code; the rc allocation site already triggers E0286 when
+                 * the inner type is a nocopy `Box[T]`. */
+                if (decl_type && decl_type->kind == IRON_TYPE_PTR &&
+                    decl_type->ptr.is_unchecked &&
+                    vd->init && vd->init->kind == IRON_NODE_UNARY &&
+                    ((Iron_UnaryExpr *)vd->init)->op == (Iron_OpKind)IRON_TOK_AMP) {
+                    emit_error(ctx, IRON_ERR_PTR_AMP_NOT_UNCHECKED, vd->init->span,
+                               "cannot produce '*unchecked T' via '&'; "
+                               "'&' always yields a checked pointer",
+                               "§4.3: '&' cannot produce unchecked pointers; "
+                               "use Box.unwrap() or RawPtr (Phase 33) "
+                               "for explicit unchecked pointer construction");
+                }
+
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
                     !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
+                    /* Phase 20 PTR-13: null literal assigned to non-nullable
+                     * pointer type. Emit IRON_ERR_PTR_NULL_DEREF=272 with the
+                     * spec-locked substring "non-nullable pointer" and a hint
+                     * pointing to the `?*T` nullable variant. The check for
+                     * IRON_TYPE_NULLABLE inner=PTR is intentionally absent on
+                     * decl_type because that path goes through types_assignable
+                     * cleanly via NULL-handling on nullables. */
+                    Iron_Span lit_span = (vd->init) ? vd->init->span : vd->span;
+                    if (decl_type->kind == IRON_TYPE_PTR &&
+                        init_type->kind == IRON_TYPE_PTR &&
+                        decl_type->ptr.is_unchecked != init_type->ptr.is_unchecked) {
+                        /* Phase 25 PTR-02/03 (Plan 25-01): cross-regime assignment at
+                         * var declaration. E0289 IRON_ERR_PTR_REGIME_MISMATCH. */
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot assign '%s' to '%s': "
+                                 "checked and unchecked pointer regimes are disjoint",
+                                 iron_type_to_string(init_type, ctx->arena),
+                                 iron_type_to_string(decl_type, ctx->arena));
+                        emit_error(ctx, IRON_ERR_PTR_REGIME_MISMATCH, lit_span,
+                                   msg,
+                                   "§4.3-§4.4: checked and unchecked pointer regimes are disjoint; "
+                                   "use Box.unwrap() to escape from Box[T] to *unchecked T");
+                    } else if (decl_type->kind == IRON_TYPE_ARRAY && init_type->kind == IRON_TYPE_ARRAY &&
+                        decl_type->array.size >= 0 && init_type->array.size >= 0 &&
+                        decl_type->array.is_bounded != init_type->array.is_bounded) {
+                        /* Phase 23 VEC-283: specialize bounded<->strict cross-assign.
+                         * §3.3: [T; <=N] and [T; N] are disjoint types. */
+                        emit_error(ctx, IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN, lit_span,
+                                   "cannot assign bounded vector to strict array or vice versa",
+                                   "§3.3: [T; <=N] and [T; N] are disjoint types; "
+                                   "Phase 33 ships to_fixed()/to_bounded() conversion helpers");
+                    } else if (decl_type->kind == IRON_TYPE_ARRAY &&
+                               decl_type->array.size >= 0 && !decl_type->array.is_bounded &&
+                               vd->init && vd->init->kind == IRON_NODE_ARRAY_LIT) {
+                        /* Phase 23 VEC-04: strict array declared with literal.
+                         * The literal's inferred type is [T] (dynamic, size=-1) so
+                         * types_assignable rejected it. Two sub-cases:
+                         *   - element count matches size → valid; suppress E0202.
+                         *   - element count differs → emit VEC-04 specialization (E0282).
+                         * §3.3: [T; N] requires exactly N elements in the initializer. */
+                        Iron_ArrayLit *al = (Iron_ArrayLit *)vd->init;
+                        if (al->element_count != decl_type->array.size) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "array literal has %d element(s) but '[%s; %d]' requires exactly %d",
+                                     al->element_count,
+                                     decl_type->array.elem
+                                         ? iron_type_to_string(decl_type->array.elem, ctx->arena) : "?",
+                                     decl_type->array.size, decl_type->array.size);
+                            const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                            if (!msg_copy) msg_copy = "array literal element count mismatch";
+                            emit_error(ctx, IRON_ERR_VEC_STRICT_LENGTH_MISMATCH,
+                                       vd->init->span, msg_copy,
+                                       "§3.3: [T; N] requires exactly N elements in the initializer literal");
+                        }
+                        /* If count matches, suppress the generic E0202: the literal is valid. */
+                    } else if (decl_type->kind == IRON_TYPE_PTR &&
+                        init_type->kind == IRON_TYPE_NULL) {
+                        const char *pt_str = iron_type_to_string(decl_type, ctx->arena);
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot assign null to non-nullable pointer "
+                                 "type '%s'", pt_str ? pt_str : "*T");
+                        emit_error(ctx, IRON_ERR_PTR_NULL_DEREF, lit_span,
+                                   msg,
+                                   "use '?*T' for the nullable pointer variant");
+                    } else {
                     /* Phase 4 Plan 04-01 (EDIT-07): narrow literal RHS to
                      * IRON_ERR_TYPE_MISMATCH_LITERAL=235 with retyped-literal
                      * .suggestion. Non-literal RHS stays at 202 with NULL.
@@ -3738,14 +5591,26 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                      * the previous whole-decl span caused the quickfix
                      * to destroy the `val n: Int =` prefix. The 202
                      * general-form emit still uses vd->span below. */
-                    Iron_Span lit_span = (vd->init) ? vd->init->span : vd->span;
                     emit_type_mismatch_maybe_literal(ctx, lit_span, decl_type,
                                                       init_type, vd->init);
+                    }
                 }
                 /* Narrow literal type to match declaration (e.g., Int literal -> Int32) */
                 if (is_int_literal_narrowing(decl_type, init_type, vd->init)) {
                     ((Iron_IntLit *)vd->init)->resolved_type = decl_type;
                 }
+            }
+
+            /* Phase 24 DROP-08 (Plan 24-02): nocopy type assigned by value — E0286.
+             * Site (a): IRON_NODE_VAR_DECL. Only fires when the init is an IDENT
+             * (copy from an existing binding). Constructors and call-returns are moves. */
+            if (init_type && init_type->kind == IRON_TYPE_OBJECT &&
+                init_type->object.decl && init_type->object.decl->is_nocopy &&
+                (!decl_type || decl_type->kind == IRON_TYPE_OBJECT) &&
+                vd->init && vd->init->kind == IRON_NODE_IDENT) {
+                emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, vd->span,
+                           "cannot copy nocopy type — assignment requires a copy operation",
+                           "§7: nocopy types cannot be copied; pass `*T` or `*var T` to avoid copy");
             }
 
             vd->declared_type = decl_type;
@@ -3763,6 +5628,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * source of is_mutable. Also check type-checker scope as fallback. */
             bool is_immutable = false;
             const char *target_name = NULL;
+            Iron_Symbol *target_sym = NULL;  /* Phase 18 PARM-01: captured for sym_kind branch */
 
             if (as->target && as->target->kind == IRON_NODE_IDENT) {
                 Iron_Ident *tid = (Iron_Ident *)as->target;
@@ -3772,9 +5638,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Symbol *tc_sym = tc_lookup(ctx, target_name);
                 if (tc_sym) {
                     is_immutable = !tc_sym->is_mutable;
+                    target_sym = tc_sym;
                 } else if (tid->resolved_sym) {
                     /* Fall back to resolver's symbol */
                     is_immutable = !tid->resolved_sym->is_mutable;
+                    target_sym = tid->resolved_sym;
                 }
 
                 /* Phase 84 MUTTIER-03: pure-tier write-to-ident diagnostics.
@@ -3813,6 +5681,21 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         }
                     }
                 }
+                /* Phase 22 READ-02: readonly method assigning to any parameter.
+                 * Mirrors IRON_ERR_PURE_PARAM_WRITE but for the readonly tier.
+                 * Guard: Pitfall 1 — !ctx->in_pure_method prevents double-emit when
+                 * the enclosing method is pure (in_readonly_method is true for both). */
+                if (ctx->in_readonly_method && !ctx->in_pure_method &&
+                    tc_sym && tc_sym->sym_kind == IRON_SYM_PARAM &&
+                    target_name && strcmp(target_name, "self") != 0) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "cannot assign to parameter '%s' in readonly method",
+                             target_name);
+                    emit_error(ctx, IRON_ERR_READONLY_PARAM_MUTATION,
+                               as->span, msg,
+                               "§6: readonly methods may not assign to any parameter");
+                }
             }
 
             /* Phase 80 MUT-03: field-assignment on immutable receiver.
@@ -3827,22 +5710,6 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * kinds like method calls — we only fire when the walk terminates at
              * an ident with a resolved_sym; otherwise the broader type system
              * handles it). */
-            bool is_field_target_immut = false;
-            const char *field_root_name = NULL;
-            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
-                Iron_Node *cur = as->target;
-                while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
-                    cur = ((Iron_FieldAccess *)cur)->object;
-                }
-                if (cur && cur->kind == IRON_NODE_IDENT) {
-                    Iron_Ident *root_id = (Iron_Ident *)cur;
-                    if (root_id->resolved_sym) {
-                        is_field_target_immut = !root_id->resolved_sym->is_mutable;
-                        field_root_name = root_id->name;
-                    }
-                }
-            }
-
             /* Phase 85 INIT-05: mark the assign target while it's being
              * checked so the FIELD_ACCESS handler can suppress the E0246
              * read-before-assign check on the immediate target node. */
@@ -3852,20 +5719,95 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             ctx->cur_assign_target = prev_assign_target;
             Iron_Type *value_type  = check_expr_with_expected(ctx, as->value, target_type);
 
+            bool is_field_target_immut = false;
+            const char *field_root_name = NULL;
+            Iron_Symbol *field_root_sym = NULL;  /* Phase 18 PARM-01: captured for sym_kind branch */
+            /* Phase 20 OQ-A (Plan 20-02a): when the LHS is a field-access on
+             * a `*var T` receiver, the binding's own mutability does NOT
+             * gate the write — the pointer's `var` modifier authorizes it.
+             * Detect this by inspecting the outermost field-access object's
+             * resolved_type (populated by check_expr above): IRON_TYPE_PTR
+             * with is_var=true means OQ-A applies, suppressing the
+             * immutability gate. The IRON_NODE_FIELD_ACCESS handler
+             * already set is_auto_deref on the outermost FA when this
+             * condition holds (Phase 20 PTR-06 read side). */
+            bool lhs_is_var_ptr_auto_deref = false;
+            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_FieldAccess *outer_fa = (Iron_FieldAccess *)as->target;
+                if (outer_fa->object) {
+                    Iron_Type *recv_t =
+                        ((Iron_ExprNode *)outer_fa->object)->resolved_type;
+                    if (recv_t && recv_t->kind == IRON_TYPE_PTR &&
+                        recv_t->ptr.is_var) {
+                        lhs_is_var_ptr_auto_deref = true;
+                    }
+                }
+            }
+            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_Node *cur = as->target;
+                while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
+                    cur = ((Iron_FieldAccess *)cur)->object;
+                }
+                if (cur && cur->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *root_id = (Iron_Ident *)cur;
+                    if (root_id->resolved_sym) {
+                        /* OQ-A lock: skip the immutability gate when the
+                         * write goes through a *var T pointer. */
+                        is_field_target_immut =
+                            !root_id->resolved_sym->is_mutable &&
+                            !lhs_is_var_ptr_auto_deref;
+                        field_root_name = root_id->name;
+                        field_root_sym = root_id->resolved_sym;
+                    }
+                }
+            }
+
             if (is_immutable) {
-                char msg[256];
-                snprintf(msg, sizeof(msg),
-                         "cannot assign to val '%s' — val is immutable",
-                         target_name ? target_name : "");
-                emit_error(ctx, IRON_ERR_VAL_REASSIGN, as->span, msg, NULL);
+                /* Phase 18 PARM-01: when the immutable target is a function
+                 * parameter (read-only by default per spec §5.3), redirect
+                 * to IRON_ERR_PARM_READ_ONLY=266 with a hint that mentions
+                 * the 'var' modifier (Phase 34 LSP-06 quickfix-target).
+                 * The else branch preserves the pre-Phase-18 path for
+                 * val-local rebinds. Mutually exclusive emit — Pitfall 2
+                 * lock asserts COUNT(266)==1 AND COUNT(203)==0 on the
+                 * canonical PARM-01 case. */
+                if (target_sym && target_sym->sym_kind == IRON_SYM_PARAM) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "cannot mutate read-only parameter '%s'",
+                             target_name ? target_name : "");
+                    emit_error(ctx, IRON_ERR_PARM_READ_ONLY, as->span, msg,
+                               "add 'var' modifier to grant in-body mutation: 'var <name>: T'");
+                } else {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "cannot assign to val '%s' — val is immutable",
+                             target_name ? target_name : "");
+                    emit_error(ctx, IRON_ERR_VAL_REASSIGN, as->span, msg, NULL);
+                }
             }
 
             if (is_field_target_immut) {
-                char msg[256];
-                snprintf(msg, sizeof(msg),
-                         "cannot mutate field on immutable receiver");
-                emit_error(ctx, IRON_ERR_MUT_FIELD_IMMUT_RECV, as->span, msg, NULL);
-                (void)field_root_name;  /* reserved for future hint; silence unused warn */
+                /* Phase 18 PARM-01: when the immutable receiver is a
+                 * function parameter (rooted at IRON_SYM_PARAM), redirect
+                 * to IRON_ERR_PARM_READ_ONLY=266. The else branch preserves
+                 * the pre-Phase-18 generic immutable-receiver path
+                 * (E0234) for val-local field writes. Mutually exclusive
+                 * emit. */
+                if (field_root_sym && field_root_sym->sym_kind == IRON_SYM_PARAM) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "cannot mutate read-only parameter '%s'",
+                             field_root_name ? field_root_name : "");
+                    emit_error(ctx, IRON_ERR_PARM_READ_ONLY, as->span, msg,
+                               "add 'var' modifier to grant in-body mutation: 'var <name>: T'");
+                } else {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "cannot mutate field on immutable receiver");
+                    emit_error(ctx, IRON_ERR_MUT_FIELD_IMMUT_RECV, as->span, msg, NULL);
+                    (void)field_root_name;  /* reserved for future hint; silence unused warn */
+                }
             }
 
             /* Phase 84 MUTTIER-02/03: readonly/pure method writing self.field
@@ -3903,7 +5845,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
                                  "cannot write self.field in %s method", tier);
-                        emit_error(ctx, code, as->span, msg, NULL);
+                        const char *hint_str = ctx->in_pure_method
+                            ? NULL
+                            : "§6: readonly methods may not assign to self or its fields";
+                        emit_error(ctx, code, as->span, msg, hint_str);
                     }
                 }
             }
@@ -3963,6 +5908,58 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         }
                         if (ctx->unassigned_fields) {
                             (void)shdel(ctx->unassigned_fields, tfa->field);
+                        }
+                    }
+                }
+            }
+
+            /* Phase 17 VAL-03: non-pub val field write OUTSIDE init is a
+             * compile error. The pub-val branch below (line ~4011) handles
+             * pub fields with IRON_ERR_VAL_REASSIGN=203. This branch covers
+             * non-pub val with a dedicated code (IRON_ERR_VAL_FIELD_REASSIGN
+             * =265) per CONTEXT.md decision so Phase 34's LSP-06 quickfix
+             * can target it independently with the wording "declare field
+             * as 'var'".
+             *
+             * Lexical scope only — methods called from init do NOT
+             * transitively count (CONTEXT.md decision). The check matches
+             * the chain shape of the in-init double-assign block above:
+             * walk to root IDENT, confirm it is `self`, look up the field
+             * on the enclosing object via ctx->current_method_type, fire
+             * when !is_var && !is_pub. The !is_pub guard makes this branch
+             * mutually exclusive with the pub-val branch below — both
+             * cannot fire on the same write. */
+            if (!ctx->in_synth_accessor &&
+                !ctx->in_init_method &&
+                as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+                Iron_FieldAccess *tfa = (Iron_FieldAccess *)as->target;
+                if (tfa->object && tfa->object->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *rid = (Iron_Ident *)tfa->object;
+                    if (rid->name && strcmp(rid->name, "self") == 0 &&
+                        tfa->field && ctx->current_method_type) {
+                        Iron_Symbol *ts = iron_scope_lookup(
+                            ctx->global_scope, ctx->current_method_type);
+                        if (ts && ts->decl_node &&
+                            ts->decl_node->kind == IRON_NODE_OBJECT_DECL) {
+                            Iron_ObjectDecl *od = (Iron_ObjectDecl *)ts->decl_node;
+                            for (int fi = 0; fi < od->field_count; fi++) {
+                                Iron_Field *ff = (Iron_Field *)od->fields[fi];
+                                if (ff && ff->name &&
+                                    strcmp(ff->name, tfa->field) == 0 &&
+                                    !ff->is_var && !ff->is_pub) {
+                                    /* non-pub val field write outside init */
+                                    char msg[256];
+                                    snprintf(msg, sizeof(msg),
+                                             "cannot reassign 'val' field '%s' "
+                                             "after initialization",
+                                             tfa->field);
+                                    emit_error(ctx, IRON_ERR_VAL_FIELD_REASSIGN,
+                                               as->span, msg,
+                                               "declare field as 'var' to allow "
+                                               "reassignment after init");
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
@@ -4067,10 +6064,46 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
             Iron_Type *ret_type = NULL;
 
+            /* Phase 20 PTR-10 (Plan 20-02a): compile-time stack-escape
+             * detection. `return &local` where `local` is a stack-resident
+             * binding (val/var inside a function body) emits E0271 — the
+             * pointer would dangle past the frame's return. Indirect
+             * escapes (closures, structures, function-pointer storage)
+             * remain caught at runtime by the iron_check_stack_pointer_gen
+             * panic in Plan 20-02b. */
+            if (rs->value && rs->value->kind == IRON_NODE_UNARY) {
+                Iron_UnaryExpr *ue_ret = (Iron_UnaryExpr *)rs->value;
+                if (ue_ret->op == (Iron_OpKind)IRON_TOK_AMP) {
+                    Iron_Symbol *root_sym =
+                        iron_walk_to_root_binding(ue_ret->operand);
+                    if (root_sym && sym_is_stack_local(root_sym)) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot return reference to stack-local "
+                                 "variable '%s'; the binding does not "
+                                 "outlive the current function frame",
+                                 root_sym->name ? root_sym->name : "?");
+                        emit_error(ctx, IRON_ERR_PTR_ESCAPE_STACK_REF,
+                                   ue_ret->span, msg,
+                                   "allocate on the heap (Phase 21 'heap "
+                                   "T(...)') or return the value by-copy");
+                    }
+                }
+            }
+
             if (rs->value) {
                 ret_type = check_expr_with_expected(ctx, rs->value, ctx->current_return_type);
             } else {
                 ret_type = iron_type_make_primitive(IRON_TYPE_VOID);
+            }
+
+            /* Phase 24 (Plan 24-02, CONTEXT Area 5): drop body must not return
+             * early — E0288. Check fires BEFORE init checks so a return in a
+             * drop body emits one diagnostic, not two. */
+            if (ctx->in_drop_method) {
+                emit_error(ctx, IRON_ERR_DROP_NO_EARLY_RETURN, rs->span,
+                           "drop body must not return early; let scope exit flow naturally",
+                           "§6: drop body must not return early");
             }
 
             /* Phase 85 INIT-10/11: inside an init body,
@@ -4096,6 +6129,18 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
+            /* Phase 24 DROP-08 (Plan 24-02): nocopy type returned by value — E0286.
+             * Site (c): IRON_NODE_RETURN. Only fires when the return expr is an IDENT
+             * (copying an existing binding). Construction/call-returns are moves. */
+            if (ret_type && ret_type->kind == IRON_TYPE_OBJECT &&
+                ret_type->object.decl && ret_type->object.decl->is_nocopy &&
+                ctx->current_return_type && ctx->current_return_type->kind == IRON_TYPE_OBJECT &&
+                rs->value && rs->value->kind == IRON_NODE_IDENT) {
+                emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, rs->span,
+                           "cannot return nocopy type by value — return requires copy",
+                           "§7: nocopy types cannot be copied; pass `*T` or `*var T` to avoid copy");
+            }
+
             if (ctx->current_return_type && ret_type) {
                 if (ret_type->kind != IRON_TYPE_ERROR &&
                     ctx->current_return_type->kind != IRON_TYPE_ERROR) {
@@ -4108,12 +6153,32 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                    "Check for null before returning");
                     } else if (!types_assignable(ctx->current_return_type, ret_type) &&
                                !is_int_literal_narrowing(ctx->current_return_type, ret_type, rs->value)) {
-                        char msg[256];
-                        snprintf(msg, sizeof(msg),
-                                 "return type mismatch: function returns '%s', got '%s'",
-                                 iron_type_to_string(ctx->current_return_type, ctx->arena),
-                                 iron_type_to_string(ret_type, ctx->arena));
-                        emit_error(ctx, IRON_ERR_RETURN_TYPE, rs->span, msg, NULL);
+                        /* Phase 25 PTR-03 (Plan 25-01): specialize to E0289
+                         * IRON_ERR_PTR_REGIME_MISMATCH when both types are
+                         * IRON_TYPE_PTR with differing is_unchecked (regime
+                         * mismatch at return site). RESEARCH Pitfall 2: third
+                         * site of the three-site coverage (val/var-decl +
+                         * call-arg + return). */
+                        if (ctx->current_return_type->kind == IRON_TYPE_PTR &&
+                            ret_type->kind == IRON_TYPE_PTR &&
+                            ctx->current_return_type->ptr.is_unchecked != ret_type->ptr.is_unchecked) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "return type regime mismatch: function returns '%s', got '%s'; "
+                                     "checked and unchecked pointer regimes are disjoint",
+                                     iron_type_to_string(ctx->current_return_type, ctx->arena),
+                                     iron_type_to_string(ret_type, ctx->arena));
+                            emit_error(ctx, IRON_ERR_PTR_REGIME_MISMATCH, rs->span, msg,
+                                       "§4.3-§4.4: checked and unchecked pointer regimes are disjoint; "
+                                       "use Box.unwrap() to escape from Box[T] to *unchecked T");
+                        } else {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "return type mismatch: function returns '%s', got '%s'",
+                                     iron_type_to_string(ctx->current_return_type, ctx->arena),
+                                     iron_type_to_string(ret_type, ctx->arena));
+                            emit_error(ctx, IRON_ERR_RETURN_TYPE, rs->span, msg, NULL);
+                        }
                     }
                     /* Narrow literal in return (e.g., return 42 in Int32 func) */
                     if (is_int_literal_narrowing(ctx->current_return_type, ret_type, rs->value)) {
@@ -4326,6 +6391,22 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             } else {
                 if (ws->body) check_stmt(ctx, ws->body);
             }
+            break;
+        }
+
+        case IRON_NODE_IN_ARENA: {  /* Phase 28 ARENA-02/08 (Plan 28-03) */
+            Iron_InArenaBlock *ia = (Iron_InArenaBlock *)node;
+            /* Type-check the arena expression; it should be an Arena value
+             * (declared in arena.iron). We don't hard-reject non-Arena types
+             * here (Plan 04 lowering will rely on the resolved type) but a
+             * type-mismatch surfaces naturally if it is used as an arena. */
+            if (ia->arena_expr) (void)check_expr(ctx, ia->arena_expr);
+            /* ARENA-08: bump the lexical in-arena depth across the body so any
+             * `rc`/`weak rc` allocation textually inside emits E0301. The body
+             * is an IRON_NODE_BLOCK that establishes its own scope. */
+            ctx->in_arena_block_depth++;
+            if (ia->body) check_stmt(ctx, ia->body);
+            ctx->in_arena_block_depth--;
             break;
         }
 
@@ -4581,19 +6662,44 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_DEFER: {
             Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
-            check_expr(ctx, ds->expr);
+            /* Phase 32 DEFER-01: `defer` accepts any statement. The body is
+             * type-checked as a STATEMENT (check_stmt) in the enclosing scope.
+             * check_stmt's IRON_NODE_BLOCK arm pushes its own child scope, so
+             * locals declared inside `defer { ... }` type-check; the
+             * IRON_NODE_FREE arm preserves the `defer free` validation; plain
+             * expression-statements fall through to check_stmt's expression
+             * handling. The Phase-21 E0276 gate is GONE — this is the
+             * LSP-parity-relevant change (`ironc check` stops after analyze,
+             * so removal here is what makes general defer pass `check`). */
+            if (ds->expr) check_stmt(ctx, ds->expr);
             break;
         }
 
         case IRON_NODE_FREE: {
             Iron_FreeStmt *frs = (Iron_FreeStmt *)node;
             check_expr(ctx, frs->expr);
+            /* Phase 21 POL-04: free target must be a bare identifier. */
+            if (frs->expr && frs->expr->kind != IRON_NODE_IDENT) {
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_FREE_NOT_BINDING, frs->span,
+                               "`free` target must be a binding name,"
+                               " not an expression",
+                               NULL);
+            }
             break;
         }
 
         case IRON_NODE_LEAK: {
             Iron_LeakStmt *ls = (Iron_LeakStmt *)node;
             check_expr(ctx, ls->expr);
+            /* Phase 21 POL-05: leak target must be a bare identifier. */
+            if (ls->expr && ls->expr->kind != IRON_NODE_IDENT) {
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_LEAK_NOT_BINDING, ls->span,
+                               "`leak` target must be a binding name,"
+                               " not an expression",
+                               NULL);
+            }
             break;
         }
 
@@ -4675,9 +6781,270 @@ static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count) {
     }
 }
 
+/* ── Phase 24 DROP-06: compute_has_user_copy_transitive cache-populator ──── */
+
+/* True if this Iron_Type (or any field type recursively) has a user-defined
+ * copy block. Result is cached into Iron_Type.has_user_copy_transitive +
+ * .has_user_copy_cached so codegen can read the cached field directly
+ * without a cross-TU helper call (I8 fix). Also caches the resolved
+ * Iron_Type* into each Iron_Field.field_type_cached for emit_helpers.c. */
+static bool compute_has_user_copy_transitive(Iron_Type *t, TypeCtx *ctx) {
+    if (!t) return false;
+    if (t->has_user_copy_cached) return t->has_user_copy_transitive;
+    bool result = false;
+    if (t->kind == IRON_TYPE_OBJECT && t->object.decl && ctx->program) {
+        Iron_ObjectDecl *od = t->object.decl;
+        /* (a) scan program->decls for MethodDecl nodes whose type_name == od->name
+         * and which have is_copy=true. Methods are NOT stored on Iron_ObjectDecl;
+         * they are top-level IRON_NODE_METHOD_DECL nodes (Plan 86 layout). */
+        for (int i = 0; i < ctx->program->decl_count && !result; i++) {
+            Iron_Node *d = ctx->program->decls[i];
+            if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+            if (!m->type_name || !od->name) continue;
+            if (strcmp(m->type_name, od->name) == 0 && m->is_copy) result = true;
+        }
+        /* (b) any field transitively has user copy — also populate field_type_cached */
+        for (int i = 0; i < od->field_count && !result; i++) {
+            Iron_Field *f = (Iron_Field *)od->fields[i];
+            if (!f || !f->type_ann) continue;
+            Iron_Type *ft = resolve_type_annotation(ctx, f->type_ann);
+            /* Cache the field's resolved type for emit_helpers.c codegen use */
+            if (!f->field_type_cached) f->field_type_cached = ft;
+            if (compute_has_user_copy_transitive(ft, ctx)) result = true;
+        }
+    }
+    t->has_user_copy_transitive = result;
+    t->has_user_copy_cached = true;
+    return result;
+}
+
+/* ── Phase 28 ARENA-09 (Plan 28-03): transitive non-trivial-destructor walk ─
+ * True if this Iron_Type (or any field type recursively) has a user-defined
+ * `drop` block — i.e. a non-trivial destructor that an arena would skip on
+ * reset()/restore(). Mirrors compute_has_user_copy_transitive but keys on
+ * is_drop and does NOT cache (no dedicated Iron_Type cache field; the warning
+ * fires at most once per heap(in:) / arena-block alloc site so the cost is
+ * negligible). The `seen` depth guard prevents runaway recursion on cyclic
+ * type graphs (forward-reference safety). */
+static bool arena_type_has_nontrivial_dtor(Iron_Type *t, TypeCtx *ctx,
+                                            int depth) {
+    if (!t || depth > 32) return false;
+    if (t->kind != IRON_TYPE_OBJECT || !t->object.decl || !ctx->program)
+        return false;
+    Iron_ObjectDecl *od = t->object.decl;
+    /* (a) direct user `drop` block: methods live as top-level
+     * IRON_NODE_METHOD_DECL nodes with type_name == od->name (Plan 86 layout). */
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+        if (!m->type_name || !od->name) continue;
+        if (strcmp(m->type_name, od->name) == 0 && m->is_drop) return true;
+    }
+    /* (b) any field whose type transitively has a non-trivial destructor. */
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->type_ann) continue;
+        Iron_Type *ft = f->field_type_cached
+                        ? f->field_type_cached
+                        : resolve_type_annotation(ctx, f->type_ann);
+        if (arena_type_has_nontrivial_dtor(ft, ctx, depth + 1)) return true;
+    }
+    return false;
+}
+
+/* ── READ-06: is_readonly_compatible_type — closed whitelist helper ─────── */
+
+/* Determines whether a return type is readonly-compatible per spec §12 step 8.
+ * Implements RESEARCH Pattern 4 closed whitelist with:
+ *   - Pitfall 6 optimistic-cache for self-referential struct types
+ *   - Pitfall 5 -Werror=switch-enum protection via explicit default arm
+ *   - Pitfall 3 NULL resolved_type treated as INCOMPATIBLE (fail-safe)
+ *
+ * Compatible types: primitives (Int/Float/Bool/String + width variants + Void),
+ *   IRON_TYPE_ARRAY with size >= 0 (fixed-size), IRON_TYPE_NULLABLE recursing
+ *   on inner, IRON_TYPE_TUPLE recursing on elements, IRON_TYPE_OBJECT iff every
+ *   field's resolved_type is compatible (transitive struct walk with cache),
+ *   IRON_TYPE_ENUM iff every variant payload is compatible (payloadless
+ *   C-like enums trivially pass; auto-boxed recursive payloads reject).
+ *
+ * Incompatible: IRON_TYPE_RC, IRON_TYPE_PTR, IRON_TYPE_FUNC, IRON_TYPE_INTERFACE,
+ *   IRON_TYPE_GENERIC_PARAM, IRON_TYPE_ERROR, IRON_TYPE_NULL, and default
+ *   (unknown). Dynamic arrays ([T], size == -1) are ALLOWED — see the ARRAY arm.
+ */
+static bool is_readonly_compatible_type(const Iron_Type *t, TypeCtx *ctx) {
+    if (!t) return true;  /* void / NULL — OK; void return is always compatible */
+
+    /* Cache check (Pitfall 6 — break self-referential recursion for OBJECT types) */
+    if (t->kind == IRON_TYPE_OBJECT && t->readonly_compat_cached) {
+        return t->is_readonly_compatible;
+    }
+
+    switch (t->kind) {
+        /* ── Whitelisted primitives ─────────────────────────────────────── */
+        case IRON_TYPE_INT:    case IRON_TYPE_INT8:   case IRON_TYPE_INT16:
+        case IRON_TYPE_INT32:  case IRON_TYPE_INT64:
+        case IRON_TYPE_UINT:   case IRON_TYPE_UINT8:  case IRON_TYPE_UINT16:
+        case IRON_TYPE_UINT32: case IRON_TYPE_UINT64:
+        case IRON_TYPE_FLOAT:  case IRON_TYPE_FLOAT32: case IRON_TYPE_FLOAT64:
+        case IRON_TYPE_BOOL:   case IRON_TYPE_STRING:
+        case IRON_TYPE_VOID:
+            return true;
+
+        /* ── Fixed-size arrays ([T; N]), bounded vectors ([T; <=N]), dynamic lists ([T]) ── */
+        case IRON_TYPE_ARRAY:
+            /* Dynamic [T] (size == -1): allowed as readonly return because 'readonly'
+             * means the method does not mutate self, not that it allocates nothing.
+             * Stdlib String.split returns [String] from a readonly method — correct.
+             * Fixed [T; N] and bounded [T; <=N] (size >= 0) also pass.
+             * Phase 23 Plan 23-02: is_bounded covered by size >= 0 path. */
+            return is_readonly_compatible_type(t->array.elem, ctx);
+
+        /* ── Nullable (T?) — recurse on inner ───────────────────────────── */
+        case IRON_TYPE_NULLABLE:
+            return is_readonly_compatible_type(t->nullable.inner, ctx);
+
+        /* ── Tuples — all elements must be compatible ────────────────────── */
+        case IRON_TYPE_TUPLE:
+            for (int i = 0; i < t->tuple.elem_count; i++) {
+                if (!is_readonly_compatible_type(t->tuple.elem_types[i], ctx))
+                    return false;
+            }
+            return true;
+
+        /* ── Object (struct) — transitive field walk with optimistic cache ─ */
+        case IRON_TYPE_OBJECT: {
+            if (!t->object.decl) return false;
+            Iron_ObjectDecl *od = t->object.decl;
+            /* Pitfall 6 optimistic-cache: set BEFORE recursing into fields.
+             * If a field back-references T (self-referential struct), the
+             * recursive call sees cached=true, compatible=true — breaks the
+             * cycle. If any field is later found incompatible, the cache is
+             * corrected before return. Worst case: a self-referential struct
+             * with an incompatible field at depth > 1 may be transiently
+             * misclassified on the first walk; subsequent walks see corrected
+             * cache. For Phase 22, this edge case is extremely rare and the
+             * optimistic default (safe for pure primitives + nullable back-refs)
+             * is the correct choice. */
+            ((Iron_Type *)t)->readonly_compat_cached = true;
+            ((Iron_Type *)t)->is_readonly_compatible  = true;
+            for (int i = 0; i < od->field_count; i++) {
+                Iron_Field *f = (Iron_Field *)od->fields[i];
+                if (!f) continue;
+                /* Pitfall 3: NULL type_ann / resolved field type = fail-safe REJECT.
+                 * Iron_Field has no resolved_type field — field types are obtained
+                 * via resolve_type_annotation (RESEARCH Pitfall 3 / FIX-03 §1). */
+                Iron_Type *ft = f->type_ann
+                    ? resolve_type_annotation(ctx, f->type_ann)
+                    : NULL;
+                if (!ft || !is_readonly_compatible_type(ft, ctx)) {
+                    ((Iron_Type *)t)->is_readonly_compatible = false;
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /* ── Pointer types — not readonly-compatible ─────────────────────── */
+        case IRON_TYPE_PTR:
+            return false;
+
+        /* ── Enum (ADT) — compatible iff every variant payload is ─────────
+         * Payloadless (C-like) enums — raylib's KeyboardKey, GamepadButton,
+         * Gesture, CameraProjection, … — are plain value scalars and always
+         * pass; rejecting them also transitively rejected every struct with
+         * an enum field (Camera3D) and every Result[T, E] return. Payload-
+         * carrying variants recurse into each payload type. Auto-boxed
+         * (recursive) payloads are heap pointers under the hood — rejected,
+         * mirroring the PTR arm's fail-safe stance. */
+        case IRON_TYPE_ENUM: {
+            if (t->readonly_compat_cached) return t->is_readonly_compatible;
+            Iron_EnumDecl *ed = t->enu.decl;
+            if (!ed) return false;
+            if (!ed->has_payloads) return true;
+            /* Optimistic-cache cycle break (mirrors the OBJECT arm): set the
+             * result true BEFORE recursing so a payload that references this
+             * enum terminates. Auto-boxed recursive payloads already reject via
+             * the payload_is_boxed guard below; this additionally covers any
+             * non-boxed indirect cycle (A payload B, B payload A). */
+            ((Iron_Type *)t)->readonly_compat_cached = true;
+            ((Iron_Type *)t)->is_readonly_compatible  = true;
+            for (int vi = 0; vi < ed->variant_count; vi++) {
+                Iron_EnumVariant *v = (Iron_EnumVariant *)ed->variants[vi];
+                if (!v) continue;
+                for (int pi = 0; pi < v->payload_count; pi++) {
+                    if (v->payload_is_boxed && v->payload_is_boxed[pi]) {
+                        ((Iron_Type *)t)->is_readonly_compatible = false;
+                        return false;
+                    }
+                    Iron_Type *pt = NULL;
+                    if (t->enu.variant_payload_types &&
+                        t->enu.variant_payload_types[vi]) {
+                        pt = t->enu.variant_payload_types[vi][pi];
+                    }
+                    if (!pt && v->payload_type_anns && v->payload_type_anns[pi]) {
+                        pt = resolve_type_annotation(ctx, v->payload_type_anns[pi]);
+                    }
+                    /* Pitfall 3 fail-safe: unresolvable payload rejects. */
+                    if (!pt || !is_readonly_compatible_type(pt, ctx)) {
+                        ((Iron_Type *)t)->is_readonly_compatible = false;
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        /* ── All other types — not readonly-compatible ───────────────────── */
+        case IRON_TYPE_RC:
+        case IRON_TYPE_WEAK_RC:  /* Phase 27 POL-08: weak rc shares rc's non-readonly-compat stance */
+        case IRON_TYPE_FUNC:
+        case IRON_TYPE_INTERFACE:
+        case IRON_TYPE_GENERIC_PARAM:
+        case IRON_TYPE_ERROR:
+        case IRON_TYPE_NULL:
+        default:
+            /* Phase 23 BVEC: when IRON_TYPE_BVEC lands as a new kind, add
+             * an explicit case here before the default arm. */
+            return false;
+    }
+}
+
 /* ── Check function / method declarations ────────────────────────────────── */
 
 static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
+    /* Phase 33 OQ-02 unblock: register method-/func-level generic params
+     * (`func Box.new[T]() -> Box[T]`, `func Box.unwrap[T]() -> *unchecked T`)
+     * as in-scope IRON_TYPE_GENERIC_PARAM type symbols BEFORE resolving the
+     * return-type and param-type annotations. Without this, the leading `[T]`
+     * generic is never resolvable: resolve_type_annotation looks names up only
+     * in ctx->global_scope (typecheck.c:1237), so `Box[T]` / `*unchecked T`
+     * each emit E0202 "unknown type 'T'". Because box.iron is ALWAYS prepended
+     * (check.c:431 / build.c), that single E0202 poisons EVERY compilation —
+     * blocking the whole positive v4 corpus (deferred-items 33-01). We mirror
+     * the enum-mono generic-binding pattern (typecheck.c:1309-1330): push a
+     * temporary child scope holding the generic-param names, resolve
+     * annotations against it, then restore. Narrow blast radius — only the
+     * annotation-resolution window of one func decl is affected. */
+    Iron_Scope *saved_global_scope = ctx->global_scope;
+    if (fd->generic_param_count > 0 && fd->generic_params) {
+        Iron_Scope *gen_scope = iron_scope_create(ctx->arena,
+            ctx->global_scope, IRON_SCOPE_BLOCK);
+        for (int gi = 0; gi < fd->generic_param_count; gi++) {
+            /* PROT-03: assert kind on the generic-param node before the cast. */
+            if (fd->generic_params[gi])
+                IRON_NODE_ASSERT_KIND(fd->generic_params[gi], IRON_NODE_IDENT);
+            Iron_Ident *gp = (Iron_Ident *)fd->generic_params[gi];
+            if (!gp || !gp->name) continue;
+            Iron_Symbol *gsym = iron_symbol_create(ctx->arena, gp->name,
+                IRON_SYM_TYPE, NULL, (Iron_Span){0, 0, 0, 0, 0});
+            gsym->type = iron_type_make_generic_param(ctx->arena, gp->name, NULL);
+            iron_scope_define(gen_scope, ctx->arena, gsym);
+        }
+        ctx->global_scope = gen_scope;
+    }
+
     /* Resolve return type */
     Iron_Type *ret_type = NULL;
     if (fd->return_type) {
@@ -4687,18 +7054,41 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
     }
     fd->resolved_return_type = ret_type;
 
+    /* Phase 22 READ-06: declaration-site readonly return-type check.
+     * Pitfall 2: use fd->is_readonly directly, NOT ctx->in_readonly_method
+     * (which is unset for top-level functions at declaration-check time). */
+    if (fd->is_readonly && ret_type &&
+        ret_type->kind != IRON_TYPE_VOID &&
+        !is_readonly_compatible_type(ret_type, ctx)) {
+        const char *ts = iron_type_to_string(ret_type, ctx->arena);
+        char msg[256];
+        snprintf(msg, sizeof(msg),
+                 "readonly function return type '%s' is not readonly-compatible",
+                 ts ? ts : "?");
+        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_READONLY_RETURN_TYPE, fd->span, msg,
+                       "§6: readonly return types: primitives, enums, fixed structs,"
+                       " [T; N], [T; <=N], tuples, T?");
+    }
+
     /* Resolve param types */
     Iron_Type **param_types = NULL;
     if (fd->param_count > 0) {
         param_types = (Iron_Type **)iron_arena_alloc(
             ctx->arena, (size_t)fd->param_count * sizeof(Iron_Type *),
             _Alignof(Iron_Type *));
-        if (!param_types) { /* HARD-09 REPLACE (typecheck.c:check_func_decl param_types) */ return; }
+        if (!param_types) { /* HARD-09 REPLACE (typecheck.c:check_func_decl param_types) */ ctx->global_scope = saved_global_scope; return; }
     }
     for (int i = 0; i < fd->param_count; i++) {
         Iron_Param *p = (Iron_Param *)fd->params[i];
         param_types[i] = resolve_type_annotation(ctx, p->type_ann);
     }
+
+    /* Phase 33 OQ-02: restore the real global scope now that all annotation
+     * resolution (return + params) is done. Body checking + the function
+     * symbol scope below must chain off the original global scope, not the
+     * temporary generic-param scope. */
+    ctx->global_scope = saved_global_scope;
 
     fd->resolved_param_types = param_types;
 
@@ -4762,6 +7152,35 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     const char *prev_enclosing_early = ctx->enclosing_type_name;
     ctx->enclosing_type_name = md->type_name;
 
+    /* Phase 33 OQ-02 unblock: register method-level generic params
+     * (`func Box.new[T](value: T) -> Box[T]`, `func Box.unwrap[T]() -> *unchecked T`)
+     * as in-scope IRON_TYPE_GENERIC_PARAM type symbols BEFORE resolving the
+     * return-type and param-type annotations. Standalone `Type.method[T]`
+     * declarations parse as IRON_NODE_METHOD_DECL (not FUNC_DECL), so the
+     * sibling fix in check_func_decl does NOT cover them. Without this,
+     * `Box[T]` / `*unchecked T` emit E0202 "unknown type 'T'", and because
+     * box.iron is ALWAYS prepended (check.c:431 / build.c) that single E0202
+     * poisoned EVERY compilation (deferred-items 33-01). Mirrors the enum-mono
+     * binding pattern (typecheck.c:1309-1330): temp child scope holding the
+     * generic-param names, resolve annotations against it, restore. Narrow
+     * blast radius — only the annotation-resolution window. */
+    Iron_Scope *md_saved_global_scope = ctx->global_scope;
+    if (md->generic_param_count > 0 && md->generic_params) {
+        Iron_Scope *gen_scope = iron_scope_create(ctx->arena,
+            ctx->global_scope, IRON_SCOPE_BLOCK);
+        for (int gi = 0; gi < md->generic_param_count; gi++) {
+            if (md->generic_params[gi])
+                IRON_NODE_ASSERT_KIND(md->generic_params[gi], IRON_NODE_IDENT);
+            Iron_Ident *gp = (Iron_Ident *)md->generic_params[gi];
+            if (!gp || !gp->name) continue;
+            Iron_Symbol *gsym = iron_symbol_create(ctx->arena, gp->name,
+                IRON_SYM_TYPE, NULL, (Iron_Span){0, 0, 0, 0, 0});
+            gsym->type = iron_type_make_generic_param(ctx->arena, gp->name, NULL);
+            iron_scope_define(gen_scope, ctx->arena, gsym);
+        }
+        ctx->global_scope = gen_scope;
+    }
+
     Iron_Type *ret_type = NULL;
     if (md->is_init && md->type_name) {
         Iron_Symbol *type_sym = iron_scope_lookup(ctx->global_scope, md->type_name);
@@ -4778,18 +7197,42 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     }
     md->resolved_return_type = ret_type;
 
+    /* Phase 22 READ-06: declaration-site readonly return-type check.
+     * Pitfall 2: insertion is BEFORE body-walk; use md->is_readonly directly.
+     * Skip init methods (their return type is Self, always compatible). */
+    if (md->is_readonly && !md->is_init && ret_type &&
+        ret_type->kind != IRON_TYPE_VOID &&
+        !is_readonly_compatible_type(ret_type, ctx)) {
+        const char *ts = iron_type_to_string(ret_type, ctx->arena);
+        char msg[256];
+        snprintf(msg, sizeof(msg),
+                 "readonly method '%s.%s' return type '%s' is not readonly-compatible",
+                 md->type_name ? md->type_name : "?",
+                 md->method_name ? md->method_name : "?",
+                 ts ? ts : "?");
+        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_READONLY_RETURN_TYPE, md->span, msg,
+                       "§6: readonly return types: primitives, enums, fixed structs,"
+                       " [T; N], [T; <=N], tuples, T?");
+    }
+
     /* Resolve param types */
     Iron_Type **param_types = NULL;
     if (md->param_count > 0) {
         param_types = (Iron_Type **)iron_arena_alloc(
             ctx->arena, (size_t)md->param_count * sizeof(Iron_Type *),
             _Alignof(Iron_Type *));
-        if (!param_types) { /* HARD-09 REPLACE (typecheck.c:check_method_decl param_types) */ return; }
+        if (!param_types) { /* HARD-09 REPLACE (typecheck.c:check_method_decl param_types) */ ctx->global_scope = md_saved_global_scope; return; }
     }
     for (int i = 0; i < md->param_count; i++) {
         Iron_Param *p = (Iron_Param *)md->params[i];
         param_types[i] = resolve_type_annotation(ctx, p->type_ann);
     }
+
+    /* Phase 33 OQ-02: restore the real global scope now that return + param
+     * annotation resolution is complete. The method body scope below must
+     * chain off the original global scope, not the temporary generic scope. */
+    ctx->global_scope = md_saved_global_scope;
 
     Iron_Type *prev_ret = ctx->current_return_type;
     const char *prev_type_name = ctx->current_method_type;
@@ -4799,6 +7242,8 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     bool prev_in_readonly = ctx->in_readonly_method;
     bool prev_in_pure     = ctx->in_pure_method;
     bool prev_in_init     = ctx->in_init_method;
+    bool prev_in_drop     = ctx->in_drop_method;
+    bool prev_in_copy     = ctx->in_copy_method;
     /* Save the parent unassigned_fields pointer; we swap in a fresh per-init
      * set on init entry and shfree+restore at exit. For non-init methods we
      * leave the parent pointer in place (value is NULL outside inits). */
@@ -4821,6 +7266,15 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
      * can strike them off on `self.<field> = ...` writes and emit E0247 at
      * exit when any remain. */
     ctx->in_init_method        = md->is_init;
+    /* Phase 24 DROP-01/06 (Plan 24-02): set drop/copy body flags */
+    ctx->in_drop_method        = md->is_drop;
+    ctx->in_copy_method        = md->is_copy;
+    /* Phase 24 DROP-01: drop body cannot be marked readonly — drop mutates self */
+    if (md->is_drop && md->is_readonly) {
+        emit_error(ctx, IRON_ERR_DROP_NOT_READONLY, md->span,
+                   "drop body cannot be marked 'readonly' — drop mutates self",
+                   "§7: drop modifies the object before deallocation");
+    }
     if (md->is_init) {
         ctx->unassigned_fields = NULL;
         sh_new_strdup(ctx->unassigned_fields);
@@ -4879,6 +7333,8 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     }
     ctx->unassigned_fields   = prev_unassigned;
     ctx->in_init_method      = prev_in_init;
+    ctx->in_drop_method      = prev_in_drop;
+    ctx->in_copy_method      = prev_in_copy;
     ctx->current_return_type = prev_ret;
     ctx->current_method_type = prev_type_name;
     ctx->enclosing_type_name  = prev_enclosing_early;
@@ -5067,9 +7523,18 @@ static void check_iface_tier_strengthening(TypeCtx *ctx, Iron_Program *program) 
                         iron_arena_strdup(ctx->arena, msg, strlen(msg));
                     if (!msg_copy)
                         iron_oom_abort("typecheck.c:check_iface_tier_strengthening msg");
+                    /* Phase 22 READ-07: use READONLY-specific code for clearer spec
+                     * tracing. Pure-sig violations CONTINUE to emit
+                     * IRON_ERR_IFACE_METHOD_TIER_MISMATCH (257) to preserve Phase 87
+                     * fixture compatibility per RESEARCH Pitfall 7. */
+                    int diag_code = sig->is_pure
+                        ? IRON_ERR_IFACE_METHOD_TIER_MISMATCH   /* Phase 87 baseline; pure-sig case */
+                        : IRON_ERR_READONLY_IFACE_CONFORMANCE;  /* Phase 22 READ-07; readonly-sig case */
+                    const char *hint = sig->is_pure
+                        ? NULL   /* pure-tier hint conventions out of scope */
+                        : "§6: interface readonly method requires readonly or pure implementation";
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
-                                   IRON_ERR_IFACE_METHOD_TIER_MISMATCH,
-                                   impl->span, msg_copy, NULL);
+                                   diag_code, impl->span, msg_copy, hint);
                 }
             }
         }
@@ -5085,7 +7550,17 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     /* HARD-05: pre-entry cancel check. */
     if (iron_cancel_requested(cancel_flag)) return;
 
-    TypeCtx ctx;
+    /* Zero-initialize the whole context FIRST, then set fields explicitly.
+     * The field-by-field initialization below historically missed
+     * `in_arena_block_depth` (ARENA-08 E0301 driver): left as uninitialized
+     * stack garbage it reads nonzero under optimized (Release) builds, so a
+     * top-level `rc`/`weak rc` allocation with NO enclosing `in arena {}`
+     * falsely trips E0301 "rc cannot be allocated in an arena". Debug builds
+     * happened to zero the slot, hiding it; the rc/weak-policy corpus never
+     * caught it because those fixtures did not compile before this branch.
+     * The `= {0}` makes every field default to zero so no future field
+     * addition can reintroduce this class of bug. */
+    TypeCtx ctx = {0};
     ctx.arena               = arena;
     ctx.diags               = diags;
     ctx.global_scope        = global_scope;
@@ -5097,6 +7572,8 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     ctx.in_readonly_method  = false;
     ctx.in_pure_method      = false;
     ctx.in_init_method      = false;
+    ctx.in_drop_method      = false;
+    ctx.in_copy_method      = false;
     ctx.cur_assign_target   = NULL;
     ctx.unassigned_fields   = NULL;
     ctx.narrowed            = NULL;
@@ -5202,6 +7679,28 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         if (!decl) continue;
         if (decl->kind == IRON_NODE_FUNC_DECL) {
             Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
+            /* Phase 33 OQ-02 unblock: register func-level generic params in a
+             * temporary child scope so `Box[T]` / `*unchecked T` annotations
+             * resolve here in the signature pre-pass (not just in
+             * check_func_decl). Without it, box.iron's prepended generic
+             * methods emit E0202 in THIS loop, poisoning every compilation.
+             * Mirrors the enum-mono binding pattern (typecheck.c:1309). */
+            Iron_Scope *pp_saved = ctx.global_scope;
+            if (fd->generic_param_count > 0 && fd->generic_params) {
+                Iron_Scope *gs = iron_scope_create(ctx.arena, ctx.global_scope,
+                                                   IRON_SCOPE_BLOCK);
+                for (int gi = 0; gi < fd->generic_param_count; gi++) {
+                    if (fd->generic_params[gi])
+                        IRON_NODE_ASSERT_KIND(fd->generic_params[gi], IRON_NODE_IDENT);
+                    Iron_Ident *gp = (Iron_Ident *)fd->generic_params[gi];
+                    if (!gp || !gp->name) continue;
+                    Iron_Symbol *gsym = iron_symbol_create(ctx.arena, gp->name,
+                        IRON_SYM_TYPE, NULL, (Iron_Span){0, 0, 0, 0, 0});
+                    gsym->type = iron_type_make_generic_param(ctx.arena, gp->name, NULL);
+                    iron_scope_define(gs, ctx.arena, gsym);
+                }
+                ctx.global_scope = gs;
+            }
             Iron_Type *ret_type = fd->return_type
                 ? resolve_type_annotation(&ctx, fd->return_type)
                 : iron_type_make_primitive(IRON_TYPE_VOID);
@@ -5216,6 +7715,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                     param_types[j] = resolve_type_annotation(&ctx, p->type_ann);
                 }
             }
+            ctx.global_scope = pp_saved;  /* Phase 33 OQ-02: restore */
             Iron_Type *func_type = iron_type_make_func(ctx.arena, param_types,
                                                         fd->param_count, ret_type);
             Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, fd->name);
@@ -5230,14 +7730,38 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
              * return annotation of `Self` resolves correctly (and does not
              * trigger E0259) during this pre-pass signature building step. */
             ctx.enclosing_type_name = md->type_name;
+            /* Phase 33 OQ-02 unblock: register method-level generic params
+             * (`func Box.unwrap[T]() -> *unchecked T`) so the return + param
+             * annotations resolve in this pre-pass. This is the site that was
+             * still emitting E0202 for parameterless generic methods like
+             * unwrap (whose `[T]` only appears in the return type). */
+            Iron_Scope *pp_md_saved = ctx.global_scope;
+            if (md->generic_param_count > 0 && md->generic_params) {
+                Iron_Scope *gs = iron_scope_create(ctx.arena, ctx.global_scope,
+                                                   IRON_SCOPE_BLOCK);
+                for (int gi = 0; gi < md->generic_param_count; gi++) {
+                    if (md->generic_params[gi])
+                        IRON_NODE_ASSERT_KIND(md->generic_params[gi], IRON_NODE_IDENT);
+                    Iron_Ident *gp = (Iron_Ident *)md->generic_params[gi];
+                    if (!gp || !gp->name) continue;
+                    Iron_Symbol *gsym = iron_symbol_create(ctx.arena, gp->name,
+                        IRON_SYM_TYPE, NULL, (Iron_Span){0, 0, 0, 0, 0});
+                    gsym->type = iron_type_make_generic_param(ctx.arena, gp->name, NULL);
+                    iron_scope_define(gs, ctx.arena, gsym);
+                }
+                ctx.global_scope = gs;
+            }
             Iron_Type *ret_type = md->return_type
                 ? resolve_type_annotation(&ctx, md->return_type)
                 : iron_type_make_primitive(IRON_TYPE_VOID);
             ctx.enclosing_type_name = NULL;  /* restore after pre-pass sig build */
-            /* Method signatures are looked up by mangled name (type_method) */
+            /* Method signatures are looked up by mangled name (type_method).
+             * Phase 33 OQ-02: lookup runs against the REAL global scope, but
+             * param-annotation resolution below stays under the generic scope
+             * so `value: T` resolves; restore after the param loop. */
             char mangled[256];
             snprintf(mangled, sizeof(mangled), "%s_%s", md->type_name, md->method_name);
-            Iron_Symbol *sym = iron_scope_lookup(ctx.global_scope, mangled);
+            Iron_Symbol *sym = iron_scope_lookup(pp_md_saved, mangled);
             if (sym && !sym->type) {
                 Iron_Type **param_types = NULL;
                 int pc = md->param_count;
@@ -5245,7 +7769,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                     param_types = (Iron_Type **)iron_arena_alloc(
                         ctx.arena, (size_t)pc * sizeof(Iron_Type *),
                         _Alignof(Iron_Type *));
-                    if (!param_types) { /* HARD-09 REPLACE (typecheck.c:iron_typecheck METHOD_DECL param_types) */ return; }
+                    if (!param_types) { /* HARD-09 REPLACE (typecheck.c:iron_typecheck METHOD_DECL param_types) */ ctx.global_scope = pp_md_saved; return; }
                     for (int j = 0; j < pc; j++) {
                         Iron_Param *p = (Iron_Param *)md->params[j];
                         param_types[j] = resolve_type_annotation(&ctx, p->type_ann);
@@ -5253,6 +7777,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 }
                 sym->type = iron_type_make_func(ctx.arena, param_types, pc, ret_type);
             }
+            ctx.global_scope = pp_md_saved;  /* Phase 33 OQ-02: restore */
         }
     }
 
@@ -5344,6 +7869,49 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 }
             }
             arrfree(names);
+        }
+    }
+
+    /* Phase 24 DROP-01/06 (Plan 24-02): duplicate drop/copy block detection +
+     * compute_has_user_copy_transitive cache warming for all object types.
+     * Runs before method body typecheck so cache is populated for codegen use. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *decl = program->decls[i];
+        if (!decl || decl->kind != IRON_NODE_OBJECT_DECL) continue;
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)decl;
+
+        /* Duplicate drop/copy detection.
+         * Methods are NOT stored on Iron_ObjectDecl (Plan 86 layout) — scan
+         * program->decls for IRON_NODE_METHOD_DECL nodes whose type_name == od->name. */
+        int drop_count = 0, copy_count = 0;
+        for (int mi = 0; mi < program->decl_count; mi++) {
+            Iron_Node *mn = program->decls[mi];
+            if (!mn || mn->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *m = (Iron_MethodDecl *)mn;
+            if (!m->type_name || !od->name) continue;
+            if (strcmp(m->type_name, od->name) != 0) continue;
+            if (m->is_drop) {
+                if (drop_count > 0) {
+                    emit_error(&ctx, IRON_ERR_DROP_DUPLICATE, m->span,
+                               "duplicate drop block — at most one drop per object",
+                               "§7: at most one drop block per object");
+                }
+                drop_count++;
+            }
+            if (m->is_copy) {
+                if (copy_count > 0) {
+                    emit_error(&ctx, IRON_ERR_COPY_DUPLICATE, m->span,
+                               "duplicate copy block — at most one copy per object",
+                               "§7: at most one copy block per object");
+                }
+                copy_count++;
+            }
+        }
+
+        /* Warm the user-copy transitivity cache for this type */
+        Iron_Symbol *type_sym = iron_scope_lookup(ctx.global_scope, od->name);
+        if (type_sym && type_sym->type) {
+            compute_has_user_copy_transitive(type_sym->type, &ctx);
         }
     }
 

@@ -1,0 +1,18 @@
+-- net_lookup_host.iron — Phase 59 P04 DNS integration test.
+--
+-- Exercises Net.lookup_host("localhost", 2000). Success Criterion 2
+-- (first half): typed Address values returned, never a hang.
+import net
+
+func main() {
+    val (addrs, err) = Net.lookup_host("localhost", 2000)
+    if err.code != 0 {
+        println("lookup failed")
+        return
+    }
+    if len(addrs) > 0 {
+        println("resolved ok")
+    } else {
+        println("no addresses")
+    }
+}

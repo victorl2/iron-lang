@@ -257,6 +257,17 @@ static void print_stmt(Iron_StrBuf *sb, const IronHIR_Stmt *stmt,
         }
         break;
 
+    case IRON_HIR_STMT_IN_ARENA:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "InArenaStmt\n");
+        if (stmt->in_arena.arena) {
+            print_expr(sb, stmt->in_arena.arena, mod, depth + 1, tmp);
+        }
+        if (stmt->in_arena.body) {
+            print_block(sb, stmt->in_arena.body, mod, depth + 1, tmp);
+        }
+        break;
+
     default:
         do_indent(sb, depth);
         iron_strbuf_appendf(sb, "UnknownStmt\n");
@@ -427,11 +438,44 @@ static void print_expr(Iron_StrBuf *sb, const IronHIR_Expr *expr,
         }
         break;
 
+    case IRON_HIR_EXPR_ARENA_ALLOC:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "ArenaAlloc\n");
+        if (expr->arena_alloc.arena) {
+            print_expr(sb, expr->arena_alloc.arena, mod, depth + 1, tmp);
+        }
+        if (expr->arena_alloc.inner) {
+            print_expr(sb, expr->arena_alloc.inner, mod, depth + 1, tmp);
+        }
+        break;
+
     case IRON_HIR_EXPR_RC:
         do_indent(sb, depth);
         iron_strbuf_appendf(sb, "Rc\n");
         if (expr->rc.inner) {
             print_expr(sb, expr->rc.inner, mod, depth + 1, tmp);
+        }
+        break;
+
+    /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc HIR print arms. */
+    case IRON_HIR_EXPR_WEAK_RC_NULL:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "WeakRcNull\n");
+        break;
+
+    case IRON_HIR_EXPR_WEAK_RC_DOWNGRADE:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "WeakRcDowngrade\n");
+        if (expr->weak_rc_downgrade.strong_rc_val) {
+            print_expr(sb, expr->weak_rc_downgrade.strong_rc_val, mod, depth + 1, tmp);
+        }
+        break;
+
+    case IRON_HIR_EXPR_WEAK_RC_UPGRADE:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "WeakRcUpgrade\n");
+        if (expr->weak_rc_upgrade.weak_rc_val) {
+            print_expr(sb, expr->weak_rc_upgrade.weak_rc_val, mod, depth + 1, tmp);
         }
         break;
 
@@ -537,6 +581,27 @@ static void print_expr(Iron_StrBuf *sb, const IronHIR_Expr *expr,
             if (expr->pattern.nested_patterns && expr->pattern.nested_patterns[i]) {
                 print_expr(sb, expr->pattern.nested_patterns[i], mod, depth + 1, tmp);
             }
+        }
+        break;
+
+    /* Phase 20 PTR-04/06/08/09 (Plan 20-02b). */
+    case IRON_HIR_EXPR_ADDR_OF:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "AddrOf(%s)\n",
+                            expr->addr_of.gen_source == IRON_HIR_GEN_HEAP
+                                ? "heap" : "stack");
+        if (expr->addr_of.target) {
+            print_expr(sb, expr->addr_of.target, mod, depth + 1, tmp);
+        }
+        break;
+
+    case IRON_HIR_EXPR_DEREF:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "Deref(%s)\n",
+                            expr->deref.gen_source == IRON_HIR_GEN_HEAP
+                                ? "heap" : "stack");
+        if (expr->deref.target) {
+            print_expr(sb, expr->deref.target, mod, depth + 1, tmp);
         }
         break;
 

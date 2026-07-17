@@ -1,0 +1,14 @@
+-- section 4.4 negative: interface requires readonly impl but impl is non-readonly
+-- @req: READ-07
+-- @expected-pass-after: phase-22
+
+interface Reader {
+    readonly func read() -> Int
+}
+
+object MyReader impl Reader {
+    init() {}
+    func read() -> Int {
+        return 0
+    }
+}

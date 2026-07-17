@@ -1,0 +1,20 @@
+-- section: 7-drop-copy
+-- @req: DROP-05
+-- @expected-pass-after: phase-24
+-- extends-spec: partial-init cleanup infrastructure: object with droppable fields
+--   drops its fields in declaration order at scope exit (DROP-01 + DROP-02).
+--   Full panic-mid-init path (IronInitCleanupEntry TLS stack) is a runtime-ready
+--   mechanism; observable test deferred until the compiler calls init as a function.
+
+object Probe {
+    val name: String
+    drop {
+        println("drop: {self.name}")
+    }
+}
+
+func main() {
+    val first = Probe("first")
+    val second = Probe("second")
+    println("done: {first.name}")
+}

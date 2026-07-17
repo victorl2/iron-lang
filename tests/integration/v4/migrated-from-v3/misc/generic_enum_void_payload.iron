@@ -1,0 +1,25 @@
+-- Generic enum with a Void payload instantiation: Result[Void, Int].
+-- Locks Phase 81 compiler extension — a generic ADT type parameter may
+-- resolve to Void. The emitter must skip the Void-typed payload field
+-- in the per-variant struct body (and emit `char _dummy;` if that leaves
+-- the variant with zero fields), and the typechecker must accept
+-- capital `Void` alongside lowercase `void`.
+--
+-- The Ok(Void) variant is intentionally NOT constructed here — Iron
+-- has no first-class Void value. The match arm uses a wildcard which
+-- binds nothing regardless of the underlying payload. The Err variant
+-- is constructed at a site with a concrete type annotation so the
+-- generic-enum completion fills in T=Void.
+
+enum Result[T, E] {
+  Ok(T),
+  Err(E),
+}
+
+func main() {
+  val r: Result[Void, Int] = Result.Err(42)
+  match r {
+    Result.Ok(_) -> { println("ok") }
+    Result.Err(code) -> { println("err") }
+  }
+}

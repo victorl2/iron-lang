@@ -1,0 +1,10 @@
+name: alpha val: 1
+name: beta val: 2
+name: gamma val: 42
+total: 60
+node 0: node
+node 1: node
+node 2: node
+node 3: node
+large: 99
+done

@@ -77,7 +77,7 @@ void test_emit_hello_world(void) {
      * const_string survives in the IR and iron_string_from_literal is emitted. */
     Iron_Arena out_arena = iron_arena_create(131072);
     IronLIR_OptimizeInfo opt_info_1;
-    iron_lir_optimize(mod, &opt_info_1, &out_arena, false, true);
+    iron_lir_optimize(mod, &opt_info_1, &out_arena, false, true, false);
     const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_1, NULL, false, false);
 
     TEST_ASSERT_NOT_NULL(result);
@@ -124,7 +124,7 @@ void test_emit_arithmetic(void) {
      * eliminate the ADD before emission — this test is checking emitter output. */
     Iron_Arena out_arena = iron_arena_create(131072);
     IronLIR_OptimizeInfo opt_info_2;
-    iron_lir_optimize(mod, &opt_info_2, &out_arena, false, true);
+    iron_lir_optimize(mod, &opt_info_2, &out_arena, false, true, false);
     const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_2, NULL, false, false);
 
     TEST_ASSERT_NOT_NULL(result);
@@ -177,7 +177,7 @@ void test_emit_control_flow(void) {
 
     Iron_Arena out_arena = iron_arena_create(131072);
     IronLIR_OptimizeInfo opt_info_3;
-    iron_lir_optimize(mod, &opt_info_3, &out_arena, false, false);
+    iron_lir_optimize(mod, &opt_info_3, &out_arena, false, false, false);
     const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_3, NULL, false, false);
 
     TEST_ASSERT_NOT_NULL(result);
@@ -221,7 +221,7 @@ void test_emit_alloca_load_store(void) {
 
     Iron_Arena out_arena = iron_arena_create(131072);
     IronLIR_OptimizeInfo opt_info_4;
-    iron_lir_optimize(mod, &opt_info_4, &out_arena, false, false);
+    iron_lir_optimize(mod, &opt_info_4, &out_arena, false, false, false);
     const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_4, NULL, false, false);
 
     TEST_ASSERT_NOT_NULL(result);
@@ -282,7 +282,7 @@ void test_emit_type_decl_object(void) {
 
     Iron_Arena out_arena = iron_arena_create(131072);
     IronLIR_OptimizeInfo opt_info_5;
-    iron_lir_optimize(mod, &opt_info_5, &out_arena, false, false);
+    iron_lir_optimize(mod, &opt_info_5, &out_arena, false, false, false);
     const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_5, NULL, false, false);
 
     TEST_ASSERT_NOT_NULL(result);
@@ -358,7 +358,7 @@ void test_emit_phi_elimination(void) {
 
     Iron_Arena out_arena = iron_arena_create(131072);
     IronLIR_OptimizeInfo opt_info_6;
-    iron_lir_optimize(mod, &opt_info_6, &out_arena, false, false);
+    iron_lir_optimize(mod, &opt_info_6, &out_arena, false, false, false);
     const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info_6, NULL, false, false);
 
     TEST_ASSERT_NOT_NULL(result);
@@ -421,7 +421,7 @@ void test_emit_expression_inlining_basic(void) {
     /* Run with optimization passes enabled — this activates expression inlining */
     Iron_Arena out_arena = iron_arena_create(131072);
     IronLIR_OptimizeInfo opt_info;
-    iron_lir_optimize(mod, &opt_info, &out_arena, false, false);
+    iron_lir_optimize(mod, &opt_info, &out_arena, false, false, false);
     const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info, NULL, false, false);
 
     TEST_ASSERT_NOT_NULL(result);
@@ -511,7 +511,7 @@ void test_emit_construct_inlined(void) {
 
     Iron_Arena out_arena = iron_arena_create(131072);
     IronLIR_OptimizeInfo opt_info;
-    iron_lir_optimize(mod, &opt_info, &out_arena, false, false);
+    iron_lir_optimize(mod, &opt_info, &out_arena, false, false, false);
     const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info, NULL, false, false);
 
     TEST_ASSERT_NOT_NULL(result);
@@ -621,7 +621,7 @@ void test_emit_inlined_no_separate_temps(void) {
     /* Run with all passes enabled (copy-prop + const-fold + DCE + inline info) */
     Iron_Arena out_arena = iron_arena_create(131072);
     IronLIR_OptimizeInfo opt_info;
-    iron_lir_optimize(mod, &opt_info, &out_arena, false, false);
+    iron_lir_optimize(mod, &opt_info, &out_arena, false, false, false);
     const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info, NULL, false, false);
 
     TEST_ASSERT_NOT_NULL(result);
@@ -680,7 +680,7 @@ void test_emit_stdlib_stub_no_cstr_wrap(void) {
 
     Iron_Arena out_arena = iron_arena_create(131072);
     IronLIR_OptimizeInfo opt_info;
-    iron_lir_optimize(mod, &opt_info, &out_arena, false, false);
+    iron_lir_optimize(mod, &opt_info, &out_arena, false, false, false);
     const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info, NULL, false, false);
 
     TEST_ASSERT_NOT_NULL(result);
@@ -727,7 +727,7 @@ void test_emit_true_extern_cstr_wrap(void) {
 
     Iron_Arena out_arena = iron_arena_create(131072);
     IronLIR_OptimizeInfo opt_info;
-    iron_lir_optimize(mod, &opt_info, &out_arena, false, false);
+    iron_lir_optimize(mod, &opt_info, &out_arena, false, false, false);
     const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &opt_info, NULL, false, false);
 
     TEST_ASSERT_NOT_NULL(result);

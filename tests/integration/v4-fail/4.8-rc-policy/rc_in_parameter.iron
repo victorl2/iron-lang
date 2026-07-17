@@ -1,0 +1,7 @@
+-- section 4.8 negative: `rc` keyword forbidden as parameter qualifier
+-- @req: POL-11
+-- @expected-pass-after: phase-26
+-- E0297 IRON_ERR_RC_BAD_POSITION — `func foo(p: rc Point)` rejected
+object Point { val x: Int; val y: Int }
+func process(p: rc Point): Int { return 0 }
+func main(): Int { return 0 }

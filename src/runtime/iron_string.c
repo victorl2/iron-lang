@@ -1,4 +1,5 @@
 #include "iron_runtime.h"
+#include "runtime/iron_panic.h"  /* Phase 19-02: iron_panic_init_from_env */
 
 #include <string.h>
 #include <stdlib.h>
@@ -283,6 +284,46 @@ void iron_runtime_init(int argc, char **argv) {
     IRON_MUTEX_UNLOCK(s_intern_lock);
     iron_threads_init();
 
+    /* Phase 19: heap-tracker allocation-id counter (debug builds use it
+     * in IronAllocHdr; release builds set it for forward-compat).
+     * Atomic init is idempotent across repeated iron_runtime_init calls
+     * (unit-test harness pattern) per the existing s_intern_table /
+     * iron_threads_init conventions in this file. */
+    IRON_ATOMIC_U64_INIT(iron_alloc_id_counter, 0);
+
+#ifdef IRON_DEBUG_ALLOCATOR
+    /* Phase 31 GA1 (Plan 31-01): debug allocator init + atexit leak dump.
+     * iron_debug_alloc_init() is idempotent (guards its own once-flag). The
+     * atexit registration is guarded by a local once-flag so a repeated
+     * iron_runtime_init in a unit-test harness does NOT double-register the
+     * dump (atexit has no deregister; double-registering would print twice).
+     * The DBG-07 release opt-in (#else) lands in Plan 31-03; leave a marker.
+     *   Plan 31-03: iron_leakcheck_init_from_env()   (IRON_LEAK_CHECK opt-in) */
+    iron_debug_alloc_init();
+    {
+        static bool s_leak_dump_registered = false;
+        if (!s_leak_dump_registered) {
+            atexit(iron_leak_dump);
+            s_leak_dump_registered = true;
+        }
+    }
+#else
+    /* Phase 31 DBG-07 (Plan 31-03): release-build opt-in leak check. Reads
+     * IRON_LEAK_CHECK once and, only when set to "1", arms the side-table
+     * (src/runtime/iron_leakcheck.c) + registers atexit(iron_leakcheck_dump).
+     * When unset (the default) this does nothing — no lock, no atexit, and the
+     * alloc/free hooks early-return at zero cost so the release binary is
+     * byte-for-byte behaviourally unchanged. No poison in release. */
+    iron_leakcheck_init_from_env();
+#endif
+
+    /* Phase 19-02: cache IRON_PANIC_FORMAT env variable BEFORE any
+     * allocation can panic (Pitfall 6: getenv-once-at-init). Idempotent
+     * across repeated iron_runtime_init calls. Must come AFTER alloc-id
+     * init since panic formatting may reference the alloc-id field on
+     * stale-deref. */
+    iron_panic_init_from_env();
+
     /* Phase 59 P01c: network runtime hooks — WSAStartup (Windows) and
      * SIGPIPE=SIG_IGN (POSIX). Both hooks are idempotent:
      *   - Iron_net_wsa_startup_once is refcounted under an internal mutex
@@ -302,6 +343,12 @@ void iron_runtime_shutdown(void) {
      * doesn't race with WSACleanup. (On POSIX this is a no-op so the
      * ordering only matters on Windows.) */
     Iron_net_wsa_cleanup_once();
+
+#ifdef IRON_DEBUG_ALLOCATOR
+    /* Release the blocks the debug allocator retains for its poison /
+     * free-site guarantees, so they are not left behind as reachable garbage. */
+    iron_debug_quarantine_drain();
+#endif
 
     /* Shut down thread pool before freeing strings */
     iron_threads_shutdown();

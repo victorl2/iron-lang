@@ -1,0 +1,18 @@
+-- section 4.4 positive: readonly method returning [Int; 2] exercises sret RVO codegen
+-- @req: READ-08
+-- @expected-pass-after: phase-23
+-- note: requires Phase 23 [T; N] fixed-array literal inference + String.split READ-06 whitelist
+
+object Pair {
+    var a: Int
+    var b: Int
+
+    readonly func make_pair() -> [Int; 2] {
+        return [self.a, self.b]
+    }
+}
+
+func main() {
+    val p = Pair(1, 2)
+    val pair = p.make_pair()
+}

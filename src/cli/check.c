@@ -428,6 +428,191 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
         }
     }
 
+    /* Phase 25 STDLIB-05: always prepend box.iron — Box[T] is available on
+     * any source file that uses Box.new / Box.unwrap / Box.free / Box.null /
+     * Box.is_null without an explicit import. Mirror of build.c arm 1l.
+     * ANTI-PATTERN: prepending ONLY in build.c misses the check.c arm;
+     * iron_analyze_buffer (CORE-22 LSP facade) calls check.c path and would
+     * fail to resolve Box[T] usage if this block is absent. */
+    {
+        char *box_path = check_make_path(base_dir, "stdlib/box.iron");
+        if (box_path) {
+            long sz = 0;
+            char *src = check_read_stdlib(box_path, &sz);
+            free(box_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
+    /* Phase 28 STDLIB-06 (Plan 28-03): always prepend arena.iron — Arena /
+     * ArenaSave + Arena.new / new_threadsafe / with_capacity / save / restore /
+     * reset / used / capacity are available on any source file that uses an
+     * arena without an explicit import. Mirror of build.c arm 1m.
+     * ANTI-PATTERN (Pitfall 4): prepending ONLY in build.c misses the check.c
+     * arm; iron_analyze_buffer (CORE-22 LSP facade) routes through this path
+     * and would fail to resolve Arena usage if this block is absent. */
+    {
+        char *arena_path = check_make_path(base_dir, "stdlib/arena.iron");
+        if (arena_path) {
+            long sz = 0;
+            char *src = check_read_stdlib(arena_path, &sz);
+            free(arena_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
+    /* Phase 33 OQ-01 (Plan 33-02): always prepend hashable.iron — the Hashable
+     * constraint interface must resolve as IRON_SYM_INTERFACE BEFORE any Map/Set
+     * instantiation is checked, else the K: Hashable bound silently passes
+     * (type_satisfies_constraint returns true for an unresolved constraint).
+     * Ordered before map.iron/set.iron below. Mirror of build.c arm 1n.
+     * ANTI-PATTERN (Pitfall 4, Phase 25-03 / 28-03): prepending ONLY in build.c
+     * misses the check.c arm; iron_analyze_buffer (CORE-22 LSP facade) routes
+     * through this path and would fail to resolve the Hashable bound. */
+    {
+        char *hashable_path = check_make_path(base_dir, "stdlib/hashable.iron");
+        if (hashable_path) {
+            long sz = 0;
+            char *src = check_read_stdlib(hashable_path, &sz);
+            free(hashable_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
+    /* Phase 33 STDLIB-03/04 (Plan 33-02): always prepend map.iron + set.iron —
+     * Map[K: Hashable, V] / Set[T: Hashable] declare the generic bound so the
+     * OQ-01 constraint check fires at user instantiation sites. MUST come after
+     * hashable.iron above (the Hashable interface must resolve first). Mirror of
+     * build.c arms 1o/1p. */
+    {
+        const char *containers[] = { "stdlib/map.iron", "stdlib/set.iron" };
+        for (size_t ci = 0; ci < sizeof(containers) / sizeof(containers[0]); ci++) {
+            char *path = check_make_path(base_dir, containers[ci]);
+            if (!path) continue;
+            long sz = 0;
+            char *src = check_read_stdlib(path, &sz);
+            free(path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
+    /* Phase 33 STDLIB-07/08/09 (Plan 33-05): always prepend the nocopy resource
+     * types — Mutex[T] / RWLock[T] / Channel[T] / FileHandle. Each is a nocopy
+     * object surface whose C backing is synthesized by emit_ensure_* in
+     * emit_helpers.c; the by-name dispatch in typecheck.c recognizes
+     * Mutex.new / m.lock / Channel.new / FileHandle.open / etc. Mirror of build.c.
+     * ANTI-PATTERN (Pitfall 4): prepending ONLY in build.c misses the check.c arm;
+     * iron_analyze_buffer (CORE-22 LSP facade) routes through this path. */
+    {
+        const char *nocopy_types[] = {
+            "stdlib/mutex.iron", "stdlib/rwlock.iron",
+            "stdlib/channel.iron", "stdlib/filehandle.iron"
+        };
+        for (size_t ci = 0; ci < sizeof(nocopy_types) / sizeof(nocopy_types[0]); ci++) {
+            char *path = check_make_path(base_dir, nocopy_types[ci]);
+            if (!path) continue;
+            long sz = 0;
+            char *src = check_read_stdlib(path, &sz);
+            free(path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
+    /* Phase 33 STDLIB-10 (Plan 33-06): always prepend rawptr.iron — RawPtr is
+     * the type-erased member of the *unchecked T regime. Its `RawPtr.of(x)`
+     * compiler-builtin is dispatched in typecheck.c (mirrors Box.new / Ptr.cast
+     * precedent) and the by-name dispatch needs the `RawPtr` symbol in scope to
+     * resolve the type annotation `val raw: RawPtr`. Mirror of build.c arm.
+     * ANTI-PATTERN (Pitfall 4): prepending ONLY in build.c misses the check.c
+     * arm; iron_analyze_buffer (CORE-22 LSP facade) routes through this path. */
+    {
+        char *rawptr_path = check_make_path(base_dir, "stdlib/rawptr.iron");
+        if (rawptr_path) {
+            long sz = 0;
+            char *src = check_read_stdlib(rawptr_path, &sz);
+            free(rawptr_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        check_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
     /* 2. Set up arena and diagnostics */
     Iron_Arena arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags = iron_diaglist_create();

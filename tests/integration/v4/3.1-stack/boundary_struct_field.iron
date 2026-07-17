@@ -1,0 +1,22 @@
+-- section 3.1 default stack policy
+-- @req: POL-01, DROP-01, DROP-03
+-- @expected-pass-after: phase-22
+-- extends-spec: container drop fires field drops in declaration order
+
+object Probe {
+    val name: String
+
+    drop {
+        println("drop: {name}")
+    }
+}
+
+object Container {
+    val first: Probe
+    val second: Probe
+}
+
+func main() {
+    val c = Container(first: Probe(name: "first"), second: Probe(name: "second"))
+    println("alive")
+}

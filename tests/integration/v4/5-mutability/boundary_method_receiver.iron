@@ -1,0 +1,23 @@
+-- section: 5-mutability
+-- @req: PARM-01, PARM-04
+-- @expected-pass-after: phase-18
+-- extends-spec: method receiver mutability is part of method signature; PARM-04: method receiver default is mutable; readonly opts out; object has both readonly get and mutating tick methods
+
+object Counter {
+    var count: Int
+
+    func get(self) -> Int {
+        return self.count
+    }
+
+    func tick(self: *var Counter) {
+        self.count = self.count + 1
+    }
+}
+
+func main() {
+    var c = Counter(count: 0)
+    c.tick()
+    c.tick()
+    println("count={c.get()}")
+}

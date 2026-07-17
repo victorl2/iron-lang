@@ -1,0 +1,18 @@
+-- section 3.1 default stack policy
+-- @req: POL-01, DROP-01
+-- @expected-pass-after: phase-22
+-- stack allocation: destructors fire at scope exit in reverse declaration order
+
+object Probe {
+    val name: String
+
+    drop {
+        println("drop: {name}")
+    }
+}
+
+func main() {
+    val a = Probe(name: "a")
+    val b = Probe(name: "b")
+    println("alive")
+}

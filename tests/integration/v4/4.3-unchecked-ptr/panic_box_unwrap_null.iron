@@ -1,0 +1,15 @@
+-- section: 4.3-unchecked-ptr
+-- @req: UNCK-03, SAFE-04
+-- @expected-pass-after: phase-25
+-- @expect-panic: null Box
+-- extends-spec: Box.unwrap on a null Box deterministically panics; SAFE-04: generation check on in all builds including release
+
+object Sample {
+    val value: Int
+}
+
+func main() {
+    val b: Box[Sample] = Box.null()
+    val v = b.unwrap()
+    println("value: {v.value}")
+}

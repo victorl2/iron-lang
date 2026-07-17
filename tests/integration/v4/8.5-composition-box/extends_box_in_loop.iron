@@ -1,0 +1,32 @@
+-- section 8.5 extends-spec: Box.unwrap inside 1000-iteration loop
+-- @req: UNCK-01, UNCK-03
+-- @expected-pass-after: phase-25
+-- extends-spec: Box.unwrap inside 1000-iteration loop probes elision benefit; accumulates sum
+
+object Counter {
+    var value: Int
+}
+
+nocopy object CounterBox {
+    var data: Box[Counter]
+
+    init(start: Int) {
+        self.data = Box.new(Counter(value: start))
+    }
+
+    func accumulate(self: *var CounterBox, n: Int) -> Int {
+        val p: *var unchecked Counter = self.data.unwrap()
+        var sum = 0
+        for i in range(n) {
+            p.value += 1
+            sum += p.value
+        }
+        return sum
+    }
+}
+
+func main() {
+    var cb = CounterBox(start: 0)
+    val result = cb.accumulate(5)
+    println("sum: {result}")
+}

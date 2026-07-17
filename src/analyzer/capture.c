@@ -15,6 +15,7 @@
 
 #include "analyzer/capture.h"
 #include "analyzer/types.h"
+#include "diagnostics/diagnostics.h"
 #include "vendor/stb_ds.h"
 
 #include <stdio.h>
@@ -34,6 +35,10 @@ typedef struct {
     Iron_Arena         *arena;
     Iron_DiagList      *diags;
     const _Atomic bool *cancel_flag;  /* HARD-05 */
+    /* Phase 22 OQ-04: set true when entering a readonly method/func body
+     * (or readonly lambda); propagated AST-side per RESEARCH Pitfall 4
+     * (TypeCtx not available post-typecheck). */
+    bool               readonly_context;
 } CaptureCtx;
 
 /* stb_ds string hashmap entry (int value — we just use it as a set) */
@@ -412,6 +417,29 @@ static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
         }
         le->captures      = arr;
         le->capture_count = count;
+
+        /* Phase 22 OQ-04: if this lambda inherits readonly context, reject
+         * mutable captures (var bindings + *var T pointers).
+         * §6: closures in readonly methods must not capture var bindings or
+         * *var T pointers. Reuses Plan 22-01 IRON_ERR_READONLY_PARAM_MUTATION
+         * (277) per CONTEXT decision (closures share parent codes); the hint
+         * substring `§6: closures in readonly...` distinguishes closure-capture
+         * from body-mutation in error messages. */
+        if (ctx->readonly_context) {
+            for (int ci = 0; ci < count; ci++) {
+                if (arr[ci].is_mutable) {
+                    char cap_msg[256];
+                    snprintf(cap_msg, sizeof(cap_msg),
+                             "cannot capture mutable binding '%s' in readonly closure",
+                             arr[ci].name ? arr[ci].name : "?");
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_READONLY_PARAM_MUTATION,
+                                   le->span, cap_msg,
+                                   "§6: closures in readonly context may not capture"
+                                   " var bindings or *var T pointers");
+                }
+            }
+        }
     } else {
         le->captures      = NULL;
         le->capture_count = 0;
@@ -841,9 +869,10 @@ void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
     (void)global_scope; /* not needed: resolved_sym already attached to idents */
 
     CaptureCtx ctx;
-    ctx.arena       = arena;
-    ctx.diags       = diags;
-    ctx.cancel_flag = cancel_flag;
+    ctx.arena            = arena;
+    ctx.diags            = diags;
+    ctx.cancel_flag      = cancel_flag;
+    ctx.readonly_context = false;
 
     for (int i = 0; i < program->decl_count; i++) {
         /* HARD-05: cancel poll inside top-level decl loop. */
@@ -853,12 +882,22 @@ void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
         switch ((int)(decl->kind)) {
             case IRON_NODE_FUNC_DECL: {
                 Iron_FuncDecl *fd = (Iron_FuncDecl *)decl;
+                /* Phase 22 OQ-04: set readonly_context from AST is_readonly flag
+                 * per RESEARCH Pitfall 4 (TypeCtx not available post-typecheck). */
+                bool prev_readonly = ctx.readonly_context;
+                ctx.readonly_context = fd->is_readonly;
                 if (fd->body) walk_node_for_lambdas(&ctx, fd->body);
+                ctx.readonly_context = prev_readonly;
                 break;
             }
             case IRON_NODE_METHOD_DECL: {
                 Iron_MethodDecl *md = (Iron_MethodDecl *)decl;
+                /* Phase 22 OQ-04: set readonly_context from AST is_readonly flag;
+                 * pure methods also set readonly_context since pure >= readonly. */
+                bool prev_readonly = ctx.readonly_context;
+                ctx.readonly_context = (md->is_readonly || md->is_pure);
                 if (md->body) walk_node_for_lambdas(&ctx, md->body);
+                ctx.readonly_context = prev_readonly;
                 break;
             }
             /* -Wswitch-enum opt-out: capture analysis only runs on function /

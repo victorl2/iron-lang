@@ -288,6 +288,15 @@ static void verify_stmt(const IronHIR_Stmt *stmt, const IronHIR_Module *mod,
         }
         break;
 
+    case IRON_HIR_STMT_IN_ARENA:
+        if (stmt->in_arena.arena) {
+            verify_expr(stmt->in_arena.arena, mod, stack, diags, arena);
+        }
+        if (stmt->in_arena.body) {
+            verify_block(stmt->in_arena.body, mod, stack, diags, arena);
+        }
+        break;
+
     /* -Wswitch-enum opt-out: verify_stmt handles every statement kind with
      * sub-expressions; any remaining IronHIR_StmtKind has no verifier state. */
     default:
@@ -496,6 +505,47 @@ static void verify_expr(const IronHIR_Expr *expr, const IronHIR_Module *mod,
         }
         break;
 
+    case IRON_HIR_EXPR_ARENA_ALLOC:
+        if (expr->arena_alloc.inner) {
+            verify_expr(expr->arena_alloc.inner, mod, stack, diags, arena);
+        } else {
+            iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                           IRON_ERR_HIR_STRUCTURAL, expr->span,
+                           "arena alloc expression has NULL inner value",
+                           "provide an inner expression");
+        }
+        if (expr->arena_alloc.arena) {
+            verify_expr(expr->arena_alloc.arena, mod, stack, diags, arena);
+        }
+        break;
+
+    /* Phase 27 POL-08 / POL-09 (Plan 27-02): weak rc HIR verify arms. */
+    case IRON_HIR_EXPR_WEAK_RC_NULL:
+        /* Leaf — no operands to verify. */
+        break;
+
+    case IRON_HIR_EXPR_WEAK_RC_DOWNGRADE:
+        if (expr->weak_rc_downgrade.strong_rc_val) {
+            verify_expr(expr->weak_rc_downgrade.strong_rc_val, mod, stack, diags, arena);
+        } else {
+            iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                           IRON_ERR_HIR_STRUCTURAL, expr->span,
+                           "weak_rc_downgrade has NULL receiver",
+                           "provide a strong rc receiver");
+        }
+        break;
+
+    case IRON_HIR_EXPR_WEAK_RC_UPGRADE:
+        if (expr->weak_rc_upgrade.weak_rc_val) {
+            verify_expr(expr->weak_rc_upgrade.weak_rc_val, mod, stack, diags, arena);
+        } else {
+            iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                           IRON_ERR_HIR_STRUCTURAL, expr->span,
+                           "weak_rc_upgrade has NULL receiver",
+                           "provide a weak rc receiver");
+        }
+        break;
+
     case IRON_HIR_EXPR_CONSTRUCT:
         for (int i = 0; i < expr->construct.field_count; i++) {
             if (expr->construct.field_values) {
@@ -565,6 +615,32 @@ static void verify_expr(const IronHIR_Expr *expr, const IronHIR_Module *mod,
                 verify_expr(expr->pattern.nested_patterns[i], mod, stack,
                             diags, arena);
             }
+        }
+        break;
+
+    /* Phase 20 PTR-04/08/09 (Plan 20-02b): &lvalue + auto-address synthesis.
+     * Verify the target sub-expression structurally; the gen_source enum
+     * value is checked at LIR-emission time. */
+    case IRON_HIR_EXPR_ADDR_OF:
+        if (expr->addr_of.target) {
+            verify_expr(expr->addr_of.target, mod, stack, diags, arena);
+        } else {
+            iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                           IRON_ERR_HIR_STRUCTURAL, expr->span,
+                           "addr_of expression has NULL target",
+                           "provide an lvalue target for `&`");
+        }
+        break;
+
+    /* Phase 20 PTR-06 (Plan 20-02b): auto-deref / OQ-A write half. */
+    case IRON_HIR_EXPR_DEREF:
+        if (expr->deref.target) {
+            verify_expr(expr->deref.target, mod, stack, diags, arena);
+        } else {
+            iron_diag_emit(diags, arena, IRON_DIAG_ERROR,
+                           IRON_ERR_HIR_STRUCTURAL, expr->span,
+                           "deref expression has NULL target",
+                           "provide a *T value to dereference");
         }
         break;
 

@@ -1,0 +1,15 @@
+-- section: 4.5-bounded-vector
+-- @req: VEC-01, VEC-02, VEC-03
+-- @expected-pass-after: phase-23
+-- extends-spec: bounded vector inline-storage push + index + len (§4.5)
+
+func main() {
+    var bv: [Int; <=4]
+    bv.push(10)
+    bv.push(20)
+    bv.push(30)
+    println("{bv[0]}")
+    println("{bv[1]}")
+    println("{bv[2]}")
+    println("{bv.len()}")
+}

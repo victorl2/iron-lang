@@ -1,0 +1,53 @@
+-- section 8.2 heap subsystem with defer free verbatim
+-- @req: POL-02, POL-04, PTR-01
+-- @expected-pass-after: phase-24
+-- heap World because value is too large for stack; explicit free via defer
+
+object TerrainGrid {
+    val seed: Int
+}
+
+object Entity {
+    val id: Int
+}
+
+object PhysicsState {
+    val gravity: Float
+}
+
+object SpatialHash {
+    val cell_size: Float
+}
+
+object World {
+    var terrain: TerrainGrid
+    var entities: List[Entity]
+    var physics: PhysicsState
+    var spatial_index: SpatialHash
+    var should_quit: Bool
+
+    init(seed: Int) {
+        self.terrain = TerrainGrid(seed: seed)
+        self.entities = List.new(capacity: 4096)
+        self.physics = PhysicsState(gravity: 9.8)
+        self.spatial_index = SpatialHash(cell_size: 16.0)
+        self.should_quit = false
+    }
+
+    drop {
+        println("world freed")
+    }
+}
+
+func game_loop(world: *var World) {
+    world.should_quit = true
+}
+
+func main() {
+    val world = heap World(seed: 42)
+    defer free world
+    -- World is multi-megabyte; explicit heap allocation
+    -- Explicit free at scope exit via defer
+
+    game_loop(&world)
+}

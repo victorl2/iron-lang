@@ -1,0 +1,12 @@
+-- section 3.7 negative: weak rc cannot be allocated in an arena (GA3 extension)
+-- @req: ARENA-08, POL-06
+-- @expected-pass-after: phase-28
+-- weak rc lifecycle is incompatible with arena reset/batch-invalidation;
+-- E0301 (IRON_ERR_RC_IN_ARENA) is extended to reject BOTH rc and weak rc
+-- inside an `in arena {}` block (closed-policy lattice {stack, heap, rc, weak rc, arena}).
+func main() {
+    val arena = Arena.with_capacity(4096)
+    in arena {
+        val w = weak rc Texture.load("hero.png")
+    }
+}

@@ -1,0 +1,25 @@
+-- section 3.3 rc policy: last drop destroys
+-- @req: POL-06, POL-07, DROP-01
+-- @expected-pass-after: phase-26
+-- extends-spec: 3 copies; verifies drop fires once after all 3 leave scope
+
+object Shader {
+    val name: String
+
+    drop {
+        println("drop: {name}")
+    }
+}
+
+func main() {
+    val s1 = rc Shader(name: "main.glsl")
+    {
+        val s2 = s1
+        {
+            val s3 = s2
+            println("3 refs alive")
+        }
+        println("2 refs alive")
+    }
+    println("1 ref alive")
+}

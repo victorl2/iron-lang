@@ -1,0 +1,14 @@
+-- section: 7.5-stdlib
+-- @req: STDLIB-09
+-- @expected-pass-after: phase-33 (Wave 5 FileHandle nocopy + drop closes fd)
+-- A single FileHandle dropped at scope exit closes its fd.
+-- RED until Wave 5 lands FileHandle nocopy.
+
+func main() {
+    {
+        var fh = FileHandle.open("/tmp/iron_fh_drop.txt")
+        println("opened")
+        -- scope exit: FileHandle drop closes fd
+    }
+    println("done")
+}

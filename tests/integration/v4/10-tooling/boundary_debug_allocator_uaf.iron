@@ -1,0 +1,18 @@
+-- section 10.3 extends-spec: debug allocator catches use-after-free with diagnostic
+-- @req: SAFE-01
+-- @expected-pass-after: phase-31
+-- @expect-panic: use after free
+-- extends-spec: heap allocation freed then dereferenced; debug allocator panics with "use after free"
+
+object Buffer {
+    val id: Int
+}
+
+func main() {
+    val buf = heap Buffer(id: 99)
+    free buf
+    -- dereferencing freed allocation; debug allocator detects poisoned memory
+    -- section 10.3: "Poisons freed memory; reports use-after-free deterministically"
+    val id = buf.id
+    println("id: {id}")
+}

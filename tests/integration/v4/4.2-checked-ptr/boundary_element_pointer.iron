@@ -1,0 +1,10 @@
+-- section: 4.2-checked-ptr
+-- @req: PTR-01, PTR-08
+-- @expected-pass-after: phase-20
+-- extends-spec: element-pointer &arr[i] on stack array; positive safe case where array is NOT mutated after pointer taken; soundness: POINTER-CHECK-ELISION.md trap "stale after grow" - this is the safe control fixture (no mutation); see panic_stale_after_grow.iron for the trap
+
+func main() {
+    val arr: [Int; 5] = [10, 20, 30, 40, 50]
+    val ptr: *Int = &arr[2]
+    println("element: {ptr}")
+}

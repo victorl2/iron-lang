@@ -1,0 +1,22 @@
+-- section 4.9 weak rc policy: upgrade after last strong drop
+-- @req: POL-09
+-- last strong drops at end of inner scope; outer weak observes payload
+-- destroyed (header alive via weak_count); upgrade returns null T?.
+
+object Foo {
+    val v: Int
+
+    drop {
+        println("drop Foo: {self.v}")
+    }
+}
+
+func main() {
+    var weak_holder: weak rc Foo = weak rc null
+    {
+        val strong = rc Foo(42)
+        weak_holder = strong.downgrade()
+    }
+    println("after inner scope")
+    val maybe = weak_holder.upgrade()
+}

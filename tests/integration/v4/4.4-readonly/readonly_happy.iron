@@ -1,0 +1,17 @@
+-- section 4.4 positive: readonly method that obeys all READ-01..05 rules
+-- @req: READ-01, READ-02, READ-03, READ-04, READ-05
+-- @expected-pass-after: phase-22
+
+object Point {
+    var x: Int
+    var y: Int
+
+    readonly func distance_squared() -> Int {
+        return self.x * self.x + self.y * self.y
+    }
+}
+
+func main() {
+    val p = Point(3, 4)
+    val d = p.distance_squared()
+}

@@ -1,0 +1,7 @@
+renderer init
+audio init
+frame submitted
+audio freed
+renderer freed
+frame_arena freed
+perm_arena freed

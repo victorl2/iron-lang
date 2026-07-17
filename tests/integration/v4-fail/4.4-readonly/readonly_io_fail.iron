@@ -1,0 +1,10 @@
+-- section 4.4 negative: readonly method performing I/O
+-- @req: READ-04
+-- @expected-pass-after: phase-22
+
+object X {
+    readonly func f() -> Int {
+        println("x")
+        return 0
+    }
+}

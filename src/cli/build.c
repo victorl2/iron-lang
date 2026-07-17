@@ -384,6 +384,9 @@ static int build_src_list(const char **argv_buf, int *ai_out,
                            char **rt_threads_out, char **rt_collect_out,
                            char **rt_netinit_out, char **rt_oom_out,
                            char **rt_fmt_out,            /* Phase 78: numeric → string */
+                           char **rt_heap_track_out,     /* Phase 19: generational pointer tracker */
+                           char **rt_panic_out,          /* Phase 19-02: stale-pointer panic */
+                           char **rt_leakcheck_out,      /* Phase 31 DBG-07: release opt-in leak check */
                            char **sl_math_out, char **sl_io_out,
                            char **sl_time_out, char **sl_log_out,
                            char **sl_hint_out,
@@ -431,6 +434,9 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     *rt_netinit_out = make_path(base_dir, "runtime/iron_net_init.c");
     *rt_oom_out     = make_path(base_dir, "runtime/iron_oom.c");
     *rt_fmt_out     = make_path(base_dir, "runtime/iron_fmt.c");
+    *rt_heap_track_out = make_path(base_dir, "runtime/iron_heap_track.c");
+    *rt_panic_out   = make_path(base_dir, "runtime/iron_panic.c");
+    *rt_leakcheck_out = make_path(base_dir, "runtime/iron_leakcheck.c");
     *sl_math_out    = make_path(base_dir, "stdlib/iron_math.c");
     *sl_io_out      = make_path(base_dir, "stdlib/iron_io.c");
     *sl_time_out    = make_path(base_dir, "stdlib/iron_time.c");
@@ -440,7 +446,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
 
     if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
         !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
-        !*rt_netinit_out || !*rt_oom_out || !*rt_fmt_out ||
+        !*rt_netinit_out || !*rt_oom_out || !*rt_fmt_out || !*rt_heap_track_out ||
+        !*rt_panic_out || !*rt_leakcheck_out ||
         !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out ||
         !*sl_hint_out || !*sl_net_out) {
         return 1;
@@ -493,6 +500,9 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *rt_netinit_out;
     argv_buf[ai++] = *rt_oom_out;
     argv_buf[ai++] = *rt_fmt_out;
+    argv_buf[ai++] = *rt_heap_track_out;
+    argv_buf[ai++] = *rt_panic_out;
+    argv_buf[ai++] = *rt_leakcheck_out;
     argv_buf[ai++] = *sl_math_out;
     argv_buf[ai++] = *sl_io_out;
     argv_buf[ai++] = *sl_time_out;
@@ -530,6 +540,14 @@ static int build_src_list(const char **argv_buf, int *ai_out,
          * argv parsing means this overrides the -O3 above. */
         argv_buf[ai++] = "-O2";
     }
+    /* Phase 31 GA3 (Plan 31-01): debug builds get the full debug allocator —
+     * 64B IronAllocHdr + poison-on-free + leak registry + atexit dump +
+     * double-free both-sites. This define was NEVER wired before Phase 31; it
+     * is the load-bearing switch that compiles the debug header into the
+     * generated user binary's runtime TUs. Release builds keep the 16B header. */
+    if (opts.debug_build && !opts.release) {
+        argv_buf[ai++] = "-DIRON_DEBUG_ALLOCATOR";
+    }
     argv_buf[ai++] = "-o";
     argv_buf[ai++] = output;
     argv_buf[ai++] = c_file;
@@ -544,6 +562,9 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *rt_netinit_out;
     argv_buf[ai++] = *rt_oom_out;
     argv_buf[ai++] = *rt_fmt_out;
+    argv_buf[ai++] = *rt_heap_track_out;
+    argv_buf[ai++] = *rt_panic_out;
+    argv_buf[ai++] = *rt_leakcheck_out;
     argv_buf[ai++] = *sl_math_out;
     argv_buf[ai++] = *sl_io_out;
     argv_buf[ai++] = *sl_time_out;
@@ -622,6 +643,9 @@ static void free_src_list(char *base_dir,
                            char *rt_threads, char *rt_collect,
                            char *rt_netinit, char *rt_oom,
                            char *rt_fmt,                  /* Phase 78 */
+                           char *rt_heap_track,           /* Phase 19 */
+                           char *rt_panic,                /* Phase 19-02 */
+                           char *rt_leakcheck,            /* Phase 31 DBG-07 */
                            char *sl_math, char *sl_io, char *sl_time,
                            char *sl_log, char *sl_hint, char *sl_net,
                            char *sl_rl, char *sl_rl_layout,    /* Phase 60 */
@@ -634,6 +658,9 @@ static void free_src_list(char *base_dir,
     free(rt_threads); free(rt_collect);
     free(rt_netinit); free(rt_oom);
     free(rt_fmt);
+    free(rt_heap_track);
+    free(rt_panic);
+    free(rt_leakcheck);
     free(sl_math); free(sl_io); free(sl_time); free(sl_log);
     free(sl_hint);
     free(sl_net);
@@ -682,6 +709,13 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
         argv_buf[ai++] = "-O2";
     } else {
         argv_buf[ai++] = "-O0";
+    }
+    /* Phase 31 GA3 (Plan 31-01): mirror the main-link path — debug archive
+     * members must compile the 64B debug IronAllocHdr so the registry/poison/
+     * double-free machinery is consistent across the .o objects and the final
+     * link. Load-bearing wiring (the define was never set before Phase 31). */
+    if (opts.debug_build && !opts.release) {
+        argv_buf[ai++] = "-DIRON_DEBUG_ALLOCATOR";
     }
     /* Phase 94: archive members must keep the AST-emitted symbols externally
      * visible so consumers can link them. -fvisibility=default is the clang
@@ -736,6 +770,9 @@ static int invoke_clang(const char *c_file, const char *output,
     char *rt_threads = NULL, *rt_collect = NULL, *rt_netinit = NULL;
     char *rt_oom = NULL;
     char *rt_fmt = NULL;    /* Phase 78: numeric → string runtime shim */
+    char *rt_heap_track = NULL;  /* Phase 19: generational pointer tracker */
+    char *rt_panic = NULL;       /* Phase 19-02: stale-pointer panic */
+    char *rt_leakcheck = NULL;   /* Phase 31 DBG-07: release opt-in leak check */
     char *sl_math = NULL, *sl_io = NULL, *sl_time = NULL, *sl_log = NULL;
     char *sl_hint = NULL, *sl_net = NULL;
     char *sl_rl = NULL, *sl_rl_layout = NULL;  /* Phase 60 Plan 01 */
@@ -753,6 +790,9 @@ static int invoke_clang(const char *c_file, const char *output,
                        &rt_string, &rt_rc, &rt_builtin,
                        &rt_threads, &rt_collect, &rt_netinit, &rt_oom,
                        &rt_fmt,
+                       &rt_heap_track,
+                       &rt_panic,
+                       &rt_leakcheck,
                        &sl_math, &sl_io, &sl_time, &sl_log,
                        &sl_hint, &sl_net,
                        &sl_rl, &sl_rl_layout,
@@ -763,6 +803,9 @@ static int invoke_clang(const char *c_file, const char *output,
                       rt_string, rt_rc, rt_builtin,
                       rt_threads, rt_collect, rt_netinit, rt_oom,
                       rt_fmt,
+                      rt_heap_track,
+                      rt_panic,
+                      rt_leakcheck,
                       sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
                       sl_rl, sl_rl_layout,
                       rl_src, rl_i_flag,
@@ -797,6 +840,9 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect, rt_netinit, rt_oom,
                   rt_fmt,
+                  rt_heap_track,
+                  rt_panic,
+                  rt_leakcheck,
                   sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
                   sl_rl, sl_rl_layout,
                   rl_src, rl_i_flag,
@@ -909,6 +955,9 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_string, rt_rc, rt_builtin,
                   rt_threads, rt_collect, rt_netinit, rt_oom,
                   rt_fmt,
+                  rt_heap_track,
+                  rt_panic,
+                  rt_leakcheck,
                   sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
                   sl_rl, sl_rl_layout,
                   rl_src, rl_i_flag,
@@ -1310,6 +1359,186 @@ int iron_build(const char *source_path, const char *output_path,
         }
     }
 
+    /* 1l. Phase 25 STDLIB-05: always prepend box.iron — Box[T] is available
+     * on any source file that uses Box.new / Box.unwrap / Box.free /
+     * Box.null / Box.is_null without an explicit import. Mirror of check.c
+     * arm (Phase 25 Anti-Pattern: prepending ONLY in build.c misses the
+     * check.c path; prepending ONLY in check.c misses the build path). */
+    {
+        char *box_path = make_path(base_dir, "stdlib/box.iron");
+        if (box_path) {
+            long sz = 0;
+            char *src = read_file(box_path, &sz);
+            free(box_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
+    /* 1m. Phase 28 STDLIB-06 (Plan 28-03): always prepend arena.iron — Arena /
+     * ArenaSave + Arena.new / new_threadsafe / with_capacity / save / restore /
+     * reset / used / capacity are available on any source file that uses an
+     * arena without an explicit import. Mirror of check.c arm (Pitfall 4:
+     * prepending ONLY in build.c misses the check.c / iron_analyze_buffer
+     * CORE-22 LSP path; prepending ONLY in check.c misses the build path). */
+    {
+        char *arena_path = make_path(base_dir, "stdlib/arena.iron");
+        if (arena_path) {
+            long sz = 0;
+            char *src = read_file(arena_path, &sz);
+            free(arena_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
+    /* 1n. Phase 33 OQ-01 (Plan 33-02): always prepend hashable.iron — the
+     * Hashable constraint interface must resolve as IRON_SYM_INTERFACE BEFORE
+     * any Map/Set instantiation is checked, else the K: Hashable bound silently
+     * passes (type_satisfies_constraint returns true for an unresolved
+     * constraint). Ordered before map.iron/set.iron below. Mirror of check.c
+     * arm (Pitfall 4: prepending ONLY in build.c misses the check.c /
+     * iron_analyze_buffer CORE-22 LSP path; prepending ONLY in check.c misses
+     * the build path). */
+    {
+        char *hashable_path = make_path(base_dir, "stdlib/hashable.iron");
+        if (hashable_path) {
+            long sz = 0;
+            char *src = read_file(hashable_path, &sz);
+            free(hashable_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
+    /* 1o/1p. Phase 33 STDLIB-03/04 (Plan 33-02): always prepend map.iron +
+     * set.iron — Map[K: Hashable, V] / Set[T: Hashable] declare the generic
+     * bound so the OQ-01 constraint check fires at user instantiation sites.
+     * MUST come after hashable.iron above (the Hashable interface must resolve
+     * first). Mirror of check.c arm. */
+    {
+        const char *containers[] = { "stdlib/map.iron", "stdlib/set.iron" };
+        for (size_t ci = 0; ci < sizeof(containers) / sizeof(containers[0]); ci++) {
+            char *path = make_path(base_dir, containers[ci]);
+            if (!path) continue;
+            long sz = 0;
+            char *src = read_file(path, &sz);
+            free(path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
+    /* 1q. Phase 33 STDLIB-07/08/09 (Plan 33-05): always prepend the nocopy
+     * resource types — Mutex[T] / RWLock[T] / Channel[T] / FileHandle. Each is
+     * a nocopy object surface; the C backing is synthesized by emit_ensure_* in
+     * emit_helpers.c and the by-name dispatch in typecheck.c recognizes
+     * Mutex.new / m.lock / Channel.new / FileHandle.open / etc. Mirror of
+     * check.c arm. */
+    {
+        const char *nocopy_types[] = {
+            "stdlib/mutex.iron", "stdlib/rwlock.iron",
+            "stdlib/channel.iron", "stdlib/filehandle.iron"
+        };
+        for (size_t ci = 0; ci < sizeof(nocopy_types) / sizeof(nocopy_types[0]); ci++) {
+            char *path = make_path(base_dir, nocopy_types[ci]);
+            if (!path) continue;
+            long sz = 0;
+            char *src = read_file(path, &sz);
+            free(path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
+    /* 1r. Phase 33 STDLIB-10 (Plan 33-06): always prepend rawptr.iron — RawPtr
+     * is the type-erased member of the *unchecked T regime. Its `RawPtr.of(x)`
+     * compiler-builtin is dispatched in typecheck.c and the by-name dispatch
+     * needs the `RawPtr` symbol in scope to resolve the type annotation
+     * `val raw: RawPtr`. Mirror of check.c arm. */
+    {
+        char *rawptr_path = make_path(base_dir, "stdlib/rawptr.iron");
+        if (rawptr_path) {
+            long sz = 0;
+            char *src = read_file(rawptr_path, &sz);
+            free(rawptr_path);
+            if (src) {
+                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
+                char *combined = (char *)malloc(combined_len);
+                if (combined) {
+                    memcpy(combined, src, (size_t)sz);
+                    combined[sz] = '\n';
+                    strcpy(combined + sz + 1, source);
+                    free(source);
+                    source = combined;
+                    stdlib_prepended_lines +=
+                        iron_count_newlines(src, (size_t)sz) + 1;
+                }
+                free(src);
+            }
+        }
+    }
+
     } else {
         /* Phase 94 LIB-03 polyfill-duplication fix: emit_archive mode skipped
          * the stdlib auto-prepend region. Free the detect arena that the
@@ -1446,7 +1675,8 @@ int iron_build(const char *source_path, const char *output_path,
     /* 7a. IR optimization passes */
     IronLIR_OptimizeInfo optimize_info;
     iron_lir_optimize(ir_module, &optimize_info, &arena,
-                     opts.dump_ir_passes, opts.no_optimize);
+                     opts.dump_ir_passes, opts.no_optimize,
+                     /*elision_enabled=*/ !opts.no_optimize && !opts.debug_build);
 
     /* 7b. Phase 5: LIR main-loop split pass (WEB-EMIT-01..04).
      *

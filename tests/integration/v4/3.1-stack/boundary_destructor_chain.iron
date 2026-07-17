@@ -1,0 +1,19 @@
+-- section 3.1 default stack policy
+-- @req: POL-01, DROP-01, DROP-02
+-- @expected-pass-after: phase-22
+-- extends-spec: probes destructor ordering invariant DROP-02 across 3 nested values
+
+object Probe {
+    val name: String
+
+    drop {
+        println("drop: {name}")
+    }
+}
+
+func main() {
+    val a = Probe(name: "a")
+    val b = Probe(name: "b")
+    val c = Probe(name: "c")
+    println("alive")
+}

@@ -1,0 +1,3 @@
+title: Drop 'var' modifier
+range: 5:4-5:7
+new_text: val

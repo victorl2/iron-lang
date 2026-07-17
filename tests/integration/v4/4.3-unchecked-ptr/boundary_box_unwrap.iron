@@ -1,0 +1,16 @@
+-- section: 4.3-unchecked-ptr
+-- @req: UNCK-03
+-- @expected-pass-after: phase-25
+-- extends-spec: Box.unwrap returns *unchecked T; positive case - unwrap a non-null Box and access multiple fields
+
+object Config {
+    val width: Int
+    val height: Int
+    val title: String
+}
+
+func main() {
+    val boxed = Box.new(Config(width: 1920, height: 1080, title: "Iron App"))
+    val cfg: *unchecked Config = boxed.unwrap()
+    println("config: {cfg.width}x{cfg.height} title={cfg.title}")
+}

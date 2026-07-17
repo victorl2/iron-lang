@@ -16,6 +16,10 @@
 #include <stdbool.h>
 #include <assert.h>
 
+/* Phase 33 STDLIB-07/08 (Plan 33-05): forward decl — defined below near the
+ * emit_ensure_mutex/channel synthesis. Used by emit_type_to_c's resource arms. */
+static const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem);
+
 /* ── Name mangling helpers ────────────────────────────────────────────────── */
 
 const char *emit_mangle_name(const char *name, Iron_Arena *arena) {
@@ -164,6 +168,85 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
         case IRON_TYPE_ERROR:   return "int";
 
         case IRON_TYPE_OBJECT:
+            /* Phase 33 OQ-02 (Plan 33-07): the builtin generic object Box[T]
+             * has no plain C struct — it lowers to the per-T synthesized
+             * Iron_Box_<elemC> typedef (emit_ensure_box). object.elem carries
+             * the concrete element from the by-name Box dispatch in
+             * typecheck.c. Trigger synthesis here so the typedef + helpers are
+             * available wherever a Box value type appears, then return the
+             * mangled name (identical formula to emit_ensure_box). */
+            if (t->object.decl && t->object.decl->name &&
+                strcmp(t->object.decl->name, "Box") == 0 && t->object.elem) {
+                emit_ensure_box(ctx, t->object.elem);
+                const char *elem_c = emit_type_to_c(t->object.elem, ctx);
+                Iron_StrBuf sb = iron_strbuf_create(64);
+                iron_strbuf_appendf(&sb, "Iron_Box_");
+                for (const char *p = elem_c; *p; p++) {
+                    if (*p == ' ' || *p == '*') iron_strbuf_appendf(&sb, "_");
+                    else { char ch[2] = { *p, '\0' }; iron_strbuf_appendf(&sb, "%s", ch); }
+                }
+                const char *result = iron_arena_strdup(ctx->arena,
+                                                        iron_strbuf_get(&sb), sb.len);
+                iron_strbuf_free(&sb);
+                if (!result) iron_oom_abort("emit_helpers.c:emit_type_to_c Box");
+                return result;
+            }
+            /* Phase 33 STDLIB-07/08/09 (Plan 33-05): the nocopy resource-type
+             * surfaces have no plain C struct — they map to the runtime types
+             * (Iron_Mutex* / Iron_Channel*) or per-T / non-generic synthesized
+             * typedefs. Trigger synthesis here so the typedef + helpers are
+             * available wherever the value type appears, then return the C
+             * type. Keyed on the surface decl name. */
+            if (t->object.decl && t->object.decl->name) {
+                const char *on = t->object.decl->name;
+                if (strcmp(on, "Mutex") == 0) {
+                    if (t->object.elem) emit_ensure_mutex(ctx, t->object.elem);
+                    return "Iron_Mutex *";
+                }
+                if (strcmp(on, "Channel") == 0) {
+                    if (t->object.elem) emit_ensure_channel(ctx, t->object.elem);
+                    return "Iron_Channel *";
+                }
+                if (strcmp(on, "MutexGuard") == 0 && t->object.elem) {
+                    emit_ensure_mutex(ctx, t->object.elem);
+                    const char *esc = emit_elem_c_escaped(ctx, t->object.elem);
+                    Iron_StrBuf sb = iron_strbuf_create(48);
+                    iron_strbuf_appendf(&sb, "Iron_MutexGuard_%s", esc ? esc : "");
+                    const char *r = iron_arena_strdup(ctx->arena,
+                                                      iron_strbuf_get(&sb), sb.len);
+                    iron_strbuf_free(&sb);
+                    if (!r) iron_oom_abort("emit_helpers.c:emit_type_to_c MutexGuard");
+                    return r;
+                }
+                if (strcmp(on, "FileHandle") == 0) {
+                    emit_ensure_filehandle(ctx);
+                    return "Iron_FileHandle";
+                }
+                if (strcmp(on, "RWLock") == 0) {
+                    if (t->object.elem) emit_ensure_rwlock(ctx, t->object.elem);
+                    const char *esc = t->object.elem
+                        ? emit_elem_c_escaped(ctx, t->object.elem) : "";
+                    Iron_StrBuf sb = iron_strbuf_create(48);
+                    iron_strbuf_appendf(&sb, "Iron_RWLock_%s *", esc ? esc : "");
+                    const char *r = iron_arena_strdup(ctx->arena,
+                                                      iron_strbuf_get(&sb), sb.len);
+                    iron_strbuf_free(&sb);
+                    if (!r) iron_oom_abort("emit_helpers.c:emit_type_to_c RWLock");
+                    return r;
+                }
+                if ((strcmp(on, "RWReadGuard") == 0 ||
+                     strcmp(on, "RWWriteGuard") == 0) && t->object.elem) {
+                    emit_ensure_rwlock(ctx, t->object.elem);
+                    const char *esc = emit_elem_c_escaped(ctx, t->object.elem);
+                    Iron_StrBuf sb = iron_strbuf_create(48);
+                    iron_strbuf_appendf(&sb, "Iron_%s_%s", on, esc ? esc : "");
+                    const char *r = iron_arena_strdup(ctx->arena,
+                                                      iron_strbuf_get(&sb), sb.len);
+                    iron_strbuf_free(&sb);
+                    if (!r) iron_oom_abort("emit_helpers.c:emit_type_to_c RWGuard");
+                    return r;
+                }
+            }
             return emit_object_type_name(t->object.decl->name, ctx);
 
         case IRON_TYPE_ENUM:
@@ -193,10 +276,77 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
             return result;
         }
 
+        /* Phase 27 POL-08 (Plan 27-02): weak rc T lowers to the SAME C type
+         * as rc T (a payload-typed pointer).  The Plan 27-01 runtime model
+         * treats `iron_rc_downgrade(rc)` as returning the same user pointer
+         * with the weak_count bumped — the type-system distinction is purely
+         * compile-time.  emit_c.c arms for IRON_LIR_WEAK_RC_* opcodes drive
+         * the runtime semantics via iron_weak_rc_retain/release. */
+        case IRON_TYPE_WEAK_RC: {
+            const char *inner_c = emit_type_to_c(t->weak_rc.inner, ctx);
+            Iron_StrBuf sb = iron_strbuf_create(64);
+            iron_strbuf_appendf(&sb, "%s*", inner_c);
+            const char *result = iron_arena_strdup(ctx->arena,
+                                                    iron_strbuf_get(&sb),
+                                                    sb.len);
+            if (!result) iron_oom_abort("emit_helpers.c:emit_type_to_c WEAK_RC");
+            iron_strbuf_free(&sb);
+            return result;
+        }
+
+        /* Phase 20 PTR-01: checked pointers lower to the 16B Iron_FatPtr ABI
+         * defined in src/runtime/iron_runtime.h (Phase 19 substrate lock).
+         * Phase 25 UNCK-03 (Plan 25-02): unchecked pointers lower to bare T*
+         * (8B) — no generation tracking, zero runtime check (UNCK-03). */
+        case IRON_TYPE_PTR:
+            if (t->ptr.is_unchecked) {
+                /* Phase 25 UNCK-03 (Plan 25-02): bare C T* (8B) ABI.
+                 * NOT Iron_FatPtr (16B) — Pitfall 5 honored. */
+                const char *pointee_c = emit_type_to_c(t->ptr.pointee, ctx);
+                /* Synthesize Iron_Box_<pointee> if not yet done — ensures the
+                 * Box struct is available when this pointer type appears in
+                 * function signatures or return types. */
+                emit_ensure_box(ctx, t->ptr.pointee);
+                Iron_StrBuf sb_ptr = iron_strbuf_create(32);
+                iron_strbuf_appendf(&sb_ptr, "%s *", pointee_c);
+                const char *result = iron_arena_strdup(ctx->arena,
+                                                        iron_strbuf_get(&sb_ptr),
+                                                        sb_ptr.len);
+                iron_strbuf_free(&sb_ptr);
+                if (!result) iron_oom_abort("emit_helpers.c:emit_type_to_c unchecked PTR");
+                return result;
+            }
+            return "Iron_FatPtr";
+
         case IRON_TYPE_FUNC:
             return "Iron_Closure";
 
         case IRON_TYPE_ARRAY: {
+            /* Phase 23 VEC-01: bounded vector [T; <=N] — emit Iron_BVec_T_N struct name.
+             * emit_ensure_bvec MUST be called BEFORE returning the name (Pitfall 3:
+             * typedef must be in struct_bodies before any function-body reference). */
+            if (t->array.is_bounded && t->array.size >= 0) {
+                emit_ensure_bvec(ctx, t);
+                /* Rebuild mangled name (same formula as emit_ensure_bvec) */
+                const char *elem_c_bv = emit_type_to_c(t->array.elem, ctx);
+                Iron_StrBuf sb_bv = iron_strbuf_create(64);
+                iron_strbuf_appendf(&sb_bv, "Iron_BVec_");
+                for (const char *p = elem_c_bv; *p; p++) {
+                    if (*p == ' ' || *p == '*') {
+                        iron_strbuf_appendf(&sb_bv, "_");
+                    } else {
+                        char ch[2] = { *p, '\0' };
+                        iron_strbuf_appendf(&sb_bv, "%s", ch);
+                    }
+                }
+                iron_strbuf_appendf(&sb_bv, "_%d", t->array.size);
+                const char *bvec_result = iron_arena_strdup(ctx->arena,
+                                                             iron_strbuf_get(&sb_bv),
+                                                             sb_bv.len);
+                iron_strbuf_free(&sb_bv);
+                if (!bvec_result) iron_oom_abort("emit_helpers.c:emit_type_to_c BVEC");
+                return bvec_result;
+            }
             /* Arrays are represented as Iron_List_<elem_c_type> in C.
              * e.g. [Int] -> Iron_List_int64_t, [Float] -> Iron_List_double
              * Phase 53: Interface-typed arrays use Iron_SplitList_<Iface> since
@@ -298,6 +448,428 @@ void emit_ensure_tuple(EmitCtx *ctx, const Iron_Type *tuple_ty) {
         iron_strbuf_appendf(&ctx->struct_bodies, "%s v%d; ", c_elem, i);
     }
     iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n", struct_name);
+}
+
+/* Phase 23 VEC-01: synthesise a C typedef for a bounded vector on demand.
+ *
+ *   typedef struct { uint32_t len; T data[N]; } Iron_BVec_<elem_c>_<N>;
+ *
+ * Dedupes via ctx->emitted_bvecs (same arrput/strcmp shape as emitted_tuples).
+ * Recurses for nested bvec elements so inner typedefs land first.
+ * No-op when the type is not a bounded array. */
+void emit_ensure_bvec(EmitCtx *ctx, const Iron_Type *bvec_ty) {
+    if (!bvec_ty || bvec_ty->kind != IRON_TYPE_ARRAY) return;
+    if (!bvec_ty->array.is_bounded || bvec_ty->array.size < 0) return;
+
+    const char *elem_c = emit_type_to_c(bvec_ty->array.elem, ctx);
+    int N = bvec_ty->array.size;
+
+    /* Build mangled name: Iron_BVec_<elem_c>_<N> with space and * escaped to _ */
+    Iron_StrBuf sb = iron_strbuf_create(64);
+    iron_strbuf_appendf(&sb, "Iron_BVec_");
+    for (const char *p = elem_c; *p; p++) {
+        if (*p == ' ' || *p == '*') {
+            iron_strbuf_appendf(&sb, "_");
+        } else {
+            char ch[2] = { *p, '\0' };
+            iron_strbuf_appendf(&sb, "%s", ch);
+        }
+    }
+    iron_strbuf_appendf(&sb, "_%d", N);
+    const char *struct_name = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    if (!struct_name) iron_oom_abort("emit_helpers.c:emit_ensure_bvec struct_name");
+
+    /* Dedupe: register BEFORE recursing to guard against self-reference */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_bvecs); i++) {
+        if (strcmp(ctx->emitted_bvecs[i], struct_name) == 0) return;
+    }
+    char *struct_name_copy = iron_arena_strdup(ctx->arena, struct_name, strlen(struct_name));
+    if (!struct_name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_bvec struct_name_copy");
+    arrput(ctx->emitted_bvecs, struct_name_copy);
+
+    /* Recurse for nested bvec elem so inner typedef lands first */
+    if (bvec_ty->array.elem &&
+        bvec_ty->array.elem->kind == IRON_TYPE_ARRAY &&
+        bvec_ty->array.elem->array.is_bounded) {
+        emit_ensure_bvec(ctx, bvec_ty->array.elem);
+    }
+
+    /* Emit: typedef struct { uint32_t len; T data[N]; } Iron_BVec_T_N; */
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "/* Phase 23 VEC-01: bounded vector [%s; <=%d] */\n"
+        "typedef struct { uint32_t len; %s data[%d]; } %s;\n",
+        elem_c, N, elem_c, N, struct_name);
+}
+
+/* Phase 25 UNCK-01/02 (Plan 25-02): Per-T Box synthesis — mirrors emit_ensure_bvec (line 341).
+ * Synthesizes typedef + Box_T_new/Box_T_unwrap/Box_T_free helpers for each
+ * concrete instantiation Iron_Box_<T>. Idempotent via emitted_boxes dedup.
+ *
+ * Pitfall 3 (RESEARCH): helpers go in ctx->lifted_funcs, NOT struct_bodies —
+ *   lifted_funcs renders after struct_bodies so forward-reference is safe.
+ * Pitfall 5 (RESEARCH): Box_T_unwrap returns bare T* (8B), NOT Iron_FatPtr (16B).
+ *
+ * Phase 26 (Plan 26-02): rc Box[T] rejected via E0286 — see RC-LAYOUT.md §3.1.
+ *   No new diagnostic code allocated; the existing Phase 24 DROP-08 nocopy-
+ *   copy violation fires at the rc allocation site because rc requires copy
+ *   semantics (refcount-bump on each copy) which Box[T] forbids (nocopy). */
+void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
+    if (!elem_type) return;
+
+    const char *elem_c = emit_type_to_c(elem_type, ctx);
+    if (!elem_c) return;
+
+    /* Build mangled name: Iron_Box_<elem_c> with space and * escaped to _ */
+    Iron_StrBuf sb = iron_strbuf_create(64);
+    iron_strbuf_appendf(&sb, "Iron_Box_");
+    for (const char *p = elem_c; *p; p++) {
+        if (*p == ' ' || *p == '*') {
+            iron_strbuf_appendf(&sb, "_");
+        } else {
+            char ch[2] = { *p, '\0' };
+            iron_strbuf_appendf(&sb, "%s", ch);
+        }
+    }
+    const char *struct_name = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    if (!struct_name) iron_oom_abort("emit_helpers.c:emit_ensure_box struct_name");
+
+    /* Dedupe — Phase 23/24 emitted_* pattern */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_boxes); i++) {
+        if (strcmp(ctx->emitted_boxes[i], struct_name) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, struct_name, strlen(struct_name));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_box name_copy");
+    arrput(ctx->emitted_boxes, name_copy);
+
+    /* Emit typedef into struct_bodies (Pitfall 3: struct_bodies for typedef;
+     * lifted_funcs for helpers — forward-reference is safe). */
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "/* Phase 25 UNCK-01/02: Box[%s] per-T synthesis */\n"
+        "typedef struct { Iron_FatPtr inner; } %s;\n",
+        elem_c, struct_name);
+
+    /* Emit helpers into lifted_funcs (NOT struct_bodies — Pitfall 3). */
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static %s %s_new(%s value) {\n"
+        "    Iron_FatPtr fp = iron_heap_alloc(__FILE__, __LINE__, sizeof(%s));\n"
+        "    ((%s *)fp.addr)[0] = value;\n"
+        "    %s box; box.inner = fp; return box;\n"
+        "}\n"
+        "static %s *%s_unwrap(%s *box) {\n"
+        "    /* Pitfall 5: returns bare T* (8B), NOT Iron_FatPtr (16B) */\n"
+        "    if (!box || !box->inner.addr) {\n"
+        "        fprintf(stderr, \"iron: panic: unwrap() on null Box\\n\");\n"
+        "        abort();\n"
+        "    }\n"
+        "    return (%s *)box->inner.addr;\n"
+        "}\n"
+        "static bool %s_is_null(const %s *box) {\n"
+        "    return !box || !box->inner.addr;\n"
+        "}\n"
+        "static %s %s_null_val(void) {\n"
+        "    %s box; box.inner.addr = NULL; box.inner.gen = 0; return box;\n"
+        "}\n"
+        "static void %s_free(%s *box) {\n"
+        "    /* Phase 26 (Plan 26-02): rc Box[T] rejected via E0286 -- "
+        "see RC-LAYOUT.md section 3.1 */\n"
+        "    if (box && box->inner.addr) { iron_heap_free(box->inner); "
+        "box->inner.addr = NULL; }\n"
+        "}\n\n",
+        /* _new */ struct_name, struct_name, elem_c,
+        elem_c, elem_c, struct_name,
+        /* _unwrap */ elem_c, struct_name, struct_name,
+        elem_c,
+        /* _is_null */ struct_name, struct_name,
+        /* _null_val */ struct_name, struct_name,
+        struct_name,
+        /* _free */ struct_name, struct_name);
+}
+
+/* Phase 33 STDLIB-07/08 (Plan 33-05): build the escaped element-C suffix shared
+ * by the Mutex/Channel glue mangling (mirrors emit_ensure_box's name builder).
+ * Returns an arena string like "int64_t" with space/`*` escaped to `_`. */
+static const char *emit_elem_c_escaped(EmitCtx *ctx, const Iron_Type *elem) {
+    const char *elem_c = emit_type_to_c(elem, ctx);
+    if (!elem_c) return NULL;
+    Iron_StrBuf sb = iron_strbuf_create(32);
+    for (const char *p = elem_c; *p; p++) {
+        if (*p == ' ' || *p == '*') iron_strbuf_appendf(&sb, "_");
+        else { char ch[2] = { *p, '\0' }; iron_strbuf_appendf(&sb, "%s", ch); }
+    }
+    const char *result = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    if (!result) iron_oom_abort("emit_helpers.c:emit_elem_c_escaped");
+    return result;
+}
+
+void emit_ensure_mutex(EmitCtx *ctx, const Iron_Type *elem_type) {
+    if (!elem_type) return;
+    const char *elem_c = emit_type_to_c(elem_type, ctx);
+    if (!elem_c) return;
+    const char *esc = emit_elem_c_escaped(ctx, elem_type);
+    if (!esc) return;
+
+    /* Guard typedef name: Iron_MutexGuard_<esc> */
+    Iron_StrBuf gsb = iron_strbuf_create(48);
+    iron_strbuf_appendf(&gsb, "Iron_MutexGuard_%s", esc);
+    const char *guard_name = iron_arena_strdup(ctx->arena, iron_strbuf_get(&gsb), gsb.len);
+    iron_strbuf_free(&gsb);
+    if (!guard_name) iron_oom_abort("emit_helpers.c:emit_ensure_mutex guard_name");
+
+    /* Dedupe on the guard name (covers the whole Mutex_<T> family). */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_mutexes); i++) {
+        if (strcmp(ctx->emitted_mutexes[i], guard_name) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, guard_name, strlen(guard_name));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_mutex name_copy");
+    arrput(ctx->emitted_mutexes, name_copy);
+
+    /* Guard typedef into struct_bodies (Pitfall 3: typedef before helpers). */
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "/* Phase 33 STDLIB-07: Mutex[%s] per-T glue */\n"
+        "typedef struct { Iron_Mutex *owner; %s *valptr; } %s;\n",
+        elem_c, elem_c, guard_name);
+
+    /* Helpers into lifted_funcs. */
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static Iron_Mutex *Iron_Mutex_%s_new(%s value) {\n"
+        "    return Iron_mutex_create(&value, sizeof(%s));\n"
+        "}\n"
+        "static void Iron_Mutex_%s_destroy(Iron_Mutex **m) {\n"
+        "    if (m && *m) { Iron_mutex_destroy(*m); *m = NULL; }\n"
+        "}\n"
+        "static %s Iron_MutexGuard_%s_lock(Iron_Mutex **m) {\n"
+        "    %s guard; guard.owner = *m;\n"
+        "    guard.valptr = (%s *)Iron_mutex_lock(*m);\n"
+        "    return guard;\n"
+        "}\n"
+        "static %s Iron_MutexGuard_%s_get(%s *g) {\n"
+        "    return *g->valptr;\n"
+        "}\n"
+        "static void Iron_MutexGuard_%s_set(%s *g, %s value) {\n"
+        "    *g->valptr = value;\n"
+        "}\n"
+        "static void Iron_MutexGuard_%s_unlock(%s *g) {\n"
+        "    if (g && g->owner) { Iron_mutex_unlock(g->owner); g->owner = NULL; }\n"
+        "}\n\n",
+        /* _new */    esc, elem_c, elem_c,
+        /* _destroy */ esc,
+        /* _lock */   guard_name, esc, guard_name, elem_c,
+        /* _get */    elem_c, esc, guard_name,
+        /* _set */    esc, guard_name, elem_c,
+        /* _unlock */ esc, guard_name);
+}
+
+void emit_ensure_channel(EmitCtx *ctx, const Iron_Type *elem_type) {
+    if (!elem_type) return;
+    const char *elem_c = emit_type_to_c(elem_type, ctx);
+    if (!elem_c) return;
+    const char *esc = emit_elem_c_escaped(ctx, elem_type);
+    if (!esc) return;
+
+    /* Dedupe key: the escaped element suffix. */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_channels); i++) {
+        if (strcmp(ctx->emitted_channels[i], esc) == 0) return;
+    }
+    char *esc_copy = iron_arena_strdup(ctx->arena, esc, strlen(esc));
+    if (!esc_copy) iron_oom_abort("emit_helpers.c:emit_ensure_channel esc_copy");
+    arrput(ctx->emitted_channels, esc_copy);
+
+    /* send heap-boxes the value (the runtime ring stores void*); recv unboxes
+     * and frees the box. The element-agnostic int64->int capacity wrapper is
+     * emitted once via the emitted_channels guard (first instantiation wins). */
+    if (arrlen(ctx->emitted_channels) == 1) {
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "static Iron_Channel *Iron_channel_create_i64(int64_t capacity) {\n"
+            "    return Iron_channel_create((int)capacity);\n"
+            "}\n");
+    }
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "/* Phase 33 STDLIB-08: Channel[%s] per-T glue */\n"
+        "static void Iron_Channel_%s_send(Iron_Channel **ch, %s value) {\n"
+        "    %s *box = (%s *)malloc(sizeof(%s));\n"
+        "    if (!box) iron_oom_abort(\"Channel send\");\n"
+        "    *box = value;\n"
+        "    Iron_channel_send(*ch, box);\n"
+        "}\n"
+        "static %s Iron_Channel_%s_recv(Iron_Channel **ch) {\n"
+        "    %s *box = (%s *)Iron_channel_recv(*ch);\n"
+        "    %s out; memset(&out, 0, sizeof(out));\n"
+        "    if (box) { out = *box; free(box); }\n"
+        "    return out;\n"
+        "}\n"
+        "static void Iron_Channel_%s_destroy(Iron_Channel **ch) {\n"
+        "    if (ch && *ch) { Iron_channel_destroy(*ch); *ch = NULL; }\n"
+        "}\n\n",
+        /* comment */ elem_c,
+        /* _send */   esc, elem_c, elem_c, elem_c, elem_c,
+        /* _recv */   elem_c, esc, elem_c, elem_c, elem_c,
+        /* _destroy */ esc);
+}
+
+void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
+    if (!elem_type) return;
+    const char *elem_c = emit_type_to_c(elem_type, ctx);
+    if (!elem_c) return;
+    const char *esc = emit_elem_c_escaped(ctx, elem_type);
+    if (!esc) return;
+
+    /* Lock typedef name: Iron_RWLock_<esc> */
+    Iron_StrBuf lsb = iron_strbuf_create(48);
+    iron_strbuf_appendf(&lsb, "Iron_RWLock_%s", esc);
+    const char *lock_name = iron_arena_strdup(ctx->arena, iron_strbuf_get(&lsb), lsb.len);
+    iron_strbuf_free(&lsb);
+    if (!lock_name) iron_oom_abort("emit_helpers.c:emit_ensure_rwlock lock_name");
+
+    for (int i = 0; i < (int)arrlen(ctx->emitted_rwlocks); i++) {
+        if (strcmp(ctx->emitted_rwlocks[i], lock_name) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, lock_name, strlen(lock_name));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_rwlock name_copy");
+    arrput(ctx->emitted_rwlocks, name_copy);
+
+    /* Typedefs (lock + read/write guards) into struct_bodies. */
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "/* Phase 33 STDLIB-07: RWLock[%s] per-T glue */\n"
+        "typedef struct { iron_rwlock_t lk; %s value; } %s;\n"
+        "typedef struct { %s *owner; } Iron_RWReadGuard_%s;\n"
+        "typedef struct { %s *owner; } Iron_RWWriteGuard_%s;\n",
+        elem_c, elem_c, lock_name,
+        lock_name, esc,
+        lock_name, esc);
+
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static %s *Iron_RWLock_%s_new(%s value) {\n"
+        "    %s *l = (%s *)malloc(sizeof(%s));\n"
+        "    if (!l) iron_oom_abort(\"RWLock new\");\n"
+        "    IRON_RWLOCK_INIT(l->lk); l->value = value; return l;\n"
+        "}\n"
+        "static void Iron_RWLock_%s_destroy(%s **l) {\n"
+        "    if (l && *l) { IRON_RWLOCK_DESTROY((*l)->lk); free(*l); *l = NULL; }\n"
+        "}\n"
+        "static Iron_RWReadGuard_%s Iron_RWReadGuard_%s_read(%s **l) {\n"
+        "    Iron_RWReadGuard_%s g; g.owner = *l;\n"
+        "    IRON_RWLOCK_RDLOCK((*l)->lk); return g;\n"
+        "}\n"
+        "static Iron_RWWriteGuard_%s Iron_RWWriteGuard_%s_write(%s **l) {\n"
+        "    Iron_RWWriteGuard_%s g; g.owner = *l;\n"
+        "    IRON_RWLOCK_WRLOCK((*l)->lk); return g;\n"
+        "}\n"
+        "static %s Iron_RWReadGuard_%s_get(Iron_RWReadGuard_%s *g) {\n"
+        "    return g->owner->value;\n"
+        "}\n"
+        "static %s Iron_RWWriteGuard_%s_get(Iron_RWWriteGuard_%s *g) {\n"
+        "    return g->owner->value;\n"
+        "}\n"
+        "static void Iron_RWWriteGuard_%s_set(Iron_RWWriteGuard_%s *g, %s value) {\n"
+        "    g->owner->value = value;\n"
+        "}\n"
+        "static void Iron_RWReadGuard_%s_rdunlock(Iron_RWReadGuard_%s *g) {\n"
+        "    if (g && g->owner) { IRON_RWLOCK_RDUNLOCK(g->owner->lk); g->owner = NULL; }\n"
+        "}\n"
+        "static void Iron_RWWriteGuard_%s_wrunlock(Iron_RWWriteGuard_%s *g) {\n"
+        "    if (g && g->owner) { IRON_RWLOCK_WRUNLOCK(g->owner->lk); g->owner = NULL; }\n"
+        "}\n\n",
+        /* _new */      lock_name, esc, elem_c, lock_name, lock_name, lock_name,
+        /* _destroy */  esc, lock_name,
+        /* _read */     esc, esc, lock_name, esc,
+        /* _write */    esc, esc, lock_name, esc,
+        /* read_get */  elem_c, esc, esc,
+        /* write_get */ elem_c, esc, esc,
+        /* write_set */ esc, esc, elem_c,
+        /* rdunlock */  esc, esc,
+        /* wrunlock */  esc, esc);
+}
+
+void emit_ensure_filehandle(EmitCtx *ctx) {
+    if (ctx->emitted_filehandle) return;
+    ctx->emitted_filehandle = true;
+
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "/* Phase 33 STDLIB-09: FileHandle nocopy fd wrapper */\n"
+        "typedef struct { int fd; } Iron_FileHandle;\n"
+        /* Phase 33 STDLIB-02 (Plan 33-04): forward prototypes so a
+         * Iron_List_Iron_FileHandle _free emitted into struct_bodies (which
+         * renders before lifted_funcs) can call the per-element drop without
+         * an implicit-declaration error. */
+        "static Iron_FileHandle Iron_FileHandle_open(Iron_String path);\n"
+        "static void Iron_FileHandle_close(Iron_FileHandle *fh);\n"
+        "static void Iron_FileHandle_drop(Iron_FileHandle *fh);\n");
+
+    /* open creates/truncates the file; close prints "closed fd" then closes.
+     * Uses fopen/fileno (portable, no <fcntl.h> needed) — the value is the
+     * underlying fd so the drop path matches the surface contract. */
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static Iron_FileHandle Iron_FileHandle_open(Iron_String path) {\n"
+        "    Iron_FileHandle fh; fh.fd = -1;\n"
+        "    const char *p = iron_string_cstr(&path);\n"
+        "    FILE *f = fopen(p ? p : \"\", \"w\");\n"
+        "    if (f) fh.fd = fileno(f);\n"
+        "    return fh;\n"
+        "}\n"
+        "static void Iron_FileHandle_close(Iron_FileHandle *fh) {\n"
+        "    if (fh && fh->fd >= 0) {\n"
+        "        printf(\"closed fd\\n\");\n"
+        "        close(fh->fd);\n"
+        "        fh->fd = -1;\n"
+        "    }\n"
+        "}\n"
+        "static void Iron_FileHandle_drop(Iron_FileHandle *fh) {\n"
+        "    Iron_FileHandle_close(fh);\n"
+        "}\n\n");
+}
+
+/* Phase 33 STDLIB-10 (Plan 33-06): per-T RawPtr.of helper synthesis.
+ * Emits Iron_RawPtr_of_<elemC>(<elemC>*) -> int64_t* into lifted_funcs.
+ * Body is a single cast: returns its argument re-typed as int64_t*. RawPtr
+ * is the type-erased member of the *unchecked T regime; internally we
+ * represent it as IRON_TYPE_PTR { is_unchecked=true, pointee=Int } (a bare
+ * 8B int64_t* in C). The per-T helper exists so the SIGNATURE matches the
+ * call site (the call site passes &x typed as <elemC>*, not void*, which
+ * keeps -Wpedantic / -Werror clean across element types). Idempotent via
+ * emitted_rawptrs (mirrors emit_ensure_box's dedup pattern). */
+void emit_ensure_rawptr(EmitCtx *ctx, const Iron_Type *elem_type) {
+    if (!elem_type) return;
+
+    const char *elem_c = emit_type_to_c(elem_type, ctx);
+    if (!elem_c) return;
+
+    /* Build escaped suffix: replace ` ` and `*` with `_`. */
+    Iron_StrBuf sb = iron_strbuf_create(48);
+    for (const char *p = elem_c; *p; p++) {
+        if (*p == ' ' || *p == '*') iron_strbuf_appendf(&sb, "_");
+        else { char ch[2] = { *p, '\0' }; iron_strbuf_appendf(&sb, "%s", ch); }
+    }
+    const char *esc = iron_arena_strdup(ctx->arena,
+                                         iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    if (!esc) iron_oom_abort("emit_helpers.c:emit_ensure_rawptr esc");
+
+    /* Dedupe — Phase 25 emitted_boxes precedent. */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_rawptrs); i++) {
+        if (strcmp(ctx->emitted_rawptrs[i], esc) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, esc, strlen(esc));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_rawptr name_copy");
+    arrput(ctx->emitted_rawptrs, name_copy);
+
+    /* The function pre-declaration lands in struct_bodies so call sites
+     * compiled earlier in the .c output resolve cleanly (mirrors the
+     * FileHandle/Box forward-prototype pattern). The body lands in
+     * lifted_funcs (renders after struct_bodies). */
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "/* Phase 33 STDLIB-10: RawPtr.of[%s] per-T type-erasure helper */\n"
+        "static int64_t *Iron_RawPtr_of_%s(%s *p);\n",
+        elem_c, esc, elem_c);
+
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static int64_t *Iron_RawPtr_of_%s(%s *p) {\n"
+        "    /* Type-erased cast — RawPtr is the unchecked-regime void*. */\n"
+        "    return (int64_t *)(void *)p;\n"
+        "}\n\n",
+        esc, elem_c);
 }
 
 /* Map a type annotation name to a C type string without needing Iron_Codegen */
@@ -429,6 +1001,66 @@ bool emit_val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
     return false;
 }
 
+/* Phase 21: Returns true when the LIR value was produced by IRON_LIR_HEAP_ALLOC
+ * (Iron_FatPtr local — post-migration type).  Distinct from emit_val_is_heap_ptr
+ * which also returns true for IRON_LIR_RC_ALLOC (T * local — still a pointer).
+ * Used at field-access / field-store / addr-of sites to select the
+ * `((T *)_vN.addr)->field` form vs `_vN->field` for RC pointers. */
+bool emit_val_is_heap_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID) return false;
+    if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *instr = fn->value_table[vid];
+    if (!instr) return false;
+    /* Phase 28 ARENA-03 (Plan 28-04): IRON_LIR_ARENA_ALLOC also produces an
+     * Iron_FatPtr local whose .addr points at the arena-allocated object, so
+     * ADDR_OF / field-access through it uses the same ((T *)_vN.addr) form. */
+    return instr->kind == IRON_LIR_HEAP_ALLOC ||
+           instr->kind == IRON_LIR_ARENA_ALLOC;
+}
+
+/* Phase 21: Returns true when a value is ANY Iron_FatPtr at runtime:
+ * IRON_LIR_HEAP_ALLOC (heap binding) OR IRON_LIR_ADDR_OF (pointer-to-heap/stack).
+ * Both produce C locals of type Iron_FatPtr, so field-access and deref sites
+ * must use the ((T *)_vN.addr)->field form rather than _vN.field. */
+bool emit_val_is_any_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID) return false;
+    if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *instr = fn->value_table[vid];
+    if (!instr) return false;
+    /* Phase 28 ARENA-03 (Plan 28-04): IRON_LIR_ARENA_ALLOC joins HEAP_ALLOC /
+     * ADDR_OF as an Iron_FatPtr-producing opcode. */
+    return instr->kind == IRON_LIR_HEAP_ALLOC ||
+           instr->kind == IRON_LIR_ARENA_ALLOC ||
+           instr->kind == IRON_LIR_ADDR_OF;
+}
+
+/* Phase 21: Return the C pointee-type string for any Iron_FatPtr value.
+ * - HEAP_ALLOC: the heap-allocated object type (instr->type).
+ * - ADDR_OF targeting HEAP_ALLOC: the target's object type.
+ * - ADDR_OF targeting other: the target's type.
+ * Returns NULL if not a fat ptr. */
+const char *emit_fat_ptr_pointee_type_c(IronLIR_Func *fn, IronLIR_ValueId vid, EmitCtx *ctx) {
+    if (vid == IRON_LIR_VALUE_INVALID) return NULL;
+    if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return NULL;
+    IronLIR_Instr *instr = fn->value_table[vid];
+    if (!instr) return NULL;
+    /* Phase 28 ARENA-03 (Plan 28-04): arena alloc pointee type is instr->type,
+     * exactly like a heap alloc. */
+    if (instr->kind == IRON_LIR_HEAP_ALLOC ||
+        instr->kind == IRON_LIR_ARENA_ALLOC) {
+        return emit_type_to_c(instr->type, ctx);
+    }
+    if (instr->kind == IRON_LIR_ADDR_OF) {
+        IronLIR_ValueId tgt = instr->addr_of.target;
+        if (tgt == IRON_LIR_VALUE_INVALID) return NULL;
+        if (tgt >= (IronLIR_ValueId)arrlen(fn->value_table)) return NULL;
+        IronLIR_Instr *tgt_instr = fn->value_table[tgt];
+        if (!tgt_instr) return NULL;
+        return emit_type_to_c(tgt_instr->type, ctx);
+    }
+    return NULL;
+}
+
 /* Determine if a LIR value is a FUNC_REF used as a type-name namespace
  * (e.g. "Math" in Math.PI, "Log" in Log.DEBUG).  When a field is accessed
  * on such a value the object is not a runtime struct instance but a type
@@ -456,6 +1088,243 @@ Iron_Type *emit_get_value_type(IronLIR_Func *fn, IronLIR_ValueId vid) {
     return NULL;
 }
 
+/* ── Phase 24 DROP-01/06: emit_ensure_drop + emit_ensure_copy ────────────── */
+
+/* Build the hir_lower.c mangled drop name for a given object type name.
+ * Pattern: lowercase chars before first '_', append "_drop".
+ * Writes into buf (size >= strlen(type_name) + 6); returns false if buf too small. */
+static bool build_drop_lir_name(const char *type_name, char *buf, size_t buf_size) {
+    if (!type_name) return false;
+    size_t tlen = strlen(type_name);
+    if (tlen + 6 >= buf_size) return false;
+    memcpy(buf, type_name, tlen);
+    buf[tlen]   = '_';
+    buf[tlen+1] = 'd';
+    buf[tlen+2] = 'r';
+    buf[tlen+3] = 'o';
+    buf[tlen+4] = 'p';
+    buf[tlen+5] = '\0';
+    for (int ci = 0; buf[ci] && buf[ci] != '_'; ci++) {
+        if (buf[ci] >= 'A' && buf[ci] <= 'Z')
+            buf[ci] = (char)(buf[ci] + ('a' - 'A'));
+    }
+    return true;
+}
+
+/* Returns true if the object type od has a compiled drop method in the LIR module.
+ * Uses build_drop_lir_name + emit_find_ir_func (Plan 86 layout: methods are LIR
+ * top-level functions, NOT stored on Iron_ObjectDecl).
+ * Non-static: declared in emit_helpers.h for use by emit_c.c. */
+bool od_has_drop_lir(EmitCtx *ctx, struct Iron_ObjectDecl *od) {
+    if (!ctx || !od || !od->name) return false;
+    char lir_name[256];
+    if (!build_drop_lir_name(od->name, lir_name, sizeof(lir_name))) return false;
+    return emit_find_ir_func(ctx, lir_name) != NULL;
+}
+
+/* Synthesize a static destructor function for an object type.
+ * Emits `static void <TypeName>_drop(<TypeName> *self) { ... }` into
+ * ctx->lifted_funcs (Pitfall 3 — NOT struct_bodies). Dedupes via
+ * ctx->emitted_drops. Recurses for field types that have drop blocks.
+ * The user drop body is called via the compiled LIR method (B4 fix);
+ * field destructors run in REVERSE declaration order (Pitfall 6 + DROP-02). */
+void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
+                      struct Iron_ObjectDecl *od) {
+    if (!ctx || !obj_c_name || !od) return;
+
+    /* Dedupe: guard against double-synthesis (and self-referential loops) */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_drops); i++) {
+        if (strcmp(ctx->emitted_drops[i], obj_c_name) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, obj_c_name, strlen(obj_c_name));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_drop name_copy");
+    arrput(ctx->emitted_drops, name_copy);
+
+    /* Recurse for field types with drop blocks so inner destructors land first
+     * (forward-declaration safety — lifted_funcs ordering, Pitfall 3).
+     * Check via od_has_drop_lir — methods are LIR top-level functions, NOT od->methods. */
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->field_type_cached) continue;
+        Iron_Type *ft = f->field_type_cached;
+        if (ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
+        struct Iron_ObjectDecl *field_od = ft->object.decl;
+        if (od_has_drop_lir(ctx, field_od)) {
+            const char *field_c_name = emit_type_to_c(ft, ctx);
+            emit_ensure_drop(ctx, field_c_name, field_od);
+        }
+    }
+
+    /* Synthesize <TypeName>_drop into ctx->lifted_funcs (Pitfall 3 — NOT struct_bodies) */
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "/* Phase 24 DROP-01: destructor for %s — static-type dispatch (DROP-03) */\n"
+        "/* Phase 26 POL-06: static dispatch via <TypeName>_rc_drop symbol -- "
+        "synthesized by emit_ensure_rc_drop in Plan 26-03; called by "
+        "iron_rc_release on refcount == 0. */\n"
+        "static void %s_drop(%s *self) {\n"
+        "    if (!self) return;\n",
+        obj_c_name, obj_c_name, obj_c_name);
+
+    /* B4 fix: emit user drop body inline by calling the compiled LIR method.
+     * Build the LIR mangled name (hir_lower.c: lowercase first word + "_drop"),
+     * resolve to the C function name, and emit a call if the function exists.
+     * The marker comment is required for acceptance grep
+     * (grep -c 'user drop body lowered' src/lir/emit_helpers.c >= 1). */
+    {
+        char lir_name[256];
+        if (od->name && build_drop_lir_name(od->name, lir_name, sizeof(lir_name))) {
+            IronLIR_Func *lir_fn = emit_find_ir_func(ctx, lir_name);
+            if (lir_fn) {
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    /* user drop body lowered: %s (Phase 24 DROP-01 / B4) */\n",
+                    obj_c_name);
+                const char *c_func = emit_resolve_func_c_name(ctx, lir_name);
+                iron_strbuf_appendf(&ctx->lifted_funcs,
+                    "    %s(self);\n", c_func);
+            }
+        }
+    }
+
+    /* Field destructors REVERSE declaration order (Pitfall 6 + DROP-02).
+     * Check via od_has_drop_lir — methods are LIR functions, NOT od->methods. */
+    for (int i = od->field_count - 1; i >= 0; i--) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->field_type_cached) continue;
+        Iron_Type *ft = f->field_type_cached;
+        if (ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
+        struct Iron_ObjectDecl *field_od = ft->object.decl;
+        if (od_has_drop_lir(ctx, field_od)) {
+            const char *field_c_name = emit_type_to_c(ft, ctx);
+            /* Phase 24 DROP-04 (Plan 24-03): the field's drop function sets
+             * iron_in_destructor=true internally (emit_func_body prologue).
+             * No call-site wrap needed — just invoke the synthesized drop. */
+            iron_strbuf_appendf(&ctx->lifted_funcs,
+                "    %s_drop(&self->%s);\n",
+                field_c_name, f->name);
+        }
+    }
+    iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+}
+
+/* Phase 26 POL-06 (Plan 26-03): does this object type have any drop need
+ * (user drop body OR any field with its own drop)?
+ *
+ * Mirrors emit_ensure_rc_drop's drop-need check so emit_c.c IRON_LIR_RC_ALLOC
+ * can decide whether to pass <TypeName>_rc_drop or NULL as drop_fn. Anti-Pattern
+ * 4 (RESEARCH:251): types without drop need pass NULL — iron_rc_release just
+ * frees the block. */
+bool od_has_rc_drop_need(EmitCtx *ctx, struct Iron_ObjectDecl *od) {
+    if (!ctx || !od) return false;
+    if (od_has_drop_lir(ctx, od)) return true;
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->field_type_cached) continue;
+        Iron_Type *ft = f->field_type_cached;
+        if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
+            od_has_drop_lir(ctx, ft->object.decl)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Phase 26 POL-06 (Plan 26-03): synthesize <TypeName>_rc_drop trampoline.
+ *
+ * Emits a void*-signature wrapper around the Phase 24 <TypeName>_drop helper:
+ *   static void <TypeName>_rc_drop(void *self_void) {
+ *       <TypeName>_drop((<TypeName> *)self_void);
+ *   }
+ *
+ * The trampoline goes into ctx->lifted_funcs (NOT struct_bodies, Pitfall 3).
+ * Iron_RcHeader.drop_fn stores this function pointer; iron_rc_release invokes
+ * it on the last-reference path before freeing the block (drop chain order:
+ * user drop -> field destructors reverse-decl -> free, all inherited from
+ * Phase 24 _drop machinery).
+ *
+ * Only emits when the type has drop need (od_has_rc_drop_need). For pure-data
+ * rc types, the caller passes NULL drop_fn at iron_rc_alloc time.
+ *
+ * Dedup via ctx->emitted_rc_drops (mirrors Phase 24 emitted_drops). */
+void emit_ensure_rc_drop(EmitCtx *ctx, const char *obj_c_name,
+                          struct Iron_ObjectDecl *od) {
+    if (!ctx || !obj_c_name || !od) return;
+    if (!od_has_rc_drop_need(ctx, od)) return;
+
+    /* Dedup */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_rc_drops); i++) {
+        if (strcmp(ctx->emitted_rc_drops[i], obj_c_name) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, obj_c_name, strlen(obj_c_name));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_rc_drop name_copy");
+    arrput(ctx->emitted_rc_drops, name_copy);
+
+    /* Ensure the Phase 24 <TypeName>_drop exists (trampoline calls into it) */
+    emit_ensure_drop(ctx, obj_c_name, od);
+
+    /* Synthesize the trampoline into ctx->lifted_funcs */
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "/* Phase 26 POL-06 (Plan 26-03): rc drop trampoline for %s.\n"
+        " * Iron_RcHeader.drop_fn stores this; iron_rc_release calls it\n"
+        " * on last reference (before freeing the block). Delegates to\n"
+        " * the Phase 24 <TypeName>_drop machinery: user drop body ->\n"
+        " * field destructors reverse-decl -> free. */\n"
+        "static void %s_rc_drop(void *self_void) {\n"
+        "    if (!self_void) return;\n"
+        "    %s_drop((%s *)self_void);\n"
+        "}\n\n",
+        obj_c_name, obj_c_name, obj_c_name, obj_c_name);
+}
+
+/* Synthesize a shallow copy function for an object type.
+ * Emits `static void <TypeName>_copy(<TypeName> *dest, const <TypeName> *src)`
+ * into ctx->lifted_funcs. Dedupes via ctx->emitted_copies.
+ * No-op when od->is_nocopy (Pitfall 5). Per-field copy hooks call
+ * <FieldType>_copy for fields whose has_user_copy_transitive is true (I8). */
+void emit_ensure_copy(EmitCtx *ctx, const char *obj_c_name,
+                      struct Iron_ObjectDecl *od) {
+    if (!ctx || !obj_c_name || !od) return;
+    if (od->is_nocopy) return;  /* Pitfall 5: no _copy synthesized for nocopy types */
+
+    /* Dedupe */
+    for (int i = 0; i < (int)arrlen(ctx->emitted_copies); i++) {
+        if (strcmp(ctx->emitted_copies[i], obj_c_name) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, obj_c_name, strlen(obj_c_name));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_copy name_copy");
+    arrput(ctx->emitted_copies, name_copy);
+
+    /* Recurse for field types that have user copy hooks */
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->field_type_cached) continue;
+        Iron_Type *ft = f->field_type_cached;
+        if (!ft->has_user_copy_cached || !ft->has_user_copy_transitive) continue;
+        if (ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
+        const char *field_c_name = emit_type_to_c(ft, ctx);
+        emit_ensure_copy(ctx, field_c_name, ft->object.decl);
+    }
+
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "/* Phase 24 DROP-06: shallow memberwise copy for %s */\n"
+        "static void %s_copy(%s *dest, const %s *src) {\n"
+        "    if (!dest || !src) return;\n"
+        "    *dest = *src;\n",
+        obj_c_name, obj_c_name, obj_c_name, obj_c_name);
+
+    /* Per-field copy hooks — read cached field directly (I8 fix) */
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->field_type_cached) continue;
+        Iron_Type *ft = f->field_type_cached;
+        if (!ft->has_user_copy_cached || !ft->has_user_copy_transitive) continue;
+        const char *field_c_name = emit_type_to_c(ft, ctx);
+        iron_strbuf_appendf(&ctx->lifted_funcs,
+            "    %s_copy(&dest->%s, &src->%s);\n",
+            field_c_name, f->name, f->name);
+    }
+    iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+}
+
 /* ── Cleanup ─────────────────────────────────────────────────────────────── */
 
 void emit_ctx_cleanup(EmitCtx *ctx) {
@@ -473,6 +1342,12 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
     /* Free stb_ds maps and arrays */
     arrfree(ctx->emitted_optionals);
     arrfree(ctx->emitted_tuples);
+    arrfree(ctx->emitted_bvecs);
+    arrfree(ctx->emitted_drops);
+    arrfree(ctx->emitted_copies);
+    arrfree(ctx->emitted_boxes);  /* Phase 25 UNCK-01/02 (Plan 25-02) */
+    arrfree(ctx->emitted_rc_drops);  /* Phase 26 POL-06 (Plan 26-03) */
+    arrfree(ctx->emitted_env_drops); /* Phase 26 OQ-03 (Plan 26-03) */
     shfree(ctx->mono_registry);
     hmfree(ctx->param_alias_ids);
     hmfree(ctx->split_collection_ids);

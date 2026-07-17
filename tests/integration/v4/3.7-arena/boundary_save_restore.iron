@@ -1,0 +1,27 @@
+-- section 3.7 arena allocation: save/restore
+-- @req: ARENA-05, ARENA-06, ARENA-07
+-- @expected-pass-after: phase-28
+-- extends-spec: save/restore boundary probe; allocations between save and restore freed at restore
+
+object Scratch {
+    val tag: Int
+
+    drop {
+        println("drop scratch: {tag}")
+    }
+}
+
+func main() {
+    val arena = Arena.with_capacity(65536)
+    val before = heap(in: arena) Scratch(tag: 0)
+    println("before save: tag={before.tag}")
+    val save = arena.save()
+    val s1 = heap(in: arena) Scratch(tag: 1)
+    val s2 = heap(in: arena) Scratch(tag: 2)
+    val s3 = heap(in: arena) Scratch(tag: 3)
+    println("after alloc: tags={s1.tag},{s2.tag},{s3.tag}")
+    arena.restore(save)
+    println("after restore")
+    val after = heap(in: arena) Scratch(tag: 99)
+    println("new alloc: tag={after.tag}")
+}

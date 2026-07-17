@@ -1,0 +1,21 @@
+-- section 4.9 weak rc policy: OQ-04 closure captures weak rc T
+-- @req: POL-08, OQ-04
+-- extends-spec: lambda captures weak rc T by value; closure outlives the
+-- outer weak binding; weak_count stays > 0 across outer scope exit;
+-- closure env_drop releases. Canonical observer pattern witness.
+
+object Counter {
+    val tag: Int
+}
+
+func main() {
+    val strong = rc Counter(99)
+    val observer = strong.downgrade()
+    val check = func() {
+        val maybe = observer.upgrade()
+        println("observer alive check")
+    }
+    check()
+    check()
+    println("main done")
+}

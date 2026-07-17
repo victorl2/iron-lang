@@ -20,18 +20,19 @@ Quoting CONTEXT §D-11 verbatim:
 
 ## Required status checks (paste these exact names into the GitHub UI)
 
-As of Phase 7 close the full required-status-check list is **8 checks**:
+As of Phase 36 close the full required-status-check list is **9 checks**:
 
-| # | Check name                         | Phase | Workflow file                    | What it proves                                                                 |
-|---|------------------------------------|-------|----------------------------------|--------------------------------------------------------------------------------|
-| 1 | `build-and-test (ubuntu-latest)`   | 2+    | `.github/workflows/ci.yml`       | Linux Debug+ASan build passes all unit + integration tests                     |
-| 2 | `build-and-test (macos-latest)`    | 2+    | `.github/workflows/ci.yml`       | macOS Debug+ASan build passes all unit + integration tests                     |
-| 3 | `vscode-e2e`                       | 6     | `.github/workflows/ci.yml`       | VSCode extension launches + attaches + receives diagnostics end-to-end         |
-| 4 | `neovim-e2e`                       | 6     | `.github/workflows/ci.yml`       | Neovim plenary.nvim harness attaches + receives diagnostics end-to-end         |
-| 5 | `zed-package-validate`             | 6     | `.github/workflows/ci.yml`       | Zed extension compiles to `wasm32-wasip2` + extension.toml validates           |
-| 6 | `parity`                           | 7     | `.github/workflows/parity.yml`   | **Core Value**: `ironc` output ≡ `ironls` facade output across every fixture   |
-| 7 | `tsan`                             | 7     | `.github/workflows/tsan.yml`     | ThreadSanitizer mini-soak reports zero data races                              |
-| 8 | `slos`                             | 7     | `.github/workflows/slos.yml`     | Per-request p50 SLOs enforced (hover < 20ms, completion < 100ms, diag < 500ms) |
+| # | Check name                         | Phase | Workflow file                          | What it proves                                                                 |
+|---|------------------------------------|-------|----------------------------------------|--------------------------------------------------------------------------------|
+| 1 | `build-and-test (ubuntu-latest)`   | 2+    | `.github/workflows/ci.yml`             | Linux Debug+ASan build passes all unit + integration tests                     |
+| 2 | `build-and-test (macos-latest)`    | 2+    | `.github/workflows/ci.yml`             | macOS Debug+ASan build passes all unit + integration tests                     |
+| 3 | `vscode-e2e`                       | 6     | `.github/workflows/ci.yml`             | VSCode extension launches + attaches + receives diagnostics end-to-end         |
+| 4 | `neovim-e2e`                       | 6     | `.github/workflows/ci.yml`             | Neovim plenary.nvim harness attaches + receives diagnostics end-to-end         |
+| 5 | `zed-package-validate`             | 6     | `.github/workflows/ci.yml`             | Zed extension compiles to `wasm32-wasip2` + extension.toml validates           |
+| 6 | `parity`                           | 7     | `.github/workflows/parity.yml`         | **Core Value**: `ironc` output ≡ `ironls` facade output across every fixture   |
+| 7 | `tsan`                             | 7     | `.github/workflows/tsan.yml`           | ThreadSanitizer mini-soak reports zero data races                              |
+| 8 | `slos`                             | 7     | `.github/workflows/slos.yml`           | Per-request p50 SLOs enforced (hover < 20ms, completion < 100ms, diag < 500ms) |
+| 9 | `v4-acceptance`                    | 36    | `.github/workflows/v4-acceptance.yml`  | **Milestone v3.0 headline metric**: `v4-acceptance` ctest label pass-rate enforced on every PR |
 
 The job/check name on the GitHub Status API side matches the `name:` field
 of the job in the workflow YAML. The `parity` check in particular is a
@@ -121,6 +122,13 @@ missing check, the audit's own gate blocks it.
 This ordering guarantees the UI state is always a subset of, or equal
 to, what this file documents.
 
+> 2026 — `v4-acceptance` promoted from informational to required at
+> milestone v3.0 close (Phase 36). Phase 35 stabilized the corpus at
+> 228/255 PASS on silvaserver; further regressions are merge-blocked.
+> The check name is exposed via a dedicated single-job workflow
+> (`.github/workflows/v4-acceptance.yml`), mirroring the `parity`
+> stable-name pattern.
+
 ## Removing a required check
 
 1. Open a PR that edits this file to delete the row **and** explains why
@@ -140,3 +148,5 @@ Never remove a required check ahead of the documentation PR.
   `release.yml` consumes when tagged.
 - `.planning/phases/07-m6-production-hardening/07-CONTEXT.md` §D-11 —
   the rationale behind promoting parity to a blocking gate.
+- `docs/dev/PHASE-36-BRANCH-PROTECTION-PLAYBOOK.md` — Phase 36
+  maintainer playbook for applying the refreshed protection.

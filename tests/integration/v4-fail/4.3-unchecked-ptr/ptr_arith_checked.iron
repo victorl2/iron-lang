@@ -1,0 +1,15 @@
+-- section 4.3 negative: Ptr.offset requires *unchecked T
+-- @req: UNCK-06
+-- @expected-pass-after: phase-25-02
+-- Ptr.offset and Ptr.diff are only available in the unchecked pointer regime.
+-- Calling Ptr.offset on a checked *Point is a compile error (E0295).
+-- This fixture is XFAIL until Plan 25-02 lands the Ptr.offset builtin.
+object Point {
+    var x: Int
+    init() { self.x = 0 }
+}
+func main() {
+    var p: Point = Point()
+    val checked: *Point = &p
+    val offset_ptr = Ptr.offset(checked, 1)
+}

@@ -1,0 +1,17 @@
+-- section 4.3 negative: auto-address suppressed for *unchecked T parameter
+-- @req: UNCK-05
+-- A function taking *unchecked T does not auto-address a plain T argument.
+-- Auto-address is only available for checked pointer parameters (*T / *var T).
+-- types_assignable then rejects the T → *unchecked T mismatch with E0289.
+-- Expected: E0289 IRON_ERR_PTR_REGIME_MISMATCH with substring "regime"
+object Point {
+    var x: Int
+    init() { self.x = 0 }
+}
+func consume(p: *unchecked Point) {
+    val _ = p
+}
+func main() {
+    var local: Point = Point()
+    consume(local)
+}

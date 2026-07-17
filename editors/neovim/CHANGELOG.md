@@ -3,6 +3,22 @@
 All notable changes to the `iron-lsp` Neovim configuration are
 documented in this file.
 
+## v4.0.0-alpha.1
+
+- Bumped `IRON_LSP_COMPATIBLE_VERSION_RANGE` to
+  `{ ">= 4.0.0", "< 5.0.0", min = "4.0.0", max_exclusive = "5.0.0" }`
+  (lines 49-54); pre-v4 ironls binaries now hard-refused by the
+  Phase 7 D-10 / HARD-22 gate via the `on_attach` detach path.
+- Bumped `compatible_ironls` (line 106) and the diagnostic-event
+  `range` field (line 133) from `">= 3.0.0, < 4.0.0"` to
+  `">= 4.0.0, < 5.0.0"`.
+- Added snippet pack `snippets/iron.snippets` (SnipMate-compatible;
+  loadable via LuaSnip's `from_snipmate` loader or vim-snipmate /
+  UltiSnips) for Iron v4 idioms: `defer free <binding>` (Phase 21),
+  `heap T(...)` constructor (Phase 21), `in arena { ... }` block
+  (Phase 28). Triggers match the Phase 34 LSP completion snippets
+  and the VSCode + Zed packs.
+
 ## 0.1.0 — initial release
 
 - Native `vim.lsp.config('ironls')` / `vim.lsp.enable('ironls')`

@@ -1,0 +1,6 @@
+// Phase 34 LSP-06: missing val/var on a local binding triggers
+// IRON_ERR_MISSING_VAL_VAR=176. Default quickfix inserts `val ` at the
+// start of the offending line.
+func main() {
+    x = 10
+}

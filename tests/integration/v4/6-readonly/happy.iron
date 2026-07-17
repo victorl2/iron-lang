@@ -1,0 +1,27 @@
+-- section: 6-readonly
+-- @req: READ-01, READ-04
+-- @expected-pass-after: phase-22
+-- description: readonly compute_damage canonical example (§6.1 verbatim)
+
+object Player {
+    val hp: Int
+    val attack: Int
+}
+
+object Enemy {
+    var hp: Int
+    val defense: Int
+}
+
+readonly func compute_damage(attacker: *Player, target: *Enemy) -> Int {
+    val base = attacker.attack
+    val defense = target.defense
+    return base - defense
+}
+
+func main() {
+    val player = Player(hp: 100, attack: 15)
+    val enemy = Enemy(hp: 50, defense: 5)
+    val dmg = compute_damage(&player, &enemy)
+    println("damage: {dmg}")
+}

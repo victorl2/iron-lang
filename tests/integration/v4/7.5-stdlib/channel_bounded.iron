@@ -1,0 +1,13 @@
+-- section: 7.5-stdlib
+-- @req: STDLIB-08
+-- @expected-pass-after: phase-33 (Wave 5 Channel[T] bounded)
+-- Channel[T] bounded send/recv (single-thread happy path for determinism).
+-- RED until Wave 5 lands Channel[T] nocopy.
+
+func main() {
+    var ch: Channel[Int] = Channel.new(2)
+    ch.send(10)
+    ch.send(20)
+    println("recv: {ch.recv()}")
+    println("recv: {ch.recv()}")
+}

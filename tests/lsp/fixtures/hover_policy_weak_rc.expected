@@ -1,0 +1,5 @@
+```iron
+val weak_ref: weak rc Point
+```
+
+policy: weak rc

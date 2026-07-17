@@ -1,0 +1,26 @@
+-- map.iron -- Map[K: Hashable, V]: hash-based key/value container (Phase 33 STDLIB-03)
+-- Phase 33 OQ-01 / GA1: this surface declares the generic Hashable BOUND on the
+-- key parameter so the constraint enforcement in src/analyzer/typecheck.c
+-- (check_generic_constraints, E0206) bites at every `Map[K, V]` instantiation:
+-- `Map[String, Int]` / `Map[Int, V]` are well-formed (Int/String satisfy
+-- Hashable via the primitive carve-out), while `Map[NonHashable, V]` is a
+-- compile error naming the unsatisfied bound.
+--
+-- SCOPE (Plan 33-02): this plan declares the TYPE + the Hashable bound only —
+-- enough for the OQ-01 constraint check to fire positively and negatively on
+-- the check path. The full method surface (Map.new / set / get / has / remove /
+-- len + the drop/copy element-lifecycle protocol over the IRON_MAP_IMPL backing
+-- in src/runtime/iron_runtime.h) is the Wave-4 container rewrite (STDLIB-03
+-- proper) and is intentionally NOT declared here — adding it now would pull in
+-- the method-level-generic dispatch gap (OQ-02) tracked separately.
+--
+-- The hash-based backing (Iron_Map_<K>_<V>, name-mangled per
+-- src/runtime/iron_runtime.h:982) is preserved and unchanged by this plan; the
+-- runtime hashes the built-in Hashable primitives natively.
+--
+-- `val inner` opaque storage (not `var`) so v3.0 E0264 (mutable-field-needs-init)
+-- does not fire on the stdlib surface — mirrors arena.iron / box.iron.
+
+object Map[K: Hashable, V] {
+    val inner: Int  -- opaque storage; the C runtime holds the real Iron_Map_<K>_<V>
+}

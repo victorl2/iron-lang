@@ -1,0 +1,16 @@
+-- section 4.9 negative: method call on weak rc value forbidden (POL-08)
+-- @req: POL-08
+-- @expected-pass-after: phase-27
+-- E0299 IRON_ERR_WEAK_RC_DEREF — call .upgrade() first; null-check before calling
+object Point { val x: Int; val y: Int }
+
+impl Point {
+    readonly func sum(self: *Point) -> Int { return self.x + self.y }
+}
+
+func main(): Int {
+    val p = rc Point(1, 2)
+    val w = p.downgrade()
+    val s = w.sum()   -- E0299: cannot dereference weak rc T directly (method call)
+    return s
+}

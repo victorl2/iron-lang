@@ -45,6 +45,40 @@ void test_single_parse_error(void) {
     TEST_ASSERT_EQUAL_INT(1, diags.error_count);
 }
 
+/* An object body whose members are malformed terminates with a bounded number
+ * of diagnostics instead of spinning.
+ *
+ * iron_parser_sync_stmt stops on RETURN (a statement-boundary token) without
+ * consuming it. The object-body loop treats RETURN as a field missing val/var,
+ * emits E0176, re-syncs onto the same token and re-dispatches — previously an
+ * unbounded diagnostic stream that exhausted memory and killed the process.
+ * A handful of diagnostics is fine; the invariant under test is that parse()
+ * returns at all and does not flood. */
+void test_object_body_malformed_member_terminates(void) {
+    parse("object A {\n"
+          "    return 1\n"
+          "}\n");
+    TEST_ASSERT_TRUE_MESSAGE(diags.error_count >= 1,
+                             "malformed object member must be diagnosed");
+    TEST_ASSERT_TRUE_MESSAGE(diags.error_count < 16,
+                             "recovery must make progress, not flood diagnostics");
+}
+
+/* The block-introducer keywords are legal method names after `func`.
+ * iron_check_name_or_block_kw admits INIT/COPY/DROP in name position; the body
+ * loop branches on a bare copy/drop above, so `copy {}` still parses as a
+ * block. Before the fix `func copy()` was rejected, and recovery landed on the
+ * `return` inside its body — the flood path above. */
+void test_object_body_func_named_copy_drop_parses(void) {
+    parse("object A {\n"
+          "    var x: Int\n"
+          "    init(x: Int) { self.x = x }\n"
+          "    func copy() -> Int { return 0 }\n"
+          "    func drop() -> Int { return 1 }\n"
+          "}\n");
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
+}
+
 /* Three independent syntax errors produce exactly 3 diagnostics */
 void test_three_independent_parse_errors(void) {
     /* Three independent errors, each in a separate declaration,
@@ -269,6 +303,8 @@ void test_iron_type_to_string_tuple(void) {
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_single_parse_error);
+    RUN_TEST(test_object_body_malformed_member_terminates);
+    RUN_TEST(test_object_body_func_named_copy_drop_parses);
     RUN_TEST(test_three_independent_parse_errors);
     RUN_TEST(test_error_code_unexpected_token);
     RUN_TEST(test_error_code_expected_rbrace);

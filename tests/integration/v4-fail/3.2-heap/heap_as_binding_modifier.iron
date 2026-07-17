@@ -1,0 +1,7 @@
+-- section 3.2 negative: heap as binding modifier
+-- @req: POL-02
+-- @expected-pass-after: phase-21
+-- heap is not a valid binding modifier like val or var
+func main() {
+    heap val x = 42
+}

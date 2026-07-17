@@ -1,0 +1,23 @@
+-- section 3.7 arena allocation: allow_drop_skip suppresses W0605
+-- @req: ARENA-09
+-- @expected-pass-after: phase-28
+-- Same non-trivial-destructor object as arena_nontrivial_dtor.iron, but the
+-- heap(in: arena, allow_drop_skip: true) form acknowledges the skipped
+-- destructor explicitly → NO W0605 warning. Compile-clean (check-only).
+-- (local type renamed from FileHandle to ArenaFile when Phase 33 landed the
+-- stdlib FileHandle; construction is positional — named args are not a
+-- surface form)
+
+object ArenaFile {
+    val fd: Int
+
+    drop {
+        println("closing fd {self.fd}")
+    }
+}
+
+func main() {
+    val arena = Arena.with_capacity(4096)
+    val fh = heap(in: arena, allow_drop_skip: true) ArenaFile(7)
+    println("fd: {fh.fd}")
+}

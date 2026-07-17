@@ -1,0 +1,6 @@
+func make_dangling() -> *Int {
+    val x: Int = 42
+    return &x
+}
+
+func main() {}

@@ -1,0 +1,22 @@
+-- section 4.4 positive: pure impl satisfies readonly interface sig (pure >= readonly)
+-- @req: OQ-05, READ-07
+-- @expected-pass-after: phase-33
+-- @reason: stdlib String.split returns dynamic [String] (Phase 33 stdlib container rewrite addresses); blocks Phase 22 OQ-05 positive proof until then. OQ-05 semantics fully enforced via existing pure>=readonly conformance check at typecheck.c:4671-4673; this fixture is the cosmetic positive proof.
+
+interface Reader {
+    readonly func read() -> Int
+}
+
+object MyReader impl Reader {
+    var value: Int
+    init() {}
+
+    pure func read() -> Int {
+        return 0
+    }
+}
+
+func main() {
+    val r = MyReader(0)
+    val v = r.read()
+}

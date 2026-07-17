@@ -1,0 +1,10 @@
+-- section 4.3 negative: free target is not a binding name (field access)
+-- @req: POL-04
+-- @expected-pass-after: phase-21
+
+object Container { var inner: Int }
+
+func main() {
+    val c = heap Container(0)
+    free c.inner
+}

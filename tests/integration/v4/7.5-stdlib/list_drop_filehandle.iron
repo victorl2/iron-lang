@@ -1,0 +1,13 @@
+-- section: 7.5-stdlib
+-- @req: STDLIB-02, STDLIB-09
+-- @expected-pass-after: phase-33 (Wave 4 container element-destructors + Wave 5 FileHandle)
+-- A List[FileHandle] dropped at scope exit must run each element's drop (close fd).
+-- RED until Wave 4 (per-element container destructors) + Wave 5 (FileHandle nocopy) land.
+
+func main() {
+    var handles: [FileHandle] = []
+    handles.push(FileHandle.open("/tmp/iron_lh_a.txt"))
+    handles.push(FileHandle.open("/tmp/iron_lh_b.txt"))
+    println("opened: {handles.len()}")
+    -- scope exit: List drop iterates and closes each FileHandle
+}

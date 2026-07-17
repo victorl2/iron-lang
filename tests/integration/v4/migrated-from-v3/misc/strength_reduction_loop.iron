@@ -1,0 +1,37 @@
+-- Test: strength reduction for 2D loop index expressions
+-- Verifies that i*cols+j multiplication patterns in loop bodies compile
+-- correctly and produce the right output after strength reduction.
+
+func main() {
+    -- 2D grid flattened into 1D array — the i*cols+j pattern
+    val rows = 3
+    val cols = 4
+    var grid = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+    -- Fill grid[i][j] = i * cols + j (using flattened indexing)
+    var i = 0
+    while i < rows {
+        var j = 0
+        while j < cols {
+            val idx = i * cols + j
+            grid[idx] = idx + 1
+            j = j + 1
+        }
+        i = i + 1
+    }
+
+    -- Sum all elements to verify correctness
+    var sum = 0
+    var k = 0
+    while k < rows * cols {
+        sum = sum + grid[k]
+        k = k + 1
+    }
+    println("{sum}")
+
+    -- Verify specific elements
+    val first = grid[0]
+    val last = grid[11]
+    println("{first}")
+    println("{last}")
+}

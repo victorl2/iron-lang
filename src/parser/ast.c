@@ -24,6 +24,7 @@ static const char *s_node_kind_names[IRON_NODE_COUNT] = {
     [IRON_NODE_LEAK]            = "LeakStmt",
     [IRON_NODE_SPAWN]           = "SpawnStmt",
     [IRON_NODE_BLOCK]           = "Block",
+    [IRON_NODE_IN_ARENA]        = "InArenaBlock",  /* Phase 28 ARENA-02 */
     [IRON_NODE_INT_LIT]         = "IntLit",
     [IRON_NODE_FLOAT_LIT]       = "FloatLit",
     [IRON_NODE_STRING_LIT]      = "StringLit",
@@ -41,6 +42,7 @@ static const char *s_node_kind_names[IRON_NODE_COUNT] = {
     [IRON_NODE_LAMBDA]          = "LambdaExpr",
     [IRON_NODE_HEAP]            = "HeapExpr",
     [IRON_NODE_RC]              = "RcExpr",
+    [IRON_NODE_WEAK_RC_NULL]    = "WeakRcNullExpr",  /* Phase 27 POL-08 */
     [IRON_NODE_COMPTIME]        = "ComptimeExpr",
     [IRON_NODE_IS]              = "IsExpr",
     [IRON_NODE_CONSTRUCT]       = "ConstructExpr",
@@ -191,6 +193,12 @@ void iron_ast_walk(Iron_Node *root, Iron_Visitor *v) {
             walk_child(n->body, v);
             break;
         }
+        case IRON_NODE_IN_ARENA: {  /* Phase 28 ARENA-02 (Plan 28-03) */
+            Iron_InArenaBlock *n = (Iron_InArenaBlock *)root;
+            walk_child(n->arena_expr, v);
+            walk_child(n->body, v);
+            break;
+        }
         case IRON_NODE_MATCH: {
             Iron_MatchStmt *n = (Iron_MatchStmt *)root;
             walk_child(n->subject, v);
@@ -302,6 +310,9 @@ void iron_ast_walk(Iron_Node *root, Iron_Visitor *v) {
             walk_child(n->inner, v);
             break;
         }
+        case IRON_NODE_WEAK_RC_NULL:
+            /* Phase 27 POL-08: leaf node — no children to walk. */
+            break;
         case IRON_NODE_COMPTIME: {
             Iron_ComptimeExpr *n = (Iron_ComptimeExpr *)root;
             walk_child(n->inner, v);

@@ -1,0 +1,5 @@
+val GREETING = comptime "hello comptime"
+
+func main() {
+  println(GREETING)
+}

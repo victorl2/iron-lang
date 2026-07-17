@@ -1,0 +1,24 @@
+-- Test: deeply nested expression inlining
+-- Verifies correct results for expressions that would produce
+-- depth > 3 inlining chains with value-ID anchor comments.
+
+func main() {
+    val a = 2
+    val b = 3
+    val c = 4
+    val d = 5
+    val e = 6
+
+    val step1 = a + b
+    val step2 = step1 * c
+    val step3 = step2 - d
+    val step4 = step3 + e
+    val step5 = step4 * a
+    println("{step5}")
+
+    val x = 10
+    val y = x + x
+    val z = y * y
+    val w = z - x
+    println("{w}")
+}

@@ -1,0 +1,14 @@
+-- section 4.12 debug-leak: forgotten-free lint (DBG-05)
+-- @req: DBG-05
+-- @expected-pass-after: phase-31
+-- A non-escaping heap binding that is never freed, never leaked, and never
+-- defer-freed must raise the W0606 forgotten-free warning (best-effort lint,
+-- NOT a hard error). The lint lands in Plan 31-02; this fixture is the RED
+-- target authored in Wave 0.
+
+object Point { var x: Int; var y: Int }
+
+func main() {
+    val p = heap Point(1, 2)
+    println("x: {p.x}")
+}

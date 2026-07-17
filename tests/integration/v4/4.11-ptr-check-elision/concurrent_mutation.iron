@@ -1,0 +1,31 @@
+-- section 4.11 pointer-check elision: concurrent-mutation soundness trap
+-- @req: OPT-03, OQ-08
+-- @expected-pass-after: phase-37
+-- XFAIL (phase-37): spawn handle surface (`val t = spawn f(args)` + `await t`) not implemented.
+-- extends-spec: POINTER-CHECK-ELISION.md soundness trap "concurrent mutation" —
+-- a generation check straddles a `spawn`/`await`. A naive elision that deleted
+-- the second deref's check (assuming the root allocation is still fresh) would
+-- be unsound: another thread may have freed/mutated the allocation between the
+-- two checks, and cross-thread frees are invisible to single-threaded dataflow.
+-- SPAWN/PARALLEL_FOR is therefore a HARD may-free barrier — the check is
+-- PRESERVED. This run takes the no-free path, so the value prints correctly.
+
+object Sample {
+    val value: Int
+}
+
+func observe(s: *Sample) {
+    println("worker sees: {s.value}")
+}
+
+func main() {
+    val sample = Sample(7)
+    val ptr: *Sample = &sample
+    -- first deref before the spawn
+    println("before: {ptr.value}")
+    val t = spawn observe(&sample)
+    await t
+    -- second deref AFTER the spawn — its gen-check must NOT be elided across
+    -- the concurrent barrier even though `sample` was not actually freed.
+    println("after: {ptr.value}")
+}

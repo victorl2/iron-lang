@@ -1,0 +1,18 @@
+-- section 10.5 extends-spec: leak detection at exit reports leaked allocations
+-- @req: POL-04
+-- @expected-pass-after: phase-31
+-- @expect-panic: leaked at exit:
+-- extends-spec: intentional leak via 'leak' keyword; debug allocator reports at exit with non-zero code
+
+object World {
+    val seed: Int
+    val size: Int
+}
+
+func main() {
+    val w = leak heap World(seed: 1, size: 64)
+    -- 'leak' keyword marks intentional leak; allocation is not freed
+    -- section 10.5: debug build reports "leaked at exit: World@<addr> (1 allocation)"
+    -- harness verifies non-zero exit AND stderr contains "leaked at exit:"
+    println("work")
+}

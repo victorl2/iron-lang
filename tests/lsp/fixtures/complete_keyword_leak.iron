@@ -1,0 +1,13 @@
+// Phase 34 LSP-03: `leak` visible at expression positions (it's an allocation
+// policy / explicit-leak operator). Hidden in type annotations.
+object Buffer { val size: Int }
+func main() {
+    val buf = heap Buffer(1024)
+    // COMPLETE@6:5
+    // EXPECT_VISIBLE: leak
+    leak buf
+
+    // COMPLETE@10:14
+    // EXPECT_HIDDEN: leak
+    val n: Int = 1
+}

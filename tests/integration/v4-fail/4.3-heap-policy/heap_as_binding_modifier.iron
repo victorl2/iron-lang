@@ -1,0 +1,7 @@
+-- section 4.3 negative: heap keyword as binding modifier
+-- @req: POL-03
+-- @expected-pass-after: phase-21
+
+func main() {
+    heap val p = 42
+}

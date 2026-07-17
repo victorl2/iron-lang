@@ -1,0 +1,58 @@
+-- section 8.3 rc shared resources: AssetManager + Sprite verbatim
+-- @req: POL-06, POL-07
+-- @expected-pass-after: phase-26
+-- rc Texture shared across sprites; refcount bumps on assignment; drop fires once at last release
+
+object Texture {
+    val path: String
+
+    drop {
+        println("freeing: {path}")
+    }
+}
+
+object Sound {
+    val path: String
+}
+
+object AssetManager {
+    var textures: Map[String, rc Texture]
+    var sounds: Map[String, rc Sound]
+
+    init() {
+        self.textures = Map.new()
+        self.sounds = Map.new()
+    }
+
+    func load_texture(self: *var AssetManager, path: String) -> rc Texture {
+        val existing = self.textures.get(path)
+        if existing != null { return existing.value }
+
+        val tex = rc Texture(path: path)
+        self.textures.put(path, tex)
+        return tex
+    }
+}
+
+object Vec2 {
+    val x: Float
+    val y: Float
+}
+
+object Sprite {
+    var pos: Vec2
+    val texture: rc Texture
+
+    init(pos: Vec2, texture: rc Texture) {
+        self.pos = pos
+        self.texture = texture            -- copy hook bumps refcount
+    }
+}
+
+func main() {
+    var assets = AssetManager()
+    val tex1 = assets.load_texture("hero.png")
+    val tex2 = assets.load_texture("hero.png")
+    -- tex2 is the same rc as tex1; refcount = 3 (cache + tex1 + tex2)
+    println("loaded twice")
+}

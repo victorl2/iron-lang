@@ -1,0 +1,8 @@
+-- Phase 34 LSP-01: hover renders policy=heap for a heap-allocated binding.
+--
+-- HOVER@6:9
+object Buffer { val size: Int }
+func main() {
+    val buffer = heap Buffer(1024)
+    defer free buffer
+}

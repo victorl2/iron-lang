@@ -1,0 +1,5 @@
+physics init
+renderer init
+running
+renderer shutdown
+physics shutdown

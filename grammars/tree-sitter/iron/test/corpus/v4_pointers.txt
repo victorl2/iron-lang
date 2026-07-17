@@ -1,0 +1,75 @@
+==========
+pointer type checked
+==========
+
+func f(p: *Int) { }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (pointer_type
+          (type_identifier
+            (identifier)))))
+    body: (block)))
+
+==========
+pointer type mutable var
+==========
+
+func f(p: *var Int) { }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (pointer_type
+          (type_identifier
+            (identifier)))))
+    body: (block)))
+
+==========
+pointer type unchecked
+==========
+
+func f(p: *unchecked Int) { }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (pointer_type
+          (type_identifier
+            (identifier)))))
+    body: (block)))
+
+==========
+pointer type nullable var unchecked full stack
+==========
+
+func f(p: ?*var unchecked Int) { }
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (pointer_type
+          (type_identifier
+            (identifier)))))
+    body: (block)))

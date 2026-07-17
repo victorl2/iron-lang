@@ -1,0 +1,21 @@
+-- @expected-pass-after: phase-24-02
+-- Phase 24: drop body cannot return early → E0288 (CONTEXT Area 5)
+object Resource {
+    var handle: Int
+
+    init(handle: Int) {
+        self.handle = handle
+    }
+
+    drop {
+        if (self.handle == 0) {
+            return  -- early-return inside drop body — must trigger E0288
+        }
+        -- continuation after early return
+    }
+}
+
+func main() -> Int {
+    val r = Resource(handle: 0)
+    return 0
+}

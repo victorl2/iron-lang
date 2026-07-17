@@ -1,0 +1,28 @@
+-- section 4.11 pointer-check elision: stale-after-grow soundness trap
+-- @req: OPT-03, OQ-08
+-- @expect-panic: dangling pointer to invalidated element
+-- @expected-pass-after: phase-37
+-- XFAIL (phase-37): List.new(capacity) constructor arg not dispatched (only zero-arg List.new); fixture needs a small capacity to force the grow.
+-- extends-spec: POINTER-CHECK-ELISION.md soundness trap "stale after grow" —
+-- a generation check straddles a container grow that reallocates the backing
+-- buffer. A naive elision that judged the second deref redundant w.r.t. the
+-- first (same element pointer) would be unsound: `push` past capacity frees the
+-- old backing root and the element pointer is now dangling. Container-grow is a
+-- may-free of the backing-buffer root, so the check is PRESERVED and fires —
+-- this fixture deterministically panics on the stale deref.
+
+func main() {
+    var list: List[Int] = List.new(4)
+    list.push(10)
+    list.push(20)
+    list.push(30)
+    list.push(40)
+    -- pointer into element 0 before the list grows
+    val ptr: *Int = &list[0]
+    println("fresh: {ptr}")
+    -- force reallocation of the backing buffer (grow past capacity)
+    list.push(50)
+    list.push(60)
+    -- stale deref: backing root was freed by the grow; gen-check must fire
+    println("stale: {ptr}")
+}

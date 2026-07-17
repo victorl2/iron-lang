@@ -26,11 +26,38 @@
 
 set -euo pipefail
 
+# Returns 0 (true) if the fixture should be treated as XFAIL given the directive
+# and the current phase. Phase 15 baseline: IRON_CURRENT_PHASE defaults to 15;
+# fixtures with @expected-pass-after: phase-N where N > IRON_CURRENT_PHASE are XFAIL.
+# Override with env IRON_CURRENT_PHASE for testing.
+classify_xfail() {
+    local pass_after_phase="$1"   # e.g. "21" (digits only)
+    local current_phase="${IRON_CURRENT_PHASE:-15}"
+    [ -z "${pass_after_phase}" ] && return 1
+    [ "${pass_after_phase}" -gt "${current_phase}" ] && return 0
+    return 1
+}
+
 CATEGORY="${1:?usage: run_tests.sh <category> [iron-bin]}"
 IRON_BIN_ARG="${2:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_DIR="${SCRIPT_DIR}/${CATEGORY}"
+
+# v4-acceptance corpus lives under tests/integration/v4* not tests/v4*; reroute.
+# Phase 35 MIG-08: v3-archive (opt-in via IRON_RUN_ARCHIVED_V3_CORPUS) lives at
+# tests/integration/v3-archive/; reroute the same way.
+if [ "${CATEGORY}" = "v4" ]; then
+    TEST_DIR="${SCRIPT_DIR}/integration/v4"
+elif [ "${CATEGORY}" = "v4-fail" ]; then
+    TEST_DIR="${SCRIPT_DIR}/integration/v4-fail"
+elif [ "${CATEGORY}" = "v3-archive" ]; then
+    TEST_DIR="${SCRIPT_DIR}/integration/v3-archive"
+elif [ "${CATEGORY}" = "v4-migrated" ]; then
+    # Phase 35 MIG-09: dedicated category for the hand-migrated v3 corpus.
+    # Uses the same recursive walk as the v4 category by aliasing CATEGORY.
+    TEST_DIR="${SCRIPT_DIR}/integration/v4/migrated-from-v3"
+fi
 
 if [ -z "${IRON_BIN_ARG}" ]; then
     IRON_BIN_ARG="${SCRIPT_DIR}/../build/iron"
@@ -51,6 +78,7 @@ fi
 
 PASS=0
 FAIL=0
+XFAIL=0
 TOTAL=0
 
 echo "=== Iron ${CATEGORY} Tests ==="
@@ -274,9 +302,36 @@ if [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/lib_consume" ]; then
     done
 fi
 
-for test_file in "${TEST_DIR}"/*.iron; do
+# v4 corpus uses §-section subdirs (e.g. v4/3.2-heap/happy.iron); walk recursively.
+# v4-migrated likewise (Phase 35 MIG-09: hand-migrated v3 corpus under v4/migrated-from-v3/<category>/).
+# Other categories use flat glob.
+if [ "${CATEGORY}" = "v4" ] || [ "${CATEGORY}" = "v4-migrated" ]; then
+    # Recursive walk; each subdir contains .iron + .expected pairs.
+    iron_files_v4=$(find "${TEST_DIR}" -type f -name '*.iron' | sort)
+else
+    iron_files_v4=""
+fi
+
+_main_loop_files=""
+if [ "${CATEGORY}" = "v4" ] || [ "${CATEGORY}" = "v4-migrated" ]; then
+    _main_loop_files="${iron_files_v4}"
+else
+    # Build a newline-delimited list from the flat glob (nullglob already set).
+    for _f in "${TEST_DIR}"/*.iron; do
+        _main_loop_files="${_main_loop_files}${_f}
+"
+    done
+fi
+
+for test_file in ${_main_loop_files}; do
+    [ -f "${test_file}" ] || continue
     test_name=$(basename "${test_file}" .iron)
-    expected_file="${TEST_DIR}/${test_name}.expected"
+    # v4 fixtures live in §-section subdirs; derive expected_file from the sibling path.
+    if [ "${CATEGORY}" = "v4" ] || [ "${CATEGORY}" = "v4-migrated" ]; then
+        expected_file="$(dirname "${test_file}")/${test_name}.expected"
+    else
+        expected_file="${TEST_DIR}/${test_name}.expected"
+    fi
     TOTAL=$((TOTAL + 1))
 
     # @compile-only marker: grep the first 10 lines of the .iron source.
@@ -288,13 +343,47 @@ for test_file in "${TEST_DIR}"/*.iron; do
         compile_only=1
     fi
 
-    if [ ! -f "${expected_file}" ] && [ "${compile_only}" -eq 0 ]; then
+    # Extract v4 directives from first 10 lines.
+    expected_pass_after=""
+    expect_panic_substr=""
+    if head -n 10 "${test_file}" | grep -qE '^[[:space:]]*--[[:space:]]*@expected-pass-after:'; then
+        expected_pass_after=$(head -n 10 "${test_file}" \
+            | grep -oE '@expected-pass-after:[[:space:]]+phase-[0-9]+' \
+            | head -1 | sed 's/.*phase-//')
+    fi
+    if head -n 10 "${test_file}" | grep -qE '^[[:space:]]*--[[:space:]]*@expect-panic:'; then
+        expect_panic_substr=$(head -n 10 "${test_file}" \
+            | grep -E '^[[:space:]]*--[[:space:]]*@expect-panic:' \
+            | head -1 | sed -E 's/^[[:space:]]*--[[:space:]]*@expect-panic:[[:space:]]*//')
+    fi
+
+    if [ ! -f "${expected_file}" ] && [ "${compile_only}" -eq 0 ] && [ -z "${expect_panic_substr}" ] && [ -z "${expected_pass_after}" ]; then
         echo "[FAIL] ${test_name} (missing .expected; add an .expected sibling or an '-- @compile-only' marker)"
         FAIL=$((FAIL + 1))
         continue
     fi
 
     echo -n "[RUN ] ${test_name} ... "
+
+    # XFAIL fast-path: fixtures pinned to a future phase are expected to fail at this phase.
+    # Try build; if it fails AND directive present, count XFAIL. If it passes unexpectedly,
+    # fall through to normal handling so the regular comparison runs (and likely flips PASS).
+    if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+        xfail_dir="${WORK_DIR}/${test_name}_xfail_$$"
+        mkdir -p "${xfail_dir}"
+        set +e
+        (cd "${xfail_dir}" && "${IRON_BIN}" build "${test_file}") > "${WORK_DIR}/${test_name}_xfail_$$.log" 2>&1
+        build_rc=$?
+        set -e
+        if [ "${build_rc}" -ne 0 ]; then
+            rm -rf "${xfail_dir}"
+            echo "[XFAIL] (build failed; expected-pass-after: phase-${expected_pass_after})"
+            XFAIL=$((XFAIL + 1))
+            continue
+        fi
+        # Unexpected success — clean up the XFAIL dir and fall through to normal pipeline classify
+        rm -rf "${xfail_dir}"
+    fi
 
     # Build the test in a temp directory so the output binary is isolated
     build_dir="${WORK_DIR}/${test_name}"
@@ -325,6 +414,40 @@ for test_file in "${TEST_DIR}"/*.iron; do
         continue
     fi
 
+    # @expect-panic: build, run, expect non-zero exit + stderr substring.
+    if [ -n "${expect_panic_substr}" ]; then
+        set +e
+        run_output=$("${output_bin}" 2>&1)
+        run_rc=$?
+        set -e
+        if [ "${run_rc}" -eq 0 ]; then
+            if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+                echo "[XFAIL] (@expect-panic: no panic yet; expected-pass-after: phase-${expected_pass_after})"
+                XFAIL=$((XFAIL + 1))
+            else
+                echo "[FAIL] (@expect-panic: expected non-zero exit)"
+                FAIL=$((FAIL + 1))
+            fi
+        elif ! echo "${run_output}" | grep -qF "${expect_panic_substr}"; then
+            if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+                echo "[XFAIL] (@expect-panic: panic missing substring; expected-pass-after: phase-${expected_pass_after})"
+                XFAIL=$((XFAIL + 1))
+            else
+                echo "[FAIL] (@expect-panic: stderr missing '${expect_panic_substr}')"
+                FAIL=$((FAIL + 1))
+            fi
+        else
+            if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+                echo "[XFAIL] (@expect-panic: correct but not yet unlocked; expected-pass-after: phase-${expected_pass_after})"
+                XFAIL=$((XFAIL + 1))
+            else
+                echo "[PASS] (@expect-panic)"
+                PASS=$((PASS + 1))
+            fi
+        fi
+        continue
+    fi
+
     # Run and capture stdout+stderr
     actual=$("${output_bin}" 2>&1) || true
 
@@ -333,15 +456,91 @@ for test_file in "${TEST_DIR}"/*.iron; do
     expected="${expected%$'\n'}"
 
     if [ "${actual}" = "${expected}" ]; then
-        echo "[PASS]"
-        PASS=$((PASS + 1))
+        if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+            echo "[XFAIL] (build+output correct but not yet unlocked; expected-pass-after: phase-${expected_pass_after})"
+            XFAIL=$((XFAIL + 1))
+        else
+            echo "[PASS]"
+            PASS=$((PASS + 1))
+        fi
     else
-        echo "[FAIL]"
-        echo "  Expected: $(echo "${expected}" | head -5)"
-        echo "  Actual:   $(echo "${actual}" | head -5)"
-        FAIL=$((FAIL + 1))
+        if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+            echo "[XFAIL] (output mismatch; expected-pass-after: phase-${expected_pass_after})"
+            echo "  Expected: $(echo "${expected}" | head -5)"
+            echo "  Actual:   $(echo "${actual}" | head -5)"
+            XFAIL=$((XFAIL + 1))
+        else
+            echo "[FAIL]"
+            echo "  Expected: $(echo "${expected}" | head -5)"
+            echo "  Actual:   $(echo "${actual}" | head -5)"
+            FAIL=$((FAIL + 1))
+        fi
     fi
 done
+
+# v4-fail negative corpus: build MUST fail + stderr MUST contain .expected substring.
+if [ "${CATEGORY}" = "v4-fail" ]; then
+    for test_file in $(find "${TEST_DIR}" -type f -name '*.iron' | sort); do
+        TOTAL=$((TOTAL + 1))
+        rel_path="${test_file#${TEST_DIR}/}"
+        echo -n "[RUN ] ${rel_path} ... "
+
+        expected_file="${test_file%.iron}.expected"
+        if [ ! -f "${expected_file}" ]; then
+            echo "[FAIL] (no .expected substring file)"
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+
+        # Re-extract @expected-pass-after for XFAIL handling
+        expected_pass_after=""
+        if head -n 10 "${test_file}" | grep -qE '^[[:space:]]*--[[:space:]]*@expected-pass-after:'; then
+            expected_pass_after=$(head -n 10 "${test_file}" \
+                | grep -oE '@expected-pass-after:[[:space:]]+phase-[0-9]+' \
+                | head -1 | sed 's/.*phase-//')
+        fi
+
+        build_log="${WORK_DIR}/$(basename "${test_file}" .iron)_$$.log"
+        set +e
+        (cd "${WORK_DIR}" && "${IRON_BIN}" check "${test_file}") > "${build_log}" 2>&1
+        build_rc=$?
+        set -e
+
+        # Negative test: build/check MUST fail.
+        if [ "${build_rc}" -eq 0 ]; then
+            if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+                echo "[XFAIL] (build unexpectedly passed; expected-pass-after: phase-${expected_pass_after})"
+                XFAIL=$((XFAIL + 1))
+            else
+                echo "[FAIL] (expected build to fail; exit 0)"
+                FAIL=$((FAIL + 1))
+            fi
+            continue
+        fi
+
+        # Build failed. Check substring.
+        expected_substr=$(cat "${expected_file}")
+        expected_substr="${expected_substr%$'\n'}"
+        if grep -qF "${expected_substr}" "${build_log}"; then
+            echo "[PASS]"
+            PASS=$((PASS + 1))
+        else
+            if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+                echo "[XFAIL] (substring mismatch; expected-pass-after: phase-${expected_pass_after})"
+                XFAIL=$((XFAIL + 1))
+            else
+                echo "[FAIL] (stderr missing substring: ${expected_substr})"
+                FAIL=$((FAIL + 1))
+            fi
+        fi
+    done
+
+    echo ""
+    echo "=== Summary ==="
+    echo "PASS=${PASS} FAIL=${FAIL} XFAIL=${XFAIL} TOTAL=${TOTAL}"
+    if [ "${FAIL}" -gt 0 ]; then exit 1; fi
+    exit 0
+fi
 
 # Phase 95 PIN: directory-shaped iron.toml-rooted fixtures under
 # tests/integration/pin_*/. Three cases lock the satisfied / mismatch /
@@ -490,8 +689,8 @@ if [ "${CATEGORY}" = "integration" ] && [ -x "${TEST_DIR}/help_no_side_effects_s
 fi
 
 echo ""
-echo "Results: ${PASS} passed, ${FAIL} failed, ${TOTAL} total"
-
+echo "=== Summary ==="
+echo "PASS=${PASS} FAIL=${FAIL} XFAIL=${XFAIL} TOTAL=${TOTAL}"
 if [ "${FAIL}" -gt 0 ]; then
     exit 1
 fi

@@ -1,0 +1,17 @@
+-- section 4.9 weak rc policy: upgrade type inference returns T?
+-- @req: POL-09
+-- @expected-pass-after: phase-37
+-- XFAIL (phase-37): `rc T` type annotations not in the v4 surface.
+-- typecheck must infer the upgrade() result type as rc Foo? (nullable
+-- strong) per CONTEXT.md GA2. The explicit annotation locks it in.
+
+object Foo {
+    val v: Int
+}
+
+func main() {
+    val strong = rc Foo(7)
+    val observer = strong.downgrade()
+    val maybe_strong: rc Foo? = observer.upgrade()
+    println("upgrade typechecks as T?")
+}

@@ -1,0 +1,25 @@
+-- section 3.2 heap policy + defer free
+-- @req: POL-04, DEFER-01, DEFER-03
+-- @expected-pass-after: phase-32
+-- extends-spec: defer LIFO at scope exit; 3 registrations prove reverse ordering
+
+object Item {
+    val label: String
+
+    drop {
+        println("drop: {label}")
+    }
+}
+
+func main() {
+    val a = heap Item(label: "a")
+    defer free a
+    println("registered a")
+    val b = heap Item(label: "b")
+    defer free b
+    println("registered b")
+    val c = heap Item(label: "c")
+    defer free c
+    println("registered c")
+    println("scope exit")
+}

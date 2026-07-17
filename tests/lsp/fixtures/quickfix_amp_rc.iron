@@ -1,0 +1,8 @@
+// Phase 34 LSP-09: taking the address of an `rc` value triggers
+// IRON_ERR_PTR_AMP_ON_RC=296. Quickfix rewrites `&r` to `r.downgrade()`
+// (the canonical weak-rc obtain operation).
+object Point { val x: Int val y: Int }
+func main() {
+    val r = rc Point(1, 2)
+    val p = &r
+}

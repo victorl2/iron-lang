@@ -28,6 +28,91 @@ target_link_libraries(test_parser_errors iron_compiler unity)
 add_test(NAME test_parser_errors COMMAND test_parser_errors)
 set_tests_properties(test_parser_errors PROPERTIES LABELS "unit")
 
+# Phase 16 Wave 0: v4 keyword tokenization (RED until Plan 16-02 lands lexer additions).
+add_executable(test_lexer_v4_keywords test_lexer_v4_keywords.c)
+target_link_libraries(test_lexer_v4_keywords iron_compiler unity)
+add_test(NAME test_lexer_v4_keywords COMMAND test_lexer_v4_keywords)
+set_tests_properties(test_lexer_v4_keywords PROPERTIES LABELS "unit")
+
+# Phase 16 Wave 0: v4 keyword binding-position rejection (RED until Plan 16-02 lands parser helper).
+add_executable(test_parser_v4_keyword_rejection test_parser_v4_keyword_rejection.c)
+target_link_libraries(test_parser_v4_keyword_rejection iron_compiler unity)
+add_test(NAME test_parser_v4_keyword_rejection COMMAND test_parser_v4_keyword_rejection)
+set_tests_properties(test_parser_v4_keyword_rejection PROPERTIES LABELS "unit")
+
+# Phase 17 Wave 0: VAL-01 (bare local) + VAL-02 (bare field) parser rejection.
+# RED until Plan 17-01 lands IRON_ERR_MISSING_VAL_VAR=176 + parser lookahead.
+add_executable(test_parser_val_var_required test_parser_val_var_required.c)
+target_link_libraries(test_parser_val_var_required iron_compiler unity)
+add_test(NAME test_parser_val_var_required COMMAND test_parser_val_var_required)
+set_tests_properties(test_parser_val_var_required PROPERTIES
+    LABELS "unit;phase17-invariant")
+
+# Phase 17 Wave 0 (Plan 02): VAL-03 init-context check + VAL-04 var-field
+# reassignability. RED until Plan 17-02 lands IRON_ERR_VAL_FIELD_REASSIGN=265
+# and extends typecheck.c:3924-3969 with the non-pub val branch.
+add_executable(test_analyzer_val_field_reassign test_analyzer_val_field_reassign.c)
+target_link_libraries(test_analyzer_val_field_reassign iron_compiler unity)
+add_test(NAME test_analyzer_val_field_reassign COMMAND test_analyzer_val_field_reassign)
+set_tests_properties(test_analyzer_val_field_reassign PROPERTIES
+    LABELS "unit;phase17-invariant")
+
+# Phase 17 Wave 0 (Plan 02): VAL-05 + VAL-06 unused-var pass.
+# RED until Plan 17-02 lands IRON_WARN_UNUSED_VAR=613 +
+# IRON_WARN_UNUSED_VAR_PARAM=614 + src/analyzer/unused_var.c pass +
+# src/analyzer/analyzer.c dispatcher insertion between Step 3.5 and Step 4.
+add_executable(test_analyzer_unused_var test_analyzer_unused_var.c)
+target_link_libraries(test_analyzer_unused_var iron_compiler unity)
+add_test(NAME test_analyzer_unused_var COMMAND test_analyzer_unused_var)
+set_tests_properties(test_analyzer_unused_var PROPERTIES
+    LABELS "unit;phase17-invariant")
+
+# Phase 18 Wave 0 (Plan 01): PARM-01 read-only parameter mutation rejection
+# + PARM-02 var-opt-in sanity. RED until Plan 18-01 lands
+# IRON_ERR_PARM_READ_ONLY=266 in src/diagnostics/diagnostics.h and
+# extends typecheck.c IRON_NODE_ASSIGN handler with sym_kind == IRON_SYM_PARAM
+# branch.
+add_executable(test_analyzer_parm_read_only test_analyzer_parm_read_only.c)
+target_link_libraries(test_analyzer_parm_read_only iron_compiler unity)
+add_test(NAME test_analyzer_parm_read_only COMMAND test_analyzer_parm_read_only)
+set_tests_properties(test_analyzer_parm_read_only PROPERTIES
+    LABELS "unit;phase18-invariant")
+
+# Phase 18 Wave 0 (Plan 01): VAL-06 false-positive regression test.
+# RED until Plan 18-01 extends src/analyzer/unused_var.c scan_for_writes
+# to mark FIELD_ACCESS-rooted IDENTs as written.
+add_executable(test_analyzer_unused_var_param_field_write
+    test_analyzer_unused_var_param_field_write.c)
+target_link_libraries(test_analyzer_unused_var_param_field_write iron_compiler unity)
+add_test(NAME test_analyzer_unused_var_param_field_write
+    COMMAND test_analyzer_unused_var_param_field_write)
+set_tests_properties(test_analyzer_unused_var_param_field_write PROPERTIES
+    LABELS "unit;phase18-invariant")
+
+# Phase 18 Wave 0 (Plan 02): PARM-03 read-only-arg-to-var-slot rejection
+# covering BOTH IRON_NODE_CALL (free-function) AND IRON_NODE_METHOD_CALL
+# (method-call) paths. RED until Plan 18-02 lands
+# IRON_ERR_PARM_VAR_SLOT_NEEDS_MUT=267 in src/diagnostics/diagnostics.h
+# AND extends typecheck.c IRON_NODE_CALL handler at lines 2204-2226
+# + IRON_NODE_METHOD_CALL handler at line 2286+ with the per-arg PARM-03
+# check using the static helper arg_source_is_mutable.
+add_executable(test_analyzer_parm_var_slot test_analyzer_parm_var_slot.c)
+target_link_libraries(test_analyzer_parm_var_slot iron_compiler unity)
+add_test(NAME test_analyzer_parm_var_slot COMMAND test_analyzer_parm_var_slot)
+set_tests_properties(test_analyzer_parm_var_slot PROPERTIES
+    LABELS "unit;phase18-invariant")
+
+# Phase 18 Wave 0 (Plan 02): PARM-04 method receiver tier regression-anchor
+# (NOT a Wave 0 RED gate — Plan 18-02 leaves the existing Phase 84
+# IRON_ERR_READONLY_WRITE_SELF=238 enforcement untouched). 3 RUN_TESTs
+# verify default-mutable receiver works + readonly opt-out continues to
+# emit E0238 + CONTEXT.md "reuse 265" amendment lock (KEEP 238 dedicated).
+add_executable(test_analyzer_method_receiver test_analyzer_method_receiver.c)
+target_link_libraries(test_analyzer_method_receiver iron_compiler unity)
+add_test(NAME test_analyzer_method_receiver COMMAND test_analyzer_method_receiver)
+set_tests_properties(test_analyzer_method_receiver PROPERTIES
+    LABELS "unit;phase18-invariant")
+
 add_executable(test_interp test_interp.c)
 target_link_libraries(test_interp iron_compiler unity)
 add_test(NAME test_interp COMMAND test_interp)
@@ -577,6 +662,15 @@ if(IRON_BUILD_LSP)
         # Phase 12 Plan 12-03 (QF-05): 1-or-2 action handler for code 239.
         # Calls ilsp_nav_path_is_stdlib (already linked via nav_common.c).
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_calls_mutating.c
+        # Phase 34 Plan 34-04 (LSP-06..09): 4 new single-action memory-model
+        # quickfix handlers. test_table_sorted_asc_by_code references the
+        # symbols so each TU must be compiled into this test binary.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_val_var.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_forgotten_free.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_unused_var_alloc.c
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_amp_rc.c
+        # Phase 34 Plan 34-04 (LSP-10): two-action readonly-memory handler.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_readonly_memory.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c
@@ -978,3 +1072,542 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m6-invariant"
         TIMEOUT 30)
 endif()
+
+# ── Phase 19 plan-01: heap-tracker SAFE-01/02/05 ─────────────────────────────
+# Generational pointer infrastructure runtime substrate. Both tests link
+# iron_runtime (where iron_heap_track.c lives) + unity. The double-free
+# panic test inside test_runtime_heap_free is TEST_IGNORE'd until Plan 19-02
+# ships iron_panic_stale_pointer's body.
+add_executable(test_runtime_heap_alloc test_runtime_heap_alloc.c)
+target_link_libraries(test_runtime_heap_alloc iron_runtime unity)
+add_test(NAME test_runtime_heap_alloc COMMAND test_runtime_heap_alloc)
+set_tests_properties(test_runtime_heap_alloc PROPERTIES LABELS "unit;phase19-invariant")
+
+add_executable(test_runtime_heap_free test_runtime_heap_free.c)
+target_link_libraries(test_runtime_heap_free iron_runtime unity)
+add_test(NAME test_runtime_heap_free COMMAND test_runtime_heap_free)
+set_tests_properties(test_runtime_heap_free PROPERTIES LABELS "unit;phase19-invariant")
+
+# ── Phase 19 plan-02: panic mechanism SAFE-03/04/06 ─────────────────────────
+# Stale-pointer panic format + env-cached output channel + release-build
+# symbol retention. Fork-per-case panic-capture pattern (POSIX). The
+# release-mode sibling test compiles the same source with -DNDEBUG=1 -O2 to
+# verify SAFE-04: no `--release-skip-checks` flag exists; the deref check
+# and panic must survive in release-built iron_runtime.
+add_executable(test_runtime_panic_stale test_runtime_panic_stale.c)
+target_link_libraries(test_runtime_panic_stale iron_runtime unity)
+add_test(NAME test_runtime_panic_stale COMMAND test_runtime_panic_stale)
+set_tests_properties(test_runtime_panic_stale PROPERTIES
+    LABELS "unit;phase19-invariant"
+    TIMEOUT 30
+)
+
+# SAFE-04 release-build symbol presence — same source, Release-mode build.
+add_executable(test_runtime_panic_stale_release test_runtime_panic_stale.c)
+target_link_libraries(test_runtime_panic_stale_release iron_runtime unity)
+target_compile_definitions(test_runtime_panic_stale_release PRIVATE NDEBUG=1)
+target_compile_options(test_runtime_panic_stale_release PRIVATE -O2)
+add_test(NAME test_runtime_panic_stale_release COMMAND test_runtime_panic_stale_release)
+set_tests_properties(test_runtime_panic_stale_release PROPERTIES
+    LABELS "unit;phase19-invariant"
+    TIMEOUT 30
+)
+
+# ── Phase 19 plan-03: thread-safety stress test SAFE-01/05 ───────────────────
+# Counter atomicity (8 threads x 100k iterations alloc+free) + cross-thread
+# free panic (fork-per-consumer SIGABRT capture) + cross-thread deref panic
+# (fork-per-consumer SIGABRT capture). Mirrors the test_string_intern_race
+# TSAN-gated pattern: -fsanitize=thread on Linux, FAIL_REGULAR_EXPRESSION
+# converts any ThreadSanitizer warning into a test failure. POSIX-only;
+# Win32 path emits TEST_IGNORE_MESSAGE.
+add_executable(test_runtime_heap_concurrent test_runtime_heap_concurrent.c)
+target_link_libraries(test_runtime_heap_concurrent iron_runtime unity)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_options(test_runtime_heap_concurrent PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(test_runtime_heap_concurrent PRIVATE -fsanitize=thread)
+endif()
+add_test(NAME test_runtime_heap_concurrent COMMAND test_runtime_heap_concurrent)
+set_tests_properties(test_runtime_heap_concurrent PROPERTIES
+    LABELS "unit;phase19-invariant;tsan"
+    TIMEOUT 60
+    FAIL_REGULAR_EXPRESSION "WARNING: ThreadSanitizer"
+)
+
+# ── Phase 20 plan-01 — checked pointer types: type-system surface ────────────
+# PTR-01/11/12/13/14/15. Wave 0 RED: tests reference unallocated symbols
+# (IRON_TYPE_PTR / iron_type_make_ptr / IRON_ERR_PTR_NO_ARITH /
+#  Iron_TypeAnnotation.is_pointer/is_var_pointer/pointer_pointee). Build
+# fails until Plan 20-01 lands the parser + analyzer + diagnostics changes.
+add_executable(test_parser_ptr_type_annotation test_parser_ptr_type_annotation.c)
+target_link_libraries(test_parser_ptr_type_annotation iron_compiler unity)
+add_test(NAME test_parser_ptr_type_annotation COMMAND test_parser_ptr_type_annotation)
+set_tests_properties(test_parser_ptr_type_annotation PROPERTIES
+    LABELS "unit;phase20-invariant"
+    TIMEOUT 30
+)
+
+add_executable(test_parser_amp_unary test_parser_amp_unary.c)
+target_link_libraries(test_parser_amp_unary iron_compiler unity)
+add_test(NAME test_parser_amp_unary COMMAND test_parser_amp_unary)
+set_tests_properties(test_parser_amp_unary PROPERTIES
+    LABELS "unit;phase20-invariant"
+    TIMEOUT 30
+)
+
+add_executable(test_analyzer_ptr_distinct_types test_analyzer_ptr_distinct_types.c)
+target_link_libraries(test_analyzer_ptr_distinct_types iron_compiler unity)
+add_test(NAME test_analyzer_ptr_distinct_types COMMAND test_analyzer_ptr_distinct_types)
+set_tests_properties(test_analyzer_ptr_distinct_types PROPERTIES
+    LABELS "unit;phase20-invariant"
+    TIMEOUT 30
+)
+
+add_executable(test_analyzer_ptr_nullability test_analyzer_ptr_nullability.c)
+target_link_libraries(test_analyzer_ptr_nullability iron_compiler unity)
+add_test(NAME test_analyzer_ptr_nullability COMMAND test_analyzer_ptr_nullability)
+set_tests_properties(test_analyzer_ptr_nullability PROPERTIES
+    LABELS "unit;phase20-invariant"
+    TIMEOUT 30
+)
+
+# ── Phase 20 plan-02a — analyzer surface (PTR-06 / PTR-07 / PTR-10 compile) ──
+# Wave 0 RED: tests reference unallocated symbols (Iron_FieldAccess.is_auto_deref,
+# Iron_FuncDecl.takes_local_addr, iron_stack_gen, iron_check_stack_pointer_gen,
+# IRON_HIR_EXPR_ADDR_OF, IRON_LIR_ADDR_OF). Build failed until Plan 20-02a Tasks
+# 2-3 landed the analyzer surface; the two formerly-gated entries flipped
+# GREEN once Plan 20-02b shipped HIR/LIR/codegen + runtime.
+add_executable(test_analyzer_auto_deref_field test_analyzer_auto_deref_field.c)
+target_link_libraries(test_analyzer_auto_deref_field iron_compiler unity)
+add_test(NAME test_analyzer_auto_deref_field COMMAND test_analyzer_auto_deref_field)
+set_tests_properties(test_analyzer_auto_deref_field PROPERTIES
+    LABELS "unit;phase20-invariant"
+    TIMEOUT 30
+)
+
+add_executable(test_analyzer_auto_address_call test_analyzer_auto_address_call.c)
+target_link_libraries(test_analyzer_auto_address_call iron_compiler unity)
+add_test(NAME test_analyzer_auto_address_call COMMAND test_analyzer_auto_address_call)
+set_tests_properties(test_analyzer_auto_address_call PROPERTIES
+    LABELS "unit;phase20-invariant"
+    TIMEOUT 30
+)
+
+add_executable(test_analyzer_pointer_assignability test_analyzer_pointer_assignability.c)
+target_link_libraries(test_analyzer_pointer_assignability iron_compiler unity)
+add_test(NAME test_analyzer_pointer_assignability COMMAND test_analyzer_pointer_assignability)
+set_tests_properties(test_analyzer_pointer_assignability PROPERTIES
+    LABELS "unit;phase20-invariant"
+    TIMEOUT 30
+)
+
+# Phase 20 Plan 02b — pending-LABEL dropped now that the HIR/LIR/codegen
+# plumbing + runtime substrate (iron_stack_gen TLS slot,
+# iron_check_stack_pointer_gen static-inline, iron_panic_stale_stack_pointer
+# panic helper) have landed. These two tests now run under the default
+# `ctest -L phase20-invariant` sweep alongside the other 7 Phase 20 entries
+# (4 from 20-01 + 3 analyzer-pure from 20-02a) for a cumulative 9/9 GREEN.
+add_executable(test_analyzer_addr_of_codegen test_analyzer_addr_of_codegen.c)
+target_link_libraries(test_analyzer_addr_of_codegen iron_compiler unity)
+add_test(NAME test_analyzer_addr_of_codegen COMMAND test_analyzer_addr_of_codegen)
+set_tests_properties(test_analyzer_addr_of_codegen PROPERTIES
+    LABELS "unit;phase20-invariant"
+    TIMEOUT 30
+)
+
+add_executable(test_runtime_stack_pointer_dangling test_runtime_stack_pointer_dangling.c)
+target_link_libraries(test_runtime_stack_pointer_dangling iron_runtime unity)
+add_test(NAME test_runtime_stack_pointer_dangling COMMAND test_runtime_stack_pointer_dangling)
+set_tests_properties(test_runtime_stack_pointer_dangling PROPERTIES
+    LABELS "unit;phase20-invariant"
+    TIMEOUT 30
+)
+
+# Phase 21 Plan 01 — Wave 0 RED -> GREEN
+# POL-03 position locks + POL-04/05 identifier-only checks + DEFER-02 structural check
+add_executable(test_heap_bad_position test_heap_bad_position.c)
+target_link_libraries(test_heap_bad_position iron_compiler unity)
+add_test(NAME test_heap_bad_position COMMAND test_heap_bad_position)
+set_tests_properties(test_heap_bad_position PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)
+
+add_executable(test_free_leak_target_check test_free_leak_target_check.c)
+target_link_libraries(test_free_leak_target_check iron_compiler unity)
+add_test(NAME test_free_leak_target_check COMMAND test_free_leak_target_check)
+set_tests_properties(test_free_leak_target_check PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)
+
+add_executable(test_defer_form_unsupported test_defer_form_unsupported.c)
+target_link_libraries(test_defer_form_unsupported iron_compiler unity)
+add_test(NAME test_defer_form_unsupported COMMAND test_defer_form_unsupported)
+set_tests_properties(test_defer_form_unsupported PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)
+
+# Phase 21 Plan 02 — Wave 0 RED -> GREEN codegen migration + is_leaked
+add_executable(test_heap_alloc_codegen test_heap_alloc_codegen.c)
+target_link_libraries(test_heap_alloc_codegen iron_compiler unity)
+add_test(NAME test_heap_alloc_codegen COMMAND test_heap_alloc_codegen)
+set_tests_properties(test_heap_alloc_codegen PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)
+
+add_executable(test_leak_symbol_flag test_leak_symbol_flag.c)
+target_link_libraries(test_leak_symbol_flag iron_compiler unity)
+add_test(NAME test_leak_symbol_flag COMMAND test_leak_symbol_flag)
+set_tests_properties(test_leak_symbol_flag PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)
+
+# Phase 21 Plan 03 — OQ-09 mechanical gate (B2 closure 2026-05-08)
+# Verifies heap T(...) compiles cleanly AND rc T(...) is rejected (closed-
+# policy enforcement), and that the asymmetry holds within a single function.
+add_executable(test_oq09_no_promotion test_oq09_no_promotion.c)
+target_link_libraries(test_oq09_no_promotion iron_compiler unity)
+add_test(NAME test_oq09_no_promotion COMMAND test_oq09_no_promotion)
+set_tests_properties(test_oq09_no_promotion PROPERTIES LABELS "unit;phase21-invariant" TIMEOUT 30)
+
+# Phase 22 Plan 01 — Wave 0 RED -> GREEN (READ-02/04/05 body-violation + READ-09 §6 hints)
+add_executable(test_readonly_param_mutation test_readonly_param_mutation.c)
+target_link_libraries(test_readonly_param_mutation iron_compiler unity)
+add_test(NAME test_readonly_param_mutation COMMAND test_readonly_param_mutation)
+set_tests_properties(test_readonly_param_mutation PROPERTIES LABELS "unit;phase22-invariant" TIMEOUT 30)
+
+add_executable(test_readonly_io test_readonly_io.c)
+target_link_libraries(test_readonly_io iron_compiler unity)
+add_test(NAME test_readonly_io COMMAND test_readonly_io)
+set_tests_properties(test_readonly_io PROPERTIES LABELS "unit;phase22-invariant" TIMEOUT 30)
+
+add_executable(test_readonly_heap_escape test_readonly_heap_escape.c)
+target_link_libraries(test_readonly_heap_escape iron_compiler unity)
+add_test(NAME test_readonly_heap_escape COMMAND test_readonly_heap_escape)
+set_tests_properties(test_readonly_heap_escape PROPERTIES LABELS "unit;phase22-invariant" TIMEOUT 30)
+
+add_executable(test_readonly_body test_readonly_body.c)
+target_link_libraries(test_readonly_body iron_compiler unity)
+add_test(NAME test_readonly_body COMMAND test_readonly_body)
+set_tests_properties(test_readonly_body PROPERTIES LABELS "unit;phase22-invariant" TIMEOUT 30)
+
+# Phase 22 Plan 02 — Wave 0 RED -> GREEN (READ-06 return-type whitelist + OQ-04 closure capture-purity)
+add_executable(test_readonly_return_type test_readonly_return_type.c)
+target_link_libraries(test_readonly_return_type iron_compiler unity)
+add_test(NAME test_readonly_return_type COMMAND test_readonly_return_type)
+set_tests_properties(test_readonly_return_type PROPERTIES LABELS "unit;phase22-invariant" TIMEOUT 30)
+
+add_executable(test_oq04_closure_readonly test_oq04_closure_readonly.c)
+target_link_libraries(test_oq04_closure_readonly iron_compiler unity)
+add_test(NAME test_oq04_closure_readonly COMMAND test_oq04_closure_readonly)
+set_tests_properties(test_oq04_closure_readonly PROPERTIES LABELS "unit;phase22-invariant" TIMEOUT 30)
+
+# Phase 23 VEC: bounded vector [T; <=N] type-level surface (Plan 23-01)
+add_executable(test_bvec_type_assignability test_bvec_type_assignability.c)
+target_link_libraries(test_bvec_type_assignability iron_compiler unity)
+add_test(NAME test_bvec_type_assignability COMMAND test_bvec_type_assignability)
+set_tests_properties(test_bvec_type_assignability PROPERTIES LABELS "unit;phase23-invariant" TIMEOUT 30)
+
+add_executable(test_bvec_strict_mismatch test_bvec_strict_mismatch.c)
+target_link_libraries(test_bvec_strict_mismatch iron_compiler unity)
+add_test(NAME test_bvec_strict_mismatch COMMAND test_bvec_strict_mismatch)
+set_tests_properties(test_bvec_strict_mismatch PROPERTIES LABELS "unit;phase23-invariant" TIMEOUT 30)
+
+# Phase 23 VEC: bounded vector codegen + runtime bounds-check (Plan 23-02)
+add_executable(test_bvec_basic test_bvec_basic.c)
+target_link_libraries(test_bvec_basic iron_compiler iron_runtime unity)
+add_test(NAME test_bvec_basic COMMAND test_bvec_basic)
+set_tests_properties(test_bvec_basic PROPERTIES LABELS "unit;phase23-invariant" TIMEOUT 30)
+
+add_executable(test_bvec_oob_panic test_bvec_oob_panic.c)
+target_link_libraries(test_bvec_oob_panic iron_compiler iron_runtime unity)
+add_test(NAME test_bvec_oob_panic COMMAND test_bvec_oob_panic)
+set_tests_properties(test_bvec_oob_panic PROPERTIES LABELS "unit;phase23-invariant" TIMEOUT 30)
+
+# ── Phase 26 POL-06: rc policy refcount substrate (Plan 26-01) ───────────────
+# Wave 0 RED → GREEN after Task 2 lands the iron_rc_alloc / iron_rc_retain /
+# iron_rc_release implementation on Iron_RcHeader.
+#
+# test_rc_layout — ABI layout invariants (sizeof + offsetof) + alloc/release
+#                  smoke. Locks the 16B header layout at runtime in addition
+#                  to the _Static_assert at TU scope.
+# test_rc_atomic_ordering — single-thread atomic ordering proof (retain
+#                  monotonic, drop_fn invoked exactly once on final release,
+#                  NULL drop_fn skipped cleanly).
+# test_runtime_rc_concurrent — Linux+TSan 8-thread × 100k retain/release
+#                  stress; SKIPs cleanly on macOS / non-TSan Linux.
+add_executable(test_rc_layout test_rc_layout.c)
+target_link_libraries(test_rc_layout iron_runtime unity)
+add_test(NAME test_rc_layout COMMAND test_rc_layout)
+set_tests_properties(test_rc_layout PROPERTIES
+    LABELS "unit;phase26-invariant"
+    TIMEOUT 30)
+
+add_executable(test_rc_atomic_ordering test_rc_atomic_ordering.c)
+target_link_libraries(test_rc_atomic_ordering iron_runtime unity)
+add_test(NAME test_rc_atomic_ordering COMMAND test_rc_atomic_ordering)
+set_tests_properties(test_rc_atomic_ordering PROPERTIES
+    LABELS "unit;phase26-invariant"
+    TIMEOUT 30)
+
+add_executable(test_runtime_rc_concurrent test_runtime_rc_concurrent.c)
+target_link_libraries(test_runtime_rc_concurrent iron_runtime unity)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_options(test_runtime_rc_concurrent PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(test_runtime_rc_concurrent PRIVATE -fsanitize=thread)
+endif()
+add_test(NAME test_runtime_rc_concurrent COMMAND test_runtime_rc_concurrent)
+set_tests_properties(test_runtime_rc_concurrent PROPERTIES
+    LABELS "unit;phase26-invariant;tsan"
+    TIMEOUT 60
+    FAIL_REGULAR_EXPRESSION "WARNING: ThreadSanitizer")
+
+# ── Phase 26 POL-06 (Plan 26-03 Task 1): rc drop chain order codegen test ───
+# Verifies emit_ensure_rc_drop trampoline synthesis + IRON_LIR_RC_ALLOC drop_fn
+# wiring: type with user drop gets <TypeName>_rc_drop trampoline pointer, type
+# without drop need passes NULL. Static dispatch (GA5 lock); no vtable.
+add_executable(test_rc_drop_chain_order test_rc_drop_chain_order.c)
+target_link_libraries(test_rc_drop_chain_order PRIVATE iron_compiler iron_runtime unity m pthread)
+target_include_directories(test_rc_drop_chain_order PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/vendor)
+add_test(NAME test_rc_drop_chain_order COMMAND test_rc_drop_chain_order)
+set_tests_properties(test_rc_drop_chain_order PROPERTIES
+    LABELS "unit;phase26-invariant"
+    TIMEOUT 30)
+
+# ── Phase 26 OQ-03 (Plan 26-03 Task 2): closure capture retain/release ──
+# Verifies hir_to_lir.c IRON_HIR_EXPR_CLOSURE arm emits IRON_LIR_RC_RETAIN
+# per rc-typed val capture AND emit_c.c IRON_LIR_MAKE_CLOSURE arm synthesizes
+# <func_name>_env_drop companion releasing each rc env field. Major #5
+# hardening: BOTH count(retain) >= 1 minimum AND count(retain) == count(release)
+# 1:1 balance assertions.
+add_executable(test_oq03_closure_rc_retain_release test_oq03_closure_rc_retain_release.c)
+target_link_libraries(test_oq03_closure_rc_retain_release PRIVATE iron_compiler iron_runtime unity m pthread)
+target_include_directories(test_oq03_closure_rc_retain_release PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/vendor)
+add_test(NAME test_oq03_closure_rc_retain_release COMMAND test_oq03_closure_rc_retain_release)
+set_tests_properties(test_oq03_closure_rc_retain_release PROPERTIES
+    LABELS "unit;phase26-invariant"
+    TIMEOUT 30)
+
+# ── Phase 27 OQ-04 (Plan 27-03 Task 1): closure capture weak-rc retain/release ──
+# Verifies hir_to_lir.c IRON_HIR_EXPR_CLOSURE arm emits IRON_LIR_WEAK_RC_RETAIN
+# per weak-rc-typed val capture AND emit_c.c IRON_LIR_MAKE_CLOSURE arm
+# extends the env_drop body to emit iron_weak_rc_release on each weak-rc env
+# field (alongside the Phase 26 rc-side branch). Major #5 hardening (inherited
+# from Phase 26): BOTH count(retain) >= 1 minimum AND
+# count(release) == count(retain) + count(downgrade) balance assertions.
+add_executable(test_oq04_closure_weak_rc_retain_release test_oq04_closure_weak_rc_retain_release.c)
+target_link_libraries(test_oq04_closure_weak_rc_retain_release PRIVATE iron_compiler iron_runtime unity m pthread)
+target_include_directories(test_oq04_closure_weak_rc_retain_release PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/vendor)
+add_test(NAME test_oq04_closure_weak_rc_retain_release COMMAND test_oq04_closure_weak_rc_retain_release)
+set_tests_properties(test_oq04_closure_weak_rc_retain_release PROPERTIES
+    LABELS "unit;phase27-invariant"
+    TIMEOUT 30)
+
+# ── Phase 27 GA1 (Plan 27-01 Task 1): weak rc 24B header layout invariants ──
+# test_weak_rc_layout — Wave 0 RED for Plan 27-01 Task 1; flips GREEN when
+# Iron_RcHeader grows from 16B → 24B with weak_count at offset 16, and
+# iron_rc_alloc zero-initialises the field per CONTEXT.md GA1 Pitfall 4.
+add_executable(test_weak_rc_layout test_weak_rc_layout.c)
+target_link_libraries(test_weak_rc_layout iron_runtime unity)
+add_test(NAME test_weak_rc_layout COMMAND test_weak_rc_layout)
+set_tests_properties(test_weak_rc_layout PROPERTIES
+    LABELS "unit;phase27-invariant"
+    TIMEOUT 30)
+
+# ── Phase 27 GA1 (Plan 27-01 Task 2): weak rc atomic ordering invariants ───
+# Exercises iron_weak_rc_retain/release + the extended iron_rc_release
+# block-free guard. Single-thread proof of the deferred-free path: strong=0
+# with weak alive defers block free; weak=0 with strong alive does NOT free;
+# weak=0 with strong=0 completes the deferred free.
+add_executable(test_weak_rc_atomic_ordering test_weak_rc_atomic_ordering.c)
+target_link_libraries(test_weak_rc_atomic_ordering iron_runtime unity)
+add_test(NAME test_weak_rc_atomic_ordering COMMAND test_weak_rc_atomic_ordering)
+set_tests_properties(test_weak_rc_atomic_ordering PROPERTIES
+    LABELS "unit;phase27-invariant"
+    TIMEOUT 30)
+
+# ── Phase 27 GA1 (Plan 27-01 Task 2): weak rc TSan concurrent stress ───────
+# 8 threads × 100k iterations interleaving strong-retain/strong-release with
+# weak-retain/weak-release; final counters must return to baseline. TSan-only.
+# Known issue inheritance (Phase 26 Plan 03 SUMMARY #1): podman Rocky 9 may
+# need libtsan.so symlink for TSan-instrumented binaries to run. SKIP on the
+# non-TSan path keeps the phase27-invariant gate green.
+add_executable(test_runtime_weak_rc_concurrent test_runtime_weak_rc_concurrent.c)
+target_link_libraries(test_runtime_weak_rc_concurrent iron_runtime unity)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_options(test_runtime_weak_rc_concurrent PRIVATE -fsanitize=thread -g -O1)
+    target_link_options(test_runtime_weak_rc_concurrent PRIVATE -fsanitize=thread)
+endif()
+add_test(NAME test_runtime_weak_rc_concurrent COMMAND test_runtime_weak_rc_concurrent)
+set_tests_properties(test_runtime_weak_rc_concurrent PROPERTIES
+    LABELS "unit;phase27-invariant;tsan"
+    TIMEOUT 60
+    FAIL_REGULAR_EXPRESSION "WARNING: ThreadSanitizer"
+    SKIP_REGULAR_EXPRESSION "BAD_COMMAND")
+
+# ── Phase 27 GA2 (Plan 27-01 Task 3): weak rc upgrade race coverage ────────
+# Exercises iron_rc_downgrade + iron_rc_upgrade with the Rust Arc canonical
+# CAS loop. The 4th test runs a 10000-iteration mid-destructor race using
+# 2 pthread workers (drop-last-strong vs. attempt-upgrade) and asserts the
+# CAS protocol prevents UAF on the upgrade path. NULL discipline + success
+# path + post-strong-drop NULL covered by the first 3 tests.
+add_executable(test_weak_rc_upgrade_race test_weak_rc_upgrade_race.c)
+target_link_libraries(test_weak_rc_upgrade_race iron_runtime unity pthread)
+add_test(NAME test_weak_rc_upgrade_race COMMAND test_weak_rc_upgrade_race)
+set_tests_properties(test_weak_rc_upgrade_race PROPERTIES
+    LABELS "unit;phase27-invariant"
+    TIMEOUT 60)
+
+# ── Phase 29 Plan 04 (OPT-08 input): opt-in rc-op counter ──────────────────
+# iron_rc.c carries an IRON_RC_COUNT-guarded pair of _Atomic uint64_t counters
+# that increment inside iron_rc_retain / iron_rc_release. The macro is OFF by
+# default so normal builds (and the deterministic phase-invariant test counts)
+# are unaffected.
+#
+# To exercise the ON path, this test compiles its OWN instrumented copy of
+# iron_rc.c WITH -DIRON_RC_COUNT (target_compile_definitions reaches that TU
+# because it is part of THIS executable's source list). The iron_runtime static
+# archive is still linked for iron_runtime_init / iron_oom_abort / the atomic
+# substrate, but its own (un-instrumented) iron_rc.o member is NOT pulled — the
+# test object already resolves every iron_rc_* symbol, so the archive member
+# stays dormant (standard static-archive symbol-resolution rule). The result:
+# exactly one definition of the rc API, built with the counter ON. This is the
+# verified data source the deferred OPT-08 `arc`-policy benchmark (OQ-07) reads.
+add_executable(test_rc_op_counter
+    test_rc_op_counter.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_rc.c)
+target_link_libraries(test_rc_op_counter iron_runtime unity)
+target_compile_definitions(test_rc_op_counter PRIVATE IRON_RC_COUNT)
+add_test(NAME test_rc_op_counter COMMAND test_rc_op_counter)
+set_tests_properties(test_rc_op_counter PROPERTIES
+    LABELS "unit;phase29-invariant"
+    TIMEOUT 30)
+
+# ── Phase 30 OPT-08 input: opt-in generation-check counter ──────────────────
+# iron_gencheck_count.c carries three IRON_GENCHECK_COUNT-guarded _Atomic
+# uint64_t counters (heap/stack/arena) bumped inside the static-inline
+# iron_check_*_pointer_gen guards in iron_runtime.h. The macro is OFF by default
+# so normal builds (and the deterministic phase-invariant test counts) are
+# unaffected. To exercise the ON path, this test compiles its OWN instrumented
+# copy of iron_gencheck_count.c WITH -DIRON_GENCHECK_COUNT and includes the
+# header with the macro defined so the inline bumps fire (its own TU resolves
+# every iron_gencheck_* symbol, so the iron_runtime archive's un-instrumented
+# member stays dormant — standard static-archive symbol-resolution rule). This
+# is the verified data source the deferred OPT-08 elision-rate report (Phase 36)
+# reads. Mirrors the Phase 29 test_rc_op_counter wiring.
+add_executable(test_gencheck_counter
+    test_gencheck_counter.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_gencheck_count.c)
+target_link_libraries(test_gencheck_counter iron_runtime unity)
+target_compile_definitions(test_gencheck_counter PRIVATE IRON_GENCHECK_COUNT)
+add_test(NAME test_gencheck_counter COMMAND test_gencheck_counter)
+set_tests_properties(test_gencheck_counter PROPERTIES
+    LABELS "unit;phase30-invariant"
+    TIMEOUT 30)
+
+# ── Phase 31 Plan 31-01 (DBG-01/02/03/04): debug allocator + leak detection ──
+# The debug allocator (poison-on-free, intrusive leak registry + atexit dump,
+# double-free both-sites report) lives behind -DIRON_DEBUG_ALLOCATOR in
+# src/runtime/iron_heap_track.c (+ iron_panic.c for iron_panic_double_free,
+# + iron_string.c for the atexit(iron_leak_dump) registration in
+# iron_runtime_init). The macro is OFF by default so the iron_runtime archive
+# is compiled with the 16B release header.
+#
+# To exercise the ON path, these two tests compile their OWN copies of those
+# three runtime TUs WITH -DIRON_DEBUG_ALLOCATOR (target_compile_definitions
+# reaches them because they are part of THIS executable's source list, which
+# turns the 64B debug header ON in the test TU). The iron_runtime archive is
+# still linked for the rest of the runtime substrate (threads/net/oom/arena/
+# atomics); its own un-instrumented iron_heap_track.o / iron_panic.o /
+# iron_string.o members stay dormant because the listed TUs already resolve
+# every symbol they define (standard static-archive symbol-resolution rule).
+# Mirrors the Phase 29 test_rc_op_counter / Phase 30 test_gencheck_counter
+# recompile-with-define wiring.
+set(PHASE31_DEBUG_ALLOC_SRCS
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_heap_track.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_panic.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_string.c)
+
+add_executable(test_debug_allocator
+    test_debug_allocator.c
+    ${PHASE31_DEBUG_ALLOC_SRCS})
+target_link_libraries(test_debug_allocator iron_runtime unity)
+target_compile_definitions(test_debug_allocator PRIVATE IRON_DEBUG_ALLOCATOR _GNU_SOURCE)
+add_test(NAME test_debug_allocator COMMAND test_debug_allocator)
+set_tests_properties(test_debug_allocator PROPERTIES
+    LABELS "unit;phase31-invariant"
+    TIMEOUT 30)
+
+add_executable(test_double_free
+    test_double_free.c
+    ${PHASE31_DEBUG_ALLOC_SRCS})
+target_link_libraries(test_double_free iron_runtime unity)
+target_compile_definitions(test_double_free PRIVATE IRON_DEBUG_ALLOCATOR _GNU_SOURCE)
+add_test(NAME test_double_free COMMAND test_double_free)
+set_tests_properties(test_double_free PROPERTIES
+    LABELS "unit;phase31-invariant"
+    TIMEOUT 30)
+
+# ── Phase 31 Plan 31-03 (DBG-07): release-build opt-in leak check ───────────
+# IRON_LEAK_CHECK is the RELEASE escape hatch: the 16B release IronAllocHdr has
+# no registry slots, so iron_leakcheck.c tracks live allocations in a side-table
+# keyed by the user pointer, armed only when IRON_LEAK_CHECK=1 (read once at
+# init). This test exercises the RELEASE path — it is compiled WITHOUT
+# IRON_DEBUG_ALLOCATOR and lists iron_leakcheck.c + iron_heap_track.c +
+# iron_string.c + iron_panic.c directly so its own (release) copies of those
+# TUs resolve every symbol, leaving the iron_runtime archive members dormant
+# (standard static-archive symbol-resolution rule). _GNU_SOURCE is needed for
+# setenv/unsetenv in the env-on/off fork children. Covers env-on dump,
+# env-off silent, and no-poison-in-release.
+add_executable(test_leakcheck_release
+    test_leakcheck_release.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_leakcheck.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_heap_track.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_string.c
+    ${CMAKE_SOURCE_DIR}/src/runtime/iron_panic.c)
+target_link_libraries(test_leakcheck_release iron_runtime unity)
+target_compile_definitions(test_leakcheck_release PRIVATE _GNU_SOURCE)
+add_test(NAME test_leakcheck_release COMMAND test_leakcheck_release)
+set_tests_properties(test_leakcheck_release PROPERTIES
+    LABELS "unit;phase31-invariant"
+    TIMEOUT 30)
+
+# ── Phase 28 GA1 (Plan 28-01 Task 1): arena runtime Wave 0 RED unit tests ───
+# Three Unity tests written AGAINST the not-yet-existing arena runtime API
+# (src/runtime/iron_arena_rt.{c,h}) + the arena-aware deref guard
+# iron_check_arena_pointer_gen (static-inline in iron_runtime.h). They are the
+# TDD RED anchor for Phase 28; Plan 28-02 lands the header + impl and flips
+# them GREEN.
+#
+# Plan 28-02 landed src/runtime/iron_arena_rt.{c,h} + iron_check_arena_pointer_gen,
+# so the Wave 0 header-existence guard is removed and these three tests are now
+# an unconditional phase28-invariant gate.
+#   test_arena_layout            — ABI lock mirror (IronArenaAllocHdr 16B + Iron_ArenaSave)
+#   test_arena_rt                — happy-path bump/reset/save/restore + threadsafe variant
+#   test_arena_gen_invalidation  — headline soundness: deref after reset/restore panics
+add_executable(test_arena_layout test_arena_layout.c)
+target_link_libraries(test_arena_layout iron_runtime unity)
+add_test(NAME test_arena_layout COMMAND test_arena_layout)
+set_tests_properties(test_arena_layout PROPERTIES
+    LABELS "unit;phase28-invariant"
+    TIMEOUT 30)
+
+add_executable(test_arena_rt test_arena_rt.c)
+target_link_libraries(test_arena_rt iron_runtime unity)
+add_test(NAME test_arena_rt COMMAND test_arena_rt)
+set_tests_properties(test_arena_rt PROPERTIES
+    LABELS "unit;phase28-invariant"
+    TIMEOUT 30)
+
+add_executable(test_arena_gen_invalidation test_arena_gen_invalidation.c)
+target_link_libraries(test_arena_gen_invalidation iron_runtime unity)
+add_test(NAME test_arena_gen_invalidation COMMAND test_arena_gen_invalidation)
+set_tests_properties(test_arena_gen_invalidation PROPERTIES
+    LABELS "unit;phase28-invariant"
+    TIMEOUT 30)
+
+# Phase 33 Wave 0 RED anchors (OQ-01 generic constraints + STDLIB-02 element
+# destructors). Both are intentionally RED placeholders (TEST_FAIL bodies) that
+# compile + link clean today; their bodies become real assertions in Wave 2
+# (Hashable resolution) and Wave 4 (container element-destructor codegen).
+add_executable(test_constraints test_constraints.c)
+target_link_libraries(test_constraints iron_compiler unity)
+add_test(NAME test_constraints COMMAND test_constraints)
+set_tests_properties(test_constraints PROPERTIES
+    LABELS "unit;phase33-invariant"
+    TIMEOUT 30)
+
+add_executable(test_container_drop test_container_drop.c)
+target_link_libraries(test_container_drop iron_compiler iron_runtime unity m pthread)
+add_test(NAME test_container_drop COMMAND test_container_drop)
+set_tests_properties(test_container_drop PROPERTIES
+    LABELS "unit;phase33-invariant"
+    TIMEOUT 30)

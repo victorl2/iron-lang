@@ -1,0 +1,20 @@
+-- section: 6-readonly
+-- @req: READ-04, READ-06, READ-08
+-- @expected-pass-after: phase-22
+-- extends-spec: readonly returning [T; <=N] bounded vec (§6.5)
+
+func find_low_hp(n1: String, hp1: Int, n2: String, hp2: Int, n3: String, hp3: Int, n4: String, hp4: Int) -> [String; <=4] {
+    var result: [String; <=4]
+    if hp1 < 30 { result.push(n1) }
+    if hp2 < 30 { result.push(n2) }
+    if hp3 < 30 { result.push(n3) }
+    if hp4 < 30 { result.push(n4) }
+    return result
+}
+
+func main() {
+    val low = find_low_hp("Alice", 25, "Bob", 80, "Carol", 15, "Dave", 50)
+    for name in low {
+        println("low-hp: " + name)
+    }
+}

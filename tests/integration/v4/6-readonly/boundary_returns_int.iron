@@ -1,0 +1,19 @@
+-- section: 6-readonly
+-- @req: READ-04, READ-06
+-- @expected-pass-after: phase-22
+-- extends-spec: readonly returning Int (primitive) is compatible (§6.4)
+
+object Stats {
+    val base_damage: Int
+    val level: Int
+}
+
+readonly func scaled_damage(stats: *Stats, multiplier: Int) -> Int {
+    return stats.base_damage * stats.level * multiplier
+}
+
+func main() {
+    val s = Stats(base_damage: 10, level: 3)
+    val dmg = scaled_damage(&s, 2)
+    println("scaled: {dmg}")
+}

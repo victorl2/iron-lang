@@ -1,0 +1,13 @@
+-- section 4.3 negative: & cannot produce *unchecked T
+-- @req: PTR-05, UNCK-04
+-- The address-of operator `&` always yields a checked pointer *T.
+-- Declaring val q: *unchecked Point = &local is a compile error.
+-- Expected: E0294 IRON_ERR_PTR_AMP_NOT_UNCHECKED with substrings "§4.3", "'&'"
+object Point {
+    var x: Int
+    init() { self.x = 0 }
+}
+func main() {
+    var local_point: Point = Point()
+    val q: *unchecked Point = &local_point
+}

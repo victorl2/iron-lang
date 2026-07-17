@@ -1,0 +1,13 @@
+// Phase 34 LSP-03: `defer` visible only at statement-head positions.
+// Hidden inside type annotations and expression positions.
+object Buffer { val size: Int }
+func main() {
+    val buf = heap Buffer(1024)
+    // COMPLETE@6:5
+    // EXPECT_VISIBLE: defer
+    defer free buf
+
+    // COMPLETE@10:18
+    // EXPECT_HIDDEN: defer
+    val n: Int = 42
+}

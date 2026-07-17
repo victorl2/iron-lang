@@ -1,0 +1,2 @@
+drop Foo: 42
+after inner scope

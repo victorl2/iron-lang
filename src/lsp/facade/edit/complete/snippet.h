@@ -40,6 +40,12 @@ typedef enum {
     ILSP_SNIPPET_MATCH,          /* match ${1:expr} { ${2:Pattern} -> ${3:result}, }$0 */
     ILSP_SNIPPET_IMPORT,         /* import ${1:module}$0 */
     ILSP_SNIPPET_ENUM_VARIANT,   /* Name.Variant$0 or Name.Variant(${1:payload})$0 */
+    /* Phase 34 LSP-04: `defer free ${1:<binding>}$0` — auto-discovered
+     * from recent heap/rc bindings in the cursor's enclosing function.
+     * meta.name carries the binding name; the renderer routes it through
+     * sb_append_escaped (PITFALL D) so a hostile identifier like
+     * `${USER}` cannot inject a variable substitution. */
+    ILSP_SNIPPET_DEFER_FREE,
 } IronLsp_SnippetKind;
 
 /* Metadata the renderer needs for the kinds whose shape depends on
