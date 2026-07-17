@@ -116,6 +116,54 @@ static void iron_debug_registry_unlink(IronAllocHdr *hdr) {
     IRON_MUTEX_UNLOCK(s_reg_lock);
 }
 
+/* ── Phase 31 DBG-01/04 — freed-block quarantine ───────────────────────────
+ *
+ * A debug free does not hand the block straight back to libc. Both guarantees
+ * the debug allocator makes about a freed block need the block to still be ours
+ * to read: DBG-01 says a use-after-free read hits 0xDD, and DBG-04 says a
+ * double-free can still name the FIRST free-site out of the header. Neither
+ * survives free() — the host allocator owns those bytes and writes its own
+ * freelist bookkeeping into them. On macOS the payload reads back 0x00 and the
+ * recorded free-site is gone, so both guarantees were false; on glibc they held
+ * by luck of the size class, which is why only macOS noticed.
+ *
+ * Freed blocks go on a bounded FIFO instead — poisoned, unlinked from the
+ * registry (so they are not leaks) and intact. Once the cap is reached the
+ * oldest block is genuinely released, so retention is bounded and never grows.
+ * A block that ages out loses both guarantees again, exactly as before: the
+ * quarantine makes them true for recent frees, which is where use-after-free and
+ * double-free bugs actually land. Debug builds only — the release path below is
+ * untouched and still frees immediately. */
+#define IRON_DBG_QUARANTINE_MAX 256
+
+static IronAllocHdr *s_quarantine[IRON_DBG_QUARANTINE_MAX];
+static int           s_quar_next  = 0;  /* next ring slot to fill */
+
+/* Retain hdr, releasing the block it evicts. Shares s_reg_lock: both are
+ * short, uncontended, and this keeps the debug allocator to one lock. */
+static void iron_debug_quarantine_push(IronAllocHdr *hdr) {
+    if (!s_reg_inited) iron_debug_alloc_init();
+    IRON_MUTEX_LOCK(s_reg_lock);
+    IronAllocHdr *evicted = s_quarantine[s_quar_next];  /* NULL until it wraps */
+    s_quarantine[s_quar_next] = hdr;
+    s_quar_next = (s_quar_next + 1) % IRON_DBG_QUARANTINE_MAX;
+    IRON_MUTEX_UNLOCK(s_reg_lock);
+    free(evicted);  /* free(NULL) is a no-op */
+}
+
+/* Release everything still quarantined. Called from iron_runtime_shutdown so a
+ * leak checker does not see the retained blocks as still-reachable garbage. */
+void iron_debug_quarantine_drain(void) {
+    if (!s_reg_inited) return;
+    IRON_MUTEX_LOCK(s_reg_lock);
+    for (int i = 0; i < IRON_DBG_QUARANTINE_MAX; i++) {
+        free(s_quarantine[i]);
+        s_quarantine[i] = NULL;
+    }
+    s_quar_next = 0;
+    IRON_MUTEX_UNLOCK(s_reg_lock);
+}
+
 /* DBG-03: atexit leak dump. Walks the registry under lock and reports each
  * still-live allocation to STDERR (NOT stdout — Pitfall 7: stdout must be
  * byte-identical debug vs release; only stderr diagnostics differ). Names
@@ -225,9 +273,12 @@ void iron_heap_free_dbg(Iron_FatPtr fp, const char *free_file, int free_line) {
     /* DBG-01: poison the user payload so any UAF read hits 0xDD garbage. */
     memset(fp.addr, 0xDD, (size_t)hdr->size);
 
-    /* Bump generation BEFORE freeing (racing acquire-load sees new value). */
+    /* Bump generation BEFORE retiring the block (racing acquire-load sees the
+     * new value). */
     (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(hdr->gen, 1);
-    free(hdr);  /* free entire block (header + payload) */
+    /* Retain rather than free: the poison above and the free-site recorded in
+     * the header are only readable while the block is still ours. */
+    iron_debug_quarantine_push(hdr);
 }
 
 /* Debug build: iron_heap_free forwards to the dbg path with no explicit

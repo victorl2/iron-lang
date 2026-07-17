@@ -344,6 +344,12 @@ void iron_runtime_shutdown(void) {
      * ordering only matters on Windows.) */
     Iron_net_wsa_cleanup_once();
 
+#ifdef IRON_DEBUG_ALLOCATOR
+    /* Release the blocks the debug allocator retains for its poison /
+     * free-site guarantees, so they are not left behind as reachable garbage. */
+    iron_debug_quarantine_drain();
+#endif
+
     /* Shut down thread pool before freeing strings */
     iron_threads_shutdown();
 

@@ -60,11 +60,16 @@ void tearDown(void) { iron_runtime_shutdown(); }
 
 /* ── DBG-01: poison-on-free (in-process; controlled UAF read) ─────────────── */
 
-/* Deliberate, controlled use-after-free read in a unit context: after free
- * the freed payload must be filled with 0xDD so any production UAF read hits
- * obvious garbage. This is NOT UB-relying user code — the allocation block is
- * not returned to the OS by free() in any way the test observes other than
- * the poison fill, and we read exactly the byte the allocator wrote. */
+/* Deliberate, controlled use-after-free read: after free the payload must read
+ * back 0xDD, so a production UAF read hits obvious garbage.
+ *
+ * This is only a well-defined read because the debug allocator quarantines
+ * freed blocks instead of handing them to libc (iron_heap_track.c) — the block
+ * is still allocated, and we read exactly the byte the allocator poisoned.
+ * Before the quarantine this read was plain UB and the guarantee it checks was
+ * not real: free() gives the bytes to the host allocator, which writes its own
+ * freelist bookkeeping over them. It happened to survive on glibc and read back
+ * 0x00 on macOS. */
 void test_poison_on_free_writes_0xDD(void) {
     Iron_FatPtr fp = iron_heap_alloc(__FILE__, __LINE__, 64);
     TEST_ASSERT_NOT_NULL(fp.addr);
@@ -75,6 +80,32 @@ void test_poison_on_free_writes_0xDD(void) {
     unsigned char first = ((volatile unsigned char *)user)[0];
     TEST_ASSERT_EQUAL_HEX8_MESSAGE(0xDD, first,
         "freed payload first byte must read back as 0xDD poison");
+}
+
+/* The poison has to outlive later allocations, which is the whole point of
+ * DBG-01: a use-after-free read hits 0xDD rather than whatever the allocator
+ * has since put there. This is the platform-independent statement of that —
+ * churning same-size allocations reclaims the block the moment it is handed
+ * back to libc, so this fails everywhere without the quarantine, where the
+ * read-back check above only failed on allocators that scribble immediately
+ * (macOS zeroes it; glibc happened to leave it alone for this size class). */
+void test_poison_survives_later_allocations(void) {
+    Iron_FatPtr fp = iron_heap_alloc(__FILE__, __LINE__, 64);
+    TEST_ASSERT_NOT_NULL(fp.addr);
+    void *user = fp.addr;
+    memset(user, 0x11, 64);
+    iron_heap_free(fp);
+
+    Iron_FatPtr churn[64];
+    for (int i = 0; i < 64; i++) {
+        churn[i] = iron_heap_alloc(__FILE__, __LINE__, 64);
+        if (churn[i].addr) memset(churn[i].addr, 0x77, 64);
+    }
+    TEST_ASSERT_EQUAL_HEX8_MESSAGE(0xDD, ((volatile unsigned char *)user)[0],
+        "quarantined block must still hold its poison after later allocations");
+    for (int i = 0; i < 64; i++) {
+        if (churn[i].addr) iron_heap_free(churn[i]);
+    }
 }
 
 /* ── DBG-03: fork-per-case leak-dump capture helper ───────────────────────── */
@@ -155,6 +186,7 @@ void test_alloc_then_free_clean_exit(void) {
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_poison_on_free_writes_0xDD);
+    RUN_TEST(test_poison_survives_later_allocations);
     RUN_TEST(test_leak_dump_names_alloc_site);
     RUN_TEST(test_alloc_then_free_clean_exit);
     return UNITY_END();

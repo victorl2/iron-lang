@@ -280,11 +280,16 @@ void        iron_heap_free(Iron_FatPtr fp);
  *                         walks the registry and reports still-live allocations
  *                         to STDERR with their alloc-site provenance (DBG-03).
  *   iron_debug_alloc_init — idempotent registry-lock initializer (DBG-03).
+ *   iron_debug_quarantine_drain — release the freed blocks the debug allocator
+ *                         retains so a UAF read still hits the 0xDD poison and a
+ *                         double-free can still name the first free-site
+ *                         (DBG-01/04). Called from iron_runtime_shutdown.
  */
 void iron_heap_free_dbg(Iron_FatPtr fp, const char *free_file, int free_line);
 #ifdef IRON_DEBUG_ALLOCATOR
 void iron_leak_dump(void);
 void iron_debug_alloc_init(void);
+void iron_debug_quarantine_drain(void);
 #endif
 
 /* Phase 31 DBG-04: double-free panic — reports BOTH the first free-site (held
