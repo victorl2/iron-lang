@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/build-release-artifacts.sh
-# Phase 36 Plan 04 (REL-11) — assemble the v4.0.0-alpha.1 release
+# Phase 36 Plan 04 (REL-11) — assemble the v4.0.0-alpha release
 # artifact bundle into dist/.
 #
 # Produces (depending on host platform):
@@ -43,7 +43,7 @@ while [ "$#" -gt 0 ]; do
       cat <<'EOF'
 Usage: bash scripts/build-release-artifacts.sh [--linux-only]
 
-Builds the v4.0.0-alpha.1 release artifact bundle into dist/.
+Builds the v4.0.0-alpha release artifact bundle into dist/.
 
 Default: auto-detects host platform via `uname -s`/`uname -m` and runs the
 corresponding pipeline (Linux x86_64, macOS arm64, or macOS x86_64).
@@ -73,7 +73,7 @@ cd "${REPO_ROOT}"
 
 # ---------------------------------------------------------------------------
 # Read IRON_VERSION_FULL from CMakeLists.txt.
-# Expected: 4.0.0-alpha.1
+# Expected: 4.0.0-alpha
 # ---------------------------------------------------------------------------
 VERSION=$(grep -oE 'IRON_VERSION_FULL "[^"]+"' CMakeLists.txt \
             | head -1 | sed 's/.*"\([^"]*\)"/\1/')

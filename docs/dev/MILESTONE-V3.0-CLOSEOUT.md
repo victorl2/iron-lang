@@ -4,7 +4,7 @@
 **Status:** Engineering complete; ready to ship via `docs/dev/PHASE-36-HUMAN-ACTION-CHECKLIST.md`
 **Phases:** 21 (Phase 15 through Phase 36, inclusive of Phase 16 release-engineering setup)
 **Requirements:** 168 closed (164 strict + 4 REL-09..12 closing as Phase 36 plans ship in the same tag)
-**Release:** v4.0.0-alpha.1
+**Release:** v4.0.0-alpha
 **Headline metric:** **227 / 255 PASS** on the `v4-acceptance` corpus (silvaserver `iron-lsp-build:latest` 8 GB podman)
 **Completed:** 2026-05-31
 
@@ -54,7 +54,7 @@ The §12 memory-model overhaul defined a 19-step canonical implementation order.
 | (tail)  | 33    | Stdlib container rewrite (resolves OQ-01, OQ-06)                     |
 | (tail)  | 34    | LSP adaptation (high risk; HARD-24 parity gate)                      |
 | (tail)  | 35    | Grammar + extension catch-up + v3 corpus migration                   |
-| (tail)  | 36    | Release v4.0.0-alpha.1 + docs                                        |
+| (tail)  | 36    | Release v4.0.0-alpha + docs                                        |
 
 22 rows total covering 21 phases (15–36); §12.8 was folded into §12.9-10 during planning so step counts compress to 19 phases of memory-model implementation + 3 phases of ecosystem catch-up.
 
@@ -121,7 +121,7 @@ Decisions are kept in `.planning/STATE.md` (local-only, gitignored); the 12 belo
 - **[Phase 33-06]** `RawPtr` is a type alias to `*unchecked Int` (`IRON_TYPE_PTR is_unchecked=true, pointee=Int`), not a new `IRON_TYPE_RAWPTR` variant — reuses every Phase 25 unchecked-regime guard without adding switch-on-kind cases.
 - **[Phase 34]** LSP quickfixes are consumer-only — zero compiler-side emit-site changes; synthesized-diagnostic test pattern decouples LSP handler verification from compiler-side emit-site readiness. Consumer-only grep returns 0 lines.
 - **[Phase 35-04]** Migrate-as-cp hand-migration of 225 of 388 v3-archive fixtures; 163 bulk-documented as INTERNAL_IR (119 `hir_*`) / OPTIMIZER (29 `mono_+fusion_+compose_`) / REMOVED (15). The v3→v4 cutover preserved closure/match/defer/collection surface verbatim — no syntactic rewrite needed for migrated fixtures.
-- **[Phase 36-05]** No automatic v3 → v4 codemod ships in v4.0.0-alpha.1 — hand-migration via `docs/site/migration-v3-to-v4.md` + 5 LSP quickfixes is the supported path; `ironc migrate` reconsidered only if alpha feedback demands it.
+- **[Phase 36-05]** No automatic v3 → v4 codemod ships in v4.0.0-alpha — hand-migration via `docs/site/migration-v3-to-v4.md` + 5 LSP quickfixes is the supported path; `ironc migrate` reconsidered only if alpha feedback demands it.
 
 ## 6. Documented residuals carried into v4.0.0-beta
 
@@ -152,7 +152,7 @@ Reproduced from `docs/dev/PHASE-36-CLOSEOUT.md` §6 for milestone-level visibili
 
 ## 7. What's next — v4.0.0-beta
 
-After v4.0.0-alpha.1 ships and survives 2+ weeks of alpha use:
+After v4.0.0-alpha ships and survives 2+ weeks of alpha use:
 
 - Address any external-user-reported bugs (alpha-stage bug reports are the primary source of beta scope).
 - Resolve the documented residuals — especially LSP-10 "Extract mutating block" full implementation and the four missing `v4-fail/.expected` files.
@@ -170,7 +170,7 @@ v4.0.0 GA criteria (post-beta):
 
 ## 8. Cross-references
 
-- `docs/release/v4.0.0-alpha.1.md` — the user-facing release notes.
+- `docs/release/v4.0.0-alpha.md` — the user-facing release notes.
 - `docs/site/migration-v3-to-v4.md` — the user-facing migration guide.
 - `docs/dev/PHASE-36-CLOSEOUT.md` — companion phase-level closeout.
 - `docs/dev/PHASE-36-HUMAN-ACTION-CHECKLIST.md` — what the maintainer runs to ship.
@@ -192,5 +192,5 @@ After the release tag is cut and the GitHub Release is verified, this milestone 
 ---
 
 *Milestone: v3.0 — Iron v4 Memory Model*
-*21 phases, 168 requirements, 1 release: v4.0.0-alpha.1*
+*21 phases, 168 requirements, 1 release: v4.0.0-alpha*
 *Closed: 2026-05-31*

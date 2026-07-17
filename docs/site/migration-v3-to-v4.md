@@ -2,7 +2,7 @@
 
 Iron v4 is a memory-model overhaul. Most syntactic constructs from v3 still compile, but binding tiers (`val` / `var`), pointer types (`*T` / `*var T`), resource discipline (`drop` / `copy` / `nocopy`), reference counting (`rc` / `weak rc`), and arena scoping are now first-class type-level concerns. This guide walks through every surface change with before/after code blocks. There is **no automatic codemod** for this migration; the LSP ships 5 quickfixes that cover the most common mechanical changes.
 
-This guide is companion to the [v4.0.0-alpha.1 release notes](../release/v4.0.0-alpha.1.md).
+This guide is companion to the [v4.0.0-alpha release notes](../release/v4.0.0-alpha.md).
 
 ## §1 Why v4
 
@@ -779,7 +779,7 @@ Full reference: [`docs/dev/LSP-MEMORY-MODEL.md`](../dev/LSP-MEMORY-MODEL.md). Al
 
 ## §7 What's not yet stable
 
-v4.0.0-alpha.1 is an alpha. Expect:
+v4.0.0-alpha is an alpha. Expect:
 
 - **Minor surface refinements** before beta. Pin your editor extension to `>= 4.0.0, < 5.0.0` (the default range in all three editor extensions) but be prepared to update on alpha → beta.
 - **Additional 800-range error codes** as compiler emit sites surface. The 5 quickfixes above cover the highest-volume v3 → v4 mechanical failures; some long-tail violations will surface as plain diagnostics without a quickfix in alpha.
@@ -797,4 +797,4 @@ The maintainer is the project author; response time is best-effort during the al
 
 ---
 
-*Companion: [v4.0.0-alpha.1 release notes](../release/v4.0.0-alpha.1.md), [LSP memory-model reference](../dev/LSP-MEMORY-MODEL.md), [stdlib container reference](../dev/STDLIB-CONTAINERS.md).*
+*Companion: [v4.0.0-alpha release notes](../release/v4.0.0-alpha.md), [LSP memory-model reference](../dev/LSP-MEMORY-MODEL.md), [stdlib container reference](../dev/STDLIB-CONTAINERS.md).*

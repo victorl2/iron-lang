@@ -3,7 +3,7 @@
 All notable changes to the `iron-lsp` Neovim configuration are
 documented in this file.
 
-## v4.0.0-alpha.1
+## v4.0.0-alpha
 
 - Bumped `IRON_LSP_COMPATIBLE_VERSION_RANGE` to
   `{ ">= 4.0.0", "< 5.0.0", min = "4.0.0", max_exclusive = "5.0.0" }`

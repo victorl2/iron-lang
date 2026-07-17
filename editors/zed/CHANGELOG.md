@@ -3,7 +3,7 @@
 All notable changes to the `iron-lsp` Zed extension are documented in
 this file.
 
-## v4.0.0-alpha.1
+## v4.0.0-alpha
 
 - Bumped `compatible_ironls` and `[version_constraints].ironls`
   constraints to `">= 4.0.0, < 5.0.0"`; v3 ironls binaries now

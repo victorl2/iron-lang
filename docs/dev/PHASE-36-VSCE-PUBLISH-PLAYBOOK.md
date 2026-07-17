@@ -1,9 +1,9 @@
 # Phase 36 — VSCode Marketplace Publish Playbook
 
 > Phase 36 Plan 04 (REL-11). Human-gated playbook for publishing the
-> `iron-lsp` VSCode extension v4.0.0-alpha.1 to the VSCode Marketplace.
+> `iron-lsp` VSCode extension v4.0.0-alpha to the VSCode Marketplace.
 > The agent prepared `editors/vscode/package.json` (version
-> `4.0.0-alpha.1`) and `editors/vscode/CHANGELOG.md` (the new entry).
+> `4.0.0-alpha`) and `editors/vscode/CHANGELOG.md` (the new entry).
 > This file is what the maintainer runs from an authenticated terminal.
 
 ## 0. Prerequisites
@@ -37,11 +37,11 @@ npm run prepackage        # copies grammar from grammars/textmate -> syntaxes/, 
 npx @vscode/vsce package --pre-release --no-dependencies
 ```
 
-Output: `iron-lsp-4.0.0-alpha.1.vsix` in `editors/vscode/`. Verify the
+Output: `iron-lsp-4.0.0-alpha.vsix` in `editors/vscode/`. Verify the
 contents:
 
 ```bash
-npx @vscode/vsce ls iron-lsp-4.0.0-alpha.1.vsix | head -30
+npx @vscode/vsce ls iron-lsp-4.0.0-alpha.vsix | head -30
 ```
 
 The list must include:
@@ -69,7 +69,7 @@ matches what `editors/vscode/package.json` describes.
 
 ```bash
 npx @vscode/vsce publish --pre-release \
-  --packagePath iron-lsp-4.0.0-alpha.1.vsix
+  --packagePath iron-lsp-4.0.0-alpha.vsix
 ```
 
 The `--pre-release` flag is correct (this is an alpha). The Marketplace
@@ -79,8 +79,8 @@ opted into pre-releases will see this as the install target.
 Expected output:
 
 ```
-Publishing 'iron-lang.iron-lsp v4.0.0-alpha.1'...
-Published iron-lang.iron-lsp v4.0.0-alpha.1.
+Publishing 'iron-lang.iron-lsp v4.0.0-alpha'...
+Published iron-lang.iron-lsp v4.0.0-alpha.
 ```
 
 ## 4. Verify
@@ -91,7 +91,7 @@ Visit:
 https://marketplace.visualstudio.com/items?itemName=iron-lang.iron-lsp
 ```
 
-The version should display `4.0.0-alpha.1` with the **Pre-release**
+The version should display `4.0.0-alpha` with the **Pre-release**
 badge. The CHANGELOG section should render with the new entry. The
 sidebar should show today's date as "Last updated".
 
@@ -100,7 +100,7 @@ on a `.iron` file:
 
 ```bash
 code --profile temp-test \
-  --install-extension iron-lang.iron-lsp@4.0.0-alpha.1 \
+  --install-extension iron-lang.iron-lsp@4.0.0-alpha \
   --pre-release
 ```
 
@@ -134,7 +134,7 @@ The extension should be ~1 MB. If `vsce package` reports a multi-MB or
 >50 MB size, inspect what got included:
 
 ```bash
-npx @vscode/vsce ls iron-lsp-4.0.0-alpha.1.vsix | awk '{print $NF}' | xargs -I{} du -h {}
+npx @vscode/vsce ls iron-lsp-4.0.0-alpha.vsix | awk '{print $NF}' | xargs -I{} du -h {}
 ```
 
 Add the offender to `editors/vscode/.vscodeignore`. The most common

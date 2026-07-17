@@ -3,7 +3,7 @@
 All notable changes to the `iron-lsp` VSCode extension are documented
 in this file.
 
-## 4.0.0-alpha.1 — 2026-05-31
+## 4.0.0-alpha — 2026-05-31
 
 Iron LSP extension updated for Iron v4 (memory-model overhaul). Requires
 `ironls >= 4.0.0, < 5.0.0` (range enforced — older `ironls` is structurally
@@ -30,8 +30,8 @@ if your code stops compiling against the new `ironc`.
 
 ### Full release notes
 
-The full v4.0.0-alpha.1 release notes are
-[in the iron-lang repo](https://github.com/iron-lang/iron-lang/blob/main/docs/release/v4.0.0-alpha.1.md).
+The full v4.0.0-alpha release notes are
+[in the iron-lang repo](https://github.com/iron-lang/iron-lang/blob/main/docs/release/v4.0.0-alpha.md).
 
 ### Additional changes in this release
 
@@ -45,7 +45,7 @@ The full v4.0.0-alpha.1 release notes are
   `heap`/`rc`/`weak rc` policies, `*T` / `*var T` / `*unchecked T`
   pointers, `[T; <=N]` bounded vectors, `drop`/`copy`/`nocopy` resource
   types, `defer` statement, arena allocation.
-- Extension version bumped to `4.0.0-alpha.1` for v4 LSP compatibility.
+- Extension version bumped to `4.0.0-alpha` for v4 LSP compatibility.
 
 ## 0.1.0 — initial release
 

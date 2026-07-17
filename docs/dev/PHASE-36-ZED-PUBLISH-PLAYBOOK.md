@@ -14,7 +14,7 @@
   ```bash
   gh auth status
   ```
-- The Iron LSP `v4.0.0-alpha.1` release tag is already cut and pushed
+- The Iron LSP `v4.0.0-alpha` release tag is already cut and pushed
   per `docs/dev/PHASE-36-TAG-PUSH-PLAYBOOK.md` — the Zed registry entry
   pins the extension to a specific commit SHA on `main`, so the tagged
   commit must already exist on the remote.
@@ -32,9 +32,9 @@ From a clean checkout of `iron-lang/iron-lang` at the tagged commit:
 ```bash
 cd /Users/victor/code/iron-lsp
 git fetch --tags origin
-git checkout v4.0.0-alpha.1
+git checkout v4.0.0-alpha
 SHA=$(git rev-parse HEAD)
-echo "Iron LSP v4.0.0-alpha.1 SHA: ${SHA}"
+echo "Iron LSP v4.0.0-alpha SHA: ${SHA}"
 # Save this SHA — it goes into the registry entry below.
 ```
 
@@ -105,8 +105,8 @@ for the Iron programming language v4.
 - **Iron LSP server compatibility:** `>= 4.0.0, < 5.0.0` (enforced by
   the extension; older `ironls` is structurally refused at extension
   start per Phase 7 HARD-22 / D-10).
-- **Iron language release:** v4.0.0-alpha.1 ("Memory Model Overhaul") —
-  see https://github.com/iron-lang/iron-lang/releases/tag/v4.0.0-alpha.1.
+- **Iron language release:** v4.0.0-alpha ("Memory Model Overhaul") —
+  see https://github.com/iron-lang/iron-lang/releases/tag/v4.0.0-alpha.
 
 ## What this extension does
 
@@ -129,10 +129,10 @@ the underlying LSP server is in v4 alpha).
 
 ## Verification
 
-- Iron LSP v4.0.0-alpha.1 tag:
-  https://github.com/iron-lang/iron-lang/releases/tag/v4.0.0-alpha.1
+- Iron LSP v4.0.0-alpha tag:
+  https://github.com/iron-lang/iron-lang/releases/tag/v4.0.0-alpha
 - Extension manifest:
-  https://github.com/iron-lang/iron-lang/blob/v4.0.0-alpha.1/editors/zed/extension.toml
+  https://github.com/iron-lang/iron-lang/blob/v4.0.0-alpha/editors/zed/extension.toml
 - Local schema validation (run from the PR branch):
   `cargo run --bin extension-cli -- validate extensions/iron-lsp`
 EOF

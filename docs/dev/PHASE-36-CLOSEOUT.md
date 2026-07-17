@@ -1,6 +1,6 @@
-# Phase 36 Closeout — Release v4.0.0-alpha.1 + Docs
+# Phase 36 Closeout — Release v4.0.0-alpha + Docs
 
-**Phase:** 36-release-v4.0.0-alpha.1-docs
+**Phase:** 36-release-v4.0.0-alpha-docs
 **Status:** Engineering complete; awaiting maintainer execution of human-action checklist (see §10).
 **Completed:** 2026-05-31
 **Requirements:** REL-09 (branch protection), REL-10 (release tag + notes), REL-11 (marketplace publish + signed binaries), REL-12 (migration guide)
@@ -13,9 +13,9 @@
 | Plan  | Title                                                       | Artifacts                                                                                                                                                                                                                                                                              | Requirements        |
 | ----- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
 | 36-01 | Branch-protection refresh + playbook                        | `docs/dev/ci-gates.md` (9-check canonical list), `scripts/setup-branch-protection.sh` (idempotent PUT), `.github/workflows/v4-acceptance.yml` (new single-job workflow surfacing the GitHub status-check name), `docs/dev/PHASE-36-BRANCH-PROTECTION-PLAYBOOK.md`                       | REL-09              |
-| 36-02 | Release-notes draft + tag/push playbook                     | `docs/release/v4.0.0-alpha.1.md` (release-notes draft consumed by `gh release create --notes-file`), `docs/dev/PHASE-36-TAG-PUSH-PLAYBOOK.md` (10-section maintainer playbook covering signed/unsigned tag-cut, push, `gh release create`, asset upload, failure modes, rollback)        | REL-10              |
+| 36-02 | Release-notes draft + tag/push playbook                     | `docs/release/v4.0.0-alpha.md` (release-notes draft consumed by `gh release create --notes-file`), `docs/dev/PHASE-36-TAG-PUSH-PLAYBOOK.md` (10-section maintainer playbook covering signed/unsigned tag-cut, push, `gh release create`, asset upload, failure modes, rollback)        | REL-10              |
 | 36-03 | v3 → v4 migration guide                                     | `docs/site/migration-v3-to-v4.md` (800-line user-facing migration guide with 7-example gallery sourced from real Phase 35 fixtures + LSP-quickfix mapping)                                                                                                                              | REL-12              |
-| 36-04 | Packaging + publish scripts + final pass-rate substitution  | `scripts/sign-and-notarize-macos.sh`, `scripts/build-release-artifacts.sh`, `editors/vscode/CHANGELOG.md` v4.0.0-alpha.1 entry, `editors/zed/extension.toml` 0.4.0→0.5.0 bump, 3 publish playbooks (`PHASE-36-MACOS-NOTARIZE-PLAYBOOK.md`, `PHASE-36-VSCE-PUBLISH-PLAYBOOK.md`, `PHASE-36-ZED-PUBLISH-PLAYBOOK.md`), pass-rate sentinel substitution in `docs/release/v4.0.0-alpha.1.md` | REL-11, REL-10      |
+| 36-04 | Packaging + publish scripts + final pass-rate substitution  | `scripts/sign-and-notarize-macos.sh`, `scripts/build-release-artifacts.sh`, `editors/vscode/CHANGELOG.md` v4.0.0-alpha entry, `editors/zed/extension.toml` 0.4.0→0.5.0 bump, 3 publish playbooks (`PHASE-36-MACOS-NOTARIZE-PLAYBOOK.md`, `PHASE-36-VSCE-PUBLISH-PLAYBOOK.md`, `PHASE-36-ZED-PUBLISH-PLAYBOOK.md`), pass-rate sentinel substitution in `docs/release/v4.0.0-alpha.md` | REL-11, REL-10      |
 | 36-05 | This closeout + milestone closeout + human-action checklist | `docs/dev/PHASE-36-CLOSEOUT.md`, `docs/dev/MILESTONE-V3.0-CLOSEOUT.md`, `docs/dev/PHASE-36-HUMAN-ACTION-CHECKLIST.md`                                                                                                                                                                  | REL-09..12 (closure) |
 
 ## 2. v4-acceptance corpus pass-rate
@@ -47,7 +47,7 @@ Expected `=== Summary ===` line: `PASS=227 FAIL=28 XFAIL=115 TOTAL=370`.
 | ID     | Description                                       | Status               | Evidence                                                                                                       |
 | ------ | ------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------- |
 | REL-09 | Branch protection list refreshed                  | Engineering complete | Plan 36-01 — `docs/dev/ci-gates.md` 9-check canonical list + idempotent `setup-branch-protection.sh` + playbook |
-| REL-10 | Release tag cut with notes                        | Engineering complete | Plan 36-02 — `docs/release/v4.0.0-alpha.1.md` + `PHASE-36-TAG-PUSH-PLAYBOOK.md`                                |
+| REL-10 | Release tag cut with notes                        | Engineering complete | Plan 36-02 — `docs/release/v4.0.0-alpha.md` + `PHASE-36-TAG-PUSH-PLAYBOOK.md`                                |
 | REL-11 | Marketplace + Zed publish + signed binaries       | Engineering complete | Plan 36-04 — sign-and-notarize script + 3 publish playbooks + artifact-bundle script + Zed v0.5.0 bump + VSCode CHANGELOG |
 | REL-12 | Migration guide published                         | Complete             | Plan 36-03 — `docs/site/migration-v3-to-v4.md` (800 lines, 7-example gallery, 5 LSP-quickfix mappings)         |
 
@@ -98,7 +98,7 @@ Total deviations: 8 editorial; 0 scope changes; 0 changes to compiler/runtime/LS
 
 ## 7. Cross-references
 
-- `docs/release/v4.0.0-alpha.1.md` — the release notes themselves.
+- `docs/release/v4.0.0-alpha.md` — the release notes themselves.
 - `docs/site/migration-v3-to-v4.md` — the user-facing migration guide.
 - `docs/dev/MILESTONE-V3.0-CLOSEOUT.md` — milestone-level companion document.
 - `docs/dev/PHASE-36-HUMAN-ACTION-CHECKLIST.md` — what the maintainer runs to actually ship.
@@ -130,5 +130,5 @@ See [`docs/dev/PHASE-36-HUMAN-ACTION-CHECKLIST.md`](PHASE-36-HUMAN-ACTION-CHECKL
 
 ---
 
-*Phase: 36-release-v4.0.0-alpha.1-docs*
+*Phase: 36-release-v4.0.0-alpha-docs*
 *Completed: 2026-05-31*

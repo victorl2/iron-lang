@@ -54,8 +54,8 @@ source ~/.config/iron-release/apple-secrets.sh
 
 # Default invocation (signs the conventional release-artifact paths):
 bash scripts/sign-and-notarize-macos.sh \
-  dist/ironls-v4.0.0-alpha.1-macos-arm64/ironls \
-  dist/ironls-v4.0.0-alpha.1-macos-x86_64/ironls
+  dist/ironls-v4.0.0-alpha-macos-arm64/ironls \
+  dist/ironls-v4.0.0-alpha-macos-x86_64/ironls
 ```
 
 Or, equivalently, with no args (script defaults to

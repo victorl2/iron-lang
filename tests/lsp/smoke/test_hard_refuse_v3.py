@@ -126,7 +126,7 @@ def test_v3_range_rejects_v4_and_above() -> None:
     """
     v4_plus_versions = [
         "4.0.0",
-        "4.0.0-alpha.1",
+        "4.0.0-alpha",
         "4.1.0",
         "5.0.0",
         "10.0.0",

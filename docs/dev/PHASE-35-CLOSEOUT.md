@@ -107,7 +107,7 @@ flipped:
 | Zed | `editors/zed/extension.toml` | `compatible_ironls` (line 24) + `[version_constraints].ironls` (line 32) |
 | Neovim | `editors/neovim/lsp/ironls.lua` | `IRON_LSP_COMPATIBLE_VERSION_RANGE` table (4 lines) + `compatible_ironls` (line 106) + `range` diag string (line 133) |
 
-Extension versions themselves: VSCode `0.1.0 → 4.0.0-alpha.1` (mirrors
+Extension versions themselves: VSCode `0.1.0 → 4.0.0-alpha` (mirrors
 compiler), Zed `0.1.0 → 0.4.0` (Zed marketplace expects semver-from-zero),
 Neovim is config-only (no extension version). The in-extension
 `compatible_ironls` range is what determines hard-refuse behavior, not the
@@ -137,7 +137,7 @@ and UltiSnips all consume it without per-plugin variants.
 
 ### 3.3 CHANGELOG entries
 
-All 3 extensions have a `## v4.0.0-alpha.1` entry prepended above the
+All 3 extensions have a `## v4.0.0-alpha` entry prepended above the
 historical `0.1.0` entry, documenting the version-range bump, the snippet
 pack additions, and the hard-refuse behavior. Ready for Phase 36 release
 notes.
@@ -399,14 +399,14 @@ separate branches and merge at wave boundaries, OR explicitly partition
   `free_statement` grammar rules
 - `.planning/REQUIREMENTS.md` — GRM-06..11, EXT-11..15, MIG-08..11
   acceptance criteria (now all checked complete)
-- `.planning/ROADMAP.md` — Phase 36 (release v4.0.0-alpha.1 + docs) is
+- `.planning/ROADMAP.md` — Phase 36 (release v4.0.0-alpha + docs) is
   the immediate downstream consumer
 
 ---
 
 ## 9. Phase 36 unblock
 
-**Phase 36 (Release v4.0.0-alpha.1 + docs) is UNBLOCKED.**
+**Phase 36 (Release v4.0.0-alpha + docs) is UNBLOCKED.**
 
 - All 3 extension manifests + CHANGELOGs are release-ready (Plan 35-02)
 - v4 corpus is materially richer (225 new fixtures, +205 PASS in
@@ -418,7 +418,7 @@ separate branches and merge at wave boundaries, OR explicitly partition
   a single concrete reference for the v3-to-v4 migration story
 
 The next deliverable is the actual marketplace publication of the three
-extensions and the v4.0.0-alpha.1 release tag.
+extensions and the v4.0.0-alpha release tag.
 
 ---
 
