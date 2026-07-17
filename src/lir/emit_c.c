@@ -8001,12 +8001,42 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                     snprintf(ikey, sizeof(ikey), "%s:%s", iface_mangled, impl->type_name);
                     bool is_indirect = (ctx.indirect_variants &&
                                         shgeti(ctx.indirect_variants, ikey) >= 0);
+
+                    /* The receiver ABI is the callee's to decide: Phase 82
+                     * default-mutating methods take a pointer receiver, while
+                     * readonly/pure take the value (MUTTIER-05). Read it off the
+                     * concrete method's LIR signature — the same source this
+                     * emitter uses for its prototype — rather than assuming a
+                     * value receiver, which passed a struct where a pointer was
+                     * expected and failed to compile for every mutating impl. */
+                    bool recv_is_ptr = false;
+                    {
+                        char want[512];
+                        snprintf(want, sizeof(want), "%s_%s", impl_lower, sig->name);
+                        for (int fi = 0; fi < ctx.module->func_count; fi++) {
+                            IronLIR_Func *f = ctx.module->funcs[fi];
+                            if (!f || !f->name) continue;
+                            const char *cname = emit_mangle_func_name(f->name, ctx.arena);
+                            if (cname && strcmp(cname, want) == 0) {
+                                /* Same predicate emit_func_signature uses to
+                                 * decide `T *_v1` for the receiver slot. */
+                                recv_is_ptr = f->is_mut_receiver_method &&
+                                              f->param_count > 0;
+                                break;
+                            }
+                        }
+                    }
+                    /* The union holds the payload by value (direct) or by
+                     * pointer (indirect); adjust to whatever the callee wants. */
+                    const char *recv_prefix = recv_is_ptr
+                        ? (is_indirect ? ""  : "&")
+                        : (is_indirect ? "*" : "");
                     iron_strbuf_appendf(&ctx.lifted_funcs,
                         "        case %s_TAG_%s: %s%s_%s(%sself.data.%s%s); break;\n",
                         iface_mangled, impl->type_name,
                         has_return ? "return " : "",
                         impl_lower, sig->name,
-                        is_indirect ? "*" : "",
+                        recv_prefix,
                         impl->type_name,
                         fwd_args);
                 }
