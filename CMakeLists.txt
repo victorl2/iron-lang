@@ -314,6 +314,53 @@ option(IRON_BUILD_LSP "Build ironls (Iron language server)" ON)
 # ── Tests ──────────────────────────────────────────────────────────────────
 enable_testing()
 
+# `ironc build` shells out to clang to compile the C it emits, so every row below
+# that builds and runs a fixture needs a clang on PATH. Hosts that have one (CI,
+# dev machines) run those rows for real; the check-only container has none, so
+# they are DISABLED there and reported as not-run.
+#
+# These rows used to carry `WILL_FAIL YES` to stand in for "no clang here". That
+# is an inversion, not a skip: on any clang-equipped host it flipped the moment a
+# fixture actually built and ran, marking the row red *for passing* — and while a
+# fixture was broken it reported green, hiding the breakage. Gate on the tool
+# instead, so a missing clang skips the row and a present clang makes it a real
+# assertion.
+find_program(IRON_TEST_CLANG clang)
+if(IRON_TEST_CLANG)
+    set(IRON_SKIP_CLANG_ROWS NO)
+else()
+    set(IRON_SKIP_CLANG_ROWS YES)
+    message(STATUS "clang not found — build+run fixture rows will be skipped")
+endif()
+
+# XFAIL for a per-fixture row, decided by the same rule tests/run_tests.sh uses
+# for the aggregate test_v4_acceptance row: a fixture whose header carries
+# `@expected-pass-after: phase-N` with N greater than IRON_CURRENT_PHASE is
+# expected to fail. run_tests.sh reads that marker at run time; a ctest row
+# cannot, so read it here at configure time and translate it to WILL_FAIL.
+#
+# Deriving both from the one marker is the point: the reason these rows drifted
+# is that each hand-maintained its own idea of what was expected to fail, so a
+# fixture could be XFAIL in the aggregate and required here (or vice versa), and
+# a stale entry sat green while the fixture was broken. Now the fixture header is
+# the single source of truth, and deleting a marker updates both at once.
+set(IRON_CURRENT_PHASE "15" CACHE STRING "Phase baseline for @expected-pass-after XFAIL gating")
+function(iron_fixture_xfail out_var fixture_path)
+    set(${out_var} NO PARENT_SCOPE)
+    if(NOT EXISTS "${fixture_path}")
+        return()
+    endif()
+    file(STRINGS "${fixture_path}" _lines LIMIT_COUNT 10)
+    foreach(_line IN LISTS _lines)
+        if(_line MATCHES "@expected-pass-after:[ \t]+phase-([0-9]+)")
+            if(CMAKE_MATCH_1 GREATER IRON_CURRENT_PHASE)
+                set(${out_var} YES PARENT_SCOPE)
+            endif()
+            return()
+        endif()
+    endforeach()
+endfunction()
+
 add_subdirectory(tests/unit)
 add_subdirectory(tests/lir)
 add_subdirectory(tests/hir)
@@ -1353,10 +1400,12 @@ if(NOT WIN32)
                 ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/happy.iron
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/happy.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_happy PROPERTIES
         LABELS "integration;phase25-invariant"
         TIMEOUT 30
-        WILL_FAIL YES  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
 
     add_test(
@@ -1365,10 +1414,12 @@ if(NOT WIN32)
                 ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_unwrap.iron
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_unwrap.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_unwrap PROPERTIES
         LABELS "integration;phase25-invariant"
         TIMEOUT 30
-        WILL_FAIL YES  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
 
     add_test(
@@ -1377,10 +1428,12 @@ if(NOT WIN32)
                 ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_takes_ownership.iron
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_takes_ownership.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_takes_ownership PROPERTIES
         LABELS "integration;phase25-invariant"
         TIMEOUT 30
-        WILL_FAIL YES  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
 
     add_test(
@@ -1401,10 +1454,12 @@ if(NOT WIN32)
                 ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_isnull.iron
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_box_isnull.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_boundary_box_isnull PROPERTIES
         LABELS "integration;phase25-invariant"
         TIMEOUT 30
-        WILL_FAIL YES  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
 
     add_test(
@@ -1413,10 +1468,12 @@ if(NOT WIN32)
                 ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/panic_box_unwrap_null.iron
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/panic_box_unwrap_null.iron")
     set_tests_properties(v4_4.3-unchecked-ptr_panic_box_unwrap_null PROPERTIES
         LABELS "integration;phase25-invariant"
         TIMEOUT 30
-        WILL_FAIL YES  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
     )
 
     add_executable(test_ptr_types tests/unit/test_ptr_types.c)
@@ -1528,10 +1585,11 @@ if(NOT WIN32)
             COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.8-rc-policy/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.8-rc-policy/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
             WORKING_DIRECTORY /tmp
         )
+        iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.8-rc-policy/${_fix}.iron")
         set_tests_properties(v4_4.8-rc-policy_${_fix} PROPERTIES
             LABELS "integration;phase26-invariant"
             TIMEOUT 60
-            WILL_FAIL TRUE)
+            WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
 endif()
 
@@ -1633,10 +1691,11 @@ if(NOT WIN32)
             COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
             WORKING_DIRECTORY /tmp
         )
+        iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.iron")
         set_tests_properties(v4_4.9-weak-rc-policy_${_fix} PROPERTIES
             LABELS "integration;phase27-invariant;v4-acceptance"
             TIMEOUT 60
-            WILL_FAIL TRUE)
+            WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
 endif()
 
@@ -1841,45 +1900,55 @@ if(NOT WIN32)
         COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/happy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/happy.iron && actual=\$(\"\$d/happy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/happy.iron")
     set_tests_properties(v4_3.7-arena_happy PROPERTIES
         LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
 
     add_test(
         NAME v4_3.7-arena_boundary_with_capacity
         COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_with_capacity.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_with_capacity.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_with_capacity.iron")
     set_tests_properties(v4_3.7-arena_boundary_with_capacity PROPERTIES
         LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
 
     add_test(
         NAME v4_3.7-arena_boundary_in_arena_block
         COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_in_arena_block.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_in_arena_block.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_in_arena_block.iron")
     set_tests_properties(v4_3.7-arena_boundary_in_arena_block PROPERTIES
         LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
 
     add_test(
         NAME v4_3.7-arena_boundary_save_restore
         COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_save_restore.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_save_restore.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_save_restore.iron")
     set_tests_properties(v4_3.7-arena_boundary_save_restore PROPERTIES
         LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
 
     add_test(
         NAME v4_3.7-arena_boundary_alloc_reset
         COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_alloc_reset.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_alloc_reset.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_alloc_reset.iron")
     set_tests_properties(v4_3.7-arena_boundary_alloc_reset PROPERTIES
         LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
 
     # ARENA-11 innermost-wins (Wave 0 fixture) — build + run.
     add_test(
@@ -1887,36 +1956,44 @@ if(NOT WIN32)
         COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/nested_in_arena.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/nested_in_arena.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/nested_in_arena.iron")
     set_tests_properties(v4_3.7-arena_nested_in_arena PROPERTIES
         LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
 
     add_test(
         NAME v4_8.6-composition-arena_happy
         COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/happy.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/happy.iron")
     set_tests_properties(v4_8.6-composition-arena_happy PROPERTIES
         LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
 
     add_test(
         NAME v4_8.6-composition-arena_extends_save_restore
         COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_save_restore.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_save_restore.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_save_restore.iron")
     set_tests_properties(v4_8.6-composition-arena_extends_save_restore PROPERTIES
         LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
 
     add_test(
         NAME v4_8.6-composition-arena_extends_rc_in_arena_xref
         COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_rc_in_arena_xref.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_rc_in_arena_xref.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_rc_in_arena_xref.iron")
     set_tests_properties(v4_8.6-composition-arena_extends_rc_in_arena_xref PROPERTIES
         LABELS "integration;phase28-invariant;v4-acceptance" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
 
     # ── Panic / run rows (ARENA-06 reset→panic; ARENA-10 OOM) ──
     # Require `ironc build` + run to observe the abort, so WILL_FAIL YES with
@@ -1927,9 +2004,11 @@ if(NOT WIN32)
         COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/panic_after_reset.iron && actual=\$(\"\$d/b\" 2>&1 || true) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/panic_after_reset.expected) && echo \"\$actual\" | grep -qF \"\$expected\" && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/panic_after_reset.iron")
     set_tests_properties(v4_3.7-arena_panic_after_reset PROPERTIES
         LABELS "integration;phase28-invariant" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
 
     # ARENA-10 OOM panic: arena "scratch" out of memory in stderr.
     add_test(
@@ -1937,9 +2016,11 @@ if(NOT WIN32)
         COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_oom.iron && actual=\$(\"\$d/b\" 2>&1 || true) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_oom.expected) && echo \"\$actual\" | grep -qF \"\$expected\" && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
+
+    iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_oom.iron")
     set_tests_properties(v4_fail_3.7-arena_arena_oom PROPERTIES
         LABELS "integration;phase28-invariant" TIMEOUT 60
-        WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+        WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -1975,10 +2056,11 @@ if(NOT WIN32)
             COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
             WORKING_DIRECTORY /tmp
         )
+        iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron")
         set_tests_properties(v4_4.10-rc-elision_${_fix} PROPERTIES
             LABELS "integration;phase29-invariant;v4-acceptance"
             TIMEOUT 60
-            WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+            WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
 endif()
 
@@ -2016,10 +2098,17 @@ if(NOT WIN32)
             COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
             WORKING_DIRECTORY /tmp
         )
+        # Every fixture in this list still rests on an unimplemented surface and
+        # carries an @expected-pass-after marker in its header. The aggregate
+        # test_v4_acceptance runner reads that marker; these per-fixture rows
+        # cannot, so WILL_FAIL carries the same fact to ctest. It is a real
+        # assertion in both directions: the row turns red the day the surface
+        # lands, which is the prompt to drop the marker and this entry.
+        iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron")
         set_tests_properties(v4_4.11-ptr-check-elision_${_fix} PROPERTIES
             LABELS "integration;phase30-invariant;v4-acceptance"
             TIMEOUT 60
-            WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+            WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
 
     # OPT-08 microbench corpus: idiomatic positive fixtures (getter chain off one
@@ -2043,7 +2132,7 @@ if(NOT WIN32)
         set_tests_properties(v4_4.11-ptr-check-elision_${_fix} PROPERTIES
             LABELS "integration;phase30-invariant;v4-acceptance"
             TIMEOUT 60
-            WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+            DISABLED ${IRON_SKIP_CLANG_ROWS})  # needs clang to build the fixture; skipped on the check-only container
     endforeach()
 endif()
 
@@ -2179,10 +2268,15 @@ if(NOT WIN32)
             COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
             WORKING_DIRECTORY /tmp
         )
+        # Both entries above are unimplemented surfaces (list copy-on-assign,
+        # Set method surface + OQ-02), as their comments spell out, and each
+        # carries an @expected-pass-after marker the aggregate runner honors.
+        # WILL_FAIL states that to ctest and turns red once either lands.
+        iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.iron")
         set_tests_properties(v4_7.5-stdlib_${_fix} PROPERTIES
             LABELS "integration;phase33-invariant;v4-acceptance"
             TIMEOUT 60
-            WILL_FAIL YES)  # ironc build requires clang; silvaserver container uses check-only env
+            WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
 
     # ── POSITIVE BUILD+RUN rows: Wave 5 nocopy resource receiver methods ──
