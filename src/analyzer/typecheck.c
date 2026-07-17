@@ -3843,6 +3843,18 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                  * receiver type for dispatch. mc->is_auto_deref was set
                  * earlier in this branch when the auto-deref kicked in. */
                 Iron_Type *eff_recv_t = obj_id->resolved_type;
+                /* `rc T` is an allocation policy on T, not a distinct method
+                 * namespace: dispatch against the inner object, mirroring the
+                 * unwrap the field-access path already performs. Without this,
+                 * an rc receiver matches no arm below, type_name_mc stays NULL
+                 * and the call keeps the VOID default above — so `val n =
+                 * rc_val.method()` silently discards the result and emits a
+                 * reference to an undeclared value. Placed before the pointer
+                 * arm, matching resolve_type_annotation's ordering. */
+                if (eff_recv_t && eff_recv_t->kind == IRON_TYPE_RC &&
+                    eff_recv_t->rc.inner) {
+                    eff_recv_t = eff_recv_t->rc.inner;
+                }
                 if (eff_recv_t && eff_recv_t->kind == IRON_TYPE_PTR &&
                     eff_recv_t->ptr.pointee) {
                     eff_recv_t = eff_recv_t->ptr.pointee;

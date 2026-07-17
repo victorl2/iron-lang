@@ -9,7 +9,7 @@ object Node {
     val tag: Int
 
     drop {
-        println("drop: node {tag}")
+        println("drop: node {self.tag}")
     }
 }
 
@@ -21,7 +21,7 @@ object Cell {
 }
 
 func main() {
-    val a = rc Node(tag: 1)
+    val a = rc Node(1)
     val b = heap Cell(99)
     defer free b
     println("b: {b.n}")

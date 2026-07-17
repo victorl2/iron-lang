@@ -13,12 +13,12 @@ object Holder {
     val v: Int
 
     drop {
-        println("drop: holder {v}")
+        println("drop: holder {self.v}")
     }
 }
 
 func main() {
-    val h = rc Holder(v: SEED)
+    val h = rc Holder(SEED)
     val alias = h
     println("seed: {SEED}")
     println("held: {alias.v}")

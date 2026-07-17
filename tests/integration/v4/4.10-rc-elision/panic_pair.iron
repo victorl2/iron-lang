@@ -9,12 +9,12 @@ object Item {
     val id: Int
 
     drop {
-        println("drop: item {id}")
+        println("drop: item {self.id}")
     }
 }
 
 func main() {
-    val it = rc Item(id: 7)
+    val it = rc Item(7)
     val xs = [10, 20, 30]
     val mid = xs[1]
     println("mid: {mid}")

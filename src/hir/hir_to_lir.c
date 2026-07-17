@@ -1762,6 +1762,17 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         bool is_static_call = false;
         if (expr->method_call.object && expr->method_call.object->type) {
             Iron_Type *obj_type = expr->method_call.object->type;
+            /* `rc T` is an allocation policy applied to T, not a separate method
+             * namespace: a call on an rc-allocated receiver dispatches to T's
+             * method. Unwrap before the kind dispatch below, which otherwise
+             * matches no arm, leaves type_name as "Unknown", and emits a call to
+             * the nonexistent Iron_unknown_<method> — breaking every method call
+             * on an rc value. weak rc is deliberately NOT unwrapped: it cannot be
+             * dereferenced (E0299), and upgrade/downgrade lower to their own LIR
+             * ops rather than reaching this mangling path. */
+            if (obj_type->kind == IRON_TYPE_RC && obj_type->rc.inner) {
+                obj_type = obj_type->rc.inner;
+            }
             if (obj_type->kind == IRON_TYPE_OBJECT && obj_type->object.decl) {
                 type_name = obj_type->object.decl->name;
                 /* Check if method name is actually a func-typed field on the object.
