@@ -70,6 +70,16 @@ int main(void) {
     volatile int result = 0;
     for (int it = 0; it < iterations; it++) {
         result = count_components(ea3, eb3, 40, n);
+        /* count_components only writes locals, so a compiler that infers it as
+         * readonly can hoist this loop-invariant call out — `volatile result`
+         * pins the store, not the call, and `noinline` stops inlining, not LICM.
+         * Apple clang does hoist it: the timed loop reported 0.06ms for 180180
+         * iterations (~0.3ns each, about one cycle) where the same source takes
+         * ~47ms on Linux, so the C baseline this benchmark compares Iron against
+         * was not running at all and the reported ratio was measuring nothing.
+         * The clobber makes the arguments potentially-modified each iteration,
+         * so the call has to happen. */
+        __asm__ __volatile__("" ::: "memory");
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
 
