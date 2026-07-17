@@ -5,22 +5,30 @@ regression alert with rolling per-OS baseline.
 Python stdlib-only (no requirements, no pip). Measures the
 wall-clock of a full ``cmake -B build && cmake --build build -j4``
 invocation, compares it against a rolling 20-sample per-OS window
-stored in ``build-time-baseline.json`` at the repo root. Fires (exit
-non-zero) if the current build exceeds ``1.15 x rolling_average`` for
-the CURRENT OS.
+stored in ``build-time-baseline.json`` at the repo root. Reports a
+regression when the current build exceeds ``1.30 x rolling_average``
+for the CURRENT OS.
+
+ADVISORY BY DEFAULT: GitHub-hosted runner variance (~45% observed
+spread on macos-latest) makes a hard perf gate too flaky to block
+merges, so a threshold breach prints a GitHub ``::warning::``
+annotation and exits 0. Pass ``--strict`` to restore the exit-1
+behaviour (useful for local bisection of a suspected regression).
 
 On push to main, the workflow (``.github/workflows/build-time.yml``)
 passes ``--mode append-and-check`` so the current sample is appended
 to the baseline and the oldest per-OS entry is trimmed once the
-window fills (FIFO, 20 samples per OS).
+window fills (FIFO, 20 samples per OS). The workflow persists the
+updated file in the per-OS GitHub Actions cache -- NOT a bot commit
+to main, which branch protection (PR-only, required checks) rejects.
 
 Warmup tolerance: per-OS windows with < 5 samples skip the threshold
 check and print ``WARMUP: ...``. This keeps the gate safe until the
 first 5 push-to-main samples have filled the window on each OS.
 
 Exit codes:
-    0 -- build completed; current time within threshold (or warmup)
-    1 -- build completed; current time > 1.15 x per-OS rolling avg
+    0 -- build completed; within threshold, warmup, or advisory breach
+    1 -- build completed; breach AND --strict was passed
     2 -- script error (bad args, cmake invocation failed, I/O error)
 
 Usage:
@@ -171,7 +179,7 @@ def compare_against_baseline(
     os_name: str,
 ) -> Tuple[str, str]:
     """Return (status, message) where status is one of
-    'PASS' / 'FAIL' / 'WARMUP'. PASS means current <= 1.15 x avg."""
+    'PASS' / 'FAIL' / 'WARMUP'. PASS means current <= threshold x avg."""
     os_entries = per_os_entries(baseline, os_name)
     if len(os_entries) < WARMUP_MIN_SAMPLES:
         return "WARMUP", (
@@ -186,6 +194,14 @@ def compare_against_baseline(
     if ratio > REGRESSION_THRESHOLD:
         return "FAIL", msg
     return "PASS", msg
+
+
+def exit_code_for_status(status: str, strict: bool) -> int:
+    """Advisory by default: a FAIL only produces a non-zero exit
+    under --strict. Runner-variance breaches must not block CI."""
+    if status == "FAIL" and strict:
+        return 1
+    return 0
 
 
 # ── Self-test (hermetic; no cmake invocation) ──────────────────────────
@@ -256,7 +272,16 @@ def _self_tests() -> int:
     print("[self-test 6] 1.30 threshold + 20 window literals locked -- OK",
           file=sys.stderr)
 
-    print("[self-test] PASS (6 cases)", file=sys.stderr)
+    # Test 7 -- advisory gating: a threshold breach only exits non-zero
+    # under --strict; default mode never blocks CI on runner variance.
+    assert exit_code_for_status("FAIL", strict=True) == 1
+    assert exit_code_for_status("FAIL", strict=False) == 0
+    assert exit_code_for_status("PASS", strict=True) == 0
+    assert exit_code_for_status("WARMUP", strict=False) == 0
+    print("[self-test 7] advisory gating: FAIL exits 1 only with "
+          "--strict -- OK", file=sys.stderr)
+
+    print("[self-test] PASS (7 cases)", file=sys.stderr)
     return 0
 
 
@@ -305,6 +330,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                    help="Run hermetic unit tests and exit.")
     p.add_argument("--check-only", action="store_true",
                    help="Parse baseline JSON and exit (no build).")
+    p.add_argument("--strict", action="store_true",
+                   help="Exit 1 on a threshold breach instead of the "
+                        "default advisory warning (exit 0).")
     args = p.parse_args(argv)
 
     if args.self_test:
@@ -345,11 +373,19 @@ def main(argv: Optional[List[str]] = None) -> int:
               f"now {len(baseline)} total entries", file=sys.stderr)
 
     if status == "FAIL":
-        print(f"FAIL: build time grew > {REGRESSION_THRESHOLD}x baseline "
-              f"for {args.os}")
-        return 1
-    print("PASS" if status == "PASS" else status)
-    return 0
+        if args.strict:
+            print(f"FAIL: build time grew > {REGRESSION_THRESHOLD}x "
+                  f"baseline for {args.os}")
+        else:
+            # GitHub Actions warning annotation: visible in the run
+            # summary without failing the job (runner variance makes a
+            # hard perf gate too flaky to block merges).
+            print(f"::warning title=build-time regression (advisory)::"
+                  f"{msg} -- exceeds {REGRESSION_THRESHOLD}x rolling "
+                  f"average; advisory only, job not failed")
+    else:
+        print("PASS" if status == "PASS" else status)
+    return exit_code_for_status(status, args.strict)
 
 
 if __name__ == "__main__":

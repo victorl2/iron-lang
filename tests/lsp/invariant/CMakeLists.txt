@@ -139,8 +139,9 @@ print(f'OK: {n}')")
 
     # Phase 7 Plan 07-04 Task 02 (HARD-23, D-06) -- build-time regression
     # script self-test. Validates FIFO-trim per-OS window behaviour +
-    # threshold decision at 1.15 + warmup tolerance + literal constants
-    # (1.15 threshold, 20-sample window) in < 1 s. Catches drift in the
+    # threshold decision at 1.30 + warmup tolerance + advisory gating
+    # (breach only exits 1 under --strict) + literal constants (1.30
+    # threshold, 20-sample window) in < 1 s. Catches drift in the
     # rolling-baseline logic before any real build is measured.
     add_test(NAME test_build_time_self_test
         COMMAND python3 "${CMAKE_SOURCE_DIR}/scripts/ci/build_time_check.py"
