@@ -45,7 +45,8 @@ func main() {
     for it in range(iterations) {
         var tmp = fill(100, 0)
         for i in range(100) {
-            tmp[i] = bench[i]
+            -- in-bounds: range(100) gives 0 <= i < 100 = tmp.len() = bench.len() (both fill(100, ...))
+            tmp.set_unchecked(i, bench.get_unchecked(i))
         }
         result = remove_duplicates(tmp, 100)
     }
