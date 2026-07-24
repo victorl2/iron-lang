@@ -1622,3 +1622,23 @@ add_test(NAME test_container_drop COMMAND test_container_drop)
 set_tests_properties(test_container_drop PROPERTIES
     LABELS "unit;phase33-invariant"
     TIMEOUT 30)
+
+# ── Detector-probe tests vs sanitizer builds ─────────────────────────────────
+# These rows validate Iron's OWN memory-error machinery: they deliberately
+# double-free, leak, dereference stale pointers, and exhaust allocators to
+# prove the runtime's detectors fire. Under a global ASan/UBSan build the
+# sanitizer's interposed allocator sees those same operations first (aborting,
+# reporting leaks, or defeating the runtime's header heuristics), so the rows
+# fail or hang by construction, not by regression. They remain fully exercised
+# by every uninstrumented job; skip them when sanitizers are on.
+if(IRON_ENABLE_SANITIZERS)
+    set_tests_properties(
+        test_arena_scoping_stress
+        test_alloc_map_put_oom
+        test_runtime_heap_free
+        test_runtime_panic_stale
+        test_runtime_panic_stale_release
+        test_runtime_heap_concurrent
+        test_leakcheck_release
+        PROPERTIES DISABLED TRUE)
+endif()
