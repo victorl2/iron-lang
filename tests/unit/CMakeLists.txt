@@ -407,7 +407,12 @@ set_tests_properties(test_web_top_level_loader_check PROPERTIES LABELS "unit")
 # instrumentation, giving at least a smoke-test signal.
 add_executable(test_string_intern_race test_string_intern_race.c)
 target_link_libraries(test_string_intern_race iron_runtime unity)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+# TSan cannot combine with a global ASan/UBSan build (clang rejects
+# -fsanitize=address with -fsanitize=thread on one target). Under
+# IRON_ENABLE_SANITIZERS=ON with the address flavour the test compiles
+# uninstrumented -- the same smoke-test fallback as non-Linux builds.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
+   AND NOT (IRON_ENABLE_SANITIZERS AND IRON_SANITIZER STREQUAL "address"))
     target_compile_options(test_string_intern_race PRIVATE -fsanitize=thread -g -O1)
     target_link_options(test_string_intern_race PRIVATE -fsanitize=thread)
 endif()
