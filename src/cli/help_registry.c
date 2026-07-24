@@ -26,9 +26,9 @@
  *   "run"     — flags accepted by `iron run`. Most build-time flags are mirrored
  *               from "build" so iron run --help shows the full surface; entries
  *               unique to run (currently just --keep-binary) live here only.
- *   "check"   — `iron check` accepts no subcommand-specific flags in v3.2.
- *   "fmt"     — `iron fmt` accepts no subcommand-specific flags in v3.2.
- *   "test"    — `iron test` accepts no subcommand-specific flags in v3.2.
+ *   "check"   — `iron check` accepts no subcommand-specific flags.
+ *   "fmt"     — `iron fmt` (--check).
+ *   "test"    — `iron test` accepts no subcommand-specific flags.
  *   "init"    — `iron init` (--lib).
  *   "migrate" — ironc migrate (--from, --to).
  *
@@ -48,8 +48,8 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
     { "build", "--debug-build",        NULL, "off",    "Keep .iron-build/ directory after compile for inspection" },
     { "build", "--no-optimize",        NULL, "off",    "Skip optimization passes (for A/B comparison)" },
     { "build", "--target",             NULL, "native", "Build target: native or web (use --target=web)" },
-    { "build", "--strict-v3",          NULL, "on",     "Enable v3.0 breaking-change rejections (default ON)" },
-    { "build", "--no-strict-v3",       NULL, "off",    "Disable v3.0 breaking-change rejections (debug v2 syntax)" },
+    { "build", "--strict-v3",          NULL, "on",     "Reject legacy pre-v3 syntax (default ON)" },
+    { "build", "--no-strict-v3",       NULL, "off",    "Accept legacy pre-v3 syntax (debug v2 code)" },
     { "build", "--force-comptime",     NULL, "off",    "Skip comptime evaluation cache" },
     { "build", "--dump-ir-passes",     NULL, "off",    "Print IR after each optimization pass" },
     { "build", "--report-compression", NULL, "off",    "Show fields narrowed for value range compression" },
@@ -61,13 +61,16 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
     { "run", "--debug-build",        NULL, "off",    "Keep .iron-build/ directory after compile for inspection" },
     { "run", "--no-optimize",        NULL, "off",    "Skip optimization passes (for A/B comparison)" },
     { "run", "--target",             NULL, "native", "Build target: native or web (use --target=web)" },
-    { "run", "--strict-v3",          NULL, "on",     "Enable v3.0 breaking-change rejections (default ON)" },
-    { "run", "--no-strict-v3",       NULL, "off",    "Disable v3.0 breaking-change rejections (debug v2 syntax)" },
+    { "run", "--strict-v3",          NULL, "on",     "Reject legacy pre-v3 syntax (default ON)" },
+    { "run", "--no-strict-v3",       NULL, "off",    "Accept legacy pre-v3 syntax (debug v2 code)" },
     { "run", "--force-comptime",     NULL, "off",    "Skip comptime evaluation cache" },
     { "run", "--dump-ir-passes",     NULL, "off",    "Print IR after each optimization pass" },
     { "run", "--report-compression", NULL, "off",    "Show fields narrowed for value range compression" },
     { "run", "--warn-fusion-break",  NULL, "off",    "Show where fusion chains are broken by non-fusible calls" },
-    { "run", "--keep-binary",        NULL, "off",    "(reserved, not yet implemented in v3.2) Suppress atexit unlink of run-mode tempfile" },
+    { "run", "--keep-binary",        NULL, "off",    "(reserved, not yet implemented) Suppress atexit unlink of run-mode tempfile" },
+
+    /* ── iron fmt ───────────────────────────────────────────────────────── */
+    { "fmt", "--check", NULL, "off", "Check formatting without rewriting; exit 1 if the file would change" },
 
     /* ── iron init ──────────────────────────────────────────────────────── */
     { "init", "--lib", NULL, "off", "Scaffold a library package (type = \"lib\") instead of a binary" },

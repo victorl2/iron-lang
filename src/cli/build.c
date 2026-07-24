@@ -105,11 +105,34 @@ static int resolve_self_dir(char *buf, size_t buf_size) {
     return 0;
 }
 
+/* iron_lib_dir_has_stdlib: a candidate base directory only counts as the
+   Iron lib root when the stdlib is actually inside it (sentinel:
+   stdlib/string.iron). Existence of the directory alone is not enough —
+   a binary living in a filesystem-root build dir (e.g. /build) would
+   otherwise resolve ../lib to the system /lib and mask the
+   IRON_SOURCE_DIR fallback. */
+static int iron_lib_dir_has_stdlib(const char *base) {
+    char probe[4096];
+    int n = snprintf(probe, sizeof(probe), "%s/stdlib/string.iron", base);
+    if (n < 0 || (size_t)n >= sizeof(probe)) return 0;
+    struct stat st;
+    return stat(probe, &st) == 0 && S_ISREG(st.st_mode);
+}
+
 /* get_iron_lib_dir: returns malloc'd path to the lib/ or src/ base directory.
-   For installed builds: resolves to sibling ../lib/ of the binary directory.
-   For dev builds: falls back to IRON_SOURCE_DIR compile-time define.
-   Caller must free(). */
+   Resolution order: $IRON_LIB_DIR override, sibling ../lib/ of the binary
+   directory (installed layout), then the IRON_SOURCE_DIR compile-time
+   define (dev builds). Every candidate must contain the stdlib; returns
+   NULL (with a diagnostic) when none does. Caller must free(). */
 static char *get_iron_lib_dir(void) {
+    const char *env_dir = getenv("IRON_LIB_DIR");
+    if (env_dir && *env_dir) {
+        if (iron_lib_dir_has_stdlib(env_dir)) return strdup(env_dir);
+        fprintf(stderr,
+                "warning: IRON_LIB_DIR='%s' does not contain stdlib/string.iron; "
+                "falling back to auto-detection\n",
+                env_dir);
+    }
     char self_dir[4096];
     if (resolve_self_dir(self_dir, sizeof(self_dir)) == 0) {
         /* Try sibling ../lib/ directory (installed layout) */
@@ -128,15 +151,23 @@ static char *get_iron_lib_dir(void) {
         char *lib_path = (char *)malloc(lib_len);
         if (lib_path) {
             snprintf(lib_path, lib_len, "%s/lib", self_dir);
-            struct stat st;
-            if (stat(lib_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+            if (iron_lib_dir_has_stdlib(lib_path)) {
                 return lib_path;
             }
             free(lib_path);
         }
     }
     /* Fallback: compile-time IRON_SOURCE_DIR (dev builds) */
-    return strdup(IRON_SOURCE_DIR);
+    if (iron_lib_dir_has_stdlib(IRON_SOURCE_DIR)) {
+        return strdup(IRON_SOURCE_DIR);
+    }
+    fprintf(stderr,
+            "error: cannot locate the Iron stdlib: no stdlib/string.iron under "
+            "$IRON_LIB_DIR, next to the binary (../lib), or in '%s'.\n"
+            "Reinstall Iron or set IRON_LIB_DIR to a directory containing "
+            "stdlib/.\n",
+            IRON_SOURCE_DIR);
+    return NULL;
 }
 
 /* ── Helper: read a file into a heap-allocated string ────────────────────── */
@@ -371,6 +402,89 @@ static char *make_path(const char *base, const char *rel) {
     return out;
 }
 
+/* ── 2026-07 diagnostics remediation: stdlib-prepend line mapping ──────────
+ *
+ * The stdlib prepend pipeline concatenates stdlib .iron sources ahead of the
+ * user's file into one TU, which used to make every diagnostic (and every
+ * runtime deref-site string emit_c.c bakes from LIR spans) report
+ * concatenated-TU line numbers (e.g. line 576 for user-file line 12) under
+ * the user's filename.
+ *
+ * Fix: each prepended file is wrapped in a `-- @file: "<path>" @line: 1`
+ * marker line, and one final marker naming the user's own file re-enters
+ * user code. The lexer (lexer.c comment branch) re-tags subsequent tokens
+ * with the named file AND resets its logical line counter, so spans carry
+ * per-file 1-based line numbers end-to-end. Plain Phase 93 markers (no
+ * `@line:`) keep their original semantics (filename re-tag only, physical
+ * TU-wide numbering) for the multi-file harness and pkg_build.c stubs.
+ *
+ * The marker filename is QUOTED (`-- @file: "<path>" @line: 1`) so paths
+ * containing spaces round-trip; the lexer strips the quotes and — for the
+ * user marker — compares the name byte-for-byte against its entry filename.
+ * Paths containing '"' or a newline cannot be quoted; markers are skipped
+ * entirely in that case (legacy TU-wide numbering, still-correct file
+ * names, and the parser's E0321 gate falls back to the legacy line
+ * threshold — see parser.c). Marker lines are counted in
+ * stdlib_prepended_lines so the resolver's carve-out threshold stays the
+ * physical prefix height. */
+
+static bool iron_path_marker_safe(const char *path) {
+    return path && *path && strchr(path, '"') == NULL &&
+           strchr(path, '\n') == NULL && strchr(path, '\r') == NULL;
+}
+
+/* Prepend `-- @file: "<source_path>" @line: 1` to *source_io. Returns lines
+ * added (1) or 0 on failure/unsafe path (source left unchanged). */
+static int prepend_user_line_marker(char **source_io, const char *source_path) {
+    if (!source_io || !*source_io || !iron_path_marker_safe(source_path)) return 0;
+    size_t mlen = strlen("-- @file: \"") + strlen(source_path) + strlen("\" @line: 1\n");
+    char *combined = (char *)malloc(mlen + strlen(*source_io) + 1);
+    if (!combined) return 0;
+    int n = snprintf(combined, mlen + 1, "-- @file: \"%s\" @line: 1\n", source_path);
+    if (n < 0 || (size_t)n != mlen) { free(combined); return 0; }
+    strcpy(combined + mlen, *source_io);
+    free(*source_io);
+    *source_io = combined;
+    return 1;
+}
+
+/* Read base_dir/rel and prepend it (marker line first when `markers`) to
+ * *source_io. Returns the number of physical lines added to the prefix
+ * (marker + content + separator '\n'), or 0 when the file could not be
+ * read / memory could not be allocated — the source is left unchanged in
+ * that case, mirroring the legacy per-block skip behavior. */
+static int prepend_marked_file(char **source_io, const char *base_dir,
+                               const char *rel, bool markers) {
+    char *path = make_path(base_dir, rel);
+    if (!path) return 0;
+    long sz = 0;
+    char *src = read_file(path, &sz);
+    if (!src) { free(path); return 0; }
+
+    char marker[4224];
+    size_t mlen = 0;
+    if (markers && iron_path_marker_safe(path)) {
+        int n = snprintf(marker, sizeof(marker), "-- @file: \"%s\" @line: 1\n", path);
+        if (n > 0 && (size_t)n < sizeof(marker)) mlen = (size_t)n;
+    }
+
+    size_t combined_len = mlen + (size_t)sz + 1 + strlen(*source_io) + 1;
+    char *combined = (char *)malloc(combined_len);
+    int added = 0;
+    if (combined) {
+        if (mlen > 0) memcpy(combined, marker, mlen);
+        memcpy(combined + mlen, src, (size_t)sz);
+        combined[mlen + (size_t)sz] = '\n';
+        strcpy(combined + mlen + (size_t)sz + 1, *source_io);
+        free(*source_io);
+        *source_io = combined;
+        added = (mlen > 0 ? 1 : 0) + iron_count_newlines(src, (size_t)sz) + 1;
+    }
+    free(src);
+    free(path);
+    return added;
+}
+
 /* ── Helper: invoke clang to compile generated C with runtime sources ──────── */
 
 /* Build the source file list shared by both Unix and Windows invoke helpers */
@@ -387,6 +501,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
                            char **rt_heap_track_out,     /* Phase 19: generational pointer tracker */
                            char **rt_panic_out,          /* Phase 19-02: stale-pointer panic */
                            char **rt_leakcheck_out,      /* Phase 31 DBG-07: release opt-in leak check */
+                           char **rt_arena_rt_out,       /* Phase 37: arena runtime substrate */
                            char **sl_math_out, char **sl_io_out,
                            char **sl_time_out, char **sl_log_out,
                            char **sl_hint_out,
@@ -437,6 +552,12 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     *rt_heap_track_out = make_path(base_dir, "runtime/iron_heap_track.c");
     *rt_panic_out   = make_path(base_dir, "runtime/iron_panic.c");
     *rt_leakcheck_out = make_path(base_dir, "runtime/iron_leakcheck.c");
+    /* Phase 37 (arena link consolidation): compile the arena runtime substrate
+     * (iron_arena_rt_* — ARENA_ALLOC/PUSH/POP, Arena FREE, stub glue bridges)
+     * into every user binary. Replaces the emit_c.c workaround that #included
+     * runtime/iron_arena_rt.c inside the generated TU; that include was
+     * removed in the same change (duplicate non-static definitions otherwise). */
+    *rt_arena_rt_out = make_path(base_dir, "runtime/iron_arena_rt.c");
     *sl_math_out    = make_path(base_dir, "stdlib/iron_math.c");
     *sl_io_out      = make_path(base_dir, "stdlib/iron_io.c");
     *sl_time_out    = make_path(base_dir, "stdlib/iron_time.c");
@@ -447,7 +568,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
         !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
         !*rt_netinit_out || !*rt_oom_out || !*rt_fmt_out || !*rt_heap_track_out ||
-        !*rt_panic_out || !*rt_leakcheck_out ||
+        !*rt_panic_out || !*rt_leakcheck_out || !*rt_arena_rt_out ||
         !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out ||
         !*sl_hint_out || !*sl_net_out) {
         return 1;
@@ -503,6 +624,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *rt_heap_track_out;
     argv_buf[ai++] = *rt_panic_out;
     argv_buf[ai++] = *rt_leakcheck_out;
+    argv_buf[ai++] = *rt_arena_rt_out;
     argv_buf[ai++] = *sl_math_out;
     argv_buf[ai++] = *sl_io_out;
     argv_buf[ai++] = *sl_time_out;
@@ -534,6 +656,13 @@ static int build_src_list(const char **argv_buf, int *ai_out,
 #else
     argv_buf[ai++] = "clang";
     argv_buf[ai++] = "-std=gnu17";
+    /* Emitted arithmetic is raw C on int64_t and the runtime type-puns rc
+     * headers/arena handles; without these two flags, signed overflow and
+     * aliasing are UB that -O2/-O3 will exploit (checks deleted, wrong code).
+     * Iron semantics: Int overflow wraps; pointer-heavy runtime is exempt
+     * from strict aliasing. */
+    argv_buf[ai++] = "-fwrapv";
+    argv_buf[ai++] = "-fno-strict-aliasing";
     argv_buf[ai++] = "-O3";
     if (opts.release) {
         /* Phase 2: --release appends -O2 to native builds; clang's last-wins
@@ -565,6 +694,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *rt_heap_track_out;
     argv_buf[ai++] = *rt_panic_out;
     argv_buf[ai++] = *rt_leakcheck_out;
+    argv_buf[ai++] = *rt_arena_rt_out;
     argv_buf[ai++] = *sl_math_out;
     argv_buf[ai++] = *sl_io_out;
     argv_buf[ai++] = *sl_time_out;
@@ -646,6 +776,7 @@ static void free_src_list(char *base_dir,
                            char *rt_heap_track,           /* Phase 19 */
                            char *rt_panic,                /* Phase 19-02 */
                            char *rt_leakcheck,            /* Phase 31 DBG-07 */
+                           char *rt_arena_rt,             /* Phase 37 arena runtime */
                            char *sl_math, char *sl_io, char *sl_time,
                            char *sl_log, char *sl_hint, char *sl_net,
                            char *sl_rl, char *sl_rl_layout,    /* Phase 60 */
@@ -661,6 +792,7 @@ static void free_src_list(char *base_dir,
     free(rt_heap_track);
     free(rt_panic);
     free(rt_leakcheck);
+    free(rt_arena_rt);
     free(sl_math); free(sl_io); free(sl_time); free(sl_log);
     free(sl_hint);
     free(sl_net);
@@ -699,10 +831,14 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
     if (!stdlib_i_flag) { free(vendor_i_flag); free(src_i_flag); free(base_dir); return 1; }
     snprintf(stdlib_i_flag, stdlib_i_len, "-I%s/stdlib", base_dir);
 
-    const char *argv_buf[16];
+    const char *argv_buf[24];
     int ai = 0;
     argv_buf[ai++] = "clang";
     argv_buf[ai++] = "-std=gnu17";
+    /* Mirror invoke_clang: wrap-on-overflow + no strict aliasing for all
+     * Iron-emitted C (see the main link path for rationale). */
+    argv_buf[ai++] = "-fwrapv";
+    argv_buf[ai++] = "-fno-strict-aliasing";
     argv_buf[ai++] = "-c";
     /* Default unoptimized; --release adds -O2 (matches bin path). */
     if (opts.release) {
@@ -773,6 +909,7 @@ static int invoke_clang(const char *c_file, const char *output,
     char *rt_heap_track = NULL;  /* Phase 19: generational pointer tracker */
     char *rt_panic = NULL;       /* Phase 19-02: stale-pointer panic */
     char *rt_leakcheck = NULL;   /* Phase 31 DBG-07: release opt-in leak check */
+    char *rt_arena_rt = NULL;    /* Phase 37: arena runtime substrate */
     char *sl_math = NULL, *sl_io = NULL, *sl_time = NULL, *sl_log = NULL;
     char *sl_hint = NULL, *sl_net = NULL;
     char *sl_rl = NULL, *sl_rl_layout = NULL;  /* Phase 60 Plan 01 */
@@ -793,6 +930,7 @@ static int invoke_clang(const char *c_file, const char *output,
                        &rt_heap_track,
                        &rt_panic,
                        &rt_leakcheck,
+                       &rt_arena_rt,
                        &sl_math, &sl_io, &sl_time, &sl_log,
                        &sl_hint, &sl_net,
                        &sl_rl, &sl_rl_layout,
@@ -806,6 +944,7 @@ static int invoke_clang(const char *c_file, const char *output,
                       rt_heap_track,
                       rt_panic,
                       rt_leakcheck,
+                      rt_arena_rt,
                       sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
                       sl_rl, sl_rl_layout,
                       rl_src, rl_i_flag,
@@ -843,6 +982,7 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_heap_track,
                   rt_panic,
                   rt_leakcheck,
+                  rt_arena_rt,
                   sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
                   sl_rl, sl_rl_layout,
                   rl_src, rl_i_flag,
@@ -958,6 +1098,7 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_heap_track,
                   rt_panic,
                   rt_leakcheck,
+                  rt_arena_rt,
                   sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
                   sl_rl, sl_rl_layout,
                   rl_src, rl_i_flag,
@@ -1058,175 +1199,63 @@ int iron_build(const char *source_path, const char *output_path,
      * 94-02's deferred architectural note. */
     if (!opts.emit_archive) {
 
+    /* 2026-07 diagnostics remediation: seat the user-file line-mapping marker
+     * directly above the user's source BEFORE any stdlib prepend, so the
+     * lexer resets to the user's own filename + 1-based line numbers where
+     * user code resumes. When the marker cannot be placed (whitespace in the
+     * path / OOM), line_markers stays false and every prepend below falls
+     * back to the legacy marker-less bytes — never a half-marked buffer. */
+    bool line_markers = prepend_user_line_marker(&source, source_path) == 1;
+    if (line_markers) stdlib_prepended_lines += 1;
+
     /* 1c. Detect "import raylib" in source and prepend raylib.iron */
     if (iron_detect_import(source, source_path, "raylib", &detect_arena)) {
         opts.use_raylib = true;
-        /* Locate raylib.iron relative to base_dir */
-        char *rl_path = make_path(base_dir, "stdlib/raylib.iron");
-        if (rl_path) {
-            long rl_size = 0;
-            char *rl_src = read_file(rl_path, &rl_size);
-            free(rl_path);
-            if (rl_src) {
-                /* Prepend raylib.iron source, then append user source */
-                size_t combined_len = (size_t)rl_size + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, rl_src, (size_t)rl_size);
-                    combined[rl_size] = '\n';
-                    strcpy(combined + rl_size + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(rl_src, (size_t)rl_size) + 1;
-                }
-                free(rl_src);
-            }
-        }
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/raylib.iron",
+                                line_markers);
     }
 
     /* 1d. Detect "import math" and prepend math.iron */
     if (iron_detect_import(source, source_path, "math", &detect_arena)) {
-        char *math_path = make_path(base_dir, "stdlib/math.iron");
-        if (math_path) {
-            long math_size = 0;
-            char *math_src = read_file(math_path, &math_size);
-            free(math_path);
-            if (math_src) {
-                size_t combined_len = (size_t)math_size + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, math_src, (size_t)math_size);
-                    combined[math_size] = '\n';
-                    strcpy(combined + math_size + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(math_src, (size_t)math_size) + 1;
-                }
-                free(math_src);
-            }
-        }
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/math.iron",
+                                line_markers);
     }
 
     /* 1e. Detect "import io" and prepend io.iron */
     if (iron_detect_import(source, source_path, "io", &detect_arena)) {
-        char *io_path = make_path(base_dir, "stdlib/io.iron");
-        if (io_path) {
-            long io_size = 0;
-            char *io_src = read_file(io_path, &io_size);
-            free(io_path);
-            if (io_src) {
-                size_t combined_len = (size_t)io_size + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, io_src, (size_t)io_size);
-                    combined[io_size] = '\n';
-                    strcpy(combined + io_size + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(io_src, (size_t)io_size) + 1;
-                }
-                free(io_src);
-            }
-        }
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/io.iron",
+                                line_markers);
     }
 
     /* 1f. Detect "import time" and prepend time.iron */
     if (iron_detect_import(source, source_path, "time", &detect_arena)) {
-        char *time_path = make_path(base_dir, "stdlib/time.iron");
-        if (time_path) {
-            long time_size = 0;
-            char *time_src = read_file(time_path, &time_size);
-            free(time_path);
-            if (time_src) {
-                size_t combined_len = (size_t)time_size + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, time_src, (size_t)time_size);
-                    combined[time_size] = '\n';
-                    strcpy(combined + time_size + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(time_src, (size_t)time_size) + 1;
-                }
-                free(time_src);
-            }
-        }
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/time.iron",
+                                line_markers);
     }
 
     /* 1f2. Detect "import hint" and prepend hint.iron */
     if (iron_detect_import(source, source_path, "hint", &detect_arena)) {
-        char *hint_path = make_path(base_dir, "stdlib/hint.iron");
-        if (hint_path) {
-            long hint_size = 0;
-            char *hint_src = read_file(hint_path, &hint_size);
-            free(hint_path);
-            if (hint_src) {
-                size_t combined_len = (size_t)hint_size + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, hint_src, (size_t)hint_size);
-                    combined[hint_size] = '\n';
-                    strcpy(combined + hint_size + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(hint_src, (size_t)hint_size) + 1;
-                }
-                free(hint_src);
-            }
-        }
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/hint.iron",
+                                line_markers);
     }
 
     /* 1g. Detect "import log" and prepend log.iron */
     if (iron_detect_import(source, source_path, "log", &detect_arena)) {
-        char *log_path = make_path(base_dir, "stdlib/log.iron");
-        if (log_path) {
-            long log_size = 0;
-            char *log_src = read_file(log_path, &log_size);
-            free(log_path);
-            if (log_src) {
-                size_t combined_len = (size_t)log_size + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, log_src, (size_t)log_size);
-                    combined[log_size] = '\n';
-                    strcpy(combined + log_size + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(log_src, (size_t)log_size) + 1;
-                }
-                free(log_src);
-            }
-        }
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/log.iron",
+                                line_markers);
     }
 
     /* 1h. Phase 59 02: detect "import net" and prepend net.iron */
     if (iron_detect_import(source, source_path, "net", &detect_arena)) {
-        char *net_path = make_path(base_dir, "stdlib/net.iron");
-        if (net_path) {
-            long net_size = 0;
-            char *net_src = read_file(net_path, &net_size);
-            free(net_path);
-            if (net_src) {
-                size_t combined_len = (size_t)net_size + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, net_src, (size_t)net_size);
-                    combined[net_size] = '\n';
-                    strcpy(combined + net_size + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(net_src, (size_t)net_size) + 1;
-                }
-                free(net_src);
-            }
-        }
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/net.iron",
+                                line_markers);
     }
 
     /* 1i. Phase 59 05: detect "import url" and prepend url.iron.
@@ -1234,158 +1263,46 @@ int iron_build(const char *source_path, const char *output_path,
      * It depends on String primitives which the unconditional string.iron
      * prepend below already supplies. */
     if (iron_detect_import(source, source_path, "url", &detect_arena)) {
-        char *url_path = make_path(base_dir, "stdlib/url.iron");
-        if (url_path) {
-            long url_size = 0;
-            char *url_src = read_file(url_path, &url_size);
-            free(url_path);
-            if (url_src) {
-                size_t combined_len = (size_t)url_size + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, url_src, (size_t)url_size);
-                    combined[url_size] = '\n';
-                    strcpy(combined + url_size + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(url_src, (size_t)url_size) + 1;
-                }
-                free(url_src);
-            }
-        }
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/url.iron",
+                                line_markers);
     }
 
     iron_arena_free(&detect_arena);
 
     /* 1i. Always prepend string.iron — String methods are available on every
      * String variable without an explicit import statement. */
-    {
-        char *str_path = make_path(base_dir, "stdlib/string.iron");
-        if (str_path) {
-            long str_size = 0;
-            char *str_src = read_file(str_path, &str_size);
-            free(str_path);
-            if (str_src) {
-                size_t combined_len = (size_t)str_size + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, str_src, (size_t)str_size);
-                    combined[str_size] = '\n';
-                    strcpy(combined + str_size + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(str_src, (size_t)str_size) + 1;
-                }
-                free(str_src);
-            }
-        }
-    }
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/string.iron",
+                            line_markers);
 
     /* 1i. Always prepend list.iron — Collection methods (map, filter, reduce,
      * forEach, sum) are available on every array variable without an explicit
      * import statement. */
-    {
-        char *list_path = make_path(base_dir, "stdlib/list.iron");
-        if (list_path) {
-            long list_size = 0;
-            char *list_src = read_file(list_path, &list_size);
-            free(list_path);
-            if (list_src) {
-                size_t combined_len = (size_t)list_size + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, list_src, (size_t)list_size);
-                    combined[list_size] = '\n';
-                    strcpy(combined + list_size + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(list_src, (size_t)list_size) + 1;
-                }
-                free(list_src);
-            }
-        }
-    }
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/list.iron",
+                            line_markers);
 
     /* 1j. Phase 78 FMT: always prepend int.iron — Int.to_string / Int32.to_string
      * are available on every Int / Int32 variable without an explicit import. */
-    {
-        char *int_path = make_path(base_dir, "stdlib/int.iron");
-        if (int_path) {
-            long int_size = 0;
-            char *int_src = read_file(int_path, &int_size);
-            free(int_path);
-            if (int_src) {
-                size_t combined_len = (size_t)int_size + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, int_src, (size_t)int_size);
-                    combined[int_size] = '\n';
-                    strcpy(combined + int_size + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(int_src, (size_t)int_size) + 1;
-                }
-                free(int_src);
-            }
-        }
-    }
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/int.iron",
+                            line_markers);
 
     /* 1k. Phase 78 FMT: always prepend float.iron — Float.to_string is available
      * on every Float variable without an explicit import. */
-    {
-        char *float_path = make_path(base_dir, "stdlib/float.iron");
-        if (float_path) {
-            long float_size = 0;
-            char *float_src = read_file(float_path, &float_size);
-            free(float_path);
-            if (float_src) {
-                size_t combined_len = (size_t)float_size + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, float_src, (size_t)float_size);
-                    combined[float_size] = '\n';
-                    strcpy(combined + float_size + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(float_src, (size_t)float_size) + 1;
-                }
-                free(float_src);
-            }
-        }
-    }
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/float.iron",
+                            line_markers);
 
     /* 1l. Phase 25 STDLIB-05: always prepend box.iron — Box[T] is available
      * on any source file that uses Box.new / Box.unwrap / Box.free /
      * Box.null / Box.is_null without an explicit import. Mirror of check.c
      * arm (Phase 25 Anti-Pattern: prepending ONLY in build.c misses the
      * check.c path; prepending ONLY in check.c misses the build path). */
-    {
-        char *box_path = make_path(base_dir, "stdlib/box.iron");
-        if (box_path) {
-            long sz = 0;
-            char *src = read_file(box_path, &sz);
-            free(box_path);
-            if (src) {
-                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, src, (size_t)sz);
-                    combined[sz] = '\n';
-                    strcpy(combined + sz + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(src, (size_t)sz) + 1;
-                }
-                free(src);
-            }
-        }
-    }
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/box.iron",
+                            line_markers);
 
     /* 1m. Phase 28 STDLIB-06 (Plan 28-03): always prepend arena.iron — Arena /
      * ArenaSave + Arena.new / new_threadsafe / with_capacity / save / restore /
@@ -1393,89 +1310,29 @@ int iron_build(const char *source_path, const char *output_path,
      * arena without an explicit import. Mirror of check.c arm (Pitfall 4:
      * prepending ONLY in build.c misses the check.c / iron_analyze_buffer
      * CORE-22 LSP path; prepending ONLY in check.c misses the build path). */
-    {
-        char *arena_path = make_path(base_dir, "stdlib/arena.iron");
-        if (arena_path) {
-            long sz = 0;
-            char *src = read_file(arena_path, &sz);
-            free(arena_path);
-            if (src) {
-                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, src, (size_t)sz);
-                    combined[sz] = '\n';
-                    strcpy(combined + sz + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(src, (size_t)sz) + 1;
-                }
-                free(src);
-            }
-        }
-    }
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/arena.iron",
+                            line_markers);
 
     /* 1n. Phase 33 OQ-01 (Plan 33-02): always prepend hashable.iron — the
      * Hashable constraint interface must resolve as IRON_SYM_INTERFACE BEFORE
      * any Map/Set instantiation is checked, else the K: Hashable bound silently
      * passes (type_satisfies_constraint returns true for an unresolved
      * constraint). Ordered before map.iron/set.iron below. Mirror of check.c
-     * arm (Pitfall 4: prepending ONLY in build.c misses the check.c /
-     * iron_analyze_buffer CORE-22 LSP path; prepending ONLY in check.c misses
-     * the build path). */
-    {
-        char *hashable_path = make_path(base_dir, "stdlib/hashable.iron");
-        if (hashable_path) {
-            long sz = 0;
-            char *src = read_file(hashable_path, &sz);
-            free(hashable_path);
-            if (src) {
-                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, src, (size_t)sz);
-                    combined[sz] = '\n';
-                    strcpy(combined + sz + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(src, (size_t)sz) + 1;
-                }
-                free(src);
-            }
-        }
-    }
+     * arm. */
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/hashable.iron",
+                            line_markers);
 
     /* 1o/1p. Phase 33 STDLIB-03/04 (Plan 33-02): always prepend map.iron +
      * set.iron — Map[K: Hashable, V] / Set[T: Hashable] declare the generic
      * bound so the OQ-01 constraint check fires at user instantiation sites.
      * MUST come after hashable.iron above (the Hashable interface must resolve
      * first). Mirror of check.c arm. */
-    {
-        const char *containers[] = { "stdlib/map.iron", "stdlib/set.iron" };
-        for (size_t ci = 0; ci < sizeof(containers) / sizeof(containers[0]); ci++) {
-            char *path = make_path(base_dir, containers[ci]);
-            if (!path) continue;
-            long sz = 0;
-            char *src = read_file(path, &sz);
-            free(path);
-            if (src) {
-                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, src, (size_t)sz);
-                    combined[sz] = '\n';
-                    strcpy(combined + sz + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(src, (size_t)sz) + 1;
-                }
-                free(src);
-            }
-        }
-    }
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/map.iron", line_markers);
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/set.iron", line_markers);
 
     /* 1q. Phase 33 STDLIB-07/08/09 (Plan 33-05): always prepend the nocopy
      * resource types — Mutex[T] / RWLock[T] / Channel[T] / FileHandle. Each is
@@ -1483,61 +1340,23 @@ int iron_build(const char *source_path, const char *output_path,
      * emit_helpers.c and the by-name dispatch in typecheck.c recognizes
      * Mutex.new / m.lock / Channel.new / FileHandle.open / etc. Mirror of
      * check.c arm. */
-    {
-        const char *nocopy_types[] = {
-            "stdlib/mutex.iron", "stdlib/rwlock.iron",
-            "stdlib/channel.iron", "stdlib/filehandle.iron"
-        };
-        for (size_t ci = 0; ci < sizeof(nocopy_types) / sizeof(nocopy_types[0]); ci++) {
-            char *path = make_path(base_dir, nocopy_types[ci]);
-            if (!path) continue;
-            long sz = 0;
-            char *src = read_file(path, &sz);
-            free(path);
-            if (src) {
-                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, src, (size_t)sz);
-                    combined[sz] = '\n';
-                    strcpy(combined + sz + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(src, (size_t)sz) + 1;
-                }
-                free(src);
-            }
-        }
-    }
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/mutex.iron", line_markers);
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/rwlock.iron", line_markers);
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/channel.iron", line_markers);
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/filehandle.iron", line_markers);
 
     /* 1r. Phase 33 STDLIB-10 (Plan 33-06): always prepend rawptr.iron — RawPtr
      * is the type-erased member of the *unchecked T regime. Its `RawPtr.of(x)`
      * compiler-builtin is dispatched in typecheck.c and the by-name dispatch
      * needs the `RawPtr` symbol in scope to resolve the type annotation
      * `val raw: RawPtr`. Mirror of check.c arm. */
-    {
-        char *rawptr_path = make_path(base_dir, "stdlib/rawptr.iron");
-        if (rawptr_path) {
-            long sz = 0;
-            char *src = read_file(rawptr_path, &sz);
-            free(rawptr_path);
-            if (src) {
-                size_t combined_len = (size_t)sz + 1 + strlen(source) + 1;
-                char *combined = (char *)malloc(combined_len);
-                if (combined) {
-                    memcpy(combined, src, (size_t)sz);
-                    combined[sz] = '\n';
-                    strcpy(combined + sz + 1, source);
-                    free(source);
-                    source = combined;
-                    stdlib_prepended_lines +=
-                        iron_count_newlines(src, (size_t)sz) + 1;
-                }
-                free(src);
-            }
-        }
-    }
+    stdlib_prepended_lines +=
+        prepend_marked_file(&source, base_dir, "stdlib/rawptr.iron",
+                            line_markers);
 
     } else {
         /* Phase 94 LIB-03 polyfill-duplication fix: emit_archive mode skipped
