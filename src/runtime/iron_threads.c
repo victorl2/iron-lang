@@ -865,23 +865,36 @@ void Iron_channel_close(Iron_Channel *ch) {
     IRON_MUTEX_UNLOCK(ch->lock);
 }
 
-void Iron_channel_destroy(Iron_Channel *ch) {
+/* Phase 37 rc-balance (M5): element-drop-aware channel destroy.
+ *
+ * Drains undelivered items before freeing the ring. Every queued slot is a
+ * malloc'd box from the generated Iron_Channel_<T>_send glue
+ * (emit_helpers.c). The runtime is type-erased here, so the per-T glue
+ * threads `elem_drop` — a pointer to the element type's destructor
+ * trampoline (rc release / FileHandle close / user drop body) — which runs
+ * on each still-queued box payload BEFORE the box memory is reclaimed.
+ * elem_drop == NULL preserves the historical box-free-only behavior for
+ * trivially-destructible T (closes the STDLIB-08 documented gap when the
+ * glue passes a real trampoline). */
+void Iron_channel_destroy_with(Iron_Channel *ch, void (*elem_drop)(void *)) {
     if (!ch) return;
-    /* Drain undelivered items before freeing the ring. Every queued slot is
-     * a malloc'd box from the generated Iron_Channel_<T>_send glue
-     * (emit_helpers.c) — destroying a non-empty channel previously leaked
-     * one box per queued item. The runtime is type-erased here, so only the
-     * box memory is reclaimed; a resource-typed element's drop does NOT run
-     * on this path (destructor-on-container-drop for queued channel items
-     * is a documented gap — see STDLIB-08). */
     for (int i = 0; i < ch->count; i++) {
-        free(ch->ring[(ch->head + i) % ch->capacity]);
+        void *box = ch->ring[(ch->head + i) % ch->capacity];
+        if (box && elem_drop) elem_drop(box);
+        free(box);
     }
     free(ch->ring);
     IRON_MUTEX_DESTROY(ch->lock);
     IRON_COND_DESTROY(ch->not_full);
     IRON_COND_DESTROY(ch->not_empty);
     free(ch);
+}
+
+void Iron_channel_destroy(Iron_Channel *ch) {
+    /* Back-compat shim: existing emit_helpers.c glue calls this arity.
+     * Elements with a non-trivial drop leak on this path — the glue must
+     * migrate to Iron_channel_destroy_with (see M5 report). */
+    Iron_channel_destroy_with(ch, NULL);
 }
 
 /* ── Iron_Mutex ──────────────────────────────────────────────────────────── */
@@ -912,11 +925,22 @@ void Iron_mutex_unlock(Iron_Mutex *m) {
     IRON_MUTEX_UNLOCK(m->lock);
 }
 
-void Iron_mutex_destroy(Iron_Mutex *m) {
+/* Phase 37 rc-balance (M5): element-drop-aware mutex destroy. Runs the
+ * wrapped value's destructor trampoline (threaded by the per-T glue) before
+ * freeing the value storage — a droppable/rc element parked in a Mutex[T]
+ * previously leaked its resource. elem_drop == NULL preserves the
+ * historical free-only behavior for trivially-destructible T. */
+void Iron_mutex_destroy_with(Iron_Mutex *m, void (*elem_drop)(void *)) {
     if (!m) return;
+    if (m->value && elem_drop) elem_drop(m->value);
     free(m->value);
     IRON_MUTEX_DESTROY(m->lock);
     free(m);
+}
+
+void Iron_mutex_destroy(Iron_Mutex *m) {
+    /* Back-compat shim: existing emit_helpers.c glue calls this arity. */
+    Iron_mutex_destroy_with(m, NULL);
 }
 
 /* ── Lock / CondVar raw primitives ───────────────────────────────────────── */

@@ -50,6 +50,37 @@ void iron_panic_bvec_oob(const char *deref_file,
                          int64_t index,
                          int64_t bound);
 
+/* Integer division/modulo by zero (DIV-01).
+ * Reuses s_iron_panic_format channel cache (no malloc, fputs/fprintf only).
+ * Definition in src/runtime/iron_panic.c.
+ * Forward-declared in src/runtime/iron_runtime.h for generated user binaries. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_div_by_zero(const char *site_file, int site_line);
+
+/* Generic index out of bounds (LIST-01): List get/set/pop + direct indexing.
+ * Runtime call sites pass the operation name as site_file with line 0.
+ * Definition in src/runtime/iron_panic.c. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_index_oob(const char *site_file, int site_line,
+                          int64_t index, int64_t bound);
+
+/* 2026-07 UNCHK-IDX: index out of bounds through a site the author declared
+ * unchecked (`xs.get_unchecked(i)` / `xs.set_unchecked(i, v)`). Only reachable
+ * under --debug-build (-DIRON_DEBUG_ALLOCATOR), where unchecked sites keep
+ * their guard; in normal builds the site is a raw access and OOB is UB.
+ * Distinct headline so a debug-build catch is immediately attributable to the
+ * unchecked opt-out rather than a compiler-emitted guard.
+ * Definition in src/runtime/iron_panic.c. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_index_oob_unchecked(const char *site_file, int site_line,
+                                    int64_t index, int64_t bound);
+
 /* Phase 24 DROP-04 (Plan 24-03): panicking destructor abort.
  * Called when any iron_panic_* fires while iron_in_destructor == true.
  * Mirrors iron_panic_bvec_oob: no malloc, fputs/fprintf only, reuses

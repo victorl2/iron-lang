@@ -107,6 +107,60 @@ void iron_rc_op_counts_reset(void) {
 #endif
 }
 
+/* ── Phase 37 rc-balance: debug rc-block leak detector ───────────────────────
+ *
+ * Under IRON_DEBUG_ALLOCATOR (the `ironc build --debug-build` runtime flag —
+ * the same switch that arms the heap-side leak registry in iron_heap_track.c),
+ * iron_rc_alloc counts live rc blocks and iron_weak_rc_release's 1→0 free edge
+ * counts them back down. An atexit dump (armed on first rc alloc) reports a
+ * nonzero live count to STDERR — stdout stays byte-identical debug vs release
+ * (iron_heap_track.c Pitfall 7 discipline), and a clean exit prints NOTHING.
+ *
+ * This closes the "rc/arena not tracked" hole the heap dump itself documents:
+ * rc retain/release imbalances (leaked upgrade refs, unbalanced call-site
+ * retains, un-torn-down closure envs) were invisible to the debug leak
+ * detector because rc blocks never route through iron_heap_alloc. A block is
+ * "live" until BOTH counts reach zero (the weak 1→0 edge frees), so a leaked
+ * weak ref holding just the header is also reported. */
+#ifdef IRON_DEBUG_ALLOCATOR
+#include <stdio.h>
+
+static _Atomic uint64_t s_rc_live_blocks;
+static _Atomic uint64_t s_rc_dump_armed;
+
+static void iron_rc_leak_dump(void) {
+    uint64_t live = IRON_ATOMIC_U64_LOAD_ACQUIRE(s_rc_live_blocks);
+    if (live == 0) return;   /* clean exit — print nothing */
+    fprintf(stderr,
+            "iron: %llu rc allocation(s) leaked at exit "
+            "(refcount imbalance -- rc/weak-rc blocks still live)\n",
+            (unsigned long long)live);
+    fflush(stderr);
+}
+
+static void iron_rc_leak_track_alloc(void) {
+    /* Arm the atexit dump once, on the first rc allocation. Bounded retry
+     * absorbs spurious weak-CAS failures; the losing thread of a genuine
+     * race observes armed != 0 and stops. */
+    for (int i = 0; i < 64; i++) {
+        uint64_t expected = 0;
+        if (IRON_ATOMIC_U64_LOAD_ACQUIRE(s_rc_dump_armed) != 0) break;
+        if (IRON_ATOMIC_U64_CAS_WEAK_RELAXED(s_rc_dump_armed, &expected, 1)) {
+            atexit(iron_rc_leak_dump);
+            break;
+        }
+    }
+    (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(s_rc_live_blocks, 1);
+}
+
+static void iron_rc_leak_track_free(void) {
+    (void)IRON_ATOMIC_U64_FETCH_SUB_RELAXED(s_rc_live_blocks, 1);
+}
+#else
+#define iron_rc_leak_track_alloc() ((void)0)
+#define iron_rc_leak_track_free()  ((void)0)
+#endif /* IRON_DEBUG_ALLOCATOR */
+
 /* Block size: [Iron_RcHeader][IronAllocHdr][payload].
  *
  * The two-header prefix is recovered in O(1) by walking the user pointer back
@@ -173,6 +227,9 @@ void *iron_rc_alloc(size_t size, void (*drop_fn)(void *)) {
         (IronAllocHdr *)((char *)block + sizeof(Iron_RcHeader));
     IRON_ATOMIC_U64_INIT(ahd->gen, 1);
     ahd->size = (uint64_t)size;
+
+    /* Phase 37 rc-balance: debug leak detector — count the live block. */
+    iron_rc_leak_track_alloc();
 
     return (char *)block + IRON_RC_HEADER_TOTAL_SIZE;
 }
@@ -339,6 +396,8 @@ void iron_weak_rc_release(void *user_ptr) {
          * strong is necessarily 0 and drop_fn has run. This thread frees. */
         IRON_ATOMIC_FENCE_ACQUIRE();
         free((char *)user_ptr - IRON_RC_HEADER_TOTAL_SIZE);
+        /* Phase 37 rc-balance: debug leak detector — block fully released. */
+        iron_rc_leak_track_free();
     }
 }
 
