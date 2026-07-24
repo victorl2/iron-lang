@@ -1,0 +1,12 @@
+-- section: 7.5-stdlib (negative)
+-- @req: UNCHK-IDX-02
+-- @expected-error: E0202
+-- @expected-pass-after: phase-37
+-- set_unchecked's index must be an integer type — same E0202 class (and
+-- wording) as the BOUNDS-03 check on the checked xs[i] surface.
+
+func main() {
+    var xs = fill(3, 0)
+    xs.set_unchecked("one", 5)
+    println("{xs[0]}")
+}

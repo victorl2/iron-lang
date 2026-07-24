@@ -81,14 +81,21 @@ static void collect_locals(Iron_Node *node, StrSet **locals) {
     switch ((int)(node->kind)) {
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)node;
-            shput(*locals, vd->name, 1);
+            /* Tuple destructure (`val (a, b) = ...`) has name == NULL and
+             * carries its bindings in binding_names[] (NULL entry = `_`).
+             * shput on a NULL key would crash (strlen(NULL)). */
+            if (vd->name) shput(*locals, vd->name, 1);
+            for (int i = 0; i < vd->binding_count; i++) {
+                if (vd->binding_names && vd->binding_names[i])
+                    shput(*locals, vd->binding_names[i], 1);
+            }
             /* Recurse into init expression (it may contain nested lambdas,
              * but their locals are handled by their own find_captures call) */
             break;
         }
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *vd = (Iron_VarDecl *)node;
-            shput(*locals, vd->name, 1);
+            if (vd->name) shput(*locals, vd->name, 1);
             break;
         }
         case IRON_NODE_BLOCK: {

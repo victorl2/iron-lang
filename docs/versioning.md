@@ -142,7 +142,10 @@ tag they correspond to.
 | `v0.1.2-alpha` (internal: Compiler Hardening) | `v1.1.0-alpha` | |
 | `v0.1.3-alpha` (internal: Known Limitations Cleanup) | parallel worker, not yet cut | Still in flight on a separate worker. |
 | `v0.2.0-alpha` (internal: Networking, paused) | `v1.2.0-alpha` (partial, Phase 59 only) | Phase 59 shipped INFRA-04..10 + NET-01..13 + URL-01..07 as `v1.2.0-alpha` via PR #17; Phases 60-64 still paused. |
-| `v0.1.4-alpha` (internal: Compiler Correctness & Maintenance) | `v1.3.0-alpha` (when cut) | Current active milestone; next release under canonical scheme. |
+| `v0.1.4-alpha` (internal: Compiler Correctness & Maintenance) | `v1.3.0-alpha` — never cut | The tag was not published; the next public release was `v2.0.0-alpha`. |
+| (public tags, no internal drift) | `v2.0.0-alpha`, `v2.2.0-alpha` | "Iron Builds Real Games" and the ergonomics follow-up; milestones tracked under their public tag names. |
+| (public tags, no internal drift) | `v3.0.0-alpha` through `v3.3.0-alpha` | Method ergonomics (v3.0), raylib 6 (v3.1), fresh-install fix (v3.1.1), library authoring polish (v3.2), editor support / LSP (v3.3). |
+| "Milestone v3.0" (internal: Iron v4 Memory Model) | `v4.0.0-alpha` | Internal planning tracked the memory-model overhaul as "milestone v3.0" (see `docs/release/v4.0.0-alpha.md`); it shipped publicly as `v4.0.0-alpha`. **Current release.** |
 
 Archived requirements files `.planning/REQUIREMENTS-v0.1.0.md`,
 `.planning/REQUIREMENTS-v0.1.x.md`, and `.planning/REQUIREMENTS-v0.2.0.md`

@@ -1,6 +1,9 @@
 -- section: 6-readonly
 -- @req: READ-04, READ-06
--- @expected-pass-after: phase-22
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): top-level `readonly func` is deliberately parse-rejected (E0245, Phase 84
+-- MUTTIER: readonly is only valid on object-block methods); fixture authored against the older
+-- free-function readonly design.
 -- extends-spec: readonly returning primitive-only struct (§6.4 compatible types)
 
 object Stat {
@@ -16,11 +19,11 @@ object Unit {
 readonly func compute_stat(u: *Unit) -> Stat {
     val combined = u.base + u.bonus
     val doubled = combined * 2
-    return Stat(a: combined, b: doubled)
+    return Stat(combined, doubled)
 }
 
 func main() {
-    val u = Unit(base: 10, bonus: 5)
+    val u = Unit(10, 5)
     val s = compute_stat(&u)
     println("a={s.a} b={s.b}")
 }

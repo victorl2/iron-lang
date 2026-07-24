@@ -273,6 +273,13 @@ static void ew_emit_main_wrapper(EmitCtx *ctx, IronLIR_Func *fn, int header_bi) 
         "int main(int argc, char **argv) {\n");
     iron_strbuf_appendf(&ctx->main_wrapper,
         "    iron_runtime_init(argc, argv);\n");
+    /* Module-global initializers run before any user code, mirroring the
+     * native wrapper. No deinit call: the emscripten main loop never
+     * returns, so module-exit drops are unreachable on the web target. */
+    if (ctx->module && ctx->module->global_count > 0) {
+        iron_strbuf_appendf(&ctx->main_wrapper,
+            "    __iron_module_init();\n");
+    }
     iron_strbuf_appendf(&ctx->main_wrapper,
         "    FrameState_%s *state ="
         " (FrameState_%s *)malloc(sizeof(FrameState_%s));\n",
@@ -397,6 +404,23 @@ const char *emit_web_module(IronLIR_Module *module, Iron_Arena *arena,
      * raylib surface — the native emit_c path has called this since Phase 61. */
     emit_foreign_method_prototypes(&ctx);
 
+    /* Module-global statics (2026-07 remediation): mirror the native
+     * emitter — one zero-initialized file-scope static per referenced
+     * top-level binding. Function bodies (including the synthesized
+     * __iron_module_init) reference Iron_g_<name>; without these
+     * definitions the web TU fails at emcc with undeclared identifiers. */
+    for (int gi = 0; gi < module->global_count; gi++) {
+        const IronLIR_Global *g = &module->globals[gi];
+        if (!g->name) continue;
+        iron_strbuf_appendf(&ctx.global_consts,
+                            "static %s Iron_g_%s; /* module global '%s' (%s) */\n",
+                            emit_type_to_c(g->type, &ctx), g->name, g->name,
+                            g->is_mutable ? "var" : "val");
+    }
+    if (module->global_count > 0) {
+        iron_strbuf_appendf(&ctx.global_consts, "\n");
+    }
+
     /* ── Identify the main-loop function ───────────────────────────────────── */
     int main_loop_fi = -1;
     for (int i = 0; i < module->func_count; i++) {
@@ -416,6 +440,19 @@ const char *emit_web_module(IronLIR_Module *module, Iron_Arena *arena,
             IronLIR_Func *fn = module->funcs[i];
             if (!fn || fn->is_extern) continue;
             emit_func_body(&ctx, fn);
+        }
+        /* This shape has no main(): the JS shell drives Iron_main directly.
+         * Run the module-global initializers from a C constructor, which
+         * Emscripten executes at wasm instantiation — before any exported
+         * call — so globals are live by Iron_main, matching the native
+         * wrapper's ordering guarantee. (The main-loop shape below calls
+         * __iron_module_init from its main() wrapper instead.) */
+        if (module->global_count > 0) {
+            iron_strbuf_appendf(&ctx.main_wrapper,
+                "__attribute__((constructor)) static void "
+                "__iron_module_init_ctor(void) {\n"
+                "    __iron_module_init();\n"
+                "}\n");
         }
     } else {
         /* Emit plain (non-main-loop) functions via the native helper */

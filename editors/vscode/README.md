@@ -4,13 +4,13 @@ Iron language support for [Visual Studio Code](https://code.visualstudio.com/):
 TextMate syntax highlighting and a full LSP 3.17 client that delegates to
 [`ironls`](https://github.com/iron-lang/iron-lang), the Iron language server.
 
-**Tracks:** Iron v3.1.1-alpha (current main-branch alpha). See the
+**Tracks:** Iron v4.0.0-alpha (current main-branch alpha). See the
 **Version mismatch** section below for the exact `ironls` binary the
 extension accepts.
 
 ## Iron syntax overview
 
-Iron v3 introduces the following first-class surface features (all
+Iron's current surface includes the following first-class features (all
 highlighted by the TextMate grammar and understood by `ironls`):
 
 - **`init` blocks** — anonymous (`init(x: Int, y: Int) { ... }`) and named
@@ -26,10 +26,11 @@ highlighted by the TextMate grammar and understood by `ironls`):
   and explicit mutable bindings; the type system enforces compatibility
   at call boundaries.
 
-Legacy pre-v3 keywords (`val`, `var`, `object`, `interface`, `impl`,
+The core keywords (`val`, `var`, `object`, `interface`, `impl`,
 `func`, `for`, `while`, `if/else/elif/match`, `return`, `import`,
-`comptime`, etc.) continue to work unchanged. The complete roster is 44
-keywords, drift-guarded at build time by `test_grammar_keyword_drift_*`.
+`comptime`, etc.) are all part of the current v4 surface. The complete
+roster is 49 keywords, drift-guarded at build time by
+`test_grammar_keyword_drift_*`.
 
 ## Features
 
@@ -44,7 +45,7 @@ keywords, drift-guarded at build time by `test_grammar_keyword_drift_*`.
   `workspace/executeCommand iron.migrate` on ironls, which runs
   `ironc migrate` and applies the resulting WorkspaceEdit in-editor.
 
-## Iron v3 schematic example
+## Iron schematic example
 
 ```iron
 pub object Player {
@@ -76,7 +77,7 @@ patch Player {
   `ironls` alongside `ironc`; follow the install instructions at
   <https://iron-lang.dev/install>.
 - Compatible `ironls` versions: see `ironLspCompatibleIronlsRange` in
-  `package.json` (currently `>= 3.0.0, < 4.0.0`). An incompatible server
+  `package.json` (currently `>= 4.0.0, < 5.0.0`). An incompatible server
   triggers a **hard refuse** — see the "Version mismatch" section below.
 
 ## Install
@@ -122,11 +123,11 @@ Each error has an **Open Settings** button that jumps to the
 ### Version mismatch
 
 Phase 7 HARD-22 / UI-SPEC S9 — when the extension detects an `ironls`
-version outside `ironLspCompatibleIronlsRange` (`>= 3.0.0, < 4.0.0`),
+version outside `ironLspCompatibleIronlsRange` (`>= 4.0.0, < 5.0.0`),
 it refuses to activate the language client:
 
 > **Iron LSP: detected ironls X.Y.Z, but this extension requires
-> &gt;= 3.0.0 .. &lt; 4.0.0. The language server will NOT activate.
+> &gt;= 4.0.0 .. &lt; 5.0.0. The language server will NOT activate.
 > Install the latest ironls to continue.**
 
 Click **Update Iron LSP** in the toast to open

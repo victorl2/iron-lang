@@ -3,7 +3,8 @@ import time
 func partition_equal_subset(nums: [Int], n: Int) -> Int {
     var total = 0
     for i in range(n) {
-        total = total + nums[i]
+        -- in-bounds: range(n) gives 0 <= i < n <= nums.len() (caller contract)
+        total = total + nums.get_unchecked(i)
     }
     if total % 2 != 0 {
         return 0
@@ -13,10 +14,13 @@ func partition_equal_subset(nums: [Int], n: Int) -> Int {
     dp[0] = 1
     var i = 0
     while i < n {
+        -- in-bounds: 0 <= i < n <= nums.len() (caller contract)
+        val vi = nums.get_unchecked(i)
         var s = target
-        while s >= nums[i] {
-            if dp[s - nums[i]] == 1 {
-                dp[s] = 1
+        while s >= vi {
+            -- in-bounds: loop guard gives vi <= s <= target, so 0 <= s - vi <= s <= target < target + 1 = dp.len()
+            if dp.get_unchecked(s - vi) == 1 {
+                dp.set_unchecked(s, 1)
             }
             s = s - 1
         }

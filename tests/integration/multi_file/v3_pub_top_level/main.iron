@@ -10,7 +10,7 @@ func describe(s: State) -> String {
 }
 
 func main() {
-    var b = Box(10)
+    var b = Crate(10)
     var d = damage(5)
     println("{b.get()} {d} {describe(State.RUNNING)}")
 }

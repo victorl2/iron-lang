@@ -14,19 +14,23 @@ func find_median_sorted(nums1: [Int32], n1: Int32, nums2: [Int32], n2: Int32) ->
 
         var left1: Int32 = Int32(-1000000)
         if i > Int32(0) {
-            left1 = nums1[Int(i - Int32(1))]
+            -- in-bounds: guard i > 0 and i <= hi <= n1 = nums1.len() (caller contract), so 0 <= i - 1 < n1
+            left1 = nums1.get_unchecked(Int(i - Int32(1)))
         }
         var right1: Int32 = Int32(1000000)
         if i < n1 {
-            right1 = nums1[Int(i)]
+            -- in-bounds: 0 <= lo <= i and guard i < n1 = nums1.len()
+            right1 = nums1.get_unchecked(Int(i))
         }
         var left2: Int32 = Int32(-1000000)
         if j > Int32(0) {
-            left2 = nums2[Int(j - Int32(1))]
+            -- in-bounds: guard j > 0; j = half - i <= half <= n2 (precondition n1 <= n2), so 0 <= j - 1 < n2 = nums2.len()
+            left2 = nums2.get_unchecked(Int(j - Int32(1)))
         }
         var right2: Int32 = Int32(1000000)
         if j < n2 {
-            right2 = nums2[Int(j)]
+            -- in-bounds: j = half - i >= half - n1 >= 0 (precondition n1 <= n2) and guard j < n2 = nums2.len()
+            right2 = nums2.get_unchecked(Int(j))
         }
 
         if left1 <= right2 and left2 <= right1 {

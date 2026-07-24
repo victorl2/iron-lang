@@ -9,18 +9,22 @@ func daily_temps(temps: [Int], n: Int) -> Int {
     var top = 0
 
     for i in range(n) {
-        while top > 0 and temps[stack[top - 1]] < temps[i] {
+        -- in-bounds: 0 < top <= n <= 200 = stack.len(); stack holds indices < n = temps.len() (caller contract); i < n
+        while top > 0 and temps.get_unchecked(stack.get_unchecked(top - 1)) < temps.get_unchecked(i) {
             top = top - 1
-            val idx = stack[top]
-            result[idx] = i - idx
+            -- in-bounds: 0 <= top (loop guard had top > 0) < 200; idx = stack[top] < n <= 200 = result.len()
+            val idx = stack.get_unchecked(top)
+            result.set_unchecked(idx, i - idx)
         }
-        stack[top] = i
+        -- in-bounds: top only grows once per pushed index, so top <= i < n <= 200 = stack.len()
+        stack.set_unchecked(top, i)
         top = top + 1
     }
 
     var checksum = 0
     for i in range(n) {
-        checksum = checksum + result[i]
+        -- in-bounds: i < n <= 200 = result.len()
+        checksum = checksum + result.get_unchecked(i)
     }
     return checksum
 }

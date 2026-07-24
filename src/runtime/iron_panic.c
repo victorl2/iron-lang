@@ -104,6 +104,9 @@ void iron_panic_stale_stack_pointer(const char *deref_file,
                 (unsigned long long)captured_frame_gen,
                 (unsigned long long)iron_stack_gen);
     }
+    /* Buffered stdout dies with abort(); flush it so a panicking program
+     * keeps every line it printed before the panic. */
+    fflush(stdout);
     fflush(stderr);
     abort();
 }
@@ -144,6 +147,121 @@ void iron_panic_bvec_oob(const char *deref_file,
         fprintf(stderr, "  index: %lld >= bound: %lld\n",
                 (long long)index, (long long)bound);
     }
+    /* Buffered stdout dies with abort(); flush it so a panicking program
+     * keeps every line it printed before the panic. */
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
+/* 2026-07 UNCHK-IDX: OOB through an author-declared unchecked indexing site
+ * (get_unchecked / set_unchecked), reachable only under --debug-build where
+ * the guard is kept. Mirrors iron_panic_index_oob (no malloc, fputs/fprintf
+ * only, init-cleanup + in-destructor divert, flush, abort) with a distinct
+ * headline + JSON kind so the catch attributes to the author's opt-out.
+ * JSON channel:  {"panic":"index_oob_unchecked","site":{"file":"...","line":N},"index":I,"bound":B}
+ * Text channel:  iron: index out of bounds (unchecked site)
+ *                  site: <file>:<line>
+ *                  index: <I> bound: <B>
+ *                  note: site was declared unchecked (get_unchecked/set_unchecked);
+ *                        this access is undefined behavior in a non-debug build */
+void iron_panic_index_oob_unchecked(const char *site_file, int site_line,
+                                    int64_t index, int64_t bound) {
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        /* noreturn — abort() inside */
+    }
+    const char *sf = site_file ? site_file : "<unknown>";
+
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"index_oob_unchecked\",", stderr);
+        fprintf(stderr, "\"site\":{\"file\":\"%s\",\"line\":%d}", sf, site_line);
+        fprintf(stderr, ",\"index\":%lld,\"bound\":%lld",
+                (long long)index, (long long)bound);
+        fputc('}', stderr);
+        fputc('\n', stderr);
+    } else {
+        fputs("iron: index out of bounds (unchecked site)\n", stderr);
+        fprintf(stderr, "  site: %s:%d\n", sf, site_line);
+        fprintf(stderr, "  index: %lld bound: %lld\n",
+                (long long)index, (long long)bound);
+        fputs("  note: site was declared unchecked (get_unchecked/"
+              "set_unchecked); this access is undefined behavior in a "
+              "non-debug build\n", stderr);
+    }
+    /* Buffered stdout dies with abort(); flush it so a panicking program
+     * keeps every line it printed before the panic. */
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
+/* Integer division/modulo by zero (DIV-01). Without this guard the emitted
+ * `a / b` is a SIGFPE on x86 (and UB everywhere) with no Iron-side message.
+ * Mirrors iron_panic_bvec_oob shape: no malloc, fputs/fprintf only, reuses
+ * s_iron_panic_format, init-cleanup + in-destructor divert, ends in abort().
+ * JSON channel:  {"panic":"div_by_zero","site":{"file":"...","line":N}}
+ * Text channel:  iron: integer division by zero
+ *                  site: <file>:<line> */
+/* Generic index out of bounds (LIST-01): dynamic List[T] get/set/pop and the
+ * emitter's direct .items[i] fast path. Runtime call sites have no source
+ * span, so they pass the runtime operation name as site_file with line 0;
+ * emitter call sites pass __FILE__/__LINE__ of the generated TU (matching
+ * iron_panic_bvec_oob's convention).
+ * JSON channel:  {"panic":"index_oob","site":{"file":"...","line":N},"index":I,"bound":B}
+ * Text channel:  iron: index out of bounds
+ *                  site: <file>:<line>
+ *                  index: <I> bound: <B> */
+void iron_panic_index_oob(const char *site_file, int site_line,
+                          int64_t index, int64_t bound) {
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        /* noreturn — abort() inside */
+    }
+    const char *sf = site_file ? site_file : "<unknown>";
+
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"index_oob\",", stderr);
+        fprintf(stderr, "\"site\":{\"file\":\"%s\",\"line\":%d}", sf, site_line);
+        fprintf(stderr, ",\"index\":%lld,\"bound\":%lld",
+                (long long)index, (long long)bound);
+        fputc('}', stderr);
+        fputc('\n', stderr);
+    } else {
+        fputs("iron: index out of bounds\n", stderr);
+        fprintf(stderr, "  site: %s:%d\n", sf, site_line);
+        fprintf(stderr, "  index: %lld bound: %lld\n",
+                (long long)index, (long long)bound);
+    }
+    /* Buffered stdout dies with abort(); flush it so a panicking program
+     * keeps every line it printed before the panic. */
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
+void iron_panic_div_by_zero(const char *site_file, int site_line) {
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        /* noreturn — abort() inside */
+    }
+    const char *sf = site_file ? site_file : "<unknown>";
+
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"div_by_zero\",", stderr);
+        fprintf(stderr, "\"site\":{\"file\":\"%s\",\"line\":%d}", sf, site_line);
+        fputc('}', stderr);
+        fputc('\n', stderr);
+    } else {
+        fputs("iron: integer division by zero\n", stderr);
+        fprintf(stderr, "  site: %s:%d\n", sf, site_line);
+    }
+    /* Buffered stdout dies with abort(); flush it so a panicking program
+     * keeps every line it printed before the panic. */
+    fflush(stdout);
     fflush(stderr);
     abort();
 }
@@ -205,6 +323,9 @@ void iron_panic_destructor_aborted(const char *type_name,
         fprintf(stderr, "  type: %s\n", tn);
         fprintf(stderr, "  drop site: %s:%d\n", df, drop_site_line);
     }
+    /* Buffered stdout dies with abort(); flush it so a panicking program
+     * keeps every line it printed before the panic. */
+    fflush(stdout);
     fflush(stderr);
     abort();
 }
@@ -215,8 +336,12 @@ void iron_panic_destructor_aborted(const char *type_name,
  * snapshot no longer matches the arena's live generation — i.e. the arena was
  * reset()/restore()'d since the pointer was taken. Mirrors
  * iron_panic_stale_pointer's dual text/JSON channel, in-destructor divert, and
- * init-cleanup pump. Distinct header substring ("stale arena pointer
- * dereference") + JSON "panic":"arena_pointer" tag. hdr->size is reported when
+ * init-cleanup pump. 2026-07 remediation: the text headline keeps the
+ * generic "stale pointer dereference" substring (the corpus-wide
+ * @expect-panic contract — 3.7-arena/panic_after_reset pins it now that the
+ * ARENA checker is actually selected for arena-rooted pointers) with an
+ * "(arena)" qualifier for disambiguation; the JSON channel keeps its fully
+ * distinct "panic":"arena_pointer" tag. hdr->size is reported when
  * available. noreturn (abort). */
 void iron_panic_arena_stale(const char *deref_file,
                             int deref_line,
@@ -243,14 +368,17 @@ void iron_panic_arena_stale(const char *deref_file,
         fputc('}', stderr);
         fputc('\n', stderr);
     } else {
-        /* Text format — distinct header substring. */
-        fputs("iron: stale arena pointer dereference\n", stderr);
+        /* Text format — generic substring + arena qualifier (see header). */
+        fputs("iron: stale pointer dereference (arena)\n", stderr);
         fprintf(stderr, "  deref site: %s:%d\n", df, deref_line);
         if (hdr) {
             fprintf(stderr, "  allocation: size=%llu\n",
                     (unsigned long long)hdr->size);
         }
     }
+    /* Buffered stdout dies with abort(); flush it so a panicking program
+     * keeps every line it printed before the panic. */
+    fflush(stdout);
     fflush(stderr);
     abort();
 }
@@ -283,13 +411,18 @@ void iron_panic_arena_oom(const char *arena_name,
         fputc('}', stderr);
         fputc('\n', stderr);
     } else {
-        /* Text format. */
-        fputs("iron: arena out of memory\n", stderr);
-        fprintf(stderr, "  arena: %s\n", an);
+        /* Text format. ARENA-10 contract (v4-fail/3.7-arena/arena_oom):
+         * the headline carries the arena's surface binding name inline —
+         * `iron: arena "<name>" out of memory`. The JSON channel above
+         * already carries the same name in its "arena" field. */
+        fprintf(stderr, "iron: arena \"%s\" out of memory\n", an);
         fprintf(stderr, "  requested: %llu bytes (capacity: %llu bytes)\n",
                 (unsigned long long)requested_size,
                 (unsigned long long)capacity);
     }
+    /* Buffered stdout dies with abort(); flush it so a panicking program
+     * keeps every line it printed before the panic. */
+    fflush(stdout);
     fflush(stderr);
     abort();
 }
@@ -359,6 +492,9 @@ void iron_panic_double_free(const char *first_free_file,
         (void)hdr;
 #endif
     }
+    /* Buffered stdout dies with abort(); flush it so a panicking program
+     * keeps every line it printed before the panic. */
+    fflush(stdout);
     fflush(stderr);
     abort();
 }
@@ -415,6 +551,9 @@ void iron_panic_stale_pointer(const char *deref_file,
         (void)hdr;
 #endif
     }
+    /* Buffered stdout dies with abort(); flush it so a panicking program
+     * keeps every line it printed before the panic. */
+    fflush(stdout);
     fflush(stderr);
     abort();
 }

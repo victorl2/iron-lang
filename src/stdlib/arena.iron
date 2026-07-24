@@ -2,7 +2,11 @@
 -- Phase 28 STDLIB-06 (Plan 28-03): Iron-side declaration surface for Arena / ArenaSave.
 -- Actual implementations are provided by the C runtime (src/runtime/iron_arena_rt.c,
 -- the Plan 28-02 substrate: iron_arena_rt_new / alloc / reset / save / restore / used /
--- capacity / destroy + the thread-local active-arena stack). The compiler recognizes
+-- capacity / destroy + the thread-local active-arena stack). The empty-body stubs
+-- below mangle to Iron_arena_* symbols; codegen bridges each one to the matching
+-- iron_arena_rt_* runtime function via a per-program synthesized static wrapper
+-- (emit_structs.c ir_emit_arena_stub_glue) — no C file implements the mangled
+-- names directly. The compiler recognizes
 -- Arena.new / new_threadsafe / with_capacity and the instance methods by name and
 -- resolves them through the normal stdlib-prepend path (mirroring string.iron / math.iron,
 -- Phase 98 patch-object form). Codegen (HIR / HIR->LIR / emit_c lowering of `heap(in:)`
@@ -31,7 +35,12 @@
 -- heap form suppresses the warning.
 
 -- Arena: opaque handle to a malloc-backed bump allocator.
--- inner is opaque storage; the C runtime stores the real Iron_Arena_RT* there.
+-- CODEGEN CONTRACT: the C value representation of `Arena` is the runtime
+-- handle pointer `Iron_Arena_RT *` (emit_helpers.c emit_type_to_c maps the
+-- surface name, mirroring Mutex -> Iron_Mutex *); no struct is emitted for it
+-- (emit_structs.c ir_is_runtime_provided_type). `inner` is a surface stand-in
+-- only — it must never be accessed; the handle is constructed by the
+-- iron_arena_rt_new bridge, not field-by-field.
 -- val (not var) field so v3.0 E0264 (mutable-field-needs-init) does not fire on
 -- the stdlib surface — the runtime constructs the handle directly (net.iron idiom).
 object Arena {
@@ -39,52 +48,63 @@ object Arena {
 }
 
 -- ArenaSave: opaque value struct returned by save() and consumed by restore().
--- offset is the captured bump offset; gen is the generation snapshot (ARENA-07).
+-- Maps to the runtime's Iron_ArenaSave (src/runtime/iron_arena_rt.h) — the
+-- field names below MUST match that C layout (offset@0, gen_snapshot@8) so a
+-- surface field access emits a valid C member name.
+-- offset is the captured bump offset; gen_snapshot is the generation snapshot
+-- (ARENA-07).
 object ArenaSave {
     val offset: Int
-    val gen: Int
+    val gen_snapshot: Int
 }
 
+-- All methods are `readonly`: the Arena surface value is an opaque HANDLE
+-- (C representation Iron_Arena_RT *) — no method rebinds the handle itself,
+-- so a `val arena = ...` binding must be able to call every one of them
+-- (MUTTIER-05: readonly flips is_mut_receiver off, so E0235 does not fire on
+-- val-bound receivers and the receiver ABI stays by-value, matching the
+-- ir_emit_arena_stub_glue bridge signatures). Interior mutation (bump offset,
+-- generation counter) happens behind the handle inside the C runtime.
 patch object Arena {
     -- Arena.new(size: Int) -> Arena
     -- Creates a single-threaded bump arena with `size` bytes of capacity.
     -- Wraps iron_arena_rt_new(capacity, threadsafe=false, name).
-    func new(size: Int) -> Arena {}
+    readonly func new(size: Int) -> Arena {}
 
     -- Arena.new_threadsafe(size: Int) -> Arena      (ARENA-02)
     -- Creates an arena whose bump pointer increments atomically, safe for
     -- concurrent allocation from multiple threads. Wraps iron_arena_rt_new(..., true, ...).
-    func new_threadsafe(size: Int) -> Arena {}
+    readonly func new_threadsafe(size: Int) -> Arena {}
 
     -- Arena.with_capacity(size: Int) -> Arena       (CONTEXT constructor-alias decision)
     -- Alias for Arena.new(size:): resolves to the same runtime constructor
     -- (iron_arena_rt_new). Exists because the v4-acceptance corpus uses both spellings.
-    func with_capacity(size: Int) -> Arena {}
+    readonly func with_capacity(size: Int) -> Arena {}
 
     -- arena.save() -> ArenaSave      (ARENA-01)
     -- Captures the current bump offset + generation snapshot. Pair with restore().
     -- Receiver-form: implicit `self: Arena`. Wraps iron_arena_rt_save.
-    func save() -> ArenaSave {}
+    readonly func save() -> ArenaSave {}
 
     -- arena.restore(point: ArenaSave)      (ARENA-07)
     -- Lowers the bump pointer back to point.offset AND bumps the arena generation
     -- so any pointer allocated after the save point panics on dereference.
     -- Receiver-form: implicit `self: Arena`. Wraps iron_arena_rt_restore.
-    func restore(point: ArenaSave) {}
+    readonly func restore(point: ArenaSave) {}
 
     -- arena.reset()      (ARENA-06)
     -- Restores the bump pointer to the arena origin and bumps the generation,
     -- invalidating every pointer into the arena in O(1).
     -- Receiver-form: implicit `self: Arena`. Wraps iron_arena_rt_reset.
-    func reset() {}
+    readonly func reset() {}
 
     -- arena.used() -> Int      (ARENA-01)
     -- Returns the number of bytes currently allocated from the arena.
     -- Receiver-form: implicit `self: Arena`. Wraps iron_arena_rt_used.
-    func used() -> Int {}
+    readonly func used() -> Int {}
 
     -- arena.capacity() -> Int      (ARENA-01)
     -- Returns the total byte capacity of the arena's backing region.
     -- Receiver-form: implicit `self: Arena`. Wraps iron_arena_rt_capacity.
-    func capacity() -> Int {}
+    readonly func capacity() -> Int {}
 }

@@ -10,24 +10,30 @@ func is_bipartite(adj: [Int], n: Int) -> Int {
 
     var start = 0
     while start < n {
-        if color[start] == -1 {
-            color[start] = 0
+        -- in-bounds: 0 <= start < n <= 20 = color.len() (caller contract n <= 20)
+        if color.get_unchecked(start) == -1 {
+            color.set_unchecked(start, 0)
             var q_front = 0
             var q_back = 0
-            queue[q_back] = start
+            -- in-bounds: q_back = 0 < 400 = queue.len()
+            queue.set_unchecked(q_back, start)
             q_back = q_back + 1
 
             while q_front < q_back {
-                val node = queue[q_front]
+                -- in-bounds: 0 <= q_front < q_back <= n <= 20 < 400 = queue.len() (each node enqueued at most once)
+                val node = queue.get_unchecked(q_front)
                 q_front = q_front + 1
                 var j = 0
                 while j < n {
-                    if adj[node * n + j] == 1 {
-                        if color[j] == -1 {
-                            color[j] = 1 - color[node]
-                            queue[q_back] = j
+                    -- in-bounds: node < n (queue holds node ids), j < n, so node * n + j < n * n = adj.len() (caller contract)
+                    if adj.get_unchecked(node * n + j) == 1 {
+                        -- in-bounds: j < n <= 20 = color.len(); node < n <= 20
+                        if color.get_unchecked(j) == -1 {
+                            color.set_unchecked(j, 1 - color.get_unchecked(node))
+                            -- in-bounds: a node enqueues only when first colored (once), so q_back < n <= 20 < 400 = queue.len()
+                            queue.set_unchecked(q_back, j)
                             q_back = q_back + 1
-                        } elif color[j] == color[node] {
+                        } elif color.get_unchecked(j) == color.get_unchecked(node) {
                             return 0
                         }
                     }

@@ -3,5 +3,5 @@
 -- @expected-pass-after: phase-21
 -- heap may not appear inside a type
 func main() {
-    val x: heap World = heap World(seed: 1)
+    val x: heap World = heap World(1)
 }

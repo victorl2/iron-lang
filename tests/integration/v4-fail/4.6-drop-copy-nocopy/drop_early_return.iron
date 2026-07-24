@@ -16,6 +16,6 @@ object Resource {
 }
 
 func main() -> Int {
-    val r = Resource(handle: 0)
+    val r = Resource(0)
     return 0
 }

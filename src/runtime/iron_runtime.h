@@ -437,6 +437,89 @@ void iron_panic_bvec_oob(const char *deref_file,
                          int64_t index,
                          int64_t bound);
 
+/* Integer division/modulo by zero (DIV-01). Definition in iron_panic.c. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_div_by_zero(const char *site_file, int site_line);
+
+/* Generic index out of bounds (LIST-01). Definition in iron_panic.c. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_index_oob(const char *site_file, int site_line,
+                          int64_t index, int64_t bound);
+
+/* Checked integer division/modulo (DIV-01). The emitter routes every integer
+ * `/` and `%` through these so b == 0 becomes an Iron panic instead of a
+ * SIGFPE/UB, and INT64_MIN / -1 wraps (matching the -fwrapv Int semantics)
+ * instead of trapping. Narrower signed/unsigned operands promote in and
+ * truncate back on assignment, which under wrap semantics is exact. */
+static inline int64_t iron_idiv64(int64_t a, int64_t b,
+                                  const char *site_file, int site_line) {
+    if (b == 0) iron_panic_div_by_zero(site_file, site_line);
+    if (b == -1) return (int64_t)(0u - (uint64_t)a); /* INT64_MIN-safe negate */
+    return a / b;
+}
+static inline int64_t iron_imod64(int64_t a, int64_t b,
+                                  const char *site_file, int site_line) {
+    if (b == 0) iron_panic_div_by_zero(site_file, site_line);
+    if (b == -1) return 0; /* INT64_MIN % -1 traps in hardware; result is 0 */
+    return a % b;
+}
+static inline uint64_t iron_udiv64(uint64_t a, uint64_t b,
+                                   const char *site_file, int site_line) {
+    if (b == 0) iron_panic_div_by_zero(site_file, site_line);
+    return a / b;
+}
+static inline uint64_t iron_umod64(uint64_t a, uint64_t b,
+                                   const char *site_file, int site_line) {
+    if (b == 0) iron_panic_div_by_zero(site_file, site_line);
+    return a % b;
+}
+
+/* LIST-01: expression-form bounds check. Panics on i < 0 || i >= n (unsigned
+ * compare covers both), otherwise returns i — so an inlined `arr[i]` in a
+ * consumer expression becomes `arr[iron_bounds_idx(i, n, ...)]` without
+ * needing a preceding statement. */
+static inline int64_t iron_bounds_idx(int64_t i, int64_t n,
+                                      const char *site_file, int site_line) {
+    if ((uint64_t)i >= (uint64_t)n) iron_panic_index_oob(site_file, site_line, i, n);
+    return i;
+}
+
+/* 2026-07 UNCHK-IDX: per-site unchecked indexing (`xs.get_unchecked(i)` /
+ * `xs.set_unchecked(i, v)`). The emitter wraps the index of an author-declared
+ * unchecked access in IRON_UNCHECKED_IDX instead of iron_bounds_idx:
+ *   - normal build: expands to the bare index — raw access, zero overhead,
+ *     no guard for clang's loop vectorizer to trip over. Out-of-bounds here
+ *     is undefined behavior, exactly like C.
+ *   - --debug-build (-DIRON_DEBUG_ALLOCATOR): keeps the full LIST-01 guard,
+ *     panicking through iron_panic_index_oob_unchecked whose headline names
+ *     the site as declared-unchecked ("index out of bounds (unchecked site)").
+ * Keeping the build-mode split in the C preprocessor means one generated TU
+ * serves both modes and the LIR/optimizer never need to know the build mode.
+ * The macro is expression-form (composes as an array subscript) and its
+ * arguments are emitter-materialized values with no side effects. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_index_oob_unchecked(const char *site_file, int site_line,
+                                    int64_t index, int64_t bound);
+#ifdef IRON_DEBUG_ALLOCATOR
+static inline int64_t iron_bounds_idx_unchecked(int64_t i, int64_t n,
+                                                const char *site_file,
+                                                int site_line) {
+    if ((uint64_t)i >= (uint64_t)n)
+        iron_panic_index_oob_unchecked(site_file, site_line, i, n);
+    return i;
+}
+#define IRON_UNCHECKED_IDX(i, n, site_file, site_line) \
+    iron_bounds_idx_unchecked((i), (n), (site_file), (site_line))
+#else
+#define IRON_UNCHECKED_IDX(i, n, site_file, site_line) (i)
+#endif
+
 /* Phase 24 DROP-04/05 (Plan 24-03): partial-init cleanup + panic-trap TLS state.
  * Definitions live in iron_panic.c; canonical typedef + struct body + externs
  * also in iron_panic.h. Duplicated here (with the same layout) so generated user
@@ -954,6 +1037,13 @@ void         *Iron_channel_recv(Iron_Channel *ch);
 bool          Iron_channel_try_recv(Iron_Channel *ch, void **out);
 void          Iron_channel_close(Iron_Channel *ch);
 void          Iron_channel_destroy(Iron_Channel *ch);
+/* Phase 37 rc-balance (M5): element-drop-aware destroy. Runs `elem_drop` on
+ * each still-queued box payload before freeing the box (NULL = free only —
+ * the historical behavior Iron_channel_destroy preserves). The per-T glue
+ * (emit_helpers.c) passes the element type's destructor trampoline when T
+ * has a drop/close obligation. */
+void          Iron_channel_destroy_with(Iron_Channel *ch,
+                                        void (*elem_drop)(void *));
 
 /* ── Iron_Mutex (value-wrapping mutex) ───────────────────────────────────────
  * Wraps a value so that all access must go through lock/unlock.
@@ -970,6 +1060,10 @@ Iron_Mutex *Iron_mutex_create(void *initial_value, size_t size);
 void       *Iron_mutex_lock(Iron_Mutex *m);   /* returns pointer to value */
 void        Iron_mutex_unlock(Iron_Mutex *m);
 void        Iron_mutex_destroy(Iron_Mutex *m);
+/* Phase 37 rc-balance (M5): element-drop-aware destroy — runs `elem_drop`
+ * on the wrapped value before freeing its storage (NULL = free only). */
+void        Iron_mutex_destroy_with(Iron_Mutex *m,
+                                    void (*elem_drop)(void *));
 
 /* ── Lock / CondVar raw primitives ───────────────────────────────────────────
  * Thin wrappers around pthread_mutex_t and pthread_cond_t for use in
@@ -1092,12 +1186,20 @@ typedef struct {
         self->items[self->count++] = item; \
     } \
     T Iron_List_##suffix##_get(const Iron_List_##suffix *self, int64_t index) { \
+        /* LIST-01: unsigned compare rejects negative and >= count in one test */ \
+        if ((uint64_t)index >= (uint64_t)self->count) \
+            iron_panic_index_oob("Iron_List_" #suffix "_get", 0, index, self->count); \
         return self->items[index]; \
     } \
     void Iron_List_##suffix##_set(Iron_List_##suffix *self, int64_t index, T item) { \
+        if ((uint64_t)index >= (uint64_t)self->count) \
+            iron_panic_index_oob("Iron_List_" #suffix "_set", 0, index, self->count); \
         self->items[index] = item; \
     } \
     T Iron_List_##suffix##_pop(Iron_List_##suffix *self) { \
+        /* LIST-01: pop on empty read items[-1] and corrupted count to -1 */ \
+        if (self->count <= 0) \
+            iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
         return self->items[--self->count]; \
     } \
     int64_t Iron_List_##suffix##_len(const Iron_List_##suffix *self) { \
@@ -1174,12 +1276,20 @@ typedef struct {
         self->items[self->count++] = item; \
     } \
     T Iron_List_##suffix##_get(const Iron_List_##suffix *self, int64_t index) { \
+        /* LIST-01: unsigned compare rejects negative and >= count in one test */ \
+        if ((uint64_t)index >= (uint64_t)self->count) \
+            iron_panic_index_oob("Iron_List_" #suffix "_get", 0, index, self->count); \
         return self->items[index]; \
     } \
     void Iron_List_##suffix##_set(Iron_List_##suffix *self, int64_t index, T item) { \
+        if ((uint64_t)index >= (uint64_t)self->count) \
+            iron_panic_index_oob("Iron_List_" #suffix "_set", 0, index, self->count); \
         self->items[index] = item; \
     } \
     T Iron_List_##suffix##_pop(Iron_List_##suffix *self) { \
+        /* LIST-01: pop on empty read items[-1] and corrupted count to -1 */ \
+        if (self->count <= 0) \
+            iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
         return self->items[--self->count]; \
     } \
     int64_t Iron_List_##suffix##_len(const Iron_List_##suffix *self) { \

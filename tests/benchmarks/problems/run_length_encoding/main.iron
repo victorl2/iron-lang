@@ -8,9 +8,11 @@ func rle_encode(arr: [Int], n: Int) -> Int {
     var checksum = 0
     var i = 0
     while i < n {
-        val v = arr[i]
+        -- in-bounds: i < n <= arr.len() by caller contract
+        val v = arr.get_unchecked(i)
         var count = 1
-        while i + count < n and arr[i + count] == v {
+        -- in-bounds: `and` short-circuits, so the read only happens when i + count < n <= arr.len()
+        while i + count < n and arr.get_unchecked(i + count) == v {
             count = count + 1
         }
         checksum = checksum + v * 100 + count

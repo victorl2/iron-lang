@@ -1,0 +1,12 @@
+-- section: 7.5-stdlib (negative)
+-- @req: UNCHK-IDX-02
+-- @expected-error: E0216
+-- @expected-pass-after: phase-37
+-- get_unchecked takes exactly one argument (the index). Unlike the legacy
+-- get/set heuristics, the unsafe intrinsics validate arity strictly → E0216.
+
+func main() {
+    val xs = [1, 2, 3]
+    val a = xs.get_unchecked()
+    println("{a}")
+}

@@ -7,19 +7,25 @@
 #define NUM_THREADS 8
 #define ITERATIONS 4
 
+/* Multiply/add are done in uint64_t so overflow wraps (two's complement)
+ * instead of being signed-overflow UB. Iron Int arithmetic is defined to
+ * wrap (the compiler passes -fwrapv to clang), so the reference must wrap
+ * identically; with the UB version the checksum depended on how hard the
+ * optimizer leaned on the no-overflow assumption. Division stays signed:
+ * truncation toward zero on wrapped negatives is part of the hash. */
 static int64_t complex_hash(int64_t input) {
     int64_t h = input;
     for (int round = 0; round < 16; round++) {
-        h = h * 2654435761LL;
+        h = (int64_t)((uint64_t)h * 2654435761ULL);
         int64_t shifted = h / 16;
         if (shifted < 0) shifted += 576460752303423488LL;
-        h = h + shifted;
-        h = h * 2246822519LL;
+        h = (int64_t)((uint64_t)h + (uint64_t)shifted);
+        h = (int64_t)((uint64_t)h * 2246822519ULL);
         shifted = h / 8192;
         if (shifted < 0) shifted += 1125899906842624LL;
-        h = h + shifted;
+        h = (int64_t)((uint64_t)h + (uint64_t)shifted);
     }
-    if (h < 0) h = -h;
+    if (h < 0) h = (int64_t)(0 - (uint64_t)h);
     return h;
 }
 

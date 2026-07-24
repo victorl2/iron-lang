@@ -2,10 +2,15 @@
 -- @req: READ-01
 -- @expected-pass-after: phase-22
 -- readonly methods may not perform I/O operations such as println
-func bad() -> Int {
+object Calc {
+    val seed: Int
+
     readonly func compute() -> Int {
         println("computing")
         return 1
     }
-    return compute()
+}
+func main() {
+    val c = Calc(1)
+    val r = c.compute()
 }

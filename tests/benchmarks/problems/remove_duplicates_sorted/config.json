@@ -1,1 +1,1 @@
-{"iterations": 675675, "timeout_sec": 60, "max_ratio": 1.6, "rationale": "Observed ratio 1.03 with 5.6% variance across 5 runs; 1.6x covers mean+2sigma with 15% headroom; 2026-04-10 audit"}
+{"iterations": 675675, "timeout_sec": 60, "max_ratio": 1.8, "rationale": "Bimodal across ubuntu runner cohorts: 1.0x on some machines and a stable 1.61x on others with identical binaries (three PR #78 CI rounds, 2026-07-24); 1.8x covers the slow cohort with ~12% headroom. Previous 1.6x came from the 2026-04-10 audit (observed 1.03, 5.6% variance) and predates the v4 memory model."}

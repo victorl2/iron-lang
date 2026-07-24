@@ -6,7 +6,9 @@ import time
 func match_word(s: [Int], pos: Int, dict_flat: [Int], wstart: Int, wlen: Int) -> Int {
     var k = 0
     while k < wlen {
-        if s[pos + k] != dict_flat[wstart + k] {
+        -- in-bounds: pos = i - wlen with wlen <= i <= sn <= s.len(), k < wlen, so pos + k < i <= s.len()
+        -- in-bounds: wstart = dict_starts[w], k < wlen = dict_lens[w]; dict layout guarantees wstart + wlen <= dict_flat.len()
+        if s.get_unchecked(pos + k) != dict_flat.get_unchecked(wstart + k) {
             return 0
         }
         k = k + 1
@@ -21,10 +23,13 @@ func word_break(s: [Int], sn: Int, dict_flat: [Int], dict_starts: [Int], dict_le
     while i <= sn {
         var w = 0
         while w < nd {
-            val wlen = dict_lens[w]
-            if wlen <= i and dp[i - wlen] == 1 {
-                if match_word(s, i - wlen, dict_flat, dict_starts[w], wlen) == 1 {
-                    dp[i] = 1
+            -- in-bounds: w < nd = word count = dict_lens.len() = dict_starts.len() by caller contract
+            val wlen = dict_lens.get_unchecked(w)
+            -- in-bounds: wlen <= i (guard) and i <= sn, so 0 <= i - wlen <= sn < dp.len() = sn + 1
+            if wlen <= i and dp.get_unchecked(i - wlen) == 1 {
+                if match_word(s, i - wlen, dict_flat, dict_starts.get_unchecked(w), wlen) == 1 {
+                    -- in-bounds: 1 <= i <= sn < dp.len() = sn + 1
+                    dp.set_unchecked(i, 1)
                     w = nd
                 }
             }

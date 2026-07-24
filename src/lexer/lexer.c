@@ -214,7 +214,21 @@ Iron_Lexer iron_lexer_create(const char *src, const char *filename,
     l.arena       = arena;
     l.diags       = diags;
     l.cancel_flag = NULL; /* HARD-05: default = never cancel */
+    /* 2026-07 diagnostics remediation: physical line tracking + prepend
+     * region state. See lexer.h field docs. */
+    l.phys_line         = 1;
+    l.entry_filename    = filename;
+    l.in_stdlib_prepend = false;
     return l;
+}
+
+/* 2026-07 diagnostics remediation: see lexer.h. phys_line is seated too so a
+ * later plain `-- @file:` marker resync stays self-consistent (interpolation
+ * buffers never contain markers, so this is belt-and-suspenders). */
+void iron_lexer_set_origin(Iron_Lexer *l, uint32_t line, uint32_t col) {
+    if (!l) return;
+    if (line > 0) { l->line = line; l->phys_line = line; }
+    if (col  > 0) l->col = col;
 }
 
 /* HARD-05: caller attaches a cancel flag; subsequent calls to iron_lex_all
@@ -270,6 +284,9 @@ static Iron_Token iron_make_token(Iron_Lexer *l, Iron_TokenKind kind,
      * over its own. The lexer mutates `l->filename` when it sees a
      * `-- @file: <name>` directive in the comment-handling branch. */
     t.filename = l->filename;
+    /* 2026-07 diagnostics remediation: stamp the stdlib-prepend region bit
+     * (see Iron_Token doc in lexer.h). */
+    t.from_stdlib_prepend = l->in_stdlib_prepend;
     return t;
 }
 
@@ -398,6 +415,7 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
         if (c == '\n') {
             l->pos++;
             l->line++;
+            l->phys_line++;
             l->col = 1;
             PUSH_CHAR('\n');
             continue;
@@ -714,21 +732,109 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                            (l->src[scan] == ' ' || l->src[scan] == '\t')) {
                         scan++;
                     }
-                    /* Read basename until newline / EOF / whitespace. */
-                    size_t name_start = scan;
-                    while (scan < l->src_len &&
-                           l->src[scan] != '\n' &&
-                           l->src[scan] != '\r' &&
-                           l->src[scan] != ' ' &&
-                           l->src[scan] != '\t') {
-                        scan++;
+                    /* Read the name. Two forms (2026-07 diagnostics
+                     * remediation added the quoted one):
+                     *   bare:   until newline / EOF / whitespace (Phase 93)
+                     *   quoted: "<name>" — may contain spaces; used by the
+                     *           build.c/check.c stdlib line-mapping markers
+                     *           so absolute paths round-trip. */
+                    size_t name_start;
+                    size_t name_len;
+                    if (scan < l->src_len && l->src[scan] == '"') {
+                        scan++; /* opening quote */
+                        name_start = scan;
+                        while (scan < l->src_len &&
+                               l->src[scan] != '"' &&
+                               l->src[scan] != '\n' &&
+                               l->src[scan] != '\r') {
+                            scan++;
+                        }
+                        name_len = scan - name_start;
+                        if (scan < l->src_len && l->src[scan] == '"') {
+                            scan++; /* closing quote */
+                        } else {
+                            name_len = 0; /* unterminated: ignore the marker */
+                        }
+                    } else {
+                        name_start = scan;
+                        while (scan < l->src_len &&
+                               l->src[scan] != '\n' &&
+                               l->src[scan] != '\r' &&
+                               l->src[scan] != ' ' &&
+                               l->src[scan] != '\t') {
+                            scan++;
+                        }
+                        name_len = scan - name_start;
                     }
-                    size_t name_len = scan - name_start;
-                    if (name_len > 0) {
-                        char *new_filename = iron_arena_strdup(
-                            l->arena, l->src + name_start, name_len);
-                        if (new_filename) {
-                            l->filename = new_filename;
+                    char *new_filename = (name_len > 0)
+                        ? iron_arena_strdup(l->arena, l->src + name_start, name_len)
+                        : NULL;
+                    if (new_filename) {
+                        l->filename = new_filename;
+
+                        /* 2026-07 diagnostics remediation: optional
+                         * `@line: <n>` suffix — `-- @file: <name> @line: <n>`
+                         * additionally RESETS the logical line counter so the
+                         * next physical line is reported as line <n> of
+                         * <name>. Emitted by build.c / check.c around each
+                         * prepended stdlib file (and once more, naming the
+                         * entry file, where the user's own source resumes) so
+                         * spans carry per-file 1-based line numbers end-to-end
+                         * (compile diagnostics AND the runtime deref-site
+                         * strings emit_c.c bakes from LIR spans).
+                         *
+                         * A marker WITHOUT `@line:` keeps the Phase 93
+                         * semantics the multi-file harness and pkg_build.c
+                         * stub concat rely on: filename re-tag only, line
+                         * numbering resynced to the physical (TU-wide) count
+                         * — which is what `line` always was before any
+                         * `@line:` marker diverged it. That preserves the
+                         * resolver's line-threshold stdlib carve-out
+                         * (resolve.c:is_stdlib_decl) for harness-concatenated
+                         * user files. */
+                        static const char k_line_marker[] = "@line:";
+                        size_t k_line_marker_len = sizeof(k_line_marker) - 1;
+                        size_t lscan = scan;
+                        while (lscan < l->src_len &&
+                               (l->src[lscan] == ' ' || l->src[lscan] == '\t')) {
+                            lscan++;
+                        }
+                        bool has_line_reset = false;
+                        if (lscan + k_line_marker_len <= l->src_len &&
+                            memcmp(l->src + lscan, k_line_marker,
+                                   k_line_marker_len) == 0) {
+                            lscan += k_line_marker_len;
+                            while (lscan < l->src_len &&
+                                   (l->src[lscan] == ' ' || l->src[lscan] == '\t')) {
+                                lscan++;
+                            }
+                            uint32_t n = 0;
+                            bool any_digit = false;
+                            while (lscan < l->src_len &&
+                                   l->src[lscan] >= '0' && l->src[lscan] <= '9') {
+                                if (n < 100000000u) n = n * 10u + (uint32_t)(l->src[lscan] - '0');
+                                any_digit = true;
+                                lscan++;
+                            }
+                            if (any_digit && n > 0) {
+                                /* The marker line's trailing '\n' consume below
+                                 * increments l->line, so seat it at n-1. */
+                                l->line = n - 1;
+                                has_line_reset = true;
+                            }
+                        }
+                        if (has_line_reset) {
+                            /* A @line marker naming the entry file re-enters
+                             * user code; any other name opens a synthetic
+                             * stdlib prepend region. */
+                            l->in_stdlib_prepend =
+                                !(l->entry_filename && l->filename &&
+                                  strcmp(l->filename, l->entry_filename) == 0);
+                        } else {
+                            /* Plain Phase 93 marker: physical resync + user
+                             * region (multi-file harness files are user code). */
+                            l->line = l->phys_line;
+                            l->in_stdlib_prepend = false;
                         }
                     }
                     /* Fall through: regular consume-to-EOL below picks up
@@ -744,6 +850,7 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                 if (l->pos < l->src_len && l->src[l->pos] == '\n') {
                     l->pos++;
                     l->line++;
+                    l->phys_line++;
                     l->col = 1;
                 }
                 return iron_make_token(l, IRON_TOK_NEWLINE, NULL,
@@ -1036,6 +1143,7 @@ Iron_Token *iron_lex_all(Iron_Lexer *l) {
             uint32_t nl_col  = l->col;
             l->pos++;
             l->line++;
+            l->phys_line++;
             l->col = 1;
             Iron_Token nl = iron_make_token(l, IRON_TOK_NEWLINE, NULL,
                                              nl_line, nl_col, 1);

@@ -14,7 +14,7 @@ if(IRON_BUILD_LSP)
     # 3-section .dmp file is produced under $XDG_STATE_HOME/iron-lsp/
     # crashes/.
     add_test(NAME test_crash_dump_written
-        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test_crash_dump_written.sh"
+        COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/test_crash_dump_written.sh"
                 $<TARGET_FILE:ironls>)
     # Phase 14 rebase regression: SIGSEGV is delivered (segfault confirmed
     # in test output) but no .dmp file is written under
@@ -37,7 +37,7 @@ if(IRON_BUILD_LSP)
     # v1.x tracking).
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_test(NAME test_parent_death_detection
-            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test_parent_death_detection.sh"
+            COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/test_parent_death_detection.sh"
                     $<TARGET_FILE:ironls>)
         set_tests_properties(test_parent_death_detection PROPERTIES
             LABELS "integration;phase-m6-invariant"
@@ -50,7 +50,7 @@ if(IRON_BUILD_LSP)
     # cap, assert exit code exactly 42 AND that the rss-restart-<iso8601>.log
     # marker file was written under $XDG_STATE_HOME/iron-lsp/.
     add_test(NAME test_rss_cap_trips_exit_42
-        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test_rss_cap_trips_exit_42.sh"
+        COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/test_rss_cap_trips_exit_42.sh"
                 $<TARGET_FILE:ironls>)
     set_tests_properties(test_rss_cap_trips_exit_42 PROPERTIES
         LABELS "integration;phase-m6-invariant"
@@ -192,7 +192,7 @@ print(f'OK: {len(b)} total; ' + ', '.join(f'{k}={v}' for k, v in sorted(per_os.i
     #   * an install-layout regression where IRON_VERSION_STRING isn't
     #     plumbed into a newly-added target
     add_test(NAME test_version_stamp_coherence
-        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test_version_stamp_coherence.sh"
+        COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/test_version_stamp_coherence.sh"
                 $<TARGET_FILE:iron>
                 $<TARGET_FILE:ironc>
                 $<TARGET_FILE:ironls>)
@@ -211,7 +211,7 @@ print(f'OK: {len(b)} total; ' + ', '.join(f'{k}={v}' for k, v in sorted(per_os.i
     # Passes WORKING_DIRECTORY so the script can resolve REPO_ROOT
     # robustly regardless of where ctest invokes it from.
     add_test(NAME test_phase7_audit
-        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test_phase7_audit.sh"
+        COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/test_phase7_audit.sh"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     set_tests_properties(test_phase7_audit PROPERTIES
         LABELS "integration;phase-m6-invariant"

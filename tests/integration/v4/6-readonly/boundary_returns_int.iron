@@ -1,6 +1,9 @@
 -- section: 6-readonly
 -- @req: READ-04, READ-06
--- @expected-pass-after: phase-22
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): top-level `readonly func` is deliberately parse-rejected (E0245, Phase 84
+-- MUTTIER: readonly is only valid on object-block methods); fixture authored against the older
+-- free-function readonly design.
 -- extends-spec: readonly returning Int (primitive) is compatible (§6.4)
 
 object Stats {
@@ -13,7 +16,7 @@ readonly func scaled_damage(stats: *Stats, multiplier: Int) -> Int {
 }
 
 func main() {
-    val s = Stats(base_damage: 10, level: 3)
+    val s = Stats(10, 3)
     val dmg = scaled_damage(&s, 2)
     println("scaled: {dmg}")
 }

@@ -135,7 +135,10 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
     switch ((int)(node->kind)) {
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)node;
-            if (vd->init && vd->init->kind == IRON_NODE_HEAP) {
+            /* Tuple destructure (`val (a, b) = ...`) has name == NULL;
+             * recording a NULL-named binding would crash the strcmp-based
+             * lookups (find_heap_for_name / name_in_list). */
+            if (vd->name && vd->init && vd->init->kind == IRON_NODE_HEAP) {
                 HeapBinding b;
                 b.name      = vd->name;
                 b.heap_node = (Iron_HeapExpr *)vd->init;
@@ -145,7 +148,7 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *vd = (Iron_VarDecl *)node;
-            if (vd->init && vd->init->kind == IRON_NODE_HEAP) {
+            if (vd->name && vd->init && vd->init->kind == IRON_NODE_HEAP) {
                 HeapBinding b;
                 b.name      = vd->name;
                 b.heap_node = (Iron_HeapExpr *)vd->init;

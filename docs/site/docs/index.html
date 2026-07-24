@@ -632,6 +632,10 @@
       <h1>Iron Language Reference</h1>
       <p class="subtitle">Complete guide to the Iron programming language &mdash; a compiled, strongly-typed language built for clarity, legibility, and performance.</p>
 
+      <div class="callout">
+        <p><strong>Version note:</strong> this page documents the <strong>Iron v3</strong> language surface. Iron v4 (current release: v4.0.0-alpha) changed the memory model &mdash; explicit <code>free</code> / <code>defer free</code> instead of auto-free, checked pointer types (<code>*T</code> / <code>*var T</code>), <code>rc</code> + <code>weak rc</code>, arenas, and <code>drop</code> / <code>copy</code> / <code>nocopy</code> resource types. See the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/site/migration-v3-to-v4.md">v3 &rarr; v4 migration guide</a> and the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/release/v4.0.0-alpha.md">v4.0.0-alpha release notes</a>.</p>
+      </div>
+
       <!-- Overview -->
       <h2 id="overview">Overview</h2>
       <p><strong>Iron</strong> is a compiled, performant programming language focused on clarity, legibility, and performance. It compiles to C and produces native standalone binaries.</p>
@@ -799,7 +803,7 @@ target.<span class="fn">attack</span>()                <span class="cm">-- COMPI
   <span class="kw">readonly</span> <span class="kw">func</span> <span class="fn">draw</span>()
 }
 
-<span class="kw">object</span> <span class="ty">Player</span> <span class="kw">implements</span> <span class="ty">Entity</span> {
+<span class="kw">object</span> <span class="ty">Player</span> <span class="kw">impl</span> <span class="ty">Entity</span> {
   <span class="kw">var</span> pos: <span class="ty">Vec2</span>
   <span class="kw">var</span> vel: <span class="ty">Vec2</span>
 
@@ -817,7 +821,7 @@ target.<span class="fn">attack</span>()                <span class="cm">-- COMPI
   }
 }
 
-<span class="kw">object</span> <span class="ty">Enemy</span> <span class="kw">implements</span> <span class="ty">Entity</span> {
+<span class="kw">object</span> <span class="ty">Enemy</span> <span class="kw">impl</span> <span class="ty">Entity</span> {
   <span class="kw">var</span> pos: <span class="ty">Vec2</span>
   <span class="kw">var</span> hp: <span class="ty">Int</span>
 
@@ -1139,6 +1143,10 @@ e.<span class="fn">update</span>(<span class="nu">0.016</span>)  <span class="cm
         </tbody>
       </table>
 
+      <div class="callout">
+        <p><strong>v4 note:</strong> the "auto-freed" tier is v3 behavior. In v4 there is no escape-analysis auto-free: every owned <code>heap</code> allocation needs an explicit <code>free</code> (typically <code>defer free</code>), the compiler reports leaks, and generation-checked pointers catch use-after-free.</p>
+      </div>
+
       <p><code>defer</code> is not an allocation strategy &mdash; it is a <em>cleanup scheduler</em> that works with any of the four to release non-memory resources like files, sockets, or windows.</p>
 
       <h3 id="stack">Stack &mdash; Default</h3>
@@ -1189,6 +1197,10 @@ e.<span class="fn">update</span>(<span class="nu">0.016</span>)  <span class="cm
 
       <h3 id="auto-free">Auto-Free &mdash; Block-Scoped</h3>
       <p>Heap values that <strong>do not escape</strong> their declaring block are freed automatically at block exit. You do not write a <code>defer free</code> for them; the compiler emits the free for you.</p>
+
+      <div class="callout">
+        <p><strong>v4 note:</strong> auto-free was removed in v4 &mdash; write <code>free</code> / <code>defer free</code> explicitly. The examples below describe v3 behavior only.</p>
+      </div>
       <div class="code-block"><pre><span class="kw">func</span> <span class="fn">parse_packet</span>(bytes: [<span class="ty">UInt8</span>]) {
   <span class="kw">val</span> buf = <span class="kw">heap</span> [<span class="ty">UInt8</span>; <span class="nu">4096</span>]
   <span class="fn">decode_into</span>(buf, bytes)
@@ -1476,7 +1488,11 @@ other = <span class="kw">null</span>                                <span class=
       </div>
 
       <h3 id="no-pointers">No Pointers</h3>
-      <p>There are no pointer types in Iron. You never write <code>*T</code> or <code>&amp;x</code>, and there is no dereference operator. The compiler decides when to lower a value to a C pointer based on mutability and type:</p>
+      <p>There are no pointer types in Iron v3. You never write <code>*T</code> or <code>&amp;x</code>, and there is no dereference operator. The compiler decides when to lower a value to a C pointer based on mutability and type:</p>
+
+      <div class="callout">
+        <p><strong>v4 note:</strong> this held through v3. Iron v4 introduces checked pointer types &mdash; <code>*T</code> (read-only), <code>*var T</code> (writable), and <code>*unchecked T</code> (FFI escape hatch) &mdash; with generation checks that catch use-after-free at the dereference. See the migration guide linked at the top of this page.</p>
+      </div>
 
       <table class="doc-table">
         <thead>
@@ -1850,7 +1866,7 @@ log.<span class="fn">set_level</span>(log.<span class="pr">WARN</span>)</pre></d
           <tr><td><code>rc</code></td><td>Reference-counted wrapper</td></tr>
           <tr><td><code>patch</code></td><td>Open extension for existing types</td></tr>
           <tr><td><code>extends</code></td><td>Single inheritance</td></tr>
-          <tr><td><code>implements</code></td><td>Interface implementation (static dispatch)</td></tr>
+          <tr><td><code>impl</code></td><td>Interface implementation (static dispatch)</td></tr>
           <tr><td><code>super</code></td><td>Call parent method</td></tr>
           <tr><td><code>is</code></td><td>Runtime type check</td></tr>
           <tr><td><code>spawn</code></td><td>Launch a thread</td></tr>

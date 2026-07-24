@@ -1,7 +1,16 @@
 -- section 6.4 negative: readonly method returns an allocating type
 -- @req: READ-04
--- @expected-pass-after: phase-22
--- String is not readonly-compatible because creating one requires allocation
-readonly func bad() -> String {
-    return "hello"
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): Phase 22's READ-06 closed whitelist made String
+-- readonly-compatible (typecheck.c is_readonly_compatible_type explicitly
+-- whitelists IRON_TYPE_STRING; stdlib String.upper()/lower()/trim() are
+-- readonly methods returning String). The draft READ-04 claim that String
+-- is not readonly-compatible no longer holds.
+-- Parked as XFAIL for coordinator review.
+object Greeter {
+    val seed: Int
+
+    readonly func bad() -> String {
+        return "hello"
+    }
 }

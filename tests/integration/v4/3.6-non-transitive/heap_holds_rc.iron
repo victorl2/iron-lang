@@ -1,13 +1,14 @@
 -- section 3.6 policies are non-transitive
 -- @req: POL-02, POL-06, POL-10
--- @expected-pass-after: phase-28
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): `rc T` field type annotations not in the v4 surface (E0297).
 -- extends-spec: heap container holding rc field; rc lifetime independent of heap container
 
 object Texture {
     val path: String
 
     drop {
-        println("free texture: {path}")
+        println("free texture: {self.path}")
     }
 }
 
@@ -16,13 +17,13 @@ object Container {
     val tag: Int
 
     drop {
-        println("drop heap container: {tag}")
+        println("drop heap container: {self.tag}")
     }
 }
 
 func main() {
-    val tex = rc Texture(path: "sprites.png")
-    val c = heap Container(tex: tex, tag: 1)
+    val tex = rc Texture("sprites.png")
+    val c = heap Container(tex, 1)
     defer free c
     println("container tag: {c.tag}, tex: {c.tex.path}")
 }

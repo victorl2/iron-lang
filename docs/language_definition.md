@@ -937,6 +937,69 @@ There are no pointer types in the language. The compiler handles all reference-t
 | `x: Int` | `int64_t x` (copied) |
 | `data: [UInt8; 64]` | `const uint8_t *data` |
 
+> **v4 note:** the v4 memory model adds explicit checked pointers `*T` and the
+> explicit unchecked regime `*unchecked T` (see the v3→v4 migration guide,
+> §3.3 and §3.8). The section below extends the same checked/unchecked
+> philosophy to indexing.
+
+### Unchecked Indexing — `get_unchecked` / `set_unchecked` (v4)
+
+Every indexing operation (`xs[i]`, `xs.get(i)`, `xs.set(i, v)`) is
+bounds-checked: out of bounds panics. For hot loops where the compiler's
+bounds-check-elision pass cannot prove the index in range (loop-varying,
+interprocedurally-bounded indices), a container offers a **per-site**
+unchecked spelling:
+
+```
+-- dynamic list [T], bounded vector [T; <=N], stack array [T; N]
+val x = xs.get_unchecked(i)     -- read, no bounds check
+xs.set_unchecked(i, v)          -- write, no bounds check
+```
+
+Semantics:
+
+- **Same typing as the checked forms.** `get_unchecked(i: Int) -> T`,
+  `set_unchecked(i: Int, v: T)`. A non-integer index is the same E0202 error
+  as `xs[i]`; wrong arity is E0216; a value of the wrong element type is
+  E0202. For a bounded vector the bound is the initialized region
+  (`.len()`), not the capacity `N`.
+- **Explicit and local, never a mode.** Exactly one indexing site is
+  unchecked — the one spelled `get_unchecked`/`set_unchecked`. Checked and
+  unchecked sites mix freely in the same function; the spelling is greppable
+  (`grep -rn "get_unchecked\|set_unchecked"` audits every opt-out in a
+  codebase). There is deliberately NO global or release-mode switch that
+  turns bounds checks off — this mirrors the `*T` vs `*unchecked T` pointer
+  regime: unchecked-ness is a property of the site the author wrote, not of
+  the build.
+- **Out of bounds through an unchecked site is undefined behavior**, exactly
+  like C. No panic, no diagnostic; reads return garbage, writes corrupt
+  memory. The programmer accepts the UB contract at that one site.
+- **`--debug-build` keeps the check.** Under `iron build --debug-build` (the
+  extra-checking mode that also enables the debug allocator/leak detector)
+  every unchecked site keeps its full bounds guard and panics with a
+  distinct headline naming the opt-out:
+  `iron: index out of bounds (unchecked site)`. A normal build compiles the
+  same site to a raw access with zero overhead.
+
+When to use it: **only when you can state the in-bounds argument — and write
+it in a comment at the site.**
+
+```
+while k < wlen {
+    -- in-bounds: pos = i - wlen with wlen <= i <= sn <= s.len(), k < wlen
+    if s.get_unchecked(pos + k) != dict_flat.get_unchecked(wstart + k) {
+        return 0
+    }
+    k = k + 1
+}
+```
+
+If you cannot write that comment, use `xs[i]` and keep the check. The
+bounds-check-elision optimizer already removes provably-redundant checks on
+the checked surface; `get_unchecked` exists for the residue the compiler can
+never prove (bounds established by a caller's contract or a data-structure
+invariant).
+
 ---
 
 ## Concurrency

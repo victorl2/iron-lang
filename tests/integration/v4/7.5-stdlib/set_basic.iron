@@ -1,8 +1,9 @@
 -- section: 7.5-stdlib
 -- @req: STDLIB-04, OQ-01
--- @expected-pass-after: phase-33 (Wave 4 Set rewrite on the Hashable bound)
+-- @expected-pass-after: phase-38
 -- Set[Int] basic insert + membership; Int satisfies the Hashable bound.
--- RED until Wave 2 (Hashable) + Wave 4 (Set rewrite) land.
+-- XFAIL (phase-38): Set is an opaque stub — `Set.new()` returns Void (E0202 at the binding);
+-- Wave-2 Hashable bound + Wave-4 Set rewrite still missing at v4.0.0-alpha.
 
 func main() {
     var s: Set[Int] = Set.new()

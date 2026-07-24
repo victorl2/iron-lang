@@ -1,13 +1,16 @@
 -- section 3.3 rc policy: atomic refcount correctness under concurrency
 -- @req: POL-06, ATOMIC-01
--- @expected-pass-after: phase-26
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): `rc T` parameter type annotations not in the v4 surface (E0297, rc is
+-- allocation-expression-only) + spawn handle surface (`val t = spawn f(args)` + `await t`) not
+-- implemented (spawn expects a string name first).
 -- extends-spec: ATOMIC-01 soundness barrier - atomic refcount integrity on spawn/await
 
 object SharedData {
     val value: Int
 
     drop {
-        println("drop: shared {value}")
+        println("drop: shared {self.value}")
     }
 }
 
@@ -16,7 +19,7 @@ func worker(data: rc SharedData) {
 }
 
 func main() {
-    val shared = rc SharedData(value: 100)
+    val shared = rc SharedData(100)
     val copy_for_worker = shared
     val t = spawn worker(copy_for_worker)
     await t

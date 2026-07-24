@@ -4,10 +4,10 @@
 -- readonly methods may only call other readonly methods
 object Player {
     var hp: Int
-    func reset(self) {
+    func reset() {
         self.hp = 100
     }
-    readonly func get_summary(self) -> Int {
+    readonly func get_summary() -> Int {
         self.reset()
         return self.hp
     }

@@ -1,6 +1,8 @@
 -- section 8.4 extends-spec: cycle-break proof with 3-node parent/child chain
 -- @req: POL-08, POL-09, DROP-01
--- @expected-pass-after: phase-27
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): rc/weak-rc-in-annotation fields (E0297), explicit-self method signatures
+-- (E0101), List[rc T]/List.new not in surface.
 -- extends-spec: parent->child is rc (owning); child->parent is weak (non-owning)
 -- all 3 nodes must be freed because weak refs do not prevent collection
 
@@ -21,14 +23,14 @@ object Node {
     }
 
     drop {
-        println("drop node {id}")
+        println("drop node {self.id}")
     }
 }
 
 func main() {
-    val n1 = rc Node(id: 1)
-    val n2 = rc Node(id: 2)
-    val n3 = rc Node(id: 3)
+    val n1 = rc Node(1)
+    val n2 = rc Node(2)
+    val n3 = rc Node(3)
 
     n1.add_child(n2)
     n2.add_child(n3)

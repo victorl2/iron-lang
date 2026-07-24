@@ -411,9 +411,10 @@ static char *uri_to_path(const char *uri) {
 /* Convert a filesystem path to a file:// URI. Returned string is malloc'd. */
 static char *path_to_uri(const char *path) {
     if (!path) return NULL;
-    char *result = (char *)malloc(strlen(path) + 8);
+    size_t len = strlen(path) + 8; /* "file://" + NUL */
+    char *result = (char *)malloc(len);
     if (!result) return NULL;
-    sprintf(result, "file://%s", path);
+    snprintf(result, len, "file://%s", path);
     return result;
 }
 

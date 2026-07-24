@@ -1,0 +1,35 @@
+-- section: 7.5-stdlib
+-- @req: UNCHK-IDX-01, LIST-01
+-- @expected-pass-after: phase-37
+-- Checked and unchecked indexing mixed in the SAME function: unchecked-ness is
+-- per-site and local (the checked/unchecked REGIME philosophy — cf. *T vs
+-- *unchecked T). The checked sites below keep their full LIST-01 guard in every
+-- build mode; only the two sites spelled get_unchecked/set_unchecked opt out.
+
+func blend(xs: [Int], n: Int) -> Int {
+    var acc = 0
+    var i = 0
+    while i < n {
+        -- checked read: xs[i] keeps its bounds guard (guard is the point here)
+        val a = xs[i]
+        -- unchecked read, in-bounds: n - 1 - i is in [0, n-1] for 0 <= i < n <= xs.len()
+        val b = xs.get_unchecked(n - 1 - i)
+        acc = acc + a * b
+        i = i + 1
+    }
+    return acc
+}
+
+func main() {
+    var xs = fill(4, 0)
+    -- checked writes: cold init loop stays on the guarded surface
+    var i = 0
+    while i < 4 {
+        xs[i] = i + 1
+        i = i + 1
+    }
+    -- unchecked write, in-bounds: 2 < 4 = xs.len()
+    xs.set_unchecked(2, 30)
+    println("{xs[2]}")
+    println("{blend(xs, 4)}")
+}

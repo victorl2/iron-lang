@@ -75,7 +75,7 @@ add_subdirectory(complete)
 # Plan 34-01) AND on the compiler-side emit site landing in a follow-up
 # plan. Registered WILL_FAIL until both pieces ship.
 add_test(NAME lsp_publish_diag_820
-    COMMAND sh -c "echo 'TODO Phase 34: publishDiagnostics harness for 820-range pending compiler-side emit site'; exit 1")
+    COMMAND /bin/sh -c "echo 'TODO Phase 34: publishDiagnostics harness for 820-range pending compiler-side emit site'; exit 1")
 set_tests_properties(lsp_publish_diag_820 PROPERTIES
     LABELS "phase34-invariant"
     WILL_FAIL TRUE)

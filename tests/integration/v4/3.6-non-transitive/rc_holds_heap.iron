@@ -1,13 +1,19 @@
 -- section 3.6 policies are non-transitive
 -- @req: POL-02, POL-06, POL-10
 -- @expected-pass-after: phase-28
--- extends-spec: rc container holding heap field; heap field freed when rc reaches refcount 0
+-- extends-spec: rc container holding a heap-originated field. Non-transitive (POL-10):
+-- the container's rc policy does not manage the heap original — it is freed by the
+-- explicit `defer free` (DEFER-04: defers run before local destructors, hence the first
+-- "drop world"). The field holds a by-value copy, destroyed via the DROP-02 field
+-- cascade after the holder's drop body (hence the second "drop world").
+-- (.expected re-pinned 2026-07 to the locked DEFER-04/DROP-02 ordering; the old file
+-- predated both and ordered defers after destructors.)
 
 object World {
-    var seed: Int
+    val seed: Int
 
     drop {
-        println("drop world: {seed}")
+        println("drop world: {self.seed}")
     }
 }
 
@@ -16,13 +22,13 @@ object Holder {
     val id: Int
 
     drop {
-        println("drop holder: {id}")
+        println("drop holder: {self.id}")
     }
 }
 
 func main() {
-    val world_val = heap World(seed: 42)
+    val world_val = heap World(42)
     defer free world_val
-    val h = rc Holder(world: world_val, id: 5)
+    val h = rc Holder(world_val, 5)
     println("holder id: {h.id}, world seed: {h.world.seed}")
 }

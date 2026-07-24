@@ -118,6 +118,11 @@ void ilsp_facade_code_action(struct IronLsp_Server         *server,
     Iron_Program *program = ilsp_facade_compile_for_nav(doc, &req,
                                                            &walk_arena, &walk_diags);
 
+    /* Declared before any goto done so the cleanup block below always
+     * sees initialized values, including on the early-cancel path. */
+    IronLsp_CodeAction *arr = NULL;
+    size_t n = 0;
+
     if (cancel && atomic_load(cancel)) goto done;
 
     /* Upper bound (Phase 12 D-13): ILSP_QUICKFIX_MAX_VARIANTS variants
@@ -126,12 +131,10 @@ void ilsp_facade_code_action(struct IronLsp_Server         *server,
      * the correct slot of the handler's multi-action output. */
     size_t cap = (size_t)(walk_diags.count > 0 ? walk_diags.count : 0)
                  * ILSP_QUICKFIX_MAX_VARIANTS + 1;
-    IronLsp_CodeAction *arr = (IronLsp_CodeAction *)iron_arena_alloc(
+    arr = (IronLsp_CodeAction *)iron_arena_alloc(
         arena, cap * sizeof(IronLsp_CodeAction),
         _Alignof(IronLsp_CodeAction));
     if (!arr) goto done;
-
-    size_t n = 0;
 
     /* Quickfix path: iterate diagnostics in [range], dispatch to the
      * registered quickfix handler, stamp data for lazy-resolve.
@@ -222,6 +225,28 @@ void ilsp_facade_code_action(struct IronLsp_Server         *server,
     }
 
 done:
+    /* Providers set originating_diag to entries inside walk_diags, which is
+     * freed below while the caller still serializes the actions (the
+     * code_action_to_json reader hit this as a heap-use-after-free under
+     * ASan). Deep-copy each referenced diagnostic into the caller's arena:
+     * the serializer reads span/level/code by value plus the message
+     * string, so the struct copy + one strdup re-homes everything. */
+    if (arr) {
+        for (size_t ai = 0; ai < n; ai++) {
+            const Iron_Diagnostic *od = arr[ai].originating_diag;
+            if (!od) continue;
+            Iron_Diagnostic *dc = (Iron_Diagnostic *)iron_arena_alloc(
+                arena, sizeof(*dc), _Alignof(Iron_Diagnostic));
+            if (!dc) { arr[ai].originating_diag = NULL; continue; }
+            *dc = *od;
+            dc->message = od->message
+                ? iron_arena_strdup(arena, od->message, strlen(od->message))
+                : NULL;
+            dc->suggestion = NULL;    /* not read post-facade; don't carry */
+            dc->span.filename = NULL; /* dangling pointers past the free */
+            arr[ai].originating_diag = dc;
+        }
+    }
     iron_diaglist_free(&walk_diags);
     iron_arena_free(&walk_arena);
 }

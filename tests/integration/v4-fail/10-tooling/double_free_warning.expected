@@ -1,1 +1,1 @@
-unreachable free
+warning[W0607]: 'free buf' is unreachable: 'buf' was already freed earlier in this function

@@ -146,6 +146,13 @@ typedef enum {
  *   the lexer's `-- @file: <name>` directive (Phase 93 multi-file fixture
  *   support) so concatenated test sources can carry per-decl source
  *   identity for the resolver's cross-module check.
+ * - from_stdlib_prepend: true when the token originates from a synthetic
+ *   prepend region introduced by a `-- @file: <name> @line: <n>` marker
+ *   whose <name> differs from the lexer's entry filename (2026-07
+ *   diagnostics remediation: build.c / check.c wrap each prepended stdlib
+ *   file in such a marker). The parser's E0321 standalone-method-form
+ *   carve-out keys on this bit instead of the old TU-wide line threshold,
+ *   which per-file line numbering made meaningless.
  */
 typedef struct {
     Iron_TokenKind  kind;
@@ -154,6 +161,7 @@ typedef struct {
     uint32_t        col;
     uint32_t        len;
     const char     *filename;  /* NULL = inherit from parser */
+    bool            from_stdlib_prepend; /* token lies in a stdlib prepend region */
 } Iron_Token;
 
 /* ── Lexer ───────────────────────────────────────────────────────────────── */
@@ -162,12 +170,28 @@ typedef struct {
     const char         *src;       /* source text (not owned) */
     size_t              src_len;   /* length in bytes */
     size_t              pos;       /* current byte position */
-    uint32_t            line;      /* current 1-indexed line */
+    uint32_t            line;      /* current 1-indexed LOGICAL line (resettable
+                                    * by `-- @file: <name> @line: <n>` markers;
+                                    * equals phys_line when no marker diverged it) */
     uint32_t            col;       /* current 1-indexed column */
     const char         *filename;  /* source file name for diagnostics */
     Iron_Arena         *arena;     /* arena for token values and diagnostic messages */
     Iron_DiagList      *diags;     /* diagnostic list to emit errors into */
     const _Atomic bool *cancel_flag; /* HARD-05: NULL means never cancel */
+
+    /* 2026-07 diagnostics remediation (stdlib-prepend line mapping): */
+    uint32_t            phys_line;      /* physical 1-indexed line in the buffer;
+                                         * never reset by markers. Plain
+                                         * `-- @file: <name>` markers (Phase 93
+                                         * multi-file harness) resync `line` to
+                                         * this value, preserving their original
+                                         * TU-wide numbering semantics. */
+    const char         *entry_filename; /* filename passed to iron_lexer_create;
+                                         * a `@line:`-carrying marker naming this
+                                         * exact string re-enters user code
+                                         * (from_stdlib_prepend = false). */
+    bool                in_stdlib_prepend; /* current region is a synthetic
+                                            * stdlib prepend (see Iron_Token) */
 } Iron_Lexer;
 
 /* ── API ─────────────────────────────────────────────────────────────────── */
@@ -181,6 +205,14 @@ Iron_Lexer iron_lexer_create(const char *src, const char *filename,
  * flag becomes true during iron_lex_all, lexing stops at the next safepoint
  * and emits a single NOTE-level IRON_ERR_CANCELLED diagnostic. */
 void iron_lexer_set_cancel_flag(Iron_Lexer *l, const _Atomic bool *flag);
+
+/* 2026-07 diagnostics remediation: seat the lexer's starting position at an
+ * arbitrary (line, col) instead of (1, 1). Used by the parser's string-
+ * interpolation sub-lexer so expressions inside `"{...}"` carry the span of
+ * their position inside the CONTAINING source file rather than line 1 of the
+ * re-lexed expression buffer (the old behavior put every runtime deref site
+ * inside an interpolation at `<file>:1`). */
+void iron_lexer_set_origin(Iron_Lexer *l, uint32_t line, uint32_t col);
 
 /* Lex all tokens from the source. Returns a stb_ds dynamic array of tokens.
  * The final token is always IRON_TOK_EOF.

@@ -10,8 +10,8 @@
 
 func main() {
     defer {
-        print("a")
-        print("b")
+        println("a")
+        println("b")
     }
-    print("body")
+    println("body")
 }

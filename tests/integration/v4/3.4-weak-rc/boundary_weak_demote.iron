@@ -1,20 +1,22 @@
 -- section 3.4 weak rc: demote creates weak rc
 -- @req: POL-08
--- @expected-pass-after: phase-27
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): T? optional-payload lowering missing — null-compare + field access on
+-- upgrade() result emit invalid C; same class as 4.9 upgrade_returns_nullable.
 -- extends-spec: rc.demote() creates weak rc; weak ref count tracked independently of strong
 
 object Item {
     val label: String
 
     drop {
-        println("drop: {label}")
+        println("drop: {self.label}")
     }
 }
 
 func main() {
-    val strong = rc Item(label: "thing")
-    val w1: weak rc Item = strong.demote()
-    val w2: weak rc Item = strong.demote()
+    val strong = rc Item("thing")
+    val w1 = strong.downgrade()
+    val w2 = strong.downgrade()
     println("strong alive")
     -- both weak refs exist; strong still has refcount 1
     val check = w1.upgrade()

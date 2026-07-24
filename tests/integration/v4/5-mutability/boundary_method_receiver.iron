@@ -1,6 +1,8 @@
 -- section: 5-mutability
 -- @req: PARM-01, PARM-04
--- @expected-pass-after: phase-18
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): explicit-receiver method signatures (`func get(self)`, `func tick(self:
+-- *var T)`) not in the v4 surface (E0101; methods take implicit self) + E0264 (var field, no init).
 -- extends-spec: method receiver mutability is part of method signature; PARM-04: method receiver default is mutable; readonly opts out; object has both readonly get and mutating tick methods
 
 object Counter {
@@ -16,7 +18,7 @@ object Counter {
 }
 
 func main() {
-    var c = Counter(count: 0)
+    var c = Counter(0)
     c.tick()
     c.tick()
     println("count={c.get()}")

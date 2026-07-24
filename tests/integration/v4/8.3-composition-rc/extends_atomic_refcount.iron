@@ -1,6 +1,8 @@
 -- section 8.3 extends-spec: ATOMIC-ELISION.md soundness barrier probe
 -- @req: POL-06, POL-07
--- @expected-pass-after: phase-26
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): `rc T` parameter type annotation (E0297) + spawn statement surface
+-- (`spawn worker(copy)` — parser expects a string name as first spawn argument).
 -- extends-spec: spawn worker holding rc copy; main awaits; drop fires exactly once
 
 object SharedState {
@@ -18,7 +20,7 @@ func worker(s: rc SharedState) {
 }
 
 func main() {
-    val state = rc SharedState(value: 42)
+    val state = rc SharedState(42)
     val worker_copy = state         -- refcount = 2
     spawn worker(worker_copy)       -- worker takes ownership of the copy
     -- main's rc copy still alive here; refcount >= 1

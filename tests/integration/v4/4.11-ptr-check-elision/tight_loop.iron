@@ -14,6 +14,7 @@ object Counter {
 
 func main() {
     val c = heap Counter(5)
+    defer free c
     val ptr: *Counter = &c
     var total = 0
     var i = 0

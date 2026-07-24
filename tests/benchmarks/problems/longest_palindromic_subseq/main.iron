@@ -3,29 +3,33 @@ import time
 func lps(seq: [Int], n: Int) -> Int {
     var dp = fill(n * n, 0)
     for i in range(n) {
-        dp[i * n + i] = 1
+        -- in-bounds: i < n, so i * n + i <= (n - 1) * n + (n - 1) = n * n - 1 < dp.len()
+        dp.set_unchecked(i * n + i, 1)
     }
     var cl = 2
     while cl <= n {
         var i = 0
         while i <= n - cl {
             val j = i + cl - 1
-            if seq[i] == seq[j] {
-                dp[i * n + j] = dp[(i + 1) * n + (j - 1)] + 2
+            -- in-bounds: 0 <= i <= n - cl and j = i + cl - 1 <= n - 1, so i and j < n = seq.len() (caller contract)
+            if seq.get_unchecked(i) == seq.get_unchecked(j) {
+                -- in-bounds (all dp sites): i + 1 <= n - cl + 1 <= n - 1 (cl >= 2), i <= j - 1 (cl >= 2), i, j < n, so every r * n + c here has r, c in [0, n)
+                dp.set_unchecked(i * n + j, dp.get_unchecked((i + 1) * n + (j - 1)) + 2)
             } else {
-                val a = dp[(i + 1) * n + j]
-                val b = dp[i * n + (j - 1)]
+                val a = dp.get_unchecked((i + 1) * n + j)
+                val b = dp.get_unchecked(i * n + (j - 1))
                 if a > b {
-                    dp[i * n + j] = a
+                    dp.set_unchecked(i * n + j, a)
                 } else {
-                    dp[i * n + j] = b
+                    dp.set_unchecked(i * n + j, b)
                 }
             }
             i = i + 1
         }
         cl = cl + 1
     }
-    return dp[0 * n + (n - 1)]
+    -- in-bounds: n >= 1 (caller contract), so n - 1 < n * n = dp.len()
+    return dp.get_unchecked(0 * n + (n - 1))
 }
 
 func main() {

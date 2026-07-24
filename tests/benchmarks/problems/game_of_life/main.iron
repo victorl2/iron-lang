@@ -20,7 +20,8 @@ func game_of_life(grid: [Int], rows: Int, cols: Int, out: [Int]) {
                             if ni < rows {
                                 if nj >= 0 {
                                     if nj < cols {
-                                        neighbors = neighbors + grid[ni * cols + nj]
+                                        -- in-bounds: guards give 0 <= ni < rows, 0 <= nj < cols, so ni * cols + nj < rows * cols = grid.len() (caller contract)
+                                        neighbors = neighbors + grid.get_unchecked(ni * cols + nj)
                                     }
                                 }
                             }
@@ -30,20 +31,21 @@ func game_of_life(grid: [Int], rows: Int, cols: Int, out: [Int]) {
                 }
                 di = di + 1
             }
-            val cell = grid[i * cols + j]
+            -- in-bounds (all grid/out sites below): 0 <= i < rows, 0 <= j < cols, so i * cols + j < rows * cols = grid.len() = out.len() (caller contract)
+            val cell = grid.get_unchecked(i * cols + j)
             if cell == 1 {
                 if neighbors == 2 {
-                    out[i * cols + j] = 1
+                    out.set_unchecked(i * cols + j, 1)
                 } elif neighbors == 3 {
-                    out[i * cols + j] = 1
+                    out.set_unchecked(i * cols + j, 1)
                 } else {
-                    out[i * cols + j] = 0
+                    out.set_unchecked(i * cols + j, 0)
                 }
             } else {
                 if neighbors == 3 {
-                    out[i * cols + j] = 1
+                    out.set_unchecked(i * cols + j, 1)
                 } else {
-                    out[i * cols + j] = 0
+                    out.set_unchecked(i * cols + j, 0)
                 }
             }
         }
@@ -53,7 +55,8 @@ func game_of_life(grid: [Int], rows: Int, cols: Int, out: [Int]) {
 func count_alive(grid: [Int], n: Int) -> Int {
     var count = 0
     for i in range(n) {
-        if grid[i] == 1 {
+        -- in-bounds: 0 <= i < n <= grid.len() (caller contract n = grid element count)
+        if grid.get_unchecked(i) == 1 {
             count = count + 1
         }
     }

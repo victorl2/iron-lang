@@ -9,12 +9,15 @@ func matrix_chain(dims: [Int], n: Int) -> Int {
         var i = 0
         while i <= n - cl {
             val j = i + cl - 1
-            dp[i * n + j] = 999999999
+            -- in-bounds: 0 <= i <= n - cl <= n - 2 and j = i + cl - 1 <= n - 1, so i * n + j < n * n = dp.len()
+            dp.set_unchecked(i * n + j, 999999999)
             var k = i
             while k < j {
-                val cost = dp[i * n + k] + dp[(k + 1) * n + j] + dims[i] * dims[k + 1] * dims[j + 1]
-                if cost < dp[i * n + j] {
-                    dp[i * n + j] = cost
+                -- in-bounds: i <= k < j <= n - 1 keeps i * n + k and (k + 1) * n + j below n * n = dp.len();
+                -- dims indices i, k + 1, j + 1 are all <= n < n + 1 = dims.len() (caller contract)
+                val cost = dp.get_unchecked(i * n + k) + dp.get_unchecked((k + 1) * n + j) + dims.get_unchecked(i) * dims.get_unchecked(k + 1) * dims.get_unchecked(j + 1)
+                if cost < dp.get_unchecked(i * n + j) {
+                    dp.set_unchecked(i * n + j, cost)
                 }
                 k = k + 1
             }

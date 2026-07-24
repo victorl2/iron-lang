@@ -6,8 +6,6 @@ entry:
   store %3, %1
   %4 = alloca Int
   store %4, %2
-  jump return_exit_0
-return_exit_0:
   %5 = add %1, %2 : Int
   ret %5
 }
@@ -18,7 +16,7 @@ entry:
   %2 = const_int 4 : Int
   %3 = func_ref @add : Int
   %4 = call %3(%1, %2) : Int
-  jump return_exit_1
-return_exit_1:
+  jump return_exit_0
+return_exit_0:
   ret void
 }

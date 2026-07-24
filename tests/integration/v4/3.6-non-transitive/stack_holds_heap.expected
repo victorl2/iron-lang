@@ -1,3 +1,4 @@
 frame id: 42, buf size: 4096
+drop buffer: 4096
 drop frame: 42
 drop buffer: 4096

@@ -8,15 +8,18 @@ func min_window(s: [Int], sn: Int, t: [Int], tn: Int) -> Int {
 
     var ti = 0
     while ti < tn {
-        val ch = t[ti]
-        need[ch] = need[ch] + 1
+        -- in-bounds: 0 <= ti < tn = t.len() (caller contract)
+        val ch = t.get_unchecked(ti)
+        -- in-bounds: ch is a letter code 1..26 (caller contract) < 27 = need.len()
+        need.set_unchecked(ch, need.get_unchecked(ch) + 1)
         ti = ti + 1
     }
 
     var required = 0
     var ci = 1
     while ci <= 26 {
-        if need[ci] > 0 {
+        -- in-bounds: 1 <= ci <= 26 < 27 = need.len()
+        if need.get_unchecked(ci) > 0 {
             required = required + 1
         }
         ci = ci + 1
@@ -28,10 +31,12 @@ func min_window(s: [Int], sn: Int, t: [Int], tn: Int) -> Int {
 
     var right = 0
     while right < sn {
-        val c = s[right]
-        have[c] = have[c] + 1
-        if need[c] > 0 {
-            if have[c] == need[c] {
+        -- in-bounds: 0 <= right < sn = s.len() (caller contract)
+        val c = s.get_unchecked(right)
+        -- in-bounds: c is a letter code 1..26 (caller contract) < 27 = have.len() = need.len()
+        have.set_unchecked(c, have.get_unchecked(c) + 1)
+        if need.get_unchecked(c) > 0 {
+            if have.get_unchecked(c) == need.get_unchecked(c) {
                 formed = formed + 1
             }
         }
@@ -41,10 +46,12 @@ func min_window(s: [Int], sn: Int, t: [Int], tn: Int) -> Int {
             if wlen < best_len {
                 best_len = wlen
             }
-            val lc = s[left]
-            have[lc] = have[lc] - 1
-            if need[lc] > 0 {
-                if have[lc] < need[lc] {
+            -- in-bounds: formed == required >= 1 means window [left, right] is non-empty, so 0 <= left <= right < sn = s.len()
+            val lc = s.get_unchecked(left)
+            -- in-bounds: lc is a letter code 1..26 (caller contract) < 27 = have.len() = need.len()
+            have.set_unchecked(lc, have.get_unchecked(lc) - 1)
+            if need.get_unchecked(lc) > 0 {
+                if have.get_unchecked(lc) < need.get_unchecked(lc) {
                     formed = formed - 1
                 }
             }

@@ -10,14 +10,13 @@ in the [Zed editor](https://zed.dev/). Ships with:
 - automatic `ironls` binary download from GitHub Releases with
   SHA-256 verification.
 
-**Tracks:** Iron v3.1.1-alpha (current main-branch alpha). See the
+**Tracks:** Iron v4.0.0-alpha (current main-branch alpha). See the
 **Version compatibility** section below for the exact `ironls` range the
-extension accepts (the hard-refuse constant bumps atomically in a later
-phase).
+extension accepts.
 
 ## Iron syntax overview
 
-Iron v3 introduces first-class surface features surfaced by `ironls`
+Iron's current surface includes first-class features surfaced by `ironls`
 completion, hover, and diagnostics — all rendered by Zed's standard LSP
 client UI:
 
@@ -34,11 +33,12 @@ client UI:
   and explicit mutable bindings; the type system enforces compatibility
   at call boundaries.
 
-Legacy pre-v3 keywords (`val`, `var`, `object`, `interface`, `impl`, etc.)
-continue to work unchanged. The complete roster is 44 keywords,
-drift-guarded at build time by `test_grammar_keyword_drift_tree_sitter`.
+The core keywords (`val`, `var`, `object`, `interface`, `impl`, etc.)
+are all part of the current v4 surface. The complete roster is 49
+keywords, drift-guarded at build time by
+`test_grammar_keyword_drift_tree_sitter`.
 
-## Iron v3 schematic example
+## Iron schematic example
 
 ```iron
 pub object Player {
@@ -201,7 +201,7 @@ CI harness allows Linux to fail on this extension for v1.
 
 ## Version compatibility
 
-This extension targets `ironls` in the range `>= 3.0.0, < 4.0.0` per
+This extension targets `ironls` in the range `>= 4.0.0, < 5.0.0` per
 the `[version_constraints] ironls` entry in `extension.toml`. Phase 7
 HARD-22 / D-10 enforces this with a **hard refuse**: on every
 activation the extension runs `ironls --version`, parses the semver

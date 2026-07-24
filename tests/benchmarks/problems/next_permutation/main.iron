@@ -8,16 +8,18 @@ func next_permutation(arr: [Int], n: Int) -> Int {
     var i = n - 2
     var found = 0
     while i >= 0 {
-        if arr[i] < arr[i + 1] {
+        -- in-bounds: 0 <= i <= n - 2, so i + 1 <= n - 1 < n = arr.len() (caller contract)
+        if arr.get_unchecked(i) < arr.get_unchecked(i + 1) {
             found = 1
             -- Find largest j > i such that arr[j] > arr[i]
             var j = n - 1
             while j > i {
-                if arr[j] > arr[i] {
+                -- in-bounds: 0 <= i < j <= n - 1 < n = arr.len()
+                if arr.get_unchecked(j) > arr.get_unchecked(i) {
                     -- Swap arr[i] and arr[j]
-                    val temp = arr[i]
-                    arr[i] = arr[j]
-                    arr[j] = temp
+                    val temp = arr.get_unchecked(i)
+                    arr.set_unchecked(i, arr.get_unchecked(j))
+                    arr.set_unchecked(j, temp)
                     j = -1
                 } else {
                     j = j - 1
@@ -27,9 +29,10 @@ func next_permutation(arr: [Int], n: Int) -> Int {
             var left = i + 1
             var right = n - 1
             while left < right {
-                val temp = arr[left]
-                arr[left] = arr[right]
-                arr[right] = temp
+                -- in-bounds: 0 <= i + 1 <= left < right <= n - 1 < n = arr.len()
+                val temp = arr.get_unchecked(left)
+                arr.set_unchecked(left, arr.get_unchecked(right))
+                arr.set_unchecked(right, temp)
                 left = left + 1
                 right = right - 1
             }
@@ -43,9 +46,10 @@ func next_permutation(arr: [Int], n: Int) -> Int {
         var left = 0
         var right = n - 1
         while left < right {
-            val temp = arr[left]
-            arr[left] = arr[right]
-            arr[right] = temp
+            -- in-bounds: 0 <= left < right <= n - 1 < n = arr.len()
+            val temp = arr.get_unchecked(left)
+            arr.set_unchecked(left, arr.get_unchecked(right))
+            arr.set_unchecked(right, temp)
             left = left + 1
             right = right - 1
         }
@@ -56,7 +60,8 @@ func next_permutation(arr: [Int], n: Int) -> Int {
 func checksum(arr: [Int], n: Int) -> Int {
     var sum = 0
     for i in range(n) {
-        sum = sum + arr[i] * (i + 1)
+        -- in-bounds: 0 <= i < n = arr.len() (caller contract)
+        sum = sum + arr.get_unchecked(i) * (i + 1)
     }
     return sum
 }

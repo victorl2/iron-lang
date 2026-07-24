@@ -108,10 +108,15 @@ jobs:
 
       - name: Configure (Debug with ASan/UBSan)
         if: needs.changes.outputs.ci == 'true'
+        # IRON_ENABLE_SANITIZERS actually injects -fsanitize=address,undefined;
+        # without it this job was named "with ASan/UBSan" while compiling with
+        # no instrumentation at all, and the "Verify sanitizers" step below
+        # re-ran an uninstrumented build with cosmetic env vars.
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER=clang \
+            -DIRON_ENABLE_SANITIZERS=ON \
             -G Ninja
 
       - name: Build

@@ -1,7 +1,7 @@
 -- section 4.9 weak rc policy: upgrade type inference returns T?
 -- @req: POL-09
--- @expected-pass-after: phase-37
--- XFAIL (phase-37): `rc T` type annotations not in the v4 surface.
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): `rc T` type annotations not in the v4 surface.
 -- typecheck must infer the upgrade() result type as rc Foo? (nullable
 -- strong) per CONTEXT.md GA2. The explicit annotation locks it in.
 

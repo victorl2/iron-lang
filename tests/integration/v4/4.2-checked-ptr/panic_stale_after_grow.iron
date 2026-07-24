@@ -1,11 +1,14 @@
 -- section: 4.2-checked-ptr
 -- @req: PTR-08, SAFE-02
--- @expected-pass-after: phase-20
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): `List[T]` type annotation / `List` identifier not in the v4 surface
+-- ([T] literals are; E0200/E0202 undefined List) and List.new(capacity) is not dispatched —
+-- the small capacity is load-bearing to force the grow.
 -- @expect-panic: dangling pointer to invalidated element
 -- extends-spec: POINTER-CHECK-ELISION.md soundness trap "stale after grow" - List resize invalidates element pointer; SAFE-02 generational pointer guard catches the stale deref; this fixture deterministically panics
 
 func main() {
-    var list: List[Int] = List.new(capacity: 4)
+    var list: List[Int] = List.new(4)
     list.push(1)
     list.push(2)
     list.push(3)

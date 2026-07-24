@@ -564,6 +564,8 @@
         <a href="#iron-run">iron run</a>
         <a href="#iron-check">iron check</a>
         <a href="#iron-test">iron test</a>
+        <a href="#iron-fmt">iron fmt</a>
+        <a href="#iron-migrate">migrate</a>
       </div>
       <div class="sidebar-section">
         <h3>Dependencies</h3>
@@ -587,8 +589,8 @@
 
       <!-- ── v3 callout ───────────────────────── -->
       <div class="callout">
-        <div class="callout-title">v3.0.0-alpha</div>
-        <p>This guide covers <code>iron</code> package manager commands, which are unchanged in v3. For the current language syntax, including methods inside <code>object</code> blocks and the <code>pub</code> visibility model, see the <a href="/docs/">language reference</a>.</p>
+        <div class="callout-title">v4.0.0-alpha</div>
+        <p>This guide covers <code>iron</code> package manager commands, which are unchanged in v4. For the current language syntax, including methods inside <code>object</code> blocks and the <code>pub</code> visibility model, see the <a href="/docs/">language reference</a>.</p>
       </div>
 
       <!-- ── Overview ──────────────────────────── -->
@@ -738,6 +740,25 @@ Hello, Iron!</code></pre>
      <span class="fn">Running</span> test_strings.iron
     <span class="st">Finished</span> 2 test(s) passed</code></pre>
 
+      <h2 id="iron-fmt">iron fmt</h2>
+      <p>Format a source file in place. With <code>--check</code>, verify formatting without rewriting anything.</p>
+<pre><code>$ <span class="fn">iron fmt src/main.iron</span>
+$ <span class="fn">iron fmt --check src/main.iron</span>
+would reformat src/main.iron</code></pre>
+      <table>
+        <tr><th>Flag</th><th>Description</th></tr>
+        <tr><td><code>--check</code></td><td>Check only &mdash; exit 0 if the file is clean, 1 if it would be reformatted, 2 on syntax errors</td></tr>
+      </table>
+
+      <h2 id="iron-migrate">migrate</h2>
+      <p>Run a codemod migration over a file or directory (an <code>ironc</code> command; <code>iron migrate --help</code> shows the same help). Shipped for the v2 &rarr; v3 grammar change. There is no v3 &rarr; v4 codemod &mdash; hand-migration via the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/site/migration-v3-to-v4.md">migration guide</a> is the supported path.</p>
+<pre><code>$ <span class="fn">ironc migrate --from v2 --to v3 src/</span></code></pre>
+      <table>
+        <tr><th>Flag</th><th>Description</th></tr>
+        <tr><td><code>--from</code></td><td>Source grammar version (e.g. <code>v2</code>)</td></tr>
+        <tr><td><code>--to</code></td><td>Target grammar version (e.g. <code>v3</code>)</td></tr>
+      </table>
+
       <!-- ── Dependencies ────────────────────────── -->
       <h2 id="adding-deps">Adding Dependencies</h2>
       <p>Edit <code>iron.toml</code> to add a dependency:</p>
@@ -865,7 +886,9 @@ Hello, Iron!</code></pre>
       <p>To <code>~/.iron/cache/</code> (global, shared across all projects). Delete this directory to force a clean re-fetch.</p>
 
       <h3>Can I use local path dependencies?</h3>
-      <p>Not yet. Local path dependencies (<code>path = "../my-lib"</code>) are planned for a future release.</p>
+      <p><strong>Yes</strong> &mdash; shipped in v3.2. Point a dependency at a local directory and it resolves without a lockfile or registry entry; the library is rebuilt automatically when stale:</p>
+<pre><code><span class="cm">[dependencies]</span>
+<span class="kw">mylib</span> = { <span class="kw">path</span> = <span class="st">"../mylib"</span> }</code></pre>
 
       <h3>How do I update a dependency?</h3>
       <p>Delete the dep's entry from <code>iron.lock</code> and re-run <code>iron build</code>. It will re-resolve the tag to the latest commit SHA. An <code>iron update</code> command is planned.</p>

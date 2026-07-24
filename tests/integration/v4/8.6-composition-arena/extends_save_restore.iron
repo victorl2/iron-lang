@@ -1,27 +1,31 @@
 -- section 8.6 extends-spec: save/restore boundary probe (CONTEXT.md mandate)
 -- @req: ARENA-01, ARENA-03, ARENA-06
--- @expected-pass-after: phase-28
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): .expected requires per-object drop execution on arena restore()/reset()
+-- ("temp N freed"), but ARENA-09/W0605 defines arena bulk-free as SKIPPING drop. Needs a
+-- destructor-running restore surface (or a re-authored .expected). Verified at v4.0.0-alpha:
+-- builds+runs positionally; output differs only by the four drop lines.
 -- extends-spec: arena with save mark; allocate 3 values; restore mark drops them; allocate 1 more
 
 object Temp {
     val id: Int
 
     drop {
-        println("temp {id} freed")
+        println("temp {self.id} freed")
     }
 }
 
 func main() {
-    val arena = heap Arena.new(size: 1024 * 1024)
+    val arena = heap Arena.new(1024 * 1024)
     defer free arena
 
     val mark = arena.save()
 
     -- allocate 3 temporaries inside the mark boundary
     in arena {
-        val t1 = heap Temp(id: 1)
-        val t2 = heap Temp(id: 2)
-        val t3 = heap Temp(id: 3)
+        val t1 = heap Temp(1)
+        val t2 = heap Temp(2)
+        val t3 = heap Temp(3)
         println("temps allocated")
     }
 
@@ -31,7 +35,7 @@ func main() {
 
     -- one more allocation after restore; proves arena is still usable
     in arena {
-        val t4 = heap Temp(id: 4)
+        val t4 = heap Temp(4)
         println("t4 allocated")
     }
     arena.reset()

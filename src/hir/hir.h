@@ -169,7 +169,10 @@ typedef enum {
 
 /* ── Helper structs ──────────────────────────────────────────────────────── */
 
-/* Parameter declaration */
+/* Parameter declaration.
+ * NOTE: deliberately NOT extended for PARM-02 var params — unit tests
+ * stack-allocate partial initializations of this struct, so the per-param
+ * `var` bit lives in IronHIR_Func.param_is_var (memset-zeroed at create). */
 typedef struct {
     IronHIR_VarId  var_id;
     const char    *name;
@@ -183,6 +186,42 @@ typedef struct {
     Iron_Type     *type;
     bool           is_mutable;
 } IronHIR_VarInfo;
+
+/* ── Module-level global binding (2026-07 remediation: true globals) ───────
+ * One entry per REFERENCED top-level `val`/`var` declaration, in declaration
+ * order. hir_lower.c populates the list lazily (only globals actually
+ * referenced from some function/lambda/spawn body — or transitively from
+ * another referenced global's initializer — are materialized, preserving the
+ * historical laziness for e.g. the raylib constant table).
+ *
+ * Representation convention for references: a module-global read/write is an
+ * IRON_HIR_EXPR_IDENT with var_id == IRON_HIR_VAR_INVALID and a non-NULL
+ * `name` matching a globals[] entry. hir_verify.c already admits
+ * invalid-var_id idents ("anonymous ident — allow"), so cross-function global
+ * references verify without per-function LET materialization (the old scheme
+ * that made mutable / impure-init globals E0501 everywhere past the first
+ * referencing function). hir_to_lir.c resolves the name against this list and
+ * routes the access through a per-function global-slot ALLOCA that emit_c.c
+ * aliases to a file-scope C static.
+ *
+ * Initialization: hir_lower.c synthesizes a `__iron_module_init` function
+ * whose body assigns each referenced global its initializer IN DECLARATION
+ * ORDER. emit_c.c calls it from the C main() wrapper after
+ * iron_runtime_init() and before Iron_main() — so every initializer side
+ * effect runs exactly once, before main's first statement. A global whose
+ * initializer reads a LATER-declared global observes that global's
+ * zero-initialized value (C static storage), mirroring C semantics.
+ * Deinitialization (drop/rc release) is synthesized by hir_to_lir.c as
+ * `__iron_module_deinit`, called after Iron_main() returns, releasing in
+ * REVERSE declaration order (module-scope mirror of the DROP-02 scope-exit
+ * rule). */
+typedef struct {
+    const char *name;        /* surface binding name (unique at module level) */
+    Iron_Type  *type;        /* resolved declared/inferred type */
+    bool        is_mutable;  /* var vs val */
+    bool        has_init;    /* false for a bare `var g: T` declaration */
+    Iron_Span   span;        /* declaration site */
+} IronHIR_Global;
 
 /* Match arm: pattern + guard + body block */
 typedef struct {
@@ -550,6 +589,17 @@ struct IronHIR_Func {
      * Consumes Plan 22-02 LiftPending.is_readonly_context for lifted lambdas.
      * Default false via iron_hir_func_create memset. */
     bool               is_readonly;
+    /* PARM-02 mutable-reference params: parallel array (param_count entries,
+     * arena-owned) — param_is_var[i] true when the surface declared param i
+     * `var name: T` on a free-function decl. NULL (memset default) = no var
+     * params. Populated by hir_lower.c at the FuncDecl signature site only;
+     * methods and lifted lambdas never populate it. hir_to_lir.c consumes it
+     * to (a) route var-param reads through the alloca slot, (b) write the
+     * final value back through the by-ref pointer at every return, and
+     * (c) mark matching call args pass-by-address. Lives on the Func (not on
+     * IronHIR_Param) so unit tests' partial struct initializations of the
+     * param array stay valid. */
+    bool              *param_is_var;
 };
 
 /* ── Module ──────────────────────────────────────────────────────────────── */
@@ -562,6 +612,12 @@ struct IronHIR_Module {
     /* Named variable table: index == var_id (entry 0 is sentinel) */
     IronHIR_VarInfo *name_table;  /* stb_ds array */
     IronHIR_VarId    next_var_id; /* starts at 1 */
+
+    /* Module-level globals (see IronHIR_Global above). Arena-owned plain
+     * array in declaration order; NULL/0 when the module has no referenced
+     * top-level bindings (iron_hir_module_create memsets the struct). */
+    IronHIR_Global  *globals;
+    int              global_count;
 
     Iron_Arena      *arena;       /* owning arena */
 };

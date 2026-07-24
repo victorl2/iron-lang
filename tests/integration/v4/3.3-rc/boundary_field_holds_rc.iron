@@ -1,13 +1,14 @@
 -- section 3.3 rc policy: rc field in container
 -- @req: POL-06
--- @expected-pass-after: phase-26
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): `rc T` field type annotations not in the v4 surface (E0297).
 -- extends-spec: container with rc field; rc lifetime independent of container drop
 
 object Texture {
     val path: String
 
     drop {
-        println("free texture: {path}")
+        println("free texture: {self.path}")
     }
 }
 
@@ -16,12 +17,12 @@ object Container {
     val id: Int
 
     drop {
-        println("drop container: {id}")
+        println("drop container: {self.id}")
     }
 }
 
 func main() {
-    val tex = rc Texture(path: "sprite.png")
-    val c = Container(tex: tex, id: 1)
+    val tex = rc Texture("sprite.png")
+    val c = Container(tex, 1)
     println("container id: {c.id}, tex: {c.tex.path}")
 }

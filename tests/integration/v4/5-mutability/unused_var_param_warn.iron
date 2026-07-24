@@ -7,5 +7,9 @@ func greet(var name: String) {
 }
 
 func main() {
-    greet("World")
+    -- E0267: a 'var' parameter requires a mutable argument source (the
+    -- language definition makes var params mutable references), so the
+    -- literal is bound to a var first.
+    var world = "World"
+    greet(world)
 }

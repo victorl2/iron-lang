@@ -407,7 +407,12 @@ set_tests_properties(test_web_top_level_loader_check PROPERTIES LABELS "unit")
 # instrumentation, giving at least a smoke-test signal.
 add_executable(test_string_intern_race test_string_intern_race.c)
 target_link_libraries(test_string_intern_race iron_runtime unity)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+# TSan cannot combine with a global ASan/UBSan build (clang rejects
+# -fsanitize=address with -fsanitize=thread on one target). Under
+# IRON_ENABLE_SANITIZERS=ON with the address flavour the test compiles
+# uninstrumented -- the same smoke-test fallback as non-Linux builds.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
+   AND NOT (IRON_ENABLE_SANITIZERS AND IRON_SANITIZER STREQUAL "address"))
     target_compile_options(test_string_intern_race PRIVATE -fsanitize=thread -g -O1)
     target_link_options(test_string_intern_race PRIVATE -fsanitize=thread)
 endif()
@@ -1122,7 +1127,9 @@ set_tests_properties(test_runtime_panic_stale_release PROPERTIES
 # Win32 path emits TEST_IGNORE_MESSAGE.
 add_executable(test_runtime_heap_concurrent test_runtime_heap_concurrent.c)
 target_link_libraries(test_runtime_heap_concurrent iron_runtime unity)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+# TSan/ASan coexistence: see test_string_intern_race above.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
+   AND NOT (IRON_ENABLE_SANITIZERS AND IRON_SANITIZER STREQUAL "address"))
     target_compile_options(test_runtime_heap_concurrent PRIVATE -fsanitize=thread -g -O1)
     target_link_options(test_runtime_heap_concurrent PRIVATE -fsanitize=thread)
 endif()
@@ -1340,7 +1347,9 @@ set_tests_properties(test_rc_atomic_ordering PROPERTIES
 
 add_executable(test_runtime_rc_concurrent test_runtime_rc_concurrent.c)
 target_link_libraries(test_runtime_rc_concurrent iron_runtime unity)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+# TSan/ASan coexistence: see test_string_intern_race above.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
+   AND NOT (IRON_ENABLE_SANITIZERS AND IRON_SANITIZER STREQUAL "address"))
     target_compile_options(test_runtime_rc_concurrent PRIVATE -fsanitize=thread -g -O1)
     target_link_options(test_runtime_rc_concurrent PRIVATE -fsanitize=thread)
 endif()
@@ -1422,7 +1431,9 @@ set_tests_properties(test_weak_rc_atomic_ordering PROPERTIES
 # non-TSan path keeps the phase27-invariant gate green.
 add_executable(test_runtime_weak_rc_concurrent test_runtime_weak_rc_concurrent.c)
 target_link_libraries(test_runtime_weak_rc_concurrent iron_runtime unity)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+# TSan/ASan coexistence: see test_string_intern_race above.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
+   AND NOT (IRON_ENABLE_SANITIZERS AND IRON_SANITIZER STREQUAL "address"))
     target_compile_options(test_runtime_weak_rc_concurrent PRIVATE -fsanitize=thread -g -O1)
     target_link_options(test_runtime_weak_rc_concurrent PRIVATE -fsanitize=thread)
 endif()
@@ -1611,3 +1622,24 @@ add_test(NAME test_container_drop COMMAND test_container_drop)
 set_tests_properties(test_container_drop PROPERTIES
     LABELS "unit;phase33-invariant"
     TIMEOUT 30)
+
+# ── Detector-probe tests vs sanitizer builds ─────────────────────────────────
+# These rows validate Iron's OWN memory-error machinery: they deliberately
+# double-free, leak, dereference stale pointers, and exhaust allocators to
+# prove the runtime's detectors fire. Under a global ASan/UBSan build the
+# sanitizer's interposed allocator sees those same operations first (aborting,
+# reporting leaks, or defeating the runtime's header heuristics), so the rows
+# fail or hang by construction, not by regression. They remain fully exercised
+# by every uninstrumented job; skip them when sanitizers are on.
+if(IRON_ENABLE_SANITIZERS)
+    set_tests_properties(
+        test_arena_scoping_stress
+        test_alloc_list_push_oom
+        test_alloc_map_put_oom
+        test_runtime_heap_free
+        test_runtime_panic_stale
+        test_runtime_panic_stale_release
+        test_runtime_heap_concurrent
+        test_leakcheck_release
+        PROPERTIES DISABLED TRUE)
+endif()

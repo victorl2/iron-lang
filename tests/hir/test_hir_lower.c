@@ -2040,16 +2040,35 @@ void test_hir_lower_global_constant_lazy(void) {
     TEST_ASSERT_NOT_NULL(mod);
     TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
 
+    /* True module globals (2026-07): the referenced global is published on
+     * the module (lazily — only referenced globals materialize), and the
+     * reference stays a marker ident (var_id INVALID + name) resolved by
+     * hir_to_lir against globals[] — no per-function LET is injected. */
+    bool found_global = false;
+    for (int i = 0; i < mod->global_count; i++) {
+        if (strcmp(mod->globals[i].name, "GLOBAL") == 0) { found_global = true; break; }
+    }
+    TEST_ASSERT_TRUE(found_global);
+
     /* Find func f */
     IronHIR_Func *fn = NULL;
+    IronHIR_Func *mod_init = NULL;
     for (int i = 0; i < mod->func_count; i++) {
-        if (strcmp(mod->funcs[i]->name, "f") == 0) { fn = mod->funcs[i]; break; }
+        if (strcmp(mod->funcs[i]->name, "f") == 0) fn = mod->funcs[i];
+        if (strcmp(mod->funcs[i]->name, "__iron_module_init") == 0) mod_init = mod->funcs[i];
     }
     TEST_ASSERT_NOT_NULL(fn);
-    /* Should have injected a STMT_LET for GLOBAL before the return */
-    TEST_ASSERT_TRUE(fn->body->stmt_count >= 2);
-    TEST_ASSERT_EQUAL_INT(IRON_HIR_STMT_LET, fn->body->stmts[0]->kind);
-    TEST_ASSERT_EQUAL_INT(IRON_HIR_STMT_RETURN, fn->body->stmts[1]->kind);
+    TEST_ASSERT_NOT_NULL(mod_init);
+
+    /* Body is just the return; its value is the global marker ident. */
+    TEST_ASSERT_TRUE(fn->body->stmt_count >= 1);
+    TEST_ASSERT_EQUAL_INT(IRON_HIR_STMT_RETURN, fn->body->stmts[0]->kind);
+    IronHIR_Expr *rv = fn->body->stmts[0]->return_stmt.value;
+    TEST_ASSERT_NOT_NULL(rv);
+    TEST_ASSERT_EQUAL_INT(IRON_HIR_EXPR_IDENT, rv->kind);
+    TEST_ASSERT_EQUAL_INT(IRON_HIR_VAR_INVALID, rv->ident.var_id);
+    TEST_ASSERT_NOT_NULL(rv->ident.name);
+    TEST_ASSERT_EQUAL_STRING("GLOBAL", rv->ident.name);
 
     iron_hir_module_destroy(mod);
 }

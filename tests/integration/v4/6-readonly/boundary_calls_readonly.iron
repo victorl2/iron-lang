@@ -1,6 +1,9 @@
 -- section: 6-readonly
 -- @req: READ-01, READ-03
--- @expected-pass-after: phase-22
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): top-level `readonly func` is deliberately parse-rejected (E0245, Phase 84
+-- MUTTIER: readonly is only valid on object-block methods); fixture authored against the older
+-- free-function readonly design.
 -- extends-spec: readonly may call another readonly (§6.1 allowed operations)
 
 object Rect {
@@ -17,7 +20,7 @@ readonly func double_area(r: *Rect) -> Int {
 }
 
 func main() {
-    val r = Rect(w: 4, h: 5)
+    val r = Rect(4, 5)
     val result = double_area(&r)
     println("double area: {result}")
 }

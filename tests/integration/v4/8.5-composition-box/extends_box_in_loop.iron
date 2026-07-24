@@ -1,6 +1,8 @@
 -- section 8.5 extends-spec: Box.unwrap inside 1000-iteration loop
 -- @req: UNCK-01, UNCK-03
--- @expected-pass-after: phase-25
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): E0264 (Counter has a var field but no init) + explicit-self method
+-- signatures (E0101) not in the v4 surface.
 -- extends-spec: Box.unwrap inside 1000-iteration loop probes elision benefit; accumulates sum
 
 object Counter {
@@ -11,7 +13,7 @@ nocopy object CounterBox {
     var data: Box[Counter]
 
     init(start: Int) {
-        self.data = Box.new(Counter(value: start))
+        self.data = Box.new(Counter(start))
     }
 
     func accumulate(self: *var CounterBox, n: Int) -> Int {
@@ -26,7 +28,7 @@ nocopy object CounterBox {
 }
 
 func main() {
-    var cb = CounterBox(start: 0)
+    var cb = CounterBox(0)
     val result = cb.accumulate(5)
     println("sum: {result}")
 }

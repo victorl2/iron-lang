@@ -526,6 +526,20 @@ void iron_diaglist_free(Iron_DiagList *list);
  * user-source lines (line >= user_source_start_line) trigger E0321. */
 #define IRON_ERR_STANDALONE_METHOD_FORM 321
 
+/* v4 unimplemented-construct rejections (typecheck.c). These turn two
+ * accepted-then-miscompiled constructs into clean type-check errors:
+ *
+ *   322: general type-test `x is <Type>` — HIR->LIR lowering only
+ *        implements the null-test form (`x is Null` / `x == null`);
+ *        every other type-test lowers to a POISON placeholder (E0400
+ *        ICE). Rejected at typecheck until runtime type tests exist.
+ *   323: `match` subject that is neither an integer-family type nor an
+ *        enum — lowering builds a C `switch`, so String subjects emit
+ *        invalid C and Bool subjects silently run the wrong arm.
+ *        Rejected at typecheck until general pattern dispatch exists. */
+#define IRON_ERR_UNSUPPORTED_TYPE_TEST    322
+#define IRON_ERR_MATCH_SUBJECT_UNSUPPORTED 323
+
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400
 #define IRON_ERR_LOWER_UNRESOLVED_IDENT    401
@@ -755,8 +769,9 @@ void iron_panic_stale_stack_pointer(const char *deref_file,
 
 /* Phase 28 GA1 (Plan 28-02): arena-stale-pointer panic helper.
  *
- * Same emission channels as iron_panic_stale_pointer (text + JSON); distinct
- * header substring ("stale arena pointer dereference") and JSON
+ * Same emission channels as iron_panic_stale_pointer (text + JSON); header
+ * substring "stale pointer dereference (arena)" (shares the corpus-wide
+ * "stale pointer dereference" @expect-panic prefix) and JSON
  * "panic":"arena_pointer". Fired by iron_check_arena_pointer_gen when a fat
  * pointer's generation snapshot no longer matches the owning arena's live
  * generation (reset()/restore() bumped it). IronArenaAllocHdr is forward-

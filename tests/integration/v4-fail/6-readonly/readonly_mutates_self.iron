@@ -4,7 +4,7 @@
 -- readonly methods may not modify self's fields
 object Player {
     var hp: Int
-    readonly func damage(self) {
+    readonly func damage() {
         self.hp = 0
     }
 }

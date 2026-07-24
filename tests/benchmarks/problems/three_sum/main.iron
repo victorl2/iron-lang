@@ -3,13 +3,15 @@ import time
 func insertion_sort(arr: [Int], n: Int) -> Int {
     var i = 1
     while i < n {
-        val key = arr[i]
+        -- in-bounds: 1 <= i < n <= arr.len() (caller contract)
+        val key = arr.get_unchecked(i)
         var j = i - 1
         var done = 0
         while j >= 0 {
             if done == 0 {
-                if arr[j] > key {
-                    arr[j + 1] = arr[j]
+                -- in-bounds: 0 <= j <= i - 1 and j + 1 <= i < n <= arr.len()
+                if arr.get_unchecked(j) > key {
+                    arr.set_unchecked(j + 1, arr.get_unchecked(j))
                     j = j - 1
                 } else {
                     done = 1
@@ -18,7 +20,8 @@ func insertion_sort(arr: [Int], n: Int) -> Int {
                 j = -1
             }
         }
-        arr[j + 1] = key
+        -- in-bounds: loop exit leaves j >= -1 and j < i, so 0 <= j + 1 <= i < n <= arr.len()
+        arr.set_unchecked(j + 1, key)
         i = i + 1
     }
     return 0
@@ -27,7 +30,8 @@ func insertion_sort(arr: [Int], n: Int) -> Int {
 func skip_dup_lo(arr: [Int], lo: Int, hi: Int, lv: Int) -> Int {
     var l = lo
     while l < hi {
-        if arr[l] == lv {
+        -- in-bounds: lo <= l < hi <= arr.len() - 1 (caller contract: hi is a valid index)
+        if arr.get_unchecked(l) == lv {
             l = l + 1
         } else {
             return l
@@ -39,7 +43,8 @@ func skip_dup_lo(arr: [Int], lo: Int, hi: Int, lv: Int) -> Int {
 func skip_dup_hi(arr: [Int], lo: Int, hi: Int, hv: Int) -> Int {
     var h = hi
     while h > lo {
-        if arr[h] == hv {
+        -- in-bounds: lo <= h <= hi <= arr.len() - 1 and lo >= 0 (caller contract: lo and hi are valid indices)
+        if arr.get_unchecked(h) == hv {
             h = h - 1
         } else {
             return h
@@ -51,7 +56,8 @@ func skip_dup_hi(arr: [Int], lo: Int, hi: Int, hv: Int) -> Int {
 func three_sum_count(orig: [Int], n: Int) -> Int {
     var arr = fill(n, 0)
     for i in range(n) {
-        arr[i] = orig[i]
+        -- in-bounds: range(n) gives 0 <= i < n = arr.len() and n <= orig.len() (caller contract)
+        arr.set_unchecked(i, orig.get_unchecked(i))
     }
     val dummy = insertion_sort(arr, n)
 
@@ -60,7 +66,8 @@ func three_sum_count(orig: [Int], n: Int) -> Int {
     while i < n - 2 {
         var do_work = 1
         if i > 0 {
-            if arr[i] == arr[i - 1] {
+            -- in-bounds: 1 <= i < n - 2, so i and i - 1 are below n = arr.len()
+            if arr.get_unchecked(i) == arr.get_unchecked(i - 1) {
                 do_work = 0
             }
         }
@@ -68,11 +75,12 @@ func three_sum_count(orig: [Int], n: Int) -> Int {
             var lo = i + 1
             var hi = n - 1
             while lo < hi {
-                val s = arr[i] + arr[lo] + arr[hi]
+                -- in-bounds: 0 <= i < lo < hi <= n - 1 < n = arr.len()
+                val s = arr.get_unchecked(i) + arr.get_unchecked(lo) + arr.get_unchecked(hi)
                 if s == 0 {
                     count = count + 1
-                    val lv = arr[lo]
-                    val hv = arr[hi]
+                    val lv = arr.get_unchecked(lo)
+                    val hv = arr.get_unchecked(hi)
                     lo = lo + 1
                     hi = hi - 1
                     lo = skip_dup_lo(arr, lo, hi, lv)

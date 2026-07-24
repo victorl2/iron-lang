@@ -8,22 +8,25 @@ func lcs(a: [Int], na: Int, b: [Int], nb: Int) -> Int {
     while i <= na {
         var j = 1
         while j <= nb {
-            if a[i - 1] == b[j - 1] {
-                dp[i * cols + j] = dp[(i - 1) * cols + (j - 1)] + 1
+            -- in-bounds: 1 <= i <= na = a.len(), 1 <= j <= nb = b.len() (caller contract)
+            if a.get_unchecked(i - 1) == b.get_unchecked(j - 1) {
+                -- in-bounds (all dp sites): i <= na = rows - 1, j <= nb = cols - 1, so (i - 1) * cols + (j - 1) < i * cols + j <= rows * cols - 1 < dp.len()
+                dp.set_unchecked(i * cols + j, dp.get_unchecked((i - 1) * cols + (j - 1)) + 1)
             } else {
-                val up = dp[(i - 1) * cols + j]
-                val left = dp[i * cols + (j - 1)]
+                val up = dp.get_unchecked((i - 1) * cols + j)
+                val left = dp.get_unchecked(i * cols + (j - 1))
                 if up > left {
-                    dp[i * cols + j] = up
+                    dp.set_unchecked(i * cols + j, up)
                 } else {
-                    dp[i * cols + j] = left
+                    dp.set_unchecked(i * cols + j, left)
                 }
             }
             j = j + 1
         }
         i = i + 1
     }
-    return dp[na * cols + nb]
+    -- in-bounds: na * cols + nb = rows * cols - 1 < dp.len()
+    return dp.get_unchecked(na * cols + nb)
 }
 
 func main() {

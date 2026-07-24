@@ -1,11 +1,11 @@
 # Installing from Source
 **Note: This document describes building Iron from source. This is not recommended if you don't know what you're doing.**
 
-**Tracks:** Iron v3.1.1-alpha and newer (main branch). Older v1.2.x source tarballs follow their own per-release INSTALL.md.
+**Tracks:** Iron v4.0.0-alpha and newer (main branch). Older v1.2.x source tarballs follow their own per-release INSTALL.md.
 
 Iron compiles to C and produces native binaries. You need a C compiler and CMake to build the Iron compiler itself. Programs compiled with Iron are standalone executables.
 
-After a successful build, `./build/iron --version` and `./build/ironc --version` will both print `3.1.1-alpha (<git-sha>, <utc-date>)`. If the version line does not start with `3.1.`, your checkout is out of date or on a stale branch — `git pull` and rebuild.
+After a successful build, `./build/iron --version` and `./build/ironc --version` will both print `4.0.0-alpha (<git-sha>, <utc-date>)`. If the version line does not start with `4.0`, your checkout is out of date or on a stale branch — `git pull` and rebuild.
 
 ## Requirements
 
@@ -14,6 +14,14 @@ After a successful build, `./build/iron --version` and `./build/ironc --version`
 | CMake | 3.25+ | Build system |
 | C compiler | C17 support | clang |
 | Ninja | any | Recommended (faster builds) |
+
+On Linux, building/running the raylib manual test suite additionally
+requires the X11/GL development headers:
+
+```bash
+sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev \
+  libxinerama-dev libxi-dev libgl1-mesa-dev libxkbcommon-dev
+```
 
 ## Quick Install
 
@@ -124,8 +132,8 @@ Quick start:
   ```bash
   cd editors/vscode
   npm install
-  npm run package      # produces iron-lsp-0.1.0.vsix
-  code --install-extension iron-lsp-0.1.0.vsix
+  npm run package      # produces iron-lsp-4.0.0-alpha.vsix
+  code --install-extension iron-lsp-4.0.0-alpha.vsix
   ```
 
 Minimum VSCode: 1.92+.
@@ -166,9 +174,10 @@ Quick start:
   ```
 
 Minimum Zed: **0.200+**. Linux support is best-effort in v1 per the
-caveat in `editors/zed/README.md` (Phase 7 HARD-21 adds macOS code
-signing + notarization; for now the binary download works on unsigned
-macOS with a Gatekeeper allow-override).
+caveat in `editors/zed/README.md`. macOS `ironls` release binaries are
+Developer-ID signed, notarized, and stapled by the release workflow
+(HARD-21), so the extension's binary download runs without any
+Gatekeeper override.
 
 ### Architecture + contributing
 

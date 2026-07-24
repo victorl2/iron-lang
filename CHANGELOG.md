@@ -3,6 +3,16 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## Unreleased
+
+- **Per-site unchecked indexing** — `xs.get_unchecked(i)` /
+  `xs.set_unchecked(i, v)` on lists, bounded vectors, and stack arrays skip
+  the bounds check at exactly that site (UB on OOB, like C; `--debug-build`
+  keeps the guard with a distinct "unchecked site" panic). Recovers C-parity
+  in hot loops the elision pass cannot prove; the five bounds-heavy
+  benchmarks (word_break, unique_paths, target_sum, topological_sort_kahn,
+  run_length_encoding) now meet their thresholds.
+
 ## Iron v4.0.0-alpha — Memory Model Overhaul (2026-07-17)
 
 ## Iron v4.0.0-alpha — Memory Model Overhaul

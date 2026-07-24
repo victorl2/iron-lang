@@ -5,28 +5,32 @@ func min_path_sum(grid: [Int], rows: Int, cols: Int) -> Int {
     dp[0] = grid[0]
     var j = 1
     while j < cols {
-        dp[j] = dp[j - 1] + grid[j]
+        -- in-bounds: 1 <= j < cols <= rows * cols = dp.len() = grid.len() (caller contract, rows >= 1)
+        dp.set_unchecked(j, dp.get_unchecked(j - 1) + grid.get_unchecked(j))
         j = j + 1
     }
     var i = 1
     while i < rows {
         val row = i * cols
         val prev_row = (i - 1) * cols
-        dp[row] = dp[prev_row] + grid[row]
+        -- in-bounds: 0 <= prev_row < row = i * cols <= (rows - 1) * cols < rows * cols = dp.len() = grid.len()
+        dp.set_unchecked(row, dp.get_unchecked(prev_row) + grid.get_unchecked(row))
         j = 1
         while j < cols {
-            val up = dp[prev_row + j]
-            val left = dp[row + (j - 1)]
+            -- in-bounds: i < rows, 1 <= j < cols, so prev_row + j < row + j <= (rows - 1) * cols + (cols - 1) < rows * cols
+            val up = dp.get_unchecked(prev_row + j)
+            val left = dp.get_unchecked(row + (j - 1))
             var mn = up
             if left < mn {
                 mn = left
             }
-            dp[row + j] = mn + grid[row + j]
+            dp.set_unchecked(row + j, mn + grid.get_unchecked(row + j))
             j = j + 1
         }
         i = i + 1
     }
-    return dp[(rows - 1) * cols + (cols - 1)]
+    -- in-bounds: (rows - 1) * cols + (cols - 1) = rows * cols - 1 < dp.len()
+    return dp.get_unchecked((rows - 1) * cols + (cols - 1))
 }
 
 func main() {

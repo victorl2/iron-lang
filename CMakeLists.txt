@@ -314,6 +314,38 @@ option(IRON_BUILD_LSP "Build ironls (Iron language server)" ON)
 # ── Tests ──────────────────────────────────────────────────────────────────
 enable_testing()
 
+# ── /tmp interpreter-hijack canary (2026-07 remediation) ────────────────────
+# ROOT CAUSE (reproduced + proven): ctest resolves a bare `add_test` COMMAND
+# name against the test's WORKING_DIRECTORY *before* falling back to PATH
+# (cmCTestTestHandler::FindTheExecutable checks the bare filename relative to
+# the cwd it has already chdir'd into and collapses it to an absolute path).
+# `ctest -V` on a repro row literally prints
+#     Test command: /tmp/sh "-c" ...
+# when any file named `sh` exists in /tmp. A stray compiled fixture binary
+# named /tmp/sh therefore silently replaced the shell for EVERY
+# `COMMAND sh -c` row with WORKING_DIRECTORY /tmp: each row "passed" in 0.00s
+# without running anything. Shell PATH lookup and execvp are NOT affected
+# (container PATH has no `.`/empty entry) — this is purely ctest's resolution.
+#
+# Structural fix: every add_test row now spells `/bin/sh` absolutely (swept
+# 2026-07). This canary row is the one DELIBERATE exception: it keeps a bare
+# `sh` with WORKING_DIRECTORY /tmp so it stays sensitive to the exact
+# mechanism. It passes only when the process that executes the script is a
+# real system shell (checked via /proc/$$/exe with a /bin | /usr/bin
+# allowlist, with a $0-based fallback for hosts without /proc, e.g. macOS)
+# AND `command -v sh` resolves to /bin/sh or /usr/bin/sh. If a stray /tmp/sh
+# exists, ctest execs it instead; the magic string is never printed and the
+# row FAILS loudly — this failure class can never be silent again.
+# PASS_REGULAR_EXPRESSION (not exit code) is the oracle so a hijacking binary
+# that exits 0 still fails the row.
+add_test(NAME test_sh_hijack_canary
+    COMMAND sh -c "p=$(readlink /proc/$$/exe 2>/dev/null || echo \"$0\"); case \"$p\" in /bin/*|/usr/bin/*|sh) ;; *) echo \"HIJACKED interpreter: $p\"; exit 1;; esac; r=$(command -v sh); case \"$r\" in /bin/sh|/usr/bin/sh) ;; *) echo \"HIJACKED PATH lookup: $r\"; exit 1;; esac; echo IRON_SH_CANARY_OK"
+    WORKING_DIRECTORY /tmp)
+set_tests_properties(test_sh_hijack_canary PROPERTIES
+    PASS_REGULAR_EXPRESSION "IRON_SH_CANARY_OK"
+    LABELS "unit;hijack-canary"
+    TIMEOUT 15)
+
 # `ironc build` shells out to clang to compile the C it emits, so every row below
 # that builds and runs a fixture needs a clang on PATH. Hosts that have one (CI,
 # dev machines) run those rows for real; the check-only container has none, so
@@ -344,7 +376,10 @@ endif()
 # fixture could be XFAIL in the aggregate and required here (or vice versa), and
 # a stale entry sat green while the fixture was broken. Now the fixture header is
 # the single source of truth, and deleting a marker updates both at once.
-set(IRON_CURRENT_PHASE "15" CACHE STRING "Phase baseline for @expected-pass-after XFAIL gating")
+# 2026-07 remediation: bumped 15 → 37. Everything shipped through phase 37 now
+# genuinely passes; fixtures resting on missing surfaces carry phase-38 markers
+# naming the gap (see docs/dev/REMEDIATION-PLAN-2026-07.md).
+set(IRON_CURRENT_PHASE "37" CACHE STRING "Phase baseline for @expected-pass-after XFAIL gating")
 function(iron_fixture_xfail out_var fixture_path)
     set(${out_var} NO PARENT_SCOPE)
     if(NOT EXISTS "${fixture_path}")
@@ -368,6 +403,7 @@ add_subdirectory(tests/lsp)                 # Phase 1 Plan 05: parity harness
 add_subdirectory(tests/integration)
 add_subdirectory(tests/integration/v4)
 add_subdirectory(tests/integration/v4-fail)
+add_subdirectory(tests/compile_fail)
 add_subdirectory(tests/algorithms)
 add_subdirectory(tests/composite)
 add_subdirectory(tests/manual)
@@ -878,7 +914,7 @@ set_tests_properties(test_ironc_usage_lists_release PROPERTIES
 if(NOT WIN32)
     add_test(
         NAME test_ironc_target_unknown
-        COMMAND sh -c "echo 'func main() {}' > /tmp/iron_test_target_unk.iron && OUT=$($<TARGET_FILE:ironc> build --target=bogus /tmp/iron_test_target_unk.iron 2>&1); RC=$?; if [ $RC -eq 0 ]; then echo 'FAIL: ironc should have exited non-zero'; exit 1; fi; echo \"$OUT\" | grep -q 'valid targets: web, native' || { echo 'FAIL: error message missing expected substring:'; echo \"$OUT\"; exit 1; }; echo OK; exit 0"
+        COMMAND /bin/sh -c "echo 'func main() {}' > /tmp/iron_test_target_unk.iron && OUT=$($<TARGET_FILE:ironc> build --target=bogus /tmp/iron_test_target_unk.iron 2>&1); RC=$?; if [ $RC -eq 0 ]; then echo 'FAIL: ironc should have exited non-zero'; exit 1; fi; echo \"$OUT\" | grep -q 'valid targets: web, native' || { echo 'FAIL: error message missing expected substring:'; echo \"$OUT\"; exit 1; }; echo OK; exit 0"
     )
 
     add_test(
@@ -886,7 +922,7 @@ if(NOT WIN32)
         # Runs ironc build --target=web on a trivial fixture.
         # Accepts either outcome: emcc found (banner on stdout) or emcc absent (install one-liner on stderr).
         # Both prove dispatch reached build_web.c — neither is a parse error.
-        COMMAND sh -c "echo 'func main() {}' > /tmp/iron_test_target_web.iron && $<TARGET_FILE:ironc> build --target=web /tmp/iron_test_target_web.iron 2>&1 | grep -qE 'using emcc|emcc not found in PATH'"
+        COMMAND /bin/sh -c "echo 'func main() {}' > /tmp/iron_test_target_web.iron && $<TARGET_FILE:ironc> build --target=web /tmp/iron_test_target_web.iron 2>&1 | grep -qE 'using emcc|emcc not found in PATH'"
     )
 endif()
 
@@ -896,7 +932,7 @@ endif()
 
 add_test(
     NAME test_emsdk_pin_discipline
-    COMMAND sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/cli/build_web.c\""
+    COMMAND /bin/sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/cli/build_web.c\""
 )
 set_tests_properties(test_emsdk_pin_discipline PROPERTIES
     LABELS "phase2-invariant"
@@ -904,7 +940,7 @@ set_tests_properties(test_emsdk_pin_discipline PROPERTIES
 
 add_test(
     NAME test_emsdk_pin_discipline_headers
-    COMMAND sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/cli/build_web.h\" \"${CMAKE_SOURCE_DIR}/src/cli/web_config.h\""
+    COMMAND /bin/sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/cli/build_web.h\" \"${CMAKE_SOURCE_DIR}/src/cli/web_config.h\""
 )
 set_tests_properties(test_emsdk_pin_discipline_headers PROPERTIES
     LABELS "phase2-invariant"
@@ -919,7 +955,7 @@ set_tests_properties(test_emsdk_pin_discipline_headers PROPERTIES
 # currently absent from all three files.
 add_test(
     NAME test_runtime_files_portability_grep
-    COMMAND sh -c "! grep -E 'sysconf|pthread_attr|sigaction|sys/wait\\.h|sys/resource\\.h' \"${CMAKE_SOURCE_DIR}/src/runtime/iron_rc.c\" \"${CMAKE_SOURCE_DIR}/src/runtime/iron_builtins.c\" \"${CMAKE_SOURCE_DIR}/src/runtime/iron_collections.c\""
+    COMMAND /bin/sh -c "! grep -E 'sysconf|pthread_attr|sigaction|sys/wait\\.h|sys/resource\\.h' \"${CMAKE_SOURCE_DIR}/src/runtime/iron_rc.c\" \"${CMAKE_SOURCE_DIR}/src/runtime/iron_builtins.c\" \"${CMAKE_SOURCE_DIR}/src/runtime/iron_collections.c\""
 )
 set_tests_properties(test_runtime_files_portability_grep PROPERTIES
     LABELS "unit;web-portability"
@@ -935,7 +971,7 @@ set_tests_properties(test_runtime_files_portability_grep PROPERTIES
 # gate alongside the Phase 3 runtime-files portability grep.
 add_test(
     NAME test_iron_time_web_symbols
-    COMMAND sh -c "\
+    COMMAND /bin/sh -c "\
 set -e; \
 F=\"${CMAKE_SOURCE_DIR}/src/stdlib/iron_time_web.c\"; \
 test -f \"$F\" || { echo 'FAIL: iron_time_web.c missing'; exit 1; }; \
@@ -954,7 +990,7 @@ set_tests_properties(test_iron_time_web_symbols PROPERTIES
 # in a source file. Same inverted-grep pattern as test_emsdk_pin_discipline.
 add_test(
     NAME test_emsdk_pin_discipline_iron_time_web
-    COMMAND sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/stdlib/iron_time_web.c\""
+    COMMAND /bin/sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/stdlib/iron_time_web.c\""
 )
 set_tests_properties(test_emsdk_pin_discipline_iron_time_web PROPERTIES
     LABELS "phase4-invariant"
@@ -985,7 +1021,7 @@ if(NOT WIN32)
     # Phase 7 pin discipline: new fixture + test files must not hardcode 4.0.23
     add_test(
         NAME test_emsdk_pin_discipline_phase7
-        COMMAND sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/tests/integration/web/hello.iron\" \"${CMAKE_SOURCE_DIR}/tests/integration/web/test_cli_parse.c\""
+        COMMAND /bin/sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/tests/integration/web/hello.iron\" \"${CMAKE_SOURCE_DIR}/tests/integration/web/test_cli_parse.c\""
     )
     set_tests_properties(test_emsdk_pin_discipline_phase7 PROPERTIES
         LABELS "phase7-invariant"
@@ -1037,7 +1073,7 @@ if(NOT WIN32)
     # iron build in package mode
     add_test(
         NAME test_iron_build_package
-        COMMAND sh -c "rm -rf /tmp/iron_test_build && mkdir -p /tmp/iron_test_build && cd /tmp/iron_test_build && $<TARGET_FILE:iron> init && $<TARGET_FILE:iron> build && test -f target/iron_test_build"
+        COMMAND /bin/sh -c "rm -rf /tmp/iron_test_build && mkdir -p /tmp/iron_test_build && cd /tmp/iron_test_build && $<TARGET_FILE:iron> init && $<TARGET_FILE:iron> build && test -f target/iron_test_build"
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_iron_build_package PROPERTIES
@@ -1047,7 +1083,7 @@ if(NOT WIN32)
     # iron run in package mode
     add_test(
         NAME test_iron_run_package
-        COMMAND sh -c "rm -rf /tmp/iron_test_run && mkdir -p /tmp/iron_test_run && cd /tmp/iron_test_run && $<TARGET_FILE:iron> init && $<TARGET_FILE:iron> run"
+        COMMAND /bin/sh -c "rm -rf /tmp/iron_test_run && mkdir -p /tmp/iron_test_run && cd /tmp/iron_test_run && $<TARGET_FILE:iron> init && $<TARGET_FILE:iron> run"
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_iron_run_package PROPERTIES
@@ -1058,7 +1094,7 @@ if(NOT WIN32)
     # iron check in package mode
     add_test(
         NAME test_iron_check_package
-        COMMAND sh -c "rm -rf /tmp/iron_test_check && mkdir -p /tmp/iron_test_check && cd /tmp/iron_test_check && $<TARGET_FILE:iron> init && $<TARGET_FILE:iron> check"
+        COMMAND /bin/sh -c "rm -rf /tmp/iron_test_check && mkdir -p /tmp/iron_test_check && cd /tmp/iron_test_check && $<TARGET_FILE:iron> init && $<TARGET_FILE:iron> check"
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_iron_check_package PROPERTIES
@@ -1068,7 +1104,7 @@ if(NOT WIN32)
     # Regression: iron build still works for projects with no dependencies
     add_test(
         NAME test_iron_build_no_deps_still_works
-        COMMAND sh -c "set -e && rm -rf /tmp/iron_test_nodeps && mkdir -p /tmp/iron_test_nodeps && cd /tmp/iron_test_nodeps && $<TARGET_FILE:iron> init && $<TARGET_FILE:iron> build && test -f target/iron_test_nodeps && ./target/iron_test_nodeps | grep -q Hello"
+        COMMAND /bin/sh -c "set -e && rm -rf /tmp/iron_test_nodeps && mkdir -p /tmp/iron_test_nodeps && cd /tmp/iron_test_nodeps && $<TARGET_FILE:iron> init && $<TARGET_FILE:iron> build && test -f target/iron_test_nodeps && ./target/iron_test_nodeps | grep -q Hello"
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_iron_build_no_deps_still_works PROPERTIES
@@ -1078,7 +1114,7 @@ if(NOT WIN32)
     # Test: iron build creates NO iron.lock when project has no deps
     add_test(
         NAME test_iron_dep_lockfile
-        COMMAND sh -c "set -e && rm -rf /tmp/iron_test_dep && mkdir -p /tmp/iron_test_dep/src && printf '[package]\nname = \"test-dep-project\"\nversion = \"0.1.0\"\n\n[dependencies]\n' > /tmp/iron_test_dep/iron.toml && printf 'func main() {\n    println(\"hello deps\")\n}\n' > /tmp/iron_test_dep/src/main.iron && cd /tmp/iron_test_dep && $<TARGET_FILE:iron> build && test -f target/test-dep-project && test ! -f iron.lock"
+        COMMAND /bin/sh -c "set -e && rm -rf /tmp/iron_test_dep && mkdir -p /tmp/iron_test_dep/src && printf '[package]\nname = \"test-dep-project\"\nversion = \"0.1.0\"\n\n[dependencies]\n' > /tmp/iron_test_dep/iron.toml && printf 'func main() {\n    println(\"hello deps\")\n}\n' > /tmp/iron_test_dep/src/main.iron && cd /tmp/iron_test_dep && $<TARGET_FILE:iron> build && test -f target/test-dep-project && test ! -f iron.lock"
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_iron_dep_lockfile PROPERTIES
@@ -1086,13 +1122,50 @@ if(NOT WIN32)
     )
 endif()
 
-# ── Benchmark smoke test ───────────────────────────────────────────────────
+# ── Benchmark rows (2026-07 realism split) ─────────────────────────────────
+# The old benchmark_smoke ran the FULL 139-problem corpus (~22 min serial,
+# measured 21m45s; serially re-confirmed on a quiet container 2026-07-18)
+# under TIMEOUT 300 — a structurally guaranteed Timeout that told nobody
+# anything. Split:
+#
+#   benchmark_smoke — 8 representative problems via the script's
+#     IRON_BENCH_PROBLEMS subset mode (raw array loop, tree recursion, 2D DP,
+#     string scan, array-mutation sort, closure dispatch, one parallel_
+#     spawn benchmark, and word_break). word_break is included DELIBERATELY:
+#     it is the flagship emit-level bounds-check threshold miss (5.4x vs
+#     1.6x), so this row stays honestly RED until the check-elision work
+#     lands, then flips green. Thresholds are untouched (owner decision).
+#     Measured 31s on a loaded container; TIMEOUT 120 is ~4x that.
+#
+#   benchmark_full — the whole corpus with a realistic TIMEOUT (2700s ~= 2x
+#     the 22-min measure). ctest treats every non-disabled row as default
+#     work, so this row is DISABLED unless configured with
+#     -DIRON_BENCH_FULL_ROW=ON. To run it:
+#         cmake -DIRON_BENCH_FULL_ROW=ON <src> && ctest -R benchmark_full
+#     or invoke the script directly (no ctest involved):
+#         IRONC_BINARY=<build>/ironc tests/benchmarks/run_benchmarks.sh
+option(IRON_BENCH_FULL_ROW "Enable the full-corpus benchmark_full ctest row" OFF)
 add_test(NAME benchmark_smoke
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmarks/run_benchmarks.sh
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 set_tests_properties(benchmark_smoke PROPERTIES
-    TIMEOUT 300
-    LABELS "benchmark")
+    TIMEOUT 120
+    LABELS "benchmark"
+    ENVIRONMENT "IRONC_BINARY=$<TARGET_FILE:ironc>;IRON_BENCH_PROBLEMS=int32_array_sum,binary_tree_inorder,longest_common_subseq,kmp_pattern_match,heap_sort,closure_call_overhead,concurrency_parallel_sum,word_break")
+
+if(IRON_BENCH_FULL_ROW)
+    set(_bench_full_disabled NO)
+else()
+    set(_bench_full_disabled YES)
+endif()
+add_test(NAME benchmark_full
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmarks/run_benchmarks.sh
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(benchmark_full PROPERTIES
+    TIMEOUT 2700
+    LABELS "benchmark;benchmark-full"
+    DISABLED ${_bench_full_disabled}
+    ENVIRONMENT "IRONC_BINARY=$<TARGET_FILE:ironc>")
 
 # Phase 5 Plan 05-02 (D-10) -- test_fmt_single_call_site grep-invariant.
 #
@@ -1109,7 +1182,7 @@ if(IRON_BUILD_LSP)
     # `wc -l` on macOS (leading whitespace).
     add_test(
         NAME test_fmt_single_call_site
-        COMMAND sh -c "count=$(grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/ 2>/dev/null | wc -l | tr -d ' '); if [ \"$count\" -ne 1 ]; then echo \"CORE-22 ANALOG VIOLATED: expected 1 iron_format_source( call site under src/lsp/, found $count\"; grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/; exit 1; fi; exit 0"
+        COMMAND /bin/sh -c "count=$(grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/ 2>/dev/null | wc -l | tr -d ' '); if [ \"$count\" -ne 1 ]; then echo \"CORE-22 ANALOG VIOLATED: expected 1 iron_format_source( call site under src/lsp/, found $count\"; grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/; exit 1; fi; exit 0"
     )
     set_tests_properties(test_fmt_single_call_site PROPERTIES
         LABELS "invariant;phase-m4-invariant")
@@ -1167,14 +1240,14 @@ set_tests_properties(test_fmt_idempotent PROPERTIES
 if(NOT WIN32)
     add_test(
         NAME v4_fail_4.5_strict_mismatch
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.5-bounded-vector/strict_mismatch.iron 2>&1 | grep -qF E0282"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.5-bounded-vector/strict_mismatch.iron 2>&1 | grep -qF E0282"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.5_strict_mismatch PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
 
     add_test(
         NAME v4_fail_4.5_bounded_to_fixed
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.5-bounded-vector/bounded_to_fixed.iron 2>&1 | grep -qF E0283"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.5-bounded-vector/bounded_to_fixed.iron 2>&1 | grep -qF E0283"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.5_bounded_to_fixed PROPERTIES LABELS "integration;phase23-invariant" TIMEOUT 30)
@@ -1253,28 +1326,28 @@ endif()
 if(NOT WIN32)
     add_test(
         NAME v4_fail_4.6_drop_duplicate
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/drop_duplicate.iron 2>&1 | grep -qF E0284"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/drop_duplicate.iron 2>&1 | grep -qF E0284"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.6_drop_duplicate PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
 
     add_test(
         NAME v4_fail_4.6_copy_duplicate
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/copy_duplicate.iron 2>&1 | grep -qF E0285"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/copy_duplicate.iron 2>&1 | grep -qF E0285"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.6_copy_duplicate PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
 
     add_test(
         NAME v4_fail_4.6_drop_readonly
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/drop_readonly.iron 2>&1 | grep -qF E0287"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/drop_readonly.iron 2>&1 | grep -qF E0287"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.6_drop_readonly PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
 
     add_test(
         NAME v4_fail_4.6_drop_early_return
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/drop_early_return.iron 2>&1 | grep -qF E0288"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.6-drop-copy-nocopy/drop_early_return.iron 2>&1 | grep -qF E0288"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.6_drop_early_return PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
@@ -1284,35 +1357,35 @@ if(NOT WIN32)
     # NOTE: shell vars use \$ escaping so CMake does not expand them at configure time.
     add_test(
         NAME v4_7_drop_happy
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/happy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/happy.iron && actual=\$(\"\$d/happy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/happy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/happy.iron && actual=\$(\"\$d/happy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_7_drop_happy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
 
     add_test(
         NAME v4_7_boundary_drop_chain
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_drop_chain\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.iron && actual=\$(\"\$d/boundary_drop_chain\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_drop_chain\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.iron && actual=\$(\"\$d/boundary_drop_chain\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_drop_chain.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_7_boundary_drop_chain PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
 
     add_test(
         NAME v4_7_boundary_copy_hook
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_copy_hook\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_copy_hook.iron && actual=\$(\"\$d/boundary_copy_hook\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_copy_hook.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_copy_hook\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_copy_hook.iron && actual=\$(\"\$d/boundary_copy_hook\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_copy_hook.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_7_boundary_copy_hook PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
 
     add_test(
         NAME v4_7_boundary_nocopy
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_nocopy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_nocopy.iron && actual=\$(\"\$d/boundary_nocopy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_nocopy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_nocopy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_nocopy.iron && actual=\$(\"\$d/boundary_nocopy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_nocopy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_7_boundary_nocopy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
 
     add_test(
         NAME v4_3.2_boundary_destructor_runs
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_destructor_runs\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.2-heap/boundary_destructor_runs.iron && actual=\$(\"\$d/boundary_destructor_runs\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.2-heap/boundary_destructor_runs.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_destructor_runs\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.2-heap/boundary_destructor_runs.iron && actual=\$(\"\$d/boundary_destructor_runs\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.2-heap/boundary_destructor_runs.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_3.2_boundary_destructor_runs PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
@@ -1320,7 +1393,7 @@ if(NOT WIN32)
     # Phase 24 Plan 24-02: v4-fail/7-drop-copy/copy_nocopy.iron (E0286 nocopy assignment) — flips GREEN here.
     add_test(
         NAME v4_fail_7_copy_nocopy
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7-drop-copy/copy_nocopy.iron 2>&1 | grep -qF E0286"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7-drop-copy/copy_nocopy.iron 2>&1 | grep -qF E0286"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_7_copy_nocopy PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
@@ -1336,7 +1409,7 @@ if(NOT WIN32)
     # Binary panics inside drop block → iron_in_destructor guard fires → stderr "destructor panicked".
     add_test(
         NAME v4_7_panic_destructor_panic
-        COMMAND sh -c "d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/panic_destructor_panic\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/panic_destructor_panic.iron && \"\$d/panic_destructor_panic\" 2>&1; rc=\$? ; rm -rf \"\$d\" ; [ \$rc -ne 0 ]"
+        COMMAND /bin/sh -c "d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/panic_destructor_panic\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/panic_destructor_panic.iron && \"\$d/panic_destructor_panic\" 2>&1; rc=\$? ; rm -rf \"\$d\" ; [ \$rc -ne 0 ]"
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_7_panic_destructor_panic PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
@@ -1345,7 +1418,7 @@ if(NOT WIN32)
     # drop in declaration order at scope exit. Full panic-mid-init path deferred.
     add_test(
         NAME v4_7_boundary_partial_init_cleanup
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_partial_init_cleanup\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.iron && actual=\$(\"\$d/boundary_partial_init_cleanup\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/boundary_partial_init_cleanup\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.iron && actual=\$(\"\$d/boundary_partial_init_cleanup\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7-drop-copy/boundary_partial_init_cleanup.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_7_boundary_partial_init_cleanup PROPERTIES LABELS "integration;phase24-invariant" TIMEOUT 30)
@@ -1359,21 +1432,21 @@ endif()
 if(NOT WIN32)
     add_test(
         NAME v4_fail_4.3-unchecked-ptr_cross_regime_assign
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/cross_regime_assign.iron 2>&1 | grep -qF E0289"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/cross_regime_assign.iron 2>&1 | grep -qF E0289"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.3-unchecked-ptr_cross_regime_assign PROPERTIES LABELS "integration;phase25-invariant" TIMEOUT 30)
 
     add_test(
         NAME v4_fail_4.3-unchecked-ptr_amp_produces_unchecked
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/amp_produces_unchecked.iron 2>&1 | grep -qF E0294"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/amp_produces_unchecked.iron 2>&1 | grep -qF E0294"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.3-unchecked-ptr_amp_produces_unchecked PROPERTIES LABELS "integration;phase25-invariant" TIMEOUT 30)
 
     add_test(
         NAME v4_fail_4.3-unchecked-ptr_unchecked_param_auto_addr
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/unchecked_param_auto_addr.iron 2>&1 | grep -qF '*unchecked Point'"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/unchecked_param_auto_addr.iron 2>&1 | grep -qF '*unchecked Point'"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.3-unchecked-ptr_unchecked_param_auto_addr PROPERTIES LABELS "integration;phase25-invariant" TIMEOUT 30)
@@ -1382,7 +1455,7 @@ if(NOT WIN32)
     # The test is registered but expected to fail until Plan 25-02 atomic commit.
     add_test(
         NAME v4_fail_4.3-unchecked-ptr_ptr_arith_checked
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/ptr_arith_checked.iron 2>&1 | grep -qF E0295"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.3-unchecked-ptr/ptr_arith_checked.iron 2>&1 | grep -qF E0295"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.3-unchecked-ptr_ptr_arith_checked PROPERTIES LABELS "integration;phase25-invariant" TIMEOUT 30)
@@ -1492,7 +1565,7 @@ endif()
 if(NOT WIN32)
     add_test(
         NAME v4_fail_4.8-rc-policy_rc_in_type_annotation
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/rc_in_type_annotation.iron 2>&1 | grep -qF E0297"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/rc_in_type_annotation.iron 2>&1 | grep -qF E0297"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.8-rc-policy_rc_in_type_annotation PROPERTIES
@@ -1500,7 +1573,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_fail_4.8-rc-policy_rc_in_binding
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/rc_in_binding.iron 2>&1 | grep -qF E0297"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/rc_in_binding.iron 2>&1 | grep -qF E0297"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.8-rc-policy_rc_in_binding PROPERTIES
@@ -1508,7 +1581,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_fail_4.8-rc-policy_rc_in_parameter
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/rc_in_parameter.iron 2>&1 | grep -qF E0297"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/rc_in_parameter.iron 2>&1 | grep -qF E0297"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.8-rc-policy_rc_in_parameter PROPERTIES
@@ -1516,7 +1589,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_fail_4.8-rc-policy_nullable_rc
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/nullable_rc.iron 2>&1 | grep -qF 'weak rc T?'"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/nullable_rc.iron 2>&1 | grep -qF 'weak rc T?'"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.8-rc-policy_nullable_rc PROPERTIES
@@ -1524,7 +1597,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_fail_4.8-rc-policy_pool_keyword
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/pool_keyword.iron 2>&1 | grep -qF '{stack, heap, rc, weak rc}'"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/pool_keyword.iron 2>&1 | grep -qF '{stack, heap, rc, weak rc}'"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.8-rc-policy_pool_keyword PROPERTIES
@@ -1532,7 +1605,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_fail_4.8-rc-policy_arena_keyword
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/arena_keyword.iron 2>&1 | grep -qF E0298"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/arena_keyword.iron 2>&1 | grep -qF E0298"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.8-rc-policy_arena_keyword PROPERTIES
@@ -1540,7 +1613,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_fail_4.8-rc-policy_address_of_rc
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/address_of_rc.iron 2>&1 | grep -qF E0296"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/address_of_rc.iron 2>&1 | grep -qF E0296"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.8-rc-policy_address_of_rc PROPERTIES
@@ -1551,7 +1624,7 @@ if(NOT WIN32)
     # IRON_NODE_HEAP arm). The fixture now expects E0279 on stderr.
     add_test(
         NAME v4_fail_4.8-rc-policy_readonly_rc_escape
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/readonly_rc_escape.iron 2>&1 | grep -qF E0279"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.8-rc-policy/readonly_rc_escape.iron 2>&1 | grep -qF E0279"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.8-rc-policy_readonly_rc_escape PROPERTIES
@@ -1582,7 +1655,7 @@ if(NOT WIN32)
     foreach(_fix IN LISTS _PHASE_26_POS_FIXTURES)
         add_test(
             NAME v4_4.8-rc-policy_${_fix}
-            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.8-rc-policy/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.8-rc-policy/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.8-rc-policy/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.8-rc-policy/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
             WORKING_DIRECTORY /tmp
         )
         iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.8-rc-policy/${_fix}.iron")
@@ -1606,7 +1679,7 @@ endif()
 if(NOT WIN32)
     add_test(
         NAME v4_fail_4.9-weak-rc-policy_deref_weak_rc
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/deref_weak_rc.iron 2>&1 | grep -qF E0299"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/deref_weak_rc.iron 2>&1 | grep -qF E0299"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.9-weak-rc-policy_deref_weak_rc PROPERTIES
@@ -1614,7 +1687,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_fail_4.9-weak-rc-policy_deref_weak_rc_method
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/deref_weak_rc_method.iron 2>&1 | grep -qF E0299"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/deref_weak_rc_method.iron 2>&1 | grep -qF E0299"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.9-weak-rc-policy_deref_weak_rc_method PROPERTIES
@@ -1622,7 +1695,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_fail_4.9-weak-rc-policy_downgrade_not_rc
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/downgrade_not_rc.iron 2>&1 | grep -qF E0300"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/downgrade_not_rc.iron 2>&1 | grep -qF E0300"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.9-weak-rc-policy_downgrade_not_rc PROPERTIES
@@ -1630,7 +1703,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_fail_4.9-weak-rc-policy_downgrade_not_rc_primitive
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/downgrade_not_rc_primitive.iron 2>&1 | grep -qF E0300"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/downgrade_not_rc_primitive.iron 2>&1 | grep -qF E0300"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.9-weak-rc-policy_downgrade_not_rc_primitive PROPERTIES
@@ -1642,7 +1715,7 @@ if(NOT WIN32)
     # `address of rc` matched the Phase 26 message too).
     add_test(
         NAME v4_fail_4.9-weak-rc-policy_amp_on_weak_rc
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/amp_on_weak_rc.iron 2>&1 | grep -qF 'rc/weak rc'"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/amp_on_weak_rc.iron 2>&1 | grep -qF 'rc/weak rc'"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.9-weak-rc-policy_amp_on_weak_rc PROPERTIES
@@ -1652,7 +1725,7 @@ if(NOT WIN32)
     # must NOT allocate a new diagnostic code (CONTEXT.md GA4 lock).
     add_test(
         NAME v4_fail_4.9-weak-rc-policy_type_mismatch_weak_to_strong
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/type_mismatch_weak_to_strong.iron 2>&1 | grep -qF E0217"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/4.9-weak-rc-policy/type_mismatch_weak_to_strong.iron 2>&1 | grep -qF E0217"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_4.9-weak-rc-policy_type_mismatch_weak_to_strong PROPERTIES
@@ -1688,7 +1761,7 @@ if(NOT WIN32)
     foreach(_fix IN LISTS _PHASE_27_POS_FIXTURES)
         add_test(
             NAME v4_4.9-weak-rc-policy_${_fix}
-            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
             WORKING_DIRECTORY /tmp
         )
         iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.9-weak-rc-policy/${_fix}.iron")
@@ -1715,7 +1788,7 @@ endif()
 if(NOT WIN32)
     add_test(
         NAME v4_4.12-debug-leak_forgotten_free
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/forgotten_free.iron 2>&1 | grep -qF W0606"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/forgotten_free.iron 2>&1 | grep -qF W0606"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_4.12-debug-leak_forgotten_free PROPERTIES
@@ -1723,7 +1796,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_4.12-debug-leak_leak_suppresses
-        COMMAND sh -c "! ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/leak_suppresses.iron 2>&1 | grep -qF W0606"
+        COMMAND /bin/sh -c "! ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/leak_suppresses.iron 2>&1 | grep -qF W0606"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_4.12-debug-leak_leak_suppresses PROPERTIES
@@ -1731,7 +1804,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_4.12-debug-leak_defer_free_satisfies
-        COMMAND sh -c "! ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/defer_free_satisfies.iron 2>&1 | grep -qF W0606"
+        COMMAND /bin/sh -c "! ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/defer_free_satisfies.iron 2>&1 | grep -qF W0606"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_4.12-debug-leak_defer_free_satisfies PROPERTIES
@@ -1739,7 +1812,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_4.12-debug-leak_unreachable_free
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/unreachable_free.iron 2>&1 | grep -qF W0607"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.12-debug-leak/unreachable_free.iron 2>&1 | grep -qF W0607"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_4.12-debug-leak_unreachable_free PROPERTIES
@@ -1778,7 +1851,7 @@ if(NOT WIN32)
     # ── CHECK-ONLY POSITIVE accept rows (RED now; GREEN after 32-02) ──
     add_test(
         NAME v4_4.13-defer_general_accept
-        COMMAND sh -c "! ( ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_general.iron 2>&1 | grep -qF E0276 )"
+        COMMAND /bin/sh -c "! ( ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_general.iron 2>&1 | grep -qF E0276 )"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_4.13-defer_general_accept PROPERTIES
@@ -1786,7 +1859,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_4.13-defer_block_accept
-        COMMAND sh -c "! ( ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_block.iron 2>&1 | grep -qF E0276 )"
+        COMMAND /bin/sh -c "! ( ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_block.iron 2>&1 | grep -qF E0276 )"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_4.13-defer_block_accept PROPERTIES
@@ -1801,7 +1874,7 @@ if(NOT WIN32)
     # keywords, so it is replaced by defer_loop_iteration.
     add_test(
         NAME v4_4.13-defer_then_drop
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_then_drop.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_then_drop.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_then_drop.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_then_drop.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_4.13-defer_then_drop PROPERTIES
@@ -1809,7 +1882,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_4.13-defer_early_return
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_early_return.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_early_return.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_early_return.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_early_return.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_4.13-defer_early_return PROPERTIES
@@ -1817,7 +1890,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_4.13-defer_loop_iteration
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_loop_iteration.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_loop_iteration.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_loop_iteration.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_loop_iteration.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_4.13-defer_loop_iteration PROPERTIES
@@ -1825,7 +1898,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_4.13-defer_read_at_exit
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_read_at_exit.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_read_at_exit.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_read_at_exit.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.13-defer/defer_read_at_exit.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_4.13-defer_read_at_exit PROPERTIES
@@ -1856,7 +1929,7 @@ if(NOT WIN32)
     # ARENA-08 rc-in-arena (baseline fixture, pre-existing) → E0301.
     add_test(
         NAME v4_fail_3.7-arena_rc_in_arena
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/rc_in_arena.iron 2>&1 | grep -qF E0301"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/rc_in_arena.iron 2>&1 | grep -qF E0301"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_3.7-arena_rc_in_arena PROPERTIES
@@ -1865,7 +1938,7 @@ if(NOT WIN32)
     # GA3 weak-rc-in-arena extension (Wave 0 fixture) → SAME E0301 code.
     add_test(
         NAME v4_fail_3.7-arena_weak_rc_in_arena
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/weak_rc_in_arena.iron 2>&1 | grep -qF E0301"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/weak_rc_in_arena.iron 2>&1 | grep -qF E0301"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_3.7-arena_weak_rc_in_arena PROPERTIES
@@ -1874,7 +1947,7 @@ if(NOT WIN32)
     # ARENA-09 non-trivial-destructor warning (Wave 0 fixture) → W06xx (W0605).
     add_test(
         NAME v4_fail_3.7-arena_arena_nontrivial_dtor
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_nontrivial_dtor.iron 2>&1 | grep -qE 'W06[0-9][0-9]'"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_nontrivial_dtor.iron 2>&1 | grep -qE 'W06[0-9][0-9]'"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_3.7-arena_arena_nontrivial_dtor PROPERTIES
@@ -1884,7 +1957,7 @@ if(NOT WIN32)
     # ARENA-09 allow_drop_skip suppression: exits 0 AND emits no W06xx warning.
     add_test(
         NAME v4_3.7-arena_arena_allow_drop_skip
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/arena_allow_drop_skip.iron 2>&1 | (! grep -qE 'W06[0-9][0-9]')"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/arena_allow_drop_skip.iron 2>&1 | (! grep -qE 'W06[0-9][0-9]')"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_3.7-arena_arena_allow_drop_skip PROPERTIES
@@ -1897,7 +1970,7 @@ if(NOT WIN32)
     # phase28-invariant label for ctest -L enumeration + drift auditing.
     add_test(
         NAME v4_3.7-arena_happy
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/happy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/happy.iron && actual=\$(\"\$d/happy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/happy\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/happy.iron && actual=\$(\"\$d/happy\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
 
@@ -1908,7 +1981,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_3.7-arena_boundary_with_capacity
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_with_capacity.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_with_capacity.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_with_capacity.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_with_capacity.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
 
@@ -1919,7 +1992,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_3.7-arena_boundary_in_arena_block
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_in_arena_block.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_in_arena_block.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_in_arena_block.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_in_arena_block.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
 
@@ -1930,7 +2003,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_3.7-arena_boundary_save_restore
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_save_restore.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_save_restore.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_save_restore.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_save_restore.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
 
@@ -1941,7 +2014,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_3.7-arena_boundary_alloc_reset
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_alloc_reset.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_alloc_reset.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_alloc_reset.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/boundary_alloc_reset.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
 
@@ -1953,7 +2026,7 @@ if(NOT WIN32)
     # ARENA-11 innermost-wins (Wave 0 fixture) — build + run.
     add_test(
         NAME v4_3.7-arena_nested_in_arena
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/nested_in_arena.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/nested_in_arena.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/nested_in_arena.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/nested_in_arena.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
 
@@ -1964,7 +2037,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_8.6-composition-arena_happy
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/happy.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/happy.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/happy.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
 
@@ -1975,7 +2048,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_8.6-composition-arena_extends_save_restore
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_save_restore.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_save_restore.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_save_restore.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_save_restore.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
 
@@ -1986,7 +2059,7 @@ if(NOT WIN32)
 
     add_test(
         NAME v4_8.6-composition-arena_extends_rc_in_arena_xref
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_rc_in_arena_xref.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_rc_in_arena_xref.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_rc_in_arena_xref.iron && actual=\$(\"\$d/b\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/8.6-composition-arena/extends_rc_in_arena_xref.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
 
@@ -2001,7 +2074,7 @@ if(NOT WIN32)
     # asserts the expected panic substring appears in the binary's stderr.
     add_test(
         NAME v4_3.7-arena_panic_after_reset
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/panic_after_reset.iron && actual=\$(\"\$d/b\" 2>&1 || true) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/panic_after_reset.expected) && echo \"\$actual\" | grep -qF \"\$expected\" && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/panic_after_reset.iron && actual=\$(\"\$d/b\" 2>&1 || true) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/3.7-arena/panic_after_reset.expected) && echo \"\$actual\" | grep -qF \"\$expected\" && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
 
@@ -2013,7 +2086,7 @@ if(NOT WIN32)
     # ARENA-10 OOM panic: arena "scratch" out of memory in stderr.
     add_test(
         NAME v4_fail_3.7-arena_arena_oom
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_oom.iron && actual=\$(\"\$d/b\" 2>&1 || true) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_oom.expected) && echo \"\$actual\" | grep -qF \"\$expected\" && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_oom.iron && actual=\$(\"\$d/b\" 2>&1 || true) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/3.7-arena/arena_oom.expected) && echo \"\$actual\" | grep -qF \"\$expected\" && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
 
@@ -2053,7 +2126,7 @@ if(NOT WIN32)
     foreach(_fix IN LISTS _PHASE_29_TRAP_FIXTURES)
         add_test(
             NAME v4_4.10-rc-elision_${_fix}
-            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
             WORKING_DIRECTORY /tmp
         )
         iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.10-rc-elision/${_fix}.iron")
@@ -2095,7 +2168,7 @@ if(NOT WIN32)
     foreach(_fix IN LISTS _PHASE_30_TRAP_FIXTURES)
         add_test(
             NAME v4_4.11-ptr-check-elision_${_fix}
-            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
             WORKING_DIRECTORY /tmp
         )
         # Every fixture in this list still rests on an unimplemented surface and
@@ -2126,7 +2199,7 @@ if(NOT WIN32)
     foreach(_fix IN LISTS _PHASE_30_BENCH_FIXTURES)
         add_test(
             NAME v4_4.11-ptr-check-elision_${_fix}
-            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
             WORKING_DIRECTORY /tmp
         )
         set_tests_properties(v4_4.11-ptr-check-elision_${_fix} PROPERTIES
@@ -2166,7 +2239,7 @@ if(NOT WIN32)
     # OQ-01: Map[NonHashable, V] → E0206 (constraint unsatisfied). Wave 2.
     add_test(
         NAME v4_fail_7.5-stdlib_map_nonhashable
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/map_nonhashable.iron 2>&1 | grep -qF E0206"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/map_nonhashable.iron 2>&1 | grep -qF E0206"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_7.5-stdlib_map_nonhashable PROPERTIES
@@ -2175,7 +2248,7 @@ if(NOT WIN32)
     # STDLIB-07: copy of nocopy Mutex[T] → E0286. Wave 5.
     add_test(
         NAME v4_fail_7.5-stdlib_mutex_copy
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/mutex_copy.iron 2>&1 | grep -qF E0286"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/mutex_copy.iron 2>&1 | grep -qF E0286"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_7.5-stdlib_mutex_copy PROPERTIES
@@ -2184,7 +2257,7 @@ if(NOT WIN32)
     # STDLIB-08: copy of nocopy Channel[T] → E0286. Wave 5.
     add_test(
         NAME v4_fail_7.5-stdlib_channel_copy
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/channel_copy.iron 2>&1 | grep -qF E0286"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/channel_copy.iron 2>&1 | grep -qF E0286"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_7.5-stdlib_channel_copy PROPERTIES
@@ -2193,17 +2266,38 @@ if(NOT WIN32)
     # STDLIB-09: copy of nocopy FileHandle → E0286. Wave 5.
     add_test(
         NAME v4_fail_7.5-stdlib_filehandle_copy
-        COMMAND sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/filehandle_copy.iron 2>&1 | grep -qF E0286"
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/filehandle_copy.iron 2>&1 | grep -qF E0286"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_fail_7.5-stdlib_filehandle_copy PROPERTIES
         LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 30)
 
+    # ── 2026-07 UNCHK-IDX negative rows (per-site unchecked indexing misuse) ──
+    # get_unchecked with wrong arity → E0216 (strict arity on the unsafe
+    # intrinsics; the legacy get/set heuristics stay permissive).
+    add_test(
+        NAME v4_fail_7.5-stdlib_unchecked_index_bad_arity
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/unchecked_index_bad_arity.iron 2>&1 | grep -qF E0216"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_7.5-stdlib_unchecked_index_bad_arity PROPERTIES
+        LABELS "integration;v4-acceptance" TIMEOUT 30)
+
+    # set_unchecked with a non-integer index → E0202 (same class + wording as
+    # the BOUNDS-03 check on the checked xs[i] surface).
+    add_test(
+        NAME v4_fail_7.5-stdlib_unchecked_index_non_int
+        COMMAND /bin/sh -c "${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4-fail/7.5-stdlib/unchecked_index_non_int.iron 2>&1 | grep -qF E0202"
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(v4_fail_7.5-stdlib_unchecked_index_non_int PROPERTIES
+        LABELS "integration;v4-acceptance" TIMEOUT 30)
+
     # ── POSITIVE check-path accept row (whole-pipeline negation oracle) ──
     # OQ-01: Map[String, Int] is well-formed — assert E0206 ABSENT. Wave 2.
     add_test(
         NAME v4_7.5-stdlib_map_hashable_ok
-        COMMAND sh -c "! ( ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/map_hashable_ok.iron 2>&1 | grep -qF E0206 )"
+        COMMAND /bin/sh -c "! ( ${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/map_hashable_ok.iron 2>&1 | grep -qF E0206 )"
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     set_tests_properties(v4_7.5-stdlib_map_hashable_ok PROPERTIES
@@ -2219,7 +2313,7 @@ if(NOT WIN32)
     # NOT WILL_FAIL — it runs and must pass on a clang host.
     add_test(
         NAME v4_7.5-stdlib_box_roundtrip
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/box_roundtrip\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/box_roundtrip.iron && actual=\$(\"\$d/box_roundtrip\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/box_roundtrip.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/box_roundtrip\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/box_roundtrip.iron && actual=\$(\"\$d/box_roundtrip\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/box_roundtrip.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_7.5-stdlib_box_roundtrip PROPERTIES
@@ -2237,7 +2331,7 @@ if(NOT WIN32)
     # on container drop is owned by Plan 33-04 (Wave 3, depends_on 33-03).
     add_test(
         NAME v4_7.5-stdlib_list_shape_dispatch
-        COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/list_shape_dispatch\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/list_shape_dispatch.iron && actual=\$(\"\$d/list_shape_dispatch\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/list_shape_dispatch.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/list_shape_dispatch\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/list_shape_dispatch.iron && actual=\$(\"\$d/list_shape_dispatch\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/list_shape_dispatch.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(v4_7.5-stdlib_list_shape_dispatch PROPERTIES
@@ -2265,7 +2359,7 @@ if(NOT WIN32)
     foreach(_fix IN LISTS _PHASE_33_BUILDRUN_FIXTURES)
         add_test(
             NAME v4_7.5-stdlib_${_fix}
-            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
             WORKING_DIRECTORY /tmp
         )
         # Both entries above are unimplemented surfaces (list copy-on-assign,
@@ -2308,11 +2402,150 @@ if(NOT WIN32)
     foreach(_fix IN LISTS _PHASE_33_NOCOPY_BUILDRUN_FIXTURES)
         add_test(
             NAME v4_7.5-stdlib_${_fix}
-            COMMAND sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
             WORKING_DIRECTORY /tmp
         )
         set_tests_properties(v4_7.5-stdlib_${_fix} PROPERTIES
             LABELS "integration;phase33-invariant;v4-acceptance" TIMEOUT 60)
+    endforeach()
+endif()
+
+# ─────────────────────────────────────────────────────────────────────────
+# 2026-07 remediation wave — per-fixture rows for aggregate-only fixtures
+# ─────────────────────────────────────────────────────────────────────────
+# A scripted audit (every tests/integration/v4/**.iron path vs the command
+# strings in `ctest --show-only=json-v1`) found 67 main-corpus fixtures that
+# were visible ONLY through the test_v4_acceptance aggregate: a regression in
+# any of them moved one aggregate row and never surfaced in `ctest -N`, had
+# no label, and could not be run in isolation. Each now gets the standard
+# per-fixture row, same machinery as the phase29/30/33 loops above:
+#   - BUILD+RUN rows: compile into a mktemp dir, execute, byte-exact
+#     stdout+stderr vs the .expected sibling.
+#   - @expect-panic rows: the v4_3.7-arena_panic_after_reset shape — run with
+#     `|| true` (non-zero exit is the point) and require the .expected
+#     substring in the combined output.
+# WILL_FAIL mirrors each fixture's @expected-pass-after marker via
+# iron_fixture_xfail (fixture header = single source of truth), so phase-38
+# fixtures come out XFAIL at the committed gate 37 and turn red the day their
+# surface lands — the prompt to drop the marker.
+# migrated-from-v3/** (225 fixtures) stays aggregate-covered BY DESIGN: it has
+# its own isolation row (test_v4_migrated_from_v3); see
+# tests/integration/v4/migrated-from-v3/CMakeLists.txt.
+# Run just these rows: ctest -L aggregate-parity
+if(NOT WIN32)
+    # ── BUILD+RUN byte-exact rows ──
+    set(_V4_AGGPARITY_RUN_FIXTURES
+        10-tooling/boundary_defer_lifo
+        10-tooling/happy_defer
+        3.1-stack/boundary_destructor_chain
+        3.1-stack/boundary_nested_scope
+        3.1-stack/boundary_struct_field
+        3.1-stack/boundary_temporary
+        3.1-stack/happy
+        3.2-heap/boundary_defer_free
+        3.2-heap/boundary_leak
+        3.2-heap/boundary_multi_alloc
+        3.2-heap/happy
+        3.3-rc/boundary_atomic_refcount
+        3.3-rc/boundary_copy_bumps_refcount
+        3.3-rc/boundary_field_holds_rc
+        3.3-rc/boundary_last_drop_destroys
+        3.3-rc/happy
+        3.4-weak-rc/boundary_cycle_break
+        3.4-weak-rc/boundary_upgrade_after_drop
+        3.4-weak-rc/boundary_upgrade_alive
+        3.4-weak-rc/boundary_weak_demote
+        3.4-weak-rc/happy
+        3.6-non-transitive/heap_holds_rc
+        3.6-non-transitive/rc_holds_heap
+        3.6-non-transitive/stack_holds_heap
+        4.2-checked-ptr/boundary_auto_address
+        4.2-checked-ptr/boundary_element_pointer
+        4.2-checked-ptr/boundary_field_pointer
+        4.2-checked-ptr/boundary_var_pointer
+        4.2-checked-ptr/happy
+        4.4-readonly/pure_satisfies_readonly_iface
+        4.4-readonly/readonly_happy
+        4.4-readonly/readonly_rvo_array
+        4.4-regime-isolation/checked_independent
+        4.4-regime-isolation/unchecked_independent
+        5-mutability/boundary_field_var
+        5-mutability/boundary_method_receiver
+        5-mutability/boundary_param_readonly
+        5-mutability/boundary_param_var
+        5-mutability/boundary_var_reassign
+        5-mutability/happy
+        5-mutability/unused_var_param_warn
+        5-mutability/unused_var_warn
+        5-mutability/val_field_init_only
+        6-readonly/boundary_calls_readonly
+        6-readonly/boundary_primitive_struct
+        6-readonly/boundary_returns_int
+        6-readonly/boundary_var_param_neutralized
+        6-readonly/happy
+        8.1-composition-default/extends_compute_chain
+        8.1-composition-default/happy
+        8.2-composition-heap/extends_subsystem_lifecycle
+        8.2-composition-heap/happy
+        8.3-composition-rc/extends_atomic_refcount
+        8.3-composition-rc/extends_drop_ordering
+        8.3-composition-rc/happy
+        8.4-composition-weak-rc/extends_cycle_break_proof
+        8.4-composition-weak-rc/happy
+        8.5-composition-box/extends_box_in_loop
+        8.5-composition-box/happy
+        8.7-composition-mixing/extends_all_policies
+        8.7-composition-mixing/happy
+        # 2026-07 UNCHK-IDX: per-site unchecked indexing (get_unchecked /
+        # set_unchecked intrinsics). Registered here per the aggregate-parity
+        # machinery — new fixtures get a per-fixture row from day one.
+        7.5-stdlib/list_unchecked_index
+        7.5-stdlib/bvec_unchecked_index
+        7.5-stdlib/mixed_checked_unchecked
+        # 2026-07 task #24: checked indexed writes on bounded vectors —
+        # `bv[i] = x` and `bv.set(i, v)` write the inline .data storage
+        # (guard against .len via iron_panic_bvec_oob, LOAD->alloca peel).
+        4.5-bounded-vector/checked_index_write
+    )
+    foreach(_fixrel IN LISTS _V4_AGGPARITY_RUN_FIXTURES)
+        string(REPLACE "/" "_" _fixname "${_fixrel}")
+        get_filename_component(_fixbase "${_fixrel}" NAME)
+        add_test(
+            NAME v4_${_fixname}
+            COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fixbase}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/${_fixrel}.iron && actual=\$(\"\$d/${_fixbase}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/${_fixrel}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/${_fixrel}.iron")
+        set_tests_properties(v4_${_fixname} PROPERTIES
+            LABELS "integration;aggregate-parity;v4-acceptance"
+            TIMEOUT 60
+            WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
+    endforeach()
+
+    # ── @expect-panic rows (panic_after_reset machinery) ──
+    set(_V4_AGGPARITY_PANIC_FIXTURES
+        10-tooling/boundary_debug_allocator_uaf
+        10-tooling/boundary_leak_detected
+        3.2-heap/panic_use_after_free
+        4.2-checked-ptr/closure_pointer_capture
+        4.2-checked-ptr/closure_var_pointer_capture
+        4.2-checked-ptr/panic_stale_after_grow
+        # 2026-07 task #24: OOB checked indexed write on a bounded vector
+        # panics against .len with the index/bound pair (.expected pins it).
+        4.5-bounded-vector/checked_index_write_oob
+    )
+    foreach(_fixrel IN LISTS _V4_AGGPARITY_PANIC_FIXTURES)
+        string(REPLACE "/" "_" _fixname "${_fixrel}")
+        add_test(
+            NAME v4_${_fixname}
+            COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/b\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/${_fixrel}.iron && actual=\$(\"\$d/b\" 2>&1 || true) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/${_fixrel}.expected) && echo \"\$actual\" | grep -qF \"\$expected\" && rm -rf \"\$d\""
+            WORKING_DIRECTORY /tmp
+        )
+        iron_fixture_xfail(_xf "${CMAKE_SOURCE_DIR}/tests/integration/v4/${_fixrel}.iron")
+        set_tests_properties(v4_${_fixname} PROPERTIES
+            LABELS "integration;aggregate-parity;v4-acceptance"
+            TIMEOUT 60
+            WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
 endif()
 

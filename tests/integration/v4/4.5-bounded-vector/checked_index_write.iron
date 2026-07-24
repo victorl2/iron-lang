@@ -1,0 +1,22 @@
+-- section: 4.5-bounded-vector
+-- @req: VEC-01, VEC-03
+-- @expected-pass-after: phase-37
+-- Checked indexed writes on a bounded vector [T; <=N]: both spellings —
+-- `bv[i] = x` (SET_INDEX statement) and `bv.set(i, v)` (method form) —
+-- write the inline .data storage through the alloca (Phase-23 LOAD->alloca
+-- peel; without it the store lands on an SSA copy and vanishes), guarded
+-- against .len (the initialized region, same bound as the checked read).
+-- Reads back through both checked spellings (`bv[i]` and `bv.get(i)`).
+
+func main() {
+    var bv: [Int; <=4]
+    bv.push(10)
+    bv.push(20)
+    bv.push(30)
+    bv[1] = 99
+    bv.set(2, 77)
+    println("{bv[0]}")
+    println("{bv[1]}")
+    println("{bv.get(2)}")
+    println("{bv.len()}")
+}

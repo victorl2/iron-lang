@@ -69,7 +69,8 @@ static const char *expr_ident_name(Iron_Node *node) {
 static bool name_is_local(ConcurrencyCtx *ctx, const char *name) {
     int n = arrlen(ctx->local_names);
     for (int i = 0; i < n; i++) {
-        if (strcmp(ctx->local_names[i], name) == 0) return true;
+        if (ctx->local_names[i] && strcmp(ctx->local_names[i], name) == 0)
+            return true;
     }
     return false;
 }
@@ -100,9 +101,18 @@ static void collect_local_names(ConcurrencyCtx *ctx,
         Iron_Node *s = stmts[i];
         if (!s) continue;
         if (s->kind == IRON_NODE_VAL_DECL) {
-            arrpush(ctx->local_names, ((Iron_ValDecl *)s)->name);
+            Iron_ValDecl *vd = (Iron_ValDecl *)s;
+            /* Tuple destructure (`val (a, b) = ...`) has name == NULL and
+             * carries its bindings in binding_names[] (NULL entry = `_`);
+             * pushing NULL would crash the strcmp in name_is_local. */
+            if (vd->name) arrpush(ctx->local_names, vd->name);
+            for (int bi = 0; bi < vd->binding_count; bi++) {
+                if (vd->binding_names && vd->binding_names[bi])
+                    arrpush(ctx->local_names, vd->binding_names[bi]);
+            }
         } else if (s->kind == IRON_NODE_VAR_DECL) {
-            arrpush(ctx->local_names, ((Iron_VarDecl *)s)->name);
+            if (((Iron_VarDecl *)s)->name)
+                arrpush(ctx->local_names, ((Iron_VarDecl *)s)->name);
         } else if (s->kind == IRON_NODE_BLOCK) {
             Iron_Block *blk = (Iron_Block *)s;
             collect_local_names(ctx, blk->stmts, blk->stmt_count);
@@ -136,15 +146,21 @@ static void collect_spawn_refs(ConcurrencyCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)node;
-            /* Register as local, then check init for reads */
-            arrpush(ctx->local_names, vd->name);
+            /* Register as local, then check init for reads. Tuple
+             * destructure (`val (a, b) = ...`) has name == NULL and
+             * carries its bindings in binding_names[] (NULL entry = `_`). */
+            if (vd->name) arrpush(ctx->local_names, vd->name);
+            for (int bi = 0; bi < vd->binding_count; bi++) {
+                if (vd->binding_names && vd->binding_names[bi])
+                    arrpush(ctx->local_names, vd->binding_names[bi]);
+            }
             collect_spawn_refs(ctx, vd->init);
             break;
         }
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *vd = (Iron_VarDecl *)node;
             /* Register as local, then check init for reads */
-            arrpush(ctx->local_names, vd->name);
+            if (vd->name) arrpush(ctx->local_names, vd->name);
             collect_spawn_refs(ctx, vd->init);
             break;
         }
