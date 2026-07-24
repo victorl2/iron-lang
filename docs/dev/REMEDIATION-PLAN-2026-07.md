@@ -823,3 +823,61 @@ Nothing committed yet (per the no-commit-without-asking rule).
 4. Re-run at `-DIRON_CURRENT_PHASE=37`; when the 33 clear, bump the committed
    gate and re-mark any truly-future fixtures (#9).
 5. Only then consider committing, in logically-grouped commits.
+
+---
+
+## CI-hardening round (post-push, PR #78) — 2026-07-24
+
+Everything above was committed as 8 grouped commits, rebased onto origin/main,
+and pushed as branch `v4-remediation` (PR #78). Driving the full CI matrix to
+green surfaced five failure layers that never reproduced in the container
+(clang-only builds, no sanitizer jobs, different SDKs):
+
+1. **Toolchain portability** (`9ab8e990`): GCC `-Werror=sign-compare` fires
+   inside vendor stb_ds `arrins` macro expansion (the module-globals code was
+   the repo's first `arrins` user) — replaced with append+shift splice, per
+   the `lir_optimize.c` precedent. Newer macOS SDKs deprecate `sprintf` under
+   `-Werror` — `snprintf` in `typecheck.c` and later `handlers_workspace_command.c`.
+2. **ASan/TSan coexistence** (`da26560a`, `e3d86c05`): clang rejects
+   `-fsanitize=thread` on targets when the global build is ASan; per-target
+   TSan rows now gated with `AND NOT (IRON_ENABLE_SANITIZERS AND IRON_SANITIZER
+   STREQUAL "address")`.
+3. **Web-target module globals** (`da26560a`): `emit_web.c` never emitted the
+   `Iron_g_*` statics/init for module globals (raylib-web benchmark red);
+   added statics + `__iron_module_init` call, plus a constructor shim for the
+   no-main JS-driven shape. Also restored `iron_arena_rt.c` in the web link
+   list.
+4. **Detector-probe tests vs sanitizers** (`621ab9e0` + follow-up): rows that
+   deliberately double-free/leak/deref-stale to prove Iron's own detectors
+   fire are incompatible-by-construction with ASan's interposed allocator —
+   now `DISABLED` under `IRON_ENABLE_SANITIZERS` (8 rows incl. the
+   intermittently-failing `test_alloc_list_push_oom`). Fully covered by the
+   uninstrumented Release job.
+5. **Genuine bugs the new sanitizer coverage caught** (`bd2fa30f`, `1e245bf6`):
+   - ironls code-action facade freed `walk_diags` while returned actions still
+     pointed at its entries (`originating_diag`) — heap-UAF read during JSON
+     serialization; fixed by deep-copying referenced diagnostics into the
+     caller arena.
+   - `test_workspace_index` stress reader dereferenced the borrowed entry
+     pointer after lock release while the invalidator thread freed it —
+     UAF-by-design in the test; reader now observes without dereferencing.
+     Follow-up worth considering: `ilsp_workspace_index_lookup` returns a
+     borrowed pointer whose lifetime rests on the dispatcher-thread-only
+     eviction invariant; a copy-out variant would remove the foot-gun.
+
+**Benchmark gate** (`bf138b4d`, `77d63c31`, `f65c378e`): 23 sequential
+problems were over threshold on GitHub runners — hot loops converted to
+per-site `get_unchecked`/`set_unchecked` with in-bounds proof comments
+(includes `sieve_of_eratosthenes` and the `remove_duplicates_sorted` driver
+copy loop, both borderline-red on runner hardware only).
+`parallel_hash_computation` failed correctness because ironc now passes
+`-fwrapv` (Iron Int wraps by definition) while the C reference's int64
+multiplies were signed-overflow UB and `expected_output.txt` had recorded the
+UB-exploited artifact — reference rewritten with uint64 wrapping arithmetic,
+fixture updated to the true wrapping checksum.
+
+Container-only benchmark failures (`longest_increasing_subseq`,
+`longest_palindromic_substr`, `sqrt_integer`) do not reproduce on GitHub
+runners and were left alone. Known flaky row on macOS runners:
+`test_lsp_diagnostic_debounce` (`test_spaced_compiles_trigger_two_calls`,
+250 ms timing assumption on shared runners).

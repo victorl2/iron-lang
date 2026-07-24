@@ -1634,6 +1634,7 @@ set_tests_properties(test_container_drop PROPERTIES
 if(IRON_ENABLE_SANITIZERS)
     set_tests_properties(
         test_arena_scoping_stress
+        test_alloc_list_push_oom
         test_alloc_map_put_oom
         test_runtime_heap_free
         test_runtime_panic_stale
