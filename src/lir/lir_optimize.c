@@ -283,6 +283,16 @@ static void analyze_array_param_modes(IronLIR_Module *module,
             for (int pi = 0; pi < fn->param_count; pi++) {
                 Iron_Type *pt = fn->params[pi].type;
                 if (!pt || pt->kind != IRON_TYPE_ARRAY) continue;
+                /* Bounded vectors [T; <=N] are flat Iron_BVec_T_N structs
+                 * passed by value — they have no .items/.count members, so
+                 * pointer+length mode would splat a nonexistent List ABI at
+                 * call sites (and the struct already avoids the Iron_List
+                 * indirection this analysis exists to bypass). Keep LIST. */
+                if (pt->array.is_bounded) continue;
+                /* var parameters use the mutable-reference ABI (T *): their
+                 * signature slot is owned by the by-ref convention, never by
+                 * pointer+length array mode. */
+                if (fn->param_is_var && fn->param_is_var[pi]) continue;
 
                 /* Skip if already resolved */
                 ArrayParamMode existing = iron_lir_get_array_param_mode(info, fn->name, pi, arena);
@@ -421,6 +431,24 @@ static void analyze_array_param_modes(IronLIR_Module *module,
     }
 }
 
+/* ── Module-global slot helper (2026-07 remediation) ─────────────────────── */
+
+/* True when vid is a per-function GLOBAL SLOT alloca (alloca.global_name set
+ * by hir_to_lir): a pointer alias to the file-scope static backing a module
+ * global. Passes must treat it as opaque, externally-visible memory:
+ *   - copy-propagation / store→load forwarding: a CALL may write the global
+ *     (any function can), so loads must stay real loads;
+ *   - dead-alloca elimination: a STORE through the slot IS the global write
+ *     and must survive even with no load in this function;
+ *   - stack-array repr: an array literal stored into a global must keep the
+ *     heap List representation (the static outlives every frame). */
+static bool lir_vid_is_global_slot(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (!fn || vid == IRON_LIR_VALUE_INVALID) return false;
+    if ((ptrdiff_t)vid >= arrlen(fn->value_table)) return false;
+    IronLIR_Instr *in = fn->value_table[vid];
+    return in && in->kind == IRON_LIR_ALLOCA && in->alloca.global_name != NULL;
+}
+
 /* ── Stack-array optimization pre-pass (ARR-01) ─────────────────────────── */
 
 /* Mark ARRAY_LIT instructions with known element counts <= 256 as
@@ -485,6 +513,21 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
                 IronLIR_Instr *instr = block->instrs[ii];
                 if (instr->kind == IRON_LIR_STORE) {
                     ptrdiff_t vi = hmgeti(sa_map, instr->store.value);
+                    /* Module-global slot (2026-07 remediation): an array
+                     * stored into a global escapes every frame — revoke its
+                     * stack representation and never taint the slot. */
+                    if (vi >= 0 && lir_vid_is_global_slot(fn, instr->store.ptr)) {
+                        IronLIR_ValueId orig = sa_map[vi].value;
+                        if (orig < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                            fn->value_table[orig]) {
+                            if (fn->value_table[orig]->kind == IRON_LIR_ARRAY_LIT)
+                                fn->value_table[orig]->array_lit.use_stack_repr = false;
+                            else
+                                hmput(info->revoked_fill_ids, orig, true);
+                        }
+                        hmdel(sa_map, instr->store.value);
+                        continue;
+                    }
                     if (vi >= 0) {
                         hmput(sa_map, instr->store.ptr, sa_map[vi].value);
                     } else {
@@ -1123,6 +1166,20 @@ static bool alloca_is_capture_alias(IronLIR_Func *fn, IronLIR_ValueId alloca_id)
     return false;
 }
 
+/* PARM-02 mutable-reference params: true when vid is the synthetic ValueId
+ * of an honored `var` param of fn (ids 1..param_count, no backing instr).
+ * In the by-ref ABI the C slot behind such an id is a POINTER (`T *_vN`);
+ * forwarding a load of the param's alloca copy to this id substitutes the
+ * pointer where the pointee value is required — store→load forwarding and
+ * copy propagation must both refuse it. Mirrors emit_c.c vid_is_var_param. */
+static bool lir_vid_is_var_param(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (!fn || !fn->param_is_var) return false;
+    if (vid < 1 || vid > (IronLIR_ValueId)fn->param_count) return false;
+    if ((ptrdiff_t)vid < arrlen(fn->value_table) && fn->value_table[vid])
+        return false;
+    return fn->param_is_var[vid - 1];
+}
+
 /* Copy Propagation: eliminate LOAD of single-store allocas.
  * For each alloca stored exactly once, replace all LOADs of that alloca
  * with the stored value, then rewrite all operands referencing the LOAD result. */
@@ -1152,6 +1209,9 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                         fn->value_table[ptr] != NULL &&
                         fn->value_table[ptr]->kind == IRON_LIR_ALLOCA &&
                         !alloca_is_capture_alias(fn, ptr) &&
+                        /* Module-global slot (2026-07 remediation): any CALL
+                         * can rewrite the global — loads must stay real. */
+                        !lir_vid_is_global_slot(fn, ptr) &&
                         /* Do not copy-propagate through interface-typed allocas:
                          * the STORE wraps concrete→interface (tagged union),
                          * and the LOAD preserves the interface type. */
@@ -1207,6 +1267,26 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                             fn->value_table[cap] != NULL &&
                             fn->value_table[cap]->kind == IRON_LIR_ALLOCA) {
                             hmdel(store_info, cap);
+                        }
+                    }
+                }
+                /* PARM-02 (callee side): a var param's entry copy-in store
+                 * (`store alloca, <var-param vid>`) must never be forwarded —
+                 * the vid names the `T *` pointer slot, not the value. Ban
+                 * the whole alloca: with the copy-in hidden it would look
+                 * single-store despite pre-assignment loads needing the
+                 * entry copy. */
+                if (in->kind == IRON_LIR_STORE &&
+                    lir_vid_is_var_param(fn, in->store.value)) {
+                    hmdel(store_info, in->store.ptr);
+                }
+                /* PARM-02 (caller side): an alloca passed by address to a
+                 * callee's var param is mutated behind this pass's back —
+                 * post-call loads must stay real loads. */
+                if (in->kind == IRON_LIR_CALL && in->call.args_by_addr) {
+                    for (int ai = 0; ai < in->call.arg_count; ai++) {
+                        if (in->call.args_by_addr[ai]) {
+                            hmdel(store_info, in->call.args[ai]);
                         }
                     }
                 }
@@ -1629,6 +1709,10 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *in = blk->instrs[ii];
                 if (in->kind == IRON_LIR_ALLOCA) {
+                    /* Module-global slot (2026-07 remediation): a STORE
+                     * through the slot IS the observable global write —
+                     * never delete the slot or its stores. */
+                    if (in->alloca.global_name) continue;
                     if (hmgeti(loaded, in->id) < 0) {
                         hmput(dead_alloca, in->id, true);
                     }
@@ -1710,6 +1794,16 @@ static bool run_store_load_elim(IronLIR_Module *module) {
 
                 switch ((int)(in->kind)) {
                 case IRON_LIR_STORE:
+                    /* PARM-02: never forward a var param's entry copy-in
+                     * store — its value operand is the synthetic param vid,
+                     * which the by-ref ABI renders as a POINTER (`T *_vN`).
+                     * Forwarding would substitute the pointer where the
+                     * pointee value is required. Invalidate any prior
+                     * tracking for the slot instead. */
+                    if (lir_vid_is_var_param(fn, in->store.value)) {
+                        if (last_store) hmdel(last_store, in->store.ptr);
+                        break;
+                    }
                     /* Only track stores to known alloca slots that are not capture
                      * aliases. Capture alias allocas represent env struct fields that
                      * can be modified across invocations — must not be forwarded. */
@@ -2004,6 +2098,20 @@ static bool instr_mutates_memory(IronLIR_InstrKind kind) {
     case IRON_LIR_ARENA_PUSH:
     case IRON_LIR_ARENA_POP:
     case IRON_LIR_FREE:
+    /* PTR_STORE writes through a (fat) pointer — omitting it let the
+     * expression inliner move a pure LOAD/GET_FIELD past a store to the
+     * same memory (soundness fix): `val a = x; p^ = 2; println(a)` must
+     * print the pre-store value. */
+    case IRON_LIR_PTR_STORE:
+    /* Conservative additions: SPAWN/PARALLEL_FOR/AWAIT run arbitrary code on
+     * another thread (or resume after it); RC_RELEASE / WEAK_RC_RELEASE may
+     * drop the refcount to zero and run a user destructor that mutates
+     * memory. None of these may have a pure load reordered across them. */
+    case IRON_LIR_SPAWN:
+    case IRON_LIR_PARALLEL_FOR:
+    case IRON_LIR_AWAIT:
+    case IRON_LIR_RC_RELEASE:
+    case IRON_LIR_WEAK_RC_RELEASE:
         return true;
     /* -Wswitch-enum opt-out: predicate is strictly memory-mutating opcodes;
      * every other LIR opcode is intentionally pure from this predicate's
@@ -2076,6 +2184,17 @@ void iron_lir_compute_inline_eligible(IronLIR_Func *fn,
             if (in->kind == IRON_LIR_SPAWN) {
                 if (in->spawn.pool_val != IRON_LIR_VALUE_INVALID)
                     hmput(excluded, in->spawn.pool_val, true);
+            }
+
+            /* 2026-07 remediation (4.2 boundary_field_pointer): ADDR_OF
+             * references its target by NAME (emit_val) in the non-field
+             * emit branches; a suppressed (inlined) declaration produced
+             * `&_vN` with _vN undeclared — invalid C. GET_FIELD targets
+             * are re-emitted in place by the ADDR_OF arm, but exclude ALL
+             * targets so every named reference is guaranteed a declaration. */
+            if (in->kind == IRON_LIR_ADDR_OF) {
+                if (in->addr_of.target != IRON_LIR_VALUE_INVALID)
+                    hmput(excluded, in->addr_of.target, true);
             }
 
             /* ARRAY_LIT elements: C initializer lists require all referenced values
@@ -3191,6 +3310,21 @@ static bool rcpe_instr_is_barrier(IronLIR_Func *fn, IronLIR_Instr *in,
             return s.may_spawn || s.may_free;
         }
 
+        /* HARD barriers on the tracked value (soundness fix): another rc op on
+         * the SAME target between the matched pair changes the refcount the
+         * deletion reasons about; a FREE of the target ends its lifetime; a
+         * RETURN of the target hands ownership out of the function. Deleting a
+         * retain/release pair across any of these can drop the count to zero
+         * early (premature free) or release a dead header. */
+        case IRON_LIR_RC_RETAIN:
+            return in->rc_retain.target == target;
+        case IRON_LIR_RC_RELEASE:
+            return in->rc_release.target == target;
+        case IRON_LIR_FREE:
+            return in->free_instr.value == target;
+        case IRON_LIR_RETURN:
+            return !in->ret.is_void && in->ret.value == target;
+
         /* Non-barriers: every other opcode is either pure or has no bearing on
          * an rc pair's soundness in v1 (deletion-only; we never reorder). */
         case IRON_LIR_CONST_INT:
@@ -3229,7 +3363,6 @@ static bool rcpe_instr_is_barrier(IronLIR_Func *fn, IronLIR_Instr *in,
         case IRON_LIR_JUMP:
         case IRON_LIR_BRANCH:
         case IRON_LIR_SWITCH:
-        case IRON_LIR_RETURN:
         case IRON_LIR_CAST:
         case IRON_LIR_CONSTRUCT:
         case IRON_LIR_ARRAY_LIT:
@@ -3237,12 +3370,9 @@ static bool rcpe_instr_is_barrier(IronLIR_Func *fn, IronLIR_Instr *in,
         case IRON_LIR_IS_NULL:
         case IRON_LIR_IS_NOT_NULL:
         case IRON_LIR_INTERP_STRING:
-        case IRON_LIR_RC_RETAIN:
-        case IRON_LIR_RC_RELEASE:
         case IRON_LIR_WEAK_RC_RETAIN:
         case IRON_LIR_WEAK_RC_RELEASE:
         case IRON_LIR_WEAK_RC_DOWNGRADE:
-        case IRON_LIR_FREE:
         case IRON_LIR_MAKE_CLOSURE:
         case IRON_LIR_FUNC_REF:
         case IRON_LIR_AWAIT:
@@ -3260,6 +3390,33 @@ static bool rcpe_instr_is_barrier(IronLIR_Func *fn, IronLIR_Instr *in,
             return false;
     }
     return false;
+}
+
+/* Is `blk` on a CFG cycle, i.e. reachable from itself via successor edges?
+ * Used by the region scans below: when the LATER endpoint of a scanned region
+ * sits on a cycle, the instructions AFTER it in its own block are also on a
+ * path back to it (tail → back edge → head), so they belong to the region. */
+static bool block_on_cycle(IronLIR_Func *fn, IronLIR_Block *blk) {
+    struct { IronLIR_BlockId key; bool value; } *seen = NULL;
+    IronLIR_BlockId *worklist = NULL;
+    for (int si = 0; si < (int)arrlen(blk->succs); si++) {
+        arrput(worklist, blk->succs[si]);
+    }
+    bool cyc = false;
+    for (int wi = 0; wi < (int)arrlen(worklist) && !cyc; wi++) {
+        IronLIR_BlockId bid = worklist[wi];
+        if (bid == blk->id) { cyc = true; break; }
+        if (hmgeti(seen, bid) >= 0) continue;
+        hmput(seen, bid, true);
+        IronLIR_Block *b = find_block(fn, bid);
+        if (!b) continue;
+        for (int si = 0; si < (int)arrlen(b->succs); si++) {
+            arrput(worklist, b->succs[si]);
+        }
+    }
+    hmfree(seen);
+    arrfree(worklist);
+    return cyc;
 }
 
 /* Conservative may-execute-region barrier scan between a matched retain `r`
@@ -3297,9 +3454,20 @@ static bool region_between_has_barrier(IronLIR_Func *fn,
     for (int i = 0; i < rel_idx; i++) {
         if (rcpe_instr_is_barrier(fn, rel_blk->instrs[i], target, summaries)) return true;
     }
+    /* Back-edge soundness: when rel_blk is on a cycle, the path
+     * rel → (tail of rel_blk) → back edge → (head of rel_blk) → rel exists, so
+     * the tail AFTER the release is also part of the may-execute region. */
+    bool rel_on_cycle = block_on_cycle(fn, rel_blk);
+    if (rel_on_cycle) {
+        for (int i = rel_idx + 1; i < rel_blk->instr_count; i++) {
+            if (rcpe_instr_is_barrier(fn, rel_blk->instrs[i], target, summaries)) return true;
+        }
+    }
 
     /* Intermediate blocks: forward-reachable from r_blk (excluding r_blk and
-     * rel_blk) via succs. Conservative — scans every such block fully. */
+     * rel_blk) via succs. Conservative — scans every such block fully. When
+     * rel_blk is on a cycle, blocks reachable only THROUGH rel_blk lie on the
+     * back-edge path rel → … → rel, so traversal continues through it. */
     struct { IronLIR_BlockId key; bool value; } *seen = NULL;
     IronLIR_BlockId *worklist = NULL;
     for (int si = 0; si < (int)arrlen(r_blk->succs); si++) {
@@ -3308,12 +3476,21 @@ static bool region_between_has_barrier(IronLIR_Func *fn,
     bool barrier = false;
     for (int wi = 0; wi < (int)arrlen(worklist) && !barrier; wi++) {
         IronLIR_BlockId bid = worklist[wi];
-        if (bid == rel_blk->id) continue;       /* rel_blk handled above */
-        if (bid == r_blk->id) continue;
         if (hmgeti(seen, bid) >= 0) continue;
         hmput(seen, bid, true);
         IronLIR_Block *blk = find_block(fn, bid);
         if (!blk) continue;
+        if (bid == rel_blk->id) {
+            /* rel_blk's body handled above (head + tail-on-cycle); traverse
+             * THROUGH it only when a back edge can return to it. */
+            if (rel_on_cycle) {
+                for (int si = 0; si < (int)arrlen(blk->succs); si++) {
+                    arrput(worklist, blk->succs[si]);
+                }
+            }
+            continue;
+        }
+        if (bid == r_blk->id) continue; /* tail scanned; head precedes r */
         for (int i = 0; i < blk->instr_count; i++) {
             if (rcpe_instr_is_barrier(fn, blk->instrs[i], target, summaries)) {
                 barrier = true;
@@ -3450,6 +3627,27 @@ static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
             *out_gen = obj_instr->addr_of.gen_source;
             return true;
         }
+        /* 2026-07 remediation (§13 OQ-02, 4.2 closure_pointer_capture /
+         * closure_var_pointer_capture): a CHECKED-ptr capture dereferenced
+         * inside a lifted lambda body. The object producer is a LOAD from
+         * the capture-alias alloca (`Iron_FatPtr _vN = _e->p;`) — wave-4
+         * made the deref itself well-formed but emitted no check, so a
+         * dangling capture read stale frame memory instead of panicking.
+         * The OQ-02 CONTEXT lock those fixtures pin is capture-of-&local
+         * lifetime-extension: the capture's gen is an iron_stack_gen
+         * snapshot, so the STACK checker is the sound source here.
+         * (A capture of a HEAP-rooted *T remains an open provenance gap —
+         * same caller-dependence as the parameter case in the emit_c.c
+         * Phase 37 note — and no fixture exercises it.) */
+        if (obj_instr && obj_instr->kind == IRON_LIR_LOAD &&
+            fn->capture_count > 0 && fn->capture_metadata &&
+            alloca_is_capture_alias(fn, obj_instr->load.ptr) &&
+            obj_instr->type && obj_instr->type->kind == IRON_TYPE_PTR &&
+            !obj_instr->type->ptr.is_unchecked) {
+            *out_ptr = obj;
+            *out_gen = IRON_LIR_GEN_STACK;
+            return true;
+        }
         return false;
     }
     default:
@@ -3549,13 +3747,20 @@ bool run_rc_pair_elimination(IronLIR_Module *module, IronLIR_ElisionStat *stat) 
                         if (rel->rc_release.target != target) continue;
                         if (hmgeti(deleted, rel) >= 0) continue;
 
-                        /* (a) DOMINANCE: retain dominates release; for same-block
-                         * the retain must precede the release in instr order. */
-                        if (r_blk == rel_blk) {
-                            if (sii <= rii) continue; /* release before/at retain */
-                        } else if (!dominates(idom, r_blk->id, rel_blk->id)) {
-                            continue;
-                        }
+                        /* (a) POST-DOMINANCE (v1 conservative): the release
+                         * must sit in the SAME block, after the retain.
+                         * Plain dominance is NOT enough — a release that is
+                         * merely dominated may lie on only ONE of the paths
+                         * leaving the retain (e.g. `if c { return }; use b`),
+                         * and deleting the pair would prematurely free the
+                         * value on the fall-through path. Within a single
+                         * block the release executes whenever the retain does
+                         * (post-dominates it), so deletion is sound provided
+                         * the strict-between region has no barrier — and the
+                         * barrier set now makes same-target rc ops / FREE and
+                         * a RETURN of the target hard barriers. */
+                        if (r_blk != rel_blk) continue;
+                        if (sii <= rii) continue; /* release before/at retain */
 
                         /* (b)+(c) NON-ESCAPE + NO-BARRIER between the pair. */
                         if (region_between_has_barrier(fn, r_blk, r, rel_blk, rel,
@@ -3793,9 +3998,24 @@ static bool gencheck_region_has_may_free(IronLIR_Func *fn,
     for (int i = 0; i < to_idx; i++) {
         if (gencheck_instr_is_may_free(fn, to_blk->instrs[i], root_alloc, summaries)) return true;
     }
+    /* Back-edge soundness (fix): when to_blk lies on a CFG cycle, control can
+     * run g2 → (tail of to_blk, AFTER g2) → back edge → (head of to_blk) → g2.
+     * A may-free op in that tail frees the root between two executions of g2,
+     * so the tail is part of the region — the old skip at the worklist below
+     * (`bid == to_blk->id`) made this path invisible and let a check at the
+     * top of a loop block be deleted although the block's bottom frees. */
+    bool to_on_cycle = block_on_cycle(fn, to_blk);
+    if (to_on_cycle) {
+        for (int i = to_idx + 1; i < to_blk->instr_count; i++) {
+            if (gencheck_instr_is_may_free(fn, to_blk->instrs[i], root_alloc, summaries)) return true;
+        }
+    }
 
     /* Intermediate blocks: forward-reachable from from_blk (excluding from_blk
-     * and to_blk) via succs. Conservative — scans every such block fully. */
+     * and to_blk) via succs. Conservative — scans every such block fully. When
+     * to_blk is on a cycle, blocks reachable only THROUGH to_blk lie on the
+     * back-edge path g2 → … → g2, so traversal continues through it (the old
+     * `continue` cut them off, hiding a may-free deeper in the loop body). */
     struct { IronLIR_BlockId key; bool value; } *seen = NULL;
     IronLIR_BlockId *worklist = NULL;
     for (int si = 0; si < (int)arrlen(from_blk->succs); si++) {
@@ -3804,12 +4024,21 @@ static bool gencheck_region_has_may_free(IronLIR_Func *fn,
     bool barrier = false;
     for (int wi = 0; wi < (int)arrlen(worklist) && !barrier; wi++) {
         IronLIR_BlockId bid = worklist[wi];
-        if (bid == to_blk->id) continue;     /* to_blk handled above */
-        if (bid == from_blk->id) continue;
         if (hmgeti(seen, bid) >= 0) continue;
         hmput(seen, bid, true);
         IronLIR_Block *blk = find_block(fn, bid);
         if (!blk) continue;
+        if (bid == to_blk->id) {
+            /* to_blk's body handled above (head + tail-on-cycle); traverse
+             * THROUGH it only when a back edge can return to it. */
+            if (to_on_cycle) {
+                for (int si = 0; si < (int)arrlen(blk->succs); si++) {
+                    arrput(worklist, blk->succs[si]);
+                }
+            }
+            continue;
+        }
+        if (bid == from_blk->id) continue; /* tail scanned; head precedes g1 */
         for (int i = 0; i < blk->instr_count; i++) {
             if (gencheck_instr_is_may_free(fn, blk->instrs[i], root_alloc, summaries)) {
                 barrier = true;
@@ -3924,6 +4153,133 @@ static bool gencheck_root_is_loop_invariant(IronLIR_Func *fn, IronLIR_LoopInfo *
     /* Def not found in any block (e.g. a synthetic param id) → treat as
      * defined-outside / invariant (params live across the whole function). */
     return true;
+}
+
+/* ── Tier 3 soundness helpers (LICM gen-check hoisting) ───────────────────── */
+
+/* Non-trapping, non-diverging, pure instruction kinds: execution provably
+ * continues past them to the next instruction in the block, and they neither
+ * free memory nor observe mutable state the loop could change. Used to prove a
+ * header-resident GENCHECK is reached whenever the header is entered.
+ * Deliberately conservative: DIV/MOD (divide-by-zero), CALL/AWAIT (may
+ * diverge/panic), GET_INDEX (bounds check), GENCHECK (may trap), and all
+ * side-effecting ops are excluded. */
+static bool t3_instr_is_nontrapping_pure(IronLIR_InstrKind kind) {
+    switch ((int)(kind)) {
+    case IRON_LIR_CONST_INT: case IRON_LIR_CONST_FLOAT: case IRON_LIR_CONST_BOOL:
+    case IRON_LIR_CONST_STRING: case IRON_LIR_CONST_NULL:
+    case IRON_LIR_ADD: case IRON_LIR_SUB: case IRON_LIR_MUL:
+    case IRON_LIR_EQ: case IRON_LIR_NEQ: case IRON_LIR_LT: case IRON_LIR_LTE:
+    case IRON_LIR_GT: case IRON_LIR_GTE:
+    case IRON_LIR_AND: case IRON_LIR_OR:
+    case IRON_LIR_SHL: case IRON_LIR_SHR:
+    case IRON_LIR_BAND: case IRON_LIR_BOR: case IRON_LIR_BXOR:
+    case IRON_LIR_NEG: case IRON_LIR_NOT: case IRON_LIR_BNOT:
+    case IRON_LIR_ALLOCA: case IRON_LIR_LOAD: case IRON_LIR_ADDR_OF:
+    case IRON_LIR_PTR_OFFSET: case IRON_LIR_PTR_DIFF: case IRON_LIR_CAST:
+    case IRON_LIR_IS_NULL: case IRON_LIR_IS_NOT_NULL: case IRON_LIR_FUNC_REF:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/* Find the block that contains instruction `def`, or NULL. */
+static IronLIR_Block *t3_find_instr_block(IronLIR_Func *fn, IronLIR_Instr *def) {
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            if (blk->instrs[ii] == def) return blk;
+        }
+    }
+    return NULL;
+}
+
+/* Availability of a hoisted GENCHECK's `ptr` operand at the preheader.
+ * Returns true when `v` is defined OUTSIDE loop `L`, or when its in-loop
+ * producer chain consists only of pure, movable address computations
+ * (ADDR_OF / PTR_OFFSET / CAST / consts) whose leaves are defined outside the
+ * loop. In-loop chain members are appended to *chain leaf-first (dependencies
+ * before dependents) so the caller can hoist them to the preheader ahead of
+ * the check — otherwise the emitted C would reference a variable declared
+ * later (inside the loop). Returns false on anything memory-reading, impure,
+ * or too deep — the caller must then NOT hoist the check. */
+static bool t3_collect_hoistable_ptr_chain(IronLIR_Func *fn, IronLIR_LoopInfo *L,
+                                           IronLIR_ValueId v,
+                                           IronLIR_Instr ***chain, int depth) {
+    if (depth > 32) return false;
+    if (v == IRON_LIR_VALUE_INVALID) return false;
+    if (v >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *def = fn->value_table[v];
+    if (!def) return true; /* synthetic param — live across the whole function */
+    IronLIR_Block *db = t3_find_instr_block(fn, def);
+    if (!db) return true;  /* not in any block (param-like) → defined outside */
+    if (!gencheck_block_in_loop(L, db->id)) return true; /* outside the loop */
+
+    switch ((int)(def->kind)) {
+    case IRON_LIR_CONST_INT: case IRON_LIR_CONST_FLOAT: case IRON_LIR_CONST_BOOL:
+    case IRON_LIR_CONST_STRING: case IRON_LIR_CONST_NULL:
+        break; /* leaf: no operands */
+    case IRON_LIR_ADDR_OF:
+        if (!t3_collect_hoistable_ptr_chain(fn, L, def->addr_of.target, chain, depth + 1))
+            return false;
+        break;
+    case IRON_LIR_PTR_OFFSET:
+        if (!t3_collect_hoistable_ptr_chain(fn, L, def->ptr_offset.ptr, chain, depth + 1))
+            return false;
+        if (!t3_collect_hoistable_ptr_chain(fn, L, def->ptr_offset.offset, chain, depth + 1))
+            return false;
+        break;
+    case IRON_LIR_CAST:
+        if (!t3_collect_hoistable_ptr_chain(fn, L, def->cast.value, chain, depth + 1))
+            return false;
+        break;
+    default:
+        return false; /* LOAD / GET_FIELD / anything else: not movable */
+    }
+
+    for (int i = 0; i < (int)arrlen(*chain); i++) {
+        if ((*chain)[i] == def) return true; /* already collected */
+    }
+    arrput(*chain, def);
+    return true;
+}
+
+/* Remove `g` from whichever block currently holds it and re-insert it at the
+ * end of preheader `pre`, before pre's terminator. */
+static void t3_move_instr_to_preheader(IronLIR_Func *fn, IronLIR_Block *pre,
+                                       IronLIR_Instr *g) {
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        int new_count = 0;
+        bool found = false;
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            if (blk->instrs[ii] == g) { found = true; continue; }
+            blk->instrs[new_count++] = blk->instrs[ii];
+        }
+        blk->instr_count = new_count;
+        if (found) break;
+    }
+    /* Insert just before the preheader's terminator so block structure stays
+     * valid. Manual splice into a fresh array (avoids the stb_ds arrins macro,
+     * which trips -Werror=sign-compare in this build). */
+    int insert_at = pre->instr_count;
+    if (insert_at > 0) {
+        IronLIR_InstrKind tk = pre->instrs[insert_at - 1]->kind;
+        if (tk == IRON_LIR_JUMP || tk == IRON_LIR_BRANCH ||
+            tk == IRON_LIR_SWITCH || tk == IRON_LIR_RETURN) {
+            insert_at--;
+        }
+    }
+    IronLIR_Instr **spliced = NULL;
+    for (int ii = 0; ii < pre->instr_count; ii++) {
+        if (ii == insert_at) arrput(spliced, g);
+        arrput(spliced, pre->instrs[ii]);
+    }
+    if (insert_at == pre->instr_count) arrput(spliced, g);
+    arrfree(pre->instrs);
+    pre->instrs      = spliced;
+    pre->instr_count = (int)arrlen(spliced);
 }
 
 bool run_pointer_check_elimination(IronLIR_Module *module,
@@ -4087,61 +4443,71 @@ bool run_pointer_check_elimination(IronLIR_Module *module,
             }
             if (body_may_free) continue;
 
-            /* Hoist eligible loop-invariant checks. Collect first (so we don't
-             * mutate a block's instr stream mid-iteration), then splice. */
-            IronLIR_Instr **to_hoist = NULL;
-            for (int bi = 0; bi < fn->block_count; bi++) {
-                IronLIR_Block *blk = fn->blocks[bi];
-                if (!gencheck_block_in_loop(L, blk->id)) continue;
-                for (int ii = 0; ii < blk->instr_count; ii++) {
-                    IronLIR_Instr *g = blk->instrs[ii];
-                    if (g->kind != IRON_LIR_GENCHECK) continue;
-                    if (!gencheck_root_is_loop_invariant(fn, L, g->gencheck.root_alloc))
-                        continue;
-                    arrput(to_hoist, g);
+            /* Provably-entered + operand-availability (soundness fix). Only
+             * hoist a GENCHECK that:
+             *   (1) lives in the loop HEADER. The preheader's single successor
+             *       is the header, so reaching the preheader guarantees the
+             *       header — and thus the check — executes (guarded-do shape).
+             *       A check in a conditional body block can execute on NO
+             *       iteration even though the loop runs, and hoisting it would
+             *       panic a correct program that never dereferences. The old
+             *       `dominates(preheader, header)` guard was vacuously true
+             *       and proved nothing about the CHECK executing.
+             *   (2) is preceded in the header only by non-trapping pure
+             *       instructions (or earlier checks hoisted with it, in
+             *       order), so no earlier trap/divergence could keep the
+             *       original check from being reached once the loop entered.
+             *   (3) has a `ptr` operand available at the preheader: defined
+             *       outside the loop, or produced by a pure address chain
+             *       (ADDR_OF / PTR_OFFSET / CAST / consts) rooted outside the
+             *       loop. The in-loop chain is hoisted WITH the check —
+             *       otherwise the emitted C would reference a variable that is
+             *       declared later, inside the loop.
+             * Anything not provably in this shape stays where it is
+             * (correctness over the optimization). */
+            IronLIR_Block *hdr_blk = find_block(fn, L->header);
+            if (!hdr_blk) continue;
+            if ((int)arrlen(pre->succs) != 1 || pre->succs[0] != L->header)
+                continue; /* defensive: preheader must fall through to header */
+
+            /* Collect movable instrs (address chains + checks) in dependency
+             * order; stop at the first header instr that could trap, diverge,
+             * or that we cannot move. */
+            IronLIR_Instr **to_move = NULL;
+            for (int ii = 0; ii < hdr_blk->instr_count; ii++) {
+                IronLIR_Instr *g = hdr_blk->instrs[ii];
+                if (g->kind != IRON_LIR_GENCHECK) {
+                    if (t3_instr_is_nontrapping_pure(g->kind)) continue;
+                    break; /* trapping/impure — later checks not provably reached */
                 }
+                if (!gencheck_root_is_loop_invariant(fn, L, g->gencheck.root_alloc))
+                    break; /* check stays in the header and may trap → stop */
+                IronLIR_Instr **chain = NULL;
+                if (!t3_collect_hoistable_ptr_chain(fn, L, g->gencheck.ptr,
+                                                    &chain, 0)) {
+                    arrfree(chain);
+                    break; /* check stays in the header and may trap → stop */
+                }
+                for (int ci = 0; ci < (int)arrlen(chain); ci++) {
+                    bool dup = false;
+                    for (int mi = 0; mi < (int)arrlen(to_move) && !dup; mi++) {
+                        if (to_move[mi] == chain[ci]) dup = true;
+                    }
+                    if (!dup) arrput(to_move, chain[ci]);
+                }
+                arrfree(chain);
+                arrput(to_move, g);
             }
 
-            for (int hi = 0; hi < (int)arrlen(to_hoist); hi++) {
-                IronLIR_Instr *g = to_hoist[hi];
-                /* Remove g from its block. */
-                for (int bi = 0; bi < fn->block_count; bi++) {
-                    IronLIR_Block *blk = fn->blocks[bi];
-                    int new_count = 0;
-                    bool found = false;
-                    for (int ii = 0; ii < blk->instr_count; ii++) {
-                        if (blk->instrs[ii] == g) { found = true; continue; }
-                        blk->instrs[new_count++] = blk->instrs[ii];
-                    }
-                    blk->instr_count = new_count;
-                    if (found) break;
+            for (int mi = 0; mi < (int)arrlen(to_move); mi++) {
+                IronLIR_Instr *m = to_move[mi];
+                t3_move_instr_to_preheader(fn, pre, m);
+                if (m->kind == IRON_LIR_GENCHECK) {
+                    if (stat) { stat->by_tier[2]++; stat->checks_elided++; }
+                    any_changed = true;
                 }
-                /* Append to the END of the preheader (before its terminator).
-                 * The preheader's last instr is its JUMP to the header; insert
-                 * the GENCHECK just before it so block structure stays valid.
-                 * Manual splice into a fresh array (avoids the stb_ds arrins
-                 * macro, which trips -Werror=sign-compare in this build). */
-                int insert_at = pre->instr_count;
-                if (insert_at > 0) {
-                    IronLIR_InstrKind tk = pre->instrs[insert_at - 1]->kind;
-                    if (tk == IRON_LIR_JUMP || tk == IRON_LIR_BRANCH ||
-                        tk == IRON_LIR_SWITCH || tk == IRON_LIR_RETURN) {
-                        insert_at--;
-                    }
-                }
-                IronLIR_Instr **spliced = NULL;
-                for (int ii = 0; ii < pre->instr_count; ii++) {
-                    if (ii == insert_at) arrput(spliced, g);
-                    arrput(spliced, pre->instrs[ii]);
-                }
-                if (insert_at == pre->instr_count) arrput(spliced, g);
-                arrfree(pre->instrs);
-                pre->instrs      = spliced;
-                pre->instr_count = (int)arrlen(spliced);
-                if (stat) { stat->by_tier[2]++; stat->checks_elided++; }
-                any_changed = true;
             }
-            arrfree(to_hoist);
+            arrfree(to_move);
         }
         for (int li = 0; li < loop_count; li++) {
             hmfree(loops[li].body_blocks);
@@ -4153,6 +4519,581 @@ bool run_pointer_check_elimination(IronLIR_Module *module,
     }
 
     iron_lir_func_summaries_free(summaries);
+    return any_changed;
+}
+
+/* ══ 2026-07 remediation: LIST-01 bounds-check elision ═══════════════════════
+ *
+ * run_bounds_check_elimination() wires the emit-level array/List bounds checks
+ * (task #12) into the LIR check-elision framework. Unlike GENCHECK the check
+ * is NOT a separate instruction: files outside this remediation's ownership
+ * (verify.c / print.c / func_summary.c) switch exhaustively over
+ * IronLIR_InstrKind under -Werror=switch-enum, so the check site is the
+ * GET_INDEX/SET_INDEX itself and elision sets index.bounds_elide — emit_c
+ * then emits the raw access while every un-elided site keeps the exact #12
+ * guard. The pass is deletion-of-guards only from the program's perspective;
+ * the sole IR it ADDS is the Tier-3 preheader clone (a fresh, unused checked
+ * GET_INDEX = the hoisted check).
+ *
+ *   Tier 1 — dominator-redundant: an access of (arr, idx) dominated by an
+ *     earlier STILL-CHECKED access of an equivalent (arr, idx), with no
+ *     bounds barrier in the region between, is proven in-bounds → elide.
+ *   Tier 3 — LICM: a checked GET_INDEX resident in a loop HEADER (preceded
+ *     only by non-trapping pure instrs — mirrors the gencheck Tier-3
+ *     header-resident restriction) whose operands are loop-invariant, in a
+ *     loop whose body contains no bounds barrier, has its check cloned to
+ *     the preheader (runs once per loop entry) and the in-loop original
+ *     elided. GET_INDEX only — cloning a SET_INDEX would replay its store.
+ *
+ * Operand equivalence: SSA id equality, or two LOADs from the same alloca
+ * ("the same local read twice") — the latter valid only because every writer
+ * to an alloca is covered by the barrier set: STORE to that alloca (watched),
+ * PTR_STORE, CALL taking its address, SPAWN/PARALLEL_FOR/AWAIT.
+ *
+ * Barrier set (anything that can change a container's count, free/move its
+ * backing store, or write a watched local):
+ *   - CALL / SPAWN / PARALLEL_FOR / AWAIT (unknown effects; list push/pop/
+ *     grow/insert/clear are all receiver-pointer CALLs)
+ *   - PTR_STORE (may write the list struct or a watched local via pointer)
+ *   - FREE / RC_RELEASE / WEAK_RC_RELEASE (may free the backing store)
+ *   - HEAP_ALLOC / RC_ALLOC / ARENA_ALLOC / ARENA_PUSH / ARENA_POP
+ *     (allocator traffic; ARENA_POP frees arena-backed stores wholesale)
+ *   - SET_FIELD (conservative: a list held in an object field)
+ *   - STORE to a watched alloca (breaks load-equivalence)
+ *   - POISON (malformed IR — never elide across it)
+ * SET_INDEX / GET_INDEX are deliberately NOT barriers: an element write can
+ * change neither any list's count nor its items pointer (growth is only ever
+ * a method CALL), and SSA index values are immutable. The runtime
+ * Iron_List_*_get/_set/_pop macro guards (fallback call path, iron_runtime.h)
+ * are untouched — the last line of defense for sites the emitter cannot
+ * type. Pass is gated on elision_enabled: at -O0/--no-optimize/--debug every
+ * bounds_elide stays false and emission is byte-identical to #12. */
+
+typedef struct {
+    int checks_total;   /* checked-shape accesses at entry */
+    int elided_t1;      /* Tier-1 dominator-redundant elisions */
+    int hoisted_t3;     /* Tier-3 preheader-hoisted checks */
+} BoundsElisionStat;
+
+/* Value type with param fallback (mirror emit_get_value_type — the emitter's
+ * authority on which GET_INDEX/SET_INDEX shapes carry an inline guard). */
+static Iron_Type *bce_value_type(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID) return NULL;
+    if (vid < (IronLIR_ValueId)arrlen(fn->value_table) && fn->value_table[vid])
+        return fn->value_table[vid]->type;
+    if (vid >= 1 && vid <= (IronLIR_ValueId)fn->param_count)
+        return fn->params[vid - 1].type;
+    return NULL;
+}
+
+/* Canonical, block-resident definition of `vid`: scan the instruction stream
+ * for id equality. Returns the instr and (optionally) its containing block,
+ * or NULL when no block-resident def exists (params / synthetic ids / stale
+ * table entries). Callers must treat NULL conservatively. */
+static IronLIR_Instr *bce_find_def(IronLIR_Func *fn, IronLIR_ValueId vid,
+                                   IronLIR_Block **out_blk) {
+    if (out_blk) *out_blk = NULL;
+    if (vid == IRON_LIR_VALUE_INVALID) return NULL;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            if (blk->instrs[ii]->id == vid) {
+                if (out_blk) *out_blk = blk;
+                return blk->instrs[ii];
+            }
+        }
+    }
+    return NULL;
+}
+
+/* Is `vid` a synthetic parameter id (no defining instruction by design)? */
+static bool bce_is_param_value(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID) return false;
+    if (vid < (IronLIR_ValueId)arrlen(fn->value_table) && fn->value_table[vid])
+        return false;
+    return vid >= 1 && vid <= (IronLIR_ValueId)fn->param_count;
+}
+
+/* Is `in` an index access the emitter guards inline? All three checked paths
+ * (stack-repr array, bounded vector, dynamic List direct) require the array
+ * operand's type to be visible as IRON_TYPE_ARRAY; the fallback
+ * Iron_List_*_get/_set call path (type not visible) keeps its runtime-macro
+ * guard and is never a candidate. Interface-element arrays are EXCLUDED:
+ * they lower through the split-collection switch machinery, which emits no
+ * inline guard — such an access must neither be used as a dominating check
+ * nor cloned as a hoisted one. */
+static bool bce_checked_shape(IronLIR_Func *fn, IronLIR_Instr *in) {
+    if (in->kind != IRON_LIR_GET_INDEX && in->kind != IRON_LIR_SET_INDEX)
+        return false;
+    /* UNCHK-IDX: an author-declared unchecked site carries NO guard in a
+     * normal build — it is not a check. It must never serve as a dominating
+     * check for another access, never be cloned as a hoisted preheader check,
+     * and needs no elision itself (already raw). */
+    if (in->index.bounds_unchecked) return false;
+    Iron_Type *at = bce_value_type(fn, in->index.array);
+    if (!at || at->kind != IRON_TYPE_ARRAY) return false;
+    if (at->array.elem && at->array.elem->kind == IRON_TYPE_INTERFACE)
+        return false;
+    return true;
+}
+
+/* Operand equivalence for the elision relation. Same SSA id, or both LOADs
+ * from the same alloca pointer (BLOCK-RESIDENT defs only — the value table
+ * can be stale, see bce_find_def). On load-equivalence the shared alloca id
+ * is appended to watched[] (max 4: array + index each side) so the region
+ * scan treats STOREs to it as barriers. Returns false on anything else. */
+static bool bce_values_equiv(IronLIR_Func *fn,
+                             IronLIR_ValueId a, IronLIR_ValueId b,
+                             IronLIR_ValueId *watched, int *watched_count) {
+    if (a == b) return a != IRON_LIR_VALUE_INVALID;
+    IronLIR_Instr *pa = bce_find_def(fn, a, NULL);
+    IronLIR_Instr *pb = bce_find_def(fn, b, NULL);
+    if (pa && pb && pa->kind == IRON_LIR_LOAD && pb->kind == IRON_LIR_LOAD &&
+        pa->load.ptr != IRON_LIR_VALUE_INVALID &&
+        pa->load.ptr == pb->load.ptr) {
+        if (*watched_count < 4) watched[(*watched_count)++] = pa->load.ptr;
+        return true;
+    }
+    return false;
+}
+
+/* MAY-CHANGE-BOUND / MAY-FREE-BACKING classifier (see the barrier-set block
+ * comment above). (int) cast opts out of -Werror=switch-enum: the barrier
+ * cases are exhaustive by construction; everything else is a non-barrier. */
+static bool bce_instr_is_barrier(IronLIR_Instr *in,
+                                 const IronLIR_ValueId *watched,
+                                 int watched_count) {
+    switch ((int)(in->kind)) {
+    case IRON_LIR_CALL:
+    case IRON_LIR_SPAWN:
+    case IRON_LIR_PARALLEL_FOR:
+    case IRON_LIR_AWAIT:
+    case IRON_LIR_PTR_STORE:
+    case IRON_LIR_FREE:
+    case IRON_LIR_RC_RELEASE:
+    case IRON_LIR_WEAK_RC_RELEASE:
+    case IRON_LIR_HEAP_ALLOC:
+    case IRON_LIR_RC_ALLOC:
+    case IRON_LIR_ARENA_ALLOC:
+    case IRON_LIR_ARENA_PUSH:
+    case IRON_LIR_ARENA_POP:
+    case IRON_LIR_SET_FIELD:
+    case IRON_LIR_POISON:
+        return true;
+    case IRON_LIR_STORE:
+        for (int i = 0; i < watched_count; i++) {
+            if (in->store.ptr == watched[i]) return true;
+        }
+        return false;
+    default:
+        return false;
+    }
+}
+
+/* Region scan between an earlier check `from` and a later check `to` —
+ * structural clone of gencheck_region_has_may_free (same-block strict-
+ * between; cross-block tail/head; cycle-aware to_blk tail + traversal
+ * THROUGH to_blk on a back edge; conservative full scan of forward-reachable
+ * intermediate blocks; defensive treat-as-barrier on index-not-found). */
+static bool bce_region_has_barrier(IronLIR_Func *fn,
+                                   IronLIR_Block *from_blk, IronLIR_Instr *from,
+                                   IronLIR_Block *to_blk, IronLIR_Instr *to,
+                                   const IronLIR_ValueId *watched,
+                                   int watched_count) {
+    int from_idx = rcpe_instr_index(from_blk, from);
+    int to_idx   = rcpe_instr_index(to_blk, to);
+    if (from_idx < 0 || to_idx < 0) return true;
+
+    if (from_blk == to_blk) {
+        /* Straight-line: a basic block has a single entry, so every dynamic
+         * execution of `to` is immediately preceded by the same-pass
+         * execution of `from` — the dynamic region IS the static
+         * strict-between code, even on a CFG cycle (a back edge re-enters
+         * the block at its top and re-executes `from` first). Mirrors the
+         * gencheck same-block arm. */
+        for (int i = from_idx + 1; i < to_idx; i++) {
+            if (bce_instr_is_barrier(from_blk->instrs[i], watched, watched_count))
+                return true;
+        }
+        return false;
+    }
+
+    for (int i = from_idx + 1; i < from_blk->instr_count; i++) {
+        if (bce_instr_is_barrier(from_blk->instrs[i], watched, watched_count))
+            return true;
+    }
+    for (int i = 0; i < to_idx; i++) {
+        if (bce_instr_is_barrier(to_blk->instrs[i], watched, watched_count))
+            return true;
+    }
+
+    /* Back-edge soundness (mirror gencheck_region_has_may_free): when to_blk
+     * lies on a CFG cycle, control can run to → (tail of to_blk) → back edge
+     * → (head of to_blk) → to without re-executing `from`, so the tail and
+     * the blocks reachable through to_blk are part of the region. */
+    bool to_on_cycle = block_on_cycle(fn, to_blk);
+    if (to_on_cycle) {
+        for (int i = to_idx + 1; i < to_blk->instr_count; i++) {
+            if (bce_instr_is_barrier(to_blk->instrs[i], watched, watched_count))
+                return true;
+        }
+    }
+
+    struct { IronLIR_BlockId key; bool value; } *seen = NULL;
+    IronLIR_BlockId *worklist = NULL;
+    for (int si = 0; si < (int)arrlen(from_blk->succs); si++) {
+        arrput(worklist, from_blk->succs[si]);
+    }
+    bool barrier = false;
+    for (int wi = 0; wi < (int)arrlen(worklist) && !barrier; wi++) {
+        IronLIR_BlockId bid = worklist[wi];
+        if (hmgeti(seen, bid) >= 0) continue;
+        hmput(seen, bid, true);
+        IronLIR_Block *blk = find_block(fn, bid);
+        if (!blk) continue;
+        if (bid == to_blk->id) {
+            if (to_on_cycle) {
+                for (int si = 0; si < (int)arrlen(blk->succs); si++) {
+                    arrput(worklist, blk->succs[si]);
+                }
+            }
+            continue;
+        }
+        if (bid == from_blk->id) continue; /* handled above */
+        for (int i = 0; i < blk->instr_count; i++) {
+            if (bce_instr_is_barrier(blk->instrs[i], watched, watched_count)) {
+                barrier = true;
+                break;
+            }
+        }
+        for (int si = 0; si < (int)arrlen(blk->succs); si++) {
+            arrput(worklist, blk->succs[si]);
+        }
+    }
+    hmfree(seen);
+    arrfree(worklist);
+    return barrier;
+}
+
+/* Tier-3 operand availability at the preheader.
+ *   BCE_AVAIL_OUTSIDE — defined outside loop L (or a param / synthetic id):
+ *     referenced from the preheader as-is.
+ *   BCE_AVAIL_CLONE_LOAD — a LOAD (inside L) from an alloca with no STORE to
+ *     that alloca anywhere in L's body: value is loop-invariant because the
+ *     Tier-3 loop precondition already rejected every other writer (CALL /
+ *     PTR_STORE / SPAWN / … are loop-body barriers). The load itself is
+ *     cloned into the preheader ahead of the hoisted check.
+ *   BCE_AVAIL_NO — anything else: do not hoist. */
+typedef enum { BCE_AVAIL_NO, BCE_AVAIL_OUTSIDE, BCE_AVAIL_CLONE_LOAD } BceAvail;
+
+static bool bce_loop_stores_to_alloca(IronLIR_Func *fn, IronLIR_LoopInfo *L,
+                                      IronLIR_ValueId alloca_vid) {
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        if (hmgeti(L->body_blocks, blk->id) < 0) continue;
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (in->kind == IRON_LIR_STORE && in->store.ptr == alloca_vid)
+                return true;
+        }
+    }
+    return false;
+}
+
+static BceAvail bce_operand_avail(IronLIR_Func *fn, IronLIR_LoopInfo *L,
+                                  IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID) return BCE_AVAIL_NO;
+    IronLIR_Block *db = NULL;
+    IronLIR_Instr *def = bce_find_def(fn, vid, &db);
+    if (!def) {
+        /* No block-resident def. A synthetic param id is live across the
+         * whole function → available at the preheader. Anything else (stale
+         * value-table entry, special emission machinery) is NOT provably
+         * available/invariant → refuse (observed: a value-table slot pointing
+         * at a dead copy of a header LOAD made a loop-varying index look
+         * loop-invariant). */
+        return bce_is_param_value(fn, vid) ? BCE_AVAIL_OUTSIDE : BCE_AVAIL_NO;
+    }
+    if (hmgeti(L->body_blocks, db->id) < 0) return BCE_AVAIL_OUTSIDE;
+    if (def->kind == IRON_LIR_LOAD &&
+        def->load.ptr != IRON_LIR_VALUE_INVALID &&
+        !bce_loop_stores_to_alloca(fn, L, def->load.ptr)) {
+        /* The alloca operand itself must be available outside the loop. */
+        IronLIR_Block *ab = NULL;
+        IronLIR_Instr *adef = bce_find_def(fn, def->load.ptr, &ab);
+        if (adef && ab && hmgeti(L->body_blocks, ab->id) >= 0) return BCE_AVAIL_NO;
+        if (!adef && !bce_is_param_value(fn, def->load.ptr)) return BCE_AVAIL_NO;
+        return BCE_AVAIL_CLONE_LOAD;
+    }
+    return BCE_AVAIL_NO;
+}
+
+/* Allocate a fresh-value clone of `src` registered in the value table (the
+ * alloc_instr protocol, minus the block append — the caller splices it into
+ * the preheader). */
+static IronLIR_Instr *bce_clone_valued_instr(IronLIR_Func *fn, IronLIR_Instr *src) {
+    IronLIR_Instr *c = ARENA_ALLOC(fn->arena, IronLIR_Instr);
+    if (!c) iron_oom_abort("lir_optimize.c:bce_clone_valued_instr");
+    memcpy(c, src, sizeof(*c));
+    c->id = fn->next_value_id++;
+    while (arrlen(fn->value_table) <= (ptrdiff_t)c->id) {
+        arrput(fn->value_table, NULL);
+    }
+    fn->value_table[c->id] = c;
+    return c;
+}
+
+/* Insert `g` at the end of preheader `pre`, before its terminator. */
+static void bce_insert_before_terminator(IronLIR_Block *pre, IronLIR_Instr *g) {
+    int insert_at = pre->instr_count;
+    if (insert_at > 0) {
+        IronLIR_InstrKind tk = pre->instrs[insert_at - 1]->kind;
+        if (tk == IRON_LIR_JUMP || tk == IRON_LIR_BRANCH ||
+            tk == IRON_LIR_SWITCH || tk == IRON_LIR_RETURN) {
+            insert_at--;
+        }
+    }
+    IronLIR_Instr **spliced = NULL;
+    for (int ii = 0; ii < pre->instr_count; ii++) {
+        if (ii == insert_at) arrput(spliced, g);
+        arrput(spliced, pre->instrs[ii]);
+    }
+    if (insert_at == pre->instr_count) arrput(spliced, g);
+    arrfree(pre->instrs);
+    pre->instrs      = spliced;
+    pre->instr_count = (int)arrlen(spliced);
+}
+
+static bool run_bounds_check_elimination(IronLIR_Module *module,
+                                         BoundsElisionStat *stat) {
+    if (stat) memset(stat, 0, sizeof(*stat));
+    if (!module) return false;
+    bool any_changed = false;
+
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (fn->is_extern || fn->block_count == 0) continue;
+
+        rebuild_cfg_edges(fn);
+        IronLIR_DomEntry *idom = build_domtree(fn);
+
+        if (stat) {
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    if (bce_checked_shape(fn, blk->instrs[ii])) stat->checks_total++;
+                }
+            }
+        }
+
+        /* ── Tier 1: dominator-redundant checks ──────────────────────────── */
+        for (int g2bi = 0; g2bi < fn->block_count; g2bi++) {
+            IronLIR_Block *g2_blk = fn->blocks[g2bi];
+            for (int g2ii = 0; g2ii < g2_blk->instr_count; g2ii++) {
+                IronLIR_Instr *g2 = g2_blk->instrs[g2ii];
+                if (!bce_checked_shape(fn, g2)) continue;
+                if (g2->index.bounds_elide) continue;
+
+                bool matched = false;
+                for (int g1bi = 0; g1bi < fn->block_count && !matched; g1bi++) {
+                    IronLIR_Block *g1_blk = fn->blocks[g1bi];
+                    for (int g1ii = 0; g1ii < g1_blk->instr_count; g1ii++) {
+                        IronLIR_Instr *g1 = g1_blk->instrs[g1ii];
+                        if (g1 == g2) continue;
+                        if (!bce_checked_shape(fn, g1)) continue;
+                        /* g1 must still CARRY its check (an elided g1 only
+                         * covers g2 transitively through ITS dominator, and
+                         * region-cleanliness does not compose across an
+                         * arbitrary CFG — require the executable check). */
+                        if (g1->index.bounds_elide) continue;
+
+                        IronLIR_ValueId watched[4];
+                        int watched_count = 0;
+                        if (!bce_values_equiv(fn, g1->index.array, g2->index.array,
+                                              watched, &watched_count)) continue;
+                        if (!bce_values_equiv(fn, g1->index.index, g2->index.index,
+                                              watched, &watched_count)) continue;
+
+                        /* Dominance: same-block order, else domtree. */
+                        if (g1_blk == g2_blk) {
+                            if (g1ii >= g2ii) continue;
+                        } else if (!dominates(idom, g1_blk->id, g2_blk->id)) {
+                            continue;
+                        }
+
+                        if (bce_region_has_barrier(fn, g1_blk, g1, g2_blk, g2,
+                                                   watched, watched_count)) {
+                            continue;
+                        }
+
+                        g2->index.bounds_elide = true;
+                        if (stat) stat->elided_t1++;
+                        any_changed = true;
+                        matched = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        /* ── Tier 1b: loop-scoped dominator rule ───────────────────────────
+         * The pairwise region scan above over-approximates: from a check g1
+         * in a loop HEADER, every forward-reachable block is scanned —
+         * including the loop-EXIT continuation (e.g. the outer loop's
+         * increment), whose stores reject the pair although they can only
+         * run after the header re-executes g1. Loop-scoped argument: in a
+         * reducible CFG a natural loop is entered only through its header,
+         * so between the LAST execution of a header-resident g1 and any
+         * execution of a body-resident g2 of the same loop, control stays
+         * inside the loop. Hence: g1 in L's header block, g2 in L's body,
+         * equivalent operands, and NO barrier w.r.t. the watched allocas in
+         * ANY block of L → g2's check is redundant. (If Tier 3 later hoists
+         * g1 to the preheader, coverage still holds: the hoist preconditions
+         * — barrier-free body + no in-loop stores to the operand allocas —
+         * make the once-per-entry check valid for every iteration.) */
+        int loop_count = 0;
+        IronLIR_LoopInfo *loops = build_loop_info(fn, idom, &loop_count);
+        for (int li = 0; li < loop_count; li++) {
+            IronLIR_LoopInfo *L = &loops[li];
+            IronLIR_Block *hdr = find_block(fn, L->header);
+            if (!hdr) continue;
+
+            for (int g2bi = 0; g2bi < fn->block_count; g2bi++) {
+                IronLIR_Block *g2_blk = fn->blocks[g2bi];
+                if (g2_blk == hdr) continue; /* same-block pairs: Tier 1 */
+                if (hmgeti(L->body_blocks, g2_blk->id) < 0) continue;
+                for (int g2ii = 0; g2ii < g2_blk->instr_count; g2ii++) {
+                    IronLIR_Instr *g2 = g2_blk->instrs[g2ii];
+                    if (!bce_checked_shape(fn, g2)) continue;
+                    if (g2->index.bounds_elide) continue;
+
+                    for (int g1ii = 0; g1ii < hdr->instr_count; g1ii++) {
+                        IronLIR_Instr *g1 = hdr->instrs[g1ii];
+                        if (g1 == g2) continue;
+                        if (!bce_checked_shape(fn, g1)) continue;
+                        if (g1->index.bounds_elide) continue;
+
+                        IronLIR_ValueId watched[4];
+                        int watched_count = 0;
+                        if (!bce_values_equiv(fn, g1->index.array, g2->index.array,
+                                              watched, &watched_count)) continue;
+                        if (!bce_values_equiv(fn, g1->index.index, g2->index.index,
+                                              watched, &watched_count)) continue;
+
+                        /* No barrier in any block of L (header included). */
+                        bool loop_barrier = false;
+                        for (int bi = 0; bi < fn->block_count && !loop_barrier; bi++) {
+                            IronLIR_Block *blk = fn->blocks[bi];
+                            if (hmgeti(L->body_blocks, blk->id) < 0) continue;
+                            for (int ii = 0; ii < blk->instr_count; ii++) {
+                                if (bce_instr_is_barrier(blk->instrs[ii],
+                                                         watched, watched_count)) {
+                                    loop_barrier = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (loop_barrier) continue;
+
+                        g2->index.bounds_elide = true;
+                        if (stat) stat->elided_t1++;
+                        any_changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        /* ── Tier 3: LICM check hoisting (header-resident GET_INDEX only) ── */
+        for (int li = 0; li < loop_count; li++) {
+            IronLIR_LoopInfo *L = &loops[li];
+            if (L->preheader == 0) continue;
+            if (!dominates(idom, L->preheader, L->header)) continue;
+            IronLIR_Block *pre = find_block(fn, L->preheader);
+            IronLIR_Block *hdr = find_block(fn, L->header);
+            if (!pre || !hdr) continue;
+            if ((int)arrlen(pre->succs) != 1 || pre->succs[0] != L->header)
+                continue;
+
+            /* Loop body must be bounds-barrier-free (empty watched set: the
+             * opcode barriers; per-candidate STOREs are re-checked by
+             * bce_operand_avail). */
+            bool body_barrier = false;
+            for (int bi = 0; bi < fn->block_count && !body_barrier; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                if (hmgeti(L->body_blocks, blk->id) < 0) continue;
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    if (bce_instr_is_barrier(blk->instrs[ii], NULL, 0)) {
+                        body_barrier = true;
+                        break;
+                    }
+                }
+            }
+            if (body_barrier) continue;
+
+            /* Walk the header prefix: pure instrs skip; the first
+             * non-hoistable trapping instr stops the walk (later checks are
+             * then not provably reached before it — mirror gencheck T3). */
+            for (int ii = 0; ii < hdr->instr_count; ii++) {
+                IronLIR_Instr *g = hdr->instrs[ii];
+                if (g->kind != IRON_LIR_GET_INDEX) {
+                    if (t3_instr_is_nontrapping_pure(g->kind)) continue;
+                    break;
+                }
+                if (g->index.bounds_elide) {
+                    /* Already-elided access: guard removed because a
+                     * dominating check proved the index in — the raw load
+                     * cannot trap, safe to walk past. */
+                    continue;
+                }
+                if (!bce_checked_shape(fn, g)) {
+                    /* Fallback-path access (array type not visible): the
+                     * emitter lowers it to an Iron_List_*_get CALL whose
+                     * macro guard can panic — later checks are not provably
+                     * reached before it. Stop the walk (mirror gencheck). */
+                    break;
+                }
+                BceAvail arr_av = bce_operand_avail(fn, L, g->index.array);
+                BceAvail idx_av = bce_operand_avail(fn, L, g->index.index);
+                if (arr_av == BCE_AVAIL_NO || idx_av == BCE_AVAIL_NO) break;
+
+                /* Build the preheader check: clone invariant LOAD operands
+                 * first (from the BLOCK-RESIDENT def — the value table can be
+                 * stale), then the checked GET_INDEX clone itself (fresh,
+                 * unused value → use_count 0 → never inline-suppressed). */
+                IronLIR_ValueId arr_vid = g->index.array;
+                IronLIR_ValueId idx_vid = g->index.index;
+                if (arr_av == BCE_AVAIL_CLONE_LOAD) {
+                    IronLIR_Instr *lc =
+                        bce_clone_valued_instr(fn, bce_find_def(fn, arr_vid, NULL));
+                    bce_insert_before_terminator(pre, lc);
+                    arr_vid = lc->id;
+                }
+                if (idx_av == BCE_AVAIL_CLONE_LOAD) {
+                    IronLIR_Instr *lc =
+                        bce_clone_valued_instr(fn, bce_find_def(fn, idx_vid, NULL));
+                    bce_insert_before_terminator(pre, lc);
+                    idx_vid = lc->id;
+                }
+                IronLIR_Instr *gc = bce_clone_valued_instr(fn, g);
+                gc->index.array        = arr_vid;
+                gc->index.index        = idx_vid;
+                gc->index.value        = IRON_LIR_VALUE_INVALID;
+                gc->index.bounds_elide = false;
+                bce_insert_before_terminator(pre, gc);
+
+                g->index.bounds_elide = true;
+                if (stat) stat->hoisted_t3++;
+                any_changed = true;
+            }
+        }
+        for (int li = 0; li < loop_count; li++) {
+            hmfree(loops[li].body_blocks);
+        }
+        arrfree(loops);
+        hmfree(idom);
+    }
+
     return any_changed;
 }
 
@@ -4625,6 +5566,17 @@ static void run_function_inlining(IronLIR_Module *module,
         if (strncmp(fn->name, "__lambda_", 9) == 0 ||
             strncmp(fn->name, "__spawn_",  8) == 0 ||
             strncmp(fn->name, "__pfor_",   7) == 0) continue;
+        /* PARM-02: skip var-param callees — their by-ref ABI (caller passes
+         * &binding, callee derefs through the synthetic param id) relies on
+         * emit-side special cases keyed to THIS function's param ids; the
+         * inliner's id remap would silently drop the reference semantics. */
+        {
+            bool has_var_param = false;
+            for (int pi = 0; pi < fn->param_count; pi++) {
+                if (fn->param_is_var && fn->param_is_var[pi]) { has_var_param = true; break; }
+            }
+            if (has_var_param) continue;
+        }
         if (count_func_instructions(fn) > 30) continue;  /* threshold: 30 (phi-eliminate adds ~9 instrs for param allocas) */
         if (shgeti(local_purity, (char*)fn->name) < 0) continue;
         if (func_has_self_call(fn)) continue;
@@ -4646,6 +5598,7 @@ static void run_function_inlining(IronLIR_Module *module,
         if (fn->is_extern || fn->block_count == 0) continue;
 
         int orig_block_count = fn->block_count;  /* Snapshot before mutations */
+        bool inlined_any = false;
 
         for (int bi = 0; bi < orig_block_count; bi++) {
             /* Re-fetch block pointer every iteration (stb_ds may realloc) */
@@ -4683,11 +5636,24 @@ static void run_function_inlining(IronLIR_Module *module,
 
                 /* Inline this call site */
                 inline_call_site(fn, call_block, ii, instr, callee);
+                inlined_any = true;
 
                 /* Block is now split — stop iterating its instructions */
                 break;
             }
         }
+
+        /* 2026-07 remediation (--no-optimize closure hang): inline_call_site
+         * splits blocks and rewires terminators but leaves the preds/succs
+         * arrays stale. At default optimization the fixpoint passes rebuild
+         * them (run_strength_reduction calls rebuild_cfg_edges), but at
+         * -O0/--no-optimize NOTHING after the inliner does — and emit_c's
+         * reachability BFS walks succs, so every cloned/split block appeared
+         * unreachable and was emitted as `__builtin_unreachable()`. Control
+         * then fell through UB into garbage (observed: infinite loop on any
+         * program where a call got inlined). Rebuild the edges at the source
+         * of the mutation so the CFG metadata is never stale. */
+        if (inlined_any) rebuild_cfg_edges(fn);
     }
 
     /* Cleanup */
@@ -4699,6 +5665,51 @@ void iron_lir_compute_inline_info(IronLIR_Module *module, IronLIR_OptimizeInfo *
     if (!module || !info) return;
     /* Compute module-wide function purity analysis (only once per module) */
     compute_func_purity(module, info);
+}
+
+/* Per-pass verification gate (soundness fix): run the LIR verifier and, if it
+ * reports MORE errors than the module had when it ENTERED the pipeline
+ * (baseline_errors), print the diagnostics and abort compilation with a clear
+ * internal-error message. Previously the verifier result was computed and then
+ * silently discarded, so a pass that corrupted the IR sailed straight into C
+ * emission and miscompiled the program. Aborting is deliberate: there is no
+ * cheap module snapshot to revert to, and emitting code from IR a pass just
+ * invalidated is never acceptable.
+ *
+ * The baseline exists because hand-built test-seam modules (e.g. synthetic
+ * param value ids with no defining instruction) may enter the pipeline already
+ * failing verification; those pre-existing errors are not a pass's fault, and
+ * error counts on such modules can legitimately shift as passes rewrite
+ * operands, so gating is skipped entirely for them (the pre-fix behavior).
+ * Real ironc-built modules verify clean at entry (baseline 0), so the gate is
+ * strict exactly where it matters: any post-pass error there is corruption. */
+static void optimize_verify_or_die(IronLIR_Module *module, Iron_Arena *arena,
+                                   const char *pass_name, int baseline_errors) {
+    if (baseline_errors > 0) return; /* pre-invalid test-seam module */
+    Iron_DiagList diags = iron_diaglist_create();
+    iron_lir_verify(module, &diags, arena);
+    if (diags.error_count > baseline_errors) {
+        iron_diag_print_all(&diags, NULL);
+        fprintf(stderr,
+                "iron: internal compiler error: LIR verification failed after "
+                "optimization pass '%s' (%d error%s, %d at pipeline entry). "
+                "The optimizer produced invalid IR; aborting before emission "
+                "to avoid miscompiling the program. Please report this bug.\n",
+                pass_name, diags.error_count,
+                diags.error_count == 1 ? "" : "s", baseline_errors);
+        fflush(stderr);
+        exit(1);
+    }
+    iron_diaglist_free(&diags);
+}
+
+/* Count of verifier errors currently present on the module. */
+static int optimize_verify_error_count(IronLIR_Module *module, Iron_Arena *arena) {
+    Iron_DiagList diags = iron_diaglist_create();
+    iron_lir_verify(module, &diags, arena);
+    int n = diags.error_count;
+    iron_diaglist_free(&diags);
+    return n;
 }
 
 bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
@@ -4758,10 +5769,14 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
 
     if (skip_new_passes) return false;
 
-    /* Fixpoint loop: copy-prop -> const-fold -> DCE */
+    /* Fixpoint loop: copy-prop -> const-fold -> DCE.
+     * Each pass is followed by a verification GATE (optimize_verify_or_die):
+     * a pass that corrupts the IR aborts compilation instead of sailing into
+     * emission (the old code computed the verdict and threw it away). The
+     * baseline snapshot lets already-invalid hand-built test modules through
+     * unchanged while keeping the gate strict for real builds. */
     bool any_changed = false;
-    Iron_DiagList verify_diags;
-    memset(&verify_diags, 0, sizeof(verify_diags));
+    int verify_baseline = optimize_verify_error_count(module, arena);
 
     for (int iter = 0; iter < 32; iter++) {
         bool changed = false;
@@ -4771,41 +5786,39 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
             char *ir_text = iron_lir_print(module, true);
             if (ir_text) { fprintf(stderr, "=== After copy-prop (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
         }
-        iron_lir_verify(module, &verify_diags, arena);
+        optimize_verify_or_die(module, arena, "copy-propagation", verify_baseline);
 
         changed |= run_constant_folding(module);
         if (dump_passes) {
             char *ir_text = iron_lir_print(module, true);
             if (ir_text) { fprintf(stderr, "=== After const-fold (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
         }
-        iron_lir_verify(module, &verify_diags, arena);
+        optimize_verify_or_die(module, arena, "constant-folding", verify_baseline);
 
         changed |= run_dce(module);
         if (dump_passes) {
             char *ir_text = iron_lir_print(module, true);
             if (ir_text) { fprintf(stderr, "=== After dce (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
         }
-        iron_lir_verify(module, &verify_diags, arena);
+        optimize_verify_or_die(module, arena, "dead-code-elimination", verify_baseline);
 
         changed |= run_store_load_elim(module);
         if (dump_passes) {
             char *ir_text = iron_lir_print(module, true);
             if (ir_text) { fprintf(stderr, "=== After store-load-elim (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
         }
-        iron_lir_verify(module, &verify_diags, arena);
+        optimize_verify_or_die(module, arena, "store-load-elimination", verify_baseline);
 
         changed |= run_strength_reduction(module);
         if (dump_passes) {
             char *ir_text = iron_lir_print(module, true);
             if (ir_text) { fprintf(stderr, "=== After strength-reduction (iter %d) ===\n%s\n", iter, ir_text); free(ir_text); }
         }
-        iron_lir_verify(module, &verify_diags, arena);
+        optimize_verify_or_die(module, arena, "strength-reduction", verify_baseline);
 
         if (!changed) break;
         any_changed = true;
     }
-
-    iron_diaglist_free(&verify_diags);
 
     /* PHI-01/PHI-02: dead alloca elimination — remove zero-load phi-origin
      * allocas and their stores.  Runs once post-fixpoint; copy-prop has
@@ -4832,6 +5845,7 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
                 free(ir_text);
             }
         }
+        optimize_verify_or_die(module, arena, "rc-pair-elimination", verify_baseline);
 
         /* Phase 30 OPT-03..07: 4-tier pointer (generation) check elision. Runs
          * after rc-pair-elim under the same gate (OFF at -O0/debug so the Phase
@@ -4850,10 +5864,29 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
             }
         }
 
-        Iron_DiagList verify_diags2;
-        memset(&verify_diags2, 0, sizeof(verify_diags2));
-        iron_lir_verify(module, &verify_diags2, arena);
-        iron_diaglist_free(&verify_diags2);
+        optimize_verify_or_die(module, arena, "pointer-check-elimination", verify_baseline);
+
+        /* 2026-07 remediation: LIST-01 bounds-check elision (Tier-1 dominator
+         * redundancy + Tier-3 LICM hoisting on the emit-level array bounds
+         * guards). Same gate as the other elision passes — OFF at -O0/--debug
+         * so every guard is emitted there. Runs after gencheck elision so the
+         * CFG/domtree work happens on the settled stream; verified like every
+         * other mutating pass. */
+        BoundsElisionStat bce_stat = {0};
+        run_bounds_check_elimination(module, &bce_stat);
+        if (dump_passes) {
+            char *ir_text = iron_lir_print(module, true);
+            if (ir_text) {
+                fprintf(stderr,
+                        "=== After bounds-check-elim: %d/%d guards elided "
+                        "(T1=%d T3-hoisted=%d) ===\n%s\n",
+                        bce_stat.elided_t1 + bce_stat.hoisted_t3,
+                        bce_stat.checks_total, bce_stat.elided_t1,
+                        bce_stat.hoisted_t3, ir_text);
+                free(ir_text);
+            }
+        }
+        optimize_verify_or_die(module, arena, "bounds-check-elimination", verify_baseline);
     }
 
     /* Phase 16: compute module-wide function purity and set up inline info */

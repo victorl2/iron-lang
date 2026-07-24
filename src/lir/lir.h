@@ -235,6 +235,21 @@ struct IronLIR_Instr {
         struct {
             Iron_Type  *alloc_type;
             const char *name_hint;
+            /* 2026-07 remediation (module globals): when non-NULL this
+             * "alloca" is a per-function GLOBAL SLOT — a pointer alias to the
+             * file-scope C static backing the named module-level binding.
+             * emit_c.c renders it as `<ctype> *_vN = &Iron_g_<name>;` in the
+             * entry block; LOAD/STORE through it become `*_vN` reads/writes,
+             * and self_by_addr call args pass `_vN` directly (it already IS
+             * the address). lir_optimize.c treats such slots as opaque
+             * memory: no copy-propagation through them (a call may mutate
+             * the global), no dead-alloca elimination (a store IS the
+             * global write), and no stack-array taint. Deliberately a
+             * payload field, NOT a new opcode: verify.c / print.c /
+             * func_summary.c switch exhaustively over IronLIR_InstrKind
+             * under -Werror=switch-enum and stay untouched. Default NULL
+             * via alloc_instr's memset. */
+            const char *global_name;
         } alloca;
 
         /* IRON_LIR_LOAD */
@@ -255,6 +270,39 @@ struct IronLIR_Instr {
             IronLIR_ValueId array;
             IronLIR_ValueId index;
             IronLIR_ValueId value;   /* SET_INDEX only */
+            /* 2026-07 remediation (bounds-check elision): when true, emit_c
+             * omits the LIST-01 bounds guard at this access (raw indexing).
+             * Set ONLY by run_bounds_check_elimination (lir_optimize.c) after
+             * proving the access dominated by an equivalent check with no
+             * may-shrink/may-mutate barrier between (Tier 1), or covered by a
+             * loop-invariant check hoisted to the preheader (Tier 3). Default
+             * false via alloc_instr's memset — un-analyzed IR (and -O0 /
+             * --no-optimize / --debug builds, where the elision pass never
+             * runs) keeps every check. The Iron_List_* _get/_set/_pop macro
+             * guards in iron_runtime.h are unaffected (fallback call path =
+             * last line of defense). Deliberately a payload field, NOT a new
+             * opcode: files outside this remediation's ownership (verify.c,
+             * print.c, func_summary.c) switch exhaustively over
+             * IronLIR_InstrKind under -Werror=switch-enum. */
+            bool            bounds_elide;
+            /* 2026-07 UNCHK-IDX (per-site unchecked indexing): when true, the
+             * AUTHOR opted this exact site out of the LIST-01 bounds guard via
+             * the `xs.get_unchecked(i)` / `xs.set_unchecked(i, v)` intrinsic
+             * spelling (typecheck by-name interception, the Box.new/unwrap
+             * precedent). Set ONLY by hir_to_lir's array-receiver method arm —
+             * never by any optimizer pass. Emission (emit_c.c) routes the site
+             * through the IRON_UNCHECKED_IDX macro (iron_runtime.h): raw index
+             * in normal builds, full guard + distinct "unchecked site" panic
+             * under --debug-build (-DIRON_DEBUG_ALLOCATOR) — the build-mode
+             * decision therefore lives in the C preprocessor, NOT here, so one
+             * LIR/one generated TU serves both modes. Disjoint from
+             * bounds_elide: an unchecked site is not a "check" — the elision
+             * pass must neither elide it (nothing to elide) nor use it as a
+             * dominating guard nor clone it as a hoisted one
+             * (bce_checked_shape excludes it). Out-of-bounds through such a
+             * site in a non-debug build is UB, like C. Default false via
+             * alloc_instr's memset. */
+            bool            bounds_unchecked;
         } index;
 
         /* IRON_LIR_CALL */
@@ -274,6 +322,24 @@ struct IronLIR_Instr {
              * if a future extern happens to share a prefix but takes its
              * receiver by value. */
             bool            self_by_addr;
+            /* 2026-07 remediation (ARENA-10 arena-OOM panic name): when the
+             * call is an Arena ctor stub (arena_new / arena_new_threadsafe /
+             * arena_with_capacity) bound by a LET, hir_to_lir records the
+             * binding name here; the emit CALL arm then stores it into the
+             * runtime handle (`_vN->name = "<binding>"`) so
+             * iron_panic_arena_oom reports `arena "<binding>"` instead of
+             * the generic "arena". NULL (zero-init) for every other call. */
+            const char     *arena_binding_name;
+            /* PARM-02 mutable-reference params: arena array of arg_count
+             * flags (NULL when no arg is by-ref). args_by_addr[i] == true
+             * means args[i] is the ALLOCA ValueId of the caller's mutable
+             * binding and the emitter must render "&_vN" so the callee's
+             * `T *` var-param slot receives the binding's address. Set by
+             * hir_to_lir.c EXPR_CALL lowering when the callee's HIR decl
+             * marks param i `var`. The function inliner refuses calls into
+             * var-param callees (see run_function_inlining), so the flags
+             * survive to emission untouched. */
+            bool           *args_by_addr;
         } call;
 
         /* IRON_LIR_JUMP */
@@ -481,6 +547,9 @@ struct IronLIR_Instr {
 
 /* ── Parameter ────────────────────────────────────────────────────────────── */
 
+/* NOTE: deliberately NOT extended for PARM-02 var params — unit tests
+ * stack-allocate partial initializations of this struct, so the per-param
+ * `var` bit lives in IronLIR_Func.param_is_var (memset-zeroed at create). */
 typedef struct {
     const char *name;
     Iron_Type  *type;
@@ -572,6 +641,9 @@ struct IronLIR_Func {
      * mutation-persistence contract. Default false via lir.c memset. */
     bool               is_mut_receiver_method;
 
+    /* PARM-02: see the block comment above web_frame_captures. */
+    bool              *param_is_var;
+
     /* Phase 5: WEB-EMIT-02/03 — frame-state captures for the canonical
      * `while(!WindowShouldClose())` main loop on --target=web.
      *
@@ -590,6 +662,19 @@ struct IronLIR_Func {
      *
      * Both fields are NULL/0 for every function created via
      * iron_lir_func_create() because of the existing memset at lir.c:122.
+     *
+     * PARM-02 mutable-reference params (see param_is_var below): parallel
+     * flag array (param_count entries, arena-owned); param_is_var[i] true
+     * when surface param i was declared `var name: T` on a non-lifted
+     * function. NULL (memset default) = no var params. Set by hir_to_lir.c
+     * flatten_func. emit_c.c consumes it to (a) emit the C parameter as
+     * `T *_vN` instead of `T _vN`, (b) deref the pointer in the entry-block
+     * copy-in STORE and the return-site write-back STORE, and (c) exclude
+     * the param from the read-only param-alias scan; lir_optimize.c uses it
+     * to refuse store→load forwarding of the copy-in, pointer-mode array
+     * analysis, and function inlining for var-param callees. Lives on the
+     * Func (not on IronLIR_Param) so unit tests' partial struct
+     * initializations of param arrays stay valid.
      * Do NOT add an explicit initializer there. */
     Iron_CaptureEntry *web_frame_captures;
     int                web_frame_capture_count;
@@ -609,6 +694,18 @@ struct IronLIR_Func {
     bool               is_readonly;
 };
 
+/* ── Module-level global binding (2026-07 remediation) ────────────────────
+ * Mirror of IronHIR_Global (hir.h): one entry per referenced top-level
+ * val/var, declaration order. hir_to_lir.c copies the HIR list; emit_c.c
+ * emits one file-scope `static <ctype> Iron_g_<name>;` per entry (zero-
+ * initialized; real initializers run in `__iron_module_init`, called from
+ * the main() wrapper before Iron_main()). Arena-owned plain array. */
+typedef struct {
+    const char *name;
+    Iron_Type  *type;
+    bool        is_mutable;
+} IronLIR_Global;
+
 /* ── Module ───────────────────────────────────────────────────────────────── */
 
 struct IronLIR_Module {
@@ -622,6 +719,12 @@ struct IronLIR_Module {
 
     IronLIR_Func      **funcs;         /* stb_ds array */
     int                func_count;
+
+    /* Module globals (2026-07 remediation): declaration-order, arena-owned.
+     * NULL/0 when no top-level binding is referenced (iron_lir_module_create
+     * memsets the struct, so builds without globals are byte-identical). */
+    IronLIR_Global    *globals;
+    int                global_count;
 
     /* Monomorphization registry: maps mangled name -> seen */
     struct { char *key; bool value; } *mono_registry; /* stb_ds string map */

@@ -4,8 +4,10 @@
  * This is a three-pass implementation:
  *
  *   Pass 1 (lower_module_decls_hir): register func/method signatures in the
- *           HIR module; collect top-level val/var into global_constants_map.
+ *           HIR module; record top-level val/var decls (global_decls_map).
  *   Pass 2 (lower_func_bodies_hir):  lower each function/method body.
+ *   Pass 2.5 (synthesize_module_init_hir): build __iron_module_init for the
+ *           referenced module globals + publish module->globals.
  *   Pass 3 (lower_lift_pending_hir): lift lambda/spawn/pfor to top-level HIR
  *           functions.
  *
@@ -92,12 +94,25 @@ typedef struct {
      * Plan 22-03's IronHIR_Func.is_readonly assignment. */
     bool             current_func_is_readonly;
 
-    /* Global constant lazy lowering */
-    struct { char *key; Iron_Node *value; } *global_constants_map;
-    struct { char *key; int value; }        *global_mutable_set;
-
-    /* Tracks which globals have been lowered (name -> VarId) */
-    struct { char *key; IronHIR_VarId value; } *global_lowered_map;
+    /* ── Module-level globals (2026-07 remediation: true module storage) ──
+     * Replaces the old per-function materialization scheme (immutable
+     * pure-init globals re-LET per referencing function; everything else
+     * E0501). Pass 1 records EVERY top-level val/var here; references are
+     * lowered as marker idents (var_id == IRON_HIR_VAR_INVALID + name, see
+     * IronHIR_Global in hir.h) and the set of ACTUALLY REFERENCED globals is
+     * accumulated in global_active_set. synthesize_module_init_hir() then
+     * builds `__iron_module_init` (declaration-order initializer assignments)
+     * and publishes module->globals for hir_to_lir/emit_c.
+     *   global_decls_map:  name -> AST decl node (Iron_ValDecl and
+     *                      Iron_VarDecl share the {span,kind,name,type_ann,
+     *                      init,declared_type} prefix; mutability = node kind).
+     *   global_decl_order: declaration-order list of the same names.
+     *   global_active_set: name -> 1 once referenced (directly, via a
+     *                      filtered lambda/spawn capture, or transitively
+     *                      from another active global's initializer). */
+    struct { char *key; Iron_Node *value; } *global_decls_map;
+    const char                             **global_decl_order; /* stb_ds array */
+    struct { char *key; int value; }        *global_active_set;
 
     /* Phase 28 ARENA-05 (Plan 28-04): lexical `in arena {}` nesting depth.
      * Incremented on entry to an Iron_InArenaBlock body, decremented on exit.
@@ -169,6 +184,90 @@ static void pop_defer_scope_hir(IronHIR_LowerCtx *ctx) {
     ctx->defer_depth--;
     arrfree(ctx->defer_stacks[ctx->defer_depth]);
     ctx->defer_stacks[ctx->defer_depth] = NULL;
+}
+
+/* ── Module-level global helpers (2026-07 remediation) ───────────────────── */
+
+/* Insert a stmt at a fixed position in a block (used by the module-init
+ * synthesis to keep initializer assignments in declaration order even when a
+ * dependency is discovered late). */
+static void hir_block_insert_stmt_at(IronHIR_Block *block, int pos,
+                                     IronHIR_Stmt *stmt) {
+    if (!block || !stmt) return;
+    int n = (int)arrlen(block->stmts);
+    if (pos < 0) pos = 0;
+    if (pos > n) pos = n;
+    arrins(block->stmts, pos, stmt);
+    block->stmt_count = (int)arrlen(block->stmts);
+}
+
+/* Mark a module-level binding as referenced. Only active globals get a
+ * file-scope static + an initializer assignment in __iron_module_init —
+ * unreferenced stdlib constants (e.g. the raylib color table) stay out of
+ * the generated C exactly as under the old lazy scheme. */
+static void activate_global(IronHIR_LowerCtx *ctx, const char *name) {
+    if (!name) return;
+    if (shgeti(ctx->global_active_set, name) < 0) {
+        shput(ctx->global_active_set, (char *)name, 1);
+    }
+}
+
+/* Build the marker ident that represents a module-global reference in HIR:
+ * var_id == IRON_HIR_VAR_INVALID + the global's name (see IronHIR_Global in
+ * hir.h). hir_verify admits invalid-id idents, and hir_to_lir resolves the
+ * name against module->globals. */
+static IronHIR_Expr *make_global_ident(IronHIR_LowerCtx *ctx, const char *name,
+                                       Iron_Type *type, Iron_Span span) {
+    activate_global(ctx, name);
+    return iron_hir_expr_ident(ctx->module, IRON_HIR_VAR_INVALID, name,
+                               type, span);
+}
+
+/* Resolved-type fallback for a global reference: prefer the reference site's
+ * typecheck annotation, else the declaration's resolved type. */
+static Iron_Type *global_decl_type(Iron_Node *decl) {
+    if (!decl) return NULL;
+    /* Iron_ValDecl and Iron_VarDecl share the {span, kind, name, type_ann,
+     * init, declared_type} prefix — cast through Iron_ValDecl. */
+    return ((Iron_ValDecl *)decl)->declared_type;
+}
+
+static Iron_Node *global_decl_init(Iron_Node *decl) {
+    if (!decl) return NULL;
+    return ((Iron_ValDecl *)decl)->init;
+}
+
+/* Remove module-global names from a capture list (compacts in place; returns
+ * the new count). The AST capture analyzer (capture.c) records ANY resolved
+ * outer IRON_SYM_VARIABLE — including top-level bindings. With true module
+ * storage a global is reachable from every function (including lifted
+ * lambda/spawn/parallel-for bodies) through its file-scope static, so
+ * capturing it would (a) snapshot a stale value for `val`-captures and
+ * (b) dangle for mutable captures (there is no enclosing stack slot to point
+ * at). A name is treated as a global capture only when it does NOT resolve in
+ * the enclosing lexical scope (a shadowing local of the same name remains a
+ * genuine capture). Compaction mutates the AST-owned array, which is exactly
+ * what every downstream consumer (HIR closure expr, LiftPending, LIR
+ * MAKE_CLOSURE metadata, emit_c env synthesis) aliases — so all stay
+ * consistent. Idempotent: re-lowering the same node re-runs the filter on
+ * the already-compacted list. */
+static int filter_global_captures(IronHIR_LowerCtx *ctx,
+                                  Iron_CaptureEntry *caps, int count) {
+    if (!caps || count <= 0) return count;
+    int w = 0;
+    for (int c = 0; c < count; c++) {
+        const char *nm = caps[c].name;
+        bool is_global_ref = nm &&
+            lookup_var(ctx, nm) == IRON_HIR_VAR_INVALID &&
+            shgeti(ctx->global_decls_map, nm) >= 0;
+        if (is_global_ref) {
+            activate_global(ctx, nm);
+            continue;
+        }
+        if (w != c) caps[w] = caps[c];
+        w++;
+    }
+    return w;
 }
 
 /* ── Resolve type annotation to Iron_Type* ───────────────────────────────── */
@@ -429,6 +528,135 @@ static bool is_compound_assign(Iron_OpKind op) {
            op == IRON_TOK_CARET_ASSIGN;
 }
 
+/* ── Compound-assign target single-evaluation ─────────────────────────────── */
+
+/* Conservative purity check on AST expressions: true only when re-evaluating
+ * the expression provably has no side effects (literals, variable reads, and
+ * operator/field/index compositions thereof). Calls, method calls, pub-field
+ * getter accesses, allocations, awaits, lambdas, etc. all report impure. */
+static bool ast_expr_is_pure(Iron_Node *n) {
+    if (!n) return true;
+    switch ((int)n->kind) {
+    case IRON_NODE_INT_LIT:
+    case IRON_NODE_FLOAT_LIT:
+    case IRON_NODE_STRING_LIT:
+    case IRON_NODE_BOOL_LIT:
+    case IRON_NODE_NULL_LIT:
+    case IRON_NODE_IDENT:
+        return true;
+    case IRON_NODE_UNARY:
+        return ast_expr_is_pure(((Iron_UnaryExpr *)n)->operand);
+    case IRON_NODE_BINARY: {
+        Iron_BinaryExpr *b = (Iron_BinaryExpr *)n;
+        return ast_expr_is_pure(b->left) && ast_expr_is_pure(b->right);
+    }
+    case IRON_NODE_FIELD_ACCESS: {
+        Iron_FieldAccess *fa = (Iron_FieldAccess *)n;
+        /* pub-field reads lower to a synthesized getter METHOD CALL — treat
+         * as impure so they are evaluated exactly once when hoisted. */
+        return !fa->is_pub_access && ast_expr_is_pure(fa->object);
+    }
+    case IRON_NODE_INDEX: {
+        Iron_IndexExpr *ix = (Iron_IndexExpr *)n;
+        return ast_expr_is_pure(ix->object) && ast_expr_is_pure(ix->index);
+    }
+    default:
+        return false;
+    }
+}
+
+/* Lower `node` once, bind the result to a synthetic immutable temp (LET is
+ * emitted into ctx->current_block), and return an IDENT reference to it.
+ * A second, independent IDENT reference is written to *second_out so the
+ * caller can use the evaluated value in two separate HIR trees. */
+static IronHIR_Expr *hoist_expr_to_temp_hir(IronHIR_LowerCtx *ctx,
+                                            Iron_Node *node,
+                                            IronHIR_Expr **second_out,
+                                            Iron_Span span) {
+    IronHIR_Module *mod = ctx->module;
+    IronHIR_Expr *val = lower_expr_hir(ctx, node);
+    Iron_Type *ty = (val && val->type) ? val->type : expr_type(node);
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "__ca_tmp%d", ctx->lift_counter++);
+    char *name = (char *)iron_arena_alloc(mod->arena, strlen(buf) + 1,
+                                          _Alignof(char));
+    if (!name) iron_oom_abort("hir_lower.c:hoist_expr_to_temp_hir name");
+    memcpy(name, buf, strlen(buf) + 1);
+
+    IronHIR_VarId vid = iron_hir_alloc_var(mod, name, ty, false);
+    IronHIR_Stmt *let_s = iron_hir_stmt_let(mod, vid, ty, val, false, span);
+    iron_hir_block_add_stmt(ctx->current_block, let_s);
+
+    if (second_out) *second_out = iron_hir_expr_ident(mod, vid, name, ty, span);
+    return iron_hir_expr_ident(mod, vid, name, ty, span);
+}
+
+/* Lower a subexpression of a compound-assign target so it is EVALUATED ONCE
+ * even though it appears in both the write tree and the read tree.
+ *   - pure exprs: lowered twice (no observable difference, zero churn);
+ *   - impure field/index chains: rebuilt structurally with their own
+ *     subexpressions deduplicated recursively;
+ *   - any other impure expr (calls, …): hoisted to a synthetic temp.
+ * Returns the expr for the write tree; *second_out receives the read tree. */
+static IronHIR_Expr *lower_ca_operand_dual(IronHIR_LowerCtx *ctx,
+                                           Iron_Node *node,
+                                           IronHIR_Expr **second_out) {
+    if (!node) {
+        if (second_out) *second_out = NULL;
+        return NULL;
+    }
+    if (ast_expr_is_pure(node)) {
+        if (second_out) *second_out = lower_expr_hir(ctx, node);
+        return lower_expr_hir(ctx, node);
+    }
+    if (node->kind == IRON_NODE_FIELD_ACCESS &&
+        !((Iron_FieldAccess *)node)->is_pub_access) {
+        Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
+        IronHIR_Expr *obj_r = NULL;
+        IronHIR_Expr *obj_w = lower_ca_operand_dual(ctx, fa->object, &obj_r);
+        if (second_out) {
+            *second_out = iron_hir_expr_field_access(ctx->module, obj_r,
+                                                     fa->field,
+                                                     fa->resolved_type,
+                                                     node->span);
+        }
+        return iron_hir_expr_field_access(ctx->module, obj_w, fa->field,
+                                          fa->resolved_type, node->span);
+    }
+    if (node->kind == IRON_NODE_INDEX) {
+        Iron_IndexExpr *ix = (Iron_IndexExpr *)node;
+        IronHIR_Expr *arr_r = NULL, *idx_r = NULL;
+        IronHIR_Expr *arr_w = lower_ca_operand_dual(ctx, ix->object, &arr_r);
+        IronHIR_Expr *idx_w = lower_ca_operand_dual(ctx, ix->index, &idx_r);
+        if (second_out) {
+            *second_out = iron_hir_expr_index(ctx->module, arr_r, idx_r,
+                                              ix->resolved_type, node->span);
+        }
+        return iron_hir_expr_index(ctx->module, arr_w, idx_w,
+                                   ix->resolved_type, node->span);
+    }
+    return hoist_expr_to_temp_hir(ctx, node, second_out, node->span);
+}
+
+/* Build the write-target and read (RHS) HIR trees for a compound assignment
+ * `target op= value`. Field/index targets share their (once-evaluated)
+ * receiver and index subexpressions between both trees; every other target
+ * shape falls back to the historical two-fresh-trees lowering. */
+static IronHIR_Expr *lower_ca_target_dual(IronHIR_LowerCtx *ctx,
+                                          Iron_Node *node,
+                                          IronHIR_Expr **read_out) {
+    if (node && (node->kind == IRON_NODE_INDEX ||
+                 (node->kind == IRON_NODE_FIELD_ACCESS &&
+                  !((Iron_FieldAccess *)node)->is_pub_access))) {
+        return lower_ca_operand_dual(ctx, node, read_out);
+    }
+    /* IDENT and anything else: two fresh trees (previous behavior — an
+     * identifier read has no side effects to deduplicate). */
+    if (read_out) *read_out = lower_expr_hir(ctx, node);
+    return lower_expr_hir(ctx, node);
+}
+
 /* ── ADT pattern binding injection ────────────────────────────────────────── */
 
 /* Recursively inject IRON_HIR_STMT_LET nodes for pattern bindings into `out`.
@@ -626,10 +854,17 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
             IronHIR_Block *spawn_body = iron_hir_block_create(mod);
-            lower_block_hir(ctx, (Iron_Block *)ss->body, spawn_body);
+            {
+                lower_block_hir(ctx, (Iron_Block *)ss->body, spawn_body);
+            }
 
             IronHIR_Stmt *spawn_s = iron_hir_stmt_spawn(mod, hname, spawn_body, name_copy, span);
             spawn_s->spawn.handle_var = id;  /* bind spawn result to h */
+
+            /* Module globals are NOT captures — the spawned body reads the
+             * file-scope static directly (compact the AST list in place). */
+            ss->capture_count = filter_global_captures(ctx, ss->captures,
+                                                       ss->capture_count);
 
             /* Resolve capture VarIds from current (outer) scope while it is live */
             if (ss->capture_count > 0 && ss->captures) {
@@ -723,21 +958,27 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             return NULL;
         }
 
-        IronHIR_Expr *target = lower_expr_hir(ctx, as->target);
-        IronHIR_Expr *value  = lower_expr_hir(ctx, as->value);
-
         if (is_compound_assign(as->op)) {
-            /* Desugar: target op= value  →  target = target binop value */
+            /* Desugar: target op= value  →  target = target binop value.
+             * The write-target and the RHS read share their side-effectful
+             * subexpressions (receiver/index), each evaluated exactly ONCE
+             * via lower_ca_target_dual — previously both trees were lowered
+             * fresh, so `arr[next()] += 1` called next() twice and
+             * `get_obj().count += 1` evaluated get_obj() twice. */
             Iron_OpKind   base = compound_assign_base_op(as->op);
             IronHIR_BinOp hop  = ast_op_to_hir_binop(base);
-            /* Re-lower target for the RHS read (fresh expr node, same source) */
-            IronHIR_Expr *target2 = lower_expr_hir(ctx, as->target);
-            Iron_Type    *ty      = expr_type(as->target);
-            IronHIR_Expr *binop   = iron_hir_expr_binop(mod, hop, target2, value,
-                                                         ty, span);
+            IronHIR_Expr *target_read = NULL;
+            IronHIR_Expr *target = lower_ca_target_dual(ctx, as->target,
+                                                        &target_read);
+            IronHIR_Expr *value  = lower_expr_hir(ctx, as->value);
+            Iron_Type    *ty     = expr_type(as->target);
+            IronHIR_Expr *binop  = iron_hir_expr_binop(mod, hop, target_read,
+                                                        value, ty, span);
             IronHIR_Stmt *s = iron_hir_stmt_assign(mod, target, binop, span);
             iron_hir_block_add_stmt(blk, s);
         } else {
+            IronHIR_Expr *target = lower_expr_hir(ctx, as->target);
+            IronHIR_Expr *value  = lower_expr_hir(ctx, as->value);
             IronHIR_Stmt *s = iron_hir_stmt_assign(mod, target, value, span);
             iron_hir_block_add_stmt(blk, s);
         }
@@ -816,7 +1057,9 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             push_scope(ctx);
             declare_var(ctx, fs->var_name, loop_var);
             IronHIR_Block *pfor_body = iron_hir_block_create(mod);
-            lower_block_hir(ctx, (Iron_Block *)fs->body, pfor_body);
+            {
+                lower_block_hir(ctx, (Iron_Block *)fs->body, pfor_body);
+            }
             pop_scope(ctx);
 
             /* Assign lifted name first so the HIR expr can store it */
@@ -835,6 +1078,11 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                                                    range_expr,
                                                                    pfor_body,
                                                                    void_ty, name_copy, span);
+
+            /* Module globals are NOT captures — the chunk body reads the
+             * file-scope static directly (compact the AST list in place). */
+            fs->pfor_capture_count = filter_global_captures(
+                ctx, fs->pfor_captures, fs->pfor_capture_count);
 
             /* Resolve pfor capture VarIds from current (outer) scope while it is live */
             if (fs->pfor_capture_count > 0 && fs->pfor_captures) {
@@ -1109,9 +1357,16 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         memcpy(name_copy, lifted_name, strlen(lifted_name) + 1);
 
         IronHIR_Block *spawn_body = iron_hir_block_create(mod);
-        lower_block_hir(ctx, (Iron_Block *)ss->body, spawn_body);
+        {
+            lower_block_hir(ctx, (Iron_Block *)ss->body, spawn_body);
+        }
 
         IronHIR_Stmt *s = iron_hir_stmt_spawn(mod, hname, spawn_body, name_copy, span);
+
+        /* Module globals are NOT captures — the spawned body reads the
+         * file-scope static directly (compact the AST list in place). */
+        ss->capture_count = filter_global_captures(ctx, ss->captures,
+                                                   ss->capture_count);
 
         /* Resolve capture VarIds from the current (enclosing) scope.
          * capture analysis (pass 3b of semantic pipeline) has already populated
@@ -1200,6 +1455,66 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
 /* ── Expression lowering ─────────────────────────────────────────────────── */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
+/* 2026-07 remediation (init-body execution): `T(args)` must RUN a
+ * user-declared anonymous `init` body, not just map args onto fields
+ * positionally. Typecheck already dispatches the arg check against the
+ * init's params when one exists (Plan 85-02 PART A), but codegen previously
+ * fell through to the v2.2 positional designated-initializer emit, silently
+ * skipping the body's side effects (docs/language_definition.md "Init —
+ * Mandatory Constructors": Type(args) constructs via the anonymous init).
+ *
+ * When `ty` is a non-generic object type declaring a user anonymous init
+ * with a NON-EMPTY body, lower the construction to the same static-call
+ * shape named inits use (FUNC_REF(Type) + method "init"), which hir_to_lir
+ * turns into `Iron_<type>_init(&zero_self, args...)` returning Self — so
+ * the body runs exactly once. Returns NULL when the positional
+ * designated-initializer path should be kept:
+ *   - no anon init, or an EMPTY body (the fieldless synth init keeps the
+ *     zero-cost positional path; an empty `{}` construct is
+ *     behavior-equivalent),
+ *   - generic object (generic init mangling/mono is not wired).
+ * Callers: the IRON_NODE_CALL constructor shape (TypeName(args) parses as
+ * CALL with a type-named callee) and the IRON_NODE_CONSTRUCT shape.
+ * heap/rc/arena allocation forms wrap these expressions and lower their
+ * inner value generically, so the init still runs exactly once there. */
+static IronHIR_Expr *try_lower_anon_init_call(IronHIR_LowerCtx *ctx,
+                                              Iron_Type *ty,
+                                              Iron_Node **ast_args,
+                                              int arg_count,
+                                              Iron_Span span) {
+    if (!ty || ty->kind != IRON_TYPE_OBJECT || !ty->object.decl ||
+        !ty->object.decl->name || ty->object.decl->generic_param_count != 0 ||
+        !ctx->program) {
+        return NULL;
+    }
+    const char *tname = ty->object.decl->name;
+    Iron_MethodDecl *anon_init = NULL;
+    for (int di = 0; di < ctx->program->decl_count; di++) {
+        Iron_Node *d = ctx->program->decls[di];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!md->is_init || md->init_name) continue;
+        if (!md->type_name || strcmp(md->type_name, tname) != 0) continue;
+        anon_init = md;
+        break;
+    }
+    bool init_has_body = anon_init && anon_init->body &&
+        anon_init->body->kind == IRON_NODE_BLOCK &&
+        ((Iron_Block *)anon_init->body)->stmt_count > 0;
+    if (!init_has_body) return NULL;
+
+    IronHIR_Module *mod = ctx->module;
+    IronHIR_Expr **cargs = NULL;
+    for (int i = 0; i < arg_count; i++) {
+        IronHIR_Expr *a = lower_expr_hir(ctx, ast_args[i]);
+        arrput(cargs, a);
+    }
+    IronHIR_Expr *tref = iron_hir_expr_func_ref(mod, tname, ty, span);
+    /* NOTE: cargs ownership transfers to the HIR expr. */
+    return iron_hir_expr_method_call(mod, tref, "init", cargs, arg_count,
+                                     ty, span);
+}
+
 static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     if (!node) return NULL;
     IronHIR_Module *mod  = ctx->module;
@@ -1210,7 +1525,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Integer literal ─────────────────────────────────────────────────── */
     case IRON_NODE_INT_LIT: {
         Iron_IntLit *lit = (Iron_IntLit *)node;
-        int64_t val = (int64_t)strtoll(lit->value, NULL, 0);
+        /* Parse base-10 ALWAYS. The lexer has already normalized hex (0x…)
+         * and binary (0b…) literals to plain decimal text (see
+         * lexer.c:iron_lex_number, which snprintf's the converted value), so
+         * every IRON_TOK_INTEGER value string is a decimal digit run. Base 0
+         * here re-interpreted a leading zero as C octal: `val x = 010` became
+         * 8 instead of 10. Overflow behavior is unchanged (strtoll saturates
+         * identically in base 10; hex/binary are range-checked in the lexer). */
+        int64_t val = (int64_t)strtoll(lit->value, NULL, 10);
         return iron_hir_expr_int_lit(mod, val, lit->resolved_type, span);
     }
 
@@ -1292,37 +1614,18 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                        id->resolved_type, span);
         }
 
-        /* 2. Check if it's already a lowered global */
+        /* 2. Module-level global (2026-07 remediation): emit the marker ident
+         * (var_id == IRON_HIR_VAR_INVALID + name) and record the reference.
+         * hir_to_lir routes it through a per-function global-slot ALLOCA
+         * aliased to the file-scope static; the initializer runs once in the
+         * synthesized __iron_module_init, so mutable and impure-init globals
+         * are now first-class across any number of functions. */
         {
-            ptrdiff_t gidx = shgeti(ctx->global_lowered_map, id->name);
-            if (gidx >= 0) {
-                IronHIR_VarId gid = ctx->global_lowered_map[gidx].value;
-                return iron_hir_expr_ident(mod, gid, id->name,
-                                           id->resolved_type, span);
-            }
-        }
-
-        /* 3. Lazy lowering: if name is a global constant, inject a STMT_LET */
-        {
-            ptrdiff_t cidx = shgeti(ctx->global_constants_map, id->name);
-            if (cidx >= 0 && ctx->current_block) {
-                Iron_Node *init_node = ctx->global_constants_map[cidx].value;
-                Iron_Type *ty        = id->resolved_type;
-                bool is_mutable = shgeti(ctx->global_mutable_set, id->name) >= 0;
-                IronHIR_Expr *init_expr = init_node
-                                          ? lower_expr_hir(ctx, init_node)
-                                          : NULL;
-                IronHIR_VarId gid = iron_hir_alloc_var(mod, id->name, ty,
-                                                        is_mutable);
-                shput(ctx->global_lowered_map, id->name, gid);
-                /* Inject the let at the current position in the current block */
-                IronHIR_Stmt *let = iron_hir_stmt_let(mod, gid, ty, init_expr,
-                                                       is_mutable, span);
-                iron_hir_block_add_stmt(ctx->current_block, let);
-                /* Also register in scope so subsequent refs don't re-inject */
-                declare_var(ctx, id->name, gid);
-                return iron_hir_expr_ident(mod, gid, id->name,
-                                           id->resolved_type, span);
+            ptrdiff_t cidx = shgeti(ctx->global_decls_map, id->name);
+            if (cidx >= 0) {
+                Iron_Type *ty = id->resolved_type;
+                if (!ty) ty = global_decl_type(ctx->global_decls_map[cidx].value);
+                return make_global_ident(ctx, id->name, ty, span);
             }
         }
 
@@ -1472,6 +1775,26 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             return iron_hir_expr_cast(mod, val, target_ty, span);
         }
 
+        /* 2026-07 remediation (init-body execution): the constructor shape
+         * `TypeName(args)` parses as a CALL whose callee IDENT names the
+         * resolved object type (downstream hir_to_lir turns the object-typed
+         * FUNC_REF callee into IRON_LIR_CONSTRUCT). When the object declares
+         * a user anonymous init with a body, route through the init call
+         * instead so the body's side effects run — see
+         * try_lower_anon_init_call. */
+        if (!ce->is_primitive_cast && ce->callee &&
+            ce->callee->kind == IRON_NODE_IDENT &&
+            ce->resolved_type && ce->resolved_type->kind == IRON_TYPE_OBJECT &&
+            ce->resolved_type->object.decl &&
+            ce->resolved_type->object.decl->name &&
+            ((Iron_Ident *)ce->callee)->name &&
+            strcmp(((Iron_Ident *)ce->callee)->name,
+                   ce->resolved_type->object.decl->name) == 0) {
+            IronHIR_Expr *init_call = try_lower_anon_init_call(
+                ctx, ce->resolved_type, ce->args, ce->arg_count, span);
+            if (init_call) return init_call;
+        }
+
         /* Build arg list */
         IronHIR_Expr **args = NULL;
         for (int i = 0; i < ce->arg_count; i++) {
@@ -1609,7 +1932,9 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             declare_var(ctx, ap->name, pid);
         }
         IronHIR_Block *lambda_body = iron_hir_block_create(mod);
-        lower_block_hir(ctx, (Iron_Block *)le->body, lambda_body);
+        {
+            lower_block_hir(ctx, (Iron_Block *)le->body, lambda_body);
+        }
         pop_scope(ctx);
 
         /* Assign lifted name now so the closure expr can store it */
@@ -1632,6 +1957,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         } else {
             ret_ty = le->resolved_type;
         }
+
+        /* Module globals are NOT captures — the lifted body reads the
+         * file-scope static directly (compact the AST list in place, which
+         * every downstream consumer aliases). Runs AFTER the lambda param
+         * scope is popped so a shadowing local stays a genuine capture. */
+        le->capture_count = filter_global_captures(ctx, le->captures,
+                                                   le->capture_count);
+
         IronHIR_Expr *result = iron_hir_expr_closure(mod,
                                                        hir_params ? hir_params : NULL,
                                                        le->param_count,
@@ -1705,6 +2038,15 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_Type          *ty    = ce->resolved_type;
         const char        **names = NULL;
         IronHIR_Expr      **vals  = NULL;
+
+        /* 2026-07 remediation (init-body execution): route `T(args)` through
+         * the anonymous init when one with a body exists — see
+         * try_lower_anon_init_call above the CALL case. */
+        {
+            IronHIR_Expr *init_call = try_lower_anon_init_call(
+                ctx, ty, ce->args, ce->arg_count, span);
+            if (init_call) return init_call;
+        }
 
         /* Construct args map to positional fields — use NULL names */
         for (int i = 0; i < ce->arg_count; i++) {
@@ -1782,7 +2124,32 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_IsExpr  *ie = (Iron_IsExpr *)node;
         IronHIR_Expr *val = lower_expr_hir(ctx, ie->expr);
         if (ie->type_name && strcmp(ie->type_name, "Null") == 0) {
-            return iron_hir_expr_is_null(mod, val, span);
+            /* 2026-07 remediation (`is Null` lowering): the old lowering built
+             * IRON_HIR_EXPR_IS_NULL, whose LIR/emit path unconditionally reads
+             * `.has_value` on the operand — invalid C for pointer-repr
+             * nullable objects (`void *`) and for non-nullable operands
+             * (`((int64_t)3LL).has_value`, the audit's `(!NULL.has_value)`
+             * shape). Make `x is Null` behave exactly like the working
+             * `x == null` comparison surface:
+             *   - operand of nullable type (T?) → lower to the same HIR the
+             *     parser's `x == null` binary produces (BINOP_EQ against a
+             *     null literal), so every representation `== null` handles is
+             *     handled identically here;
+             *   - any other operand type → statically `false` (a non-nullable
+             *     value is never null; typecheck accepts the test, so emit a
+             *     well-typed constant instead of invalid C). */
+            Iron_Type *bool_ty = iron_type_make_primitive(IRON_TYPE_BOOL);
+            Iron_Type *val_ty  = val ? val->type : NULL;
+            bool is_nullable   =
+                (val_ty && (val_ty->kind == IRON_TYPE_NULLABLE ||
+                            val_ty->kind == IRON_TYPE_NULL)) ||
+                (val && val->kind == IRON_HIR_EXPR_NULL_LIT);
+            if (!is_nullable) {
+                return iron_hir_expr_bool_lit(mod, false, bool_ty, span);
+            }
+            IronHIR_Expr *null_lit = iron_hir_expr_null_lit(mod, val_ty, span);
+            return iron_hir_expr_binop(mod, IRON_HIR_BINOP_EQ, val, null_lit,
+                                       bool_ty, span);
         }
         /* General type test */
         Iron_Type *check_ty = ie->resolved_type;
@@ -1866,11 +2233,20 @@ static void lower_block_hir(IronHIR_LowerCtx *ctx, Iron_Block *block,
     IronHIR_Block *saved_block = ctx->current_block;
     ctx->current_block = out;
 
+    /* Every lowered block gets its own LEXICAL scope in addition to its defer
+     * scope. Without it, a `val x` inside an if/while/match-arm body called
+     * declare_var into the ENCLOSING frame, clobbering the outer `x`'s VarId;
+     * references to the outer `x` after the block then pointed at the inner
+     * LET (declared in a nested HIR block) and the HIR verifier rejected the
+     * valid shadowing program with E0501. The verifier (hir_verify.c
+     * verify_block) already scopes per-block; this makes lowering match. */
+    push_scope(ctx);
     push_defer_scope_hir(ctx);
     for (int i = 0; i < block->stmt_count; i++) {
         lower_stmt_hir(ctx, block->stmts[i]);
     }
     pop_defer_scope_hir(ctx);
+    pop_scope(ctx);
 
     ctx->current_block = saved_block;
 }
@@ -1908,6 +2284,29 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
              * Top-level free functions use is_readonly directly (no is_pure
              * on free functions per Iron design). */
             f->is_readonly = fd->is_readonly;
+            /* PARM-02: record which params were declared `var name: T` so
+             * hir_to_lir can implement mutable-reference semantics. Free
+             * function decls only — methods and lifted lambdas never
+             * populate param_is_var (their call forms don't support the
+             * by-ref ABI). Allocated only when at least one param is var. */
+            {
+                bool any_var = false;
+                for (int p = 0; p < fd->param_count; p++) {
+                    Iron_Param *ap = (Iron_Param *)fd->params[p];
+                    if (ap && ap->is_var) { any_var = true; break; }
+                }
+                if (any_var) {
+                    bool *pv = (bool *)iron_arena_alloc(
+                        mod->arena, (size_t)fd->param_count * sizeof(bool),
+                        _Alignof(bool));
+                    if (!pv) iron_oom_abort("hir_lower.c:func_decl param_is_var");
+                    for (int p = 0; p < fd->param_count; p++) {
+                        Iron_Param *ap = (Iron_Param *)fd->params[p];
+                        pv[p] = ap && ap->is_var;
+                    }
+                    f->param_is_var = pv;
+                }
+            }
             iron_hir_module_add_func(mod, f);
             break;
         }
@@ -2169,17 +2568,22 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
 
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)decl;
-            if (vd->init) {
-                shput(ctx->global_constants_map, vd->name, vd->init);
+            /* Tuple-destructure at top level (binding_count > 0) has no
+             * single name — not supported as a module global; skip. */
+            if (vd->name && vd->binding_count == 0 &&
+                shgeti(ctx->global_decls_map, vd->name) < 0) {
+                shput(ctx->global_decls_map, (char *)vd->name, decl);
+                arrput(ctx->global_decl_order, vd->name);
             }
             break;
         }
 
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *vd = (Iron_VarDecl *)decl;
-            if (vd->init) {
-                shput(ctx->global_constants_map, vd->name, vd->init);
-                shput(ctx->global_mutable_set, vd->name, 1);
+            if (vd->name &&
+                shgeti(ctx->global_decls_map, vd->name) < 0) {
+                shput(ctx->global_decls_map, (char *)vd->name, decl);
+                arrput(ctx->global_decl_order, vd->name);
             }
             break;
         }
@@ -2617,6 +3021,124 @@ static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────── */
+/* ── Pass 2.5: synthesize __iron_module_init + publish module globals ────── */
+
+/* Builds the module initializer function for every ACTIVE (referenced)
+ * top-level binding, in declaration order, and publishes the final
+ * IronHIR_Global list on the module.
+ *
+ * Ordering contract (documented in hir.h): initializer assignments appear in
+ * DECLARATION order regardless of discovery order. Statics are zero-
+ * initialized, so an initializer that reads a later-declared global observes
+ * zero (C semantics). emit_c.c calls the function from main() after
+ * iron_runtime_init() and before Iron_main().
+ *
+ * Fixed point: lowering one global's initializer can activate further
+ * globals (its init reads them, or a lambda literal inside it captures
+ * one). Newly activated globals get their assignment INSERTED at the
+ * declaration-order position via hir_block_insert_stmt_at. Runs BEFORE
+ * pass 3 so any lambda queued here is lifted normally. */
+static void synthesize_module_init_hir(IronHIR_LowerCtx *ctx) {
+    if (shlen(ctx->global_active_set) == 0) return;
+    IronHIR_Module *mod = ctx->module;
+
+    IronHIR_Func *initfn = iron_hir_func_create(
+        mod, "__iron_module_init", NULL, 0,
+        iron_type_make_primitive(IRON_TYPE_VOID));
+    initfn->body = iron_hir_block_create(mod);
+
+    ctx->current_func             = initfn;
+    ctx->current_func_name        = "__iron_module_init";
+    ctx->current_func_is_readonly = false;
+
+    IronHIR_Block *saved = ctx->current_block;
+    ctx->current_block = initfn->body;
+    push_scope(ctx);
+    push_defer_scope_hir(ctx);
+
+    /* name -> 1 once its assignment (or lack thereof) has been synthesized */
+    struct { char *key; int value; } *emitted = NULL;
+    /* decl-order indices of init-bearing assignments already in the body,
+     * ascending — parallel to the body's statement order */
+    int *emitted_decl_idx = NULL;
+
+    bool progress = true;
+    while (progress) {
+        progress = false;
+        for (int di = 0; di < (int)arrlen(ctx->global_decl_order); di++) {
+            const char *nm = ctx->global_decl_order[di];
+            if (shgeti(ctx->global_active_set, nm) < 0) continue;
+            if (shgeti(emitted, nm) >= 0) continue;
+            shput(emitted, (char *)nm, 1);
+            progress = true;
+
+            ptrdiff_t mi = shgeti(ctx->global_decls_map, nm);
+            if (mi < 0) continue;
+            Iron_Node *decl     = ctx->global_decls_map[mi].value;
+            Iron_Node *init_ast = global_decl_init(decl);
+            if (!init_ast) continue;  /* bare decl — static stays zero */
+            Iron_Type *gtype    = global_decl_type(decl);
+            Iron_Span  gspan    = ((Iron_ValDecl *)decl)->span;
+
+            /* May activate more globals (fixed point) and queue lambda
+             * lifts (processed by pass 3, which runs after this). */
+            IronHIR_Expr *init_e = lower_expr_hir(ctx, init_ast);
+            IronHIR_Expr *target = make_global_ident(ctx, nm, gtype, gspan);
+            IronHIR_Stmt *as     = iron_hir_stmt_assign(mod, target, init_e,
+                                                        gspan);
+
+            /* Declaration-order insertion position. */
+            int pos = 0;
+            while (pos < (int)arrlen(emitted_decl_idx) &&
+                   emitted_decl_idx[pos] < di) pos++;
+            hir_block_insert_stmt_at(initfn->body, pos, as);
+            arrins(emitted_decl_idx, pos, di);
+        }
+    }
+
+    shfree(emitted);
+    arrfree(emitted_decl_idx);
+
+    pop_defer_scope_hir(ctx);
+    pop_scope(ctx);
+    ctx->current_block     = saved;
+    ctx->current_func      = NULL;
+    ctx->current_func_name = NULL;
+
+    iron_hir_module_add_func(mod, initfn);
+
+    /* Publish the active globals, declaration order. Names/types/spans are
+     * AST-owned (the program outlives HIR consumers in the pipeline). */
+    int count = 0;
+    for (int di = 0; di < (int)arrlen(ctx->global_decl_order); di++) {
+        if (shgeti(ctx->global_active_set, ctx->global_decl_order[di]) >= 0)
+            count++;
+    }
+    if (count == 0) return;
+    IronHIR_Global *globals = (IronHIR_Global *)iron_arena_alloc(
+        mod->arena, (size_t)count * sizeof(IronHIR_Global),
+        _Alignof(IronHIR_Global));
+    if (!globals) iron_oom_abort("hir_lower.c:synthesize_module_init_hir globals");
+    int gi = 0;
+    for (int di = 0; di < (int)arrlen(ctx->global_decl_order); di++) {
+        const char *nm = ctx->global_decl_order[di];
+        if (shgeti(ctx->global_active_set, nm) < 0) continue;
+        ptrdiff_t mi = shgeti(ctx->global_decls_map, nm);
+        if (mi < 0) continue;
+        Iron_Node    *decl = ctx->global_decls_map[mi].value;
+        Iron_ValDecl *vd   = (Iron_ValDecl *)decl;  /* shared prefix */
+        globals[gi].name       = vd->name;
+        globals[gi].type       = vd->declared_type;
+        globals[gi].is_mutable = (decl->kind == IRON_NODE_VAR_DECL);
+        globals[gi].has_init   = (vd->init != NULL);
+        globals[gi].span       = vd->span;
+        gi++;
+    }
+    mod->globals      = globals;
+    mod->global_count = gi;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
 /* ── Public API ──────────────────────────────────────────────────────────── */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
@@ -2640,11 +3162,15 @@ IronHIR_Module *iron_hir_lower(Iron_Program *program, Iron_Scope *global_scope,
     ctx.diags        = diags;
     ctx.module       = module;
 
-    /* Pass 1: register declarations + collect global constants */
+    /* Pass 1: register declarations + collect top-level bindings */
     lower_module_decls_hir(&ctx);
 
     /* Pass 2: lower function bodies */
     lower_func_bodies_hir(&ctx);
+
+    /* Pass 2.5: synthesize __iron_module_init for referenced module globals
+     * (before pass 3 so lambdas inside global initializers get lifted). */
+    synthesize_module_init_hir(&ctx);
 
     /* Pass 3: lift pending lambdas/spawn/pfor */
     lower_lift_pending_hir(&ctx);
@@ -2661,9 +3187,9 @@ IronHIR_Module *iron_hir_lower(Iron_Program *program, Iron_Scope *global_scope,
         shfree(ctx.scope_stack[d]);
     }
     arrfree(ctx.scope_stack);
-    shfree(ctx.global_constants_map);
-    shfree(ctx.global_mutable_set);
-    shfree(ctx.global_lowered_map);
+    shfree(ctx.global_decls_map);
+    arrfree(ctx.global_decl_order);
+    shfree(ctx.global_active_set);
 
     /* Verify the output module */
     Iron_DiagList verify_diags;

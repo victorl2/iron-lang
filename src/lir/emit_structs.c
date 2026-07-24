@@ -1302,6 +1302,69 @@ void emit_type_decls(EmitCtx *ctx) {
  * generated C declares InitWindow, ClearBackground, and friends regardless of
  * which target the user picked.
  */
+/* Arena stub glue: src/stdlib/arena.iron declares Arena.new /
+ * new_threadsafe / with_capacity / save / restore / reset / used / capacity
+ * as EMPTY-BODY stubs, so their calls mangle to Iron_arena_* symbols that no
+ * C file implements — the real API is the iron_arena_rt_* runtime substrate
+ * (src/runtime/iron_arena_rt.h, included by every generated TU). Emitting a
+ * bare prototype (the generic emit_foreign_method_prototypes path below)
+ * would leave the symbols undefined at link time. Instead, synthesize a
+ * per-program static bridge definition into ctx->lifted_funcs (which lands
+ * after the prototypes and before the function bodies — mirroring the
+ * emit_ensure_mutex glue shape). `static inline` so the always-prepended
+ * arena.iron stubs don't trip -Wunused-function in arena-free programs.
+ *
+ * Signature is derived from the LIR stub itself (emit_type_to_c on the
+ * stub's param/return types) so it tracks the Arena -> Iron_Arena_RT *
+ * mapping in emit_helpers.c. Param 0 is always the implicit `self`
+ * receiver (hir_lower stub-method convention) — garbage for the
+ * associated-style constructors, which ignore it. Returns true when glue
+ * was emitted (caller skips the bare prototype); false falls through to
+ * the generic path for unknown names/arities. */
+static bool ir_emit_arena_stub_glue(EmitCtx *ctx, IronLIR_Func *fn,
+                                    const char *mangled) {
+    if (strncmp(mangled, "Iron_arena_", 11) != 0) return false;
+    const char *m    = mangled + 11;
+    const char *arg1 = NULL;   /* canonical name of the non-self param */
+    const char *body = NULL;
+    if ((strcmp(m, "new") == 0 || strcmp(m, "with_capacity") == 0) &&
+        fn->param_count == 2) {
+        arg1 = "size";
+        body = "    (void)self;\n"
+               "    return iron_arena_rt_new((uint64_t)size, false, \"arena\");\n";
+    } else if (strcmp(m, "new_threadsafe") == 0 && fn->param_count == 2) {
+        arg1 = "size";
+        body = "    (void)self;\n"
+               "    return iron_arena_rt_new((uint64_t)size, true, \"arena\");\n";
+    } else if (strcmp(m, "save") == 0 && fn->param_count == 1) {
+        body = "    return iron_arena_rt_save(self);\n";
+    } else if (strcmp(m, "restore") == 0 && fn->param_count == 2) {
+        arg1 = "point";
+        body = "    iron_arena_rt_restore(self, point);\n";
+    } else if (strcmp(m, "reset") == 0 && fn->param_count == 1) {
+        body = "    iron_arena_rt_reset(self);\n";
+    } else if (strcmp(m, "used") == 0 && fn->param_count == 1) {
+        body = "    return (int64_t)iron_arena_rt_used(self);\n";
+    } else if (strcmp(m, "capacity") == 0 && fn->param_count == 1) {
+        body = "    return (int64_t)iron_arena_rt_capacity(self);\n";
+    }
+    if (!body) return false;
+
+    const char *ret_c  = fn->return_type
+        ? emit_type_to_c(fn->return_type, ctx)
+        : "void";
+    const char *self_c = emit_type_to_c(fn->params[0].type, ctx);
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+                        "static inline %s %s(%s self",
+                        ret_c, mangled, self_c);
+    if (arg1) {
+        const char *a1_c = emit_type_to_c(fn->params[1].type, ctx);
+        iron_strbuf_appendf(&ctx->lifted_funcs, ", %s %s", a1_c, arg1);
+    }
+    iron_strbuf_appendf(&ctx->lifted_funcs, ") {\n%s}\n\n", body);
+    return true;
+}
+
 /* See header: auto-generates prototypes for foreign-method stubs whose C
  * symbols are not declared by an included stdlib header. Extracted from
  * emit_c.c so emit_web.c can share the same logic — otherwise the web
@@ -1362,6 +1425,10 @@ void emit_foreign_method_prototypes(EmitCtx *ctx) {
         if (header_declared) continue;
         if (shgeti(emitted_fms, mangled) >= 0) continue;
         shput(emitted_fms, mangled, 1);
+
+        /* Arena stubs get a real bridge DEFINITION (over iron_arena_rt_*)
+         * instead of a bare prototype — see ir_emit_arena_stub_glue. */
+        if (ir_emit_arena_stub_glue(ctx, fn, mangled)) continue;
 
         const char *ret_c = fn->return_type
             ? emit_type_to_c(fn->return_type, ctx)
