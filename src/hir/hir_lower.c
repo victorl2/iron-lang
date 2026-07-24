@@ -197,7 +197,12 @@ static void hir_block_insert_stmt_at(IronHIR_Block *block, int pos,
     int n = (int)arrlen(block->stmts);
     if (pos < 0) pos = 0;
     if (pos > n) pos = n;
-    arrins(block->stmts, pos, stmt);
+    /* Append + shift instead of stb_ds arrins (its expansion trips
+     * -Werror=sign-compare under gcc; same avoidance as lir_optimize.c). */
+    arrput(block->stmts, stmt);
+    for (int i = (int)arrlen(block->stmts) - 1; i > pos; i--)
+        block->stmts[i] = block->stmts[i - 1];
+    block->stmts[pos] = stmt;
     block->stmt_count = (int)arrlen(block->stmts);
 }
 
@@ -3092,7 +3097,11 @@ static void synthesize_module_init_hir(IronHIR_LowerCtx *ctx) {
             while (pos < (int)arrlen(emitted_decl_idx) &&
                    emitted_decl_idx[pos] < di) pos++;
             hir_block_insert_stmt_at(initfn->body, pos, as);
-            arrins(emitted_decl_idx, pos, di);
+            /* Append + shift (see hir_block_insert_stmt_at for why not arrins). */
+            arrput(emitted_decl_idx, di);
+            for (int i = (int)arrlen(emitted_decl_idx) - 1; i > pos; i--)
+                emitted_decl_idx[i] = emitted_decl_idx[i - 1];
+            emitted_decl_idx[pos] = di;
         }
     }
 

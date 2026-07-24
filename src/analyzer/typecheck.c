@@ -1706,11 +1706,11 @@ static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
          * not accept trailing `;`. */
         const char *fallback = iron_type_to_string(rt, ctx->arena);
         if (!fallback) fallback = "<value>";
-        char *sug = (char *)iron_arena_alloc(ctx->arena,
-                                              strlen("return ") + strlen(fallback)
-                                              + strlen("(...)") + 1, 1);
+        size_t sug_len = strlen("return ") + strlen(fallback)
+                         + strlen("(...)") + 1;
+        char *sug = (char *)iron_arena_alloc(ctx->arena, sug_len, 1);
         if (sug) {
-            sprintf(sug, "return %s(...)", fallback);
+            snprintf(sug, sug_len, "return %s(...)", fallback);
             emit_error(ctx, IRON_ERR_MISSING_RETURN, emit_span,
                        "function may reach end without returning a value",
                        sug);
