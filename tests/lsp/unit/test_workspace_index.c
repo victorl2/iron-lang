@@ -244,20 +244,22 @@ typedef struct {
 static void *reader_thread(void *p) {
     StressArg *a = (StressArg *)p;
     int loops = 0;
+    int hits = 0;
     while (!atomic_load(a->stop)) {
         IronLsp_IndexEntry *e = ilsp_workspace_index_lookup(a->wi, a->canon);
-        /* e may be NULL (invalidated); must never SIGSEGV. */
-        if (e) {
-            /* Touch entry fields under lock-free read: lookup copied the
-             * pointer under the mutex before returning. After release
-             * there's a race with a concurrent free; we rely on the
-             * dispatcher-thread-only eviction invariant -- the stress
-             * test here uses another thread for invalidation, which
-             * intentionally tests the coarse-lock discipline. */
-            (void)e->content_hash;
-        }
+        /* e may be NULL (invalidated); must never SIGSEGV. The returned
+         * pointer is a borrow whose lifetime is only guaranteed by the
+         * dispatcher-thread-only eviction invariant, and this stress test
+         * runs eviction on another thread on purpose -- so dereferencing
+         * e here is a genuine use-after-free (ASan flagged it). What the
+         * race validates is the coarse lock itself: lookup's bucket walk
+         * and invalidate's free both run under the index mutex, so lookup
+         * must never touch freed map internals mid-walk. Observing the
+         * pointer without dereferencing keeps that coverage. */
+        if (e) hits++;
         if (++loops > 500) break;
     }
+    (void)hits;
     return NULL;
 }
 
