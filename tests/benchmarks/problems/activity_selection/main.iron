@@ -6,20 +6,23 @@ import time
 func sort_by_end(starts: [Int], ends: [Int], n: Int) {
     var i = 1
     while i < n {
-        val key_s = starts[i]
-        val key_e = ends[i]
+        -- in-bounds: 1 <= i < n = starts.len() = ends.len() (caller contract)
+        val key_s = starts.get_unchecked(i)
+        val key_e = ends.get_unchecked(i)
         var j = i - 1
         while j >= 0 {
-            if ends[j] > key_e {
-                starts[j + 1] = starts[j]
-                ends[j + 1] = ends[j]
+            -- in-bounds: 0 <= j <= i - 1 < n - 1, so j and j + 1 are both < n
+            if ends.get_unchecked(j) > key_e {
+                starts.set_unchecked(j + 1, starts.get_unchecked(j))
+                ends.set_unchecked(j + 1, ends.get_unchecked(j))
                 j = j - 1
             } else {
                 j = -1
             }
         }
-        starts[j + 1] = key_s
-        ends[j + 1] = key_e
+        -- in-bounds: loop exits with -1 <= j < i, so 0 <= j + 1 <= i < n
+        starts.set_unchecked(j + 1, key_s)
+        ends.set_unchecked(j + 1, key_e)
         i = i + 1
     }
 }
@@ -27,12 +30,14 @@ func sort_by_end(starts: [Int], ends: [Int], n: Int) {
 func activity_selection(starts: [Int], ends: [Int], n: Int) -> Int {
     sort_by_end(starts, ends, n)
     var count = 1
-    var last_end = ends[0]
+    -- in-bounds: n >= 1 at every call site, so 0 < n = ends.len() (caller contract)
+    var last_end = ends.get_unchecked(0)
     var i = 1
     while i < n {
-        if starts[i] >= last_end {
+        -- in-bounds: 1 <= i < n = starts.len() = ends.len() (caller contract)
+        if starts.get_unchecked(i) >= last_end {
             count = count + 1
-            last_end = ends[i]
+            last_end = ends.get_unchecked(i)
         }
         i = i + 1
     }

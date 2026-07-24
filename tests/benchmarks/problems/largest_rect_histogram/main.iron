@@ -10,22 +10,27 @@ func largest_rect(heights: [Int], n: Int) -> Int {
     for i in range(n + 1) {
         var h = 0
         if i < n {
-            h = heights[i]
+            -- in-bounds: guard gives 0 <= i < n = heights.len() (caller contract)
+            h = heights.get_unchecked(i)
         }
 
-        while top > 0 and heights[stack[top - 1]] > h {
+        -- in-bounds: 0 < top <= n + 1 <= 200 = stack.len(); stack entries were pushed at earlier iterations, so stack[top - 1] < i <= n and is a valid heights index
+        while top > 0 and heights.get_unchecked(stack.get_unchecked(top - 1)) > h {
             top = top - 1
-            val height = heights[stack[top]]
+            -- in-bounds: top >= 0 after decrement (guard had top > 0); popped entry < i <= n = heights.len()
+            val height = heights.get_unchecked(stack.get_unchecked(top))
             var width = i
             if top > 0 {
-                width = i - stack[top - 1] - 1
+                -- in-bounds: guard gives 0 <= top - 1 < 200 = stack.len()
+                width = i - stack.get_unchecked(top - 1) - 1
             }
             val area = height * width
             if area > max_area {
                 max_area = area
             }
         }
-        stack[top] = i
+        -- in-bounds: one push per iteration, so top <= i <= n < 200 = stack.len() (caller contract n < 200)
+        stack.set_unchecked(top, i)
         top = top + 1
     }
     return max_area

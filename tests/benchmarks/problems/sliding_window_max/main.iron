@@ -12,19 +12,23 @@ func sliding_max(arr: [Int], n: Int, k: Int) -> Int {
 
     for i in range(n) {
         -- Remove elements outside window from front
-        while front < back and dq[front] <= i - k {
+        -- in-bounds: 0 <= front < back <= n <= 200 = dq.len() (caller contract n <= 200)
+        while front < back and dq.get_unchecked(front) <= i - k {
             front = front + 1
         }
         -- Remove smaller elements from back
-        while front < back and arr[dq[back - 1]] <= arr[i] {
+        -- in-bounds: 0 <= front <= back - 1 < 200; dq holds indices pushed at earlier iterations, all < i < n = arr.len() (caller contract)
+        while front < back and arr.get_unchecked(dq.get_unchecked(back - 1)) <= arr.get_unchecked(i) {
             back = back - 1
         }
         -- Push to back
-        dq[back] = i
+        -- in-bounds: one push per iteration, so back <= i < n <= 200 = dq.len()
+        dq.set_unchecked(back, i)
         back = back + 1
 
         if i >= k - 1 {
-            total = total + arr[dq[front]]
+            -- in-bounds: front < back (window non-empty after push); dq[front] is a pushed index < n = arr.len()
+            total = total + arr.get_unchecked(dq.get_unchecked(front))
         }
     }
     return total

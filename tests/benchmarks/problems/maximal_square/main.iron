@@ -7,16 +7,18 @@ func maximal_square(matrix: [Int], rows: Int, cols: Int) -> Int {
     while i < rows {
         var j = 0
         while j < cols {
-            if matrix[i * cols + j] == 0 {
-                dp[i * cols + j] = 0
+            -- in-bounds (all matrix/dp sites): 0 <= i < rows, 0 <= j < cols, so i * cols + j < rows * cols = matrix.len() = dp.len() (caller contract)
+            if matrix.get_unchecked(i * cols + j) == 0 {
+                dp.set_unchecked(i * cols + j, 0)
             } elif i == 0 {
-                dp[i * cols + j] = 1
+                dp.set_unchecked(i * cols + j, 1)
             } elif j == 0 {
-                dp[i * cols + j] = 1
+                dp.set_unchecked(i * cols + j, 1)
             } else {
-                val a = dp[(i - 1) * cols + j]
-                val b = dp[i * cols + (j - 1)]
-                val c = dp[(i - 1) * cols + (j - 1)]
+                -- in-bounds: else-branch has i >= 1 and j >= 1, so (i - 1) * cols + j, i * cols + (j - 1), (i - 1) * cols + (j - 1) are all in [0, rows * cols)
+                val a = dp.get_unchecked((i - 1) * cols + j)
+                val b = dp.get_unchecked(i * cols + (j - 1))
+                val c = dp.get_unchecked((i - 1) * cols + (j - 1))
                 var mn = a
                 if b < mn {
                     mn = b
@@ -24,10 +26,10 @@ func maximal_square(matrix: [Int], rows: Int, cols: Int) -> Int {
                 if c < mn {
                     mn = c
                 }
-                dp[i * cols + j] = mn + 1
+                dp.set_unchecked(i * cols + j, mn + 1)
             }
-            if dp[i * cols + j] > best {
-                best = dp[i * cols + j]
+            if dp.get_unchecked(i * cols + j) > best {
+                best = dp.get_unchecked(i * cols + j)
             }
             j = j + 1
         }

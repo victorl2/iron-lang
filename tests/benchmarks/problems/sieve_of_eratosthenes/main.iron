@@ -9,10 +9,12 @@ func sieve(n: Int) -> Int {
 
     var i = 2
     while i * i <= n {
-        if is_prime[i] == 1 {
+        -- in-bounds: loop guard i * i <= n and i >= 2 give i <= n / 2 < n + 1 = is_prime.len()
+        if is_prime.get_unchecked(i) == 1 {
             var j = i * i
             while j <= n {
-                is_prime[j] = 0
+                -- in-bounds: loop guard gives j <= n < n + 1 = is_prime.len()
+                is_prime.set_unchecked(j, 0)
                 j = j + i
             }
         }
@@ -21,7 +23,8 @@ func sieve(n: Int) -> Int {
 
     var count = 0
     for k in range(n + 1) {
-        count = count + is_prime[k]
+        -- in-bounds: range(n + 1) gives 0 <= k <= n < n + 1 = is_prime.len()
+        count = count + is_prime.get_unchecked(k)
     }
     return count
 }

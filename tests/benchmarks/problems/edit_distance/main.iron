@@ -7,38 +7,43 @@ func edit_distance(w1: [Int], n1: Int, w2: [Int], n2: Int) -> Int {
 
     var j = 0
     while j <= n2 {
-        prev[j] = j
+        -- in-bounds: 0 <= j <= n2 <= 20 < 21 = prev.len() (caller contract n2 <= 20)
+        prev.set_unchecked(j, j)
         j = j + 1
     }
 
     var i = 1
     while i <= n1 {
-        curr[0] = i
+        curr.set_unchecked(0, i)
         j = 1
         while j <= n2 {
-            if w1[i - 1] == w2[j - 1] {
-                curr[j] = prev[j - 1]
+            -- in-bounds: 1 <= i <= n1 = w1.len(), 1 <= j <= n2 = w2.len() (caller contract), so i - 1 and j - 1 are valid
+            if w1.get_unchecked(i - 1) == w2.get_unchecked(j - 1) {
+                -- in-bounds (all prev/curr sites): 0 <= j - 1 < j <= n2 <= 20 < 21 = prev.len() = curr.len()
+                curr.set_unchecked(j, prev.get_unchecked(j - 1))
             } else {
-                var mn = prev[j - 1]
-                if prev[j] < mn {
-                    mn = prev[j]
+                var mn = prev.get_unchecked(j - 1)
+                if prev.get_unchecked(j) < mn {
+                    mn = prev.get_unchecked(j)
                 }
-                if curr[j - 1] < mn {
-                    mn = curr[j - 1]
+                if curr.get_unchecked(j - 1) < mn {
+                    mn = curr.get_unchecked(j - 1)
                 }
-                curr[j] = mn + 1
+                curr.set_unchecked(j, mn + 1)
             }
             j = j + 1
         }
         -- Copy curr to prev
         var k = 0
         while k <= n2 {
-            prev[k] = curr[k]
+            -- in-bounds: 0 <= k <= n2 <= 20 < 21 = prev.len() = curr.len()
+            prev.set_unchecked(k, curr.get_unchecked(k))
             k = k + 1
         }
         i = i + 1
     }
-    return prev[n2]
+    -- in-bounds: n2 <= 20 < 21 = prev.len()
+    return prev.get_unchecked(n2)
 }
 
 func main() {

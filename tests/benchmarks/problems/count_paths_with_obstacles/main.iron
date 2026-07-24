@@ -8,9 +8,10 @@ func count_paths_obstacles(grid: [Int], rows: Int, cols: Int) -> Int {
     dp[0] = 1
     var j = 1
     while j < cols {
-        if grid[j] == 0 {
-            if dp[j - 1] == 1 {
-                dp[j] = 1
+        -- in-bounds: 1 <= j < cols <= rows * cols = dp.len() = grid.len() (caller contract, rows >= 1)
+        if grid.get_unchecked(j) == 0 {
+            if dp.get_unchecked(j - 1) == 1 {
+                dp.set_unchecked(j, 1)
             }
         }
         j = j + 1
@@ -19,23 +20,26 @@ func count_paths_obstacles(grid: [Int], rows: Int, cols: Int) -> Int {
     while i < rows {
         val row = i * cols
         val prev_row = (i - 1) * cols
-        if grid[row] == 0 {
-            if dp[prev_row] == 1 {
-                dp[row] = 1
+        -- in-bounds: 0 <= prev_row < row = i * cols <= (rows - 1) * cols < rows * cols = dp.len() = grid.len()
+        if grid.get_unchecked(row) == 0 {
+            if dp.get_unchecked(prev_row) == 1 {
+                dp.set_unchecked(row, 1)
             }
         }
         j = 1
         while j < cols {
-            if grid[row + j] == 1 {
-                dp[row + j] = 0
+            -- in-bounds: i < rows, 1 <= j < cols, so prev_row + j < row + j <= (rows - 1) * cols + (cols - 1) < rows * cols
+            if grid.get_unchecked(row + j) == 1 {
+                dp.set_unchecked(row + j, 0)
             } else {
-                dp[row + j] = dp[prev_row + j] + dp[row + (j - 1)]
+                dp.set_unchecked(row + j, dp.get_unchecked(prev_row + j) + dp.get_unchecked(row + (j - 1)))
             }
             j = j + 1
         }
         i = i + 1
     }
-    return dp[(rows - 1) * cols + (cols - 1)]
+    -- in-bounds: (rows - 1) * cols + (cols - 1) = rows * cols - 1 < dp.len()
+    return dp.get_unchecked((rows - 1) * cols + (cols - 1))
 }
 
 func main() {

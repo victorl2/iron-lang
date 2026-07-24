@@ -7,7 +7,8 @@ func binary_search_insert(arr: [Int], n: Int, target: Int) -> Int {
     var hi = n
     while lo < hi {
         val mid = lo + (hi - lo) / 2
-        if arr[mid] < target {
+        -- in-bounds: 0 <= lo <= mid < hi <= n = arr.len() (caller contract)
+        if arr.get_unchecked(mid) < target {
             lo = mid + 1
         } else {
             hi = mid

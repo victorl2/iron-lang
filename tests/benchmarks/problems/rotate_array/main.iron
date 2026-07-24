@@ -4,9 +4,10 @@ func reverse_range(arr: [Int], lo_in: Int, hi_in: Int) -> Int {
     var lo = lo_in
     var hi = hi_in
     while lo < hi {
-        val tmp = arr[lo]
-        arr[lo] = arr[hi]
-        arr[hi] = tmp
+        -- in-bounds: 0 <= lo_in <= lo < hi <= hi_in < arr.len() (caller contract: 0 <= lo_in, hi_in <= n - 1)
+        val tmp = arr.get_unchecked(lo)
+        arr.set_unchecked(lo, arr.get_unchecked(hi))
+        arr.set_unchecked(hi, tmp)
         lo = lo + 1
         hi = hi - 1
     }
@@ -22,7 +23,8 @@ func rotate_array(arr: [Int], n: Int, k: Int) -> Int {
     }
     var sum = 0
     for i in range(n) {
-        sum = sum + arr[i] * (i + 1)
+        -- in-bounds: 0 <= i < n = arr.len() (caller contract)
+        sum = sum + arr.get_unchecked(i) * (i + 1)
     }
     return sum
 }

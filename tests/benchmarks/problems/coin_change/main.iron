@@ -5,11 +5,13 @@ func coin_change(coins: [Int], nc: Int, amount: Int) -> Int {
     dp[0] = 0
     var c = 0
     while c < nc {
-        var a = coins[c]
+        -- in-bounds: 0 <= c < nc = coins.len() (caller contract)
+        var a = coins.get_unchecked(c)
         while a <= amount {
-            val val_ = dp[a - coins[c]] + 1
-            if val_ < dp[a] {
-                dp[a] = val_
+            -- in-bounds: a starts at coins[c] (positive, caller contract) and only grows, so 0 <= a - coins[c] <= a <= amount < amount + 1 = dp.len()
+            val val_ = dp.get_unchecked(a - coins.get_unchecked(c)) + 1
+            if val_ < dp.get_unchecked(a) {
+                dp.set_unchecked(a, val_)
             }
             a = a + 1
         }
