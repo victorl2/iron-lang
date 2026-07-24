@@ -20,8 +20,11 @@
  *     blow-up on long identifier names (T-4-2 mitigation in 04-PLAN
  *     threat register).
  *   - `iron_best_typo_candidate` walks the parent-linked Iron_Scope chain
- *     and returns the best-matching symbol name within `max_dist=2` (the
- *     same threshold rustc uses). Tie-breaks alphabetically by strcmp.
+ *     and returns the best-matching symbol name within a length-scaled
+ *     threshold: distance <= 1 for names of <= 4 chars, else <= 2 (the
+ *     rustc-style cap). The scaling (2026-07 diagnostics remediation)
+ *     stops short undefined identifiers from matching unrelated short
+ *     stdlib names (`res` -> "Set"). Tie-breaks alphabetically by strcmp.
  *
  * Both functions are side-effect-free apart from arena allocation of the
  * result string; thread-safe across independent compilation units.
@@ -55,12 +58,13 @@ int iron_levenshtein(const char *a, const char *b, int max_dist);
 
 /* Walk the parent-linked Iron_Scope chain starting at `scope`, collect every
  * visible symbol name, and return the best-matching name to `name` via
- * Levenshtein distance <= 2. On tie, prefers alphabetically earlier name
- * (strcmp order) for deterministic output.
+ * Levenshtein distance <= 1 for names of <= 4 chars, else <= 2 (length-scaled
+ * threshold, 2026-07). On tie, prefers alphabetically earlier name (strcmp
+ * order) for deterministic output.
  *
  * Returns:
  *   - arena-strdup'd copy of the candidate name on success (owned by `arena`)
- *   - NULL if no candidate is within max distance 2 or on arena OOM
+ *   - NULL if no candidate is within the threshold or on arena OOM
  *
  * Skips the exact-match case (`strcmp(name, candidate) == 0`) because the
  * identifier would have resolved successfully if it matched exactly —

@@ -135,7 +135,17 @@ const char *iron_best_typo_candidate(struct Iron_Scope *scope,
                                       const char        *name) {
     if (!name || !arena) return NULL;
 
-    const int max_dist = 2;
+    /* 2026-07 diagnostics remediation (E0200 help noise): scale the allowed
+     * edit distance with the identifier's length. The flat max_dist=2 meant
+     * that for short identifiers nearly any short symbol in scope qualified —
+     * with the always-prepended stdlib filling the global scope, a stray
+     * `res` produced `= help: Set` (distance 2) and a stray `x` produced
+     * `= help: IO`. Requiring distance <= 1 for names of <= 4 chars keeps
+     * genuine near-misses (`mp` -> `Map`, `sett` -> `Set`, case-only slips
+     * via the case-insensitive DP) while dropping the unrelated ones; longer
+     * names keep the rustc-style threshold of 2 (`prinln` -> `println`). */
+    size_t name_len = strlen(name);
+    const int max_dist = (name_len <= 4) ? 1 : 2;
     const char *best_name = NULL;
     int best_dist = max_dist + 1;
 

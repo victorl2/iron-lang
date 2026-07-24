@@ -76,6 +76,134 @@ static int use_color(void) {
     return isatty(STDERR_FILENO);
 }
 
+/* ── 2026-07 diagnostics remediation: stdlib-prepend line mapping ──────────
+ *
+ * The CLI passes the CONCATENATED compile buffer (prepended stdlib sources +
+ * user source) as source_text, while spans now carry per-file identity: the
+ * lexer re-tags filename AND resets its logical line counter at the
+ * `-- @file: "<path>" @line: <n>` markers build.c / check.c wrap around each
+ * prepended file (plain Phase 93 `-- @file: <name>` markers re-tag the
+ * filename only and resync logical numbering to the physical count). To show
+ * the right context/caret excerpt, the renderer replays those marker
+ * semantics over source_text and maps the span's (filename, logical line)
+ * back to the physical buffer line.
+ *
+ * Sources without markers resolve to physical == logical, i.e. the exact
+ * pre-remediation behavior (unit tests, LSP buffers, fmt). */
+
+/* Parse one physical line as a `-- @file:` marker.
+ * Grammar (whitespace-tolerant):  -- @file: <name> [@line: <n>]
+ * where <name> is bare (up to whitespace) or quoted ("..." — may contain
+ * spaces). On success returns 1 and fills *name_out, *name_len_out and
+ * *line_reset_out (0 when no `@line:` suffix). */
+static int parse_file_marker(const char *line, size_t len,
+                             const char **name_out, size_t *name_len_out,
+                             uint32_t *line_reset_out) {
+    size_t i = 0;
+    while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
+    if (i + 2 > len || line[i] != '-' || line[i + 1] != '-') return 0;
+    i += 2;
+    while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
+    static const char k_file[] = "@file:";
+    const size_t k_file_len = sizeof(k_file) - 1;
+    if (i + k_file_len > len || memcmp(line + i, k_file, k_file_len) != 0) return 0;
+    i += k_file_len;
+    while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
+
+    size_t name_start, name_len;
+    if (i < len && line[i] == '"') {
+        i++;
+        name_start = i;
+        while (i < len && line[i] != '"' && line[i] != '\r') i++;
+        name_len = i - name_start;
+        if (i < len && line[i] == '"') i++;
+        else return 0; /* unterminated quote: not a well-formed marker */
+    } else {
+        name_start = i;
+        while (i < len && line[i] != ' ' && line[i] != '\t' && line[i] != '\r') i++;
+        name_len = i - name_start;
+    }
+    if (name_len == 0) return 0;
+
+    uint32_t reset = 0;
+    while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
+    static const char k_line[] = "@line:";
+    const size_t k_line_len = sizeof(k_line) - 1;
+    if (i + k_line_len <= len && memcmp(line + i, k_line, k_line_len) == 0) {
+        i += k_line_len;
+        while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
+        uint32_t n = 0;
+        int any = 0;
+        while (i < len && line[i] >= '0' && line[i] <= '9') {
+            if (n < 100000000u) n = n * 10u + (uint32_t)(line[i] - '0');
+            any = 1;
+            i++;
+        }
+        if (any && n > 0) reset = n;
+    }
+
+    *name_out       = line + name_start;
+    *name_len_out   = name_len;
+    *line_reset_out = reset;
+    return 1;
+}
+
+/* Map (filename, logical line) to the physical line number in source_text by
+ * replaying the lexer's marker semantics. Falls back to `logical` (the exact
+ * legacy behavior) when no matching line exists. */
+static uint32_t resolve_physical_line(const char *source_text,
+                                      const char *filename,
+                                      uint32_t logical) {
+    if (!source_text || logical == 0) return logical;
+
+    const char *p           = source_text;
+    uint32_t    phys        = 1;
+    uint32_t    cur_logical = 1;
+    const char *cur_name     = NULL; /* NULL = entry region: match any file */
+    size_t      cur_name_len = 0;
+
+    while (*p != '\0') {
+        const char *eol     = strchr(p, '\n');
+        size_t      linelen = eol ? (size_t)(eol - p) : strlen(p);
+
+        const char *mname;
+        size_t      mlen;
+        uint32_t    lreset;
+        if (parse_file_marker(p, linelen, &mname, &mlen, &lreset)) {
+            cur_name     = mname;
+            cur_name_len = mlen;
+            /* @line marker: next physical line reports as line <n>.
+             * Plain marker: physical resync (lexer sets line = phys_line at
+             * the marker line; the newline bump makes the next line phys+1). */
+            cur_logical = (lreset > 0) ? lreset : phys + 1;
+        } else {
+            int name_match =
+                (filename == NULL) || (cur_name == NULL) ||
+                (strlen(filename) == cur_name_len &&
+                 strncmp(filename, cur_name, cur_name_len) == 0);
+            if (name_match && cur_logical == logical) return phys;
+            cur_logical++;
+        }
+
+        if (!eol) break;
+        p = eol + 1;
+        phys++;
+    }
+    return logical;
+}
+
+/* Is the physical line `lineno` of source_text a `-- @file:` marker line?
+ * Used to suppress marker lines from the context window (they always sit on
+ * file boundaries, so the "line above"/"line below" of a first/last file
+ * line would otherwise leak the synthetic marker). */
+static int physical_line_is_marker(const char *line_text) {
+    const char *mname;
+    size_t      mlen;
+    uint32_t    lreset;
+    return parse_file_marker(line_text, strlen(line_text),
+                             &mname, &mlen, &lreset);
+}
+
 /* Extract the Nth line (1-indexed) from source_text.
  * Writes up to buf_size-1 chars into buf and null-terminates.
  * Returns 0 if line not found.
@@ -148,20 +276,30 @@ void iron_diag_print(const Iron_Diagnostic *d, const char *source_text) {
             d->span.line,
             d->span.col);
 
-    /* Source context: up to 3 lines (line above, error line, line below). */
+    /* Source context: up to 3 lines (line above, error line, line below).
+     * 2026-07 diagnostics remediation: spans carry per-file line numbers
+     * while source_text is the concatenated compile buffer, so the span's
+     * (filename, line) is first mapped back to the physical buffer line
+     * (identity for marker-less sources). Labels stay in the span's own
+     * (per-file) numbering; `-- @file:` marker lines are suppressed from
+     * the context window (they sit on file boundaries). */
     if (source_text != NULL) {
         char line_buf[512];
         uint32_t error_line = d->span.line;
+        uint32_t phys_line  = resolve_physical_line(source_text,
+                                                    d->span.filename,
+                                                    error_line);
 
-        /* Line above (if it exists). */
-        if (error_line > 1) {
-            if (get_source_line(source_text, error_line - 1, line_buf, sizeof(line_buf))) {
+        /* Line above (if it exists and is not a file-boundary marker). */
+        if (error_line > 1 && phys_line > 1) {
+            if (get_source_line(source_text, phys_line - 1, line_buf, sizeof(line_buf)) &&
+                !physical_line_is_marker(line_buf)) {
                 fprintf(stderr, "%5u | %s\n", error_line - 1, line_buf);
             }
         }
 
         /* Error line. */
-        if (get_source_line(source_text, error_line, line_buf, sizeof(line_buf))) {
+        if (get_source_line(source_text, phys_line, line_buf, sizeof(line_buf))) {
             fprintf(stderr, "%5u | %s\n", error_line, line_buf);
 
             /* Caret pointing to the column. */
@@ -173,8 +311,9 @@ void iron_diag_print(const Iron_Diagnostic *d, const char *source_text) {
             fprintf(stderr, "%s^%s\n", color_start, color_end);
         }
 
-        /* Line below. */
-        if (get_source_line(source_text, error_line + 1, line_buf, sizeof(line_buf))) {
+        /* Line below (unless it is a file-boundary marker). */
+        if (get_source_line(source_text, phys_line + 1, line_buf, sizeof(line_buf)) &&
+            !physical_line_is_marker(line_buf)) {
             fprintf(stderr, "%5u | %s\n", error_line + 1, line_buf);
         }
     }

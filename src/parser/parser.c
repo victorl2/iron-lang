@@ -398,6 +398,28 @@ static bool iron_check_method_name_decl(Iron_Parser *p) {
         || k == IRON_TOK_FREE;              /* allow Box.free */
 }
 
+/* Phase 37: expression-side counterpart of iron_check_method_name_decl for
+ * the ONE Pratt `.`-postfix name slot (iron_parse_expr_prec_impl). Widens
+ * the accepted set with the `null` / `free` KEYWORD tokens so calls to the
+ * stdlib Box surface parse: `Box.null()`, `b.free()`. Scope is deliberately
+ * limited to the token AFTER an already-consumed `.` in expression position:
+ *  - bare `null` stays a primary (IRON_NODE_NULL_LIT, iron_parse_primary),
+ *    so `x != null` comparisons are untouched;
+ *  - statement-head `free <expr>` / `defer free <expr>` dispatch on
+ *    IRON_TOK_FREE before any expression parsing starts and can never
+ *    reach this slot;
+ *  - decl-side name slots (param names ~1089, array-extension method
+ *    names ~3578, in-block method names ~4186) keep the narrow
+ *    iron_check_name_or_block_kw on purpose.
+ * Keyword tokens carry their lexeme as `value` (lexer make-token), so the
+ * postfix code's name strdup yields "null"/"free" for by-name dispatch. */
+static bool iron_check_method_name_expr(Iron_Parser *p) {
+    Iron_TokenKind k = iron_peek(p);
+    return iron_check_name_or_block_kw(p)   /* IDENTIFIER/INIT/COPY/DROP */
+        || k == IRON_TOK_NULL_KW            /* allow Box.null() / b.null */
+        || k == IRON_TOK_FREE;              /* allow b.free() */
+}
+
 static bool iron_match(Iron_Parser *p, Iron_TokenKind kind) {
     if (iron_check(p, kind)) { iron_advance(p); return true; }
     return false;
@@ -1982,8 +2004,11 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
              * object-block / interface-block bodies; here it denotes the
              * method named "init" declared via `func Type.init(...)`.
              * Phase 16: also accept IRON_TOK_COPY + IRON_TOK_DROP so that
-             * `Image.copy(...)` / `Wave.copy(...)` continue to parse. */
-            if (!iron_check_name_or_block_kw(p)) {
+             * `Image.copy(...)` / `Wave.copy(...)` continue to parse.
+             * Phase 37: also accept the `null` / `free` keyword tokens here
+             * (expression `.`-postfix only) so `Box.null()` / `b.free()`
+             * parse — see iron_check_method_name_expr. */
+            if (!iron_check_method_name_expr(p)) {
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNEXPECTED_TOKEN,
                                iron_token_span(p, iron_current(p)),
@@ -2657,6 +2682,35 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                 Iron_DiagList expr_diags = iron_diaglist_create();
                 Iron_Lexer    el         = iron_lexer_create(expr_buf, interp_fname,
                                                               p->arena, &expr_diags);
+                /* 2026-07 diagnostics remediation: seat the sub-lexer at the
+                 * expression's position inside the CONTAINING source instead
+                 * of (1,1). The old behavior stamped every node inside
+                 * `"{...}"` with line 1, which surfaced as runtime panic
+                 * lines `<file>:1` (emit_c.c bakes LIR spans into the
+                 * deref-site strings) and line-1 compile diagnostics for
+                 * errors inside interpolations. Line: string-token start
+                 * line + newlines seen before the `{` (multiline strings).
+                 * Column: exact only for escape-free single-line prefixes
+                 * (raw_value holds the escape-PROCESSED text, so each escape
+                 * before the `{` shifts the column left by one) — a
+                 * deliberate approximation; the line is what the deref-site
+                 * and caret rendering key on. */
+                {
+                    uint32_t sub_line = span.line;
+                    size_t   last_nl  = (size_t)-1;
+                    for (size_t sc = 0; sc < expr_start && sc < len; sc++) {
+                        if (s[sc] == '\n') { sub_line++; last_nl = sc; }
+                    }
+                    uint32_t sub_col;
+                    if (last_nl == (size_t)-1) {
+                        /* Same line as the opening quote: skip the quote(s).
+                         * span.col is the quote position; +1 for `"`. */
+                        sub_col = span.col + 1 + (uint32_t)expr_start;
+                    } else {
+                        sub_col = (uint32_t)(expr_start - last_nl);
+                    }
+                    iron_lexer_set_origin(&el, sub_line, sub_col);
+                }
                 Iron_Token   *expr_toks  = iron_lex_all(&el);
                 int           tok_count  = 0;
                 while (expr_toks[tok_count].kind != IRON_TOK_EOF) tok_count++;
@@ -3178,6 +3232,17 @@ static Iron_Node *iron_parse_import_decl(Iron_Parser *p) {
     size_t path_len = 0;
     Iron_Token *first = iron_advance(p);
     size_t flen = strlen(first->value);
+    /* Bound the first segment copy: an identifier >= sizeof(path_buf) would
+     * otherwise overflow the fixed buffer (later segments are already
+     * guarded below). Truncate with a clean diagnostic instead. */
+    if (flen > sizeof(path_buf) - 1) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, first),
+                       "import path segment is too long (maximum 255 characters)",
+                       NULL);
+        flen = sizeof(path_buf) - 1;
+    }
     memcpy(path_buf, first->value, flen);
     path_len = flen;
 
@@ -3654,16 +3719,36 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
          * to the `patch object T { ... }` form, so the parser can now reject
          * the standalone form universally.
          *
-         * Stdlib carve-out: only emit E0321 for tokens at or after
-         * user_source_start_line. When user_source_start_line == 0 (unit-test
-         * parser fixtures, no stdlib prepended), every standalone form is
-         * rejected -- which is the test-environment baseline. The primary
-         * lock is Plan 98-01's grep assertion (no `^func [A-Z]` lines in the
-         * three migrated stdlib files); the carve-out is a defensive
-         * belt-and-suspenders so that if a future contributor accidentally
-         * re-introduces a standalone form into stdlib, only the user-code
-         * path errors. */
-        if ((int)name_tok->line >= p->user_source_start_line) {
+         * Stdlib carve-out (2026-07 diagnostics remediation): primarily keyed
+         * on the token's from_stdlib_prepend bit, stamped by the lexer for
+         * regions introduced by the `-- @file: "<path>" @line: 1` markers
+         * build.c / check.c wrap around each prepended stdlib file. The old
+         * line-threshold test (`name_tok->line >= p->user_source_start_line`)
+         * relied on concatenated-TU line numbering, which the line-mapping
+         * markers deliberately abolished (user tokens now carry the user
+         * file's own 1-based lines, i.e. small numbers below the threshold).
+         *
+         * Whether markers are active for THIS token stream is read off
+         * tokens[0]: in a marker-mapped TU the very first physical line is a
+         * stdlib marker, so the first token (that marker line's NEWLINE) is
+         * flagged. When markers are inactive (unit-test parser fixtures,
+         * emit-archive builds, or the build.c/check.c OOM fallback that
+         * prepends without markers) the legacy line-threshold gate applies
+         * unchanged.
+         *
+         * The primary lock is Plan 98-01's grep assertion (no `^func [A-Z]`
+         * lines in the migrated stdlib files); the carve-out is a defensive
+         * belt-and-suspenders so that stdlib files that legitimately still
+         * use the standalone form (box.iron, channel.iron, filehandle.iron,
+         * rawptr.iron — generic patch targets are locked-rejected) never
+         * error, while the user-code path always does. */
+        bool markers_active =
+            p->token_count > 0 && p->tokens[0].from_stdlib_prepend;
+        bool stdlib_exempt =
+            name_tok->from_stdlib_prepend ||
+            (!markers_active &&
+             (int)name_tok->line < p->user_source_start_line);
+        if (!stdlib_exempt) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_STANDALONE_METHOD_FORM,
                            iron_token_span(p, start),

@@ -1,10 +1,32 @@
 #include "analyzer/types.h"
 #include "parser/ast.h"
 #include "util/arena.h"
+#include <stdarg.h>
 #include <string.h>
 #include <stdio.h>
 #include <stddef.h>
 #include <pthread.h>
+
+/* Saturating snprintf-append into a fixed buffer. snprintf returns the
+ * WOULD-BE length on truncation, so the naive `pos += snprintf(...)`
+ * accumulation lets pos exceed the buffer; the next append then computes an
+ * out-of-bounds base pointer and an underflowed (huge) size_t remaining
+ * size. This helper clamps pos to bufsz-1 before and after each append so
+ * truncation degrades to a shortened string instead of a buffer overflow. */
+static int iron_sat_appendf(char *buf, int pos, size_t bufsz,
+                            const char *fmt, ...) {
+    if (pos < 0) pos = 0;
+    if ((size_t)pos > bufsz - 1) pos = (int)(bufsz - 1);
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf + pos, bufsz - (size_t)pos, fmt, ap);
+    va_end(ap);
+    if (n > 0) {
+        pos += n;
+        if ((size_t)pos > bufsz - 1) pos = (int)(bufsz - 1);
+    }
+    return pos;
+}
 
 /* ── Primitive-type singleton table (HARD-07) ────────────────────────────── */
 /* Process-wide: iron_types_init is idempotent across all calls in a process.
@@ -455,18 +477,18 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
         }
 
         case IRON_TYPE_FUNC: {
-            /* Build "func(T1, T2, ...) -> R" */
+            /* Build "func(T1, T2, ...) -> R" (saturating on truncation) */
             char buf[512];
             int  pos = 0;
-            pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "func(");
+            pos = iron_sat_appendf(buf, pos, sizeof(buf), "func(");
             for (int i = 0; i < t->func.param_count; i++) {
                 if (i > 0)
-                    pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, ", ");
+                    pos = iron_sat_appendf(buf, pos, sizeof(buf), ", ");
                 const char *ps = iron_type_to_string(t->func.param_types[i], a);
-                pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "%s", ps);
+                pos = iron_sat_appendf(buf, pos, sizeof(buf), "%s", ps);
             }
             const char *rs = iron_type_to_string(t->func.return_type, a);
-            pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, ") -> %s", rs);
+            pos = iron_sat_appendf(buf, pos, sizeof(buf), ") -> %s", rs);
             size_t len = (size_t)pos + 1;
             char *out = (char *)iron_arena_alloc(a, len, 1);
             /* HARD-09 REPLACE (CR-02, types.c:iron_type_to_string FUNC). */
@@ -493,17 +515,17 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
         case IRON_TYPE_ENUM: {
             if (!t->enu.decl) return "<enum>";
             if (t->enu.type_arg_count == 0) return t->enu.decl->name;
-            /* Generic enum: build "Option[Int]" style string */
+            /* Generic enum: build "Option[Int]" style string (saturating) */
             char buf[512];
             int pos = 0;
-            pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "%s[", t->enu.decl->name);
+            pos = iron_sat_appendf(buf, pos, sizeof(buf), "%s[", t->enu.decl->name);
             for (int i = 0; i < t->enu.type_arg_count; i++) {
                 if (i > 0)
-                    pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, ", ");
+                    pos = iron_sat_appendf(buf, pos, sizeof(buf), ", ");
                 const char *as = iron_type_to_string(t->enu.type_args[i], a);
-                pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "%s", as);
+                pos = iron_sat_appendf(buf, pos, sizeof(buf), "%s", as);
             }
-            pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "]");
+            pos = iron_sat_appendf(buf, pos, sizeof(buf), "]");
             size_t len = (size_t)pos + 1;
             char *out = (char *)iron_arena_alloc(a, len, 1);
             /* HARD-09 REPLACE (CR-02, types.c:iron_type_to_string ENUM generic). */
@@ -516,19 +538,19 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
             return t->generic_param.name ? t->generic_param.name : "<T>";
 
         case IRON_TYPE_TUPLE: {
-            /* Build "(T0, T1, ...)" — recurse into each element. */
+            /* Build "(T0, T1, ...)" — recurse into each element (saturating). */
             char buf[1024];
             int pos = 0;
-            pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "(");
+            pos = iron_sat_appendf(buf, pos, sizeof(buf), "(");
             for (int i = 0; i < t->tuple.elem_count; i++) {
                 if (i > 0)
-                    pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, ", ");
+                    pos = iron_sat_appendf(buf, pos, sizeof(buf), ", ");
                 const char *es = iron_type_to_string(t->tuple.elem_types[i], a);
-                pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "%s",
-                                es ? es : "<null>");
+                pos = iron_sat_appendf(buf, pos, sizeof(buf), "%s",
+                                       es ? es : "<null>");
                 if (pos >= (int)sizeof(buf) - 2) break;
             }
-            pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, ")");
+            pos = iron_sat_appendf(buf, pos, sizeof(buf), ")");
             size_t len = (size_t)pos + 1;
             char *out = (char *)iron_arena_alloc(a, len, 1);
             /* HARD-09 REPLACE (CR-02, types.c:iron_type_to_string TUPLE). */
