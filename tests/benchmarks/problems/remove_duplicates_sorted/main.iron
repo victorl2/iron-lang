@@ -40,10 +40,15 @@ func main() {
     println("Test 4: {remove_duplicates(bench_copy, 100)} (expected 50)")
 
     val iterations = 675675
+    -- Buffer hoisted out of the timed loop: the C reference uses a stack
+    -- array whose per-iteration cost is zero, while a fill() here would put
+    -- 675k heap allocations plus zeroing on the clock. The copy below
+    -- rewrites every slot each iteration, so per-iteration state is
+    -- identical either way.
+    var tmp = fill(100, 0)
     val start_ns = Time.now_ns()
     var result = 0
     for it in range(iterations) {
-        var tmp = fill(100, 0)
         for i in range(100) {
             -- in-bounds: range(100) gives 0 <= i < 100 = tmp.len() = bench.len() (both fill(100, ...))
             tmp.set_unchecked(i, bench.get_unchecked(i))
