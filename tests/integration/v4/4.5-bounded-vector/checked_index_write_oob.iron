@@ -1,0 +1,17 @@
+-- section: 4.5-bounded-vector
+-- @req: VEC-01, VEC-03, SAFE-05
+-- @expected-pass-after: phase-37
+-- @expect-panic: bounded vector access out of bounds
+-- OOB checked indexed write on a bounded vector: index 3 with only two
+-- pushed elements (len = 2) must hit the .len guard (initialized region,
+-- NOT the N capacity) and panic with the index/bound pair before any store
+-- lands. Both write spellings converge on the same SET_INDEX guard; the
+-- .expected pins the index/bound line of the checked panic.
+
+func main() {
+    var bv: [Int; <=4]
+    bv.push(10)
+    bv.push(20)
+    bv[3] = 99
+    println("unreachable")
+}

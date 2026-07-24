@@ -2502,6 +2502,10 @@ if(NOT WIN32)
         7.5-stdlib/list_unchecked_index
         7.5-stdlib/bvec_unchecked_index
         7.5-stdlib/mixed_checked_unchecked
+        # 2026-07 task #24: checked indexed writes on bounded vectors —
+        # `bv[i] = x` and `bv.set(i, v)` write the inline .data storage
+        # (guard against .len via iron_panic_bvec_oob, LOAD->alloca peel).
+        4.5-bounded-vector/checked_index_write
     )
     foreach(_fixrel IN LISTS _V4_AGGPARITY_RUN_FIXTURES)
         string(REPLACE "/" "_" _fixname "${_fixrel}")
@@ -2526,6 +2530,9 @@ if(NOT WIN32)
         4.2-checked-ptr/closure_pointer_capture
         4.2-checked-ptr/closure_var_pointer_capture
         4.2-checked-ptr/panic_stale_after_grow
+        # 2026-07 task #24: OOB checked indexed write on a bounded vector
+        # panics against .len with the index/bound pair (.expected pins it).
+        4.5-bounded-vector/checked_index_write_oob
     )
     foreach(_fixrel IN LISTS _V4_AGGPARITY_PANIC_FIXTURES)
         string(REPLACE "/" "_" _fixname "${_fixrel}")

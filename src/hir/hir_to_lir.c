@@ -2190,6 +2190,51 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                     u_set->index.bounds_unchecked = true;
                     return IRON_LIR_VALUE_INVALID;
                 }
+                /* 2026-07 task #24: checked `bv.get(i)` / `bv.set(i, v)` on a
+                 * bounded-vector receiver. The Iron_List_<elem>_<method>
+                 * fallback below is a dynamic-List call — passing the inline
+                 * Iron_BVec struct where an Iron_List is expected reinterprets
+                 * .data[0] as the items pointer (segfault), and &receiver is
+                 * the address of an SSA copy, so a .set write would vanish
+                 * even with matching layout. Route to the same GET_INDEX /
+                 * SET_INDEX the `bv[i]` / `bv[i] = x` surface produces,
+                 * landing on the emitter's bvec fast path (checked .len guard
+                 * via iron_panic_bvec_oob + LOAD→alloca peel). Arity guards
+                 * keep malformed calls on the legacy lenient fallback, same
+                 * as the intrinsics above. */
+                if (obj_type->array.is_bounded && expr->method_call.method &&
+                    strcmp(expr->method_call.method, "get") == 0 &&
+                    expr->method_call.arg_count == 1) {
+                    IronLIR_ValueId b_arr = lower_expr(ctx, expr->method_call.object);
+                    IronLIR_ValueId b_idx = lower_expr(ctx, expr->method_call.args[0]);
+                    IronLIR_Instr *b_get = iron_lir_get_index(ctx->current_func,
+                        ctx->current_block, b_arr, b_idx, type, span);
+                    return b_get->id;
+                }
+                if (obj_type->array.is_bounded && expr->method_call.method &&
+                    strcmp(expr->method_call.method, "set") == 0 &&
+                    expr->method_call.arg_count == 2) {
+                    /* PARM-02 mirror of the STMT_ASSIGN SET_INDEX rule (same
+                     * as set_unchecked above): element writes through a `var`
+                     * array param operate on the copy-in alloca in place, not
+                     * on a LOADed SSA copy. */
+                    IronLIR_ValueId b_arr = IRON_LIR_VALUE_INVALID;
+                    IronHIR_Expr *b_obj = expr->method_call.object;
+                    if (b_obj && b_obj->kind == IRON_HIR_EXPR_IDENT &&
+                        hmgeti(ctx->var_param_ids, b_obj->ident.var_id) >= 0) {
+                        ptrdiff_t b_ai = hmgeti(ctx->var_alloca_map,
+                                                b_obj->ident.var_id);
+                        if (b_ai >= 0) b_arr = ctx->var_alloca_map[b_ai].value;
+                    }
+                    if (b_arr == IRON_LIR_VALUE_INVALID) {
+                        b_arr = lower_expr(ctx, b_obj);
+                    }
+                    IronLIR_ValueId b_idx = lower_expr(ctx, expr->method_call.args[0]);
+                    IronLIR_ValueId b_val = lower_expr(ctx, expr->method_call.args[1]);
+                    iron_lir_set_index(ctx->current_func,
+                        ctx->current_block, b_arr, b_idx, b_val, span);
+                    return IRON_LIR_VALUE_INVALID;
+                }
                 /* Collection: build the full "Iron_List_<elem_suffix>_<method>" name
                  * directly and return early. mangle_func_name() skips names that
                  * already start with "Iron_", so no double-prefixing. */

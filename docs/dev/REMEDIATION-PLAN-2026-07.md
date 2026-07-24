@@ -126,10 +126,24 @@ every hot site carries a one-line in-bounds proof comment;
 `benchmark_smoke` PASSES (27.4s). Full serial suite in /build-ui: 488 rows,
 exit 0, ZERO failures — first fully-green suite.** v4 aggregate 322/0/51;
 v4-fail 73/0/2; byte-identical XFAIL control vs old compiler.
-New findings: pre-existing checked `bv[i]=x` / `bv.set(i,v)` emits invalid C
-(task #24 — set_unchecked path has the needed alloca-peel to copy); a stray
-`/tmp/as` binary (same hijack class as /tmp/sh) found + neutralized —
-consider extending the canary to common tool names (as/ld/cc).
+New findings: a stray `/tmp/as` binary (same hijack class as /tmp/sh) found
++ neutralized — consider extending the canary to common tool names (as/ld/cc).
+
+### Checked bounded-vector indexed access (task #24) — DONE
+Root causes: (a) emit_c.c SET_INDEX bvec branch was gated on
+`bounds_unchecked`, so checked writes fell into the dynamic-List arm
+(`.count`/`.items` on a BVec struct — invalid C); (b) hir_to_lir ARRAY
+method dispatch mangled ALL array receivers to `Iron_List_<elem>_<method>`,
+so `bv.set(i,v)` AND — beyond the task premise — `bv.get(i)` called List
+macros on a BVec struct (incompatible layout → segfault; receiver was an
+SSA copy so stores vanished anyway). Fix: bvec SET branch covers checked +
+unchecked (alloca peel, `.len` guard via iron_panic_bvec_oob, raw store);
+bvec get/set receivers lower to GET_INDEX/SET_INDEX (PARM-02 var-param peel
+mirrored). 2 new fixtures (write + OOB @expect-panic) registered.
+Verified: unit/hir/lir green; 4.5|7.5 selection 37/37; aggregate
+**PASS=324 FAIL=0 XFAIL=51**; byte-diffs identical for list-only control,
+all prior 4.5 fixtures, and the 3 UNCHK-IDX fixtures (set_unchecked still
+raw).
 
 ### Improvement-wave consolidation (coordinator)
 - Task #22: multi_file/v3_pub_top_level `Box` → `Crate` (stdlib collision);

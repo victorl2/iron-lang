@@ -2470,18 +2470,21 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             /* Check if the array has an array type — if so, inline .items[idx]
              * instead of calling _set() which is just self->items[index] = item */
             Iron_Type *arr_t = emit_get_value_type(fn, instr->index.array);
-            /* UNCHK-IDX: bounded-vector unchecked write. The checked SET_INDEX
-             * arm below has no bvec branch (bvec writes go through push; a
-             * checked `bv[i] = x` today emits the .items shape, a pre-existing
-             * gap outside this change's scope), but `bv.set_unchecked(i, v)`
-             * must write the Iron_BVec `.data` field. Gated on the
-             * author-declared flag only — checked emission is byte-identical. */
-            bool use_bvec_unchk = (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
-                                   arr_t->array.is_bounded &&
-                                   instr->index.bounds_unchecked);
+            /* Phase 23 VEC-01 / 2026-07 UNCHK-IDX + task #24: bounded-vector
+             * element write — checked AND unchecked. The Iron_BVec struct
+             * stores elements inline (.data/.len; no .items/.count), so the
+             * dynamic-List direct arm below would reference members the
+             * struct does not have (the pre-existing checked `bv[i] = x`
+             * clang error). Checked writes guard against .len — the
+             * initialized region, the same bound the checked GET uses — via
+             * iron_panic_bvec_oob; unchecked writes route through
+             * IRON_UNCHECKED_IDX (raw in normal builds, guard kept under
+             * --debug-build). */
+            bool use_bvec = (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
+                             arr_t->array.is_bounded);
             bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
-                               !use_bvec_unchk);
-            if (use_bvec_unchk) {
+                               !use_bvec);
+            if (use_bvec) {
                 /* Phase 23 VEC-01 push-mutation rule applies to element writes
                  * too: bounded vecs are value types (inline .data storage). If
                  * the array operand is a LOAD, its SSA result is a COPY — the
@@ -2494,14 +2497,38 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     fn->value_table[bvset_recv]->kind == IRON_LIR_LOAD) {
                     bvset_recv = fn->value_table[bvset_recv]->load.ptr;
                 }
-                /* bv.data[IRON_UNCHECKED_IDX(i, (int64_t)bv.len, ...)] = v; */
+                if (!instr->index.bounds_elide && !instr->index.bounds_unchecked) {
+                    /* if (i >= (int64_t)bv.len) iron_panic_bvec_oob(...) —
+                     * mirrors the checked GET's bvec guard shape (bound is
+                     * .len, not the N capacity). */
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "if (");
+                    emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, " >= (int64_t)");
+                    emit_expr_to_buf(sb, bvset_recv, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb,
+                        ".len) iron_panic_bvec_oob(__FILE__, __LINE__, ");
+                    emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ", (int64_t)");
+                    emit_expr_to_buf(sb, bvset_recv, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ".len);\n");
+                }
                 emit_indent(sb, ind);
                 emit_expr_to_buf(sb, bvset_recv, fn, ctx, ctx->current_block_id, 0);
-                iron_strbuf_appendf(sb, ".data[IRON_UNCHECKED_IDX(");
-                emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
-                iron_strbuf_appendf(sb, ", (int64_t)");
-                emit_expr_to_buf(sb, bvset_recv, fn, ctx, ctx->current_block_id, 0);
-                iron_strbuf_appendf(sb, ".len, __FILE__, __LINE__)] = ");
+                if (instr->index.bounds_unchecked) {
+                    /* bv.data[IRON_UNCHECKED_IDX(i, (int64_t)bv.len, ...)] = v; */
+                    iron_strbuf_appendf(sb, ".data[IRON_UNCHECKED_IDX(");
+                    emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ", (int64_t)");
+                    emit_expr_to_buf(sb, bvset_recv, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ".len, __FILE__, __LINE__)] = ");
+                } else {
+                    /* Checked (guard emitted above) or elision-proved: raw
+                     * .data store — mirrors the checked GET's raw .data read. */
+                    iron_strbuf_appendf(sb, ".data[");
+                    emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, "] = ");
+                }
                 emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ";\n");
             } else if (use_direct) {
