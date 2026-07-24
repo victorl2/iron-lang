@@ -13,8 +13,8 @@ Iron installer.
 Usage: install.sh [--version VERSION]
 
 Options:
-  --version VERSION   Install a specific release tag (e.g. v3.0.0-alpha or
-                      3.0.0-alpha). Default: the latest release.
+  --version VERSION   Install a specific release tag (e.g. v4.0.0-alpha or
+                      4.0.0-alpha). Default: the latest release.
   -h, --help          Show this help and exit.
 EOF
 }
@@ -26,7 +26,7 @@ main() {
             --version)
                 shift
                 if [ $# -eq 0 ]; then
-                    echo "Error: --version requires a value (e.g. v3.0.0-alpha)" >&2
+                    echo "Error: --version requires a value (e.g. v4.0.0-alpha)" >&2
                     exit 1
                 fi
                 REQUESTED_VERSION="$1"
@@ -35,7 +35,7 @@ main() {
             --version=*)
                 REQUESTED_VERSION="${1#--version=}"
                 if [ -z "$REQUESTED_VERSION" ]; then
-                    echo "Error: --version requires a value (e.g. v3.0.0-alpha)" >&2
+                    echo "Error: --version requires a value (e.g. v4.0.0-alpha)" >&2
                     exit 1
                 fi
                 shift

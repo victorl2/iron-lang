@@ -1,6 +1,6 @@
 # Migrating from Iron v2 to Iron v3
 
-This document is the entry point for migrating an existing Iron v2 codebase to Iron v3 syntax. Comprehensive syntax migration reference (the v2→v3 grammar diff, semantic changes, breaking changes) is documented in the [Iron language docs](https://github.com/iron-lang/iron-lang) and is owned by the language team.
+This document is the entry point for migrating an existing Iron v2 codebase to Iron v3 syntax. Comprehensive syntax migration reference (the v2→v3 grammar diff, semantic changes, breaking changes) is documented in the [Iron language docs](https://github.com/victorl2/iron-lang) and is owned by the language team.
 
 The notes below cover **only the LSP / editor-extension side** of the upgrade.
 

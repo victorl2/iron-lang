@@ -1,6 +1,6 @@
 # Iron Compiler Architecture
 
-This document describes the internal architecture of the Iron compiler. Iron compiles source code to C, then invokes clang (or gcc) to produce native binaries. The compiler is written in C (C11).
+This document describes the internal architecture of the Iron compiler. Iron compiles source code to C, then invokes clang (or gcc) to produce native binaries. The compiler is written in C (C17).
 
 ## Pipeline Overview
 

@@ -798,7 +798,7 @@
     <section class="other-methods">
       <h2>Editor extensions</h2>
       <p style="text-align: center; max-width: 720px; margin: 0 auto 2.5rem; color: var(--text-secondary);">
-        The Iron installer (<code>~/.iron/bin/ironls</code>) ships the language server. Install one of the editor extensions below, and your editor will discover and spawn it automatically.
+        The Iron installer tarball ships <code>iron</code> and <code>ironc</code> only &mdash; <code>ironls</code> is distributed separately as an <code>ironls-v&lt;version&gt;</code> tarball on each release. The Zed extension downloads and verifies it automatically; VSCode and Neovim users point their config at a built or downloaded <code>ironls</code> binary (see Configuration below).
       </p>
       <div class="methods-grid">
         <div class="method-card">
@@ -806,7 +806,7 @@
             <svg viewBox="0 0 24 24"><path d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>
           </div>
           <h3>VSCode</h3>
-          <p>Search "Iron Language Support" in the Marketplace, or install from the <code>.vsix</code> bundled with each release.</p>
+          <p>Search "Iron LSP" in the Marketplace (coming soon) &mdash; until the publish lands, package the extension from <code>editors/vscode</code> (<code>npm run package</code>) and install the resulting <code>.vsix</code>.</p>
           <a class="method-link" href="https://github.com/victorl2/iron-lang/tree/main/editors/vscode">
             VSCode extension
             <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
@@ -848,9 +848,9 @@
           <div class="step-content">
             <div class="step-title">Use a custom <code>ironls</code> binary</div>
             <div class="step-desc">
-              If you've built <code>ironls</code> locally and want your editor to use it instead of the bundled release binary, set the <code>iron_lsp_path</code> override:
+              If you've built <code>ironls</code> locally and want your editor to use it instead of the downloaded release binary, set the path override:
               <ul style="margin-top: 0.5rem; padding-left: 1.25rem;">
-                <li><strong>VSCode</strong>: <code>"iron-lsp.serverPath"</code> in <code>settings.json</code></li>
+                <li><strong>VSCode</strong>: <code>"iron.languageServer.path"</code> in <code>settings.json</code></li>
                 <li><strong>Neovim</strong>: pass <code>cmd = { "/path/to/ironls" }</code> when calling <code>vim.lsp.start</code></li>
                 <li><strong>Zed</strong>: <code>"lsp": { "iron-lsp": { "binary": { "path": "/path/to/ironls" } } }</code></li>
               </ul>

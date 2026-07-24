@@ -5,13 +5,13 @@ server (`ironls`). It is a single Lua config file consumed by Neovim's native
 `vim.lsp.config()` / `vim.lsp.enable()` API — no plugin-wrapper layer, no
 framework dependency.
 
-**Tracks:** Iron v3.1.1-alpha (current main-branch alpha). See the
+**Tracks:** Iron v4.0.0-alpha (current main-branch alpha). See the
 **Version compatibility** section below for the exact `ironls` range the
-config accepts (the hard-refuse constant bumps atomically in a later phase).
+config accepts.
 
 ## Iron syntax overview
 
-Iron v3 introduces first-class surface features surfaced by `ironls`
+Iron's current surface includes first-class features surfaced by `ironls`
 diagnostics, hover, completion, and rename — all exercised from Neovim via
 the standard LSP client:
 
@@ -28,9 +28,10 @@ the standard LSP client:
   and explicit mutable bindings; the type system enforces compatibility
   at call boundaries.
 
-Legacy pre-v3 keywords (`val`, `var`, `object`, `interface`, `impl`, etc.)
-continue to work unchanged. The complete roster is 44 keywords,
-drift-guarded at build time by `test_grammar_keyword_drift_tree_sitter`.
+The core keywords (`val`, `var`, `object`, `interface`, `impl`, etc.)
+are all part of the current v4 surface. The complete roster is 49
+keywords, drift-guarded at build time by
+`test_grammar_keyword_drift_tree_sitter`.
 
 The same `lsp/ironls.lua` file is byte-compatible with
 [nvim-lspconfig][nvim-lspconfig] v2's `lsp/*.lua` contribution shape; a
@@ -182,7 +183,7 @@ running `:checkhealth`; (b) the server is on `PATH`; (c) your Neovim is
 
 ---
 
-## Iron v3 schematic example
+## Iron schematic example
 
 ```iron
 pub object Player {
@@ -260,7 +261,7 @@ before our version guard gets a chance to `return {}`. Upgrade Neovim.
 ### Version mismatch (`[iron-lsp] detected ironls X.Y.Z, but this config requires …`)
 
 Phase 7 HARD-22 / D-10 / UI-SPEC S9 — when the attached `ironls` reports
-a `serverInfo.version` outside the range `>= 3.0.0, < 4.0.0`
+a `serverInfo.version` outside the range `>= 4.0.0, < 5.0.0`
 (`IRON_LSP_COMPATIBLE_VERSION_RANGE` in `lsp/ironls.lua`), the
 `on_attach` hook refuses the attach:
 
@@ -278,11 +279,11 @@ the LSP client is not silently left running in a half-active state.
 
 ## Version compatibility
 
-This config targets `ironls` in `>= 3.0.0, < 4.0.0` per the
+This config targets `ironls` in `>= 4.0.0, < 5.0.0` per the
 `IRON_LSP_COMPATIBLE_VERSION_RANGE` constant in `lsp/ironls.lua`. The
 `on_attach` hook enforces the range as a hard refuse (Phase 7 HARD-22
-/ D-10). Minor/patch bumps within `3.0.x` / `3.1.x` / `3.999.x` are
-compatible by definition; a `4.0.0` release signals breaking LSP
+/ D-10). Minor/patch bumps within the current `4.x` major are
+compatible by definition; a `5.0.0` release signals breaking LSP
 semantics and will require an updated config.
 
 ---

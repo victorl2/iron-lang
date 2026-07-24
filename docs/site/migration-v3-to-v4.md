@@ -6,7 +6,7 @@ This guide is companion to the [v4.0.0-alpha release notes](../release/v4.0.0-al
 
 ## §1 Why v4
 
-Iron v3 had implicit mutation and unbounded ownership: a `let` binding could be re-bound, a pointer could mutate at any call site, and shared ownership was a runtime concern with no syntactic trace. v4 promotes all three to the type level. Every binding declares its tier (`val` / `var`), every pointer declares its mutability (`*T` / `*var T`), and every shared-ownership relationship picks a policy (`heap` / `rc` / `weak rc` / `arena` / `Box[T]`). The cost: every `let x =` in v3 becomes `val x =` or `var x =` in v4. The benefit: a 4-tier escape analyzer (Phase 30) elides the runtime check entirely in over 90% of dereferences, so the explicit typing pays for itself with negligible runtime overhead.
+Iron v3 already had `val` / `var` bindings, but mutation and ownership stopped being tracked past the binding site: a reference could be mutated at any call site, `readonly` was advisory, and shared ownership was a runtime concern with no syntactic trace. v4 promotes all of this to the type level. Binding tiers (`val` / `var`) now extend to fields, parameters, and closure captures; every pointer declares its mutability (`*T` / `*var T`); and every heap lifetime picks an explicit policy (`heap` + `free` / `rc` / `weak rc` / `arena` / `Box[T]`). The cost: explicit annotations at parameter, pointer, and allocation sites — and a matched `free` for every owned `heap` allocation. The benefit: a 4-tier escape analyzer (Phase 30) elides the runtime check entirely in over 90% of dereferences, so the explicit typing pays for itself with negligible runtime overhead.
 
 What follows is mechanical for most code; structural for code that relied on implicit shared mutation.
 
@@ -14,8 +14,7 @@ What follows is mechanical for most code; structural for code that relied on imp
 
 | v3 syntax                          | v4 syntax                                                   | What changed                                                          |
 | ---------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------- |
-| `let x = 1`                        | `val x = 1` or `var x = 1`                                  | Binding tier is now explicit (§3.1)                                   |
-| `let mut x = 1`                    | `var x = 1`                                                 | `mut` keyword removed; `var` is the mutable tier (§3.1)               |
+| `val x = 1` / `var x = 1`          | `val x = 1` / `var x = 1` *(unchanged)*                     | Tier discipline now extends to fields, params, captures (§3.1)        |
 | `func f(p: Point)`                 | `func f(p: Point)` or `func f(var p: Point)`                | Param mutation requires `var` modifier (§3.2)                         |
 | `func f(p: *Point)`                | `func f(p: *Point)` (read-only)                             | Default pointer is read-only (§3.3)                                   |
 | `func f(p: *Point)` *(mutating)*   | `func f(p: *var Point)`                                     | Pointer mutability is part of the type (§3.3)                         |
@@ -26,9 +25,9 @@ What follows is mechanical for most code; structural for code that relied on imp
 | `object Foo { ... }`               | `object Foo { ... copy { ... } }`                           | Opt-in `copy` for deep-copy semantics (§3.7)                          |
 | `object Foo { ... }` *(resource)*  | `nocopy object Foo { ... drop { ... } }`                    | Resource types must be `nocopy` + carry `drop` (§3.7)                 |
 | `extern func c(p: void*)`          | `extern func c(p: *unchecked U8)`                           | FFI pointers use the explicit unchecked regime (§3.8)                 |
-| `let owned = Box.new(x)`           | `val owned = Box.new(x)`                                    | `Box[T]` survives; v3 implicit shared ownership becomes `rc x` (§3.8) |
+| `val owned = Box.new(x)`           | `val owned = Box.new(x)` *(unchanged)*                      | `Box[T]` survives; v3 implicit shared ownership becomes `rc x` (§3.8) |
 | *(implicit shared ownership)*      | `val r = rc x`                                              | Shared ownership opts into reference counting (§3.9)                  |
-| *(cyclic shared references leak)*  | `val back = weak rc null` + `node.demote()`                 | Cycles broken by `weak rc` (§3.10)                                    |
+| *(cyclic shared references leak)*  | `val back = weak rc null` + `node.downgrade()`                 | Cycles broken by `weak rc` (§3.10)                                    |
 | *(many small allocations)*         | `arena { val x = heap(in: a) Foo() }`                       | Bump-allocator scope (§3.11)                                          |
 | `try { ... } finally { close(f) }` | `defer close(f); ...`                                       | LIFO scope-exit hook (§3.12)                                          |
 | `Mutex` *(manual lock/unlock)*     | `var m = Mutex.new(0); val g = m.lock()`                    | Phase 33 stdlib containers are `nocopy` + auto-drop (§3.13)           |
@@ -40,22 +39,22 @@ What follows is mechanical for most code; structural for code that relied on imp
 
 ### §3.1 Binding tier: `val` / `var` (val/var) (Phase 17)
 
-Every binding (local let-binding, struct field, function parameter, closure capture) opts into an immutable tier (`val`) or a mutable tier (`var`). The previous `let` and `let mut` forms are removed.
+Every binding (local, struct field, function parameter, closure capture) opts into an immutable tier (`val`) or a mutable tier (`var`). v3 already used `val` / `var` for locals and fields; v4 makes the tier discipline uniform — parameters and closure captures participate too — and the analyzer enforces it structurally.
 
-**v3:**
+**v3 (tiers on locals and fields; not tracked past the binding site):**
 
 ```iron
-let x = 1
-let mut counter = 0
+val x = 1
+var counter = 0
 counter = counter + 1
 
 object Point {
-    let mut x: Int
-    let y: Int
+    var x: Int
+    val y: Int
 }
 ```
 
-**v4:**
+**v4 (same surface — tiers now enforced across fields, params, and captures):**
 
 ```iron
 val x = 1
@@ -80,7 +79,7 @@ func make_counter() -> func() -> Int {
 }
 ```
 
-**LSP quickfix (LSP-06): Add 'val'.** Whenever a binding declaration appears without a tier — typically `let x = ...` carried over from v3 — the LSP surfaces a quickfix that prefixes `val`. If the variable is later reassigned, the analyzer's tier-mismatch diagnostic upgrades the fix to `var`.
+**LSP quickfix (LSP-06): Add 'val'.** Whenever a binding declaration appears without a tier, the LSP surfaces a quickfix that prefixes `val`. If the variable is later reassigned, the analyzer's tier-mismatch diagnostic upgrades the fix to `var`.
 
 ### §3.2 Parameter modifiers (Phase 18)
 
@@ -255,7 +254,7 @@ Object declarations opt into resource discipline. **`drop`** declares a destruct
 
 ```iron
 func main() {
-    let log = Logger.open("/tmp/log.txt")
+    val log = Logger.open("/tmp/log.txt")
     write(log, "hello")
     close(log)
 }
@@ -317,8 +316,8 @@ func main() {
 
 ```iron
 func main() {
-    let sprite = Texture("hero.png")
-    let also  = sprite      -- v3: silently shared
+    val sprite = Texture("hero.png")
+    val also  = sprite      -- v3: silently shared
     use(sprite)
     use(also)
 }
@@ -350,7 +349,7 @@ A non-owning observer of an `rc T`. `weak rc T` does not keep the value alive; `
 
 ```iron
 object NodeA {
-    let next: NodeA       -- v3: implicit alias; cycle leaks
+    val next: NodeA       -- v3: implicit alias; cycle leaks
 }
 ```
 
@@ -372,14 +371,14 @@ object NodeA {
 
 func main() {
     val node_a = rc NodeA(id: 1, b_link: rc NodeB(id: 2), back: weak rc null)
-    node_a.back = node_a.demote()
+    node_a.back = node_a.downgrade()
     println("cycle set up")
     -- scope exit: rc NodeA refcount → 0; weak_count via `back` does not keep
     -- payload alive; NodeA.drop runs; then NodeB.drop runs (b_link → 0).
 }
 ```
 
-The pattern is: owner field carries `rc T`; back-reference field carries `weak rc T`; the back-reference is set via `demote()` after the owner exists.
+The pattern is: owner field carries `rc T`; back-reference field carries `weak rc T`; the back-reference is set via `downgrade()` after the owner exists.
 
 ### §3.11 Arena allocation (Phase 28)
 
@@ -391,9 +390,9 @@ Explicit `Arena.with_capacity(N)` scopes a bump allocator. Allocations via `heap
 
 ```iron
 func render_frame() {
-    let cmd1 = DrawCmd(id: 1)
-    let cmd2 = DrawCmd(id: 2)
-    let cmd3 = DrawCmd(id: 3)
+    val cmd1 = DrawCmd(id: 1)
+    val cmd2 = DrawCmd(id: 2)
+    val cmd3 = DrawCmd(id: 3)
     -- N draw cmds, all freed implicitly at scope exit
 }
 ```
@@ -426,7 +425,7 @@ LIFO scope-exit hook. Multiple `defer` statements run in reverse declaration ord
 
 ```iron
 func process() {
-    let f = open("/tmp/data")
+    val f = open("/tmp/data")
     -- ... work that may early-return ...
     close(f)
 }
@@ -522,12 +521,12 @@ In v3, two bindings pointing at the same object silently shared ownership; the d
 
 ```iron
 object Texture {
-    let path: String
+    val path: String
 }
 
 func main() {
-    let sprite = Texture(path: "hero.png")
-    let also   = sprite
+    val sprite = Texture(path: "hero.png")
+    val also   = sprite
     use(sprite)
     use(also)
 }
@@ -558,12 +557,12 @@ func main() {
 
 ```iron
 func process(x: Int) -> String {
-    let resource = acquire()
+    val resource = acquire()
     if x < 0 {
         release(resource)
         return "negative"
     }
-    let result = work(resource, x)
+    val result = work(resource, x)
     release(resource)
     return result
 }
@@ -621,12 +620,12 @@ v3 file handles, sockets, and locks all leaked unless the caller remembered to r
 
 ```iron
 object FileHandle {
-    let path: String
-    let fd: Int
+    val path: String
+    val fd: Int
 }
 
 func main() {
-    let fh = FileHandle.open("/tmp/data.txt")
+    val fh = FileHandle.open("/tmp/data.txt")
     work(fh)
     close(fh.fd)
 }
@@ -691,8 +690,8 @@ v3 had no escape from refcount cycles; v4 introduces `weak rc` specifically for 
 
 ```iron
 object Node {
-    let id: Int
-    let back: Node       -- v3: implicit alias; cycle leaks
+    val id: Int
+    val back: Node       -- v3: implicit alias; cycle leaks
 }
 ```
 
@@ -714,7 +713,7 @@ object NodeA {
 
 func main() {
     val node_a = rc NodeA(id: 1, b_link: rc NodeB(id: 2), back: weak rc null)
-    node_a.back = node_a.demote()
+    node_a.back = node_a.downgrade()
     println("cycle set up")
 }
 ```
@@ -729,9 +728,9 @@ Per-frame, per-request, or per-batch allocations consolidate into a single bump-
 
 ```iron
 func render_frame() {
-    let cmd1 = DrawCmd(id: 1)
-    let cmd2 = DrawCmd(id: 2)
-    let cmd3 = DrawCmd(id: 3)
+    val cmd1 = DrawCmd(id: 1)
+    val cmd2 = DrawCmd(id: 2)
+    val cmd3 = DrawCmd(id: 3)
     -- ... 100 more draw cmds, all on the heap, all freed individually
 }
 ```
@@ -789,7 +788,7 @@ v4.0.0-alpha is an alpha. Expect:
 
 ## §8 Where to ask for help
 
-- **Compiler bug or LSP regression:** open an issue at [https://github.com/iron-lang/iron-lang/issues](https://github.com/iron-lang/iron-lang/issues). Tag with `v4-alpha` and include the minimal `.iron` reproducer.
+- **Compiler bug or LSP regression:** open an issue at [https://github.com/victorl2/iron-lang/issues](https://github.com/victorl2/iron-lang/issues). Tag with `v4-alpha` and include the minimal `.iron` reproducer.
 - **Migration question** (e.g., "what policy fits this pattern?"): open a discussion thread in the repo. Include the v3 code that's failing.
 - **LSP-vs-ironc divergence:** this is a Core Value regression. File the issue with both the LSP diagnostic and the `ironc check` output attached — the `parity` CI gate should have caught it; if it didn't, that's a gate bug too.
 

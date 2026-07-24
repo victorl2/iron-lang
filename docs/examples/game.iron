@@ -1,65 +1,82 @@
+-- game.iron — a minimal raylib game in Iron v4.
+--
+-- Move the square with the arrow keys and collect the coin. Mirrors the
+-- API surface used by examples/pong/pong.iron and
+-- tests/manual/game_raylib.iron: Window lifecycle, a single
+-- `while not Window.should_close()` loop, Keyboard polling, Draw.*
+-- primitives, and Int → Int32 narrowing at the Draw.* call sites.
+
 import raylib
-import math as m
 
 object Player {
-  var pos:    Vec2
-  var hp:     Int
-  val speed:  Float
-  val name:   String
-  val sprite: rc Texture
-}
+    var x: Int
+    var y: Int
+    val speed: Int
+    val size: Int
 
-func Player.new(name: String) -> Player {
-  return Player(vec2(100.0, 100.0), 100, 200.0, name, rc load_texture("hero.png"))
-}
+    init(x: Int, y: Int) {
+        self.x = x
+        self.y = y
+        self.speed = 6
+        self.size = 24
+    }
 
-func Player.update(dt: Float) {
-  if is_key_down(.RIGHT) { self.pos.x += self.speed * dt }
-  if is_key_down(.LEFT)  { self.pos.x -= self.speed * dt }
-  if is_key_down(.UP)    { self.pos.y -= self.speed * dt }
-  if is_key_down(.DOWN)  { self.pos.y += self.speed * dt }
-}
+    func update(max_x: Int, max_y: Int) {
+        if Keyboard.is_down(KeyboardKey.RIGHT) { self.x = self.x + self.speed }
+        if Keyboard.is_down(KeyboardKey.LEFT)  { self.x = self.x - self.speed }
+        if Keyboard.is_down(KeyboardKey.UP)    { self.y = self.y - self.speed }
+        if Keyboard.is_down(KeyboardKey.DOWN)  { self.y = self.y + self.speed }
 
-func Player.draw() {
-  draw_texture(self.sprite, self.pos)
-}
+        -- Clamp to the screen.
+        if self.x < 0 { self.x = 0 }
+        if self.x > max_x - self.size { self.x = max_x - self.size }
+        if self.y < 0 { self.y = 0 }
+        if self.y > max_y - self.size { self.y = max_y - self.size }
+    }
 
-func Player.is_alive() -> Bool {
-  return self.hp > 0
+    readonly func draw() {
+        Draw.rectangle(Int32(self.x), Int32(self.y),
+                       Int32(self.size), Int32(self.size), WHITE)
+    }
 }
 
 func main() {
-  val window = init_window(800, 600, "My Game")
-  defer close_window(window)
+    val SCREEN_W: Int = 800
+    val SCREEN_H: Int = 600
+    val COIN_R: Int = 10
 
-  var player = Player.new("Victor")
+    Window.init(Int32(SCREEN_W), Int32(SCREEN_H), "Iron Game")
+    Window.set_target_fps(Int32(60))
 
-  val bullets = heap [Bullet; 256]
-  var bullet_count = 0
+    var player = Player(100, 100)
+    var coin_x: Int = 600
+    var coin_y: Int = 400
+    var score: Int = 0
 
-  while not window_should_close() {
-    val dt = get_frame_time()
+    while not Window.should_close() {
+        player.update(SCREEN_W, SCREEN_H)
 
-    player.update(dt)
-
-    if is_key_pressed(.SPACE) {
-      bullets[bullet_count] = player.shoot()
-      bullet_count += 1
-    }
-
-    for i in range(bullet_count) {
-      bullets[i].update(dt)
-    }
-
-    draw {
-      clear(DARKGRAY)
-      player.draw()
-      for i in range(bullet_count) {
-        if bullets[i].alive {
-          draw_circle(bullets[i].pos, 4.0, RED)
+        -- Coin pickup: axis-aligned overlap test, then hop the coin to
+        -- a new spot (deterministic walk kept inside the screen).
+        if player.x + player.size > coin_x - COIN_R and player.x < coin_x + COIN_R {
+            if player.y + player.size > coin_y - COIN_R and player.y < coin_y + COIN_R {
+                score = score + 1
+                coin_x = coin_x + 217
+                coin_y = coin_y + 137
+                if coin_x > SCREEN_W - COIN_R { coin_x = coin_x - (SCREEN_W - 2 * COIN_R) }
+                if coin_y > SCREEN_H - COIN_R { coin_y = coin_y - (SCREEN_H - 2 * COIN_R) }
+            }
         }
-      }
-      draw_text("{player.name}: {bullet_count} bullets", 10, 10, 20, WHITE)
+
+        -- Render.
+        Draw.begin()
+        Draw.clear(BLACK)
+        player.draw()
+        Draw.circle(Int32(coin_x), Int32(coin_y), Float32(10.0), GOLD)
+        val score_str = "score: " + score.to_string()
+        Draw.text(score_str, Int32(10), Int32(10), Int32(20), WHITE)
+        Draw.end()
     }
-  }
+
+    Window.close()
 }
