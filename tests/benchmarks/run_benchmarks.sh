@@ -3,15 +3,41 @@
 # Compares Iron compiler output against C reference implementations.
 # Supports memory tracking, baseline saving, and regression detection.
 # Exit 0 if all benchmarks pass their max_ratio threshold, exit 1 otherwise.
+#
+# Subset mode (2026-07): set IRON_BENCH_PROBLEMS to a comma-separated list of
+# problem directory names to run only those benchmarks, e.g.
+#   IRON_BENCH_PROBLEMS="int32_array_sum,heap_sort" ./run_benchmarks.sh
+# Used by the ctest `benchmark_smoke` row to run a representative subset
+# inside a realistic timeout; the full corpus (~22 min serial) is the
+# opt-in `benchmark_full` row / a bare invocation of this script.
 
 set -euo pipefail
+
+# 2026-07 /tmp-hijack remediation: strip cwd-relative entries ("." or empty)
+# from PATH so bare tool names (clang, grep, awk, ...) can never resolve into
+# a working directory — e.g. a stray compiled fixture named `sh` or `as` in
+# /tmp, where this script builds and runs every benchmark binary.
+_clean_path=""
+IFS=:
+for _p in $PATH; do
+    case "$_p" in
+        ""|.) ;;
+        *) _clean_path="${_clean_path:+${_clean_path}:}${_p}" ;;
+    esac
+done
+unset IFS
+PATH="$_clean_path"
+export PATH
+unset _clean_path _p
 
 # ── Resolve repo root ──────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROBLEMS_DIR="$SCRIPT_DIR/problems"
 BASELINES_DIR="$SCRIPT_DIR/baselines"
-IRONC="$REPO_ROOT/build/ironc"
+# IRONC_BINARY (set by the ctest row, matching test_cli_parse_web) overrides
+# the default repo-root build path so the suite works from any build directory.
+IRONC="${IRONC_BINARY:-$REPO_ROOT/build/ironc}"
 TMPDIR="${TMPDIR:-/tmp}/iron_bench_$$"
 
 # Number of timing samples per binary. Runs are interleaved [C, Iron, C, Iron, ...]
@@ -284,6 +310,16 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
     # Apply filter if --problem was specified
     if [ -n "$FILTER_PROBLEM" ] && [ "$problem_name" != "$FILTER_PROBLEM" ]; then
         continue
+    fi
+
+    # Apply IRON_BENCH_PROBLEMS subset filter (comma-separated names; see
+    # header). Skipped problems are excluded from totals entirely, exactly
+    # like the --problem filter above.
+    if [ -n "${IRON_BENCH_PROBLEMS:-}" ]; then
+        case ",${IRON_BENCH_PROBLEMS}," in
+            *",${problem_name},"*) ;;
+            *) continue ;;
+        esac
     fi
 
     # Apply group filter (--only-parallel / --skip-parallel)
@@ -588,6 +624,15 @@ if [ $CHECK_REGRESSION -eq 1 ]; then
 
             if [ -n "$FILTER_PROBLEM" ] && [ "$problem_name" != "$FILTER_PROBLEM" ]; then
                 continue
+            fi
+
+            # Keep the regression walk consistent with the main loop's
+            # IRON_BENCH_PROBLEMS subset filter (see header).
+            if [ -n "${IRON_BENCH_PROBLEMS:-}" ]; then
+                case ",${IRON_BENCH_PROBLEMS}," in
+                    *",${problem_name},"*) ;;
+                    *) continue ;;
+                esac
             fi
 
             if ! benchmark_matches_group "$problem_name"; then

@@ -1,6 +1,9 @@
 -- section: 6-readonly
 -- @req: READ-01, READ-04
--- @expected-pass-after: phase-22
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): top-level `readonly func` is deliberately parse-rejected (E0245, Phase 84
+-- MUTTIER: readonly is only valid on object-block methods); fixture authored against the older
+-- free-function readonly design + E0264 (Enemy has a var field but no init).
 -- description: readonly compute_damage canonical example (§6.1 verbatim)
 
 object Player {
@@ -20,8 +23,8 @@ readonly func compute_damage(attacker: *Player, target: *Enemy) -> Int {
 }
 
 func main() {
-    val player = Player(hp: 100, attack: 15)
-    val enemy = Enemy(hp: 50, defense: 5)
+    val player = Player(100, 15)
+    val enemy = Enemy(50, 5)
     val dmg = compute_damage(&player, &enemy)
     println("damage: {dmg}")
 }

@@ -9,7 +9,7 @@ object Player {
 }
 
 func main() {
-    val player = Player(hp: 100, attack: 15)
+    val player = Player(100, 15)
     val ptr: *Player = &player
     println("hp: {ptr.hp}")
     println("attack: {ptr.attack}")

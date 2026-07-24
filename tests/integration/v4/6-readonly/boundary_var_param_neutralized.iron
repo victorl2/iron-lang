@@ -1,6 +1,9 @@
 -- section: 6-readonly
 -- @req: READ-01, READ-02
--- @expected-pass-after: phase-22
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): top-level `readonly func` is deliberately parse-rejected (E0245, Phase 84
+-- MUTTIER: readonly is only valid on object-block methods); fixture authored against the older
+-- free-function readonly design.
 -- extends-spec: readonly method takes *var parameter but cannot mutate it (§6.3 neutralization)
 
 object Player {
@@ -17,7 +20,7 @@ readonly func observe_attack(p: *var Player) -> Int {
 }
 
 func main() {
-    var player = Player(hp: 75, attack: 12)
+    var player = Player(75, 12)
     val hp = observe_hp(&player)
     val atk = observe_attack(&player)
     println("hp={hp} attack={atk}")

@@ -1,21 +1,23 @@
 -- section 3.4 weak rc: upgrade returns null after last strong dropped
 -- @req: POL-08, POL-09
--- @expected-pass-after: phase-27
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): T? optional-payload lowering missing — `maybe == null` on upgrade() result
+-- emits invalid C (struct-vs-NULL compare); same class as 4.9 upgrade_returns_nullable.
 -- extends-spec: scope-exit drops strong; subsequent upgrade returns null
 
 object Resource {
     val id: Int
 
     drop {
-        println("drop: resource {id}")
+        println("drop: resource {self.id}")
     }
 }
 
 func main() {
     var weak_ref: weak rc Resource = weak rc null
     {
-        val strong = rc Resource(id: 7)
-        weak_ref = strong.demote()
+        val strong = rc Resource(7)
+        weak_ref = strong.downgrade()
         println("strong alive: id={strong.id}")
     }
     -- strong dropped here

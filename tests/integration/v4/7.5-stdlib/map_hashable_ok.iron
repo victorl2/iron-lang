@@ -1,9 +1,12 @@
 -- section: 7.5-stdlib
 -- @req: STDLIB-03, OQ-01
--- @expected-pass-after: phase-33 (Wave 2 Hashable constraint + primitive-key carve-out)
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): Map.new() is a stub returning Void (E0202: expected
+-- 'Map', got 'Void') — same Wave-4 container-rewrite gap as Set.new in
+-- 7.5-stdlib/set_basic. The Hashable-key acceptance contract (E0206 ABSENT)
+-- is pinned by the dedicated ctest row v4_7.5-stdlib_map_hashable_ok and
+-- already holds; the runtime contract needs the real Map constructor.
 -- Map[String, Int] is well-formed: String satisfies the Hashable key bound.
--- Positive check-path oracle asserts E0206 is ABSENT.
--- RED until Wave 2 declares Map[K: Hashable, V] + the Hashable interface.
 
 func main() {
     var m: Map[String, Int] = Map.new()

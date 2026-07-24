@@ -3,10 +3,15 @@
 -- @expected-pass-after: phase-31
 -- A non-escaping heap binding that is never freed, never leaked, and never
 -- defer-freed must raise the W0606 forgotten-free warning (best-effort lint,
--- NOT a hard error). The lint lands in Plan 31-02; this fixture is the RED
--- target authored in Wave 0.
+-- NOT a hard error). The W0606 contract is pinned by the dedicated ctest row
+-- (v4_4.12-debug-leak_forgotten_free: ironc check | grep W0606). The aggregate
+-- run-and-compare handler cannot observe compile-time warnings, so .expected
+-- pins the runtime stdout (warning-only: the program still builds and runs).
 
-object Point { var x: Int; var y: Int }
+object Point {
+    val x: Int
+    val y: Int
+}
 
 func main() {
     val p = heap Point(1, 2)

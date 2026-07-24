@@ -1,1 +1,1 @@
-cannot call mutable method on immutable binding
+mut-receiver syntax 'func (mut recv: T) name()' removed in v3.0

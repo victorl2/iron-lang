@@ -11,8 +11,10 @@ func kahn_checksum(adj: [Int], n: Int) -> Int {
     while i < n {
         var j = 0
         while j < n {
-            if adj[i * n + j] == 1 {
-                in_deg[j] = in_deg[j] + 1
+            -- in-bounds: i < n, j < n, so i * n + j < n * n = adj.len() (caller contract)
+            if adj.get_unchecked(i * n + j) == 1 {
+                -- in-bounds: j < n <= 20 = in_deg.len() (caller contract n <= 20)
+                in_deg.set_unchecked(j, in_deg.get_unchecked(j) + 1)
             }
             j = j + 1
         }
@@ -25,8 +27,10 @@ func kahn_checksum(adj: [Int], n: Int) -> Int {
     var q_back = 0
     i = 0
     while i < n {
-        if in_deg[i] == 0 {
-            queue[q_back] = i
+        -- in-bounds: i < n <= 20 = in_deg.len()
+        if in_deg.get_unchecked(i) == 0 {
+            -- in-bounds: each node enters the queue at most once, so q_back < n <= 20 = queue.len()
+            queue.set_unchecked(q_back, i)
             q_back = q_back + 1
         }
         i = i + 1
@@ -36,7 +40,8 @@ func kahn_checksum(adj: [Int], n: Int) -> Int {
     var count = 0
     var pos = 0
     while q_front < q_back {
-        val node = queue[q_front]
+        -- in-bounds: q_front < q_back <= n <= 20 = queue.len()
+        val node = queue.get_unchecked(q_front)
         q_front = q_front + 1
         checksum = checksum + node * (pos + 1)
         pos = pos + 1
@@ -44,10 +49,13 @@ func kahn_checksum(adj: [Int], n: Int) -> Int {
 
         var j = 0
         while j < n {
-            if adj[node * n + j] == 1 {
-                in_deg[j] = in_deg[j] - 1
-                if in_deg[j] == 0 {
-                    queue[q_back] = j
+            -- in-bounds: node < n (queue holds node ids), j < n, so node * n + j < n * n = adj.len()
+            if adj.get_unchecked(node * n + j) == 1 {
+                -- in-bounds: j < n <= 20 = in_deg.len()
+                in_deg.set_unchecked(j, in_deg.get_unchecked(j) - 1)
+                if in_deg.get_unchecked(j) == 0 {
+                    -- in-bounds: a node enqueues only on its in-degree reaching 0 (once), so q_back < n <= 20
+                    queue.set_unchecked(q_back, j)
                     q_back = q_back + 1
                 }
             }

@@ -1,6 +1,11 @@
 -- section: 4.3-unchecked-ptr
 -- @req: UNCK-01, UNCK-02
--- @expected-pass-after: phase-25
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): the `as` cast operator is not a surface — `as` is not a
+-- keyword (parse: E0102 expected expression + E0200 undefined identifier
+-- 'as'), so `message as *unchecked U8` cannot parse; the [U8; N]-from-string
+-- literal form is likewise unproven. No alternative spelling reaches the
+-- UNCK-01 extern-call contract, so the fixture is not contorted.
 -- extends-spec: extern function takes *unchecked T parameter - FFI boundary; *unchecked T is the ONLY regime that bridges to C ABI (PTR-05: auto-address does not apply to *unchecked T parameters)
 
 extern func c_strlen(s: *unchecked U8) -> Int

@@ -7,12 +7,12 @@ object Probe {
     val name: String
 
     drop {
-        println("drop: {name}")
+        println("drop: {self.name}")
     }
 }
 
 func main() {
-    val a = Probe(name: "a")
-    val b = Probe(name: "b")
+    val a = Probe("a")
+    val b = Probe("b")
     println("alive")
 }

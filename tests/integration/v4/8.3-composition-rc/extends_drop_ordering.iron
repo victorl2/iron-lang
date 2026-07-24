@@ -2,17 +2,20 @@
 -- @req: POL-06, POL-07, DROP-01
 -- @expected-pass-after: phase-26
 -- extends-spec: 3 rc copies in nested scopes; destructor fires after last reference released
+-- (.expected reordered: the last strong ref `a` is released at MAIN SCOPE EXIT — after the final
+-- println — per scope-exit drop semantics; the old ordering assumed eager last-use release, which
+-- is not an Iron surface and contradicted the 3.3-rc sibling corpus)
 
 object Resource {
     val id: Int
 
     drop {
-        println("drop resource {id}")
+        println("drop resource {self.id}")
     }
 }
 
 func main() {
-    val a = rc Resource(id: 1)
+    val a = rc Resource(1)
     println("a alive")
     {
         val b = a                  -- refcount = 2
@@ -26,6 +29,6 @@ func main() {
         -- b drops here; refcount = 1; no destructor
     }
     println("b gone")
-    -- a drops here; refcount = 0; destructor fires
     println("a gone")
+    -- a drops at main scope exit; refcount = 0; destructor fires last
 }

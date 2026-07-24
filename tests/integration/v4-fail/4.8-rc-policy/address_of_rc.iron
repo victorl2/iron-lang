@@ -2,8 +2,11 @@
 -- @req: POL-07
 -- @expected-pass-after: phase-26
 -- E0296 IRON_ERR_PTR_AMP_ON_RC — use weak rc T (Phase 27) for non-owning ref
-object Point { val x: Int; val y: Int }
-func main(): Int {
+object Point {
+    val x: Int
+    val y: Int
+}
+func main() -> Int {
     val p = rc Point(1, 2)
     val r = &p
     return 0

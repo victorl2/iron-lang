@@ -5,17 +5,14 @@
 -- allocated via heap(in: arena) WITHOUT allow_drop_skip must emit W06xx:
 -- the arena bulk-frees memory without running the per-object destructor.
 -- allow_drop_skip: true (see arena_allow_drop_skip.iron) suppresses the warning.
-
-object FileHandle {
-    val fd: Int
-
-    drop {
-        println("closing fd {fd}")
-    }
-}
+-- (local FileHandle object removed when Phase 33 landed the stdlib FileHandle —
+-- a local decl now clashes with E0201 and preempts the W0605 surface; the stdlib
+-- FileHandle carries the non-trivial fd-closing drop this fixture needs, and the
+-- W0605 message names FileHandle exactly as .expected pins. Construction is
+-- positional — named args are not a surface form.)
 
 func main() {
     val arena = Arena.with_capacity(4096)
-    val fh = heap(in: arena) FileHandle(fd: 7)
+    val fh = heap(in: arena) FileHandle(7)
     println("fd: {fh.fd}")
 }

@@ -26,6 +26,28 @@
 
 set -euo pipefail
 
+# 2026-07 /tmp-hijack remediation: strip cwd-relative entries ("." or empty)
+# from PATH so bare tool names (grep, nm, ar, sed, the clang that ironc shells
+# out to, ...) can never resolve into a fixture working directory — this
+# script cd's into /tmp build dirs where compiled fixture binaries land.
+# (The ctest-level hijack was a different mechanism — ctest resolves a bare
+# add_test COMMAND name against the row's WORKING_DIRECTORY before PATH, so a
+# stray /tmp/sh silently replaced the shell for every `sh -c` row — fixed by
+# absolute /bin/sh in every row + the test_sh_hijack_canary row; see the
+# canary's comment block in CMakeLists.txt.)
+_clean_path=""
+IFS=:
+for _p in $PATH; do
+    case "$_p" in
+        ""|.) ;;
+        *) _clean_path="${_clean_path:+${_clean_path}:}${_p}" ;;
+    esac
+done
+unset IFS
+PATH="$_clean_path"
+export PATH
+unset _clean_path _p
+
 # Returns 0 (true) if the fixture should be treated as XFAIL given the directive
 # and the current phase. Phase 15 baseline: IRON_CURRENT_PHASE defaults to 15;
 # fixtures with @expected-pass-after: phase-N where N > IRON_CURRENT_PHASE are XFAIL.
@@ -315,6 +337,11 @@ fi
 _main_loop_files=""
 if [ "${CATEGORY}" = "v4" ] || [ "${CATEGORY}" = "v4-migrated" ]; then
     _main_loop_files="${iron_files_v4}"
+elif [ "${CATEGORY}" = "compile_fail" ]; then
+    # Negative corpus with flat layout: must NOT enter the build-and-run walk
+    # (v4-fail only escapes it because its fixtures live in subdirs, which the
+    # flat glob below misses). Handled by the negative-corpus block instead.
+    _main_loop_files=""
 else
     # Build a newline-delimited list from the flat glob (nullglob already set).
     for _f in "${TEST_DIR}"/*.iron; do
@@ -478,8 +505,10 @@ for test_file in ${_main_loop_files}; do
     fi
 done
 
-# v4-fail negative corpus: build MUST fail + stderr MUST contain .expected substring.
-if [ "${CATEGORY}" = "v4-fail" ]; then
+# Negative corpora: build MUST fail + stderr MUST contain .expected substring.
+# v4-fail uses §-section subdirs; compile_fail is flat — the recursive find
+# below handles both.
+if [ "${CATEGORY}" = "v4-fail" ] || [ "${CATEGORY}" = "compile_fail" ]; then
     for test_file in $(find "${TEST_DIR}" -type f -name '*.iron' | sort); do
         TOTAL=$((TOTAL + 1))
         rel_path="${test_file#${TEST_DIR}/}"
@@ -506,8 +535,66 @@ if [ "${CATEGORY}" = "v4-fail" ]; then
         build_rc=$?
         set -e
 
-        # Negative test: build/check MUST fail.
+        # Negative test: build/check MUST fail — with two carve-outs where
+        # `check` legitimately exits 0:
+        #   1. Warning-only negatives (.expected pins a W-code, e.g. W0605):
+        #      the contract is the diagnostic text, not a non-zero exit.
+        #   2. Runtime-panic negatives (@expect-panic header, e.g. arena_oom):
+        #      the program is compile-valid by design; build + run it and
+        #      require an abort whose output carries the .expected substring.
         if [ "${build_rc}" -eq 0 ]; then
+            expected_substr=$(cat "${expected_file}")
+            expected_substr="${expected_substr%$'\n'}"
+
+            # Carve-out 1: warning-only negative.
+            case "${expected_substr}" in
+                W[0-9][0-9][0-9][0-9]*|warning\[*)
+                    if grep -qF "${expected_substr}" "${build_log}"; then
+                        echo "[PASS] (warning-only negative)"
+                        PASS=$((PASS + 1))
+                        continue
+                    fi
+                    ;;
+            esac
+
+            # Carve-out 2: runtime-panic negative.
+            expect_panic_neg=""
+            if head -n 10 "${test_file}" | grep -qE '^[[:space:]]*--[[:space:]]*@expect-panic:'; then
+                expect_panic_neg=1
+            fi
+            if [ -n "${expect_panic_neg}" ]; then
+                run_dir="${WORK_DIR}/$(basename "${test_file}" .iron)_run_$$"
+                mkdir -p "${run_dir}"
+                run_log="${run_dir}/run.log"
+                set +e
+                (cd "${run_dir}" && "${IRON_BIN}" build -o "${run_dir}/b" "${test_file}") > "${run_log}" 2>&1
+                build2_rc=$?
+                run_rc=1
+                if [ "${build2_rc}" -eq 0 ]; then
+                    # Command substitution keeps bash from printing the
+                    # "Aborted" job message the panic abort would trigger.
+                    run_output=$("${run_dir}/b" 2>&1)
+                    run_rc=$?
+                    printf '%s\n' "${run_output}" >> "${run_log}"
+                fi
+                set -e
+                if [ "${build2_rc}" -eq 0 ] && [ "${run_rc}" -ne 0 ] && grep -qF "${expected_substr}" "${run_log}"; then
+                    echo "[PASS] (runtime-panic negative)"
+                    PASS=$((PASS + 1))
+                    rm -rf "${run_dir}"
+                    continue
+                fi
+                rm -rf "${run_dir}"
+                if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+                    echo "[XFAIL] (panic missing or substring absent; expected-pass-after: phase-${expected_pass_after})"
+                    XFAIL=$((XFAIL + 1))
+                else
+                    echo "[FAIL] (expected runtime panic with substring: ${expected_substr})"
+                    FAIL=$((FAIL + 1))
+                fi
+                continue
+            fi
+
             if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
                 echo "[XFAIL] (build unexpectedly passed; expected-pass-after: phase-${expected_pass_after})"
                 XFAIL=$((XFAIL + 1))

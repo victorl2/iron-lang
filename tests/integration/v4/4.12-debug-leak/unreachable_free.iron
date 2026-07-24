@@ -1,11 +1,18 @@
 -- section 4.12 debug-leak: unreachable-free lint (DBG-06)
 -- @req: DBG-06
 -- @expected-pass-after: phase-31
+-- @expect-panic: stale pointer dereference
 -- Freeing the same binding twice in the same scope must raise the W0607
--- unreachable-free warning (the second 'free p' is unreachable / a static
--- double-free). The lint lands in Plan 31-02; this fixture is the RED target.
+-- unreachable-free warning (static double-free; warning-only, the program
+-- still builds). The W0607 contract is pinned by the dedicated ctest row
+-- (v4_4.12-debug-leak_unreachable_free: ironc check | grep W0607). The
+-- aggregate handler cannot observe compile-time warnings; at runtime the
+-- second free trips the heap generation check deterministically (@expect-panic).
 
-object Point { var x: Int; var y: Int }
+object Point {
+    val x: Int
+    val y: Int
+}
 
 func main() {
     val p = heap Point(1, 2)

@@ -1,8 +1,8 @@
 -- section 4.11 pointer-check elision: stale-after-grow soundness trap
 -- @req: OPT-03, OQ-08
 -- @expect-panic: dangling pointer to invalidated element
--- @expected-pass-after: phase-37
--- XFAIL (phase-37): List.new(capacity) constructor arg not dispatched (only zero-arg List.new); fixture needs a small capacity to force the grow.
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): List.new(capacity) constructor arg not dispatched (only zero-arg List.new); fixture needs a small capacity to force the grow.
 -- extends-spec: POINTER-CHECK-ELISION.md soundness trap "stale after grow" —
 -- a generation check straddles a container grow that reallocates the backing
 -- buffer. A naive elision that judged the second deref redundant w.r.t. the

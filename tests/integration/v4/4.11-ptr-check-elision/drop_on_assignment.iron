@@ -1,8 +1,8 @@
 -- section 4.11 pointer-check elision: drop-on-assignment soundness trap
 -- @req: OPT-03, OQ-08
 -- @expect-panic: stale pointer dereference
--- @expected-pass-after: phase-37
--- XFAIL (phase-37): `heap T` type annotations not in the v4 surface (heap is allocation-expression-only).
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): `heap T` type annotations not in the v4 surface (heap is allocation-expression-only).
 -- extends-spec: POINTER-CHECK-ELISION.md soundness trap "drop on assignment" —
 -- a generation check straddles a store into an owning slot. A naive elision
 -- that reused the first check's result for the post-assignment deref would be

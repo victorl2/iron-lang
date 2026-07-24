@@ -2,9 +2,15 @@
 -- @req: DBG-05
 -- @expected-pass-after: phase-31
 -- A heap binding with a reaching 'defer free' counts as freed and must NOT
--- raise W0606. The CTest inverts the grep (W0606 must be ABSENT).
+-- raise W0606. The W0606-ABSENT contract is pinned by the dedicated ctest row
+-- (v4_4.12-debug-leak_defer_free_satisfies: inverted grep on ironc check).
+-- The aggregate run-and-compare handler cannot observe compile-time warnings,
+-- so .expected pins the runtime stdout.
 
-object Point { var x: Int; var y: Int }
+object Point {
+    val x: Int
+    val y: Int
+}
 
 func main() {
     val p = heap Point(1, 2)

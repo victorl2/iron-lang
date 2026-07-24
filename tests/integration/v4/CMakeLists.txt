@@ -11,7 +11,12 @@ if(NOT WIN32)
                 ${CMAKE_BINARY_DIR}/iron
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
-    set_tests_properties(test_v4_acceptance PROPERTIES LABELS "v4-acceptance")
+    # Wire the configured phase gate into the harness: run_tests.sh falls back
+    # to IRON_CURRENT_PHASE=15 when the env var is absent, which silently
+    # decouples this aggregate from the gate the per-fixture ctest rows use.
+    set_tests_properties(test_v4_acceptance PROPERTIES
+        LABELS "v4-acceptance"
+        ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}")
 endif()
 
 # Phase 35 MIG-09: migrated-from-v3/ subdir hosts the hand-migrated v3 corpus.

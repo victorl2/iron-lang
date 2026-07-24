@@ -5,5 +5,5 @@
 func main() {
     val player: Player = Player.new()
     val checked: *Player = &player
-    val unchecked: *unchecked Player = checked
+    val unchecked_ptr: *unchecked Player = checked
 }

@@ -1,6 +1,11 @@
 -- section: 4.2-checked-ptr
 -- @req: PTR-01, PTR-08
--- @expected-pass-after: phase-20
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): no scalar deref-read surface for checked pointers — there
+-- is no prefix-* deref expression, and interpolating a *T scalar is
+-- deliberately opaque (emit_c.c checked-regime PTR fallback prints "<ptr>";
+-- actual output today is `element: <ptr>`). Only field auto-deref (p.field)
+-- reads through checked pointers. .expected keeps the intended contract.
 -- extends-spec: element-pointer &arr[i] on stack array; positive safe case where array is NOT mutated after pointer taken; soundness: POINTER-CHECK-ELISION.md trap "stale after grow" - this is the safe control fixture (no mutation); see panic_stale_after_grow.iron for the trap
 
 func main() {

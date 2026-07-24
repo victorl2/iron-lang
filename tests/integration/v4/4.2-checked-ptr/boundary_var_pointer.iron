@@ -1,6 +1,10 @@
 -- section: 4.2-checked-ptr
 -- @req: PTR-02, PTR-06
--- @expected-pass-after: phase-20
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): no scalar store-through-pointer surface exists — `:=` is
+-- not in the language ("`:=` is NOT used", language_definition.md) and there
+-- is no deref-assignment form for `*var T` scalars; only field auto-deref
+-- (`p.field = v`) stores through checked pointers today.
 -- extends-spec: *var T allows mutation through pointer; soundness: POINTER-CHECK-ELISION.md "implicit drops on assignment" - overwriting via *var pointer triggers generation check ensuring pointer still valid before mutation
 
 func main() {

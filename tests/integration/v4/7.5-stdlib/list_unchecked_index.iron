@@ -1,0 +1,33 @@
+-- section: 7.5-stdlib
+-- @req: UNCHK-IDX-01, STDLIB-02
+-- @expected-pass-after: phase-37
+-- Per-site unchecked indexing on a dynamic list [T]: get_unchecked/set_unchecked
+-- are by-name intrinsics (the Box.new/unwrap precedent) that lower onto the raw
+-- .items fast path. Normal builds carry NO bounds guard at these sites (OOB is
+-- UB, like C); --debug-build keeps the guard with a distinct "unchecked site"
+-- panic. Every site below states its in-bounds argument, per the documented
+-- usage contract.
+
+func sum_first(xs: [Int], n: Int) -> Int {
+    var total = 0
+    var i = 0
+    while i < n {
+        -- in-bounds: 0 <= i < n <= xs.len() by caller contract
+        total = total + xs.get_unchecked(i)
+        i = i + 1
+    }
+    return total
+}
+
+func main() {
+    var xs = fill(5, 0)
+    var i = 0
+    while i < 5 {
+        -- in-bounds: 0 <= i < 5 = xs.len()
+        xs.set_unchecked(i, i * 10)
+        i = i + 1
+    }
+    println("{sum_first(xs, 5)}")
+    -- in-bounds: 3 < 5 = xs.len()
+    println("{xs.get_unchecked(3)}")
+}

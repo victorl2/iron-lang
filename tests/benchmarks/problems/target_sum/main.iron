@@ -3,7 +3,8 @@ import time
 func target_sum(nums: [Int], n: Int, target: Int, max_s: Int) -> Int {
     var total = 0
     for i in range(n) {
-        total = total + nums[i]
+        -- in-bounds: 0 <= i < n = nums.len() by caller contract
+        total = total + nums.get_unchecked(i)
     }
     val sum = total + target
     var dp = fill(max_s + 1, 0)
@@ -18,8 +19,10 @@ func target_sum(nums: [Int], n: Int, target: Int, max_s: Int) -> Int {
     var i = 0
     while i < n {
         var j = s
-        while j >= nums[i] {
-            dp[j] = dp[j] + dp[j - nums[i]]
+        -- in-bounds: i < n = nums.len(); j <= s <= max_s (caller contract max_s >= (sum(nums)+target)/2),
+        -- so j < dp.len() = max_s + 1; j - nums[i] >= 0 by the loop guard j >= nums[i]
+        while j >= nums.get_unchecked(i) {
+            dp.set_unchecked(j, dp.get_unchecked(j) + dp.get_unchecked(j - nums.get_unchecked(i)))
             j = j - 1
         }
         i = i + 1

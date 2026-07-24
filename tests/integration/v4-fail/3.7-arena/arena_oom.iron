@@ -17,6 +17,6 @@ object Big {
 func main() {
     val scratch = Arena.with_capacity(16)
     -- Big needs more than 16 bytes; bump allocation overruns capacity → panic.
-    val big = heap(in: scratch) Big(a: 1, b: 2, c: 3, d: 4)
+    val big = heap(in: scratch) Big(1, 2, 3, 4)
     println("unreachable: {big.a}")
 }

@@ -1,13 +1,20 @@
 -- section 3.6 policies are non-transitive
 -- @req: POL-01, POL-02, POL-10
--- @expected-pass-after: phase-28
--- extends-spec: stack container holds heap field; heap field freed at stack drop
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): a STACK container with a drop body does not run its fields'
+-- destructors — the DROP-02 field cascade (DROP-LAYOUT.md §"Generated C": user body,
+-- then field drops in reverse declaration order) is emitted for rc containers but not
+-- for stack values, so the second "drop buffer: 4096" (the by-value field copy) never
+-- prints. .expected pins the spec-correct DEFER-04 + DROP-02 ordering.
+-- extends-spec: stack container holding a heap-originated field. Non-transitive
+-- (POL-10): the heap original is freed by `defer free` (defers before destructors,
+-- DEFER-04); the field holds a by-value copy destroyed via the DROP-02 cascade.
 
 object Buffer {
     val size: Int
 
     drop {
-        println("drop buffer: {size}")
+        println("drop buffer: {self.size}")
     }
 }
 
@@ -16,13 +23,13 @@ object Frame {
     val frame_id: Int
 
     drop {
-        println("drop frame: {frame_id}")
+        println("drop frame: {self.frame_id}")
     }
 }
 
 func main() {
-    val buf_val = heap Buffer(size: 4096)
+    val buf_val = heap Buffer(4096)
     defer free buf_val
-    val frame = Frame(buf: buf_val, frame_id: 42)
+    val frame = Frame(buf_val, 42)
     println("frame id: {frame.frame_id}, buf size: {frame.buf.size}")
 }

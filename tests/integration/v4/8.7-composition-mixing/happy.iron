@@ -1,6 +1,9 @@
 -- section 8.7 mixing all policies verbatim
 -- @req: POL-01, POL-02, POL-06, POL-08, ARENA-01
--- @expected-pass-after: phase-28
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): doc-verbatim §8.7 sample rests on non-surfaces: prefix `!` not lexable
+-- (E0002), `heap T` field type annotations (rejected by the v4-fail corpus), `heap Game.new()`
+-- construction form.
 -- all 5 policies + both pointer regimes + arena in one fixture
 
 object InputState {
@@ -28,7 +31,7 @@ nocopy object ParticleSystem {
     var storage: Box[ParticleArray]
 
     init() {
-        self.storage = Box.new(ParticleArray(count: 0))
+        self.storage = Box.new(ParticleArray(0))
     }
 }
 
@@ -54,13 +57,13 @@ object Game {
     var frame_arena: heap Arena                 -- arena for per-frame allocations
 
     init() {
-        self.assets = AssetManager(loaded: 0)
+        self.assets = AssetManager(0)
         self.enemies = List.new()
-        self.player = rc Player(hp: 100)
-        self.current_level = heap LevelData(seed: 1)
-        self.input_state = InputState(quit: false)
+        self.player = rc Player(100)
+        self.current_level = heap LevelData(1)
+        self.input_state = InputState(false)
         self.particles = ParticleSystem()
-        self.frame_arena = heap Arena.new(size: 4 * 1024 * 1024)
+        self.frame_arena = heap Arena.new(4 * 1024 * 1024)
     }
 
     func tick(self: *var Game, dt: Float) {

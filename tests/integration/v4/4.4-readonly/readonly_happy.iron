@@ -3,8 +3,8 @@
 -- @expected-pass-after: phase-22
 
 object Point {
-    var x: Int
-    var y: Int
+    val x: Int
+    val y: Int
 
     readonly func distance_squared() -> Int {
         return self.x * self.x + self.y * self.y

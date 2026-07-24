@@ -2,24 +2,27 @@
 -- @req: ARENA-03, ARENA-06
 -- @expected-pass-after: phase-28
 -- extends-spec: arena.reset() bulk-frees all allocations; new allocations after reset are valid
+-- (construction is positional — named args are not a surface form; allow_drop_skip: true
+-- acknowledges that the arena bulk-frees without running Cmd's drop, per ARENA-09/W0605 —
+-- matching the .expected output, which has no "drop cmd" lines)
 
 object Cmd {
     val seq: Int
 
     drop {
-        println("drop cmd: {seq}")
+        println("drop cmd: {self.seq}")
     }
 }
 
 func main() {
     val arena = Arena.with_capacity(65536)
-    val c1 = heap(in: arena) Cmd(seq: 1)
-    val c2 = heap(in: arena) Cmd(seq: 2)
-    val c3 = heap(in: arena) Cmd(seq: 3)
+    val c1 = heap(in: arena, allow_drop_skip: true) Cmd(1)
+    val c2 = heap(in: arena, allow_drop_skip: true) Cmd(2)
+    val c3 = heap(in: arena, allow_drop_skip: true) Cmd(3)
     println("first batch: {c1.seq},{c2.seq},{c3.seq}")
     arena.reset()
     println("arena reset")
-    val d1 = heap(in: arena) Cmd(seq: 10)
-    val d2 = heap(in: arena) Cmd(seq: 20)
+    val d1 = heap(in: arena, allow_drop_skip: true) Cmd(10)
+    val d2 = heap(in: arena, allow_drop_skip: true) Cmd(20)
     println("second batch: {d1.seq},{d2.seq}")
 }

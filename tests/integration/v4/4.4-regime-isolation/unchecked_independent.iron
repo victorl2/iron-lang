@@ -1,6 +1,10 @@
 -- section: 4.4-regime-isolation
 -- @req: PTR-04, UNCK-01
--- @expected-pass-after: phase-25
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): the `as` cast operator is not a surface — `as` is not a
+-- keyword (parse: E0102 expected expression + E0200 undefined identifier
+-- 'as'), so `value as *unchecked Int` cannot parse. No alternative spelling
+-- reaches the checked-to-unchecked bridge this fixture pins.
 -- extends-spec: unchecked pointer regime works independently in FFI boundary; no checked pointer ever touches the unchecked realm; PTR-03 regime disjointness means cross-regime conversion is a compile error (verified in v4-fail/4.4)
 
 extern func c_abs(x: *unchecked Int) -> Int

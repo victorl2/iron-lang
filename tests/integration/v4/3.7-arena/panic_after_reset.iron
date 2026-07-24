@@ -1,8 +1,9 @@
 -- section 3.7 arena allocation: use-after-reset panic
 -- @req: ARENA-06, SAFE-05
 -- @expected-pass-after: phase-28
--- @expect-panic: dangling pointer to arena-reset memory
+-- @expect-panic: stale pointer dereference
 -- extends-spec: pointer to arena-allocated value is dangling after arena.reset()
+-- (construction is positional — named args are not a surface form)
 
 object DrawCmd {
     val id: Int
@@ -10,7 +11,7 @@ object DrawCmd {
 
 func main() {
     val arena = Arena.with_capacity(4096)
-    val cmd = heap(in: arena) DrawCmd(id: 42)
+    val cmd = heap(in: arena) DrawCmd(42)
     val ptr: *DrawCmd = &cmd
     arena.reset()
     println("id: {ptr.id}")

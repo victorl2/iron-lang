@@ -1,11 +1,15 @@
 -- section 4.4 positive: readonly method returning [Int; 2] exercises sret RVO codegen
 -- @req: READ-08
--- @expected-pass-after: phase-23
--- note: requires Phase 23 [T; N] fixed-array literal inference + String.split READ-06 whitelist
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): fixed-size array return types are not implemented — a
+-- [T; N] return is rejected whether the value is a literal (E0215: literal
+-- infers dynamic '[Int]', no [T; N] inference from the return annotation) or
+-- an annotated local (E0305: return type mismatch at lowering). The READ-08
+-- sret-RVO path this fixture exists to exercise has no reachable surface yet.
 
 object Pair {
-    var a: Int
-    var b: Int
+    val a: Int
+    val b: Int
 
     readonly func make_pair() -> [Int; 2] {
         return [self.a, self.b]

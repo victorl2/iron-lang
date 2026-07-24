@@ -46,6 +46,14 @@ WORK_DIR=$(mktemp -d /tmp/iron_integration_XXXXXX)
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
 for test_file in "${SCRIPT_DIR}"/*.iron; do
+    # The flat corpus is the landing pad for fuzz-crash regression fixtures
+    # (scripts/fuzz_crash_to_fixture.sh); it is legitimately empty until one
+    # lands. Say so explicitly instead of printing a summary that reads like
+    # coverage — an unexpanded glob means zero fixtures, not zero failures.
+    if [ ! -f "${test_file}" ]; then
+        echo "NOTE: no flat fixtures in tests/integration/ (fuzz-crash regression corpus is empty); nothing to run."
+        break
+    fi
     test_name=$(basename "${test_file}" .iron)
     expected_file="${SCRIPT_DIR}/${test_name}.expected"
     TOTAL=$((TOTAL + 1))

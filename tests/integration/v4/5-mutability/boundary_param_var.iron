@@ -1,7 +1,7 @@
 -- section: 5-mutability
 -- @req: PARM-02
 -- @expected-pass-after: phase-18
--- extends-spec: var parameter modifier allows reassignment inside callee body; mutation is local to callee - does NOT affect caller (pass-by-value semantics with var modifier)
+-- extends-spec: var parameter modifier is a MUTABLE REFERENCE (language_definition.md "Passing Convention"): reassignment inside the callee body writes through to the caller's original binding. The caller must supply a mutable ('var') source — passing a read-only binding is E0267 (pinned by v4-fail/5-mutability/readonly_to_var_slot).
 
 func mutate(var x: Int) {
     x = x + 1
@@ -9,7 +9,7 @@ func mutate(var x: Int) {
 }
 
 func main() {
-    val original = 10
+    var original = 10
     mutate(original)
     println("outside: {original}")
 }

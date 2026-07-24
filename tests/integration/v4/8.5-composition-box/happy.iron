@@ -1,6 +1,9 @@
 -- section 8.5 Box performance-critical tight loop verbatim
 -- @req: UNCK-01, UNCK-03
--- @expected-pass-after: phase-25
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): stale-surface doc transcription: E0264 var-fields-without-init on doc-style
+-- objects, explicit-self method signatures (E0101), and bounded-array constructor form
+-- `[Particle; <=4096].new()` not parseable (E0102).
 -- Box[ParticleArray] for hot loop; unwrap yields *unchecked for zero-overhead inner loop
 
 object Vec2 {
@@ -29,7 +32,7 @@ nocopy object ParticleSystem {
     var count: Int
 
     init(capacity: Int) {
-        self.storage = Box.new(ParticleArray(capacity: capacity))
+        self.storage = Box.new(ParticleArray(capacity))
         self.count = 0
     }
 
@@ -47,7 +50,7 @@ nocopy object ParticleSystem {
 }
 
 func main() {
-    var ps = ParticleSystem(capacity: 4096)
+    var ps = ParticleSystem(4096)
     ps.step(0.016)
     println("step complete")
 }

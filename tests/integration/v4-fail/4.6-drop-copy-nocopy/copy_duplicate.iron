@@ -17,6 +17,6 @@ object Buffer {
 }
 
 func main() -> Int {
-    val b = Buffer(data: 0)
+    val b = Buffer(0)
     return 0
 }

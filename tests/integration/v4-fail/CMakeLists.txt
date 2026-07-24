@@ -11,5 +11,9 @@ if(NOT WIN32)
                 ${CMAKE_BINARY_DIR}/ironc
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
-    set_tests_properties(test_v4_acceptance_fail PROPERTIES LABELS "v4-acceptance")
+    # Keep the negative-corpus harness on the same phase gate as the
+    # per-fixture rows (run_tests.sh defaults to 15 without the env var).
+    set_tests_properties(test_v4_acceptance_fail PROPERTIES
+        LABELS "v4-acceptance"
+        ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}")
 endif()

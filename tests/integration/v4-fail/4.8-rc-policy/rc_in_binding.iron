@@ -2,7 +2,7 @@
 -- @req: POL-11
 -- @expected-pass-after: phase-26
 -- E0297 IRON_ERR_RC_BAD_POSITION — `rc x = 42` rejected
-func main(): Int {
+func main() -> Int {
     rc x = 42
     return 0
 }

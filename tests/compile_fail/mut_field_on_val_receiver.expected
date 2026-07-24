@@ -1,1 +1,1 @@
-cannot mutate field on immutable receiver
+receiver-method syntax 'func (recv: T) name()' removed in v3.0

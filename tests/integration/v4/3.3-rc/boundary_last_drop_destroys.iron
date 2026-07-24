@@ -7,12 +7,12 @@ object Shader {
     val name: String
 
     drop {
-        println("drop: {name}")
+        println("drop: {self.name}")
     }
 }
 
 func main() {
-    val s1 = rc Shader(name: "main.glsl")
+    val s1 = rc Shader("main.glsl")
     {
         val s2 = s1
         {

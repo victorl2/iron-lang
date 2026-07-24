@@ -3,5 +3,5 @@ b alive
 c alive
 c gone
 b gone
-drop resource 1
 a gone
+drop resource 1

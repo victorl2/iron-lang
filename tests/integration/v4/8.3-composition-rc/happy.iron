@@ -1,13 +1,16 @@
 -- section 8.3 rc shared resources: AssetManager + Sprite verbatim
 -- @req: POL-06, POL-07
--- @expected-pass-after: phase-26
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): stale-surface doc transcription: rc-in-type-annotation everywhere (Map[String,
+-- rc T] fields, init param, return type — E0297), explicit-self method signatures (E0101), and
+-- Map.new() not dispatched (expected Map, got Void).
 -- rc Texture shared across sprites; refcount bumps on assignment; drop fires once at last release
 
 object Texture {
     val path: String
 
     drop {
-        println("freeing: {path}")
+        println("freeing: {self.path}")
     }
 }
 
@@ -28,7 +31,7 @@ object AssetManager {
         val existing = self.textures.get(path)
         if existing != null { return existing.value }
 
-        val tex = rc Texture(path: path)
+        val tex = rc Texture(path)
         self.textures.put(path, tex)
         return tex
     }

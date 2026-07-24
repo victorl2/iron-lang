@@ -1,7 +1,12 @@
 -- section 4.3 negative: defer body is not `free <ident>` (DEFER-02)
 -- @req: DEFER-02
--- @expected-pass-after: phase-21
-
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): Phase 32 (DEFER-01/03/04) shipped general `defer <stmt>`
+-- forms; `defer println(...)` is now the canonical positive surface (see
+-- tests/integration/v4/10-tooling/happy_defer.iron and
+-- docs/dev/DEFER-SEMANTICS.md). The v3.0-alpha draft restriction "only
+-- `defer free <binding>`" this fixture pinned no longer exists.
+-- Parked as XFAIL for coordinator review.
 func main() {
     defer println("cleanup")
 }

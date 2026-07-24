@@ -3,10 +3,6 @@
 -- @expected-pass-after: phase-37
 -- canonical downgrade + upgrade probe; upgrade observes payload alive
 -- while strong is in scope; T? returned by upgrade.
--- XFAIL (phase-37): upgrade()'s successful CAS takes a +1 strong ref, but
--- scope exit does not yet release an `rc T?` binding (needs optional-payload
--- access in LIR to emit the conditional release), so the final drop line
--- never prints. Leak, not a safety hole — see release notes.
 
 object Texture {
     val path: String

@@ -5,7 +5,7 @@
 
 pub func damage(amount: Int) -> Int { return amount * 2 }
 
-pub object Box {
+pub object Crate {
     var value: Int
     pub init(v: Int) { self.value = v }
     pub func get() -> Int { return self.value }

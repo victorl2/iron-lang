@@ -1,7 +1,7 @@
 -- section 4.10 rc elision: SPAWN soundness trap
 -- @req: OPT-01
--- @expected-pass-after: phase-37
--- XFAIL (phase-37): spawn handle surface (`val t = spawn f(args)` + `await t`) not implemented — spawn takes a string task-name first.
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): spawn handle surface (`val t = spawn f(args)` + `await t`) not implemented — spawn takes a string task-name first.
 -- A retain/release pair straddles a `spawn`: the rc value is cloned and passed
 -- to the spawned worker, then dropped on the main side. A naive elision that
 -- deleted the pair would race the worker's view of the refcount. Correct

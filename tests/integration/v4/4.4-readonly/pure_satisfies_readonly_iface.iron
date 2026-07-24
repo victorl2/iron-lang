@@ -8,8 +8,7 @@ interface Reader {
 }
 
 object MyReader impl Reader {
-    var value: Int
-    init() {}
+    val value: Int
 
     pure func read() -> Int {
         return 0

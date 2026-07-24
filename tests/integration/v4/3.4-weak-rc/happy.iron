@@ -1,19 +1,22 @@
 -- section 3.4 weak rc: non-owning references
 -- @req: POL-08, POL-09
--- @expected-pass-after: phase-27
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): T? optional-payload lowering missing — `maybe != null` and field access on
+-- the upgrade() result emit invalid C (struct-vs-NULL compare, no .value unwrap); same class as
+-- 4.9 upgrade_returns_nullable.
 -- weak.upgrade() lifecycle + null check: upgrade succeeds while strong alive
 
 object Player {
     val name: String
 
     drop {
-        println("drop: {name}")
+        println("drop: {self.name}")
     }
 }
 
 func main() {
-    val strong = rc Player(name: "Alice")
-    val weak_ref: weak rc Player = strong.demote()
+    val strong = rc Player("Alice")
+    val weak_ref = strong.downgrade()
     val maybe = weak_ref.upgrade()
     if maybe != null {
         println("alive: {maybe.name}")

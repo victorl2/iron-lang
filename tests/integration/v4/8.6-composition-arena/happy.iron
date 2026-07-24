@@ -1,6 +1,10 @@
 -- section 8.6 per-frame arena allocation verbatim
 -- @req: ARENA-01, ARENA-03, ARENA-06
--- @expected-pass-after: phase-28
+-- @expected-pass-after: phase-38
+-- XFAIL (phase-38): doc-verbatim §8.6 sample rests on surfaces that do not exist: prefix `!`
+-- is deliberately not lexable (E0002 at `while !should_quit()`; only `!=` exists), and the
+-- .expected "frame_arena freed"/"perm_arena freed" lines have no producing statement (no
+-- drop on Arena prints them). Also uses `heap Renderer.init()` construction form.
 -- per-frame Arena bumped at frame start; O(1) reset at frame end; perm arena holds engine state
 
 object Renderer {
@@ -54,8 +58,8 @@ func submit_to_gpu(draw_cmds: *var [DrawCmd; <=8192]) {
 }
 
 func main() {
-    val frame_arena = heap Arena.new(size: 64 * 1024 * 1024)
-    val perm_arena = heap Arena.new(size: 32 * 1024 * 1024)
+    val frame_arena = heap Arena.new(64 * 1024 * 1024)
+    val perm_arena = heap Arena.new(32 * 1024 * 1024)
 
     defer free perm_arena
     defer free frame_arena

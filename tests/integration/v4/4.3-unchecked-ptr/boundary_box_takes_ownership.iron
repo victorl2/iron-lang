@@ -12,7 +12,7 @@ object Probe {
 }
 
 func main() {
-    val b = Box.new(Probe(name: "alice"))
+    val b = Box.new(Probe("alice"))
     println("alive")
     -- b goes out of scope here; Box destructor fires, then Probe drop runs
 }

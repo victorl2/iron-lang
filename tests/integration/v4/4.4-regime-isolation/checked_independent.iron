@@ -1,6 +1,9 @@
 -- section: 4.4-regime-isolation
 -- @req: PTR-04
 -- @expected-pass-after: phase-25
+-- (marker was briefly phase-38 during the 2026-07 remediation; the checked-ptr
+-- function-parameter surface landed with the fat-ptr field-access fix and this
+-- fixture passes byte-exact at gate 37.)
 -- extends-spec: checked pointer regime works independently when no unchecked code is referenced; positive control fixture proving *T operates without any *unchecked T involvement
 
 object Entity {
@@ -13,7 +16,7 @@ func inspect(e: *Entity) {
 }
 
 func main() {
-    val entity = Entity(id: 7, score: 100)
+    val entity = Entity(7, 100)
     -- Explicitly take checked pointer; no implicit conversion ever attempted
     val checked: *Entity = &entity
     inspect(checked)
