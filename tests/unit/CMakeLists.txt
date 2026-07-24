@@ -1127,7 +1127,9 @@ set_tests_properties(test_runtime_panic_stale_release PROPERTIES
 # Win32 path emits TEST_IGNORE_MESSAGE.
 add_executable(test_runtime_heap_concurrent test_runtime_heap_concurrent.c)
 target_link_libraries(test_runtime_heap_concurrent iron_runtime unity)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+# TSan/ASan coexistence: see test_string_intern_race above.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
+   AND NOT (IRON_ENABLE_SANITIZERS AND IRON_SANITIZER STREQUAL "address"))
     target_compile_options(test_runtime_heap_concurrent PRIVATE -fsanitize=thread -g -O1)
     target_link_options(test_runtime_heap_concurrent PRIVATE -fsanitize=thread)
 endif()
@@ -1345,7 +1347,9 @@ set_tests_properties(test_rc_atomic_ordering PROPERTIES
 
 add_executable(test_runtime_rc_concurrent test_runtime_rc_concurrent.c)
 target_link_libraries(test_runtime_rc_concurrent iron_runtime unity)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+# TSan/ASan coexistence: see test_string_intern_race above.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
+   AND NOT (IRON_ENABLE_SANITIZERS AND IRON_SANITIZER STREQUAL "address"))
     target_compile_options(test_runtime_rc_concurrent PRIVATE -fsanitize=thread -g -O1)
     target_link_options(test_runtime_rc_concurrent PRIVATE -fsanitize=thread)
 endif()
@@ -1427,7 +1431,9 @@ set_tests_properties(test_weak_rc_atomic_ordering PROPERTIES
 # non-TSan path keeps the phase27-invariant gate green.
 add_executable(test_runtime_weak_rc_concurrent test_runtime_weak_rc_concurrent.c)
 target_link_libraries(test_runtime_weak_rc_concurrent iron_runtime unity)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+# TSan/ASan coexistence: see test_string_intern_race above.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux"
+   AND NOT (IRON_ENABLE_SANITIZERS AND IRON_SANITIZER STREQUAL "address"))
     target_compile_options(test_runtime_weak_rc_concurrent PRIVATE -fsanitize=thread -g -O1)
     target_link_options(test_runtime_weak_rc_concurrent PRIVATE -fsanitize=thread)
 endif()
