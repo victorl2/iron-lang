@@ -15,16 +15,22 @@ func dfs_checksum(adj: [Int], n: Int, start_node: Int) -> Int {
 
     while top > 0 {
         top = top - 1
-        val node = stack[top]
-        if visited[node] == 0 {
-            visited[node] = 1
+        -- in-bounds: 0 <= top < 900 = stack.len(); top only counts entries written by the checked pushes below
+        val node = stack.get_unchecked(top)
+        -- in-bounds: node is start_node (caller contract 0 <= start_node < n) or a pushed j in [0, n), and n <= 30 = visited.len()
+        if visited.get_unchecked(node) == 0 {
+            visited.set_unchecked(node, 1)
             checksum = checksum + node * (order + 1)
             order = order + 1
             -- Push neighbors in reverse order so smallest is processed first
             var j = n - 1
             while j >= 0 {
-                if adj[node * n + j] == 1 {
-                    if visited[j] == 0 {
+                -- in-bounds: 0 <= node < n and 0 <= j < n give node * n + j < n * n = adj.len() (caller contract)
+                if adj.get_unchecked(node * n + j) == 1 {
+                    -- in-bounds: 0 <= j < n <= 30 = visited.len()
+                    if visited.get_unchecked(j) == 0 {
+                        -- stack write stays checked: it is the capacity guard for dense graphs,
+                        -- and the unchecked pop above relies on every write being in-bounds
                         stack[top] = j
                         top = top + 1
                     }

@@ -10,7 +10,8 @@ func longest_palindrome(arr: [Int], n: Int) -> Int {
         -- Odd length palindromes
         var left = center
         var right = center
-        while left >= 0 and right < n and arr[left] == arr[right] {
+        -- in-bounds: the guard left >= 0 and right < n <= arr.len() (caller contract) short-circuits before the accesses, and left <= right
+        while left >= 0 and right < n and arr.get_unchecked(left) == arr.get_unchecked(right) {
             val length = right - left + 1
             if length > best {
                 best = length
@@ -22,7 +23,8 @@ func longest_palindrome(arr: [Int], n: Int) -> Int {
         -- Even length palindromes
         left = center
         right = center + 1
-        while left >= 0 and right < n and arr[left] == arr[right] {
+        -- in-bounds: same short-circuit guard as above bounds both indices
+        while left >= 0 and right < n and arr.get_unchecked(left) == arr.get_unchecked(right) {
             val length = right - left + 1
             if length > best {
                 best = length
