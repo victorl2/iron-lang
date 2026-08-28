@@ -51,4 +51,7 @@ func IO.append_text(path: String, content: String) -> FileWriteResult {}
 func IO.append_bytes(path: String, content: String) -> FileWriteResult {}
 func IO.file_info(path: String) -> FileInfo {}
 func IO.copy_file(source: String, destination: String, overwrite: Bool) -> FileWriteResult {}
+-- With overwrite=false, destination creation is atomic: a concurrently
+-- created destination is never replaced. Cross-device moves publish only a
+-- complete copy before removing the source.
 func IO.move_file(source: String, destination: String, overwrite: Bool) -> FileWriteResult {}

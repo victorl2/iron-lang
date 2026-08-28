@@ -459,7 +459,7 @@
 <span class="kw">val</span> appended = <span class="ty">IO</span>.<span class="fn">append_bytes</span>(<span class="st">"asset.bin"</span>, <span class="st">"\0suffix"</span>)
 <span class="kw">val</span> copied = <span class="ty">IO</span>.<span class="fn">copy_file</span>(<span class="st">"asset.bin"</span>, <span class="st">"asset-copy.bin"</span>, <span class="kw">false</span>)
 <span class="kw">val</span> moved = <span class="ty">IO</span>.<span class="fn">move_file</span>(<span class="st">"asset-copy.bin"</span>, <span class="st">"archive.bin"</span>, <span class="kw">false</span>)</code></pre></div>
-      <p><code>read_text</code> and <code>read_bytes</code> reject an oversized file before allocating. Write and append operations report committed bytes and expose open, write, flush, and close failures. <code>copy_file</code> and <code>move_file</code> require an explicit overwrite choice.</p>
+      <p><code>read_text</code> and <code>read_bytes</code> reject an oversized file before allocating. Write and append operations report committed bytes and expose open, write, flush, and close failures. <code>copy_file</code> and <code>move_file</code> require an explicit overwrite choice. With <code>overwrite=false</code>, move uses an atomic no-replace commit: a concurrently created destination wins intact and the source remains. Unsupported filesystems return an error instead of using a racy check-then-rename.</p>
 
       <h2 id="websocket">WebSocket and secure WebSocket</h2>
       <p><code>import websocket</code> supports RFC 6455 clients and HTTP/HTTPS server upgrades. WSS uses the same verified TLS policy as HTTPS.</p>
