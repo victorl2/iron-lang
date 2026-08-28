@@ -13,15 +13,16 @@ func serve_one(server: HttpServer) -> Int {
     val response = Http.json_response(200, "\{\"status\":\"ok\"\}")
     val sent = HttpConnection.send_response(accepted.connection, response, 5000)
     HttpConnection.close(accepted.connection)
-    return sent
+    if sent != 0 { return sent }
+    return 1
 }
 
-func fetch_one(url: String) -> Int {
+func fetch_one(url: String, result: Int) -> Int {
     val response = Http.get(url, 10000)
     if response.error != 0 { return response.error }
     if response.status != 200 { return -1 }
     if response.body != "\{\"status\":\"ok\"\}" { return -2 }
-    return 0
+    return result
 }
 
 func main() {
@@ -42,21 +43,23 @@ func main() {
     val s7 = spawn("server-7") { return serve_one(listening.server) }
     val s8 = spawn("server-8") { return serve_one(listening.server) }
 
-    val c1 = spawn("client-1") { return fetch_one(url) }
-    val c2 = spawn("client-2") { return fetch_one(url) }
-    val c3 = spawn("client-3") { return fetch_one(url) }
-    val c4 = spawn("client-4") { return fetch_one(url) }
-    val c5 = spawn("client-5") { return fetch_one(url) }
-    val c6 = spawn("client-6") { return fetch_one(url) }
-    val c7 = spawn("client-7") { return fetch_one(url) }
-    val c8 = spawn("client-8") { return fetch_one(url) }
+    -- Distinct non-zero results make this an await-value test as well as a
+    -- networking test; a dropped result can no longer look like success.
+    val c1 = spawn("client-1") { return fetch_one(url, 1) }
+    val c2 = spawn("client-2") { return fetch_one(url, 2) }
+    val c3 = spawn("client-3") { return fetch_one(url, 3) }
+    val c4 = spawn("client-4") { return fetch_one(url, 4) }
+    val c5 = spawn("client-5") { return fetch_one(url, 5) }
+    val c6 = spawn("client-6") { return fetch_one(url, 6) }
+    val c7 = spawn("client-7") { return fetch_one(url, 7) }
+    val c8 = spawn("client-8") { return fetch_one(url, 8) }
 
     val cr = (await c1) + (await c2) + (await c3) + (await c4) +
              (await c5) + (await c6) + (await c7) + (await c8)
     val sr = (await s1) + (await s2) + (await s3) + (await s4) +
              (await s5) + (await s6) + (await s7) + (await s8)
     HttpServer.close(listening.server)
-    if cr == 0 and sr == 0 {
+    if cr == 36 and sr == 8 {
         println("http concurrency ok: 8 clients")
     } else {
         println("http concurrency failed: clients={cr} servers={sr}")

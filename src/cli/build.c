@@ -643,6 +643,10 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_websocket_out;
     if (opts.use_tls) {
         argv_buf[ai++] = "/DIRON_HAVE_OPENSSL=1";
+#ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
+        argv_buf[ai++] = "/I";
+        argv_buf[ai++] = IRON_CLI_OPENSSL_INCLUDE_DIR;
+#endif
     }
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
@@ -662,8 +666,13 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = "iphlpapi.lib";
     argv_buf[ai++] = "bcrypt.lib";
     if (opts.use_tls) {
+#ifdef IRON_CLI_OPENSSL_SSL_LIBRARY
+        argv_buf[ai++] = IRON_CLI_OPENSSL_SSL_LIBRARY;
+        argv_buf[ai++] = IRON_CLI_OPENSSL_CRYPTO_LIBRARY;
+#else
         argv_buf[ai++] = "libssl.lib";
         argv_buf[ai++] = "libcrypto.lib";
+#endif
     }
     /* Output flag for clang-cl */
     {
@@ -724,6 +733,10 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_websocket_out;
     if (opts.use_tls) {
         argv_buf[ai++] = "-DIRON_HAVE_OPENSSL=1";
+#ifdef IRON_CLI_OPENSSL_INCLUDE_DIR
+        argv_buf[ai++] = "-I";
+        argv_buf[ai++] = IRON_CLI_OPENSSL_INCLUDE_DIR;
+#endif
     }
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
@@ -738,8 +751,13 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = "-lm";
     argv_buf[ai++] = "-lpthread";
     if (opts.use_tls) {
+#ifdef IRON_CLI_OPENSSL_SSL_LIBRARY
+        argv_buf[ai++] = IRON_CLI_OPENSSL_SSL_LIBRARY;
+        argv_buf[ai++] = IRON_CLI_OPENSSL_CRYPTO_LIBRARY;
+#else
         argv_buf[ai++] = "-lssl";
         argv_buf[ai++] = "-lcrypto";
+#endif
     }
 #endif
 

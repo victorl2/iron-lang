@@ -672,6 +672,7 @@ void Iron_poolwait_worker_finish(Iron_PoolWait *w,
 typedef struct {
     Iron_Handle *handle;
     void (*fn)(void *);
+    void (*result_fn)(void *, Iron_Handle *);
     void *arg;
 } HandleWrapper;
 
@@ -679,10 +680,12 @@ static void *handle_thread_fn(void *arg) {
     HandleWrapper *w = (HandleWrapper *)arg;
     Iron_Handle *h   = w->handle;
     void (*fn)(void *) = w->fn;
-    void *fn_arg       = w->arg;
+    void (*result_fn)(void *, Iron_Handle *) = w->result_fn;
+    void *fn_arg = w->arg;
     free(w);
 
-    fn(fn_arg);
+    if (result_fn) result_fn(fn_arg, h);
+    else fn(fn_arg);
 
     IRON_MUTEX_LOCK(h->lock);
     h->done = true;
@@ -706,11 +709,41 @@ Iron_Handle *Iron_handle_create(void (*fn)(void *), void *arg) {
     if (!w) iron_oom_abort("iron_threads.c:Iron_handle_create wrapper");
     w->handle = h;
     w->fn     = fn;
+    w->result_fn = NULL;
     w->arg    = arg;
 
     /* FIX-02: IRON_THREAD_CREATE failure → iron_oom_abort (AUDIT-03 §32). */
     if (IRON_THREAD_CREATE(h->thread, handle_thread_fn, w) != 0) {
         iron_oom_abort("iron_threads.c:Iron_handle_create IRON_THREAD_CREATE");
+    }
+    return h;
+}
+
+Iron_Handle *Iron_handle_create_result(
+    void (*fn)(void *, Iron_Handle *), void *arg) {
+    /* Result-bearing captured spawns need the handle while their generated
+     * wrapper is running so they can publish the value before completion is
+     * signalled. Construct the handle and wrapper fully before starting the
+     * thread; handle_thread_fn provides the synchronization edge. */
+    Iron_Handle *h = (Iron_Handle *)malloc(sizeof(Iron_Handle));
+    if (!h) iron_oom_abort("iron_threads.c:Iron_handle_create_result handle");
+
+    h->done      = false;
+    h->result    = NULL;
+    h->panic_msg = NULL;
+    IRON_MUTEX_INIT(h->lock);
+    IRON_COND_INIT(h->cond);
+
+    HandleWrapper *w = (HandleWrapper *)malloc(sizeof(HandleWrapper));
+    if (!w) iron_oom_abort("iron_threads.c:Iron_handle_create_result wrapper");
+    w->handle    = h;
+    w->fn        = NULL;
+    w->result_fn = fn;
+    w->arg       = arg;
+
+    if (IRON_THREAD_CREATE(h->thread, handle_thread_fn, w) != 0) {
+        iron_oom_abort(
+            "iron_threads.c:Iron_handle_create_result IRON_THREAD_CREATE");
     }
     return h;
 }
@@ -763,6 +796,7 @@ Iron_Handle *iron_handle_create_self_ref(void (*fn)(void *)) {
     if (!w) iron_oom_abort("iron_threads.c:iron_handle_create_self_ref wrapper");
     w->handle = h;
     w->fn     = fn;
+    w->result_fn = NULL;
     w->arg    = h;  /* self-referential: pass handle as arg */
 
     /* FIX-02: IRON_THREAD_CREATE failure → iron_oom_abort (AUDIT-03 §32). */

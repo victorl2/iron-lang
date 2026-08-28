@@ -5542,7 +5542,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * For non-capturing spawns: arg is the handle itself (self-ref pattern).
              * For capturing spawns (void return): arg is the env struct; use
              *   Iron_handle_create(wrapper, env_arg) for the handle.
-             * For capturing spawns (non-void return): embed result ptr in env struct.
+             * For capturing spawns (non-void return): the wrapper receives the
+             * handle and publishes its result before completion is signalled.
              */
 
             /* Build a deterministic wrapper name */
@@ -5572,33 +5573,24 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
             /* Emit wrapper into lifted_funcs section */
             iron_strbuf_appendf(&ctx->lifted_funcs,
-                "static void %s(void *_arg) {\n", wrapper_name);
+                has_return && cap_count > 0 && cap_meta && env_type
+                    ? "static void %s(void *_arg, Iron_Handle *_h) {\n"
+                    : "static void %s(void *_arg) {\n",
+                wrapper_name);
 
             if (cap_count > 0 && cap_meta && env_type) {
-                /* Capturing spawn: arg is the env struct.
-                 * For non-void return spawns, embed result in a wrapper struct. */
+                /* Capturing spawn: arg is the env struct. Result-bearing
+                 * wrappers publish through the handle before the runtime
+                 * signals completion, then release the one-shot env. */
                 if (has_return && ret_c) {
-                    /* Build a result-bearing arg struct: { env_t env; ret_t result; } */
-                    Iron_StrBuf rarg_sb = iron_strbuf_create(64);
-                    iron_strbuf_appendf(&rarg_sb, "%s_rarg_t", func_name);
-                    const char *rarg_type = iron_arena_strdup(ctx->arena,
-                        iron_strbuf_get(&rarg_sb), rarg_sb.len);
-                    if (!rarg_type) iron_oom_abort("emit_c.c:emit_instr SPAWN rarg_type");
-                    iron_strbuf_free(&rarg_sb);
-
-                    if (shgeti(ctx->mono_registry, (char *)rarg_type) < 0) {
-                        shput(ctx->mono_registry, (char *)rarg_type, true);
-                        iron_strbuf_appendf(&ctx->struct_bodies,
-                            "typedef struct { %s env; %s result; } %s;\n\n",
-                            env_type, ret_c, rarg_type);
-                    }
-
                     iron_strbuf_appendf(&ctx->lifted_funcs,
-                        "    %s *_ra = (%s *)_arg;\n", rarg_type, rarg_type);
+                        "    %s *_e = (%s *)_arg;\n", env_type, env_type);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
-                        "    %s *_e = &_ra->env;\n", env_type);
+                        "    %s _result = %s(_e);\n", ret_c, c_func_name);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
-                        "    _ra->result = %s(_e);\n", c_func_name);
+                        "    _h->result = (void *)(intptr_t)_result;\n");
+                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                        "    free(_arg);\n");
                 } else {
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    %s *_e = (%s *)_arg;\n", env_type, env_type);
@@ -5645,13 +5637,20 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     }
                     iron_strbuf_appendf(sb, ";\n");
                 }
-                /* Use Iron_handle_create: wrapper receives env as arg */
+                /* Result wrappers receive both env and handle so the value is
+                 * visible to await before completion is signalled. */
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "Iron_Handle *");
                 emit_val(sb, instr->id);
-                iron_strbuf_appendf(sb, " = Iron_handle_create("
-                                    "(void (*)(void *))%s, _env_%u);\n",
-                                    wrapper_name, instr->id);
+                if (has_return) {
+                    iron_strbuf_appendf(sb, " = Iron_handle_create_result("
+                                        "(void (*)(void *, Iron_Handle *))%s, _env_%u);\n",
+                                        wrapper_name, instr->id);
+                } else {
+                    iron_strbuf_appendf(sb, " = Iron_handle_create("
+                                        "(void (*)(void *))%s, _env_%u);\n",
+                                        wrapper_name, instr->id);
+                }
             } else {
                 /* Non-capturing handled spawn: use iron_handle_create_self_ref */
                 emit_indent(sb, ind);
