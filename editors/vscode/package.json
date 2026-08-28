@@ -91,6 +91,14 @@
   "dependencies": {
     "vscode-languageclient": "9.0.1"
   },
+  "overrides": {
+    "minimatch@3.1.5": {
+      "brace-expansion": "1.1.18"
+    },
+    "mocha": {
+      "serialize-javascript": "^7.1.0"
+    }
+  },
   "devDependencies": {
     "@types/mocha": "^10.0.0",
     "@types/node": "^20.0.0",
