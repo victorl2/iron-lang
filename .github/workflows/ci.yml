@@ -123,6 +123,13 @@ jobs:
         if: needs.changes.outputs.ci == 'true'
         run: cmake --build build
 
+      - name: ASan and UBSan smoke
+        if: needs.changes.outputs.ci == 'true'
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build -R '^test_runtime_threads$' --output-on-failure
+
       - name: Run unit tests
         if: needs.changes.outputs.ci == 'true'
         env:
