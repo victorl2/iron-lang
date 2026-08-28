@@ -24,8 +24,10 @@
  */
 
 #include "iron_net.h"
+#include <limits.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef _WIN32
@@ -48,6 +50,7 @@
 #else
   #include <sys/types.h>
   #include <sys/socket.h>
+  #include <sys/uio.h>
   #include <netinet/in.h>
   #include <netinet/tcp.h>
   #include <arpa/inet.h>
@@ -94,6 +97,7 @@ static int iron_net_translate_wsa(int e) {
         case WSAENOTCONN:      return IRON_ERR_NET_NOT_CONNECTED;
         case WSAEINPROGRESS:
         case WSAEALREADY:      return IRON_ERR_NET_IN_PROGRESS;
+        case WSAEMSGSIZE:      return IRON_ERR_NET_MSG_TOO_LARGE;
         case 0:                return 0;
         default:               return IRON_ERR_NET_UNKNOWN;
     }
@@ -124,6 +128,7 @@ static int iron_net_translate_errno(int e) {
         case ENOTCONN:     return IRON_ERR_NET_NOT_CONNECTED;
         case EINPROGRESS:
         case EALREADY:     return IRON_ERR_NET_IN_PROGRESS;
+        case EMSGSIZE:     return IRON_ERR_NET_MSG_TOO_LARGE;
         case 0:            return 0;
         default:           return IRON_ERR_NET_UNKNOWN;
     }
@@ -583,40 +588,31 @@ Iron_Result_Int_Error Iron_net_tcp_send_bytes(Iron_TcpSocket s,
 
 /* ── Iron-facing read/write that take Iron_String buffers ────────────── */
 
-Iron_Result_Int_Error Iron_tcpsocket_read(Iron_TcpSocket s, Iron_String buf, int64_t timeout) {
-    /* PROT-03 row 24 (AUDIT-01 M-severity): iron_string_cstr returns a
-     * const char * into the source Iron_String's SSO/heap buffer. The
-     * previous code cast away const to feed `base` directly into
-     * Iron_net_tcp_recv_bytes, which then wrote bytes into the source
-     * string's immutable storage — silent data corruption of an interned
-     * or SSO Iron_String. (Iron_String is value-typed and immutable from
-     * the Iron side; the wrapper exists for API symmetry with the raw
-     * recv engine, not for caller-visible byte transfer.)
-     *
-     * Fix: recv into a local mutable buffer sized to the requested
-     * capacity. The (count, error) return value is unchanged; the
-     * received bytes themselves are intentionally discarded because the
-     * caller has no value-level path to retrieve them. Callers that need
-     * the bytes must use Iron_net_tcp_recv_bytes directly with their own
-     * mutable buffer. */
-    int64_t cap = (int64_t)iron_string_byte_len(&buf);
-    if (cap <= 0) {
-        return Iron_net_tcp_recv_bytes(s, NULL, 0, timeout);
+Iron_Result_String_NetError Iron_tcpsocket_read(Iron_TcpSocket s,
+                                                 int64_t max_bytes,
+                                                 int64_t timeout) {
+    Iron_Result_String_NetError out;
+    out.v0 = iron_string_from_literal("", 0);
+    out.v1 = iron_net_err_none();
+    if (max_bytes < 0 || (uint64_t)max_bytes > (uint64_t)(SIZE_MAX - 1)) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_INVALID_ARGUMENT);
+        return out;
     }
-    /* Cap the local buffer to a sane maximum to avoid unbounded stack
-     * use. 64 KiB matches the default TCP recv chunk size on Linux and
-     * is well below the typical 1 MiB stack budget. */
-    enum { LOCAL_RECV_MAX = 65536 };
-    int64_t local_cap = cap < (int64_t)LOCAL_RECV_MAX ? cap : (int64_t)LOCAL_RECV_MAX;
-    uint8_t *local_recv_buf = (uint8_t *)malloc((size_t)local_cap);
-    if (!local_recv_buf) {
-        Iron_Result_Int_Error oom = {0, iron_net_err_from_last()};
-        return oom;
+    if (max_bytes == 0) return out;
+
+    uint8_t *buffer = (uint8_t *)malloc((size_t)max_bytes);
+    if (!buffer) {
+        out.v1 = iron_net_err_code(IRON_ERR_NET_NO_MEMORY);
+        return out;
     }
-    Iron_Result_Int_Error result = Iron_net_tcp_recv_bytes(
-        s, local_recv_buf, local_cap, timeout);
-    free(local_recv_buf);
-    return result;
+    Iron_Result_Int_Error received = Iron_net_tcp_recv_bytes(
+        s, buffer, max_bytes, timeout);
+    if (received.v1.code == 0 && received.v0 > 0) {
+        out.v0 = iron_string_from_cstr((const char *)buffer, (size_t)received.v0);
+    }
+    out.v1 = received.v1;
+    free(buffer);
+    return out;
 }
 
 Iron_Result_Int_Error Iron_tcpsocket_write(Iron_TcpSocket s, Iron_String buf, int64_t timeout) {
@@ -999,12 +995,37 @@ Iron_Result_Int_NetError Iron_net_udp_sendto_v6(Iron_UdpSocket s,
                                  port, timeout);
 }
 
-/* ── UDP recvfrom (struct-return ABI) ──────────────────────────────────── */
+/* ── UDP recvfrom ──────────────────────────────────────────────────────── */
 
-Iron_UdpRecvResult Iron_udpsocket_recvfrom(Iron_UdpSocket s,
-                                             uint8_t       *buf,
-                                             int64_t        cap,
-                                             int64_t        timeout) {
+static void iron_udp_recv_set_sender(Iron_UdpRecvResult *out,
+                                      const struct sockaddr_storage *src) {
+    if (src->ss_family == AF_INET) {
+        const struct sockaddr_in *sin = (const struct sockaddr_in *)src;
+        out->addr_family = 4;
+        out->addr_bytes = iron_string_from_cstr(
+            (const char *)&sin->sin_addr, 4);
+        out->port = ntohs(sin->sin_port);
+    } else if (src->ss_family == AF_INET6) {
+        const struct sockaddr_in6 *sin6 = (const struct sockaddr_in6 *)src;
+        out->addr_family = 6;
+        out->addr_bytes = iron_string_from_cstr(
+            (const char *)&sin6->sin6_addr, 16);
+        out->port = ntohs(sin6->sin6_port);
+#ifndef _WIN32
+        if (sin6->sin6_scope_id != 0) {
+            char zbuf[IF_NAMESIZE];
+            if (if_indextoname(sin6->sin6_scope_id, zbuf)) {
+                out->addr_zone = iron_string_from_cstr(zbuf, strlen(zbuf));
+            }
+        }
+#endif
+    }
+}
+
+Iron_UdpRecvResult Iron_net_udp_recvfrom_bytes(Iron_UdpSocket s,
+                                                uint8_t       *buf,
+                                                int64_t        cap,
+                                                int64_t        timeout) {
     Iron_UdpRecvResult out;
     out.nbytes      = 0;
     out.addr_family = 0;
@@ -1013,8 +1034,8 @@ Iron_UdpRecvResult Iron_udpsocket_recvfrom(Iron_UdpSocket s,
     out.port        = 0;
     out.err         = iron_net_err_none();
 
-    if (!buf || cap <= 0) {
-        out.err = iron_net_err_code(IRON_ERR_NET_UNKNOWN);
+    if (!buf || cap <= 0 || (uint64_t)cap > (uint64_t)INT_MAX) {
+        out.err = iron_net_err_code(IRON_ERR_NET_INVALID_ARGUMENT);
         return out;
     }
 
@@ -1029,38 +1050,43 @@ Iron_UdpRecvResult Iron_udpsocket_recvfrom(Iron_UdpSocket s,
         int n = recvfrom((SOCKET)s.fd, (char *)buf, (int)cap, 0,
                          (struct sockaddr *)&src, &src_len);
 #else
-        ssize_t n = recvfrom((int)s.fd, (char *)buf, (size_t)cap, 0,
-                             (struct sockaddr *)&src, &src_len);
+        struct iovec iov;
+        iov.iov_base = buf;
+        iov.iov_len = (size_t)cap;
+        struct msghdr msg;
+        memset(&msg, 0, sizeof(msg));
+        msg.msg_name = &src;
+        msg.msg_namelen = src_len;
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+        ssize_t n = recvmsg((int)s.fd, &msg, 0);
 #endif
         if (n >= 0) {
-            out.nbytes = (int64_t)n;
-            if (src.ss_family == AF_INET) {
-                struct sockaddr_in *sin = (struct sockaddr_in *)&src;
-                out.addr_family = 4;
-                out.addr_bytes  = iron_string_from_cstr(
-                    (const char *)&sin->sin_addr, 4);
-                out.port        = ntohs(sin->sin_port);
-            } else if (src.ss_family == AF_INET6) {
-                struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&src;
-                out.addr_family = 6;
-                out.addr_bytes  = iron_string_from_cstr(
-                    (const char *)&sin6->sin6_addr, 16);
-                out.port        = ntohs(sin6->sin6_port);
+            bool truncated = false;
 #ifndef _WIN32
-                if (sin6->sin6_scope_id != 0) {
-                    char zbuf[IF_NAMESIZE];
-                    if (if_indextoname(sin6->sin6_scope_id, zbuf)) {
-                        out.addr_zone = iron_string_from_cstr(
-                            zbuf, strlen(zbuf));
-                    }
-                }
+            truncated = (msg.msg_flags & MSG_TRUNC) != 0;
 #endif
-            }
-            out.err = iron_net_err_none();
+            out.nbytes = n > cap ? cap : (int64_t)n;
+            iron_udp_recv_set_sender(&out, &src);
+            out.err = truncated || n > cap
+                ? iron_net_err_code(IRON_ERR_NET_MSG_TOO_LARGE)
+                : iron_net_err_none();
             return out;
         }
 
         int e = IRON_NET_LAST_ERR();
+#ifdef _WIN32
+        /* Winsock reports a truncated datagram as SOCKET_ERROR but still
+         * fills the caller's buffer and sender address. */
+        if (e == WSAEMSGSIZE) {
+            out.nbytes = cap;
+            iron_udp_recv_set_sender(&out, &src);
+            out.err = iron_net_err_code(IRON_ERR_NET_MSG_TOO_LARGE);
+            return out;
+        }
+#else
+        (void)src_len;
+#endif
 #ifndef _WIN32
         if (e == EINTR) continue;
 #endif
@@ -1087,6 +1113,63 @@ Iron_UdpRecvResult Iron_udpsocket_recvfrom(Iron_UdpSocket s,
             return out;
         }
     }
+}
+
+static Iron_String iron_udp_format_sender(const Iron_UdpRecvResult *raw) {
+    char text[INET6_ADDRSTRLEN + 1 + 64];
+    const char *bytes = iron_string_cstr(&raw->addr_bytes);
+    size_t bytes_len = iron_string_byte_len(&raw->addr_bytes);
+    int family = 0;
+    if (raw->addr_family == 4 && bytes_len == 4) family = AF_INET;
+    if (raw->addr_family == 6 && bytes_len == 16) family = AF_INET6;
+    if (family == 0 || !inet_ntop(family, bytes, text, INET6_ADDRSTRLEN)) {
+        return iron_string_from_literal("", 0);
+    }
+
+    size_t address_len = strlen(text);
+    size_t zone_len = iron_string_byte_len(&raw->addr_zone);
+    if (family == AF_INET6 && zone_len > 0 && zone_len <= 63 &&
+        address_len + 1 + zone_len < sizeof(text)) {
+        text[address_len++] = '%';
+        memcpy(text + address_len, iron_string_cstr(&raw->addr_zone), zone_len);
+        address_len += zone_len;
+        text[address_len] = '\0';
+    }
+    return iron_string_from_cstr(text, address_len);
+}
+
+Iron_UdpPacket Iron_udpsocket_recvfrom(Iron_UdpSocket s,
+                                        int64_t max_bytes,
+                                        int64_t timeout) {
+    Iron_UdpPacket out;
+    out.data = iron_string_from_literal("", 0);
+    out.address = iron_string_from_literal("", 0);
+    out.port = 0;
+    out.truncated = 0;
+    out.error = iron_net_err_none();
+
+    if (max_bytes <= 0 || (uint64_t)max_bytes > (uint64_t)INT_MAX) {
+        out.error = iron_net_err_code(IRON_ERR_NET_INVALID_ARGUMENT);
+        return out;
+    }
+    uint8_t *buffer = (uint8_t *)malloc((size_t)max_bytes);
+    if (!buffer) {
+        out.error = iron_net_err_code(IRON_ERR_NET_NO_MEMORY);
+        return out;
+    }
+
+    Iron_UdpRecvResult raw = Iron_net_udp_recvfrom_bytes(
+        s, buffer, max_bytes, timeout);
+    if (raw.nbytes > 0) {
+        out.data = iron_string_from_cstr((const char *)buffer,
+                                         (size_t)raw.nbytes);
+    }
+    out.address = iron_udp_format_sender(&raw);
+    out.port = raw.port;
+    out.truncated = raw.err.code == IRON_ERR_NET_MSG_TOO_LARGE ? 1 : 0;
+    out.error = raw.err;
+    free(buffer);
+    return out;
 }
 
 /* ── Phase 59 P04: DNS lookup_host (Iron_Net_lookup_host_result) ─────────

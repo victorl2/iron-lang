@@ -1,4 +1,6 @@
 #include "iron_io.h"
+#include "runtime/iron_errors.h"
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -76,7 +78,7 @@ Iron_Result_String_Error Iron_io_read_bytes_result(Iron_String path) {
     return Iron_io_read_file_result(path);
 }
 
-Iron_Error Iron_io_write_bytes(Iron_String path, const uint8_t *data, size_t len) {
+Iron_Error Iron_io_write_bytes_raw(Iron_String path, const uint8_t *data, size_t len) {
     const char *p = iron_string_cstr(&path);
     FILE *f = fopen(p, "wb");
     if (!f) {
@@ -274,4 +276,359 @@ Iron_List_Iron_String Iron_io_read_lines(Iron_String path) {
         }
     }
     return lines;
+}
+
+/* ── Bounded, binary-safe file API ─────────────────────────────────────── */
+
+static const char *io_error_message(int64_t code) {
+    switch (code) {
+        case 0: return "";
+        case IRON_ERR_IO_NOT_FOUND: return "file not found";
+        case IRON_ERR_IO_PERMISSION: return "file permission denied";
+        case IRON_ERR_IO_INVALID_ARGUMENT: return "invalid file argument";
+        case IRON_ERR_IO_TOO_LARGE: return "file exceeds byte limit";
+        case IRON_ERR_IO_READ: return "file read failed";
+        case IRON_ERR_IO_WRITE: return "file write failed";
+        case IRON_ERR_IO_SEEK: return "file seek failed";
+        case IRON_ERR_IO_ALREADY_EXISTS: return "destination already exists";
+        case IRON_ERR_IO_NOT_DIRECTORY: return "path is not a directory";
+        case IRON_ERR_IO_IS_DIRECTORY: return "path is a directory";
+        case IRON_ERR_IO_NO_MEMORY: return "out of memory while processing file";
+        default: return "file operation failed";
+    }
+}
+
+static int64_t io_error_from_errno(int error) {
+    switch (error) {
+        case ENOENT: return IRON_ERR_IO_NOT_FOUND;
+        case EACCES:
+        case EPERM: return IRON_ERR_IO_PERMISSION;
+        case EEXIST: return IRON_ERR_IO_ALREADY_EXISTS;
+        case ENOTDIR: return IRON_ERR_IO_NOT_DIRECTORY;
+        case EISDIR: return IRON_ERR_IO_IS_DIRECTORY;
+        case EINVAL:
+        case ENAMETOOLONG: return IRON_ERR_IO_INVALID_ARGUMENT;
+        default: return IRON_ERR_IO_OTHER;
+    }
+}
+
+static Iron_String io_message(int64_t code) {
+    const char *message = io_error_message(code);
+    return iron_string_from_cstr(message, strlen(message));
+}
+
+static Iron_FileReadResult io_read_error(int64_t code) {
+    Iron_FileReadResult out;
+    out.data = iron_string_from_cstr("", 0);
+    out.error = code;
+    out.error_message = io_message(code);
+    return out;
+}
+
+static Iron_FileWriteResult io_write_result(int64_t bytes, int64_t code) {
+    Iron_FileWriteResult out;
+    out.bytes = bytes;
+    out.error = code;
+    out.error_message = io_message(code);
+    return out;
+}
+
+static int io_path_copy(Iron_String path, char **output) {
+    size_t length = iron_string_byte_len(&path);
+    const char *bytes = iron_string_cstr(&path);
+    if (length == 0 || memchr(bytes, '\0', length) != NULL) return 0;
+    char *copy = (char *)malloc(length + 1);
+    if (!copy) return -1;
+    memcpy(copy, bytes, length);
+    copy[length] = '\0';
+    *output = copy;
+    return 1;
+}
+
+static Iron_FileReadResult io_read_bounded(Iron_String path,
+                                            int64_t max_bytes) {
+    if (max_bytes < 0 || (uint64_t)max_bytes > (uint64_t)(SIZE_MAX - 1)) {
+        return io_read_error(IRON_ERR_IO_INVALID_ARGUMENT);
+    }
+    char *path_text = NULL;
+    int path_status = io_path_copy(path, &path_text);
+    if (path_status <= 0) {
+        return io_read_error(path_status < 0 ? IRON_ERR_IO_NO_MEMORY
+                                             : IRON_ERR_IO_INVALID_ARGUMENT);
+    }
+    FILE *file = fopen(path_text, "rb");
+    if (!file) {
+        int64_t code = io_error_from_errno(errno);
+        free(path_text);
+        return io_read_error(code);
+    }
+    free(path_text);
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return io_read_error(IRON_ERR_IO_SEEK);
+    }
+    long end = ftell(file);
+    if (end < 0 || fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return io_read_error(IRON_ERR_IO_SEEK);
+    }
+    if ((uint64_t)end > (uint64_t)max_bytes) {
+        fclose(file);
+        return io_read_error(IRON_ERR_IO_TOO_LARGE);
+    }
+    size_t length = (size_t)end;
+    uint8_t *buffer = (uint8_t *)malloc(length == 0 ? 1 : length);
+    if (!buffer) {
+        fclose(file);
+        return io_read_error(IRON_ERR_IO_NO_MEMORY);
+    }
+    size_t received = fread(buffer, 1, length, file);
+    int read_failed = received != length || ferror(file);
+    int close_failed = fclose(file) != 0;
+    if (read_failed || close_failed) {
+        free(buffer);
+        return io_read_error(IRON_ERR_IO_READ);
+    }
+    Iron_FileReadResult out;
+    out.data = iron_string_from_cstr((const char *)buffer, length);
+    out.error = 0;
+    out.error_message = io_message(0);
+    free(buffer);
+    return out;
+}
+
+Iron_FileReadResult Iron_io_read_text(Iron_String path, int64_t max_bytes) {
+    return io_read_bounded(path, max_bytes);
+}
+
+Iron_FileReadResult Iron_io_read_bytes(Iron_String path, int64_t max_bytes) {
+    return io_read_bounded(path, max_bytes);
+}
+
+static Iron_FileWriteResult io_write_string(Iron_String path,
+                                             Iron_String content,
+                                             const char *mode) {
+    char *path_text = NULL;
+    int path_status = io_path_copy(path, &path_text);
+    if (path_status <= 0) {
+        return io_write_result(0, path_status < 0 ? IRON_ERR_IO_NO_MEMORY
+                                                  : IRON_ERR_IO_INVALID_ARGUMENT);
+    }
+    FILE *file = fopen(path_text, mode);
+    if (!file) {
+        int64_t code = io_error_from_errno(errno);
+        free(path_text);
+        return io_write_result(0, code);
+    }
+    free(path_text);
+    const uint8_t *data = (const uint8_t *)iron_string_cstr(&content);
+    size_t length = iron_string_byte_len(&content);
+    size_t written = 0;
+    while (written < length) {
+        size_t count = fwrite(data + written, 1, length - written, file);
+        if (count == 0) break;
+        written += count;
+    }
+    int failed = written != length || ferror(file) || fflush(file) != 0;
+    if (fclose(file) != 0) failed = 1;
+    return io_write_result((int64_t)written,
+                           failed ? IRON_ERR_IO_WRITE : 0);
+}
+
+Iron_FileWriteResult Iron_io_write_text(Iron_String path, Iron_String content) {
+    return io_write_string(path, content, "wb");
+}
+
+Iron_FileWriteResult Iron_io_write_bytes(Iron_String path, Iron_String content) {
+    return io_write_string(path, content, "wb");
+}
+
+Iron_FileWriteResult Iron_io_append_text(Iron_String path, Iron_String content) {
+    return io_write_string(path, content, "ab");
+}
+
+Iron_FileWriteResult Iron_io_append_bytes(Iron_String path, Iron_String content) {
+    return io_write_string(path, content, "ab");
+}
+
+Iron_FileInfo Iron_io_file_info(Iron_String path) {
+    Iron_FileInfo out;
+    memset(&out, 0, sizeof(out));
+    out.error_message = io_message(0);
+    char *path_text = NULL;
+    int path_status = io_path_copy(path, &path_text);
+    if (path_status <= 0) {
+        out.error = path_status < 0 ? IRON_ERR_IO_NO_MEMORY
+                                    : IRON_ERR_IO_INVALID_ARGUMENT;
+        out.error_message = io_message(out.error);
+        return out;
+    }
+    struct stat status;
+    if (stat(path_text, &status) != 0) {
+        int saved_error = errno;
+        free(path_text);
+        if (saved_error == ENOENT) return out;
+        out.error = io_error_from_errno(saved_error);
+        out.error_message = io_message(out.error);
+        return out;
+    }
+    free(path_text);
+    out.exists = true;
+    out.is_file = S_ISREG(status.st_mode);
+    out.is_dir = S_ISDIR(status.st_mode);
+    out.size = out.is_file ? (int64_t)status.st_size : 0;
+    out.modified_unix = (int64_t)status.st_mtime;
+    return out;
+}
+
+Iron_FileWriteResult Iron_io_copy_file(Iron_String source,
+                                        Iron_String destination,
+                                        bool overwrite) {
+    char *source_text = NULL;
+    char *destination_text = NULL;
+    int source_status = io_path_copy(source, &source_text);
+    int destination_status = io_path_copy(destination, &destination_text);
+    if (source_status <= 0 || destination_status <= 0) {
+        free(source_text);
+        free(destination_text);
+        return io_write_result(0,
+            source_status < 0 || destination_status < 0
+                ? IRON_ERR_IO_NO_MEMORY : IRON_ERR_IO_INVALID_ARGUMENT);
+    }
+    struct stat source_info;
+    if (stat(source_text, &source_info) != 0) {
+        int64_t code = io_error_from_errno(errno);
+        free(source_text);
+        free(destination_text);
+        return io_write_result(0, code);
+    }
+    if (!S_ISREG(source_info.st_mode)) {
+        free(source_text);
+        free(destination_text);
+        return io_write_result(0, S_ISDIR(source_info.st_mode)
+            ? IRON_ERR_IO_IS_DIRECTORY : IRON_ERR_IO_INVALID_ARGUMENT);
+    }
+    struct stat destination_info;
+    if (stat(destination_text, &destination_info) == 0) {
+        if (source_info.st_dev == destination_info.st_dev &&
+            source_info.st_ino == destination_info.st_ino) {
+            free(source_text);
+            free(destination_text);
+            return io_write_result(0, IRON_ERR_IO_INVALID_ARGUMENT);
+        }
+        if (!overwrite) {
+            free(source_text);
+            free(destination_text);
+            return io_write_result(0, IRON_ERR_IO_ALREADY_EXISTS);
+        }
+    }
+    FILE *input = fopen(source_text, "rb");
+    if (!input) {
+        int64_t code = io_error_from_errno(errno);
+        free(source_text);
+        free(destination_text);
+        return io_write_result(0, code);
+    }
+    FILE *output = fopen(destination_text, overwrite ? "wb" : "wbx");
+    if (!output) {
+        int64_t code = io_error_from_errno(errno);
+        fclose(input);
+        free(source_text);
+        free(destination_text);
+        return io_write_result(0, code);
+    }
+    uint8_t buffer[64 * 1024];
+    int64_t total = 0;
+    int failed = 0;
+    for (;;) {
+        size_t received = fread(buffer, 1, sizeof(buffer), input);
+        if (received == 0) {
+            if (ferror(input)) failed = 1;
+            break;
+        }
+        size_t written = 0;
+        while (written < received) {
+            size_t count = fwrite(buffer + written, 1, received - written, output);
+            if (count == 0) { failed = 1; break; }
+            written += count;
+            total += (int64_t)count;
+        }
+        if (failed) break;
+    }
+    if (fflush(output) != 0) failed = 1;
+    if (fclose(input) != 0) failed = 1;
+    if (fclose(output) != 0) failed = 1;
+    if (failed) remove(destination_text);
+    free(source_text);
+    free(destination_text);
+    return io_write_result(total, failed ? IRON_ERR_IO_WRITE : 0);
+}
+
+Iron_FileWriteResult Iron_io_move_file(Iron_String source,
+                                        Iron_String destination,
+                                        bool overwrite) {
+    char *source_text = NULL;
+    char *destination_text = NULL;
+    int source_status = io_path_copy(source, &source_text);
+    int destination_status = io_path_copy(destination, &destination_text);
+    if (source_status <= 0 || destination_status <= 0) {
+        free(source_text);
+        free(destination_text);
+        return io_write_result(0,
+            source_status < 0 || destination_status < 0
+                ? IRON_ERR_IO_NO_MEMORY : IRON_ERR_IO_INVALID_ARGUMENT);
+    }
+    struct stat source_info;
+    if (stat(source_text, &source_info) != 0) {
+        int64_t code = io_error_from_errno(errno);
+        free(source_text);
+        free(destination_text);
+        return io_write_result(0, code);
+    }
+    if (!S_ISREG(source_info.st_mode)) {
+        free(source_text);
+        free(destination_text);
+        return io_write_result(0, IRON_ERR_IO_IS_DIRECTORY);
+    }
+    struct stat destination_info;
+    if (stat(destination_text, &destination_info) == 0) {
+        if (source_info.st_dev == destination_info.st_dev &&
+            source_info.st_ino == destination_info.st_ino) {
+            free(source_text);
+            free(destination_text);
+            return io_write_result(0, IRON_ERR_IO_INVALID_ARGUMENT);
+        }
+        if (!overwrite) {
+            free(source_text);
+            free(destination_text);
+            return io_write_result(0, IRON_ERR_IO_ALREADY_EXISTS);
+        }
+    }
+#ifdef _WIN32
+    if (overwrite) remove(destination_text);
+#endif
+    if (rename(source_text, destination_text) == 0) {
+        int64_t size = (int64_t)source_info.st_size;
+        free(source_text);
+        free(destination_text);
+        return io_write_result(size, 0);
+    }
+    int rename_error = errno;
+    free(source_text);
+    free(destination_text);
+#ifdef EXDEV
+    if (rename_error == EXDEV) {
+        Iron_FileWriteResult copied = Iron_io_copy_file(
+            source, destination, overwrite);
+        if (copied.error != 0) return copied;
+        char *source_again = NULL;
+        if (io_path_copy(source, &source_again) <= 0 || remove(source_again) != 0) {
+            free(source_again);
+            return io_write_result(copied.bytes, IRON_ERR_IO_WRITE);
+        }
+        free(source_again);
+        return copied;
+    }
+#endif
+    return io_write_result(0, io_error_from_errno(rename_error));
 }

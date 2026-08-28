@@ -429,6 +429,41 @@ void test_tcp_dualstack_v4_to_v6(void) {
     Iron_TcpListener_close(lr.v0);
 }
 
+void test_tcp_iron_read_returns_binary_string(void) {
+    Iron_String host = make_iron_string("127.0.0.1");
+    Iron_Result_TcpListener_Error lr = Iron_Net_tcp_listen_result(host, 0);
+    TEST_ASSERT_EQUAL_INT(0, lr.v1.code);
+
+    struct sockaddr_in addr;
+    socklen_t alen = sizeof(addr);
+    TEST_ASSERT_EQUAL_INT(0,
+        getsockname((int)lr.v0.fd, (struct sockaddr *)&addr, &alen));
+    uint16_t port = ntohs(addr.sin_port);
+
+    Iron_Result_TcpSocket_Error client = Iron_Net_tcp_dial_result(host, port, 2000);
+    TEST_ASSERT_EQUAL_INT(0, client.v1.code);
+    Iron_Result_TcpSocket_Error server = Iron_TcpListener_accept_result(lr.v0, 2000);
+    TEST_ASSERT_EQUAL_INT(0, server.v1.code);
+
+    const uint8_t binary[4] = { 'a', 0, 'b', 0xff };
+    Iron_Result_Int_Error sent = Iron_TcpSocket_write_result(
+        client.v0, binary, (int64_t)sizeof(binary), 2000);
+    TEST_ASSERT_EQUAL_INT(0, sent.v1.code);
+    TEST_ASSERT_EQUAL_INT64(4, sent.v0);
+
+    Iron_Result_String_NetError received = Iron_tcpsocket_read(server.v0, 4, 2000);
+    TEST_ASSERT_EQUAL_INT(0, received.v1.code);
+    TEST_ASSERT_EQUAL_size_t(4, iron_string_byte_len(&received.v0));
+    TEST_ASSERT_EQUAL_MEMORY(binary, iron_string_cstr(&received.v0), sizeof(binary));
+
+    Iron_Result_String_NetError invalid = Iron_tcpsocket_read(server.v0, -1, 2000);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_NET_INVALID_ARGUMENT, invalid.v1.code);
+
+    Iron_TcpSocket_close(server.v0);
+    Iron_TcpSocket_close(client.v0);
+    Iron_TcpListener_close(lr.v0);
+}
+
 /* ── Runner ─────────────────────────────────────────────────────────────── */
 int main(void) {
     UNITY_BEGIN();
@@ -440,5 +475,6 @@ int main(void) {
     RUN_TEST(test_tcp_read_clean_eof);
     RUN_TEST(test_tcp_accept_timeout);
     RUN_TEST(test_tcp_dualstack_v4_to_v6);
+    RUN_TEST(test_tcp_iron_read_returns_binary_string);
     return UNITY_END();
 }

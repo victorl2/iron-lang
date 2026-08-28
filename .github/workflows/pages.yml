@@ -38,6 +38,9 @@ jobs:
       - name: Stage install.sh at site root
         run: install -m 0755 scripts/install.sh docs/site/install.sh
 
+      - name: Validate site links and fragments
+        run: python3 scripts/check_site.py docs/site
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 

@@ -1,0 +1,30 @@
+-- Bounded text and binary-safe file operations.
+import io
+
+func main() {
+    val path = "/tmp/iron-file-example.bin"
+    val copy_path = "/tmp/iron-file-example-copy.bin"
+    val moved = "/tmp/iron-file-example-moved.bin"
+    val payload = "Iron\0binary"
+
+    val written = IO.write_bytes(path, payload)
+    if written.error != 0 {
+        println("write failed: {written.error} {written.error_message}")
+        return
+    }
+    val read = IO.read_bytes(path, 1024)
+    if read.error != 0 {
+        println("read failed: {read.error} {read.error_message}")
+        return
+    }
+    val info = IO.file_info(path)
+    println("read {info.size} exact bytes")
+
+    val copied = IO.copy_file(path, copy_path, true)
+    if copied.error != 0 { println("copy failed: {copied.error}") }
+    val renamed = IO.move_file(copy_path, moved, true)
+    if renamed.error != 0 { println("move failed: {renamed.error}") }
+
+    IO.delete_file(path)
+    IO.delete_file(moved)
+}

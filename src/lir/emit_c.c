@@ -7870,6 +7870,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                         "#ifndef _WIN32\n#include <unistd.h>\n"
                         "#else\n#include <io.h>\n#define close _close\n#endif\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_math.h\"\n");
+    iron_strbuf_appendf(&ctx.includes, "#define IRON_IO_GENERATED_OBJECTS\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_io.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#define IRON_TIMER_STRUCT_DEFINED\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_time.h\"\n");
@@ -8428,6 +8429,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         bool has_net_udp_bind         = false;
         bool has_net_udp_sendto_v4    = false;
         bool has_net_udp_sendto_v6    = false;
+        bool has_udpsocket_recvfrom   = false;
         bool has_udpsocket_close      = false;
         bool has_net_ipv4addr_parse   = false;
         bool has_net_ipv4addr_format  = false;
@@ -8462,6 +8464,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
             else if (strcmp(mangled, "Iron_net_udp_bind") == 0)      has_net_udp_bind = true;
             else if (strcmp(mangled, "Iron_net_udp_sendto_v4") == 0) has_net_udp_sendto_v4 = true;
             else if (strcmp(mangled, "Iron_net_udp_sendto_v6") == 0) has_net_udp_sendto_v6 = true;
+            else if (strcmp(mangled, "Iron_udpsocket_recvfrom") == 0) has_udpsocket_recvfrom = true;
             else if (strcmp(mangled, "Iron_udpsocket_close") == 0)   has_udpsocket_close = true;
             else if (strcmp(mangled, "Iron_ipv4addr_parse") == 0)    has_net_ipv4addr_parse = true;
             else if (strcmp(mangled, "Iron_ipv4addr_format") == 0)   has_net_ipv4addr_format = true;
@@ -8483,7 +8486,8 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                         has_tcpsocket_read || has_tcpsocket_write ||
                         has_tcpsocket_close;
         bool need_udp = has_net_udp_bind || has_net_udp_sendto_v4 ||
-                        has_net_udp_sendto_v6 || has_udpsocket_close;
+                        has_net_udp_sendto_v6 || has_udpsocket_recvfrom ||
+                        has_udpsocket_close;
         bool need_ip  = has_net_ipv4addr_parse || has_net_ipv4addr_format ||
                         has_net_ipv6addr_parse || has_net_ipv6addr_format;
         bool need_dns = has_net_lookup_host;
@@ -8493,13 +8497,15 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                 "Iron_Tuple_TcpSocket_NetError",
                 "Iron_Tuple_TcpListener_NetError",
                 "Iron_Tuple_Int_NetError",
+                "Iron_Tuple_String_NetError",
             };
             static const char *k_net_tuple_bodies[] = {
                 "typedef struct { Iron_TcpSocket v0; Iron_NetError v1; } Iron_Tuple_TcpSocket_NetError;\n",
                 "typedef struct { Iron_TcpListener v0; Iron_NetError v1; } Iron_Tuple_TcpListener_NetError;\n",
                 "typedef struct { int64_t v0; Iron_NetError v1; } Iron_Tuple_Int_NetError;\n",
+                "typedef struct { Iron_String v0; Iron_NetError v1; } Iron_Tuple_String_NetError;\n",
             };
-            for (int ti = 0; ti < 3; ti++) {
+            for (int ti = 0; ti < 4; ti++) {
                 bool already = false;
                 for (int ei = 0; ei < (int)arrlen(ctx.emitted_tuples); ei++) {
                     if (strcmp(ctx.emitted_tuples[ei], k_net_tuple_names[ti]) == 0) {
@@ -8663,7 +8669,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         }
         if (has_tcpsocket_read) {
             iron_strbuf_appendf(&ctx.prototypes,
-                "Iron_Tuple_Int_NetError Iron_tcpsocket_read(Iron_TcpSocket s, Iron_String buf, int64_t timeout);\n");
+                "Iron_Tuple_String_NetError Iron_tcpsocket_read(Iron_TcpSocket s, int64_t max_bytes, int64_t timeout);\n");
         }
         if (has_tcpsocket_write) {
             iron_strbuf_appendf(&ctx.prototypes,
@@ -8702,6 +8708,10 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         if (has_net_udp_sendto_v6) {
             iron_strbuf_appendf(&ctx.prototypes,
                 "Iron_Tuple_Int_NetError Iron_net_udp_sendto_v6(Iron_UdpSocket s, Iron_String buf, Iron_IPv6Addr addr, int64_t port, int64_t timeout);\n");
+        }
+        if (has_udpsocket_recvfrom) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_UdpPacket Iron_udpsocket_recvfrom(Iron_UdpSocket s, int64_t max_bytes, int64_t timeout);\n");
         }
         if (has_udpsocket_close) {
             iron_strbuf_appendf(&ctx.prototypes,

@@ -1,0 +1,44 @@
+-- End-to-end Iron UDP receive acceptance test. This covers the public
+-- UdpPacket model rather than the C-only byte-buffer receive engine.
+import net
+
+func main() {
+    val (receiver, bind_error) = Net.udp_bind("127.0.0.1", 34504)
+    if bind_error.code != 0 {
+        println("udp bind failed: {bind_error.code}")
+        return
+    }
+    val (sender, sender_error) = Net.udp_bind("127.0.0.1", 0)
+    if sender_error.code != 0 {
+        println("udp sender failed: {sender_error.code}")
+        UdpSocket.close(receiver)
+        return
+    }
+    val (target, parse_error) = IPv4Addr.parse("127.0.0.1")
+    if parse_error.code != 0 {
+        println("udp address failed: {parse_error.code}")
+        UdpSocket.close(sender)
+        UdpSocket.close(receiver)
+        return
+    }
+
+    val (sent, send_error) = Net.udp_sendto_v4(
+        sender, "datagram", target, 34504, 1000)
+    if send_error.code != 0 or sent != 8 {
+        println("udp send failed: {send_error.code}")
+        UdpSocket.close(sender)
+        UdpSocket.close(receiver)
+        return
+    }
+
+    val packet = UdpSocket.recvfrom(receiver, 64, 1000)
+    if packet.error.code == 0 and packet.data == "datagram" and
+       packet.address == "127.0.0.1" and packet.port > 0 and
+       packet.truncated == 0 {
+        println("udp payload ok")
+    } else {
+        println("udp receive failed: {packet.error.code}")
+    }
+    UdpSocket.close(sender)
+    UdpSocket.close(receiver)
+}

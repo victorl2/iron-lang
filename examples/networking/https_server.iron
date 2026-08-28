@@ -1,0 +1,30 @@
+-- HTTPS REST/page server. Generate a development certificate first:
+--   openssl req -x509 -newkey rsa:2048 -nodes -days 7 \
+--     -subj /CN=localhost -addext subjectAltName=DNS:localhost \
+--     -keyout key.pem -out cert.pem
+import http
+
+func main() {
+    val listening = Http.listen_tls("127.0.0.1", 8443, "cert.pem", "key.pem")
+    if listening.error != 0 {
+        println("TLS listen failed: {listening.error} {listening.error_message}")
+        return
+    }
+    println("HTTPS page: https://localhost:8443/")
+    while true {
+        val accepted = HttpsServer.accept(listening.server, 60000)
+        if accepted.error == 0 {
+            spawn("https-request") {
+                val request = HttpsConnection.read_request(accepted.connection, 16384, 1048576, 5000)
+                if request.error == 0 {
+                    val page = Http.html_response(200, "<!doctype html><title>Iron HTTPS</title><h1>Secure Iron works</h1>")
+                    val sent = HttpsConnection.send_response(accepted.connection, page, 5000)
+                    HttpsConnection.close(accepted.connection)
+                    return sent
+                }
+                HttpsConnection.close(accepted.connection)
+                return request.error
+            }
+        }
+    }
+}

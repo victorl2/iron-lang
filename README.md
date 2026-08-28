@@ -30,6 +30,9 @@ Pre-built binaries are available for **macOS** (arm64, x86_64) and **Linux** (x8
 Read the [language overview](docs/language_definition.md) for a tour of the
 language and its features.
 
+For TCP, UDP, DNS, HTTP/HTTPS, REST servers, webpages, WebSocket/WSS, and
+binary-safe file examples, see the [networking guide](docs/networking.md).
+
 ## Building from Source
 
 If you prefer to build from source, see [INSTALL.md](INSTALL.md) for instructions.

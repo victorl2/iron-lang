@@ -1,0 +1,120 @@
+-- http.iron -- synchronous HTTP/1.1 client/server models.
+--
+-- The API deliberately exposes accept/read/respond as separate blocking
+-- operations. Iron programs choose their own concurrency policy with
+-- spawn/await instead of the HTTP layer creating an invisible scheduler.
+-- All timeouts are milliseconds. Transport failures use the existing
+-- IRON_ERR_NET_* range (1000..); HTTP parse/policy failures use 5000...
+
+object HttpServer {
+    val fd: Int
+}
+
+object HttpConnection {
+    val fd: Int
+}
+
+-- TLS server/connection handles. The context and tls fields are opaque native
+-- handles; applications must close them through the matching methods.
+object HttpsServer {
+    val fd: Int
+    val context: Int
+}
+
+object HttpsConnection {
+    val fd: Int
+    val tls: Int
+}
+
+object HttpServerResult {
+    val server: HttpServer
+    val error: Int
+    val error_message: String
+}
+
+object HttpConnectionResult {
+    val connection: HttpConnection
+    val error: Int
+    val error_message: String
+}
+
+object HttpsServerResult {
+    val server: HttpsServer
+    val error: Int
+    val error_message: String
+}
+
+object HttpsConnectionResult {
+    val connection: HttpsConnection
+    val error: Int
+    val error_message: String
+}
+
+object HttpRequest {
+    val method: String
+    val target: String
+    val path: String
+    val query: String
+    val version: String
+    -- Raw header lines separated by CRLF, without the request line.
+    val headers: String
+    val body: String
+    val error: Int
+    val error_message: String
+}
+
+object HttpResponse {
+    val status: Int
+    val reason: String
+    -- Raw header lines separated by CRLF, without the status line.
+    val headers: String
+    val body: String
+    val error: Int
+    val error_message: String
+}
+
+object Http {}
+
+-- Server lifecycle and connection I/O.
+func Http.listen(host: String, port: Int) -> HttpServerResult {}
+func HttpServer.accept(server: HttpServer, timeout: Int) -> HttpConnectionResult {}
+func HttpServer.port(server: HttpServer) -> Int {}
+func HttpServer.close(server: HttpServer) {}
+func HttpConnection.read_request(connection: HttpConnection, max_header_bytes: Int, max_body_bytes: Int, timeout: Int) -> HttpRequest {}
+func HttpConnection.send_response(connection: HttpConnection, response: HttpResponse, timeout: Int) -> Int {}
+func HttpConnection.close(connection: HttpConnection) {}
+
+-- HTTPS server lifecycle. The certificate file may contain the leaf plus
+-- intermediates in PEM order. The private key must match the leaf certificate.
+func Http.listen_tls(host: String, port: Int, certificate_file: String, private_key_file: String) -> HttpsServerResult {}
+func HttpsServer.accept(server: HttpsServer, timeout: Int) -> HttpsConnectionResult {}
+func HttpsServer.port(server: HttpsServer) -> Int {}
+func HttpsServer.close(server: HttpsServer) {}
+func HttpsConnection.read_request(connection: HttpsConnection, max_header_bytes: Int, max_body_bytes: Int, timeout: Int) -> HttpRequest {}
+func HttpsConnection.send_response(connection: HttpsConnection, response: HttpResponse, timeout: Int) -> Int {}
+func HttpsConnection.close(connection: HttpsConnection) {}
+
+-- Client requests transparently support http:// and verified https:// URLs.
+-- `max_body_bytes` bounds the decoded response body, including chunked
+-- responses. HEAD responses never consume the declared representation body.
+func Http.request(method: String, url: String, headers: String, body: String, max_body_bytes: Int, timeout: Int) -> HttpResponse {}
+func Http.get(url: String, timeout: Int) -> HttpResponse {}
+func Http.post_json(url: String, body: String, timeout: Int) -> HttpResponse {}
+
+-- Certificate verification and hostname/IP matching are enabled by default.
+-- `get_with_ca` is for private PKI/test roots. The explicitly named insecure
+-- variant is development-only and must never be used for production secrets.
+func Http.request_with_ca(method: String, url: String, headers: String, body: String, max_body_bytes: Int, ca_file: String, timeout: Int) -> HttpResponse {}
+func Http.request_insecure(method: String, url: String, headers: String, body: String, max_body_bytes: Int, timeout: Int) -> HttpResponse {}
+func Http.get_with_ca(url: String, ca_file: String, timeout: Int) -> HttpResponse {}
+func Http.get_insecure(url: String, timeout: Int) -> HttpResponse {}
+
+-- Response constructors for REST endpoints and webpages.
+func Http.response(status: Int, headers: String, body: String) -> HttpResponse {}
+func Http.json_response(status: Int, body: String) -> HttpResponse {}
+func Http.html_response(status: Int, body: String) -> HttpResponse {}
+func Http.text_response(status: Int, body: String) -> HttpResponse {}
+func Http.file_response(status: Int, path: String, content_type: String, max_body_bytes: Int) -> HttpResponse {}
+
+-- Case-insensitive lookup in the raw `headers` field. Returns "" when absent.
+func Http.header(headers: String, name: String) -> String {}

@@ -7009,13 +7009,6 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     }
                 }
                 shput(ctx->spawn_result_types, ss->handle_name, body_ret);
-            } else {
-                /* Fire-and-forget spawn (no handle captured) -- emit warning */
-                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING,
-                               IRON_WARN_SPAWN_NO_HANDLE, ss->span,
-                               "spawned task handle not captured; use "
-                               "`val h = spawn(...)` and `await h` to wait for completion",
-                               NULL);
             }
             break;
         }

@@ -30,6 +30,7 @@
  */
 
 #include "stdlib/iron_io.h"
+#include "runtime/iron_errors.h"
 #include "runtime/iron_runtime.h"
 #include "unity.h"
 
@@ -69,7 +70,8 @@ static void sandbox_nuke(void) {
     char path[512];
     const char *names[] = {
         "a.txt", "b.txt", "c.txt", "hello.txt", "lines.txt", "append.txt",
-        "bytes.bin", "written.txt", "nope.txt", NULL
+        "bytes.bin", "bounded.bin", "copied.bin", "moved.bin", "written.txt",
+        "nope.txt", NULL
     };
     for (int i = 0; names[i]; i++) {
         snprintf(path, sizeof(path), "%s/%s", s_sandbox, names[i]);
@@ -126,7 +128,7 @@ void test_io_read_bytes_inline_wrapper(void) {
     const uint8_t data[] = {0x01, 0x02, 0x03, 0xff, 0xfe};
 
     /* Iron_io_write_bytes: not previously tested. */
-    Iron_Error werr = Iron_io_write_bytes(path, data, sizeof(data));
+    Iron_Error werr = Iron_io_write_bytes_raw(path, data, sizeof(data));
     TEST_ASSERT_EQUAL_INT(0, werr.code);
 
     /* Iron_io_read_bytes_result: uncovered at baseline. */
@@ -135,7 +137,7 @@ void test_io_read_bytes_inline_wrapper(void) {
     TEST_ASSERT_EQUAL_size_t(sizeof(data), iron_string_byte_len(&res.v0));
 
     /* Iron_io_read_bytes inline wrapper — gives iron_io.h coverage. */
-    Iron_String bytes = Iron_io_read_bytes(path);
+    Iron_String bytes = Iron_io_read_bytes_legacy(path);
     TEST_ASSERT_EQUAL_size_t(sizeof(data), iron_string_byte_len(&bytes));
 
     /* Write-file failure arm: write to an unwriteable path (/proc/self
@@ -311,6 +313,85 @@ void test_io_read_lines(void) {
     TEST_ASSERT_EQUAL_INT64(0, empty.count);
 }
 
+void test_io_bounded_binary_roundtrip(void) {
+    Iron_String path = mkpath("bounded.bin");
+    const uint8_t payload[] = {0x00, 0x01, 0x7f, 0x80, 0xfe, 0xff};
+    Iron_String data = iron_string_from_cstr((const char *)payload,
+                                             sizeof(payload));
+    Iron_FileWriteResult written = Iron_io_write_bytes(path, data);
+    TEST_ASSERT_EQUAL_INT64(0, written.error);
+    TEST_ASSERT_EQUAL_INT64((int64_t)sizeof(payload), written.bytes);
+
+    Iron_FileReadResult read = Iron_io_read_bytes(path, 64);
+    TEST_ASSERT_EQUAL_INT64(0, read.error);
+    TEST_ASSERT_EQUAL_size_t(sizeof(payload), iron_string_byte_len(&read.data));
+    TEST_ASSERT_EQUAL_MEMORY(payload, iron_string_cstr(&read.data), sizeof(payload));
+
+    const uint8_t suffix[] = {0xa5, 0x00};
+    Iron_FileWriteResult appended = Iron_io_append_bytes(
+        path, iron_string_from_cstr((const char *)suffix, sizeof(suffix)));
+    TEST_ASSERT_EQUAL_INT64(0, appended.error);
+    TEST_ASSERT_EQUAL_INT64((int64_t)sizeof(suffix), appended.bytes);
+    const uint8_t combined[] = {0x00, 0x01, 0x7f, 0x80, 0xfe, 0xff, 0xa5, 0x00};
+    Iron_FileReadResult appended_read = Iron_io_read_bytes(path, 64);
+    TEST_ASSERT_EQUAL_INT64(0, appended_read.error);
+    TEST_ASSERT_EQUAL_size_t(sizeof(combined),
+                             iron_string_byte_len(&appended_read.data));
+    TEST_ASSERT_EQUAL_MEMORY(combined, iron_string_cstr(&appended_read.data),
+                             sizeof(combined));
+
+    Iron_FileReadResult limited = Iron_io_read_bytes(path, 3);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_TOO_LARGE, limited.error);
+    TEST_ASSERT_EQUAL_size_t(0, iron_string_byte_len(&limited.data));
+}
+
+void test_io_text_append_info_copy_move(void) {
+    Iron_String source = mkpath("bounded.bin");
+    Iron_FileWriteResult first = Iron_io_write_text(source, make_str("alpha"));
+    Iron_FileWriteResult second = Iron_io_append_text(source, make_str(" beta"));
+    TEST_ASSERT_EQUAL_INT64(0, first.error);
+    TEST_ASSERT_EQUAL_INT64(0, second.error);
+
+    Iron_FileReadResult text = Iron_io_read_text(source, 64);
+    TEST_ASSERT_EQUAL_INT64(0, text.error);
+    TEST_ASSERT_EQUAL_STRING("alpha beta", iron_string_cstr(&text.data));
+
+    Iron_FileInfo info = Iron_io_file_info(source);
+    TEST_ASSERT_TRUE(info.exists);
+    TEST_ASSERT_TRUE(info.is_file);
+    TEST_ASSERT_FALSE(info.is_dir);
+    TEST_ASSERT_EQUAL_INT64(10, info.size);
+
+    Iron_String copied_path = mkpath("copied.bin");
+    Iron_FileWriteResult copied = Iron_io_copy_file(source, copied_path, false);
+    TEST_ASSERT_EQUAL_INT64(0, copied.error);
+    TEST_ASSERT_EQUAL_INT64(10, copied.bytes);
+    Iron_FileWriteResult refused = Iron_io_copy_file(source, copied_path, false);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_ALREADY_EXISTS, refused.error);
+
+    Iron_FileWriteResult self_copy = Iron_io_copy_file(source, source, true);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_INVALID_ARGUMENT, self_copy.error);
+    Iron_FileReadResult source_after_self_copy = Iron_io_read_text(source, 64);
+    TEST_ASSERT_EQUAL_INT64(0, source_after_self_copy.error);
+    TEST_ASSERT_EQUAL_STRING("alpha beta",
+                             iron_string_cstr(&source_after_self_copy.data));
+
+    Iron_String sandbox = iron_string_from_cstr(s_sandbox, s_sandbox_len);
+    Iron_FileWriteResult directory_copy = Iron_io_copy_file(
+        sandbox, copied_path, true);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_IS_DIRECTORY, directory_copy.error);
+
+    Iron_FileWriteResult self_move = Iron_io_move_file(source, source, true);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_INVALID_ARGUMENT, self_move.error);
+    TEST_ASSERT_TRUE(Iron_io_file_info(source).exists);
+
+    Iron_String moved_path = mkpath("moved.bin");
+    Iron_FileWriteResult moved = Iron_io_move_file(copied_path, moved_path, false);
+    TEST_ASSERT_EQUAL_INT64(0, moved.error);
+    TEST_ASSERT_FALSE(Iron_io_file_info(copied_path).exists);
+    TEST_ASSERT_TRUE(Iron_io_file_info(moved_path).exists);
+}
+
 /* ── main ────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -327,5 +408,7 @@ int main(void) {
     RUN_TEST(test_io_extension);
     RUN_TEST(test_io_is_dir);
     RUN_TEST(test_io_read_lines);
+    RUN_TEST(test_io_bounded_binary_roundtrip);
+    RUN_TEST(test_io_text_append_info_copy_move);
     return UNITY_END();
 }

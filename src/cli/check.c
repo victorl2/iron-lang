@@ -325,6 +325,21 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
                                       line_markers);
     }
 
+    bool imports_http = iron_detect_import(source, source_path, "http", &detect_arena);
+    bool imports_websocket = iron_detect_import(
+        source, source_path, "websocket", &detect_arena);
+    if (imports_http || imports_websocket) {
+        stdlib_prepended_lines +=
+            check_prepend_marked_file(&source, base_dir, "stdlib/http.iron",
+                                      line_markers);
+    }
+
+    if (imports_websocket) {
+        stdlib_prepended_lines +=
+            check_prepend_marked_file(&source, base_dir, "stdlib/websocket.iron",
+                                      line_markers);
+    }
+
     /* Phase 59 05: detect "import url" and prepend url.iron (pure Iron,
      * no C backing) so `iron check` sees the Url/Url_Builder/UrlError
      * decls. String primitives rindex_of / byte_at / from_byte used by

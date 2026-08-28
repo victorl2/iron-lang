@@ -1,6 +1,30 @@
 -- io.iron -- Iron wrapper for the IO stdlib module
 object IO {}
 
+-- Binary-safe bounded file data. Iron String values preserve embedded zero
+-- and arbitrary bytes, so the same payload type serves text and binary files.
+object FileReadResult {
+    val data: String
+    val error: Int
+    val error_message: String
+}
+
+object FileWriteResult {
+    val bytes: Int
+    val error: Int
+    val error_message: String
+}
+
+object FileInfo {
+    val exists: Bool
+    val is_file: Bool
+    val is_dir: Bool
+    val size: Int
+    val modified_unix: Int
+    val error: Int
+    val error_message: String
+}
+
 func IO.read_file(path: String) -> String {}
 func IO.write_file(path: String, content: String) {}
 func IO.file_exists(path: String) -> Bool {}
@@ -15,3 +39,16 @@ func IO.join_path(a: String, b: String) -> String {}
 func IO.extension(path: String) -> String {}
 func IO.is_dir(path: String) -> Bool {}
 func IO.read_lines(path: String) -> [String] {}
+
+-- Explicit result-returning file API. Reads are bounded before allocation;
+-- text and byte variants both preserve exact bytes. Write/append report the
+-- committed byte count and surface open, permission, flush, and close errors.
+func IO.read_text(path: String, max_bytes: Int) -> FileReadResult {}
+func IO.read_bytes(path: String, max_bytes: Int) -> FileReadResult {}
+func IO.write_text(path: String, content: String) -> FileWriteResult {}
+func IO.write_bytes(path: String, content: String) -> FileWriteResult {}
+func IO.append_text(path: String, content: String) -> FileWriteResult {}
+func IO.append_bytes(path: String, content: String) -> FileWriteResult {}
+func IO.file_info(path: String) -> FileInfo {}
+func IO.copy_file(source: String, destination: String, overwrite: Bool) -> FileWriteResult {}
+func IO.move_file(source: String, destination: String, overwrite: Bool) -> FileWriteResult {}

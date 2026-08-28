@@ -39,9 +39,9 @@ func Net.tcp_listen(host: String, port: Int) -> (TcpListener, NetError) {}
 func TcpListener.accept(l: TcpListener, timeout: Int) -> (TcpSocket, NetError) {}
 func TcpListener.close(l: TcpListener) {}
 
--- Socket read / write / close. `buf` is an Iron_String (matches the
--- iron_io.c binary I/O precedent).
-func TcpSocket.read(s: TcpSocket, buf: String, timeout: Int) -> (Int, NetError) {}
+-- Socket read / write / close. `read` returns up to `max_bytes` as an
+-- immutable, binary-safe String; embedded zero bytes are preserved.
+func TcpSocket.read(s: TcpSocket, max_bytes: Int, timeout: Int) -> (String, NetError) {}
 func TcpSocket.write(s: TcpSocket, buf: String, timeout: Int) -> (Int, NetError) {}
 func TcpSocket.close(s: TcpSocket) {}
 
@@ -50,6 +50,18 @@ func TcpSocket.close(s: TcpSocket) {}
 -- UDP socket handle. Layout matches Iron_UdpSocket in iron_net.h.
 object UdpSocket {
     val fd: Int
+}
+
+-- A received datagram and its sender. `data` is binary-safe, `address` is
+-- numeric (with `%zone` on scoped IPv6), and `truncated` is 1 when the
+-- datagram exceeded the caller's `max_bytes` buffer. In that case `data`
+-- contains the captured prefix and `error.code` is NET_MSG_TOO_LARGE (1018).
+object UdpPacket {
+    val data: String
+    val address: String
+    val port: Int
+    val truncated: Int
+    val error: NetError
 }
 
 -- IPv4 address. The C side stores 4 raw octets in a uint8_t[4]; the Iron
@@ -99,6 +111,11 @@ func Net.udp_bind(host: String, port: Int) -> (UdpSocket, NetError) {}
 -- helpers directly.
 func Net.udp_sendto_v4(s: UdpSocket, buf: String, addr: IPv4Addr, port: Int, timeout: Int) -> (Int, NetError) {}
 func Net.udp_sendto_v6(s: UdpSocket, buf: String, addr: IPv6Addr, port: Int, timeout: Int) -> (Int, NetError) {}
+
+-- Receive one datagram. A successful zero-length datagram has empty `data`
+-- and error.code == 0; a timeout has error.code == 1004. `max_bytes` must be
+-- positive, and the timeout is a single deadline budget in milliseconds.
+func UdpSocket.recvfrom(s: UdpSocket, max_bytes: Int, timeout: Int) -> UdpPacket {}
 
 -- UdpSocket.close — idempotent (safe to call on an already-closed fd).
 func UdpSocket.close(s: UdpSocket) {}

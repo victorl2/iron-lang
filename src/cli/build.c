@@ -506,6 +506,9 @@ static int build_src_list(const char **argv_buf, int *ai_out,
                            char **sl_time_out, char **sl_log_out,
                            char **sl_hint_out,
                            char **sl_net_out,
+                           char **sl_http_out,
+                           char **sl_tls_out,
+                           char **sl_websocket_out,
                            char **sl_rl_out,           /* Phase 60: raylib shim */
                            char **sl_rl_layout_out,   /* Phase 60: ABI asserts */
                            IronBuildOpts opts,
@@ -564,13 +567,17 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     *sl_log_out     = make_path(base_dir, "stdlib/iron_log.c");
     *sl_hint_out    = make_path(base_dir, "stdlib/iron_hint.c");
     *sl_net_out     = make_path(base_dir, "stdlib/iron_net.c");
+    *sl_http_out    = make_path(base_dir, "stdlib/iron_http.c");
+    *sl_tls_out     = make_path(base_dir, "stdlib/iron_tls.c");
+    *sl_websocket_out = make_path(base_dir, "stdlib/iron_websocket.c");
 
     if (!*rt_stb_out || !*rt_arena_out || !*rt_strbuf_out || !*rt_string_out ||
         !*rt_rc_out || !*rt_builtin_out || !*rt_threads_out || !*rt_collect_out ||
         !*rt_netinit_out || !*rt_oom_out || !*rt_fmt_out || !*rt_heap_track_out ||
         !*rt_panic_out || !*rt_leakcheck_out || !*rt_arena_rt_out ||
         !*sl_math_out || !*sl_io_out || !*sl_time_out || !*sl_log_out ||
-        !*sl_hint_out || !*sl_net_out) {
+        !*sl_hint_out || !*sl_net_out || !*sl_http_out || !*sl_tls_out ||
+        !*sl_websocket_out) {
         return 1;
     }
 
@@ -631,6 +638,12 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_log_out;
     argv_buf[ai++] = *sl_hint_out;
     argv_buf[ai++] = *sl_net_out;
+    argv_buf[ai++] = *sl_http_out;
+    argv_buf[ai++] = *sl_tls_out;
+    argv_buf[ai++] = *sl_websocket_out;
+    if (opts.use_tls) {
+        argv_buf[ai++] = "/DIRON_HAVE_OPENSSL=1";
+    }
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
     argv_buf[ai++] = stdlib_i_flag;
@@ -647,6 +660,11 @@ static int build_src_list(const char **argv_buf, int *ai_out,
      * once so P03 doesn't need to touch build.c. */
     argv_buf[ai++] = "ws2_32.lib";
     argv_buf[ai++] = "iphlpapi.lib";
+    argv_buf[ai++] = "bcrypt.lib";
+    if (opts.use_tls) {
+        argv_buf[ai++] = "libssl.lib";
+        argv_buf[ai++] = "libcrypto.lib";
+    }
     /* Output flag for clang-cl */
     {
         static char out_flag[1024];
@@ -701,6 +719,12 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *sl_log_out;
     argv_buf[ai++] = *sl_hint_out;
     argv_buf[ai++] = *sl_net_out;
+    argv_buf[ai++] = *sl_http_out;
+    argv_buf[ai++] = *sl_tls_out;
+    argv_buf[ai++] = *sl_websocket_out;
+    if (opts.use_tls) {
+        argv_buf[ai++] = "-DIRON_HAVE_OPENSSL=1";
+    }
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
     argv_buf[ai++] = stdlib_i_flag;
@@ -713,6 +737,10 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     }
     argv_buf[ai++] = "-lm";
     argv_buf[ai++] = "-lpthread";
+    if (opts.use_tls) {
+        argv_buf[ai++] = "-lssl";
+        argv_buf[ai++] = "-lcrypto";
+    }
 #endif
 
     /* Raylib-specific args. The source files are compiled individually as
@@ -779,6 +807,7 @@ static void free_src_list(char *base_dir,
                            char *rt_arena_rt,             /* Phase 37 arena runtime */
                            char *sl_math, char *sl_io, char *sl_time,
                            char *sl_log, char *sl_hint, char *sl_net,
+                           char *sl_http, char *sl_tls, char *sl_websocket,
                            char *sl_rl, char *sl_rl_layout,    /* Phase 60 */
                            char *rl_src, char *rl_i_flag,
                            char *rl_glfw_src, char *rl_glfw_i_flag) {
@@ -796,6 +825,9 @@ static void free_src_list(char *base_dir,
     free(sl_math); free(sl_io); free(sl_time); free(sl_log);
     free(sl_hint);
     free(sl_net);
+    free(sl_http);
+    free(sl_tls);
+    free(sl_websocket);
     free(sl_rl); free(sl_rl_layout);
     free(rl_src); free(rl_i_flag);
     free(rl_glfw_src); free(rl_glfw_i_flag);
@@ -911,7 +943,8 @@ static int invoke_clang(const char *c_file, const char *output,
     char *rt_leakcheck = NULL;   /* Phase 31 DBG-07: release opt-in leak check */
     char *rt_arena_rt = NULL;    /* Phase 37: arena runtime substrate */
     char *sl_math = NULL, *sl_io = NULL, *sl_time = NULL, *sl_log = NULL;
-    char *sl_hint = NULL, *sl_net = NULL;
+    char *sl_hint = NULL, *sl_net = NULL, *sl_http = NULL, *sl_tls = NULL;
+    char *sl_websocket = NULL;
     char *sl_rl = NULL, *sl_rl_layout = NULL;  /* Phase 60 Plan 01 */
     char *rl_src = NULL, *rl_i_flag = NULL;
     char *rl_glfw_src = NULL, *rl_glfw_i_flag = NULL;
@@ -932,7 +965,7 @@ static int invoke_clang(const char *c_file, const char *output,
                        &rt_leakcheck,
                        &rt_arena_rt,
                        &sl_math, &sl_io, &sl_time, &sl_log,
-                       &sl_hint, &sl_net,
+                       &sl_hint, &sl_net, &sl_http, &sl_tls, &sl_websocket,
                        &sl_rl, &sl_rl_layout,
                        opts, &rl_src, &rl_i_flag,
                        &rl_glfw_src, &rl_glfw_i_flag, &base_dir) != 0) {
@@ -945,7 +978,7 @@ static int invoke_clang(const char *c_file, const char *output,
                       rt_panic,
                       rt_leakcheck,
                       rt_arena_rt,
-                      sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
+                      sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net, sl_http, sl_tls, sl_websocket,
                       sl_rl, sl_rl_layout,
                       rl_src, rl_i_flag,
                       rl_glfw_src, rl_glfw_i_flag);
@@ -983,7 +1016,7 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_panic,
                   rt_leakcheck,
                   rt_arena_rt,
-                  sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
+                  sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net, sl_http, sl_tls, sl_websocket,
                   sl_rl, sl_rl_layout,
                   rl_src, rl_i_flag,
                   rl_glfw_src, rl_glfw_i_flag);
@@ -1099,7 +1132,7 @@ static int invoke_clang(const char *c_file, const char *output,
                   rt_panic,
                   rt_leakcheck,
                   rt_arena_rt,
-                  sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net,
+                  sl_math, sl_io, sl_time, sl_log, sl_hint, sl_net, sl_http, sl_tls, sl_websocket,
                   sl_rl, sl_rl_layout,
                   rl_src, rl_i_flag,
                   rl_glfw_src, rl_glfw_i_flag);
@@ -1255,6 +1288,29 @@ int iron_build(const char *source_path, const char *output_path,
     if (iron_detect_import(source, source_path, "net", &detect_arena)) {
         stdlib_prepended_lines +=
             prepend_marked_file(&source, base_dir, "stdlib/net.iron",
+                                line_markers);
+    }
+
+    /* WebSocket shares HTTP upgrade models, so importing either module seats
+     * http.iron exactly once. */
+    bool imports_http = iron_detect_import(source, source_path, "http", &detect_arena);
+    bool imports_websocket = iron_detect_import(
+        source, source_path, "websocket", &detect_arena);
+    if (imports_http || imports_websocket) {
+#ifdef IRON_CLI_HAVE_OPENSSL
+        opts.use_tls = true;
+#else
+        opts.use_tls = false;
+#endif
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/http.iron",
+                                line_markers);
+    }
+
+    /* WebSocket uses the HTTP upgrade models and verified TLS for wss://. */
+    if (imports_websocket) {
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/websocket.iron",
                                 line_markers);
     }
 

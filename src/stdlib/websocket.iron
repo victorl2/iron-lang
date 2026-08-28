@@ -1,0 +1,51 @@
+-- websocket.iron -- bounded RFC 6455 WebSocket client/server support.
+--
+-- String values carry exact bytes in Iron, so binary messages use String too.
+-- A socket supports one receiving task and any number of sending tasks; frame
+-- writes are serialized. Timeouts are milliseconds and cover the complete
+-- operation rather than restarting after each partial read/write.
+
+object WebSocket {
+    val handle: Int
+}
+
+object WebSocketResult {
+    val socket: WebSocket
+    val error: Int
+    val error_message: String
+}
+
+-- kind is 1=text, 2=binary, 8=close, 9=ping, or 10=pong. Ping frames are
+-- answered automatically before being returned. Fragmented data messages are
+-- reassembled before kind 1/2 is returned.
+object WebSocketMessage {
+    val kind: Int
+    val data: String
+    val close_code: Int
+    val error: Int
+    val error_message: String
+}
+
+-- `connect` accepts ws:// and wss://. WSS verifies the certificate chain and
+-- hostname using system roots. Custom headers are useful for Authorization or
+-- Cookie; handshake-owned headers cannot be overridden.
+func WebSocket.connect(url: String, headers: String, max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
+func WebSocket.connect_with_ca(url: String, headers: String, ca_file: String, max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
+func WebSocket.connect_insecure(url: String, headers: String, max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
+
+-- Read the HTTP upgrade request first, then transfer the connection by calling
+-- upgrade_websocket. On success, do not close the original HTTP connection;
+-- the WebSocket owns it. On failure, ownership stays with the caller.
+func HttpConnection.upgrade_websocket(connection: HttpConnection, request: HttpRequest, max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
+func HttpsConnection.upgrade_websocket(connection: HttpsConnection, request: HttpRequest, max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
+
+func WebSocket.send_text(socket: WebSocket, data: String, timeout: Int) -> Int {}
+func WebSocket.send_bytes(socket: WebSocket, data: String, timeout: Int) -> Int {}
+func WebSocket.ping(socket: WebSocket, data: String, timeout: Int) -> Int {}
+func WebSocket.receive(socket: WebSocket, timeout: Int) -> WebSocketMessage {}
+
+-- close performs the closing handshake until the deadline, then always closes
+-- the transport. abort closes immediately. Use either operation exactly once.
+func WebSocket.close(socket: WebSocket, code: Int, reason: String, timeout: Int) -> Int {}
+func WebSocket.abort(socket: WebSocket) {}
+func WebSocket.is_open(socket: WebSocket) -> Bool {}
