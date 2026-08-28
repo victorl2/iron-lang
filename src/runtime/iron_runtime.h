@@ -1007,7 +1007,7 @@ void Iron_pool_submit_wait(Iron_Pool *pool,
  * Created by spawn; awaited with Iron_handle_wait().
  * Panic in the spawned task is stored and re-raised on wait.
  */
-typedef struct {
+typedef struct Iron_Handle {
     iron_thread_t   thread;
     bool            done;
     void           *result;
@@ -1018,6 +1018,8 @@ typedef struct {
 
 /* Handle API */
 Iron_Handle *Iron_handle_create(void (*fn)(void *), void *arg);
+Iron_Handle *Iron_handle_create_result(
+    void (*fn)(void *, Iron_Handle *), void *arg);
 void         Iron_handle_wait(Iron_Handle *handle);
 void         Iron_handle_destroy(Iron_Handle *handle);
 void        *iron_future_await(Iron_Handle *handle);

@@ -450,10 +450,15 @@ target_compile_definitions(ironc PRIVATE
 )
 if(OpenSSL_FOUND)
   # The direct-source build path compiles iron_tls.c alongside generated C.
-  # Only enable that backend when the compiler itself was configured against
-  # an available OpenSSL development installation; otherwise user programs
-  # retain plain HTTP/WS and receive the typed TLS_UNAVAILABLE fallback.
-  target_compile_definitions(ironc PRIVATE IRON_CLI_HAVE_OPENSSL=1)
+  # Preserve the exact installation CMake validated. OpenSSL is keg-only on
+  # Homebrew, so plain -lssl/-lcrypto and the compiler default include paths
+  # are insufficient for programs that ironc builds directly.
+  target_compile_definitions(ironc PRIVATE
+      IRON_CLI_HAVE_OPENSSL=1
+      IRON_CLI_OPENSSL_INCLUDE_DIR="${OPENSSL_INCLUDE_DIR}"
+      IRON_CLI_OPENSSL_SSL_LIBRARY="${OPENSSL_SSL_LIBRARY}"
+      IRON_CLI_OPENSSL_CRYPTO_LIBRARY="${OPENSSL_CRYPTO_LIBRARY}"
+  )
 endif()
 
 # ── ironls language server executable (Phase 2 M1 LSP Core) ──────────────────
