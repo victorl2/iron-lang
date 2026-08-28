@@ -335,7 +335,7 @@
 
       <h2 id="https">HTTPS and certificates</h2>
       <p>The regular client calls accept <code>https://</code>. Certificate-chain and hostname/IP verification are on by default, system roots are loaded automatically, DNS names receive SNI, and TLS 1.2 is the minimum.</p>
-      <div class="callout"><p><strong>Secure backend:</strong> source builds enable TLS when CMake finds the OpenSSL development headers and libraries. Without them, HTTP/WS and plain sockets still work; HTTPS/WSS return typed error <code>3000</code> instead of falling back to plaintext.</p></div>
+      <div class="callout"><p><strong>Secure backend:</strong> source builds enable TLS when CMake finds the OpenSSL development headers and libraries. Linux and macOS CI require verified TLS and test HTTPS compilation with a cleanly installed compiler, including Homebrew's keg-only OpenSSL. Without a development installation, HTTP/WS and plain sockets still work; HTTPS/WSS return typed error <code>3000</code> instead of falling back to plaintext.</p></div>
       <div class="code-block" data-label="verified HTTPS client"><pre><code><span class="kw">val</span> public_api = <span class="ty">Http</span>.<span class="fn">get</span>(
     <span class="st">"https://example.com/api/status"</span>, <span class="nu">5000</span>,
 )
@@ -631,11 +631,11 @@
       <h2 id="status">Current implementation status</h2>
       <p><span class="status">● Verified remotely</span> TCP, UDP, IP, DNS, HTTP/HTTPS clients and servers, REST JSON, webpage serving, WebSocket/WSS (including one secure reader with 24 secure writers), exact binary files, and concurrent <code>spawn</code>/<code>await</code> composition pass the Linux x86_64 Debug and Release suites.</p>
       <div class="callout warning">
-        <p><strong>Open production gaps:</strong> <a href="https://github.com/victorl2/iron-lang/issues/92">portable TLS dependency discovery and cross-platform secure CI</a> and complete sanitizer runtimes in the canonical remote container. One-shot HTTP calls deliberately close their connection; explicit <code>HttpClient</code> pools provide bounded sequential reuse. Without OpenSSL development headers, plain networking remains available and secure calls return a typed TLS-unavailable error.</p>
+        <p><strong>Platform note:</strong> verified TLS and installed-compiler HTTPS builds run in Linux and macOS CI. Native Windows is not yet a supported Iron compiler target; use WSL there. The legacy remote container lacks OpenSSL development headers and sanitizer runtimes, but CMake now fails unusable sanitizer setups early and the maintained CI toolchains run the secure and sanitizer batteries. Without OpenSSL development headers, plain networking remains available and secure calls return a typed TLS-unavailable error.</p>
       </div>
       <p>See the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/networking.md">maintained validation matrix</a> and <a href="https://github.com/victorl2/iron-lang/tree/main/examples/networking">networking examples</a> for source-level evidence.</p>
 
-      <footer>Iron networking is alpha software. APIs may evolve while persistent connection reuse and wider platform validation are completed.</footer>
+      <footer>Iron networking is alpha software. APIs may evolve as production feedback accumulates.</footer>
     </main>
   </div>
   <script>

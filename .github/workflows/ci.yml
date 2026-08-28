@@ -93,12 +93,15 @@ jobs:
           # but installing them explicitly removes the "works today,
           # breaks when the runner image rotates" failure mode.
           sudo apt-get install -y cmake ninja-build clang gdb \
+            openssl libssl-dev \
             libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
             libxcursor-dev libxi-dev libasound2-dev
 
       - name: Install dependencies (macOS)
         if: needs.changes.outputs.ci == 'true' && runner.os == 'macOS'
-        run: brew install cmake ninja
+        run: |
+          brew install cmake ninja openssl@3
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
 
       - name: Install pytest-lsp
         # Phase 2 M1 LSP Core: smoke tests under tests/lsp/smoke/ drive real
@@ -116,12 +119,25 @@ jobs:
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_C_COMPILER=clang \
+            -DOPENSSL_ROOT_DIR="${OPENSSL_ROOT_DIR:-/usr}" \
             -DIRON_ENABLE_SANITIZERS=ON \
             -G Ninja
 
       - name: Build
         if: needs.changes.outputs.ci == 'true'
         run: cmake --build build
+
+      - name: Verified HTTPS and WSS smoke
+        if: needs.changes.outputs.ci == 'true'
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: |
+          # test_stdlib_tls is registered only when CMake found a usable
+          # OpenSSL development installation. Naming it explicitly makes a
+          # missing secure backend fail CI instead of silently testing only
+          # the typed TLS_UNAVAILABLE fallback.
+          cmake --build build --target test_stdlib_tls
+          ctest --test-dir build -R '^test_stdlib_tls$' --output-on-failure
 
       - name: ASan and UBSan smoke
         if: needs.changes.outputs.ci == 'true'
@@ -192,6 +208,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build clang gdb \
+            openssl libssl-dev \
             libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
             libxcursor-dev libxi-dev libasound2-dev
 

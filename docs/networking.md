@@ -88,6 +88,10 @@ The source build enables the secure backend when CMake finds the OpenSSL
 development headers and libraries. Without them, HTTP/WS and all plain socket
 features still work; HTTPS/WSS calls return typed error `3000`
 (`IRON_ERR_TLS_UNAVAILABLE`) instead of silently using plaintext.
+Linux and macOS CI install OpenSSL explicitly, require the verified TLS test,
+and compile an HTTPS program with a cleanly installed `ironc`. CMake passes the
+exact include and library paths it validated to that compiler, including
+Homebrew's keg-only OpenSSL location.
 
 ```iron
 val response = Http.get("https://example.com/api/status", 5000)
@@ -381,20 +385,13 @@ document, and JSON POST response.
 
 ## Known gaps
 
-- ASan and TSan validation cannot link in the canonical remote image because
-  its Clang 14 sanitizer runtime archives are missing. Functional concurrency
-  stress passes, but sanitizer evidence remains blocked
-  ([#87](https://github.com/victorl2/iron-lang/issues/87)).
-- The canonical container image does not contain OpenSSL development headers.
-  Builds without them remain functional for plain networking but HTTPS/WSS
-  return `IRON_ERR_TLS_UNAVAILABLE`; the secure suite was compiled and run
-  directly on `silvaserver.local` with OpenSSL 3.5.1.
-- Installed-compiler TLS dependency discovery and macOS/Windows secure CI need
-  dedicated coverage
-  ([#92](https://github.com/victorl2/iron-lang/issues/92)).
-
-Each issue contains a minimal code or command reproduction and concrete
-acceptance criteria.
+- The legacy canonical remote container has Clang 14 without sanitizer runtime
+  archives or OpenSSL development headers. CMake now rejects unusable
+  sanitizer configurations during its link probe, while GitHub's Linux/macOS
+  jobs run ASan/UBSan, TSan, and verified TLS tests with complete toolchains.
+- Native Windows remains outside Iron's supported compiler matrix; Windows
+  users should use WSL. Secure networking CI covers both supported native
+  platforms (Linux and macOS).
 
 Completed follow-ups: intentional detached spawn semantics
 ([#84](https://github.com/victorl2/iron-lang/issues/84)), payload-returning
