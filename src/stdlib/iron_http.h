@@ -2,6 +2,7 @@
 #define IRON_HTTP_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "runtime/iron_runtime.h"
 
 /* These layouts must match src/stdlib/http.iron exactly. */
@@ -13,6 +14,7 @@ typedef struct Iron_HttpsPendingConnection {
     int64_t context;
 } Iron_HttpsPendingConnection;
 typedef struct Iron_HttpsConnection { int64_t fd; int64_t tls; } Iron_HttpsConnection;
+typedef struct Iron_HttpClient { int64_t handle; } Iron_HttpClient;
 
 typedef struct Iron_HttpServerResult {
     Iron_HttpServer server;
@@ -44,6 +46,12 @@ typedef struct Iron_HttpsPendingConnectionResult {
     Iron_String error_message;
 } Iron_HttpsPendingConnectionResult;
 
+typedef struct Iron_HttpClientResult {
+    Iron_HttpClient client;
+    int64_t error;
+    Iron_String error_message;
+} Iron_HttpClientResult;
+
 typedef struct Iron_HttpRequest {
     Iron_String method;
     Iron_String target;
@@ -52,6 +60,7 @@ typedef struct Iron_HttpRequest {
     Iron_String version;
     Iron_String headers;
     Iron_String body;
+    bool keep_alive;
     int64_t error;
     Iron_String error_message;
 } Iron_HttpRequest;
@@ -61,6 +70,7 @@ typedef struct Iron_HttpResponse {
     Iron_String reason;
     Iron_String headers;
     Iron_String body;
+    bool keep_alive;
     int64_t error;
     Iron_String error_message;
 } Iron_HttpResponse;
@@ -78,6 +88,9 @@ Iron_HttpRequest Iron_httpconnection_read_request(Iron_HttpConnection connection
 int64_t Iron_httpconnection_send_response(Iron_HttpConnection connection,
                                            Iron_HttpResponse response,
                                            int64_t timeout);
+int64_t Iron_httpconnection_send_response_keep_alive(
+    Iron_HttpConnection connection, Iron_HttpResponse response,
+    bool keep_alive, int64_t timeout);
 void Iron_httpconnection_close(Iron_HttpConnection connection);
 
 Iron_HttpsServerResult Iron_http_listen_tls(Iron_String host, int64_t port,
@@ -99,6 +112,9 @@ Iron_HttpRequest Iron_httpsconnection_read_request(Iron_HttpsConnection connecti
 int64_t Iron_httpsconnection_send_response(Iron_HttpsConnection connection,
                                             Iron_HttpResponse response,
                                             int64_t timeout);
+int64_t Iron_httpsconnection_send_response_keep_alive(
+    Iron_HttpsConnection connection, Iron_HttpResponse response,
+    bool keep_alive, int64_t timeout);
 void Iron_httpsconnection_close(Iron_HttpsConnection connection);
 
 Iron_HttpResponse Iron_http_request(Iron_String method, Iron_String url,
@@ -116,6 +132,15 @@ Iron_HttpResponse Iron_http_post_json(Iron_String url, Iron_String body,
 Iron_HttpResponse Iron_http_get_with_ca(Iron_String url, Iron_String ca_file,
                                         int64_t timeout);
 Iron_HttpResponse Iron_http_get_insecure(Iron_String url, int64_t timeout);
+
+Iron_HttpClientResult Iron_httpclient_open(
+    Iron_String origin, Iron_String ca_file, bool insecure,
+    int64_t max_connections, int64_t idle_timeout);
+Iron_HttpResponse Iron_httpclient_request(
+    Iron_HttpClient client, Iron_String method, Iron_String target,
+    Iron_String headers, Iron_String body, int64_t max_body_bytes,
+    int64_t timeout);
+void Iron_httpclient_close(Iron_HttpClient client);
 
 Iron_HttpResponse Iron_http_response(int64_t status, Iron_String headers,
                                       Iron_String body);

@@ -248,6 +248,7 @@
       <div class="sidebar-section">
         <h3>HTTP</h3>
         <a href="#client">Client requests</a>
+        <a href="#keep-alive">Persistent connections</a>
         <a href="#server">REST server</a>
         <a href="#webpage">Serve a webpage</a>
         <a href="#https">HTTPS and certificates</a>
@@ -367,6 +368,21 @@
       <p><code>accept_tcp</code> is bounded only by the listener deadline. Each spawned handler gets a separate TLS handshake deadline, so a raw client that sends no ClientHello cannot block later clients. Handshake consumes the pending connection on either outcome; call <code>HttpsPendingConnection.close</code> when abandoning it. The one-step <code>HttpsServer.accept</code> remains available for controlled servers.</p>
       <div class="callout"><p><strong>Certificate files:</strong> the certificate PEM may contain the leaf followed by intermediates. The private key must match. See the compiler-tested <a href="https://github.com/victorl2/iron-lang/blob/main/examples/networking/https_server.iron">HTTPS server</a> and <a href="https://github.com/victorl2/iron-lang/blob/main/examples/networking/https_client.iron">private-CA REST client</a> examples.</p></div>
       <p>Certificates are loaded when <code>listen_tls</code> creates its server context. Rotate them by starting a replacement context or restarting with the new PEM files, then drain the old listener. For graceful shutdown, stop accepting, close the server, await bound handler tasks, and close their remaining connections. Keep task handles when draining matters; intentionally detached handlers cannot be awaited.</p>
+
+      <h2 id="keep-alive">Persistent HTTP clients and servers</h2>
+      <p>One-shot calls remain connection-closing conveniences. For chatty traffic, <code>HttpClient</code> explicitly owns a same-origin bounded pool, including the HTTPS verification configuration.</p>
+      <div class="code-block" data-label="persistent client"><pre><code><span class="kw">val</span> opened = <span class="ty">HttpClient</span>.<span class="fn">open</span>(
+    <span class="st">"https://api.example.com"</span>, <span class="st">""</span>, <span class="kw">false</span>, <span class="nu">4</span>, <span class="nu">30000</span>,
+)
+<span class="kw">val</span> first = <span class="ty">HttpClient</span>.<span class="fn">request</span>(
+    opened.client, <span class="st">"GET"</span>, <span class="st">"/api/status"</span>, <span class="st">""</span>, <span class="st">""</span>, <span class="nu">1048576</span>, <span class="nu">5000</span>,
+)
+<span class="kw">val</span> second = <span class="ty">HttpClient</span>.<span class="fn">request</span>(
+    opened.client, <span class="st">"GET"</span>, <span class="st">"/api/items"</span>, <span class="st">""</span>, <span class="st">""</span>, <span class="nu">1048576</span>, <span class="nu">5000</span>,
+)
+<span class="ty">HttpClient</span>.<span class="fn">close</span>(opened.client)</code></pre></div>
+      <p>The origin locks scheme, host, port, trust roots, and verification mode. The connection limit bounds concurrent sockets; the idle timeout retires old entries. A stale socket is replayed once only for bodyless GET or HEAD—potentially non-idempotent requests are never retried automatically.</p>
+      <div class="callout"><p><strong>Server bounds:</strong> loop over <code>read_request</code> with an idle deadline and maximum request count, then pass <code>request.keep_alive</code> to <code>send_response_keep_alive</code>. Responses always carry <code>Content-Length</code>. HTTP pipelining is intentionally unsupported; graceful shutdown closes the listener first and then drains bounded handlers.</p></div>
 
       <h2 id="server">A concurrent REST server</h2>
       <p>This complete server exposes a webpage, a JSON status endpoint, and a JSON POST endpoint. Each accepted connection is handled by an intentional detached <code>spawn</code> statement.</p>
@@ -615,7 +631,7 @@
       <h2 id="status">Current implementation status</h2>
       <p><span class="status">● Verified remotely</span> TCP, UDP, IP, DNS, HTTP/HTTPS clients and servers, REST JSON, webpage serving, WebSocket/WSS (including one secure reader with 24 secure writers), exact binary files, and concurrent <code>spawn</code>/<code>await</code> composition pass the Linux x86_64 Debug and Release suites.</p>
       <div class="callout warning">
-        <p><strong>Open production gaps:</strong> <a href="https://github.com/victorl2/iron-lang/issues/89">persistent HTTP connection reuse</a>, <a href="https://github.com/victorl2/iron-lang/issues/92">portable TLS dependency discovery and cross-platform secure CI</a>, and complete sanitizer runtimes in the canonical remote container. Current HTTP calls deliberately use one request per connection. Without OpenSSL development headers, plain networking remains available and secure calls return a typed TLS-unavailable error.</p>
+        <p><strong>Open production gaps:</strong> <a href="https://github.com/victorl2/iron-lang/issues/92">portable TLS dependency discovery and cross-platform secure CI</a> and complete sanitizer runtimes in the canonical remote container. One-shot HTTP calls deliberately close their connection; explicit <code>HttpClient</code> pools provide bounded sequential reuse. Without OpenSSL development headers, plain networking remains available and secure calls return a typed TLS-unavailable error.</p>
       </div>
       <p>See the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/networking.md">maintained validation matrix</a> and <a href="https://github.com/victorl2/iron-lang/tree/main/examples/networking">networking examples</a> for source-level evidence.</p>
 

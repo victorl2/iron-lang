@@ -26,6 +26,12 @@ object HttpsConnection {
     val tls: Int
 }
 
+-- Explicit same-origin persistent client/pool. The native handle owns all
+-- idle HTTP or HTTPS connections until close.
+object HttpClient {
+    val handle: Int
+}
+
 -- A TCP connection accepted by an HTTPS listener whose TLS handshake has not
 -- run yet. This resource owns both the socket and a reference to the server's
 -- certificate context until handshake or close consumes it.
@@ -64,6 +70,12 @@ object HttpsPendingConnectionResult {
     val error_message: String
 }
 
+object HttpClientResult {
+    val client: HttpClient
+    val error: Int
+    val error_message: String
+}
+
 object HttpRequest {
     val method: String
     val target: String
@@ -73,6 +85,9 @@ object HttpRequest {
     -- Raw header lines separated by CRLF, without the request line.
     val headers: String
     val body: String
+    -- HTTP persistence policy derived from the request version and Connection
+    -- tokens. Servers may keep the socket only after a framed response.
+    val keep_alive: Bool
     val error: Int
     val error_message: String
 }
@@ -83,6 +98,7 @@ object HttpResponse {
     -- Raw header lines separated by CRLF, without the status line.
     val headers: String
     val body: String
+    val keep_alive: Bool
     val error: Int
     val error_message: String
 }
@@ -96,6 +112,7 @@ func HttpServer.port(server: HttpServer) -> Int {}
 func HttpServer.close(server: HttpServer) {}
 func HttpConnection.read_request(connection: HttpConnection, max_header_bytes: Int, max_body_bytes: Int, timeout: Int) -> HttpRequest {}
 func HttpConnection.send_response(connection: HttpConnection, response: HttpResponse, timeout: Int) -> Int {}
+func HttpConnection.send_response_keep_alive(connection: HttpConnection, response: HttpResponse, keep_alive: Bool, timeout: Int) -> Int {}
 func HttpConnection.close(connection: HttpConnection) {}
 
 -- HTTPS server lifecycle. The certificate file may contain the leaf plus
@@ -112,6 +129,7 @@ func HttpsServer.port(server: HttpsServer) -> Int {}
 func HttpsServer.close(server: HttpsServer) {}
 func HttpsConnection.read_request(connection: HttpsConnection, max_header_bytes: Int, max_body_bytes: Int, timeout: Int) -> HttpRequest {}
 func HttpsConnection.send_response(connection: HttpsConnection, response: HttpResponse, timeout: Int) -> Int {}
+func HttpsConnection.send_response_keep_alive(connection: HttpsConnection, response: HttpResponse, keep_alive: Bool, timeout: Int) -> Int {}
 func HttpsConnection.close(connection: HttpsConnection) {}
 
 -- Client requests transparently support http:// and verified https:// URLs.
@@ -128,6 +146,15 @@ func Http.request_with_ca(method: String, url: String, headers: String, body: St
 func Http.request_insecure(method: String, url: String, headers: String, body: String, max_body_bytes: Int, timeout: Int) -> HttpResponse {}
 func Http.get_with_ca(url: String, ca_file: String, timeout: Int) -> HttpResponse {}
 func Http.get_insecure(url: String, timeout: Int) -> HttpResponse {}
+
+-- Open an explicit same-origin connection pool. `origin` supplies scheme,
+-- host, and port; request targets must be origin-form paths beginning with /.
+-- max_connections bounds concurrent sockets. Idle connections older than
+-- idle_timeout milliseconds are closed before reuse. For HTTPS, ca_file=""
+-- uses system roots; insecure=true is development-only.
+func HttpClient.open(origin: String, ca_file: String, insecure: Bool, max_connections: Int, idle_timeout: Int) -> HttpClientResult {}
+func HttpClient.request(client: HttpClient, method: String, target: String, headers: String, body: String, max_body_bytes: Int, timeout: Int) -> HttpResponse {}
+func HttpClient.close(client: HttpClient) {}
 
 -- Response constructors for REST endpoints and webpages.
 func Http.response(status: Int, headers: String, body: String) -> HttpResponse {}

@@ -1,0 +1,43 @@
+-- Explicit persistent HTTP client and bounded server connection handler.
+import http
+
+func handle_session(connection: HttpConnection) -> Int {
+    var served = 0
+    var running = true
+    while running and served < 100 {
+        -- 15-second idle deadline for every next request.
+        val request = HttpConnection.read_request(
+            connection, 16384, 1048576, 15000)
+        if request.error != 0 {
+            HttpConnection.close(connection)
+            return request.error
+        }
+        served += 1
+        val keep = request.keep_alive and served < 100
+        val response = Http.json_response(200, "\{\"status\":\"ok\"\}")
+        val sent = HttpConnection.send_response_keep_alive(
+            connection, response, keep, 5000)
+        if sent != 0 {
+            HttpConnection.close(connection)
+            return sent
+        }
+        running = keep
+    }
+    HttpConnection.close(connection)
+    return 0
+}
+
+func main() {
+    val opened = HttpClient.open(
+        "http://127.0.0.1:8080", "", false, 4, 30000)
+    if opened.error != 0 {
+        println("client failed: {opened.error} {opened.error_message}")
+        return
+    }
+    val first = HttpClient.request(
+        opened.client, "GET", "/api/status", "", "", 1048576, 5000)
+    val second = HttpClient.request(
+        opened.client, "GET", "/api/status", "", "", 1048576, 5000)
+    println("first={first.status} second={second.status}")
+    HttpClient.close(opened.client)
+}

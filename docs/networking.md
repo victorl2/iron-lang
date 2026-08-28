@@ -254,6 +254,59 @@ a cross-device temporary copy); Windows uses `MoveFileEx` without replacement.
 Filesystems that cannot provide that primitive return an error instead of
 falling back to a racy check-then-rename.
 
+## Persistent HTTP connections
+
+One-shot calls such as `Http.get` remain the simplest safe option and close
+their connection. For chatty same-origin traffic, an explicit `HttpClient`
+owns a bounded pool:
+
+```iron
+val opened = HttpClient.open(
+    "https://api.example.com", "", false, 4, 30000)
+if opened.error != 0 { return }
+
+val first = HttpClient.request(
+    opened.client, "GET", "/api/status", "", "", 1048576, 5000)
+val second = HttpClient.request(
+    opened.client, "GET", "/api/items", "", "", 1048576, 5000)
+HttpClient.close(opened.client)
+```
+
+The origin fixes scheme, host, port, certificate roots, and verification mode;
+requests accept only origin-form targets beginning with `/`. `max_connections`
+bounds concurrent sockets and `idle_timeout` retires old idle entries. A stale
+reused connection is retried once only for bodyless GET or HEAD. POST and other
+potentially non-idempotent requests are never replayed automatically.
+
+Servers opt into persistence per response. Use `request.keep_alive` (which
+implements HTTP/1.1 and HTTP/1.0 Connection-token rules), an idle timeout on
+each next `read_request`, and an application request-count limit:
+
+```iron
+var served = 0
+var running = true
+while running and served < 100 {
+    val request = HttpConnection.read_request(connection, 16384, 1048576, 15000)
+    if request.error != 0 { running = false }
+    if request.error == 0 {
+        served += 1
+        val keep = request.keep_alive and served < 100
+        val sent = HttpConnection.send_response_keep_alive(
+            connection, Http.text_response(200, "ok"), keep, 5000)
+        if sent != 0 { running = false }
+        if sent == 0 { running = keep }
+    }
+}
+HttpConnection.close(connection)
+```
+
+Every persistent response uses `Content-Length`, so the next message boundary
+is unambiguous. Pipelining is intentionally unsupported: send the next request
+only after reading the prior response. For graceful shutdown, close the
+listener, stop spawning sessions, let bounded handlers finish, then close the
+client/session handles. See
+[http_keep_alive.iron](../examples/networking/http_keep_alive.iron).
+
 ## Framing and limits
 
 - Server requests require HTTP/1.1 and exactly one `Host` header.
@@ -266,9 +319,8 @@ falling back to a racy check-then-rename.
 - Server header and body limits are supplied to `read_request`; client body
   limits are supplied to `request`. Convenience client calls use an 8 MiB body
   limit and a 64 KiB header limit.
-- Connections currently handle one request/response and send
-  `Connection: close`. This keeps ownership and cancellation explicit while
-  the language is still alpha.
+- One-shot calls send `Connection: close`; explicit sessions use framed
+  sequential HTTP persistence without pipelining.
 
 ## UDP packets
 
@@ -329,9 +381,6 @@ document, and JSON POST response.
 
 ## Known gaps
 
-- Each HTTP request uses a new connection and each server response closes its
-  connection; explicit keep-alive and connection reuse are not implemented
-  ([#89](https://github.com/victorl2/iron-lang/issues/89)).
 - ASan and TSan validation cannot link in the canonical remote image because
   its Clang 14 sanitizer runtime archives are missing. Functional concurrency
   stress passes, but sanitizer evidence remains blocked
