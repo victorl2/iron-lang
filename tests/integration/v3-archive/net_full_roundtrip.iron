@@ -12,16 +12,8 @@
 -- proves that payloads pushed from Iron source make it through the C
 -- send engine and land in the kernel socket buffer without an errno.
 --
--- Read coverage from the Iron side is intentionally deferred: the
--- `TcpSocket.read` C impl writes into `Iron_String` bytes in place and
--- requires a pre-allocated writable buffer, but Iron currently has no
--- stdlib primitive for constructing a mutable-byte String of a given
--- capacity. The full cross-thread dial+accept+read+write roundtrip is
--- covered at the C level by test_tcp_dial_loopback_roundtrip (Unity,
--- tests/unit/test_stdlib_net_tcp.c) and by the P06 cross-platform
--- test_tcp_localhost_exchange. A follow-up phase that adds a
--- String-with-capacity primitive can extend this fixture with a pure-
--- Iron read assertion.
+-- The read step returns an immutable binary-safe String, so this fixture
+-- validates payload transfer entirely from Iron source.
 import net
 
 func main() {
@@ -64,6 +56,22 @@ func main() {
     }
     if nw != 4 {
         println("short write: {nw}")
+        TcpSocket.close(client)
+        TcpSocket.close(server_side)
+        TcpListener.close(listener)
+        return
+    }
+
+    val (payload, rerr) = TcpSocket.read(server_side, 4, 1000)
+    if rerr.code != 0 {
+        println("read failed: {rerr.code}")
+        TcpSocket.close(client)
+        TcpSocket.close(server_side)
+        TcpListener.close(listener)
+        return
+    }
+    if payload != "ping" {
+        println("payload mismatch")
         TcpSocket.close(client)
         TcpSocket.close(server_side)
         TcpListener.close(listener)

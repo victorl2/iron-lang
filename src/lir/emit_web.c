@@ -371,6 +371,7 @@ const char *emit_web_module(IronLIR_Module *module, Iron_Arena *arena,
     iron_strbuf_appendf(&ctx.includes, "#include <string.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdio.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_math.h\"\n");
+    iron_strbuf_appendf(&ctx.includes, "#define IRON_IO_GENERATED_OBJECTS\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_io.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#define IRON_TIMER_STRUCT_DEFINED\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_time.h\"\n");

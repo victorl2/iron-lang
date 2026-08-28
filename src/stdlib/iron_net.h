@@ -60,10 +60,16 @@ typedef struct {
     Iron_NetError v1;
 } Iron_Tuple_Int_NetError;
 
+typedef struct {
+    Iron_String   v0;
+    Iron_NetError v1;
+} Iron_Tuple_String_NetError;
+
 /* Convenience aliases for the test file and impl. */
 typedef Iron_Tuple_TcpSocket_NetError   Iron_Result_TcpSocket_Error;
 typedef Iron_Tuple_TcpListener_NetError Iron_Result_TcpListener_Error;
 typedef Iron_Tuple_Int_NetError         Iron_Result_Int_Error;
+typedef Iron_Tuple_String_NetError      Iron_Result_String_NetError;
 
 /* ── C wrapper functions.
  *
@@ -78,7 +84,8 @@ Iron_Result_TcpListener_Error Iron_net_tcp_listen(Iron_String host, int64_t port
 Iron_Result_TcpSocket_Error Iron_tcplistener_accept(Iron_TcpListener l, int64_t timeout);
 void                         Iron_tcplistener_close(Iron_TcpListener l);
 
-Iron_Result_Int_Error Iron_tcpsocket_read (Iron_TcpSocket s, Iron_String buf, int64_t timeout);
+Iron_Result_String_NetError Iron_tcpsocket_read(Iron_TcpSocket s, int64_t max_bytes,
+                                                 int64_t timeout);
 Iron_Result_Int_Error Iron_tcpsocket_write(Iron_TcpSocket s, Iron_String buf, int64_t timeout);
 void                  Iron_tcpsocket_close(Iron_TcpSocket s);
 
@@ -197,9 +204,8 @@ Iron_Result_Int_NetError Iron_net_udp_sendto_v6(Iron_UdpSocket s,
                                                  int64_t        port,
                                                  int64_t        timeout);
 
-/* recvfrom returns a flat struct-by-value descriptor. The Iron-side stub
- * exposes this as `object UdpRecv { nbytes, family, bytes, zone, port, err }`
- * so user Iron code can access fields with `r.nbytes` etc. */
+/* The byte-buffer form is retained for the C-level networking tests and as
+ * the allocation-free engine beneath the Iron-facing UdpPacket wrapper. */
 typedef struct {
     int64_t       nbytes;
     int64_t       addr_family;  /* 4 = AF_INET, 6 = AF_INET6, 0 on error */
@@ -209,10 +215,23 @@ typedef struct {
     Iron_NetError err;
 } Iron_UdpRecvResult;
 
-Iron_UdpRecvResult Iron_udpsocket_recvfrom(Iron_UdpSocket s,
-                                             uint8_t       *buf,
-                                             int64_t        cap,
-                                             int64_t        timeout);
+Iron_UdpRecvResult Iron_net_udp_recvfrom_bytes(Iron_UdpSocket s,
+                                                uint8_t       *buf,
+                                                int64_t        cap,
+                                                int64_t        timeout);
+
+/* Layout-compatible with object UdpPacket in stdlib/net.iron. */
+typedef struct Iron_UdpPacket {
+    Iron_String   data;
+    Iron_String   address;
+    int64_t       port;
+    int64_t       truncated;
+    Iron_NetError error;
+} Iron_UdpPacket;
+
+Iron_UdpPacket Iron_udpsocket_recvfrom(Iron_UdpSocket s,
+                                        int64_t max_bytes,
+                                        int64_t timeout);
 
 void Iron_udpsocket_close(Iron_UdpSocket s);
 
@@ -328,7 +347,7 @@ Iron_Net_udp_sendto_v6_result(Iron_UdpSocket s, Iron_String buf,
 static inline Iron_UdpRecvResult
 Iron_UdpSocket_recvfrom_result(Iron_UdpSocket s, uint8_t *buf,
                                  int64_t cap, int64_t timeout) {
-    return Iron_udpsocket_recvfrom(s, buf, cap, timeout);
+    return Iron_net_udp_recvfrom_bytes(s, buf, cap, timeout);
 }
 static inline void Iron_UdpSocket_close(Iron_UdpSocket s) {
     Iron_udpsocket_close(s);

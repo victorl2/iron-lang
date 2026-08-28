@@ -6,6 +6,11 @@
 import * as path from 'node:path';
 import { runTests } from '@vscode/test-electron';
 
+// VS Code 1.110+ renamed the macOS bundle executable from Electron to Code,
+// while @vscode/test-electron still resolves the old path. Pin the last
+// compatible release line until microsoft/vscode-test#349 is fixed upstream.
+const VSCODE_TEST_VERSION = '1.109.5';
+
 async function main(): Promise<void> {
   // __dirname at runtime = editors/vscode/out/test
   // extensionDevelopmentPath = editors/vscode (contains package.json + dist/)
@@ -20,6 +25,7 @@ async function main(): Promise<void> {
   }
 
   await runTests({
+    version: VSCODE_TEST_VERSION,
     extensionDevelopmentPath,
     extensionTestsPath,
     launchArgs,

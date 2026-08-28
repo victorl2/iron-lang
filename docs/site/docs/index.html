@@ -537,6 +537,7 @@
     </a>
     <div class="nav-right" id="navRight">
       <a href="/">Home</a>
+      <a href="/networking/">Networking</a>
       <a href="/guide/">Package Manager</a>
       <a href="/raylib/">Raylib</a>
       <a href="/lsp/">LSP</a>
@@ -621,6 +622,7 @@
         <h3>Reference</h3>
         <a href="#standard-library">Standard Library</a>
         <a href="#net-module">Networking (net)</a>
+        <a href="#http-module">HTTP Client &amp; Server</a>
         <a href="#url-module">URL Module</a>
         <a href="#keywords">Keywords</a>
         <a href="#full-example">Full Example</a>
@@ -1755,6 +1757,7 @@ log.<span class="fn">set_level</span>(log.<span class="pr">WARN</span>)</pre></d
 <span class="kw">defer</span> <span class="ty">TcpSocket</span>.<span class="fn">close</span>(sock)
 
 <span class="kw">val</span> (nw, werr) = <span class="ty">TcpSocket</span>.<span class="fn">write</span>(sock, <span class="st">"GET / HTTP/1.0\r\n\r\n"</span>, <span class="nu">1000</span>)
+<span class="kw">val</span> (data, rerr) = <span class="ty">TcpSocket</span>.<span class="fn">read</span>(sock, <span class="nu">65536</span>, <span class="nu">1000</span>)
 
 <span class="cm">-- listen on all interfaces (dual-stack when host is "::")</span>
 <span class="kw">val</span> (listener, lerr) = <span class="ty">Net</span>.<span class="fn">tcp_listen</span>(<span class="st">"127.0.0.1"</span>, <span class="nu">34503</span>)
@@ -1800,6 +1803,22 @@ log.<span class="fn">set_level</span>(log.<span class="pr">WARN</span>)</pre></d
     <span class="ty">Address</span>.<span class="pr">V6</span>(v6) -> <span class="fn">println</span>(<span class="ty">IPv6Addr</span>.<span class="fn">format</span>(v6))
   }
 }</pre></div>
+
+      <h3 id="http-module"><code>http</code> Module</h3>
+      <p>Bounded HTTP/1.1 clients, REST servers, webpage responses, fixed and chunked request bodies, and explicit <code>spawn</code>-based concurrency.</p>
+      <div class="code-block"><pre><span class="kw">import</span> http
+
+<span class="cm">-- client</span>
+<span class="kw">val</span> response = <span class="ty">Http</span>.<span class="fn">get</span>(<span class="st">"http://127.0.0.1:8080/api/status"</span>, <span class="nu">5000</span>)
+<span class="kw">if</span> response.<span class="pr">error</span> == <span class="nu">0</span> {
+  <span class="fn">println</span>(response.<span class="pr">body</span>)
+}
+
+<span class="cm">-- server</span>
+<span class="kw">val</span> listening = <span class="ty">Http</span>.<span class="fn">listen</span>(<span class="st">"127.0.0.1"</span>, <span class="nu">8080</span>)
+<span class="kw">val</span> accepted = <span class="ty">HttpServer</span>.<span class="fn">accept</span>(listening.<span class="pr">server</span>, <span class="nu">5000</span>)
+<span class="kw">val</span> request = <span class="ty">HttpConnection</span>.<span class="fn">read_request</span>(accepted.<span class="pr">connection</span>, <span class="nu">65536</span>, <span class="nu">1048576</span>, <span class="nu">5000</span>)</pre></div>
+      <p>See the <a href="/networking/">practical networking guide</a> for HTTP/HTTPS clients and servers, concurrent REST routing, webpages, WebSocket/WSS, exact binary files, certificate guidance, deadlines, and the production checklist.</p>
 
       <h3 id="url-module"><code>url</code> Module</h3>
       <p>RFC 3986 URL parser, builder, resolver, and percent codec &mdash; implemented in pure Iron with no C backing. Fallible calls return <code>(value, UrlError)</code> tuples in the same shape as the <code>net</code> module.</p>

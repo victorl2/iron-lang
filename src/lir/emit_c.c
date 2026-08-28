@@ -5542,7 +5542,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * For non-capturing spawns: arg is the handle itself (self-ref pattern).
              * For capturing spawns (void return): arg is the env struct; use
              *   Iron_handle_create(wrapper, env_arg) for the handle.
-             * For capturing spawns (non-void return): embed result ptr in env struct.
+             * For capturing spawns (non-void return): the wrapper receives the
+             * handle and publishes its result before completion is signalled.
              */
 
             /* Build a deterministic wrapper name */
@@ -5572,33 +5573,24 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
             /* Emit wrapper into lifted_funcs section */
             iron_strbuf_appendf(&ctx->lifted_funcs,
-                "static void %s(void *_arg) {\n", wrapper_name);
+                has_return && cap_count > 0 && cap_meta && env_type
+                    ? "static void %s(void *_arg, Iron_Handle *_h) {\n"
+                    : "static void %s(void *_arg) {\n",
+                wrapper_name);
 
             if (cap_count > 0 && cap_meta && env_type) {
-                /* Capturing spawn: arg is the env struct.
-                 * For non-void return spawns, embed result in a wrapper struct. */
+                /* Capturing spawn: arg is the env struct. Result-bearing
+                 * wrappers publish through the handle before the runtime
+                 * signals completion, then release the one-shot env. */
                 if (has_return && ret_c) {
-                    /* Build a result-bearing arg struct: { env_t env; ret_t result; } */
-                    Iron_StrBuf rarg_sb = iron_strbuf_create(64);
-                    iron_strbuf_appendf(&rarg_sb, "%s_rarg_t", func_name);
-                    const char *rarg_type = iron_arena_strdup(ctx->arena,
-                        iron_strbuf_get(&rarg_sb), rarg_sb.len);
-                    if (!rarg_type) iron_oom_abort("emit_c.c:emit_instr SPAWN rarg_type");
-                    iron_strbuf_free(&rarg_sb);
-
-                    if (shgeti(ctx->mono_registry, (char *)rarg_type) < 0) {
-                        shput(ctx->mono_registry, (char *)rarg_type, true);
-                        iron_strbuf_appendf(&ctx->struct_bodies,
-                            "typedef struct { %s env; %s result; } %s;\n\n",
-                            env_type, ret_c, rarg_type);
-                    }
-
                     iron_strbuf_appendf(&ctx->lifted_funcs,
-                        "    %s *_ra = (%s *)_arg;\n", rarg_type, rarg_type);
+                        "    %s *_e = (%s *)_arg;\n", env_type, env_type);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
-                        "    %s *_e = &_ra->env;\n", env_type);
+                        "    %s _result = %s(_e);\n", ret_c, c_func_name);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
-                        "    _ra->result = %s(_e);\n", c_func_name);
+                        "    _h->result = (void *)(intptr_t)_result;\n");
+                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                        "    free(_arg);\n");
                 } else {
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    %s *_e = (%s *)_arg;\n", env_type, env_type);
@@ -5645,13 +5637,20 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     }
                     iron_strbuf_appendf(sb, ";\n");
                 }
-                /* Use Iron_handle_create: wrapper receives env as arg */
+                /* Result wrappers receive both env and handle so the value is
+                 * visible to await before completion is signalled. */
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "Iron_Handle *");
                 emit_val(sb, instr->id);
-                iron_strbuf_appendf(sb, " = Iron_handle_create("
-                                    "(void (*)(void *))%s, _env_%u);\n",
-                                    wrapper_name, instr->id);
+                if (has_return) {
+                    iron_strbuf_appendf(sb, " = Iron_handle_create_result("
+                                        "(void (*)(void *, Iron_Handle *))%s, _env_%u);\n",
+                                        wrapper_name, instr->id);
+                } else {
+                    iron_strbuf_appendf(sb, " = Iron_handle_create("
+                                        "(void (*)(void *))%s, _env_%u);\n",
+                                        wrapper_name, instr->id);
+                }
             } else {
                 /* Non-capturing handled spawn: use iron_handle_create_self_ref */
                 emit_indent(sb, ind);
@@ -7870,6 +7869,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                         "#ifndef _WIN32\n#include <unistd.h>\n"
                         "#else\n#include <io.h>\n#define close _close\n#endif\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_math.h\"\n");
+    iron_strbuf_appendf(&ctx.includes, "#define IRON_IO_GENERATED_OBJECTS\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_io.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#define IRON_TIMER_STRUCT_DEFINED\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_time.h\"\n");
@@ -8428,6 +8428,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         bool has_net_udp_bind         = false;
         bool has_net_udp_sendto_v4    = false;
         bool has_net_udp_sendto_v6    = false;
+        bool has_udpsocket_recvfrom   = false;
         bool has_udpsocket_close      = false;
         bool has_net_ipv4addr_parse   = false;
         bool has_net_ipv4addr_format  = false;
@@ -8462,6 +8463,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
             else if (strcmp(mangled, "Iron_net_udp_bind") == 0)      has_net_udp_bind = true;
             else if (strcmp(mangled, "Iron_net_udp_sendto_v4") == 0) has_net_udp_sendto_v4 = true;
             else if (strcmp(mangled, "Iron_net_udp_sendto_v6") == 0) has_net_udp_sendto_v6 = true;
+            else if (strcmp(mangled, "Iron_udpsocket_recvfrom") == 0) has_udpsocket_recvfrom = true;
             else if (strcmp(mangled, "Iron_udpsocket_close") == 0)   has_udpsocket_close = true;
             else if (strcmp(mangled, "Iron_ipv4addr_parse") == 0)    has_net_ipv4addr_parse = true;
             else if (strcmp(mangled, "Iron_ipv4addr_format") == 0)   has_net_ipv4addr_format = true;
@@ -8483,7 +8485,8 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                         has_tcpsocket_read || has_tcpsocket_write ||
                         has_tcpsocket_close;
         bool need_udp = has_net_udp_bind || has_net_udp_sendto_v4 ||
-                        has_net_udp_sendto_v6 || has_udpsocket_close;
+                        has_net_udp_sendto_v6 || has_udpsocket_recvfrom ||
+                        has_udpsocket_close;
         bool need_ip  = has_net_ipv4addr_parse || has_net_ipv4addr_format ||
                         has_net_ipv6addr_parse || has_net_ipv6addr_format;
         bool need_dns = has_net_lookup_host;
@@ -8493,13 +8496,15 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                 "Iron_Tuple_TcpSocket_NetError",
                 "Iron_Tuple_TcpListener_NetError",
                 "Iron_Tuple_Int_NetError",
+                "Iron_Tuple_String_NetError",
             };
             static const char *k_net_tuple_bodies[] = {
                 "typedef struct { Iron_TcpSocket v0; Iron_NetError v1; } Iron_Tuple_TcpSocket_NetError;\n",
                 "typedef struct { Iron_TcpListener v0; Iron_NetError v1; } Iron_Tuple_TcpListener_NetError;\n",
                 "typedef struct { int64_t v0; Iron_NetError v1; } Iron_Tuple_Int_NetError;\n",
+                "typedef struct { Iron_String v0; Iron_NetError v1; } Iron_Tuple_String_NetError;\n",
             };
-            for (int ti = 0; ti < 3; ti++) {
+            for (int ti = 0; ti < 4; ti++) {
                 bool already = false;
                 for (int ei = 0; ei < (int)arrlen(ctx.emitted_tuples); ei++) {
                     if (strcmp(ctx.emitted_tuples[ei], k_net_tuple_names[ti]) == 0) {
@@ -8663,7 +8668,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         }
         if (has_tcpsocket_read) {
             iron_strbuf_appendf(&ctx.prototypes,
-                "Iron_Tuple_Int_NetError Iron_tcpsocket_read(Iron_TcpSocket s, Iron_String buf, int64_t timeout);\n");
+                "Iron_Tuple_String_NetError Iron_tcpsocket_read(Iron_TcpSocket s, int64_t max_bytes, int64_t timeout);\n");
         }
         if (has_tcpsocket_write) {
             iron_strbuf_appendf(&ctx.prototypes,
@@ -8702,6 +8707,10 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         if (has_net_udp_sendto_v6) {
             iron_strbuf_appendf(&ctx.prototypes,
                 "Iron_Tuple_Int_NetError Iron_net_udp_sendto_v6(Iron_UdpSocket s, Iron_String buf, Iron_IPv6Addr addr, int64_t port, int64_t timeout);\n");
+        }
+        if (has_udpsocket_recvfrom) {
+            iron_strbuf_appendf(&ctx.prototypes,
+                "Iron_UdpPacket Iron_udpsocket_recvfrom(Iron_UdpSocket s, int64_t max_bytes, int64_t timeout);\n");
         }
         if (has_udpsocket_close) {
             iron_strbuf_appendf(&ctx.prototypes,

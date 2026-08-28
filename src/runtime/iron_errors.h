@@ -11,11 +11,12 @@
  *   1..999     general runtime errors (parser, VM, etc.)
  *   1000..1999 net (TCP, UDP, IP, DNS)
  *   2000..2999 url
- *   3000..3999 tls      (reserved for Phase 60)
+ *   3000..3999 tls
  *   4000..4999 json     (reserved for Phase 61)
- *   5000..5999 http     (reserved for Phase 62/63)
- *   6000..6999 ws       (reserved for Phase 64)
+ *   5000..5999 http
+ *   6000..6999 ws
  *   7000..7999 internal (runtime invariant violations)
+ *   8000..8999 file I/O
  *
  * Each subsystem header comment documents which codes are assigned and which
  * are reserved; downstream plans append new codes inside the reserved bands.
@@ -46,7 +47,8 @@
 #define IRON_ERR_NET_AF_NOT_SUPPORTED  1021   /* EAFNOSUPPORT */
 #define IRON_ERR_NET_NOT_CONNECTED     1022   /* ENOTCONN */
 #define IRON_ERR_NET_IN_PROGRESS       1023   /* should never leak to user — internal use */
-/* 1024..1099 reserved for future net additions */
+#define IRON_ERR_NET_INVALID_ARGUMENT  1024   /* negative/unsupported size or option */
+/* 1025..1099 reserved for future net additions */
 
 /* ── URL (2000..2999) ─────────────────────────────────────────────────────── */
 #define IRON_ERR_URL_EMPTY             2000   /* empty input */
@@ -61,10 +63,58 @@
 #define IRON_ERR_URL_TOO_LONG          2009   /* > 8 KB sanity cap */
 /* 2010..2099 reserved for future URL additions */
 
-/* ── TLS (3000..3999) — reserved for Phase 60 ────────────────────────────── */
+/* ── TLS (3000..3999) ───────────────────────────────────────────────────── */
+#define IRON_ERR_TLS_UNAVAILABLE        3000
+#define IRON_ERR_TLS_CONTEXT            3001
+#define IRON_ERR_TLS_TRUST_STORE        3002
+#define IRON_ERR_TLS_HANDSHAKE          3003
+#define IRON_ERR_TLS_VERIFY             3004
+#define IRON_ERR_TLS_CERTIFICATE        3005
+#define IRON_ERR_TLS_PRIVATE_KEY        3006
+#define IRON_ERR_TLS_PROTOCOL           3007
+#define IRON_ERR_TLS_CLOSED             3008
+#define IRON_ERR_TLS_IO                 3009
+#define IRON_ERR_TLS_INVALID_ARGUMENT   3010
+/* 3011..3099 reserved for future TLS additions */
 /* ── JSON (4000..4999) — reserved for Phase 61 ───────────────────────────── */
-/* ── HTTP (5000..5999) — reserved for Phase 62/63 ────────────────────────── */
-/* ── WS (6000..6999) — reserved for Phase 64 ─────────────────────────────── */
 /* ── Internal (7000..7999) — reserved for runtime invariant violations ───── */
+
+#define IRON_ERR_HTTP_BAD_URL              5000
+#define IRON_ERR_HTTP_UNSUPPORTED_SCHEME   5001
+#define IRON_ERR_HTTP_MALFORMED_MESSAGE    5002
+#define IRON_ERR_HTTP_HEADERS_TOO_LARGE    5003
+#define IRON_ERR_HTTP_BODY_TOO_LARGE       5004
+#define IRON_ERR_HTTP_BAD_CONTENT_LENGTH   5005
+#define IRON_ERR_HTTP_TRUNCATED_MESSAGE    5006
+#define IRON_ERR_HTTP_UNSUPPORTED_TRANSFER 5007
+#define IRON_ERR_HTTP_INVALID_ARGUMENT     5008
+#define IRON_ERR_HTTP_FILE                 5009
+/* 5010..5099 reserved for future HTTP additions */
+
+/* ── WebSocket (6000..6999) ─────────────────────────────────────────────── */
+#define IRON_ERR_WS_BAD_URL                6000
+#define IRON_ERR_WS_HANDSHAKE              6001
+#define IRON_ERR_WS_PROTOCOL               6002
+#define IRON_ERR_WS_MESSAGE_TOO_LARGE      6003
+#define IRON_ERR_WS_INVALID_UTF8           6004
+#define IRON_ERR_WS_CLOSED                 6005
+#define IRON_ERR_WS_INVALID_ARGUMENT       6006
+#define IRON_ERR_WS_NO_MEMORY              6007
+/* 6008..6099 reserved for future WebSocket additions */
+
+/* ── File I/O (8000..8999) ──────────────────────────────────────────────── */
+#define IRON_ERR_IO_NOT_FOUND              8000
+#define IRON_ERR_IO_PERMISSION             8001
+#define IRON_ERR_IO_INVALID_ARGUMENT       8002
+#define IRON_ERR_IO_TOO_LARGE              8003
+#define IRON_ERR_IO_READ                   8004
+#define IRON_ERR_IO_WRITE                  8005
+#define IRON_ERR_IO_SEEK                   8006
+#define IRON_ERR_IO_ALREADY_EXISTS         8007
+#define IRON_ERR_IO_NOT_DIRECTORY          8008
+#define IRON_ERR_IO_IS_DIRECTORY           8009
+#define IRON_ERR_IO_NO_MEMORY              8010
+#define IRON_ERR_IO_OTHER                  8011
+/* 8012..8099 reserved for future file additions */
 
 #endif /* IRON_ERRORS_H */

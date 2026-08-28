@@ -831,6 +831,7 @@
       </a>
       <ul class="nav-links" id="navLinks">
         <li><a href="/docs/">Docs</a></li>
+        <li><a href="/networking/">Networking</a></li>
         <li><a href="/guide/">Package Manager</a></li>
         <li><a href="/raylib/">Raylib</a></li>
         <li><a href="/lsp/">LSP</a></li>
@@ -1082,9 +1083,11 @@ ch.<span class="fn">send</span>(<span class="fn">load_texture</span>(<span class
     <div class="feature reverse">
       <div class="feature-text">
         <h3>Networking, batteries included</h3>
-        <p>First-class stdlib for TCP, UDP, DNS, typed IP addresses, and RFC 3986 URLs. Every fallible call returns a <code>(value, error)</code> tuple &mdash; the error is a concrete value, never an exception. Timeouts are deadlines the runtime actually honours, even when the system resolver hangs.</p>
+        <p>First-class stdlib for HTTP/HTTPS, WebSocket/WSS, TCP, UDP, DNS, typed IP addresses, and RFC 3986 URLs. Errors are concrete values, never exceptions. Timeouts are deadlines the runtime actually honours, from DNS through TLS and message decoding.</p>
         <ul class="feature-list">
           <li>TCP client / server with non-blocking sockets and monotonic deadlines</li>
+          <li>Verified HTTPS and WSS clients plus TLS-backed servers</li>
+          <li>REST, webpage, WebSocket text/binary, ping/pong, and close models</li>
           <li>UDP and dual-stack IPv4/IPv6 listeners</li>
           <li>DNS on an elastic thread pool with stuck-worker abandonment</li>
           <li>Pure-Iron URL parse, build, resolve, and percent codec</li>
@@ -1159,6 +1162,7 @@ ch.<span class="fn">send</span>(<span class="fn">load_texture</span>(<span class
         <h4>Learn</h4>
         <ul>
           <li><a href="/docs/">Documentation</a></li>
+          <li><a href="/networking/">Networking</a></li>
           <li><a href="/guide/">Package Manager</a></li>
           <li><a href="/raylib/">Raylib</a></li>
           <li><a href="/docs/#full-example">Examples</a></li>

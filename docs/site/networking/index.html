@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Networking Guide — Iron Language</title>
+  <meta name="description" content="Practical Iron networking guide: HTTP and HTTPS, REST APIs, webpages, WebSocket and WSS, binary files, TCP, UDP, deadlines, and concurrency.">
+  <meta property="og:title" content="Networking Guide — Iron Language">
+  <meta property="og:description" content="Build HTTPS services, WebSocket clients and servers, REST APIs, webpages, and binary-safe network tools in Iron.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://ironlang.dev/networking/">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg-deep: #08080f;
+      --bg-primary: #0c0c16;
+      --bg-surface: #12121f;
+      --bg-card: #181830;
+      --bg-code: #0a0a14;
+      --accent: #e8590c;
+      --accent-hover: #ff6b1a;
+      --accent-subtle: rgba(232, 89, 12, 0.08);
+      --text: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --border: #1e1e32;
+      --border-light: #2a2a42;
+      --ok: #4ade80;
+      --warn: #fbbf24;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --sidebar-width: 270px;
+      --syn-kw: #e8590c;
+      --syn-ty: #60a5fa;
+      --syn-st: #4ade80;
+      --syn-cm: #64748b;
+      --syn-fn: #fbbf24;
+      --syn-nu: #c084fc;
+      --syn-pr: #67e8f9;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-deep);
+      color: var(--text);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    nav {
+      position: fixed;
+      inset: 0 0 auto 0;
+      z-index: 100;
+      height: 56px;
+      background: rgba(8, 8, 15, 0.92);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 1.5rem;
+      gap: 2rem;
+    }
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 800;
+      font-size: 1.1rem;
+      color: var(--text);
+    }
+    .nav-logo-icon {
+      width: 26px;
+      height: 26px;
+      background: var(--accent);
+      border-radius: 5px;
+      display: grid;
+      place-items: center;
+      font-size: 0.7rem;
+      color: white;
+    }
+    .nav-right { margin-left: auto; display: flex; gap: 0.25rem; align-items: center; }
+    .nav-right a {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-weight: 500;
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
+    }
+    .nav-right a:hover, .nav-right a.active-link {
+      color: var(--text);
+      background: rgba(255,255,255,0.07);
+    }
+    .sidebar-toggle, .nav-hamburger {
+      display: none;
+      background: none;
+      color: var(--text-secondary);
+      border: 1px solid var(--border-light);
+      border-radius: 6px;
+      padding: 0.4rem 0.65rem;
+      font: inherit;
+      cursor: pointer;
+    }
+    .layout { display: flex; padding-top: 56px; }
+    .sidebar {
+      position: fixed;
+      top: 56px;
+      bottom: 0;
+      left: 0;
+      width: var(--sidebar-width);
+      overflow-y: auto;
+      background: var(--bg-primary);
+      border-right: 1px solid var(--border);
+      padding: 1.5rem 1rem;
+    }
+    .sidebar-section { margin-bottom: 1.5rem; }
+    .sidebar-section h3 {
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      padding: 0 0.75rem;
+      margin-bottom: 0.45rem;
+    }
+    .sidebar-section a {
+      display: block;
+      color: var(--text-secondary);
+      font-size: 0.84rem;
+      padding: 0.3rem 0.75rem;
+      border-radius: 5px;
+    }
+    .sidebar-section a:hover { color: var(--text); background: var(--bg-surface); }
+    main {
+      margin-left: var(--sidebar-width);
+      width: min(920px, calc(100% - var(--sidebar-width)));
+      padding: 3rem 3.5rem 5rem;
+    }
+    h1 { font-size: 2.35rem; line-height: 1.15; margin-bottom: 0.75rem; }
+    .subtitle { color: var(--text-secondary); font-size: 1.1rem; margin-bottom: 2rem; max-width: 760px; }
+    h2 {
+      font-size: 1.45rem;
+      margin: 3rem 0 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      scroll-margin-top: 76px;
+    }
+    h3 { font-size: 1.08rem; margin: 2rem 0 0.75rem; scroll-margin-top: 76px; }
+    p { color: var(--text-secondary); margin-bottom: 1rem; }
+    ul, ol { color: var(--text-secondary); padding-left: 1.4rem; margin: 0 0 1rem; }
+    li { margin-bottom: 0.4rem; }
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.88em;
+      background: var(--bg-code);
+      color: var(--accent);
+      border-radius: 4px;
+      padding: 0.15em 0.35em;
+    }
+    .code-block {
+      position: relative;
+      margin: 1rem 0 1.4rem;
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      overflow-x: auto;
+    }
+    .code-block::before {
+      content: attr(data-label);
+      display: block;
+      color: var(--text-muted);
+      font: 500 0.7rem var(--font-mono);
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--border);
+      padding: 0.5rem 1rem;
+      text-transform: uppercase;
+    }
+    pre { padding: 1rem 1.1rem 1.2rem; min-width: max-content; }
+    pre code { padding: 0; color: var(--text-secondary); background: none; font-size: 0.82rem; line-height: 1.65; }
+    .kw { color: var(--syn-kw); } .ty { color: var(--syn-ty); }
+    .st { color: var(--syn-st); } .cm { color: var(--syn-cm); }
+    .fn { color: var(--syn-fn); } .nu { color: var(--syn-nu); }
+    .pr { color: var(--syn-pr); }
+    .callout {
+      margin: 1.25rem 0;
+      padding: 1rem 1.15rem;
+      border: 1px solid var(--border-light);
+      border-left: 3px solid var(--accent);
+      border-radius: 7px;
+      background: var(--accent-subtle);
+    }
+    .callout p { margin: 0; }
+    .callout.warning { border-left-color: var(--warn); background: rgba(251,191,36,0.06); }
+    .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1.25rem 0; }
+    .card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 9px; padding: 1.1rem; }
+    .card h3 { margin: 0 0 0.4rem; font-size: 1rem; }
+    .card p { margin: 0; font-size: 0.9rem; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; font-size: 0.88rem; }
+    th, td { padding: 0.65rem 0.75rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--bg-surface); color: var(--text); }
+    td { color: var(--text-secondary); }
+    .status { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--ok); font-weight: 600; }
+    footer { margin-top: 4rem; border-top: 1px solid var(--border); padding-top: 1.5rem; color: var(--text-muted); font-size: 0.85rem; }
+    .overlay { display: none; }
+    @media (max-width: 860px) {
+      .nav-right { display: none; }
+      .sidebar-toggle { display: inline-block; }
+      .sidebar { transform: translateX(-100%); transition: transform 0.25s; z-index: 60; }
+      .sidebar.open { transform: translateX(0); }
+      main { margin-left: 0; width: 100%; padding: 2rem 1.5rem 4rem; }
+      .overlay { position: fixed; inset: 56px 0 0; z-index: 55; background: rgba(0,0,0,0.55); }
+      .overlay.open { display: block; }
+    }
+    @media (max-width: 620px) {
+      h1 { font-size: 1.8rem; }
+      .cards { grid-template-columns: 1fr; }
+      main { padding: 1.5rem 1rem 3rem; }
+      pre code { font-size: 0.74rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <button class="sidebar-toggle" id="sidebarToggle" aria-label="Open guide navigation">Menu</button>
+    <a href="/" class="nav-logo"><span class="nav-logo-icon">Fe</span>Iron</a>
+    <div class="nav-right">
+      <a href="/docs/">Docs</a>
+      <a href="/networking/" class="active-link">Networking</a>
+      <a href="/guide/">Package Manager</a>
+      <a href="/raylib/">Raylib</a>
+      <a href="/lsp/">LSP</a>
+      <a href="/install/">Install</a>
+      <a href="https://github.com/victorl2/iron-lang">Source Code</a>
+    </div>
+  </nav>
+  <div class="overlay" id="overlay"></div>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <h3>Start here</h3>
+        <a href="#overview">Overview</a>
+        <a href="#quick-client">First HTTP client</a>
+        <a href="#errors">Errors and timeouts</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>HTTP</h3>
+        <a href="#client">Client requests</a>
+        <a href="#server">REST server</a>
+        <a href="#webpage">Serve a webpage</a>
+        <a href="#https">HTTPS and certificates</a>
+        <a href="#websocket">WebSocket and WSS</a>
+        <a href="#files">Text and binary files</a>
+        <a href="#concurrency">Concurrency</a>
+        <a href="#framing">Limits and security</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Transport</h3>
+        <a href="#tcp">TCP</a>
+        <a href="#udp">UDP</a>
+        <a href="#dns">DNS and IP</a>
+      </div>
+      <div class="sidebar-section">
+        <h3>Reference</h3>
+        <a href="#api">API summary</a>
+        <a href="#production">Production checklist</a>
+        <a href="#status">Current status</a>
+      </div>
+    </aside>
+    <main>
+      <h1>Networking in Iron</h1>
+      <p class="subtitle">Build bounded HTTP/HTTPS clients, JSON APIs, webpages, WebSocket/WSS services, and low-level transports with explicit errors, deadlines, and concurrency.</p>
+
+      <div class="cards" id="overview">
+        <article class="card"><h3><code>import http</code></h3><p>HTTP/1.1 client and server models, JSON and HTML responses, file serving, and safe message framing.</p></article>
+        <article class="card"><h3><code>import websocket</code></h3><p>RFC 6455 clients and server upgrades over <code>ws://</code> and verified <code>wss://</code>.</p></article>
+        <article class="card"><h3><code>import net</code></h3><p>TCP, UDP, typed IPv4/IPv6 addresses, DNS resolution, and millisecond timeout budgets.</p></article>
+        <article class="card"><h3><code>import io</code></h3><p>Bounded text and binary reads, writes, append, metadata, copy, and move.</p></article>
+      </div>
+
+      <div class="callout">
+        <p><strong>Operational model:</strong> networking calls are synchronous and bounded. Compose them with <code>spawn</code> for concurrency; the HTTP layer never creates hidden handler threads.</p>
+      </div>
+
+      <h2 id="quick-client">Your first HTTP client</h2>
+      <p><code>Http.get</code> returns an <code>HttpResponse</code> value. A zero error means transport and HTTP framing succeeded; application status remains in <code>status</code>.</p>
+      <div class="code-block" data-label="status_client.iron"><pre><code><span class="kw">import</span> http
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="kw">val</span> response = <span class="ty">Http</span>.<span class="fn">get</span>(
+        <span class="st">"http://127.0.0.1:8080/api/status"</span>,
+        <span class="nu">5000</span>,
+    )
+    <span class="kw">if</span> response.<span class="pr">error</span> != <span class="nu">0</span> {
+        <span class="fn">println</span>(<span class="st">"request failed: {response.error} {response.error_message}"</span>)
+        <span class="kw">return</span>
+    }
+
+    <span class="fn">println</span>(<span class="st">"HTTP {response.status} {response.reason}"</span>)
+    <span class="fn">println</span>(response.<span class="pr">body</span>)
+}</code></pre></div>
+      <div class="code-block" data-label="terminal"><pre><code>iron build status_client.iron -o status-client
+./status-client</code></pre></div>
+
+      <h3 id="errors">Errors, status codes, and timeouts</h3>
+      <ul>
+        <li><code>response.error != 0</code> means URL parsing, TCP, timeout, limit, or HTTP framing failed.</li>
+        <li><code>response.status</code> is meaningful when <code>error == 0</code>. A 404 or 500 is a valid HTTP response, not a transport error.</li>
+        <li>Timeouts are integer milliseconds and apply as one monotonic budget across connect, writes, headers, and body decoding.</li>
+        <li>Transport errors occupy <code>1000..1099</code>, TLS <code>3000..3099</code>, HTTP <code>5000..5099</code>, WebSocket <code>6000..6099</code>, and file I/O <code>8000..8099</code>.</li>
+      </ul>
+
+      <h2 id="client">HTTP client requests</h2>
+      <h3>Post JSON</h3>
+      <p>Iron uses braces for string interpolation, so literal JSON braces must be escaped.</p>
+      <div class="code-block" data-label="JSON POST"><pre><code><span class="kw">val</span> response = <span class="ty">Http</span>.<span class="fn">post_json</span>(
+    <span class="st">"http://127.0.0.1:8080/api/items"</span>,
+    <span class="st">"\{\"name\":\"anvil\"\}"</span>,
+    <span class="nu">5000</span>,
+)</code></pre></div>
+
+      <h3>Custom methods and headers</h3>
+      <div class="code-block" data-label="general request"><pre><code><span class="kw">val</span> response = <span class="ty">Http</span>.<span class="fn">request</span>(
+    <span class="st">"PUT"</span>,
+    <span class="st">"http://127.0.0.1:8080/api/items/42"</span>,
+    <span class="st">"Authorization: Bearer dev-token\r\nContent-Type: application/json"</span>,
+    <span class="st">"\{\"name\":\"hammer\"\}"</span>,
+    <span class="nu">1048576</span>,  <span class="cm">-- maximum decoded response body</span>
+    <span class="nu">5000</span>,     <span class="cm">-- complete request budget</span>
+)</code></pre></div>
+      <p>The client owns <code>Host</code>, <code>Connection</code>, <code>Content-Length</code>, and <code>Transfer-Encoding</code>. Supplying any of them in the custom block is rejected to prevent ambiguous framing.</p>
+
+      <h2 id="https">HTTPS and certificates</h2>
+      <p>The regular client calls accept <code>https://</code>. Certificate-chain and hostname/IP verification are on by default, system roots are loaded automatically, DNS names receive SNI, and TLS 1.2 is the minimum.</p>
+      <div class="callout"><p><strong>Secure backend:</strong> source builds enable TLS when CMake finds the OpenSSL development headers and libraries. Without them, HTTP/WS and plain sockets still work; HTTPS/WSS return typed error <code>3000</code> instead of falling back to plaintext.</p></div>
+      <div class="code-block" data-label="verified HTTPS client"><pre><code><span class="kw">val</span> public_api = <span class="ty">Http</span>.<span class="fn">get</span>(
+    <span class="st">"https://example.com/api/status"</span>, <span class="nu">5000</span>,
+)
+
+<span class="kw">val</span> private_ca = <span class="ty">Http</span>.<span class="fn">get_with_ca</span>(
+    <span class="st">"https://localhost:8443/"</span>, <span class="st">"cert.pem"</span>, <span class="nu">5000</span>,
+)
+
+<span class="kw">val</span> created = <span class="ty">Http</span>.<span class="fn">request_with_ca</span>(
+    <span class="st">"POST"</span>, <span class="st">"https://localhost:8443/api/items"</span>,
+    <span class="st">"Content-Type: application/json"</span>, <span class="st">"\{\"name\":\"anvil\"\}"</span>,
+    <span class="nu">1048576</span>, <span class="st">"cert.pem"</span>, <span class="nu">5000</span>,
+)</code></pre></div>
+      <p><code>Http.get_insecure</code> and <code>Http.request_insecure</code> are explicitly unsafe development escape hatches. Never use them with production credentials.</p>
+      <div class="code-block" data-label="HTTPS server"><pre><code><span class="kw">val</span> listening = <span class="ty">Http</span>.<span class="fn">listen_tls</span>(
+    <span class="st">"127.0.0.1"</span>, <span class="nu">8443</span>, <span class="st">"cert.pem"</span>, <span class="st">"key.pem"</span>,
+)
+<span class="kw">val</span> accepted = <span class="ty">HttpsServer</span>.<span class="fn">accept</span>(listening.server, <span class="nu">60000</span>)
+<span class="kw">val</span> request = <span class="ty">HttpsConnection</span>.<span class="fn">read_request</span>(
+    accepted.connection, <span class="nu">16384</span>, <span class="nu">1048576</span>, <span class="nu">5000</span>,
+)</code></pre></div>
+      <div class="callout"><p><strong>Certificate files:</strong> the certificate PEM may contain the leaf followed by intermediates. The private key must match. See the compiler-tested <a href="https://github.com/victorl2/iron-lang/blob/main/examples/networking/https_server.iron">HTTPS server</a> and <a href="https://github.com/victorl2/iron-lang/blob/main/examples/networking/https_client.iron">private-CA REST client</a> examples.</p></div>
+      <p>Certificates are loaded when <code>listen_tls</code> creates its server context. Rotate them by starting a replacement context or restarting with the new PEM files, then drain the old listener. For graceful shutdown, stop accepting, close the server, await bound handler tasks, and close their remaining connections. Keep task handles when draining matters; intentionally detached handlers cannot be awaited.</p>
+
+      <h2 id="server">A concurrent REST server</h2>
+      <p>This complete server exposes a webpage, a JSON status endpoint, and a JSON POST endpoint. Each accepted connection is handled by an intentional detached <code>spawn</code> statement.</p>
+      <div class="code-block" data-label="rest_server.iron"><pre><code><span class="kw">import</span> http
+
+<span class="kw">func</span> <span class="fn">handle</span>(connection: <span class="ty">HttpConnection</span>) -&gt; <span class="ty">Int</span> {
+    <span class="kw">val</span> request = <span class="ty">HttpConnection</span>.<span class="fn">read_request</span>(
+        connection, <span class="nu">65536</span>, <span class="nu">1048576</span>, <span class="nu">5000</span>,
+    )
+    <span class="kw">if</span> request.<span class="pr">error</span> != <span class="nu">0</span> {
+        <span class="kw">val</span> bad = <span class="ty">Http</span>.<span class="fn">text_response</span>(<span class="nu">400</span>, <span class="st">"bad request"</span>)
+        <span class="kw">val</span> sent = <span class="ty">HttpConnection</span>.<span class="fn">send_response</span>(connection, bad, <span class="nu">5000</span>)
+        <span class="ty">HttpConnection</span>.<span class="fn">close</span>(connection)
+        <span class="kw">return</span> sent
+    }
+
+    <span class="kw">if</span> request.<span class="pr">method</span> == <span class="st">"GET"</span> <span class="kw">and</span> request.<span class="pr">path</span> == <span class="st">"/"</span> {
+        <span class="kw">val</span> page = <span class="ty">Http</span>.<span class="fn">html_response</span>(<span class="nu">200</span>, <span class="st">"&lt;h1&gt;Hello from Iron&lt;/h1&gt;"</span>)
+        <span class="kw">val</span> sent = <span class="ty">HttpConnection</span>.<span class="fn">send_response</span>(connection, page, <span class="nu">5000</span>)
+        <span class="ty">HttpConnection</span>.<span class="fn">close</span>(connection)
+        <span class="kw">return</span> sent
+    }
+
+    <span class="kw">if</span> request.<span class="pr">method</span> == <span class="st">"GET"</span> <span class="kw">and</span> request.<span class="pr">path</span> == <span class="st">"/api/status"</span> {
+        <span class="kw">val</span> response = <span class="ty">Http</span>.<span class="fn">json_response</span>(<span class="nu">200</span>, <span class="st">"\{\"status\":\"ok\"\}"</span>)
+        <span class="kw">val</span> sent = <span class="ty">HttpConnection</span>.<span class="fn">send_response</span>(connection, response, <span class="nu">5000</span>)
+        <span class="ty">HttpConnection</span>.<span class="fn">close</span>(connection)
+        <span class="kw">return</span> sent
+    }
+
+    <span class="kw">if</span> request.<span class="pr">method</span> == <span class="st">"POST"</span> <span class="kw">and</span> request.<span class="pr">path</span> == <span class="st">"/api/items"</span> {
+        <span class="kw">val</span> response = <span class="ty">Http</span>.<span class="fn">json_response</span>(<span class="nu">201</span>, <span class="st">"\{\"created\":true\}"</span>)
+        <span class="kw">val</span> sent = <span class="ty">HttpConnection</span>.<span class="fn">send_response</span>(connection, response, <span class="nu">5000</span>)
+        <span class="ty">HttpConnection</span>.<span class="fn">close</span>(connection)
+        <span class="kw">return</span> sent
+    }
+
+    <span class="kw">val</span> missing = <span class="ty">Http</span>.<span class="fn">json_response</span>(<span class="nu">404</span>, <span class="st">"\{\"error\":\"not found\"\}"</span>)
+    <span class="kw">val</span> sent = <span class="ty">HttpConnection</span>.<span class="fn">send_response</span>(connection, missing, <span class="nu">5000</span>)
+    <span class="ty">HttpConnection</span>.<span class="fn">close</span>(connection)
+    <span class="kw">return</span> sent
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="kw">val</span> listening = <span class="ty">Http</span>.<span class="fn">listen</span>(<span class="st">"127.0.0.1"</span>, <span class="nu">8080</span>)
+    <span class="kw">if</span> listening.<span class="pr">error</span> != <span class="nu">0</span> {
+        <span class="fn">println</span>(<span class="st">"listen failed: {listening.error_message}"</span>)
+        <span class="kw">return</span>
+    }
+
+    <span class="kw">while</span> <span class="kw">true</span> {
+        <span class="kw">val</span> accepted = <span class="ty">HttpServer</span>.<span class="fn">accept</span>(listening.<span class="pr">server</span>, <span class="nu">60000</span>)
+        <span class="kw">if</span> accepted.<span class="pr">error</span> == <span class="nu">0</span> {
+            <span class="kw">spawn</span>(<span class="st">"http-request"</span>) {
+                <span class="kw">return</span> <span class="fn">handle</span>(accepted.<span class="pr">connection</span>)
+            }
+        }
+    }
+}</code></pre></div>
+      <p>The repository contains the maintained, compiler-tested version at <a href="https://github.com/victorl2/iron-lang/blob/main/examples/networking/rest_server.iron">examples/networking/rest_server.iron</a>.</p>
+
+      <h3>Read routes, headers, query strings, and bodies</h3>
+      <table>
+        <thead><tr><th>Request field</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>method</code></td><td>Validated HTTP method token such as GET or POST.</td></tr>
+          <tr><td><code>target</code></td><td>Original path and query target.</td></tr>
+          <tr><td><code>path</code></td><td>Path without the query string.</td></tr>
+          <tr><td><code>query</code></td><td>Raw query text without the leading question mark.</td></tr>
+          <tr><td><code>headers</code></td><td>Validated CRLF-separated header lines. Use <code>Http.header</code> for case-insensitive lookup.</td></tr>
+          <tr><td><code>body</code></td><td>Decoded fixed-length or chunked request body, bounded by <code>max_body_bytes</code>.</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="webpage">Serve webpages and files</h2>
+      <div class="code-block" data-label="HTML"><pre><code><span class="kw">val</span> page = <span class="ty">Http</span>.<span class="fn">html_response</span>(
+    <span class="nu">200</span>,
+    <span class="st">"&lt;!doctype html&gt;&lt;h1&gt;Iron is online&lt;/h1&gt;"</span>,
+)</code></pre></div>
+      <div class="code-block" data-label="bounded file"><pre><code><span class="kw">val</span> asset = <span class="ty">Http</span>.<span class="fn">file_response</span>(
+    <span class="nu">200</span>,
+    <span class="st">"public/index.html"</span>,
+    <span class="st">"text/html; charset=utf-8"</span>,
+    <span class="nu">1048576</span>,
+)</code></pre></div>
+      <p><code>file_response</code> reads at most the supplied limit. Choose the content type explicitly; Iron does not guess it from the filename.</p>
+
+      <h2 id="files">Text and binary file operations</h2>
+      <p>Iron strings preserve embedded zero and arbitrary byte values. The byte APIs therefore carry exact binary payloads without a second buffer type.</p>
+      <div class="code-block" data-label="bounded binary files"><pre><code><span class="kw">import</span> io
+
+<span class="kw">val</span> written = <span class="ty">IO</span>.<span class="fn">write_bytes</span>(<span class="st">"asset.bin"</span>, <span class="st">"Iron\0binary"</span>)
+<span class="kw">val</span> loaded = <span class="ty">IO</span>.<span class="fn">read_bytes</span>(<span class="st">"asset.bin"</span>, <span class="nu">1048576</span>)
+<span class="kw">if</span> loaded.error == <span class="nu">0</span> {
+    <span class="kw">val</span> info = <span class="ty">IO</span>.<span class="fn">file_info</span>(<span class="st">"asset.bin"</span>)
+    <span class="fn">println</span>(<span class="st">"loaded {info.size} bytes"</span>)
+}
+
+<span class="kw">val</span> appended = <span class="ty">IO</span>.<span class="fn">append_bytes</span>(<span class="st">"asset.bin"</span>, <span class="st">"\0suffix"</span>)
+<span class="kw">val</span> copied = <span class="ty">IO</span>.<span class="fn">copy_file</span>(<span class="st">"asset.bin"</span>, <span class="st">"asset-copy.bin"</span>, <span class="kw">false</span>)
+<span class="kw">val</span> moved = <span class="ty">IO</span>.<span class="fn">move_file</span>(<span class="st">"asset-copy.bin"</span>, <span class="st">"archive.bin"</span>, <span class="kw">false</span>)</code></pre></div>
+      <p><code>read_text</code> and <code>read_bytes</code> reject an oversized file before allocating. Write and append operations report committed bytes and expose open, write, flush, and close failures. <code>copy_file</code> and <code>move_file</code> require an explicit overwrite choice.</p>
+
+      <h2 id="websocket">WebSocket and secure WebSocket</h2>
+      <p><code>import websocket</code> supports RFC 6455 clients and HTTP/HTTPS server upgrades. WSS uses the same verified TLS policy as HTTPS.</p>
+      <div class="code-block" data-label="WSS client"><pre><code><span class="kw">import</span> websocket
+
+<span class="kw">val</span> connected = <span class="ty">WebSocket</span>.<span class="fn">connect</span>(
+    <span class="st">"wss://events.example.com/v1"</span>,
+    <span class="st">"Authorization: Bearer token"</span>,
+    <span class="nu">1048576</span>, <span class="nu">5000</span>,
+)
+<span class="kw">if</span> connected.error == <span class="nu">0</span> {
+    <span class="kw">val</span> sent = <span class="ty">WebSocket</span>.<span class="fn">send_text</span>(connected.socket, <span class="st">"subscribe"</span>, <span class="nu">5000</span>)
+    <span class="kw">val</span> message = <span class="ty">WebSocket</span>.<span class="fn">receive</span>(connected.socket, <span class="nu">30000</span>)
+    <span class="kw">val</span> closed = <span class="ty">WebSocket</span>.<span class="fn">close</span>(connected.socket, <span class="nu">1000</span>, <span class="st">"done"</span>, <span class="nu">5000</span>)
+}</code></pre></div>
+      <p>Message kinds are <code>1</code> text, <code>2</code> binary, <code>8</code> close, <code>9</code> ping, and <code>10</code> pong. Ping is answered automatically. Fragmented messages are reassembled under the connection limit; text and close reasons are UTF-8 validated.</p>
+      <div class="code-block" data-label="server upgrade"><pre><code><span class="kw">val</span> request = <span class="ty">HttpConnection</span>.<span class="fn">read_request</span>(connection, <span class="nu">16384</span>, <span class="nu">1024</span>, <span class="nu">5000</span>)
+<span class="kw">val</span> upgraded = <span class="ty">HttpConnection</span>.<span class="fn">upgrade_websocket</span>(
+    connection, request, <span class="nu">1048576</span>, <span class="nu">5000</span>,
+)</code></pre></div>
+      <div class="callout"><p><strong>Ownership:</strong> a successful upgrade transfers the HTTP connection to the WebSocket. Use one receiving task and any number of sending tasks; frame writes are serialized. Do not race close or abort with another operation.</p></div>
+
+      <h2 id="concurrency">Concurrency and ownership</h2>
+      <p>A standalone <code>spawn</code> statement is intentionally detached and uses the selected runtime pool. Bind it when the parent must await completion or collect a result.</p>
+      <div class="code-block" data-label="detached handler"><pre><code><span class="kw">spawn</span>(<span class="st">"connection"</span>) {
+    <span class="kw">return</span> <span class="fn">handle</span>(accepted.<span class="pr">connection</span>)
+}</code></pre></div>
+      <div class="code-block" data-label="structured tasks"><pre><code><span class="kw">val</span> first = <span class="kw">spawn</span>(<span class="st">"client-1"</span>) { <span class="kw">return</span> <span class="ty">Http</span>.<span class="fn">get</span>(url1, <span class="nu">5000</span>) }
+<span class="kw">val</span> second = <span class="kw">spawn</span>(<span class="st">"client-2"</span>) { <span class="kw">return</span> <span class="ty">Http</span>.<span class="fn">get</span>(url2, <span class="nu">5000</span>) }
+
+<span class="kw">val</span> a = <span class="kw">await</span> first
+<span class="kw">val</span> b = <span class="kw">await</span> second</code></pre></div>
+      <ul>
+        <li>Every accepted connection has explicit ownership and must be closed.</li>
+        <li>A slow connection consumes its handler task until its deadline expires.</li>
+        <li>Use bounded header/body sizes and finite timeouts for every public endpoint.</li>
+        <li>The verified fixture runs eight accepting tasks and eight clients concurrently on one listener.</li>
+        <li>The WebSocket fixture validates 24 concurrent writers on one socket with one receiver.</li>
+      </ul>
+
+      <h2 id="framing">Message limits and safe framing</h2>
+      <ul>
+        <li>HTTP/1.1 server requests require exactly one non-empty <code>Host</code>.</li>
+        <li>Fixed-length and chunked request bodies are decoded; decoded bytes are checked against the body limit.</li>
+        <li>Chunk trailers are syntax-checked and bounded by the header limit.</li>
+        <li>Duplicate framing headers, folded headers, control characters, malformed names, and <code>Transfer-Encoding</code> plus <code>Content-Length</code> are rejected.</li>
+        <li>Clients decode fixed-length, chunked, and close-delimited responses with the same overall timeout budget.</li>
+        <li>All writes handle short sends.</li>
+      </ul>
+
+      <h2 id="tcp">Low-level TCP</h2>
+      <p><code>TcpSocket.read</code> returns up to the caller-selected limit as an immutable, binary-safe <code>String</code>. Embedded zero bytes are preserved.</p>
+      <div class="code-block" data-label="TCP client"><pre><code><span class="kw">import</span> net
+
+<span class="kw">val</span> (socket, dial_error) = <span class="ty">Net</span>.<span class="fn">tcp_dial</span>(<span class="st">"127.0.0.1"</span>, <span class="nu">9000</span>, <span class="nu">2000</span>)
+<span class="kw">if</span> dial_error.<span class="pr">code</span> != <span class="nu">0</span> { <span class="kw">return</span> }
+
+<span class="kw">val</span> (written, write_error) = <span class="ty">TcpSocket</span>.<span class="fn">write</span>(socket, <span class="st">"ping"</span>, <span class="nu">1000</span>)
+<span class="kw">val</span> (payload, read_error) = <span class="ty">TcpSocket</span>.<span class="fn">read</span>(socket, <span class="nu">65536</span>, <span class="nu">1000</span>)
+<span class="kw">if</span> read_error.<span class="pr">code</span> == <span class="nu">0</span> {
+    <span class="fn">println</span>(payload)
+}
+<span class="ty">TcpSocket</span>.<span class="fn">close</span>(socket)</code></pre></div>
+      <div class="callout warning"><p><strong>TCP is a byte stream:</strong> one write does not guarantee one read. Loop until your protocol delimiter or expected length is complete, and treat an empty successful read as EOF.</p></div>
+
+      <h2 id="udp">UDP</h2>
+      <p>Bind datagram sockets, send to typed IPv4 or IPv6 addresses, and receive a bounded <code>UdpPacket</code> containing the binary-safe payload plus the sender's numeric address and port.</p>
+      <div class="code-block" data-label="UDP send and receive"><pre><code><span class="kw">import</span> net
+
+<span class="kw">val</span> (receiver, bind_error) = <span class="ty">Net</span>.<span class="fn">udp_bind</span>(<span class="st">"127.0.0.1"</span>, <span class="nu">5353</span>)
+<span class="kw">val</span> (sender, sender_error) = <span class="ty">Net</span>.<span class="fn">udp_bind</span>(<span class="st">"127.0.0.1"</span>, <span class="nu">0</span>)
+<span class="kw">val</span> (target, parse_error) = <span class="ty">IPv4Addr</span>.<span class="fn">parse</span>(<span class="st">"127.0.0.1"</span>)
+<span class="kw">val</span> (sent, send_error) = <span class="ty">Net</span>.<span class="fn">udp_sendto_v4</span>(sender, <span class="st">"ping"</span>, target, <span class="nu">5353</span>, <span class="nu">1000</span>)
+
+<span class="kw">val</span> packet = <span class="ty">UdpSocket</span>.<span class="fn">recvfrom</span>(receiver, <span class="nu">65536</span>, <span class="nu">1000</span>)
+<span class="kw">if</span> packet.<span class="pr">error</span>.<span class="pr">code</span> == <span class="nu">0</span> {
+    <span class="fn">println</span>(<span class="st">"{packet.address}:{packet.port} {packet.data}"</span>)
+}
+<span class="ty">UdpSocket</span>.<span class="fn">close</span>(sender)
+<span class="ty">UdpSocket</span>.<span class="fn">close</span>(receiver)</code></pre></div>
+      <div class="callout"><p><strong>Datagram boundaries are preserved:</strong> one successful receive consumes one packet. When a packet is larger than <code>max_bytes</code>, <code>truncated</code> is <code>1</code>, <code>data</code> contains the captured prefix, and <code>error.code</code> is <code>1018</code>. A zero-length packet is still successful; a timeout uses code <code>1004</code>.</p></div>
+
+      <h2 id="dns">DNS and typed addresses</h2>
+      <div class="code-block" data-label="DNS lookup"><pre><code><span class="kw">val</span> (addresses, error) = <span class="ty">Net</span>.<span class="fn">lookup_host</span>(<span class="st">"example.com"</span>, <span class="nu">2000</span>)
+<span class="kw">if</span> error.<span class="pr">code</span> != <span class="nu">0</span> {
+    <span class="fn">println</span>(<span class="st">"DNS failed: {error.code}"</span>)
+    <span class="kw">return</span>
+}
+
+<span class="kw">for</span> address <span class="kw">in</span> addresses {
+    <span class="kw">match</span> address {
+        <span class="ty">Address</span>.<span class="pr">V4</span>(v4) -&gt; <span class="fn">println</span>(<span class="ty">IPv4Addr</span>.<span class="fn">format</span>(v4))
+        <span class="ty">Address</span>.<span class="pr">V6</span>(v6) -&gt; <span class="fn">println</span>(<span class="ty">IPv6Addr</span>.<span class="fn">format</span>(v6))
+    }
+}</code></pre></div>
+
+      <h2 id="api">HTTP API summary</h2>
+      <table>
+        <thead><tr><th>API</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td><code>Http.get(url, timeout)</code></td><td>Bounded GET convenience call.</td></tr>
+          <tr><td><code>Http.post_json(url, body, timeout)</code></td><td>POST with JSON content type.</td></tr>
+          <tr><td><code>Http.request(...)</code></td><td>Custom method, headers, body, body limit, and timeout.</td></tr>
+          <tr><td><code>Http.request_with_ca(...)</code></td><td>Custom verified HTTPS request with a private trust root.</td></tr>
+          <tr><td><code>Http.request_insecure(...)</code></td><td>Explicitly unsafe custom request for local development only.</td></tr>
+          <tr><td><code>Http.listen(host, port)</code></td><td>Create a TCP-backed HTTP server.</td></tr>
+          <tr><td><code>Http.listen_tls(...)</code></td><td>Create a TLS-backed HTTPS server from a PEM chain and key.</td></tr>
+          <tr><td><code>Http.get_with_ca(...)</code></td><td>Verified HTTPS GET with a private/test trust root.</td></tr>
+          <tr><td><code>HttpServer.accept(server, timeout)</code></td><td>Accept one connection.</td></tr>
+          <tr><td><code>HttpConnection.read_request(...)</code></td><td>Parse one bounded HTTP/1.1 request.</td></tr>
+          <tr><td><code>HttpConnection.send_response(...)</code></td><td>Send a complete response with owned framing.</td></tr>
+          <tr><td><code>Http.json_response</code></td><td>JSON response constructor.</td></tr>
+          <tr><td><code>Http.html_response</code></td><td>UTF-8 HTML response constructor.</td></tr>
+          <tr><td><code>Http.file_response</code></td><td>Bounded file-backed response.</td></tr>
+          <tr><td><code>Http.header(headers, name)</code></td><td>Case-insensitive header lookup.</td></tr>
+          <tr><td><code>WebSocket.connect(...)</code></td><td>Open a <code>ws://</code> or verified <code>wss://</code> client.</td></tr>
+          <tr><td><code>upgrade_websocket(...)</code></td><td>Validate an HTTP upgrade and transfer connection ownership.</td></tr>
+          <tr><td><code>WebSocket.send_text/send_bytes</code></td><td>Send a serialized text or binary frame.</td></tr>
+          <tr><td><code>WebSocket.receive</code></td><td>Receive a bounded message or control frame.</td></tr>
+          <tr><td><code>IO.read_bytes/write_bytes</code></td><td>Bounded, exact binary file I/O.</td></tr>
+          <tr><td><code>IO.file_info/copy_file/move_file</code></td><td>Metadata and explicit-overwrite file operations.</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="production">Production checklist</h2>
+      <ol>
+        <li>Bind deliberately: loopback for local tools, a public interface only when intended.</li>
+        <li>Set finite accept, header, body, handler, and upstream timeouts.</li>
+        <li>For public HTTPS/WSS listeners, use short accept deadlines and multiple acceptor tasks; the current accept call includes the TLS handshake.</li>
+        <li>Set endpoint-specific body limits instead of accepting the convenience maximum everywhere.</li>
+        <li>Check both transport errors and application status codes.</li>
+        <li>Close every accepted connection on every handler path.</li>
+        <li>Use HTTPS/WSS, keep certificate verification enabled, and protect private keys.</li>
+        <li>Apply authentication, authorization, rate limiting, logging, and graceful shutdown at the application boundary.</li>
+      </ol>
+
+      <h2 id="status">Current implementation status</h2>
+      <p><span class="status">● Verified remotely</span> TCP, UDP, IP, DNS, HTTP/HTTPS clients and servers, REST JSON, webpage serving, WebSocket/WSS (including one secure reader with 24 secure writers), exact binary files, and concurrent <code>spawn</code>/<code>await</code> composition pass the Linux x86_64 Debug and Release suites.</p>
+      <div class="callout warning">
+        <p><strong>Open production gaps:</strong> <a href="https://github.com/victorl2/iron-lang/issues/89">persistent HTTP connection reuse</a>, <a href="https://github.com/victorl2/iron-lang/issues/91">WebSocket subprotocol/extension negotiation</a>, <a href="https://github.com/victorl2/iron-lang/issues/92">portable TLS dependency discovery and cross-platform secure CI</a>, <a href="https://github.com/victorl2/iron-lang/issues/93">atomic no-overwrite moves under destination races</a>, <a href="https://github.com/victorl2/iron-lang/issues/94">slow-client-resilient HTTPS admission</a>, and complete sanitizer runtimes in the canonical remote container. Current HTTP calls deliberately use one request per connection. Without OpenSSL development headers, plain networking remains available and secure calls return a typed TLS-unavailable error.</p>
+      </div>
+      <p>See the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/networking.md">maintained validation matrix</a> and <a href="https://github.com/victorl2/iron-lang/tree/main/examples/networking">networking examples</a> for source-level evidence.</p>
+
+      <footer>Iron networking is alpha software. APIs may evolve while persistent connection reuse and wider platform validation are completed.</footer>
+    </main>
+  </div>
+  <script>
+    const toggle = document.getElementById('sidebarToggle');
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('overlay');
+    function closeSidebar() {
+      sidebar.classList.remove('open');
+      overlay.classList.remove('open');
+    }
+    toggle.addEventListener('click', () => {
+      sidebar.classList.toggle('open');
+      overlay.classList.toggle('open');
+    });
+    overlay.addEventListener('click', closeSidebar);
+    sidebar.querySelectorAll('a').forEach(link => link.addEventListener('click', closeSidebar));
+  </script>
+</body>
+</html>

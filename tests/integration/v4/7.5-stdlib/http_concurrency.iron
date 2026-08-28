@@ -1,0 +1,67 @@
+-- End-to-end Iron HTTP concurrency acceptance test. Eight server tasks block
+-- in accept on one listener while eight client tasks issue simultaneous GETs.
+import http
+
+func serve_one(server: HttpServer) -> Int {
+    val accepted = HttpServer.accept(server, 10000)
+    if accepted.error != 0 { return accepted.error }
+    val request = HttpConnection.read_request(accepted.connection, 16384, 1024, 5000)
+    if request.error != 0 {
+        HttpConnection.close(accepted.connection)
+        return request.error
+    }
+    val response = Http.json_response(200, "\{\"status\":\"ok\"\}")
+    val sent = HttpConnection.send_response(accepted.connection, response, 5000)
+    HttpConnection.close(accepted.connection)
+    if sent != 0 { return sent }
+    return 1
+}
+
+func fetch_one(url: String, result: Int) -> Int {
+    val response = Http.get(url, 10000)
+    if response.error != 0 { return response.error }
+    if response.status != 200 { return -1 }
+    if response.body != "\{\"status\":\"ok\"\}" { return -2 }
+    return result
+}
+
+func main() {
+    val listening = Http.listen("127.0.0.1", 0)
+    if listening.error != 0 {
+        println("listen-error {listening.error}")
+        return
+    }
+    val port = HttpServer.port(listening.server)
+    val url = "http://127.0.0.1:{port}/api/status"
+
+    val s1 = spawn("server-1") { return serve_one(listening.server) }
+    val s2 = spawn("server-2") { return serve_one(listening.server) }
+    val s3 = spawn("server-3") { return serve_one(listening.server) }
+    val s4 = spawn("server-4") { return serve_one(listening.server) }
+    val s5 = spawn("server-5") { return serve_one(listening.server) }
+    val s6 = spawn("server-6") { return serve_one(listening.server) }
+    val s7 = spawn("server-7") { return serve_one(listening.server) }
+    val s8 = spawn("server-8") { return serve_one(listening.server) }
+
+    -- Distinct non-zero results make this an await-value test as well as a
+    -- networking test; a dropped result can no longer look like success.
+    val c1 = spawn("client-1") { return fetch_one(url, 1) }
+    val c2 = spawn("client-2") { return fetch_one(url, 2) }
+    val c3 = spawn("client-3") { return fetch_one(url, 3) }
+    val c4 = spawn("client-4") { return fetch_one(url, 4) }
+    val c5 = spawn("client-5") { return fetch_one(url, 5) }
+    val c6 = spawn("client-6") { return fetch_one(url, 6) }
+    val c7 = spawn("client-7") { return fetch_one(url, 7) }
+    val c8 = spawn("client-8") { return fetch_one(url, 8) }
+
+    val cr = (await c1) + (await c2) + (await c3) + (await c4) +
+             (await c5) + (await c6) + (await c7) + (await c8)
+    val sr = (await s1) + (await s2) + (await s3) + (await s4) +
+             (await s5) + (await s6) + (await s7) + (await s8)
+    HttpServer.close(listening.server)
+    if cr == 36 and sr == 8 {
+        println("http concurrency ok: 8 clients")
+    } else {
+        println("http concurrency failed: clients={cr} servers={sr}")
+    }
+}

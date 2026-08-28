@@ -1,0 +1,24 @@
+-- Connect to the echo server in websocket_echo_server.iron.
+import websocket
+
+func main() {
+    val connected = WebSocket.connect("ws://127.0.0.1:8081/echo", "", 1048576, 5000)
+    if connected.error != 0 {
+        println("connect failed: {connected.error} {connected.error_message}")
+        return
+    }
+    val sent = WebSocket.send_text(connected.socket, "hello from Iron", 5000)
+    if sent != 0 {
+        println("send failed: {sent}")
+        WebSocket.abort(connected.socket)
+        return
+    }
+    val reply = WebSocket.receive(connected.socket, 5000)
+    if reply.error == 0 {
+        println("echo: {reply.data}")
+    } else {
+        println("receive failed: {reply.error} {reply.error_message}")
+    }
+    val closed = WebSocket.close(connected.socket, 1000, "done", 5000)
+    if closed != 0 { println("close warning: {closed}") }
+}

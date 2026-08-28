@@ -15,6 +15,7 @@ typedef struct {
     const char **run_args;        /* args after -- */
     int          run_arg_count;
     bool        use_raylib;       /* true when iron.toml has [dependencies] raylib = true */
+    bool        use_tls;          /* true when the source imports http/websocket */
     bool        force_comptime;   /* --force-comptime flag: skip comptime cache */
     bool        dump_ir_passes;   /* --dump-ir-passes: print IR after each opt pass */
     bool        no_optimize;      /* --no-optimize: skip copy-prop/const-fold/DCE */

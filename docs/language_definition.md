@@ -1020,6 +1020,10 @@ physics.pin(2, 3)
 
 `spawn(name, pool?) { }` — name is required, pool is optional (uses default runtime pool).
 
+A standalone `spawn` statement is intentionally detached: it is submitted to
+the selected pool and has no handle to await. Binding the expression to a
+`val` opts into structured task ownership and result collection.
+
 ```
 -- spawn on default pool
 spawn("autosave") {

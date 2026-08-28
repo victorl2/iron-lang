@@ -7,6 +7,9 @@
  *   3. test_udp_recvfrom_timeout          recvfrom(100) on empty socket → TIMEOUT
  *   4. test_udp_sendto_closed_socket      sendto after close → error
  *   5. test_udp_bind_v6_dual_stack        bind "::":0 → IPV6_V6ONLY==0
+ *   6. test_udp_iron_packet_roundtrip      Iron-facing binary payload + sender
+ *   7. test_udp_iron_packet_truncation     bounded prefix + explicit truncation
+ *   8. test_udp_iron_zero_length_packet    empty success differs from timeout
  */
 
 #include "unity.h"
@@ -153,6 +156,93 @@ void test_udp_bind_v6_dual_stack(void) {
     Iron_UdpSocket_close(r.v0);
 }
 
+static uint16_t udp_bound_port(Iron_UdpSocket socket) {
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    if (getsockname((int)socket.fd, (struct sockaddr *)&addr, &len) != 0) {
+        return 0;
+    }
+    return ntohs(addr.sin_port);
+}
+
+/* ── Test 6: Iron-facing packet preserves arbitrary payload bytes ────── */
+void test_udp_iron_packet_roundtrip(void) {
+    Iron_String host = make_iron_string("127.0.0.1");
+    Iron_Result_UdpSocket_NetError receiver = Iron_Net_udp_bind_result(host, 0);
+    Iron_Result_UdpSocket_NetError sender = Iron_Net_udp_bind_result(host, 0);
+    TEST_ASSERT_EQUAL_INT(0, receiver.v1.code);
+    TEST_ASSERT_EQUAL_INT(0, sender.v1.code);
+
+    const uint8_t payload[] = { 'a', 0, 'b', 0xff };
+    Iron_String body = iron_string_from_cstr((const char *)payload, sizeof(payload));
+    Iron_IPv4Addr loopback = { 127, 0, 0, 1 };
+    Iron_Result_Int_NetError sent = Iron_Net_udp_sendto_v4_result(
+        sender.v0, body, loopback, udp_bound_port(receiver.v0), 1000);
+    TEST_ASSERT_EQUAL_INT(0, sent.v1.code);
+    TEST_ASSERT_EQUAL_INT((int)sizeof(payload), (int)sent.v0);
+
+    Iron_UdpPacket packet = Iron_udpsocket_recvfrom(receiver.v0, 64, 1000);
+    TEST_ASSERT_EQUAL_INT(0, packet.error.code);
+    TEST_ASSERT_EQUAL_INT(0, packet.truncated);
+    TEST_ASSERT_EQUAL_INT((int)sizeof(payload),
+                          (int)iron_string_byte_len(&packet.data));
+    TEST_ASSERT_EQUAL_MEMORY(payload, iron_string_cstr(&packet.data), sizeof(payload));
+    TEST_ASSERT_EQUAL_INT(9, (int)iron_string_byte_len(&packet.address));
+    TEST_ASSERT_EQUAL_MEMORY("127.0.0.1", iron_string_cstr(&packet.address), 9);
+    TEST_ASSERT_MESSAGE(packet.port > 0, "sender port should be reported");
+
+    Iron_UdpSocket_close(sender.v0);
+    Iron_UdpSocket_close(receiver.v0);
+}
+
+/* ── Test 7: oversized datagram returns the captured prefix ──────────── */
+void test_udp_iron_packet_truncation(void) {
+    Iron_String host = make_iron_string("127.0.0.1");
+    Iron_Result_UdpSocket_NetError receiver = Iron_Net_udp_bind_result(host, 0);
+    Iron_Result_UdpSocket_NetError sender = Iron_Net_udp_bind_result(host, 0);
+    TEST_ASSERT_EQUAL_INT(0, receiver.v1.code);
+    TEST_ASSERT_EQUAL_INT(0, sender.v1.code);
+
+    Iron_IPv4Addr loopback = { 127, 0, 0, 1 };
+    Iron_Result_Int_NetError sent = Iron_Net_udp_sendto_v4_result(
+        sender.v0, make_iron_string("abcdefgh"), loopback,
+        udp_bound_port(receiver.v0), 1000);
+    TEST_ASSERT_EQUAL_INT(0, sent.v1.code);
+
+    Iron_UdpPacket packet = Iron_udpsocket_recvfrom(receiver.v0, 4, 1000);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_NET_MSG_TOO_LARGE, packet.error.code);
+    TEST_ASSERT_EQUAL_INT(1, packet.truncated);
+    TEST_ASSERT_EQUAL_INT(4, (int)iron_string_byte_len(&packet.data));
+    TEST_ASSERT_EQUAL_MEMORY("abcd", iron_string_cstr(&packet.data), 4);
+    TEST_ASSERT_EQUAL_MEMORY("127.0.0.1", iron_string_cstr(&packet.address), 9);
+
+    Iron_UdpSocket_close(sender.v0);
+    Iron_UdpSocket_close(receiver.v0);
+}
+
+/* ── Test 8: a zero-byte UDP packet is a successful receive ──────────── */
+void test_udp_iron_zero_length_packet(void) {
+    Iron_String host = make_iron_string("127.0.0.1");
+    Iron_Result_UdpSocket_NetError receiver = Iron_Net_udp_bind_result(host, 0);
+    Iron_Result_UdpSocket_NetError sender = Iron_Net_udp_bind_result(host, 0);
+    TEST_ASSERT_EQUAL_INT(0, receiver.v1.code);
+    TEST_ASSERT_EQUAL_INT(0, sender.v1.code);
+
+    Iron_IPv4Addr loopback = { 127, 0, 0, 1 };
+    Iron_Result_Int_NetError sent = Iron_Net_udp_sendto_v4_result(
+        sender.v0, make_iron_string(""), loopback,
+        udp_bound_port(receiver.v0), 1000);
+    TEST_ASSERT_EQUAL_INT(0, sent.v1.code);
+
+    Iron_UdpPacket packet = Iron_udpsocket_recvfrom(receiver.v0, 4, 1000);
+    TEST_ASSERT_EQUAL_INT(0, packet.error.code);
+    TEST_ASSERT_EQUAL_INT(0, (int)iron_string_byte_len(&packet.data));
+    TEST_ASSERT_EQUAL_INT(9, (int)iron_string_byte_len(&packet.address));
+
+    Iron_UdpSocket_close(sender.v0);
+    Iron_UdpSocket_close(receiver.v0);
+}
+
 /* ── Runner ─────────────────────────────────────────────────────────────── */
 int main(void) {
     UNITY_BEGIN();
@@ -161,5 +251,8 @@ int main(void) {
     RUN_TEST(test_udp_recvfrom_timeout);
     RUN_TEST(test_udp_sendto_closed_socket);
     RUN_TEST(test_udp_bind_v6_dual_stack);
+    RUN_TEST(test_udp_iron_packet_roundtrip);
+    RUN_TEST(test_udp_iron_packet_truncation);
+    RUN_TEST(test_udp_iron_zero_length_packet);
     return UNITY_END();
 }

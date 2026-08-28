@@ -306,6 +306,73 @@ endif()
 add_test(NAME test_stdlib_net_cross_platform COMMAND test_stdlib_net_cross_platform)
 set_tests_properties(test_stdlib_net_cross_platform PROPERTIES LABELS "unit")
 
+# HTTP/1.1 models, REST/webpage roundtrips, chunked decoding, and concurrency.
+add_executable(test_stdlib_http test_stdlib_http.c)
+target_link_libraries(test_stdlib_http iron_stdlib iron_runtime unity)
+if(WIN32)
+    target_link_libraries(test_stdlib_http ws2_32 iphlpapi)
+endif()
+add_test(NAME test_stdlib_http COMMAND test_stdlib_http)
+set_tests_properties(test_stdlib_http PROPERTIES LABELS "unit;networking")
+
+add_executable(test_stdlib_websocket test_stdlib_websocket.c)
+target_link_libraries(test_stdlib_websocket iron_stdlib iron_runtime unity)
+add_test(NAME test_stdlib_websocket COMMAND test_stdlib_websocket)
+set_tests_properties(test_stdlib_websocket PROPERTIES
+    LABELS "unit;networking;websocket" TIMEOUT 60)
+
+if(OpenSSL_FOUND AND NOT WIN32)
+    add_executable(test_stdlib_tls test_stdlib_tls.c)
+    target_link_libraries(test_stdlib_tls iron_stdlib iron_runtime unity)
+    add_test(
+        NAME test_stdlib_tls
+        COMMAND /bin/sh -c "set -e; d=\$(mktemp -d /tmp/iron_tls_XXXXXX); trap 'rm -rf \"\$d\"' EXIT; openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 -subj /CN=localhost -addext subjectAltName=DNS:localhost -addext basicConstraints=critical,CA:TRUE -keyout \"\$d/key.pem\" -out \"\$d/cert.pem\" >/dev/null 2>&1; IRON_TEST_TLS_CERT=\"\$d/cert.pem\" IRON_TEST_TLS_KEY=\"\$d/key.pem\" $<TARGET_FILE:test_stdlib_tls>"
+    )
+    set_tests_properties(test_stdlib_tls PROPERTIES
+        LABELS "unit;networking;tls" TIMEOUT 60)
+endif()
+
+if(NOT WIN32)
+    add_test(
+        NAME test_http_iron_concurrency
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_http_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/http_concurrency\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/http_concurrency.iron && actual=\$(\"\$d/http_concurrency\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/http_concurrency.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(test_http_iron_concurrency PROPERTIES
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 60)
+
+    add_test(
+        NAME test_websocket_iron_roundtrip
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_ws_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/websocket_roundtrip\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/websocket_roundtrip.iron && actual=\$(\"\$d/websocket_roundtrip\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/websocket_roundtrip.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(test_websocket_iron_roundtrip PROPERTIES
+        LABELS "integration;networking;websocket;v4-acceptance" TIMEOUT 60)
+
+    add_test(
+        NAME test_file_operations_iron_roundtrip
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_file_ops_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/file_operations_roundtrip\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/file_operations_roundtrip.iron && actual=\$(\"\$d/file_operations_roundtrip\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/file_operations_roundtrip.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(test_file_operations_iron_roundtrip PROPERTIES
+        LABELS "integration;file-io;v4-acceptance" TIMEOUT 60)
+
+    add_test(
+        NAME test_http_example_check
+        COMMAND /bin/sh -c "set -e && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/rest_server.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/https_server.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/https_client.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/websocket_echo_server.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/websocket_echo_secure_server.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/websocket_client.iron 2>&1) && [ -z \"\$output\" ] && output=\$(${CMAKE_BINARY_DIR}/ironc check ${CMAKE_SOURCE_DIR}/examples/networking/file_operations.iron 2>&1) && [ -z \"\$output\" ]"
+    )
+    set_tests_properties(test_http_example_check PROPERTIES
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 30)
+
+    add_test(
+        NAME test_udp_iron_payload_roundtrip
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_udp_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/udp_payload\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/udp_payload_roundtrip.iron && actual=\$(\"\$d/udp_payload\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/udp_payload_roundtrip.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(test_udp_iron_payload_roundtrip PROPERTIES
+        LABELS "integration;networking;v4-acceptance" TIMEOUT 60)
+endif()
+
 # ── Phase 2 (CLI + TOML scaffold) tests ──────────────────────────────────────
 # test_toml_web compiles src/cli/toml.c directly because toml.c is not currently
 # part of any static library (it's linked straight into the ironc executable in

@@ -1,0 +1,61 @@
+-- A small REST API and webpage server. Run with:
+--   ironc build examples/networking/rest_server.iron -o rest_server
+--   ./rest_server
+-- Then open http://127.0.0.1:8080/ or curl /api/status.
+import http
+
+func handle(connection: HttpConnection) -> Int {
+    val request = HttpConnection.read_request(connection, 65536, 1048576, 5000)
+    if request.error != 0 {
+        val bad = Http.text_response(400, "bad request")
+        val ignored = HttpConnection.send_response(connection, bad, 5000)
+        HttpConnection.close(connection)
+        return ignored
+    }
+
+    if request.method == "GET" and request.path == "/" {
+        val page = Http.html_response(200, "<!doctype html><html><head><title>Iron</title></head><body><h1>Iron networking works</h1><p>Try <code>/api/status</code>.</p></body></html>")
+        val sent = HttpConnection.send_response(connection, page, 5000)
+        HttpConnection.close(connection)
+        return sent
+    }
+
+    if request.method == "GET" and request.path == "/api/status" {
+        val response = Http.json_response(200, "\{\"status\":\"ok\",\"language\":\"iron\"\}")
+        val sent = HttpConnection.send_response(connection, response, 5000)
+        HttpConnection.close(connection)
+        return sent
+    }
+
+    if request.method == "POST" and request.path == "/api/items" {
+        val response = Http.json_response(201, "\{\"created\":true\}")
+        val sent = HttpConnection.send_response(connection, response, 5000)
+        HttpConnection.close(connection)
+        return sent
+    }
+
+    val missing = Http.json_response(404, "\{\"error\":\"not found\"\}")
+    val sent = HttpConnection.send_response(connection, missing, 5000)
+    HttpConnection.close(connection)
+    return sent
+}
+
+func main() {
+    val result = Http.listen("127.0.0.1", 8080)
+    if result.error != 0 {
+        println("listen failed: {result.error} {result.error_message}")
+        return
+    }
+    println("Iron HTTP listening on http://127.0.0.1:8080")
+    while true {
+        val accepted = HttpServer.accept(result.server, 60000)
+        if accepted.error == 0 {
+            -- A standalone spawn is intentionally detached and uses the
+            -- runtime pool. Bind it to `val task = spawn(...)` when a caller
+            -- needs to await a result instead.
+            spawn("http-request") {
+                return handle(accepted.connection)
+            }
+        }
+    }
+}

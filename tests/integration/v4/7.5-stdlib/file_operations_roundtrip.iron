@@ -1,0 +1,22 @@
+-- Pure-Iron bounded binary file API acceptance fixture.
+import io
+
+func main() {
+    val source = "/tmp/iron-file-ops-source.bin"
+    val copied_path = "/tmp/iron-file-ops-copy.bin"
+    val moved_path = "/tmp/iron-file-ops-moved.bin"
+    val payload = "binary\0payload"
+    val written = IO.write_bytes(source, payload)
+    val read = IO.read_bytes(source, 1024)
+    val info = IO.file_info(source)
+    val copied = IO.copy_file(source, copied_path, true)
+    val moved = IO.move_file(copied_path, moved_path, true)
+    val moved_read = IO.read_bytes(moved_path, 1024)
+    IO.delete_file(source)
+    IO.delete_file(moved_path)
+    if written.error == 0 and read.error == 0 and read.data == payload and info.exists and info.is_file and copied.error == 0 and moved.error == 0 and moved_read.data == payload {
+        println("file operations roundtrip ok")
+    } else {
+        println("file operations roundtrip failed")
+    }
+}

@@ -280,13 +280,26 @@ add_library(iron_stdlib STATIC
     src/stdlib/iron_log.c
     src/stdlib/iron_hint.c
     src/stdlib/iron_net.c
+    src/stdlib/iron_http.c
+    src/stdlib/iron_tls.c
+    src/stdlib/iron_websocket.c
 )
 target_include_directories(iron_stdlib PUBLIC src)
+find_package(Threads REQUIRED)
+target_link_libraries(iron_stdlib Threads::Threads)
+find_package(OpenSSL QUIET)
+if(OpenSSL_FOUND)
+  target_compile_definitions(iron_stdlib PRIVATE IRON_HAVE_OPENSSL=1)
+  target_link_libraries(iron_stdlib OpenSSL::SSL OpenSSL::Crypto)
+  message(STATUS "Iron: HTTPS/TLS enabled with OpenSSL ${OPENSSL_VERSION}")
+else()
+  message(WARNING "Iron: OpenSSL development files not found; HTTPS returns TLS_UNAVAILABLE")
+endif()
 if(NOT WIN32)
   target_link_libraries(iron_stdlib iron_runtime m)  # -lm for math
 else()
   # ws2_32 + iphlpapi for Winsock 2 + GetAdaptersAddresses (future Phase 59 UDP/DNS)
-  target_link_libraries(iron_stdlib iron_runtime ws2_32 iphlpapi)
+  target_link_libraries(iron_stdlib iron_runtime ws2_32 iphlpapi bcrypt)
 endif()
 
 # ── Fuzz targets (opt-in) ──────────────────────────────────────────────────
@@ -435,6 +448,18 @@ target_compile_definitions(ironc PRIVATE
     IRON_BUILD_DATE="${IRON_BUILD_DATE}"
     IRON_BINARY_NAME="ironc"
 )
+if(OpenSSL_FOUND)
+  # The direct-source build path compiles iron_tls.c alongside generated C.
+  # Preserve the exact installation CMake validated. OpenSSL is keg-only on
+  # Homebrew, so plain -lssl/-lcrypto and the compiler default include paths
+  # are insufficient for programs that ironc builds directly.
+  target_compile_definitions(ironc PRIVATE
+      IRON_CLI_HAVE_OPENSSL=1
+      IRON_CLI_OPENSSL_INCLUDE_DIR="${OPENSSL_INCLUDE_DIR}"
+      IRON_CLI_OPENSSL_SSL_LIBRARY="${OPENSSL_SSL_LIBRARY}"
+      IRON_CLI_OPENSSL_CRYPTO_LIBRARY="${OPENSSL_CRYPTO_LIBRARY}"
+  )
+endif()
 
 # ── ironls language server executable (Phase 2 M1 LSP Core) ──────────────────
 # Second binary next to ironc/iron. Links iron_compiler as a PUBLIC static
