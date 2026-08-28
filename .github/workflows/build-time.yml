@@ -41,6 +41,8 @@ on:
       - 'CMakeLists.txt'
       - 'scripts/ci/**'
       - 'tests/**/CMakeLists.txt'
+      - 'editors/vscode/package.json'
+      - 'editors/vscode/package-lock.json'
       - '.github/workflows/build-time.yml'
   push:
     branches: [main]

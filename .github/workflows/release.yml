@@ -10,6 +10,8 @@ on:
       - 'tests/**'
       - 'CMakeLists.txt'
       - 'scripts/install.sh'
+      - 'editors/vscode/package.json'
+      - 'editors/vscode/package-lock.json'
       - '.github/workflows/release.yml'
   workflow_dispatch:
     inputs:
