@@ -472,6 +472,13 @@
 
       <h2 id="websocket">WebSocket and secure WebSocket</h2>
       <p><code>import websocket</code> supports RFC 6455 clients and HTTP/HTTPS server upgrades. WSS uses the same verified TLS policy as HTTPS.</p>
+      <div class="code-block" data-label="subprotocol negotiation"><pre><code><span class="kw">val</span> connected = <span class="ty">WebSocket</span>.<span class="fn">connect_with_protocols</span>(
+    <span class="st">"wss://events.example.com/graphql"</span>,
+    <span class="st">"Authorization: Bearer token"</span>,
+    [<span class="st">"graphql-transport-ws"</span>, <span class="st">"graphql-ws"</span>],
+    <span class="nu">1048576</span>, <span class="nu">5000</span>,
+)</code></pre></div>
+      <p>Requested protocols preserve preference order. A server uses <code>upgrade_websocket_protocol</code> to select zero or one exact offered token; the negotiated value is returned as <code>connected.protocol</code>. Unsolicited or multiple selections fail the handshake. Raw <code>Sec-WebSocket-*</code> overrides remain forbidden, and extensions are never negotiated until Iron implements their frame semantics.</p>
       <div class="code-block" data-label="WSS client"><pre><code><span class="kw">import</span> websocket
 
 <span class="kw">val</span> connected = <span class="ty">WebSocket</span>.<span class="fn">connect</span>(
@@ -608,7 +615,7 @@
       <h2 id="status">Current implementation status</h2>
       <p><span class="status">● Verified remotely</span> TCP, UDP, IP, DNS, HTTP/HTTPS clients and servers, REST JSON, webpage serving, WebSocket/WSS (including one secure reader with 24 secure writers), exact binary files, and concurrent <code>spawn</code>/<code>await</code> composition pass the Linux x86_64 Debug and Release suites.</p>
       <div class="callout warning">
-        <p><strong>Open production gaps:</strong> <a href="https://github.com/victorl2/iron-lang/issues/89">persistent HTTP connection reuse</a>, <a href="https://github.com/victorl2/iron-lang/issues/91">WebSocket subprotocol/extension negotiation</a>, <a href="https://github.com/victorl2/iron-lang/issues/92">portable TLS dependency discovery and cross-platform secure CI</a>, and complete sanitizer runtimes in the canonical remote container. Current HTTP calls deliberately use one request per connection. Without OpenSSL development headers, plain networking remains available and secure calls return a typed TLS-unavailable error.</p>
+        <p><strong>Open production gaps:</strong> <a href="https://github.com/victorl2/iron-lang/issues/89">persistent HTTP connection reuse</a>, <a href="https://github.com/victorl2/iron-lang/issues/92">portable TLS dependency discovery and cross-platform secure CI</a>, and complete sanitizer runtimes in the canonical remote container. Current HTTP calls deliberately use one request per connection. Without OpenSSL development headers, plain networking remains available and secure calls return a typed TLS-unavailable error.</p>
       </div>
       <p>See the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/networking.md">maintained validation matrix</a> and <a href="https://github.com/victorl2/iron-lang/tree/main/examples/networking">networking examples</a> for source-level evidence.</p>
 

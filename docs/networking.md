@@ -184,6 +184,30 @@ Ping is answered automatically before it is returned. Fragmented messages are
 reassembled and checked against `max_message_bytes`; text and close reasons
 are UTF-8 validated.
 
+Services such as GraphQL or MQTT can request subprotocols in preference order
+without overriding handshake-owned headers:
+
+```iron
+val connected = WebSocket.connect_with_protocols(
+    "wss://events.example.com/graphql",
+    "Authorization: Bearer token",
+    ["graphql-transport-ws", "graphql-ws"],
+    1048576,
+    5000,
+)
+if connected.error == 0 {
+    println("selected {connected.protocol}")
+}
+```
+
+Servers use `upgrade_websocket_protocol(..., selected_protocol, ...)` with
+exactly one protocol offered by the request, or use the original upgrade call
+to select none. The client rejects unsolicited or multiple server selections.
+Raw `Sec-WebSocket-Protocol` and other handshake-owned header overrides remain
+forbidden. Extension offers are never accepted silently: Iron currently emits
+no `Sec-WebSocket-Extensions` response and rejects any extension selected by a
+peer because no extension frame semantics are implemented.
+
 On the server, first read the HTTP request and then transfer connection
 ownership with `HttpConnection.upgrade_websocket` or
 `HttpsConnection.upgrade_websocket`. A successful upgrade owns the original
@@ -316,9 +340,6 @@ document, and JSON POST response.
   Builds without them remain functional for plain networking but HTTPS/WSS
   return `IRON_ERR_TLS_UNAVAILABLE`; the secure suite was compiled and run
   directly on `silvaserver.local` with OpenSSL 3.5.1.
-- WebSocket subprotocol and extension negotiation is not exposed yet; raw
-  attempts to override handshake-owned headers are rejected safely
-  ([#91](https://github.com/victorl2/iron-lang/issues/91)).
 - Installed-compiler TLS dependency discovery and macOS/Windows secure CI need
   dedicated coverage
   ([#92](https://github.com/victorl2/iron-lang/issues/92)).

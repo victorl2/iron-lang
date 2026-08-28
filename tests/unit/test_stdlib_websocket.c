@@ -64,6 +64,7 @@ typedef struct WsServerCase {
     int64_t error;
     Iron_String text;
     Iron_String binary;
+    Iron_String protocol;
 } WsServerCase;
 
 enum { WS_WRITERS = 24 };
@@ -78,13 +79,19 @@ static int server_upgrade(WsServerCase *test, Iron_WebSocket *socket,
         Iron_httpconnection_close(accepted.connection);
         return (int)request.error;
     }
-    Iron_WebSocketResult upgraded = Iron_httpconnection_upgrade_websocket(
-        accepted.connection, request, max_message, 5000);
+    Iron_WebSocketResult upgraded = test->mode == 7 || test->mode == 8
+        ? Iron_httpconnection_upgrade_websocket_protocol(
+            accepted.connection, request,
+            istr(test->mode == 7 ? "graphql-transport-ws" : "mqtt"),
+            max_message, 5000)
+        : Iron_httpconnection_upgrade_websocket(
+            accepted.connection, request, max_message, 5000);
     if (upgraded.error != 0) {
         Iron_httpconnection_close(accepted.connection);
         return (int)upgraded.error;
     }
     *socket = upgraded.socket;
+    test->protocol = upgraded.protocol;
     return 0;
 }
 
@@ -171,6 +178,10 @@ static void *serve_websocket(void *pointer) {
             if (close.error != 0 || close.kind != IRON_WEBSOCKET_CLOSE)
                 test->error = close.error ? close.error : -31;
         }
+    } else if (test->mode == 7) {
+        Iron_WebSocketMessage close = Iron_websocket_receive(socket, 5000);
+        if (close.error != 0 || close.kind != IRON_WEBSOCKET_CLOSE)
+            test->error = close.error ? close.error : -40;
     } else {
         Iron_WebSocketMessage message = Iron_websocket_receive(socket, 5000);
         test->error = message.error;
@@ -391,6 +402,64 @@ void test_websocket_rejects_handshake_header_override(void) {
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_INVALID_ARGUMENT, result.error);
 }
 
+void test_websocket_negotiates_ordered_subprotocols(void) {
+    int64_t port = 0;
+    WsServerCase server;
+    WS_THREAD thread;
+    start_server_case(&server, &thread, 7, &port);
+    char url[128];
+    snprintf(url, sizeof(url), "ws://127.0.0.1:%lld/graphql",
+             (long long)port);
+    Iron_String requested_items[] = {
+        istr("graphql-transport-ws"), istr("graphql-ws")
+    };
+    Iron_List_Iron_String requested = { requested_items, 2, 2 };
+    Iron_WebSocketResult connected = Iron_websocket_connect_with_protocols(
+        istr(url), istr(""), requested, 1024, 5000);
+    TEST_ASSERT_EQUAL_INT64(0, connected.error);
+    TEST_ASSERT_EQUAL_STRING("graphql-transport-ws",
+                             iron_string_cstr(&connected.protocol));
+    TEST_ASSERT_EQUAL_INT64(0, Iron_websocket_close(
+        connected.socket, 1000, istr("negotiated"), 5000));
+    TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
+    TEST_ASSERT_EQUAL_INT64(0, server.error);
+    TEST_ASSERT_EQUAL_STRING("graphql-transport-ws",
+                             iron_string_cstr(&server.protocol));
+    Iron_httpserver_close(server.server);
+}
+
+void test_websocket_rejects_unoffered_server_protocol(void) {
+    int64_t port = 0;
+    WsServerCase server;
+    WS_THREAD thread;
+    start_server_case(&server, &thread, 8, &port);
+    char url[128];
+    snprintf(url, sizeof(url), "ws://127.0.0.1:%lld/protocol",
+             (long long)port);
+    Iron_String requested_items[] = { istr("graphql-transport-ws") };
+    Iron_List_Iron_String requested = { requested_items, 1, 1 };
+    Iron_WebSocketResult connected = Iron_websocket_connect_with_protocols(
+        istr(url), istr(""), requested, 1024, 5000);
+    TEST_ASSERT_NOT_EQUAL(0, connected.error);
+    TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_HANDSHAKE, server.error);
+    Iron_httpserver_close(server.server);
+}
+
+void test_websocket_rejects_invalid_or_duplicate_protocols(void) {
+    Iron_String invalid_items[] = { istr("graphql transport") };
+    Iron_List_Iron_String invalid = { invalid_items, 1, 1 };
+    Iron_WebSocketResult bad = Iron_websocket_connect_with_protocols(
+        istr("ws://127.0.0.1:1/"), istr(""), invalid, 1024, 100);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_INVALID_ARGUMENT, bad.error);
+
+    Iron_String duplicate_items[] = { istr("mqtt"), istr("mqtt") };
+    Iron_List_Iron_String duplicate = { duplicate_items, 2, 2 };
+    bad = Iron_websocket_connect_with_protocols(
+        istr("ws://127.0.0.1:1/"), istr(""), duplicate, 1024, 100);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_INVALID_ARGUMENT, bad.error);
+}
+
 void test_websocket_rejects_noncanonical_client_key(void) {
     int64_t port = 0;
     WsServerCase server;
@@ -477,6 +546,9 @@ int main(void) {
     RUN_TEST(test_websocket_enforces_message_limit);
     RUN_TEST(test_websocket_rejects_invalid_utf8_text);
     RUN_TEST(test_websocket_rejects_handshake_header_override);
+    RUN_TEST(test_websocket_negotiates_ordered_subprotocols);
+    RUN_TEST(test_websocket_rejects_unoffered_server_protocol);
+    RUN_TEST(test_websocket_rejects_invalid_or_duplicate_protocols);
     RUN_TEST(test_websocket_rejects_noncanonical_client_key);
     RUN_TEST(test_websocket_serializes_concurrent_writers);
     RUN_TEST(test_websocket_64_bit_length_binary_roundtrip);

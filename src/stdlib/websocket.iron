@@ -13,6 +13,8 @@ object WebSocketResult {
     val socket: WebSocket
     val error: Int
     val error_message: String
+    -- The negotiated subprotocol, or "" when neither endpoint selected one.
+    val protocol: String
 }
 
 -- kind is 1=text, 2=binary, 8=close, 9=ping, or 10=pong. Ping frames are
@@ -33,11 +35,23 @@ func WebSocket.connect(url: String, headers: String, max_message_bytes: Int, tim
 func WebSocket.connect_with_ca(url: String, headers: String, ca_file: String, max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
 func WebSocket.connect_insecure(url: String, headers: String, max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
 
+-- Request subprotocols in preference order. The server may select zero or one;
+-- a multiple or unsolicited response is rejected. Handshake-owned raw headers
+-- remain forbidden. The CA/insecure variants mirror the basic connect calls.
+func WebSocket.connect_with_protocols(url: String, headers: String, protocols: [String], max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
+func WebSocket.connect_with_ca_and_protocols(url: String, headers: String, ca_file: String, protocols: [String], max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
+func WebSocket.connect_insecure_with_protocols(url: String, headers: String, protocols: [String], max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
+
 -- Read the HTTP upgrade request first, then transfer the connection by calling
 -- upgrade_websocket. On success, do not close the original HTTP connection;
 -- the WebSocket owns it. On failure, ownership stays with the caller.
 func HttpConnection.upgrade_websocket(connection: HttpConnection, request: HttpRequest, max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
 func HttpsConnection.upgrade_websocket(connection: HttpsConnection, request: HttpRequest, max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
+
+-- Select exactly one protocol offered by the client, or pass "" to select
+-- none. Unsupported extension offers are ignored and never negotiated.
+func HttpConnection.upgrade_websocket_protocol(connection: HttpConnection, request: HttpRequest, protocol: String, max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
+func HttpsConnection.upgrade_websocket_protocol(connection: HttpsConnection, request: HttpRequest, protocol: String, max_message_bytes: Int, timeout: Int) -> WebSocketResult {}
 
 func WebSocket.send_text(socket: WebSocket, data: String, timeout: Int) -> Int {}
 func WebSocket.send_bytes(socket: WebSocket, data: String, timeout: Int) -> Int {}
