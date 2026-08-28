@@ -767,6 +767,76 @@ Iron_HttpsServerResult Iron_http_listen_tls(Iron_String host, int64_t port,
     return out;
 }
 
+Iron_HttpsPendingConnectionResult Iron_httpsserver_accept_tcp(
+    Iron_HttpsServer server, int64_t timeout) {
+    Iron_HttpsPendingConnectionResult out;
+    memset(&out, 0, sizeof(out));
+    out.connection.fd = -1;
+    out.error_message = http_str("");
+    if (timeout < 0) {
+        out.error = IRON_ERR_HTTP_INVALID_ARGUMENT;
+        out.error_message = http_str(http_error_message(out.error));
+        return out;
+    }
+    Iron_TlsServerContext *context =
+        (Iron_TlsServerContext *)(intptr_t)server.context;
+    if (server.fd < 0 || !iron_tls_server_context_retain(context)) {
+        out.error = IRON_ERR_TLS_CONTEXT;
+        out.error_message = http_str(http_error_message(out.error));
+        return out;
+    }
+    Iron_TcpListener listener = { server.fd };
+    Iron_Result_TcpSocket_Error accepted = Iron_tcplistener_accept(
+        listener, timeout);
+    if (accepted.v1.code != 0) {
+        iron_tls_server_context_free(context);
+        out.error = accepted.v1.code;
+        out.error_message = http_str(http_error_message(out.error));
+        return out;
+    }
+    out.connection.fd = accepted.v0.fd;
+    out.connection.context = (int64_t)(intptr_t)context;
+    return out;
+}
+
+Iron_HttpsConnectionResult Iron_httpspendingconnection_handshake(
+    Iron_HttpsPendingConnection connection, int64_t timeout) {
+    Iron_HttpsConnectionResult out;
+    memset(&out, 0, sizeof(out));
+    out.connection.fd = -1;
+    out.error_message = http_str("");
+    Iron_TcpSocket socket = { connection.fd };
+    Iron_TlsServerContext *context =
+        (Iron_TlsServerContext *)(intptr_t)connection.context;
+    if (timeout < 0 || socket.fd < 0 || !context) {
+        out.error = IRON_ERR_HTTP_INVALID_ARGUMENT;
+        out.error_message = http_str(http_error_message(out.error));
+        if (socket.fd >= 0) Iron_tcpsocket_close(socket);
+        if (context) iron_tls_server_context_free(context);
+        return out;
+    }
+    Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
+    Iron_TlsStreamResult tls = iron_tls_server_accept(
+        context, socket, deadline);
+    iron_tls_server_context_free(context);
+    if (tls.error.code != 0) {
+        Iron_tcpsocket_close(socket);
+        out.error = tls.error.code;
+        out.error_message = http_str(http_error_message(out.error));
+        return out;
+    }
+    out.connection.fd = socket.fd;
+    out.connection.tls = (int64_t)(intptr_t)tls.stream;
+    return out;
+}
+
+void Iron_httpspendingconnection_close(Iron_HttpsPendingConnection connection) {
+    Iron_TcpSocket socket = { connection.fd };
+    if (socket.fd >= 0) Iron_tcpsocket_close(socket);
+    iron_tls_server_context_free(
+        (Iron_TlsServerContext *)(intptr_t)connection.context);
+}
+
 Iron_HttpsConnectionResult Iron_httpsserver_accept(Iron_HttpsServer server,
                                                     int64_t timeout) {
     Iron_HttpsConnectionResult out;
@@ -779,26 +849,15 @@ Iron_HttpsConnectionResult Iron_httpsserver_accept(Iron_HttpsServer server,
         return out;
     }
     Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
-    Iron_TcpListener listener = { server.fd };
-    Iron_Result_TcpSocket_Error accepted = Iron_tcplistener_accept(
-        listener, Iron_deadline_remaining_ms(deadline));
-    if (accepted.v1.code != 0) {
-        out.error = accepted.v1.code;
-        out.error_message = http_str(http_error_message(out.error));
+    Iron_HttpsPendingConnectionResult accepted = Iron_httpsserver_accept_tcp(
+        server, Iron_deadline_remaining_ms(deadline));
+    if (accepted.error != 0) {
+        out.error = accepted.error;
+        out.error_message = accepted.error_message;
         return out;
     }
-    Iron_TlsStreamResult tls = iron_tls_server_accept(
-        (Iron_TlsServerContext *)(intptr_t)server.context,
-        accepted.v0, deadline);
-    if (tls.error.code != 0) {
-        Iron_tcpsocket_close(accepted.v0);
-        out.error = tls.error.code;
-        out.error_message = http_str(http_error_message(out.error));
-        return out;
-    }
-    out.connection.fd = accepted.v0.fd;
-    out.connection.tls = (int64_t)(intptr_t)tls.stream;
-    return out;
+    return Iron_httpspendingconnection_handshake(
+        accepted.connection, Iron_deadline_remaining_ms(deadline));
 }
 
 int64_t Iron_httpsserver_port(Iron_HttpsServer server) {

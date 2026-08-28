@@ -3,6 +3,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -41,6 +42,7 @@ struct Iron_TlsStream {
 
 struct Iron_TlsServerContext {
     SSL_CTX *context;
+    atomic_uint_fast64_t reference_count;
 };
 
 static int tls_lock_init(Iron_TlsStream *stream) {
@@ -308,6 +310,7 @@ Iron_TlsContextResult iron_tls_server_context_new(Iron_String certificate_file,
         return out;
     }
     context->context = ssl_context;
+    atomic_init(&context->reference_count, 1);
     if (SSL_CTX_set_min_proto_version(ssl_context, TLS1_2_VERSION) != 1) {
         free(certificate);
         free(private_key);
@@ -457,8 +460,17 @@ void iron_tls_stream_close(Iron_TlsStream *stream) {
 
 void iron_tls_server_context_free(Iron_TlsServerContext *context) {
     if (!context) return;
+    if (atomic_fetch_sub_explicit(&context->reference_count, 1,
+                                  memory_order_acq_rel) != 1) return;
     SSL_CTX_free(context->context);
     free(context);
+}
+
+bool iron_tls_server_context_retain(Iron_TlsServerContext *context) {
+    if (!context || !context->context) return false;
+    atomic_fetch_add_explicit(&context->reference_count, 1,
+                              memory_order_relaxed);
+    return true;
 }
 
 bool iron_tls_is_available(void) { return true; }
@@ -516,6 +528,10 @@ Iron_Result_Int_Error iron_tls_write(Iron_TlsStream *stream,
 
 void iron_tls_stream_close(Iron_TlsStream *stream) { (void)stream; }
 void iron_tls_server_context_free(Iron_TlsServerContext *context) { (void)context; }
+bool iron_tls_server_context_retain(Iron_TlsServerContext *context) {
+    (void)context;
+    return false;
+}
 bool iron_tls_is_available(void) { return false; }
 
 #endif

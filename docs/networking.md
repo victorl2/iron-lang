@@ -123,6 +123,29 @@ the `HttpsServer` and `HttpsConnection` methods. See
 The matching private-CA REST client is
 [https_client.iron](../examples/networking/https_client.iron).
 
+Production HTTPS and WSS accept loops should separate TCP admission from TLS:
+
+```iron
+val pending = HttpsServer.accept_tcp(server, 60000)
+if pending.error == 0 {
+    spawn("tls-client") {
+        val secure = HttpsPendingConnection.handshake(pending.connection, 5000)
+        if secure.error != 0 { return secure.error }
+        -- read HTTP or upgrade to WebSocket here
+        HttpsConnection.close(secure.connection)
+        return 0
+    }
+}
+```
+
+The accept deadline applies only while waiting for a TCP client. Each spawned
+handler has an independent handshake deadline, so a raw client that sends no
+TLS ClientHello cannot hold up later clients. `handshake` consumes the pending
+connection on success or failure; call `HttpsPendingConnection.close` instead
+when abandoning it. Pending and established connections safely retain the TLS
+certificate context while an old listener is being drained. The one-step
+`HttpsServer.accept` API remains available for simple, controlled servers.
+
 The certificate and key are loaded into the server context at listen time.
 There is no in-place hot reload: rotate certificates by starting a new server
 context (or restarting the service) with the replacement files, then drain the
@@ -263,7 +286,7 @@ are listed and linked immediately below the matrix.
 | Concurrent native clients | Passing | 32 simultaneous clients; the complete test passed 100/100 repeated runs |
 | Iron `spawn`/`await` HTTP composition | Passing | 8 accepting server tasks + 8 client tasks; passed 20/20 repeated runs |
 | Detached server handlers | Passing | standalone `spawn` is intentional fire-and-forget; example checks without diagnostics |
-| HTTPS verified client and TLS server | Passing | custom CA success, self-signed rejection, hostname mismatch rejection, explicit insecure mode, curl interoperability |
+| HTTPS verified client and TLS server | Passing | custom CA success, self-signed rejection, hostname mismatch rejection, explicit insecure mode, stalled-client admission, curl interoperability |
 | WSS verified client/server upgrade | Passing | C roundtrip plus dependency-free Python TLS/WebSocket interoperability |
 | WebSocket frames and control flow | Passing | masking rules, 7/16/64-bit lengths, binary/text, fragmentation with interleaved ping, pong, close, UTF-8 and protocol rejection |
 | Concurrent WebSocket writers | Passing | 24 simultaneous writers serialized into valid frames with one receiver over both WS and verified WSS |
@@ -299,14 +322,6 @@ document, and JSON POST response.
 - Installed-compiler TLS dependency discovery and macOS/Windows secure CI need
   dedicated coverage
   ([#92](https://github.com/victorl2/iron-lang/issues/92)).
-- A no-overwrite move still has a destination-creation race between its check
-  and rename; platform-specific atomic no-replace primitives are tracked in
-  [#93](https://github.com/victorl2/iron-lang/issues/93).
-- `HttpsServer.accept` currently includes the TLS handshake, so one stalled
-  raw client can occupy one accept loop until its deadline. Use a short finite
-  accept deadline and multiple acceptor tasks for public listeners while the
-  decoupled admission model in
-  [#94](https://github.com/victorl2/iron-lang/issues/94) is implemented.
 
 Each issue contains a minimal code or command reproduction and concrete
 acceptance criteria.

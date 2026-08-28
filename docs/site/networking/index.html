@@ -352,10 +352,19 @@
       <div class="code-block" data-label="HTTPS server"><pre><code><span class="kw">val</span> listening = <span class="ty">Http</span>.<span class="fn">listen_tls</span>(
     <span class="st">"127.0.0.1"</span>, <span class="nu">8443</span>, <span class="st">"cert.pem"</span>, <span class="st">"key.pem"</span>,
 )
-<span class="kw">val</span> accepted = <span class="ty">HttpsServer</span>.<span class="fn">accept</span>(listening.server, <span class="nu">60000</span>)
-<span class="kw">val</span> request = <span class="ty">HttpsConnection</span>.<span class="fn">read_request</span>(
-    accepted.connection, <span class="nu">16384</span>, <span class="nu">1048576</span>, <span class="nu">5000</span>,
-)</code></pre></div>
+<span class="kw">val</span> pending = <span class="ty">HttpsServer</span>.<span class="fn">accept_tcp</span>(listening.server, <span class="nu">60000</span>)
+<span class="kw">if</span> pending.error == <span class="nu">0</span> {
+    <span class="fn">spawn</span>(<span class="st">"tls-client"</span>) {
+        <span class="kw">val</span> secure = <span class="ty">HttpsPendingConnection</span>.<span class="fn">handshake</span>(pending.connection, <span class="nu">5000</span>)
+        <span class="kw">if</span> secure.error != <span class="nu">0</span> { <span class="kw">return</span> secure.error }
+        <span class="kw">val</span> request = <span class="ty">HttpsConnection</span>.<span class="fn">read_request</span>(
+            secure.connection, <span class="nu">16384</span>, <span class="nu">1048576</span>, <span class="nu">5000</span>,
+        )
+        <span class="ty">HttpsConnection</span>.<span class="fn">close</span>(secure.connection)
+        <span class="kw">return</span> request.error
+    }
+}</code></pre></div>
+      <p><code>accept_tcp</code> is bounded only by the listener deadline. Each spawned handler gets a separate TLS handshake deadline, so a raw client that sends no ClientHello cannot block later clients. Handshake consumes the pending connection on either outcome; call <code>HttpsPendingConnection.close</code> when abandoning it. The one-step <code>HttpsServer.accept</code> remains available for controlled servers.</p>
       <div class="callout"><p><strong>Certificate files:</strong> the certificate PEM may contain the leaf followed by intermediates. The private key must match. See the compiler-tested <a href="https://github.com/victorl2/iron-lang/blob/main/examples/networking/https_server.iron">HTTPS server</a> and <a href="https://github.com/victorl2/iron-lang/blob/main/examples/networking/https_client.iron">private-CA REST client</a> examples.</p></div>
       <p>Certificates are loaded when <code>listen_tls</code> creates its server context. Rotate them by starting a replacement context or restarting with the new PEM files, then drain the old listener. For graceful shutdown, stop accepting, close the server, await bound handler tasks, and close their remaining connections. Keep task handles when draining matters; intentionally detached handlers cannot be awaited.</p>
 
@@ -588,7 +597,7 @@
       <ol>
         <li>Bind deliberately: loopback for local tools, a public interface only when intended.</li>
         <li>Set finite accept, header, body, handler, and upstream timeouts.</li>
-        <li>For public HTTPS/WSS listeners, use short accept deadlines and multiple acceptor tasks; the current accept call includes the TLS handshake.</li>
+        <li>For public HTTPS/WSS listeners, use <code>accept_tcp</code>, then run each bounded TLS handshake in its handler task.</li>
         <li>Set endpoint-specific body limits instead of accepting the convenience maximum everywhere.</li>
         <li>Check both transport errors and application status codes.</li>
         <li>Close every accepted connection on every handler path.</li>
@@ -599,7 +608,7 @@
       <h2 id="status">Current implementation status</h2>
       <p><span class="status">● Verified remotely</span> TCP, UDP, IP, DNS, HTTP/HTTPS clients and servers, REST JSON, webpage serving, WebSocket/WSS (including one secure reader with 24 secure writers), exact binary files, and concurrent <code>spawn</code>/<code>await</code> composition pass the Linux x86_64 Debug and Release suites.</p>
       <div class="callout warning">
-        <p><strong>Open production gaps:</strong> <a href="https://github.com/victorl2/iron-lang/issues/89">persistent HTTP connection reuse</a>, <a href="https://github.com/victorl2/iron-lang/issues/91">WebSocket subprotocol/extension negotiation</a>, <a href="https://github.com/victorl2/iron-lang/issues/92">portable TLS dependency discovery and cross-platform secure CI</a>, <a href="https://github.com/victorl2/iron-lang/issues/93">atomic no-overwrite moves under destination races</a>, <a href="https://github.com/victorl2/iron-lang/issues/94">slow-client-resilient HTTPS admission</a>, and complete sanitizer runtimes in the canonical remote container. Current HTTP calls deliberately use one request per connection. Without OpenSSL development headers, plain networking remains available and secure calls return a typed TLS-unavailable error.</p>
+        <p><strong>Open production gaps:</strong> <a href="https://github.com/victorl2/iron-lang/issues/89">persistent HTTP connection reuse</a>, <a href="https://github.com/victorl2/iron-lang/issues/91">WebSocket subprotocol/extension negotiation</a>, <a href="https://github.com/victorl2/iron-lang/issues/92">portable TLS dependency discovery and cross-platform secure CI</a>, and complete sanitizer runtimes in the canonical remote container. Current HTTP calls deliberately use one request per connection. Without OpenSSL development headers, plain networking remains available and secure calls return a typed TLS-unavailable error.</p>
       </div>
       <p>See the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/networking.md">maintained validation matrix</a> and <a href="https://github.com/victorl2/iron-lang/tree/main/examples/networking">networking examples</a> for source-level evidence.</p>
 

@@ -8,6 +8,10 @@
 typedef struct Iron_HttpServer { int64_t fd; } Iron_HttpServer;
 typedef struct Iron_HttpConnection { int64_t fd; } Iron_HttpConnection;
 typedef struct Iron_HttpsServer { int64_t fd; int64_t context; } Iron_HttpsServer;
+typedef struct Iron_HttpsPendingConnection {
+    int64_t fd;
+    int64_t context;
+} Iron_HttpsPendingConnection;
 typedef struct Iron_HttpsConnection { int64_t fd; int64_t tls; } Iron_HttpsConnection;
 
 typedef struct Iron_HttpServerResult {
@@ -33,6 +37,12 @@ typedef struct Iron_HttpsConnectionResult {
     int64_t error;
     Iron_String error_message;
 } Iron_HttpsConnectionResult;
+
+typedef struct Iron_HttpsPendingConnectionResult {
+    Iron_HttpsPendingConnection connection;
+    int64_t error;
+    Iron_String error_message;
+} Iron_HttpsPendingConnectionResult;
 
 typedef struct Iron_HttpRequest {
     Iron_String method;
@@ -75,6 +85,11 @@ Iron_HttpsServerResult Iron_http_listen_tls(Iron_String host, int64_t port,
                                              Iron_String private_key_file);
 Iron_HttpsConnectionResult Iron_httpsserver_accept(Iron_HttpsServer server,
                                                     int64_t timeout);
+Iron_HttpsPendingConnectionResult Iron_httpsserver_accept_tcp(
+    Iron_HttpsServer server, int64_t timeout);
+Iron_HttpsConnectionResult Iron_httpspendingconnection_handshake(
+    Iron_HttpsPendingConnection connection, int64_t timeout);
+void Iron_httpspendingconnection_close(Iron_HttpsPendingConnection connection);
 int64_t Iron_httpsserver_port(Iron_HttpsServer server);
 void Iron_httpsserver_close(Iron_HttpsServer server);
 Iron_HttpRequest Iron_httpsconnection_read_request(Iron_HttpsConnection connection,

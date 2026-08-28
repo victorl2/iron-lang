@@ -26,6 +26,14 @@ object HttpsConnection {
     val tls: Int
 }
 
+-- A TCP connection accepted by an HTTPS listener whose TLS handshake has not
+-- run yet. This resource owns both the socket and a reference to the server's
+-- certificate context until handshake or close consumes it.
+object HttpsPendingConnection {
+    val fd: Int
+    val context: Int
+}
+
 object HttpServerResult {
     val server: HttpServer
     val error: Int
@@ -46,6 +54,12 @@ object HttpsServerResult {
 
 object HttpsConnectionResult {
     val connection: HttpsConnection
+    val error: Int
+    val error_message: String
+}
+
+object HttpsPendingConnectionResult {
+    val connection: HttpsPendingConnection
     val error: Int
     val error_message: String
 }
@@ -88,6 +102,12 @@ func HttpConnection.close(connection: HttpConnection) {}
 -- intermediates in PEM order. The private key must match the leaf certificate.
 func Http.listen_tls(host: String, port: Int, certificate_file: String, private_key_file: String) -> HttpsServerResult {}
 func HttpsServer.accept(server: HttpsServer, timeout: Int) -> HttpsConnectionResult {}
+-- Resilient admission model: accept_tcp is bounded only by the listener
+-- deadline. Move the returned pending connection into a handler task and give
+-- handshake its own shorter deadline. Both handshake and close consume it.
+func HttpsServer.accept_tcp(server: HttpsServer, timeout: Int) -> HttpsPendingConnectionResult {}
+func HttpsPendingConnection.handshake(connection: HttpsPendingConnection, timeout: Int) -> HttpsConnectionResult {}
+func HttpsPendingConnection.close(connection: HttpsPendingConnection) {}
 func HttpsServer.port(server: HttpsServer) -> Int {}
 func HttpsServer.close(server: HttpsServer) {}
 func HttpsConnection.read_request(connection: HttpsConnection, max_header_bytes: Int, max_body_bytes: Int, timeout: Int) -> HttpRequest {}
