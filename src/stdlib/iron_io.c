@@ -7,6 +7,12 @@
 #include <sys/stat.h>
 #include <dirent.h>  /* WINDOWS-TODO: no dirent.h on Windows — use FindFirstFile/FindNextFile/FindClose from <windows.h> */
 #include <errno.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 /* ── File I/O ────────────────────────────────────────────────────────────── */
 
@@ -604,31 +610,149 @@ Iron_FileWriteResult Iron_io_move_file(Iron_String source,
             return io_write_result(0, IRON_ERR_IO_ALREADY_EXISTS);
         }
     }
-#ifdef _WIN32
-    if (overwrite) remove(destination_text);
-#endif
-    if (rename(source_text, destination_text) == 0) {
+#ifndef _WIN32
+    /* POSIX rename(2) always replaces an existing destination.  For the
+     * no-overwrite contract, link(2) is the portable atomic create-if-absent
+     * primitive: either our source inode becomes the destination, or a racing
+     * creator wins and link reports EEXIST.  Unlinking the old name completes
+     * the move without opening a stat/rename race. */
+    int move_result = overwrite
+        ? rename(source_text, destination_text)
+        : link(source_text, destination_text);
+    if (move_result == 0) {
+        if (!overwrite && unlink(source_text) != 0) {
+            /* Both names still refer to the same inode.  Do not remove the
+             * successfully committed destination: callers can safely retry
+             * cleanup of the source and no data has been lost. */
+            free(source_text);
+            free(destination_text);
+            return io_write_result((int64_t)source_info.st_size,
+                                   IRON_ERR_IO_WRITE);
+        }
         int64_t size = (int64_t)source_info.st_size;
         free(source_text);
         free(destination_text);
         return io_write_result(size, 0);
     }
     int rename_error = errno;
-    free(source_text);
-    free(destination_text);
 #ifdef EXDEV
     if (rename_error == EXDEV) {
-        Iron_FileWriteResult copied = Iron_io_copy_file(
-            source, destination, overwrite);
-        if (copied.error != 0) return copied;
-        char *source_again = NULL;
-        if (io_path_copy(source, &source_again) <= 0 || remove(source_again) != 0) {
+        if (overwrite) {
+            free(source_text);
+            free(destination_text);
+            Iron_FileWriteResult copied = Iron_io_copy_file(
+                source, destination, true);
+            if (copied.error != 0) return copied;
+            char *source_again = NULL;
+            if (io_path_copy(source, &source_again) <= 0 ||
+                remove(source_again) != 0) {
+                free(source_again);
+                return io_write_result(copied.bytes, IRON_ERR_IO_WRITE);
+            }
             free(source_again);
-            return io_write_result(copied.bytes, IRON_ERR_IO_WRITE);
+            return copied;
         }
-        free(source_again);
-        return copied;
+
+        /* A cross-device no-overwrite move must not expose a partial target or
+         * let a racing creator be replaced.  Copy to an exclusive temporary
+         * file in the destination filesystem, flush it, then atomically link
+         * that complete file into the requested name. */
+        size_t destination_length = strlen(destination_text);
+        static const char suffix[] = ".iron-move-XXXXXX";
+        char *temporary = (char *)malloc(destination_length + sizeof(suffix));
+        if (!temporary) {
+            free(source_text);
+            free(destination_text);
+            return io_write_result(0, IRON_ERR_IO_NO_MEMORY);
+        }
+        memcpy(temporary, destination_text, destination_length);
+        memcpy(temporary + destination_length, suffix, sizeof(suffix));
+        int temporary_fd = mkstemp(temporary);
+        if (temporary_fd < 0) {
+            int temporary_error = errno;
+            free(temporary);
+            free(source_text);
+            free(destination_text);
+            return io_write_result(0, io_error_from_errno(temporary_error));
+        }
+        (void)fchmod(temporary_fd, source_info.st_mode & 0777);
+        FILE *input = fopen(source_text, "rb");
+        FILE *output = fdopen(temporary_fd, "wb");
+        int64_t total = 0;
+        int failed = !input || !output;
+        if (!output) close(temporary_fd);
+        uint8_t buffer[64 * 1024];
+        while (!failed) {
+            size_t received = fread(buffer, 1, sizeof(buffer), input);
+            if (received == 0) {
+                if (ferror(input)) failed = 1;
+                break;
+            }
+            size_t written = 0;
+            while (written < received) {
+                size_t count = fwrite(buffer + written, 1,
+                                      received - written, output);
+                if (count == 0) { failed = 1; break; }
+                written += count;
+                total += (int64_t)count;
+            }
+        }
+        if (output && (fflush(output) != 0 || fsync(fileno(output)) != 0)) {
+            failed = 1;
+        }
+        if (input && fclose(input) != 0) failed = 1;
+        if (output && fclose(output) != 0) failed = 1;
+        if (failed) {
+            unlink(temporary);
+            free(temporary);
+            free(source_text);
+            free(destination_text);
+            return io_write_result(total, IRON_ERR_IO_WRITE);
+        }
+        if (link(temporary, destination_text) != 0) {
+            int commit_error = errno;
+            unlink(temporary);
+            free(temporary);
+            free(source_text);
+            free(destination_text);
+            return io_write_result(0, io_error_from_errno(commit_error));
+        }
+        unlink(temporary);
+        free(temporary);
+        if (unlink(source_text) != 0) {
+            free(source_text);
+            free(destination_text);
+            return io_write_result(total, IRON_ERR_IO_WRITE);
+        }
+        free(source_text);
+        free(destination_text);
+        return io_write_result(total, 0);
     }
 #endif
+    free(source_text);
+    free(destination_text);
     return io_write_result(0, io_error_from_errno(rename_error));
+#else
+    /* MoveFileEx without MOVEFILE_REPLACE_EXISTING is Windows' atomic
+     * no-replace primitive.  MOVEFILE_COPY_ALLOWED supplies the cross-volume
+     * fallback while retaining the same destination-exists contract. */
+    DWORD flags = MOVEFILE_COPY_ALLOWED;
+    if (overwrite) flags |= MOVEFILE_REPLACE_EXISTING;
+    if (MoveFileExA(source_text, destination_text, flags)) {
+        int64_t size = (int64_t)source_info.st_size;
+        free(source_text);
+        free(destination_text);
+        return io_write_result(size, 0);
+    }
+    DWORD move_error = GetLastError();
+    free(source_text);
+    free(destination_text);
+    if (move_error == ERROR_ALREADY_EXISTS || move_error == ERROR_FILE_EXISTS) {
+        return io_write_result(0, IRON_ERR_IO_ALREADY_EXISTS);
+    }
+    if (move_error == ERROR_ACCESS_DENIED) {
+        return io_write_result(0, IRON_ERR_IO_PERMISSION);
+    }
+    return io_write_result(0, IRON_ERR_IO_OTHER);
+#endif
 }

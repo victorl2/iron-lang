@@ -35,6 +35,8 @@
 #include "unity.h"
 
 #include <errno.h>
+#include <stdatomic.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,7 +73,7 @@ static void sandbox_nuke(void) {
     const char *names[] = {
         "a.txt", "b.txt", "c.txt", "hello.txt", "lines.txt", "append.txt",
         "bytes.bin", "bounded.bin", "copied.bin", "moved.bin", "written.txt",
-        "nope.txt", NULL
+        "nope.txt", "race-source.bin", "race-target.bin", NULL
     };
     for (int i = 0; names[i]; i++) {
         snprintf(path, sizeof(path), "%s/%s", s_sandbox, names[i]);
@@ -392,6 +394,83 @@ void test_io_text_append_info_copy_move(void) {
     TEST_ASSERT_TRUE(Iron_io_file_info(moved_path).exists);
 }
 
+typedef struct MoveRaceArgs {
+    Iron_String source;
+    Iron_String destination;
+    atomic_bool *start;
+    Iron_FileWriteResult moved;
+    int create_error;
+} MoveRaceArgs;
+
+static void *move_race_mover(void *opaque) {
+    MoveRaceArgs *args = (MoveRaceArgs *)opaque;
+    while (!atomic_load_explicit(args->start, memory_order_acquire)) { }
+    args->moved = Iron_io_move_file(args->source, args->destination, false);
+    return NULL;
+}
+
+static void *move_race_creator(void *opaque) {
+    MoveRaceArgs *args = (MoveRaceArgs *)opaque;
+    while (!atomic_load_explicit(args->start, memory_order_acquire)) { }
+    const char winner[] = "creator";
+    FILE *file = fopen(iron_string_cstr(&args->destination), "wbx");
+    if (!file) {
+        args->create_error = errno;
+        return NULL;
+    }
+    size_t written = fwrite(winner, 1, sizeof(winner) - 1, file);
+    int close_error = fclose(file);
+    args->create_error = written == sizeof(winner) - 1 && close_error == 0
+        ? 0 : EIO;
+    return NULL;
+}
+
+void test_io_no_overwrite_move_is_atomic_against_creator(void) {
+    Iron_String source = mkpath("race-source.bin");
+    Iron_String destination = mkpath("race-target.bin");
+
+    for (int round = 0; round < 500; round++) {
+        unlink(iron_string_cstr(&source));
+        unlink(iron_string_cstr(&destination));
+        Iron_FileWriteResult seeded = Iron_io_write_bytes(
+            source, make_str("source"));
+        TEST_ASSERT_EQUAL_INT64(0, seeded.error);
+
+        atomic_bool start;
+        atomic_init(&start, false);
+        MoveRaceArgs args = {
+            .source = source,
+            .destination = destination,
+            .start = &start,
+            .moved = {0},
+            .create_error = -1,
+        };
+        pthread_t mover;
+        pthread_t creator;
+        TEST_ASSERT_EQUAL_INT(0, pthread_create(&mover, NULL,
+                                                move_race_mover, &args));
+        TEST_ASSERT_EQUAL_INT(0, pthread_create(&creator, NULL,
+                                                move_race_creator, &args));
+        atomic_store_explicit(&start, true, memory_order_release);
+        TEST_ASSERT_EQUAL_INT(0, pthread_join(mover, NULL));
+        TEST_ASSERT_EQUAL_INT(0, pthread_join(creator, NULL));
+
+        Iron_FileReadResult final = Iron_io_read_bytes(destination, 16);
+        TEST_ASSERT_EQUAL_INT64(0, final.error);
+        if (args.moved.error == 0) {
+            TEST_ASSERT_EQUAL_INT(EEXIST, args.create_error);
+            TEST_ASSERT_EQUAL_STRING("source", iron_string_cstr(&final.data));
+            TEST_ASSERT_FALSE(Iron_io_file_info(source).exists);
+        } else {
+            TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_ALREADY_EXISTS,
+                                    args.moved.error);
+            TEST_ASSERT_EQUAL_INT(0, args.create_error);
+            TEST_ASSERT_EQUAL_STRING("creator", iron_string_cstr(&final.data));
+            TEST_ASSERT_TRUE(Iron_io_file_info(source).exists);
+        }
+    }
+}
+
 /* ── main ────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -410,5 +489,6 @@ int main(void) {
     RUN_TEST(test_io_read_lines);
     RUN_TEST(test_io_bounded_binary_roundtrip);
     RUN_TEST(test_io_text_append_info_copy_move);
+    RUN_TEST(test_io_no_overwrite_move_is_atomic_against_creator);
     return UNITY_END();
 }

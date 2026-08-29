@@ -199,6 +199,13 @@ Available result-returning operations are `read_text`, `read_bytes`,
 limit before allocating. Writes report the committed byte count and surface
 open, write, flush, and close errors. Copy/move take an explicit `overwrite`
 flag. See [file_operations.iron](../examples/networking/file_operations.iron).
+With `overwrite=false`, move commits the destination atomically: if another
+task or process creates that path first, the move returns
+`IRON_ERR_IO_ALREADY_EXISTS` and preserves both the source and the winning
+destination. POSIX filesystems use an atomic hard-link commit (including after
+a cross-device temporary copy); Windows uses `MoveFileEx` without replacement.
+Filesystems that cannot provide that primitive return an error instead of
+falling back to a racy check-then-rename.
 
 ## Framing and limits
 

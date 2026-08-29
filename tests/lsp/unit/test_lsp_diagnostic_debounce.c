@@ -5,7 +5,8 @@
  *
  *   1. Rapid COMPILE posts (< 50ms apart) trigger exactly one call into
  *      the facade (coalescing + debounce).
- *   2. A COMPILE post 300ms AFTER another COMPILE triggers two calls.
+ *   2. A COMPILE posted after the previous debounced call completes
+ *      triggers a second call.
  *
  * The test provides its own definitions of ilsp_facade_compile and
  * ilsp_facade_pull_diagnostic as link-time stubs (CMake is configured
@@ -69,6 +70,15 @@ static void sleep_ms(int ms) {
     nanosleep(&req, NULL);
 }
 
+static bool wait_for_compile_calls(int expected, int timeout_ms) {
+    uint64_t deadline = now_ms() + (uint64_t)timeout_ms;
+    while (atomic_load(&g_facade_compile_calls) < expected) {
+        if (now_ms() >= deadline) return false;
+        sleep_ms(5);
+    }
+    return true;
+}
+
 /* Minimal fake document + server. The worker touches doc->mailbox,
  * doc->abort_jmp, doc->abort_count, doc->quarantined, doc->shutdown,
  * doc->uri. Nothing else needs to be wired. */
@@ -106,9 +116,13 @@ static void test_rapid_compiles_coalesce_to_one_call(void) {
         sleep_ms(10);  /* 10ms gap between posts */
     }
 
-    /* Wait out the debounce + slack. After 500ms, the worker has had
-     * 250ms of idle to run exactly one compile. */
-    sleep_ms(500);
+    /* Wait for the worker instead of assuming the CI host schedules it
+     * within a fixed wall-clock interval. Once the call arrives, a full
+     * debounce window without another call proves that the burst stayed
+     * coalesced. */
+    TEST_ASSERT_TRUE_MESSAGE(wait_for_compile_calls(1, 2000),
+        "rapid-burst COMPILE did not run before the test deadline");
+    sleep_ms(300);
 
     int calls = atomic_load(&g_facade_compile_calls);
     int32_t v = atomic_load(&g_last_compile_version);
@@ -121,7 +135,7 @@ static void test_rapid_compiles_coalesce_to_one_call(void) {
     destroy_doc(doc);
 }
 
-/* ── Test 2: COMPILE, sleep 350ms, COMPILE -> 2 facade calls ────────── */
+/* ── Test 2: completed COMPILE, then COMPILE -> 2 facade calls ─────── */
 static void test_spaced_compiles_trigger_two_calls(void) {
     atomic_store(&g_facade_compile_calls, 0);
 
@@ -132,11 +146,12 @@ static void test_spaced_compiles_trigger_two_calls(void) {
     TEST_ASSERT_TRUE(ilsp_ast_worker_start(&server, doc));
 
     ilsp_mailbox_post_compile(doc->mailbox, 1, NULL);
-    /* Wait out the first compile's debounce + slack. */
-    sleep_ms(350);
+    TEST_ASSERT_TRUE_MESSAGE(wait_for_compile_calls(1, 2000),
+        "first spaced COMPILE did not run before the test deadline");
 
     ilsp_mailbox_post_compile(doc->mailbox, 2, NULL);
-    sleep_ms(350);
+    TEST_ASSERT_TRUE_MESSAGE(wait_for_compile_calls(2, 2000),
+        "second spaced COMPILE did not run before the test deadline");
 
     int calls = atomic_load(&g_facade_compile_calls);
     TEST_ASSERT_EQUAL_INT_MESSAGE(2, calls,
@@ -169,15 +184,14 @@ static void test_debounce_observes_250ms(void) {
     }
     uint64_t observed = now_ms() - t0;
 
-    /* Debounce is 250ms nominal. The original tolerance was +/-100ms
-     * (150-350ms window), but GitHub-hosted macos-latest runners
-     * regularly observe 350-450ms wall-clock for the same workload due
-     * to shared-host scheduling jitter. Widen tolerance to +/-250ms
-     * (window 0-500ms) — still tight enough to catch a missing debounce
-     * (would be ~5ms) but loose enough not to flake on noisy CI. */
-    TEST_ASSERT_INT_WITHIN_MESSAGE(250 /*+- tol*/, 250 /*target*/,
-                                    (int)observed,
-        "observed debounce deviates from 250ms beyond +-250ms tolerance");
+    /* Scheduling can delay a worker on a shared CI host, but it cannot
+     * legitimately make the 250ms debounce expire early. Keep a strict
+     * lower bound to catch a missing debounce and a generous upper bound
+     * that matches the explicit test deadline. */
+    TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(200, (int)observed,
+        "observed debounce expired too early");
+    TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(2000, (int)observed,
+        "observed debounce exceeded the test deadline");
     (void)elapsed;
 
     ilsp_ast_worker_shutdown_and_join(doc);
