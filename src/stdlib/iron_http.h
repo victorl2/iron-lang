@@ -75,6 +75,19 @@ typedef struct Iron_HttpResponse {
     Iron_String error_message;
 } Iron_HttpResponse;
 
+/* The string fields returned in HTTP results and models are owned by the
+ * returned value. These functions consume that ownership. Copies made before
+ * release must not be used afterwards. Resource handles are not closed. */
+void Iron_httpserverresult_release(Iron_HttpServerResult result);
+void Iron_httpconnectionresult_release(Iron_HttpConnectionResult result);
+void Iron_httpsserverresult_release(Iron_HttpsServerResult result);
+void Iron_httpsconnectionresult_release(Iron_HttpsConnectionResult result);
+void Iron_httpspendingconnectionresult_release(
+    Iron_HttpsPendingConnectionResult result);
+void Iron_httpclientresult_release(Iron_HttpClientResult result);
+void Iron_httprequest_release(Iron_HttpRequest request);
+void Iron_httpresponse_release(Iron_HttpResponse response);
+
 Iron_HttpServerResult Iron_http_listen(Iron_String host, int64_t port);
 Iron_HttpConnectionResult Iron_httpserver_accept(Iron_HttpServer server,
                                                   int64_t timeout);

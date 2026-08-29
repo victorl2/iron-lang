@@ -14,7 +14,9 @@ func main() {
     )
     if response.error != 0 {
         println("HTTPS request failed: {response.error} {response.error_message}")
+        HttpResponse.release(response)
         return
     }
     println("HTTPS {response.status}: {response.body}")
+    HttpResponse.release(response)
 }

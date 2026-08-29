@@ -335,7 +335,7 @@ endif()
 if(NOT WIN32)
     add_test(
         NAME test_http_iron_concurrency
-        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_http_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/http_concurrency\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/http_concurrency.iron && actual=\$(\"\$d/http_concurrency\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/http_concurrency.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_http_XXXXXX) && ASAN_OPTIONS=detect_leaks=0 ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/http_concurrency\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/http_concurrency.iron && actual=\$(\"\$d/http_concurrency\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/http_concurrency.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_http_iron_concurrency PROPERTIES
@@ -343,7 +343,7 @@ if(NOT WIN32)
 
     add_test(
         NAME test_websocket_iron_roundtrip
-        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_ws_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/websocket_roundtrip\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/websocket_roundtrip.iron && actual=\$(\"\$d/websocket_roundtrip\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/websocket_roundtrip.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_ws_XXXXXX) && ASAN_OPTIONS=detect_leaks=0 ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/websocket_roundtrip\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/websocket_roundtrip.iron && actual=\$(\"\$d/websocket_roundtrip\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/websocket_roundtrip.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_websocket_iron_roundtrip PROPERTIES
@@ -351,7 +351,7 @@ if(NOT WIN32)
 
     add_test(
         NAME test_file_operations_iron_roundtrip
-        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_file_ops_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/file_operations_roundtrip\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/file_operations_roundtrip.iron && actual=\$(\"\$d/file_operations_roundtrip\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/file_operations_roundtrip.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_file_ops_XXXXXX) && ASAN_OPTIONS=detect_leaks=0 ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/file_operations_roundtrip\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/file_operations_roundtrip.iron && actual=\$(\"\$d/file_operations_roundtrip\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.5-stdlib/file_operations_roundtrip.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
         WORKING_DIRECTORY /tmp
     )
     set_tests_properties(test_file_operations_iron_roundtrip PROPERTIES

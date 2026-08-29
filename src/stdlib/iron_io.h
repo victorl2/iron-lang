@@ -37,6 +37,11 @@ typedef struct Iron_FileInfo {
 } Iron_FileInfo;
 #endif
 
+/* Consume strings owned by the explicit file result models. */
+void Iron_filereadresult_release(Iron_FileReadResult result);
+void Iron_filewriteresult_release(Iron_FileWriteResult result);
+void Iron_fileinfo_release(Iron_FileInfo info);
+
 /* ── File I/O ────────────────────────────────────────────────────────────── */
 Iron_Result_String_Error Iron_io_read_file_result(Iron_String path);
 Iron_Error               Iron_io_write_file(Iron_String path, Iron_String content);

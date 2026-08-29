@@ -3,33 +3,55 @@ import websocket
 
 func serve_one(server: HttpServer) -> Int {
     val accepted = HttpServer.accept(server, 5000)
-    if accepted.error != 0 { return accepted.error }
+    if accepted.error != 0 {
+        val error = accepted.error
+        HttpConnectionResult.release(accepted)
+        return error
+    }
     val request = HttpConnection.read_request(accepted.connection, 16384, 1024, 5000)
     if request.error != 0 {
+        val error = request.error
+        HttpRequest.release(request)
         HttpConnection.close(accepted.connection)
-        return request.error
+        HttpConnectionResult.release(accepted)
+        return error
     }
     val upgraded = HttpConnection.upgrade_websocket(accepted.connection, request, 4096, 5000)
     if upgraded.error != 0 {
+        val error = upgraded.error
+        WebSocketResult.release(upgraded)
+        HttpRequest.release(request)
         HttpConnection.close(accepted.connection)
-        return upgraded.error
+        HttpConnectionResult.release(accepted)
+        return error
     }
+    HttpRequest.release(request)
+    HttpConnectionResult.release(accepted)
     val message = WebSocket.receive(upgraded.socket, 5000)
     if message.error != 0 {
+        val error = message.error
+        WebSocketMessage.release(message)
         WebSocket.abort(upgraded.socket)
-        return message.error
+        WebSocketResult.release(upgraded)
+        return error
     }
     val sent = WebSocket.send_text(upgraded.socket, message.data, 5000)
+    WebSocketMessage.release(message)
     if sent != 0 {
         WebSocket.abort(upgraded.socket)
+        WebSocketResult.release(upgraded)
         return sent
     }
     val closed = WebSocket.receive(upgraded.socket, 5000)
     if closed.error != 0 or closed.kind != 8 {
+        WebSocketMessage.release(closed)
         WebSocket.abort(upgraded.socket)
+        WebSocketResult.release(upgraded)
         return -10
     }
+    WebSocketMessage.release(closed)
     WebSocket.abort(upgraded.socket)
+    WebSocketResult.release(upgraded)
     return 0
 }
 
@@ -37,16 +59,21 @@ func main() {
     val listening = Http.listen("127.0.0.1", 0)
     if listening.error != 0 {
         println("websocket failed: {listening.error}")
+        HttpServerResult.release(listening)
         return
     }
     val port = HttpServer.port(listening.server)
     val server_task = spawn("websocket-server") {
         return serve_one(listening.server)
     }
-    val connected = WebSocket.connect("ws://127.0.0.1:{port}/echo", "", 4096, 5000)
+    val url = "ws://127.0.0.1:{port}/echo"
+    val connected = WebSocket.connect(url, "", 4096, 5000)
+    url.release()
     if connected.error != 0 {
         println("websocket failed: {connected.error}")
+        WebSocketResult.release(connected)
         HttpServer.close(listening.server)
+        HttpServerResult.release(listening)
         return
     }
     val sent = WebSocket.send_text(connected.socket, "pure Iron websocket", 5000)
@@ -54,7 +81,11 @@ func main() {
     val closed = WebSocket.close(connected.socket, 1000, "done", 5000)
     val server_error = await server_task
     HttpServer.close(listening.server)
-    if sent == 0 and echoed.error == 0 and echoed.data == "pure Iron websocket" and closed == 0 and server_error == 0 {
+    val success = sent == 0 and echoed.error == 0 and echoed.data == "pure Iron websocket" and closed == 0 and server_error == 0
+    WebSocketMessage.release(echoed)
+    WebSocketResult.release(connected)
+    HttpServerResult.release(listening)
+    if success {
         println("websocket roundtrip ok")
     } else {
         println("websocket failed")

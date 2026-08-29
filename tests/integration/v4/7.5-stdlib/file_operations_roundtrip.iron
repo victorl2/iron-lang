@@ -14,7 +14,14 @@ func main() {
     val moved_read = IO.read_bytes(moved_path, 1024)
     IO.delete_file(source)
     IO.delete_file(moved_path)
-    if written.error == 0 and read.error == 0 and read.data == payload and info.exists and info.is_file and copied.error == 0 and moved.error == 0 and moved_read.data == payload {
+    val success = written.error == 0 and read.error == 0 and read.data == payload and info.exists and info.is_file and copied.error == 0 and moved.error == 0 and moved_read.data == payload
+    FileWriteResult.release(written)
+    FileReadResult.release(read)
+    FileInfo.release(info)
+    FileWriteResult.release(copied)
+    FileWriteResult.release(moved)
+    FileReadResult.release(moved_read)
+    if success {
         println("file operations roundtrip ok")
     } else {
         println("file operations roundtrip failed")

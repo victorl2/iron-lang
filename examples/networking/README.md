@@ -21,6 +21,9 @@ must be awaited; leave it standalone for an intentionally detached handler.
 
 The complete practical guide is published at
 [ironlang.dev/networking](https://ironlang.dev/networking/).
+Every example also demonstrates the consuming `release` calls required for
+HTTP, WebSocket, and file result strings. Close or transfer a resource handle
+first, then release its result model; never reuse a by-value alias afterwards.
 
 Additional compiler-tested examples:
 

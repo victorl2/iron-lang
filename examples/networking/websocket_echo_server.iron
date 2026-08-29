@@ -7,40 +7,58 @@ import websocket
 func handle_websocket(connection: HttpConnection) -> Int {
     val request = HttpConnection.read_request(connection, 16384, 1024, 5000)
     if request.error != 0 {
+        val error = request.error
+        HttpRequest.release(request)
         HttpConnection.close(connection)
-        return request.error
+        return error
     }
     val upgraded = HttpConnection.upgrade_websocket_protocol(
         connection, request, "iron.echo.v1", 1048576, 5000)
     if upgraded.error != 0 {
+        val error = upgraded.error
+        WebSocketResult.release(upgraded)
+        HttpRequest.release(request)
         HttpConnection.close(connection)
-        return upgraded.error
+        return error
     }
+    HttpRequest.release(request)
     while WebSocket.is_open(upgraded.socket) {
         val message = WebSocket.receive(upgraded.socket, 60000)
         if message.error != 0 {
+            val error = message.error
+            WebSocketMessage.release(message)
             WebSocket.abort(upgraded.socket)
-            return message.error
+            WebSocketResult.release(upgraded)
+            return error
         }
         if message.kind == 8 {
+            WebSocketMessage.release(message)
             WebSocket.abort(upgraded.socket)
+            WebSocketResult.release(upgraded)
             return 0
         }
         if message.kind == 1 {
             val sent = WebSocket.send_text(upgraded.socket, message.data, 5000)
             if sent != 0 {
+                WebSocketMessage.release(message)
                 WebSocket.abort(upgraded.socket)
+                WebSocketResult.release(upgraded)
                 return sent
             }
         }
         if message.kind == 2 {
             val sent = WebSocket.send_bytes(upgraded.socket, message.data, 5000)
             if sent != 0 {
+                WebSocketMessage.release(message)
                 WebSocket.abort(upgraded.socket)
+                WebSocketResult.release(upgraded)
                 return sent
             }
         }
+        WebSocketMessage.release(message)
     }
+    WebSocket.abort(upgraded.socket)
+    WebSocketResult.release(upgraded)
     return 0
 }
 
@@ -48,15 +66,22 @@ func main() {
     val listening = Http.listen("127.0.0.1", 8081)
     if listening.error != 0 {
         println("listen failed: {listening.error} {listening.error_message}")
+        HttpServerResult.release(listening)
         return
     }
+    val server = listening.server
+    HttpServerResult.release(listening)
     println("WebSocket echo server: ws://127.0.0.1:8081/echo")
     while true {
-        val accepted = HttpServer.accept(listening.server, 60000)
+        val accepted = HttpServer.accept(server, 60000)
         if accepted.error == 0 {
+            val connection = accepted.connection
+            HttpConnectionResult.release(accepted)
             spawn("websocket-client") {
-                return handle_websocket(accepted.connection)
+                return handle_websocket(connection)
             }
+        } else {
+            HttpConnectionResult.release(accepted)
         }
     }
 }

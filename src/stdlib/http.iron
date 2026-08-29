@@ -103,6 +103,17 @@ object HttpResponse {
     val error_message: String
 }
 
+-- Result/model strings are owned by the returned value. `release` consumes
+-- that ownership; the value and any by-value aliases must not be used again.
+func HttpServerResult.release(result: HttpServerResult) {}
+func HttpConnectionResult.release(result: HttpConnectionResult) {}
+func HttpsServerResult.release(result: HttpsServerResult) {}
+func HttpsConnectionResult.release(result: HttpsConnectionResult) {}
+func HttpsPendingConnectionResult.release(result: HttpsPendingConnectionResult) {}
+func HttpClientResult.release(result: HttpClientResult) {}
+func HttpRequest.release(request: HttpRequest) {}
+func HttpResponse.release(response: HttpResponse) {}
+
 object Http {}
 
 -- Server lifecycle and connection I/O.

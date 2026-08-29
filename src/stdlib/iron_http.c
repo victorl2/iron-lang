@@ -121,6 +121,49 @@ static void http_response_error(Iron_HttpResponse *r, int64_t code) {
     r->error_message = http_str(http_error_message(code));
 }
 
+void Iron_httpserverresult_release(Iron_HttpServerResult result) {
+    iron_string_release(&result.error_message);
+}
+
+void Iron_httpconnectionresult_release(Iron_HttpConnectionResult result) {
+    iron_string_release(&result.error_message);
+}
+
+void Iron_httpsserverresult_release(Iron_HttpsServerResult result) {
+    iron_string_release(&result.error_message);
+}
+
+void Iron_httpsconnectionresult_release(Iron_HttpsConnectionResult result) {
+    iron_string_release(&result.error_message);
+}
+
+void Iron_httpspendingconnectionresult_release(
+    Iron_HttpsPendingConnectionResult result) {
+    iron_string_release(&result.error_message);
+}
+
+void Iron_httpclientresult_release(Iron_HttpClientResult result) {
+    iron_string_release(&result.error_message);
+}
+
+void Iron_httprequest_release(Iron_HttpRequest request) {
+    iron_string_release(&request.method);
+    iron_string_release(&request.target);
+    iron_string_release(&request.path);
+    iron_string_release(&request.query);
+    iron_string_release(&request.version);
+    iron_string_release(&request.headers);
+    iron_string_release(&request.body);
+    iron_string_release(&request.error_message);
+}
+
+void Iron_httpresponse_release(Iron_HttpResponse response) {
+    iron_string_release(&response.reason);
+    iron_string_release(&response.headers);
+    iron_string_release(&response.body);
+    iron_string_release(&response.error_message);
+}
+
 static int ascii_ieq_n(const char *a, size_t an, const char *b, size_t bn) {
     if (an != bn) return 0;
     for (size_t i = 0; i < an; i++) {
@@ -1093,8 +1136,9 @@ static const char *status_reason(int64_t status) {
     }
 }
 
-Iron_HttpResponse Iron_http_response(int64_t status, Iron_String headers,
-                                      Iron_String body) {
+static Iron_HttpResponse http_response_owned(int64_t status,
+                                              Iron_String headers,
+                                              Iron_String body) {
     Iron_HttpResponse out = http_response_empty();
     out.status = status;
     out.reason = http_str(status_reason(status));
@@ -1107,16 +1151,30 @@ Iron_HttpResponse Iron_http_response(int64_t status, Iron_String headers,
     return out;
 }
 
+Iron_HttpResponse Iron_http_response(int64_t status, Iron_String headers,
+                                      Iron_String body) {
+    return http_response_owned(
+        status,
+        http_slice(iron_string_cstr(&headers), iron_string_byte_len(&headers)),
+        http_slice(iron_string_cstr(&body), iron_string_byte_len(&body)));
+}
+
 Iron_HttpResponse Iron_http_json_response(int64_t status, Iron_String body) {
-    return Iron_http_response(status, http_str("Content-Type: application/json; charset=utf-8"), body);
+    return http_response_owned(
+        status, http_str("Content-Type: application/json; charset=utf-8"),
+        http_slice(iron_string_cstr(&body), iron_string_byte_len(&body)));
 }
 
 Iron_HttpResponse Iron_http_html_response(int64_t status, Iron_String body) {
-    return Iron_http_response(status, http_str("Content-Type: text/html; charset=utf-8"), body);
+    return http_response_owned(
+        status, http_str("Content-Type: text/html; charset=utf-8"),
+        http_slice(iron_string_cstr(&body), iron_string_byte_len(&body)));
 }
 
 Iron_HttpResponse Iron_http_text_response(int64_t status, Iron_String body) {
-    return Iron_http_response(status, http_str("Content-Type: text/plain; charset=utf-8"), body);
+    return http_response_owned(
+        status, http_str("Content-Type: text/plain; charset=utf-8"),
+        http_slice(iron_string_cstr(&body), iron_string_byte_len(&body)));
 }
 
 Iron_HttpResponse Iron_http_file_response(int64_t status, Iron_String path,
@@ -1170,7 +1228,7 @@ Iron_HttpResponse Iron_http_file_response(int64_t status, Iron_String path,
     Iron_String body_s = http_slice(buf, len);
     free(header);
     free(buf);
-    return Iron_http_response(status, header_s, body_s);
+    return http_response_owned(status, header_s, body_s);
 }
 
 static int64_t send_response_transport(HttpTransport transport,
@@ -1467,7 +1525,9 @@ Iron_HttpResponse Iron_http_get(Iron_String url, int64_t timeout) {
 Iron_HttpResponse Iron_http_post_json(Iron_String url, Iron_String body,
                                        int64_t timeout) {
     return Iron_http_request(http_str("POST"), url,
-        http_str("Content-Type: application/json; charset=utf-8"), body,
+        iron_string_from_literal(
+            "Content-Type: application/json; charset=utf-8",
+            strlen("Content-Type: application/json; charset=utf-8")), body,
         HTTP_DEFAULT_MAX_BODY, timeout);
 }
 

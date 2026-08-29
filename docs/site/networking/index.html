@@ -242,6 +242,7 @@
       <div class="sidebar-section">
         <h3>Start here</h3>
         <a href="#overview">Overview</a>
+        <a href="#ownership">Result ownership</a>
         <a href="#quick-client">First HTTP client</a>
         <a href="#errors">Errors and timeouts</a>
       </div>
@@ -285,6 +286,19 @@
         <p><strong>Operational model:</strong> networking calls are synchronous and bounded. Compose them with <code>spawn</code> for concurrency; the HTTP layer never creates hidden handler threads.</p>
       </div>
 
+      <h2 id="ownership">Result ownership and release</h2>
+      <p>HTTP, WebSocket, and explicit file result values own their returned string fields. Release every result after its last read, on success and error paths. Resource handles have a separate lifetime: close or transfer the server, connection, client, or socket first, then release the result model.</p>
+      <ul>
+        <li><code>HttpRequest.release</code>, <code>HttpResponse.release</code>, and the matching HTTP server, connection, HTTPS, pending-connection, and client result release calls</li>
+        <li><code>WebSocketResult.release</code> and <code>WebSocketMessage.release</code></li>
+        <li><code>FileReadResult.release</code>, <code>FileWriteResult.release</code>, and <code>FileInfo.release</code></li>
+        <li><code>value.release()</code> for standalone owned strings such as a dynamic <code>Http.header</code> result</li>
+      </ul>
+      <div class="code-block" data-label="owned result"><pre><code><span class="kw">val</span> response = <span class="ty">Http</span>.<span class="fn">get</span>(url, <span class="nu">5000</span>)
+<span class="kw">if</span> response.error == <span class="nu">0</span> { <span class="fn">println</span>(response.body) }
+<span class="ty">HttpResponse</span>.<span class="fn">release</span>(response)</code></pre></div>
+      <div class="callout warning"><p><strong>Consuming operation:</strong> Iron strings and models are value types. Never use a released value or a by-value alias afterwards. Response constructors clone caller inputs, so releasing a response does not invalidate the original body or headers. C callers use <code>iron_string_release</code> and the public <code>Iron_*_release</code> helpers.</p></div>
+
       <h2 id="quick-client">Your first HTTP client</h2>
       <p><code>Http.get</code> returns an <code>HttpResponse</code> value. A zero error means transport and HTTP framing succeeded; application status remains in <code>status</code>.</p>
       <div class="code-block" data-label="status_client.iron"><pre><code><span class="kw">import</span> http
@@ -296,11 +310,12 @@
     )
     <span class="kw">if</span> response.<span class="pr">error</span> != <span class="nu">0</span> {
         <span class="fn">println</span>(<span class="st">"request failed: {response.error} {response.error_message}"</span>)
-        <span class="kw">return</span>
     }
-
-    <span class="fn">println</span>(<span class="st">"HTTP {response.status} {response.reason}"</span>)
-    <span class="fn">println</span>(response.<span class="pr">body</span>)
+    <span class="kw">if</span> response.<span class="pr">error</span> == <span class="nu">0</span> {
+        <span class="fn">println</span>(<span class="st">"HTTP {response.status} {response.reason}"</span>)
+        <span class="fn">println</span>(response.<span class="pr">body</span>)
+    }
+    <span class="ty">HttpResponse</span>.<span class="fn">release</span>(response)
 }</code></pre></div>
       <div class="code-block" data-label="terminal"><pre><code>iron build status_client.iron -o status-client
 ./status-client</code></pre></div>
@@ -320,7 +335,9 @@
     <span class="st">"http://127.0.0.1:8080/api/items"</span>,
     <span class="st">"\{\"name\":\"anvil\"\}"</span>,
     <span class="nu">5000</span>,
-)</code></pre></div>
+)
+<span class="cm">-- use response, then consume its owned strings</span>
+<span class="ty">HttpResponse</span>.<span class="fn">release</span>(response)</code></pre></div>
 
       <h3>Custom methods and headers</h3>
       <div class="code-block" data-label="general request"><pre><code><span class="kw">val</span> response = <span class="ty">Http</span>.<span class="fn">request</span>(
@@ -330,7 +347,8 @@
     <span class="st">"\{\"name\":\"hammer\"\}"</span>,
     <span class="nu">1048576</span>,  <span class="cm">-- maximum decoded response body</span>
     <span class="nu">5000</span>,     <span class="cm">-- complete request budget</span>
-)</code></pre></div>
+)
+<span class="ty">HttpResponse</span>.<span class="fn">release</span>(response)</code></pre></div>
       <p>The client owns <code>Host</code>, <code>Connection</code>, <code>Content-Length</code>, and <code>Transfer-Encoding</code>. Supplying any of them in the custom block is rejected to prevent ambiguous framing.</p>
 
       <h2 id="https">HTTPS and certificates</h2>
@@ -348,23 +366,39 @@
     <span class="st">"POST"</span>, <span class="st">"https://localhost:8443/api/items"</span>,
     <span class="st">"Content-Type: application/json"</span>, <span class="st">"\{\"name\":\"anvil\"\}"</span>,
     <span class="nu">1048576</span>, <span class="st">"cert.pem"</span>, <span class="nu">5000</span>,
-)</code></pre></div>
+)
+<span class="ty">HttpResponse</span>.<span class="fn">release</span>(public_api)
+<span class="ty">HttpResponse</span>.<span class="fn">release</span>(private_ca)
+<span class="ty">HttpResponse</span>.<span class="fn">release</span>(created)</code></pre></div>
       <p><code>Http.get_insecure</code> and <code>Http.request_insecure</code> are explicitly unsafe development escape hatches. Never use them with production credentials.</p>
       <div class="code-block" data-label="HTTPS server"><pre><code><span class="kw">val</span> listening = <span class="ty">Http</span>.<span class="fn">listen_tls</span>(
     <span class="st">"127.0.0.1"</span>, <span class="nu">8443</span>, <span class="st">"cert.pem"</span>, <span class="st">"key.pem"</span>,
 )
 <span class="kw">val</span> pending = <span class="ty">HttpsServer</span>.<span class="fn">accept_tcp</span>(listening.server, <span class="nu">60000</span>)
 <span class="kw">if</span> pending.error == <span class="nu">0</span> {
+    <span class="kw">val</span> connection = pending.connection
+    <span class="ty">HttpsPendingConnectionResult</span>.<span class="fn">release</span>(pending)
     <span class="fn">spawn</span>(<span class="st">"tls-client"</span>) {
-        <span class="kw">val</span> secure = <span class="ty">HttpsPendingConnection</span>.<span class="fn">handshake</span>(pending.connection, <span class="nu">5000</span>)
-        <span class="kw">if</span> secure.error != <span class="nu">0</span> { <span class="kw">return</span> secure.error }
+        <span class="kw">val</span> secure = <span class="ty">HttpsPendingConnection</span>.<span class="fn">handshake</span>(connection, <span class="nu">5000</span>)
+        <span class="kw">if</span> secure.error != <span class="nu">0</span> {
+            <span class="kw">val</span> error = secure.error
+            <span class="ty">HttpsConnectionResult</span>.<span class="fn">release</span>(secure)
+            <span class="kw">return</span> error
+        }
         <span class="kw">val</span> request = <span class="ty">HttpsConnection</span>.<span class="fn">read_request</span>(
             secure.connection, <span class="nu">16384</span>, <span class="nu">1048576</span>, <span class="nu">5000</span>,
         )
+        <span class="kw">val</span> error = request.error
+        <span class="ty">HttpRequest</span>.<span class="fn">release</span>(request)
         <span class="ty">HttpsConnection</span>.<span class="fn">close</span>(secure.connection)
-        <span class="kw">return</span> request.error
+        <span class="ty">HttpsConnectionResult</span>.<span class="fn">release</span>(secure)
+        <span class="kw">return</span> error
     }
-}</code></pre></div>
+} <span class="kw">else</span> {
+    <span class="ty">HttpsPendingConnectionResult</span>.<span class="fn">release</span>(pending)
+}
+<span class="ty">HttpsServer</span>.<span class="fn">close</span>(listening.server)
+<span class="ty">HttpsServerResult</span>.<span class="fn">release</span>(listening)</code></pre></div>
       <p><code>accept_tcp</code> is bounded only by the listener deadline. Each spawned handler gets a separate TLS handshake deadline, so a raw client that sends no ClientHello cannot block later clients. Handshake consumes the pending connection on either outcome; call <code>HttpsPendingConnection.close</code> when abandoning it. The one-step <code>HttpsServer.accept</code> remains available for controlled servers.</p>
       <div class="callout"><p><strong>Certificate files:</strong> the certificate PEM may contain the leaf followed by intermediates. The private key must match. See the compiler-tested <a href="https://github.com/victorl2/iron-lang/blob/main/examples/networking/https_server.iron">HTTPS server</a> and <a href="https://github.com/victorl2/iron-lang/blob/main/examples/networking/https_client.iron">private-CA REST client</a> examples.</p></div>
       <p>Certificates are loaded when <code>listen_tls</code> creates its server context. Rotate them by starting a replacement context or restarting with the new PEM files, then drain the old listener. For graceful shutdown, stop accepting, close the server, await bound handler tasks, and close their remaining connections. Keep task handles when draining matters; intentionally detached handlers cannot be awaited.</p>
@@ -380,7 +414,10 @@
 <span class="kw">val</span> second = <span class="ty">HttpClient</span>.<span class="fn">request</span>(
     opened.client, <span class="st">"GET"</span>, <span class="st">"/api/items"</span>, <span class="st">""</span>, <span class="st">""</span>, <span class="nu">1048576</span>, <span class="nu">5000</span>,
 )
-<span class="ty">HttpClient</span>.<span class="fn">close</span>(opened.client)</code></pre></div>
+<span class="ty">HttpClient</span>.<span class="fn">close</span>(opened.client)
+<span class="ty">HttpResponse</span>.<span class="fn">release</span>(first)
+<span class="ty">HttpResponse</span>.<span class="fn">release</span>(second)
+<span class="ty">HttpClientResult</span>.<span class="fn">release</span>(opened)</code></pre></div>
       <p>The origin locks scheme, host, port, trust roots, and verification mode. It accepts only an authority with an optional trailing slash; paths, queries, fragments, and TLS-only options on plain HTTP are rejected rather than silently ignored. The connection limit bounds concurrent sockets; the idle timeout retires old entries. A stale socket is replayed once only for bodyless GET or HEAD—potentially non-idempotent requests are never retried automatically.</p>
       <div class="callout"><p><strong>Server bounds:</strong> loop over <code>read_request</code> with an idle deadline and maximum request count, then pass <code>request.keep_alive</code> to <code>send_response_keep_alive</code>. Responses always carry <code>Content-Length</code>. HTTP pipelining is intentionally unsupported; graceful shutdown closes the listener first and then drains bounded handlers.</p></div>
 
@@ -395,6 +432,8 @@
     <span class="kw">if</span> request.<span class="pr">error</span> != <span class="nu">0</span> {
         <span class="kw">val</span> bad = <span class="ty">Http</span>.<span class="fn">text_response</span>(<span class="nu">400</span>, <span class="st">"bad request"</span>)
         <span class="kw">val</span> sent = <span class="ty">HttpConnection</span>.<span class="fn">send_response</span>(connection, bad, <span class="nu">5000</span>)
+        <span class="ty">HttpResponse</span>.<span class="fn">release</span>(bad)
+        <span class="ty">HttpRequest</span>.<span class="fn">release</span>(request)
         <span class="ty">HttpConnection</span>.<span class="fn">close</span>(connection)
         <span class="kw">return</span> sent
     }
@@ -402,6 +441,8 @@
     <span class="kw">if</span> request.<span class="pr">method</span> == <span class="st">"GET"</span> <span class="kw">and</span> request.<span class="pr">path</span> == <span class="st">"/"</span> {
         <span class="kw">val</span> page = <span class="ty">Http</span>.<span class="fn">html_response</span>(<span class="nu">200</span>, <span class="st">"&lt;h1&gt;Hello from Iron&lt;/h1&gt;"</span>)
         <span class="kw">val</span> sent = <span class="ty">HttpConnection</span>.<span class="fn">send_response</span>(connection, page, <span class="nu">5000</span>)
+        <span class="ty">HttpResponse</span>.<span class="fn">release</span>(page)
+        <span class="ty">HttpRequest</span>.<span class="fn">release</span>(request)
         <span class="ty">HttpConnection</span>.<span class="fn">close</span>(connection)
         <span class="kw">return</span> sent
     }
@@ -409,6 +450,8 @@
     <span class="kw">if</span> request.<span class="pr">method</span> == <span class="st">"GET"</span> <span class="kw">and</span> request.<span class="pr">path</span> == <span class="st">"/api/status"</span> {
         <span class="kw">val</span> response = <span class="ty">Http</span>.<span class="fn">json_response</span>(<span class="nu">200</span>, <span class="st">"\{\"status\":\"ok\"\}"</span>)
         <span class="kw">val</span> sent = <span class="ty">HttpConnection</span>.<span class="fn">send_response</span>(connection, response, <span class="nu">5000</span>)
+        <span class="ty">HttpResponse</span>.<span class="fn">release</span>(response)
+        <span class="ty">HttpRequest</span>.<span class="fn">release</span>(request)
         <span class="ty">HttpConnection</span>.<span class="fn">close</span>(connection)
         <span class="kw">return</span> sent
     }
@@ -416,12 +459,16 @@
     <span class="kw">if</span> request.<span class="pr">method</span> == <span class="st">"POST"</span> <span class="kw">and</span> request.<span class="pr">path</span> == <span class="st">"/api/items"</span> {
         <span class="kw">val</span> response = <span class="ty">Http</span>.<span class="fn">json_response</span>(<span class="nu">201</span>, <span class="st">"\{\"created\":true\}"</span>)
         <span class="kw">val</span> sent = <span class="ty">HttpConnection</span>.<span class="fn">send_response</span>(connection, response, <span class="nu">5000</span>)
+        <span class="ty">HttpResponse</span>.<span class="fn">release</span>(response)
+        <span class="ty">HttpRequest</span>.<span class="fn">release</span>(request)
         <span class="ty">HttpConnection</span>.<span class="fn">close</span>(connection)
         <span class="kw">return</span> sent
     }
 
     <span class="kw">val</span> missing = <span class="ty">Http</span>.<span class="fn">json_response</span>(<span class="nu">404</span>, <span class="st">"\{\"error\":\"not found\"\}"</span>)
     <span class="kw">val</span> sent = <span class="ty">HttpConnection</span>.<span class="fn">send_response</span>(connection, missing, <span class="nu">5000</span>)
+    <span class="ty">HttpResponse</span>.<span class="fn">release</span>(missing)
+    <span class="ty">HttpRequest</span>.<span class="fn">release</span>(request)
     <span class="ty">HttpConnection</span>.<span class="fn">close</span>(connection)
     <span class="kw">return</span> sent
 }
@@ -430,15 +477,22 @@
     <span class="kw">val</span> listening = <span class="ty">Http</span>.<span class="fn">listen</span>(<span class="st">"127.0.0.1"</span>, <span class="nu">8080</span>)
     <span class="kw">if</span> listening.<span class="pr">error</span> != <span class="nu">0</span> {
         <span class="fn">println</span>(<span class="st">"listen failed: {listening.error_message}"</span>)
+        <span class="ty">HttpServerResult</span>.<span class="fn">release</span>(listening)
         <span class="kw">return</span>
     }
+    <span class="kw">val</span> server = listening.server
+    <span class="ty">HttpServerResult</span>.<span class="fn">release</span>(listening)
 
     <span class="kw">while</span> <span class="kw">true</span> {
-        <span class="kw">val</span> accepted = <span class="ty">HttpServer</span>.<span class="fn">accept</span>(listening.<span class="pr">server</span>, <span class="nu">60000</span>)
+        <span class="kw">val</span> accepted = <span class="ty">HttpServer</span>.<span class="fn">accept</span>(server, <span class="nu">60000</span>)
         <span class="kw">if</span> accepted.<span class="pr">error</span> == <span class="nu">0</span> {
+            <span class="kw">val</span> connection = accepted.connection
+            <span class="ty">HttpConnectionResult</span>.<span class="fn">release</span>(accepted)
             <span class="kw">spawn</span>(<span class="st">"http-request"</span>) {
-                <span class="kw">return</span> <span class="fn">handle</span>(accepted.<span class="pr">connection</span>)
+                <span class="kw">return</span> <span class="fn">handle</span>(connection)
             }
+        } <span class="kw">else</span> {
+            <span class="ty">HttpConnectionResult</span>.<span class="fn">release</span>(accepted)
         }
     }
 }</code></pre></div>
@@ -461,13 +515,17 @@
       <div class="code-block" data-label="HTML"><pre><code><span class="kw">val</span> page = <span class="ty">Http</span>.<span class="fn">html_response</span>(
     <span class="nu">200</span>,
     <span class="st">"&lt;!doctype html&gt;&lt;h1&gt;Iron is online&lt;/h1&gt;"</span>,
-)</code></pre></div>
+)
+<span class="cm">-- send page, then release it</span>
+<span class="ty">HttpResponse</span>.<span class="fn">release</span>(page)</code></pre></div>
       <div class="code-block" data-label="bounded file"><pre><code><span class="kw">val</span> asset = <span class="ty">Http</span>.<span class="fn">file_response</span>(
     <span class="nu">200</span>,
     <span class="st">"public/index.html"</span>,
     <span class="st">"text/html; charset=utf-8"</span>,
     <span class="nu">1048576</span>,
-)</code></pre></div>
+)
+<span class="cm">-- send asset, then release it</span>
+<span class="ty">HttpResponse</span>.<span class="fn">release</span>(asset)</code></pre></div>
       <p><code>file_response</code> reads at most the supplied limit. Choose the content type explicitly; Iron does not guess it from the filename.</p>
 
       <h2 id="files">Text and binary file operations</h2>
@@ -479,11 +537,17 @@
 <span class="kw">if</span> loaded.error == <span class="nu">0</span> {
     <span class="kw">val</span> info = <span class="ty">IO</span>.<span class="fn">file_info</span>(<span class="st">"asset.bin"</span>)
     <span class="fn">println</span>(<span class="st">"loaded {info.size} bytes"</span>)
+    <span class="ty">FileInfo</span>.<span class="fn">release</span>(info)
 }
 
 <span class="kw">val</span> appended = <span class="ty">IO</span>.<span class="fn">append_bytes</span>(<span class="st">"asset.bin"</span>, <span class="st">"\0suffix"</span>)
 <span class="kw">val</span> copied = <span class="ty">IO</span>.<span class="fn">copy_file</span>(<span class="st">"asset.bin"</span>, <span class="st">"asset-copy.bin"</span>, <span class="kw">false</span>)
-<span class="kw">val</span> moved = <span class="ty">IO</span>.<span class="fn">move_file</span>(<span class="st">"asset-copy.bin"</span>, <span class="st">"archive.bin"</span>, <span class="kw">false</span>)</code></pre></div>
+<span class="kw">val</span> moved = <span class="ty">IO</span>.<span class="fn">move_file</span>(<span class="st">"asset-copy.bin"</span>, <span class="st">"archive.bin"</span>, <span class="kw">false</span>)
+<span class="ty">FileWriteResult</span>.<span class="fn">release</span>(written)
+<span class="ty">FileReadResult</span>.<span class="fn">release</span>(loaded)
+<span class="ty">FileWriteResult</span>.<span class="fn">release</span>(appended)
+<span class="ty">FileWriteResult</span>.<span class="fn">release</span>(copied)
+<span class="ty">FileWriteResult</span>.<span class="fn">release</span>(moved)</code></pre></div>
       <p><code>read_text</code> and <code>read_bytes</code> reject an oversized file before allocating. Write and append operations report committed bytes and expose open, write, flush, and close failures. <code>copy_file</code> and <code>move_file</code> require an explicit overwrite choice. With <code>overwrite=false</code>, move uses an atomic no-replace commit: a concurrently created destination wins intact and the source remains. Unsupported filesystems return an error instead of using a racy check-then-rename.</p>
 
       <h2 id="websocket">WebSocket and secure WebSocket</h2>
@@ -493,7 +557,9 @@
     <span class="st">"Authorization: Bearer token"</span>,
     [<span class="st">"graphql-transport-ws"</span>, <span class="st">"graphql-ws"</span>],
     <span class="nu">1048576</span>, <span class="nu">5000</span>,
-)</code></pre></div>
+)
+<span class="cm">-- use/close connected.socket, then consume the result strings</span>
+<span class="ty">WebSocketResult</span>.<span class="fn">release</span>(connected)</code></pre></div>
       <p>Requested protocols preserve preference order. A server uses <code>upgrade_websocket_protocol</code> to select zero or one exact offered token; the negotiated value is returned as <code>connected.protocol</code>. Unsolicited or multiple selections fail the handshake. Raw <code>Sec-WebSocket-*</code> overrides remain forbidden, and extensions are never negotiated until Iron implements their frame semantics.</p>
       <div class="code-block" data-label="WSS client"><pre><code><span class="kw">import</span> websocket
 
@@ -506,12 +572,17 @@
     <span class="kw">val</span> sent = <span class="ty">WebSocket</span>.<span class="fn">send_text</span>(connected.socket, <span class="st">"subscribe"</span>, <span class="nu">5000</span>)
     <span class="kw">val</span> message = <span class="ty">WebSocket</span>.<span class="fn">receive</span>(connected.socket, <span class="nu">30000</span>)
     <span class="kw">val</span> closed = <span class="ty">WebSocket</span>.<span class="fn">close</span>(connected.socket, <span class="nu">1000</span>, <span class="st">"done"</span>, <span class="nu">5000</span>)
-}</code></pre></div>
+    <span class="ty">WebSocketMessage</span>.<span class="fn">release</span>(message)
+}
+<span class="ty">WebSocketResult</span>.<span class="fn">release</span>(connected)</code></pre></div>
       <p>Message kinds are <code>1</code> text, <code>2</code> binary, <code>8</code> close, <code>9</code> ping, and <code>10</code> pong. Ping is answered automatically. Fragmented messages are reassembled under the connection limit; text and close reasons are UTF-8 validated.</p>
       <div class="code-block" data-label="server upgrade"><pre><code><span class="kw">val</span> request = <span class="ty">HttpConnection</span>.<span class="fn">read_request</span>(connection, <span class="nu">16384</span>, <span class="nu">1024</span>, <span class="nu">5000</span>)
 <span class="kw">val</span> upgraded = <span class="ty">HttpConnection</span>.<span class="fn">upgrade_websocket</span>(
     connection, request, <span class="nu">1048576</span>, <span class="nu">5000</span>,
-)</code></pre></div>
+)
+<span class="ty">HttpRequest</span>.<span class="fn">release</span>(request)
+<span class="cm">-- use/close upgraded.socket, then release the model</span>
+<span class="ty">WebSocketResult</span>.<span class="fn">release</span>(upgraded)</code></pre></div>
       <div class="callout"><p><strong>Ownership:</strong> a successful upgrade transfers the HTTP connection to the WebSocket. Use one receiving task and any number of sending tasks; frame writes are serialized. Do not race close or abort with another operation.</p></div>
 
       <h2 id="concurrency">Concurrency and ownership</h2>
@@ -523,7 +594,9 @@
 <span class="kw">val</span> second = <span class="kw">spawn</span>(<span class="st">"client-2"</span>) { <span class="kw">return</span> <span class="ty">Http</span>.<span class="fn">get</span>(url2, <span class="nu">5000</span>) }
 
 <span class="kw">val</span> a = <span class="kw">await</span> first
-<span class="kw">val</span> b = <span class="kw">await</span> second</code></pre></div>
+<span class="kw">val</span> b = <span class="kw">await</span> second
+<span class="ty">HttpResponse</span>.<span class="fn">release</span>(a)
+<span class="ty">HttpResponse</span>.<span class="fn">release</span>(b)</code></pre></div>
       <ul>
         <li>Every accepted connection has explicit ownership and must be closed.</li>
         <li>A slow connection consumes its handler task until its deadline expires.</li>
@@ -631,7 +704,7 @@
       <h2 id="status">Current implementation status</h2>
       <p><span class="status">● Verified remotely</span> TCP, UDP, IP, DNS, HTTP/HTTPS clients and servers, REST JSON, webpage serving, WebSocket/WSS (including one secure reader with 24 secure writers), exact binary files, and concurrent <code>spawn</code>/<code>await</code> composition pass the Linux x86_64 Debug and Release suites.</p>
       <div class="callout warning">
-        <p><strong>Platform note:</strong> verified TLS and installed-compiler HTTPS builds run in Linux and macOS CI. The reproducible <code>silvaserver.local</code> validation image includes the matching Clang 14 ASan/UBSan/TSan runtimes and OpenSSL development files; its focused networking, concurrency, and file battery passes 8/8 under ASan/UBSan and 8/8 under TSan. CMake fails incomplete sanitizer toolchains during configuration. LeakSanitizer cleanup debt is tracked in <a href="https://github.com/victorl2/iron-lang/issues/99">issue #99</a>. Native Windows is not yet a supported Iron compiler target; use WSL there. Without OpenSSL development headers, plain networking remains available and secure calls return a typed TLS-unavailable error.</p>
+        <p><strong>Platform note:</strong> verified TLS and installed-compiler HTTPS builds run in Linux and macOS CI. The reproducible <code>silvaserver.local</code> validation image includes the matching Clang 14 ASan/UBSan/TSan runtimes and OpenSSL development files; its focused networking, concurrency, and file battery passes 8/8 under ASan/UBSan with LeakSanitizer enabled and 8/8 under TSan. CMake fails incomplete sanitizer toolchains during configuration. Native Windows is not yet a supported Iron compiler target; use WSL there. Without OpenSSL development headers, plain networking remains available and secure calls return a typed TLS-unavailable error.</p>
       </div>
       <p>See the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/networking.md">maintained validation matrix</a> and <a href="https://github.com/victorl2/iron-lang/tree/main/examples/networking">networking examples</a> for source-level evidence.</p>
 

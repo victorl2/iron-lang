@@ -9,6 +9,8 @@ func handle(connection: HttpConnection) -> Int {
     if request.error != 0 {
         val bad = Http.text_response(400, "bad request")
         val ignored = HttpConnection.send_response(connection, bad, 5000)
+        HttpResponse.release(bad)
+        HttpRequest.release(request)
         HttpConnection.close(connection)
         return ignored
     }
@@ -16,6 +18,8 @@ func handle(connection: HttpConnection) -> Int {
     if request.method == "GET" and request.path == "/" {
         val page = Http.html_response(200, "<!doctype html><html><head><title>Iron</title></head><body><h1>Iron networking works</h1><p>Try <code>/api/status</code>.</p></body></html>")
         val sent = HttpConnection.send_response(connection, page, 5000)
+        HttpResponse.release(page)
+        HttpRequest.release(request)
         HttpConnection.close(connection)
         return sent
     }
@@ -23,6 +27,8 @@ func handle(connection: HttpConnection) -> Int {
     if request.method == "GET" and request.path == "/api/status" {
         val response = Http.json_response(200, "\{\"status\":\"ok\",\"language\":\"iron\"\}")
         val sent = HttpConnection.send_response(connection, response, 5000)
+        HttpResponse.release(response)
+        HttpRequest.release(request)
         HttpConnection.close(connection)
         return sent
     }
@@ -30,12 +36,16 @@ func handle(connection: HttpConnection) -> Int {
     if request.method == "POST" and request.path == "/api/items" {
         val response = Http.json_response(201, "\{\"created\":true\}")
         val sent = HttpConnection.send_response(connection, response, 5000)
+        HttpResponse.release(response)
+        HttpRequest.release(request)
         HttpConnection.close(connection)
         return sent
     }
 
     val missing = Http.json_response(404, "\{\"error\":\"not found\"\}")
     val sent = HttpConnection.send_response(connection, missing, 5000)
+    HttpResponse.release(missing)
+    HttpRequest.release(request)
     HttpConnection.close(connection)
     return sent
 }
@@ -44,18 +54,25 @@ func main() {
     val result = Http.listen("127.0.0.1", 8080)
     if result.error != 0 {
         println("listen failed: {result.error} {result.error_message}")
+        HttpServerResult.release(result)
         return
     }
+    val server = result.server
+    HttpServerResult.release(result)
     println("Iron HTTP listening on http://127.0.0.1:8080")
     while true {
-        val accepted = HttpServer.accept(result.server, 60000)
+        val accepted = HttpServer.accept(server, 60000)
         if accepted.error == 0 {
+            val connection = accepted.connection
+            HttpConnectionResult.release(accepted)
             -- A standalone spawn is intentionally detached and uses the
             -- runtime pool. Bind it to `val task = spawn(...)` when a caller
             -- needs to await a result instead.
             spawn("http-request") {
-                return handle(accepted.connection)
+                return handle(connection)
             }
+        } else {
+            HttpConnectionResult.release(accepted)
         }
     }
 }

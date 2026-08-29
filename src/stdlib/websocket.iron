@@ -28,6 +28,10 @@ object WebSocketMessage {
     val error_message: String
 }
 
+-- Consuming ownership helpers for strings returned in these models.
+func WebSocketResult.release(result: WebSocketResult) {}
+func WebSocketMessage.release(message: WebSocketMessage) {}
+
 -- `connect` accepts ws:// and wss://. WSS verifies the certificate chain and
 -- hostname using system roots. Custom headers are useful for Authorization or
 -- Cookie; handshake-owned headers cannot be overridden.
