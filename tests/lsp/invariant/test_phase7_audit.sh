@@ -114,7 +114,10 @@ if [[ ! -d "$BUILD_DIR" ]]; then
 else
     LABELS="$(ctest --test-dir "$BUILD_DIR" --print-labels 2>&1 || true)"
     for m in 1 2 3 4 5 6; do
-        if ! echo "$LABELS" | grep -q "phase-m${m}-invariant"; then
+        # Feed captured output directly to grep.  With `pipefail`, the old
+        # `echo "$LABELS" | grep -q ...` form could report failure when grep
+        # found an early match and echo then received SIGPIPE.
+        if ! grep -q "phase-m${m}-invariant" <<<"$LABELS"; then
             echo "MISSING CTest label: phase-m${m}-invariant" >&2
             FAIL=1
         fi
@@ -123,11 +126,11 @@ else
     # Parity tests must exist by name in the CTest graph. These are the
     # Core-Value enforcement tests and must never silently drop out.
     TESTS="$(ctest --test-dir "$BUILD_DIR" -N 2>&1 || true)"
-    if ! echo "$TESTS" | grep -qE "Test[ ]*#[0-9]+:[ ]*test_parity_ironc_lsp\b"; then
+    if ! grep -qE "Test[ ]*#[0-9]+:[ ]*test_parity_ironc_lsp\b" <<<"$TESTS"; then
         echo "MISSING CTest: test_parity_ironc_lsp" >&2
         FAIL=1
     fi
-    if ! echo "$TESTS" | grep -qE "test_parity_ironc_lsp_fmt\b"; then
+    if ! grep -qE "test_parity_ironc_lsp_fmt\b" <<<"$TESTS"; then
         echo "MISSING CTest: test_parity_ironc_lsp_fmt" >&2
         FAIL=1
     fi
