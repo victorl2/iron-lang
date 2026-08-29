@@ -751,6 +751,7 @@ typedef struct PoolServer {
     atomic_int active;
     atomic_int peak;
     atomic_int errors;
+    atomic_int release_first_wave;
 } PoolServer;
 
 typedef struct PoolHandler {
@@ -758,18 +759,27 @@ typedef struct PoolHandler {
     Iron_HttpConnection connection;
 } PoolHandler;
 
+static void pool_pause_one_millisecond(void) {
+#ifdef _WIN32
+    Sleep(1);
+#else
+    struct timespec pause = { 0, 1000 * 1000 };
+    nanosleep(&pause, NULL);
+#endif
+}
+
 static void *pool_handler(void *arg) {
     PoolHandler *handler = (PoolHandler *)arg;
     int active = atomic_fetch_add(&handler->server->active, 1) + 1;
     int peak = atomic_load(&handler->server->peak);
     while (peak < active && !atomic_compare_exchange_weak(
         &handler->server->peak, &peak, active)) { }
-#ifdef _WIN32
-    Sleep(40);
-#else
-    struct timespec pause = { 0, 40 * 1000 * 1000 };
-    nanosleep(&pause, NULL);
-#endif
+    /* Hold the first admitted requests so no client slot can be released.
+     * The test can then observe the admission bound without counting the
+     * server-side close/bookkeeping interval as an extra connection. */
+    while (!atomic_load_explicit(&handler->server->release_first_wave,
+                                 memory_order_acquire))
+        pool_pause_one_millisecond();
     Iron_HttpRequest request = Iron_httpconnection_read_request(
         handler->connection, 16384, 1024, 3000);
     Iron_HttpResponse response = Iron_http_text_response(200, istr("pooled"));
@@ -835,6 +845,7 @@ void test_http_client_pool_bounds_concurrent_connections(void) {
     atomic_init(&server.active, 0);
     atomic_init(&server.peak, 0);
     atomic_init(&server.errors, 0);
+    atomic_init(&server.release_first_wave, 0);
     HTTP_THREAD server_thread;
     TEST_ASSERT_EQUAL_INT(0, thread_start(&server_thread, pool_server, &server));
     char origin[128];
@@ -851,6 +862,18 @@ void test_http_client_pool_bounds_concurrent_connections(void) {
         TEST_ASSERT_EQUAL_INT(0, thread_start(
             &threads[i], pool_client, &clients[i]));
     }
+    /* Wait for the four slots to fill, then leave them blocked briefly. If
+     * the pool admits a fifth request, the server peak records it before the
+     * barrier is released. */
+    for (int i = 0; i < 3000 &&
+         atomic_load_explicit(&server.active, memory_order_acquire) <
+             POOL_LIMIT; i++)
+        pool_pause_one_millisecond();
+    for (int i = 0; i < 100; i++) pool_pause_one_millisecond();
+    int first_wave_peak = atomic_load_explicit(&server.peak,
+                                                memory_order_acquire);
+    atomic_store_explicit(&server.release_first_wave, 1,
+                          memory_order_release);
     for (int i = 0; i < POOLED_REQUESTS; i++) {
         TEST_ASSERT_EQUAL_INT(0, thread_join(threads[i]));
         TEST_ASSERT_EQUAL_INT64(0, clients[i].error);
@@ -858,8 +881,7 @@ void test_http_client_pool_bounds_concurrent_connections(void) {
     Iron_httpclient_close(opened.client);
     TEST_ASSERT_EQUAL_INT(0, thread_join(server_thread));
     TEST_ASSERT_EQUAL_INT(0, atomic_load(&server.errors));
-    TEST_ASSERT_LESS_OR_EQUAL_INT(POOL_LIMIT, atomic_load(&server.peak));
-    TEST_ASSERT_GREATER_THAN_INT(1, atomic_load(&server.peak));
+    TEST_ASSERT_EQUAL_INT(POOL_LIMIT, first_wave_peak);
     Iron_httpclientresult_release(opened);
     Iron_httpserver_close(server.server);
 }
