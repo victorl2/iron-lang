@@ -381,7 +381,7 @@
     opened.client, <span class="st">"GET"</span>, <span class="st">"/api/items"</span>, <span class="st">""</span>, <span class="st">""</span>, <span class="nu">1048576</span>, <span class="nu">5000</span>,
 )
 <span class="ty">HttpClient</span>.<span class="fn">close</span>(opened.client)</code></pre></div>
-      <p>The origin locks scheme, host, port, trust roots, and verification mode. The connection limit bounds concurrent sockets; the idle timeout retires old entries. A stale socket is replayed once only for bodyless GET or HEAD—potentially non-idempotent requests are never retried automatically.</p>
+      <p>The origin locks scheme, host, port, trust roots, and verification mode. It accepts only an authority with an optional trailing slash; paths, queries, fragments, and TLS-only options on plain HTTP are rejected rather than silently ignored. The connection limit bounds concurrent sockets; the idle timeout retires old entries. A stale socket is replayed once only for bodyless GET or HEAD—potentially non-idempotent requests are never retried automatically.</p>
       <div class="callout"><p><strong>Server bounds:</strong> loop over <code>read_request</code> with an idle deadline and maximum request count, then pass <code>request.keep_alive</code> to <code>send_response_keep_alive</code>. Responses always carry <code>Content-Length</code>. HTTP pipelining is intentionally unsupported; graceful shutdown closes the listener first and then drains bounded handlers.</p></div>
 
       <h2 id="server">A concurrent REST server</h2>

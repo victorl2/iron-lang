@@ -148,7 +148,9 @@ func Http.get_with_ca(url: String, ca_file: String, timeout: Int) -> HttpRespons
 func Http.get_insecure(url: String, timeout: Int) -> HttpResponse {}
 
 -- Open an explicit same-origin connection pool. `origin` supplies scheme,
--- host, and port; request targets must be origin-form paths beginning with /.
+-- host, and port only (an optional trailing slash is accepted); request
+-- targets must be origin-form paths beginning with /. CA and insecure options
+-- are rejected for plain HTTP instead of being silently ignored.
 -- max_connections bounds concurrent sockets. Idle connections older than
 -- idle_timeout milliseconds are closed before reuse. For HTTPS, ca_file=""
 -- uses system roots; insecure=true is development-only.

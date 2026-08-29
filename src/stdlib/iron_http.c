@@ -604,6 +604,7 @@ typedef struct ParsedUrl {
     char target[HTTP_MAX_URL + 1];
     int64_t port;
     int secure;
+    int origin_only;
     int64_t error;
 } ParsedUrl;
 
@@ -691,6 +692,8 @@ static ParsedUrl parse_http_url(Iron_String url) {
     }
 
     size_t target_start = authority_end;
+    out.origin_only = target_start == n ||
+        (target_start + 1 == n && s[target_start] == '/');
     size_t fragment = target_start;
     while (fragment < n && s[fragment] != '#') fragment++;
     size_t target_len = fragment - target_start;
@@ -1705,10 +1708,13 @@ Iron_HttpClientResult Iron_httpclient_open(
         return http_client_result_error(IRON_ERR_HTTP_INVALID_ARGUMENT);
     ParsedUrl parsed = parse_http_url(origin);
     if (parsed.error) return http_client_result_error(parsed.error);
+    size_t ca_length = iron_string_byte_len(&ca_file);
+    if (!parsed.origin_only ||
+        (!parsed.secure && (insecure || ca_length != 0)))
+        return http_client_result_error(IRON_ERR_HTTP_INVALID_ARGUMENT);
     if (parsed.secure && !iron_tls_is_available())
         return http_client_result_error(IRON_ERR_TLS_UNAVAILABLE);
     const char *ca_bytes = iron_string_cstr(&ca_file);
-    size_t ca_length = iron_string_byte_len(&ca_file);
     if (memchr(ca_bytes, '\0', ca_length) != NULL)
         return http_client_result_error(IRON_ERR_HTTP_INVALID_ARGUMENT);
     HttpClientState *client = (HttpClientState *)calloc(1, sizeof(*client));

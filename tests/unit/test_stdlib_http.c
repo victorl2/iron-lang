@@ -290,6 +290,27 @@ void test_http_rejects_unsupported_and_ambiguous_inputs(void) {
     Iron_HttpResponse embedded_nul = Iron_http_get(
         iron_string_from_cstr(nul_url, sizeof(nul_url) - 1), 100);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_HTTP_BAD_URL, embedded_nul.error);
+
+    Iron_HttpClientResult path_origin = Iron_httpclient_open(
+        istr("http://example.com/api"), istr(""), false, 1, 1000);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_HTTP_INVALID_ARGUMENT,
+                            path_origin.error);
+    Iron_HttpClientResult query_origin = Iron_httpclient_open(
+        istr("http://example.com?tenant=one"), istr(""), false, 1, 1000);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_HTTP_INVALID_ARGUMENT,
+                            query_origin.error);
+    Iron_HttpClientResult fragment_origin = Iron_httpclient_open(
+        istr("http://example.com/#section"), istr(""), false, 1, 1000);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_HTTP_INVALID_ARGUMENT,
+                            fragment_origin.error);
+    Iron_HttpClientResult plain_tls_options = Iron_httpclient_open(
+        istr("http://example.com"), istr("ca.pem"), false, 1, 1000);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_HTTP_INVALID_ARGUMENT,
+                            plain_tls_options.error);
+    Iron_HttpClientResult trailing_slash = Iron_httpclient_open(
+        istr("http://example.com/"), istr(""), false, 1, 1000);
+    TEST_ASSERT_EQUAL_INT64(0, trailing_slash.error);
+    Iron_httpclient_close(trailing_slash.client);
 }
 
 static Iron_HttpRequest parse_raw_request(const char *wire, int64_t max_body) {

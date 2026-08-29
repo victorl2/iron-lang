@@ -277,8 +277,10 @@ HttpClient.close(opened.client)
 ```
 
 The origin fixes scheme, host, port, certificate roots, and verification mode;
-requests accept only origin-form targets beginning with `/`. `max_connections`
-bounds concurrent sockets and `idle_timeout` retires old idle entries. A stale
+it must not contain a path, query, or fragment (an optional trailing slash is
+accepted). TLS-only CA and insecure options are rejected for plain HTTP rather
+than ignored. Requests accept only origin-form targets beginning with `/`.
+`max_connections` bounds concurrent sockets and `idle_timeout` retires old idle entries. A stale
 reused connection is retried once only for bodyless GET or HEAD. POST and other
 potentially non-idempotent requests are never replayed automatically.
 
