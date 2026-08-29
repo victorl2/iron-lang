@@ -9,14 +9,18 @@ func handle_session(connection: HttpConnection) -> Int {
         val request = HttpConnection.read_request(
             connection, 16384, 1048576, 15000)
         if request.error != 0 {
+            val error = request.error
+            HttpRequest.release(request)
             HttpConnection.close(connection)
-            return request.error
+            return error
         }
         served += 1
         val keep = request.keep_alive and served < 100
         val response = Http.json_response(200, "\{\"status\":\"ok\"\}")
         val sent = HttpConnection.send_response_keep_alive(
             connection, response, keep, 5000)
+        HttpResponse.release(response)
+        HttpRequest.release(request)
         if sent != 0 {
             HttpConnection.close(connection)
             return sent
@@ -32,6 +36,7 @@ func main() {
         "http://127.0.0.1:8080", "", false, 4, 30000)
     if opened.error != 0 {
         println("client failed: {opened.error} {opened.error_message}")
+        HttpClientResult.release(opened)
         return
     }
     val first = HttpClient.request(
@@ -40,4 +45,7 @@ func main() {
         opened.client, "GET", "/api/status", "", "", 1048576, 5000)
     println("first={first.status} second={second.status}")
     HttpClient.close(opened.client)
+    HttpResponse.release(first)
+    HttpResponse.release(second)
+    HttpClientResult.release(opened)
 }

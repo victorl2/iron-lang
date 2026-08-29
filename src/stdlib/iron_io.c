@@ -274,10 +274,12 @@ Iron_List_Iron_String Iron_io_read_lines(Iron_String path) {
     }
     Iron_String sep = iron_string_from_cstr("\n", 1);
     Iron_List_Iron_String lines = Iron_string_split(res.v0, sep);
+    iron_string_release(&res.v0);
     /* Remove trailing empty string if file ended with \n (common case) */
     if (lines.count > 0) {
         Iron_String last = lines.items[lines.count - 1];
         if (iron_string_byte_len(&last) == 0) {
+            iron_string_release(&lines.items[lines.count - 1]);
             lines.count--;
         }
     }
@@ -337,6 +339,19 @@ static Iron_FileWriteResult io_write_result(int64_t bytes, int64_t code) {
     out.error = code;
     out.error_message = io_message(code);
     return out;
+}
+
+void Iron_filereadresult_release(Iron_FileReadResult result) {
+    iron_string_release(&result.data);
+    iron_string_release(&result.error_message);
+}
+
+void Iron_filewriteresult_release(Iron_FileWriteResult result) {
+    iron_string_release(&result.error_message);
+}
+
+void Iron_fileinfo_release(Iron_FileInfo info) {
+    iron_string_release(&info.error_message);
 }
 
 static int io_path_copy(Iron_String path, char **output) {

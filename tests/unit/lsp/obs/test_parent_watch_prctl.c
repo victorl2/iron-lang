@@ -7,9 +7,12 @@
  * then sleeps. The parent of the test process exits; the child should
  * receive SIGTERM within ~5s and exit cleanly. We fork a test-parent
  * (A), which forks test-child (B) that installs the watcher and pauses.
- * A exits (orphaning B); B should be SIGTERM'd by the kernel via
- * PR_SET_PDEATHSIG. A final layer (the actual Unity test process)
- * waitpid()s B with a timeout.
+ * A waits until B confirms PR_SET_PDEATHSIG is installed, then exits
+ * (orphaning B); B should be SIGTERM'd by the kernel. The install
+ * handshake is essential: if A exits before B's first getppid(), Linux
+ * cannot distinguish that orphan from a process legitimately launched
+ * by a live container PID 1. A final layer (the actual Unity test
+ * process) observes B's result through a pipe.
  *
  * Unity layout:
  *   - Test 1: prctl install succeeds + marks installed()
@@ -56,10 +59,13 @@ static void test_e2e_parent_death_delivers_sigterm(void) {
      * "child" (C). C installs sigaction(SIGTERM) + parent_watch_init,
      * then pauses up to 5s. P1 then exits. Kernel should deliver SIGTERM
      * to C. C records that and exits 0; if no SIGTERM arrived, C exits 1.
-     * Unity process waitpid's P1, P1 waitpid's C, exit code of C is
-     * propagated via stderr pipe to Unity. */
+     * Unity waits for P1, then observes C's signal flag through the status
+     * pipe. P1 deliberately cannot wait for C because P1's exit is the
+     * parent-death event under test. */
     int status_pipe[2];
+    int ready_pipe[2];
     TEST_ASSERT_EQUAL_INT(0, pipe(status_pipe));
+    TEST_ASSERT_EQUAL_INT(0, pipe(ready_pipe));
 
     pid_t p1 = fork();
     TEST_ASSERT_MESSAGE(p1 >= 0, "fork p1");
@@ -67,17 +73,32 @@ static void test_e2e_parent_death_delivers_sigterm(void) {
         /* P1 */
         close(status_pipe[0]);
         pid_t c = fork();
+        if (c < 0) {
+            close(ready_pipe[0]);
+            close(ready_pipe[1]);
+            close(status_pipe[1]);
+            _exit(2);
+        }
         if (c == 0) {
             /* C: install watcher + sigterm trap + pause. Reset the
              * install latch because fork() inherited the Unity
              * process's already-installed state (prctl disposition
              * does NOT inherit across fork on Linux, though). */
+            close(ready_pipe[0]);
             ilsp_parent_watch_reset_for_testing();
             struct sigaction sa;
             memset(&sa, 0, sizeof(sa));
             sa.sa_handler = sigterm_flag;
             sigaction(SIGTERM, &sa, NULL);
             ilsp_parent_watch_init();
+
+            /* Do not let P1 exit until the watcher is installed. Without
+             * this handshake, a scheduler can orphan C before its first
+             * getppid(), making the test's intended parent unknowable. */
+            const unsigned char ready = 1;
+            ssize_t ready_written = write(ready_pipe[1], &ready, 1);
+            (void)ready_written;
+            close(ready_pipe[1]);
 
             /* Poll up to 5s for the flag; sleep(1) in a loop to let the
              * SIGTERM interrupt it. */
@@ -90,16 +111,25 @@ static void test_e2e_parent_death_delivers_sigterm(void) {
             close(status_pipe[1]);
             _exit(s_got_sigterm ? 0 : 1);
         }
-        /* P1: exit immediately so C becomes orphan. Do NOT waitpid(c) --
-         * our exit will orphan C, and the kernel delivers SIGTERM. Close
-         * the write-side in P1 so C is the only writer. */
+        /* P1: wait until C confirms the watcher is armed, then exit so C
+         * becomes orphaned. Do NOT waitpid(c): our exit is the event under
+         * test. Close the status write-side so C is the only writer. */
         close(status_pipe[1]);
-        _exit(0);
+        close(ready_pipe[1]);
+        unsigned char ready = 0;
+        ssize_t ready_read = read(ready_pipe[0], &ready, 1);
+        close(ready_pipe[0]);
+        _exit(ready_read == 1 && ready == 1 ? 0 : 2);
     }
     /* Unity: wait for P1 to exit. */
+    close(ready_pipe[0]);
+    close(ready_pipe[1]);
     close(status_pipe[1]);
     int s = 0;
     waitpid(p1, &s, 0);
+    TEST_ASSERT_TRUE_MESSAGE(WIFEXITED(s), "test parent exited normally");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, WEXITSTATUS(s),
+                                  "child watcher install handshake completed");
 
     /* Read the status byte (or EOF) from the pipe within ~8s. Use a
      * simple polling read with a deadline. */

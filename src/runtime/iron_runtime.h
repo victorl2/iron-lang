@@ -747,6 +747,10 @@ size_t       iron_string_codepoint_count(const Iron_String *s);
 bool         iron_string_equals(const Iron_String *a, const Iron_String *b);
 Iron_String  iron_string_concat(const Iron_String *a, const Iron_String *b);
 Iron_String  iron_string_intern(Iron_String s);
+/* Consumes one owned string value. Heap-backed interned literals remain owned
+ * by the runtime and are ignored; non-interned heap storage is freed. Any
+ * by-value aliases of a released string become invalid and must not be used. */
+void         iron_string_release(Iron_String *s);
 
 /* ── Phase 26 POL-06: rc policy runtime API ──────────────────────────────────
  *
@@ -1670,5 +1674,6 @@ int64_t               Iron_string_count(Iron_String self, Iron_String sub);
 int64_t               Iron_string_rindex_of(Iron_String self, Iron_String sub);
 int64_t               Iron_string_byte_at(Iron_String self, int64_t i);
 Iron_String           Iron_string_from_byte(int64_t b);
+void                  Iron_string_release(Iron_String self);
 
 #endif /* IRON_RUNTIME_H */

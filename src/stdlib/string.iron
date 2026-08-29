@@ -22,6 +22,9 @@ patch object String {
     readonly func rindex_of(sub: String) -> Int {}
     readonly func byte_at(i: Int) -> Int {}
     readonly func from_byte(b: Int) -> String {}
+    -- Consumes an owned dynamic string. Do not use this value or a by-value
+    -- alias after release. Interned literals and inline strings are no-ops.
+    readonly func release() {}
 }
 
 -- Phase 59 P01c: byte-level and reverse-search primitives needed by URL

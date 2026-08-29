@@ -19,6 +19,11 @@ typedef struct {
     Iron_NetError error;
 } Iron_TlsContextResult;
 
+/* Low-level TLS results contain handles plus numeric NetError values and own
+ * no strings. Close/free a successful handle; no result release is needed.
+ * The higher-level HTTPS models in iron_http.h do own diagnostic strings and
+ * provide matching Iron_*_release helpers. */
+
 /* Wrap an already-connected nonblocking TCP socket. `ca_file == ""` uses the
  * platform/OpenSSL default trust roots. Hostname/IP verification is mandatory
  * unless `insecure` is explicitly true. */

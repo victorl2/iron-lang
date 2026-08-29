@@ -124,6 +124,27 @@ void test_intern_different_strings(void) {
     TEST_ASSERT_FALSE(iron_string_equals(&a, &b));
 }
 
+void test_string_release_consumes_owned_but_not_interned_storage(void) {
+    const char *owned_text =
+        "owned string storage longer than the SSO boundary";
+    Iron_String owned = iron_string_from_cstr(
+        owned_text, strlen(owned_text));
+    TEST_ASSERT_EQUAL_UINT8(1, owned.heap.flags & 0x01);
+    iron_string_release(&owned);
+    TEST_ASSERT_EQUAL_UINT8(0, owned.heap.flags & 0x01);
+    TEST_ASSERT_EQUAL_size_t(0, iron_string_byte_len(&owned));
+
+    const char *literal_text =
+        "interned string storage longer than the SSO boundary";
+    Iron_String literal = iron_string_from_literal(
+        literal_text, strlen(literal_text));
+    const char *interned_data = iron_string_cstr(&literal);
+    iron_string_release(&literal);
+    Iron_String again = iron_string_from_literal(
+        literal_text, strlen(literal_text));
+    TEST_ASSERT_EQUAL_PTR(interned_data, iron_string_cstr(&again));
+}
+
 /* ── Iron_Rc tests ───────────────────────────────────────────────────────── */
 /*
  * Phase 26 Plan 26-01: the pre-v4 Iron_Rc + Iron_Weak control-block-plus-value
@@ -214,6 +235,7 @@ int main(void) {
     RUN_TEST(test_concat_heap);
     RUN_TEST(test_intern_deduplicates);
     RUN_TEST(test_intern_different_strings);
+    RUN_TEST(test_string_release_consumes_owned_but_not_interned_storage);
 
     /* Iron_Rc + Iron_Weak: legacy v1.x API removed in Phase 26 Plan 26-01.
      * Coverage migrated to tests/unit/test_rc_layout.c +

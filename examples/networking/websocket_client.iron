@@ -6,6 +6,7 @@ func main() {
         "ws://127.0.0.1:8081/echo", "", ["iron.echo.v1"], 1048576, 5000)
     if connected.error != 0 {
         println("connect failed: {connected.error} {connected.error_message}")
+        WebSocketResult.release(connected)
         return
     }
     println("protocol: {connected.protocol}")
@@ -13,6 +14,7 @@ func main() {
     if sent != 0 {
         println("send failed: {sent}")
         WebSocket.abort(connected.socket)
+        WebSocketResult.release(connected)
         return
     }
     val reply = WebSocket.receive(connected.socket, 5000)
@@ -23,4 +25,6 @@ func main() {
     }
     val closed = WebSocket.close(connected.socket, 1000, "done", 5000)
     if closed != 0 { println("close warning: {closed}") }
+    WebSocketMessage.release(reply)
+    WebSocketResult.release(connected)
 }

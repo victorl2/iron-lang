@@ -10,11 +10,14 @@ func main() {
     val written = IO.write_bytes(path, payload)
     if written.error != 0 {
         println("write failed: {written.error} {written.error_message}")
+        FileWriteResult.release(written)
         return
     }
     val read = IO.read_bytes(path, 1024)
     if read.error != 0 {
         println("read failed: {read.error} {read.error_message}")
+        FileWriteResult.release(written)
+        FileReadResult.release(read)
         return
     }
     val info = IO.file_info(path)
@@ -27,4 +30,9 @@ func main() {
 
     IO.delete_file(path)
     IO.delete_file(moved)
+    FileWriteResult.release(written)
+    FileReadResult.release(read)
+    FileInfo.release(info)
+    FileWriteResult.release(copied)
+    FileWriteResult.release(renamed)
 }

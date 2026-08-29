@@ -4,31 +4,44 @@ import http
 
 func serve_one(server: HttpServer) -> Int {
     val accepted = HttpServer.accept(server, 10000)
-    if accepted.error != 0 { return accepted.error }
+    if accepted.error != 0 {
+        val error = accepted.error
+        HttpConnectionResult.release(accepted)
+        return error
+    }
     val request = HttpConnection.read_request(accepted.connection, 16384, 1024, 5000)
     if request.error != 0 {
+        val error = request.error
+        HttpRequest.release(request)
         HttpConnection.close(accepted.connection)
-        return request.error
+        HttpConnectionResult.release(accepted)
+        return error
     }
     val response = Http.json_response(200, "\{\"status\":\"ok\"\}")
     val sent = HttpConnection.send_response(accepted.connection, response, 5000)
+    HttpResponse.release(response)
+    HttpRequest.release(request)
     HttpConnection.close(accepted.connection)
+    HttpConnectionResult.release(accepted)
     if sent != 0 { return sent }
     return 1
 }
 
 func fetch_one(url: String, result: Int) -> Int {
     val response = Http.get(url, 10000)
-    if response.error != 0 { return response.error }
-    if response.status != 200 { return -1 }
-    if response.body != "\{\"status\":\"ok\"\}" { return -2 }
-    return result
+    var outcome = result
+    if response.error != 0 { outcome = response.error }
+    if response.error == 0 and response.status != 200 { outcome = -1 }
+    if response.error == 0 and response.status == 200 and response.body != "\{\"status\":\"ok\"\}" { outcome = -2 }
+    HttpResponse.release(response)
+    return outcome
 }
 
 func main() {
     val listening = Http.listen("127.0.0.1", 0)
     if listening.error != 0 {
         println("listen-error {listening.error}")
+        HttpServerResult.release(listening)
         return
     }
     val port = HttpServer.port(listening.server)
@@ -58,7 +71,9 @@ func main() {
              (await c5) + (await c6) + (await c7) + (await c8)
     val sr = (await s1) + (await s2) + (await s3) + (await s4) +
              (await s5) + (await s6) + (await s7) + (await s8)
+    url.release()
     HttpServer.close(listening.server)
+    HttpServerResult.release(listening)
     if cr == 36 and sr == 8 {
         println("http concurrency ok: 8 clients")
     } else {

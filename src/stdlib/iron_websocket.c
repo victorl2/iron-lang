@@ -115,6 +115,16 @@ static Iron_WebSocketMessage ws_message_error(int64_t error) {
     return message;
 }
 
+void Iron_websocketresult_release(Iron_WebSocketResult result) {
+    iron_string_release(&result.error_message);
+    iron_string_release(&result.protocol);
+}
+
+void Iron_websocketmessage_release(Iron_WebSocketMessage message) {
+    iron_string_release(&message.data);
+    iron_string_release(&message.error_message);
+}
+
 static int ascii_equal(const char *left, size_t left_len,
                        const char *right, size_t right_len) {
     if (left_len != right_len) return 0;

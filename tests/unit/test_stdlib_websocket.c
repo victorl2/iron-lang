@@ -47,7 +47,9 @@ static int thread_join(WS_THREAD thread) { return pthread_join(thread, NULL); }
 static Iron_String istrn(const void *bytes, size_t length) {
     return iron_string_from_cstr((const char *)bytes, length);
 }
-static Iron_String istr(const char *text) { return istrn(text, strlen(text)); }
+static Iron_String istr(const char *text) {
+    return iron_string_from_literal(text, strlen(text));
+}
 
 void setUp(void) { iron_runtime_init(0, NULL); }
 void tearDown(void) { iron_runtime_shutdown(); }
@@ -72,12 +74,19 @@ enum { WS_WRITERS = 24 };
 static int server_upgrade(WsServerCase *test, Iron_WebSocket *socket,
                           int64_t max_message) {
     Iron_HttpConnectionResult accepted = Iron_httpserver_accept(test->server, 5000);
-    if (accepted.error != 0) return (int)accepted.error;
+    if (accepted.error != 0) {
+        int error = (int)accepted.error;
+        Iron_httpconnectionresult_release(accepted);
+        return error;
+    }
     Iron_HttpRequest request = Iron_httpconnection_read_request(
         accepted.connection, 16384, 1024, 5000);
     if (request.error != 0) {
+        int error = (int)request.error;
+        Iron_httprequest_release(request);
         Iron_httpconnection_close(accepted.connection);
-        return (int)request.error;
+        Iron_httpconnectionresult_release(accepted);
+        return error;
     }
     Iron_WebSocketResult upgraded = test->mode == 7 || test->mode == 8
         ? Iron_httpconnection_upgrade_websocket_protocol(
@@ -87,12 +96,27 @@ static int server_upgrade(WsServerCase *test, Iron_WebSocket *socket,
         : Iron_httpconnection_upgrade_websocket(
             accepted.connection, request, max_message, 5000);
     if (upgraded.error != 0) {
+        int error = (int)upgraded.error;
+        Iron_websocketresult_release(upgraded);
+        Iron_httprequest_release(request);
         Iron_httpconnection_close(accepted.connection);
-        return (int)upgraded.error;
+        Iron_httpconnectionresult_release(accepted);
+        return error;
     }
     *socket = upgraded.socket;
-    test->protocol = upgraded.protocol;
+    test->protocol = iron_string_from_cstr(
+        iron_string_cstr(&upgraded.protocol),
+        iron_string_byte_len(&upgraded.protocol));
+    Iron_websocketresult_release(upgraded);
+    Iron_httprequest_release(request);
+    Iron_httpconnectionresult_release(accepted);
     return 0;
+}
+
+static void release_server_case(WsServerCase *test) {
+    iron_string_release(&test->text);
+    iron_string_release(&test->binary);
+    iron_string_release(&test->protocol);
 }
 
 static void *serve_websocket(void *pointer) {
@@ -105,34 +129,43 @@ static void *serve_websocket(void *pointer) {
         Iron_WebSocketMessage text = Iron_websocket_receive(socket, 5000);
         if (text.error || text.kind != IRON_WEBSOCKET_TEXT) {
             test->error = text.error ? text.error : -1;
+            Iron_websocketmessage_release(text);
             Iron_websocket_abort(socket);
             return NULL;
         }
-        test->text = text.data;
+        test->text = iron_string_from_cstr(
+            iron_string_cstr(&text.data), iron_string_byte_len(&text.data));
         test->error = Iron_websocket_send_text(socket, text.data, 5000);
+        Iron_websocketmessage_release(text);
         if (test->error) { Iron_websocket_abort(socket); return NULL; }
 
         Iron_WebSocketMessage binary = Iron_websocket_receive(socket, 5000);
         if (binary.error || binary.kind != IRON_WEBSOCKET_BINARY) {
             test->error = binary.error ? binary.error : -2;
+            Iron_websocketmessage_release(binary);
             Iron_websocket_abort(socket);
             return NULL;
         }
-        test->binary = binary.data;
+        test->binary = iron_string_from_cstr(
+            iron_string_cstr(&binary.data), iron_string_byte_len(&binary.data));
         test->error = Iron_websocket_send_bytes(socket, binary.data, 5000);
+        Iron_websocketmessage_release(binary);
         if (test->error) { Iron_websocket_abort(socket); return NULL; }
 
         Iron_WebSocketMessage ping = Iron_websocket_receive(socket, 5000);
         if (ping.error || ping.kind != IRON_WEBSOCKET_PING) {
             test->error = ping.error ? ping.error : -3;
+            Iron_websocketmessage_release(ping);
             Iron_websocket_abort(socket);
             return NULL;
         }
+        Iron_websocketmessage_release(ping);
         Iron_WebSocketMessage close = Iron_websocket_receive(socket, 5000);
         if (close.error || close.kind != IRON_WEBSOCKET_CLOSE ||
             close.close_code != 1000) {
             test->error = close.error ? close.error : -4;
         }
+        Iron_websocketmessage_release(close);
         Iron_websocket_abort(socket);
         return NULL;
     }
@@ -140,24 +173,30 @@ static void *serve_websocket(void *pointer) {
         Iron_WebSocketMessage ping = Iron_websocket_receive(socket, 5000);
         if (ping.error || ping.kind != IRON_WEBSOCKET_PING)
             test->error = ping.error ? ping.error : -10;
+        Iron_websocketmessage_release(ping);
         if (!test->error) {
             Iron_WebSocketMessage text = Iron_websocket_receive(socket, 5000);
             if (text.error || text.kind != IRON_WEBSOCKET_TEXT)
                 test->error = text.error ? text.error : -11;
-            else test->text = text.data;
+            else test->text = iron_string_from_cstr(
+                iron_string_cstr(&text.data), iron_string_byte_len(&text.data));
+            Iron_websocketmessage_release(text);
         }
     } else if (test->mode == 4) {
         for (int i = 0; i < WS_WRITERS; i++) {
             Iron_WebSocketMessage message = Iron_websocket_receive(socket, 5000);
             if (message.error != 0 || message.kind != IRON_WEBSOCKET_TEXT) {
                 test->error = message.error ? message.error : -20;
+                Iron_websocketmessage_release(message);
                 break;
             }
+            Iron_websocketmessage_release(message);
         }
         if (!test->error) {
             Iron_WebSocketMessage close = Iron_websocket_receive(socket, 5000);
             if (close.error != 0 || close.kind != IRON_WEBSOCKET_CLOSE)
                 test->error = close.error ? close.error : -21;
+            Iron_websocketmessage_release(close);
         }
     } else if (test->mode == 5) {
         Iron_WebSocketMessage small = Iron_websocket_receive(socket, 5000);
@@ -166,25 +205,32 @@ static void *serve_websocket(void *pointer) {
         } else {
             test->error = Iron_websocket_send_bytes(socket, small.data, 5000);
         }
+        Iron_websocketmessage_release(small);
         Iron_WebSocketMessage message = Iron_websocket_receive(socket, 5000);
         if (message.error != 0 || message.kind != IRON_WEBSOCKET_BINARY) {
             test->error = message.error ? message.error : -30;
         } else {
-            test->binary = message.data;
+            test->binary = iron_string_from_cstr(
+                iron_string_cstr(&message.data),
+                iron_string_byte_len(&message.data));
             test->error = Iron_websocket_send_bytes(socket, message.data, 5000);
         }
+        Iron_websocketmessage_release(message);
         if (!test->error) {
             Iron_WebSocketMessage close = Iron_websocket_receive(socket, 5000);
             if (close.error != 0 || close.kind != IRON_WEBSOCKET_CLOSE)
                 test->error = close.error ? close.error : -31;
+            Iron_websocketmessage_release(close);
         }
     } else if (test->mode == 7) {
         Iron_WebSocketMessage close = Iron_websocket_receive(socket, 5000);
         if (close.error != 0 || close.kind != IRON_WEBSOCKET_CLOSE)
             test->error = close.error ? close.error : -40;
+        Iron_websocketmessage_release(close);
     } else {
         Iron_WebSocketMessage message = Iron_websocket_receive(socket, 5000);
         test->error = message.error;
+        Iron_websocketmessage_release(message);
     }
     Iron_websocket_abort(socket);
     return NULL;
@@ -209,7 +255,9 @@ static Iron_HttpServer make_server(int64_t *port) {
     TEST_ASSERT_EQUAL_INT64(0, result.error);
     *port = Iron_httpserver_port(result.server);
     TEST_ASSERT_GREATER_THAN_INT64(0, *port);
-    return result.server;
+    Iron_HttpServer server = result.server;
+    Iron_httpserverresult_release(result);
+    return server;
 }
 
 static void start_server_case(WsServerCase *test, WS_THREAD *thread,
@@ -239,8 +287,10 @@ void test_websocket_client_server_text_binary_ping_close(void) {
     assert_bytes("hello websocket", 15, text.data);
 
     const uint8_t binary_bytes[] = { 0x00, 0x01, 0x7f, 0x80, 0xfe, 0xff };
+    Iron_String outbound_binary = istrn(binary_bytes, sizeof(binary_bytes));
     TEST_ASSERT_EQUAL_INT64(0, Iron_websocket_send_bytes(
-        connected.socket, istrn(binary_bytes, sizeof(binary_bytes)), 5000));
+        connected.socket, outbound_binary, 5000));
+    iron_string_release(&outbound_binary);
     Iron_WebSocketMessage binary = Iron_websocket_receive(connected.socket, 5000);
     TEST_ASSERT_EQUAL_INT64(0, binary.error);
     TEST_ASSERT_EQUAL_INT64(IRON_WEBSOCKET_BINARY, binary.kind);
@@ -259,6 +309,11 @@ void test_websocket_client_server_text_binary_ping_close(void) {
     TEST_ASSERT_EQUAL_INT64(0, server.error);
     assert_bytes("hello websocket", 15, server.text);
     assert_bytes(binary_bytes, sizeof(binary_bytes), server.binary);
+    Iron_websocketmessage_release(text);
+    Iron_websocketmessage_release(binary);
+    Iron_websocketmessage_release(pong);
+    Iron_websocketresult_release(connected);
+    release_server_case(&server);
     Iron_httpserver_close(server.server);
 }
 
@@ -346,6 +401,7 @@ void test_websocket_fragmentation_with_interleaved_ping(void) {
     TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
     TEST_ASSERT_EQUAL_INT64(0, server.error);
     assert_bytes("Hello", 5, server.text);
+    release_server_case(&server);
     Iron_tcpsocket_close(raw);
     Iron_httpserver_close(server.server);
 }
@@ -362,6 +418,7 @@ void test_websocket_rejects_unmasked_client_frame(void) {
     TEST_ASSERT_EQUAL_INT64(0, sent.v1.code);
     TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_PROTOCOL, server.error);
+    release_server_case(&server);
     Iron_tcpsocket_close(raw);
     Iron_httpserver_close(server.server);
 }
@@ -376,6 +433,7 @@ void test_websocket_enforces_message_limit(void) {
     raw_send_masked(raw, 0x82, (const uint8_t *)"123456", 6, mask);
     TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_MESSAGE_TOO_LARGE, server.error);
+    release_server_case(&server);
     Iron_tcpsocket_close(raw);
     Iron_httpserver_close(server.server);
 }
@@ -391,6 +449,7 @@ void test_websocket_rejects_invalid_utf8_text(void) {
     raw_send_masked(raw, 0x81, invalid, sizeof(invalid), mask);
     TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_INVALID_UTF8, server.error);
+    release_server_case(&server);
     Iron_tcpsocket_close(raw);
     Iron_httpserver_close(server.server);
 }
@@ -400,6 +459,7 @@ void test_websocket_rejects_handshake_header_override(void) {
         istr("ws://127.0.0.1:1/"), istr("Sec-WebSocket-Key: attacker"),
         1024, 100);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_INVALID_ARGUMENT, result.error);
+    Iron_websocketresult_release(result);
 }
 
 void test_websocket_negotiates_ordered_subprotocols(void) {
@@ -425,6 +485,8 @@ void test_websocket_negotiates_ordered_subprotocols(void) {
     TEST_ASSERT_EQUAL_INT64(0, server.error);
     TEST_ASSERT_EQUAL_STRING("graphql-transport-ws",
                              iron_string_cstr(&server.protocol));
+    Iron_websocketresult_release(connected);
+    release_server_case(&server);
     Iron_httpserver_close(server.server);
 }
 
@@ -443,6 +505,8 @@ void test_websocket_rejects_unoffered_server_protocol(void) {
     TEST_ASSERT_NOT_EQUAL(0, connected.error);
     TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_HANDSHAKE, server.error);
+    Iron_websocketresult_release(connected);
+    release_server_case(&server);
     Iron_httpserver_close(server.server);
 }
 
@@ -452,12 +516,14 @@ void test_websocket_rejects_invalid_or_duplicate_protocols(void) {
     Iron_WebSocketResult bad = Iron_websocket_connect_with_protocols(
         istr("ws://127.0.0.1:1/"), istr(""), invalid, 1024, 100);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_INVALID_ARGUMENT, bad.error);
+    Iron_websocketresult_release(bad);
 
     Iron_String duplicate_items[] = { istr("mqtt"), istr("mqtt") };
     Iron_List_Iron_String duplicate = { duplicate_items, 2, 2 };
     bad = Iron_websocket_connect_with_protocols(
         istr("ws://127.0.0.1:1/"), istr(""), duplicate, 1024, 100);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_INVALID_ARGUMENT, bad.error);
+    Iron_websocketresult_release(bad);
 }
 
 void test_websocket_rejects_noncanonical_client_key(void) {
@@ -469,6 +535,7 @@ void test_websocket_rejects_noncanonical_client_key(void) {
         port, "dGhlIHNhbXBsZSBub25jZR==");
     TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_WS_HANDSHAKE, server.error);
+    release_server_case(&server);
     Iron_tcpsocket_close(raw);
     Iron_httpserver_close(server.server);
 }
@@ -499,6 +566,8 @@ void test_websocket_serializes_concurrent_writers(void) {
         connected.socket, 1000, istr("writers done"), 5000));
     TEST_ASSERT_EQUAL_INT(0, thread_join(server_thread));
     TEST_ASSERT_EQUAL_INT64(0, server.error);
+    Iron_websocketresult_release(connected);
+    release_server_case(&server);
     Iron_httpserver_close(server.server);
 }
 
@@ -518,13 +587,17 @@ void test_websocket_64_bit_length_binary_roundtrip(void) {
     TEST_ASSERT_EQUAL_INT64(0, connected.error);
     uint8_t medium[126];
     for (size_t i = 0; i < sizeof(medium); i++) medium[i] = (uint8_t)i;
+    Iron_String medium_out = istrn(medium, sizeof(medium));
     TEST_ASSERT_EQUAL_INT64(0, Iron_websocket_send_bytes(
-        connected.socket, istrn(medium, sizeof(medium)), 5000));
+        connected.socket, medium_out, 5000));
+    iron_string_release(&medium_out);
     Iron_WebSocketMessage medium_echo = Iron_websocket_receive(connected.socket, 5000);
     TEST_ASSERT_EQUAL_INT64(0, medium_echo.error);
     assert_bytes(medium, sizeof(medium), medium_echo.data);
+    Iron_String payload_out = istrn(payload, payload_length);
     TEST_ASSERT_EQUAL_INT64(0, Iron_websocket_send_bytes(
-        connected.socket, istrn(payload, payload_length), 5000));
+        connected.socket, payload_out, 5000));
+    iron_string_release(&payload_out);
     Iron_WebSocketMessage echoed = Iron_websocket_receive(connected.socket, 5000);
     TEST_ASSERT_EQUAL_INT64(0, echoed.error);
     TEST_ASSERT_EQUAL_INT64(IRON_WEBSOCKET_BINARY, echoed.kind);
@@ -534,6 +607,10 @@ void test_websocket_64_bit_length_binary_roundtrip(void) {
     TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
     TEST_ASSERT_EQUAL_INT64(0, server.error);
     assert_bytes(payload, payload_length, server.binary);
+    Iron_websocketmessage_release(medium_echo);
+    Iron_websocketmessage_release(echoed);
+    Iron_websocketresult_release(connected);
+    release_server_case(&server);
     Iron_httpserver_close(server.server);
     free(payload);
 }

@@ -52,7 +52,7 @@ static char   s_sandbox[256];
 static size_t s_sandbox_len;
 
 static Iron_String make_str(const char *s) {
-    return iron_string_from_cstr(s, strlen(s));
+    return iron_string_from_literal(s, strlen(s));
 }
 
 /* mkpath joins the sandbox with a relative name and returns a new
@@ -60,7 +60,13 @@ static Iron_String make_str(const char *s) {
 static Iron_String mkpath(const char *rel) {
     char buf[512];
     snprintf(buf, sizeof(buf), "%s/%s", s_sandbox, rel);
-    return iron_string_from_cstr(buf, strlen(buf));
+    return iron_string_from_literal(buf, strlen(buf));
+}
+
+static void release_string_list(Iron_List_Iron_String *list) {
+    for (int64_t i = 0; i < list->count; i++)
+        iron_string_release(&list->items[i]);
+    Iron_List_Iron_String_free(list);
 }
 
 /* Best-effort teardown: unlink every file we might have written under
@@ -90,7 +96,7 @@ void setUp(void) {
     /* Create via the iron_io API — exercises Iron_io_create_dir on the
      * happy path and the already-exists branch in one shot. */
     rmdir(s_sandbox);  /* belt & braces from a crashed prior run */
-    Iron_String dir = iron_string_from_cstr(s_sandbox, s_sandbox_len);
+    Iron_String dir = iron_string_from_literal(s_sandbox, s_sandbox_len);
     Iron_Error err = Iron_io_create_dir(dir);
     TEST_ASSERT_EQUAL_INT(0, err.code);
     /* Second create_dir on the same path must hit the "already exists is
@@ -121,6 +127,7 @@ void test_io_read_file_inline_wrapper(void) {
      * has that will give iron_io.h any line coverage at all. */
     Iron_String content = Iron_io_read_file(path);
     TEST_ASSERT_EQUAL_STRING("hello inline wrapper", iron_string_cstr(&content));
+    iron_string_release(&content);
 }
 
 /* ── iron_io.c: read_bytes_result + read_bytes inline wrapper ────────────── */
@@ -141,6 +148,8 @@ void test_io_read_bytes_inline_wrapper(void) {
     /* Iron_io_read_bytes inline wrapper — gives iron_io.h coverage. */
     Iron_String bytes = Iron_io_read_bytes_legacy(path);
     TEST_ASSERT_EQUAL_size_t(sizeof(data), iron_string_byte_len(&bytes));
+    iron_string_release(&res.v0);
+    iron_string_release(&bytes);
 
     /* Write-file failure arm: write to an unwriteable path (/proc/self
      * on Linux) — skipped because it's platform-specific. The happy
@@ -171,6 +180,7 @@ void test_io_append_file(void) {
     Iron_String bad = make_str("/nonexistent/dir/x.txt");
     Iron_Error bad_err = Iron_io_append_file(bad, make_str("..."));
     TEST_ASSERT_NOT_EQUAL_INT(0, bad_err.code);
+    iron_string_release(&res.v0);
 }
 
 /* ── iron_io.c: list_files_result (the big one) ──────────────────────────── */
@@ -181,7 +191,7 @@ void test_io_list_files_happy_path(void) {
     Iron_io_write_file(mkpath("b.txt"), make_str("bravo"));
     Iron_io_write_file(mkpath("c.txt"), make_str("charlie"));
 
-    Iron_String dir = iron_string_from_cstr(s_sandbox, s_sandbox_len);
+    Iron_String dir = iron_string_from_literal(s_sandbox, s_sandbox_len);
     Iron_Result_String_Error res = Iron_io_list_files_result(dir);
     TEST_ASSERT_EQUAL_INT(0, res.v1.code);
 
@@ -196,6 +206,8 @@ void test_io_list_files_happy_path(void) {
     /* And the Iron_io_list_files inline wrapper for iron_io.h coverage. */
     Iron_String via_inline = Iron_io_list_files(dir);
     TEST_ASSERT_NOT_NULL(strstr(iron_string_cstr(&via_inline), "a.txt"));
+    iron_string_release(&res.v0);
+    iron_string_release(&via_inline);
 }
 
 void test_io_list_files_nonexistent(void) {
@@ -203,6 +215,7 @@ void test_io_list_files_nonexistent(void) {
     Iron_String bad = make_str("/tmp/iron_cov_io_totally_nonexistent_dir");
     Iron_Result_String_Error res = Iron_io_list_files_result(bad);
     TEST_ASSERT_NOT_EQUAL_INT(0, res.v1.code);
+    iron_string_release(&res.v0);
 }
 
 void test_io_list_files_buffer_growth(void) {
@@ -214,12 +227,13 @@ void test_io_list_files_buffer_growth(void) {
         Iron_io_write_file(mkpath(rel), make_str("x"));
     }
 
-    Iron_String dir = iron_string_from_cstr(s_sandbox, s_sandbox_len);
+    Iron_String dir = iron_string_from_literal(s_sandbox, s_sandbox_len);
     Iron_Result_String_Error res = Iron_io_list_files_result(dir);
     TEST_ASSERT_EQUAL_INT(0, res.v1.code);
     const char *out = iron_string_cstr(&res.v0);
     TEST_ASSERT_NOT_NULL(strstr(out, "grow_000.txt"));
     TEST_ASSERT_NOT_NULL(strstr(out, "grow_079.txt"));
+    iron_string_release(&res.v0);
 
     /* Tear down the extra files so sandbox_nuke can finish rmdir */
     for (int i = 0; i < 80; i++) {
@@ -241,6 +255,9 @@ void test_io_basename(void) {
     /* Trailing slash — basename returns empty (the char after `/`) */
     Iron_String r3 = Iron_io_basename(make_str("/tmp/foo/"));
     TEST_ASSERT_EQUAL_size_t(0, iron_string_byte_len(&r3));
+    iron_string_release(&r1);
+    iron_string_release(&r2);
+    iron_string_release(&r3);
 }
 
 void test_io_dirname(void) {
@@ -254,6 +271,9 @@ void test_io_dirname(void) {
     /* Slash at position 0 — returns "/" (the last == p branch) */
     Iron_String r3 = Iron_io_dirname(make_str("/root"));
     TEST_ASSERT_EQUAL_STRING("/", iron_string_cstr(&r3));
+    iron_string_release(&r1);
+    iron_string_release(&r2);
+    iron_string_release(&r3);
 }
 
 void test_io_join_path(void) {
@@ -265,6 +285,8 @@ void test_io_join_path(void) {
     Iron_String j2 = Iron_io_join_path(make_str("/tmp/foo///"),
                                         make_str("baz.iron"));
     TEST_ASSERT_EQUAL_STRING("/tmp/foo/baz.iron", iron_string_cstr(&j2));
+    iron_string_release(&j1);
+    iron_string_release(&j2);
 }
 
 void test_io_extension(void) {
@@ -281,11 +303,15 @@ void test_io_extension(void) {
     /* Multi-dot — keeps the last segment */
     Iron_String e4 = Iron_io_extension(make_str("/path/to/archive.tar.gz"));
     TEST_ASSERT_EQUAL_STRING("gz", iron_string_cstr(&e4));
+    iron_string_release(&e1);
+    iron_string_release(&e2);
+    iron_string_release(&e3);
+    iron_string_release(&e4);
 }
 
 void test_io_is_dir(void) {
     /* True path: the sandbox itself */
-    Iron_String dir = iron_string_from_cstr(s_sandbox, s_sandbox_len);
+    Iron_String dir = iron_string_from_literal(s_sandbox, s_sandbox_len);
     TEST_ASSERT_TRUE(Iron_io_is_dir(dir));
 
     /* False path: a plain file */
@@ -313,6 +339,8 @@ void test_io_read_lines(void) {
     Iron_String missing = mkpath("nope.txt");
     Iron_List_Iron_String empty = Iron_io_read_lines(missing);
     TEST_ASSERT_EQUAL_INT64(0, empty.count);
+    release_string_list(&lines);
+    release_string_list(&empty);
 }
 
 void test_io_bounded_binary_roundtrip(void) {
@@ -330,8 +358,10 @@ void test_io_bounded_binary_roundtrip(void) {
     TEST_ASSERT_EQUAL_MEMORY(payload, iron_string_cstr(&read.data), sizeof(payload));
 
     const uint8_t suffix[] = {0xa5, 0x00};
+    Iron_String suffix_data = iron_string_from_cstr(
+        (const char *)suffix, sizeof(suffix));
     Iron_FileWriteResult appended = Iron_io_append_bytes(
-        path, iron_string_from_cstr((const char *)suffix, sizeof(suffix)));
+        path, suffix_data);
     TEST_ASSERT_EQUAL_INT64(0, appended.error);
     TEST_ASSERT_EQUAL_INT64((int64_t)sizeof(suffix), appended.bytes);
     const uint8_t combined[] = {0x00, 0x01, 0x7f, 0x80, 0xfe, 0xff, 0xa5, 0x00};
@@ -345,6 +375,13 @@ void test_io_bounded_binary_roundtrip(void) {
     Iron_FileReadResult limited = Iron_io_read_bytes(path, 3);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_TOO_LARGE, limited.error);
     TEST_ASSERT_EQUAL_size_t(0, iron_string_byte_len(&limited.data));
+    iron_string_release(&data);
+    iron_string_release(&suffix_data);
+    Iron_filewriteresult_release(written);
+    Iron_filereadresult_release(read);
+    Iron_filewriteresult_release(appended);
+    Iron_filereadresult_release(appended_read);
+    Iron_filereadresult_release(limited);
 }
 
 void test_io_text_append_info_copy_move(void) {
@@ -378,20 +415,37 @@ void test_io_text_append_info_copy_move(void) {
     TEST_ASSERT_EQUAL_STRING("alpha beta",
                              iron_string_cstr(&source_after_self_copy.data));
 
-    Iron_String sandbox = iron_string_from_cstr(s_sandbox, s_sandbox_len);
+    Iron_String sandbox = iron_string_from_literal(s_sandbox, s_sandbox_len);
     Iron_FileWriteResult directory_copy = Iron_io_copy_file(
         sandbox, copied_path, true);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_IS_DIRECTORY, directory_copy.error);
 
     Iron_FileWriteResult self_move = Iron_io_move_file(source, source, true);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_INVALID_ARGUMENT, self_move.error);
-    TEST_ASSERT_TRUE(Iron_io_file_info(source).exists);
+    Iron_FileInfo source_after_move = Iron_io_file_info(source);
+    TEST_ASSERT_TRUE(source_after_move.exists);
 
     Iron_String moved_path = mkpath("moved.bin");
     Iron_FileWriteResult moved = Iron_io_move_file(copied_path, moved_path, false);
     TEST_ASSERT_EQUAL_INT64(0, moved.error);
-    TEST_ASSERT_FALSE(Iron_io_file_info(copied_path).exists);
-    TEST_ASSERT_TRUE(Iron_io_file_info(moved_path).exists);
+    Iron_FileInfo copied_after_move = Iron_io_file_info(copied_path);
+    Iron_FileInfo moved_info = Iron_io_file_info(moved_path);
+    TEST_ASSERT_FALSE(copied_after_move.exists);
+    TEST_ASSERT_TRUE(moved_info.exists);
+    Iron_filewriteresult_release(first);
+    Iron_filewriteresult_release(second);
+    Iron_filereadresult_release(text);
+    Iron_fileinfo_release(info);
+    Iron_filewriteresult_release(copied);
+    Iron_filewriteresult_release(refused);
+    Iron_filewriteresult_release(self_copy);
+    Iron_filereadresult_release(source_after_self_copy);
+    Iron_filewriteresult_release(directory_copy);
+    Iron_filewriteresult_release(self_move);
+    Iron_fileinfo_release(source_after_move);
+    Iron_filewriteresult_release(moved);
+    Iron_fileinfo_release(copied_after_move);
+    Iron_fileinfo_release(moved_info);
 }
 
 typedef struct MoveRaceArgs {
@@ -460,14 +514,21 @@ void test_io_no_overwrite_move_is_atomic_against_creator(void) {
         if (args.moved.error == 0) {
             TEST_ASSERT_EQUAL_INT(EEXIST, args.create_error);
             TEST_ASSERT_EQUAL_STRING("source", iron_string_cstr(&final.data));
-            TEST_ASSERT_FALSE(Iron_io_file_info(source).exists);
+            Iron_FileInfo source_info = Iron_io_file_info(source);
+            TEST_ASSERT_FALSE(source_info.exists);
+            Iron_fileinfo_release(source_info);
         } else {
             TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_ALREADY_EXISTS,
                                     args.moved.error);
             TEST_ASSERT_EQUAL_INT(0, args.create_error);
             TEST_ASSERT_EQUAL_STRING("creator", iron_string_cstr(&final.data));
-            TEST_ASSERT_TRUE(Iron_io_file_info(source).exists);
+            Iron_FileInfo source_info = Iron_io_file_info(source);
+            TEST_ASSERT_TRUE(source_info.exists);
+            Iron_fileinfo_release(source_info);
         }
+        Iron_filewriteresult_release(seeded);
+        Iron_filewriteresult_release(args.moved);
+        Iron_filereadresult_release(final);
     }
 }
 

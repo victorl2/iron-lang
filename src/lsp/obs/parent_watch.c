@@ -113,6 +113,7 @@ int ilsp_parent_watch_init(void) {
 
 #if defined(__linux__)
     /* Linux: kernel-managed, zero threads. */
+    pid_t parent_before_install = getppid();
     if (prctl(PR_SET_PDEATHSIG, SIGTERM, 0, 0, 0) != 0) {
         int saved = errno;
         ilsp_log(ILSP_LOG_WARN, "parent-watch",
@@ -120,12 +121,13 @@ int ilsp_parent_watch_init(void) {
         atomic_store(&s_installed, 0);
         return -1;
     }
-    /* Race-guard: if parent already died between fork and this call,
-     * PPID has already become 1 and no SIGTERM will be delivered. Check
-     * once here. */
-    if (getppid() == 1) {
+    /* Race guard: if the parent died between our snapshot and prctl, the
+     * kernel could not deliver the newly configured signal. Compare PIDs
+     * rather than treating PPID 1 as inherently orphaned: inside a container,
+     * a healthy launcher or editor can legitimately be PID 1. */
+    if (getppid() != parent_before_install) {
         ilsp_log(ILSP_LOG_INFO, "parent-watch",
-                 "parent already gone at install time; self-SIGTERM");
+                 "parent changed during watcher install; self-SIGTERM");
         kill(getpid(), SIGTERM);
     }
     return 0;

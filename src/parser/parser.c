@@ -62,20 +62,23 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
  *
  * Ceiling calibration note: the guard bounds PARSER stack only. The
  * historical failure attributed to this ceiling (test_parser_recursion_guard
- * SIGSEGV under Debug+ASan) was actually a post-trip amplifier: the Pratt
+ * SIGSEGV under Debug+ASan) also exposed a post-trip amplifier: the Pratt
  * climb loop is iterative, and during error recovery it wrapped the error
  * node in one call layer per leftover token — an AST whose depth was
  * bounded by INPUT LENGTH, not by this ceiling — and the analyzer (which
  * has no depth guard) overflowed on it. That amplifier is now closed at
  * the top of iron_parse_expr_prec_impl's climb loop (error nodes accrete
- * no postfix layers during recovery). Measured under Debug+ASan (arm64,
- * 8 MB stack): 900 nested parens parse clean, the trip at 1000 emits
- * E0107 with room to spare — 1000 is a safe parser-frame bound.
+ * no postfix layers during recovery). Linux x86_64 Clang 14 ASan uses larger
+ * frames than the earlier arm64 calibration and exhausted an 8 MB stack before
+ * the former 1000 ceiling; a 512-deep recovered block AST could likewise
+ * exhaust the uninstrumented analyzer recursion. The portable bound is
+ * therefore 256, still more than 25 times the maximum integration-corpus
+ * depth and above the 100-level moderate-nesting acceptance case.
  *
  * Defense-in-depth note (IN-07 flag): adding depth bumps to
  * func_or_method / object_decl would be harmless but redundant — these
  * are reached only through iron_parse_decl, already wrapped. */
-#define IRON_PARSER_MAX_DEPTH 1000
+#define IRON_PARSER_MAX_DEPTH 256
 
 /* Forward decls for helpers used before their definitions. */
 static Iron_Span   iron_token_span(Iron_Parser *p, Iron_Token *t);

@@ -26,6 +26,11 @@ typedef struct Iron_WebSocketMessage {
     Iron_String error_message;
 } Iron_WebSocketMessage;
 
+/* Consume strings owned by returned WebSocket models. Socket handles and
+ * transports are not closed by these helpers. */
+void Iron_websocketresult_release(Iron_WebSocketResult result);
+void Iron_websocketmessage_release(Iron_WebSocketMessage message);
+
 enum {
     IRON_WEBSOCKET_TEXT = 1,
     IRON_WEBSOCKET_BINARY = 2,

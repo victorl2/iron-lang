@@ -21,6 +21,33 @@ header parsing, and body/frame decoding. Transport errors use codes
 `1000..1999`, TLS uses `3000..3099`, HTTP uses `5000..5099`, WebSocket uses
 `6000..6099`, and file I/O uses `8000..8099`.
 
+## Result ownership
+
+HTTP, WebSocket, and explicit file operations return model values that own
+their string fields. Consume those strings with the matching `release` call
+after the last read, on both success and error paths:
+
+- `HttpServerResult.release`, `HttpConnectionResult.release`,
+  `HttpsServerResult.release`, `HttpsConnectionResult.release`,
+  `HttpsPendingConnectionResult.release`, and `HttpClientResult.release`
+- `HttpRequest.release` and `HttpResponse.release`
+- `WebSocketResult.release` and `WebSocketMessage.release`
+- `FileReadResult.release`, `FileWriteResult.release`, and `FileInfo.release`
+
+Resource handles have a separate lifetime: close or transfer the server,
+connection, client, or socket first, then release its result model. Response
+constructors clone their header and body inputs, so releasing a response never
+invalidates the caller's strings. `Http.header` and other standalone dynamic
+strings can be consumed with `value.release()`.
+
+Release is consuming. Iron strings and models are value types, so do not use a
+released value or a by-value alias afterwards. Inline strings and interned
+literals are safe no-ops. C callers use `iron_string_release` and the
+`Iron_*_release` functions declared in the corresponding public headers; the
+same no-alias-after-release rule applies. Low-level `iron_tls.h` result structs
+contain only resource handles and numeric `Iron_NetError` values, so they own
+no strings and need no result release; close or free any successful handle.
+
 ## Client
 
 ```iron
@@ -30,10 +57,11 @@ func main() {
     val response = Http.get("http://127.0.0.1:8080/api/status", 5000)
     if response.error != 0 {
         println("request failed: {response.error} {response.error_message}")
-        return
+    } else {
+        println("status={response.status}")
+        println(response.body)
     }
-    println("status={response.status}")
-    println(response.body)
+    HttpResponse.release(response)
 }
 ```
 
@@ -132,13 +160,20 @@ Production HTTPS and WSS accept loops should separate TCP admission from TLS:
 ```iron
 val pending = HttpsServer.accept_tcp(server, 60000)
 if pending.error == 0 {
+    val connection = pending.connection
+    HttpsPendingConnectionResult.release(pending)
     spawn("tls-client") {
-        val secure = HttpsPendingConnection.handshake(pending.connection, 5000)
-        if secure.error != 0 { return secure.error }
-        -- read HTTP or upgrade to WebSocket here
-        HttpsConnection.close(secure.connection)
-        return 0
+        val secure = HttpsPendingConnection.handshake(connection, 5000)
+        val outcome = secure.error
+        if secure.error == 0 {
+            -- read HTTP or upgrade to WebSocket here
+            HttpsConnection.close(secure.connection)
+        }
+        HttpsConnectionResult.release(secure)
+        return outcome
     }
+} else {
+    HttpsPendingConnectionResult.release(pending)
 }
 ```
 
@@ -171,14 +206,16 @@ val connected = WebSocket.connect(
     1048576,
     5000,
 )
-if connected.error != 0 { return }
-
-val sent = WebSocket.send_text(connected.socket, "subscribe", 5000)
-val message = WebSocket.receive(connected.socket, 30000)
-if message.error == 0 and message.kind == 1 {
-    println(message.data)
+if connected.error == 0 {
+    val sent = WebSocket.send_text(connected.socket, "subscribe", 5000)
+    val message = WebSocket.receive(connected.socket, 30000)
+    if message.error == 0 and message.kind == 1 {
+        println(message.data)
+    }
+    val closed = WebSocket.close(connected.socket, 1000, "done", 5000)
+    WebSocketMessage.release(message)
 }
-val closed = WebSocket.close(connected.socket, 1000, "done", 5000)
+WebSocketResult.release(connected)
 ```
 
 Use `connect_with_ca` for a private root. The explicitly named
@@ -234,14 +271,20 @@ import io
 
 val written = IO.write_bytes("asset.bin", "Iron\0binary")
 val loaded = IO.read_bytes("asset.bin", 1048576)
+val info = IO.file_info("asset.bin")
 if loaded.error == 0 {
-    val info = IO.file_info("asset.bin")
     println("loaded {info.size} bytes")
 }
 
 val appended = IO.append_bytes("asset.bin", "\0suffix")
 val copied = IO.copy_file("asset.bin", "asset-copy.bin", false)
 val moved = IO.move_file("asset-copy.bin", "archive.bin", false)
+FileWriteResult.release(written)
+FileReadResult.release(loaded)
+FileInfo.release(info)
+FileWriteResult.release(appended)
+FileWriteResult.release(copied)
+FileWriteResult.release(moved)
 ```
 
 Available result-returning operations are `read_text`, `read_bytes`,
@@ -267,13 +310,19 @@ owns a bounded pool:
 ```iron
 val opened = HttpClient.open(
     "https://api.example.com", "", false, 4, 30000)
-if opened.error != 0 { return }
+if opened.error != 0 {
+    HttpClientResult.release(opened)
+    return
+}
 
 val first = HttpClient.request(
     opened.client, "GET", "/api/status", "", "", 1048576, 5000)
 val second = HttpClient.request(
     opened.client, "GET", "/api/items", "", "", 1048576, 5000)
 HttpClient.close(opened.client)
+HttpResponse.release(first)
+HttpResponse.release(second)
+HttpClientResult.release(opened)
 ```
 
 The origin fixes scheme, host, port, certificate roots, and verification mode;
@@ -297,11 +346,14 @@ while running and served < 100 {
     if request.error == 0 {
         served += 1
         val keep = request.keep_alive and served < 100
+        val response = Http.text_response(200, "ok")
         val sent = HttpConnection.send_response_keep_alive(
-            connection, Http.text_response(200, "ok"), keep, 5000)
+            connection, response, keep, 5000)
+        HttpResponse.release(response)
         if sent != 0 { running = false }
         if sent == 0 { running = keep }
     }
+    HttpRequest.release(request)
 }
 HttpConnection.close(connection)
 ```
@@ -391,17 +443,11 @@ The reproducible remote image can be rebuilt with
 `podman build -f tools/containers/iron-lsp-build.Containerfile -t localhost/iron-lsp-build:latest .`.
 In that image, the focused runtime-thread, HTTP, HTTPS/TLS, WebSocket/WSS,
 concurrent Iron client/server, and text/binary-file battery passed 8/8 under
-ASan/UBSan and 8/8 under TSan. All eight practical networking examples also
-passed `ironc check` and native Release compilation. Leak detection is tracked
-separately below because it currently reports process-lifetime and C-fixture
-allocations before some generated integration programs can run.
+ASan/UBSan with LeakSanitizer enabled and 8/8 under TSan. All eight practical
+networking examples also passed `ironc check` and native Release compilation.
 
 ## Known gaps
 
-- The focused tests are memory-safe with ASan/UBSan and race-free with TSan in
-  the validated scope, but enabling LeakSanitizer currently exposes cleanup
-  debt in C fixtures and the instrumented compiler path
-  ([#99](https://github.com/victorl2/iron-lang/issues/99)).
 - Native Windows remains outside Iron's supported compiler matrix; Windows
   users should use WSL. Secure networking CI covers both supported native
   platforms (Linux and macOS).
@@ -412,3 +458,5 @@ binary-safe TCP reads ([#85](https://github.com/victorl2/iron-lang/issues/85)),
 and bounded chunked server request decoding
 ([#88](https://github.com/victorl2/iron-lang/issues/88)), and payload-returning
 UDP receive ([#90](https://github.com/victorl2/iron-lang/issues/90)).
+Result-model ownership and strict LeakSanitizer coverage are completed in
+[#99](https://github.com/victorl2/iron-lang/issues/99).

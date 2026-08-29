@@ -263,6 +263,14 @@ Iron_String iron_string_intern(Iron_String s) {
     return interned;
 }
 
+void iron_string_release(Iron_String *s) {
+    if (!s) return;
+    if ((s->heap.flags & 0x01) && !(s->heap.flags & 0x02)) {
+        free(s->heap.data);
+    }
+    memset(s, 0, sizeof(*s));
+}
+
 /* Forward declarations for the thread subsystem (implemented in iron_threads.c) */
 void iron_threads_init(void);
 void iron_threads_shutdown(void);
@@ -712,4 +720,8 @@ Iron_String Iron_string_from_byte(int64_t b) {
     char buf[1];
     buf[0] = (char)(b & 0xff);
     return iron_string_from_cstr(buf, 1);
+}
+
+void Iron_string_release(Iron_String self) {
+    iron_string_release(&self);
 }
