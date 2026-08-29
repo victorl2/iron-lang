@@ -113,8 +113,8 @@ jobs:
         if: needs.changes.outputs.ci == 'true'
         # IRON_ENABLE_SANITIZERS actually injects -fsanitize=address,undefined;
         # without it this job was named "with ASan/UBSan" while compiling with
-        # no instrumentation at all, and the "Verify sanitizers" step below
-        # re-ran an uninstrumented build with cosmetic env vars.
+        # no instrumentation at all, so sanitizer environment variables would
+        # have been cosmetic rather than enforcing instrumented test coverage.
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Debug \
@@ -146,10 +146,11 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build -R '^test_runtime_threads$' --output-on-failure
 
-      - name: Run unit tests
+      - name: Run unit tests with ASan and UBSan
         if: needs.changes.outputs.ci == 'true'
         env:
-          ASAN_OPTIONS: detect_leaks=0
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build --output-on-failure -j4 -E "benchmark"
 
       - name: Verify binaries exist
@@ -161,17 +162,11 @@ jobs:
       - name: Run integration tests
         if: needs.changes.outputs.ci == 'true'
         env:
-          ASAN_OPTIONS: detect_leaks=0
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           chmod +x tests/integration/run_integration.sh
           tests/integration/run_integration.sh build/ironc
-
-      - name: Verify sanitizers
-        if: needs.changes.outputs.ci == 'true'
-        env:
-          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ctest --test-dir build --output-on-failure -j4 -E "benchmark"
 
   build-and-test-release:
     needs: changes
