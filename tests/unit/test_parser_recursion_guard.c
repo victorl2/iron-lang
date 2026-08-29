@@ -6,12 +6,12 @@
  * Also asserts that moderate nesting (100 parens) parses cleanly — the
  * guard must not fire on any legitimate input.
  *
- * The guard lives in src/parser/parser.c as IRON_PARSER_MAX_DEPTH=1000
+ * The guard lives in src/parser/parser.c as IRON_PARSER_MAX_DEPTH=256
  * with a thin wrapper around iron_parse_expr_prec /
  * iron_parse_type_annotation / iron_parse_stmt / iron_parse_block /
  * iron_parse_decl. Every call through one of those entry points
  * increments p->recur_depth on entry and decrements on return; the
- * helper iron_parser_depth_exceeded trips at the ceiling, emits a
+ * helper iron_parser_depth_exceeded trips at the portable ceiling, emits a
  * diagnostic, and the caller returns an ErrorNode.
  */
 
