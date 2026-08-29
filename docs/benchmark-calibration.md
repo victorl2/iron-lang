@@ -146,13 +146,14 @@ runner will replace the estimated columns with exact trimmed-mean data.
 ## Soft-Warning Policy
 
 Phase 69 does NOT convert these thresholds into CI-blocking checks. The
-existing `run_benchmarks.sh --check-regression` step in
-`.github/workflows/benchmark.yml` is still `continue-on-error: true`.
-`.github/workflows/benchmark.yml` loads `thresholds.<platform>.json` into
-the `IRON_BENCH_THRESHOLDS_FILE` env var on matching runners (with a soft
-fallback to the per-benchmark `config.json` hardcoded thresholds when the
-file is absent), but the current `run_benchmarks.sh` driver does not yet
-consume the env var. Once the team has lived with the calibrated
-thresholds for a milestone, a follow-up phase can wire
-`run_benchmarks.sh` to read the platform JSON and flip the regression
-check from informational to hard enforcement.
+hosted workflow invokes `run_benchmarks.sh --advisory-thresholds`, which
+prints a `[WARN]` result when a per-benchmark `max_ratio` is exceeded but
+does not fail the job solely for that noisy ratio. Compilation, execution,
+timeout, timing-extraction, and correctness errors remain hard failures.
+Local runs remain strict by default and still exit nonzero on a threshold
+breach.
+
+The old workflow export of `IRON_BENCH_THRESHOLDS_FILE` was removed because
+the runner never consumed it. Before hosted ratio checks can become hard
+gates, they need complete OS/architecture-specific rolling baselines that
+consume the already-measured result set rather than rerunning the corpus.
