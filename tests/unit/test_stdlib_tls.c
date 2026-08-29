@@ -313,7 +313,10 @@ void test_https_stalled_tcp_does_not_block_next_client(void) {
         Iron_httpsserver_accept_tcp(server, 1000);
     TEST_ASSERT_EQUAL_INT64(0, stalled.error);
 
-    PendingHandshakeCase slow = { stalled.connection, 3000, {0} };
+    PendingHandshakeCase slow = {
+        .pending = stalled.connection,
+        .timeout = 3000,
+    };
     TLS_THREAD slow_thread;
     TEST_ASSERT_EQUAL_INT(0, thread_start(
         &slow_thread, handshake_pending, &slow));
@@ -321,7 +324,7 @@ void test_https_stalled_tcp_does_not_block_next_client(void) {
     char url[128];
     snprintf(url, sizeof(url), "https://localhost:%lld/admitted",
              (long long)port);
-    TlsClientCase client = { istr(url), {0} };
+    TlsClientCase client = { .url = istr(url) };
     TLS_THREAD client_thread;
     TEST_ASSERT_EQUAL_INT(0, thread_start(
         &client_thread, request_with_test_ca, &client));
