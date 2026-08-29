@@ -3,16 +3,10 @@ name: Release
 on:
   release:
     types: [published]
+  # The three build matrix jobs are required status checks. Keep this trigger
+  # unconditional so every pull request emits those contexts (see #111).
   pull_request:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'CMakeLists.txt'
-      - 'scripts/install.sh'
-      - 'editors/vscode/package.json'
-      - 'editors/vscode/package-lock.json'
-      - '.github/workflows/release.yml'
   workflow_dispatch:
     inputs:
       tag:

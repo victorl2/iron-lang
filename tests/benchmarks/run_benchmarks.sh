@@ -2,7 +2,10 @@
 # Iron Benchmark Suite
 # Compares Iron compiler output against C reference implementations.
 # Supports memory tracking, baseline saving, and regression detection.
-# Exit 0 if all benchmarks pass their max_ratio threshold, exit 1 otherwise.
+# By default, exit 1 if any benchmark exceeds its max_ratio threshold. Hosted
+# runners can use --advisory-thresholds to report noisy performance breaches as
+# warnings while keeping compilation, execution, timeout, timing, and
+# correctness errors fatal.
 #
 # Subset mode (2026-07): set IRON_BENCH_PROBLEMS to a comma-separated list of
 # problem directory names to run only those benchmarks, e.g.
@@ -54,6 +57,7 @@ CHECK_REGRESSION=0
 WRITE_JSON=0
 JSON_FILE=""
 COMPARE_MODE=0
+ADVISORY_THRESHOLDS=0
 # --only-parallel / --skip-parallel split the suite into two groups so the CI
 # workflow can run them as separate jobs concurrently. A benchmark is considered
 # "parallel" if its directory name starts with parallel_, concurrency_, or spawn_.
@@ -86,6 +90,10 @@ while [[ $# -gt 0 ]]; do
             COMPARE_MODE=1
             shift
             ;;
+        --advisory-thresholds)
+            ADVISORY_THRESHOLDS=1
+            shift
+            ;;
         --only-parallel)
             GROUP_FILTER="parallel"
             shift
@@ -95,7 +103,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            echo "Usage: $0 [--problem NAME] [--verbose] [--save-baseline] [--check-regression] [--json FILE] [--compare] [--only-parallel | --skip-parallel]"
+            echo "Usage: $0 [--problem NAME] [--verbose] [--save-baseline] [--check-regression] [--json FILE] [--compare] [--advisory-thresholds] [--only-parallel | --skip-parallel]"
             exit 1
             ;;
     esac
@@ -294,6 +302,7 @@ echo ""
 total=0
 passed=0
 failed=0
+warnings=0
 errors=0
 skipped=0
 results=()
@@ -529,6 +538,9 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
     if [ "$pass" -eq 1 ]; then
         passed=$((passed + 1))
         results+=("[PASS] $problem_name: ${ratio}x speed, ${mem_ratio}x memory (threshold: ${max_ratio}x) - C: ${c_display}ms/${c_mem_kb}KB, Iron: ${iron_display}ms/${iron_mem_kb}KB${compare_suffix}")
+    elif [ "$ADVISORY_THRESHOLDS" -eq 1 ]; then
+        warnings=$((warnings + 1))
+        results+=("[WARN] $problem_name: ${ratio}x speed, ${mem_ratio}x memory (threshold: ${max_ratio}x) - C: ${c_display}ms/${c_mem_kb}KB, Iron: ${iron_display}ms/${iron_mem_kb}KB${compare_suffix}")
     else
         failed=$((failed + 1))
         results+=("[FAIL] $problem_name: ${ratio}x speed, ${mem_ratio}x memory (threshold: ${max_ratio}x) - C: ${c_display}ms/${c_mem_kb}KB, Iron: ${iron_display}ms/${iron_mem_kb}KB${compare_suffix}")
@@ -537,7 +549,13 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
     # Accumulate JSON for --json output
     if [ $WRITE_JSON -eq 1 ]; then
         local_status="pass"
-        [ "$pass" -ne 1 ] && local_status="fail"
+        if [ "$pass" -ne 1 ]; then
+            if [ "$ADVISORY_THRESHOLDS" -eq 1 ]; then
+                local_status="warning"
+            else
+                local_status="fail"
+            fi
+        fi
         if [ -n "$json_results" ]; then
             json_results="${json_results},"
         fi
@@ -563,7 +581,11 @@ if [ "${#results[@]}" -gt 0 ]; then
 fi
 
 echo ""
-echo "Results: $passed/$total passed ($failed failed, $errors errors, $skipped skipped)"
+if [ "$ADVISORY_THRESHOLDS" -eq 1 ]; then
+    echo "Results: $passed/$total within threshold ($warnings warnings, $errors errors, $skipped skipped)"
+else
+    echo "Results: $passed/$total passed ($failed failed, $errors errors, $skipped skipped)"
+fi
 
 # ── Write JSON results if requested ──────────────────────────────────────────
 if [ $WRITE_JSON -eq 1 ]; then
@@ -575,6 +597,7 @@ if [ $WRITE_JSON -eq 1 ]; then
   "commit": "${commit_hash}",
   "passed": ${passed},
   "failed": ${failed},
+  "warnings": ${warnings},
   "errors": ${errors},
   "total": ${total},
   "benchmarks": [${json_results}

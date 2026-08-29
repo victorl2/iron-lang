@@ -35,15 +35,9 @@ name: build-time
 # each other's sample.
 
 on:
+  # Both matrix jobs are required status checks. Keep this trigger
+  # unconditional so every pull request emits those contexts (see #111).
   pull_request:
-    paths:
-      - 'src/**'
-      - 'CMakeLists.txt'
-      - 'scripts/ci/**'
-      - 'tests/**/CMakeLists.txt'
-      - 'editors/vscode/package.json'
-      - 'editors/vscode/package-lock.json'
-      - '.github/workflows/build-time.yml'
   push:
     branches: [main]
   workflow_dispatch: {}
