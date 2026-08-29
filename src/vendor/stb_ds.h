@@ -1596,7 +1596,11 @@ char *stbds_stralloc(stbds_string_arena *a, char *str)
   }
 
   STBDS_ASSERT(len <= a->remaining);
-  p = a->storage->storage + a->remaining - len;
+  // storage[8] is the prefix of a deliberately larger trailing allocation.
+  // Compute from the block base so bounds sanitizers do not treat valid arena
+  // offsets as out-of-bounds arithmetic on the declared eight-byte member.
+  p = (char *) a->storage + offsetof(stbds_string_block, storage)
+      + a->remaining - len;
   a->remaining -= len;
   memmove(p, str, len);
   return p;
