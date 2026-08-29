@@ -345,8 +345,10 @@ if packet.error.code == 0 {
 ## Verified status
 
 The following matrix is maintained from remote Linux x86_64 runs on
-`silvaserver.local` (`iron-lsp-build:latest`, 8 GiB cap). It was last
-validated on 2026-08-28 in Debug and Release host builds with the secure
+`silvaserver.local` (`iron-lsp-build:latest`, 8 GiB cap). The image is built
+from `tools/containers/iron-lsp-build.Containerfile` and includes the Clang 14
+ASan/UBSan/TSan runtimes plus OpenSSL development files. It was last validated
+on 2026-08-28 in Debug, Release, and instrumented builds with the secure
 backend. "Passing" means the
 feature worked without an observed defect in the tested scope; limitations
 are listed and linked immediately below the matrix.
@@ -383,12 +385,21 @@ compiled Iron binary-file rounds. Earlier validation also passed 50 UDP rounds. 
 live compiled Iron server also returned the expected HTML page, JSON status
 document, and JSON POST response.
 
+The reproducible remote image can be rebuilt with
+`podman build -f tools/containers/iron-lsp-build.Containerfile -t localhost/iron-lsp-build:latest .`.
+In that image, the focused runtime-thread, HTTP, HTTPS/TLS, WebSocket/WSS,
+concurrent Iron client/server, and text/binary-file battery passed 8/8 under
+ASan/UBSan and 8/8 under TSan. All eight practical networking examples also
+passed `ironc check` and native Release compilation. Leak detection is tracked
+separately below because it currently reports process-lifetime and C-fixture
+allocations before some generated integration programs can run.
+
 ## Known gaps
 
-- The legacy canonical remote container has Clang 14 without sanitizer runtime
-  archives or OpenSSL development headers. CMake now rejects unusable
-  sanitizer configurations during its link probe, while GitHub's Linux/macOS
-  jobs run ASan/UBSan, TSan, and verified TLS tests with complete toolchains.
+- The focused tests are memory-safe with ASan/UBSan and race-free with TSan in
+  the validated scope, but enabling LeakSanitizer currently exposes cleanup
+  debt in C fixtures and the instrumented compiler path
+  ([#99](https://github.com/victorl2/iron-lang/issues/99)).
 - Native Windows remains outside Iron's supported compiler matrix; Windows
   users should use WSL. Secure networking CI covers both supported native
   platforms (Linux and macOS).
