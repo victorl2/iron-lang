@@ -2,6 +2,7 @@
 #include "runtime/iron_runtime.h"
 #include "runtime/iron_errors.h"
 #include "stdlib/iron_http.h"
+#include "stdlib/iron_net.h"
 #include "stdlib/iron_websocket.h"
 
 #include <stdint.h>
@@ -61,6 +62,31 @@ typedef struct TlsServerCase {
     int expect_http;
     Iron_HttpRequest request;
 } TlsServerCase;
+
+typedef struct PendingHandshakeCase {
+    Iron_HttpsPendingConnection pending;
+    int64_t timeout;
+    Iron_HttpsConnectionResult result;
+} PendingHandshakeCase;
+
+typedef struct TlsClientCase {
+    Iron_String url;
+    Iron_HttpResponse response;
+} TlsClientCase;
+
+static void *handshake_pending(void *pointer) {
+    PendingHandshakeCase *test = (PendingHandshakeCase *)pointer;
+    test->result = Iron_httpspendingconnection_handshake(
+        test->pending, test->timeout);
+    return NULL;
+}
+
+static void *request_with_test_ca(void *pointer) {
+    TlsClientCase *test = (TlsClientCase *)pointer;
+    test->response = Iron_http_get_with_ca(
+        test->url, istr(certificate_path), 5000);
+    return NULL;
+}
 
 static void *serve_tls_once(void *pointer) {
     TlsServerCase *test = (TlsServerCase *)pointer;
@@ -276,6 +302,63 @@ void test_https_server_rejects_missing_certificate(void) {
     TEST_ASSERT_EQUAL_INT64(-1, result.server.fd);
 }
 
+void test_https_stalled_tcp_does_not_block_next_client(void) {
+    int64_t port = 0;
+    Iron_HttpsServer server = make_tls_server(&port);
+
+    Iron_Result_TcpSocket_Error raw = Iron_net_tcp_dial(
+        istr("127.0.0.1"), port, 1000);
+    TEST_ASSERT_EQUAL_INT64(0, raw.v1.code);
+    Iron_HttpsPendingConnectionResult stalled =
+        Iron_httpsserver_accept_tcp(server, 1000);
+    TEST_ASSERT_EQUAL_INT64(0, stalled.error);
+
+    PendingHandshakeCase slow = {
+        .pending = stalled.connection,
+        .timeout = 3000,
+    };
+    TLS_THREAD slow_thread;
+    TEST_ASSERT_EQUAL_INT(0, thread_start(
+        &slow_thread, handshake_pending, &slow));
+
+    char url[128];
+    snprintf(url, sizeof(url), "https://localhost:%lld/admitted",
+             (long long)port);
+    TlsClientCase client = { .url = istr(url) };
+    TLS_THREAD client_thread;
+    TEST_ASSERT_EQUAL_INT(0, thread_start(
+        &client_thread, request_with_test_ca, &client));
+
+    Iron_HttpsPendingConnectionResult admitted =
+        Iron_httpsserver_accept_tcp(server, 1000);
+    TEST_ASSERT_EQUAL_INT64(0, admitted.error);
+
+    /* Pending connections retain the certificate context, so listener
+     * shutdown cannot invalidate either in-flight handshake. */
+    Iron_httpsserver_close(server);
+    Iron_HttpsConnectionResult connection =
+        Iron_httpspendingconnection_handshake(admitted.connection, 3000);
+    TEST_ASSERT_EQUAL_INT64(0, connection.error);
+    Iron_HttpRequest request = Iron_httpsconnection_read_request(
+        connection.connection, 16384, 1024, 3000);
+    TEST_ASSERT_EQUAL_INT64(0, request.error);
+    TEST_ASSERT_EQUAL_STRING("/admitted", iron_string_cstr(&request.path));
+    TEST_ASSERT_EQUAL_INT64(0, Iron_httpsconnection_send_response(
+        connection.connection, Iron_http_text_response(200, istr("admitted")),
+        3000));
+    Iron_httpsconnection_close(connection.connection);
+
+    TEST_ASSERT_EQUAL_INT(0, thread_join(client_thread));
+    TEST_ASSERT_EQUAL_INT64(0, client.response.error);
+    TEST_ASSERT_EQUAL_INT64(200, client.response.status);
+    TEST_ASSERT_EQUAL_STRING("admitted",
+                             iron_string_cstr(&client.response.body));
+
+    Iron_tcpsocket_close(raw.v0);
+    TEST_ASSERT_EQUAL_INT(0, thread_join(slow_thread));
+    TEST_ASSERT_NOT_EQUAL(0, slow.result.error);
+}
+
 void test_wss_verified_upgrade_and_message_roundtrip(void) {
     int64_t port = 0;
     TlsServerCase server;
@@ -358,6 +441,7 @@ int main(void) {
     RUN_TEST(test_https_rejects_hostname_mismatch);
     RUN_TEST(test_https_explicit_insecure_mode_roundtrip);
     RUN_TEST(test_https_server_rejects_missing_certificate);
+    RUN_TEST(test_https_stalled_tcp_does_not_block_next_client);
     RUN_TEST(test_wss_verified_upgrade_and_message_roundtrip);
     RUN_TEST(test_wss_concurrent_reader_and_writers);
     return UNITY_END();

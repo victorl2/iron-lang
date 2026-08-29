@@ -2,11 +2,13 @@
 import websocket
 
 func main() {
-    val connected = WebSocket.connect("ws://127.0.0.1:8081/echo", "", 1048576, 5000)
+    val connected = WebSocket.connect_with_protocols(
+        "ws://127.0.0.1:8081/echo", "", ["iron.echo.v1"], 1048576, 5000)
     if connected.error != 0 {
         println("connect failed: {connected.error} {connected.error_message}")
         return
     }
+    println("protocol: {connected.protocol}")
     val sent = WebSocket.send_text(connected.socket, "hello from Iron", 5000)
     if sent != 0 {
         println("send failed: {sent}")

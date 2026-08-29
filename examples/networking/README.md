@@ -26,6 +26,8 @@ Additional compiler-tested examples:
 
 - `https_server.iron` serves an HTML page over TLS; `https_client.iron` makes
   a verified private-CA REST request.
+- `http_keep_alive.iron` shows an explicit same-origin client pool and a
+  server handler with idle and maximum-request bounds.
 - `websocket_echo_server.iron` and `websocket_client.iron` demonstrate
   `ws://`, text/binary messages, and a graceful close.
 - `websocket_echo_secure_server.iron` serves the same protocol over verified

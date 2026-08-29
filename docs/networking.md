@@ -88,6 +88,10 @@ The source build enables the secure backend when CMake finds the OpenSSL
 development headers and libraries. Without them, HTTP/WS and all plain socket
 features still work; HTTPS/WSS calls return typed error `3000`
 (`IRON_ERR_TLS_UNAVAILABLE`) instead of silently using plaintext.
+Linux and macOS CI install OpenSSL explicitly, require the verified TLS test,
+and compile an HTTPS program with a cleanly installed `ironc`. CMake passes the
+exact include and library paths it validated to that compiler, including
+Homebrew's keg-only OpenSSL location.
 
 ```iron
 val response = Http.get("https://example.com/api/status", 5000)
@@ -122,6 +126,29 @@ the `HttpsServer` and `HttpsConnection` methods. See
 [https_server.iron](../examples/networking/https_server.iron).
 The matching private-CA REST client is
 [https_client.iron](../examples/networking/https_client.iron).
+
+Production HTTPS and WSS accept loops should separate TCP admission from TLS:
+
+```iron
+val pending = HttpsServer.accept_tcp(server, 60000)
+if pending.error == 0 {
+    spawn("tls-client") {
+        val secure = HttpsPendingConnection.handshake(pending.connection, 5000)
+        if secure.error != 0 { return secure.error }
+        -- read HTTP or upgrade to WebSocket here
+        HttpsConnection.close(secure.connection)
+        return 0
+    }
+}
+```
+
+The accept deadline applies only while waiting for a TCP client. Each spawned
+handler has an independent handshake deadline, so a raw client that sends no
+TLS ClientHello cannot hold up later clients. `handshake` consumes the pending
+connection on success or failure; call `HttpsPendingConnection.close` instead
+when abandoning it. Pending and established connections safely retain the TLS
+certificate context while an old listener is being drained. The one-step
+`HttpsServer.accept` API remains available for simple, controlled servers.
 
 The certificate and key are loaded into the server context at listen time.
 There is no in-place hot reload: rotate certificates by starting a new server
@@ -160,6 +187,30 @@ Use `connect_with_ca` for a private root. The explicitly named
 Ping is answered automatically before it is returned. Fragmented messages are
 reassembled and checked against `max_message_bytes`; text and close reasons
 are UTF-8 validated.
+
+Services such as GraphQL or MQTT can request subprotocols in preference order
+without overriding handshake-owned headers:
+
+```iron
+val connected = WebSocket.connect_with_protocols(
+    "wss://events.example.com/graphql",
+    "Authorization: Bearer token",
+    ["graphql-transport-ws", "graphql-ws"],
+    1048576,
+    5000,
+)
+if connected.error == 0 {
+    println("selected {connected.protocol}")
+}
+```
+
+Servers use `upgrade_websocket_protocol(..., selected_protocol, ...)` with
+exactly one protocol offered by the request, or use the original upgrade call
+to select none. The client rejects unsolicited or multiple server selections.
+Raw `Sec-WebSocket-Protocol` and other handshake-owned header overrides remain
+forbidden. Extension offers are never accepted silently: Iron currently emits
+no `Sec-WebSocket-Extensions` response and rejects any extension selected by a
+peer because no extension frame semantics are implemented.
 
 On the server, first read the HTTP request and then transfer connection
 ownership with `HttpConnection.upgrade_websocket` or
@@ -207,6 +258,61 @@ a cross-device temporary copy); Windows uses `MoveFileEx` without replacement.
 Filesystems that cannot provide that primitive return an error instead of
 falling back to a racy check-then-rename.
 
+## Persistent HTTP connections
+
+One-shot calls such as `Http.get` remain the simplest safe option and close
+their connection. For chatty same-origin traffic, an explicit `HttpClient`
+owns a bounded pool:
+
+```iron
+val opened = HttpClient.open(
+    "https://api.example.com", "", false, 4, 30000)
+if opened.error != 0 { return }
+
+val first = HttpClient.request(
+    opened.client, "GET", "/api/status", "", "", 1048576, 5000)
+val second = HttpClient.request(
+    opened.client, "GET", "/api/items", "", "", 1048576, 5000)
+HttpClient.close(opened.client)
+```
+
+The origin fixes scheme, host, port, certificate roots, and verification mode;
+it must not contain a path, query, or fragment (an optional trailing slash is
+accepted). TLS-only CA and insecure options are rejected for plain HTTP rather
+than ignored. Requests accept only origin-form targets beginning with `/`.
+`max_connections` bounds concurrent sockets and `idle_timeout` retires old idle entries. A stale
+reused connection is retried once only for bodyless GET or HEAD. POST and other
+potentially non-idempotent requests are never replayed automatically.
+
+Servers opt into persistence per response. Use `request.keep_alive` (which
+implements HTTP/1.1 and HTTP/1.0 Connection-token rules), an idle timeout on
+each next `read_request`, and an application request-count limit:
+
+```iron
+var served = 0
+var running = true
+while running and served < 100 {
+    val request = HttpConnection.read_request(connection, 16384, 1048576, 15000)
+    if request.error != 0 { running = false }
+    if request.error == 0 {
+        served += 1
+        val keep = request.keep_alive and served < 100
+        val sent = HttpConnection.send_response_keep_alive(
+            connection, Http.text_response(200, "ok"), keep, 5000)
+        if sent != 0 { running = false }
+        if sent == 0 { running = keep }
+    }
+}
+HttpConnection.close(connection)
+```
+
+Every persistent response uses `Content-Length`, so the next message boundary
+is unambiguous. Pipelining is intentionally unsupported: send the next request
+only after reading the prior response. For graceful shutdown, close the
+listener, stop spawning sessions, let bounded handlers finish, then close the
+client/session handles. See
+[http_keep_alive.iron](../examples/networking/http_keep_alive.iron).
+
 ## Framing and limits
 
 - Server requests require HTTP/1.1 and exactly one `Host` header.
@@ -219,9 +325,8 @@ falling back to a racy check-then-rename.
 - Server header and body limits are supplied to `read_request`; client body
   limits are supplied to `request`. Convenience client calls use an 8 MiB body
   limit and a 64 KiB header limit.
-- Connections currently handle one request/response and send
-  `Connection: close`. This keeps ownership and cancellation explicit while
-  the language is still alpha.
+- One-shot calls send `Connection: close`; explicit sessions use framed
+  sequential HTTP persistence without pipelining.
 
 ## UDP packets
 
@@ -242,8 +347,10 @@ if packet.error.code == 0 {
 ## Verified status
 
 The following matrix is maintained from remote Linux x86_64 runs on
-`silvaserver.local` (`iron-lsp-build:latest`, 8 GiB cap). It was last
-validated on 2026-08-28 in Debug and Release host builds with the secure
+`silvaserver.local` (`iron-lsp-build:latest`, 8 GiB cap). The image is built
+from `tools/containers/iron-lsp-build.Containerfile` and includes the Clang 14
+ASan/UBSan/TSan runtimes plus OpenSSL development files. It was last validated
+on 2026-08-28 in Debug, Release, and instrumented builds with the secure
 backend. "Passing" means the
 feature worked without an observed defect in the tested scope; limitations
 are listed and linked immediately below the matrix.
@@ -263,7 +370,7 @@ are listed and linked immediately below the matrix.
 | Concurrent native clients | Passing | 32 simultaneous clients; the complete test passed 100/100 repeated runs |
 | Iron `spawn`/`await` HTTP composition | Passing | 8 accepting server tasks + 8 client tasks; passed 20/20 repeated runs |
 | Detached server handlers | Passing | standalone `spawn` is intentional fire-and-forget; example checks without diagnostics |
-| HTTPS verified client and TLS server | Passing | custom CA success, self-signed rejection, hostname mismatch rejection, explicit insecure mode, curl interoperability |
+| HTTPS verified client and TLS server | Passing | custom CA success, self-signed rejection, hostname mismatch rejection, explicit insecure mode, stalled-client admission, curl interoperability |
 | WSS verified client/server upgrade | Passing | C roundtrip plus dependency-free Python TLS/WebSocket interoperability |
 | WebSocket frames and control flow | Passing | masking rules, 7/16/64-bit lengths, binary/text, fragmentation with interleaved ping, pong, close, UTF-8 and protocol rejection |
 | Concurrent WebSocket writers | Passing | 24 simultaneous writers serialized into valid frames with one receiver over both WS and verified WSS |
@@ -280,36 +387,24 @@ compiled Iron binary-file rounds. Earlier validation also passed 50 UDP rounds. 
 live compiled Iron server also returned the expected HTML page, JSON status
 document, and JSON POST response.
 
+The reproducible remote image can be rebuilt with
+`podman build -f tools/containers/iron-lsp-build.Containerfile -t localhost/iron-lsp-build:latest .`.
+In that image, the focused runtime-thread, HTTP, HTTPS/TLS, WebSocket/WSS,
+concurrent Iron client/server, and text/binary-file battery passed 8/8 under
+ASan/UBSan and 8/8 under TSan. All eight practical networking examples also
+passed `ironc check` and native Release compilation. Leak detection is tracked
+separately below because it currently reports process-lifetime and C-fixture
+allocations before some generated integration programs can run.
+
 ## Known gaps
 
-- Each HTTP request uses a new connection and each server response closes its
-  connection; explicit keep-alive and connection reuse are not implemented
-  ([#89](https://github.com/victorl2/iron-lang/issues/89)).
-- ASan and TSan validation cannot link in the canonical remote image because
-  its Clang 14 sanitizer runtime archives are missing. Functional concurrency
-  stress passes, but sanitizer evidence remains blocked
-  ([#87](https://github.com/victorl2/iron-lang/issues/87)).
-- The canonical container image does not contain OpenSSL development headers.
-  Builds without them remain functional for plain networking but HTTPS/WSS
-  return `IRON_ERR_TLS_UNAVAILABLE`; the secure suite was compiled and run
-  directly on `silvaserver.local` with OpenSSL 3.5.1.
-- WebSocket subprotocol and extension negotiation is not exposed yet; raw
-  attempts to override handshake-owned headers are rejected safely
-  ([#91](https://github.com/victorl2/iron-lang/issues/91)).
-- Installed-compiler TLS dependency discovery and macOS/Windows secure CI need
-  dedicated coverage
-  ([#92](https://github.com/victorl2/iron-lang/issues/92)).
-- A no-overwrite move still has a destination-creation race between its check
-  and rename; platform-specific atomic no-replace primitives are tracked in
-  [#93](https://github.com/victorl2/iron-lang/issues/93).
-- `HttpsServer.accept` currently includes the TLS handshake, so one stalled
-  raw client can occupy one accept loop until its deadline. Use a short finite
-  accept deadline and multiple acceptor tasks for public listeners while the
-  decoupled admission model in
-  [#94](https://github.com/victorl2/iron-lang/issues/94) is implemented.
-
-Each issue contains a minimal code or command reproduction and concrete
-acceptance criteria.
+- The focused tests are memory-safe with ASan/UBSan and race-free with TSan in
+  the validated scope, but enabling LeakSanitizer currently exposes cleanup
+  debt in C fixtures and the instrumented compiler path
+  ([#99](https://github.com/victorl2/iron-lang/issues/99)).
+- Native Windows remains outside Iron's supported compiler matrix; Windows
+  users should use WSL. Secure networking CI covers both supported native
+  platforms (Linux and macOS).
 
 Completed follow-ups: intentional detached spawn semantics
 ([#84](https://github.com/victorl2/iron-lang/issues/84)), payload-returning

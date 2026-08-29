@@ -5,6 +5,7 @@
 #include "stdlib/iron_net.h"
 
 #include <stdint.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -289,6 +290,27 @@ void test_http_rejects_unsupported_and_ambiguous_inputs(void) {
     Iron_HttpResponse embedded_nul = Iron_http_get(
         iron_string_from_cstr(nul_url, sizeof(nul_url) - 1), 100);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_HTTP_BAD_URL, embedded_nul.error);
+
+    Iron_HttpClientResult path_origin = Iron_httpclient_open(
+        istr("http://example.com/api"), istr(""), false, 1, 1000);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_HTTP_INVALID_ARGUMENT,
+                            path_origin.error);
+    Iron_HttpClientResult query_origin = Iron_httpclient_open(
+        istr("http://example.com?tenant=one"), istr(""), false, 1, 1000);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_HTTP_INVALID_ARGUMENT,
+                            query_origin.error);
+    Iron_HttpClientResult fragment_origin = Iron_httpclient_open(
+        istr("http://example.com/#section"), istr(""), false, 1, 1000);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_HTTP_INVALID_ARGUMENT,
+                            fragment_origin.error);
+    Iron_HttpClientResult plain_tls_options = Iron_httpclient_open(
+        istr("http://example.com"), istr("ca.pem"), false, 1, 1000);
+    TEST_ASSERT_EQUAL_INT64(IRON_ERR_HTTP_INVALID_ARGUMENT,
+                            plain_tls_options.error);
+    Iron_HttpClientResult trailing_slash = Iron_httpclient_open(
+        istr("http://example.com/"), istr(""), false, 1, 1000);
+    TEST_ASSERT_EQUAL_INT64(0, trailing_slash.error);
+    Iron_httpclient_close(trailing_slash.client);
 }
 
 static Iron_HttpRequest parse_raw_request(const char *wire, int64_t max_body) {
@@ -351,6 +373,17 @@ void test_http_server_rejects_ambiguous_and_bounded_requests(void) {
         "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n"
         "1\r\nx\r\n0\r\nContent-Length: 9\r\n\r\n", 1024);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_HTTP_MALFORMED_MESSAGE, bad_trailer.error);
+
+    Iron_HttpRequest legacy_keep_alive = parse_raw_request(
+        "GET /legacy HTTP/1.0\r\nConnection: keep-alive\r\n\r\n", 1024);
+    TEST_ASSERT_EQUAL_INT64(0, legacy_keep_alive.error);
+    TEST_ASSERT_TRUE(legacy_keep_alive.keep_alive);
+
+    Iron_HttpRequest explicit_close = parse_raw_request(
+        "GET /close HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        1024);
+    TEST_ASSERT_EQUAL_INT64(0, explicit_close.error);
+    TEST_ASSERT_FALSE(explicit_close.keep_alive);
 }
 
 void test_http_client_rejects_transfer_coding_chain(void) {
@@ -427,6 +460,272 @@ void test_http_32_concurrent_clients(void) {
     Iron_httpserver_close(server_ctx.server);
 }
 
+typedef struct PersistentServer {
+    Iron_HttpServer server;
+    int requests;
+    int accepts;
+    int64_t error;
+} PersistentServer;
+
+static void *persistent_server(void *arg) {
+    PersistentServer *ctx = (PersistentServer *)arg;
+    Iron_HttpConnectionResult accepted = Iron_httpserver_accept(ctx->server, 5000);
+    if (accepted.error) { ctx->error = accepted.error; return NULL; }
+    ctx->accepts++;
+    for (int i = 0; i < 3; i++) {
+        Iron_HttpRequest request = Iron_httpconnection_read_request(
+            accepted.connection, 16384, 1024, 3000);
+        if (request.error) { ctx->error = request.error; break; }
+        ctx->requests++;
+        int keep = i < 2;
+        ctx->error = Iron_httpconnection_send_response_keep_alive(
+            accepted.connection, Iron_http_text_response(200, request.path),
+            keep, 3000);
+        if (ctx->error) break;
+    }
+    Iron_httpconnection_close(accepted.connection);
+    return NULL;
+}
+
+void test_http_client_reuses_one_connection_sequentially(void) {
+    int64_t port = 0;
+    PersistentServer server = { make_server(&port), 0, 0, 0 };
+    HTTP_THREAD thread;
+    TEST_ASSERT_EQUAL_INT(0, thread_start(&thread, persistent_server, &server));
+    char origin[128];
+    snprintf(origin, sizeof(origin), "http://127.0.0.1:%lld",
+             (long long)port);
+    Iron_HttpClientResult opened = Iron_httpclient_open(
+        istr(origin), istr(""), false, 1, 10000);
+    TEST_ASSERT_EQUAL_INT64(0, opened.error);
+    const char *targets[] = { "/one", "/two", "/three" };
+    for (int i = 0; i < 3; i++) {
+        Iron_HttpResponse response = Iron_httpclient_request(
+            opened.client, istr("GET"), istr(targets[i]), istr(""), istr(""),
+            1024, 5000);
+        TEST_ASSERT_EQUAL_INT64(0, response.error);
+        TEST_ASSERT_EQUAL_INT64(200, response.status);
+        assert_istr(targets[i], response.body);
+        TEST_ASSERT_EQUAL_INT(i < 2, response.keep_alive);
+    }
+    Iron_httpclient_close(opened.client);
+    TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
+    TEST_ASSERT_EQUAL_INT64(0, server.error);
+    TEST_ASSERT_EQUAL_INT(1, server.accepts);
+    TEST_ASSERT_EQUAL_INT(3, server.requests);
+    Iron_httpserver_close(server.server);
+}
+
+static void *stale_retry_server(void *arg) {
+    PersistentServer *ctx = (PersistentServer *)arg;
+    for (int connection_index = 0; connection_index < 2; connection_index++) {
+        Iron_HttpConnectionResult accepted = Iron_httpserver_accept(
+            ctx->server, 5000);
+        if (accepted.error) { ctx->error = accepted.error; return NULL; }
+        ctx->accepts++;
+        Iron_HttpRequest request = Iron_httpconnection_read_request(
+            accepted.connection, 16384, 1024, 3000);
+        if (request.error) { ctx->error = request.error; return NULL; }
+        ctx->requests++;
+        ctx->error = Iron_httpconnection_send_response_keep_alive(
+            accepted.connection, Iron_http_text_response(
+                200, istr(connection_index == 0 ? "first" : "retried")),
+            connection_index == 0, 3000);
+        Iron_httpconnection_close(accepted.connection);
+        if (ctx->error) return NULL;
+    }
+    return NULL;
+}
+
+void test_http_client_retries_stale_get_connection(void) {
+    int64_t port = 0;
+    PersistentServer server = { make_server(&port), 0, 0, 0 };
+    HTTP_THREAD thread;
+    TEST_ASSERT_EQUAL_INT(0, thread_start(&thread, stale_retry_server, &server));
+    char origin[128];
+    snprintf(origin, sizeof(origin), "http://127.0.0.1:%lld",
+             (long long)port);
+    Iron_HttpClientResult opened = Iron_httpclient_open(
+        istr(origin), istr(""), false, 1, 10000);
+    TEST_ASSERT_EQUAL_INT64(0, opened.error);
+    Iron_HttpResponse first = Iron_httpclient_request(
+        opened.client, istr("GET"), istr("/first"), istr(""), istr(""),
+        1024, 5000);
+    TEST_ASSERT_EQUAL_INT64(0, first.error);
+    assert_istr("first", first.body);
+    Iron_HttpResponse second = Iron_httpclient_request(
+        opened.client, istr("GET"), istr("/second"), istr(""), istr(""),
+        1024, 5000);
+    TEST_ASSERT_EQUAL_INT64(0, second.error);
+    assert_istr("retried", second.body);
+    Iron_httpclient_close(opened.client);
+    TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
+    TEST_ASSERT_EQUAL_INT64(0, server.error);
+    TEST_ASSERT_EQUAL_INT(2, server.accepts);
+    Iron_httpserver_close(server.server);
+}
+
+static void *stale_post_server(void *arg) {
+    PersistentServer *ctx = (PersistentServer *)arg;
+    Iron_HttpConnectionResult accepted = Iron_httpserver_accept(ctx->server, 5000);
+    if (accepted.error) { ctx->error = accepted.error; return NULL; }
+    ctx->accepts++;
+    Iron_HttpRequest request = Iron_httpconnection_read_request(
+        accepted.connection, 16384, 1024, 3000);
+    if (request.error) { ctx->error = request.error; return NULL; }
+    ctx->requests++;
+    ctx->error = Iron_httpconnection_send_response_keep_alive(
+        accepted.connection, Iron_http_text_response(200, istr("primed")),
+        true, 3000);
+    Iron_httpconnection_close(accepted.connection);
+    if (ctx->error) return NULL;
+
+    /* A POST attempted on the stale pooled socket must not be replayed onto a
+     * new connection. A short accept timeout provides the negative oracle. */
+    Iron_HttpConnectionResult replay = Iron_httpserver_accept(ctx->server, 300);
+    if (replay.error == 0) {
+        ctx->error = -90;
+        Iron_httpconnection_close(replay.connection);
+    } else if (replay.error != IRON_ERR_NET_TIMEOUT) {
+        ctx->error = replay.error;
+    }
+    return NULL;
+}
+
+void test_http_client_does_not_retry_stale_post(void) {
+    int64_t port = 0;
+    PersistentServer server = { make_server(&port), 0, 0, 0 };
+    HTTP_THREAD thread;
+    TEST_ASSERT_EQUAL_INT(0, thread_start(&thread, stale_post_server, &server));
+    char origin[128];
+    snprintf(origin, sizeof(origin), "http://127.0.0.1:%lld",
+             (long long)port);
+    Iron_HttpClientResult opened = Iron_httpclient_open(
+        istr(origin), istr(""), false, 1, 10000);
+    TEST_ASSERT_EQUAL_INT64(0, opened.error);
+    Iron_HttpResponse primed = Iron_httpclient_request(
+        opened.client, istr("GET"), istr("/prime"), istr(""), istr(""),
+        1024, 5000);
+    TEST_ASSERT_EQUAL_INT64(0, primed.error);
+    Iron_HttpResponse post = Iron_httpclient_request(
+        opened.client, istr("POST"), istr("/side-effect"),
+        istr("Content-Type: text/plain"), istr("create"), 1024, 2000);
+    TEST_ASSERT_NOT_EQUAL(0, post.error);
+    Iron_httpclient_close(opened.client);
+    TEST_ASSERT_EQUAL_INT(0, thread_join(thread));
+    TEST_ASSERT_EQUAL_INT64(0, server.error);
+    TEST_ASSERT_EQUAL_INT(1, server.accepts);
+    Iron_httpserver_close(server.server);
+}
+
+enum { POOLED_REQUESTS = 12, POOL_LIMIT = 4 };
+typedef struct PoolServer {
+    Iron_HttpServer server;
+    atomic_int active;
+    atomic_int peak;
+    atomic_int errors;
+} PoolServer;
+
+typedef struct PoolHandler {
+    PoolServer *server;
+    Iron_HttpConnection connection;
+} PoolHandler;
+
+static void *pool_handler(void *arg) {
+    PoolHandler *handler = (PoolHandler *)arg;
+    int active = atomic_fetch_add(&handler->server->active, 1) + 1;
+    int peak = atomic_load(&handler->server->peak);
+    while (peak < active && !atomic_compare_exchange_weak(
+        &handler->server->peak, &peak, active)) { }
+#ifdef _WIN32
+    Sleep(40);
+#else
+    struct timespec pause = { 0, 40 * 1000 * 1000 };
+    nanosleep(&pause, NULL);
+#endif
+    Iron_HttpRequest request = Iron_httpconnection_read_request(
+        handler->connection, 16384, 1024, 3000);
+    if (request.error || Iron_httpconnection_send_response(
+            handler->connection, Iron_http_text_response(200, istr("pooled")),
+            3000)) atomic_fetch_add(&handler->server->errors, 1);
+    Iron_httpconnection_close(handler->connection);
+    atomic_fetch_sub(&handler->server->active, 1);
+    return NULL;
+}
+
+static void *pool_server(void *arg) {
+    PoolServer *ctx = (PoolServer *)arg;
+    HTTP_THREAD handlers[POOLED_REQUESTS];
+    PoolHandler cases[POOLED_REQUESTS];
+    int started = 0;
+    for (int i = 0; i < POOLED_REQUESTS; i++) {
+        Iron_HttpConnectionResult accepted = Iron_httpserver_accept(
+            ctx->server, 10000);
+        if (accepted.error) { atomic_fetch_add(&ctx->errors, 1); break; }
+        cases[i].server = ctx;
+        cases[i].connection = accepted.connection;
+        if (thread_start(&handlers[i], pool_handler, &cases[i]) != 0) {
+            atomic_fetch_add(&ctx->errors, 1);
+            Iron_httpconnection_close(accepted.connection);
+            break;
+        }
+        started++;
+    }
+    for (int i = 0; i < started; i++)
+        if (thread_join(handlers[i]) != 0) atomic_fetch_add(&ctx->errors, 1);
+    return NULL;
+}
+
+typedef struct PoolClient {
+    Iron_HttpClient client;
+    int64_t error;
+} PoolClient;
+
+static void *pool_client(void *arg) {
+    PoolClient *test = (PoolClient *)arg;
+    Iron_HttpResponse response = Iron_httpclient_request(
+        test->client, istr("GET"), istr("/pool"), istr(""), istr(""),
+        1024, 10000);
+    test->error = response.error;
+    return NULL;
+}
+
+void test_http_client_pool_bounds_concurrent_connections(void) {
+    int64_t port = 0;
+    PoolServer server;
+    memset(&server, 0, sizeof(server));
+    server.server = make_server(&port);
+    atomic_init(&server.active, 0);
+    atomic_init(&server.peak, 0);
+    atomic_init(&server.errors, 0);
+    HTTP_THREAD server_thread;
+    TEST_ASSERT_EQUAL_INT(0, thread_start(&server_thread, pool_server, &server));
+    char origin[128];
+    snprintf(origin, sizeof(origin), "http://127.0.0.1:%lld",
+             (long long)port);
+    Iron_HttpClientResult opened = Iron_httpclient_open(
+        istr(origin), istr(""), false, POOL_LIMIT, 10000);
+    TEST_ASSERT_EQUAL_INT64(0, opened.error);
+    HTTP_THREAD threads[POOLED_REQUESTS];
+    PoolClient clients[POOLED_REQUESTS];
+    for (int i = 0; i < POOLED_REQUESTS; i++) {
+        clients[i].client = opened.client;
+        clients[i].error = 0;
+        TEST_ASSERT_EQUAL_INT(0, thread_start(
+            &threads[i], pool_client, &clients[i]));
+    }
+    for (int i = 0; i < POOLED_REQUESTS; i++) {
+        TEST_ASSERT_EQUAL_INT(0, thread_join(threads[i]));
+        TEST_ASSERT_EQUAL_INT64(0, clients[i].error);
+    }
+    Iron_httpclient_close(opened.client);
+    TEST_ASSERT_EQUAL_INT(0, thread_join(server_thread));
+    TEST_ASSERT_EQUAL_INT(0, atomic_load(&server.errors));
+    TEST_ASSERT_LESS_OR_EQUAL_INT(POOL_LIMIT, atomic_load(&server.peak));
+    TEST_ASSERT_GREATER_THAN_INT(1, atomic_load(&server.peak));
+    Iron_httpserver_close(server.server);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_http_response_models_and_header_lookup);
@@ -439,5 +738,9 @@ int main(void) {
     RUN_TEST(test_http_server_rejects_ambiguous_and_bounded_requests);
     RUN_TEST(test_http_client_rejects_transfer_coding_chain);
     RUN_TEST(test_http_32_concurrent_clients);
+    RUN_TEST(test_http_client_reuses_one_connection_sequentially);
+    RUN_TEST(test_http_client_retries_stale_get_connection);
+    RUN_TEST(test_http_client_does_not_retry_stale_post);
+    RUN_TEST(test_http_client_pool_bounds_concurrent_connections);
     return UNITY_END();
 }

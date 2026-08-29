@@ -58,6 +58,12 @@ jobs:
       - name: Build ironls under TSAN
         run: cmake --build build-tsan -j4 --target ironls
 
+      - name: TSAN runtime smoke
+        run: |
+          cmake --build build-tsan -j4 --target test_runtime_threads
+          TSAN_OPTIONS="halt_on_error=1" \
+            ctest --test-dir build-tsan -R '^test_runtime_threads$' --output-on-failure
+
       - name: Run 2-worker mini-soak under TSAN
         env:
           # halt_on_error=0 so all findings surface in one run.

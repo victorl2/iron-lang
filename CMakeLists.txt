@@ -130,6 +130,47 @@ else()
         )
     endif()
     if(IRON_ENABLE_SANITIZERS)
+        # Probe an executable at configure time. Compilers can accept the
+        # instrumentation flag while their matching runtime archive is absent;
+        # without this check that only surfaces after a long build at the first
+        # link step (the former iron-lsp-build container failure mode).
+        include(CheckCSourceCompiles)
+        if(IRON_SANITIZER STREQUAL "thread")
+            set(_iron_sanitizer_flags "-fsanitize=thread")
+            set(_iron_sanitizer_probe IRON_TSAN_RUNTIME_LINKS)
+            set(_iron_sanitizer_name "ThreadSanitizer")
+        else()
+            set(_iron_sanitizer_flags "-fsanitize=address,undefined")
+            set(_iron_sanitizer_probe IRON_ASAN_UBSAN_RUNTIMES_LINK)
+            set(_iron_sanitizer_name "AddressSanitizer/UndefinedBehaviorSanitizer")
+        endif()
+        set(_iron_saved_required_flags "${CMAKE_REQUIRED_FLAGS}")
+        set(_iron_saved_required_link_options "${CMAKE_REQUIRED_LINK_OPTIONS}")
+        set(CMAKE_REQUIRED_FLAGS
+            "${CMAKE_REQUIRED_FLAGS} ${_iron_sanitizer_flags}")
+        set(CMAKE_REQUIRED_LINK_OPTIONS "${_iron_sanitizer_flags}")
+        unset(${_iron_sanitizer_probe} CACHE)
+        check_c_source_compiles(
+            "int main(void) { volatile int value = 0; return value; }"
+            ${_iron_sanitizer_probe})
+        set(CMAKE_REQUIRED_FLAGS "${_iron_saved_required_flags}")
+        set(CMAKE_REQUIRED_LINK_OPTIONS "${_iron_saved_required_link_options}")
+        if(NOT ${_iron_sanitizer_probe})
+            message(FATAL_ERROR
+                "Iron: ${_iron_sanitizer_name} was requested, but "
+                "${CMAKE_C_COMPILER} cannot link its runtime. Install the "
+                "sanitizer runtimes matching this compiler (Ubuntu/Debian "
+                "Clang: libclang-rt-dev or libclang-rt-<version>-dev), or "
+                "select a complete LLVM toolchain with -DCMAKE_C_COMPILER=clang.")
+        endif()
+        message(STATUS
+            "Iron: ${_iron_sanitizer_name} runtime link probe passed")
+        unset(_iron_sanitizer_flags)
+        unset(_iron_sanitizer_probe)
+        unset(_iron_sanitizer_name)
+        unset(_iron_saved_required_flags)
+        unset(_iron_saved_required_link_options)
+
         # Phase 7 Plan 07-03 (HARD-17, D-05) -- IRON_SANITIZER selector drives
         # which sanitizer flavour is installed. The IRON_SANITIZER value was
         # already validated against address|thread above; this block just maps

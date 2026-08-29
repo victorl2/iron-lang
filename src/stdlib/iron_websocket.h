@@ -15,6 +15,7 @@ typedef struct Iron_WebSocketResult {
     Iron_WebSocket socket;
     int64_t error;
     Iron_String error_message;
+    Iron_String protocol;
 } Iron_WebSocketResult;
 
 typedef struct Iron_WebSocketMessage {
@@ -46,6 +47,16 @@ Iron_WebSocketResult Iron_websocket_connect_insecure(Iron_String url,
                                                       Iron_String headers,
                                                       int64_t max_message_bytes,
                                                       int64_t timeout);
+Iron_WebSocketResult Iron_websocket_connect_with_protocols(
+    Iron_String url, Iron_String headers, Iron_List_Iron_String protocols,
+    int64_t max_message_bytes, int64_t timeout);
+Iron_WebSocketResult Iron_websocket_connect_with_ca_and_protocols(
+    Iron_String url, Iron_String headers, Iron_String ca_file,
+    Iron_List_Iron_String protocols, int64_t max_message_bytes,
+    int64_t timeout);
+Iron_WebSocketResult Iron_websocket_connect_insecure_with_protocols(
+    Iron_String url, Iron_String headers, Iron_List_Iron_String protocols,
+    int64_t max_message_bytes, int64_t timeout);
 
 Iron_WebSocketResult Iron_httpconnection_upgrade_websocket(
     Iron_HttpConnection connection, Iron_HttpRequest request,
@@ -53,6 +64,12 @@ Iron_WebSocketResult Iron_httpconnection_upgrade_websocket(
 Iron_WebSocketResult Iron_httpsconnection_upgrade_websocket(
     Iron_HttpsConnection connection, Iron_HttpRequest request,
     int64_t max_message_bytes, int64_t timeout);
+Iron_WebSocketResult Iron_httpconnection_upgrade_websocket_protocol(
+    Iron_HttpConnection connection, Iron_HttpRequest request,
+    Iron_String protocol, int64_t max_message_bytes, int64_t timeout);
+Iron_WebSocketResult Iron_httpsconnection_upgrade_websocket_protocol(
+    Iron_HttpsConnection connection, Iron_HttpRequest request,
+    Iron_String protocol, int64_t max_message_bytes, int64_t timeout);
 
 int64_t Iron_websocket_send_text(Iron_WebSocket socket, Iron_String data,
                                   int64_t timeout);

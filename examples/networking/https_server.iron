@@ -12,17 +12,23 @@ func main() {
     }
     println("HTTPS page: https://localhost:8443/")
     while true {
-        val accepted = HttpsServer.accept(listening.server, 60000)
+        -- TCP admission remains prompt even if another client never sends a
+        -- TLS ClientHello. Each handler owns its bounded handshake.
+        val accepted = HttpsServer.accept_tcp(listening.server, 60000)
         if accepted.error == 0 {
             spawn("https-request") {
-                val request = HttpsConnection.read_request(accepted.connection, 16384, 1048576, 5000)
+                val secure = HttpsPendingConnection.handshake(accepted.connection, 5000)
+                if secure.error != 0 {
+                    return secure.error
+                }
+                val request = HttpsConnection.read_request(secure.connection, 16384, 1048576, 5000)
                 if request.error == 0 {
                     val page = Http.html_response(200, "<!doctype html><title>Iron HTTPS</title><h1>Secure Iron works</h1>")
-                    val sent = HttpsConnection.send_response(accepted.connection, page, 5000)
-                    HttpsConnection.close(accepted.connection)
+                    val sent = HttpsConnection.send_response(secure.connection, page, 5000)
+                    HttpsConnection.close(secure.connection)
                     return sent
                 }
-                HttpsConnection.close(accepted.connection)
+                HttpsConnection.close(secure.connection)
                 return request.error
             }
         }

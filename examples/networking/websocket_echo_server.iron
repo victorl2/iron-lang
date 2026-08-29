@@ -10,7 +10,8 @@ func handle_websocket(connection: HttpConnection) -> Int {
         HttpConnection.close(connection)
         return request.error
     }
-    val upgraded = HttpConnection.upgrade_websocket(connection, request, 1048576, 5000)
+    val upgraded = HttpConnection.upgrade_websocket_protocol(
+        connection, request, "iron.echo.v1", 1048576, 5000)
     if upgraded.error != 0 {
         HttpConnection.close(connection)
         return upgraded.error

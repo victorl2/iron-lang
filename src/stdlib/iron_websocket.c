@@ -96,6 +96,7 @@ static Iron_WebSocketResult ws_result_error(int64_t error) {
     memset(&result, 0, sizeof(result));
     result.error = error;
     result.error_message = ws_cstr(ws_error_message(error));
+    result.protocol = ws_cstr("");
     return result;
 }
 
@@ -166,6 +167,103 @@ static size_t header_count(const char *headers, size_t length, const char *name)
         pos = line_end < length ? line_end + 2 : length;
     }
     return count;
+}
+
+static int protocol_char(unsigned char byte) {
+    return isalnum(byte) || byte == '!' || byte == '#' || byte == '$' ||
+           byte == '%' || byte == '&' || byte == '\'' || byte == '*' ||
+           byte == '+' || byte == '-' || byte == '.' || byte == '^' ||
+           byte == '_' || byte == '`' || byte == '|' || byte == '~';
+}
+
+static int protocol_token_valid(const char *bytes, size_t length) {
+    if (!bytes || length == 0 || length > WS_MAX_HEADER) return 0;
+    for (size_t i = 0; i < length; i++) {
+        if (!protocol_char((unsigned char)bytes[i])) return 0;
+    }
+    return 1;
+}
+
+/* Build the single Sec-WebSocket-Protocol request field while preserving the
+ * caller's list order. */
+static int protocol_list_build(Iron_List_Iron_String protocols,
+                               char *header, size_t capacity,
+                               size_t *header_length) {
+    *header_length = 0;
+    if (protocols.count < 0 || protocols.capacity < protocols.count ||
+        (protocols.count > 0 && !protocols.items)) return 0;
+    size_t total = 0;
+    for (int64_t i = 0; i < protocols.count; i++) {
+        const char *token = iron_string_cstr(&protocols.items[i]);
+        size_t length = iron_string_byte_len(&protocols.items[i]);
+        size_t separator = i ? 2u : 0u;
+        if (!protocol_token_valid(token, length) ||
+            total > WS_MAX_HEADER - separator ||
+            length > WS_MAX_HEADER - total - separator) return 0;
+        for (int64_t prior = 0; prior < i; prior++) {
+            size_t prior_length = iron_string_byte_len(&protocols.items[prior]);
+            if (prior_length == length &&
+                memcmp(iron_string_cstr(&protocols.items[prior]), token,
+                       length) == 0) return 0;
+        }
+        total += length + (i ? 2u : 0u);
+    }
+    if (total + 1 > capacity) return 0;
+    size_t used = 0;
+    for (int64_t i = 0; i < protocols.count; i++) {
+        if (i) { header[used++] = ','; header[used++] = ' '; }
+        size_t length = iron_string_byte_len(&protocols.items[i]);
+        memcpy(header + used, iron_string_cstr(&protocols.items[i]), length);
+        used += length;
+    }
+    header[used] = '\0';
+    *header_length = used;
+    return 1;
+}
+
+static int protocol_list_contains(Iron_List_Iron_String protocols,
+                                  const char *token, size_t length) {
+    for (int64_t i = 0; i < protocols.count; i++) {
+        size_t candidate_length = iron_string_byte_len(&protocols.items[i]);
+        if (candidate_length == length &&
+            memcmp(iron_string_cstr(&protocols.items[i]), token, length) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+/* Validate a client's comma-separated offer and, when selected is non-empty,
+ * prove the exact case-sensitive token was offered. */
+static int request_protocol_allows(const char *headers, size_t headers_length,
+                                   const char *selected,
+                                   size_t selected_length) {
+    size_t count = header_count(headers, headers_length,
+                                "Sec-WebSocket-Protocol");
+    if (count == 0) return selected_length == 0;
+    if (count != 1) return 0;
+    const char *value = NULL;
+    size_t value_length = 0;
+    if (!header_span(headers, headers_length, "Sec-WebSocket-Protocol",
+                     &value, &value_length)) return 0;
+    size_t pos = 0;
+    int found = 0;
+    while (pos < value_length) {
+        while (pos < value_length &&
+               (value[pos] == ' ' || value[pos] == '\t')) pos++;
+        size_t end = pos;
+        while (end < value_length && value[end] != ',') end++;
+        size_t finish = end;
+        while (finish > pos &&
+               (value[finish - 1] == ' ' || value[finish - 1] == '\t'))
+            finish--;
+        if (!protocol_token_valid(value + pos, finish - pos)) return 0;
+        if (selected_length == finish - pos &&
+            memcmp(value + pos, selected, selected_length) == 0) found = 1;
+        if (end == value_length) break;
+        pos = end + 1;
+        if (pos == value_length) return 0;
+    }
+    return selected_length == 0 || found;
 }
 
 static int header_has_token(const char *headers, size_t length,
@@ -900,9 +998,16 @@ static int64_t receive_http_head(WsTransport transport, uint8_t **bytes_out,
 
 static Iron_WebSocketResult websocket_connect_options(
     Iron_String url, Iron_String headers, Iron_String ca_file, int insecure,
-    int64_t max_message_bytes, int64_t timeout) {
+    Iron_List_Iron_String protocols, int64_t max_message_bytes,
+    int64_t timeout) {
+    char protocol_header[WS_MAX_HEADER + 1];
+    size_t protocol_header_length = 0;
     if (max_message_bytes <= 0 || max_message_bytes > UINT32_MAX || timeout < 0 ||
-        !custom_headers_valid(headers)) return ws_result_error(IRON_ERR_WS_INVALID_ARGUMENT);
+        !custom_headers_valid(headers) ||
+        !protocol_list_build(protocols, protocol_header,
+                             sizeof(protocol_header),
+                             &protocol_header_length))
+        return ws_result_error(IRON_ERR_WS_INVALID_ARGUMENT);
     WsUrl parsed = parse_ws_url(url);
     if (parsed.error) return ws_result_error(parsed.error);
     Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
@@ -931,7 +1036,7 @@ static Iron_WebSocketResult websocket_connect_options(
     const char *custom = iron_string_cstr(&headers);
     size_t custom_length = iron_string_byte_len(&headers);
     size_t capacity = strlen(parsed.target) + strlen(parsed.host_header) +
-                      custom_length + 512;
+                      custom_length + protocol_header_length + 544;
     char *request = (char *)malloc(capacity);
     if (!request) { transport_close(transport); return ws_result_error(IRON_ERR_WS_NO_MEMORY); }
     int request_length = snprintf(request, capacity,
@@ -944,6 +1049,15 @@ static Iron_WebSocketResult websocket_connect_options(
         return ws_result_error(IRON_ERR_WS_HANDSHAKE);
     }
     size_t used = (size_t)request_length;
+    if (protocol_header_length) {
+        static const char protocol_prefix[] = "Sec-WebSocket-Protocol: ";
+        memcpy(request + used, protocol_prefix, sizeof(protocol_prefix) - 1);
+        used += sizeof(protocol_prefix) - 1;
+        memcpy(request + used, protocol_header, protocol_header_length);
+        used += protocol_header_length;
+        memcpy(request + used, "\r\n", 2);
+        used += 2;
+    }
     if (custom_length) {
         memcpy(request + used, custom, custom_length); used += custom_length;
         if (custom_length < 2 || custom[custom_length - 2] != '\r' ||
@@ -967,6 +1081,17 @@ static Iron_WebSocketResult websocket_connect_options(
     size_t header_length = marker - (line_end + 2);
     const char *accept = NULL;
     size_t accept_length = 0;
+    const char *selected_protocol = NULL;
+    size_t selected_protocol_length = 0;
+    size_t protocol_response_count = header_count(
+        header_bytes, header_length, "Sec-WebSocket-Protocol");
+    int protocol_response_valid = protocol_response_count == 0 ||
+        (protocol_response_count == 1 &&
+         header_span(header_bytes, header_length, "Sec-WebSocket-Protocol",
+                     &selected_protocol, &selected_protocol_length) &&
+         protocol_token_valid(selected_protocol, selected_protocol_length) &&
+         protocol_list_contains(protocols, selected_protocol,
+                                selected_protocol_length));
     int valid = line_end >= 13 &&
         (memcmp(response, "HTTP/1.1 101", 12) == 0) &&
         response[12] == ' ' &&
@@ -977,7 +1102,7 @@ static Iron_WebSocketResult websocket_connect_options(
                     &accept, &accept_length) &&
         header_count(header_bytes, header_length, "Sec-WebSocket-Accept") == 1 &&
         header_count(header_bytes, header_length, "Sec-WebSocket-Extensions") == 0 &&
-        header_count(header_bytes, header_length, "Sec-WebSocket-Protocol") == 0 &&
+        protocol_response_valid &&
         header_count(header_bytes, header_length, "Content-Length") == 0 &&
         header_count(header_bytes, header_length, "Transfer-Encoding") == 0 &&
         accept_length == strlen(expected_accept) &&
@@ -1001,9 +1126,13 @@ static Iron_WebSocketResult websocket_connect_options(
         }
         memcpy(session->prefetch, response + extra_start, session->prefetch_len);
     }
+    Iron_String negotiated_protocol = selected_protocol
+        ? ws_string(selected_protocol, selected_protocol_length)
+        : ws_cstr("");
     free(response);
     Iron_WebSocketResult result = ws_result_error(0);
     result.socket.handle = (int64_t)(intptr_t)session;
+    result.protocol = negotiated_protocol;
     return result;
 }
 
@@ -1011,7 +1140,8 @@ Iron_WebSocketResult Iron_websocket_connect(Iron_String url,
                                              Iron_String headers,
                                              int64_t max_message_bytes,
                                              int64_t timeout) {
-    return websocket_connect_options(url, headers, ws_cstr(""), 0,
+    Iron_List_Iron_String protocols = { NULL, 0, 0 };
+    return websocket_connect_options(url, headers, ws_cstr(""), 0, protocols,
                                      max_message_bytes, timeout);
 }
 
@@ -1020,7 +1150,8 @@ Iron_WebSocketResult Iron_websocket_connect_with_ca(Iron_String url,
                                                      Iron_String ca_file,
                                                      int64_t max_message_bytes,
                                                      int64_t timeout) {
-    return websocket_connect_options(url, headers, ca_file, 0,
+    Iron_List_Iron_String protocols = { NULL, 0, 0 };
+    return websocket_connect_options(url, headers, ca_file, 0, protocols,
                                      max_message_bytes, timeout);
 }
 
@@ -1028,12 +1159,36 @@ Iron_WebSocketResult Iron_websocket_connect_insecure(Iron_String url,
                                                       Iron_String headers,
                                                       int64_t max_message_bytes,
                                                       int64_t timeout) {
-    return websocket_connect_options(url, headers, ws_cstr(""), 1,
+    Iron_List_Iron_String protocols = { NULL, 0, 0 };
+    return websocket_connect_options(url, headers, ws_cstr(""), 1, protocols,
+                                     max_message_bytes, timeout);
+}
+
+Iron_WebSocketResult Iron_websocket_connect_with_protocols(
+    Iron_String url, Iron_String headers, Iron_List_Iron_String protocols,
+    int64_t max_message_bytes, int64_t timeout) {
+    return websocket_connect_options(url, headers, ws_cstr(""), 0, protocols,
+                                     max_message_bytes, timeout);
+}
+
+Iron_WebSocketResult Iron_websocket_connect_with_ca_and_protocols(
+    Iron_String url, Iron_String headers, Iron_String ca_file,
+    Iron_List_Iron_String protocols, int64_t max_message_bytes,
+    int64_t timeout) {
+    return websocket_connect_options(url, headers, ca_file, 0, protocols,
+                                     max_message_bytes, timeout);
+}
+
+Iron_WebSocketResult Iron_websocket_connect_insecure_with_protocols(
+    Iron_String url, Iron_String headers, Iron_List_Iron_String protocols,
+    int64_t max_message_bytes, int64_t timeout) {
+    return websocket_connect_options(url, headers, ws_cstr(""), 1, protocols,
                                      max_message_bytes, timeout);
 }
 
 static Iron_WebSocketResult upgrade_server(WsTransport transport,
                                             Iron_HttpRequest request,
+                                            Iron_String protocol,
                                             int64_t max_message_bytes,
                                             int64_t timeout) {
     if (max_message_bytes <= 0 || max_message_bytes > UINT32_MAX || timeout < 0)
@@ -1045,6 +1200,8 @@ static Iron_WebSocketResult upgrade_server(WsTransport transport,
     size_t body_length = iron_string_byte_len(&request.body);
     const char *headers = iron_string_cstr(&request.headers);
     size_t headers_length = iron_string_byte_len(&request.headers);
+    const char *selected_protocol = iron_string_cstr(&protocol);
+    size_t selected_protocol_length = iron_string_byte_len(&protocol);
     const char *key = NULL, *ws_version = NULL;
     size_t key_length = 0, ws_version_length = 0;
     if (request.error != 0 || body_length != 0 ||
@@ -1059,25 +1216,44 @@ static Iron_WebSocketResult upgrade_server(WsTransport transport,
         !header_span(headers, headers_length, "Sec-WebSocket-Key",
                      &key, &key_length) ||
         header_count(headers, headers_length, "Sec-WebSocket-Key") != 1 ||
-        !websocket_key_valid(key, key_length))
+        !websocket_key_valid(key, key_length) ||
+        (selected_protocol_length > 0 &&
+         !protocol_token_valid(selected_protocol, selected_protocol_length)) ||
+        !request_protocol_allows(headers, headers_length, selected_protocol,
+                                 selected_protocol_length))
         return ws_result_error(IRON_ERR_WS_HANDSHAKE);
     char accept[29];
     websocket_accept(key, key_length, accept);
-    char response[256];
-    int length = snprintf(response, sizeof(response),
+    size_t response_capacity = selected_protocol_length + 320;
+    char *response = (char *)malloc(response_capacity);
+    if (!response) return ws_result_error(IRON_ERR_WS_NO_MEMORY);
+    int length = snprintf(response, response_capacity,
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
-        "Connection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n", accept);
+        "Connection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n%s%s%s",
+        accept,
+        selected_protocol_length ? "Sec-WebSocket-Protocol: " : "",
+        selected_protocol_length ? selected_protocol : "",
+        selected_protocol_length ? "\r\n\r\n" : "\r\n");
+    if (length < 0 || (size_t)length >= response_capacity) {
+        free(response);
+        return ws_result_error(IRON_ERR_WS_HANDSHAKE);
+    }
     WsSession *session = session_new(transport, 0, (size_t)max_message_bytes);
-    if (!session) return ws_result_error(IRON_ERR_WS_NO_MEMORY);
+    if (!session) {
+        free(response);
+        return ws_result_error(IRON_ERR_WS_NO_MEMORY);
+    }
     Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
     int64_t error = write_all(transport, (const uint8_t *)response,
                               (size_t)length, deadline);
+    free(response);
     if (error) {
         session_free(session);
         return ws_result_error(error);
     }
     Iron_WebSocketResult result = ws_result_error(0);
     result.socket.handle = (int64_t)(intptr_t)session;
+    result.protocol = ws_string(selected_protocol, selected_protocol_length);
     return result;
 }
 
@@ -1085,7 +1261,8 @@ Iron_WebSocketResult Iron_httpconnection_upgrade_websocket(
     Iron_HttpConnection connection, Iron_HttpRequest request,
     int64_t max_message_bytes, int64_t timeout) {
     WsTransport transport = { { connection.fd }, NULL };
-    return upgrade_server(transport, request, max_message_bytes, timeout);
+    return upgrade_server(transport, request, ws_cstr(""),
+                          max_message_bytes, timeout);
 }
 
 Iron_WebSocketResult Iron_httpsconnection_upgrade_websocket(
@@ -1093,7 +1270,25 @@ Iron_WebSocketResult Iron_httpsconnection_upgrade_websocket(
     int64_t max_message_bytes, int64_t timeout) {
     WsTransport transport = { { connection.fd },
         (Iron_TlsStream *)(intptr_t)connection.tls };
-    return upgrade_server(transport, request, max_message_bytes, timeout);
+    return upgrade_server(transport, request, ws_cstr(""),
+                          max_message_bytes, timeout);
+}
+
+Iron_WebSocketResult Iron_httpconnection_upgrade_websocket_protocol(
+    Iron_HttpConnection connection, Iron_HttpRequest request,
+    Iron_String protocol, int64_t max_message_bytes, int64_t timeout) {
+    WsTransport transport = { { connection.fd }, NULL };
+    return upgrade_server(transport, request, protocol,
+                          max_message_bytes, timeout);
+}
+
+Iron_WebSocketResult Iron_httpsconnection_upgrade_websocket_protocol(
+    Iron_HttpsConnection connection, Iron_HttpRequest request,
+    Iron_String protocol, int64_t max_message_bytes, int64_t timeout) {
+    WsTransport transport = { { connection.fd },
+        (Iron_TlsStream *)(intptr_t)connection.tls };
+    return upgrade_server(transport, request, protocol,
+                          max_message_bytes, timeout);
 }
 
 int64_t Iron_websocket_send_text(Iron_WebSocket socket, Iron_String data,

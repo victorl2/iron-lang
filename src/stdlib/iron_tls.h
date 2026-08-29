@@ -33,6 +33,7 @@ Iron_TlsContextResult iron_tls_server_context_new(Iron_String certificate_file,
 Iron_TlsStreamResult iron_tls_server_accept(Iron_TlsServerContext *context,
                                              Iron_TcpSocket socket,
                                              Iron_Deadline deadline);
+bool iron_tls_server_context_retain(Iron_TlsServerContext *context);
 
 Iron_Result_Int_Error iron_tls_read(Iron_TlsStream *stream, uint8_t *buffer,
                                      int64_t capacity, Iron_Deadline deadline);

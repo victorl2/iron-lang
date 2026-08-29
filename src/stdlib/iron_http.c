@@ -5,8 +5,8 @@
  * send(), and server framing rejects ambiguous Content-Length /
  * Transfer-Encoding combinations. Plain HTTP and verified HTTPS share the
  * same framing/parser implementation through a small transport adapter.
- * Connections are one request/response and advertise `Connection: close`;
- * concurrency belongs to Iron spawn/await.
+ * One-shot calls advertise `Connection: close`; explicit HttpClient pools and
+ * server keep-alive responses support bounded persistent HTTP/1.1 sessions.
  */
 
 #include "iron_http.h"
@@ -20,15 +20,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef _WIN32
   #include <winsock2.h>
   #include <ws2tcpip.h>
+  #include <windows.h>
 #else
   #include <sys/types.h>
   #include <sys/socket.h>
   #include <netinet/in.h>
   #include <arpa/inet.h>
+  #include <pthread.h>
 #endif
 
 enum {
@@ -171,6 +174,29 @@ static int header_is_exact_token(const char *headers, size_t len, const char *na
     size_t vn = 0;
     if (!header_value_span(headers, len, name, &v, &vn)) return 0;
     return ascii_ieq_n(v, vn, token, strlen(token));
+}
+
+static int header_has_token(const char *headers, size_t len, const char *name,
+                            const char *wanted) {
+    const char *value = NULL;
+    size_t value_len = 0;
+    if (!header_value_span(headers, len, name, &value, &value_len)) return 0;
+    size_t wanted_len = strlen(wanted);
+    size_t pos = 0;
+    while (pos < value_len) {
+        while (pos < value_len &&
+               (value[pos] == ' ' || value[pos] == '\t' || value[pos] == ','))
+            pos++;
+        size_t end = pos;
+        while (end < value_len && value[end] != ',') end++;
+        size_t finish = end;
+        while (finish > pos &&
+               (value[finish - 1] == ' ' || value[finish - 1] == '\t'))
+            finish--;
+        if (ascii_ieq_n(value + pos, finish - pos, wanted, wanted_len)) return 1;
+        pos = end + (end < value_len);
+    }
+    return 0;
 }
 
 static int parse_content_length(const char *headers, size_t len,
@@ -578,6 +604,7 @@ typedef struct ParsedUrl {
     char target[HTTP_MAX_URL + 1];
     int64_t port;
     int secure;
+    int origin_only;
     int64_t error;
 } ParsedUrl;
 
@@ -665,6 +692,8 @@ static ParsedUrl parse_http_url(Iron_String url) {
     }
 
     size_t target_start = authority_end;
+    out.origin_only = target_start == n ||
+        (target_start + 1 == n && s[target_start] == '/');
     size_t fragment = target_start;
     while (fragment < n && s[fragment] != '#') fragment++;
     size_t target_len = fragment - target_start;
@@ -767,6 +796,76 @@ Iron_HttpsServerResult Iron_http_listen_tls(Iron_String host, int64_t port,
     return out;
 }
 
+Iron_HttpsPendingConnectionResult Iron_httpsserver_accept_tcp(
+    Iron_HttpsServer server, int64_t timeout) {
+    Iron_HttpsPendingConnectionResult out;
+    memset(&out, 0, sizeof(out));
+    out.connection.fd = -1;
+    out.error_message = http_str("");
+    if (timeout < 0) {
+        out.error = IRON_ERR_HTTP_INVALID_ARGUMENT;
+        out.error_message = http_str(http_error_message(out.error));
+        return out;
+    }
+    Iron_TlsServerContext *context =
+        (Iron_TlsServerContext *)(intptr_t)server.context;
+    if (server.fd < 0 || !iron_tls_server_context_retain(context)) {
+        out.error = IRON_ERR_TLS_CONTEXT;
+        out.error_message = http_str(http_error_message(out.error));
+        return out;
+    }
+    Iron_TcpListener listener = { server.fd };
+    Iron_Result_TcpSocket_Error accepted = Iron_tcplistener_accept(
+        listener, timeout);
+    if (accepted.v1.code != 0) {
+        iron_tls_server_context_free(context);
+        out.error = accepted.v1.code;
+        out.error_message = http_str(http_error_message(out.error));
+        return out;
+    }
+    out.connection.fd = accepted.v0.fd;
+    out.connection.context = (int64_t)(intptr_t)context;
+    return out;
+}
+
+Iron_HttpsConnectionResult Iron_httpspendingconnection_handshake(
+    Iron_HttpsPendingConnection connection, int64_t timeout) {
+    Iron_HttpsConnectionResult out;
+    memset(&out, 0, sizeof(out));
+    out.connection.fd = -1;
+    out.error_message = http_str("");
+    Iron_TcpSocket socket = { connection.fd };
+    Iron_TlsServerContext *context =
+        (Iron_TlsServerContext *)(intptr_t)connection.context;
+    if (timeout < 0 || socket.fd < 0 || !context) {
+        out.error = IRON_ERR_HTTP_INVALID_ARGUMENT;
+        out.error_message = http_str(http_error_message(out.error));
+        if (socket.fd >= 0) Iron_tcpsocket_close(socket);
+        if (context) iron_tls_server_context_free(context);
+        return out;
+    }
+    Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
+    Iron_TlsStreamResult tls = iron_tls_server_accept(
+        context, socket, deadline);
+    iron_tls_server_context_free(context);
+    if (tls.error.code != 0) {
+        Iron_tcpsocket_close(socket);
+        out.error = tls.error.code;
+        out.error_message = http_str(http_error_message(out.error));
+        return out;
+    }
+    out.connection.fd = socket.fd;
+    out.connection.tls = (int64_t)(intptr_t)tls.stream;
+    return out;
+}
+
+void Iron_httpspendingconnection_close(Iron_HttpsPendingConnection connection) {
+    Iron_TcpSocket socket = { connection.fd };
+    if (socket.fd >= 0) Iron_tcpsocket_close(socket);
+    iron_tls_server_context_free(
+        (Iron_TlsServerContext *)(intptr_t)connection.context);
+}
+
 Iron_HttpsConnectionResult Iron_httpsserver_accept(Iron_HttpsServer server,
                                                     int64_t timeout) {
     Iron_HttpsConnectionResult out;
@@ -779,26 +878,15 @@ Iron_HttpsConnectionResult Iron_httpsserver_accept(Iron_HttpsServer server,
         return out;
     }
     Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
-    Iron_TcpListener listener = { server.fd };
-    Iron_Result_TcpSocket_Error accepted = Iron_tcplistener_accept(
-        listener, Iron_deadline_remaining_ms(deadline));
-    if (accepted.v1.code != 0) {
-        out.error = accepted.v1.code;
-        out.error_message = http_str(http_error_message(out.error));
+    Iron_HttpsPendingConnectionResult accepted = Iron_httpsserver_accept_tcp(
+        server, Iron_deadline_remaining_ms(deadline));
+    if (accepted.error != 0) {
+        out.error = accepted.error;
+        out.error_message = accepted.error_message;
         return out;
     }
-    Iron_TlsStreamResult tls = iron_tls_server_accept(
-        (Iron_TlsServerContext *)(intptr_t)server.context,
-        accepted.v0, deadline);
-    if (tls.error.code != 0) {
-        Iron_tcpsocket_close(accepted.v0);
-        out.error = tls.error.code;
-        out.error_message = http_str(http_error_message(out.error));
-        return out;
-    }
-    out.connection.fd = accepted.v0.fd;
-    out.connection.tls = (int64_t)(intptr_t)tls.stream;
-    return out;
+    return Iron_httpspendingconnection_handshake(
+        accepted.connection, Iron_deadline_remaining_ms(deadline));
 }
 
 int64_t Iron_httpsserver_port(Iron_HttpsServer server) {
@@ -856,9 +944,12 @@ static Iron_HttpRequest read_request_transport(HttpTransport transport,
     while (sp1 < line_end && data[sp1] != ' ') sp1++;
     size_t sp2 = sp1 + 1;
     while (sp2 < line_end && data[sp2] != ' ') sp2++;
+    int version_11 = sp2 < line_end &&
+        ascii_ieq_n(data + sp2 + 1, line_end - sp2 - 1, "HTTP/1.1", 8);
+    int version_10 = sp2 < line_end &&
+        ascii_ieq_n(data + sp2 + 1, line_end - sp2 - 1, "HTTP/1.0", 8);
     if (sp1 == 0 || sp1 >= line_end || sp2 <= sp1 + 1 || sp2 >= line_end ||
-        !valid_method(data, sp1) ||
-        !ascii_ieq_n(data + sp2 + 1, line_end - sp2 - 1, "HTTP/1.1", 8)) {
+        !valid_method(data, sp1) || (!version_11 && !version_10)) {
         http_request_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
         free(h.data);
         return out;
@@ -884,18 +975,27 @@ static Iron_HttpRequest read_request_transport(HttpTransport transport,
     size_t headers_len = h.marker >= headers_start ? h.marker - headers_start : 0;
     const char *host_value = NULL;
     size_t host_value_len = 0;
+    size_t host_count = header_count(data + headers_start, headers_len, "Host");
     if (!raw_headers_valid(data + headers_start, headers_len) ||
-        header_count(data + headers_start, headers_len, "Host") != 1 ||
+        (version_11 ? host_count != 1 : host_count > 1) ||
+        header_count(data + headers_start, headers_len, "Connection") > 1 ||
         header_count(data + headers_start, headers_len, "Content-Length") > 1 ||
         header_count(data + headers_start, headers_len, "Transfer-Encoding") > 1 ||
-        !header_value_span(data + headers_start, headers_len, "Host",
-                           &host_value, &host_value_len) ||
-        host_value_len == 0) {
+        (host_count > 0 &&
+         (!header_value_span(data + headers_start, headers_len, "Host",
+                             &host_value, &host_value_len) ||
+          host_value_len == 0))) {
         http_request_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
         free(h.data);
         return out;
     }
     out.headers = http_slice(data + headers_start, headers_len);
+    int requests_close = header_has_token(
+        data + headers_start, headers_len, "Connection", "close");
+    int requests_keep_alive = header_has_token(
+        data + headers_start, headers_len, "Connection", "keep-alive");
+    out.keep_alive = version_11 ? !requests_close
+                                : requests_keep_alive && !requests_close;
     size_t content_len = 0;
     int content_present = 0;
     if (!parse_content_length(data + headers_start, headers_len,
@@ -1075,6 +1175,7 @@ Iron_HttpResponse Iron_http_file_response(int64_t status, Iron_String path,
 
 static int64_t send_response_transport(HttpTransport transport,
                                        Iron_HttpResponse response,
+                                       bool keep_alive,
                                        int64_t timeout) {
     if (response.error != 0) return response.error;
     if (timeout < 0) return IRON_ERR_HTTP_INVALID_ARGUMENT;
@@ -1095,8 +1196,9 @@ static int64_t send_response_transport(HttpTransport transport,
     Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
     char fixed[256];
     int fixed_len = snprintf(fixed, sizeof(fixed),
-        "HTTP/1.1 %lld %.*s\r\nContent-Length: %zu\r\nConnection: close\r\n",
-        (long long)response.status, (int)reason_len, reason, body_len);
+        "HTTP/1.1 %lld %.*s\r\nContent-Length: %zu\r\nConnection: %s\r\n",
+        (long long)response.status, (int)reason_len, reason, body_len,
+        keep_alive ? "keep-alive" : "close");
     if (fixed_len < 0 || (size_t)fixed_len >= sizeof(fixed)) return IRON_ERR_HTTP_INVALID_ARGUMENT;
     int64_t err = send_all(transport, (const uint8_t *)fixed, (size_t)fixed_len, deadline);
     if (err) return err;
@@ -1118,7 +1220,14 @@ int64_t Iron_httpconnection_send_response(Iron_HttpConnection connection,
                                            Iron_HttpResponse response,
                                            int64_t timeout) {
     HttpTransport transport = { { connection.fd }, NULL };
-    return send_response_transport(transport, response, timeout);
+    return send_response_transport(transport, response, false, timeout);
+}
+
+int64_t Iron_httpconnection_send_response_keep_alive(
+    Iron_HttpConnection connection, Iron_HttpResponse response,
+    bool keep_alive, int64_t timeout) {
+    HttpTransport transport = { { connection.fd }, NULL };
+    return send_response_transport(transport, response, keep_alive, timeout);
 }
 
 int64_t Iron_httpsconnection_send_response(Iron_HttpsConnection connection,
@@ -1127,7 +1236,16 @@ int64_t Iron_httpsconnection_send_response(Iron_HttpsConnection connection,
     HttpTransport transport = {
         { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls
     };
-    return send_response_transport(transport, response, timeout);
+    return send_response_transport(transport, response, false, timeout);
+}
+
+int64_t Iron_httpsconnection_send_response_keep_alive(
+    Iron_HttpsConnection connection, Iron_HttpResponse response,
+    bool keep_alive, int64_t timeout) {
+    HttpTransport transport = {
+        { connection.fd }, (Iron_TlsStream *)(intptr_t)connection.tls
+    };
+    return send_response_transport(transport, response, keep_alive, timeout);
 }
 
 static Iron_HttpResponse read_client_response(HttpTransport transport,
@@ -1143,9 +1261,11 @@ static Iron_HttpResponse read_client_response(HttpTransport transport,
     }
     const char *data = (const char *)h.data;
     size_t line_end = find_crlf(data, 0, h.marker);
-    int supported_version = line_end != SIZE_MAX && line_end >= 8 &&
-        (ascii_ieq_n(data, 8, "HTTP/1.1", 8) ||
-         ascii_ieq_n(data, 8, "HTTP/1.0", 8));
+    int response_version_11 = line_end != SIZE_MAX && line_end >= 8 &&
+        ascii_ieq_n(data, 8, "HTTP/1.1", 8);
+    int response_version_10 = line_end != SIZE_MAX && line_end >= 8 &&
+        ascii_ieq_n(data, 8, "HTTP/1.0", 8);
+    int supported_version = response_version_11 || response_version_10;
     if (line_end == SIZE_MAX || line_end < 12 || !supported_version || data[8] != ' ') {
         http_response_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
         free(h.data);
@@ -1166,6 +1286,7 @@ static Iron_HttpResponse read_client_response(HttpTransport transport,
     size_t headers_start = line_end + 2;
     size_t headers_len = h.marker >= headers_start ? h.marker - headers_start : 0;
     if (!raw_headers_valid(data + headers_start, headers_len) ||
+        header_count(data + headers_start, headers_len, "Connection") > 1 ||
         header_count(data + headers_start, headers_len, "Content-Length") > 1 ||
         header_count(data + headers_start, headers_len, "Transfer-Encoding") > 1) {
         http_response_error(&out, IRON_ERR_HTTP_MALFORMED_MESSAGE);
@@ -1209,6 +1330,15 @@ static Iron_HttpResponse read_client_response(HttpTransport transport,
     reader.prefix = h.data + h.marker + 4;
     reader.prefix_len = h.len - (h.marker + 4);
     reader.deadline = deadline;
+    int response_closes = header_has_token(
+        data + headers_start, headers_len, "Connection", "close");
+    int response_keeps_alive = header_has_token(
+        data + headers_start, headers_len, "Connection", "keep-alive");
+    int persistent = response_version_11 ? !response_closes
+        : response_keeps_alive && !response_closes;
+    int framed_for_reuse = suppress_body || chunked || content_present ||
+        (out.status >= 100 && out.status < 200) || out.status == 204 ||
+        out.status == 304;
     int64_t read_error = 0;
     int ok;
     if (suppress_body) ok = 1;
@@ -1219,6 +1349,7 @@ static Iron_HttpResponse read_client_response(HttpTransport transport,
     else if ((out.status >= 100 && out.status < 200) || out.status == 204 || out.status == 304) ok = 1;
     else ok = read_close_body(&reader, max_body, &out.body, &read_error);
     if (!ok) http_response_error(&out, read_error);
+    else out.keep_alive = persistent && framed_for_reuse;
     free(h.data);
     return out;
 }
@@ -1351,4 +1482,356 @@ Iron_HttpResponse Iron_http_get_insecure(Iron_String url, int64_t timeout) {
     return Iron_http_request_insecure(
         http_str("GET"), url, http_str(""), http_str(""),
         HTTP_DEFAULT_MAX_BODY, timeout);
+}
+
+typedef struct HttpClientSlot {
+    HttpTransport transport;
+    int connected;
+    int busy;
+    uint64_t last_used_ms;
+} HttpClientSlot;
+
+typedef struct HttpClientState {
+    ParsedUrl origin;
+    char *ca_file;
+    size_t ca_file_length;
+    int insecure;
+    int closing;
+    int64_t idle_timeout;
+    int64_t slot_count;
+    HttpClientSlot *slots;
+#ifdef _WIN32
+    CRITICAL_SECTION lock;
+    CONDITION_VARIABLE available;
+#else
+    pthread_mutex_t lock;
+    pthread_cond_t available;
+#endif
+} HttpClientState;
+
+static int http_client_lock_init(HttpClientState *client) {
+#ifdef _WIN32
+    InitializeCriticalSection(&client->lock);
+    InitializeConditionVariable(&client->available);
+    return 1;
+#else
+    if (pthread_mutex_init(&client->lock, NULL) != 0) return 0;
+    if (pthread_cond_init(&client->available, NULL) != 0) {
+        pthread_mutex_destroy(&client->lock);
+        return 0;
+    }
+    return 1;
+#endif
+}
+
+static void http_client_lock(HttpClientState *client) {
+#ifdef _WIN32
+    EnterCriticalSection(&client->lock);
+#else
+    pthread_mutex_lock(&client->lock);
+#endif
+}
+
+static void http_client_unlock(HttpClientState *client) {
+#ifdef _WIN32
+    LeaveCriticalSection(&client->lock);
+#else
+    pthread_mutex_unlock(&client->lock);
+#endif
+}
+
+static void http_client_signal(HttpClientState *client) {
+#ifdef _WIN32
+    WakeAllConditionVariable(&client->available);
+#else
+    pthread_cond_broadcast(&client->available);
+#endif
+}
+
+static int http_client_wait(HttpClientState *client, int milliseconds) {
+#ifdef _WIN32
+    return SleepConditionVariableCS(&client->available, &client->lock,
+                                    (DWORD)milliseconds) != 0;
+#else
+    struct timespec until;
+    if (clock_gettime(CLOCK_REALTIME, &until) != 0) return 0;
+    until.tv_sec += milliseconds / 1000;
+    until.tv_nsec += (long)(milliseconds % 1000) * 1000000L;
+    if (until.tv_nsec >= 1000000000L) {
+        until.tv_sec++;
+        until.tv_nsec -= 1000000000L;
+    }
+    return pthread_cond_timedwait(&client->available, &client->lock,
+                                  &until) == 0;
+#endif
+}
+
+static void http_client_lock_destroy(HttpClientState *client) {
+#ifdef _WIN32
+    DeleteCriticalSection(&client->lock);
+#else
+    pthread_cond_destroy(&client->available);
+    pthread_mutex_destroy(&client->lock);
+#endif
+}
+
+static void http_client_slot_close(HttpClientSlot *slot) {
+    if (!slot->connected) return;
+    transport_close(slot->transport);
+    memset(&slot->transport, 0, sizeof(slot->transport));
+    slot->transport.socket.fd = -1;
+    slot->connected = 0;
+    slot->last_used_ms = 0;
+}
+
+static HttpClientSlot *http_client_acquire(HttpClientState *client,
+                                           Iron_Deadline deadline,
+                                           int64_t *error) {
+    http_client_lock(client);
+    for (;;) {
+        if (client->closing) {
+            *error = IRON_ERR_NET_CLOSED;
+            http_client_unlock(client);
+            return NULL;
+        }
+        uint64_t now = Iron_monotonic_now_ms();
+        for (int64_t i = 0; i < client->slot_count; i++) {
+            HttpClientSlot *slot = &client->slots[i];
+            if (!slot->busy && slot->connected &&
+                (client->idle_timeout == 0 ||
+                 now - slot->last_used_ms >= (uint64_t)client->idle_timeout)) {
+                http_client_slot_close(slot);
+            }
+            if (!slot->busy) {
+                slot->busy = 1;
+                http_client_unlock(client);
+                return slot;
+            }
+        }
+        int remaining = Iron_deadline_remaining_ms(deadline);
+        if (remaining <= 0 || !http_client_wait(client, remaining)) {
+            *error = IRON_ERR_NET_TIMEOUT;
+            http_client_unlock(client);
+            return NULL;
+        }
+    }
+}
+
+static void http_client_release(HttpClientState *client, HttpClientSlot *slot,
+                                int reusable) {
+    http_client_lock(client);
+    if (!reusable || client->closing) http_client_slot_close(slot);
+    else slot->last_used_ms = Iron_monotonic_now_ms();
+    slot->busy = 0;
+    http_client_signal(client);
+    http_client_unlock(client);
+}
+
+static int64_t http_client_connect_slot(HttpClientState *client,
+                                        HttpClientSlot *slot,
+                                        Iron_Deadline deadline) {
+    Iron_String host = http_str(client->origin.host);
+    Iron_Result_TcpSocket_Error dial = Iron_net_tcp_dial(
+        host, client->origin.port, Iron_deadline_remaining_ms(deadline));
+    if (dial.v1.code != 0) return dial.v1.code;
+    slot->transport.socket = dial.v0;
+    slot->transport.tls = NULL;
+    if (client->origin.secure) {
+        Iron_String ca = http_slice(client->ca_file, client->ca_file_length);
+        Iron_TlsStreamResult tls = iron_tls_client_connect(
+            dial.v0, host, ca, client->insecure != 0, deadline);
+        if (tls.error.code != 0) {
+            Iron_tcpsocket_close(dial.v0);
+            slot->transport.socket.fd = -1;
+            return tls.error.code;
+        }
+        slot->transport.tls = tls.stream;
+    }
+    slot->connected = 1;
+    return 0;
+}
+
+static int64_t http_client_send_request(
+    HttpClientState *client, HttpClientSlot *slot,
+    const char *method, size_t method_length,
+    const char *target, size_t target_length,
+    const char *headers, size_t headers_length,
+    const char *body, size_t body_length, Iron_Deadline deadline) {
+    size_t capacity = method_length + target_length +
+        strlen(client->origin.host_header) + 256;
+    char *fixed = (char *)malloc(capacity);
+    if (!fixed) return IRON_ERR_NET_NO_MEMORY;
+    int length = snprintf(fixed, capacity,
+        "%.*s %.*s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\n"
+        "Content-Length: %zu\r\n",
+        (int)method_length, method, (int)target_length, target,
+        client->origin.host_header, body_length);
+    if (length < 0 || (size_t)length >= capacity) {
+        free(fixed);
+        return IRON_ERR_HTTP_INVALID_ARGUMENT;
+    }
+    int64_t error = send_all(slot->transport, (const uint8_t *)fixed,
+                             (size_t)length, deadline);
+    free(fixed);
+    if (!error && headers_length) {
+        error = send_all(slot->transport, (const uint8_t *)headers,
+                         headers_length, deadline);
+        if (!error && (headers_length < 2 ||
+            headers[headers_length - 2] != '\r' ||
+            headers[headers_length - 1] != '\n')) {
+            error = send_all(slot->transport, (const uint8_t *)"\r\n", 2,
+                             deadline);
+        }
+    }
+    if (!error)
+        error = send_all(slot->transport, (const uint8_t *)"\r\n", 2,
+                         deadline);
+    if (!error && body_length)
+        error = send_all(slot->transport, (const uint8_t *)body, body_length,
+                         deadline);
+    return error;
+}
+
+static Iron_HttpClientResult http_client_result_error(int64_t error) {
+    Iron_HttpClientResult out;
+    memset(&out, 0, sizeof(out));
+    out.error = error;
+    out.error_message = http_str(http_error_message(error));
+    return out;
+}
+
+Iron_HttpClientResult Iron_httpclient_open(
+    Iron_String origin, Iron_String ca_file, bool insecure,
+    int64_t max_connections, int64_t idle_timeout) {
+    if (max_connections <= 0 || max_connections > 64 || idle_timeout < 0 ||
+        (insecure && iron_string_byte_len(&ca_file) != 0))
+        return http_client_result_error(IRON_ERR_HTTP_INVALID_ARGUMENT);
+    ParsedUrl parsed = parse_http_url(origin);
+    if (parsed.error) return http_client_result_error(parsed.error);
+    size_t ca_length = iron_string_byte_len(&ca_file);
+    if (!parsed.origin_only ||
+        (!parsed.secure && (insecure || ca_length != 0)))
+        return http_client_result_error(IRON_ERR_HTTP_INVALID_ARGUMENT);
+    if (parsed.secure && !iron_tls_is_available())
+        return http_client_result_error(IRON_ERR_TLS_UNAVAILABLE);
+    const char *ca_bytes = iron_string_cstr(&ca_file);
+    if (memchr(ca_bytes, '\0', ca_length) != NULL)
+        return http_client_result_error(IRON_ERR_HTTP_INVALID_ARGUMENT);
+    HttpClientState *client = (HttpClientState *)calloc(1, sizeof(*client));
+    if (!client) return http_client_result_error(IRON_ERR_NET_NO_MEMORY);
+    client->slots = (HttpClientSlot *)calloc(
+        (size_t)max_connections, sizeof(*client->slots));
+    client->ca_file = (char *)malloc(ca_length + 1);
+    if (!client->slots || !client->ca_file || !http_client_lock_init(client)) {
+        free(client->slots);
+        free(client->ca_file);
+        free(client);
+        return http_client_result_error(IRON_ERR_NET_NO_MEMORY);
+    }
+    memcpy(client->ca_file, ca_bytes, ca_length);
+    client->ca_file[ca_length] = '\0';
+    client->ca_file_length = ca_length;
+    client->origin = parsed;
+    client->insecure = insecure;
+    client->idle_timeout = idle_timeout;
+    client->slot_count = max_connections;
+    for (int64_t i = 0; i < max_connections; i++)
+        client->slots[i].transport.socket.fd = -1;
+    Iron_HttpClientResult out = http_client_result_error(0);
+    out.client.handle = (int64_t)(intptr_t)client;
+    return out;
+}
+
+Iron_HttpResponse Iron_httpclient_request(
+    Iron_HttpClient handle, Iron_String method_value, Iron_String target_value,
+    Iron_String headers_value, Iron_String body_value,
+    int64_t max_body_bytes, int64_t timeout) {
+    HttpClientState *client = (HttpClientState *)(intptr_t)handle.handle;
+    Iron_HttpResponse out = http_response_empty();
+    const char *method = iron_string_cstr(&method_value);
+    size_t method_length = iron_string_byte_len(&method_value);
+    const char *target = iron_string_cstr(&target_value);
+    size_t target_length = iron_string_byte_len(&target_value);
+    const char *headers = iron_string_cstr(&headers_value);
+    size_t headers_length = iron_string_byte_len(&headers_value);
+    const char *body = iron_string_cstr(&body_value);
+    size_t body_length = iron_string_byte_len(&body_value);
+    if (!client || timeout < 0 || max_body_bytes < 0 ||
+        (uint64_t)max_body_bytes > (uint64_t)(SIZE_MAX - 1) ||
+        !valid_method(method, method_length) ||
+        !valid_request_target(target, target_length) ||
+        !raw_headers_valid(headers, headers_length) ||
+        headers_have_forbidden_framing(headers, headers_length)) {
+        http_response_error(&out, IRON_ERR_HTTP_INVALID_ARGUMENT);
+        return out;
+    }
+    Iron_Deadline deadline = Iron_deadline_from_timeout_ms(timeout);
+    int64_t acquire_error = 0;
+    HttpClientSlot *slot = http_client_acquire(client, deadline, &acquire_error);
+    if (!slot) {
+        http_response_error(&out, acquire_error);
+        return out;
+    }
+    int retry_safe = body_length == 0 &&
+        (ascii_ieq_n(method, method_length, "GET", 3) ||
+         ascii_ieq_n(method, method_length, "HEAD", 4));
+    for (int attempt = 0; attempt < 2; attempt++) {
+        int was_reused = slot->connected;
+        int64_t error = slot->connected ? 0
+            : http_client_connect_slot(client, slot, deadline);
+        if (!error) error = http_client_send_request(
+            client, slot, method, method_length, target, target_length,
+            headers, headers_length, body, body_length, deadline);
+        if (error) {
+            http_client_slot_close(slot);
+            if (attempt == 0 && retry_safe && was_reused &&
+                Iron_deadline_remaining_ms(deadline) > 0) continue;
+            http_response_error(&out, error);
+            http_client_release(client, slot, 0);
+            return out;
+        }
+        out = read_client_response(
+            slot->transport, (size_t)max_body_bytes, deadline,
+            ascii_ieq_n(method, method_length, "HEAD", 4));
+        if (out.error != 0) {
+            int64_t error_code = out.error;
+            http_client_slot_close(slot);
+            int stale_transport =
+                (error_code >= IRON_ERR_NET_UNKNOWN &&
+                 error_code < IRON_ERR_HTTP_BAD_URL) ||
+                error_code == IRON_ERR_TLS_CLOSED ||
+                error_code == IRON_ERR_TLS_IO ||
+                error_code == IRON_ERR_HTTP_TRUNCATED_MESSAGE;
+            if (attempt == 0 && retry_safe && was_reused && stale_transport &&
+                Iron_deadline_remaining_ms(deadline) > 0) continue;
+            http_client_release(client, slot, 0);
+            return out;
+        }
+        http_client_release(client, slot, out.keep_alive);
+        return out;
+    }
+    http_response_error(&out, IRON_ERR_NET_CLOSED);
+    http_client_release(client, slot, 0);
+    return out;
+}
+
+void Iron_httpclient_close(Iron_HttpClient handle) {
+    HttpClientState *client = (HttpClientState *)(intptr_t)handle.handle;
+    if (!client) return;
+    http_client_lock(client);
+    client->closing = 1;
+    for (;;) {
+        int busy = 0;
+        for (int64_t i = 0; i < client->slot_count; i++)
+            if (client->slots[i].busy) busy = 1;
+        if (!busy) break;
+        (void)http_client_wait(client, 1000);
+    }
+    for (int64_t i = 0; i < client->slot_count; i++)
+        http_client_slot_close(&client->slots[i]);
+    http_client_unlock(client);
+    http_client_lock_destroy(client);
+    free(client->slots);
+    free(client->ca_file);
+    free(client);
 }
