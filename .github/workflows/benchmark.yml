@@ -48,7 +48,12 @@ jobs:
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
-    # Benchmarks must compile and run correctly; only regression checks are informational.
+    # Each corpus is intentionally measured once. This invocation gates
+    # compilation, correctness, and the per-benchmark max_ratio contract.
+    # Do not add `--check-regression` here until it consumes these results and
+    # uses an OS/architecture-specific rolling baseline: that mode currently
+    # reruns the entire 30-sample corpus and reads the unscoped, stale
+    # baselines/latest.json file.
     steps:
       - name: Skip for docs-only changes
         if: needs.changes.outputs.benchmark != 'true'
@@ -116,14 +121,4 @@ jobs:
             bash tests/benchmarks/run_benchmarks.sh --verbose --only-parallel
           else
             bash tests/benchmarks/run_benchmarks.sh --verbose --skip-parallel
-          fi
-
-      - name: Check regression (informational)
-        if: needs.changes.outputs.benchmark == 'true'
-        continue-on-error: true
-        run: |
-          if [ "${{ matrix.group }}" = "parallel" ]; then
-            bash tests/benchmarks/run_benchmarks.sh --check-regression --only-parallel
-          else
-            bash tests/benchmarks/run_benchmarks.sh --check-regression --skip-parallel
           fi
