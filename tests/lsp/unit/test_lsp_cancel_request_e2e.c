@@ -18,6 +18,7 @@
 #include "vendor/yyjson/yyjson.h"
 
 #include <pthread.h>
+#include <errno.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -120,70 +121,135 @@ static void test_cancel_handler_end_to_end(void) {
     free(buf);
 }
 
-/* ── Test 6: worker thread observes the flip within a tight budget ── */
+/* Thread visibility is a correctness property, not a scheduler latency
+ * benchmark. Handshake before signaling, then allow bounded completion.
+ * In particular, relaxed atomics do NOT imply release/acquire ordering. */
 typedef struct {
     _Atomic bool *flag;
+    _Atomic bool  ready;
     _Atomic bool  done;
-    long          observed_ns;
+    _Atomic bool  stop;
+    long          startup_delay_ms;
+    long          poll_delay_ms;
+    bool          observed;
+    int           error;
 } WorkerCtx;
 
-static void *polling_worker(void *arg) {
-    WorkerCtx *wc = (WorkerCtx *)arg;
-    struct timespec start; clock_gettime(CLOCK_MONOTONIC, &start);
+static int delay_ms(long ms) {
+    struct timespec remaining = { ms / 1000, (ms % 1000) * 1000000L };
+    while (nanosleep(&remaining, &remaining) != 0) {
+        if (errno != EINTR) return errno;
+    }
+    return 0;
+}
 
-    /* Busy-poll up to 100ms. */
-    const long budget_ns = 100L * 1000L * 1000L;
+/* Return 1 for completion, 0 for timeout, or a negative errno. The timeout
+ * is only a hang guard; no assertion depends on sub-second scheduling. */
+static int wait_for_flag(const _Atomic bool *flag, long timeout_ms) {
+    struct timespec start;
+    if (clock_gettime(CLOCK_MONOTONIC, &start) != 0) return -errno;
     for (;;) {
-        if (iron_cancel_requested(wc->flag)) {
-            struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
-            wc->observed_ns = (now.tv_sec  - start.tv_sec) * 1000000000L +
-                              (now.tv_nsec - start.tv_nsec);
-            atomic_store(&wc->done, true);
-            return NULL;
-        }
-        struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
-        long elapsed = (now.tv_sec  - start.tv_sec) * 1000000000L +
-                       (now.tv_nsec - start.tv_nsec);
-        if (elapsed > budget_ns) {
-            wc->observed_ns = -1;   /* timed out */
-            atomic_store(&wc->done, true);
-            return NULL;
-        }
+        if (atomic_load_explicit(flag, memory_order_acquire)) return 1;
+        struct timespec now;
+        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return -errno;
+        long elapsed_ns = (now.tv_sec - start.tv_sec) * 1000000000L +
+                          now.tv_nsec - start.tv_nsec;
+        if (elapsed_ns >= timeout_ms * 1000000L) return 0;
+        int error = delay_ms(1);
+        if (error) return -error;
     }
 }
 
-static void test_cancel_thread_visibility(void) {
+static void *polling_worker(void *arg) {
+    WorkerCtx *wc = (WorkerCtx *)arg;
+    wc->error = delay_ms(wc->startup_delay_ms);
+    if (wc->error) goto finished;
+    atomic_store_explicit(&wc->ready, true, memory_order_release);
+    wc->error = delay_ms(wc->poll_delay_ms);
+    if (wc->error) goto finished;
+
+    while (!atomic_load_explicit(&wc->stop, memory_order_relaxed)) {
+        if (iron_cancel_requested(wc->flag)) {
+            wc->observed = true;
+            break;
+        }
+        wc->error = delay_ms(1);
+        if (wc->error) break;
+    }
+finished:
+    atomic_store_explicit(&wc->done, true, memory_order_release);
+    return NULL;
+}
+
+static void check_thread_visibility(long startup_delay_ms, long signal_delay_ms,
+                                    long poll_delay_ms, bool send_signal) {
     IronLsp_CancelRegistry *r = ilsp_cancel_registry_create();
+    TEST_ASSERT_NOT_NULL(r);
     _Atomic bool *f = ilsp_cancel_register(r, "99");
+    TEST_ASSERT_NOT_NULL(f);
+    TEST_ASSERT_FALSE(iron_cancel_requested(f));
 
-    WorkerCtx wc;
-    wc.flag = f;
-    atomic_store(&wc.done, false);
-    wc.observed_ns = 0;
+    WorkerCtx wc = { .flag = f, .startup_delay_ms = startup_delay_ms,
+                     .poll_delay_ms = poll_delay_ms };
+    atomic_init(&wc.ready, false);
+    atomic_init(&wc.done, false);
+    atomic_init(&wc.stop, false);
     pthread_t th;
-    pthread_create(&th, NULL, polling_worker, &wc);
+    int create_error = pthread_create(&th, NULL, polling_worker, &wc);
+    if (create_error) {
+        ilsp_cancel_registry_destroy(r);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(0, create_error, "pthread_create failed");
+        return;
+    }
 
-    /* Give the worker a hair of time to enter the loop, then signal. */
-    struct timespec small = { .tv_sec = 0, .tv_nsec = 1000000L };  /* 1ms */
-    nanosleep(&small, NULL);
-    bool ok = ilsp_cancel_signal(r, "99");
-    TEST_ASSERT_TRUE(ok);
+    /* This synchronization precedes cancellation. There is deliberately no
+     * producer-to-worker handshake after the store to the cancellation flag:
+     * the worker must observe it through the actual relaxed polling primitive. */
+    int ready = wait_for_flag(&wc.ready, 5000);
+    int delay_error = 0;
+    bool signaled = false;
+    if (ready == 1 && send_signal) {
+        delay_error = delay_ms(signal_delay_ms);
+        if (!delay_error) signaled = ilsp_cancel_signal(r, "99");
+    }
+    int completed = wait_for_flag(&wc.done, send_signal ? 5000 : 50);
 
-    pthread_join(th, NULL);
-
-    /* Visibility primitive is memory_order_relaxed on x86/arm64 with
-     * implicit release-acquire for aligned-word stores; typical
-     * observation is ~microseconds. The original 10ms budget held on
-     * dev hardware but flaked on GitHub-hosted macos-latest runners
-     * (worker scheduling under shared-host load can push observation
-     * past 10ms). Widen to 100ms — still tight enough to catch a
-     * missing-fence regression (would observe never / -1 / seconds)
-     * without being flaky on noisy CI. */
-    TEST_ASSERT_TRUE(wc.observed_ns >= 0);
-    TEST_ASSERT_TRUE(wc.observed_ns < 100L * 1000L * 1000L);
-
+    /* Stop and join even on failure, before Unity can longjmp. Never free
+     * the registry flag while the worker might still read it. CTest provides
+     * a final process-level timeout for a stuck worker/join. */
+    atomic_store_explicit(&wc.stop, true, memory_order_relaxed);
+    int join_error = pthread_join(th, NULL);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, join_error, "pthread_join failed");
     ilsp_cancel_unregister(r, "99");
     ilsp_cancel_registry_destroy(r);
+
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, ready, "worker did not become ready");
+    TEST_ASSERT_EQUAL_INT(0, delay_error);
+    TEST_ASSERT_EQUAL_INT(0, wc.error);
+    TEST_ASSERT_EQUAL_INT(send_signal, signaled);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(send_signal ? 1 : 0, completed,
+        "worker completion must require cancellation, within the hang guard");
+    TEST_ASSERT_EQUAL_INT(send_signal, wc.observed);
+}
+
+static void test_cancel_thread_visibility(void) {
+    check_thread_visibility(0, 0, 0, true);
+}
+
+static void test_cancel_thread_visibility_delayed_start(void) {
+    check_thread_visibility(200, 0, 0, true);
+}
+
+static void test_cancel_thread_visibility_delayed_signal(void) {
+    check_thread_visibility(0, 200, 0, true);
+}
+
+static void test_cancel_thread_visibility_delayed_poll(void) {
+    check_thread_visibility(0, 0, 200, true);
+}
+
+static void test_cancel_thread_visibility_requires_signal(void) {
+    check_thread_visibility(0, 0, 0, false);
 }
 
 int main(void) {
@@ -194,5 +260,9 @@ int main(void) {
     RUN_TEST(test_cancel_unregister_frees);
     RUN_TEST(test_cancel_handler_end_to_end);
     RUN_TEST(test_cancel_thread_visibility);
+    RUN_TEST(test_cancel_thread_visibility_delayed_start);
+    RUN_TEST(test_cancel_thread_visibility_delayed_signal);
+    RUN_TEST(test_cancel_thread_visibility_delayed_poll);
+    RUN_TEST(test_cancel_thread_visibility_requires_signal);
     return UNITY_END();
 }

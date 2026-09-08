@@ -339,7 +339,8 @@ if(IRON_BUILD_LSP)
     add_test(NAME test_lsp_cancel_request_e2e
              COMMAND test_lsp_cancel_request_e2e)
     set_tests_properties(test_lsp_cancel_request_e2e PROPERTIES
-        LABELS "unit;lsp-unit;phase-m1-invariant")
+        LABELS "unit;lsp-unit;phase-m1-invariant"
+        TIMEOUT 30)
 
     # ── Phase 2 Plan 04 (document store + UTF + SHA-256 + watched files) ────
     # Shared source lists so each test executable re-uses the same compile
