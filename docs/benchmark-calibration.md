@@ -51,6 +51,31 @@ dominate the measurement noise.
 
 ## Re-calibration Methodology
 
+The benchmark runner requires Python 3 in addition to Clang. Every sample,
+including the first memory-measured sample, runs through
+`tests/benchmarks/benchmark_process.py` with the configured timeout. The
+launcher returns 124 on timeout, preserves program failures, and kills the
+sample's process group on completion or cancellation. Peak child RSS comes
+from OS resource accounting on macOS and GNU time on Linux, normalized to
+KiB. The Linux sampler excludes the Python launcher's inherited memory peak;
+missing or interrupted sampling records 0 (unavailable). The runner no longer
+probes `/usr/bin/time` on macOS, where sandbox policies can deny its sysctls.
+Timings still come from each benchmark's own output, excluding launcher
+startup. Re-capture memory baselines when comparing with the older runner.
+
+Run the launcher regression tests with
+`ctest --test-dir build -R benchmark_process_regressions --output-on-failure`.
+They cover exit status, timeouts with/without RSS, cancellation, descendant
+cleanup, missing executables, invalid deadlines, and platform RSS units.
+
+For compiler correctness, run
+`ctest --test-dir build -R 'integer_semantics|test_lir_emit' --output-on-failure`.
+The integer tests check 161 results against an independent integer oracle
+in optimized, unoptimized, and release modes. Each mode also has a generated-C
+UBSan variant; this instruments the emitted program, not merely the compiler.
+These tests preserve Iron's wrapping integer semantics while checking that
+narrow local storage is widened before expression evaluation.
+
 Phase 58 established the 5-round trimmed-mean audit: run the benchmark
 suite 5 times, discard the min and max ratio per benchmark, compute mean
 and stddev from the middle 3. Implemented in `scripts/bench_audit.sh`.

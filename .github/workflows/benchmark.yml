@@ -68,14 +68,17 @@ jobs:
         if: needs.changes.outputs.benchmark == 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build clang
+          sudo apt-get install -y cmake ninja-build clang python3 time
 
       - name: Install dependencies (macOS)
         if: needs.changes.outputs.benchmark == 'true' && runner.os == 'macOS'
-        # coreutils provides gtimeout; without it run_with_timeout falls back
-        # to a watchdog subshell that leaks sleep processes on each sample and
-        # exhausts macOS runner process slots during the 30-sample loop.
-        run: brew install cmake ninja coreutils
+        # Python's process-group launcher handles timeouts on both platforms;
+        # no gtimeout/watchdog fallback is needed.
+        run: brew install cmake ninja
+
+      - name: Test benchmark process launcher
+        if: needs.changes.outputs.benchmark == 'true'
+        run: python3 tests/benchmarks/test_benchmark_process.py
 
       - name: Build compiler
         if: needs.changes.outputs.benchmark == 'true'

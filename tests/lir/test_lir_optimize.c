@@ -1160,6 +1160,224 @@ void test_strength_reduction_loop_invariant_check(void) {
     iron_arena_free(&ir_arena);
 }
 
+/* ── P2b: scalar copy coalescing ─────────────────────────────────────────── */
+
+static IronLIR_Func *make_copy_coalesce_func(IronLIR_Module *mod,
+                                              Iron_Type *int_type,
+                                              Iron_Type *bool_type,
+                                              const char *name) {
+    IronLIR_Param *params = (IronLIR_Param *)iron_arena_alloc(
+        mod->arena, 3 * sizeof(IronLIR_Param), _Alignof(IronLIR_Param));
+    TEST_ASSERT_NOT_NULL(params);
+    params[0] = (IronLIR_Param){ .name = "cond", .type = bool_type };
+    params[1] = (IronLIR_Param){ .name = "a", .type = int_type };
+    params[2] = (IronLIR_Param){ .name = "b", .type = int_type };
+
+    IronLIR_Func *fn = iron_lir_func_create(mod, name, params, 3, int_type);
+    /* Hand-built LIR must reserve the synthetic parameter IDs just as the
+     * HIR-to-LIR lowering pipeline does. */
+    fn->next_value_id = 4;
+    return fn;
+}
+
+static IronLIR_Instr *build_branch_merge_load(IronLIR_Func *fn,
+                                               Iron_Type *int_type,
+                                               Iron_Span sp,
+                                               IronLIR_Block **merge_out,
+                                               IronLIR_Instr **slot_out) {
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *then_b = iron_lir_block_create(fn, "then_copy");
+    IronLIR_Block *else_b = iron_lir_block_create(fn, "else_copy");
+    IronLIR_Block *merge = iron_lir_block_create(fn, "merge_copy");
+    IronLIR_Instr *slot = iron_lir_alloca(fn, entry, int_type, "merged", sp);
+
+    iron_lir_branch(fn, entry, 1, then_b->id, else_b->id, sp);
+    iron_lir_store(fn, then_b, slot->id, 2, sp);
+    iron_lir_jump(fn, then_b, merge->id, sp);
+    iron_lir_store(fn, else_b, slot->id, 3, sp);
+    iron_lir_jump(fn, else_b, merge->id, sp);
+
+    IronLIR_Instr *load = iron_lir_load(fn, merge, slot->id, int_type, sp);
+    *merge_out = merge;
+    *slot_out = slot;
+    return load;
+}
+
+void test_scalar_copy_coalescing_branch_merge(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_p2b_merge");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    IronLIR_Func *fn = make_copy_coalesce_func(mod, int_type, bool_type,
+                                               "Iron_p2b_merge");
+    IronLIR_Block *merge = NULL;
+    IronLIR_Instr *slot = NULL;
+    IronLIR_Instr *load = build_branch_merge_load(fn, int_type, test_span(),
+                                                   &merge, &slot);
+    IronLIR_ValueId load_id = load->id;
+    IronLIR_Instr *left = iron_lir_binop(fn, merge, IRON_LIR_ADD,
+                                         load->id, 2, int_type, test_span());
+    IronLIR_Instr *right = iron_lir_binop(fn, merge, IRON_LIR_ADD,
+                                          load->id, 3, int_type, test_span());
+    IronLIR_Instr *sum = iron_lir_binop(fn, merge, IRON_LIR_ADD,
+                                        left->id, right->id, int_type, test_span());
+    iron_lir_return(fn, merge, sum->id, false, int_type, test_span());
+
+    IronLIR_OptimizeInfo info;
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
+
+    TEST_ASSERT_NULL(fn->value_table[load_id]);
+    TEST_ASSERT_EQUAL_UINT32(slot->id, left->binop.left);
+    TEST_ASSERT_EQUAL_UINT32(slot->id, right->binop.left);
+    TEST_ASSERT_EQUAL_INT(0, count_kind_in_block(merge, IRON_LIR_LOAD));
+
+    iron_lir_optimize_info_free(&info);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+void test_scalar_copy_coalescing_preserves_snapshot(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_p2b_snapshot");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    IronLIR_Func *fn = make_copy_coalesce_func(mod, int_type, bool_type,
+                                               "Iron_p2b_snapshot");
+    IronLIR_Block *merge = NULL;
+    IronLIR_Instr *slot = NULL;
+    IronLIR_Instr *load = build_branch_merge_load(fn, int_type, test_span(),
+                                                   &merge, &slot);
+    IronLIR_ValueId load_id = load->id;
+    iron_lir_store(fn, merge, slot->id, 2, test_span());
+    IronLIR_Instr *sum = iron_lir_binop(fn, merge, IRON_LIR_ADD,
+                                        load->id, 3, int_type, test_span());
+    iron_lir_return(fn, merge, sum->id, false, int_type, test_span());
+
+    IronLIR_OptimizeInfo info;
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
+
+    TEST_ASSERT_NOT_NULL(fn->value_table[load_id]);
+    TEST_ASSERT_EQUAL_INT(IRON_LIR_LOAD, fn->value_table[load_id]->kind);
+    TEST_ASSERT_EQUAL_UINT32(load_id, sum->binop.left);
+
+    iron_lir_optimize_info_free(&info);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+void test_scalar_copy_coalescing_preserves_cross_block_value(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_p2b_cross");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    IronLIR_Func *fn = make_copy_coalesce_func(mod, int_type, bool_type,
+                                               "Iron_p2b_cross");
+    IronLIR_Block *merge = NULL;
+    IronLIR_Instr *slot = NULL;
+    IronLIR_Instr *load = build_branch_merge_load(fn, int_type, test_span(),
+                                                   &merge, &slot);
+    IronLIR_ValueId load_id = load->id;
+    IronLIR_Block *use = iron_lir_block_create(fn, "use_copy");
+    iron_lir_jump(fn, merge, use->id, test_span());
+    IronLIR_Instr *sum = iron_lir_binop(fn, use, IRON_LIR_ADD,
+                                        load->id, 2, int_type, test_span());
+    iron_lir_return(fn, use, sum->id, false, int_type, test_span());
+
+    IronLIR_OptimizeInfo info;
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
+
+    TEST_ASSERT_NOT_NULL(fn->value_table[load_id]);
+    TEST_ASSERT_EQUAL_INT(IRON_LIR_LOAD, fn->value_table[load_id]->kind);
+    TEST_ASSERT_EQUAL_UINT32(load_id, sum->binop.left);
+
+    iron_lir_optimize_info_free(&info);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+void test_scalar_copy_coalescing_preserves_address_taken_slot(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_p2b_address");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    IronLIR_Func *fn = make_copy_coalesce_func(mod, int_type, bool_type,
+                                               "Iron_p2b_address");
+    IronLIR_Block *merge = NULL;
+    IronLIR_Instr *slot = NULL;
+    IronLIR_Instr *load = build_branch_merge_load(fn, int_type, test_span(),
+                                                   &merge, &slot);
+    IronLIR_ValueId load_id = load->id;
+    IronLIR_Instr *addr = iron_lir_addr_of(fn, merge, slot->id,
+                                           IRON_LIR_GEN_STACK, int_type,
+                                           test_span());
+    IronLIR_Instr *through_ptr = iron_lir_ptr_load(
+        fn, merge, addr->id, IRON_LIR_GEN_STACK, int_type, test_span());
+    IronLIR_Instr *sum = iron_lir_binop(fn, merge, IRON_LIR_ADD,
+                                        load->id, through_ptr->id, int_type,
+                                        test_span());
+    iron_lir_return(fn, merge, sum->id, false, int_type, test_span());
+
+    IronLIR_OptimizeInfo info;
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
+
+    TEST_ASSERT_NOT_NULL(fn->value_table[slot->id]);
+    TEST_ASSERT_NOT_NULL(fn->value_table[load_id]);
+    TEST_ASSERT_EQUAL_INT(IRON_LIR_LOAD, fn->value_table[load_id]->kind);
+
+    iron_lir_optimize_info_free(&info);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+static void check_scalar_copy_coalescing_address_argument(bool receiver,
+                                                         bool slot_argument) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_p2b_byaddr");
+    Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bool_type = iron_type_make_primitive(IRON_TYPE_BOOL);
+    IronLIR_Func *fn = make_copy_coalesce_func(mod, int_type, bool_type,
+                                               "Iron_p2b_byaddr");
+    IronLIR_Block *merge = NULL;
+    IronLIR_Instr *slot = NULL;
+    IronLIR_Instr *load = build_branch_merge_load(fn, int_type, test_span(),
+                                                   &merge, &slot);
+    IronLIR_ValueId load_id = load->id;
+    IronLIR_Instr *fref = iron_lir_func_ref(fn, merge, "mutate",
+                                            int_type, test_span());
+    IronLIR_ValueId args[1] = { slot_argument ? slot->id : load->id };
+    IronLIR_Instr *call = iron_lir_call(fn, merge, NULL, fref->id,
+                                        args, 1, NULL, test_span());
+    bool by_addr[1] = { true };
+    if (receiver) call->call.self_by_addr = true;
+    else call->call.args_by_addr = by_addr;
+    iron_lir_return(fn, merge, load->id, false, int_type, test_span());
+
+    IronLIR_OptimizeInfo info;
+    iron_lir_optimize(mod, &info, &ir_arena, false, false, false);
+
+    TEST_ASSERT_NOT_NULL(fn->value_table[load_id]);
+    TEST_ASSERT_EQUAL_INT(IRON_LIR_LOAD, fn->value_table[load_id]->kind);
+    TEST_ASSERT_EQUAL_UINT32(slot_argument ? slot->id : load_id, call->call.args[0]);
+
+    iron_lir_optimize_info_free(&info);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+void test_scalar_copy_coalescing_preserves_by_address_argument(void) {
+    check_scalar_copy_coalescing_address_argument(false, false);
+}
+
+void test_scalar_copy_coalescing_preserves_address_receiver(void) {
+    check_scalar_copy_coalescing_address_argument(true, false);
+    check_scalar_copy_coalescing_address_argument(true, true);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -1185,5 +1403,11 @@ int main(void) {
     RUN_TEST(test_strength_reduction_basic_loop);
     RUN_TEST(test_strength_reduction_no_loop);
     RUN_TEST(test_strength_reduction_loop_invariant_check);
+    RUN_TEST(test_scalar_copy_coalescing_branch_merge);
+    RUN_TEST(test_scalar_copy_coalescing_preserves_snapshot);
+    RUN_TEST(test_scalar_copy_coalescing_preserves_cross_block_value);
+    RUN_TEST(test_scalar_copy_coalescing_preserves_address_taken_slot);
+    RUN_TEST(test_scalar_copy_coalescing_preserves_by_address_argument);
+    RUN_TEST(test_scalar_copy_coalescing_preserves_address_receiver);
     return UNITY_END();
 }

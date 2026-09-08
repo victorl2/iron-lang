@@ -18,6 +18,12 @@
 /* ── Module-level prescan for split collections & layout analysis ─────────── */
 
 void emit_prescan_split_collections(EmitCtx *ctx) {
+    /* P7 local auto-narrowing applies to every module, not only modules that
+     * happen to have an interface registry.  Field compression shares the
+     * same analysis context but is likewise independent of split detection. */
+    ctx->value_range.arena = ctx->arena;
+    iron_vr_analyze(&ctx->value_range, ctx->module, ctx->iface_reg);
+
     if (!ctx->iface_reg) return;
 
     /* Iterate ALL functions to find interface-typed ARRAY_LITs */
@@ -69,9 +75,6 @@ void emit_prescan_split_collections(EmitCtx *ctx) {
         hmfree(la_ids);
     }
 
-    /* Phase 50: Value range analysis for field compression */
-    ctx->value_range.arena = ctx->arena;
-    iron_vr_analyze(&ctx->value_range, ctx->module, ctx->iface_reg);
 }
 
 /* ── Arena-tracked allocation helpers ─────────────────────────────────────── */

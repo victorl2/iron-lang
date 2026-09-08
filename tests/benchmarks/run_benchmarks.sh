@@ -41,7 +41,6 @@ BASELINES_DIR="$SCRIPT_DIR/baselines"
 # IRONC_BINARY (set by the ctest row, matching test_cli_parse_web) overrides
 # the default repo-root build path so the suite works from any build directory.
 IRONC="${IRONC_BINARY:-$REPO_ROOT/build/ironc}"
-TMPDIR="${TMPDIR:-/tmp}/iron_bench_$$"
 
 # Number of timing samples per binary. Runs are interleaved [C, Iron, C, Iron, ...]
 # and the median of each side is used to compute the speed ratio. This design
@@ -122,8 +121,16 @@ if ! command -v clang &>/dev/null; then
 fi
 CC="clang"
 
-mkdir -p "$TMPDIR"
-trap 'rm -rf "$TMPDIR"' EXIT
+if ! command -v python3 &>/dev/null; then
+    echo "ERROR: python3 is required for portable timeout and memory tracking"
+    exit 1
+fi
+if [[ "$(uname -s)" == "Linux" && ! -x /usr/bin/time ]]; then
+    echo "WARNING: GNU time is unavailable; peak RSS will be reported as 0 (unavailable)."
+fi
+
+BENCH_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/iron_bench_XXXXXX")"
+trap 'rm -rf "$BENCH_TMPDIR"' EXIT
 
 # ── Portable timeout wrapper (macOS lacks GNU timeout) ────────────────────
 # Runs a command with a timeout, writing stdout+stderr to the given output file.
@@ -132,30 +139,11 @@ run_with_timeout() {
     local secs="$1"
     local outfile="$2"
     shift 2
-    if command -v timeout &>/dev/null; then
-        timeout "${secs}s" "$@" >"$outfile" 2>&1
-    elif command -v gtimeout &>/dev/null; then
-        gtimeout "${secs}s" "$@" >"$outfile" 2>&1
-    else
-        # Fallback: background process with kill after timeout
-        "$@" >"$outfile" 2>&1 &
-        local pid=$!
-        ( sleep "$secs" && kill -9 "$pid" 2>/dev/null ) &
-        local watchdog=$!
-        if wait "$pid" 2>/dev/null; then
-            kill "$watchdog" 2>/dev/null
-            wait "$watchdog" 2>/dev/null
-            return 0
-        else
-            local rc=$?
-            kill "$watchdog" 2>/dev/null
-            wait "$watchdog" 2>/dev/null
-            return $rc
-        fi
-    fi
+    python3 "$SCRIPT_DIR/benchmark_process.py" \
+        --timeout "$secs" --output "$outfile" -- "$@"
 }
 
-# ── Run with memory tracking via /usr/bin/time ─────────────────────────────
+# ── Run with memory tracking and the same enforced timeout ─────────────────
 # Runs a command, captures stdout to outfile, and extracts peak RSS in KB.
 # Writes memory (KB) to memfile.
 run_with_memory() {
@@ -164,42 +152,8 @@ run_with_memory() {
     local memfile="$3"
     shift 3
 
-    local timefile="$TMPDIR/time_output_$$_$RANDOM"
-
-    if [ -x /usr/bin/time ]; then
-        # macOS: /usr/bin/time -l outputs "maximum resident set size" in bytes
-        # Linux: /usr/bin/time -v outputs "Maximum resident set size (kbytes)"
-        if /usr/bin/time -l true 2>/dev/null; then
-            # macOS style
-            /usr/bin/time -l "$@" >"$outfile" 2>"$timefile"
-            local rc=$?
-            # macOS reports bytes; extract and convert to KB
-            local mem_bytes
-            mem_bytes=$(grep "maximum resident set size" "$timefile" | grep -oE '[0-9]+' | head -1 || echo "0")
-            if [ -n "$mem_bytes" ] && [ "$mem_bytes" -gt 0 ]; then
-                echo $(( mem_bytes / 1024 )) > "$memfile"
-            else
-                echo "0" > "$memfile"
-            fi
-            rm -f "$timefile"
-            return $rc
-        else
-            # Linux style
-            /usr/bin/time -v "$@" >"$outfile" 2>"$timefile"
-            local rc=$?
-            local mem_kb
-            mem_kb=$(grep "Maximum resident set size" "$timefile" | grep -oE '[0-9]+' | head -1 || echo "0")
-            echo "${mem_kb:-0}" > "$memfile"
-            rm -f "$timefile"
-            return $rc
-        fi
-    else
-        # No /usr/bin/time available, fall back to timeout only
-        run_with_timeout "$secs" "$outfile" "$@"
-        local rc=$?
-        echo "0" > "$memfile"
-        return $rc
-    fi
+    python3 "$SCRIPT_DIR/benchmark_process.py" \
+        --timeout "$secs" --output "$outfile" --memory "$memfile" -- "$@"
 }
 
 # ── JSON config reader (jq with grep/sed fallback) ────────────────────────
@@ -353,15 +307,15 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
         continue
     fi
 
-    c_bin="$TMPDIR/bench_c_${problem_name}"
-    iron_build_dir="$TMPDIR/iron_build_${problem_name}"
+    c_bin="$BENCH_TMPDIR/bench_c_${problem_name}"
+    iron_build_dir="$BENCH_TMPDIR/iron_build_${problem_name}"
     mkdir -p "$iron_build_dir"
 
     # ── Step 1: Compile C reference ────────────────────────────────────
-    if ! $CC -std=gnu17 -O3 -o "$c_bin" "$c_src" -lm -lpthread 2>"$TMPDIR/c_compile_err"; then
+    if ! $CC -std=gnu17 -O3 -o "$c_bin" "$c_src" -lm -lpthread 2>"$BENCH_TMPDIR/c_compile_err"; then
         echo "[ERROR] $problem_name: C compilation failed"
         if [ $VERBOSE -eq 1 ]; then
-            cat "$TMPDIR/c_compile_err"
+            cat "$BENCH_TMPDIR/c_compile_err"
         fi
         errors=$((errors + 1))
         results+=("[ERROR] $problem_name: C compilation failed")
@@ -370,10 +324,10 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
 
     # ── Step 2: Build Iron ─────────────────────────────────────────────
     # ironc outputs binary to cwd with basename of source file, so we cd to a temp dir
-    if ! (cd "$iron_build_dir" && "$IRONC" build "$iron_src" 2>"$TMPDIR/iron_compile_err"); then
+    if ! (cd "$iron_build_dir" && "$IRONC" build "$iron_src" 2>"$BENCH_TMPDIR/iron_compile_err"); then
         echo "[ERROR] $problem_name: Iron compilation failed"
         if [ $VERBOSE -eq 1 ]; then
-            cat "$TMPDIR/iron_compile_err"
+            cat "$BENCH_TMPDIR/iron_compile_err"
         fi
         errors=$((errors + 1))
         results+=("[ERROR] $problem_name: Iron compilation failed")
@@ -390,7 +344,7 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
     # ── Step 2b: Build Iron without optimization (compare mode) ─────────
     iron_noopt_bin=""
     if [ $COMPARE_MODE -eq 1 ]; then
-        iron_noopt_dir="$TMPDIR/iron_noopt_${problem_name}"
+        iron_noopt_dir="$BENCH_TMPDIR/iron_noopt_${problem_name}"
         mkdir -p "$iron_noopt_dir"
         if (cd "$iron_noopt_dir" && "$IRONC" build --no-optimize "$iron_src" 2>/dev/null); then
             iron_noopt_bin="$iron_noopt_dir/main"
@@ -411,19 +365,19 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
     for ((s = 0; s < SAMPLES; s++)); do
         # ── C sample ──
         if [ "$s" -eq 0 ]; then
-            c_mem_file="$TMPDIR/c_mem_${problem_name}"
-            if ! run_with_memory "$timeout_sec" "$TMPDIR/c_output" "$c_mem_file" "$c_bin"; then
+            c_mem_file="$BENCH_TMPDIR/c_mem_${problem_name}"
+            if ! run_with_memory "$timeout_sec" "$BENCH_TMPDIR/c_output" "$c_mem_file" "$c_bin"; then
                 sample_status="c_exec_fail"
                 break
             fi
             c_mem_kb=$(cat "$c_mem_file" 2>/dev/null || echo "0")
         else
-            if ! run_with_timeout "$timeout_sec" "$TMPDIR/c_output" "$c_bin"; then
+            if ! run_with_timeout "$timeout_sec" "$BENCH_TMPDIR/c_output" "$c_bin"; then
                 sample_status="c_exec_fail"
                 break
             fi
         fi
-        c_output=$(cat "$TMPDIR/c_output")
+        c_output=$(cat "$BENCH_TMPDIR/c_output")
         c_sample_ms=$(extract_time_ms "$c_output")
         if [ -z "$c_sample_ms" ]; then
             sample_status="c_timing_fail"
@@ -433,19 +387,19 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
 
         # ── Iron sample ──
         if [ "$s" -eq 0 ]; then
-            iron_mem_file="$TMPDIR/iron_mem_${problem_name}"
-            if ! run_with_memory "$timeout_sec" "$TMPDIR/iron_output" "$iron_mem_file" "$iron_bin"; then
+            iron_mem_file="$BENCH_TMPDIR/iron_mem_${problem_name}"
+            if ! run_with_memory "$timeout_sec" "$BENCH_TMPDIR/iron_output" "$iron_mem_file" "$iron_bin"; then
                 sample_status="iron_exec_fail"
                 break
             fi
             iron_mem_kb=$(cat "$iron_mem_file" 2>/dev/null || echo "0")
         else
-            if ! run_with_timeout "$timeout_sec" "$TMPDIR/iron_output" "$iron_bin"; then
+            if ! run_with_timeout "$timeout_sec" "$BENCH_TMPDIR/iron_output" "$iron_bin"; then
                 sample_status="iron_exec_fail"
                 break
             fi
         fi
-        iron_output=$(cat "$TMPDIR/iron_output")
+        iron_output=$(cat "$BENCH_TMPDIR/iron_output")
 
         # Correctness check on sample 0 only (output is deterministic).
         if [ "$s" -eq 0 ] && [ -f "$expected_file" ]; then
@@ -505,8 +459,8 @@ for problem_dir in "$PROBLEMS_DIR"/*/; do
     # ── Step 6b: Run and time unoptimized version (compare mode) ────────
     iron_noopt_ms=""
     if [ $COMPARE_MODE -eq 1 ] && [ -n "$iron_noopt_bin" ] && [ -x "$iron_noopt_bin" ]; then
-        if run_with_timeout "$timeout_sec" "$TMPDIR/iron_noopt_output" "$iron_noopt_bin"; then
-            iron_noopt_output=$(cat "$TMPDIR/iron_noopt_output")
+        if run_with_timeout "$timeout_sec" "$BENCH_TMPDIR/iron_noopt_output" "$iron_noopt_bin"; then
+            iron_noopt_output=$(cat "$BENCH_TMPDIR/iron_noopt_output")
             iron_noopt_ms=$(extract_time_ms "$iron_noopt_output")
         fi
     fi

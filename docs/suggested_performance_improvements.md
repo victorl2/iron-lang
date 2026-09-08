@@ -55,16 +55,17 @@ one that hits only type width and range overhead stays under 2x.
 - Moved `Iron_range(n)` call from loop header to pre-header block
 - Actual impact: 1.3-1.5x for all for-range loop benchmarks (~25 affected)
 
-**P2 — Improved Phi Elimination (Phase 28):** PARTIAL
+**P2 — Improved Phi Elimination (Phase 28 + P2b):** DONE
 - Implemented dead alloca elimination pass (removes phi-artifact allocas after copy-prop)
-- Full copy-coalescing and register-like variable merging deferred to P2b
+- Added conservative scalar copy coalescing for same-block, non-escaping phi artifacts
+- Unsafe mutation, cross-block, address-taken, and by-address-call cases retain the original storage
 - Actual impact: 1.2-1.5x for complex control flow benchmarks
 
 **P3 — Sized Integer Types (Phase 29):** DONE
 - Added Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64 to Iron
 - Explicit type annotations via `val x: Int32 = 0` syntax
 - Actual impact: >20x for benchmarks using Int32 arrays (exceeded 1.5-2x prediction)
-- Auto-narrowing (range analysis) deferred to P7
+- P7 now adds conservative local range narrowing while preserving function and external ABIs
 
 **P4 — Stack Array Promotion (Phase 25):** DONE
 - `fill(CONST, value)` now allocates stack arrays when size is compile-time constant
@@ -225,9 +226,9 @@ Key differences between generated C and `solution.c`:
   that hold copies of `hi` and `lo` through branches. Solution.c updates them in-place.
 
 **Classification:**
-- `int64_t` vs `int`: FUTURE PASS (P7 auto-narrowing) — variables are bounded to array size 50
-- goto loops: FUTURE PASS (P6 structured loops)
-- phi temporaries: FUTURE PASS (P2b full copy-coalescing)
+- `int64_t` vs `int`: ADDRESSED FOR PROVABLE LOCALS (P7 auto-narrowing)
+- goto loops: ADDRESSED FOR CANONICAL REDUCIBLE LOOPS (P6 structured loops)
+- phi temporaries: ADDRESSED WHEN SAFE (P2b scalar copy coalescing)
 
 **Prototype fix:** Could update `main.iron` to use `Int32` for `lo`, `hi`, `half`, `i`, `j`
 to match the reference. Estimated improvement: 1.5-2x, bringing ratio to ~2-3x.
@@ -257,8 +258,8 @@ Key differences between generated C and `solution.c`:
 
 **Classification:**
 - Array-param function inlining: FUTURE PASS (relax inlining restriction for read-only arrays)
-- goto loops: FUTURE PASS (P6 structured loops)
-- phi temporaries: FUTURE PASS (P2b)
+- goto loops: ADDRESSED FOR CANONICAL REDUCIBLE LOOPS (P6 structured loops)
+- phi temporaries: ADDRESSED WHEN SAFE (P2b scalar copy coalescing)
 
 **Prototype fix attempt:** Relax the inliner's array-param restriction for `const` (read-only)
 array parameters. The `skip_dup_lo` / `skip_dup_hi` functions only read from `arr`, never write.
@@ -413,29 +414,30 @@ express without bitwise operators.
 
 ---
 
-### P6 — Structured Loop Reconstruction (expected 1.5-2x for loop-heavy code)
+### P6 — Structured Loop Reconstruction (implemented; expected 1.5-2x for loop-heavy code)
 
-**Problem:** The C emitter outputs goto-based control flow for all loops
-and conditionals. While functionally correct, this prevents clang from
+**Problem:** The C emitter previously output goto-based control flow for all loops
+and conditionals. While functionally correct, that prevented clang from
 applying loop-specific optimizations (vectorization, loop unrolling,
 strength reduction on induction variables).
 
-**Proposed fix:** Add a C emission mode that reconstructs `for`/`while`
-loops from the LIR CFG using natural loop analysis (already computed by the
-strength reduction pass). Emit `while (cond) { body }` instead of
-`header: if (!cond) goto exit; body; goto header; exit:`.
+**Implemented fix:** The C emitter reconstructs canonical `for`/`while` loops
+from the LIR CFG using dominators and natural-loop analysis. It emits structured
+`while`/`break`/`continue` control flow for reducible single-entry loops and
+deliberately falls back to labels and gotos for irregular or unsafe CFGs.
 
 **Files:** `src/lir/emit_c.c` (new structured emission path)
 
-**Complexity:** High. Requires matching CFG patterns back to structured
-control flow, handling break/continue, and falling back to gotos for
-irreducible control flow.
+**Validation:** Unit coverage includes while and for loops, continue edges,
+nested loops, and multi-entry/multi-exit fallbacks. An end-to-end fixture builds
+and runs nested while/for control flow through optimized and `--no-optimize`
+native C-backend paths.
 
 ---
 
 ## Priority Order
 
-### Implemented (v0.0.7-alpha, Phases 24–29)
+### Implemented
 
 1. **P1 — Range Bound Hoisting** (Phase 24) — DONE: 1.3-1.5x on ~25 benchmarks
 2. **P4 — Stack Array Promotion** (Phase 25) — DONE: 5-10x on fill()-heavy benchmarks (exceeded prediction)
@@ -443,12 +445,12 @@ irreducible control flow.
 4. **P0 — Function Inlining** (Phase 27) — DONE: ~3x on call-heavy benchmarks
 5. **P2 — Dead Alloca Elimination** (Phase 28, partial) — DONE: 1.2-1.5x on complex control flow
 6. **P3 — Sized Integer Types** (Phase 29) — DONE: >20x for Int32 array benchmarks (exceeded prediction)
+7. **P2b — Scalar Copy Coalescing** — DONE: safe local copies are emitted as direct C locals
+8. **P7 — Local Integer Auto-Narrowing** — DONE: proof-driven narrowing with ABI preservation
+9. **P6 — Structured Loop Reconstruction** — DONE: canonical reducible loops, with CFG fallback
 
 ### Remaining (future work)
 
-7. **P6 — Structured Loop Reconstruction** (High effort, 1.5-2x, enables clang optimizations)
-8. **P2b — Full Copy-Coalescing Phi Elimination** (High effort, 1.5-3x for complex control flow)
-9. **P7 — Auto-Narrowing Integer Types** (High effort, range analysis, 1.2-1.5x)
 10. **P8 — LLVM Backend** (Very High effort, 2-5x across the board)
 11. **P9 — Bitwise Operators** (Medium effort, language gap, fixes `subsets_bitmask` 1.9x and opens
     bitmask-DP / hashing / flags / fixed-point-math idioms that are currently unnatural in Iron)
@@ -458,9 +460,9 @@ irreducible control flow.
 P1+P4+P5+P0+P2+P3 together brought median ratio from 5.7x to 1.0x (82% improvement).
 Only 3 benchmarks remain above 3x, all with non-compiler root causes.
 
-P6 (Structured Loop Reconstruction) is the highest-impact remaining improvement.
-The goto-based C emission prevents clang from vectorizing and unrolling loops.
-Primary candidates: `three_sum` (1.9x), `num_islands` (1.2x), `topological_sort_kahn` (1.4x).
+The P2b, P7, and P6 ratios have not yet been re-baselined. The benchmark ratios in
+this document predate those passes and should not be treated as measured impact.
+LLVM (P8) remains explicitly deferred; the production path is still the C backend.
 
 P9 (Bitwise Operators) is the highest-value pure language gap and the easiest to
 scope. It is a self-contained phase touching lexer/parser/type-check/emitter,

@@ -1201,7 +1201,9 @@ endif()
 #     it is the flagship emit-level bounds-check threshold miss (5.4x vs
 #     1.6x), so this row stays honestly RED until the check-elision work
 #     lands, then flips green. Thresholds are untouched (owner decision).
-#     Measured 31s on a loaded container; TIMEOUT 120 is ~4x that.
+#     Measured about 35s on the Linux validation server after the portable
+#     launcher replaced the watchdog. TIMEOUT 240 leaves headroom for native
+#     compilation and slower macOS/hosted runners without relaxing thresholds.
 #
 #   benchmark_full — the whole corpus with a realistic TIMEOUT (2700s ~= 2x
 #     the 22-min measure). ctest treats every non-disabled row as default
@@ -1211,11 +1213,19 @@ endif()
 #     or invoke the script directly (no ctest involved):
 #         IRONC_BINARY=<build>/ironc tests/benchmarks/run_benchmarks.sh
 option(IRON_BENCH_FULL_ROW "Enable the full-corpus benchmark_full ctest row" OFF)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+if(UNIX)
+    add_test(NAME benchmark_process_regressions
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/benchmarks/test_benchmark_process.py)
+    set_tests_properties(benchmark_process_regressions PROPERTIES
+        LABELS "benchmark;harness" TIMEOUT 30)
+endif()
 add_test(NAME benchmark_smoke
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmarks/run_benchmarks.sh
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 set_tests_properties(benchmark_smoke PROPERTIES
-    TIMEOUT 120
+    TIMEOUT 240
     LABELS "benchmark"
     ENVIRONMENT "IRONC_BINARY=$<TARGET_FILE:ironc>;IRON_BENCH_PROBLEMS=int32_array_sum,binary_tree_inorder,longest_common_subseq,kmp_pattern_match,heap_sort,closure_call_overhead,concurrency_parallel_sum,word_break")
 
@@ -2613,6 +2623,43 @@ if(NOT WIN32)
             TIMEOUT 60
             WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS})  # WILL_FAIL mirrors the fixture's @expected-pass-after marker
     endforeach()
+
+    add_test(
+        NAME optimization_pipeline_runtime
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/optimizer_pipeline\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/optimization/optimizer_pipeline.iron && actual=\$(\"\$d/optimizer_pipeline\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/optimization/optimizer_pipeline.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(optimization_pipeline_runtime PROPERTIES
+        LABELS "integration;optimization;v4-acceptance"
+        TIMEOUT 60
+        DISABLED ${IRON_SKIP_CLANG_ROWS})
+
+    foreach(_integer_mode optimized noopt release)
+        foreach(_integer_sanitize plain ubsan)
+            set(_integer_flags)
+            if(_integer_sanitize STREQUAL "ubsan")
+                list(APPEND _integer_flags --sanitize)
+            endif()
+            add_test(NAME integer_semantics_${_integer_mode}_${_integer_sanitize}
+                COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/integration/test_integer_semantics.py
+                    --compiler $<TARGET_FILE:ironc> --mode ${_integer_mode}
+                    ${_integer_flags})
+            set_tests_properties(integer_semantics_${_integer_mode}_${_integer_sanitize}
+                PROPERTIES LABELS "integration;optimization;integer-semantics"
+                TIMEOUT 120 DISABLED ${IRON_SKIP_CLANG_ROWS})
+        endforeach()
+    endforeach()
+
+    add_test(
+        NAME optimization_pipeline_noopt_runtime
+        COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build --no-optimize -o \"\$d/optimizer_pipeline\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/optimization/optimizer_pipeline.iron && actual=\$(\"\$d/optimizer_pipeline\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/optimization/optimizer_pipeline.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+        WORKING_DIRECTORY /tmp
+    )
+    set_tests_properties(optimization_pipeline_noopt_runtime PROPERTIES
+        LABELS "integration;optimization;v4-acceptance"
+        TIMEOUT 60
+        DISABLED ${IRON_SKIP_CLANG_ROWS})
 endif()
 
 # ---- Install rules ----
