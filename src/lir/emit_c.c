@@ -336,6 +336,22 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 
     /* Step 1: Check inline eligibility */
     if (!ctx->inline_eligible || hmgeti(ctx->inline_eligible, vid) < 0) {
+        /* P7 changes storage width, never the width of an Iron expression.
+         * Restore the semantic type at the read, BEFORE C promotions apply
+         * to arithmetic, shifts, negation, or unsigned complement. Casting
+         * only the result is too late (e.g. int32_t x; int64_t y = x*x).
+         * Inline LOADs recurse here through their alloca; non-inline LOADs
+         * and arithmetic temporaries are handled here directly. Address-
+         * observable slots are excluded from narrowing by the analysis. */
+        if (iron_vr_get_local_narrowed_type(&ctx->value_range, fn, vid)) {
+            IronLIR_Instr *value = fn->value_table[vid];
+            Iron_Type *type = value->kind == IRON_LIR_ALLOCA
+                                ? value->alloca.alloc_type : value->type;
+            iron_strbuf_appendf(sb, "((%s)", emit_type_to_c(type, ctx));
+            emit_val(sb, vid);
+            iron_strbuf_appendf(sb, ")");
+            return;
+        }
         emit_val(sb, vid);
         return;
     }
@@ -1128,6 +1144,15 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 /* emit_fused_chain moved to emit_fusion.c (Phase 52, Plan 03) */
 
 
+static const char *emit_local_decl_type(IronLIR_Func *fn,
+                                        IronLIR_Instr *instr,
+                                        Iron_Type *declared_type,
+                                        EmitCtx *ctx) {
+    const char *narrowed = iron_vr_get_local_narrowed_type(
+        &ctx->value_range, fn, instr->id);
+    return narrowed ? narrowed : emit_type_to_c(declared_type, ctx);
+}
+
 void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx) {
     int ind = ctx->indent;
@@ -1154,7 +1179,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_CONST_INT:
         emit_indent(sb, ind);
-        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ",
+            emit_local_decl_type(fn, instr, instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (%s)%lldLL;\n",
                             emit_type_to_c(instr->type, ctx),
@@ -1256,7 +1282,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_ADD:
         emit_indent(sb, ind);
-        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ",
+            emit_local_decl_type(fn, instr, instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -1267,7 +1294,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_SUB:
         emit_indent(sb, ind);
-        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ",
+            emit_local_decl_type(fn, instr, instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -1278,7 +1306,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_MUL:
         emit_indent(sb, ind);
-        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ",
+            emit_local_decl_type(fn, instr, instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -1620,7 +1649,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * so is_hoisted makes this a no-op. */
         if (instr->alloca.global_name) {
             if (is_hoisted) break;
-            const char *c_type = emit_type_to_c(instr->alloca.alloc_type, ctx);
+            const char *c_type = emit_local_decl_type(
+                fn, instr, instr->alloca.alloc_type, ctx);
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb, "%s *", c_type);
             emit_val(sb, instr->id);
@@ -1677,7 +1707,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             iron_strbuf_appendf(sb, "_len;\n");
         } else {
             /* Declare a C variable of the alloc_type */
-            const char *c_type = emit_type_to_c(instr->alloca.alloc_type, ctx);
+            const char *c_type = emit_local_decl_type(
+                fn, instr, instr->alloca.alloc_type, ctx);
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb, "%s ", c_type);
             emit_val(sb, instr->id);
@@ -1794,7 +1825,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     fn->value_table[ptr]->alloca.alloc_type) {
                     load_c_type = fn->value_table[ptr]->alloca.alloc_type;
                 }
-                iron_strbuf_appendf(sb, "%s ", emit_type_to_c(load_c_type, ctx));
+                iron_strbuf_appendf(sb, "%s ",
+                    emit_local_decl_type(fn, instr, load_c_type, ctx));
             }
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
@@ -6377,6 +6409,301 @@ static bool instr_list_create_has_managed_elem(EmitCtx *ctx, IronLIR_Func *fn,
     return od_has_drop_lir(ctx, od);
 }
 
+/* ── Structured natural-loop reconstruction (P6) ──────────────────────── */
+
+typedef struct {
+    int header_bi;
+    int body_bi;
+    int exit_bi;
+    bool *members;
+    bool enabled;
+} EmitStructuredLoop;
+
+static int emit_cfg_block_index(IronLIR_Func *fn, IronLIR_BlockId id) {
+    for (int i = 0; i < fn->block_count; i++)
+        if (fn->blocks[i]->id == id) return i;
+    return -1;
+}
+
+/* Row B, column A means A dominates B. */
+static bool *emit_cfg_dominators(IronLIR_Func *fn, const bool *reachable) {
+    int n = fn->block_count;
+    bool *dom = (bool *)calloc((size_t)n * (size_t)n, sizeof(bool));
+    if (!dom) iron_oom_abort("emit_c.c:structured_loop_dominators");
+    for (int b = 0; b < n; b++) {
+        if (!reachable[b]) continue;
+        if (b == 0) dom[0] = true;
+        else for (int d = 0; d < n; d++) dom[b * n + d] = reachable[d];
+    }
+    bool changed;
+    do {
+        changed = false;
+        for (int b = 1; b < n; b++) {
+            if (!reachable[b]) continue;
+            bool *next = (bool *)calloc((size_t)n, sizeof(bool));
+            if (!next) iron_oom_abort("emit_c.c:structured_loop_dom_row");
+            bool first = true;
+            IronLIR_Block *blk = fn->blocks[b];
+            for (ptrdiff_t pi = 0; pi < arrlen(blk->preds); pi++) {
+                int pred = emit_cfg_block_index(fn, blk->preds[pi]);
+                if (pred < 0 || !reachable[pred]) continue;
+                if (first) {
+                    memcpy(next, &dom[pred * n], (size_t)n * sizeof(bool));
+                    first = false;
+                } else {
+                    for (int d = 0; d < n; d++)
+                        next[d] = next[d] && dom[pred * n + d];
+                }
+            }
+            if (first) memset(next, 0, (size_t)n * sizeof(bool));
+            next[b] = true;
+            if (memcmp(next, &dom[b * n], (size_t)n * sizeof(bool)) != 0) {
+                memcpy(&dom[b * n], next, (size_t)n * sizeof(bool));
+                changed = true;
+            }
+            free(next);
+        }
+    } while (changed);
+    return dom;
+}
+
+static bool emit_is_canonical_loop_header(const char *label) {
+    return label && (strstr(label, "while_header") != NULL ||
+                     strstr(label, "for_header") != NULL);
+}
+
+static EmitStructuredLoop *emit_find_structured_loops(IronLIR_Func *fn,
+                                                       const bool *reachable) {
+    int n = fn->block_count;
+    bool *dom = emit_cfg_dominators(fn, reachable);
+    EmitStructuredLoop *loops = NULL;
+
+    for (int hi = 0; hi < n; hi++) {
+        IronLIR_Block *header = fn->blocks[hi];
+        if (!reachable[hi] || !emit_is_canonical_loop_header(header->label) ||
+            header->instr_count == 0) continue;
+        IronLIR_Instr *term = header->instrs[header->instr_count - 1];
+        if (term->kind != IRON_LIR_BRANCH) continue;
+
+        bool *members = (bool *)calloc((size_t)n, sizeof(bool));
+        int *work = NULL;
+        if (!members) iron_oom_abort("emit_c.c:structured_loop_members");
+        members[hi] = true;
+        bool has_backedge = false;
+        for (ptrdiff_t pi = 0; pi < arrlen(header->preds); pi++) {
+            int pred = emit_cfg_block_index(fn, header->preds[pi]);
+            if (pred < 0 || !dom[pred * n + hi]) continue;
+            has_backedge = true;
+            if (!members[pred]) { members[pred] = true; arrput(work, pred); }
+        }
+        while (arrlen(work) > 0) {
+            int bi = arrpop(work);
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (ptrdiff_t pi = 0; pi < arrlen(blk->preds); pi++) {
+                int pred = emit_cfg_block_index(fn, blk->preds[pi]);
+                if (pred >= 0 && dom[pred * n + hi] && !members[pred]) {
+                    members[pred] = true;
+                    arrput(work, pred);
+                }
+            }
+        }
+        arrfree(work);
+
+        int body = emit_cfg_block_index(fn, term->branch.then_block);
+        int exit_bi = emit_cfg_block_index(fn, term->branch.else_block);
+        int outside_preds = 0;
+        for (ptrdiff_t pi = 0; pi < arrlen(header->preds); pi++) {
+            int pred = emit_cfg_block_index(fn, header->preds[pi]);
+            if (pred >= 0 && !members[pred]) outside_preds++;
+        }
+        bool valid = has_backedge && outside_preds == 1 && body >= 0 &&
+                     members[body] && exit_bi >= 0 && !members[exit_bi];
+
+        /* The HIR lowerer creates canonical headers before their member
+         * blocks.  Requiring that order avoids partially emitting a member
+         * before discovering its structured header; unusual hand-built CFGs
+         * retain the original goto form. */
+        for (int bi = 0; bi < hi && valid; bi++)
+            if (members[bi]) valid = false;
+
+        /* Require exactly one CFG entry and one normal CFG exit.  Returns from
+         * inside the loop remain legal because they have no successor edge. */
+        for (int bi = 0; bi < n && valid; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (ptrdiff_t si = 0; si < arrlen(blk->succs); si++) {
+                int succ = emit_cfg_block_index(fn, blk->succs[si]);
+                if (succ < 0) { valid = false; break; }
+                if (!members[bi] && members[succ] && succ != hi) {
+                    valid = false;
+                    break;
+                }
+                if (members[bi] && !members[succ] &&
+                    !(bi == hi && succ == exit_bi)) {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        if (!valid) { free(members); continue; }
+
+        EmitStructuredLoop loop = {
+            .header_bi = hi,
+            .body_bi = body,
+            .exit_bi = exit_bi,
+            .members = members,
+            .enabled = true,
+        };
+        arrput(loops, loop);
+    }
+    free(dom);
+    return loops;
+}
+
+static EmitStructuredLoop *emit_loop_for_header(EmitStructuredLoop *loops,
+                                                 int header_bi) {
+    for (ptrdiff_t i = 0; i < arrlen(loops); i++)
+        if (loops[i].enabled && loops[i].header_bi == header_bi)
+            return &loops[i];
+    return NULL;
+}
+
+static bool emit_loop_conflicts_with_split(EmitStructuredLoop *loop,
+                                            void *split_replaced_blocks,
+                                            int block_count) {
+    if (!split_replaced_blocks) return false;
+    struct { int key; int value; } *replaced = split_replaced_blocks;
+    for (int bi = 0; bi < block_count; bi++)
+        if (loop->members[bi] && hmgeti(replaced, bi) >= 0) return true;
+    return false;
+}
+
+static void emit_structured_loop(Iron_StrBuf *sb, IronLIR_Func *fn,
+                                 EmitCtx *ctx, EmitStructuredLoop *loops,
+                                 EmitStructuredLoop *loop, bool *emitted);
+
+static void emit_structured_member_block(Iron_StrBuf *sb, IronLIR_Func *fn,
+                                         EmitCtx *ctx,
+                                         EmitStructuredLoop *loops,
+                                         EmitStructuredLoop *owner,
+                                         int bi, bool *emitted) {
+    if (emitted[bi]) return;
+    EmitStructuredLoop *nested = emit_loop_for_header(loops, bi);
+    if (nested && nested != owner) {
+        emit_structured_loop(sb, fn, ctx, loops, nested, emitted);
+        return;
+    }
+
+    IronLIR_Block *blk = fn->blocks[bi];
+    emitted[bi] = true;
+    ctx->current_block_id = blk->id;
+    emit_indent(sb, ctx->indent);
+    iron_strbuf_appendf(sb, "%s:;\n",
+        emit_make_block_label(blk->id, blk->label, ctx->arena));
+    for (int ii = 0; ii < blk->instr_count; ii++) {
+        IronLIR_Instr *in = blk->instrs[ii];
+        bool last = ii == blk->instr_count - 1;
+        if (last && in->kind == IRON_LIR_JUMP &&
+            in->jump.target == fn->blocks[owner->header_bi]->id) {
+            emit_indent(sb, ctx->indent);
+            iron_strbuf_appendf(sb, "continue;\n");
+        } else if (last && in->kind == IRON_LIR_BRANCH &&
+                   (in->branch.then_block == fn->blocks[owner->header_bi]->id ||
+                    in->branch.else_block == fn->blocks[owner->header_bi]->id)) {
+            emit_indent(sb, ctx->indent);
+            iron_strbuf_appendf(sb, "if (");
+            emit_expr_to_buf(sb, in->branch.cond, fn, ctx,
+                             ctx->current_block_id, 0);
+            if (in->branch.then_block == fn->blocks[owner->header_bi]->id) {
+                iron_strbuf_appendf(sb, ") continue; else goto %s;\n",
+                    emit_resolve_label(fn, in->branch.else_block, ctx->arena));
+            } else {
+                iron_strbuf_appendf(sb, ") goto %s; else continue;\n",
+                    emit_resolve_label(fn, in->branch.then_block, ctx->arena));
+            }
+        } else {
+            emit_instr(sb, in, fn, ctx);
+        }
+    }
+}
+
+static void emit_structured_loop(Iron_StrBuf *sb, IronLIR_Func *fn,
+                                 EmitCtx *ctx, EmitStructuredLoop *loops,
+                                 EmitStructuredLoop *loop, bool *emitted) {
+    int hi = loop->header_bi;
+    if (emitted[hi]) return;
+    IronLIR_Block *header = fn->blocks[hi];
+    IronLIR_Instr *branch = header->instrs[header->instr_count - 1];
+    emitted[hi] = true;
+    ctx->current_block_id = header->id;
+
+    emit_indent(sb, ctx->indent);
+    iron_strbuf_appendf(sb, "%s:;\n",
+        emit_make_block_label(header->id, header->label, ctx->arena));
+    emit_indent(sb, ctx->indent);
+    iron_strbuf_appendf(sb, "while (1) {\n");
+    int saved_indent = ctx->indent;
+    ctx->indent = saved_indent + 1;
+    for (int ii = 0; ii < header->instr_count - 1; ii++)
+        emit_instr(sb, header->instrs[ii], fn, ctx);
+    emit_indent(sb, ctx->indent);
+    iron_strbuf_appendf(sb, "if (!( ");
+    emit_expr_to_buf(sb, branch->branch.cond, fn, ctx,
+                     ctx->current_block_id, 0);
+    iron_strbuf_appendf(sb, " )) break;\n");
+
+    /* The true successor is emitted first, so the proven header edge becomes
+     * ordinary structured fallthrough.  Remaining members retain their labels
+     * for internal branches; nested natural loops recurse into their own while. */
+    emit_structured_member_block(sb, fn, ctx, loops, loop,
+                                 loop->body_bi, emitted);
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        if (bi != hi && bi != loop->body_bi && loop->members[bi])
+            emit_structured_member_block(sb, fn, ctx, loops, loop, bi, emitted);
+    }
+    ctx->indent = saved_indent;
+    emit_indent(sb, ctx->indent);
+    iron_strbuf_appendf(sb, "}\n");
+    emit_indent(sb, ctx->indent);
+    iron_strbuf_appendf(sb, "goto %s;\n",
+        emit_resolve_label(fn, fn->blocks[loop->exit_bi]->id, ctx->arena));
+}
+
+static bool emit_structured_value_can_hoist(IronLIR_Instr *in, EmitCtx *ctx) {
+    if (in->id == IRON_LIR_VALUE_INVALID || !in->type ||
+        in->type->kind == IRON_TYPE_VOID) return true;
+    if (get_stack_array_origin(ctx, in->id) != IRON_LIR_VALUE_INVALID)
+        return false;
+    switch ((int)in->kind) {
+    case IRON_LIR_MAKE_CLOSURE:
+    case IRON_LIR_SPAWN:
+    case IRON_LIR_PARALLEL_FOR:
+    case IRON_LIR_AWAIT:
+        return false; /* these multi-statement emitters own declarations */
+    case IRON_LIR_ALLOCA:
+        return !(in->alloca.alloc_type &&
+                 in->alloca.alloc_type->kind == IRON_TYPE_ARRAY &&
+                 in->alloca.alloc_type->array.is_bounded);
+    default:
+        return true;
+    }
+}
+
+/* Structured emission moves every natural-loop member next to its header,
+ * even when an earlier transformation (notably function inlining) appended a
+ * member block near the end of the function.  Model that textual order during
+ * backward-use analysis: an outside value defined after the header must be
+ * declared at function scope before a moved member can reference it. */
+static int emit_structured_lexical_rank(EmitStructuredLoop *loops, int bi) {
+    int rank = bi;
+    for (ptrdiff_t li = 0; li < arrlen(loops); li++) {
+        if (loops[li].enabled && loops[li].members[bi] &&
+            loops[li].header_bi < rank) {
+            rank = loops[li].header_bi;
+        }
+    }
+    return rank;
+}
+
 void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     /* Choose target buffer: lifted functions go to lifted_funcs */
     Iron_StrBuf *sb = is_lifted_func(fn->name)
@@ -6766,15 +7093,20 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
         hmfree(ctx->value_block);
         ctx->value_block = NULL;
 
-        if (ctx->opt_info && ctx->opt_info->func_purity != NULL) {
-            /* Compute per-function analysis using ir_optimize helpers */
-            hmfree(ctx->opt_info->use_counts);
-            ctx->opt_info->use_counts = NULL;
-            iron_lir_compute_use_counts(fn, ctx->opt_info);
-
+        if (ctx->opt_info) {
+            /* Block ownership is also required by structured-loop lexical
+             * hoisting when --no-optimize leaves expression inlining off. */
             hmfree(ctx->opt_info->value_block);
             ctx->opt_info->value_block = NULL;
             iron_lir_compute_value_block(fn, ctx->opt_info);
+            ctx->value_block = ctx->opt_info->value_block;
+        }
+
+        if (ctx->opt_info && ctx->opt_info->func_purity != NULL) {
+            /* Compute per-function expression-inlining analysis. */
+            hmfree(ctx->opt_info->use_counts);
+            ctx->opt_info->use_counts = NULL;
+            iron_lir_compute_use_counts(fn, ctx->opt_info);
 
             hmfree(ctx->opt_info->inline_eligible);
             ctx->opt_info->inline_eligible = NULL;
@@ -6782,7 +7114,6 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
 
             /* Copy maps to ctx for emit_instr/emit_expr_to_buf access */
             ctx->inline_eligible = ctx->opt_info->inline_eligible;
-            ctx->value_block     = ctx->opt_info->value_block;
         }
     }
 
@@ -7200,10 +7531,77 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
         arrfree(wl);
     }
 
+    EmitStructuredLoop *structured_loops = blk_reachable
+        ? emit_find_structured_loops(fn, blk_reachable) : NULL;
+    bool *structured_emitted = arrlen(structured_loops) > 0
+        ? (bool *)calloc((size_t)fn->block_count, sizeof(bool)) : NULL;
+    if (arrlen(structured_loops) > 0 && !structured_emitted)
+        iron_oom_abort("emit_c.c:structured_loop_emitted");
+
     /* Hoist backward-referenced values: detect values defined in later blocks
      * but used in earlier blocks (backward gotos in loops) and pre-declare them. */
     hmfree(ctx->phi_hoisted);
     ctx->phi_hoisted = NULL;
+
+    /* A C while introduces a lexical scope that the label-only backend did
+     * not have.  Predeclare loop-produced values at function scope so nested
+     * loop exits and later CFG blocks retain the original SSA visibility.
+     * Complex declaration-owning opcodes conservatively disable reconstruction
+     * for the containing natural loop. */
+    for (ptrdiff_t li = 0; li < arrlen(structured_loops); li++) {
+        EmitStructuredLoop *loop = &structured_loops[li];
+        for (int bi = 0; bi < fn->block_count && loop->enabled; bi++) {
+            if (!loop->members[bi]) continue;
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                if (!emit_structured_value_can_hoist(blk->instrs[ii], ctx)) {
+                    loop->enabled = false;
+                    break;
+                }
+            }
+        }
+    }
+    for (ptrdiff_t li = 0; li < arrlen(structured_loops); li++) {
+        EmitStructuredLoop *loop = &structured_loops[li];
+        if (!loop->enabled) continue;
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            if (!loop->members[bi]) continue;
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int ii = 0; ii < blk->instr_count; ii++) {
+                IronLIR_Instr *in = blk->instrs[ii];
+                if (in->id == IRON_LIR_VALUE_INVALID ||
+                    iron_lir_is_terminator(in->kind) ||
+                    in->kind == IRON_LIR_FUNC_REF ||
+                    (ctx->inline_eligible &&
+                     hmgeti(ctx->inline_eligible, in->id) >= 0) ||
+                    (ctx->phi_hoisted &&
+                     hmgeti(ctx->phi_hoisted, in->id) >= 0)) continue;
+
+                if (in->kind == IRON_LIR_ALLOCA) {
+                    if (!in->alloca.alloc_type ||
+                        hmgeti(ctx->param_alias_ids, in->id) >= 0 ||
+                        (ctx->capture_alias_map &&
+                         hmgeti(ctx->capture_alias_map, in->id) >= 0)) continue;
+                    const char *c_type = emit_local_decl_type(
+                        fn, in, in->alloca.alloc_type, ctx);
+                    hmput(ctx->phi_hoisted, in->id, true);
+                    emit_indent(sb, 1);
+                    if (in->alloca.global_name) {
+                        iron_strbuf_appendf(sb, "%s *_v%u = &%s;\n", c_type,
+                            in->id,
+                            emit_global_static_name(ctx, in->alloca.global_name));
+                    } else {
+                        iron_strbuf_appendf(sb, "%s _v%u;\n", c_type, in->id);
+                    }
+                } else if (in->type && in->type->kind != IRON_TYPE_VOID) {
+                    hmput(ctx->phi_hoisted, in->id, true);
+                    emit_indent(sb, 1);
+                    iron_strbuf_appendf(sb, "%s _v%u;\n",
+                        emit_local_decl_type(fn, in, in->type, ctx), in->id);
+                }
+            }
+        }
+    }
     if (ctx->value_block) {
         /* use_block_min[vid] = earliest block index where vid is used as operand.
          * Tracks both value operands (store.value, binop operands, etc.) and
@@ -7221,25 +7619,26 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
 
         for (int bi2 = 0; bi2 < fn->block_count; bi2++) {
             IronLIR_Block *blk = fn->blocks[bi2];
+            int lexical_bi = emit_structured_lexical_rank(structured_loops, bi2);
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *in = blk->instrs[ii];
                 /* Track all value operand uses for backward-reference detection. */
                 switch ((int)(in->kind)) {
                 case IRON_LIR_STORE:
-                    TRACK_USE(in->store.value, bi2);
-                    TRACK_USE(in->store.ptr, bi2);
+                    TRACK_USE(in->store.value, lexical_bi);
+                    TRACK_USE(in->store.ptr, lexical_bi);
                     break;
                 case IRON_LIR_LOAD:
-                    TRACK_USE(in->load.ptr, bi2);
+                    TRACK_USE(in->load.ptr, lexical_bi);
                     break;
                 case IRON_LIR_GET_INDEX:
-                    TRACK_USE(in->index.array, bi2);
-                    TRACK_USE(in->index.index, bi2);
+                    TRACK_USE(in->index.array, lexical_bi);
+                    TRACK_USE(in->index.index, lexical_bi);
                     break;
                 case IRON_LIR_SET_INDEX:
-                    TRACK_USE(in->index.array, bi2);
-                    TRACK_USE(in->index.index, bi2);
-                    TRACK_USE(in->index.value, bi2);
+                    TRACK_USE(in->index.array, lexical_bi);
+                    TRACK_USE(in->index.index, lexical_bi);
+                    TRACK_USE(in->index.value, lexical_bi);
                     break;
                 case IRON_LIR_ADD: case IRON_LIR_SUB: case IRON_LIR_MUL:
                 case IRON_LIR_DIV: case IRON_LIR_MOD:
@@ -7248,38 +7647,38 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                 case IRON_LIR_AND: case IRON_LIR_OR:
                 case IRON_LIR_SHL: case IRON_LIR_SHR:
                 case IRON_LIR_BAND: case IRON_LIR_BOR: case IRON_LIR_BXOR:
-                    TRACK_USE(in->binop.left, bi2);
-                    TRACK_USE(in->binop.right, bi2);
+                    TRACK_USE(in->binop.left, lexical_bi);
+                    TRACK_USE(in->binop.right, lexical_bi);
                     break;
                 case IRON_LIR_NEG: case IRON_LIR_NOT: case IRON_LIR_BNOT:
-                    TRACK_USE(in->unop.operand, bi2);
+                    TRACK_USE(in->unop.operand, lexical_bi);
                     break;
                 case IRON_LIR_CALL:
                     for (int ai = 0; ai < in->call.arg_count; ai++)
-                        TRACK_USE(in->call.args[ai], bi2);
+                        TRACK_USE(in->call.args[ai], lexical_bi);
                     break;
                 case IRON_LIR_BRANCH:
-                    TRACK_USE(in->branch.cond, bi2);
+                    TRACK_USE(in->branch.cond, lexical_bi);
                     break;
                 case IRON_LIR_RETURN:
-                    if (!in->ret.is_void) TRACK_USE(in->ret.value, bi2);
+                    if (!in->ret.is_void) TRACK_USE(in->ret.value, lexical_bi);
                     break;
                 case IRON_LIR_GET_FIELD:
-                    TRACK_USE(in->field.object, bi2);
+                    TRACK_USE(in->field.object, lexical_bi);
                     break;
                 case IRON_LIR_SET_FIELD:
-                    TRACK_USE(in->field.object, bi2);
-                    TRACK_USE(in->field.value, bi2);
+                    TRACK_USE(in->field.object, lexical_bi);
+                    TRACK_USE(in->field.value, lexical_bi);
                     break;
                 case IRON_LIR_INTERP_STRING:
                     for (int pi2 = 0; pi2 < in->interp_string.part_count; pi2++)
-                        TRACK_USE(in->interp_string.parts[pi2], bi2);
+                        TRACK_USE(in->interp_string.parts[pi2], lexical_bi);
                     break;
                 case IRON_LIR_CAST:
-                    TRACK_USE(in->cast.value, bi2);
+                    TRACK_USE(in->cast.value, lexical_bi);
                     break;
                 case IRON_LIR_IS_NULL: case IRON_LIR_IS_NOT_NULL:
-                    TRACK_USE(in->null_check.value, bi2);
+                    TRACK_USE(in->null_check.value, lexical_bi);
                     break;
                 /* -Wswitch-enum opt-out: use-site hoist tracker only needs to
                  * inspect opcodes that consume a typed operand; opcodes with
@@ -7300,6 +7699,7 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                 if (in->id == IRON_LIR_VALUE_INVALID) continue;
                 if (ctx->inline_eligible && hmgeti(ctx->inline_eligible, in->id) >= 0) continue;
                 if (iron_lir_is_terminator(in->kind)) continue;
+                if (ctx->phi_hoisted && hmgeti(ctx->phi_hoisted, in->id) >= 0) continue;
 
                 ptrdiff_t um = hmgeti(use_block_min, in->id);
                 if (um < 0 || use_block_min[um].value >= bi2) continue;
@@ -7310,7 +7710,8 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                     if (get_stack_array_origin(ctx, in->id) != IRON_LIR_VALUE_INVALID) continue;
                     if (!in->alloca.alloc_type) continue;
                     hmput(ctx->phi_hoisted, in->id, true);
-                    const char *c_type = emit_type_to_c(in->alloca.alloc_type, ctx);
+                    const char *c_type = emit_local_decl_type(
+                        fn, in, in->alloca.alloc_type, ctx);
                     emit_indent(sb, 1);
                     /* Module-global slot (2026-07 remediation): the pre-decl
                      * must carry the full pointer-alias initializer; the
@@ -7343,7 +7744,7 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                     hmput(ctx->phi_hoisted, in->id, true);
                     emit_indent(sb, 1);
                     iron_strbuf_appendf(sb, "%s _v%u;\n",
-                        emit_type_to_c(in->type, ctx), in->id);
+                        emit_local_decl_type(fn, in, in->type, ctx), in->id);
                 }
             }
         }
@@ -7543,6 +7944,17 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     }
 
     for (int bi = 0; bi < fn->block_count; bi++) {
+        if (structured_emitted && structured_emitted[bi]) continue;
+        EmitStructuredLoop *structured =
+            emit_loop_for_header(structured_loops, bi);
+        if (structured &&
+            !emit_loop_conflicts_with_split(structured,
+                                            split_replaced_blocks,
+                                            fn->block_count)) {
+            emit_structured_loop(sb, fn, ctx, structured_loops, structured,
+                                 structured_emitted);
+            continue;
+        }
         IronLIR_Block *block = fn->blocks[bi];
         ctx->current_block_id = block->id;  /* for block-boundary enforcement in emit_expr_to_buf */
 
@@ -7785,6 +8197,10 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     }
     arrfree(split_loops);
     hmfree(split_replaced_blocks);
+    for (ptrdiff_t i = 0; i < arrlen(structured_loops); i++)
+        free(structured_loops[i].members);
+    arrfree(structured_loops);
+    free(structured_emitted);
 
     if (blk_reachable) free(blk_reachable);
 

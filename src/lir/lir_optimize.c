@@ -9,6 +9,7 @@
  *
  * Post-fixpoint:
  *   run_dead_alloca_elimination (PHI-01/PHI-02): removes allocas with no live loads
+ *   run_scalar_copy_coalescing (P2b): aliases safe scalar loads to their C slot
  *   iron_lir_compute_inline_info (Phase 16)
  */
 
@@ -204,6 +205,10 @@ static void phi_eliminate(IronLIR_Module *module) {
                            sizeof(((IronLIR_Instr *)0)->phi),
                            "phi-to-load in-place rewrite requires "
                            "sizeof(load) <= sizeof(phi)");
+            /* The destructor dispatches on kind. Release PHI-owned arrays
+             * before overwriting the union with LOAD's scalar payload. */
+            arrfree(phi->phi.values);
+            arrfree(phi->phi.pred_blocks);
             phi->kind     = IRON_LIR_LOAD;
             phi->load.ptr = alloca_id;
             /* phi->id and phi->type remain the same — the load produces the
@@ -1654,6 +1659,12 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
                 case IRON_LIR_LOAD:
                     hmput(loaded, in->load.ptr, true);
                     break;
+                case IRON_LIR_ADDR_OF:
+                    /* Taking a slot's address is itself an observable use.
+                     * The pointer may be consumed by PTR_LOAD/PTR_STORE or
+                     * generation checks even when no ordinary LOAD exists. */
+                    hmput(loaded, in->addr_of.target, true);
+                    break;
                 case IRON_LIR_GET_INDEX:
                 case IRON_LIR_SET_INDEX:
                     hmput(loaded, in->index.array, true);
@@ -1662,9 +1673,9 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
                 case IRON_LIR_SET_FIELD:
                     hmput(loaded, in->field.object, true);
                     break;
-                /* -Wswitch-enum opt-out: load-set scanner only needs to
-                 * track direct reads of allocas; all other opcodes are
-                 * intentional no-ops. */
+                /* -Wswitch-enum opt-out: live-slot scanner only needs to
+                 * track direct reads/address-taking of allocas; all other
+                 * opcodes are intentional no-ops. */
                 default:
                     break;
                 }
@@ -1752,6 +1763,246 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
         hmfree(loaded);
         hmfree(dead_alloca);
     }
+    return changed;
+}
+
+/* ── Scalar copy coalescing (P2b) ──────────────────────────────────────── */
+
+/* The C backend represents an ALLOCA as a normal C local, not as an address.
+ * Consequently a LOAD whose uses all remain in the same block can refer to
+ * the ALLOCA's C local directly, provided that local is not stored again
+ * between the LOAD and its final use.  This removes the multi-store
+ * alloca/load copies left by phi elimination without changing the LIR memory
+ * model for aggregates, aliases, captures, globals, or cross-block snapshots.
+ *
+ * Example after phi elimination:
+ *
+ *   then:  store %slot, %a
+ *   else:  store %slot, %b
+ *   merge: %v = load %slot; %x = add %v, 1; return %x
+ *
+ * becomes (at the C-local level):
+ *
+ *   then:  _slot = _a;
+ *   else:  _slot = _b;
+ *   merge: _x = _slot + 1; return _x;
+ *
+ * The same-block/no-intervening-store rule is the key snapshot-safety guard:
+ * `%v = load %slot; store %slot, ...; use %v` must retain `%v` as a distinct
+ * value.  Cross-block uses are likewise retained because a path may update the
+ * slot before reaching the use. */
+static bool type_is_coalescible_scalar(const Iron_Type *type) {
+    if (!type) return false;
+    switch ((int)type->kind) {
+    case IRON_TYPE_INT:
+    case IRON_TYPE_INT8:
+    case IRON_TYPE_INT16:
+    case IRON_TYPE_INT32:
+    case IRON_TYPE_INT64:
+    case IRON_TYPE_UINT:
+    case IRON_TYPE_UINT8:
+    case IRON_TYPE_UINT16:
+    case IRON_TYPE_UINT32:
+    case IRON_TYPE_UINT64:
+    case IRON_TYPE_FLOAT:
+    case IRON_TYPE_FLOAT32:
+    case IRON_TYPE_FLOAT64:
+    case IRON_TYPE_BOOL:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/* apply_replacements() intentionally excludes pointer/refcount opcodes.  A
+ * candidate load is accepted only when every user is handled by that walker,
+ * so deleting the LOAD can never leave a dangling ValueId behind. */
+static bool copy_coalesce_user_supported(IronLIR_InstrKind kind) {
+    switch ((int)kind) {
+    case IRON_LIR_ADD: case IRON_LIR_SUB: case IRON_LIR_MUL:
+    case IRON_LIR_DIV: case IRON_LIR_MOD:
+    case IRON_LIR_EQ: case IRON_LIR_NEQ: case IRON_LIR_LT:
+    case IRON_LIR_LTE: case IRON_LIR_GT: case IRON_LIR_GTE:
+    case IRON_LIR_AND: case IRON_LIR_OR:
+    case IRON_LIR_SHL: case IRON_LIR_SHR:
+    case IRON_LIR_BAND: case IRON_LIR_BOR: case IRON_LIR_BXOR:
+    case IRON_LIR_NEG: case IRON_LIR_NOT: case IRON_LIR_BNOT:
+    case IRON_LIR_LOAD: case IRON_LIR_STORE:
+    case IRON_LIR_GET_FIELD: case IRON_LIR_SET_FIELD:
+    case IRON_LIR_GET_INDEX: case IRON_LIR_SET_INDEX:
+    case IRON_LIR_CALL: case IRON_LIR_CAST:
+    case IRON_LIR_HEAP_ALLOC: case IRON_LIR_RC_ALLOC:
+    case IRON_LIR_ARENA_ALLOC: case IRON_LIR_ARENA_PUSH:
+    case IRON_LIR_FREE: case IRON_LIR_CONSTRUCT:
+    case IRON_LIR_ARRAY_LIT: case IRON_LIR_SLICE:
+    case IRON_LIR_IS_NULL: case IRON_LIR_IS_NOT_NULL:
+    case IRON_LIR_INTERP_STRING: case IRON_LIR_MAKE_CLOSURE:
+    case IRON_LIR_SPAWN: case IRON_LIR_PARALLEL_FOR:
+    case IRON_LIR_AWAIT: case IRON_LIR_BRANCH:
+    case IRON_LIR_SWITCH: case IRON_LIR_RETURN: case IRON_LIR_PHI:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool instr_uses_value(const IronLIR_Instr *instr,
+                             IronLIR_ValueId value) {
+    IronLIR_ValueId ops[MAX_OPERANDS];
+    int count = 0;
+    opt_collect_operands(instr, ops, &count);
+    for (int i = 0; i < count; i++) {
+        if (ops[i] == value) return true;
+    }
+    /* opt_collect_operands deliberately caps large aggregate operands. */
+    if (instr->kind == IRON_LIR_ARRAY_LIT) {
+        for (int i = MAX_OPERANDS; i < instr->array_lit.element_count; i++)
+            if (instr->array_lit.elements[i] == value) return true;
+    }
+    return false;
+}
+
+static IronLIR_EscapeEntry *compute_observable_allocas(IronLIR_Func *fn) {
+    IronLIR_EscapeEntry *observable = compute_escape_set(fn);
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (in->kind == IRON_LIR_ADDR_OF &&
+                in->addr_of.target != IRON_LIR_VALUE_INVALID)
+                hmput(observable, in->addr_of.target, true);
+            if (in->kind == IRON_LIR_CALL && in->call.args_by_addr) {
+                for (int ai = 0; ai < in->call.arg_count; ai++) {
+                    if (in->call.args_by_addr[ai] &&
+                        in->call.args[ai] != IRON_LIR_VALUE_INVALID)
+                        hmput(observable, in->call.args[ai], true);
+                }
+            }
+            if (in->kind == IRON_LIR_CALL && in->call.self_by_addr &&
+                in->call.arg_count > 0)
+                hmput(observable, in->call.args[0], true);
+            if (in->kind == IRON_LIR_ALLOCA &&
+                (alloca_is_capture_alias(fn, in->id) ||
+                 lir_vid_is_global_slot(fn, in->id)))
+                hmput(observable, in->id, true);
+        }
+    }
+    return observable;
+}
+
+static bool run_scalar_copy_coalescing(IronLIR_Module *module) {
+    bool changed = false;
+
+    for (int fi = 0; fi < module->func_count; fi++) {
+        IronLIR_Func *fn = module->funcs[fi];
+        if (!fn || fn->is_extern || fn->block_count == 0) continue;
+
+        ValueReplEntry *repl_map = NULL;
+        struct { IronLIR_ValueId key; bool value; } *remove_loads = NULL;
+        IronLIR_EscapeEntry *observable_allocas =
+            compute_observable_allocas(fn);
+
+        for (int bi = 0; bi < fn->block_count; bi++) {
+            IronLIR_Block *blk = fn->blocks[bi];
+            for (int li = 0; li < blk->instr_count; li++) {
+                IronLIR_Instr *load = blk->instrs[li];
+                if (load->kind != IRON_LIR_LOAD ||
+                    load->id == IRON_LIR_VALUE_INVALID) continue;
+
+                IronLIR_ValueId slot_id = load->load.ptr;
+                if (slot_id == IRON_LIR_VALUE_INVALID ||
+                    (ptrdiff_t)slot_id >= arrlen(fn->value_table)) continue;
+                IronLIR_Instr *slot = fn->value_table[slot_id];
+                ptrdiff_t observable_idx = hmgeti(observable_allocas, slot_id);
+                if (!slot || slot->kind != IRON_LIR_ALLOCA ||
+                    !type_is_coalescible_scalar(slot->alloca.alloc_type) ||
+                    (observable_idx >= 0 &&
+                     observable_allocas[observable_idx].value)) continue;
+
+                bool has_use = false;
+                bool safe = true;
+                int last_use = li;
+
+                /* Every use must be in this block. */
+                for (int ubi = 0; ubi < fn->block_count && safe; ubi++) {
+                    IronLIR_Block *use_blk = fn->blocks[ubi];
+                    for (int ui = 0; ui < use_blk->instr_count; ui++) {
+                        IronLIR_Instr *user = use_blk->instrs[ui];
+                        if (user == load || !instr_uses_value(user, load->id))
+                            continue;
+                        has_use = true;
+                        if (ubi != bi || ui <= li ||
+                            !copy_coalesce_user_supported(user->kind)) {
+                            safe = false;
+                            break;
+                        }
+                        if (user->kind == IRON_LIR_CALL &&
+                            user->call.self_by_addr && user->call.arg_count > 0 &&
+                            user->call.args[0] == load->id) {
+                            safe = false;
+                            break;
+                        }
+                        if (user->kind == IRON_LIR_CALL &&
+                            user->call.args_by_addr) {
+                            for (int ai = 0; ai < user->call.arg_count; ai++) {
+                                if (user->call.args[ai] == load->id &&
+                                    user->call.args_by_addr[ai]) {
+                                    safe = false;
+                                    break;
+                                }
+                            }
+                            if (!safe) break;
+                        }
+                        if (ui > last_use) last_use = ui;
+                    }
+                }
+
+                if (!safe || !has_use) continue;
+
+                /* Preserve the LOAD snapshot if the slot changes before its
+                 * final use. */
+                for (int ii = li + 1; ii < last_use; ii++) {
+                    IronLIR_Instr *mid = blk->instrs[ii];
+                    if (mid->kind == IRON_LIR_STORE &&
+                        mid->store.ptr == slot_id) {
+                        safe = false;
+                        break;
+                    }
+                }
+                if (!safe) continue;
+
+                hmput(repl_map, load->id, slot_id);
+                hmput(remove_loads, load->id, true);
+            }
+        }
+
+        if (hmlen(repl_map) > 0) {
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *blk = fn->blocks[bi];
+                for (int ii = 0; ii < blk->instr_count; ii++)
+                    apply_replacements(blk->instrs[ii], repl_map);
+
+                int out = 0;
+                for (int ii = 0; ii < blk->instr_count; ii++) {
+                    IronLIR_Instr *in = blk->instrs[ii];
+                    if (in->kind == IRON_LIR_LOAD &&
+                        hmgeti(remove_loads, in->id) >= 0) {
+                        if ((ptrdiff_t)in->id < arrlen(fn->value_table))
+                            fn->value_table[in->id] = NULL;
+                        changed = true;
+                        continue;
+                    }
+                    blk->instrs[out++] = in;
+                }
+                blk->instr_count = out;
+            }
+        }
+
+        hmfree(repl_map);
+        hmfree(remove_loads);
+        hmfree(observable_allocas);
+    }
+
     return changed;
 }
 
@@ -5828,6 +6079,16 @@ bool iron_lir_optimize(IronLIR_Module *module, IronLIR_OptimizeInfo *info,
         char *ir_text = iron_lir_print(module, true);
         if (ir_text) { fprintf(stderr, "=== After dead-alloca-elim ===\n%s\n", ir_text); free(ir_text); }
     }
+
+    /* P2b: coalesce safe scalar LOAD snapshots into the C local represented
+     * by their ALLOCA.  This specifically cleans up multi-predecessor phi
+     * slots that single-store copy propagation cannot touch. */
+    run_scalar_copy_coalescing(module);
+    if (dump_passes) {
+        char *ir_text = iron_lir_print(module, true);
+        if (ir_text) { fprintf(stderr, "=== After scalar-copy-coalesce ===\n%s\n", ir_text); free(ir_text); }
+    }
+    optimize_verify_or_die(module, arena, "scalar-copy-coalescing", verify_baseline);
 
     /* Phase 29 OPT-01: atomic refcount elision. Runs after the fixpoint and
      * dead-alloca-elim — CFG/sequences are settled (CONTEXT GA3 "after CFG

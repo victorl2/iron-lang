@@ -27,6 +27,11 @@ target_link_libraries(test_lir_optimize iron_compiler unity)
 add_test(NAME test_lir_optimize COMMAND test_lir_optimize)
 set_tests_properties(test_lir_optimize PROPERTIES LABELS "lir")
 
+add_executable(test_value_range test_value_range.c)
+target_link_libraries(test_value_range iron_compiler unity)
+add_test(NAME test_value_range COMMAND test_value_range)
+set_tests_properties(test_value_range PROPERTIES LABELS "lir;optimization")
+
 # ── Phase 29 Atomic Refcount Elision — phase29-invariant Wave 0 RED anchors ──
 # These two harnesses fail to LINK against iron_compiler until Plans 02/03 add
 # func_summary.c (iron_lir_compute_func_summaries et al.) and the

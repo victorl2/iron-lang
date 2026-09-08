@@ -13,6 +13,12 @@
  *   7. test_emit_expression_inlining_basic     — Single-use ADD inlined as compound expr
  *   8. test_emit_construct_inlined             — Single-use CONSTRUCT inlined as compound literal
  *   9. test_emit_inlined_no_separate_temps     — ADD inlined into MUL; no separate temp declared
+ *  10. test_emit_stdlib_stub_no_cstr_wrap       — stdlib calls preserve native string ABI
+ *  11. test_emit_true_extern_cstr_wrap          — true extern calls receive C strings
+ *  12. test_emit_p2b_and_p7_narrow_branch_local — coalesced branch slot is narrowed locally
+ *  13. test_emit_structured_natural_loop_and_fallback — structured and irregular loop paths
+ *  14. test_emit_nested_structured_loops        — nested natural loops reconstruct recursively
+ *  15. test_emit_structured_loop_hoists_late_external_dependency — lexical scope safety
  */
 
 #include "unity.h"
@@ -741,6 +747,347 @@ void test_emit_true_extern_cstr_wrap(void) {
     iron_arena_free(&ir_arena);
 }
 
+static int count_substring(const char *text, const char *needle) {
+    int count = 0;
+    size_t n = strlen(needle);
+    for (const char *p = text; (p = strstr(p, needle)) != NULL; p += n)
+        count++;
+    return count;
+}
+
+void test_emit_p2b_and_p7_narrow_branch_local(void) {
+    Iron_Arena ir_arena = iron_arena_create(65536);
+    iron_types_init(&ir_arena);
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_p2b_p7_emit");
+    Iron_Type *it = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bt = iron_type_make_primitive(IRON_TYPE_BOOL);
+    IronLIR_Param params[1] = {{ .name = "cond", .type = bt }};
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_p2b_p7_emit",
+                                             params, 1, it);
+    fn->next_value_id = 2;
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *yes = iron_lir_block_create(fn, "yes");
+    IronLIR_Block *no = iron_lir_block_create(fn, "no");
+    IronLIR_Block *merge = iron_lir_block_create(fn, "merge");
+    IronLIR_Instr *slot = iron_lir_alloca(fn, entry, it, "merged", test_span());
+    iron_lir_branch(fn, entry, 1, yes->id, no->id, test_span());
+    IronLIR_Instr *ten = iron_lir_const_int(fn, yes, 10, it, test_span());
+    iron_lir_store(fn, yes, slot->id, ten->id, test_span());
+    iron_lir_jump(fn, yes, merge->id, test_span());
+    IronLIR_Instr *twenty = iron_lir_const_int(fn, no, 20, it, test_span());
+    iron_lir_store(fn, no, slot->id, twenty->id, test_span());
+    iron_lir_jump(fn, no, merge->id, test_span());
+    IronLIR_Instr *load = iron_lir_load(fn, merge, slot->id, it, test_span());
+    IronLIR_ValueId load_id = load->id;
+    iron_lir_return(fn, merge, load->id, false, it, test_span());
+
+    Iron_Arena out_arena = iron_arena_create(131072);
+    IronLIR_OptimizeInfo info;
+    iron_lir_optimize(mod, &info, &out_arena, false, false, false);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &info,
+                                         NULL, false, false);
+    char narrow_decl[64], old_copy[64];
+    snprintf(narrow_decl, sizeof(narrow_decl), "int8_t _v%u;", slot->id);
+    snprintf(old_copy, sizeof(old_copy), "_v%u =", load_id);
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, narrow_decl),
+        "proven branch-local slot should use the signed narrow ladder");
+    TEST_ASSERT_NULL_MESSAGE(strstr(result, old_copy),
+        "P2b should remove the merge LOAD copy from emitted C");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, "int64_t Iron_p2b_p7_emit(bool _v1)"),
+        "local narrowing must not change function ABI types");
+
+    iron_lir_optimize_info_free(&info);
+    iron_arena_free(&out_arena);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+void test_emit_narrow_reads_restore_semantic_width(void) {
+    for (int unsigned_type = 0; unsigned_type < 2; unsigned_type++) {
+        for (int noopt = 0; noopt < 2; noopt++) {
+            Iron_Arena arena = iron_arena_create(131072);
+            iron_types_init(&arena);
+            IronLIR_Module *mod = iron_lir_module_create(&arena, "wide_reads");
+            Iron_Type *it = iron_type_make_primitive(unsigned_type
+                ? IRON_TYPE_UINT : IRON_TYPE_INT);
+            Iron_Type *bt = iron_type_make_primitive(IRON_TYPE_BOOL);
+            IronLIR_Param params[1] = {{ .name = "flag", .type = bt }};
+            IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_wide_reads", params, 1, it);
+            fn->next_value_id = 2;
+            IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+            IronLIR_Block *yes = iron_lir_block_create(fn, "yes");
+            IronLIR_Block *no = iron_lir_block_create(fn, "no");
+            IronLIR_Block *merge = iron_lir_block_create(fn, "merge");
+            IronLIR_Instr *slot = iron_lir_alloca(fn, entry, it, "x", test_span());
+            iron_lir_branch(fn, entry, 1, yes->id, no->id, test_span());
+            IronLIR_Instr *a = iron_lir_const_int(fn, yes, 50000, it, test_span());
+            iron_lir_store(fn, yes, slot->id, a->id, test_span());
+            iron_lir_jump(fn, yes, merge->id, test_span());
+            IronLIR_Instr *b = iron_lir_const_int(fn, no, 50001, it, test_span());
+            iron_lir_store(fn, no, slot->id, b->id, test_span());
+            iron_lir_jump(fn, no, merge->id, test_span());
+            IronLIR_Instr *load = iron_lir_load(fn, merge, slot->id, it, test_span());
+            IronLIR_Instr *mul = iron_lir_binop(fn, merge, IRON_LIR_MUL,
+                load->id, load->id, it, test_span());
+            iron_lir_return(fn, merge, mul->id, false, it, test_span());
+            /* Hand-built LIR needs the CFG normally supplied by lowering;
+             * noopt intentionally does not rebuild it via loop passes. */
+            arrput(entry->succs, yes->id);
+            arrput(entry->succs, no->id);
+            arrput(yes->preds, entry->id);
+            arrput(no->preds, entry->id);
+            arrput(yes->succs, merge->id);
+            arrput(no->succs, merge->id);
+            arrput(merge->preds, yes->id);
+            arrput(merge->preds, no->id);
+            IronLIR_ValueId read_id = noopt ? load->id : slot->id;
+            Iron_Arena output = iron_arena_create(131072);
+            IronLIR_OptimizeInfo info;
+            iron_lir_optimize(mod, &info, &output, false, noopt, false);
+            const char *result = iron_lir_emit_c(mod, &output, &g_diags, &info,
+                                                NULL, false, false);
+            TEST_ASSERT_NOT_NULL(result);
+            char pattern[128];
+            snprintf(pattern, sizeof(pattern), "%s _v%u;",
+                     unsigned_type ? "uint16_t" : "int32_t", slot->id);
+            TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, pattern),
+                "storage narrowing must remain enabled");
+            const char *wide = unsigned_type ? "uint64_t" : "int64_t";
+            snprintf(pattern, sizeof(pattern), "((%s)_v%u) * ((%s)_v%u)",
+                     wide, read_id, wide, read_id);
+            if (!strstr(result, pattern))
+                fprintf(stderr, "unsigned=%d noopt=%d expected=%s\n%s\n",
+                        unsigned_type, noopt, pattern, result);
+            TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, pattern),
+                "both operand reads must widen before multiplication");
+            iron_lir_optimize_info_free(&info);
+            iron_arena_free(&output);
+            iron_lir_module_destroy(mod);
+            iron_arena_free(&arena);
+        }
+    }
+}
+
+static IronLIR_Module *build_simple_emit_loop(Iron_Arena *arena,
+                                               const char *header_label,
+                                               bool second_entry,
+                                               bool second_exit) {
+    IronLIR_Module *mod = iron_lir_module_create(arena, "test_p6_loop");
+    Iron_Type *it = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bt = iron_type_make_primitive(IRON_TYPE_BOOL);
+    IronLIR_Param *params = (IronLIR_Param *)iron_arena_alloc(
+        arena, sizeof(IronLIR_Param), _Alignof(IronLIR_Param));
+    TEST_ASSERT_NOT_NULL(params);
+    params[0] = (IronLIR_Param){ .name = "choose", .type = bt };
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_p6_loop", params, 1, it);
+    fn->next_value_id = 2;
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *pre2 = second_entry
+        ? iron_lir_block_create(fn, "alternate_pre") : NULL;
+    IronLIR_Block *header = iron_lir_block_create(fn, header_label);
+    IronLIR_Block *body = iron_lir_block_create(fn, "while_body_0");
+    IronLIR_Block *exit_b = iron_lir_block_create(fn, "while_exit_0");
+    IronLIR_Block *extra_exit = second_exit
+        ? iron_lir_block_create(fn, "early_exit") : NULL;
+    IronLIR_Instr *slot = iron_lir_alloca(fn, entry, it, "i", test_span());
+    IronLIR_Instr *zero = iron_lir_const_int(fn, entry, 0, it, test_span());
+    iron_lir_store(fn, entry, slot->id, zero->id, test_span());
+    if (second_entry) {
+        iron_lir_branch(fn, entry, 1, header->id, pre2->id, test_span());
+        iron_lir_jump(fn, pre2, header->id, test_span());
+    } else {
+        iron_lir_jump(fn, entry, header->id, test_span());
+    }
+    IronLIR_Instr *at_header = iron_lir_load(fn, header, slot->id, it, test_span());
+    IronLIR_Instr *three = iron_lir_const_int(fn, header, 3, it, test_span());
+    IronLIR_Instr *cond = iron_lir_binop(fn, header, IRON_LIR_LT,
+                                         at_header->id, three->id, bt, test_span());
+    iron_lir_branch(fn, header, cond->id, body->id, exit_b->id, test_span());
+    IronLIR_Instr *at_body = iron_lir_load(fn, body, slot->id, it, test_span());
+    IronLIR_Instr *one = iron_lir_const_int(fn, body, 1, it, test_span());
+    IronLIR_Instr *next = iron_lir_binop(fn, body, IRON_LIR_ADD,
+                                         at_body->id, one->id, it, test_span());
+    iron_lir_store(fn, body, slot->id, next->id, test_span());
+    if (second_exit)
+        iron_lir_branch(fn, body, 1, header->id, extra_exit->id, test_span());
+    else
+        iron_lir_jump(fn, body, header->id, test_span());
+    IronLIR_Instr *result = iron_lir_load(fn, exit_b, slot->id, it, test_span());
+    iron_lir_return(fn, exit_b, result->id, false, it, test_span());
+    if (second_exit) {
+        IronLIR_Instr *early = iron_lir_load(fn, extra_exit, slot->id, it,
+                                             test_span());
+        iron_lir_return(fn, extra_exit, early->id, false, it, test_span());
+    }
+    return mod;
+}
+
+void test_emit_structured_natural_loop_and_fallback(void) {
+    Iron_Arena ir_arena = iron_arena_create(131072);
+    iron_types_init(&ir_arena);
+    IronLIR_Module *structured = build_simple_emit_loop(
+        &ir_arena, "while_header_0", false, false);
+    Iron_Arena out_arena = iron_arena_create(262144);
+    IronLIR_OptimizeInfo info;
+    iron_lir_optimize(structured, &info, &out_arena, false, false, false);
+    const char *result = iron_lir_emit_c(structured, &out_arena, &g_diags,
+                                         &info, NULL, false, false);
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_EQUAL_INT(1, count_substring(result, "while (1) {"));
+    TEST_ASSERT_NOT_NULL(strstr(result, "continue;"));
+    TEST_ASSERT_NOT_NULL(strstr(result, "if (!( "));
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, "int8_t"),
+        "bounded canonical induction local should be auto-narrowed");
+    iron_lir_optimize_info_free(&info);
+    iron_lir_module_destroy(structured);
+    iron_arena_free(&out_arena);
+    iron_arena_free(&ir_arena);
+
+    ir_arena = iron_arena_create(131072);
+    iron_types_init(&ir_arena);
+    IronLIR_Module *irreducible = build_simple_emit_loop(
+        &ir_arena, "while_header_0", true, false);
+    out_arena = iron_arena_create(262144);
+    iron_lir_optimize(irreducible, &info, &out_arena, false, false, false);
+    result = iron_lir_emit_c(irreducible, &out_arena, &g_diags,
+                             &info, NULL, false, false);
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_NULL_MESSAGE(strstr(result, "while (1) {"),
+        "multi-entry loop must retain the goto fallback");
+    TEST_ASSERT_NOT_NULL(strstr(result, "goto while_header_0"));
+    iron_lir_optimize_info_free(&info);
+    iron_lir_module_destroy(irreducible);
+    iron_arena_free(&out_arena);
+    iron_arena_free(&ir_arena);
+
+    ir_arena = iron_arena_create(131072);
+    iron_types_init(&ir_arena);
+    IronLIR_Module *multi_exit = build_simple_emit_loop(
+        &ir_arena, "while_header_0", false, true);
+    out_arena = iron_arena_create(262144);
+    iron_lir_optimize(multi_exit, &info, &out_arena, false, false, false);
+    result = iron_lir_emit_c(multi_exit, &out_arena, &g_diags,
+                             &info, NULL, false, false);
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_NULL_MESSAGE(strstr(result, "while (1) {"),
+        "multi-exit loop must retain the goto fallback");
+    iron_lir_optimize_info_free(&info);
+    iron_lir_module_destroy(multi_exit);
+    iron_arena_free(&out_arena);
+    iron_arena_free(&ir_arena);
+}
+
+void test_emit_nested_structured_loops(void) {
+    Iron_Arena ir_arena = iron_arena_create(131072);
+    iron_types_init(&ir_arena);
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_p6_nested");
+    Iron_Type *bt = iron_type_make_primitive(IRON_TYPE_BOOL);
+    IronLIR_Param *params = (IronLIR_Param *)iron_arena_alloc(
+        &ir_arena, sizeof(IronLIR_Param), _Alignof(IronLIR_Param));
+    TEST_ASSERT_NOT_NULL(params);
+    params[0] = (IronLIR_Param){ .name = "keep_going", .type = bt };
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_p6_nested",
+                                             params, 1, NULL);
+    fn->next_value_id = 2;
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *outer_h = iron_lir_block_create(fn, "while_header_outer");
+    IronLIR_Block *outer_b = iron_lir_block_create(fn, "while_body_outer");
+    IronLIR_Block *outer_inc = iron_lir_block_create(fn, "outer_inc");
+    IronLIR_Block *outer_exit = iron_lir_block_create(fn, "while_exit_outer");
+    IronLIR_Block *inner_h = iron_lir_block_create(fn, "while_header_inner");
+    IronLIR_Block *inner_b = iron_lir_block_create(fn, "while_body_inner");
+    IronLIR_Block *inner_exit = iron_lir_block_create(fn, "while_exit_inner");
+    iron_lir_jump(fn, entry, outer_h->id, test_span());
+    iron_lir_branch(fn, outer_h, 1, outer_b->id, outer_exit->id, test_span());
+    iron_lir_jump(fn, outer_b, inner_h->id, test_span());
+    iron_lir_jump(fn, outer_inc, outer_h->id, test_span());
+    iron_lir_return(fn, outer_exit, IRON_LIR_VALUE_INVALID, true, NULL, test_span());
+    iron_lir_branch(fn, inner_h, 1, inner_b->id, inner_exit->id, test_span());
+    iron_lir_jump(fn, inner_b, inner_h->id, test_span());
+    iron_lir_jump(fn, inner_exit, outer_inc->id, test_span());
+
+    Iron_Arena out_arena = iron_arena_create(262144);
+    IronLIR_OptimizeInfo info;
+    iron_lir_optimize(mod, &info, &out_arena, false, false, false);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &info,
+                                         NULL, false, false);
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(2, count_substring(result, "while (1) {"),
+        "nested reducible loops should both reconstruct");
+
+    iron_lir_optimize_info_free(&info);
+    iron_arena_free(&out_arena);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
+void test_emit_structured_loop_hoists_late_external_dependency(void) {
+    Iron_Arena ir_arena = iron_arena_create(131072);
+    iron_types_init(&ir_arena);
+    IronLIR_Module *mod = iron_lir_module_create(&ir_arena, "test_p6_late_dep");
+    Iron_Type *it = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *bt = iron_type_make_primitive(IRON_TYPE_BOOL);
+    IronLIR_Param *params = (IronLIR_Param *)iron_arena_alloc(
+        &ir_arena, sizeof(IronLIR_Param), _Alignof(IronLIR_Param));
+    TEST_ASSERT_NOT_NULL(params);
+    params[0] = (IronLIR_Param){ .name = "keep_going", .type = bt };
+    IronLIR_Func *fn = iron_lir_func_create(mod, "Iron_p6_late_dep",
+                                             params, 1, it);
+    fn->next_value_id = 2;
+
+    /* Inlining can leave this block order: the preheader and a loop member
+     * are appended after the header/body/exit. Structured emission moves the
+     * member up to the header, so its outside constant needs a declaration
+     * before the while's new lexical scope. */
+    IronLIR_Block *entry = iron_lir_block_create(fn, "entry");
+    IronLIR_Block *header = iron_lir_block_create(fn, "while_header_late");
+    IronLIR_Block *body = iron_lir_block_create(fn, "while_body_late");
+    IronLIR_Block *exit_b = iron_lir_block_create(fn, "while_exit_late");
+    IronLIR_Block *late_pre = iron_lir_block_create(fn, "late_preheader");
+    IronLIR_Block *late_member = iron_lir_block_create(fn, "late_member");
+    iron_lir_jump(fn, entry, late_pre->id, test_span());
+    iron_lir_branch(fn, header, 1, body->id, exit_b->id, test_span());
+    iron_lir_jump(fn, body, late_member->id, test_span());
+    IronLIR_Instr *slot = iron_lir_alloca(fn, late_pre, it, "sum", test_span());
+    IronLIR_Instr *zero = iron_lir_const_int(fn, late_pre, 0, it, test_span());
+    iron_lir_store(fn, late_pre, slot->id, zero->id, test_span());
+    IronLIR_Instr *step = iron_lir_const_int(fn, late_pre, 2, it, test_span());
+    iron_lir_jump(fn, late_pre, header->id, test_span());
+    IronLIR_Instr *current = iron_lir_load(fn, late_member, slot->id, it,
+                                           test_span());
+    IronLIR_Instr *a = iron_lir_binop(fn, late_member, IRON_LIR_ADD,
+                                      current->id, step->id, it, test_span());
+    IronLIR_Instr *b = iron_lir_binop(fn, late_member, IRON_LIR_ADD,
+                                      a->id, step->id, it, test_span());
+    iron_lir_store(fn, late_member, slot->id, b->id, test_span());
+    iron_lir_jump(fn, late_member, header->id, test_span());
+    IronLIR_Instr *result_value = iron_lir_load(fn, exit_b, slot->id, it,
+                                                test_span());
+    iron_lir_return(fn, exit_b, result_value->id, false, it, test_span());
+
+    Iron_Arena out_arena = iron_arena_create(262144);
+    IronLIR_OptimizeInfo info;
+    iron_lir_optimize(mod, &info, &out_arena, false, false, false);
+    const char *result = iron_lir_emit_c(mod, &out_arena, &g_diags, &info,
+                                         NULL, false, false);
+    TEST_ASSERT_NOT_NULL(result);
+    const char *loop = strstr(result, "while (1) {");
+    TEST_ASSERT_NOT_NULL(loop);
+    char declaration[48];
+    snprintf(declaration, sizeof(declaration), "_v%u;", step->id);
+    const char *decl = strstr(result, declaration);
+    TEST_ASSERT_NOT_NULL_MESSAGE(decl,
+        "late outside loop dependency should be predeclared");
+    TEST_ASSERT_TRUE_MESSAGE(decl < loop,
+        "late dependency declaration must precede structured loop use");
+
+    iron_lir_optimize_info_free(&info);
+    iron_arena_free(&out_arena);
+    iron_lir_module_destroy(mod);
+    iron_arena_free(&ir_arena);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -756,5 +1103,10 @@ int main(void) {
     RUN_TEST(test_emit_inlined_no_separate_temps);
     RUN_TEST(test_emit_stdlib_stub_no_cstr_wrap);
     RUN_TEST(test_emit_true_extern_cstr_wrap);
+    RUN_TEST(test_emit_p2b_and_p7_narrow_branch_local);
+    RUN_TEST(test_emit_narrow_reads_restore_semantic_width);
+    RUN_TEST(test_emit_structured_natural_loop_and_fallback);
+    RUN_TEST(test_emit_nested_structured_loops);
+    RUN_TEST(test_emit_structured_loop_hoists_late_external_dependency);
     return UNITY_END();
 }

@@ -331,19 +331,19 @@ overhead factors for `connected_components`. The table below compares predicted 
 | `concurrency_spawn_captured` | 4.7x | Spawn/thread overhead (architectural) |
 | `median_two_sorted_arrays` | 4.4x | Algorithmic mismatch |
 
-### Deferred Improvements
+### Compiler Improvements Added After This Benchmark Snapshot
 
-| Priority | Improvement | Expected Impact | Complexity |
-|---|---|---|---|
-| P6 | Structured Loop Reconstruction | 1.5–2x for loop-heavy code | High |
-| P7 | Auto-narrowing (range analysis) | 1.2–1.5x for integer-heavy code | High |
-| P8 | LLVM backend | 2–5x across the board | Very High |
-| P2b | Full copy-coalescing phi elim | 1.5–3x for complex control flow | High |
+| Priority | Improvement | Status |
+|---|---|---|
+| P2b | Conservative scalar copy coalescing | Implemented; unsafe cases fall back |
+| P7 | Local auto-narrowing with range analysis | Implemented; ABI types remain unchanged |
+| P6 | Structured loop reconstruction | Implemented for canonical reducible loops |
+| P8 | LLVM backend | Deferred; no LLVM dependency or backend added |
 
-P6 (Structured Loop Reconstruction) is the most impactful near-term improvement.
-The current goto-based emission prevents clang from applying vectorization and loop
-unrolling. Benchmarks like `three_sum`, `num_islands`, `topological_sort_kahn`, and
-`graph_dfs_traversal` are primary candidates.
+The ratios in this report were captured before P2b, P7, and P6 landed, so their
+performance impact still needs a clean benchmark re-baseline. Correctness and emitted
+code shape are covered by optimizer, range-analysis, emitter, and end-to-end tests.
+LLVM remains future work; compilation continues through the existing C backend.
 
 ---
 

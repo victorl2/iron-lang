@@ -24,6 +24,8 @@ typedef struct {
     bool is_top;  /* true = unknown range, no compression possible */
 } ValueRange;
 
+typedef struct IronVR_LocalFuncAnalysis IronVR_LocalFuncAnalysis;
+
 /* ── Value Range Analysis Context ───────────────────────────────────────── */
 
 typedef struct {
@@ -31,6 +33,11 @@ typedef struct {
     struct { char *key; ValueRange value; } *field_ranges;
     /* Per-function return ranges: key = function name -> return range (union of all RETURN values) */
     struct { char *key; ValueRange value; } *func_return_ranges;
+    /* Per-function, per-ValueId ranges used only for C local declarations.
+     * This analysis is deliberately separate from field compression: it is
+     * cycle-aware and refuses aliases/unknown stores so narrowing can never
+     * alter an ABI or an address-observable object. */
+    IronVR_LocalFuncAnalysis *local_functions;
     Iron_Arena *arena;
 } ValueRangeAnalysis;
 
@@ -51,6 +58,13 @@ void iron_vr_analyze(ValueRangeAnalysis *vra,
 const char *iron_vr_get_narrowed_type(ValueRangeAnalysis *vra,
                                        const char *type_name,
                                        const char *field_name);
+
+/* Query a narrower C type for a function-local integer ValueId.  Parameters,
+ * returns, fields and explicit sized integer types are never changed.  NULL
+ * means the proof was incomplete and the emitter must use the declared type. */
+const char *iron_vr_get_local_narrowed_type(ValueRangeAnalysis *vra,
+                                             IronLIR_Func *fn,
+                                             IronLIR_ValueId value_id);
 
 /* Free internal hash map resources. */
 void iron_vr_free(ValueRangeAnalysis *vra);

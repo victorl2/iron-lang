@@ -1526,6 +1526,7 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
     arrfree(ctx->emitted_env_drops); /* Phase 26 OQ-03 (Plan 26-03) */
     shfree(ctx->mono_registry);
     hmfree(ctx->param_alias_ids);
+    hmfree(ctx->phi_hoisted);
     hmfree(ctx->split_collection_ids);
     shfree(ctx->indirect_variants);
     hmfree(ctx->layout_overrides);
