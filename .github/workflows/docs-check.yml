@@ -1,0 +1,43 @@
+name: Documentation checks
+
+# Static documentation checks need no compiler, C toolchain, or graphics libs.
+# Executable examples use the existing Doc Test workflow and its compiler build.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '*.md'
+      - 'docs/**'
+      - 'scripts/check_branding.py'
+      - 'scripts/check_site.py'
+      - 'scripts/test_branding.py'
+      - '.github/workflows/docs-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - '*.md'
+      - 'docs/**'
+      - 'scripts/check_branding.py'
+      - 'scripts/check_site.py'
+      - 'scripts/test_branding.py'
+      - '.github/workflows/docs-check.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test documentation validators
+        run: python3 scripts/test_branding.py
+      - name: Check positioning, example parity, links, and fragments
+        run: python3 scripts/check_site.py docs/site

@@ -6,7 +6,7 @@ Iron compiles `.iron` source files into **standalone executables**. The compilat
 .iron source → Lexer → Parser → Semantic Analysis → C Code Generation → gcc/clang → standalone binary
 ```
 
-The Iron runtime is statically linked into the final binary. The output is a native executable — no Iron installation or VM required to run it. External libraries (graphics, audio) are dynamically linked as standard for game binaries.
+The Iron runtime is statically linked into the final binary. The output is a native executable — no Iron installation or VM required to run it. Applications may also link system or external libraries for networking, graphics, audio, or other capabilities.
 
 This plan is organized in phases. Each phase produces something runnable or testable.
 
@@ -447,7 +447,7 @@ iron test [dir]        Run tests
 8. Output a single standalone executable (no runtime dependencies)
 ```
 
-The Iron runtime and stdlib are statically compiled into the executable. The binary requires no Iron installation to run. System libraries (graphics, audio, windowing) are dynamically linked as is standard for game binaries on all platforms.
+The Iron runtime and stdlib are statically compiled into the executable. The binary requires no Iron installation to run. System and external library dependencies depend on the application and platform, including networking, graphics, audio, and windowing where used.
 
 ### Deliverable
 

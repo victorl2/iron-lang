@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Documentation — Iron Language</title>
-  <meta name="description" content="Complete language reference for the Iron programming language. Types, objects, functions, memory management, concurrency, networking, URLs, and more.">
+  <meta name="description" content="Language reference for Iron, a general-purpose native programming language. Types, objects, functions, explicit memory management, concurrency, networking, and more.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -625,14 +625,14 @@
         <a href="#http-module">HTTP Client &amp; Server</a>
         <a href="#url-module">URL Module</a>
         <a href="#keywords">Keywords</a>
-        <a href="#full-example">Full Example</a>
+        <a href="#full-example">Examples</a>
       </div>
     </aside>
 
     <!-- ── Content ──────────────────────────────── -->
     <main class="content">
       <h1>Iron Language Reference</h1>
-      <p class="subtitle">Complete guide to the Iron programming language &mdash; a compiled, strongly-typed language built for clarity, legibility, and performance.</p>
+      <p class="subtitle">Explore Iron, a general-purpose native programming language with explicit memory control, first-class concurrency, and readable code.</p>
 
       <div class="callout">
         <p><strong>Version note:</strong> this page documents the <strong>Iron v3</strong> language surface. Iron v4 (current release: v4.0.0-alpha) changed the memory model &mdash; explicit <code>free</code> / <code>defer free</code> instead of auto-free, checked pointer types (<code>*T</code> / <code>*var T</code>), <code>rc</code> + <code>weak rc</code>, arenas, and <code>drop</code> / <code>copy</code> / <code>nocopy</code> resource types. See the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/site/migration-v3-to-v4.md">v3 &rarr; v4 migration guide</a> and the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/release/v4.0.0-alpha.md">v4.0.0-alpha release notes</a>.</p>
@@ -640,7 +640,7 @@
 
       <!-- Overview -->
       <h2 id="overview">Overview</h2>
-      <p><strong>Iron</strong> is a compiled, performant programming language focused on clarity, legibility, and performance. It compiles to C and produces native standalone binaries.</p>
+      <p><strong>Iron</strong> is a general-purpose native programming language for tools, services, data processing, simulations, and games. It compiles to C and then to native binaries. External libraries may still be required by your application.</p>
       <ul>
         <li>File extension: <code>.iron</code></li>
         <li>CLI: <code>iron build</code>, <code>iron run</code>, <code>iron test</code>, <code>iron check</code>, <code>iron fmt</code></li>
@@ -872,7 +872,7 @@ e.<span class="fn">update</span>(<span class="nu">0.016</span>)  <span class="cm
 }</pre></div>
 
       <h3>Collection Splitting</h3>
-      <p>Interface-typed arrays are automatically split into per-type homogeneous sub-arrays. This delivers ECS-level cache performance from polymorphic code:</p>
+      <p>When applicable, the compiler splits interface-typed arrays into per-type homogeneous sub-arrays. This data-oriented layout can improve locality in polymorphic code:</p>
       <div class="code-block"><pre><span class="cm">-- You write this:</span>
 <span class="kw">val</span> entities = [<span class="ty">Player</span>(pos, health), <span class="ty">Enemy</span>(pos, hp)]
 <span class="kw">for</span> e <span class="kw">in</span> entities { e.<span class="fn">update</span>(<span class="nu">0.016</span>) }
@@ -1900,8 +1900,19 @@ log.<span class="fn">set_level</span>(log.<span class="pr">WARN</span>)</pre></d
       </table>
 
       <!-- Full Example -->
-      <h2 id="full-example">Full Example</h2>
-      <p>A complete game with player movement, bullets, and rendering.</p>
+      <h2 id="full-example">Examples</h2>
+      <h3 id="native-example">Native data summary</h3>
+      <p>A complete program for the current Iron release, with no graphics dependencies. Save it as <code>summary.iron</code> and run <code>iron run summary.iron</code>. It prints <code>processed=5 total=150</code>.</p>
+      <div class="code-block"><pre data-example="native_summary"><span class="kw">func</span> main() {
+    <span class="kw">val</span> samples = [10, 20, 30, 40, 50]
+    <span class="kw">var</span> total: <span class="ty">Int</span> = 0
+    <span class="kw">for</span> sample <span class="kw">in</span> samples {
+        total += sample
+    }
+    println(<span class="st">"processed={len(samples)} total={total}"</span>)
+}</pre></div>
+      <h3 id="game-example">Game example (Raylib)</h3>
+      <p>The following v3-era example illustrates player movement, bullets, and rendering. For current bindings and runnable graphics examples, see the <a href="/raylib/guide/">Raylib guide</a>.</p>
       <div class="code-block"><pre><span class="kw">import</span> raylib
 <span class="kw">import</span> math <span class="kw">as</span> m
 

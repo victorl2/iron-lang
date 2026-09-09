@@ -1,0 +1,12 @@
+object Record {
+    val id: Int
+}
+
+func main() {
+    val local = Record(1)
+    val owned = heap Record(2)
+    defer free owned
+    val shared = rc Record(3)
+    val also = shared
+    println("local={local.id} owned={owned.id} shared={also.id}")
+}

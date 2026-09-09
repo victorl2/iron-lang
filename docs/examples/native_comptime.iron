@@ -1,0 +1,5 @@
+val BUFFER_BYTES = comptime (64 * 1024)
+
+func main() {
+    println("buffer bytes={BUFFER_BYTES}")
+}

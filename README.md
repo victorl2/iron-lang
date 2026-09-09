@@ -1,7 +1,12 @@
 # The Iron Programming Language
 
-This is the main source code repository for [Iron]. It contains the compiler,
-standard library, and documentation.
+**Native performance. Explicit control. Readable code.**
+
+[Iron] is a general-purpose native programming language for command-line tools,
+network services, data processing, simulations, and games. It combines explicit
+memory management and first-class concurrency with a clear, strongly typed syntax.
+
+This repository contains the compiler, standard library, and documentation.
 
 > **Alpha** — early release, expect breaking changes.
 
@@ -17,9 +22,9 @@ Pre-built binaries are available for **macOS** (arm64, x86_64) and **Linux** (x8
 
 ## Why Iron?
 
-- **Performance:** Iron compiles to C and produces native binaries with the runtime statically linked. No garbage collector, no VM, no interpreter overhead.
+- **Performance:** Iron compiles to C and produces native binaries with the runtime statically linked. No tracing garbage collector or Iron VM.
 
-- **Control:** You manage memory explicitly — stack, heap, reference counting — with compiler-assisted safety nets. No borrow checker, no hidden allocations.
+- **Control:** Choose stack allocation, explicit heap lifetimes, or reference-counted shared ownership, with compiler and runtime checks.
 
 - **Concurrency:** Thread pools, parallel loops, and concurrency primitives are first-class language features, not library afterthoughts.
 
@@ -27,11 +32,21 @@ Pre-built binaries are available for **macOS** (arm64, x86_64) and **Linux** (x8
 
 ## Quick Start
 
+From a checkout of this repository, try the runnable [native summary example](docs/examples/native_summary.iron):
+
+```sh
+iron run docs/examples/native_summary.iron
+```
+
 Read the [language overview](docs/language_definition.md) for a tour of the
 language and its features.
 
 For TCP, UDP, DNS, HTTP/HTTPS, REST servers, webpages, WebSocket/WSS, and
 binary-safe file examples, see the [networking guide](docs/networking.md).
+
+For graphics, interactive applications, and games, explore the
+[Raylib guide](https://ironlang.dev/raylib/) and [Pong example](examples/pong/README.md).
+These are part of what you can build with Iron, not a requirement for using it.
 
 ## Building from Source
 

@@ -8,6 +8,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+from check_branding import validate_repository
+
 
 # Generated Raylib reference overload groups intentionally reuse anchors.
 # Keep the exception list exact so any new duplicate ID still fails Pages CI.
@@ -59,7 +61,7 @@ def main() -> int:
     site = args.site.resolve()
     pages = sorted(site.rglob("*.html"))
     parsed: dict[Path, PageParser] = {}
-    errors: list[str] = []
+    errors: list[str] = validate_repository(Path(__file__).resolve().parent.parent, site)
     warnings: list[str] = []
 
     for page in pages:
