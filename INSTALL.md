@@ -1,9 +1,13 @@
 # Installing from Source
-**Note: This document describes building Iron from source. This is not recommended if you don't know what you're doing.**
+This guide builds Iron, a general-purpose native programming language, from source.
+For pre-built binaries, use the [installation guide](https://ironlang.dev/install/).
 
 **Tracks:** Iron v4.0.0-alpha and newer (main branch). Older v1.2.x source tarballs follow their own per-release INSTALL.md.
 
-Iron compiles to C and produces native binaries. You need a C compiler and CMake to build the Iron compiler itself. Programs compiled with Iron are standalone executables.
+Iron compiles to C and produces native binaries for tools, services, simulations,
+games, and other software. You need a C compiler and CMake to build the Iron
+compiler itself. The Iron runtime is linked into compiled programs; applications
+may still depend on system or external libraries they use.
 
 After a successful build, `./build/iron --version` and `./build/ironc --version` will both print `4.0.0-alpha (<git-sha>, <utc-date>)`. If the version line does not start with `4.0`, your checkout is out of date or on a stale branch — `git pull` and rebuild.
 

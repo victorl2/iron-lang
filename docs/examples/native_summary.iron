@@ -1,0 +1,8 @@
+func main() {
+    val samples = [10, 20, 30, 40, 50]
+    var total: Int = 0
+    for sample in samples {
+        total += sample
+    }
+    println("processed={len(samples)} total={total}")
+}

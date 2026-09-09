@@ -1,6 +1,13 @@
 # Iron Language Definition
 
-**Iron** — a compiled, performant programming language focused on clarity, legibility, and performance.
+**Iron** is a general-purpose native programming language built around native
+performance, explicit control, and readable code. Use it for command-line tools,
+network services, data processing, simulations, and games.
+
+Iron is in alpha: language features and APIs may change. Game-oriented examples
+below illustrate particular features; they do not define the language's scope.
+For a small current-language program, start with the [native summary example](examples/native_summary.iron).
+For clients and services, see the [networking guide](networking.md).
 
 - File extension: `.iron`
 - CLI: `iron build`, `iron run`, `iron test`
@@ -1572,6 +1579,27 @@ Comptime functions **cannot**:
 ---
 
 ## Full Example
+
+### Native data summary
+
+This complete program needs no graphics library. Save it as `summary.iron` and
+run it with `iron run summary.iron`. It prints `processed=5 total=150`.
+
+```iron
+func main() {
+    val samples = [10, 20, 30, 40, 50]
+    var total: Int = 0
+    for sample in samples {
+        total += sample
+    }
+    println("processed={len(samples)} total={total}")
+}
+```
+
+### Game example
+
+The following Raylib example illustrates an interactive application. For current
+graphics APIs and runnable game examples, use the [Raylib guide](https://ironlang.dev/raylib/).
 
 ```
 import raylib

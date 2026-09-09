@@ -645,7 +645,7 @@ $ tree
 
       <!-- ── Project Structure ─────────────────── -->
       <h2 id="project-structure">Project Structure</h2>
-<pre><code>my-game/
+<pre><code>my-app/
 &#9500;&#9472;&#9472; iron.toml          <span class="cm"># Project manifest</span>
 &#9500;&#9472;&#9472; iron.lock          <span class="cm"># Lockfile (auto-generated, commit to VCS)</span>
 &#9500;&#9472;&#9472; .gitignore         <span class="cm"># Ignores target/</span>
@@ -654,7 +654,7 @@ $ tree
 &#9500;&#9472;&#9472; tests/
 &#9474;   &#9492;&#9472;&#9472; test_math.iron <span class="cm"># Test files discovered by iron test</span>
 &#9492;&#9472;&#9472; target/
-    &#9500;&#9472;&#9472; my-game        <span class="cm"># Built binary</span>
+    &#9500;&#9472;&#9472; my-app        <span class="cm"># Built binary</span>
     &#9492;&#9472;&#9472; combined.iron  <span class="cm"># Concatenated source (when deps exist)</span></code></pre>
 
       <div class="callout">
@@ -664,11 +664,11 @@ $ tree
 
       <!-- ── iron.toml ────────────────────────── -->
       <h2 id="iron-toml">iron.toml &mdash; Manifest Format</h2>
-      <p>The manifest file describes your package and its dependencies.</p>
+      <p>The manifest file describes your package and its dependencies. Names and GitHub repositories in this guide are illustrative; replace them with your own projects.</p>
 
       <h3 id="package-section">[package]</h3>
 <pre><code><span class="cm">[package]</span>
-<span class="kw">name</span>        = <span class="st">"my-game"</span>
+<span class="kw">name</span>        = <span class="st">"my-app"</span>
 <span class="kw">version</span>     = <span class="st">"0.1.0"</span>
 <span class="kw">type</span>        = <span class="st">"bin"</span>           <span class="cm"># "bin" (default) or "lib"</span>
 <span class="kw">description</span> = <span class="st">"A cool project"</span> <span class="cm"># optional</span></code></pre>
@@ -684,7 +684,7 @@ $ tree
       <h3 id="dependencies-section">[dependencies]</h3>
 <pre><code><span class="cm">[dependencies]</span>
 <span class="kw">raylib</span>   = <span class="nu">true</span>                                          <span class="cm"># built-in</span>
-<span class="kw">iron-ecs</span> = { <span class="kw">git</span> = <span class="st">"user/iron-ecs"</span>, <span class="kw">version</span> = <span class="st">"0.1.0"</span> }  <span class="cm"># GitHub dep</span></code></pre>
+<span class="kw">iron-utils</span> = { <span class="kw">git</span> = <span class="st">"user/iron-utils"</span>, <span class="kw">version</span> = <span class="st">"0.1.0"</span> }  <span class="cm"># GitHub dep</span></code></pre>
 
       <p>Dependencies are specified as inline TOML tables with two fields:</p>
       <table>
@@ -708,8 +708,8 @@ $ <span class="fn">iron init --lib</span>    <span class="cm"># library project<
       <h2 id="iron-build">iron build</h2>
       <p>Build the current package.</p>
 <pre><code>$ <span class="fn">iron build</span>
-   <span class="kw">Downloading</span> iron-ecs v0.1.0 (user/iron-ecs)
-   <span class="kw">Compiling</span> my-game v0.1.0
+   <span class="kw">Downloading</span> iron-utils v0.1.0 (user/iron-utils)
+   <span class="kw">Compiling</span> my-app v0.1.0
     <span class="st">Finished</span> dev [unoptimized] in 0.42s</code></pre>
       <p>Reads <code>iron.toml</code>, resolves and fetches dependencies, concatenates source files, and invokes <code>ironc</code>. Output binary is placed in <code>target/</code>.</p>
       <table>
@@ -720,9 +720,9 @@ $ <span class="fn">iron init --lib</span>    <span class="cm"># library project<
       <h2 id="iron-run">iron run</h2>
       <p>Build and immediately execute the package binary.</p>
 <pre><code>$ <span class="fn">iron run</span>
-   <span class="kw">Compiling</span> my-game v0.1.0
+   <span class="kw">Compiling</span> my-app v0.1.0
     <span class="st">Finished</span> dev [unoptimized] in 0.38s
-     <span class="fn">Running</span> target/my-game
+     <span class="fn">Running</span> target/my-app
 Hello, Iron!</code></pre>
       <p>Arguments after <code>--</code> are passed to the built binary:</p>
 <pre><code>$ <span class="fn">iron run -- --port 8080</span></code></pre>
@@ -730,13 +730,13 @@ Hello, Iron!</code></pre>
       <h2 id="iron-check">iron check</h2>
       <p>Type-check the package without producing a binary. Fast feedback loop.</p>
 <pre><code>$ <span class="fn">iron check</span>
-    <span class="kw">Checking</span> my-game v0.1.0
+    <span class="kw">Checking</span> my-app v0.1.0
     <span class="st">Finished</span> check completed</code></pre>
 
       <h2 id="iron-test">iron test</h2>
       <p>Discover and run all <code>.iron</code> files in the <code>tests/</code> directory.</p>
 <pre><code>$ <span class="fn">iron test</span>
-     <span class="kw">Testing</span> my-game v0.1.0
+     <span class="kw">Testing</span> my-app v0.1.0
      <span class="fn">Running</span> test_math.iron
      <span class="fn">Running</span> test_strings.iron
     <span class="st">Finished</span> 2 test(s) passed</code></pre>
@@ -799,9 +799,9 @@ would reformat src/main.iron</code></pre>
 <span class="kw">lock_version</span> = <span class="nu">1</span>
 
 <span class="cm">[[package]]</span>
-<span class="kw">name</span>    = <span class="st">"iron-ecs"</span>
+<span class="kw">name</span>    = <span class="st">"iron-utils"</span>
 <span class="kw">version</span> = <span class="st">"0.1.0"</span>
-<span class="kw">git</span>     = <span class="st">"user/iron-ecs"</span>
+<span class="kw">git</span>     = <span class="st">"user/iron-utils"</span>
 <span class="kw">sha</span>     = <span class="st">"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"</span></code></pre>
 
       <h3>Lockfile behavior</h3>
@@ -818,7 +818,7 @@ would reformat src/main.iron</code></pre>
       <p>Downloaded dependency sources are stored globally in <code>~/.iron/cache/</code>:</p>
 <pre><code>~/.iron/cache/
 &#9492;&#9472;&#9472; user/
-    &#9492;&#9472;&#9472; iron-ecs@a1b2c3d4.../
+    &#9492;&#9472;&#9472; iron-utils@a1b2c3d4.../
         &#9500;&#9472;&#9472; iron.toml
         &#9492;&#9472;&#9472; src/
             &#9492;&#9472;&#9472; lib.iron</code></pre>
@@ -834,7 +834,7 @@ would reformat src/main.iron</code></pre>
       <h3>Version conflicts</h3>
       <p>If two dependencies require different versions of the same transitive dep, Iron refuses to build and shows which deps conflict:</p>
 <pre><code><span class="kw">error:</span> version conflict for user/iron-math
-  iron-ecs requires v0.2.0
+  iron-utils requires v0.2.0
   iron-physics requires v0.1.0
 
   hint: align dependency versions in the respective iron.toml files</code></pre>
@@ -842,9 +842,9 @@ would reformat src/main.iron</code></pre>
       <h3>Circular dependencies</h3>
       <p>If A depends on B which depends on A, Iron detects the cycle and prints the full chain:</p>
 <pre><code><span class="kw">error:</span> circular dependency detected
-  -> user/iron-ecs
+  -> user/iron-utils
     -> user/iron-math
-      -> user/iron-ecs  (cycle)
+      -> user/iron-utils  (cycle)
 
   hint: remove the circular dependency from one of the packages</code></pre>
 

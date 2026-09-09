@@ -1,0 +1,15 @@
+func sum_to(n: Int) -> Int {
+    var total = 0
+    for i in range(n) {
+        total += i
+    }
+    return total
+}
+
+func main() {
+    val task = spawn("summary") {
+        return sum_to(100)
+    }
+    val total = await task
+    println("total={total}")
+}
