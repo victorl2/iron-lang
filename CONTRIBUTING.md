@@ -1,77 +1,49 @@
-# Contributing Guide
+# Contributing to Iron
 
-Thank you for your interest in contributing! This project values quality, accountability, and genuine understanding over contribution volume. Please read this guide carefully before submitting a pull request.
+Thanks for your interest in Iron! Contributions of all sizes are welcome, whether this is your first open-source contribution or you have been building compilers for years. You do not need to know the whole codebase to get involved.
 
----
+## Ways to help
 
-## Video Walkthrough Requirement
+- Report bugs or share a small example of something that surprised you.
+- Improve documentation, fix typos, or add examples.
+- Add tests, fix bugs, or improve tooling and performance.
+- Try Iron in a project and share what works and what could be better.
+- Help answer questions or review proposed changes.
 
-**Every pull request must be accompanied by a screen recording walkthrough.**
+Not sure where to start? [Open an issue](https://github.com/victorl2/iron-lang/issues) and tell us what interests you. Questions and suggestions are welcome too.
 
-This is not optional. PRs submitted without a video will not be reviewed.
+## Getting started
 
-### What the video must cover
+1. Check existing issues and pull requests for related work.
+2. Follow [INSTALL.md](INSTALL.md) to build Iron locally if your change needs it.
+3. Make a focused change on a branch in your fork, then open a pull request.
 
-- A walkthrough of the diff — what changed and where
-- An explanation of *why* the change was made
-- How the change works, in your own words
-- Edge cases you considered and how you handled them (or consciously decided not to)
-- Any tradeoffs or limitations you are aware of
+Small fixes can go straight to a PR—no prior approval or separate issue is needed. For larger features or changes to language behavior, starting a discussion in an issue can help agree on a direction before you invest a lot of time.
 
-### Format
+Draft PRs and work in progress are welcome. You do not need a complete solution to ask for feedback or help.
 
-- Screen recording with your voice narration
-- **You must use your own natural voice.** AI-generated voices, text-to-speech tools, voice changers, or any other voice modification software are not permitted
-- Any language is accepted — **English is preferred** if you are comfortable with it, but never required
-- There is no minimum or maximum length — cover what needs to be covered
-- Use any screen capture software you prefer — [Loom](https://loom.com), OBS, or similar tools all work fine
-- **Upload the video to YouTube as an unlisted video** and link it directly in the PR description. Unlisted means it will not appear in search results but will be accessible to anyone with the link
+## Opening a pull request
 
-### Content consent
+A short written description is enough. Explain what changed and why, and link a related issue if there is one. Mention how you checked the change and any known limitations or questions you would like help with.
 
-By submitting a video walkthrough, you agree that **if your PR is merged, the video will be downloaded and permanently archived as part of the project's official history**. This content may be used for documentation, onboarding, and historical reference purposes. If you are not comfortable with this, please do not submit a contribution.
+Videos, screen recordings, and voice narration are not required. Screenshots or other demonstrations are optional—include them only if they help explain the change.
 
-### Why we require this
+For code changes, add or update relevant tests when practical, especially for bug fixes and behavior changes. Run the tests related to your change and share the results. Documentation-only changes generally just need a check for clarity, formatting, and working links.
 
-We ask every contributor to demonstrate that they understand and own what they are submitting. This creates a verifiable, persistent track record of contributions and shifts the burden of proof where it belongs — on the contributor, not the maintainers.
+If you cannot run a test or are unsure how to test something, say so in the PR. That is a good place to ask for guidance, not a reason to avoid contributing.
 
-It also means that how you wrote the code — with or without AI assistance — is not our concern. What matters is that you can explain it, defend it, and stand behind it.
+## Working together
 
----
+Be kind, respectful, and constructive. Assume good intentions, explain feedback, and focus on the work rather than the person. Learning and asking questions are part of contributing.
 
-## Exemptions
+Reviews are a conversation. Keep changes focused where possible, and feel free to ask for clarification or explain a different approach. Use the language you are most comfortable with; clear communication matters more than perfect English.
 
-The video requirement may be waived for:
+## AI-assisted contributions
 
-- Documentation-only changes (typos, wording fixes, README updates)
-- Dependency version bumps with no behavioral changes
-- Formatting or whitespace-only commits
-- **Recurring contributors with an established track record**, when submitting well-scoped changes, maintainers may grant this at their discretion based on the contributor's history.
+AI tools are welcome, but never required. Please review and test their output as you would any other code, and be ready to discuss the approach. If something is unclear, ask for help—there is no special walkthrough or proof-of-authorship requirement.
 
-If you believe your change qualifies for an exemption, state so explicitly in the PR description. Maintainers have final say.
+## License
 
----
+Please only submit work you have the right to contribute under the project's [Apache License 2.0](LICENSE), and preserve any required third-party notices.
 
-Before submitting, make sure you can answer yes to all of the following:
-
-- [ ] I have watched my own video and it clearly explains the change
-- [ ] My code is tested and the tests pass
-- [ ] I have considered edge cases and documented any known limitations
-- [ ] I understand every line I am submitting and can answer questions about it
-- [ ] I have the right to submit this code under this project's license
-
----
-
-## Code of Conduct
-
-By contributing, you attest that the code you submit is your own responsibility. You understand it, you own it, and you are prepared to discuss it.
-
----
-
-## A Note on AI-Assisted Development
-
-We do not ban or restrict the use of AI tools. We do require that every contributor understands and can explain what they submit. If you used AI to help write your code, that is fine — as long as your video walkthrough demonstrates genuine understanding. A convincing explanation is the only bar that matters.
-
----
-
-*This policy exists to build a project where every contribution has a human being behind it who stands accountable for their work. We believe that standard is good for the project, good for contributors, and good for the long-term health of the codebase.*
+Thanks for helping make Iron better!
