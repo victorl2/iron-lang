@@ -1384,7 +1384,11 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                     in->call.arg_count > 0) {
                     IronLIR_ValueId root =
                         lir_receiver_root_alloca(fn, in->call.args[0]);
-                    if (root != IRON_LIR_VALUE_INVALID) hmdel(store_info, root);
+                    /* store_info is NULL when the function has no tracked
+                     * stores; stb_ds hmdel dereferences the map pointer to
+                     * size its key, which UBSan reports on NULL. */
+                    if (store_info && root != IRON_LIR_VALUE_INVALID)
+                        hmdel(store_info, root);
                 }
             }
         }
