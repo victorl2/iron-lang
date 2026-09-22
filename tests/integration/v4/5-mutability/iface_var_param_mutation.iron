@@ -1,0 +1,42 @@
+-- section: 5-mutability
+-- @req: PARM-02, IFACE-MUT
+-- extends-spec: a `var <Interface>` parameter behaves like any other `var` parameter: the
+-- callee's mutating calls write through to the caller's binding, whether the caller passed
+-- a concrete `var` binding (wrapped at the boundary, payload written back on return) or a
+-- `var` binding of the interface type (passed by address directly).
+
+interface Game {
+    func update(dt: Int)
+    readonly func score() -> Int
+}
+
+object MyGame impl Game {
+    var n: Int
+    init() { self.n = 0 }
+    func update(dt: Int) { self.n = self.n + dt }
+    readonly func score() -> Int { return self.n }
+}
+
+func run(var game: Game) {
+    game.update(1)
+    game.update(1)
+}
+
+func run_via(var game: Game) {
+    run(game)
+    game.update(10)
+}
+
+func main() {
+    var concrete = MyGame()
+    run(concrete)
+    println("concrete source: {concrete.n}")
+
+    var boxed: Game = MyGame()
+    run(boxed)
+    println("interface source: {boxed.score()}")
+
+    var nested = MyGame()
+    run_via(nested)
+    println("nested var param: {nested.n}")
+}

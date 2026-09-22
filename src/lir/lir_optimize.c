@@ -1188,6 +1188,85 @@ static bool lir_vid_is_var_param(IronLIR_Func *fn, IronLIR_ValueId vid) {
 /* Copy Propagation: eliminate LOAD of single-store allocas.
  * For each alloca stored exactly once, replace all LOADs of that alloca
  * with the stored value, then rewrite all operands referencing the LOAD result. */
+/* For a pointer-receiver call argument (self_by_addr args[0]), find the
+ * ALLOCA whose storage the callee will mutate: the arg itself, the slot a
+ * LOAD reads, or the root slot of a GET_FIELD chain (`&(slot.a.b)`).
+ * Returns IRON_LIR_VALUE_INVALID when the receiver is not rooted in a
+ * local slot (param pointer, global, heap pointee). */
+static IronLIR_ValueId lir_receiver_root_alloca(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    for (int guard = 0; guard < 64; guard++) {
+        if (vid == IRON_LIR_VALUE_INVALID ||
+            (ptrdiff_t)vid >= arrlen(fn->value_table)) return IRON_LIR_VALUE_INVALID;
+        IronLIR_Instr *in = fn->value_table[vid];
+        if (!in) return IRON_LIR_VALUE_INVALID;
+        switch ((int)in->kind) {
+        case IRON_LIR_ALLOCA:
+            /* A pointer-shaped slot (rc / heap / arena, checked ptr) is not
+             * the receiver's storage — the pointee is. The slot itself is
+             * never handed out, so it stays eligible for forwarding. */
+            if (in->alloca.alloc_type &&
+                (in->alloca.alloc_type->kind == IRON_TYPE_RC ||
+                 in->alloca.alloc_type->kind == IRON_TYPE_WEAK_RC ||
+                 in->alloca.alloc_type->kind == IRON_TYPE_PTR ||
+                 /* interface-element arrays are split collections keyed by
+                  * their literal value in emit_c — the slot is not storage */
+                 (in->alloca.alloc_type->kind == IRON_TYPE_ARRAY &&
+                  in->alloca.alloc_type->array.elem &&
+                  in->alloca.alloc_type->array.elem->kind == IRON_TYPE_INTERFACE)))
+                return IRON_LIR_VALUE_INVALID;
+            return vid;
+        case IRON_LIR_LOAD:      vid = in->load.ptr;     break;
+        case IRON_LIR_GET_FIELD: vid = in->field.object; break;
+        default:                 return IRON_LIR_VALUE_INVALID;
+        }
+    }
+    return IRON_LIR_VALUE_INVALID;
+}
+
+/* The set of LOAD ids that sit on a pointer-receiver chain: a load of the
+ * slot whose FIELD is the receiver (`&(slot.a.b)` renders through the
+ * load's slot). Forwarding such a load to the stored value would turn
+ * "address of the slot's field" into "address of a temporary's field",
+ * so store-to-load forwarding and copy propagation both skip them. */
+typedef struct { IronLIR_ValueId key; bool value; } LirRecvLoadEntry;
+static LirRecvLoadEntry *lir_collect_receiver_loads(IronLIR_Func *fn) {
+    LirRecvLoadEntry *set = NULL;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (!in || in->kind != IRON_LIR_CALL || !in->call.self_by_addr ||
+                in->call.arg_count == 0) continue;
+            IronLIR_ValueId vid = in->call.args[0];
+            for (int guard = 0; guard < 64; guard++) {
+                if (vid == IRON_LIR_VALUE_INVALID ||
+                    (ptrdiff_t)vid >= arrlen(fn->value_table)) break;
+                IronLIR_Instr *cur = fn->value_table[vid];
+                if (!cur) break;
+                if (cur->kind == IRON_LIR_GET_FIELD) { vid = cur->field.object; continue; }
+                if (cur->kind == IRON_LIR_LOAD) {
+                    IronLIR_ValueId p = cur->load.ptr;
+                    IronLIR_Instr *pin = (p != IRON_LIR_VALUE_INVALID &&
+                                          (ptrdiff_t)p < arrlen(fn->value_table))
+                                         ? fn->value_table[p] : NULL;
+                    if (pin && pin->kind == IRON_LIR_ALLOCA && pin->alloca.alloc_type &&
+                        pin->alloca.alloc_type->kind != IRON_TYPE_RC &&
+                        pin->alloca.alloc_type->kind != IRON_TYPE_WEAK_RC &&
+                        pin->alloca.alloc_type->kind != IRON_TYPE_PTR &&
+                        !(pin->alloca.alloc_type->kind == IRON_TYPE_ARRAY &&
+                          pin->alloca.alloc_type->array.elem &&
+                          pin->alloca.alloc_type->array.elem->kind == IRON_TYPE_INTERFACE)) {
+                        hmput(set, cur->id, true);
+                    }
+                    break;
+                }
+                break;
+            }
+        }
+    }
+    return set;
+}
+
 static bool run_copy_propagation(IronLIR_Module *module) {
     bool changed = false;
     for (int fi = 0; fi < module->func_count; fi++) {
@@ -1199,6 +1278,7 @@ static bool run_copy_propagation(IronLIR_Module *module) {
          * A SET_INDEX targeting an alloca also counts as a mutation (increments count)
          * so that copy propagation does not forward the original STORE value past it. */
         StoreInfoEntry *store_info = NULL;
+        LirRecvLoadEntry *recv_loads = lir_collect_receiver_loads(fn);
 
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronLIR_Block *blk = fn->blocks[bi];
@@ -1302,7 +1382,9 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                  * single init store. */
                 if (in->kind == IRON_LIR_CALL && in->call.self_by_addr &&
                     in->call.arg_count > 0) {
-                    hmdel(store_info, in->call.args[0]);
+                    IronLIR_ValueId root =
+                        lir_receiver_root_alloca(fn, in->call.args[0]);
+                    if (root != IRON_LIR_VALUE_INVALID) hmdel(store_info, root);
                 }
             }
         }
@@ -1315,7 +1397,8 @@ static bool run_copy_propagation(IronLIR_Module *module) {
             IronLIR_Block *blk = fn->blocks[bi];
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *in = blk->instrs[ii];
-                if (in->kind == IRON_LIR_LOAD && in->id != IRON_LIR_VALUE_INVALID) {
+                if (in->kind == IRON_LIR_LOAD && in->id != IRON_LIR_VALUE_INVALID &&
+                    hmgeti(recv_loads, in->id) < 0) {
                     IronLIR_ValueId ptr = in->load.ptr;
                     ptrdiff_t idx = hmgeti(store_info, ptr);
                     if (idx >= 0 && store_info[idx].value.count == 1) {
@@ -1341,6 +1424,7 @@ static bool run_copy_propagation(IronLIR_Module *module) {
         }
 
         hmfree(store_info);
+        hmfree(recv_loads);
         hmfree(repl_map);
     }
     return changed;
@@ -1597,6 +1681,17 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
                     IronLIR_ValueId arg = in->call.args[ai];
                     ptrdiff_t idx = hmgeti(escaped, arg);
                     if (idx >= 0) escaped[idx].value = true;
+                }
+                /* Pointer-receiver call: the callee mutates the root slot of
+                 * the receiver chain (`&(slot.a.b)`), so that slot escapes
+                 * too and post-call loads must stay real loads. */
+                if (in->call.self_by_addr && in->call.arg_count > 0) {
+                    IronLIR_ValueId root =
+                        lir_receiver_root_alloca(fn, in->call.args[0]);
+                    if (root != IRON_LIR_VALUE_INVALID) {
+                        ptrdiff_t idx = hmgeti(escaped, root);
+                        if (idx >= 0) escaped[idx].value = true;
+                    }
                 }
                 break;
 
@@ -2039,6 +2134,7 @@ static bool run_store_load_elim(IronLIR_Module *module) {
 
         /* Build the escape map for this function */
         IronLIR_EscapeEntry *escape_set = compute_escape_set(fn);
+        LirRecvLoadEntry *recv_loads = lir_collect_receiver_loads(fn);
 
         /* Collect replacements across all blocks, then apply in second pass */
         ValueReplEntry *repl_map = NULL;
@@ -2079,7 +2175,8 @@ static bool run_store_load_elim(IronLIR_Module *module) {
                 case IRON_LIR_LOAD:
                     /* If we have a tracked value for this alloca, queue a replacement */
                     if (in->id != IRON_LIR_VALUE_INVALID &&
-                        in->load.ptr != IRON_LIR_VALUE_INVALID) {
+                        in->load.ptr != IRON_LIR_VALUE_INVALID &&
+                        hmgeti(recv_loads, in->id) < 0) {
                         ptrdiff_t idx = hmgeti(last_store, in->load.ptr);
                         if (idx >= 0) {
                             IronLIR_ValueId stored_val = last_store[idx].value;
@@ -2142,6 +2239,7 @@ static bool run_store_load_elim(IronLIR_Module *module) {
         }
 
         hmfree(repl_map);
+        hmfree(recv_loads);
         hmfree(escape_set);
     }
 

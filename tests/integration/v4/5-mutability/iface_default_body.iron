@@ -1,0 +1,46 @@
+-- section: 5-mutability
+-- @req: IFACE-03, IFACE-MUT
+-- extends-spec: an interface method with a body is a default: an implementor that does not
+-- define it inherits the body (monomorphised into the implementor before typecheck), keeping
+-- the interface's tier; an implementor that defines it overrides the default.
+
+interface Game {
+    func update(dt: Int)
+    func keypressed(key: Int) { self.update(key * 100) }
+    readonly func name() -> String { return "unnamed" }
+    readonly func score() -> Int
+}
+
+object Basic impl Game {
+    var n: Int
+    init() { self.n = 0 }
+    func update(dt: Int) { self.n = self.n + dt }
+    readonly func score() -> Int { return self.n }
+}
+
+object Named impl Game {
+    var n: Int
+    init() { self.n = 0 }
+    func update(dt: Int) { self.n = self.n + dt }
+    func keypressed(key: Int) { self.n = self.n - key }
+    readonly func name() -> String { return "named" }
+    readonly func score() -> Int { return self.n }
+}
+
+func poke(var game: Game) {
+    game.keypressed(1)
+}
+
+func main() {
+    var b = Basic()
+    b.keypressed(2)
+    println("{b.name()} {b.score()}")
+
+    var g: Game = Basic()
+    g.keypressed(3)
+    println("{g.name()} {g.score()}")
+
+    var nm = Named()
+    poke(nm)
+    println("{nm.name()} {nm.score()}")
+}

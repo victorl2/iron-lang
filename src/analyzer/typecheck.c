@@ -4316,6 +4316,62 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     }
                 }
+            } else if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_INTERFACE &&
+                       obj_type_mc->interface.decl) {
+                /* Non-ident receiver of interface type (a field access such as
+                 * `self.game.score()`, or a chained call): resolve the return
+                 * type from the interface signature, mirroring the ident arm.
+                 * Without this the call kept the VOID default, so the emitted
+                 * C never declared the result variable. */
+                Iron_InterfaceDecl *iface_ni = obj_type_mc->interface.decl;
+                bool found_ni = false;
+                for (int mi = 0; mi < iface_ni->method_count; mi++) {
+                    Iron_Node *msig = iface_ni->method_sigs[mi];
+                    if (!msig || msig->kind != IRON_NODE_FUNC_DECL) continue;
+                    Iron_FuncDecl *fd = (Iron_FuncDecl *)msig;
+                    if (!fd->name || !mc->method || strcmp(fd->name, mc->method) != 0)
+                        continue;
+                    found_ni = true;
+                    if (fd->resolved_return_type) {
+                        result = fd->resolved_return_type;
+                    } else if (fd->return_type &&
+                               fd->return_type->kind == IRON_NODE_TYPE_ANNOTATION) {
+                        Iron_Type *resolved_rt =
+                            resolve_type_annotation(ctx, fd->return_type);
+                        if (resolved_rt) result = resolved_rt;
+                    }
+                    break;
+                }
+                if (!found_ni && mc->method) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "no method '%s' on interface '%s'",
+                             mc->method, iface_ni->name ? iface_ni->name : "?");
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg, NULL);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                }
+            } else if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_OBJECT &&
+                       obj_type_mc->object.decl && obj_type_mc->object.decl->name &&
+                       ctx->program) {
+                /* Non-ident receiver of object type (`self.ball.hp()`): resolve
+                 * the return type from the method decl, as the ident arm does. */
+                const char *type_name_ni = obj_type_mc->object.decl->name;
+                for (int i = 0; i < ctx->program->decl_count; i++) {
+                    Iron_Node *d = ctx->program->decls[i];
+                    if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                    Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                    if (!md->type_name || !md->method_name || !mc->method) continue;
+                    if (strcmp(md->type_name, type_name_ni) != 0 ||
+                        strcmp(md->method_name, mc->method) != 0) continue;
+                    if (md->resolved_return_type) {
+                        result = md->resolved_return_type;
+                    } else if (md->return_type &&
+                               md->return_type->kind == IRON_NODE_TYPE_ANNOTATION) {
+                        Iron_Type *resolved_rt =
+                            resolve_type_annotation(ctx, md->return_type);
+                        if (resolved_rt) result = resolved_rt;
+                    }
+                    break;
+                }
             } else if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_STRING) {
                 /* Non-ident receiver with String type (e.g. string literal, interp string,
                  * or chained method call): resolve via string.iron wrapper decls. */

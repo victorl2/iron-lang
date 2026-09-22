@@ -715,3 +715,42 @@ This design eliminates virtual dispatch by leveraging whole-program knowledge to
 The design unifies techniques from compiler optimization (devirtualization, monomorphization), language design (tagged unions, sum types), software architecture (Entity Component Systems, data-oriented design), and high-performance computing (AoS/SoA transformation). While each technique exists independently in prior work, no existing language or compiler combines them into a single, transparent abstraction where the programmer writes polymorphic code against interfaces and the compiler automatically produces data-oriented, cache-optimal, SIMD-friendly machine code.
 
 The tradeoff is explicit: runtime extensibility is sacrificed in exchange for the guarantee that the programmer never pays for abstraction. For the large class of programs where all types are known at compile time, this design provides interface-level ergonomics with hand-optimized, data-oriented performance — automatically.
+
+---
+
+## 13. Addendum: mutation through interface bindings (2026-09)
+
+The inline tagged union of Section 3 is a value. Left alone, that made a
+`var` binding of interface type diverge from the language's reference
+semantics: a mutating method dispatched through the union operated on a
+copy of the payload. The following rules close that gap without giving up
+inline storage (design note: `docs/plans/2026-09-22-interface-mutation-design.md`).
+
+**Dispatcher receiver ABI.** For every interface method that is not
+`readonly`/`pure`, the generated dispatcher takes the union by pointer
+(`Iron_<I>_<m>(Iron_<I> *self, ...)`) and forwards `&self->data.<T>` to the
+implementor (or `self->data.<T>` for indirect variants). Readonly and pure
+dispatchers keep the by-value signature, so rvalues and `val` bindings are
+unaffected.
+
+**Receivers pass their storage.** A pointer-receiver call is handed the
+address of what the source named: a binding's slot, a capture's env pointer,
+a module global, an rc/heap pointee, or a field chain rooted at one of those.
+The HIR→LIR SSA pass never promotes such a slot (its loads stay real), and
+copy propagation / store-to-load forwarding treat the slot as clobbered by
+the call. This is the same rule concrete pointer-receiver methods use.
+
+**`var <Interface>` parameters.** Copy-in / write-back, like every other
+`var` parameter. A concrete `var` source is wrapped into the union at the
+call site, passed by address, and its payload copied back afterwards; the
+write-back is tag-guarded and panics if the callee rebound the parameter to
+another implementor. An interface-typed source is passed by address
+directly.
+
+**Default bodies.** A signature with a body is monomorphised into each
+implementor that lacks the method, keeping the signature's tier. The
+dispatcher then finds an ordinary case for that implementor.
+
+**Collections are unchanged.** Split collections (Section 4) still hand out
+element values; a mutating call on a loop variable or on `xs.get(i)` does
+not write back into the collection.

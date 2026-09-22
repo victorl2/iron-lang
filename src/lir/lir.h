@@ -250,6 +250,13 @@ struct IronLIR_Instr {
              * under -Werror=switch-enum and stay untouched. Default NULL
              * via alloc_instr's memset. */
             const char *global_name;
+            /* Set by hir_to_lir's SSA construction when the slot's address
+             * leaves the function's load/store discipline (pointer-receiver
+             * call, var-param by-addr arg, closure capture, stored/returned).
+             * Such a slot is never promoted: its LOADs stay real and the
+             * slot is the live storage — emit_c must free/drop the slot,
+             * not the value that initialised it. */
+            bool        addr_taken;
         } alloca;
 
         /* IRON_LIR_LOAD */

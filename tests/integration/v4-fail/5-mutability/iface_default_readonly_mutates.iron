@@ -1,0 +1,22 @@
+-- section 5-mutability negative: interface default body violating its own tier
+-- @req: IFACE-03, IFACE-MUT
+-- extends-spec: a default body is monomorphised into each implementor with the interface's
+-- tier; a readonly signature whose default body writes a field is rejected like any other
+-- readonly method that writes self.
+
+interface Counter {
+    readonly func bump() { self.n = self.n + 1 }
+    readonly func get() -> Int
+}
+
+object C impl Counter {
+    var n: Int
+    init() { self.n = 0 }
+    readonly func get() -> Int { return self.n }
+}
+
+func main() {
+    var c = C()
+    c.bump()
+    println("{c.get()}")
+}

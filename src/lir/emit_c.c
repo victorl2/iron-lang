@@ -320,6 +320,124 @@ static const char *emit_global_static_name(EmitCtx *ctx, const char *name) {
     return s;
 }
 
+/* ── Pointer-receiver argument emission ────────────────────────────────────── */
+
+void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
+                       IronLIR_Func *fn, EmitCtx *ctx,
+                       IronLIR_BlockId use_block_id, int depth);
+
+/* Emit a C expression that is a POINTER to the storage `vid` names, for a
+ * call whose target takes its receiver by pointer (self_by_addr). The point
+ * is to never hand the callee the address of a temporary copy: a mutating
+ * method must write into the binding, field, capture or pointee the source
+ * program named. Handles, in order:
+ *   - the enclosing pointer-receiver method's own `self` (already `T *`)
+ *   - a module-global slot (already the static's address)
+ *   - a var-capture alias slot (`_e->x` is the pointer; val captures live
+ *     inline in the env, so `&_e->x`)
+ *   - a plain alloca (`&_vN`)
+ *   - a LOAD from a value-typed alloca (recurse on the slot)
+ *   - rc / heap / arena pointees (`T *` verbatim, or `((T *)fat.addr)`)
+ *   - a GET_FIELD chain (`&((*<lvalue>).field)` / `&(ptr->field)`)
+ * and otherwise falls back to `&<expr>`, which is the old behavior. */
+static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
+                               IronLIR_ValueId vid, IronLIR_BlockId use_block_id) {
+    if (fn->is_mut_receiver_method && vid == 1) {
+        emit_val(sb, vid);
+        return;
+    }
+    if (emit_vid_global_slot(fn, vid)) {
+        emit_val(sb, vid);
+        return;
+    }
+    IronLIR_Instr *in = (vid != IRON_LIR_VALUE_INVALID &&
+                         (ptrdiff_t)vid < arrlen(fn->value_table))
+                        ? fn->value_table[vid] : NULL;
+    if (in && in->kind == IRON_LIR_ALLOCA) {
+        /* Split-loop body: the loop variable's slot is dead storage; the
+         * per-branch item variable is the element. */
+        if (ctx->in_split_loop &&
+            ctx->split_loop_var_alloca != IRON_LIR_VALUE_INVALID &&
+            vid == ctx->split_loop_var_alloca) {
+            iron_strbuf_appendf(sb, "&");
+            emit_val(sb, ctx->split_loop_item_vid);
+            return;
+        }
+        if (ctx->capture_alias_map) {
+            ptrdiff_t ca_idx = hmgeti(ctx->capture_alias_map, vid);
+            if (ca_idx >= 0) {
+                int ci = ctx->capture_alias_map[ca_idx].value;
+                Iron_CaptureEntry *cap = &ctx->current_captures[ci];
+                iron_strbuf_appendf(sb, "%s_e->%s", cap->is_mutable ? "" : "&", cap->name);
+                return;
+            }
+        }
+        iron_strbuf_appendf(sb, "&");
+        emit_val(sb, vid);
+        return;
+    }
+    if (in && in->kind == IRON_LIR_LOAD) {
+        IronLIR_ValueId p = in->load.ptr;
+        /* Split-loop body: the loop variable's slot is dead storage; the
+         * per-branch item variable is the element. */
+        if (ctx->in_split_loop &&
+            ctx->split_loop_var_alloca != IRON_LIR_VALUE_INVALID &&
+            p == ctx->split_loop_var_alloca) {
+            iron_strbuf_appendf(sb, "&");
+            emit_val(sb, ctx->split_loop_item_vid);
+            return;
+        }
+        IronLIR_Instr *pin = (p != IRON_LIR_VALUE_INVALID &&
+                              (ptrdiff_t)p < arrlen(fn->value_table))
+                             ? fn->value_table[p] : NULL;
+        if (pin && pin->kind == IRON_LIR_ALLOCA && pin->alloca.alloc_type &&
+            pin->alloca.alloc_type->kind != IRON_TYPE_RC &&
+            pin->alloca.alloc_type->kind != IRON_TYPE_WEAK_RC &&
+            pin->alloca.alloc_type->kind != IRON_TYPE_PTR) {
+            emit_receiver_addr(sb, fn, ctx, p, use_block_id);
+            return;
+        }
+    }
+    if (emit_val_is_heap_ptr(fn, vid)) {
+        if (emit_val_is_heap_fat_ptr(fn, vid)) {
+            const char *pointee = emit_fat_ptr_pointee_type_c(fn, vid, ctx);
+            iron_strbuf_appendf(sb, "((%s *)(", pointee ? pointee : "void");
+            emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, 0);
+            iron_strbuf_appendf(sb, ").addr)");
+            return;
+        }
+        emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, 0);
+        return;
+    }
+    if (in && in->kind == IRON_LIR_GET_FIELD && in->field.field) {
+        IronLIR_ValueId obj = in->field.object;
+        bool obj_is_fat = emit_val_is_any_fat_ptr(fn, obj) ||
+                          emit_val_is_checked_ptr_typed(fn, obj);
+        bool obj_is_ptr = !obj_is_fat &&
+                          (emit_val_is_heap_ptr(fn, obj) ||
+                           emit_val_is_unchecked_ptr_typed(fn, obj));
+        iron_strbuf_appendf(sb, "&(");
+        if (obj_is_fat) {
+            const char *pointee = emit_fat_ptr_pointee_type_c(fn, obj, ctx);
+            if (!pointee) pointee = emit_checked_ptr_pointee_type_c(fn, obj, ctx);
+            iron_strbuf_appendf(sb, "((%s *)", pointee ? pointee : "void");
+            emit_expr_to_buf(sb, obj, fn, ctx, use_block_id, 0);
+            iron_strbuf_appendf(sb, ".addr)->%s", in->field.field);
+        } else if (obj_is_ptr) {
+            emit_expr_to_buf(sb, obj, fn, ctx, use_block_id, 0);
+            iron_strbuf_appendf(sb, "->%s", in->field.field);
+        } else {
+            iron_strbuf_appendf(sb, "(*");
+            emit_receiver_addr(sb, fn, ctx, obj, use_block_id);
+            iron_strbuf_appendf(sb, ").%s", in->field.field);
+        }
+        iron_strbuf_appendf(sb, ")");
+        return;
+    }
+    iron_strbuf_appendf(sb, "&");
+    emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, 0);
+}
+
 /* ── Expression inlining recursive helper ─────────────────────────────────── */
 
 /* Recursively build a C expression string for vid.
@@ -717,6 +835,14 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 
     /* LOAD: pass through to the stored value (alloca variable) */
     case IRON_LIR_LOAD: {
+        /* Split-loop body: the loop variable's slot is dead storage there;
+         * the per-branch item carries the element. */
+        if (ctx->in_split_loop &&
+            ctx->split_loop_var_alloca != IRON_LIR_VALUE_INVALID &&
+            instr->load.ptr == ctx->split_loop_var_alloca) {
+            emit_val(sb, ctx->split_loop_item_vid);
+            break;
+        }
         /* Check for param alias — inline as the param value */
         if (ctx->param_alias_ids) {
             ptrdiff_t pa_idx = hmgeti(ctx->param_alias_ids, instr->load.ptr);
@@ -1089,6 +1215,28 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                         iron_strbuf_appendf(sb, ")");
                         did_wrap = true;
                         break;
+                    }
+                }
+            }
+            /* Interface wrapping for USER functions: the callee's parameter
+             * is interface-typed (`init(g: Game)`, `func run(g: Game)`) and
+             * the argument is a concrete implementor. Mirrors the statement-
+             * form CALL arm, which already did this; the inline path only
+             * handled generated dispatchers. */
+            if (!did_wrap && arg_type && arg_type->kind == IRON_TYPE_OBJECT &&
+                arg_type->object.decl && arg_type->object.decl->name &&
+                ctx->iface_reg && callee_short) {
+                IronLIR_Func *cf = emit_find_ir_func(ctx, callee_short);
+                if (cf && i < cf->param_count) {
+                    Iron_Type *pt = cf->params[i].type;
+                    if (pt && pt->kind == IRON_TYPE_INTERFACE &&
+                        pt->interface.decl && pt->interface.decl->name) {
+                        iron_strbuf_appendf(sb, "%s_from_%s(",
+                            emit_mangle_name(pt->interface.decl->name, ctx->arena),
+                            arg_type->object.decl->name);
+                        emit_expr_to_buf(sb, arg_id, fn, ctx, use_block_id, depth+1);
+                        iron_strbuf_appendf(sb, ")");
+                        did_wrap = true;
                     }
                 }
             }
@@ -1728,6 +1876,19 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 
     case IRON_LIR_LOAD: {
+        /* Split-loop body: the loop variable's slot is dead storage there;
+         * read the per-branch item instead. */
+        if (ctx->in_split_loop &&
+            ctx->split_loop_var_alloca != IRON_LIR_VALUE_INVALID &&
+            instr->load.ptr == ctx->split_loop_var_alloca) {
+            emit_indent(sb, ind);
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = ");
+            emit_val(sb, ctx->split_loop_item_vid);
+            iron_strbuf_appendf(sb, ";\n");
+            break;
+        }
         /* Load from a capture alias: redirect to env field access */
         if (ctx->capture_alias_map) {
             ptrdiff_t ca_idx = hmgeti(ctx->capture_alias_map, instr->load.ptr);
@@ -2632,6 +2793,75 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 /* Terminal node — emit fused loop */
                 emit_fused_chain(ctx, sb, fn, chain, instr, ctx->indent);
                 break;  /* skip normal CALL emission */
+            }
+        }
+
+        /* Interface `var` parameter boundary (docs/plans/2026-09-22-
+         * interface-mutation-design.md §4): a concrete `var` binding bound
+         * to a `var <Interface>` parameter is wrapped into a temporary
+         * tagged union before the call (`Iron_I _ifw = Iron_I_from_T(slot)`),
+         * passed by address, and its payload written back into the source
+         * binding afterwards — the same copy-in / write-back contract every
+         * other `var` parameter has. A `var <Interface>` source is passed by
+         * address directly (no entry here). The write-back checks the tag:
+         * a callee that rebound the parameter to another implementor panics
+         * instead of storing a foreign payload into the binding. */
+        struct {
+            int             arg_index;
+            IronLIR_ValueId slot;
+            const char     *iface_c;
+            const char     *iface_name;
+            const char     *impl;
+            bool            indirect;
+        } ifw[16];
+        int ifw_count = 0;
+        if (instr->call.args_by_addr && ctx->iface_reg) {
+            const char *cn = NULL;
+            if (instr->call.func_decl) {
+                cn = instr->call.func_decl->name;
+            } else {
+                IronLIR_ValueId fp0 = instr->call.func_ptr;
+                if (fp0 != IRON_LIR_VALUE_INVALID &&
+                    fp0 < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                    fn->value_table[fp0] &&
+                    fn->value_table[fp0]->kind == IRON_LIR_FUNC_REF)
+                    cn = fn->value_table[fp0]->func_ref.func_name;
+            }
+            IronLIR_Func *cf = cn ? emit_find_ir_func(ctx, cn) : NULL;
+            for (int i = 0; cf && i < instr->call.arg_count && i < cf->param_count &&
+                            ifw_count < 16; i++) {
+                if (!instr->call.args_by_addr[i]) continue;
+                Iron_Type *pt = cf->params[i].type;
+                if (!pt || pt->kind != IRON_TYPE_INTERFACE || !pt->interface.decl ||
+                    !pt->interface.decl->name) continue;
+                IronLIR_ValueId sv = instr->call.args[i];
+                IronLIR_Instr *slot_in = (sv != IRON_LIR_VALUE_INVALID &&
+                                          sv < (IronLIR_ValueId)arrlen(fn->value_table))
+                                         ? fn->value_table[sv] : NULL;
+                if (!slot_in || slot_in->kind != IRON_LIR_ALLOCA ||
+                    emit_vid_global_slot(fn, sv) ||
+                    !slot_in->alloca.alloc_type ||
+                    slot_in->alloca.alloc_type->kind != IRON_TYPE_OBJECT ||
+                    !slot_in->alloca.alloc_type->object.decl ||
+                    !slot_in->alloca.alloc_type->object.decl->name) continue;
+                const char *iface_c = emit_mangle_name(pt->interface.decl->name, ctx->arena);
+                const char *impl = slot_in->alloca.alloc_type->object.decl->name;
+                char ikey[512];
+                snprintf(ikey, sizeof(ikey), "%s:%s", iface_c, impl);
+                bool indirect = ctx->indirect_variants &&
+                                shgeti(ctx->indirect_variants, ikey) >= 0;
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "%s _ifw%d_%d = %s_from_%s(",
+                                    iface_c, (int)instr->id, i, iface_c, impl);
+                emit_val(sb, sv);
+                iron_strbuf_appendf(sb, ");\n");
+                ifw[ifw_count].arg_index  = i;
+                ifw[ifw_count].slot       = sv;
+                ifw[ifw_count].iface_c    = iface_c;
+                ifw[ifw_count].iface_name = pt->interface.decl->name;
+                ifw[ifw_count].impl       = impl;
+                ifw[ifw_count].indirect   = indirect;
+                ifw_count++;
             }
         }
         /* Phase 33 STDLIB-10 (Plan 33-06): RawPtr.of helper synthesis trigger.
@@ -3934,53 +4164,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * of taking its address, which would yield a pointer-to-pointer
              * and silently miscompile (and segfault) through the setter. */
             if (self_by_addr && i == 0) {
-                bool arg_is_enclosing_self_ptr =
-                    fn && fn->is_mut_receiver_method &&
-                    arg_id == 1;
-                /* Module-global slot receiver: the slot variable already IS
-                 * the static's address — pass it verbatim (`&` would give
-                 * T**). */
-                if (emit_vid_global_slot(fn, arg_id)) {
-                    emit_val(sb, arg_id);
-                    continue;
-                }
-                /* Var-capture alias receiver: hir_to_lir passes the capture's
-                 * alloca slot, which has no C variable of its own (the
-                 * ALLOCA arm skips it). A mutable capture's env field already
-                 * IS the pointer to the original binding — pass it verbatim.
-                 * A val capture lives inline in the env, so take its address. */
-                if (ctx->capture_alias_map) {
-                    ptrdiff_t ca_idx = hmgeti(ctx->capture_alias_map, arg_id);
-                    if (ca_idx >= 0) {
-                        int ci = ctx->capture_alias_map[ca_idx].value;
-                        Iron_CaptureEntry *cap = &ctx->current_captures[ci];
-                        iron_strbuf_appendf(sb, "%s_e->%s",
-                                            cap->is_mutable ? "" : "&", cap->name);
-                        continue;
-                    }
-                }
-                /* Receiver loaded from an rc-shaped slot (or produced by an
-                 * rc alloc): the value already is `T *`. Prefixing `&` would
-                 * hand the callee a `T **` and it would scribble over the
-                 * pointer variable itself. */
-                if (!arg_is_enclosing_self_ptr && emit_val_is_heap_ptr(fn, arg_id)) {
-                    /* heap / arena allocation result is an Iron_FatPtr C
-                     * local: reach the object through `.addr`, same form
-                     * the GET_FIELD / SET_FIELD arms use. */
-                    if (emit_val_is_heap_fat_ptr(fn, arg_id)) {
-                        const char *pointee = emit_fat_ptr_pointee_type_c(fn, arg_id, ctx);
-                        iron_strbuf_appendf(sb, "((%s *)(", pointee ? pointee : "void");
-                        emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
-                        iron_strbuf_appendf(sb, ").addr)");
-                        continue;
-                    }
-                    emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
-                    continue;
-                }
-                if (!arg_is_enclosing_self_ptr) {
-                    iron_strbuf_appendf(sb, "&");
-                }
-                emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                /* Pointer-receiver self: hand the callee the address of the
+                 * storage the receiver names (binding slot, capture env
+                 * pointer, global, rc/heap pointee, or field chain) — never
+                 * the address of a temporary copy. See emit_receiver_addr. */
+                emit_receiver_addr(sb, fn, ctx, arg_id, ctx->current_block_id);
                 continue;
             }
 
@@ -4006,6 +4194,15 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * the callee's `T *_vN` slot aliases the caller's storage.
              * Module-global slot: already the static's address — verbatim. */
             if (instr->call.args_by_addr && instr->call.args_by_addr[i]) {
+                bool via_ifw = false;
+                for (int k = 0; k < ifw_count; k++) {
+                    if (ifw[k].arg_index == i) {
+                        iron_strbuf_appendf(sb, "&_ifw%d_%d", (int)instr->id, i);
+                        via_ifw = true;
+                        break;
+                    }
+                }
+                if (via_ifw) continue;
                 if (!emit_vid_global_slot(fn, arg_id)) {
                     iron_strbuf_appendf(sb, "&");
                 }
@@ -4240,6 +4437,19 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
         iron_strbuf_appendf(sb, ");\n");
+        /* Interface `var` param boundary: write the payload back into the
+         * concrete source binding (tag-guarded, see the pre-call wrap). */
+        for (int k = 0; k < ifw_count; k++) {
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb,
+                "if (_ifw%d_%d.tag != %s_TAG_%s) iron_panic_iface_rebound(__FILE__, __LINE__, \"%s\", \"%s\");\n",
+                (int)instr->id, ifw[k].arg_index, ifw[k].iface_c, ifw[k].impl,
+                ifw[k].iface_name, ifw[k].impl);
+            emit_indent(sb, ind);
+            emit_val(sb, ifw[k].slot);
+            iron_strbuf_appendf(sb, " = %s_ifw%d_%d.data.%s;\n",
+                ifw[k].indirect ? "*" : "", (int)instr->id, ifw[k].arg_index, ifw[k].impl);
+        }
         /* 2026-07 remediation (ARENA-10 arena-OOM panic name): an Arena ctor
          * bound by a LET carries its binding name (hir_to_lir
          * tag_arena_ctor_binding). The result C local is the runtime handle
@@ -4340,9 +4550,32 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     }
                     if (list_type &&
                         get_stack_array_origin(ctx, orig) == IRON_LIR_VALUE_INVALID) {
+                        /* The list value may have been stored into a binding
+                         * slot whose address was taken (pushes through
+                         * `&slot`): that slot, not the creation value, holds
+                         * the live items/count — free it instead. */
+                        IronLIR_ValueId free_vid = orig;
+                        for (int sbi = 0; sbi < fn->block_count && free_vid == orig; sbi++) {
+                            IronLIR_Block *sblk = fn->blocks[sbi];
+                            for (int sii = 0; sii < sblk->instr_count; sii++) {
+                                IronLIR_Instr *sin = sblk->instrs[sii];
+                                if (!sin || sin->kind != IRON_LIR_STORE ||
+                                    sin->store.value != orig) continue;
+                                IronLIR_ValueId sp = sin->store.ptr;
+                                if (sp != IRON_LIR_VALUE_INVALID &&
+                                    (ptrdiff_t)sp < arrlen(fn->value_table) &&
+                                    fn->value_table[sp] &&
+                                    fn->value_table[sp]->kind == IRON_LIR_ALLOCA &&
+                                    fn->value_table[sp]->alloca.addr_taken &&
+                                    !fn->value_table[sp]->alloca.global_name) {
+                                    free_vid = sp;
+                                }
+                                break;
+                            }
+                        }
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "%s_free(&_v%u);\n",
-                                            list_type, (unsigned)orig);
+                                            list_type, (unsigned)free_vid);
                     }
                 }
             }
@@ -8186,7 +8419,23 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                             iron_strbuf_appendf(sb, ".%s_items[_sp_i]);\n", lower_name);
                         }
 
-                        /* Emit body instructions (user code) */
+                        /* Emit body instructions (user code).
+                         * The loop variable's slot is never written in this
+                         * specialised loop (the STORE before body_start_ii is
+                         * skipped); the per-branch item IS the element. Record
+                         * slot -> item so loads of the slot (and pointer-
+                         * receiver calls rooted at it) render the item. */
+                        ctx->split_loop_var_alloca = IRON_LIR_VALUE_INVALID;
+                        ctx->split_loop_item_vid   = matched->get_index_vid;
+                        for (int pi = 0; pi < matched->body_start_ii && pi < body_blk->instr_count; pi++) {
+                            IronLIR_Instr *pin = body_blk->instrs[pi];
+                            if (pin && pin->kind == IRON_LIR_STORE &&
+                                pin->store.value == matched->get_index_vid) {
+                                ctx->split_loop_var_alloca = pin->store.ptr;
+                                break;
+                            }
+                        }
+                        ctx->in_split_loop = true;
                         int saved_indent = ctx->indent;
                         ctx->indent = saved_indent + 2;
                         for (int ii = matched->body_start_ii; ii < body_blk->instr_count; ii++) {
@@ -8196,6 +8445,8 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                         }
                         ctx->indent = saved_indent;
                         ctx->in_split_loop = false; /* restore after body */
+                        ctx->split_loop_var_alloca = IRON_LIR_VALUE_INVALID;
+                        ctx->split_loop_item_vid   = IRON_LIR_VALUE_INVALID;
                         emit_indent(sb, ctx->indent + 1);
                         iron_strbuf_appendf(sb, "}\n");
                         emit_indent(sb, ctx->indent);
@@ -9253,9 +9504,16 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                     }
                 }
 
-                /* Build parameter list: self + extra params */
+                /* Build parameter list: self + extra params.
+                 * Mutating interface methods (not readonly/pure) take the
+                 * union by POINTER so the implementor mutates the caller's
+                 * storage in place; readonly/pure keep the by-value form so
+                 * rvalues and val bindings dispatch unchanged. Call sites
+                 * pass `&slot` via self_by_addr (hir_to_lir.c). */
+                bool sig_is_mut = !(sig->is_readonly || sig->is_pure);
                 Iron_StrBuf param_buf = iron_strbuf_create(128);
-                iron_strbuf_appendf(&param_buf, "%s self", iface_mangled);
+                iron_strbuf_appendf(&param_buf, "%s %sself", iface_mangled,
+                                    sig_is_mut ? "*" : "");
                 for (int pi = 0; pi < sig->param_count; pi++) {
                     Iron_Param *p = (Iron_Param *)sig->params[pi];
                     const char *pt = "void*";
@@ -9289,8 +9547,9 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                 /* Implementation — use lowercased name */
                 iron_strbuf_appendf(&ctx.lifted_funcs,
                     "static inline %s %s_%s(%s) {\n"
-                    "    switch(self.tag) {\n",
-                    ret_type_c, iface_lower, sig->name, params);
+                    "    switch(self%stag) {\n",
+                    ret_type_c, iface_lower, sig->name, params,
+                    sig_is_mut ? "->" : ".");
 
                 for (int ji = 0; ji < entry->impl_count; ji++) {
                     Iron_IfaceImpl *impl = &entry->impls[ji];
@@ -9342,11 +9601,12 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                         ? (is_indirect ? ""  : "&")
                         : (is_indirect ? "*" : "");
                     iron_strbuf_appendf(&ctx.lifted_funcs,
-                        "        case %s_TAG_%s: %s%s_%s(%sself.data.%s%s); break;\n",
+                        "        case %s_TAG_%s: %s%s_%s(%sself%sdata.%s%s); break;\n",
                         iface_mangled, impl->type_name,
                         has_return ? "return " : "",
                         impl_lower, sig->name,
                         recv_prefix,
+                        sig_is_mut ? "->" : ".",
                         impl->type_name,
                         fwd_args);
                 }
