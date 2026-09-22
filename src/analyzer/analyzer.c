@@ -2,6 +2,7 @@
 #include "analyzer/resolve.h"
 #include "analyzer/typecheck.h"
 #include "analyzer/capture.h"
+#include "analyzer/iface_defaults.h"
 #include "analyzer/init_check.h"
 #include "analyzer/unused_var.h"
 #include "analyzer/escape.h"
@@ -146,6 +147,12 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
     iron_types_init(arena);
 
     /* HARD-05: between-pass cancel safepoint. */
+    if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
+
+    /* Step 1b: interface default bodies — monomorphise each defaulted
+     * interface method into every implementor that does not define it, so
+     * the resolver and every later pass see an ordinary patch method. */
+    iron_iface_synthesize_defaults(program, arena, diags);
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 
     /* Step 2: Name resolution */

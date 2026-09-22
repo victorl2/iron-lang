@@ -2479,6 +2479,26 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 break;
             }
         }
+        /* Interface receiver: the callee is a generated dispatcher, not a
+         * HIR func. It takes the tagged union by POINTER when the interface
+         * signature is mutating (not readonly/pure) — see the dispatcher
+         * emitter in emit_c.c — so the receiver must be passed by address
+         * exactly like a concrete pointer-receiver method. */
+        if (!callee_is_mut_receiver && !is_static_call &&
+            expr->method_call.object && expr->method_call.object->type &&
+            expr->method_call.object->type->kind == IRON_TYPE_INTERFACE &&
+            expr->method_call.object->type->interface.decl &&
+            expr->method_call.method) {
+            Iron_InterfaceDecl *idecl = expr->method_call.object->type->interface.decl;
+            for (int mi = 0; mi < idecl->method_count; mi++) {
+                Iron_Node *msig = idecl->method_sigs[mi];
+                if (!msig || msig->kind != IRON_NODE_FUNC_DECL) continue;
+                Iron_FuncDecl *fd = (Iron_FuncDecl *)msig;
+                if (!fd->name || strcmp(fd->name, expr->method_call.method) != 0) continue;
+                callee_is_mut_receiver = !(fd->is_readonly || fd->is_pure);
+                break;
+            }
+        }
 
         /* Build args: instance methods pass self as first arg, static methods
          * don't — except for the synth_self case above. */
@@ -2490,10 +2510,51 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
              * in place (lowering the ident yields a struct COPY and the
              * mutation would vanish — the local-var path has no such copy
              * because self_by_addr takes the alloca'd binding's address). */
-            if (callee_is_mut_receiver ||
+            bool pointer_receiver_callee =
+                callee_is_mut_receiver ||
                 strcmp(mangled, "timer_update") == 0 ||
-                strcmp(mangled, "timer_reset") == 0) {
+                strcmp(mangled, "timer_reset") == 0;
+            if (pointer_receiver_callee) {
                 self_val = global_ident_slot(ctx, expr->method_call.object);
+            }
+            /* Pointer-receiver callee + receiver is a mutable binding with a
+             * value-typed alloca (local `var`, honored `var` param, or a
+             * var capture inside a lifted lambda): pass the ALLOCA itself so
+             * self_by_addr renders `&<slot>` and the callee mutates the
+             * binding in place. Lowering the ident instead yields a LOAD
+             * that materializes as a struct COPY (`_vN = slot;` then
+             * `&_vN`), so every field write landed in a dead temporary:
+             * the var-param write-back carried the stale entry value and
+             * the lambda mutated `*_e->x` copied into a local. Same
+             * approach as the Box receiver-form path above. Pointer-shaped
+             * slots (rc / heap / arena, alloca type wrapped as IRON_TYPE_RC)
+             * keep the LOAD: the loaded value already IS the pointer and
+             * emit_c.c passes it verbatim. */
+            if (self_val == IRON_LIR_VALUE_INVALID && pointer_receiver_callee &&
+                expr->method_call.object->kind == IRON_HIR_EXPR_IDENT) {
+                IronHIR_VarId recv_vid = expr->method_call.object->ident.var_id;
+                ptrdiff_t ai = hmgeti(ctx->var_alloca_map, recv_vid);
+                /* Mirror IDENT lowering priority: a non-var parameter (the
+                 * enclosing method's `self` included) resolves through
+                 * param_map, and its Phase B alloca is a param alias that
+                 * emit_c never declares — leave those on the lower_expr
+                 * path (a pointer-receiver `self` is already `T *_v1`). */
+                bool is_plain_param =
+                    hmgeti(ctx->param_map, recv_vid) >= 0 &&
+                    hmgeti(ctx->var_param_ids, recv_vid) < 0;
+                if (ai >= 0 && !is_plain_param) {
+                    IronLIR_ValueId slot = ctx->var_alloca_map[ai].value;
+                    IronLIR_Instr *slot_in =
+                        (slot < (IronLIR_ValueId)arrlen(ctx->current_func->value_table))
+                            ? ctx->current_func->value_table[slot] : NULL;
+                    if (slot_in && slot_in->kind == IRON_LIR_ALLOCA &&
+                        slot_in->alloca.alloc_type &&
+                        slot_in->alloca.alloc_type->kind != IRON_TYPE_RC &&
+                        slot_in->alloca.alloc_type->kind != IRON_TYPE_WEAK_RC &&
+                        slot_in->alloca.alloc_type->kind != IRON_TYPE_PTR) {
+                        self_val = slot;
+                    }
+                }
             }
             if (self_val == IRON_LIR_VALUE_INVALID) {
                 self_val = lower_expr(ctx, expr->method_call.object);
@@ -4294,6 +4355,93 @@ static void ssa_stack_push(VarStackEntry **var_stacks_ptr, IronLIR_ValueId alloc
     arrput(var_stacks[si].value, val);
 }
 
+/* Address-taken allocas for the SSA pass. A slot whose address leaves the
+ * function's own load/store discipline — passed by pointer to a callee
+ * (self_by_addr receiver chain, args_by_addr var param, or as a raw call
+ * argument), captured by a closure env, stored or returned — is mutated
+ * behind SSA's back. Aliasing its LOADs to the reaching STORE value in the
+ * value_table would make every later query about the load (its type, its
+ * producer kind, "is this a union already") answer for the stored value
+ * instead: the emitter then re-wrapped an interface slot's load as the
+ * concrete initializer. Such slots keep real loads; the LIR optimizer's
+ * escape-aware store-to-load forwarding handles what is actually safe. */
+typedef struct { IronLIR_ValueId key; bool value; } SsaAddrTakenEntry;
+static SsaAddrTakenEntry *g_ssa_addr_taken = NULL;
+
+static IronLIR_ValueId ssa_root_alloca(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    for (int guard = 0; guard < 64; guard++) {
+        if (vid == IRON_LIR_VALUE_INVALID ||
+            (ptrdiff_t)vid >= arrlen(fn->value_table)) return IRON_LIR_VALUE_INVALID;
+        IronLIR_Instr *in = fn->value_table[vid];
+        if (!in) return IRON_LIR_VALUE_INVALID;
+        switch ((int)in->kind) {
+        case IRON_LIR_ALLOCA:
+            /* Pointer-shaped slot (rc / heap / arena / checked ptr): the
+             * receiver is the pointee, never the slot — keep it promotable.
+             * Interface-element arrays are emitted as split collections whose
+             * live storage is the literal value (emit_c keys them by the
+             * ARRAY_LIT id), so the slot must stay promotable there too. */
+            if (in->alloca.alloc_type &&
+                (in->alloca.alloc_type->kind == IRON_TYPE_RC ||
+                 in->alloca.alloc_type->kind == IRON_TYPE_WEAK_RC ||
+                 in->alloca.alloc_type->kind == IRON_TYPE_PTR ||
+                 (in->alloca.alloc_type->kind == IRON_TYPE_ARRAY &&
+                  in->alloca.alloc_type->array.elem &&
+                  in->alloca.alloc_type->array.elem->kind == IRON_TYPE_INTERFACE)))
+                return IRON_LIR_VALUE_INVALID;
+            return vid;
+        case IRON_LIR_LOAD:      vid = in->load.ptr;     break;
+        case IRON_LIR_GET_FIELD: vid = in->field.object; break;
+        default:                 return IRON_LIR_VALUE_INVALID;
+        }
+    }
+    return IRON_LIR_VALUE_INVALID;
+}
+
+static void ssa_mark_addr_taken(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID ||
+        (ptrdiff_t)vid >= arrlen(fn->value_table)) return;
+    IronLIR_Instr *in = fn->value_table[vid];
+    if (in && in->kind == IRON_LIR_ALLOCA) hmput(g_ssa_addr_taken, vid, true);
+}
+
+static void ssa_collect_addr_taken(IronLIR_Func *fn) {
+    hmfree(g_ssa_addr_taken);
+    g_ssa_addr_taken = NULL;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (!in) continue;
+            switch ((int)in->kind) {
+            case IRON_LIR_CALL:
+                for (int ai = 0; ai < in->call.arg_count; ai++) {
+                    ssa_mark_addr_taken(fn, in->call.args[ai]);
+                    if (in->call.args_by_addr && in->call.args_by_addr[ai])
+                        ssa_mark_addr_taken(fn, in->call.args[ai]);
+                }
+                if (in->call.self_by_addr && in->call.arg_count > 0) {
+                    IronLIR_ValueId root = ssa_root_alloca(fn, in->call.args[0]);
+                    if (root != IRON_LIR_VALUE_INVALID) hmput(g_ssa_addr_taken, root, true);
+                }
+                break;
+            case IRON_LIR_MAKE_CLOSURE:
+                for (int ci = 0; ci < in->make_closure.capture_count; ci++)
+                    ssa_mark_addr_taken(fn, in->make_closure.captures[ci]);
+                break;
+            case IRON_LIR_STORE:
+                ssa_mark_addr_taken(fn, in->store.value);
+                break;
+            case IRON_LIR_RETURN:
+                ssa_mark_addr_taken(fn, in->ret.value);
+                break;
+            default:
+                break;
+            }
+        }
+    }
+}
+
 /* Rename one block: process phis, instructions, fill successor phis, recurse dom children.
  * pushed_per_block tracks what we push so we can pop after children are processed.
  * Returns the count of values pushed (for pop after recursion). */
@@ -4333,7 +4481,8 @@ static void ssa_rename_recursive(
             if (ptr != IRON_LIR_VALUE_INVALID &&
                 (ptrdiff_t)ptr < (ptrdiff_t)arrlen(fn->value_table) &&
                 fn->value_table[ptr] &&
-                fn->value_table[ptr]->kind == IRON_LIR_ALLOCA) {
+                fn->value_table[ptr]->kind == IRON_LIR_ALLOCA &&
+                hmgeti(g_ssa_addr_taken, ptr) < 0) {
                 IronLIR_ValueId def = ssa_stack_top(var_stacks, ptr);
                 if (def != IRON_LIR_VALUE_INVALID && fn->value_table[instr->id]) {
                     /* Only replace if the defining value has a backing instruction.
@@ -4459,6 +4608,17 @@ static void ssa_rename_recursive(
 static void ssa_construct_func(IronLIR_Func *fn) {
     if (!fn || fn->is_extern || fn->block_count == 0) return;
 
+    /* Step 0: slots whose address leaves SSA's control keep real loads.
+     * Record the decision on the ALLOCA itself so emit_c knows the slot
+     * (not the value that initialised it) is the live storage. */
+    ssa_collect_addr_taken(fn);
+    for (ptrdiff_t ti = 0; ti < hmlen(g_ssa_addr_taken); ti++) {
+        IronLIR_ValueId aid = g_ssa_addr_taken[ti].key;
+        if ((ptrdiff_t)aid < arrlen(fn->value_table) && fn->value_table[aid] &&
+            fn->value_table[aid]->kind == IRON_LIR_ALLOCA)
+            fn->value_table[aid]->alloca.addr_taken = true;
+    }
+
     /* Step 1: Build CFG edges */
     rebuild_cfg_edges(fn);
 
@@ -4493,6 +4653,8 @@ static void ssa_construct_func(IronLIR_Func *fn) {
     /* For each alloca: find def blocks (blocks with STORE to alloca) */
     for (int ai = 0; ai < (int)arrlen(allocas); ai++) {
         IronLIR_ValueId alloca_id = allocas[ai];
+        /* Address-taken slot: never promoted, so no phis either. */
+        if (hmgeti(g_ssa_addr_taken, alloca_id) >= 0) continue;
 
         /* Find defining blocks (blocks that STORE to this alloca) */
         struct { IronLIR_BlockId key; bool value; } *def_blocks = NULL;
@@ -4602,6 +4764,8 @@ static void ssa_construct_func(IronLIR_Func *fn) {
         IronLIR_Block *entry_blk = fn->blocks[0];
         ssa_rename_recursive(fn, entry_blk, &var_stacks, phi_alloca_map, dom_children);
     }
+    hmfree(g_ssa_addr_taken);
+    g_ssa_addr_taken = NULL;
 
     /* Cleanup */
     for (int bi = 0; bi < fn->block_count; bi++) {

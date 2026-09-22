@@ -242,6 +242,35 @@ void iron_panic_index_oob(const char *site_file, int site_line,
     abort();
 }
 
+void iron_panic_iface_rebound(const char *site_file, int site_line,
+                              const char *iface_name, const char *expected_impl) {
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        /* noreturn — abort() inside */
+    }
+    const char *sf = site_file ? site_file : "<unknown>";
+    const char *in = iface_name ? iface_name : "<interface>";
+    const char *ei = expected_impl ? expected_impl : "<type>";
+
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"iface_rebound\",", stderr);
+        fprintf(stderr, "\"site\":{\"file\":\"%s\",\"line\":%d}", sf, site_line);
+        fprintf(stderr, ",\"interface\":\"%s\",\"expected\":\"%s\"", in, ei);
+        fputc('}', stderr);
+        fputc('\n', stderr);
+    } else {
+        fputs("iron: interface parameter rebound to a different implementor\n", stderr);
+        fprintf(stderr, "  site: %s:%d\n", sf, site_line);
+        fprintf(stderr, "  a `var %s` parameter was passed a `var %s` binding, but the\n"
+                        "  callee rebound it to another implementor; the write-back\n"
+                        "  cannot store that value into the %s binding\n", in, ei, ei);
+    }
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
 void iron_panic_div_by_zero(const char *site_file, int site_line) {
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {

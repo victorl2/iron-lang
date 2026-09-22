@@ -283,6 +283,7 @@ add_library(iron_compiler STATIC
     src/analyzer/init_check.c
     src/analyzer/unused_var.c
     src/analyzer/iface_collect.c
+    src/analyzer/iface_defaults.c
     src/analyzer/analyzer.c
     src/comptime/comptime.c
     src/hir/hir.c

@@ -1,0 +1,44 @@
+-- section: 5-mutability
+-- @req: MUT-07, IFACE-MUT
+-- extends-spec: a `var` binding of interface type behaves like a `var` binding of the
+-- concrete type: a mutating interface method writes into the binding's own storage, whether
+-- the binding is a local, a field, or a lambda capture.
+
+interface Game {
+    func update(dt: Int)
+    readonly func score() -> Int
+}
+
+object MyGame impl Game {
+    var n: Int
+    init() { self.n = 0 }
+    func update(dt: Int) { self.n = self.n + dt }
+    readonly func score() -> Int { return self.n }
+}
+
+object Runner {
+    var game: Game
+    init(g: Game) { self.game = g }
+    func tick() { self.game.update(10) }
+}
+
+func run_twice(f: func()) {
+    f()
+    f()
+}
+
+func main() {
+    var local: Game = MyGame()
+    local.update(1)
+    local.update(1)
+    println("local: {local.score()}")
+
+    var r = Runner(MyGame())
+    r.tick()
+    r.tick()
+    println("field: {r.game.score()}")
+
+    var captured: Game = MyGame()
+    run_twice(func() { captured.update(100) })
+    println("capture: {captured.score()}")
+}

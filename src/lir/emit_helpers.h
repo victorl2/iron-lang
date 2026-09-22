@@ -181,6 +181,10 @@ typedef struct {
         bool is_soa;                     /* Phase 48-02: true = SoA layout for this type */
     } split_loop_ctx;
     bool in_split_loop;
+    /* Split-loop body: loads of the loop variable's slot render as the
+     * per-branch item value (the slot itself is never written there). */
+    IronLIR_ValueId split_loop_var_alloca;
+    IronLIR_ValueId split_loop_item_vid;
 
     /* Map of type names that use reduced storage (type_name -> true) (Phase 48) */
     struct { char *key; bool value; } *reduced_storage_types;

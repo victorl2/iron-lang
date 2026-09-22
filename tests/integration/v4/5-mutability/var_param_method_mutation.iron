@@ -1,0 +1,40 @@
+-- section: 5-mutability
+-- @req: PARM-02, MUT-07
+-- extends-spec: a mutating method called on a `var` parameter writes through to the
+-- caller's binding, exactly like a direct field assignment on that parameter does.
+-- Regression: the receiver was copied into a temporary before the call, so the
+-- write-back at return carried the stale entry value.
+
+object Player {
+    var hp: Int
+    init(hp: Int) { self.hp = hp }
+    func heal(n: Int) { self.hp = self.hp + n }
+}
+
+func heal_by_field(var p: Player, n: Int) {
+    p.hp = p.hp + n
+}
+
+func heal_by_method(var p: Player, n: Int) {
+    p.heal(n)
+    p.heal(n)
+}
+
+func heal_then_read(var p: Player, n: Int) -> Int {
+    p.heal(n)
+    return p.hp
+}
+
+func main() {
+    var a = Player(1)
+    heal_by_field(a, 10)
+    println("field: {a.hp}")
+
+    var b = Player(1)
+    heal_by_method(b, 10)
+    println("method: {b.hp}")
+
+    var c = Player(1)
+    val seen = heal_then_read(c, 5)
+    println("inside: {seen} outside: {c.hp}")
+}

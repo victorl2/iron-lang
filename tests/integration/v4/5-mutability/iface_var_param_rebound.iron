@@ -1,0 +1,32 @@
+-- section: 5-mutability
+-- @req: PARM-02, IFACE-MUT
+-- @expect-panic: rebound to a different implementor
+-- extends-spec: a concrete `var` binding passed to a `var <Interface>` parameter is written
+-- back after the call; if the callee rebound the parameter to another implementor the
+-- payload cannot be stored into the source binding, so the program panics at the call site.
+
+interface Game {
+    func update(dt: Int)
+}
+
+object MyGame impl Game {
+    var n: Int
+    init() { self.n = 0 }
+    func update(dt: Int) { self.n = self.n + dt }
+}
+
+object OtherGame impl Game {
+    var m: Int
+    init() { self.m = 7 }
+    func update(dt: Int) { self.m = self.m - dt }
+}
+
+func swap(var game: Game) {
+    game = OtherGame()
+}
+
+func main() {
+    var g = MyGame()
+    swap(g)
+    println("unreachable: {g.n}")
+}

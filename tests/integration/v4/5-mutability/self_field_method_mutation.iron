@@ -1,0 +1,31 @@
+-- section: 5-mutability
+-- @req: MUT-07
+-- extends-spec: a mutating method called on a field reached through `self` (or through a
+-- local var) mutates that field in place; the receiver is the field's storage, not a copy.
+
+object Ball {
+    var x: Int
+    init() { self.x = 0 }
+    func move() { self.x = self.x + 1 }
+}
+
+object World {
+    var ball: Ball
+    init() { self.ball = Ball() }
+    func step() { self.ball.move() }
+    func step_twice() {
+        self.step()
+        self.ball.move()
+    }
+}
+
+func main() {
+    var w = World()
+    w.step()
+    w.step()
+    println("self.field.method: {w.ball.x}")
+    var v = World()
+    v.ball.move()
+    v.step_twice()
+    println("local.field.method: {v.ball.x}")
+}

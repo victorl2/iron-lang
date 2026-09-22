@@ -374,6 +374,64 @@ val drawables: [Drawable] = [player, enemy, particle, ui_element]
 draw_all(drawables)
 ```
 
+### Interface default bodies
+
+An interface method may carry a body. An implementor that does not define
+the method inherits it; one that does define it overrides the default. The
+default keeps the interface's tier (`readonly` / `pure` / mutating), so a
+`readonly` default that writes a field is rejected exactly like a readonly
+method that writes `self`. Inside the body, `self` is the implementor.
+
+```
+interface Game {
+  func update(dt: Float)
+  func keypressed(key: Key) { }          -- optional hook: default does nothing
+  readonly func title() -> String { return "untitled" }
+}
+
+object Pong implements Game {
+  var ball: Ball
+  func update(dt: Float) { self.ball.move(dt) }
+  -- keypressed and title are inherited
+}
+```
+
+The compiler monomorphises each default into every implementor that lacks
+it, so dispatch through the interface finds an ordinary method on the
+concrete type.
+
+### Mutation through interface bindings
+
+A `var` binding of interface type behaves like a `var` binding of the
+concrete type: a mutating interface method writes into the binding's own
+storage, whether the binding is a local, a field, a lambda capture, or a
+`var` parameter.
+
+```
+var g: Game = Pong()
+g.update(dt)                 -- mutates g
+
+func run(var game: Game) {
+  game.update(dt)            -- mutates the caller's binding
+}
+
+var pong = Pong()
+run(pong)                    -- pong sees the update
+```
+
+`var <Interface>` parameters have the same copy-in / write-back contract as
+every other `var` parameter. When the caller passes a concrete `var`
+binding, the call site wraps it into the interface representation, passes
+that by address, and writes the payload back after the call. If the callee
+rebinds the parameter to a *different* implementor, that write-back cannot
+store the new value into the caller's concrete binding and the program
+panics at the call site (`interface parameter rebound to a different
+implementor`). Rebinding is fine when the caller's binding is itself of the
+interface type.
+
+Elements of an interface-typed array (`[Shape]`) are still accessed by
+value; mutating an element through a loop variable does not write back.
+
 ### Patch — Open Extension (v3.0+)
 
 `patch object T { ... }` adds methods and named inits to any type,

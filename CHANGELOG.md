@@ -5,6 +5,31 @@ This file is generated from those release notes automatically on each publish.
 
 ## Unreleased
 
+- **Mutating method calls now write through references** — calling a
+  mutating method on a `var` parameter, on a `var` captured by a lambda, or
+  on a `var` rc / heap binding mutates the caller's object, matching what a
+  direct field assignment on the same binding already did. The receiver was
+  previously copied into a temporary before the call, so the mutation landed
+  in dead storage (the var-param write-back then carried the stale entry
+  value, and lambdas mutated a copy of `*env->x`); rc / heap receivers were
+  passed as `&ptr`, handing the callee a pointer to the pointer variable.
+  The same fix covers a field reached through `self` (`self.ball.move()`),
+  which used to mutate a temporary copy of the field.
+- **Interfaces: `var` bindings mutate in place** — a `var` binding of
+  interface type now behaves like a `var` binding of the concrete type.
+  Mutating interface methods dispatch through a pointer to the binding's
+  storage (local, field, lambda capture), and `var <Interface>` parameters
+  follow the copy-in / write-back contract of every other `var` parameter,
+  wrapping a concrete source at the call site and writing its payload back
+  on return (a callee that rebinds the parameter to another implementor
+  panics at the call site). Objects with interface-typed fields, method
+  calls on interface-typed fields, and passing a concrete object to a
+  user function's interface parameter now compile correctly.
+- **Interface default bodies** — an interface method with a body is
+  inherited by every implementor that does not define it, keeping the
+  interface's tier; implementors may override it. Previously the signature
+  parsed and typechecked but codegen referenced a method that did not exist.
+
 - **Per-site unchecked indexing** — `xs.get_unchecked(i)` /
   `xs.set_unchecked(i, v)` on lists, bounded vectors, and stack arrays skip
   the bounds check at exactly that site (UB on OOB, like C; `--debug-build`

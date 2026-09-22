@@ -59,6 +59,18 @@ __attribute__((noreturn))
 #endif
 void iron_panic_div_by_zero(const char *site_file, int site_line);
 
+/* Interface `var` parameter boundary: a concrete `var` binding was passed
+ * to a `var <Interface>` parameter (the call site wrapped it into a
+ * temporary tagged union and writes the payload back after the call), but
+ * the callee rebound the parameter to a different implementor, so the
+ * payload no longer has the source binding's type.
+ * Definition in src/runtime/iron_panic.c. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_iface_rebound(const char *site_file, int site_line,
+                              const char *iface_name, const char *expected_impl);
+
 /* Generic index out of bounds (LIST-01): List get/set/pop + direct indexing.
  * Runtime call sites pass the operation name as site_file with line 0.
  * Definition in src/runtime/iron_panic.c. */

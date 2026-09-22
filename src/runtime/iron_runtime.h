@@ -425,6 +425,16 @@ void iron_panic_stale_stack_pointer(const char *deref_file,
                                     int deref_line,
                                     uint64_t captured_frame_gen);
 
+/* Interface `var` parameter boundary: the callee rebound a wrapped concrete
+ * binding to another implementor, so the write-back cannot proceed.
+ * Forward-declared here for generated code; definition in
+ * src/runtime/iron_panic.c, canonical declaration in iron_panic.h. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_iface_rebound(const char *site_file, int site_line,
+                              const char *iface_name, const char *expected_impl);
+
 /* Phase 23 VEC-03: bounded vector out-of-bounds panic.
  * Forward-declared here so generated user binaries can call it inline at
  * push and index sites without depending on diagnostics.h.  Definition in

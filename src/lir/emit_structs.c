@@ -789,12 +789,56 @@ void emit_type_decls(EmitCtx *ctx) {
         if (module->type_decls[i]->kind == IRON_LIR_TYPE_OBJECT) obj_count++;
     }
 
+    /* Objects whose layout embeds an interface tagged union — directly
+     * (`var game: Game`) or through a field of such an object — must be
+     * emitted AFTER the union structs, which in turn follow their
+     * implementors. Compute that set as a fixpoint over field types and
+     * defer those objects to a second topo pass below the unions (same
+     * color array, so already-emitted dependencies are not repeated). */
+    bool *needs_iface = (bool *)iron_arena_alloc(
+        ctx->arena, sizeof(bool) * (size_t)(module->type_decl_count + 1),
+        _Alignof(bool));
+    if (!needs_iface) iron_oom_abort("emit_structs.c:emit_type_decls needs_iface");
+    memset(needs_iface, 0, sizeof(bool) * (size_t)(module->type_decl_count + 1));
+    {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (int i = 0; i < module->type_decl_count; i++) {
+                IronLIR_TypeDecl *td = module->type_decls[i];
+                if (needs_iface[i] || td->kind != IRON_LIR_TYPE_OBJECT || !td->type ||
+                    td->type->kind != IRON_TYPE_OBJECT || !td->type->object.decl)
+                    continue;
+                Iron_ObjectDecl *od = td->type->object.decl;
+                for (int f = 0; f < od->field_count && !needs_iface[i]; f++) {
+                    Iron_Field *fld = (Iron_Field *)od->fields[f];
+                    if (!fld || !fld->type_ann ||
+                        fld->type_ann->kind != IRON_NODE_TYPE_ANNOTATION) continue;
+                    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)fld->type_ann;
+                    if (ta->is_nullable || !ta->name) continue;
+                    for (int j = 0; j < module->type_decl_count; j++) {
+                        IronLIR_TypeDecl *dep = module->type_decls[j];
+                        if (!dep->name || strcmp(dep->name, ta->name) != 0) continue;
+                        if (dep->kind == IRON_LIR_TYPE_INTERFACE ||
+                            (dep->kind == IRON_LIR_TYPE_OBJECT && needs_iface[j])) {
+                            needs_iface[i] = true;
+                            changed = true;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    int *topo_colors = NULL;
     if (obj_count > 0) {
         int *colors = (int *)iron_arena_alloc(ctx->arena,
                                                sizeof(int) * (size_t)module->type_decl_count,
                                                _Alignof(int));
         if (!colors) iron_oom_abort("emit_structs.c:emit_type_decls topo_colors");
         memset(colors, 0, sizeof(int) * (size_t)module->type_decl_count);
+        topo_colors = colors;
 
         IrTopoState topo;
         topo.sorted    = NULL;
@@ -804,6 +848,7 @@ void emit_type_decls(EmitCtx *ctx) {
 
         for (int i = 0; i < module->type_decl_count; i++) {
             if (module->type_decls[i]->kind == IRON_LIR_TYPE_OBJECT &&
+                !needs_iface[i] &&
                 colors[i] == IR_TOPO_WHITE) {
                 ir_topo_visit(&topo, i);
             }
@@ -1094,6 +1139,32 @@ void emit_type_decls(EmitCtx *ctx) {
                 arrfree(iface_collection_vids57);
             }
         }
+    }
+
+    /* Deferred objects: those embedding an interface tagged union (see the
+     * needs_iface fixpoint above) are emitted now that every union is
+     * complete. Same color array as the first pass, so dependencies that
+     * were already written are skipped. */
+    if (topo_colors) {
+        IrTopoState topo2;
+        topo2.sorted    = NULL;
+        topo2.module    = module;
+        topo2.colors    = topo_colors;
+        topo2.has_cycle = false;
+        for (int i = 0; i < module->type_decl_count; i++) {
+            if (module->type_decls[i]->kind == IRON_LIR_TYPE_OBJECT &&
+                needs_iface[i] &&
+                topo_colors[i] == IR_TOPO_WHITE) {
+                ir_topo_visit(&topo2, i);
+            }
+        }
+        for (int i = 0; i < (int)arrlen(topo2.sorted); i++) {
+            emit_object_struct_body(ctx, topo2.sorted[i], ctx->next_type_tag++);
+        }
+        if (arrlen(topo2.sorted) > 0) {
+            iron_strbuf_appendf(&ctx->struct_bodies, "\n");
+        }
+        arrfree(topo2.sorted);
     }
 
     /* Enum definitions */

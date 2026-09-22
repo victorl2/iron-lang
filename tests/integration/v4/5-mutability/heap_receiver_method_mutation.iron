@@ -1,0 +1,18 @@
+-- section: 5-mutability
+-- @req: MUT-07
+-- extends-spec: a mutating method called on a `var` heap binding mutates the heap
+-- object; the binding is an Iron_FatPtr, so the call reaches the object through
+-- `.addr` instead of taking the binding's address.
+
+object Counter {
+    var n: Int
+    init() { self.n = 0 }
+    func bump() { self.n = self.n + 1 }
+}
+
+func main() {
+    var h = heap Counter()
+    h.bump()
+    h.bump()
+    println("heap: {h.n}")
+}

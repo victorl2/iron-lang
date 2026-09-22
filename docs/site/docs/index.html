@@ -574,6 +574,8 @@
         <a href="#objects">Objects</a>
         <a href="#enums">Enums &amp; ADTs</a>
         <a href="#interfaces">Interfaces</a>
+        <a href="#iface-default-bodies">Interface Default Bodies</a>
+        <a href="#iface-mutation">Mutation via Interfaces</a>
         <a href="#generics">Generics</a>
       </div>
       <div class="sidebar-section">
@@ -851,6 +853,35 @@ e.<span class="fn">update</span>(<span class="nu">0.016</span>)  <span class="cm
 <span class="kw">func</span> <span class="fn">process</span>(e: <span class="ty">Entity</span>) { e.<span class="fn">update</span>(<span class="nu">0.016</span>) }
 <span class="fn">process</span>(<span class="ty">Enemy</span>(<span class="fn">vec2</span>(<span class="nu">5</span>,<span class="nu">3</span>), <span class="nu">100</span>))  <span class="cm">-- auto-wrapped</span></pre></div>
 
+      <h3 id="iface-default-bodies">Default Bodies</h3>
+      <p>An interface method may carry a body. Implementors that do not define the method inherit it; implementors that do define it override the default. The default keeps the interface's tier (<code>readonly</code> / <code>pure</code> / mutating), and inside the body <code>self</code> is the implementor. This is how optional hooks are expressed.</p>
+      <div class="code-block"><pre><span class="kw">interface</span> <span class="ty">Game</span> {
+  <span class="kw">func</span> <span class="fn">update</span>(dt: <span class="ty">Float</span>)
+  <span class="kw">func</span> <span class="fn">keypressed</span>(key: <span class="ty">Key</span>) { }                <span class="cm">-- optional hook: default does nothing</span>
+  <span class="kw">readonly</span> <span class="kw">func</span> <span class="fn">title</span>() -> <span class="ty">String</span> { <span class="kw">return</span> <span class="st">"untitled"</span> }
+}
+
+<span class="kw">object</span> <span class="ty">Pong</span> <span class="kw">impl</span> <span class="ty">Game</span> {
+  <span class="kw">var</span> ball: <span class="ty">Ball</span>
+  <span class="kw">func</span> <span class="fn">update</span>(dt: <span class="ty">Float</span>) { self.ball.<span class="fn">move</span>(dt) }
+  <span class="cm">-- keypressed and title are inherited</span>
+}</pre></div>
+      <p>The compiler monomorphises each default into every implementor that lacks it, so dispatch finds an ordinary method on the concrete type. A <code>readonly</code> default that writes a field is rejected (E0238), exactly like any readonly method that writes <code>self</code>.</p>
+
+      <h3 id="iface-mutation">Mutation Through Interface Bindings</h3>
+      <p>A <code>var</code> binding of interface type behaves like a <code>var</code> binding of the concrete type: a mutating interface method writes into the binding's own storage, whether it is a local, a field, a lambda capture, or a <code>var</code> parameter.</p>
+      <div class="code-block"><pre><span class="kw">var</span> g: <span class="ty">Game</span> = <span class="ty">Pong</span>()
+g.<span class="fn">update</span>(dt)                     <span class="cm">-- mutates g</span>
+
+<span class="kw">func</span> <span class="fn">run</span>(<span class="kw">var</span> game: <span class="ty">Game</span>) {
+  game.<span class="fn">update</span>(dt)                <span class="cm">-- mutates the caller's binding</span>
+}
+
+<span class="kw">var</span> pong = <span class="ty">Pong</span>()
+<span class="fn">run</span>(pong)                        <span class="cm">-- pong sees the update</span></pre></div>
+      <p><code>var &lt;Interface&gt;</code> parameters follow the same copy-in / write-back contract as every other <code>var</code> parameter. A concrete <code>var</code> argument is wrapped into the interface representation at the call site, passed by address, and its payload is written back after the call. If the callee rebinds the parameter to a <em>different</em> implementor, that write-back cannot store the new value into the caller's concrete binding, so the program panics at the call site with <code>interface parameter rebound to a different implementor</code>. Rebinding is fine when the caller's binding is itself of the interface type.</p>
+      <p>Elements of an interface-typed array (<code>[Shape]</code>) are still accessed by value: mutating an element through a loop variable does not write back into the array.</p>
+
       <h3>How It Works (Under the Hood)</h3>
       <p>The compiler performs whole-program analysis to find all implementors of each interface, then generates:</p>
       <ul style="margin: 0.5rem 0 1rem 1.5rem; color: var(--text-secondary);">
@@ -863,11 +894,13 @@ e.<span class="fn">update</span>(<span class="nu">0.016</span>)  <span class="cm
 <span class="kw">typedef</span> <span class="kw">union</span> { Iron_Enemy Enemy; Iron_Player Player; } Iron_Entity_data_t;
 <span class="kw">struct</span> Iron_Entity { Iron_Entity_Tag tag; Iron_Entity_data_t data; };
 
-<span class="cm">// Dispatch: switch on tag, not function pointer</span>
-<span class="kw">static inline</span> <span class="kw">void</span> <span class="fn">Iron_entity_update</span>(Iron_Entity self, <span class="kw">double</span> dt) {
-  <span class="kw">switch</span>(self.tag) {
-    <span class="kw">case</span> Iron_Entity_TAG_Player: <span class="fn">Iron_player_update</span>(self.data.Player, dt); <span class="kw">break</span>;
-    <span class="kw">case</span> Iron_Entity_TAG_Enemy:  <span class="fn">Iron_enemy_update</span>(self.data.Enemy, dt);  <span class="kw">break</span>;
+<span class="cm">// Dispatch: switch on tag, not function pointer.</span>
+<span class="cm">// Mutating methods take the union by pointer so the binding is updated in place;</span>
+<span class="cm">// readonly / pure methods take it by value.</span>
+<span class="kw">static inline</span> <span class="kw">void</span> <span class="fn">Iron_entity_update</span>(Iron_Entity *self, <span class="kw">double</span> dt) {
+  <span class="kw">switch</span>(self->tag) {
+    <span class="kw">case</span> Iron_Entity_TAG_Player: <span class="fn">Iron_player_update</span>(&amp;self->data.Player, dt); <span class="kw">break</span>;
+    <span class="kw">case</span> Iron_Entity_TAG_Enemy:  <span class="fn">Iron_enemy_update</span>(&amp;self->data.Enemy, dt);  <span class="kw">break</span>;
   }
 }</pre></div>
 
