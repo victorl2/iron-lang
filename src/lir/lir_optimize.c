@@ -1351,7 +1351,7 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                             (ptrdiff_t)cap < arrlen(fn->value_table) &&
                             fn->value_table[cap] != NULL &&
                             fn->value_table[cap]->kind == IRON_LIR_ALLOCA) {
-                            hmdel(store_info, cap);
+                            if (store_info) hmdel(store_info, cap);
                         }
                     }
                 }
@@ -1363,7 +1363,7 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                  * entry copy. */
                 if (in->kind == IRON_LIR_STORE &&
                     lir_vid_is_var_param(fn, in->store.value)) {
-                    hmdel(store_info, in->store.ptr);
+                    if (store_info) hmdel(store_info, in->store.ptr);
                 }
                 /* PARM-02 (caller side): an alloca passed by address to a
                  * callee's var param is mutated behind this pass's back —
@@ -1371,7 +1371,7 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                 if (in->kind == IRON_LIR_CALL && in->call.args_by_addr) {
                     for (int ai = 0; ai < in->call.arg_count; ai++) {
                         if (in->call.args_by_addr[ai]) {
-                            hmdel(store_info, in->call.args[ai]);
+                            if (store_info) hmdel(store_info, in->call.args[ai]);
                         }
                     }
                 }
