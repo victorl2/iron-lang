@@ -1,0 +1,17 @@
+-- section: 5-mutability
+-- @req: MUT-07
+-- extends-spec: a mutating method called on a `var` rc binding mutates the shared
+-- object; the slot already holds a pointer, so the call must not take its address.
+
+object Counter {
+    var n: Int
+    init() { self.n = 0 }
+    func bump() { self.n = self.n + 1 }
+}
+
+func main() {
+    var r = rc Counter()
+    r.bump()
+    r.bump()
+    println("rc: {r.n}")
+}

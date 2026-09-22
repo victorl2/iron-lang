@@ -2490,10 +2490,51 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
              * in place (lowering the ident yields a struct COPY and the
              * mutation would vanish — the local-var path has no such copy
              * because self_by_addr takes the alloca'd binding's address). */
-            if (callee_is_mut_receiver ||
+            bool pointer_receiver_callee =
+                callee_is_mut_receiver ||
                 strcmp(mangled, "timer_update") == 0 ||
-                strcmp(mangled, "timer_reset") == 0) {
+                strcmp(mangled, "timer_reset") == 0;
+            if (pointer_receiver_callee) {
                 self_val = global_ident_slot(ctx, expr->method_call.object);
+            }
+            /* Pointer-receiver callee + receiver is a mutable binding with a
+             * value-typed alloca (local `var`, honored `var` param, or a
+             * var capture inside a lifted lambda): pass the ALLOCA itself so
+             * self_by_addr renders `&<slot>` and the callee mutates the
+             * binding in place. Lowering the ident instead yields a LOAD
+             * that materializes as a struct COPY (`_vN = slot;` then
+             * `&_vN`), so every field write landed in a dead temporary:
+             * the var-param write-back carried the stale entry value and
+             * the lambda mutated `*_e->x` copied into a local. Same
+             * approach as the Box receiver-form path above. Pointer-shaped
+             * slots (rc / heap / arena, alloca type wrapped as IRON_TYPE_RC)
+             * keep the LOAD: the loaded value already IS the pointer and
+             * emit_c.c passes it verbatim. */
+            if (self_val == IRON_LIR_VALUE_INVALID && pointer_receiver_callee &&
+                expr->method_call.object->kind == IRON_HIR_EXPR_IDENT) {
+                IronHIR_VarId recv_vid = expr->method_call.object->ident.var_id;
+                ptrdiff_t ai = hmgeti(ctx->var_alloca_map, recv_vid);
+                /* Mirror IDENT lowering priority: a non-var parameter (the
+                 * enclosing method's `self` included) resolves through
+                 * param_map, and its Phase B alloca is a param alias that
+                 * emit_c never declares — leave those on the lower_expr
+                 * path (a pointer-receiver `self` is already `T *_v1`). */
+                bool is_plain_param =
+                    hmgeti(ctx->param_map, recv_vid) >= 0 &&
+                    hmgeti(ctx->var_param_ids, recv_vid) < 0;
+                if (ai >= 0 && !is_plain_param) {
+                    IronLIR_ValueId slot = ctx->var_alloca_map[ai].value;
+                    IronLIR_Instr *slot_in =
+                        (slot < (IronLIR_ValueId)arrlen(ctx->current_func->value_table))
+                            ? ctx->current_func->value_table[slot] : NULL;
+                    if (slot_in && slot_in->kind == IRON_LIR_ALLOCA &&
+                        slot_in->alloca.alloc_type &&
+                        slot_in->alloca.alloc_type->kind != IRON_TYPE_RC &&
+                        slot_in->alloca.alloc_type->kind != IRON_TYPE_WEAK_RC &&
+                        slot_in->alloca.alloc_type->kind != IRON_TYPE_PTR) {
+                        self_val = slot;
+                    }
+                }
             }
             if (self_val == IRON_LIR_VALUE_INVALID) {
                 self_val = lower_expr(ctx, expr->method_call.object);

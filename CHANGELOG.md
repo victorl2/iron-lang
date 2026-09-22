@@ -5,6 +5,15 @@ This file is generated from those release notes automatically on each publish.
 
 ## Unreleased
 
+- **Mutating method calls now write through references** — calling a
+  mutating method on a `var` parameter, on a `var` captured by a lambda, or
+  on a `var` rc / heap binding mutates the caller's object, matching what a
+  direct field assignment on the same binding already did. The receiver was
+  previously copied into a temporary before the call, so the mutation landed
+  in dead storage (the var-param write-back then carried the stale entry
+  value, and lambdas mutated a copy of `*env->x`); rc / heap receivers were
+  passed as `&ptr`, handing the callee a pointer to the pointer variable.
+
 - **Per-site unchecked indexing** — `xs.get_unchecked(i)` /
   `xs.set_unchecked(i, v)` on lists, bounded vectors, and stack arrays skip
   the bounds check at exactly that site (UB on OOB, like C; `--debug-build`

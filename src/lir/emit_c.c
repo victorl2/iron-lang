@@ -3944,6 +3944,39 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_val(sb, arg_id);
                     continue;
                 }
+                /* Var-capture alias receiver: hir_to_lir passes the capture's
+                 * alloca slot, which has no C variable of its own (the
+                 * ALLOCA arm skips it). A mutable capture's env field already
+                 * IS the pointer to the original binding — pass it verbatim.
+                 * A val capture lives inline in the env, so take its address. */
+                if (ctx->capture_alias_map) {
+                    ptrdiff_t ca_idx = hmgeti(ctx->capture_alias_map, arg_id);
+                    if (ca_idx >= 0) {
+                        int ci = ctx->capture_alias_map[ca_idx].value;
+                        Iron_CaptureEntry *cap = &ctx->current_captures[ci];
+                        iron_strbuf_appendf(sb, "%s_e->%s",
+                                            cap->is_mutable ? "" : "&", cap->name);
+                        continue;
+                    }
+                }
+                /* Receiver loaded from an rc-shaped slot (or produced by an
+                 * rc alloc): the value already is `T *`. Prefixing `&` would
+                 * hand the callee a `T **` and it would scribble over the
+                 * pointer variable itself. */
+                if (!arg_is_enclosing_self_ptr && emit_val_is_heap_ptr(fn, arg_id)) {
+                    /* heap / arena allocation result is an Iron_FatPtr C
+                     * local: reach the object through `.addr`, same form
+                     * the GET_FIELD / SET_FIELD arms use. */
+                    if (emit_val_is_heap_fat_ptr(fn, arg_id)) {
+                        const char *pointee = emit_fat_ptr_pointee_type_c(fn, arg_id, ctx);
+                        iron_strbuf_appendf(sb, "((%s *)(", pointee ? pointee : "void");
+                        emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                        iron_strbuf_appendf(sb, ").addr)");
+                        continue;
+                    }
+                    emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                    continue;
+                }
                 if (!arg_is_enclosing_self_ptr) {
                     iron_strbuf_appendf(sb, "&");
                 }

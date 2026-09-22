@@ -1295,6 +1295,15 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                         }
                     }
                 }
+                /* Pointer-receiver method call: hir_to_lir passes the
+                 * receiver binding's ALLOCA as args[0] (self_by_addr renders
+                 * `&slot`), so the callee mutates the slot in place. A
+                 * post-call load must observe that mutation, not the
+                 * single init store. */
+                if (in->kind == IRON_LIR_CALL && in->call.self_by_addr &&
+                    in->call.arg_count > 0) {
+                    hmdel(store_info, in->call.args[0]);
+                }
             }
         }
 

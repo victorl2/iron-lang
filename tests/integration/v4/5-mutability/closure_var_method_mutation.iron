@@ -1,0 +1,35 @@
+-- section: 5-mutability
+-- @req: MUT-07
+-- extends-spec: a `var` binding is captured by reference (language_definition.md
+-- "Capture"), so a mutating method called on the captured object inside the lambda
+-- mutates the original binding, exactly like a field assignment on it does.
+-- Regression: the lambda body copied `*env->obj` into a temporary before the call.
+
+object Counter {
+    var n: Int
+    init() { self.n = 0 }
+    func bump() { self.n = self.n + 1 }
+}
+
+func run_twice(f: func()) {
+    f()
+    f()
+}
+
+func main() {
+    var by_field = Counter()
+    val f1 = func() { by_field.n = by_field.n + 1 }
+    run_twice(f1)
+    println("field: {by_field.n}")
+
+    var by_method = Counter()
+    val f2 = func() { by_method.bump() }
+    run_twice(f2)
+    println("method: {by_method.n}")
+
+    var direct = Counter()
+    direct.bump()
+    direct.bump()
+    direct.bump()
+    println("direct: {direct.n}")
+}
