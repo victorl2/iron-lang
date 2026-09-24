@@ -2,7 +2,7 @@
 #define ILSP_AUTO_IMPORT_H
 
 /* Phase 4 Plan 04-03 Task 01 (EDIT-05, D-02) -- additionalTextEdits
- * builder for auto-import on bucket 4 (stdlib) and bucket 5 (deps)
+ * builder for auto-import on bucket 4 (stdlib)
  * completion candidates.
  *
  * Locked behaviour (04-CONTEXT.md D-02):

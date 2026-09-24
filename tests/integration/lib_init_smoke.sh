@@ -34,9 +34,7 @@ grep -q 'type = "lib"' iron.toml || { echo "FAIL: iron.toml missing type=lib"; e
 grep -q 'pub func hello' src/lib.iron || { echo "FAIL: scaffold missing 'pub func hello'"; exit 1; }
 grep -q 'Hello from mylib!' src/lib.iron || { echo "FAIL: scaffold missing greeting"; exit 1; }
 
-# Ensure the recursive iron build invoked by pkg_build (and the path-dep
-# resolver in any future smoke variants) finds the build-tree iron, not a
-# stale system install on PATH.
+# Ensure iron finds the build-tree ironc, not a stale system install on PATH.
 export PATH="${IRON_BIN_DIR}:${PATH}"
 
 build_log="$(mktemp)"

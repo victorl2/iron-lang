@@ -1,6 +1,5 @@
 /* Phase 4 Plan 04-03 Task 01 (EDIT-05, D-02) -- additionalTextEdits
- * builder for auto-import on bucket 4 (stdlib) and bucket 5 (deps)
- * completion candidates.
+ * builder for auto-import on bucket 4 (stdlib) completion candidates.
  *
  * The walker visits the consecutive top-of-file run of
  * IRON_NODE_IMPORT_DECL. It stops on the first non-import decl, and

@@ -1,9 +1,13 @@
 /*
- * iron - The Iron package manager
+ * iron - The Iron project tool
  *
  * Discovers and invokes `ironc` for single-file workflows.
  * Implements iron init, build, run, check, test for iron.toml projects.
- * Shows Cargo-style help for package commands.
+ * Shows Cargo-style help for project commands.
+ *
+ * Iron deliberately has no package manager: there is no registry, no
+ * fetching, and no lockfile. Third-party code is vendored into the
+ * project's vendor/ directory and compiled with the project.
  *
  * Design: iron does NOT link iron_compiler — clean process boundary.
  * It discovers ironc as a sibling binary and spawns it.
@@ -28,10 +32,10 @@
 #  include <sys/wait.h>
 #endif
 
-#include "pkg/color.h"
-#include "pkg/init.h"
-#include "pkg/pkg_build.h"
-#include "pkg/iron_pkg.h"
+#include "project/color.h"
+#include "project/init.h"
+#include "project/project_build.h"
+#include "project/iron_project.h"
 #include "cli/version.h"
 #include "cli/help_registry.h"
 
@@ -279,7 +283,7 @@ int main(int argc, char **argv) {
      * runs. This is what makes `iron init --help` not scaffold files,
      * `iron build --help` not create target/, and so on (HELP-02).
      *
-     * `migrate` is included even though src/pkg/main.c does not currently
+     * `migrate` is included even though src/project/main.c does not currently
      * dispatch it (it's an ironc-only command); listing it here means
      * `iron migrate --help` prints migrate help instead of falling
      * through to the unknown-command branch.
@@ -313,8 +317,8 @@ int main(int argc, char **argv) {
             return forward_to_ironc(argc, argv);
         }
 
-        /* No file arg: package mode */
-        return cmd_package(cmd, argc, argv);
+        /* No file arg: project mode (iron.toml) */
+        return cmd_project(cmd, argc, argv);
     }
 
     /* Unknown command */

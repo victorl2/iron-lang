@@ -25,9 +25,9 @@
 #  include <unistd.h>
 #endif
 
-#include "pkg/color.h"
-#include "pkg/init.h"
-#include "pkg/iron_pkg.h"
+#include "project/color.h"
+#include "project/init.h"
+#include "project/iron_project.h"
 #include "cli/version.h"
 
 /* ── write_if_absent ────────────────────────────────────────────────────── */
@@ -128,7 +128,8 @@ int cmd_init(int argc, char **argv) {
                  "type = \"%s\"\n"
                  "iron = \">= %s\"  # Minimum iron compiler version. Update when adopting features that require a newer compiler.\n"
                  "\n"
-                 "[dependencies]\n",
+                 "# Iron has no package manager. To use third-party code, copy its\n"
+                 "# source into vendor/; `iron build` compiles it with this project.\n",
                  pkg_name, is_lib ? "lib" : "bin", floor);
         free(floor);
     } else {
@@ -138,7 +139,8 @@ int cmd_init(int argc, char **argv) {
                  "version = \"0.1.0\"\n"
                  "type = \"%s\"\n"
                  "\n"
-                 "[dependencies]\n",
+                 "# Iron has no package manager. To use third-party code, copy its\n"
+                 "# source into vendor/; `iron build` compiles it with this project.\n",
                  pkg_name, is_lib ? "lib" : "bin");
     }
 

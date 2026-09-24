@@ -329,7 +329,6 @@ IronLsp_WorkspaceIndex *ilsp_workspace_index_create(const char *workspace_root) 
     atomic_store(&wi->tick, 0);
     wi->analyzed_count = 0;
     wi->stdlib = NULL;
-    wi->deps   = NULL;
     /* Plan 04 Task 01: zero-init reverse-ref state. The refs map is
      * lazily populated on first hmput inside references_index.c. */
     wi->refs = NULL;

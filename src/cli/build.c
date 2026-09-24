@@ -416,7 +416,7 @@ static char *make_path(const char *base, const char *rel) {
  * with the named file AND resets its logical line counter, so spans carry
  * per-file 1-based line numbers end-to-end. Plain Phase 93 markers (no
  * `@line:`) keep their original semantics (filename re-tag only, physical
- * TU-wide numbering) for the multi-file harness and pkg_build.c stubs.
+ * TU-wide numbering) for the multi-file harness and .iron-stub files.
  *
  * The marker filename is QUOTED (`-- @file: "<path>" @line: 1`) so paths
  * containing spaces round-trip; the lexer strips the quotes and — for the
@@ -651,9 +651,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
     argv_buf[ai++] = stdlib_i_flag;
-    /* Phase 94 LIB-03: extra -L<dir> / -l<name> flags forwarded from
-     * pkg_build for each local-path dependency, in topological order
-     * (leaf-deps first per resolver topo-sort). */
+    /* Phase 94 LIB-03: extra -L<dir> / -l<name> flags passed to
+     * `ironc build`, in command-line order. */
     for (int li = 0; li < opts.extra_link_flag_count; li++) {
         argv_buf[ai++] = opts.extra_link_flags[li];
     }
@@ -741,9 +740,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = src_i_flag;
     argv_buf[ai++] = vendor_i_flag;
     argv_buf[ai++] = stdlib_i_flag;
-    /* Phase 94 LIB-03: extra -L<dir> / -l<name> flags forwarded from
-     * pkg_build for each local-path dependency, in topological order
-     * (leaf-deps first per resolver topo-sort). Placed before -lm so
+    /* Phase 94 LIB-03: extra -L<dir> / -l<name> flags passed to
+     * `ironc build`, in command-line order. Placed before -lm so
      * static-archive symbol lookup happens during the main link pass. */
     for (int li = 0; li < opts.extra_link_flag_count; li++) {
         argv_buf[ai++] = opts.extra_link_flags[li];
@@ -1199,27 +1197,6 @@ int iron_build(const char *source_path, const char *output_path,
     long src_size = 0;
     char *source = read_file(source_path, &src_size);
     if (!source) { free(base_dir); return 1; }
-
-    /* 1b. Check iron.toml for raylib = true */
-    {
-        /* Look for iron.toml in the same directory as the source file */
-        char *src_copy = strdup(source_path);
-        if (src_copy) {
-            char *dir = dirname(src_copy);
-            size_t toml_len = strlen(dir) + strlen("/iron.toml") + 1;
-            char *toml_path = (char *)malloc(toml_len);
-            if (toml_path) {
-                snprintf(toml_path, toml_len, "%s/iron.toml", dir);
-                IronProject *proj = iron_toml_parse(toml_path);
-                if (proj) {
-                    if (proj->raylib) opts.use_raylib = true;
-                    iron_toml_free(proj);
-                }
-                free(toml_path);
-            }
-            free(src_copy);
-        }
-    }
 
     /* 1c–1g. Detect stdlib imports and prepend .iron wrappers.
      * Use a temporary arena for the token-level import detection so the

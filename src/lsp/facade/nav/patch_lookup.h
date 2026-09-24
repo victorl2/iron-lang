@@ -29,9 +29,8 @@
  *       Used by: implementation.c (PATCH-01), type_hierarchy.c (PATCH-02),
  *       complete/buckets.c (PATCH-03), references.c (PATCH-05).
  *
- * Cross-file iteration MUST go through workspace_index per RESEARCH
- * Conflict 1 (CONTEXT D-02 said dep_map but IronLsp_DepEntry carries no
- * parsed Iron_Program; only IronLsp_IndexEntry does).
+ * Cross-file iteration MUST go through workspace_index: only
+ * IronLsp_IndexEntry carries a parsed Iron_Program.
  *
  * Visibility predicate is applied with the enclosing patch ObjectDecl
  * as decl_node. Per RESEARCH Conflict 3, this is functionally a no-op

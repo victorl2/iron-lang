@@ -1,5 +1,5 @@
-#ifndef IRON_PKG_COLOR_H
-#define IRON_PKG_COLOR_H
+#ifndef IRON_PROJECT_COLOR_H
+#define IRON_PROJECT_COLOR_H
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +15,7 @@
 #define IRON_COLOR_ORANGE  "\x1b[38;5;208m"
 #define IRON_COLOR_GREEN   "\x1b[32m"
 #define IRON_COLOR_RED     "\x1b[31m"
+#define IRON_COLOR_YELLOW  "\x1b[33m"
 #define IRON_COLOR_CYAN    "\x1b[36m"
 #define IRON_COLOR_BOLD    "\x1b[1m"
 #define IRON_COLOR_DIM     "\x1b[2m"
@@ -65,4 +66,15 @@ static inline void iron_print_error(bool color, const char *msg) {
     }
 }
 
-#endif /* IRON_PKG_COLOR_H */
+/* Print warning prefix: "warning:" in yellow+bold */
+static inline void iron_print_warning(bool color, const char *msg) {
+    if (color) {
+        fprintf(stderr, "%s%swarning:%s %s\n",
+                IRON_COLOR_BOLD, IRON_COLOR_YELLOW,
+                IRON_COLOR_RESET, msg);
+    } else {
+        fprintf(stderr, "warning: %s\n", msg);
+    }
+}
+
+#endif /* IRON_PROJECT_COLOR_H */

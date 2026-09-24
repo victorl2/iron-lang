@@ -8,8 +8,7 @@
  *   2. If collected run is empty: emit no edit.
  *   3. Classify each Iron_ImportDecl by path:
  *        Group A (stdlib): ilsp_stdlib_cache_get(wi->stdlib, path) != NULL
- *        Group B (dep)   : ilsp_dep_map_lookup(wi->deps, path)     != NULL
- *        Group C (local) : everything else
+ *        Group B (local) : everything else (project and vendored modules)
  *   4. Dedup within the kept set: a ({path,alias}) key is considered the
  *      same. First occurrence wins.
  *   5. Unused-removal (gated): when wi->bulk_analyze_done == true, drop
@@ -38,7 +37,6 @@
 #include "lsp/facade/edit/codeaction/organize_imports.h"
 
 #include "lsp/store/document.h"
-#include "lsp/store/dep_map.h"
 #include "lsp/store/stdlib_cache.h"
 #include "lsp/store/workspace_index.h"
 
@@ -55,12 +53,11 @@
 
 /* Group rank: used as the primary sort key. */
 #define GROUP_STDLIB 0
-#define GROUP_DEP    1
-#define GROUP_LOCAL  2
+#define GROUP_LOCAL  1
 
 typedef struct {
     const Iron_ImportDecl *imp;     /* source AST node */
-    int                    group;   /* GROUP_STDLIB / DEP / LOCAL */
+    int                    group;   /* GROUP_STDLIB / LOCAL */
     bool                   dropped; /* true after dedup/unused-remove */
 } OrgEntry;
 
@@ -119,10 +116,6 @@ static int classify_import(const Iron_ImportDecl        *imp,
     /* Group A: stdlib lookup. */
     if (wi->stdlib && ilsp_stdlib_cache_get(wi->stdlib, imp->path)) {
         return GROUP_STDLIB;
-    }
-    /* Group B: dep lookup. */
-    if (wi->deps && ilsp_dep_map_lookup(wi->deps, imp->path)) {
-        return GROUP_DEP;
     }
     return GROUP_LOCAL;
 }
@@ -396,26 +389,13 @@ void ilsp_organize_imports(const Iron_Program              *program,
 
     bool emitted_stdlib = emit_group(&sb, entries, (size_t)run_len,
                                        GROUP_STDLIB);
-    bool emitted_dep    = false;
     bool emitted_local  = false;
 
     if (emitted_stdlib) {
-        /* Peek: any DEP or LOCAL kept? If yes, emit a blank line. */
+        /* Peek: any LOCAL kept? If yes, emit a blank line. */
         for (int i = 0; i < run_len; i++) {
             if (entries[i].dropped) continue;
             if (entries[i].group != GROUP_STDLIB) {
-                sb_append_char(&sb, '\n');
-                break;
-            }
-        }
-    }
-
-    emitted_dep = emit_group(&sb, entries, (size_t)run_len, GROUP_DEP);
-
-    if (emitted_dep) {
-        for (int i = 0; i < run_len; i++) {
-            if (entries[i].dropped) continue;
-            if (entries[i].group == GROUP_LOCAL) {
                 sb_append_char(&sb, '\n');
                 break;
             }

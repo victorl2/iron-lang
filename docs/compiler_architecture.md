@@ -360,11 +360,13 @@ Error codes are namespaced: `IRON_ERR_LEX_*` (100s), `IRON_ERR_PARSE_*` (200s), 
 
 ## CLI Toolchain
 
-**Directory:** `src/cli/` (ironc), `src/pkg/` (iron)
+**Directory:** `src/cli/` (ironc), `src/project/` (iron)
 
 Two binaries:
 - **`ironc`** — Raw compiler. `ironc build`, `ironc run`, `ironc check`, `ironc fmt`, `ironc test`.
-- **`iron`** — Package manager. `iron init`, `iron build`, `iron run`, `iron check`, `iron test`. Discovers `ironc` as a sibling binary. Manages `iron.toml` projects and GitHub-sourced dependencies.
+- **`iron`** — Project tool. `iron init`, `iron build`, `iron run`, `iron check`, `iron test`. Discovers `ironc` as a sibling binary. Manages `iron.toml` projects.
+
+Iron has no package manager: there is no registry, no fetching, and no lockfile. Third-party Iron code is vendored as source under a project's `vendor/` directory; `iron build` concatenates everything under `vendor/` and the project's `src/*.iron` into `target/combined.iron` and compiles that as one unit. A vendored directory that has its own `iron.toml` and `src/` contributes only `src/`; `tests/`, `examples/`, `target/`, and hidden directories are skipped.
 
 ---
 

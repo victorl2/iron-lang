@@ -2,14 +2,14 @@
  *
  * Asserts:
  *   1. ilsp_workspace_classify correctly tags *.iron / iron.toml /
- *      iron.lock / unknown paths.
+ *      unknown paths (iron.lock is unknown: Iron has no lockfile).
  *   2. ilsp_workspace_path_from_uri round-trips file:// URIs into
  *      absolute paths, including URL-decoded ones.
  *   3. ilsp_workspace_find_root walks up from a nested path to locate a
  *      test fixture directory containing an iron.toml sentinel.
  *   4. The didChangeWatchedFiles handler dispatches through the handler
  *      registry for the 4 canonical event types -- source-open,
- *      source-not-open, manifest, lockfile -- without raising errors
+ *      source-not-open, manifest, unknown -- without raising errors
  *      and without corrupting server state. */
 #include "unity.h"
 
@@ -88,7 +88,7 @@ static void test_classify_paths(void) {
         ilsp_workspace_classify("file:///home/u/proj/iron.toml"));
     TEST_ASSERT_EQUAL_INT(ILSP_WATCHED_MANIFEST,
         ilsp_workspace_classify("iron.toml"));
-    TEST_ASSERT_EQUAL_INT(ILSP_WATCHED_LOCKFILE,
+    TEST_ASSERT_EQUAL_INT(ILSP_WATCHED_UNKNOWN,
         ilsp_workspace_classify("file:///home/u/proj/iron.lock"));
     TEST_ASSERT_EQUAL_INT(ILSP_WATCHED_UNKNOWN,
         ilsp_workspace_classify("file:///tmp/readme.md"));
@@ -192,7 +192,7 @@ static void test_watched_files_dispatcher(void) {
         "]}}";
     ilsp_dispatch_route(&h.server, body3, strlen(body3), &h.arena);
 
-    /* 4d. Event for iron.lock. */
+    /* 4d. Event for a non-Iron file (iron.lock is no longer special). */
     const char *body4 =
         "{\"jsonrpc\":\"2.0\",\"method\":\"workspace/didChangeWatchedFiles\","
         "\"params\":{\"changes\":["
@@ -203,19 +203,19 @@ static void test_watched_files_dispatcher(void) {
     /* JSON-RPC responses are never enqueued here (these are all
      * notifications, not requests).  However, starting in Phase 3 Plan
      * 06 (NAV-13, D-12), the server DOES enqueue a
-     * workspace/diagnostic/refresh notification for every manifest /
-     * lockfile event and for every non-open source invalidation.  Drain
+     * workspace/diagnostic/refresh notification for every manifest
+     * event and for every non-open source invalidation.  Drain
      * every queued item and verify:
      *   - Any drained body must be a notification body (no "id" field).
-     *   - 4b (unknown non-open source) and 4c/4d emit one
-     *     workspace/diagnostic/refresh each.
+     *   - 4b (unknown non-open source) and 4c emit one
+     *     workspace/diagnostic/refresh each; 4d is a silent no-op.
      *   - 4a (open source) does NOT emit refresh (open docs use
      *     publishDiagnostics push). */
     int drained_count = 0;
     while (ilsp_writer_drain_one(h.writer)) { drained_count++; }
-    /* 4b + 4c + 4d -> 3 refresh notifications. 4a is open so it does
-     * not emit; manifest/lockfile events always emit. */
-    TEST_ASSERT_EQUAL_INT(3, drained_count);
+    /* 4b + 4c -> 2 refresh notifications. 4a is open so it does not
+     * emit; manifest events always emit; unknown files never do. */
+    TEST_ASSERT_EQUAL_INT(2, drained_count);
 
     /* Document map should still contain the tracked URI. */
     TEST_ASSERT_TRUE(shgeti(h.server.documents, "file:///tmp/tracked.iron") >= 0);

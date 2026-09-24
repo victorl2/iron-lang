@@ -14,9 +14,8 @@
  *     CLAUDE.md, matching src/analyzer/types.c's interned-primitives
  *     pattern and src/runtime/iron_net_init.c's WSAStartup singleton.
  *
- *   - `ilsp_mkdir_p` copied ~verbatim from src/pkg/fetcher.c:31-54 so
- *     the mkdir-semantics and platform ifdefs match the existing
- *     package manager implementation.
+ *   - `ilsp_mkdir_p` is a small recursive mkdir with the same platform
+ *     ifdefs as the rest of the CLI.
  *
  *   - JSON escaping covers the four ASCII bytes that would otherwise
  *     break the line-delimited schema: ", \, \n, \r. Other control
@@ -70,7 +69,7 @@ static void log_init_once(void) {
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 
-/* Recursive mkdir (copy of src/pkg/fetcher.c:31-54 iron_mkdirp). */
+/* Recursive mkdir. */
 static int ilsp_mkdir_p(const char *path) {
     char tmp[ILSP_LOG_PATH_MAX];
     size_t len = strlen(path);

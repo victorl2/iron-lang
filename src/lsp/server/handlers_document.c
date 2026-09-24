@@ -402,8 +402,7 @@ void ilsp_handle_didChangeWatchedFiles(IronLsp_Server *s,
                 }
                 break; }
             case ILSP_WATCHED_MANIFEST:
-                /* Phase 3 Plan 02: invalidate ALL user-workspace entries +
-                 * drop the dep map (cascades to dep_map in Plan 02-03). */
+                /* Phase 3 Plan 02: invalidate ALL user-workspace entries. */
                 if (s->workspace_index) {
                     ilsp_workspace_index_invalidate_dep(
                         s->workspace_index, NULL);
@@ -417,16 +416,6 @@ void ilsp_handle_didChangeWatchedFiles(IronLsp_Server *s,
                         uri);
                 /* Manifest rewrite invalidates every file's diagnostics --
                  * push refresh so the client re-pulls the whole workspace. */
-                ilsp_send_workspace_diagnostic_refresh(s);
-                break;
-            case ILSP_WATCHED_LOCKFILE:
-                if (s->workspace_index) {
-                    ilsp_workspace_index_invalidate_dep(
-                        s->workspace_index, NULL);
-                }
-                fprintf(stderr,
-                        "ironls: workspace-reindex-pending (iron.lock) %s\n",
-                        uri);
                 ilsp_send_workspace_diagnostic_refresh(s);
                 break;
             case ILSP_WATCHED_UNKNOWN:

@@ -32,9 +32,9 @@
  *
  * Invalidation:
  *   - invalidate_path:  remove one entry (didChangeWatchedFiles SOURCE).
- *   - invalidate_dep:   NULL => cascade to every entry that imports a
- *                       dep; otherwise drop only entries importing the
- *                       named module (Plan 02-03 dep_map wire-up).
+ *   - invalidate_dep:   NULL => drop every entry (iron.toml changed);
+ *                       otherwise drop only entries importing the named
+ *                       module.
  *
  * Thread discipline:
  *   The coarse mutex wraps every read/write of `entries`. Readers hold
@@ -61,7 +61,6 @@ extern "C" {
 
 /* Forward declarations */
 struct IronLsp_StdlibCache;
-struct IronLsp_DepMap;
 struct IronLsp_IfaceWorkspace;
 
 typedef struct IronLsp_IndexEntry {
@@ -103,7 +102,6 @@ typedef struct IronLsp_WorkspaceIndex {
     iron_mutex_t                lock;             /* coarse lock */
     _Atomic int_least64_t       tick;             /* monotonic LRU counter */
     struct IronLsp_StdlibCache *stdlib;           /* process-lifetime singleton ptr */
-    struct IronLsp_DepMap      *deps;             /* per-workspace */
 
     /* Phase 3 Plan 04 Task 01 (NAV-06, D-09): workspace-wide reverse
      * reference map. stb_ds struct hashmap (hmput/hmget) keyed by the

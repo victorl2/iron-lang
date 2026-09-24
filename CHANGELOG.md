@@ -5,6 +5,21 @@ This file is generated from those release notes automatically on each publish.
 
 ## Unreleased
 
+- **No package manager: vendor third-party code instead.** The
+  `[dependencies]` table (GitHub and local-path entries), `iron.lock`, the
+  `~/.iron/cache/` download cache, and GitHub tag resolution are removed.
+  Copy third-party Iron source into the project's `vendor/` directory;
+  `iron build`, `iron run`, and `iron check` compile every `.iron` file
+  under `vendor/` with the project (a vendored library with its own
+  `iron.toml` and `src/` contributes only `src/`; `tests/`, `examples/`,
+  `target/`, and hidden directories are skipped). `iron check` now checks
+  the same sources `iron build` compiles, so multi-file projects resolve
+  cross-file names. A manifest that still declares a dependency fails with
+  a vendoring hint; an empty `[dependencies]` table or `raylib = true` only
+  warns (raylib is enabled by `import raylib`). `iron init` no longer
+  writes a `[dependencies]` table, and `ironls` no longer watches
+  `iron.lock`. See the [project guide](https://ironlang.dev/guide/#vendoring).
+
 - **Mutating method calls now write through references** — calling a
   mutating method on a `var` parameter, on a `var` captured by a lambda, or
   on a `var` rc / heap binding mutates the caller's object, matching what a

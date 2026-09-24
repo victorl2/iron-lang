@@ -1,5 +1,5 @@
 /* Phase 95 PIN: minimal semver constraint parser + comparator.
- * Standalone module: depends only on libc. No toml.h, no pkg_build.h.
+ * Standalone module: depends only on libc. No toml.h, no project_build.h.
  * See semver.h for API contract and v3.2 simplifications. */
 
 #include "cli/semver.h"

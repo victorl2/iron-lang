@@ -19,9 +19,10 @@
  *     deferred to Plan 04-03 when auto-import wiring makes the
  *     distinction between imported-and-in-scope vs imported-by-path
  *     meaningful.
- *   - "Stdlib" (Bucket 4) + "Deps" (Bucket 5) iterate the flattened
- *     workspace-index indexes. Cold-start fallback: if either index is
- *     NULL we simply emit no candidates for that bucket.
+ *   - "Stdlib" (Bucket 4) iterates the flattened workspace-index stdlib
+ *     cache. Cold-start fallback: if the cache is NULL we simply emit no
+ *     candidates for that bucket. Bucket 5 is unused: Iron has no package
+ *     manager, so vendored modules surface as ordinary workspace symbols.
  */
 
 #include "lsp/facade/edit/complete/buckets.h"
@@ -34,7 +35,6 @@
 #include "lsp/store/line_index.h"
 #include "lsp/store/workspace_index.h"
 #include "lsp/store/stdlib_cache.h"
-#include "lsp/store/dep_map.h"
 #include "analyzer/analyzer.h"
 #include "analyzer/scope.h"
 #include "analyzer/types.h"
@@ -386,27 +386,6 @@ static void emit_stdlib(IronLsp_CompletionCandidate **out_arr,
     }
 }
 
-/* ── Bucket 5: deps (importable) ──────────────────────────────────── */
-
-static void emit_deps(IronLsp_CompletionCandidate **out_arr,
-                        Iron_Arena              *arena,
-                        struct IronLsp_Server          *server,
-                        ImportedSet                    *imported,
-                        const char                     *query_prefix,
-                        _Atomic bool                   *cancel) {
-    if (!server || !server->workspace_index) return;
-    IronLsp_DepMap *dm = server->workspace_index->deps;
-    if (!dm) return;
-    size_t ndeps = ilsp_dep_map_size(dm);
-    if (ndeps == 0) return;
-    (void)ndeps;
-    /* dep_map currently exposes size + lookup-by-name but no iteration
-     * API. We approximate: attempt lookups for a handful of canonical
-     * dep names the workspace may have declared. Plan 04-03 may extend
-     * dep_map with an iteration helper for full coverage. */
-    (void)out_arr; (void)arena; (void)imported; (void)query_prefix; (void)cancel;
-}
-
 /* ── Bucket 6: keywords ───────────────────────────────────────────── */
 
 /* Phase 12 Plan 12-02 (KW-03, D-04..D-10) — per-keyword visibility filter.
@@ -622,7 +601,7 @@ void ilsp_complete_buckets_build(struct IronLsp_Server             *server,
                                    size_t                            *out_n) {
     if (out_cands) *out_cands = NULL;
     if (out_n)    *out_n    = 0;
-    /* `server` may be NULL in unit tests and on cold-start; buckets 4+5
+    /* `server` may be NULL in unit tests and on cold-start; bucket 4
      * simply emit nothing in that case. arena + out_cands + out_n are
      * hard-required. */
     if (!arena || !out_cands || !out_n) return;
@@ -640,15 +619,12 @@ void ilsp_complete_buckets_build(struct IronLsp_Server             *server,
     /* Deduce doc's canonical path for label attribution. */
     const char *canonical_path = doc && doc->uri ? doc->uri : "";
 
-    /* IMPORT_PATH context: emit stdlib + dep module names only. */
+    /* IMPORT_PATH context: emit stdlib module names only. */
     if (ctx == ILSP_CCTX_IMPORT_PATH) {
         if (canceled(cancel)) goto finish;
         ImportedSet *imported = NULL;
         collect_imports(&imported, program);
         emit_stdlib(&cands, arena, server, imported, query_prefix, cancel);
-        if (!canceled(cancel)) {
-            emit_deps(&cands, arena, server, imported, query_prefix, cancel);
-        }
         if (imported) shfree(imported);
         goto finish;
     }
@@ -704,17 +680,13 @@ void ilsp_complete_buckets_build(struct IronLsp_Server             *server,
     if (canceled(cancel)) goto finish;
     emit_imported(&cands, arena, program, canonical_path, query_prefix, cancel);
 
-    /* Collect imported set for buckets 4+5 skip logic. */
+    /* Collect imported set for bucket 4 skip logic. */
     ImportedSet *imported = NULL;
     collect_imports(&imported, program);
 
     /* Bucket 4 (STDLIB). */
     if (canceled(cancel)) { if (imported) shfree(imported); goto finish; }
     emit_stdlib(&cands, arena, server, imported, query_prefix, cancel);
-
-    /* Bucket 5 (DEPS). */
-    if (canceled(cancel)) { if (imported) shfree(imported); goto finish; }
-    emit_deps(&cands, arena, server, imported, query_prefix, cancel);
     if (imported) shfree(imported);
 
     /* Bucket 6 (KEYWORDS) — Phase 12 Plan 12-02 (KW-03, D-04..D-10):

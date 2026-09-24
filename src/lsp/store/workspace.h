@@ -31,7 +31,6 @@ typedef enum IronLsp_WatchedKind {
     ILSP_WATCHED_UNKNOWN  = 0,
     ILSP_WATCHED_SOURCE   = 1,  /* *.iron */
     ILSP_WATCHED_MANIFEST = 2,  /* iron.toml */
-    ILSP_WATCHED_LOCKFILE = 3,  /* iron.lock */
 } IronLsp_WatchedKind;
 
 /* Classify a URI or path by suffix. */

@@ -137,7 +137,6 @@ function M.diagnose_payload()
 
   local workspace = vim.fn.getcwd()
   local iron_toml = path_exists(workspace .. '/iron.toml') and (workspace .. '/iron.toml') or 'NO'
-  local iron_lock = path_exists(workspace .. '/iron.lock') and (workspace .. '/iron.lock') or 'NO'
 
   local clients = get_clients()
   local status = 'not-started'
@@ -173,7 +172,6 @@ function M.diagnose_payload()
     '---------',
     'Root:                ' .. workspace,
     'iron.toml found:     ' .. iron_toml,
-    'iron.lock found:     ' .. iron_lock,
     '',
     'LSP session',
     '-----------',

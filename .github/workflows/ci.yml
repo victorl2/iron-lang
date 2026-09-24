@@ -67,7 +67,7 @@ jobs:
         # unrelated to Phase 59 networking:
         #   - src/util/strbuf.h uses GCC __attribute__((format(...)))
         #   - src/diagnostics/diagnostics.c includes <unistd.h>
-        #   - src/pkg/* + src/cli/toml.c use POSIX-only strdup/getcwd/strerror
+        #   - src/project/* + src/cli/toml.c use POSIX-only strdup/getcwd/strerror
         #     under MSVC /W3 /WX which promotes C4996 warnings to errors
         # Phase 59 P01c (iron_net_init.c) + P02..P05 networking/URL code do
         # build under MSVC after 989ae1b's winsock2 include-order fix, but

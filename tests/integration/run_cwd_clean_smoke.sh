@@ -38,8 +38,7 @@ case "$(basename "${IRON_BIN_ABS}")" in
         ;;
 esac
 
-# Ensure the recursive iron build invoked by pkg_build (and any path-dep
-# resolver) finds the build-tree iron, not a stale system install on PATH.
+# Ensure iron finds the build-tree ironc, not a stale system install on PATH.
 export PATH="${IRON_BIN_DIR}:${PATH}"
 
 WORK="$(mktemp -d -t iron-cwd-clean-smoke-XXXXXX)"

@@ -784,8 +784,8 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                          * strings emit_c.c bakes from LIR spans).
                          *
                          * A marker WITHOUT `@line:` keeps the Phase 93
-                         * semantics the multi-file harness and pkg_build.c
-                         * stub concat rely on: filename re-tag only, line
+                         * semantics the multi-file harness and .iron-stub
+                         * concatenation rely on: filename re-tag only, line
                          * numbering resynced to the physical (TU-wide) count
                          * — which is what `line` always was before any
                          * `@line:` marker diverged it. That preserves the

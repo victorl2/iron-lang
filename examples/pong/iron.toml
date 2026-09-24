@@ -2,9 +2,6 @@
 name = "pong"
 version = "0.1.0"
 
-[dependencies]
-raylib = true
-
 [web]
 assets = "assets/"
 title = "Pong"

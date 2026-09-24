@@ -39,7 +39,7 @@ static void print_usage(void) {
 /*
  * argv_contains_help: scan argv[start..argc) for --help or -h.
  * Returns 1 if found anywhere, 0 otherwise. Mirrors the helper in
- * src/pkg/main.c — kept inline rather than refactored into a shared
+ * src/project/main.c — kept inline rather than refactored into a shared
  * header because a 6-line helper does not justify a header round-trip.
  */
 static int argv_contains_help(int argc, char **argv, int start) {
@@ -72,7 +72,7 @@ int main(int argc, char **argv) {
 
     /*
      * Phase 97 HELP-01 / HELP-06: pre-dispatch --help scan for ironc.
-     * Mirrors the iron-side scan in src/pkg/main.c. Subcommands recognized
+     * Mirrors the iron-side scan in src/project/main.c. Subcommands recognized
      * by ironc: build, run, check, fmt, test, migrate (no `init` — that's
      * an iron-only command). Fires BEFORE the global-flag-parsing argv
      * loop below so iron_build / iron_check / iron_fmt / iron_test /
@@ -111,9 +111,9 @@ int main(int argc, char **argv) {
     const char **run_args = NULL;
     int run_arg_count = 0;
     /* Phase 94 LIB-03: collect -L<dir> / -l<name> argv entries for forwarding
-     * to clang's link line. The pkg_build layer emits these per local-path
-     * dep; main.c stores them on IronBuildOpts.extra_link_flags so build.c
-     * can append them alongside the existing -lm. */
+     * to clang's link line. main.c stores them on
+     * IronBuildOpts.extra_link_flags so build.c can append them alongside
+     * the existing -lm. */
     const char *extra_link_flags_buf[32];
     int extra_link_flag_count = 0;
 
@@ -188,8 +188,8 @@ int main(int argc, char **argv) {
         } else if ((strncmp(argv[i], "-L", 2) == 0 && argv[i][2] != '\0') ||
                    (strncmp(argv[i], "-l", 2) == 0 && argv[i][2] != '\0')) {
             /* Phase 94 LIB-03: collect -L<dir> / -l<name> for the link line.
-             * Reject the bare "-L" / "-l" forms (no inline value) — the
-             * pkg_build layer emits inline form only. */
+             * Only the inline form is accepted; bare "-L" / "-l" (no value)
+             * falls through to the source-file slot. */
             if (extra_link_flag_count <
                 (int)(sizeof(extra_link_flags_buf) / sizeof(extra_link_flags_buf[0]))) {
                 extra_link_flags_buf[extra_link_flag_count++] = argv[i];

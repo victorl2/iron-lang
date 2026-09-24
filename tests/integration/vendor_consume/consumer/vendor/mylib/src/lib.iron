@@ -1,0 +1,6 @@
+-- vendor_consume fixture: a library project copied into the consumer's
+-- vendor/ directory. Only its src/ is compiled into the consumer.
+
+pub func greet(name: String) -> String {
+    return "Hello, {name}!"
+}

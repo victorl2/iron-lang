@@ -6,7 +6,7 @@
  *   3. iron_help_print_all: top-level help with all flags grouped.
  *
  * Plan 97-02 will swap the inline print_usage / print_help blocks in
- * src/cli/main.c and src/pkg/main.c for calls into this file. Plan
+ * src/cli/main.c and src/project/main.c for calls into this file. Plan
  * 97-01 lands only the registry + Unity tests; the CLI dispatchers
  * still print their v3.1 inline text.
  */

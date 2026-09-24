@@ -2,8 +2,8 @@
  *
  * Asserts the shape of the outbound `client/registerCapability` request
  * emitted by ilsp_dyn_register_watched_files (CORE-08): an array of
- * watchers for the three globs (wildcards slash *.iron, wildcards slash
- * iron.toml, wildcards slash iron.lock) with watch kind 7
+ * watchers for the two globs (wildcards slash *.iron, wildcards slash
+ * iron.toml) with watch kind 7
  * (Create | Change | Delete). */
 #include "unity.h"
 #include "lsp/server/server.h"
@@ -106,23 +106,21 @@ static void test_watchers_payload(void) {
     yyjson_val *watchers = yyjson_obj_get(ropts, "watchers");
     TEST_ASSERT_NOT_NULL(watchers);
     TEST_ASSERT_TRUE(yyjson_is_arr(watchers));
-    TEST_ASSERT_EQUAL_UINT(3, yyjson_arr_size(watchers));
+    TEST_ASSERT_EQUAL_UINT(2, yyjson_arr_size(watchers));
 
     /* Collect globs. */
-    bool found_iron = false, found_toml = false, found_lock = false;
+    bool found_iron = false, found_toml = false;
     size_t i, m; yyjson_val *wv;
     yyjson_arr_foreach(watchers, i, m, wv) {
         const char *g = yyjson_get_str(yyjson_obj_get(wv, "globPattern"));
         TEST_ASSERT_NOT_NULL(g);
         if (strcmp(g, "**/*.iron")    == 0) found_iron = true;
         if (strcmp(g, "**/iron.toml") == 0) found_toml = true;
-        if (strcmp(g, "**/iron.lock") == 0) found_lock = true;
         /* Kind 7 = Create | Change | Delete. */
         TEST_ASSERT_EQUAL_INT(7, (int)yyjson_get_int(yyjson_obj_get(wv, "kind")));
     }
     TEST_ASSERT_TRUE(found_iron);
     TEST_ASSERT_TRUE(found_toml);
-    TEST_ASSERT_TRUE(found_lock);
 
     iron_arena_free(&pa);
     ilsp_dyn_register_destroy(s.dyn_reg);

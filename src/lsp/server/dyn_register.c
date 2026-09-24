@@ -2,10 +2,9 @@
  *
  * Post-`initialized` the server sends a `client/registerCapability`
  * request to register interest in `workspace/didChangeWatchedFiles` for
- * Iron source files and package manifests:
+ * Iron source files and project manifests:
  *   - "**" slash "*.iron"     (source files)
- *   - "**" slash "iron.toml"  (package manifests)
- *   - "**" slash "iron.lock"  (lockfiles)
+ *   - "**" slash "iron.toml"  (project manifests)
  *
  * Watch kind = 7 (Create | Change | Delete; FileSystemWatcher.WatchKind
  * bitmask per LSP 3.17 spec).
@@ -51,7 +50,7 @@ void ilsp_dyn_register_destroy(IronLsp_DynRegister *r) {
 static yyjson_mut_val *build_watchers(yyjson_mut_doc *d) {
     yyjson_mut_val *arr = yyjson_mut_arr(d);
     /* kind 7 = Create | Change | Delete. */
-    const char *globs[] = { "**/*.iron", "**/iron.toml", "**/iron.lock" };
+    const char *globs[] = { "**/*.iron", "**/iron.toml" };
     for (size_t i = 0; i < sizeof(globs) / sizeof(globs[0]); i++) {
         yyjson_mut_val *w = yyjson_mut_obj(d);
         yyjson_mut_obj_add_strcpy(d, w, "globPattern", globs[i]);

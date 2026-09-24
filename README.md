@@ -30,6 +30,8 @@ Pre-built binaries are available for **macOS** (arm64, x86_64) and **Linux** (x8
 
 - **Legibility:** No operator overloading, no implicit conversions, no hidden control flow. When you read Iron code, you know what it does.
 
+- **No package manager:** A broad standard library covers the common ground. Third-party code is vendored as source into your project's `vendor/` directory, so builds are reproducible and never touch the network. See the [project guide](https://ironlang.dev/guide/#vendoring).
+
 ## Quick Start
 
 From a checkout of this repository, try the runnable [native summary example](docs/examples/native_summary.iron):
@@ -37,6 +39,8 @@ From a checkout of this repository, try the runnable [native summary example](do
 ```sh
 iron run docs/examples/native_summary.iron
 ```
+
+To start a project, run `iron init` in an empty directory, then `iron run`.
 
 Read the [language overview](docs/language_definition.md) for a tour of the
 language and its features.

@@ -1,0 +1,8 @@
+-- vendor_consume fixture: calls code vendored as source under vendor/:
+--   vendor/mylib/    an unmodified `iron init --lib` project (src/ only)
+--   vendor/strutil/  loose .iron files, including a nested directory
+
+func main() {
+    println(greet("Alice"))
+    println(shout(twice("ab")))
+}

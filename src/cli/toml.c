@@ -16,9 +16,9 @@
  *     entry       = "src/main.iron"  (kept for compat, ignored by iron)
  *     type        = "bin"            (or "lib")
  *     description = "A cool project"
- *   [dependencies]
- *     raylib    = true
- *     iron-ecs  = { git = "owner/iron-ecs", version = "0.2.0" }
+ *
+ * [dependencies] is not supported: Iron has no package manager. The table
+ * is still recognised so the iron CLI can explain how to vendor instead.
  *
  * Comments: # to end of line.
  * String values: "quoted" or bare words.
@@ -80,90 +80,6 @@ static char *extract_value(const char *raw) {
     }
 }
 
-/* ── Helper: detect inline table value (starts with '{') ─────────────────── */
-
-static bool is_inline_table(const char *val) {
-    while (*val && isspace((unsigned char)*val)) val++;
-    return *val == '{';
-}
-
-/* ── Helper: extract a named field from an inline table string ───────────── */
-/*
- * Given a val like: { git = "owner/repo", version = "0.2.0" }
- * and a field name like "git", returns a malloc'd copy of "owner/repo".
- * Returns NULL if the field is not found or not a quoted string.
- * Handles quoted strings containing commas/braces correctly.
- */
-static char *extract_inline_field(const char *val, const char *field) {
-    size_t field_len = strlen(field);
-    const char *p = val;
-
-    /* Skip leading '{' */
-    while (*p && *p != '{') p++;
-    if (!*p) return NULL;
-    p++; /* skip '{' */
-
-    while (*p) {
-        /* Skip whitespace */
-        while (*p && isspace((unsigned char)*p)) p++;
-        if (!*p || *p == '}') break;
-
-        /* Read key */
-        const char *key_start = p;
-        while (*p && *p != '=' && *p != '}' && !isspace((unsigned char)*p)) p++;
-        size_t key_len = (size_t)(p - key_start);
-
-        /* Skip whitespace before '=' */
-        while (*p && isspace((unsigned char)*p)) p++;
-        if (*p != '=') {
-            /* Malformed, skip to next comma */
-            while (*p && *p != ',' && *p != '}') p++;
-            if (*p == ',') p++;
-            continue;
-        }
-        p++; /* skip '=' */
-
-        /* Skip whitespace before value */
-        while (*p && isspace((unsigned char)*p)) p++;
-
-        if (*p == '"') {
-            /* Quoted string value */
-            p++; /* skip opening '"' */
-            const char *val_start = p;
-            while (*p && *p != '"') p++;
-            size_t val_len = (size_t)(p - val_start);
-            if (*p == '"') p++; /* skip closing '"' */
-
-            /* Is this the field we want? */
-            if (key_len == field_len && strncmp(key_start, field, field_len) == 0) {
-                char *result = (char *)malloc(val_len + 1);
-                if (!result) return NULL;
-                memcpy(result, val_start, val_len);
-                result[val_len] = '\0';
-                return result;
-            }
-        } else {
-            /* Bare word value */
-            const char *val_start = p;
-            while (*p && *p != ',' && *p != '}' && !isspace((unsigned char)*p)) p++;
-            if (key_len == field_len && strncmp(key_start, field, field_len) == 0) {
-                size_t val_len = (size_t)(p - val_start);
-                char *result = (char *)malloc(val_len + 1);
-                if (!result) return NULL;
-                memcpy(result, val_start, val_len);
-                result[val_len] = '\0';
-                return result;
-            }
-        }
-
-        /* Skip to next field */
-        while (*p && *p != ',' && *p != '}') p++;
-        if (*p == ',') p++;
-    }
-
-    return NULL;
-}
-
 /* ── Helper: Levenshtein distance for misspelled-section detection ──────── */
 /*
  * Naive single-row rolling DP.  Input strings are bounded by line length
@@ -203,7 +119,6 @@ static int levenshtein(const char *a, const char *b) {
 static const char *KNOWN_SECTIONS[] = {
     "package",
     "project",
-    "dependencies",
     "web",
     "fmt",        /* Phase 5 Plan 05-01 (D-02, FMT-05) */
     NULL
@@ -307,7 +222,8 @@ IronProject *iron_toml_parse(const char *path) {
         proj->toml_dir = strdup(".");     /* sentinel: same directory */
     }
 
-    /* Track current section: 0 = none, 1 = [package]/[project], 2 = [dependencies] */
+    /* Track current section: 0 = none, 1 = [package]/[project],
+     * 2 = [dependencies] (legacy), 3 = [web], 4 = [fmt] */
     int section = 0;
 
     char line[1024];
@@ -327,7 +243,8 @@ IronProject *iron_toml_parse(const char *path) {
         /* Skip empty lines */
         if (*s == '\0') continue;
 
-        /* Section header: [package], [project], [dependencies], or [web] */
+        /* Section header: [package], [project], [web], [fmt], or the
+         * legacy [dependencies] */
         if (*s == '[') {
             char *end = strchr(s, ']');
             if (end) {
@@ -337,6 +254,7 @@ IronProject *iron_toml_parse(const char *path) {
                     section = 1;
                 } else if (strcmp(sec_name, "dependencies") == 0) {
                     section = 2;
+                    proj->legacy_deps_section = true;
                 } else if (strcmp(sec_name, "web") == 0) {
                     section = 3;
                 } else if (strcmp(sec_name, "fmt") == 0) {   /* Phase 5 Plan 05-01 (D-02) */
@@ -391,33 +309,18 @@ IronProject *iron_toml_parse(const char *path) {
             } else if (strcmp(key, "iron") == 0) {
                 /* Phase 95 PIN-01: optional Cargo-style semver constraint
                  * (e.g. iron = ">= 3.2.0"). Stored verbatim; parsed and
-                 * compared by pkg_build.c's check_iron_version helper. */
+                 * compared by project_build.c's check_iron_version helper. */
                 free(proj->iron_constraint);
                 proj->iron_constraint = extract_value(val_str);
             }
         } else if (section == 2) {
-            /* [dependencies] section */
-            if (strcmp(key, "raylib") == 0 && strcmp(val_str, "true") == 0) {
-                proj->raylib = true;
-            } else if (is_inline_table(val_str)) {
-                /* Grow deps array if needed */
-                if (proj->dep_count >= proj->dep_capacity) {
-                    int new_cap = proj->dep_capacity == 0 ? 4 : proj->dep_capacity * 2;
-                    IronDep *new_deps = (IronDep *)realloc(proj->deps,
-                                                           sizeof(IronDep) * (size_t)new_cap);
-                    if (!new_deps) continue;
-                    proj->deps = new_deps;
-                    proj->dep_capacity = new_cap;
-                }
-                IronDep *dep = &proj->deps[proj->dep_count];
-                memset(dep, 0, sizeof(IronDep));
-                dep->name    = strdup(key);
-                dep->git     = extract_inline_field(val_str, "git");
-                dep->version = extract_inline_field(val_str, "version");
-                /* Phase 94 LIB-03: local-path dep form `name = { path = "..." }`.
-                 * NULL when absent (git-form). Resolver branches on dep->path. */
-                dep->path    = extract_inline_field(val_str, "path");
-                proj->dep_count++;
+            /* Legacy [dependencies]: remember the first real entry so the
+             * iron CLI can reject it. `raylib = true` is harmless (raylib
+             * is enabled by `import raylib`), so it is not recorded. */
+            bool is_raylib_flag = strcmp(key, "raylib") == 0 &&
+                                  strcmp(val_str, "true") == 0;
+            if (!is_raylib_flag && !proj->legacy_dep_name) {
+                proj->legacy_dep_name = strdup(key);
             }
         } else if (section == 3) {
             /* [web] section (Phase 2 — WEB-MANIFEST-01..08) */
@@ -537,15 +440,7 @@ void iron_toml_free(IronProject *proj) {
     free(proj->type);
     free(proj->description);
     free(proj->iron_constraint);   /* Phase 95 PIN-01 */
-    for (int i = 0; i < proj->dep_count; i++) {
-        free(proj->deps[i].name);
-        free(proj->deps[i].git);
-        free(proj->deps[i].version);
-        free(proj->deps[i].path);   /* Phase 94 LIB-03 */
-        free(proj->deps[i].sha);
-        free(proj->deps[i].cache_path);
-    }
-    free(proj->deps);
+    free(proj->legacy_dep_name);
     /* [web] section (Phase 2 — WEB-MANIFEST-01) */
     free(proj->web.title);
     free(proj->web.shell);
