@@ -145,7 +145,8 @@ tag they correspond to.
 | `v0.1.4-alpha` (internal: Compiler Correctness & Maintenance) | `v1.3.0-alpha` — never cut | The tag was not published; the next public release was `v2.0.0-alpha`. |
 | (public tags, no internal drift) | `v2.0.0-alpha`, `v2.2.0-alpha` | "Iron Builds Real Games" and the ergonomics follow-up; milestones tracked under their public tag names. |
 | (public tags, no internal drift) | `v3.0.0-alpha` through `v3.3.0-alpha` | Method ergonomics (v3.0), raylib 6 (v3.1), fresh-install fix (v3.1.1), library authoring polish (v3.2), editor support / LSP (v3.3). |
-| "Milestone v3.0" (internal: Iron v4 Memory Model) | `v4.0.0-alpha` | Internal planning tracked the memory-model overhaul as "milestone v3.0" (see `docs/release/v4.0.0-alpha.md`); it shipped publicly as `v4.0.0-alpha`. **Current release.** |
+| "Milestone v3.0" (internal: Iron v4 Memory Model) | `v4.0.0-alpha` | Internal planning tracked the memory-model overhaul as "milestone v3.0" (see `docs/release/v4.0.0-alpha.md`); it shipped publicly as `v4.0.0-alpha`. |
+| (public tag, no internal drift) | `v4.1.0-alpha` | Networking (HTTP/HTTPS/WebSocket), v4 remediation, and removal of the package manager in favor of vendoring. **Current release.** |
 
 Archived requirements files `.planning/REQUIREMENTS-v0.1.0.md`,
 `.planning/REQUIREMENTS-v0.1.x.md`, and `.planning/REQUIREMENTS-v0.2.0.md`
