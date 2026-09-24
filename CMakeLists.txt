@@ -2655,14 +2655,17 @@ if(NOT WIN32)
 endif()
 
 # ---- Install rules ----
+# Every Iron rule is in the `iron` component so release packaging can run
+# `cmake --install build --component iron` without also installing the
+# fetched Unity test framework (whose rules need its library built).
 if(IRON_BUILD_LSP)
-    install(TARGETS ironc iron ironls DESTINATION bin)
+    install(TARGETS ironc iron ironls DESTINATION bin COMPONENT iron)
 else()
-    install(TARGETS ironc iron DESTINATION bin)
+    install(TARGETS ironc iron DESTINATION bin COMPONENT iron)
 endif()
 
 # Install runtime C source files (needed by ironc at compile time)
-install(DIRECTORY src/runtime/ DESTINATION lib/runtime FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
+install(DIRECTORY src/runtime/ DESTINATION lib/runtime COMPONENT iron FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
 # Install util files used by the build pipeline
 install(FILES
     src/util/stb_ds_impl.c
@@ -2671,15 +2674,16 @@ install(FILES
     src/util/strbuf.c
     src/util/strbuf.h
     DESTINATION lib/util
+    COMPONENT iron
 )
 # Install all header files from src/ that ironc passes via -I (runtime, vendor)
-install(DIRECTORY src/vendor/ DESTINATION lib/vendor)
+install(DIRECTORY src/vendor/ DESTINATION lib/vendor COMPONENT iron)
 # Install stdlib C implementations and headers
-install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
+install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib COMPONENT iron FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
 # Install stdlib .iron files
-install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib FILES_MATCHING PATTERN "*.iron")
+install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib COMPONENT iron FILES_MATCHING PATTERN "*.iron")
 # Install diagnostics module: header is referenced by lib/runtime/iron_runtime.h
 # at user-build time, so it must be present in the install prefix. Without
 # this rule, every fresh install fails to compile any program with
 # 'diagnostics/diagnostics.h: file not found' (issue #47).
-install(DIRECTORY src/diagnostics/ DESTINATION lib/diagnostics FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
+install(DIRECTORY src/diagnostics/ DESTINATION lib/diagnostics COMPONENT iron FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
