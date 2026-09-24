@@ -3,7 +3,7 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
-## Unreleased
+## v4.1.0-alpha: Networking and Vendoring (2026-09-24)
 
 - **No package manager: vendor third-party code instead.** The
   `[dependencies]` table (GitHub and local-path entries), `iron.lock`, the
@@ -20,7 +20,7 @@ This file is generated from those release notes automatically on each publish.
   writes a `[dependencies]` table, and `ironls` no longer watches
   `iron.lock`. See the [project guide](https://ironlang.dev/guide/#vendoring).
 
-- **Mutating method calls now write through references** — calling a
+- **Mutating method calls now write through references:** calling a
   mutating method on a `var` parameter, on a `var` captured by a lambda, or
   on a `var` rc / heap binding mutates the caller's object, matching what a
   direct field assignment on the same binding already did. The receiver was
@@ -30,7 +30,7 @@ This file is generated from those release notes automatically on each publish.
   passed as `&ptr`, handing the callee a pointer to the pointer variable.
   The same fix covers a field reached through `self` (`self.ball.move()`),
   which used to mutate a temporary copy of the field.
-- **Interfaces: `var` bindings mutate in place** — a `var` binding of
+- **Interfaces: `var` bindings mutate in place:** a `var` binding of
   interface type now behaves like a `var` binding of the concrete type.
   Mutating interface methods dispatch through a pointer to the binding's
   storage (local, field, lambda capture), and `var <Interface>` parameters
@@ -40,18 +40,43 @@ This file is generated from those release notes automatically on each publish.
   panics at the call site). Objects with interface-typed fields, method
   calls on interface-typed fields, and passing a concrete object to a
   user function's interface parameter now compile correctly.
-- **Interface default bodies** — an interface method with a body is
+- **Interface default bodies:** an interface method with a body is
   inherited by every implementor that does not define it, keeping the
   interface's tier; implementors may override it. Previously the signature
   parsed and typechecked but codegen referenced a method that did not exist.
 
-- **Per-site unchecked indexing** — `xs.get_unchecked(i)` /
+- **Per-site unchecked indexing:** `xs.get_unchecked(i)` /
   `xs.set_unchecked(i, v)` on lists, bounded vectors, and stack arrays skip
   the bounds check at exactly that site (UB on OOB, like C; `--debug-build`
   keeps the guard with a distinct "unchecked site" panic). Recovers C-parity
   in hot loops the elision pass cannot prove; the five bounds-heavy
   benchmarks (word_break, unique_paths, target_sum, topological_sort_kahn,
   run_length_encoding) now meet their thresholds.
+
+- **HTTP, HTTPS, and WebSocket in the stdlib:** `import http` and
+  `import websocket` provide HTTP/1.1 clients and servers (REST methods,
+  custom headers, chunked bodies, HTML/JSON/file responses), verified
+  HTTPS with system or custom trust roots, a bounded same-origin client
+  connection pool with safe retry, staged HTTPS admission
+  (`HttpsServer.accept_tcp` + `handshake`), and RFC 6455 WS/WSS clients
+  and server upgrades with subprotocol negotiation. TCP, UDP, and file
+  APIs are binary-safe, and every networking and file result model has an
+  explicit release helper; the models run clean under LeakSanitizer. See
+  the [networking guide](https://ironlang.dev/networking/).
+- **Atomic no-overwrite file moves:** `IO.move_file(src, dst, false)` can
+  no longer replace a destination created concurrently by another task or
+  process (hard-link commit on POSIX, no-replace publish across devices,
+  `MoveFileEx` without replace on Windows).
+- **v4 remediation:** the full acceptance suite runs green at phase gate
+  37. New runtime panics for division by zero and index out of bounds,
+  guarded integer division, module-level globals, reference counting that
+  is leak-free under the borrow-for-arguments convention, and several
+  unsound optimizer elisions removed.
+- **Compiler optimizations:** conservative scalar copy coalescing, local
+  integer storage narrowing, and structured-loop emission in the C
+  backend, with range-analysis leak fixes.
+- **Documentation:** Iron is presented as a general-purpose native
+  language, with four new non-game examples and a documentation CI gate.
 
 ## Iron v4.0.0-alpha — Memory Model Overhaul (2026-07-17)
 
