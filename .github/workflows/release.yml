@@ -125,16 +125,26 @@ jobs:
         run: |
           VERSION="${RELEASE_TAG#v}"
           ARCHIVE="iron-${VERSION}-${{ matrix.target }}.tar.gz"
-          mkdir -p staging/bin staging/lib/runtime staging/lib/util staging/lib/stdlib staging/lib/vendor
-          cp build/iron build/ironc staging/bin/
-          cp src/runtime/*.c src/runtime/*.h staging/lib/runtime/
-          cp src/util/stb_ds_impl.c src/util/arena.c src/util/arena.h src/util/strbuf.c src/util/strbuf.h staging/lib/util/
-          cp src/stdlib/*.c src/stdlib/*.h src/stdlib/*.iron staging/lib/stdlib/
-          cp -r src/vendor/* staging/lib/vendor/
+          # Stage through the CMake install rules, the same layout
+          # install-smoke verifies, so the archive can never drift from what
+          # ironc needs at compile time (issue #47: lib/diagnostics/ was
+          # missing from the hand-copied archive). ironls ships in its own
+          # archive below, so it is dropped from this one.
+          cmake --install build --prefix staging --component iron
+          rm -f staging/bin/ironls
           cp LICENSE staging/
           cp .emsdk-version staging/lib/ 2>/dev/null || true
           tar -czf "${ARCHIVE}" -C staging .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
+
+          # Smoke-test the archive exactly as a user receives it: extract it
+          # into a fresh directory and compile + run a program with it.
+          SMOKE="$(mktemp -d)"
+          tar -xzf "${ARCHIVE}" -C "${SMOKE}"
+          printf 'func main() {\n    println("release archive ok")\n}\n' > "${SMOKE}/hello.iron"
+          (cd "${SMOKE}" && ./bin/ironc run hello.iron) | grep -q "release archive ok" \
+            || { echo "FAIL: packaged ironc cannot compile hello.iron"; exit 1; }
+          rm -rf "${SMOKE}"
 
           # --- Zed extension download target (06-05 EXT-08) ---
           # Zed's current_platform() returns (os, arch). Derive the matching
