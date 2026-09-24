@@ -44,7 +44,8 @@ typedef enum {
     ILSP_COMPLETION_BUCKET_TOP_LEVEL    = 2,
     ILSP_COMPLETION_BUCKET_IMPORTED     = 3,
     ILSP_COMPLETION_BUCKET_STDLIB       = 4,
-    ILSP_COMPLETION_BUCKET_DEPS         = 5,
+    /* 5 was DEPS (package-manager deps); retired, value kept unused so
+     * KEYWORDS keeps its sort position. */
     ILSP_COMPLETION_BUCKET_KEYWORDS     = 6,
 } IronLsp_CompletionBucket;
 
@@ -61,7 +62,7 @@ typedef struct {
     const char  *name_path;
     uint64_t     content_hash;
     bool         is_extern;
-    bool         needs_auto_import;   /* buckets 4+5 = true */
+    bool         needs_auto_import;   /* bucket 4 = true */
     /* Plan 04-03 Task 03: snippet + auto-import wiring. */
     int          insert_text_format;  /* LSP InsertTextFormat: 1=PlainText, 2=Snippet */
     const IronLsp_AutoImportEdit *additional_text_edit; /* arena-owned; NULLable */

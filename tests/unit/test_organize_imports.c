@@ -4,7 +4,7 @@
  * Covers the 8 fixture cases locked in CONTEXT.md D-08:
  *   1. already-organized (idempotent)
  *   2. unsorted-within-group (alpha-sort)
- *   3. cross-group-interleaved (stdlib/deps/local order)
+ *   3. cross-group-interleaved (stdlib/local order)
  *   4. duplicates (exact dedup)
  *   5. unused - bulk_analyze_done=true (removal active)
  *   6. unused - bulk_analyze_done=false (skipped + warning)
@@ -16,9 +16,8 @@
  *     because the organize_imports facade consults raw AST + diags).
  *   - Construct a minimal IronLsp_WorkspaceIndex fixture with the
  *     stdlib_cache populated for well-known stems (so classification can
- *     distinguish stdlib vs local). dep_map stays empty -- dep-path
- *     fixtures classify as local, which is fine for the sort-stability
- *     assertions (the test fixtures don't claim any import is a dep).
+ *     distinguish stdlib vs local). Everything that is not stdlib
+ *     (project and vendored modules) classifies as local.
  *   - For Tests 5/6 we hand-build an Iron_DiagList carrying an
  *     IRON_WARN_UNUSED_IMPORT at the relevant line.
  */
@@ -27,7 +26,6 @@
 
 #include "lsp/facade/edit/codeaction/organize_imports.h"
 #include "lsp/store/stdlib_cache.h"
-#include "lsp/store/dep_map.h"
 #include "lsp/store/workspace_index.h"
 
 #include "parser/ast.h"
@@ -42,19 +40,6 @@
 
 void setUp(void)    {}
 void tearDown(void) {}
-
-/* Stub: the organize_imports facade guards its lookup on wi->deps != NULL
- * and our test fixtures always leave deps == NULL, so this is never
- * actually invoked. Defined here to avoid link-pulling dep_map.c +
- * its transitive pkg/resolver/fetcher/lockfile/toml dependencies into
- * the unit-test binary. The ironls production build links the real
- * dep_map.c -- see CMakeLists.txt. */
-IronLsp_DepEntry *ilsp_dep_map_lookup(IronLsp_DepMap *dm,
-                                       const char *dep_name) {
-    (void)dm;
-    (void)dep_name;
-    return NULL;
-}
 
 /* ── Parse helper ─────────────────────────────────────────────── */
 
@@ -73,16 +58,14 @@ static Iron_Program *parse_source(const char *src, Iron_Arena *arena,
 /* ── Workspace-index fixture helpers ──────────────────────────── */
 
 /* Build a minimal IronLsp_WorkspaceIndex whose stdlib_cache is the
- * process singleton (already seeded at first call), whose deps is NULL,
- * and whose bulk_analyze_done is set per the test's requirement. Note:
+ * process singleton (already seeded at first call), and whose bulk_analyze_done is set per the test's requirement. Note:
  * we do NOT call ilsp_workspace_index_create -- it would attempt to
  * walk a workspace_root, which we don't have. The facade only touches
- * wi->stdlib, wi->deps, wi->bulk_analyze_done fields on this path. */
+ * wi->stdlib, wi->bulk_analyze_done fields on this path. */
 static IronLsp_WorkspaceIndex *make_wi(bool bulk_done) {
     static IronLsp_WorkspaceIndex wi;
     memset(&wi, 0, sizeof(wi));
     wi.stdlib = ilsp_stdlib_cache_init(NULL);  /* singleton; safe repeat */
-    wi.deps   = NULL;
     wi.bulk_analyze_done = bulk_done;
     return &wi;
 }
@@ -153,10 +136,8 @@ static void test_unsorted_within_group(void) {
     iron_arena_free(&arena);
 }
 
-/* Test 3: cross-group-interleaved -> order becomes stdlib, deps, local.
- * We don't have deps wired in the test; we test stdlib vs local ordering
- * which is sufficient to exercise the group-rank path. Expected: stdlib
- * (io + math), local (local_mod). */
+/* Test 3: cross-group-interleaved -> order becomes stdlib, local.
+ * Expected: stdlib (io + math), local (local_mod). */
 static void test_cross_group_stdlib_first(void) {
     Iron_Arena     arena = iron_arena_create(64 * 1024);
     Iron_DiagList  diags = iron_diaglist_create();

@@ -2,7 +2,7 @@
 (CORE-08, CORE-13).
 
 Post-initialize, the server emits `client/registerCapability` with a
-watcher registration for `**/*.iron`, `**/iron.toml`, `**/iron.lock`.
+watcher registration for `**/*.iron` and `**/iron.toml`.
 We inspect the set of registrations the LanguageClient accumulated
 during the init fixture's handshake.
 
@@ -41,7 +41,7 @@ async def test_accepts_watched_files_notification(client, tmp_path):
 async def test_register_capability_is_sent_post_initialize(client):
     """Post-initialized the server should register
     workspace/didChangeWatchedFiles with glob patterns covering
-    .iron/toml/lock files.
+    .iron/toml files.
 
     pygls collects inbound registerCapability requests on the client
     protocol; we inspect the last-seen registrations set.

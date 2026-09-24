@@ -1,0 +1,5 @@
+-- vendor_consume fixture: a flat vendored module (no iron.toml).
+
+pub func shout(s: String) -> String {
+    return "{s}!"
+}

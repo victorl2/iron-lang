@@ -11,7 +11,7 @@
 //   4. Lazily create "Iron Language Server (trace)" when
 //      iron.languageServer.trace.server != off (UI-SPEC S2).
 //   5. Construct + start LanguageClient over stdio with
-//      synchronize.fileEvents on **/iron.toml + **/iron.lock.
+//      synchronize.fileEvents on **/iron.toml.
 //   6. Register 500 ms debounced restart on
 //      iron.languageServer.* config changes (PITFALLS §2).
 //   7. Register iron-lsp.diagnose command (UI-SPEC S3).
@@ -156,7 +156,6 @@ export async function activate(
     synchronize: {
       fileEvents: [
         vscode.workspace.createFileSystemWatcher('**/iron.toml'),
-        vscode.workspace.createFileSystemWatcher('**/iron.lock'),
       ],
     },
     outputChannel: output,

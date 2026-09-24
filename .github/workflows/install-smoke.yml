@@ -17,7 +17,7 @@ on:
       - 'src/util/**'
       - 'src/vendor/**'
       - 'src/cli/**'
-      - 'src/pkg/**'
+      - 'src/project/**'
       - '.github/workflows/install-smoke.yml'
   pull_request:
     branches: [main]
@@ -29,7 +29,7 @@ on:
       - 'src/util/**'
       - 'src/vendor/**'
       - 'src/cli/**'
-      - 'src/pkg/**'
+      - 'src/project/**'
       - '.github/workflows/install-smoke.yml'
 
 concurrency:

@@ -14,7 +14,7 @@
  * win because their -DIRON_VERSION_STRING flag is set BEFORE this
  * header is included.
  *
- * Phase 95 PIN-02 / PIN-03: pkg_build.c's check_iron_version reads this
+ * Phase 95 PIN-02 / PIN-03: project_build.c's check_iron_version reads this
  * macro to compare the running compiler against the [package].iron
  * constraint declared in iron.toml. Keeping a single source means
  * `iron --version`, `ironc --version`, and the version-mismatch error

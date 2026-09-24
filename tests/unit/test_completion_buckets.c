@@ -29,20 +29,16 @@
 #include <string.h>
 
 /* Link-time stubs for LSP store routines. buckets.c references them on
- * the emit_stdlib + emit_deps paths, but this unit test passes NULL
+ * the emit_stdlib path, but this unit test passes NULL
  * server so those paths short-circuit before calling them. Providing
  * stub symbols avoids pulling the entire LSP store + its transitive
- * deps (line_index, utf, workspace, resolver, fetcher, toml...) into
+ * deps (line_index, utf, workspace, toml...) into
  * the test binary. If these stubs EVER get invoked, the first NULL
  * check in each function still keeps the test from crashing. */
 struct IronLsp_StdlibCache;
-struct IronLsp_DepMap;
 const struct Iron_Program *ilsp_stdlib_cache_get(struct IronLsp_StdlibCache *c,
                                                    const char *name) {
     (void)c; (void)name; return 0;
-}
-size_t ilsp_dep_map_size(const struct IronLsp_DepMap *dm) {
-    (void)dm; return 0;
 }
 
 /* Phase 11 PATCH-03 (Plan 11-02 Task 4): buckets.c emit_member_fields

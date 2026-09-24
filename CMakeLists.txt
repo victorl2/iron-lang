@@ -106,7 +106,7 @@ endif()
 if(MSVC)
     add_compile_options(/W3 /WX)
     # Silence POSIX-deprecation warnings (C4996) for getenv, strdup, strerror,
-    # strcpy, getcwd, etc. — these are used in cross-platform code in src/pkg/
+    # strcpy, getcwd, etc. — these are used in cross-platform code in src/project/
     # and src/cli/toml.c and are already bounded-safe at the call site. Without
     # this define the /WX flag turns C4996 into an error and blocks the MSVC
     # build. Scoped to MSVC only so clang/gcc strictness is unchanged.
@@ -714,7 +714,7 @@ if(IRON_BUILD_LSP)
         # consumed by implementation.c (PATCH-01), type_hierarchy.c
         # (PATCH-02), complete/buckets.c (PATCH-03), hover.c (PATCH-04),
         # references.c (PATCH-05). Cross-file iteration routes through
-        # workspace_index per RESEARCH Conflict 1 (NOT dep_map).
+        # workspace_index per RESEARCH Conflict 1.
         src/lsp/facade/nav/patch_lookup.c
         src/lsp/facade/nav/definition.c
         src/lsp/facade/nav/declaration.c
@@ -858,21 +858,12 @@ if(IRON_BUILD_LSP)
         # iron.migrate dispatch, subprocess spawn, 5-bucket $/progress,
         # WorkspaceEdit construction, CMD-03 ironc >= 3.0.0 version gate.
         src/lsp/server/handlers_workspace_command.c
-        # Phase 3 Plan 02: workspace index + stdlib cache + dep map.
-        # workspace_index.c owns per-file arena-scoped IndexEntry map;
-        # stdlib_cache.c is the process-lifetime pre-parsed surface-file
-        # cache (pthread_once-guarded); dep_map.c wraps the library-linked
-        # src/pkg/resolver.c.
+        # Phase 3 Plan 02: workspace index + stdlib cache.
+        # workspace_index.c owns per-file arena-scoped IndexEntry map and
+        # reads iron.toml [fmt] via src/cli/toml.c; stdlib_cache.c is the
+        # process-lifetime pre-parsed surface-file cache (pthread_once-guarded).
         src/lsp/store/workspace_index.c
         src/lsp/store/stdlib_cache.c
-        src/lsp/store/dep_map.c
-        # Phase 3 Plan 02 Task 03: dep_map.c links src/pkg/resolver.c as
-        # library code (no subprocess).  Pull in the resolver's transitive
-        # dependencies (fetcher, lockfile, toml) so ironls can resolve
-        # iron.toml deps in-process.
-        src/pkg/resolver.c
-        src/pkg/fetcher.c
-        src/pkg/lockfile.c
         src/cli/toml.c
         # Phase 2 Plan 06: observability (XDG JSON-line log sink,
         # in-memory trace histogram) used by main.c + transport threads.
@@ -918,16 +909,15 @@ if(IRON_BUILD_LSP)
         COMPILE_FLAGS "-Wno-error -w")
 endif()
 
-# ── iron package manager executable ─────────────────────────────────────────
+# ── iron project tool executable ────────────────────────────────────────────
+# iron creates and builds iron.toml projects (init/build/run/check/test).
+# There is no package manager: third-party code is vendored under vendor/.
 # iron does NOT link iron_compiler or iron_runtime -- clean process boundary.
 # It only spawns ironc as a subprocess.
 add_executable(iron
-    src/pkg/main.c
-    src/pkg/init.c
-    src/pkg/pkg_build.c
-    src/pkg/fetcher.c
-    src/pkg/resolver.c
-    src/pkg/lockfile.c
+    src/project/main.c
+    src/project/init.c
+    src/project/project_build.c
     src/cli/toml.c
     # src/cli/toml.c calls iron_fmt_options_default() to initialize
     # IronProject.fmt; src/fmt/options.c is self-contained (no
@@ -1168,7 +1158,7 @@ if(NOT WIN32)
         ENVIRONMENT "PATH=$<TARGET_FILE_DIR:iron>:$<TARGET_FILE_DIR:ironc>:$ENV{PATH}"
     )
 
-    # Regression: iron build still works for projects with no dependencies
+    # Regression: iron build works for a freshly scaffolded project
     add_test(
         NAME test_iron_build_no_deps_still_works
         COMMAND /bin/sh -c "set -e && rm -rf /tmp/iron_test_nodeps && mkdir -p /tmp/iron_test_nodeps && cd /tmp/iron_test_nodeps && $<TARGET_FILE:iron> init && $<TARGET_FILE:iron> build && test -f target/iron_test_nodeps && ./target/iron_test_nodeps | grep -q Hello"
@@ -1178,13 +1168,14 @@ if(NOT WIN32)
         ENVIRONMENT "PATH=$<TARGET_FILE_DIR:iron>:$<TARGET_FILE_DIR:ironc>:$ENV{PATH}"
     )
 
-    # Test: iron build creates NO iron.lock when project has no deps
+    # Iron has no package manager: vendored sources under vendor/ build and
+    # run, and legacy [dependencies] tables warn or fail with a vendoring hint.
     add_test(
-        NAME test_iron_dep_lockfile
-        COMMAND /bin/sh -c "set -e && rm -rf /tmp/iron_test_dep && mkdir -p /tmp/iron_test_dep/src && printf '[package]\nname = \"test-dep-project\"\nversion = \"0.1.0\"\n\n[dependencies]\n' > /tmp/iron_test_dep/iron.toml && printf 'func main() {\n    println(\"hello deps\")\n}\n' > /tmp/iron_test_dep/src/main.iron && cd /tmp/iron_test_dep && $<TARGET_FILE:iron> build && test -f target/test-dep-project && test ! -f iron.lock"
-        WORKING_DIRECTORY /tmp
+        NAME test_iron_vendor_smoke
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/integration/vendor_smoke.sh $<TARGET_FILE:iron>
     )
-    set_tests_properties(test_iron_dep_lockfile PROPERTIES
+    set_tests_properties(test_iron_vendor_smoke PROPERTIES
+        PASS_REGULAR_EXPRESSION "vendor_smoke OK"
         ENVIRONMENT "PATH=$<TARGET_FILE_DIR:iron>:$<TARGET_FILE_DIR:ironc>:$ENV{PATH}"
     )
 endif()

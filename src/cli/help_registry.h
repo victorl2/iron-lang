@@ -5,7 +5,7 @@
  *
  * Single source of truth for every flag the iron and ironc CLIs accept.
  * Plan 97-02 will rewrite the inline print_usage() / print_help() text in
- * src/cli/main.c and src/pkg/main.c to call the printer functions declared
+ * src/cli/main.c and src/project/main.c to call the printer functions declared
  * here, so adding a new flag becomes a one-line edit in
  * src/cli/help_registry.c instead of a triple-touch across two
  * dispatcher source files plus a hand-maintained banner.
@@ -14,7 +14,7 @@
  * flag, grouped by subcommand. Linear iteration is fine at this scale
  * (~25 entries); no hash table, no bsearch.
  *
- * Both iron (src/pkg/main.c) and ironc (src/cli/main.c) link the
+ * Both iron (src/project/main.c) and ironc (src/cli/main.c) link the
  * companion help_registry.c so either dispatcher can call
  * iron_help_print_subcommand / iron_help_print_all without further
  * wiring.
@@ -45,7 +45,7 @@ extern const int IRON_CLI_FLAGS_COUNT;
  * those listed in the IronCliFlag.subcommand field comment above.
  *
  * `prog` is the binary name that should appear in the banner and usage
- * line ("iron" when called from src/pkg/main.c, "ironc" when called from
+ * line ("iron" when called from src/project/main.c, "ironc" when called from
  * src/cli/main.c). NULL falls back to "iron". */
 void iron_help_print_subcommand(const char *prog, const char *sub, FILE *out);
 

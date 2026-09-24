@@ -3,8 +3,7 @@
  * Same-program scans use the symbol_id.c:139-156 linear-search idiom.
  * Cross-file iteration uses the workspace_index snapshot_paths walk
  * (mirrors type_hierarchy.c:412-449). RESEARCH Conflict 1: cross-file
- * routes through workspace_index (parsed programs), NOT dep_map
- * (export-name lists only).
+ * routes through workspace_index (parsed programs).
  *
  * Per-request registry build/free pairing per Pitfall 1: every call
  * to iron_type_patch_registry_build is matched with
@@ -89,7 +88,7 @@ Iron_ObjectDecl *ilsp_patch_enclosing_for_method(
     if (!wi) return NULL;
 
     /* Cross-program walk via workspace_index snapshot paths
-     * (RESEARCH Conflict 1: dep_map carries no parsed programs). */
+     * (the only store that carries parsed programs). */
     size_t n = 0;
     char **paths = ilsp_workspace_index_snapshot_paths(wi, &n);
     if (!paths) return NULL;

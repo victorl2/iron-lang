@@ -1,0 +1,5 @@
+-- vendor_consume fixture: nested directories under vendor/ are collected.
+
+pub func twice(s: String) -> String {
+    return "{s}{s}"
+}

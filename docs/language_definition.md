@@ -685,8 +685,8 @@ val result, _ = divide(10.0, 3.0)
 ## Project manifest
 
 Iron projects are declared by an `iron.toml` at the project root. The
-`[package]` table carries metadata; `[dependencies]` lists local-path or
-git-source libraries.
+`[package]` table carries metadata. There is no `[dependencies]` table:
+Iron has no package manager (see [Third-party code](#third-party-code-vendoring)).
 
 ```toml
 [package]
@@ -694,9 +694,6 @@ name = "my_game"
 version = "0.1.0"
 type = "bin"               # "bin" (default) or "lib"
 iron = ">= 3.2.0"          # optional, minimum iron compiler version
-
-[dependencies]
-mylib = { path = "../mylib" }
 ```
 
 The `iron` field is an optional Cargo-style semver constraint enforced
@@ -716,6 +713,47 @@ iron = "^3.2"                       # any 3.x version (>= 3.2.0)
 A version mismatch produces a clear error pointing at the install script
 with a `--version` argument. A package with no `iron` field is not
 version-checked.
+
+### Third-party code (vendoring)
+
+Iron deliberately has no package manager, registry, or lockfile. The
+standard library is meant to cover the common ground, and anything else is
+brought in the way Odin does it: copy the source into your project and
+commit it.
+
+```
+my_game/
+  iron.toml
+  src/
+    main.iron
+  vendor/
+    ecs/                 -- an Iron library project, copied as-is
+      iron.toml
+      src/
+        lib.iron
+    noise/               -- or just loose .iron files
+      perlin.iron
+```
+
+`iron build`, `iron run`, and `iron check` compile every `.iron` file under
+`vendor/` together with the project's `src/`. The rules:
+
+- A vendored directory that has its own `iron.toml` and `src/` contributes
+  only its `src/` directory, so a library can be dropped in unchanged.
+- Otherwise every `.iron` file is collected, recursively.
+- `tests/`, `examples/`, `target/`, and hidden directories (`.git`, ...)
+  are skipped.
+
+Vendored code shares the project's namespace: call its `pub` functions and
+types directly. `import ecs` is accepted and documents the dependency, but
+aliased access (`import ecs as e`) is not supported for vendored or
+project-local modules yet. If two vendored libraries declare the same
+name, the build fails with a duplicate-declaration error; rename one of
+them in your copy.
+
+Because the code is in your repository, updating a dependency is an
+ordinary commit (for example re-copying a newer release, or using
+`git subtree`), and a build never touches the network.
 
 ---
 
@@ -2000,6 +2038,7 @@ val window = init_window(800, 600, "Game")
 
 ## Resolved Design Decisions
 
+- **Package manager:** No. External libraries are vendored as source under `vendor/` (see [Third-party code](#third-party-code-vendoring)); the stdlib covers the common ground.
 - **Operator overloading:** No. Operators (`+`, `-`, `*`, `/`) only work on primitives. Use explicit functions for custom types (e.g., `vec_add`, `vec_scale`). Legibility over magic.
 - **String methods:** On the type directly (`name.upper()`), not in a separate module.
 - **Collections:** Built-in, no import needed (`List[T]`, `Map[K,V]`, `Set[T]`).
@@ -2009,6 +2048,5 @@ val window = init_window(800, 600, "Game")
 
 ## Open Design Questions
 
-- **Package manager / dependency system:** how to pull in external libraries?
 - **Testing:** built-in test runner or external?
 - **Build configuration:** project file format?

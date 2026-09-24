@@ -5,23 +5,6 @@
 #include "cli/web_config.h"
 #include "fmt/options.h"
 
-/* Parsed representation of a single dependency from [dependencies]. */
-typedef struct {
-    char *name;       /* key name in [dependencies] */
-    char *git;        /* git = "owner/repo" */
-    char *version;    /* version = "X.Y.Z" */
-    /* Phase 94 LIB-03: local-path dependency. Set when [dependencies]
-     * inline-table contains `path = "..."`. NULL for git-source deps.
-     * Resolver dispatches on this field: non-NULL -> path-source handler;
-     * NULL -> existing git-source handler. The string is heap-allocated
-     * (strdup'd by extract_inline_field) and freed in iron_toml_free. */
-    char *path;
-    /* Filled in by resolver: */
-    char *sha;        /* 40-char commit SHA (from iron.lock or GitHub API) */
-    char *cache_path; /* absolute path: ~/.iron/cache/{owner}/{repo}@{sha}/
-                       * Repurposed for path-deps: holds the absolute lib project dir. */
-} IronDep;
-
 /* Parsed representation of an iron.toml project file. */
 typedef struct {
     /* [package] fields (was [project]) */
@@ -32,16 +15,20 @@ typedef struct {
     char *description; /* description = "..." (optional) */
 
     /* [package].iron — Phase 95 PIN-01: optional Cargo-style semver
-     * constraint enforced by pkg_build.c's check_iron_version. NULL when
+     * constraint enforced by project_build.c's check_iron_version. NULL when
      * the field is absent (no constraint = no check). Heap-owned; freed
      * in iron_toml_free. */
     char *iron_constraint;
 
-    /* [dependencies] */
-    bool   raylib;       /* raylib = true (backward compat) */
-    IronDep *deps;       /* heap array of parsed inline-table deps */
-    int    dep_count;
-    int    dep_capacity;
+    /* Legacy [dependencies] table. It is no longer supported (no package
+     * manager); the parser only records what it saw so the iron CLI can
+     * print a migration message.
+     *   legacy_deps_section: a [dependencies] header was present.
+     *   legacy_dep_name:     first entry other than `raylib = true`
+     *                        (heap-owned, NULL when the table was empty or
+     *                        only held `raylib = true`). */
+    bool   legacy_deps_section;
+    char  *legacy_dep_name;
     /* [web] section (parsed in toml.c section==3 branch, Plan 02) */
     IronWebConfig web;
 

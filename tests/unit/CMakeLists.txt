@@ -391,18 +391,18 @@ target_link_libraries(test_toml_web unity)
 add_test(NAME test_toml_web COMMAND test_toml_web)
 set_tests_properties(test_toml_web PROPERTIES LABELS "unit")
 
-# Phase 94 LIB-03: [dependencies] path-form parser tests
-add_executable(test_toml_path_dep
-    test_toml_path_dep.c
+# iron.toml legacy [dependencies] detection (Iron has no package manager)
+add_executable(test_toml_legacy_deps
+    test_toml_legacy_deps.c
     ${CMAKE_SOURCE_DIR}/src/cli/toml.c
     ${CMAKE_SOURCE_DIR}/src/fmt/options.c
 )
-target_include_directories(test_toml_path_dep PRIVATE
+target_include_directories(test_toml_legacy_deps PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
-target_link_libraries(test_toml_path_dep unity)
-add_test(NAME test_toml_path_dep COMMAND test_toml_path_dep)
-set_tests_properties(test_toml_path_dep PROPERTIES LABELS "unit")
+target_link_libraries(test_toml_legacy_deps unity)
+add_test(NAME test_toml_legacy_deps COMMAND test_toml_legacy_deps)
+set_tests_properties(test_toml_legacy_deps PROPERTIES LABELS "unit")
 
 # Phase 95 PIN: semver constraint parser tests
 add_executable(test_semver
@@ -839,7 +839,7 @@ if(IRON_BUILD_LSP)
     # Phase 4 Plan 04-05 Task 01 (EDIT-09, D-08): organizeImports facade
     # unit tests. Links the organize_imports facade TU directly alongside
     # the workspace-index store modules it consults (stdlib_cache for
-    # classification; dep_map left NULL in tests). Uses pthread for
+    # classification). Uses pthread for
     # stdlib_cache's pthread_once singleton init.
     add_executable(test_organize_imports
         test_organize_imports.c

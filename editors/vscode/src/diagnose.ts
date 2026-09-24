@@ -27,8 +27,6 @@ export async function runDiagnose(a: DiagnoseArgs): Promise<void> {
     vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? 'NONE';
   const ironToml =
     folder !== 'NONE' ? pathIfExists(path.join(folder, 'iron.toml')) : 'NO';
-  const ironLock =
-    folder !== 'NONE' ? pathIfExists(path.join(folder, 'iron.lock')) : 'NO';
 
   let capsSummary: string;
   try {
@@ -69,7 +67,6 @@ export async function runDiagnose(a: DiagnoseArgs): Promise<void> {
     '---------',
     `Root:                ${folder}`,
     `iron.toml found:     ${ironToml}`,
-    `iron.lock found:     ${ironLock}`,
     '',
     'LSP session',
     '-----------',

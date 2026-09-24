@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Package Manager Guide — Iron Language</title>
-  <meta name="description" content="Complete guide to the Iron package manager: creating projects, managing dependencies, building, and publishing Iron packages.">
+  <title>Project Guide — Iron Language</title>
+  <meta name="description" content="Guide to Iron projects: creating, building, running and testing iron.toml projects, and vendoring third-party code.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23e8590c'/%3E%3Ctext x='16' y='22' font-family='system-ui' font-weight='800' font-size='18' fill='white' text-anchor='middle'%3EFe%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -528,7 +528,7 @@
       <a href="/">Home</a>
       <a href="/docs/">Docs</a>
       <a href="/networking/">Networking</a>
-      <a href="/guide/" class="active-link">Package Manager</a>
+      <a href="/guide/" class="active-link">Projects</a>
       <a href="/raylib/">Raylib</a>
       <a href="/lsp/">LSP</a>
       <a href="/install/">Install</a>
@@ -556,7 +556,6 @@
         <h3>iron.toml</h3>
         <a href="#iron-toml">Manifest Format</a>
         <a href="#package-section">Package Section</a>
-        <a href="#dependencies-section">Dependencies</a>
       </div>
       <div class="sidebar-section">
         <h3>Commands</h3>
@@ -569,12 +568,12 @@
         <a href="#iron-migrate">migrate</a>
       </div>
       <div class="sidebar-section">
-        <h3>Dependencies</h3>
-        <a href="#adding-deps">Adding Dependencies</a>
-        <a href="#how-resolution-works">How Resolution Works</a>
-        <a href="#iron-lock">The Lockfile</a>
-        <a href="#cache">Cache</a>
-        <a href="#transitive-deps">Transitive Dependencies</a>
+        <h3>Third-party Code</h3>
+        <a href="#no-package-manager">No Package Manager</a>
+        <a href="#vendoring">Vendoring</a>
+        <a href="#vendor-rules">What Gets Compiled</a>
+        <a href="#updating-vendored">Updating Vendored Code</a>
+        <a href="#migrating-dependencies">Migrating [dependencies]</a>
       </div>
       <div class="sidebar-section">
         <h3>Reference</h3>
@@ -585,13 +584,13 @@
     </aside>
 
     <main class="content">
-      <h1>Package Manager Guide</h1>
-      <p class="subtitle">Create, build, and manage Iron projects and their dependencies.</p>
+      <h1>Project Guide</h1>
+      <p class="subtitle">Create, build, run, and test Iron projects, and bring in third-party code by vendoring it.</p>
 
       <!-- ── v3 callout ───────────────────────── -->
       <div class="callout">
         <div class="callout-title">v4.0.0-alpha</div>
-        <p>This guide covers <code>iron</code> package manager commands, which are unchanged in v4. For the current language syntax, including methods inside <code>object</code> blocks and the <code>pub</code> visibility model, see the <a href="/docs/">language reference</a>.</p>
+        <p>This guide covers the <code>iron</code> project commands. For the current language syntax, including methods inside <code>object</code> blocks and the <code>pub</code> visibility model, see the <a href="/docs/">language reference</a>.</p>
       </div>
 
       <!-- ── Overview ──────────────────────────── -->
@@ -599,10 +598,10 @@
       <p>Iron ships a two-binary toolchain inspired by Rust's Cargo/rustc split:</p>
       <table>
         <tr><th>Binary</th><th>Role</th><th>Analogy</th></tr>
-        <tr><td><code>iron</code></td><td>Package manager &mdash; projects, dependencies, builds</td><td>Cargo</td></tr>
+        <tr><td><code>iron</code></td><td>Project tool &mdash; scaffolding, builds, runs, checks, tests</td><td>Cargo, minus the package manager</td></tr>
         <tr><td><code>ironc</code></td><td>Raw compiler &mdash; compiles single .iron files to native binaries</td><td>rustc</td></tr>
       </table>
-      <p>For most workflows, you only interact with <code>iron</code>. It reads your project manifest (<code>iron.toml</code>), resolves dependencies, and invokes <code>ironc</code> behind the scenes.</p>
+      <p>For most workflows, you only interact with <code>iron</code>. It reads your project manifest (<code>iron.toml</code>), gathers your sources (including anything vendored under <code>vendor/</code>), and invokes <code>ironc</code> behind the scenes. Iron has no package manager: there is no registry, no download step, and no lockfile. See <a href="#no-package-manager">Third-party code</a>.</p>
 
       <!-- ── Toolchain ─────────────────────────── -->
       <h2 id="toolchain">The Toolchain</h2>
@@ -647,15 +646,15 @@ $ tree
       <h2 id="project-structure">Project Structure</h2>
 <pre><code>my-app/
 &#9500;&#9472;&#9472; iron.toml          <span class="cm"># Project manifest</span>
-&#9500;&#9472;&#9472; iron.lock          <span class="cm"># Lockfile (auto-generated, commit to VCS)</span>
 &#9500;&#9472;&#9472; .gitignore         <span class="cm"># Ignores target/</span>
 &#9500;&#9472;&#9472; src/
 &#9474;   &#9492;&#9472;&#9472; main.iron      <span class="cm"># Entry point (bin) or lib.iron (lib)</span>
+&#9500;&#9472;&#9472; vendor/            <span class="cm"># Third-party source, committed to VCS (optional)</span>
 &#9500;&#9472;&#9472; tests/
 &#9474;   &#9492;&#9472;&#9472; test_math.iron <span class="cm"># Test files discovered by iron test</span>
 &#9492;&#9472;&#9472; target/
     &#9500;&#9472;&#9472; my-app        <span class="cm"># Built binary</span>
-    &#9492;&#9472;&#9472; combined.iron  <span class="cm"># Concatenated source (when deps exist)</span></code></pre>
+    &#9492;&#9472;&#9472; combined.iron  <span class="cm"># Concatenated source (vendored code and multi-file projects)</span></code></pre>
 
       <div class="callout">
         <div class="callout-title">Conventions</div>
@@ -664,14 +663,15 @@ $ tree
 
       <!-- ── iron.toml ────────────────────────── -->
       <h2 id="iron-toml">iron.toml &mdash; Manifest Format</h2>
-      <p>The manifest file describes your package and its dependencies. Names and GitHub repositories in this guide are illustrative; replace them with your own projects.</p>
+      <p>The manifest file describes your project. There is no dependency table; third-party code lives in <code>vendor/</code> instead. Names in this guide are illustrative; replace them with your own projects.</p>
 
       <h3 id="package-section">[package]</h3>
 <pre><code><span class="cm">[package]</span>
 <span class="kw">name</span>        = <span class="st">"my-app"</span>
 <span class="kw">version</span>     = <span class="st">"0.1.0"</span>
 <span class="kw">type</span>        = <span class="st">"bin"</span>           <span class="cm"># "bin" (default) or "lib"</span>
-<span class="kw">description</span> = <span class="st">"A cool project"</span> <span class="cm"># optional</span></code></pre>
+<span class="kw">description</span> = <span class="st">"A cool project"</span> <span class="cm"># optional</span>
+<span class="kw">iron</span>        = <span class="st">"&gt;= 4.0.0"</span>      <span class="cm"># optional minimum compiler version</span></code></pre>
 
       <table>
         <tr><th>Field</th><th>Required</th><th>Description</th></tr>
@@ -679,24 +679,8 @@ $ tree
         <tr><td><code>version</code></td><td>Yes</td><td>Semantic version string</td></tr>
         <tr><td><code>type</code></td><td>No</td><td><code>"bin"</code> (default) or <code>"lib"</code></td></tr>
         <tr><td><code>description</code></td><td>No</td><td>Short description of the package</td></tr>
+        <tr><td><code>iron</code></td><td>No</td><td>Cargo-style semver constraint on the <code>iron</code> compiler version, checked by <code>iron build</code> and <code>iron run</code></td></tr>
       </table>
-
-      <h3 id="dependencies-section">[dependencies]</h3>
-<pre><code><span class="cm">[dependencies]</span>
-<span class="kw">raylib</span>   = <span class="nu">true</span>                                          <span class="cm"># built-in</span>
-<span class="kw">iron-utils</span> = { <span class="kw">git</span> = <span class="st">"user/iron-utils"</span>, <span class="kw">version</span> = <span class="st">"0.1.0"</span> }  <span class="cm"># GitHub dep</span></code></pre>
-
-      <p>Dependencies are specified as inline TOML tables with two fields:</p>
-      <table>
-        <tr><th>Field</th><th>Format</th><th>Description</th></tr>
-        <tr><td><code>git</code></td><td><code>"owner/repo"</code></td><td>GitHub repository in short form</td></tr>
-        <tr><td><code>version</code></td><td><code>"X.Y.Z"</code></td><td>Version tag to resolve (tries <code>vX.Y.Z</code> then <code>X.Y.Z</code>)</td></tr>
-      </table>
-
-      <div class="callout">
-        <div class="callout-title">GitHub-only (alpha)</div>
-        <p>During alpha, dependencies are resolved exclusively from GitHub. The <code>git</code> field uses the short <code>owner/repo</code> format &mdash; Iron prepends <code>https://github.com/</code> automatically.</p>
-      </div>
 
       <!-- ── Commands ────────────────────────────── -->
       <h2 id="iron-init">iron init</h2>
@@ -708,12 +692,12 @@ $ <span class="fn">iron init --lib</span>    <span class="cm"># library project<
       <h2 id="iron-build">iron build</h2>
       <p>Build the current package.</p>
 <pre><code>$ <span class="fn">iron build</span>
-   <span class="kw">Downloading</span> iron-utils v0.1.0 (user/iron-utils)
    <span class="kw">Compiling</span> my-app v0.1.0
     <span class="st">Finished</span> dev [unoptimized] in 0.42s</code></pre>
-      <p>Reads <code>iron.toml</code>, resolves and fetches dependencies, concatenates source files, and invokes <code>ironc</code>. Output binary is placed in <code>target/</code>.</p>
+      <p>Reads <code>iron.toml</code>, gathers the sources under <code>vendor/</code> and <code>src/</code>, and invokes <code>ironc</code>. It never touches the network. Output binary is placed in <code>target/</code>; a <code>type = "lib"</code> project produces <code>target/lib&lt;name&gt;.a</code>.</p>
       <table>
         <tr><th>Flag</th><th>Description</th></tr>
+        <tr><td><code>--release</code></td><td>Optimized build (passed through to ironc)</td></tr>
         <tr><td><code>--verbose</code></td><td>Show generated C code (passed through to ironc)</td></tr>
       </table>
 
@@ -728,7 +712,7 @@ Hello, Iron!</code></pre>
 <pre><code>$ <span class="fn">iron run -- --port 8080</span></code></pre>
 
       <h2 id="iron-check">iron check</h2>
-      <p>Type-check the package without producing a binary. Fast feedback loop.</p>
+      <p>Type-check the project, including vendored code, without producing a binary. Fast feedback loop.</p>
 <pre><code>$ <span class="fn">iron check</span>
     <span class="kw">Checking</span> my-app v0.1.0
     <span class="st">Finished</span> check completed</code></pre>
@@ -760,139 +744,113 @@ would reformat src/main.iron</code></pre>
         <tr><td><code>--to</code></td><td>Target grammar version (e.g. <code>v3</code>)</td></tr>
       </table>
 
-      <!-- ── Dependencies ────────────────────────── -->
-      <h2 id="adding-deps">Adding Dependencies</h2>
-      <p>Edit <code>iron.toml</code> to add a dependency:</p>
-<pre><code><span class="cm">[dependencies]</span>
-<span class="kw">iron-math</span> = { <span class="kw">git</span> = <span class="st">"user/iron-math"</span>, <span class="kw">version</span> = <span class="st">"0.2.0"</span> }</code></pre>
-      <p>On the next <code>iron build</code>, Iron will:</p>
-      <ol>
-        <li>Resolve the version tag to a commit SHA via the GitHub API</li>
-        <li>Download and extract the source tarball into <code>~/.iron/cache/</code></li>
-        <li>Concatenate dependency source files with your project source</li>
-        <li>Write the resolved SHA to <code>iron.lock</code></li>
-      </ol>
+      <!-- ── Third-party code ────────────────────── -->
+      <h2 id="no-package-manager">No Package Manager</h2>
+      <p>Iron deliberately has no package manager. There is no registry, no <code>iron add</code>, no dependency resolver, and no lockfile. The standard library is meant to cover the common ground (collections, strings, math, I/O, time, logging, networking, HTTP), and raylib ships with the compiler.</p>
+      <p>When you do need someone else's code, you take a copy of it, the way Odin projects do: the source goes into your repository, you read it, and you own it. Builds are reproducible because everything they compile is committed, and they never reach out to the network.</p>
 
-      <h2 id="how-resolution-works">How Resolution Works</h2>
-      <h3>Tag resolution</h3>
-      <p>Iron resolves version tags to 40-character commit SHAs using the GitHub REST API:</p>
-      <ol>
-        <li>Try <code>v{version}</code> tag first (e.g., <code>v0.2.0</code>)</li>
-        <li>Fall back to <code>{version}</code> (e.g., <code>0.2.0</code>)</li>
-        <li>Handle annotated tags with a two-step API dereference</li>
-      </ol>
-      <p>The resolved SHA (never a mutable tag name) is stored in <code>iron.lock</code> for reproducibility.</p>
+      <h2 id="vendoring">Vendoring</h2>
+      <p>Put third-party code in a <code>vendor/</code> directory next to <code>iron.toml</code>. Each library gets its own subdirectory. Nothing needs to be declared in <code>iron.toml</code>.</p>
+<pre><code>my-game/
+&#9500;&#9472;&#9472; iron.toml
+&#9500;&#9472;&#9472; src/
+&#9474;   &#9492;&#9472;&#9472; main.iron
+&#9492;&#9472;&#9472; vendor/
+    &#9500;&#9472;&#9472; greeter/           <span class="cm"># an Iron library project, copied as-is</span>
+    &#9474;   &#9500;&#9472;&#9472; iron.toml
+    &#9474;   &#9500;&#9472;&#9472; LICENSE
+    &#9474;   &#9492;&#9472;&#9472; src/
+    &#9474;       &#9492;&#9472;&#9472; lib.iron
+    &#9492;&#9472;&#9472; noise/             <span class="cm"># or just loose .iron files</span>
+        &#9492;&#9472;&#9472; perlin.iron</code></pre>
 
-      <h3>Build composition</h3>
-      <p>Iron concatenates all source files into <code>target/combined.iron</code> in this order:</p>
-      <ol>
-        <li><strong>Transitive deps</strong> (leaf dependencies first)</li>
-        <li><strong>Direct deps</strong> (in <code>iron.toml</code> declaration order)</li>
-        <li><strong>Project source</strong> (<code>src/*.iron</code> alphabetically, <code>main.iron</code> last)</li>
-      </ol>
-      <p>Within each dependency, <code>lib.iron</code> is placed first (if it exists), then remaining files alphabetically.</p>
+      <p>Grab a copy however suits you:</p>
+<pre><code><span class="cm"># copy a release</span>
+$ <span class="fn">mkdir -p vendor/greeter</span>
+$ <span class="fn">curl -sSL https://example.com/greeter-0.3.0.tar.gz | tar -xz --strip-components=1 -C vendor/greeter</span>
 
-      <h2 id="iron-lock">The Lockfile</h2>
-      <p><code>iron.lock</code> pins every dependency to an exact commit SHA. It is auto-generated on first build and should be <strong>committed to version control</strong>.</p>
-<pre><code><span class="cm"># This file is auto-generated by iron. Do not edit manually.</span>
+<span class="cm"># or track an upstream repository with git subtree</span>
+$ <span class="fn">git subtree add --prefix vendor/greeter https://example.com/greeter.git v0.3.0 --squash</span></code></pre>
 
-<span class="kw">lock_version</span> = <span class="nu">1</span>
+      <p>Then use it. Vendored code is compiled into the same program as your own code, so its <code>pub</code> functions and types are available directly:</p>
+<pre><code><span class="cm">-- vendor/greeter/src/lib.iron</span>
+<span class="kw">pub</span> <span class="kw">func</span> <span class="fn">greet</span>(name: String) -> String {
+    <span class="kw">return</span> <span class="st">"Hello, {name}!"</span>
+}
 
-<span class="cm">[[package]]</span>
-<span class="kw">name</span>    = <span class="st">"iron-utils"</span>
-<span class="kw">version</span> = <span class="st">"0.1.0"</span>
-<span class="kw">git</span>     = <span class="st">"user/iron-utils"</span>
-<span class="kw">sha</span>     = <span class="st">"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"</span></code></pre>
+<span class="cm">-- src/main.iron</span>
+<span class="kw">import</span> greeter      <span class="cm">-- optional: documents where the names come from</span>
 
-      <h3>Lockfile behavior</h3>
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="fn">println</span>(<span class="fn">greet</span>(<span class="st">"Iron"</span>))
+}</code></pre>
+<pre><code>$ <span class="fn">iron run</span>
+   <span class="kw">Compiling</span> my-game v0.1.0
+    <span class="st">Finished</span> dev [unoptimized] in 0.51s
+     <span class="fn">Running</span> target/run/my-game
+Hello, Iron!</code></pre>
+
+      <div class="callout">
+        <div class="callout-title">One namespace</div>
+        <p>Vendored code shares the project's namespace. <code>import greeter</code> is accepted, but aliased access (<code>import greeter as g</code>) is not supported for vendored or project-local modules yet. If two libraries declare the same name, the build fails with a duplicate-declaration error; rename one of them in your copy.</p>
+      </div>
+
+      <h2 id="vendor-rules">What Gets Compiled</h2>
+      <p><code>iron build</code>, <code>iron run</code>, and <code>iron check</code> collect every <code>.iron</code> file under <code>vendor/</code>, then the project's own <code>src/*.iron</code>, into <code>target/combined.iron</code> and compile that as one program.</p>
       <table>
-        <tr><th>Scenario</th><th>What happens</th></tr>
-        <tr><td>No <code>iron.lock</code></td><td>All deps resolved via GitHub API, lockfile created</td></tr>
-        <tr><td>Lockfile exists</td><td>Locked SHAs used directly (no API calls)</td></tr>
-        <tr><td>New dep in <code>iron.toml</code></td><td>Only new dep resolved, existing entries preserved</td></tr>
-        <tr><td>Dep removed from <code>iron.toml</code></td><td>Entry pruned from lockfile on next build</td></tr>
-        <tr><td>Cache deleted</td><td>Re-fetched using exact SHAs from lockfile</td></tr>
+        <tr><th>In <code>vendor/</code></th><th>Compiled?</th></tr>
+        <tr><td>A directory with its own <code>iron.toml</code> and <code>src/</code></td><td>Only its <code>src/</code>, so a library project can be dropped in unchanged</td></tr>
+        <tr><td>Any other directory</td><td>Every <code>.iron</code> file, recursively</td></tr>
+        <tr><td><code>tests/</code>, <code>examples/</code>, <code>target/</code></td><td>No</td></tr>
+        <tr><td>Hidden directories (<code>.git</code>, ...)</td><td>No</td></tr>
+        <tr><td>Non-<code>.iron</code> files (<code>LICENSE</code>, <code>README.md</code>, ...)</td><td>No, but keep the license next to the code</td></tr>
       </table>
+      <p>Files are compiled in sorted path order. Compile errors in vendored code are reported against <code>target/combined.iron</code>; the <code>-- vendor: &lt;path&gt;</code> comment above each file tells you where it came from.</p>
 
-      <h2 id="cache">Cache</h2>
-      <p>Downloaded dependency sources are stored globally in <code>~/.iron/cache/</code>:</p>
-<pre><code>~/.iron/cache/
-&#9492;&#9472;&#9472; user/
-    &#9492;&#9472;&#9472; iron-utils@a1b2c3d4.../
-        &#9500;&#9472;&#9472; iron.toml
-        &#9492;&#9472;&#9472; src/
-            &#9492;&#9472;&#9472; lib.iron</code></pre>
-      <p>The cache is shared across all projects on the machine. A second project using the same dependency at the same version reuses the cached source without re-downloading.</p>
-      <p>To force a clean re-fetch, delete the cache: <code>rm -rf ~/.iron/cache/</code></p>
+      <h2 id="updating-vendored">Updating Vendored Code</h2>
+      <p>Updating a dependency is an ordinary change to your repository: replace the directory with a newer copy (or run <code>git subtree pull</code>), rebuild, and review the diff before you commit it. Local patches are just edits; keep a note in the vendored directory if you need to re-apply them after the next update.</p>
 
-      <h2 id="transitive-deps">Transitive Dependencies</h2>
-      <p>If your dependency has its own <code>[dependencies]</code> in its <code>iron.toml</code>, Iron resolves them recursively. All transitive deps are flattened into <code>iron.lock</code>.</p>
-
-      <h3>Diamond dependencies</h3>
-      <p>If A depends on B and C, and both B and C depend on D at the same version, D is included only once.</p>
-
-      <h3>Version conflicts</h3>
-      <p>If two dependencies require different versions of the same transitive dep, Iron refuses to build and shows which deps conflict:</p>
-<pre><code><span class="kw">error:</span> version conflict for user/iron-math
-  iron-utils requires v0.2.0
-  iron-physics requires v0.1.0
-
-  hint: align dependency versions in the respective iron.toml files</code></pre>
-
-      <h3>Circular dependencies</h3>
-      <p>If A depends on B which depends on A, Iron detects the cycle and prints the full chain:</p>
-<pre><code><span class="kw">error:</span> circular dependency detected
-  -> user/iron-utils
-    -> user/iron-math
-      -> user/iron-utils  (cycle)
-
-  hint: remove the circular dependency from one of the packages</code></pre>
+      <h2 id="migrating-dependencies">Migrating [dependencies]</h2>
+      <p>Earlier alphas had a <code>[dependencies]</code> table with GitHub and local-path entries, an <code>iron.lock</code> lockfile, and a download cache in <code>~/.iron/cache/</code>. All of that is gone. To migrate a project:</p>
+      <ol>
+        <li>For each entry, copy the library's source into <code>vendor/&lt;name&gt;/</code> (for a path dependency, copy the directory it pointed at).</li>
+        <li>Delete the <code>[dependencies]</code> table and <code>iron.lock</code>.</li>
+        <li>Optionally delete <code>~/.iron/cache/</code>; nothing reads it anymore.</li>
+      </ol>
+      <p>A manifest that still declares a dependency fails with a pointer to this page:</p>
+<pre><code><span class="kw">error:</span> iron.toml declares dependency 'iron-utils', but Iron has no package manager.
+  hint: copy the library's source into vendor/iron-utils/ and remove the
+        [dependencies] table. `iron build` compiles everything under
+        vendor/ together with your project.</code></pre>
+      <p>An empty <code>[dependencies]</code> table (the old <code>iron init</code> template) or <code>raylib = true</code> only prints a warning; raylib is enabled by <code>import raylib</code>.</p>
 
       <!-- ── Reference ───────────────────────────── -->
       <h2 id="environment-variables">Environment Variables</h2>
       <table>
         <tr><th>Variable</th><th>Description</th></tr>
-        <tr><td><code>IRON_GITHUB_TOKEN</code></td><td>GitHub auth token for API requests (5000/hr vs 60/hr). Checked first.</td></tr>
-        <tr><td><code>GITHUB_TOKEN</code></td><td>Fallback auth token (auto-set in GitHub Actions). Checked second.</td></tr>
         <tr><td><code>NO_COLOR</code></td><td>Disable colored output when set to any value.</td></tr>
         <tr><td><code>FORCE_COLOR</code></td><td>Force colored output even when not a TTY.</td></tr>
       </table>
-      <div class="callout">
-        <div class="callout-title">CI tip</div>
-        <p>In GitHub Actions, <code>GITHUB_TOKEN</code> is set automatically. No configuration needed for dependency resolution in CI.</p>
-      </div>
-
       <h2 id="error-messages">Error Messages</h2>
       <table>
         <tr><th>Error</th><th>Cause</th><th>Fix</th></tr>
-        <tr><td>tag 'X' not found for owner/repo</td><td>Version tag doesn't exist on GitHub</td><td>Check that the repo has the tag (with or without <code>v</code> prefix)</td></tr>
-        <tr><td>GitHub API rate limit exceeded</td><td>Too many unauthenticated requests</td><td>Set <code>IRON_GITHUB_TOKEN</code> for 5000 req/hr</td></tr>
-        <tr><td>circular dependency detected</td><td>Dep graph has a cycle</td><td>Remove the circular dep from one package</td></tr>
-        <tr><td>version conflict for ...</td><td>Two deps need different versions of the same transitive dep</td><td>Align versions across your dependency tree</td></tr>
-        <tr><td>has no iron.toml</td><td>A dependency is not a valid Iron package</td><td>Ensure the dep has an <code>iron.toml</code> at its root</td></tr>
+        <tr><td>iron.toml declares dependency '...'</td><td>The manifest still has a <code>[dependencies]</code> entry</td><td><a href="#migrating-dependencies">Vendor the code</a> and delete the table</td></tr>
+        <tr><td>duplicate declaration</td><td>Two vendored libraries (or a library and your code) declare the same name</td><td>Rename one of them in your copy</td></tr>
         <tr><td>no iron.toml found</td><td>Not in a project directory</td><td>Run <code>iron init</code> or <code>cd</code> into a project</td></tr>
       </table>
 
       <h2 id="faq">FAQ</h2>
-      <h3>Do I commit iron.lock?</h3>
-      <p><strong>Yes.</strong> The lockfile ensures reproducible builds. Without it, teammates and CI may resolve different commits.</p>
+      <h3>Why no package manager?</h3>
+      <p>Package managers make it cheap to pull in large dependency trees you never read. Iron leans on a broad standard library instead, and asks you to copy the few extra pieces you need so they are visible, reviewable, and pinned by your own version control.</p>
 
-      <h3>Can I use private repos?</h3>
-      <p>Not yet. Alpha supports public GitHub repositories only. Private repo auth is planned for a future release.</p>
+      <h3>Do I commit vendor/?</h3>
+      <p><strong>Yes.</strong> The vendored source is part of your project. That is what makes builds reproducible and offline.</p>
 
-      <h3>What about semver ranges?</h3>
-      <p>Iron pins to exact commit SHAs, not version ranges. The ecosystem is currently too small for version conflict resolution. Semver ranges may be added in a future release.</p>
+      <h3>How do I share my own library?</h3>
+      <p>Publish its source (a repository or a tarball) with an <code>iron.toml</code> and a <code>src/</code> directory, as created by <code>iron init --lib</code>. Users copy it into their <code>vendor/</code>.</p>
 
-      <h3>Where are deps downloaded?</h3>
-      <p>To <code>~/.iron/cache/</code> (global, shared across all projects). Delete this directory to force a clean re-fetch.</p>
-
-      <h3>Can I use local path dependencies?</h3>
-      <p><strong>Yes</strong> &mdash; shipped in v3.2. Point a dependency at a local directory and it resolves without a lockfile or registry entry; the library is rebuilt automatically when stale:</p>
-<pre><code><span class="cm">[dependencies]</span>
-<span class="kw">mylib</span> = { <span class="kw">path</span> = <span class="st">"../mylib"</span> }</code></pre>
-
-      <h3>How do I update a dependency?</h3>
-      <p>Delete the dep's entry from <code>iron.lock</code> and re-run <code>iron build</code>. It will re-resolve the tag to the latest commit SHA. An <code>iron update</code> command is planned.</p>
+      <h3>Can I vendor C libraries?</h3>
+      <p>Not yet. <code>extern func</code> can call C functions that the compiler already declares (libc, raylib), but a project cannot yet declare and link an arbitrary vendored C library.</p>
 
     </main>
   </div>

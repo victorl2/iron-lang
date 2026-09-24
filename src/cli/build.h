@@ -14,7 +14,7 @@ typedef struct {
     bool        run_after;        /* true for "iron run" */
     const char **run_args;        /* args after -- */
     int          run_arg_count;
-    bool        use_raylib;       /* true when iron.toml has [dependencies] raylib = true */
+    bool        use_raylib;       /* true when the source imports raylib */
     bool        use_tls;          /* true when the source imports http/websocket */
     bool        force_comptime;   /* --force-comptime flag: skip comptime cache */
     bool        dump_ir_passes;   /* --dump-ir-passes: print IR after each opt pass */
@@ -31,11 +31,11 @@ typedef struct {
                                     * are out of v3.2 scope). */
     const char     *pkg_name;       /* Phase 94 LIB-02: for .iron-stub header. NULL = derive from output path. */
     const char     *pkg_version;    /* Phase 94 LIB-02: for .iron-stub header. NULL = "0.0.0". */
-    /* Phase 94 LIB-03: extra link flags forwarded to clang link line (e.g.
-     * -L<path-dep>/target -l<dep-name> for each local-path dependency).
-     * Each entry is appended verbatim to the clang argv just before the
-     * existing -lm. NULL / 0 when no path-deps are present. main.c collects
-     * any argv entry starting with "-L" or "-l" into this array. */
+    /* Phase 94 LIB-03: extra link flags forwarded to clang link line
+     * (-L<dir> / -l<name> passed to `ironc build`). Each entry is appended
+     * verbatim to the clang argv just before the existing -lm. NULL / 0
+     * when none were given. main.c collects any argv entry starting with
+     * "-L" or "-l" into this array. */
     const char    **extra_link_flags;
     int             extra_link_flag_count;
 } IronBuildOpts;

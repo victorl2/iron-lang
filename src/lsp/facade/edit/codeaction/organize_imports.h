@@ -5,16 +5,15 @@
  * facade.
  *
  * The facade walks the leading Iron_ImportDecl run of a document's
- * parsed Iron_Program, classifies each import into one of three groups
- * (stdlib / dep / local), sorts within each group alphabetically, dedupes
+ * parsed Iron_Program, classifies each import into one of two groups
+ * (stdlib / local), sorts within each group alphabetically, dedupes
  * exact duplicates, optionally removes unused imports (when the workspace
  * index has completed its bulk analyze), and emits a single LSP TextEdit
  * replacing the full import-run span with the reformatted block.
  *
  * D-08 LOCKED behavior (summary):
  *   Group A: stdlib   (import path matches a stdlib_cache key)
- *   Group B: deps     (import path matches a dep_map key)
- *   Group C: local    (everything else)
+ *   Group B: local    (everything else, including vendored modules)
  *   - Within group: alpha-sort by path; non-aliased precedes aliased.
  *   - Empty groups omit their blank-line separator.
  *   - Exact (path, alias) duplicates collapse to one.

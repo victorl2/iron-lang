@@ -101,15 +101,10 @@ if(IRON_BUILD_LSP)
         # handlers_document.c must link workspace_index.c too.
         ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace_index.c
         # Phase 3 Plan 02/03 + Phase 4 Plans 04-02/05: completion buckets
-        # and organize_imports query stdlib_cache + dep_map. These were
-        # previously only linked through ironls; tests that link
-        # facade/edit/**.c must also link them.
+        # and organize_imports query stdlib_cache. It was previously only
+        # linked through ironls; tests that link facade/edit/**.c must also
+        # link it. workspace_index.c reads iron.toml [fmt] via src/cli/toml.
         ${CMAKE_SOURCE_DIR}/src/lsp/store/stdlib_cache.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/store/dep_map.c
-        # dep_map.c consumes src/pkg/resolver + src/cli/toml — pull them in.
-        ${CMAKE_SOURCE_DIR}/src/pkg/resolver.c
-        ${CMAKE_SOURCE_DIR}/src/pkg/fetcher.c
-        ${CMAKE_SOURCE_DIR}/src/pkg/lockfile.c
         ${CMAKE_SOURCE_DIR}/src/cli/toml.c
         # Plan 05: handlers_document.c now starts + stops per-doc workers;
         # tests that link handlers_document.c must also link the worker
@@ -790,28 +785,6 @@ if(IRON_BUILD_LSP)
         LABELS "unit;phase-m2-invariant"
         TIMEOUT 60)
 
-    # ── Phase 3 Plan 02 Task 03 (NAV-01): dep_map ────────────────────────
-    # iron.toml-resolved dep symbol map via library-linked resolver.c.
-    # Test uses ilsp_dep_map_inject_for_test to avoid the GitHub-touching
-    # fetcher path while still exercising lookup/invalidate/path-escape.
-    add_executable(test_dep_map test_dep_map.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/store/dep_map.c
-        ${CMAKE_SOURCE_DIR}/src/pkg/resolver.c
-        ${CMAKE_SOURCE_DIR}/src/pkg/fetcher.c
-        ${CMAKE_SOURCE_DIR}/src/pkg/lockfile.c
-        ${CMAKE_SOURCE_DIR}/src/cli/toml.c)
-    target_include_directories(test_dep_map PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor
-        ${CMAKE_BINARY_DIR}/generated)
-    target_compile_definitions(test_dep_map PRIVATE _GNU_SOURCE)
-    target_link_libraries(test_dep_map
-        iron_compiler iron_runtime iron_stdlib unity pthread m)
-    add_test(NAME test_dep_map COMMAND test_dep_map)
-    set_tests_properties(test_dep_map PROPERTIES
-        LABELS "unit;phase-m2-invariant"
-        TIMEOUT 60)
-
     add_executable(test_workspace_index test_workspace_index.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace_index.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/document.c
@@ -916,10 +889,6 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/workspace_index.c
         ${CMAKE_SOURCE_DIR}/src/lsp/store/stdlib_cache.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/store/dep_map.c
-        ${CMAKE_SOURCE_DIR}/src/pkg/resolver.c
-        ${CMAKE_SOURCE_DIR}/src/pkg/fetcher.c
-        ${CMAKE_SOURCE_DIR}/src/pkg/lockfile.c
         ${CMAKE_SOURCE_DIR}/src/cli/toml.c
         ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c
         ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c

@@ -4,8 +4,8 @@
 /* Phase 2 Plan 03 Task 02 -- client/registerCapability outbound.
  *
  * Post-`initialized` the server sends `client/registerCapability` for
- * `workspace/didChangeWatchedFiles` with globs for `.iron`, `iron.toml`,
- * `iron.lock`. The client then returns a response we don't care about
+ * `workspace/didChangeWatchedFiles` with globs for `.iron` and
+ * `iron.toml`. The client then returns a response we don't care about
  * (dyn_register is fire-and-forget for watched-files registration).
  *
  * Kept deliberately small; Plan 06 may extend for other dynamic

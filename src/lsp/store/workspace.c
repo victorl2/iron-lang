@@ -3,8 +3,7 @@
  * Minimal surface for Plan 04:
  *   - Parse a file:// URI into a filesystem path.
  *   - Walk up from that path looking for iron.toml.
- *   - Classify watched-files event paths (source / manifest / lockfile /
- *     unknown) so handlers_document.c can emit the right log event.
+ *   - Classify watched-files event paths (source / manifest / unknown) so handlers_document.c can emit the right log event.
  *
  * No TOML parsing yet -- Phase 3 NAV-01 does that. Plan 04 just locates
  * the root so Plan 05+ have a handle. Directory-walk pattern adapted
@@ -122,10 +121,6 @@ IronLsp_WatchedKind ilsp_workspace_classify(const char *uri_or_path) {
     if (ends_with(uri_or_path, "/iron.toml") ||
         ends_with(uri_or_path, "iron.toml")) {
         return ILSP_WATCHED_MANIFEST;
-    }
-    if (ends_with(uri_or_path, "/iron.lock") ||
-        ends_with(uri_or_path, "iron.lock")) {
-        return ILSP_WATCHED_LOCKFILE;
     }
     if (ends_with(uri_or_path, ".iron")) {
         return ILSP_WATCHED_SOURCE;
