@@ -1,0 +1,4 @@
+id: 42
+after +=: 105
+after -= and *=: 208
+element: 107 (index evaluated 1 time)

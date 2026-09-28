@@ -1,0 +1,39 @@
+-- Regression: writes to `pub` fields were dropped or miscomputed.
+--
+-- 1. A `pub val` field assigned in init was lowered through its synthesized
+--    getter (the assignment target was lowered as a read), so the store was
+--    dropped and the field read back uninitialized memory.
+-- 2. A compound assignment on a `pub var` field called the synthesized
+--    setter with the right-hand side alone: `a.balance += 5` stored 5.
+--
+-- Pub val targets now lower to a direct field store, and compound setter
+-- writes compute `getter() op value` with the receiver evaluated once.
+object Acct {
+    pub val id: Int
+    pub var balance: Int
+    init(id: Int) {
+        self.id = id
+        self.balance = 100
+    }
+}
+
+var calls = 0
+
+func pick(n: Int) -> Int {
+    calls += 1
+    return n
+}
+
+func main() {
+    var a = Acct(42)
+    println("id: {a.id}")
+    a.balance += 5
+    println("after +=: {a.balance}")
+    a.balance -= 1
+    a.balance *= 2
+    println("after -= and *=: {a.balance}")
+
+    var accts: [Acct] = [Acct(1), Acct(2)]
+    accts[pick(1)].balance += 7
+    println("element: {accts[1].balance} (index evaluated {calls} time)")
+}

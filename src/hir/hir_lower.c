@@ -945,6 +945,21 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             Iron_FieldAccess *tfa = (Iron_FieldAccess *)as->target;
             IronHIR_Expr *obj   = lower_expr_hir(ctx, tfa->object);
             IronHIR_Expr *value = lower_expr_hir(ctx, as->value);
+            if (is_compound_assign(as->op)) {
+                /* `o.f op= v` through a setter is set_f(f() op v). Passing v
+                 * alone turned `a.balance += 5` into `a.balance = 5`. The
+                 * receiver is read twice, so it must be pure; impure
+                 * receivers are hoisted to a temp first. */
+                IronHIR_Expr *obj_read = NULL;
+                obj = lower_ca_operand_dual(ctx, tfa->object, &obj_read);
+                IronHIR_Expr **no_args = NULL;
+                IronHIR_Expr *cur = iron_hir_expr_method_call(
+                    mod, obj_read, tfa->field, no_args, 0,
+                    tfa->resolved_type, span);
+                value = iron_hir_expr_binop(
+                    mod, ast_op_to_hir_binop(compound_assign_base_op(as->op)),
+                    cur, value, expr_type(as->target), span);
+            }
             /* Build the setter name: set_<field>. Arena-alloc so the HIR
              * expression can reference the string stably. */
             size_t flen = strlen(tfa->field);
@@ -982,7 +997,19 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             IronHIR_Stmt *s = iron_hir_stmt_assign(mod, target, binop, span);
             iron_hir_block_add_stmt(blk, s);
         } else {
-            IronHIR_Expr *target = lower_expr_hir(ctx, as->target);
+            IronHIR_Expr *target;
+            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS &&
+                ((Iron_FieldAccess *)as->target)->is_pub_access) {
+                /* A pub field written without a setter (a `pub val` populated
+                 * in init) is a direct store. Lowering the target as a read
+                 * produced a getter call, and the store was dropped. */
+                Iron_FieldAccess *tfa = (Iron_FieldAccess *)as->target;
+                target = iron_hir_expr_field_access(
+                    mod, lower_expr_hir(ctx, tfa->object), tfa->field,
+                    tfa->resolved_type, as->target->span);
+            } else {
+                target = lower_expr_hir(ctx, as->target);
+            }
             IronHIR_Expr *value  = lower_expr_hir(ctx, as->value);
             IronHIR_Stmt *s = iron_hir_stmt_assign(mod, target, value, span);
             iron_hir_block_add_stmt(blk, s);
