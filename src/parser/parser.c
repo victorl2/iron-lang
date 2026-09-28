@@ -2660,6 +2660,17 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
             size_t expr_start = i;
             int depth = 1;
             while (i < len && depth > 0) {
+                if (s[i] == '"') {
+                    /* A string literal inside the expression: its braces
+                     * and quotes are not delimiters of this one. */
+                    i++;
+                    while (i < len && s[i] != '"') {
+                        if (s[i] == '\\' && i + 1 < len) i++;
+                        i++;
+                    }
+                    if (i < len) i++;
+                    continue;
+                }
                 if (s[i] == '{') depth++;
                 else if (s[i] == '}') depth--;
                 if (depth > 0) i++;
@@ -2740,7 +2751,11 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                 }
             }
         } else {
-            lit_buf[lit_len++] = s[i++];
+            /* Escaped braces arrive as lexer marker bytes. */
+            char ch = s[i++];
+            if (ch == IRON_LEX_LITERAL_LBRACE) ch = '{';
+            else if (ch == IRON_LEX_LITERAL_RBRACE) ch = '}';
+            lit_buf[lit_len++] = ch;
         }
     }
 

@@ -328,6 +328,10 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
     size_t buf_max = 4096;
 
     int has_interp = 0;
+    /* Brace depth inside an interpolation expression. Expression text is
+     * copied raw (the parser re-lexes it), so string literals nested inside
+     * `{...}` keep their own quotes and escapes and do not end this one. */
+    int interp_depth = 0;
     /* WR-07: track whether any bytes were dropped by PUSH_CHAR when the
      * literal exceeded buf_max-1 characters, so we can emit a single
      * IRON_ERR_STRING_TOO_LONG diagnostic per literal instead of silently
@@ -368,6 +372,36 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
                                    (uint32_t)(l->pos - start_pos));
         }
 
+        if (interp_depth > 0 && c == '"') {
+            /* A string literal inside an interpolation expression: copy it
+             * verbatim, escapes included, up to its closing quote. A newline
+             * or EOF leaves it open and the outer checks report it. */
+            iron_advance_char(l);
+            PUSH_CHAR('"');
+            for (;;) {
+                char d = iron_peek_char(l);
+                if (d == '\0' || d == '\n') break;
+                iron_advance_char(l);
+                PUSH_CHAR(d);
+                if (d == '\\') {
+                    char e = iron_peek_char(l);
+                    if (e != '\0' && e != '\n') { iron_advance_char(l); PUSH_CHAR(e); }
+                    continue;
+                }
+                if (d == '"') break;
+            }
+            continue;
+        }
+
+        if (interp_depth > 0 && c == '\\') {
+            /* Expression text is re-lexed by the parser: keep escapes raw. */
+            iron_advance_char(l);
+            PUSH_CHAR('\\');
+            char e = iron_peek_char(l);
+            if (e != '\0' && e != '\n') { iron_advance_char(l); PUSH_CHAR(e); }
+            continue;
+        }
+
         if (c == '\\') {
             iron_advance_char(l);
             char esc = iron_advance_char(l);
@@ -383,8 +417,59 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
                  * IRON_TOK_STRING and never re-scanned by the parser's
                  * interp-splitter. Needed for inline GLSL / JSON / C-like
                  * source text — the D6 residual before this fix. */
-                case '{':  PUSH_CHAR('{');  break;
-                case '}':  PUSH_CHAR('}');  break;
+                /* Escaped braces are stored as marker bytes so the parser's
+                 * interpolation splitter can tell them from real `{...}`
+                 * delimiters; plain strings map them back below. */
+                case '{':  PUSH_CHAR(IRON_LEX_LITERAL_LBRACE); break;
+                case '}':  PUSH_CHAR(IRON_LEX_LITERAL_RBRACE); break;
+                case 'u': {
+                    /* \u{HEX}: a Unicode scalar value, stored as UTF-8. */
+                    uint32_t cp = 0;
+                    int digits = 0;
+                    bool ok = iron_peek_char(l) == '{';
+                    if (ok) {
+                        iron_advance_char(l);
+                        for (;;) {
+                            char h = iron_peek_char(l);
+                            int v = (h >= '0' && h <= '9') ? h - '0'
+                                  : (h >= 'a' && h <= 'f') ? h - 'a' + 10
+                                  : (h >= 'A' && h <= 'F') ? h - 'A' + 10 : -1;
+                            if (v < 0) break;
+                            iron_advance_char(l);
+                            cp = cp * 16 + (uint32_t)v;
+                            if (++digits > 6) break;
+                        }
+                        ok = digits > 0 && digits <= 6 && iron_peek_char(l) == '}' &&
+                             cp <= 0x10FFFF && !(cp >= 0xD800 && cp <= 0xDFFF);
+                        if (iron_peek_char(l) == '}') iron_advance_char(l);
+                    }
+                    if (!ok) {
+                        Iron_Span span = iron_span_make(l->filename, l->line, l->col,
+                                                         l->line, l->col);
+                        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                                       IRON_ERR_INVALID_CHAR, span,
+                                       "invalid unicode escape",
+                                       "write it as \\u{HEX} with 1 to 6 hex digits "
+                                       "naming a Unicode scalar value");
+                        break;
+                    }
+                    if (cp < 0x80) {
+                        PUSH_CHAR((char)cp);
+                    } else if (cp < 0x800) {
+                        PUSH_CHAR((char)(0xC0 | (cp >> 6)));
+                        PUSH_CHAR((char)(0x80 | (cp & 0x3F)));
+                    } else if (cp < 0x10000) {
+                        PUSH_CHAR((char)(0xE0 | (cp >> 12)));
+                        PUSH_CHAR((char)(0x80 | ((cp >> 6) & 0x3F)));
+                        PUSH_CHAR((char)(0x80 | (cp & 0x3F)));
+                    } else {
+                        PUSH_CHAR((char)(0xF0 | (cp >> 18)));
+                        PUSH_CHAR((char)(0x80 | ((cp >> 12) & 0x3F)));
+                        PUSH_CHAR((char)(0x80 | ((cp >> 6) & 0x3F)));
+                        PUSH_CHAR((char)(0x80 | (cp & 0x3F)));
+                    }
+                    break;
+                }
                 default:   PUSH_CHAR('\\'); PUSH_CHAR(esc); break;
             }
             continue;
@@ -392,6 +477,9 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
 
         if (c == '{') {
             has_interp = 1;
+            interp_depth++;
+        } else if (c == '}' && interp_depth > 0) {
+            interp_depth--;
         }
 
         if (multiline) {
@@ -428,6 +516,15 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
 #undef PUSH_CHAR
 
     buf[buf_len] = '\0';
+
+    /* Without interpolation there is no splitter to consume the escaped-
+     * brace markers: turn them back into braces. */
+    if (!has_interp) {
+        for (size_t bi = 0; bi < buf_len; bi++) {
+            if (buf[bi] == IRON_LEX_LITERAL_LBRACE) buf[bi] = '{';
+            else if (buf[bi] == IRON_LEX_LITERAL_RBRACE) buf[bi] = '}';
+        }
+    }
 
     /* WR-07: if PUSH_CHAR dropped bytes past the 4KB buffer capacity, emit
      * a single diagnostic so the user sees the truncation rather than

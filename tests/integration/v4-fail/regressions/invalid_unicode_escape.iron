@@ -1,0 +1,5 @@
+-- @expected-error: E0002
+-- `\u{...}` must name a Unicode scalar value: surrogates are rejected.
+func main() {
+    println("bad \u{D800}")
+}

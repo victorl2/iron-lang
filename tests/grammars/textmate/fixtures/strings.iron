@@ -3,5 +3,16 @@ val greeting = "hello"
 //             ^ string.quoted.double.iron
 val escaped = "line\n"
 //                  ^ constant.character.escape.iron
-val interp = $"value is ${answer}"
-//           ^ string.interpolated.iron
+val interp = "value is {answer}"
+//           ^ string.quoted.double.iron
+//                     ^ punctuation.section.interpolation.begin.iron
+//                      ^^^^^^ meta.interpolation.iron
+val nested = "hi {greet("bob")}"
+//                      ^^^^^ string.quoted.double.iron
+//                            ^ punctuation.section.interpolation.end.iron
+val braces = "\{literal\} \u{e9}"
+//            ^^ constant.character.escape.iron
+//                        ^^^^^^ constant.character.escape.iron
+val multi = """two
+lines"""
+//     ^ string.quoted.triple.iron

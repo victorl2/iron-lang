@@ -60,30 +60,36 @@
         "strings": {
             "patterns": [
                 {
-                    "name": "string.interpolated.iron",
-                    "begin": "\\$\"",
-                    "end": "\"",
+                    "name": "string.quoted.triple.iron",
+                    "begin": "\"\"\"",
+                    "end": "\"\"\"",
                     "patterns": [
                         { "include": "#string-escape" },
-                        {
-                            "name": "meta.interpolation.iron",
-                            "begin": "\\$\\{",
-                            "end": "\\}",
-                            "patterns": [ { "include": "$self" } ]
-                        }
+                        { "include": "#string-interpolation" }
                     ]
                 },
                 {
                     "name": "string.quoted.double.iron",
                     "begin": "\"",
                     "end": "\"",
-                    "patterns": [ { "include": "#string-escape" } ]
+                    "patterns": [
+                        { "include": "#string-escape" },
+                        { "include": "#string-interpolation" }
+                    ]
                 }
             ]
         },
         "string-escape": {
             "name": "constant.character.escape.iron",
-            "match": "\\\\[nrt\"\\\\]"
+            "match": "\\\\(?:u\\{[0-9a-fA-F]{1,6}\\}|[nrt\"\\\\{}])"
+        },
+        "string-interpolation": {
+            "name": "meta.interpolation.iron",
+            "begin": "\\{",
+            "end": "\\}",
+            "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.iron" } },
+            "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.iron" } },
+            "patterns": [ { "include": "$self" } ]
         },
         "numbers": {
             "patterns": [
