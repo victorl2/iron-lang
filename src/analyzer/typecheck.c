@@ -25,6 +25,7 @@
  */
 
 #include "analyzer/typecheck.h"
+#include "hir/stdlib_origin.h"
 #include "analyzer/resolve.h"
 #include "lexer/lexer.h"
 #include "util/strbuf.h"
@@ -1674,30 +1675,22 @@ static bool stmt_always_returns(Iron_Node *node) {
  * function has a non-void declared return type and the body's terminal
  * statement is NOT a return (and not an if-else where both arms return).
  * This mirrors rustc's "not all control paths return a value" check. */
-static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
-    if (!fd || !fd->resolved_return_type) return;
-    Iron_Type *rt = fd->resolved_return_type;
-    if (rt->kind == IRON_TYPE_VOID || rt->kind == IRON_TYPE_ERROR) return;
+static void check_missing_return_body(TypeCtx *ctx, Iron_Type *rt,
+                                      Iron_Node *body, const char *filename) {
+    if (!rt || rt->kind == IRON_TYPE_VOID || rt->kind == IRON_TYPE_ERROR) return;
 
     /* Extern functions have no body to check. */
-    if (!fd->body) return;
-    /* `.iron-stub` companion files are auto-generated signature-only
-     * surfaces emitted by `iron build` for type = "lib" projects. Their
-     * function bodies are intentionally empty; the implementation lives
-     * in the compiled artifact (.a) that gets linked alongside. Skip the
-     * missing-return walker for any decl whose source span belongs to a
-     * stub file — the @file: lexer directive tags spans with the stub
-     * filename when a stub is concatenated into a combined source. */
-    if (fd->span.filename) {
-        size_t fnlen = strlen(fd->span.filename);
-        const char suffix[] = ".iron-stub";
-        const size_t slen = sizeof(suffix) - 1;
-        if (fnlen >= slen &&
-            strcmp(fd->span.filename + fnlen - slen, suffix) == 0) {
-            return;
-        }
+    if (!body) return;
+    /* Runtime stubs have intentionally empty bodies: stdlib wrapper files
+     * (implemented in the C runtime) and the `.iron-stub` companions of
+     * `type = "lib"` packages (implemented in the package's archive). The
+     * @file: lexer directive tags each decl's span with its source file. */
+    if (body->kind == IRON_NODE_BLOCK &&
+        ((Iron_Block *)body)->stmt_count == 0 &&
+        iron_stdlib_origin_is_stub_file(filename)) {
+        return;
     }
-    if (stmt_always_returns(fd->body)) return;
+    if (stmt_always_returns(body)) return;
 
     /* Pick a type-appropriate "zero" return snippet. Skip emit for types
      * without an obvious zero (objects, enums, arrays) — Plan 04-04's code
@@ -1737,7 +1730,7 @@ static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
 
     /* Use the body's span so the squiggle highlights the whole function body
      * rather than just the decl header. */
-    Iron_Span emit_span = fd->body->span;
+    Iron_Span emit_span = body->span;
 
     if (zero) {
         emit_error(ctx, IRON_ERR_MISSING_RETURN, emit_span,
@@ -1764,6 +1757,21 @@ static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
                        "return <value>");
         }
     }
+}
+
+static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
+    if (!fd) return;
+    check_missing_return_body(ctx, fd->resolved_return_type, fd->body,
+                              fd->span.filename);
+}
+
+/* Methods get the same check. An empty non-void user method used to be
+ * treated as a runtime stub and reached lowering, which failed with an
+ * internal return-type error. */
+static void check_missing_return_method(TypeCtx *ctx, Iron_MethodDecl *md) {
+    if (!md || md->is_synth_accessor) return;
+    check_missing_return_body(ctx, md->resolved_return_type, md->body,
+                              md->span.filename);
 }
 
 /* ── Array extension method return type resolution ──────────────────────── */
@@ -7754,6 +7762,7 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
         Iron_Block *body = (Iron_Block *)md->body;
         check_block_stmts(ctx, body->stmts, body->stmt_count);
     }
+    if (!md->is_init) check_missing_return_method(ctx, md);
 
     tc_pop_scope(ctx);
 

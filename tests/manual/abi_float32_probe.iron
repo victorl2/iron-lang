@@ -6,7 +6,9 @@
 -- typedefs via Scan B + link against the runtime's IMPL instantiations.
 --
 -- Invocation: ./build/ironc build tests/manual/abi_float32_probe.iron
--- Expected: exit 0. Binary need not run (stubs are empty).
+-- Expected: exit 0. Binary need not run. The declarations live in user
+-- code, so they are ordinary methods (only stdlib wrapper files declare
+-- runtime stubs); the non-void one returns an empty list.
 
 import raylib
 
@@ -22,7 +24,10 @@ patch object Probe {
     readonly func f32_input(data: [Float32]) {}
 
     -- [Float32] RETURN — foreign-method-stub return scan must fire.
-    readonly func f32_return() -> [Float32] {}
+    readonly func f32_return() -> [Float32] {
+        val out: [Float32] = []
+        return out
+    }
 
     -- [UInt8] INPUT — foreign-method-stub param scan must fire for
     -- primitive element types.

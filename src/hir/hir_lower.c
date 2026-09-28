@@ -20,6 +20,7 @@
  */
 
 #include "hir/hir_lower.h"
+#include "hir/stdlib_origin.h"
 #include "lexer/lexer.h"
 #include "vendor/stb_ds.h"
 #include <stdio.h>
@@ -2317,6 +2318,10 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                                                      ret_ty);
             f->is_extern    = fd->is_extern;
             f->extern_c_name = fd->extern_c_name;
+            f->is_runtime_stub =
+                fd->body && fd->body->kind == IRON_NODE_BLOCK &&
+                ((Iron_Block *)fd->body)->stmt_count == 0 &&
+                iron_stdlib_origin_is_stub_file(fd->span.filename);
             /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr from
              * AST decl (set by Plan 20-02a's mark_takes_local_addr_pass). */
             f->takes_local_addr = fd->takes_local_addr;
@@ -2416,7 +2421,13 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             bool is_stub = (!md->body);
             if (!is_stub && md->body && md->body->kind == IRON_NODE_BLOCK) {
                 Iron_Block *blk = (Iron_Block *)md->body;
-                if (blk->stmt_count == 0) is_stub = true;
+                /* Only stdlib wrapper files declare runtime stubs; an empty
+                 * user method is an ordinary method with a self param.
+                 * Treating it as a stub dropped self and left the symbol
+                 * undefined at link time. */
+                if (blk->stmt_count == 0 &&
+                    iron_stdlib_origin_is_stub_file(md->span.filename))
+                    is_stub = true;
             }
             int total_params;
             IronHIR_Param *params;
@@ -2579,6 +2590,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
 
             IronHIR_Func *f = iron_hir_func_create(mod, mname, params,
                                                      total_params, ret_ty);
+            f->is_runtime_stub = is_stub;
             /* Phase 80 MUT-07: propagate receiver mut-ness to the HIR func so
              * HIR→LIR can fire self_by_addr at call sites. Gated on
              * is_receiver_form + params[0]->is_mut_receiver so non-receiver-form

@@ -1,0 +1,34 @@
+-- Regression: empty function and method bodies failed to link.
+--
+-- Lowering treated every empty body as a stdlib runtime stub: it emitted
+-- no C body, and for methods it also dropped the self parameter, so a user
+-- `func noop() {}` or `func touch() { }` was an undefined symbol at link
+-- time. Only empty bodies declared in stdlib wrapper files are runtime
+-- stubs now; empty user functions and methods get real (empty) bodies.
+interface Handler {
+    func on_key(key: Int)
+    func on_tick() { }
+}
+
+object Game impl Handler {
+    var ticks: Int
+    init() { self.ticks = 0 }
+    func on_key(key: Int) { }
+    func touch() { }
+}
+
+func noop() {}
+
+func also_noop(x: Int) {
+}
+
+func main() {
+    noop()
+    also_noop(3)
+    var g = Game()
+    g.touch()
+    g.on_key(1)
+    g.on_tick()
+    val h: Handler = g
+    println("ok {g.ticks}")
+}

@@ -291,6 +291,7 @@ add_library(iron_compiler STATIC
     src/hir/hir_verify.c
     src/hir/hir_lower.c
     src/hir/hir_to_lir.c
+    src/hir/stdlib_origin.c
     src/lir/lir.c
     src/lir/emit_c.c
     src/lir/emit_web.c

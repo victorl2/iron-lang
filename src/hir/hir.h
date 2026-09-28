@@ -570,6 +570,10 @@ struct IronHIR_Func {
     IronHIR_Block     *body;
     bool               is_extern;
     const char        *extern_c_name;
+    /* An empty-bodied function or method declared in a stdlib wrapper file:
+     * the runtime provides its C body, so lowering emits no body for it.
+     * Empty-bodied user functions are ordinary functions. */
+    bool               is_runtime_stub;
     Iron_CaptureEntry *captures;       /* from capture analysis; NULL for non-capturing */
     int                capture_count;
     /* Phase 80 MUT-07: true when this func was lowered from a receiver-form

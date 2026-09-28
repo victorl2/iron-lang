@@ -1,4 +1,5 @@
 #include "cli/check.h"
+#include "hir/stdlib_origin.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -236,6 +237,10 @@ static int check_prepend_marked_file(char **source_io, const char *base_dir,
         int n = snprintf(marker, sizeof(marker), "-- @file: \"%s\" @line: 1\n", path);
         if (n > 0 && (size_t)n < sizeof(marker)) mlen = (size_t)n;
     }
+    /* Declarations from this file carry the marker path as their span
+     * filename; without a marker they carry the user file's name. */
+    if (mlen > 0) iron_stdlib_origin_add(path);
+    else iron_stdlib_origin_mark_unknown();
 
     size_t combined_len = mlen + (size_t)sz + 1 + strlen(*source_io) + 1;
     char *combined = (char *)malloc(combined_len);

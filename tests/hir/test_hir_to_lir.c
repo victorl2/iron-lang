@@ -99,7 +99,7 @@ static bool entry_has_alloca(IronLIR_Func *fn, const char *name_hint) {
     return false;
 }
 
-/* ── Test 1: Empty-body func is treated as extern stub (no LIR body) ──────── */
+/* ── Test 1: Empty-body runtime stub is treated as extern (no LIR body) ───── */
 
 void test_hir_to_lir_empty_func(void) {
     Iron_Span span    = zero_span();
@@ -108,6 +108,7 @@ void test_hir_to_lir_empty_func(void) {
     IronHIR_Func *fn = iron_hir_func_create(g_mod, "empty_func",
                                              NULL, 0, void_t);
     fn->body = iron_hir_block_create(g_mod); /* empty body */
+    fn->is_runtime_stub = true;  /* declared in a stdlib wrapper file */
     iron_hir_module_add_func(g_mod, fn);
     (void)span;
 
@@ -124,6 +125,27 @@ void test_hir_to_lir_empty_func(void) {
     /* Empty-body stubs are treated as extern — NO blocks generated */
     TEST_ASSERT_EQUAL_INT(0, lf->block_count);
     TEST_ASSERT_TRUE(lf->is_extern);
+}
+
+/* An empty-bodied user function is an ordinary function: it gets a body.
+ * Treating it as a stub left the symbol undefined at link time. */
+void test_hir_to_lir_empty_user_func_has_body(void) {
+    Iron_Type *void_t = iron_type_make_primitive(IRON_TYPE_VOID);
+    IronHIR_Func *fn = iron_hir_func_create(g_mod, "user_noop", NULL, 0, void_t);
+    fn->body = iron_hir_block_create(g_mod);
+    iron_hir_module_add_func(g_mod, fn);
+
+    IronLIR_Module *lir = do_lower();
+    TEST_ASSERT_NOT_NULL(lir);
+    IronLIR_Func *lf = NULL;
+    for (int i = 0; i < lir->func_count; i++) {
+        if (lir->funcs[i] && strcmp(lir->funcs[i]->name, "user_noop") == 0) {
+            lf = lir->funcs[i]; break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(lf);
+    TEST_ASSERT_FALSE(lf->is_extern);
+    TEST_ASSERT_GREATER_THAN(0, lf->block_count);
 }
 
 /* ── Test 2: Val binding — val x = 42 → direct SSA value (no alloca) ─────── */
@@ -2075,6 +2097,7 @@ void test_h2l_empty_body_nonvoid_skipped(void) {
     IronHIR_Func *fn = iron_hir_func_create(g_mod, "stub_int",
                                              NULL, 0, int_t);
     fn->body = iron_hir_block_create(g_mod); /* empty body, 0 statements */
+    fn->is_runtime_stub = true;  /* declared in a stdlib wrapper file */
     iron_hir_module_add_func(g_mod, fn);
 
     IronLIR_Module *lir = do_lower();
@@ -2097,6 +2120,7 @@ void test_h2l_empty_body_void_still_has_body(void) {
     IronHIR_Func *fn = iron_hir_func_create(g_mod, "stub_void",
                                              NULL, 0, void_t);
     fn->body = iron_hir_block_create(g_mod); /* empty body */
+    fn->is_runtime_stub = true;  /* declared in a stdlib wrapper file */
     iron_hir_module_add_func(g_mod, fn);
 
     IronLIR_Module *lir = do_lower();
@@ -2120,6 +2144,7 @@ void test_h2l_empty_body_int_return_no_blocks(void) {
     IronHIR_Func *fn = iron_hir_func_create(g_mod, "stub_get_count",
                                              NULL, 0, int_t);
     fn->body = iron_hir_block_create(g_mod);
+    fn->is_runtime_stub = true;  /* declared in a stdlib wrapper file */
     iron_hir_module_add_func(g_mod, fn);
 
     IronLIR_Module *lir = do_lower();
@@ -2138,6 +2163,7 @@ void test_h2l_empty_body_float_return_no_blocks(void) {
     IronHIR_Func *fn = iron_hir_func_create(g_mod, "stub_time_now",
                                              NULL, 0, float_t);
     fn->body = iron_hir_block_create(g_mod);
+    fn->is_runtime_stub = true;  /* declared in a stdlib wrapper file */
     iron_hir_module_add_func(g_mod, fn);
 
     IronLIR_Module *lir = do_lower();
@@ -2442,6 +2468,7 @@ int main(void) {
     UNITY_BEGIN();
     /* Original 13 tests */
     RUN_TEST(test_hir_to_lir_empty_func);
+    RUN_TEST(test_hir_to_lir_empty_user_func_has_body);
     RUN_TEST(test_hir_to_lir_val_binding);
     RUN_TEST(test_hir_to_lir_var_binding);
     RUN_TEST(test_hir_to_lir_if_else_cfg);

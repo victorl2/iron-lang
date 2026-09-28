@@ -4107,7 +4107,8 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
      * user-defined and must always get a real C body even if their body is empty.
      * An empty pfor body is valid (e.g. parallel { } for sync-only use). */
     bool is_lifted = hir_func->name && strncmp(hir_func->name, "__", 2) == 0;
-    if (!is_lifted && hir_func->body && hir_func->body->stmt_count == 0) {
+    if (!is_lifted && hir_func->is_runtime_stub &&
+        hir_func->body && hir_func->body->stmt_count == 0) {
         /* Still register the function in LIR (no body, acts like extern) */
         Iron_Type *ret_type = hir_func->return_type;
         int param_count = hir_func->param_count;
