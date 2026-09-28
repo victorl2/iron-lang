@@ -1,0 +1,8 @@
+-- @expected-error: E0217
+-- A Float passed to an Int parameter of a stdlib call used to be silently
+-- truncated: Time.sleep(0.5) slept 0 ms.
+import time
+
+func main() {
+    Time.sleep(0.5)
+}

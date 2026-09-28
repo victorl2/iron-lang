@@ -1,0 +1,12 @@
+-- @expected-error: E0217
+-- Method call arguments are type-checked. `c.add("x")` used to pass the
+-- checker and fail later in the C compiler.
+object C {
+    val k: Int
+    readonly func add(n: Int) -> Int { return self.k + n }
+}
+
+func main() {
+    val c = C(1)
+    println("{c.add("x")}")
+}

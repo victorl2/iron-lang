@@ -1,0 +1,7 @@
+-- @expected-error: E0217
+-- Stdlib module calls are type-checked: Math.sqrt takes a Float.
+import math
+
+func main() {
+    println("{Math.sqrt("hello")}")
+}

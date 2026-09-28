@@ -572,6 +572,34 @@ static void tc_define_pattern_bindings(TypeCtx *ctx,
     }
 }
 
+
+/* True when t is, or contains, a generic type parameter. Method arguments
+ * against such parameters are not checked here: that needs the call's
+ * type arguments, which generic method support does not infer yet. */
+static bool type_mentions_generic(const Iron_Type *t) {
+    for (int guard = 0; t && guard < 32; guard++) {
+        switch ((int)t->kind) {
+        case IRON_TYPE_GENERIC_PARAM: return true;
+        case IRON_TYPE_ARRAY:    t = t->array.elem; break;
+        case IRON_TYPE_NULLABLE: t = t->nullable.inner; break;
+        case IRON_TYPE_RC:       t = t->rc.inner; break;
+        case IRON_TYPE_PTR:      t = t->ptr.pointee; break;
+        case IRON_TYPE_FUNC:
+            for (int i = 0; i < t->func.param_count; i++)
+                if (type_mentions_generic(t->func.param_types[i])) return true;
+            t = t->func.return_type;
+            break;
+        case IRON_TYPE_ENUM:
+            for (int i = 0; i < t->enu.type_arg_count; i++)
+                if (type_mentions_generic(t->enu.type_args[i])) return true;
+            return false;
+        /* -Wswitch-enum opt-out: leaf types carry no type parameters. */
+        default: return false;
+        }
+    }
+    return false;
+}
+
 /* ── Diagnostic helpers ──────────────────────────────────────────────────── */
 
 static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
@@ -2024,6 +2052,83 @@ static void check_unchecked_index_intrinsic(TypeCtx *ctx,
 }
 
 /* ── Expression type inference ───────────────────────────────────────────── */
+
+/* Check a method call's arguments against the declared parameters
+ * params[first..count). Method calls used to skip this entirely:
+ * `c.add("x")`, `c.add(1, 2)` and `Math.sqrt("hello")` all type-checked
+ * and then failed in the C compiler, and a Float argument to an Int
+ * parameter was silently truncated. */
+static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                              Iron_Node **params, int count, int first,
+                              const char *owner, const char *name) {
+    int expected = count - first;
+    if (expected < 0) return;
+    if (mc->arg_count != expected) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "method '%s.%s' expects %d argument(s), got %d",
+                 owner ? owner : "?", name ? name : "?", expected, mc->arg_count);
+        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+        return;
+    }
+    for (int i = 0; i < mc->arg_count; i++) {
+        Iron_Node *pn = params[first + i];
+        if (!pn || pn->kind != IRON_NODE_PARAM || !mc->args[i]) continue;
+        Iron_Param *mp = (Iron_Param *)pn;
+        Iron_Type *pt = resolve_type_annotation(ctx, mp->type_ann);
+        Iron_Type *at = ((Iron_ExprNode *)mc->args[i])->resolved_type;
+        if (!pt || !at || pt->kind == IRON_TYPE_ERROR || at->kind == IRON_TYPE_ERROR)
+            continue;
+        if (type_mentions_generic(pt)) continue;
+        /* `*T` parameters take a T binding by auto-address (checked with
+         * E0270 / E0267 by the caller). */
+        if (pt->kind == IRON_TYPE_PTR && at->kind != IRON_TYPE_PTR &&
+            pt->ptr.pointee && iron_type_equals(pt->ptr.pointee, at))
+            continue;
+        if (is_int_literal_narrowing(pt, at, mc->args[i])) {
+            ((Iron_IntLit *)mc->args[i])->resolved_type = pt;
+            continue;
+        }
+        if (!types_assignable(pt, at)) {
+            char msg[256];
+            snprintf(msg, sizeof(msg),
+                     "argument %d type mismatch: expected '%s', got '%s'", i + 1,
+                     iron_type_to_string(pt, ctx->arena),
+                     iron_type_to_string(at, ctx->arena));
+            emit_error(ctx, IRON_ERR_ARG_TYPE, mc->args[i]->span, msg, NULL);
+        }
+    }
+}
+
+/* Argument check for a call that resolved to method `md`.
+ * via_type: the call names the type (`T.m(...)`). Lowering then treats
+ * `T.m(x, ...)` as `x.m(...)` when the argument count covers the receiver
+ * and the first argument has type T; otherwise it synthesizes a receiver
+ * (the stdlib module convention, `Math.sqrt(x)`). The check mirrors that. */
+static void check_method_call_args(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                   Iron_MethodDecl *md, bool via_type) {
+    if (md->generic_param_count > 0 || md->is_array_extension) return;
+    bool args_include_receiver = false;
+    if (via_type && md->is_receiver_form && mc->arg_count == md->param_count &&
+        mc->arg_count > 0 && mc->args[0] && md->params[0] &&
+        md->params[0]->kind == IRON_NODE_PARAM) {
+        Iron_Type *self_t = resolve_type_annotation(
+            ctx, ((Iron_Param *)md->params[0])->type_ann);
+        Iron_Type *a0 = ((Iron_ExprNode *)mc->args[0])->resolved_type;
+        args_include_receiver = self_t && a0 && iron_type_equals(self_t, a0);
+    }
+    int first = (md->is_receiver_form && !args_include_receiver) ? 1 : 0;
+    check_call_params(ctx, mc, md->params, md->param_count, first,
+                      md->type_name, md->method_name);
+}
+
+/* Argument check for a call dispatched through interface signature `fd`
+ * (interface signatures carry no receiver parameter). */
+static void check_iface_call_args(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                  Iron_InterfaceDecl *iface, Iron_FuncDecl *fd) {
+    if (fd->generic_param_count > 0) return;
+    check_call_params(ctx, mc, fd->params, fd->param_count, 0,
+                      iface ? iface->name : NULL, fd->name);
+}
 
 static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return iron_type_make_primitive(IRON_TYPE_VOID);
@@ -4125,6 +4230,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         if (!msig || msig->kind != IRON_NODE_FUNC_DECL) continue;
                         Iron_FuncDecl *fd = (Iron_FuncDecl *)msig;
                         if (strcmp(fd->name, mc->method) != 0) continue;
+                        check_iface_call_args(ctx, mc, iface_mc, fd);
                         if (fd->resolved_return_type) {
                             result = fd->resolved_return_type;
                         } else if (fd->return_type &&
@@ -4155,6 +4261,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         if (strcmp(md->type_name, type_name_mc) == 0 &&
                             strcmp(md->method_name, mc->method) == 0) {
                             method_found_mc = true;
+                            check_method_call_args(
+                                ctx, mc, md,
+                                obj_id->resolved_sym &&
+                                obj_id->resolved_sym->sym_kind == IRON_SYM_TYPE);
                             if (md->resolved_return_type) {
                                 result = md->resolved_return_type;
                             }
@@ -4397,6 +4507,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     if (!fd->name || !mc->method || strcmp(fd->name, mc->method) != 0)
                         continue;
                     found_ni = true;
+                    check_iface_call_args(ctx, mc, iface_ni, fd);
                     if (fd->resolved_return_type) {
                         result = fd->resolved_return_type;
                     } else if (fd->return_type &&
@@ -4427,6 +4538,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     if (!md->type_name || !md->method_name || !mc->method) continue;
                     if (strcmp(md->type_name, type_name_ni) != 0 ||
                         strcmp(md->method_name, mc->method) != 0) continue;
+                    check_method_call_args(ctx, mc, md, false);
                     if (md->resolved_return_type) {
                         result = md->resolved_return_type;
                     } else if (md->return_type &&
@@ -4447,6 +4559,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         Iron_MethodDecl *md = (Iron_MethodDecl *)d;
                         if (strcmp(md->type_name, "String") == 0 &&
                             strcmp(md->method_name, mc->method) == 0) {
+                            check_method_call_args(ctx, mc, md, false);
                             if (md->resolved_return_type) {
                                 result = md->resolved_return_type;
                             }
@@ -4471,6 +4584,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         Iron_MethodDecl *md = (Iron_MethodDecl *)d;
                         if (strcmp(md->type_name, tn) == 0 &&
                             strcmp(md->method_name, mc->method) == 0) {
+                            check_method_call_args(ctx, mc, md, false);
                             if (md->resolved_return_type) {
                                 result = md->resolved_return_type;
                             }
