@@ -178,3 +178,8 @@ tests/grammars/**/package-lock.json
 
 # iron build writes build output (binaries, combined.iron) under target/.
 target/
+
+# Generated at deploy time by scripts/build_llms.py (see pages.yml).
+docs/site/llms.txt
+docs/site/llms-full.txt
+docs/site/llms/

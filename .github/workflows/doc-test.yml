@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'docs/language_definition.md'
+      - 'docs/llms/iron.md'
       - 'docs/examples/native_*.iron'
       - 'scripts/check_branding.py'
       - 'scripts/test_doc_examples.sh'
@@ -22,6 +23,7 @@ on:
     branches: [main]
     paths:
       - 'docs/language_definition.md'
+      - 'docs/llms/iron.md'
       - 'docs/examples/native_*.iron'
       - 'scripts/check_branding.py'
       - 'scripts/test_doc_examples.sh'
@@ -69,6 +71,9 @@ jobs:
         run: |
           chmod +x scripts/test_doc_examples.sh
           bash scripts/test_doc_examples.sh ./build/iron
+
+      - name: Run doc-test extractor against docs/llms/iron.md
+        run: MD_FILE=docs/llms/iron.md bash scripts/test_doc_examples.sh ./build/iron
 
       - name: Execute featured native examples and verify output
         run: python3 scripts/check_branding.py --compiler ./build/iron
