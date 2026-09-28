@@ -6,6 +6,11 @@ on:
     branches: [main]
     paths:
       - 'docs/site/**'
+      - 'docs/llms/**'
+      - 'docs/networking.md'
+      - 'docs/examples/**'
+      - 'src/stdlib/*.iron'
+      - 'scripts/build_llms.py'
       - 'scripts/install.sh'
       - '.github/workflows/pages.yml'
 
@@ -37,6 +42,9 @@ jobs:
 
       - name: Stage install.sh at site root
         run: install -m 0755 scripts/install.sh docs/site/install.sh
+
+      - name: Generate llms.txt, llms-full.txt, and LLM markdown pages
+        run: python3 scripts/build_llms.py --site docs/site
 
       - name: Validate site links and fragments
         run: python3 scripts/check_site.py docs/site

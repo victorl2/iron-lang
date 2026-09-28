@@ -11,6 +11,8 @@ on:
       - 'scripts/check_branding.py'
       - 'scripts/check_site.py'
       - 'scripts/test_branding.py'
+      - 'scripts/build_llms.py'
+      - 'src/stdlib/*.iron'
       - '.github/workflows/docs-check.yml'
   push:
     branches: [main]
@@ -20,6 +22,8 @@ on:
       - 'scripts/check_branding.py'
       - 'scripts/check_site.py'
       - 'scripts/test_branding.py'
+      - 'scripts/build_llms.py'
+      - 'src/stdlib/*.iron'
       - '.github/workflows/docs-check.yml'
 
 permissions:
@@ -41,3 +45,5 @@ jobs:
         run: python3 scripts/test_branding.py
       - name: Check positioning, example parity, links, and fragments
         run: python3 scripts/check_site.py docs/site
+      - name: Check llms.txt generation and links
+        run: python3 scripts/build_llms.py --check
