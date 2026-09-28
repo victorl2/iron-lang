@@ -3,6 +3,32 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v4.2.0-alpha: LLM Docs and Cleanup (2026-09-28)
+
+- **llms.txt for coding assistants:** ironlang.dev now serves
+  [`/llms.txt`](https://ironlang.dev/llms.txt), `/llms-full.txt`, and
+  markdown pages per document and stdlib module. The core is a new
+  language guide written for LLMs whose examples are compiled in CI, so
+  it tracks the syntax the compiler accepts today. The files are
+  generated from the repository at deploy time.
+- **W0613 no longer suggests `val` for bindings `val` rejects:** the
+  "var binding never reassigned; declare as 'val'" warning (and W0614 for
+  parameters) now stays quiet when the binding is used through a mutating
+  method call, a field write, a `var` / `*var` argument, or `&` producing
+  `*var T`. Following the old suggestion failed with E0235, E0234, or
+  E0267.
+- **`val xs: [T] = []` compiles:** an annotated `val` now passes its type
+  to an empty list literal, as `var` already did, instead of failing E0229.
+- **Removed the `migrate` command:** `ironc migrate`, the v2-to-v3 codemod,
+  the LSP `iron.migrate` command and its quickfix, and the VS Code and
+  Neovim commands that invoked it are gone, along with the migration
+  guides. Errors for removed v2 syntax now show the syntax to use.
+- **Working release archives:** the `iron-<version>-<target>.tar.gz`
+  downloads are packaged through the CMake install rules and include
+  `lib/diagnostics/`; previously the downloaded `ironc` could not compile
+  any program. The release job now compiles and runs a program with each
+  archive before uploading it.
+
 ## v4.1.0-alpha: Networking and Vendoring (2026-09-24)
 
 - **No package manager: vendor third-party code instead.** The
