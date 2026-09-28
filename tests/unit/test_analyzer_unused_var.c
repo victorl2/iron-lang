@@ -80,11 +80,10 @@ void test_val_05_compound_assign_counts(void) {
     analyze_src("func main() { var x = 5; x += 1; println(\"{x}\") }\n");
     TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
 }
-void test_val_05_field_write_does_not_count(void) {
-    /* Per CONTEXT.md: "Mutation = binding reassignment only.
-     * Field writes (x.f = ...), &x address-of, pass-to-var-slot do NOT
-     * count." So writing p.x = 3 must NOT mark `p` as reassigned — it
-     * should still warn as an unused var binding. */
+void test_val_05_field_write_keeps_var(void) {
+    /* A field write needs a mutable binding: `val p` would fail E0234
+     * ("cannot mutate field on immutable receiver"), so W0613 must not
+     * suggest `val` here. */
     analyze_src(
         "object Point { var x: Int; var y: Int; init() { self.x = 0; self.y = 0 } }\n"
         "func main() {\n"
@@ -92,7 +91,57 @@ void test_val_05_field_write_does_not_count(void) {
         "    p.x = 3\n"
         "    println(\"{p.x}\")\n"
         "}\n");
+    TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
+}
+void test_val_05_mutating_method_call_keeps_var(void) {
+    /* A mutating (default-tier) method call needs a mutable binding:
+     * `val c` would fail E0235, so W0613 must not suggest `val`. */
+    analyze_src(
+        "object Counter {\n"
+        "    var n: Int\n"
+        "    init() {\n"
+        "        self.n = 0\n"
+        "    }\n"
+        "    func bump() {\n"
+        "        self.n = self.n + 1\n"
+        "    }\n"
+        "}\n"
+        "func main() {\n"
+        "    var c = Counter()\n"
+        "    c.bump()\n"
+        "    println(\"{c.n}\")\n"
+        "}\n");
+    TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
+}
+void test_val_05_readonly_method_call_still_warns(void) {
+    /* A readonly method call works on a `val`, so the warning stays. */
+    analyze_src(
+        "object Counter {\n"
+        "    var n: Int\n"
+        "    init() {\n"
+        "        self.n = 0\n"
+        "    }\n"
+        "    readonly func get() -> Int {\n"
+        "        return self.n\n"
+        "    }\n"
+        "}\n"
+        "func main() {\n"
+        "    var c = Counter()\n"
+        "    println(\"{c.get()}\")\n"
+        "}\n");
     TEST_ASSERT_GREATER_THAN_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
+}
+void test_val_05_suggested_val_empty_list_compiles(void) {
+    /* The W0613 suggestion for `var xs: [Int] = []` is `val xs: [Int] = []`,
+     * which must typecheck (the annotation supplies the element type). */
+    analyze_src(
+        "func main() {\n"
+        "    val xs: [Int] = []\n"
+        "    xs.push(1)\n"
+        "    println(\"{len(xs)}\")\n"
+        "}\n");
+    TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_ERR_EMPTY_LITERAL_NO_TYPE));
+    TEST_ASSERT_EQUAL_INT(0, diags.error_count);
 }
 
 /* ── VAL-06 (var parameter) ───────────────────────────────────────── */
@@ -132,7 +181,10 @@ int main(void) {
     RUN_TEST(test_val_05_used_var_no_warn);
     RUN_TEST(test_val_05_conditional_write_no_warn);
     RUN_TEST(test_val_05_compound_assign_counts);
-    RUN_TEST(test_val_05_field_write_does_not_count);
+    RUN_TEST(test_val_05_field_write_keeps_var);
+    RUN_TEST(test_val_05_mutating_method_call_keeps_var);
+    RUN_TEST(test_val_05_readonly_method_call_still_warns);
+    RUN_TEST(test_val_05_suggested_val_empty_list_compiles);
     RUN_TEST(test_val_06_unused_var_param_warn);
     RUN_TEST(test_val_06_param_message);
     RUN_TEST(test_val_06_used_var_param_no_warn);

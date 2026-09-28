@@ -415,6 +415,10 @@ typedef struct {
      * Field name locked by CONTEXT.md Decisions section; mirrors the
      * existing `bool is_mutable` pattern on capture entries at line 19. */
     bool          is_mut_receiver;
+    /* Set by the type checker when the body uses this parameter in a way
+     * that needs a mutable binding (mutating method call, field write,
+     * `var` / `*var` argument). Read by the W0614 unused-var pass. */
+    bool          requires_mutable;
 } Iron_Param;
 
 typedef struct {
@@ -550,6 +554,11 @@ typedef struct {
     Iron_Node         *type_ann;  /* NULL if inferred */
     Iron_Node         *init;
     struct Iron_Type  *declared_type;  /* set by type checker */
+    /* Set by the type checker when the binding is used in a way that a
+     * `val` would reject (mutating method call, field write, `var` / `*var`
+     * argument, `&` producing `*var T`). The W0613 unused-var pass skips
+     * such bindings instead of suggesting `val`. */
+    bool               requires_mutable;
 } Iron_VarDecl;
 
 typedef struct {
