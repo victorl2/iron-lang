@@ -71,11 +71,6 @@
         "command": "iron-lsp.diagnose",
         "title": "Iron LSP: Diagnose",
         "category": "Iron LSP"
-      },
-      {
-        "command": "iron-lsp.migrate",
-        "title": "Iron: Migrate v2 -> v3",
-        "category": "Iron LSP"
       }
     ]
   },

@@ -449,9 +449,8 @@ static yyjson_mut_val *code_action_to_json(yyjson_mut_doc               *rd,
         /* Phase 12 Plan 12-01 (D-14, D-15) — command-style action.
          * LSP 3.17 §"CodeAction": when `command` is set, the editor
          * invokes workspace/executeCommand on accept; `edit` is omitted.
-         * Used by QF-01 (Plan 12-03) to surface the "Run ironc migrate"
-         * action; server-side executeCommand dispatch is deferred to
-         * Phase 14 CMD-01..03 (T-12-01-05 disposition). */
+         * No built-in quickfix emits one today; the branch stays for
+         * command-style actions. */
         yyjson_mut_val *cmd = yyjson_mut_obj(rd);
         yyjson_mut_obj_add_strcpy(rd, cmd, "title",
             act->command_title ? act->command_title

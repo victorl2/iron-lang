@@ -18,7 +18,7 @@
  * Asserts per fixture:
  *   - emitted action count (1 vs 2 — multi-action vs single)
  *   - title strings (acceptance signal for the QF recipe)
- *   - command-style vs edit-style shape (QF-01 vs QF-02..05)
+ *   - edit-style action shape (QF-02..05)
  *   - edit_text_edits_n (multi-edit signal for QF-03)
  *   - is_preferred (D-23 / D-26 / D-31 mandates)
  *   - cross-file/stdlib gating for QF-05 Action B (D-34, DEF-12-11)
@@ -134,78 +134,6 @@ static Iron_Span mk_span_filed(Iron_Arena *a, const char *filename,
 }
 
 /* ── Per-fixture tests ─────────────────────────────────────────── */
-
-/* QF-01: receiver-syntax migrate codemod (codes 260 + 261). Verifies
- * command-style action shape. Single handler covers both codes (D-18). */
-static void test_qf01_receiver_syntax(void) {
-    char path[1024];
-    const char *p = fixture_path(path, sizeof(path), "qf01_receiver_syntax.iron");
-    TEST_ASSERT_NOT_NULL(p);
-    char *src = load_file(p);
-    TEST_ASSERT_NOT_NULL(src);
-    IronLsp_Document *doc = ilsp_document_create("file:///qf01.iron",
-                                                   src, strlen(src), 1);
-    TEST_ASSERT_NOT_NULL(doc);
-
-    Iron_Arena arena = iron_arena_create(64 * 1024);
-    /* Diagnostic anchored at "func (p: Player)" decl line. */
-    uint32_t line = line_containing(src, "func (p: Player)");
-    if (line == 0) line = 1;  /* fallback for fixtures lacking the literal */
-    Iron_Diagnostic d = mk_diag(IRON_ERR_V3_RECEIVER_SYNTAX,
-                                  mk_span(line, 1, line, 5),
-                                  "v2 receiver syntax");
-    IronLsp_CodeAction out[ILSP_QUICKFIX_MAX_VARIANTS];
-    size_t n = 0;
-    ilsp_quickfix_v3_receiver_syntax(&d, doc, NULL, &arena,
-                                        out, ILSP_QUICKFIX_MAX_VARIANTS, &n);
-
-    TEST_ASSERT_EQUAL_size_t_MESSAGE(1, n,
-        "QF-01 must emit exactly 1 command-style action");
-    TEST_ASSERT_NOT_NULL(out[0].title);
-    TEST_ASSERT_NOT_NULL(strstr(out[0].title, "migrate"));
-    TEST_ASSERT_NOT_NULL(out[0].command_id);
-    TEST_ASSERT_EQUAL_STRING("iron.migrate.fromV2ToV3", out[0].command_id);
-    TEST_ASSERT_EQUAL_size_t(1, out[0].command_args_n);
-    TEST_ASSERT_NOT_NULL(out[0].command_args);
-    TEST_ASSERT_NOT_NULL(out[0].command_args[0]);
-    /* command_args[0] is doc->uri. */
-    TEST_ASSERT_EQUAL_STRING("file:///qf01.iron", out[0].command_args[0]);
-    /* No edit. */
-    TEST_ASSERT_NULL(out[0].edit_new_text);
-    TEST_ASSERT_EQUAL_size_t(0, out[0].edit_text_edits_n);
-
-    iron_arena_free(&arena);
-    ilsp_document_destroy(doc);
-    free(src);
-}
-
-/* QF-01 mut-receiver: same handler, code 261. */
-static void test_qf01_mut_receiver(void) {
-    char path[1024];
-    const char *p = fixture_path(path, sizeof(path), "qf01_mut_receiver.iron");
-    TEST_ASSERT_NOT_NULL(p);
-    char *src = load_file(p);
-    TEST_ASSERT_NOT_NULL(src);
-    IronLsp_Document *doc = ilsp_document_create("file:///qf01_mut.iron",
-                                                   src, strlen(src), 1);
-    TEST_ASSERT_NOT_NULL(doc);
-    Iron_Arena arena = iron_arena_create(64 * 1024);
-
-    Iron_Diagnostic d = mk_diag(IRON_ERR_V3_MUT_RECEIVER,
-                                  mk_span(1, 1, 1, 5),
-                                  "v2 mut-receiver syntax");
-    IronLsp_CodeAction out[ILSP_QUICKFIX_MAX_VARIANTS];
-    size_t n = 0;
-    ilsp_quickfix_v3_receiver_syntax(&d, doc, NULL, &arena,
-                                        out, ILSP_QUICKFIX_MAX_VARIANTS, &n);
-    TEST_ASSERT_EQUAL_size_t(1, n);
-    TEST_ASSERT_NOT_NULL(out[0].command_id);
-    TEST_ASSERT_EQUAL_STRING("iron.migrate.fromV2ToV3", out[0].command_id);
-
-    iron_arena_free(&arena);
-    ilsp_document_destroy(doc);
-    free(src);
-}
 
 /* QF-02: synthesize default init for object with no init (code 264). */
 static void test_qf02_object_no_init(void) {
@@ -617,8 +545,6 @@ static void test_qf05_stdlib(void) {
 
 int main(void) {
     UNITY_BEGIN();
-    RUN_TEST(test_qf01_receiver_syntax);
-    RUN_TEST(test_qf01_mut_receiver);
     RUN_TEST(test_qf02_object_no_init);
     RUN_TEST(test_qf03_inline_default_no_init);
     RUN_TEST(test_qf03_inline_default_with_init);

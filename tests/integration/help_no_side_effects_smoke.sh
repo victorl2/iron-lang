@@ -104,7 +104,7 @@ check_help() {
     cd - > /dev/null
 }
 
-# iron: top-level + 7 subcommands (build, run, check, fmt, test, init, migrate).
+# iron: top-level + 6 subcommands (build, run, check, fmt, test, init).
 check_help "${IRON_BIN}" ""        "iron_top"
 check_help "${IRON_BIN}" "build"   "iron_build"
 check_help "${IRON_BIN}" "run"     "iron_run"
@@ -112,9 +112,8 @@ check_help "${IRON_BIN}" "check"   "iron_check"
 check_help "${IRON_BIN}" "fmt"     "iron_fmt"
 check_help "${IRON_BIN}" "test"    "iron_test"
 check_help "${IRON_BIN}" "init"    "iron_init"
-check_help "${IRON_BIN}" "migrate" "iron_migrate"
 
-# ironc: top-level + 6 subcommands (build, run, check, fmt, test, migrate).
+# ironc: top-level + 5 subcommands (build, run, check, fmt, test).
 # init is iron-only; ironc init --help falls through to the existing
 # argv loop and is intentionally NOT exercised here.
 check_help "${IRONC_BIN}" ""        "ironc_top"
@@ -123,6 +122,5 @@ check_help "${IRONC_BIN}" "run"     "ironc_run"
 check_help "${IRONC_BIN}" "check"   "ironc_check"
 check_help "${IRONC_BIN}" "fmt"     "ironc_fmt"
 check_help "${IRONC_BIN}" "test"    "ironc_test"
-check_help "${IRONC_BIN}" "migrate" "ironc_migrate"
 
 echo "help_no_side_effects_smoke OK"

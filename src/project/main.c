@@ -282,15 +282,10 @@ int main(int argc, char **argv) {
      * subcommand-scoped help and exit 0 BEFORE the subcommand handler
      * runs. This is what makes `iron init --help` not scaffold files,
      * `iron build --help` not create target/, and so on (HELP-02).
-     *
-     * `migrate` is included even though src/project/main.c does not currently
-     * dispatch it (it's an ironc-only command); listing it here means
-     * `iron migrate --help` prints migrate help instead of falling
-     * through to the unknown-command branch.
      */
     {
         static const char *KNOWN_SUBS[] = {
-            "init", "build", "run", "check", "fmt", "test", "migrate", NULL
+            "init", "build", "run", "check", "fmt", "test", NULL
         };
         int is_known_sub = 0;
         for (int i = 0; KNOWN_SUBS[i]; i++) {

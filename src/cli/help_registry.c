@@ -30,7 +30,6 @@
  *   "fmt"     — `iron fmt` (--check).
  *   "test"    — `iron test` accepts no subcommand-specific flags.
  *   "init"    — `iron init` (--lib).
- *   "migrate" — ironc migrate (--from, --to).
  *
  * Adding a new flag = one new row below. Ordering inside a subcommand block
  * does not need to be alphabetic in this table; the printers sort on the
@@ -74,10 +73,6 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
 
     /* ── iron init ──────────────────────────────────────────────────────── */
     { "init", "--lib", NULL, "off", "Scaffold a library package (type = \"lib\") instead of a binary" },
-
-    /* ── ironc migrate ──────────────────────────────────────────────────── */
-    { "migrate", "--from", NULL, NULL, "Source grammar version (e.g. v2)" },
-    { "migrate", "--to",   NULL, NULL, "Target grammar version (e.g. v3)" },
 };
 
 const int IRON_CLI_FLAGS_COUNT = (int)(sizeof(IRON_CLI_FLAGS) / sizeof(IRON_CLI_FLAGS[0]));
@@ -98,7 +93,6 @@ static const IronSubSummary IRON_SUB_SUMMARIES[] = {
     { "fmt",     "Format source files" },
     { "test",    "Run package tests" },
     { "init",    "Scaffold a new package" },
-    { "migrate", "Run codemod migration" },
 };
 
 static const int IRON_SUB_SUMMARIES_COUNT =
