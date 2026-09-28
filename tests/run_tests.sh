@@ -257,6 +257,36 @@ if [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/vendor_consume" ]; the
     done
 fi
 
+# Regression fixtures (any path containing /regressions/) must also produce
+# the expected output when built with --no-optimize: several miscompiles
+# showed up in only one of the two pipelines. A fixture opts out with
+# `-- @skip-no-optimize: #<issue>` naming the open issue that blocks it.
+# Prints the failure line itself and returns 1 on mismatch.
+noopt_parity_check() {
+    local file="$1" name="$2" want="$3"
+    case "${file}" in */regressions/*) ;; *) return 0 ;; esac
+    if head -n 20 "${file}" | grep -qE '^[[:space:]]*--[[:space:]]*@skip-no-optimize:'; then
+        return 0
+    fi
+    local dir="${WORK_DIR}/${name}_noopt"
+    mkdir -p "${dir}"
+    if ! (cd "${dir}" && "${IRON_BIN}" build --no-optimize "${file}") \
+            2>"${WORK_DIR}/${name}_noopt.err" >/dev/null; then
+        echo "[FAIL] (--no-optimize build failed)"
+        cat "${WORK_DIR}/${name}_noopt.err" >&2
+        return 1
+    fi
+    local got
+    got=$("${dir}/${name}" 2>&1) || true
+    if [ "${got}" != "${want}" ]; then
+        echo "[FAIL] (--no-optimize output differs)"
+        echo "  Expected: $(echo "${want}" | head -5)"
+        echo "  Actual:   $(echo "${got}" | head -5)"
+        return 1
+    fi
+    return 0
+}
+
 # v4 corpus uses §-section subdirs (e.g. v4/3.2-heap/happy.iron); walk recursively.
 # v4-migrated likewise (Phase 35 MIG-09: hand-migrated v3 corpus under v4/migrated-from-v3/<category>/).
 # Other categories use flat glob.
@@ -419,6 +449,8 @@ for test_file in ${_main_loop_files}; do
         if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
             echo "[XFAIL] (build+output correct but not yet unlocked; expected-pass-after: phase-${expected_pass_after})"
             XFAIL=$((XFAIL + 1))
+        elif ! noopt_parity_check "${test_file}" "${test_name}" "${expected}"; then
+            FAIL=$((FAIL + 1))
         else
             echo "[PASS]"
             PASS=$((PASS + 1))
