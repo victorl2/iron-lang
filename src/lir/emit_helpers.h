@@ -139,6 +139,11 @@ typedef struct {
     IronLIR_InlineEligEntry *inline_eligible;  /* per-function inline eligibility map */
     IronLIR_ValueBlockEntry *value_block;      /* per-function value->block map */
     IronLIR_BlockId          current_block_id; /* set before each emit_instr call */
+    /* When set, emit_expr_to_buf reconstructs this one value's producing
+     * instruction even if it was materialized into a temporary. Used to take
+     * the address of an indexed element for a pointer receiver: `&_vN` of
+     * the temporary would hand the callee a copy. INVALID (0) when unused. */
+    IronLIR_ValueId          force_inline_vid;
 
     /* Backward-referenced values hoisted to function entry (type _vN;).
      * At the definition site, emit assignment without type prefix. */

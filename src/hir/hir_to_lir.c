@@ -4435,6 +4435,16 @@ static void ssa_collect_addr_taken(IronLIR_Func *fn) {
             case IRON_LIR_RETURN:
                 ssa_mark_addr_taken(fn, in->ret.value);
                 break;
+            case IRON_LIR_SET_FIELD: {
+                /* `p.f = v` and `p.a.b = v` lower to set_field on a load
+                 * (or get_field chain) of p's slot and mean an in-place
+                 * write. Promoting the slot would alias that load to the
+                 * reaching store's value, and the write would land on a
+                 * copy the program never reads again. */
+                IronLIR_ValueId root = ssa_root_alloca(fn, in->field.object);
+                if (root != IRON_LIR_VALUE_INVALID) hmput(g_ssa_addr_taken, root, true);
+                break;
+            }
             default:
                 break;
             }

@@ -45,6 +45,16 @@
  * out-of-bounds base pointer and an underflowed (huge) size_t remaining
  * size. This helper clamps pos to bufsz-1 before and after each append so
  * truncation degrades to a shortened message instead of a buffer overflow. */
+
+/* A `for x in xs` loop variable is a copy of the element, so mutating it is
+ * rejected; point the user at indexing instead. */
+#define LOOP_VAR_MUT_HELP \
+    "the loop variable is a copy of the element; index the collection " \
+    "to mutate it in place: 'for i in range(len(xs)) { xs[i].m() }'"
+static bool sym_is_loop_var(const Iron_Symbol *sym) {
+    return sym && sym->decl_node && sym->decl_node->kind == IRON_NODE_FOR;
+}
+
 static int iron_sat_appendf(char *buf, int pos, size_t bufsz,
                             const char *fmt, ...) {
     if (pos < 0) pos = 0;
@@ -4170,7 +4180,9 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                         snprintf(msg, sizeof(msg),
                                                  "cannot call mutable method on immutable binding");
                                         emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL,
-                                                   mc->span, msg, NULL);
+                                                   mc->span, msg,
+                                                   sym_is_loop_var(recv_ident->resolved_sym)
+                                                       ? LOOP_VAR_MUT_HELP : NULL);
                                     }
                                     /* Phase 84 MUTTIER-02 E0239: readonly caller
                                      * calling a mutating callee (is_mut_receiver
@@ -6142,7 +6154,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     char msg[256];
                     snprintf(msg, sizeof(msg),
                              "cannot mutate field on immutable receiver");
-                    emit_error(ctx, IRON_ERR_MUT_FIELD_IMMUT_RECV, as->span, msg, NULL);
+                    emit_error(ctx, IRON_ERR_MUT_FIELD_IMMUT_RECV, as->span, msg,
+                               sym_is_loop_var(field_root_sym) ? LOOP_VAR_MUT_HELP : NULL);
                     (void)field_root_name;  /* reserved for future hint; silence unused warn */
                 }
             }

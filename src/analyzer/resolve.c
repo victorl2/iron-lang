@@ -776,10 +776,13 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             /* Resolve iterable in current scope (not the for's inner scope) */
             resolve_expr(ctx, fs->iterable);
             push_scope(ctx, IRON_SCOPE_BLOCK);
-            /* Define loop variable in the inner scope */
+            /* Define loop variable in the inner scope. It is a fresh copy of
+             * the current element, so it is immutable: a mutating method call
+             * or field write on it would silently change only the copy. Index
+             * the collection (`xs[i].m()`) to mutate elements in place. */
             Iron_Span var_span = fs->span; /* use for-stmt span for the var */
             define_sym(ctx, fs->var_name, IRON_SYM_VARIABLE, node, var_span,
-                       /*is_mutable=*/true, /*is_private=*/false);
+                       /*is_mutable=*/false, /*is_private=*/false);
             if (fs->body) resolve_node(ctx, fs->body);
             pop_scope(ctx);
             break;

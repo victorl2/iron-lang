@@ -1,0 +1,15 @@
+-- @expected-error: E0234
+-- A field write on a `for` loop variable only changed the per-iteration
+-- copy; it is now rejected.
+object T {
+    var n: Int
+    init(n: Int) { self.n = n }
+}
+
+func main() {
+    var ts: [T] = [T(1)]
+    for t in ts {
+        t.n = 5
+    }
+    println("{ts[0].n}")
+}

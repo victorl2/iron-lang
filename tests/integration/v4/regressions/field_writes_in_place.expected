@@ -1,0 +1,5 @@
+write after mutating call: 7
+nested writes in methods: 2 7
+nested writes from caller: 5.5 8
+write after capture: 29
+closure sees later write: 8

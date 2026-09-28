@@ -430,6 +430,21 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
         emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, 0);
         return;
     }
+    if (in && in->kind == IRON_LIR_GET_INDEX &&
+        !(ctx->split_collection_ids &&
+          hmgeti(ctx->split_collection_ids, in->index.array) >= 0)) {
+        /* `xs[i].m()` with a pointer receiver: address the element in the
+         * array's storage. The element value may have been materialized
+         * into a temporary (always under --no-optimize); force its indexing
+         * expression back out instead of taking the temporary's address. */
+        IronLIR_ValueId saved = ctx->force_inline_vid;
+        ctx->force_inline_vid = vid;
+        iron_strbuf_appendf(sb, "&(");
+        emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, 0);
+        iron_strbuf_appendf(sb, ")");
+        ctx->force_inline_vid = saved;
+        return;
+    }
     if (in && in->kind == IRON_LIR_GET_FIELD && in->field.field) {
         IronLIR_ValueId obj = in->field.object;
         bool obj_is_fat = emit_val_is_any_fat_ptr(fn, obj) ||
@@ -459,6 +474,86 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
     emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, 0);
 }
 
+/* True when `vid` names storage emit_receiver_addr can address without
+ * falling back to `&<expr>`: a LOAD from a value-typed alloca, or a
+ * GET_FIELD chain rooted in one (or in a pointer). */
+static bool emit_vid_is_storage_path(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID || (ptrdiff_t)vid >= arrlen(fn->value_table))
+        return false;
+    IronLIR_Instr *in = fn->value_table[vid];
+    if (!in) return false;
+    if (in->kind == IRON_LIR_LOAD) {
+        IronLIR_ValueId p = in->load.ptr;
+        IronLIR_Instr *pin = (p != IRON_LIR_VALUE_INVALID &&
+                              (ptrdiff_t)p < arrlen(fn->value_table))
+                             ? fn->value_table[p] : NULL;
+        return pin && pin->kind == IRON_LIR_ALLOCA && pin->alloca.alloc_type &&
+               pin->alloca.alloc_type->kind != IRON_TYPE_RC &&
+               pin->alloca.alloc_type->kind != IRON_TYPE_WEAK_RC &&
+               pin->alloca.alloc_type->kind != IRON_TYPE_PTR;
+    }
+    if (in->kind == IRON_LIR_GET_FIELD && in->field.field) {
+        IronLIR_ValueId obj = in->field.object;
+        if (emit_val_is_any_fat_ptr(fn, obj) || emit_val_is_heap_ptr(fn, obj) ||
+            emit_val_is_checked_ptr_typed(fn, obj) ||
+            emit_val_is_unchecked_ptr_typed(fn, obj))
+            return true;
+        if (fn->is_mut_receiver_method && obj == 1) return true;
+        return emit_vid_is_storage_path(fn, obj);
+    }
+    return false;
+}
+
+/* After a pointer-receiver call on an element read out of a split
+ * (interface) collection, copy the union payload back into the concrete
+ * sub-array slot the element came from. No-op for any other receiver. */
+static void emit_split_elem_writeback(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
+                                      EmitCtx *ctx, IronLIR_ValueId recv) {
+    if (!ctx->split_collection_ids || recv == IRON_LIR_VALUE_INVALID ||
+        (ptrdiff_t)recv >= arrlen(fn->value_table)) return;
+    IronLIR_Instr *gi = fn->value_table[recv];
+    if (!gi || gi->kind != IRON_LIR_GET_INDEX) return;
+    ptrdiff_t sp_idx = hmgeti(ctx->split_collection_ids, gi->index.array);
+    if (sp_idx < 0 || !ctx->iface_reg) return;
+    const char *sp_iface = ctx->split_collection_ids[sp_idx].value;
+    Iron_IfaceEntry *entry = NULL;
+    for (int ri = 0; ri < (int)shlen(ctx->iface_reg->map); ri++) {
+        const char *m = emit_mangle_name(ctx->iface_reg->map[ri].value.iface_name, ctx->arena);
+        if (strcmp(m, sp_iface) == 0) { entry = &ctx->iface_reg->map[ri].value; break; }
+    }
+    if (!entry) return;
+    emit_indent(sb, ind);
+    iron_strbuf_appendf(sb, "switch (");
+    emit_expr_to_buf(sb, gi->index.array, fn, ctx, ctx->current_block_id, 0);
+    iron_strbuf_appendf(sb, "._order[");
+    emit_expr_to_buf(sb, gi->index.index, fn, ctx, ctx->current_block_id, 0);
+    iron_strbuf_appendf(sb, "].tag) {\n");
+    for (int ji = 0; ji < entry->impl_count; ji++) {
+        Iron_IfaceImpl *impl = &entry->impls[ji];
+        if (!impl->is_alive) continue;
+        char lower[256];
+        size_t n = strlen(impl->type_name);
+        if (n >= sizeof(lower)) n = sizeof(lower) - 1;
+        for (size_t ci = 0; ci < n; ci++) {
+            char c = impl->type_name[ci];
+            lower[ci] = (char)((c >= 'A' && c <= 'Z') ? c + 32 : c);
+        }
+        lower[n] = '\0';
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "case %d: ", impl->tag);
+        emit_expr_to_buf(sb, gi->index.array, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ".%s_items[", lower);
+        emit_expr_to_buf(sb, gi->index.array, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, "._order[");
+        emit_expr_to_buf(sb, gi->index.index, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, "].idx] = ");
+        emit_val(sb, recv);
+        iron_strbuf_appendf(sb, ".data.%s; break;\n", impl->type_name);
+    }
+    emit_indent(sb, ind);
+    iron_strbuf_appendf(sb, "}\n");
+}
+
 /* ── Expression inlining recursive helper ─────────────────────────────────── */
 
 /* Recursively build a C expression string for vid.
@@ -473,8 +568,10 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         return;
     }
 
+    bool forced = (vid == ctx->force_inline_vid);
+
     /* Step 1: Check inline eligibility */
-    if (!ctx->inline_eligible || hmgeti(ctx->inline_eligible, vid) < 0) {
+    if (!forced && (!ctx->inline_eligible || hmgeti(ctx->inline_eligible, vid) < 0)) {
         /* P7 changes storage width, never the width of an Iron expression.
          * Restore the semantic type at the read, BEFORE C promotions apply
          * to arithmetic, shifts, negation, or unsigned complement. Casting
@@ -500,7 +597,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
      * we MUST inline it regardless of block boundary, since emit_val would
      * reference an undeclared variable. This is safe because inline-eligible
      * values have exactly one use and passed ordering-hazard checks. */
-    if (ctx->value_block) {
+    if (ctx->value_block && !forced) {
         ptrdiff_t vb_idx = hmgeti(ctx->value_block, vid);
         if (vb_idx < 0 || (IronLIR_BlockId)ctx->value_block[vb_idx].value != use_block_id) {
             /* Only bail out if the value has a declaration (not inline-eligible) */
@@ -2344,6 +2441,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 iron_strbuf_appendf(sb, "((%s *)", obj_type2 ? obj_type2 : "void");
                 emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ".addr)->%s = ", instr->field.field);
+            } else if (!obj_is_ptr2 && emit_vid_is_storage_path(fn, instr->field.object)) {
+                /* The object operand is a LOAD / GET_FIELD of a binding.
+                 * When that value was materialized into a temporary (always
+                 * under --no-optimize, and whenever the load cannot be
+                 * inlined), `_vN.field = v` wrote into the copy and the
+                 * store was lost. Write through the binding's storage. */
+                iron_strbuf_appendf(sb, "(*");
+                emit_receiver_addr(sb, fn, ctx, instr->field.object,
+                                   ctx->current_block_id);
+                iron_strbuf_appendf(sb, ").%s = ", instr->field.field);
             } else {
                 emit_expr_to_buf(sb, instr->field.object, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, "%s%s = ", obj_is_ptr2 ? "->" : ".", instr->field.field);
@@ -4441,6 +4548,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
         iron_strbuf_appendf(sb, ");\n");
+        /* `xs[i].m()` on an interface array: the element was unpacked from
+         * its typed sub-array into a union temporary, so a mutating method
+         * changed the temporary. Store the payload back into the element. */
+        if (self_by_addr && instr->call.arg_count > 0)
+            emit_split_elem_writeback(sb, ind, fn, ctx, instr->call.args[0]);
         /* Interface `var` param boundary: write the payload back into the
          * concrete source binding (tag-guarded, see the pre-call wrap). */
         for (int k = 0; k < ifw_count; k++) {

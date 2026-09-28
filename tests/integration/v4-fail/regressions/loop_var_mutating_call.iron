@@ -1,0 +1,17 @@
+-- @expected-error: E0235
+-- A `for` loop variable is a copy of the element. A mutating method call on
+-- it used to compile and silently change only the copy; it is now rejected
+-- with a hint to index the collection instead.
+object T {
+    var n: Int
+    init(n: Int) { self.n = n }
+    func bump() { self.n += 1 }
+}
+
+func main() {
+    var ts: [T] = [T(1), T(2)]
+    for t in ts {
+        t.bump()
+    }
+    println("{ts[0].n}")
+}
