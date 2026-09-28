@@ -281,6 +281,30 @@ static Iron_Symbol *tc_lookup(TypeCtx *ctx, const char *name) {
  * Mirrors the chain walk pattern at typecheck.c:4075-4095 (Phase 80
  * MUT-03 / Phase 17 VAL-03). IRON_TYPE_RC unwrapping handles `rc Box`
  * receivers transparently. */
+/* Record that the binding at the root of `expr` (an IDENT, or a
+ * FIELD_ACCESS chain ending in one) is used in a way that needs a
+ * mutable binding: a mutating method call, a field write, a `var` /
+ * `*var` argument, or `&` producing a `*var T`. The flag lives on the
+ * declaring VAR_DECL / PARAM node so the unused-var pass (W0613 / W0614)
+ * does not suggest `val` for a binding that `val` would reject.
+ * Indexing stops the walk: `val` lists accept element writes. */
+static void mark_requires_mutable(TypeCtx *ctx, Iron_Node *expr) {
+    Iron_Node *cur = expr;
+    while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
+        cur = ((Iron_FieldAccess *)cur)->object;
+    }
+    if (!cur || cur->kind != IRON_NODE_IDENT) return;
+    Iron_Ident *id = (Iron_Ident *)cur;
+    Iron_Symbol *sym = id->resolved_sym;
+    if (!sym && id->name) sym = tc_lookup(ctx, id->name);
+    if (!sym || !sym->decl_node) return;
+    if (sym->decl_node->kind == IRON_NODE_VAR_DECL) {
+        ((Iron_VarDecl *)sym->decl_node)->requires_mutable = true;
+    } else if (sym->decl_node->kind == IRON_NODE_PARAM) {
+        ((Iron_Param *)sym->decl_node)->requires_mutable = true;
+    }
+}
+
 static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
     if (!arg) return false;
     switch ((int)arg->kind) {
@@ -2334,6 +2358,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     break;
                 }
                 bool is_var_src = arg_source_is_mutable(ctx, ue->operand);
+                mark_requires_mutable(ctx, ue->operand);
                 Iron_Type *ptr_t = iron_type_make_ptr(ctx->arena,
                                                        operand_t,
                                                        is_var_src,
@@ -3088,6 +3113,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         fd_for_parm->params[i] &&
                         fd_for_parm->params[i]->kind == IRON_NODE_PARAM) {
                         Iron_Param *fp = (Iron_Param *)fd_for_parm->params[i];
+                        if (fp->is_var) mark_requires_mutable(ctx, ce->args[i]);
                         if (fp->is_var &&
                             !arg_source_is_mutable(ctx, ce->args[i])) {
                             char msg[256];
@@ -3134,7 +3160,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                        "binding, field, or element; bind "
                                        "to a local first");
                         } else if (param_type->ptr.is_var &&
-                                   !arg_source_is_mutable(ctx, ce->args[i])) {
+                                   (mark_requires_mutable(ctx, ce->args[i]),
+                                    !arg_source_is_mutable(ctx, ce->args[i]))) {
                             char msg[256];
                             snprintf(msg, sizeof(msg),
                                      "cannot pass read-only argument to "
@@ -4132,6 +4159,11 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                         recv_ident = obj_id;
                                     }
                                     if (recv_ident && recv_ident->resolved_sym &&
+                                        recv_ident->resolved_sym->sym_kind != IRON_SYM_TYPE) {
+                                        mark_requires_mutable(
+                                            ctx, (Iron_Node *)recv_ident);
+                                    }
+                                    if (recv_ident && recv_ident->resolved_sym &&
                                         recv_ident->resolved_sym->sym_kind != IRON_SYM_TYPE &&
                                         !recv_ident->resolved_sym->is_mutable) {
                                         char msg[256];
@@ -4195,6 +4227,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                     md->params[pi]->kind != IRON_NODE_PARAM)
                                     continue;
                                 Iron_Param *mp = (Iron_Param *)md->params[pi];
+                                if (mp->is_var) mark_requires_mutable(ctx, mc->args[ai]);
                                 if (mp->is_var &&
                                     !arg_source_is_mutable(ctx, mc->args[ai])) {
                                     char msg[256];
@@ -4236,8 +4269,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                                    "named binding, field, or "
                                                    "element");
                                     } else if (mp_t->ptr.is_var &&
-                                               !arg_source_is_mutable(
-                                                    ctx, mc->args[ai])) {
+                                               (mark_requires_mutable(
+                                                    ctx, mc->args[ai]),
+                                                !arg_source_is_mutable(
+                                                    ctx, mc->args[ai]))) {
                                         char msg[256];
                                         snprintf(msg, sizeof(msg),
                                                  "cannot pass read-only "
@@ -5464,7 +5499,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
  * All other cases delegate to plain check_expr. Callers that pass
  * expected == NULL get identical behavior to check_expr.
  *
- * Used by: var decl (vd->init), call arg (ce->args[i]), return (rs->value),
+ * Used by: val and var decl (vd->init), call arg (ce->args[i]), return (rs->value),
  * assignment (as->value). Other check_expr callers remain unchanged.
  */
 static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
@@ -5576,7 +5611,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     /* The declared type for h is OBJECT (an Iron_Handle pointer) */
                     init_type = iron_type_make_primitive(IRON_TYPE_OBJECT);
                 } else {
-                    init_type = check_expr(ctx, vd->init);
+                    /* Thread the annotation like VAR_DECL does, so
+                     * `val xs: [T] = []` infers its element type instead of
+                     * failing E0229 (W0613 tells users to write exactly this). */
+                    init_type = check_expr_with_expected(ctx, vd->init, decl_type);
                 }
             }
 
@@ -6052,6 +6090,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         is_field_target_immut =
                             !root_id->resolved_sym->is_mutable &&
                             !lhs_is_var_ptr_auto_deref;
+                        if (!lhs_is_var_ptr_auto_deref) {
+                            mark_requires_mutable(ctx, (Iron_Node *)root_id);
+                        }
                         field_root_name = root_id->name;
                         field_root_sym = root_id->resolved_sym;
                     }

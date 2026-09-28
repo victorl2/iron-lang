@@ -9,9 +9,11 @@
  * (parameters) for entries with no IDENT-write reaching them.
  *
  * Semantics (per CONTEXT.md + RESEARCH Pitfall 2):
- * - "Mutation = binding reassignment only" — direct `x = ...` and compound
- *   `x += ...`, `x -= ...`, etc. count. Field writes (`x.f = ...`),
- *   `&x` address-of, pass-to-`var`-slot do NOT count.
+ * - A `var` is kept (no warning) when it is reassigned (`x = ...`, `x += ...`)
+ *   or when the type checker marked its declaration `requires_mutable`: a
+ *   mutating method call, a field write (`x.f = ...`), a pass to a `var` /
+ *   `*var` slot, or `&x` producing `*var T`. Those uses are rejected on a
+ *   `val`, so suggesting `val` would break the program.
  * - "Any-write-anywhere" semantics: a write anywhere in the function body
  *   (including inside if/match/while/for branches) counts. No flow-sensitive
  *   analysis is required; if a future phase needs path-sensitivity it can
