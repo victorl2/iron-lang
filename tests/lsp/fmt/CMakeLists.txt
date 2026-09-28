@@ -18,9 +18,6 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_return.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
-        # Phase 12 Plan 12-02 (QF-01): single command-style handler shared
-        # by codes 260 + 261 (registry.c references it via two rows).
-        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_v3_receiver_syntax.c
         # Phase 12 Plan 12-02 (QF-02): synthesize default init for code 264.
         # quickfix_object_no_init.c calls ilsp_facade_compile_for_nav, so
         # the test must additionally link compile.c + diagnostics.c +

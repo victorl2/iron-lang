@@ -73,14 +73,14 @@ int main(int argc, char **argv) {
     /*
      * Phase 97 HELP-01 / HELP-06: pre-dispatch --help scan for ironc.
      * Mirrors the iron-side scan in src/project/main.c. Subcommands recognized
-     * by ironc: build, run, check, fmt, test, migrate (no `init` — that's
-     * an iron-only command). Fires BEFORE the global-flag-parsing argv
-     * loop below so iron_build / iron_check / iron_fmt / iron_test /
-     * migrate handlers never run for --help requests.
+     * by ironc: build, run, check, fmt, test (no `init` — that's an
+     * iron-only command). Fires BEFORE the global-flag-parsing argv loop
+     * below so iron_build / iron_check / iron_fmt / iron_test handlers
+     * never run for --help requests.
      */
     {
         static const char *KNOWN_SUBS[] = {
-            "build", "run", "check", "fmt", "test", "migrate", NULL
+            "build", "run", "check", "fmt", "test", NULL
         };
         int is_known_sub = 0;
         for (int i = 0; KNOWN_SUBS[i]; i++) {
@@ -315,44 +315,6 @@ int main(int argc, char **argv) {
 
     if (strcmp(cmd, "test") == 0) {
         return iron_test(source_file ? source_file : ".");
-    }
-
-    if (strcmp(cmd, "migrate") == 0) {
-        /* ironc migrate --from v2 --to v3 <path> */
-        const char *from_ver = NULL;
-        const char *to_ver = NULL;
-        const char *target_path = NULL;
-
-        for (int j = 2; j < argc; j++) {
-            if (strcmp(argv[j], "--from") == 0 && j + 1 < argc) {
-                from_ver = argv[++j];
-            } else if (strcmp(argv[j], "--to") == 0 && j + 1 < argc) {
-                to_ver = argv[++j];
-            } else if (argv[j][0] != '-') {
-                target_path = argv[j];
-            }
-        }
-
-        if (!from_ver || !to_ver || !target_path) {
-            fprintf(stderr, "%s migrate: usage: ironc migrate --from v2 --to v3 <path>\n", IRON_BINARY_NAME);
-            return 1;
-        }
-
-        /* Locate migrate script relative to cwd (scripts/ directory) */
-        char script_path[1024];
-        snprintf(script_path, sizeof(script_path), "scripts/migrate_v2_to_v3.py");
-
-        const char *exec_argv[] = {
-            "python3", script_path,
-            "--from", from_ver,
-            "--to", to_ver,
-            target_path,
-            NULL
-        };
-        execvp("python3", (char *const *)exec_argv);
-        /* execvp only returns on error */
-        perror("ironc migrate: failed to exec python3");
-        return 1;
     }
 
     fprintf(stderr, "%s: unknown command '%s'\n", IRON_BINARY_NAME, cmd);

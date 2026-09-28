@@ -49,7 +49,7 @@ static void capture_print_sub(const char *sub, char *buf, size_t buf_size) {
 
 void test_v97_count_threshold(void) {
     /* Conservative floor: every flag named in HELP-05 + global trio +
-     * RUN-03 --keep-binary + init --lib + migrate --from/--to is well over
+     * RUN-03 --keep-binary + init --lib is well over
      * 18, but pick 18 so reasonable additions don't trigger churn. */
     TEST_ASSERT_GREATER_OR_EQUAL_INT(18, IRON_CLI_FLAGS_COUNT);
 }
@@ -79,7 +79,7 @@ void test_v97_required_flags_present(void) {
         "--release", "--debug-build", "--no-optimize", "--target",
         "--strict-v3", "--no-strict-v3", "--force-comptime",
         "--dump-ir-passes", "--report-compression", "--warn-fusion-break",
-        "--verbose", "--output", "--from", "--to", "--lib",
+        "--verbose", "--output", "--lib",
         "--keep-binary", "--help", "--version",
     };
     const int required_count = (int)(sizeof(required) / sizeof(required[0]));
@@ -121,16 +121,6 @@ void test_v97_print_init_contains_lib(void) {
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "--lib"), "init help missing --lib");
 }
 
-/* ── 7. print_subcommand("migrate") contains --from and --to ────────── */
-
-void test_v97_print_migrate_contains_from_and_to(void) {
-    char buf[8192];
-    capture_print_sub("migrate", buf, sizeof(buf));
-    TEST_ASSERT_TRUE_MESSAGE(strlen(buf) > 0, "print_subcommand(\"migrate\") emitted empty output");
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "--from"), "migrate help missing --from");
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(buf, "--to"),   "migrate help missing --to");
-}
-
 /* ── 8. print_all contains every subcommand name ────────────────────── */
 
 void test_v97_print_all_contains_every_subcommand(void) {
@@ -139,7 +129,7 @@ void test_v97_print_all_contains_every_subcommand(void) {
     TEST_ASSERT_TRUE_MESSAGE(strlen(buf) > 0, "print_all emitted empty output");
 
     static const char *subs[] = {
-        "build", "run", "check", "fmt", "test", "init", "migrate",
+        "build", "run", "check", "fmt", "test", "init",
     };
     const int subs_count = (int)(sizeof(subs) / sizeof(subs[0]));
     for (int i = 0; i < subs_count; i++) {
@@ -220,7 +210,6 @@ int main(void) {
     RUN_TEST(test_v97_keep_binary_marked_reserved);
     RUN_TEST(test_v97_print_build_contains_release);
     RUN_TEST(test_v97_print_init_contains_lib);
-    RUN_TEST(test_v97_print_migrate_contains_from_and_to);
     RUN_TEST(test_v97_print_all_contains_every_subcommand);
     RUN_TEST(test_v97_print_all_alphabetic_within_block);
     return UNITY_END();

@@ -565,7 +565,6 @@
         <a href="#iron-check">iron check</a>
         <a href="#iron-test">iron test</a>
         <a href="#iron-fmt">iron fmt</a>
-        <a href="#iron-migrate">migrate</a>
       </div>
       <div class="sidebar-section">
         <h3>Third-party Code</h3>
@@ -573,7 +572,6 @@
         <a href="#vendoring">Vendoring</a>
         <a href="#vendor-rules">What Gets Compiled</a>
         <a href="#updating-vendored">Updating Vendored Code</a>
-        <a href="#migrating-dependencies">Migrating [dependencies]</a>
       </div>
       <div class="sidebar-section">
         <h3>Reference</h3>
@@ -735,15 +733,6 @@ would reformat src/main.iron</code></pre>
         <tr><td><code>--check</code></td><td>Check only &mdash; exit 0 if the file is clean, 1 if it would be reformatted, 2 on syntax errors</td></tr>
       </table>
 
-      <h2 id="iron-migrate">migrate</h2>
-      <p>Run a codemod migration over a file or directory (an <code>ironc</code> command; <code>iron migrate --help</code> shows the same help). Shipped for the v2 &rarr; v3 grammar change. There is no v3 &rarr; v4 codemod &mdash; hand-migration via the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/site/migration-v3-to-v4.md">migration guide</a> is the supported path.</p>
-<pre><code>$ <span class="fn">ironc migrate --from v2 --to v3 src/</span></code></pre>
-      <table>
-        <tr><th>Flag</th><th>Description</th></tr>
-        <tr><td><code>--from</code></td><td>Source grammar version (e.g. <code>v2</code>)</td></tr>
-        <tr><td><code>--to</code></td><td>Target grammar version (e.g. <code>v3</code>)</td></tr>
-      </table>
-
       <!-- ── Third-party code ────────────────────── -->
       <h2 id="no-package-manager">No Package Manager</h2>
       <p>Iron deliberately has no package manager. There is no registry, no <code>iron add</code>, no dependency resolver, and no lockfile. The standard library is meant to cover the common ground (collections, strings, math, I/O, time, logging, networking, HTTP), and raylib ships with the compiler.</p>
@@ -810,20 +799,6 @@ Hello, Iron!</code></pre>
       <h2 id="updating-vendored">Updating Vendored Code</h2>
       <p>Updating a dependency is an ordinary change to your repository: replace the directory with a newer copy (or run <code>git subtree pull</code>), rebuild, and review the diff before you commit it. Local patches are just edits; keep a note in the vendored directory if you need to re-apply them after the next update.</p>
 
-      <h2 id="migrating-dependencies">Migrating [dependencies]</h2>
-      <p>Earlier alphas had a <code>[dependencies]</code> table with GitHub and local-path entries, an <code>iron.lock</code> lockfile, and a download cache in <code>~/.iron/cache/</code>. All of that is gone. To migrate a project:</p>
-      <ol>
-        <li>For each entry, copy the library's source into <code>vendor/&lt;name&gt;/</code> (for a path dependency, copy the directory it pointed at).</li>
-        <li>Delete the <code>[dependencies]</code> table and <code>iron.lock</code>.</li>
-        <li>Optionally delete <code>~/.iron/cache/</code>; nothing reads it anymore.</li>
-      </ol>
-      <p>A manifest that still declares a dependency fails with a pointer to this page:</p>
-<pre><code><span class="kw">error:</span> iron.toml declares dependency 'iron-utils', but Iron has no package manager.
-  hint: copy the library's source into vendor/iron-utils/ and remove the
-        [dependencies] table. `iron build` compiles everything under
-        vendor/ together with your project.</code></pre>
-      <p>An empty <code>[dependencies]</code> table (the old <code>iron init</code> template) or <code>raylib = true</code> only prints a warning; raylib is enabled by <code>import raylib</code>.</p>
-
       <!-- ── Reference ───────────────────────────── -->
       <h2 id="environment-variables">Environment Variables</h2>
       <table>
@@ -834,7 +809,7 @@ Hello, Iron!</code></pre>
       <h2 id="error-messages">Error Messages</h2>
       <table>
         <tr><th>Error</th><th>Cause</th><th>Fix</th></tr>
-        <tr><td>iron.toml declares dependency '...'</td><td>The manifest still has a <code>[dependencies]</code> entry</td><td><a href="#migrating-dependencies">Vendor the code</a> and delete the table</td></tr>
+        <tr><td>iron.toml declares dependency '...'</td><td>The manifest still has a <code>[dependencies]</code> entry</td><td><a href="#vendoring">Vendor the code</a> and delete the table</td></tr>
         <tr><td>duplicate declaration</td><td>Two vendored libraries (or a library and your code) declare the same name</td><td>Rename one of them in your copy</td></tr>
         <tr><td>no iron.toml found</td><td>Not in a project directory</td><td>Run <code>iron init</code> or <code>cd</code> into a project</td></tr>
       </table>

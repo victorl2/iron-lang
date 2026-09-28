@@ -41,9 +41,6 @@ roster is 49 keywords, drift-guarded at build time by
 - Configurable log level + trace channel for debugging.
 - `Iron LSP: Diagnose` command (Command Palette) producing a self-contained
   report for bug filing.
-- `Iron: Migrate v2 -> v3` command (Command Palette) — invokes
-  `workspace/executeCommand iron.migrate` on ironls, which runs
-  `ironc migrate` and applies the resulting WorkspaceEdit in-editor.
 
 ## Iron schematic example
 

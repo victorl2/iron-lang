@@ -772,10 +772,6 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/edit/codeaction/quickfix_missing_return.c
         src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
         src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
-        # Phase 12 Plan 12-02 (QF-01, D-16..D-20): single command-style
-        # quickfix handler shared by codes 260 (IRON_ERR_V3_RECEIVER_SYNTAX)
-        # and 261 (IRON_ERR_V3_MUT_RECEIVER).
-        src/lsp/facade/edit/codeaction/quickfix_v3_receiver_syntax.c
         # Phase 12 Plan 12-02 (QF-02, D-21..D-25): synthesize default init
         # for code 264 (IRON_ERR_V3_NO_INIT). Walks Iron_ObjectDecl.fields[]
         # filtered to is_var == true; co-located Iron_TypeAnnotation walker.
@@ -854,10 +850,6 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/fmt/range_format.c
         src/lsp/facade/fmt/on_type_format.c
         src/lsp/server/handlers_fmt.c
-        # Phase 14 Plan 14-02 (CMD-01, CMD-03): workspace/executeCommand handler.
-        # iron.migrate dispatch, subprocess spawn, 5-bucket $/progress,
-        # WorkspaceEdit construction, CMD-03 ironc >= 3.0.0 version gate.
-        src/lsp/server/handlers_workspace_command.c
         # Phase 3 Plan 02: workspace index + stdlib cache.
         # workspace_index.c owns per-file arena-scoped IndexEntry map and
         # reads iron.toml [fmt] via src/cli/toml.c; stdlib_cache.c is the

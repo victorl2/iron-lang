@@ -173,11 +173,6 @@ if(IRON_BUILD_LSP)
         # handlers; they delegate to facade/edit/ TUs. Every test linking
         # dispatch.c must resolve these symbols.
         ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_edit.c
-        # Phase 14 Plan 14-02 (CMD-01, CMD-03): dispatch.c references
-        # ilsp_handle_workspace_execute_command for the workspace/executeCommand
-        # iron.migrate handler. Every test linking dispatch.c must resolve
-        # the symbol. Same Rule 3 link-graph pattern as handlers_edit.c above.
-        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_workspace_command.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/complete.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/buckets.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/complete/context_classify.c
@@ -199,9 +194,6 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_return.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
-        # Phase 12 Plan 12-02 (QF-01): single command-style handler shared
-        # by codes 260 + 261 (registry.c references it via two rows).
-        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_v3_receiver_syntax.c
         # Phase 12 Plan 12-02 (QF-02): synthesize default init for code 264.
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_object_no_init.c
         # Phase 12 Plan 12-03 (QF-03): multi-edit handler for code 262
@@ -1398,9 +1390,6 @@ if(IRON_BUILD_LSP)
         ${_LSP_PHASE3_NAV_FACADE_SRC}
         ${CMAKE_SOURCE_DIR}/src/lsp/server/capabilities.c
         ${CMAKE_SOURCE_DIR}/src/lsp/server/dispatch.c
-        # Phase 14 Plan 14-02 (CMD-01): dispatch.c references
-        # ilsp_handle_workspace_execute_command for the iron.migrate handler.
-        ${CMAKE_SOURCE_DIR}/src/lsp/server/handlers_workspace_command.c
         # Phase 7 Plan 07-01: dispatch.c now calls crash_ring_push/pop.
         ${CMAKE_SOURCE_DIR}/src/lsp/obs/crash_dump.c
         ${CMAKE_SOURCE_DIR}/src/lsp/server/lifecycle.c
@@ -1439,9 +1428,6 @@ if(IRON_BUILD_LSP)
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_missing_return.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_type_mismatch_literal.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_redundant_cast.c
-        # Phase 12 Plan 12-02 (QF-01): single command-style handler shared
-        # by codes 260 + 261 (registry.c references it via two rows).
-        ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_v3_receiver_syntax.c
         # Phase 12 Plan 12-02 (QF-02): synthesize default init for code 264.
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/codeaction/quickfix_object_no_init.c
         # Phase 12 Plan 12-03 (QF-03): multi-edit handler for code 262

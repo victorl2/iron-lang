@@ -637,7 +637,7 @@
       <p class="subtitle">Explore Iron, a general-purpose native programming language with explicit memory control, first-class concurrency, and readable code.</p>
 
       <div class="callout">
-        <p><strong>Version note:</strong> this page documents the <strong>Iron v3</strong> language surface. Iron v4 (current release: v4.0.0-alpha) changed the memory model &mdash; explicit <code>free</code> / <code>defer free</code> instead of auto-free, checked pointer types (<code>*T</code> / <code>*var T</code>), <code>rc</code> + <code>weak rc</code>, arenas, and <code>drop</code> / <code>copy</code> / <code>nocopy</code> resource types. See the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/site/migration-v3-to-v4.md">v3 &rarr; v4 migration guide</a> and the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/release/v4.0.0-alpha.md">v4.0.0-alpha release notes</a>.</p>
+        <p><strong>Version note:</strong> this page documents the <strong>Iron v3</strong> language surface. Iron v4 (current release: v4.0.0-alpha) changed the memory model &mdash; explicit <code>free</code> / <code>defer free</code> instead of auto-free, checked pointer types (<code>*T</code> / <code>*var T</code>), <code>rc</code> + <code>weak rc</code>, arenas, and <code>drop</code> / <code>copy</code> / <code>nocopy</code> resource types. See the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/language_definition.md#memory-management">language reference</a> and the <a href="https://github.com/victorl2/iron-lang/blob/main/docs/release/v4.0.0-alpha.md">v4.0.0-alpha release notes</a>.</p>
       </div>
 
       <!-- Overview -->
@@ -1526,7 +1526,7 @@ other = <span class="kw">null</span>                                <span class=
       <p>There are no pointer types in Iron v3. You never write <code>*T</code> or <code>&amp;x</code>, and there is no dereference operator. The compiler decides when to lower a value to a C pointer based on mutability and type:</p>
 
       <div class="callout">
-        <p><strong>v4 note:</strong> this held through v3. Iron v4 introduces checked pointer types &mdash; <code>*T</code> (read-only), <code>*var T</code> (writable), and <code>*unchecked T</code> (FFI escape hatch) &mdash; with generation checks that catch use-after-free at the dereference. See the migration guide linked at the top of this page.</p>
+        <p><strong>v4 note:</strong> this held through v3. Iron v4 introduces checked pointer types &mdash; <code>*T</code> (read-only), <code>*var T</code> (writable), and <code>*unchecked T</code> (FFI escape hatch) &mdash; with generation checks that catch use-after-free at the dereference. See the language reference linked at the top of this page.</p>
       </div>
 
       <table class="doc-table">
