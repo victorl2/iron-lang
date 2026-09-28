@@ -158,6 +158,147 @@ static void eval_stmt(Iron_ComptimeCtx *ctx, Iron_Node *node);
 
 /* ── Expression evaluator ────────────────────────────────────────────────── */
 
+/* Apply a non-short-circuit binary operator to two evaluated operands.
+ * Shared by binary expressions and compound assignment (`x op= v`). */
+static Iron_ComptimeVal *eval_binary_vals(Iron_ComptimeCtx *ctx, Iron_OpKind op,
+                                          Iron_ComptimeVal *lv, Iron_ComptimeVal *rv,
+                                          Iron_Node *node) {
+    /* Integer arithmetic */
+    if (lv->kind == IRON_CVAL_INT && rv->kind == IRON_CVAL_INT) {
+        switch (op) {
+            case IRON_TOK_PLUS: {
+                /* FIX-01 rank 14: signed int64_t addition overflow is UB
+                 * under C11 6.5p5. Use __builtin_add_overflow so an
+                 * overflowing comptime expression becomes a diagnostic
+                 * instead of optimizer-dependent behavior. */
+                int64_t result;
+                if (__builtin_add_overflow(lv->as_int, rv->as_int, &result)) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               "comptime: integer overflow in addition");
+                    return cval_null(ctx);
+                }
+                return cval_int(ctx, result);
+            }
+            case IRON_TOK_MINUS: {
+                /* FIX-01 rank 14: signed int64_t subtraction overflow is UB. */
+                int64_t result;
+                if (__builtin_sub_overflow(lv->as_int, rv->as_int, &result)) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               "comptime: integer overflow in subtraction");
+                    return cval_null(ctx);
+                }
+                return cval_int(ctx, result);
+            }
+            case IRON_TOK_STAR: {
+                /* FIX-01 rank 14: signed int64_t multiplication overflow is UB. */
+                int64_t result;
+                if (__builtin_mul_overflow(lv->as_int, rv->as_int, &result)) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               "comptime: integer overflow in multiplication");
+                    return cval_null(ctx);
+                }
+                return cval_int(ctx, result);
+            }
+            case IRON_TOK_SLASH:
+                if (rv->as_int == 0) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               "comptime: division by zero");
+                    return cval_null(ctx);
+                }
+                /* FIX-01 rank 14: INT64_MIN / -1 is also UB (C11 6.5.5p6). */
+                if (lv->as_int == INT64_MIN && rv->as_int == -1) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               "comptime: integer overflow in division (INT64_MIN / -1)");
+                    return cval_null(ctx);
+                }
+                return cval_int(ctx, lv->as_int / rv->as_int);
+            case IRON_TOK_PERCENT:
+                if (rv->as_int == 0) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               "comptime: modulo by zero");
+                    return cval_null(ctx);
+                }
+                /* FIX-01 rank 14: INT64_MIN % -1 is also UB. */
+                if (lv->as_int == INT64_MIN && rv->as_int == -1) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               "comptime: integer overflow in modulo (INT64_MIN % -1)");
+                    return cval_null(ctx);
+                }
+                return cval_int(ctx, lv->as_int % rv->as_int);
+            case IRON_TOK_EQUALS:     return cval_bool(ctx, lv->as_int == rv->as_int);
+            case IRON_TOK_NOT_EQUALS: return cval_bool(ctx, lv->as_int != rv->as_int);
+            case IRON_TOK_LESS:       return cval_bool(ctx, lv->as_int < rv->as_int);
+            case IRON_TOK_GREATER:    return cval_bool(ctx, lv->as_int > rv->as_int);
+            case IRON_TOK_LESS_EQ:    return cval_bool(ctx, lv->as_int <= rv->as_int);
+            case IRON_TOK_GREATER_EQ: return cval_bool(ctx, lv->as_int >= rv->as_int);
+            /* -Wswitch-enum opt-out: int-binop handler only supports
+             * arithmetic + comparison ops; unsupported ops fall
+             * through to the generic "unsupported binary operation"
+             * diagnostic below. */
+            default: break;
+        }
+    }
+
+    /* Float arithmetic */
+    if (lv->kind == IRON_CVAL_FLOAT || rv->kind == IRON_CVAL_FLOAT) {
+        double l = (lv->kind == IRON_CVAL_FLOAT) ? lv->as_float : (double)lv->as_int;
+        double r = (rv->kind == IRON_CVAL_FLOAT) ? rv->as_float : (double)rv->as_int;
+        switch (op) {
+            case IRON_TOK_PLUS:       return cval_float(ctx, l + r);
+            case IRON_TOK_MINUS:      return cval_float(ctx, l - r);
+            case IRON_TOK_STAR:       return cval_float(ctx, l * r);
+            case IRON_TOK_SLASH:
+                if (r == 0.0) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               "comptime: division by zero");
+                    return cval_null(ctx);
+                }
+                return cval_float(ctx, l / r);
+            case IRON_TOK_EQUALS:     return cval_bool(ctx, l == r);
+            case IRON_TOK_NOT_EQUALS: return cval_bool(ctx, l != r);
+            case IRON_TOK_LESS:       return cval_bool(ctx, l < r);
+            case IRON_TOK_GREATER:    return cval_bool(ctx, l > r);
+            case IRON_TOK_LESS_EQ:    return cval_bool(ctx, l <= r);
+            case IRON_TOK_GREATER_EQ: return cval_bool(ctx, l >= r);
+            /* -Wswitch-enum opt-out: float-binop handler only supports
+             * arithmetic + comparison ops; others fall through. */
+            default: break;
+        }
+    }
+
+    /* Bool comparisons */
+    if (lv->kind == IRON_CVAL_BOOL && rv->kind == IRON_CVAL_BOOL) {
+        switch (op) {
+            case IRON_TOK_EQUALS:     return cval_bool(ctx, lv->as_bool == rv->as_bool);
+            case IRON_TOK_NOT_EQUALS: return cval_bool(ctx, lv->as_bool != rv->as_bool);
+            /* -Wswitch-enum opt-out: bool-binop handler only supports
+             * equality; comparisons and arithmetic on bool fall through. */
+            default: break;
+        }
+    }
+
+    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+               "comptime: unsupported binary operation");
+    return cval_null(ctx);
+}
+
+/* Map a compound-assignment token to its binary operator. */
+static Iron_OpKind comptime_compound_base_op(Iron_OpKind op) {
+    switch ((int)op) {
+        case IRON_TOK_PLUS_ASSIGN:  return IRON_TOK_PLUS;
+        case IRON_TOK_MINUS_ASSIGN: return IRON_TOK_MINUS;
+        case IRON_TOK_STAR_ASSIGN:  return IRON_TOK_STAR;
+        case IRON_TOK_SLASH_ASSIGN: return IRON_TOK_SLASH;
+        case IRON_TOK_SHL_ASSIGN:   return IRON_TOK_SHL;
+        case IRON_TOK_SHR_ASSIGN:   return IRON_TOK_SHR;
+        case IRON_TOK_AMP_ASSIGN:   return IRON_TOK_AMP;
+        case IRON_TOK_PIPE_ASSIGN:  return IRON_TOK_PIPE;
+        case IRON_TOK_CARET_ASSIGN: return IRON_TOK_CARET;
+        /* -Wswitch-enum opt-out: only compound-assign tokens map. */
+        default:                    return op;
+    }
+}
+
 Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
                                            Iron_Node *node) {
     if (!node || ctx->had_error) return cval_null(ctx);
@@ -267,124 +408,7 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             if (ctx->had_error) return cval_null(ctx);
             Iron_ComptimeVal *rv = iron_comptime_eval_expr(ctx, bin->right);
             if (ctx->had_error) return cval_null(ctx);
-
-            /* Integer arithmetic */
-            if (lv->kind == IRON_CVAL_INT && rv->kind == IRON_CVAL_INT) {
-                switch (bin->op) {
-                    case IRON_TOK_PLUS: {
-                        /* FIX-01 rank 14: signed int64_t addition overflow is UB
-                         * under C11 6.5p5. Use __builtin_add_overflow so an
-                         * overflowing comptime expression becomes a diagnostic
-                         * instead of optimizer-dependent behavior. */
-                        int64_t result;
-                        if (__builtin_add_overflow(lv->as_int, rv->as_int, &result)) {
-                            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                                       "comptime: integer overflow in addition");
-                            return cval_null(ctx);
-                        }
-                        return cval_int(ctx, result);
-                    }
-                    case IRON_TOK_MINUS: {
-                        /* FIX-01 rank 14: signed int64_t subtraction overflow is UB. */
-                        int64_t result;
-                        if (__builtin_sub_overflow(lv->as_int, rv->as_int, &result)) {
-                            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                                       "comptime: integer overflow in subtraction");
-                            return cval_null(ctx);
-                        }
-                        return cval_int(ctx, result);
-                    }
-                    case IRON_TOK_STAR: {
-                        /* FIX-01 rank 14: signed int64_t multiplication overflow is UB. */
-                        int64_t result;
-                        if (__builtin_mul_overflow(lv->as_int, rv->as_int, &result)) {
-                            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                                       "comptime: integer overflow in multiplication");
-                            return cval_null(ctx);
-                        }
-                        return cval_int(ctx, result);
-                    }
-                    case IRON_TOK_SLASH:
-                        if (rv->as_int == 0) {
-                            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                                       "comptime: division by zero");
-                            return cval_null(ctx);
-                        }
-                        /* FIX-01 rank 14: INT64_MIN / -1 is also UB (C11 6.5.5p6). */
-                        if (lv->as_int == INT64_MIN && rv->as_int == -1) {
-                            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                                       "comptime: integer overflow in division (INT64_MIN / -1)");
-                            return cval_null(ctx);
-                        }
-                        return cval_int(ctx, lv->as_int / rv->as_int);
-                    case IRON_TOK_PERCENT:
-                        if (rv->as_int == 0) {
-                            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                                       "comptime: modulo by zero");
-                            return cval_null(ctx);
-                        }
-                        /* FIX-01 rank 14: INT64_MIN % -1 is also UB. */
-                        if (lv->as_int == INT64_MIN && rv->as_int == -1) {
-                            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                                       "comptime: integer overflow in modulo (INT64_MIN % -1)");
-                            return cval_null(ctx);
-                        }
-                        return cval_int(ctx, lv->as_int % rv->as_int);
-                    case IRON_TOK_EQUALS:     return cval_bool(ctx, lv->as_int == rv->as_int);
-                    case IRON_TOK_NOT_EQUALS: return cval_bool(ctx, lv->as_int != rv->as_int);
-                    case IRON_TOK_LESS:       return cval_bool(ctx, lv->as_int < rv->as_int);
-                    case IRON_TOK_GREATER:    return cval_bool(ctx, lv->as_int > rv->as_int);
-                    case IRON_TOK_LESS_EQ:    return cval_bool(ctx, lv->as_int <= rv->as_int);
-                    case IRON_TOK_GREATER_EQ: return cval_bool(ctx, lv->as_int >= rv->as_int);
-                    /* -Wswitch-enum opt-out: int-binop handler only supports
-                     * arithmetic + comparison ops; unsupported ops fall
-                     * through to the generic "unsupported binary operation"
-                     * diagnostic below. */
-                    default: break;
-                }
-            }
-
-            /* Float arithmetic */
-            if (lv->kind == IRON_CVAL_FLOAT || rv->kind == IRON_CVAL_FLOAT) {
-                double l = (lv->kind == IRON_CVAL_FLOAT) ? lv->as_float : (double)lv->as_int;
-                double r = (rv->kind == IRON_CVAL_FLOAT) ? rv->as_float : (double)rv->as_int;
-                switch (bin->op) {
-                    case IRON_TOK_PLUS:       return cval_float(ctx, l + r);
-                    case IRON_TOK_MINUS:      return cval_float(ctx, l - r);
-                    case IRON_TOK_STAR:       return cval_float(ctx, l * r);
-                    case IRON_TOK_SLASH:
-                        if (r == 0.0) {
-                            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                                       "comptime: division by zero");
-                            return cval_null(ctx);
-                        }
-                        return cval_float(ctx, l / r);
-                    case IRON_TOK_EQUALS:     return cval_bool(ctx, l == r);
-                    case IRON_TOK_NOT_EQUALS: return cval_bool(ctx, l != r);
-                    case IRON_TOK_LESS:       return cval_bool(ctx, l < r);
-                    case IRON_TOK_GREATER:    return cval_bool(ctx, l > r);
-                    case IRON_TOK_LESS_EQ:    return cval_bool(ctx, l <= r);
-                    case IRON_TOK_GREATER_EQ: return cval_bool(ctx, l >= r);
-                    /* -Wswitch-enum opt-out: float-binop handler only supports
-                     * arithmetic + comparison ops; others fall through. */
-                    default: break;
-                }
-            }
-
-            /* Bool comparisons */
-            if (lv->kind == IRON_CVAL_BOOL && rv->kind == IRON_CVAL_BOOL) {
-                switch (bin->op) {
-                    case IRON_TOK_EQUALS:     return cval_bool(ctx, lv->as_bool == rv->as_bool);
-                    case IRON_TOK_NOT_EQUALS: return cval_bool(ctx, lv->as_bool != rv->as_bool);
-                    /* -Wswitch-enum opt-out: bool-binop handler only supports
-                     * equality; comparisons and arithmetic on bool fall through. */
-                    default: break;
-                }
-            }
-
-            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                       "comptime: unsupported binary operation");
-            return cval_null(ctx);
+            return eval_binary_vals(ctx, bin->op, lv, rv, node);
         }
 
         /* ── Unary expression ───────────────────────────────────────────── */
@@ -433,6 +457,55 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
             }
             Iron_Ident *callee_id = (Iron_Ident *)call->callee;
             const char *func_name = callee_id->name;
+
+            /* ── len / range / fill builtins ──────────────────────────────── */
+            if (strcmp(func_name, "len") == 0 && call->arg_count == 1) {
+                Iron_ComptimeVal *v = iron_comptime_eval_expr(ctx, call->args[0]);
+                if (ctx->had_error) return cval_null(ctx);
+                if (v->kind == IRON_CVAL_ARRAY) return cval_int(ctx, v->as_array.count);
+                if (v->kind == IRON_CVAL_STRING) {
+                    /* Strings count characters (code points), not bytes. */
+                    int64_t n = 0;
+                    for (size_t bi = 0; bi < v->as_string.len; bi++)
+                        if ((v->as_string.data[bi] & 0xC0) != 0x80) n++;
+                    return cval_int(ctx, n);
+                }
+                emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                           "comptime len: argument must be an array or string");
+                return cval_null(ctx);
+            }
+            if (strcmp(func_name, "range") == 0 && call->arg_count == 1) {
+                /* A for loop iterates an Int n as 0..n-1. */
+                Iron_ComptimeVal *v = iron_comptime_eval_expr(ctx, call->args[0]);
+                if (ctx->had_error) return cval_null(ctx);
+                if (v->kind != IRON_CVAL_INT) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               "comptime range: argument must be an Int");
+                    return cval_null(ctx);
+                }
+                return v;
+            }
+            if (strcmp(func_name, "fill") == 0 && call->arg_count == 2) {
+                Iron_ComptimeVal *n = iron_comptime_eval_expr(ctx, call->args[0]);
+                if (ctx->had_error) return cval_null(ctx);
+                Iron_ComptimeVal *fv = iron_comptime_eval_expr(ctx, call->args[1]);
+                if (ctx->had_error) return cval_null(ctx);
+                if (n->kind != IRON_CVAL_INT || n->as_int < 0 ||
+                    n->as_int > ctx->step_limit) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                               "comptime fill: count must be a non-negative Int");
+                    return cval_null(ctx);
+                }
+                Iron_ComptimeVal *arr = cval_alloc(ctx, IRON_CVAL_ARRAY);
+                arr->as_array.count = (int)n->as_int;
+                arr->as_array.elems = iron_arena_alloc(ctx->arena,
+                    (size_t)(n->as_int ? n->as_int : 1) * sizeof(Iron_ComptimeVal *),
+                    _Alignof(Iron_ComptimeVal *));
+                if (!arr->as_array.elems) return cval_null(ctx);
+                for (int64_t i = 0; i < n->as_int; i++) arr->as_array.elems[i] = fv;
+                ctx->steps += n->as_int;
+                return arr;
+            }
 
             /* ── read_file builtin ─────────────────────────────────────── */
             if (strcmp(func_name, "read_file") == 0) {
@@ -657,9 +730,27 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
         /* AUDIT-02 #8 fix: previously these expression kinds fell through
          * to the silent default; enumerate them so future enum growth trips
          * -Werror=switch-enum instead of silently misclassifying. */
+        case IRON_NODE_INDEX: {
+            Iron_IndexExpr *ix = (Iron_IndexExpr *)node;
+            Iron_ComptimeVal *arr = iron_comptime_eval_expr(ctx, ix->object);
+            if (ctx->had_error) return cval_null(ctx);
+            Iron_ComptimeVal *idx = iron_comptime_eval_expr(ctx, ix->index);
+            if (ctx->had_error) return cval_null(ctx);
+            if (arr->kind != IRON_CVAL_ARRAY || idx->kind != IRON_CVAL_INT) {
+                emit_error(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
+                           "comptime: only arrays can be indexed in comptime context");
+                return cval_null(ctx);
+            }
+            if (idx->as_int < 0 || idx->as_int >= arr->as_array.count) {
+                emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
+                           "comptime: index out of bounds");
+                return cval_null(ctx);
+            }
+            return arr->as_array.elems[idx->as_int];
+        }
+
         case IRON_NODE_METHOD_CALL:
         case IRON_NODE_FIELD_ACCESS:
-        case IRON_NODE_INDEX:
         case IRON_NODE_SLICE:
         case IRON_NODE_INTERP_STRING:
         case IRON_NODE_LAMBDA:
@@ -724,8 +815,54 @@ static void eval_stmt(Iron_ComptimeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_ASSIGN: {
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+            if (as->target->kind == IRON_NODE_INDEX) {
+                /* xs[i] = v writes the element in place: arrays share their
+                 * storage between bindings, as they do at runtime. */
+                Iron_IndexExpr *ix = (Iron_IndexExpr *)as->target;
+                Iron_ComptimeVal *arr = iron_comptime_eval_expr(ctx, ix->object);
+                if (ctx->had_error) break;
+                Iron_ComptimeVal *idx = iron_comptime_eval_expr(ctx, ix->index);
+                if (ctx->had_error) break;
+                if (arr->kind != IRON_CVAL_ARRAY || idx->kind != IRON_CVAL_INT) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_RESTRICTION, as->target->span,
+                               "comptime: only array elements can be assigned by index");
+                    break;
+                }
+                if (idx->as_int < 0 || idx->as_int >= arr->as_array.count) {
+                    emit_error(ctx, IRON_ERR_COMPTIME_ERROR, as->target->span,
+                               "comptime: index out of bounds");
+                    break;
+                }
+                Iron_ComptimeVal *val = iron_comptime_eval_expr(ctx, as->value);
+                if (ctx->had_error) break;
+                if (as->op != IRON_TOK_ASSIGN) {
+                    val = eval_binary_vals(ctx, comptime_compound_base_op(as->op),
+                                           arr->as_array.elems[idx->as_int], val, node);
+                    if (ctx->had_error) break;
+                }
+                arr->as_array.elems[idx->as_int] = val;
+                break;
+            }
+            if (as->target->kind != IRON_NODE_IDENT) {
+                /* Field reads are not supported in comptime, so neither are
+                 * field writes. Silently skipping the store made the comptime
+                 * result diverge from the runtime one. */
+                emit_error(ctx, IRON_ERR_COMPTIME_RESTRICTION, as->target->span,
+                           "comptime: assignment to a field is not supported "
+                           "in comptime context");
+                break;
+            }
             Iron_ComptimeVal *val = iron_comptime_eval_expr(ctx, as->value);
             if (ctx->had_error) break;
+            if (as->op != IRON_TOK_ASSIGN) {
+                /* `x op= v` is `x = x op v`: the operator was ignored, so
+                 * `s += 5` behaved as `s = 5`. */
+                Iron_ComptimeVal *cur = iron_comptime_eval_expr(ctx, as->target);
+                if (ctx->had_error) break;
+                val = eval_binary_vals(ctx, comptime_compound_base_op(as->op),
+                                       cur, val, node);
+                if (ctx->had_error) break;
+            }
             if (as->target->kind == IRON_NODE_IDENT) {
                 Iron_Ident *id = (Iron_Ident *)as->target;
                 /* Update binding in the innermost frame that has this name */
@@ -936,9 +1073,14 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
                 (size_t)val->as_array.count * sizeof(Iron_Node *),
                 _Alignof(Iron_Node *));
             if (!al->elements) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast ArrayLit elements) */ return NULL; }
+            /* Elements carry the array's element type: with NULL the
+             * lowered literal had void elements and emitted invalid C. */
+            Iron_Type *elem_type =
+                (resolved_type && resolved_type->kind == IRON_TYPE_ARRAY)
+                    ? resolved_type->array.elem : NULL;
             for (int i = 0; i < val->as_array.count; i++) {
                 al->elements[i] = iron_comptime_val_to_ast(
-                    val->as_array.elems[i], arena, span, NULL);
+                    val->as_array.elems[i], arena, span, elem_type);
             }
             return (Iron_Node *)al;
         }

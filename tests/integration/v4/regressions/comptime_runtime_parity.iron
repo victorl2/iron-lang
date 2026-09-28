@@ -1,0 +1,53 @@
+-- Regression: comptime evaluation diverged from the runtime.
+--
+-- 1. Compound assignment ignored its operator, so `s += 5` acted as
+--    `s = 5` (comptime 3, runtime 39 for the sequence below) and a
+--    `while i < n { i += 1 }` loop never terminated.
+-- 2. Index assignment was silently skipped instead of performed.
+-- 3. A comptime array result was baked with untyped elements and emitted
+--    invalid C, so no lookup table could be built.
+--
+-- Compound assignment now applies its operator, arrays support indexed
+-- reads and writes, `len`, `range` and `fill` work in comptime, and baked
+-- arrays carry their element type. Every value is checked against the
+-- same function evaluated at runtime.
+func compound() -> Int {
+    var s = 10
+    s += 5
+    s -= 2
+    s *= 3
+    return s
+}
+
+func count_up(n: Int) -> Int {
+    var i = 0
+    var s = 0
+    while i < n {
+        s += i
+        i += 1
+    }
+    return s
+}
+
+func squares(n: Int) -> [Int] {
+    var t = fill(n, 0)
+    for i in range(n) {
+        t[i] = i * i
+    }
+    t[1] += 100
+    return t
+}
+
+val COMPOUND = comptime compound()
+val COUNT = comptime count_up(5)
+val TABLE = comptime squares(6)
+val LETTERS = comptime len("héllo")
+
+func main() {
+    println("compound {COMPOUND} {compound()}")
+    println("count {COUNT} {count_up(5)}")
+    val rt = squares(6)
+    println("table {TABLE[1]} {TABLE[5]} {len(TABLE)} / {rt[1]} {rt[5]} {len(rt)}")
+    val word = "héllo"
+    println("letters {LETTERS} {len(word)}")
+}
