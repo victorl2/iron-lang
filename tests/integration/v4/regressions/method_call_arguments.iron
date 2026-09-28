@@ -1,0 +1,37 @@
+-- Regression companion: method calls that must stay accepted now that
+-- method arguments are arity- and type-checked (see the negative fixtures
+-- in v4-fail/regressions/method_arg_*.iron). Covers literal narrowing, a
+-- type-qualified call that passes the receiver explicitly, interface
+-- method arguments, pointer auto-address and stdlib module calls.
+import math
+
+interface Shape {
+    readonly func scaled(k: Float) -> Float
+}
+
+object Sq impl Shape {
+    val side: Float
+    readonly func scaled(k: Float) -> Float { return self.side * k }
+    readonly func narrow(b: Int8) -> Int { return Int(b) * 2 }
+}
+
+object Counter {
+    var n: Int
+    init(n: Int) { self.n = n }
+    func add(k: Int) { self.n += k }
+    func bump_from(other: *Counter) { self.n += other.n }
+}
+
+func main() {
+    val s = Sq(2.0)
+    println("{s.scaled(1.5)} {s.narrow(21)}")
+    val sh: Shape = s
+    println("{sh.scaled(3.0)}")
+    var c = Counter(1)
+    c.add(2)
+    Counter.add(c, 3)
+    val d = Counter(10)
+    c.bump_from(d)
+    println("{c.n}")
+    println("{Math.pow(2.0, 10.0)} {Math.sqrt(81.0)}")
+}

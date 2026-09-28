@@ -4502,7 +4502,15 @@ static void ssa_rename_recursive(
                      * every subsequent use look "undefined" to the verifier.
                      * In that case, keep the LOAD instruction so the alloca-based
                      * code path in the emitter still works correctly. */
-                    if (fn->value_table[def] != NULL) {
+                    /* Only alias when the stored value has the load's own
+                     * type. An interface slot stores a concrete object and
+                     * loads the union; aliasing made every later query about
+                     * the load answer for the concrete value, and the
+                     * emitter wrapped the union a second time
+                     * (`Iron_Shape_from_Sq(<Iron_Shape>)`). */
+                    if (fn->value_table[def] != NULL &&
+                        (!instr->type || !fn->value_table[def]->type ||
+                         iron_type_equals(instr->type, fn->value_table[def]->type))) {
                         fn->value_table[instr->id] = fn->value_table[def];
                     }
                 }

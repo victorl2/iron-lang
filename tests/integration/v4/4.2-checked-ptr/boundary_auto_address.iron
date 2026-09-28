@@ -1,9 +1,5 @@
 -- section: 4.2-checked-ptr
 -- @req: PTR-01, PTR-07
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): PTR-07 auto-address at call site not implemented — passing lvalue T to a *T
--- parameter does not insert the implicit &; codegen passes the struct by value to an Iron_FatPtr
--- param and derefs .field on the fat ptr.
 -- extends-spec: auto-address at call site - passing lvalue T to *T parameter inserts implicit &; soundness: PTR-07 auto-address requires lvalue (cannot address rvalues)
 
 object Player {

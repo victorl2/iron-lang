@@ -406,6 +406,15 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
     return base;
 }
 
+/* A signature parameter's type: the checker's resolution when it has one.
+ * Method params used to be re-resolved by resolve_type_ann, which does not
+ * know pointer types, so `other: *T` on a method lowered to void*. */
+static Iron_Type *param_type_hir(IronHIR_LowerCtx *ctx, Iron_Param *ap) {
+    if (ap->resolved_type && ap->resolved_type->kind != IRON_TYPE_ERROR)
+        return ap->resolved_type;
+    return resolve_type_ann(ctx, ap->type_ann);
+}
+
 /* ── Build HIR param array from AST params ───────────────────────────────── */
 
 static IronHIR_Param *build_hir_params_named(IronHIR_LowerCtx *ctx,
@@ -439,7 +448,7 @@ static IronHIR_Param *build_hir_params_named(IronHIR_LowerCtx *ctx,
         if (resolved_types && resolved_types[p]) {
             pt = resolved_types[p];  /* use type-checker resolved type */
         } else {
-            pt = resolve_type_ann(ctx, ap->type_ann);
+            pt = param_type_hir(ctx, ap);
         }
         arr[p].name   = ap->name;
         arr[p].type   = pt;
@@ -453,6 +462,56 @@ static IronHIR_Param *build_hir_params_named(IronHIR_LowerCtx *ctx,
 static IronHIR_Param *build_hir_params(IronHIR_LowerCtx *ctx,
                                         Iron_Node **params, int param_count) {
     return build_hir_params_named(ctx, params, param_count, NULL);
+}
+
+/* Generation source for `&operand`. Heap-allocated bindings carry
+ * IRON_HIR_GEN_HEAP so the deref-side runtime check calls
+ * iron_check_pointer_gen (header-based) rather than
+ * iron_check_stack_pointer_gen (TLS-based), which is what use-after-free
+ * detection needs (SAFE-01). */
+static IronHIR_GenSource addr_gen_source(Iron_Node *operand) {
+    if (operand && operand->kind == IRON_NODE_IDENT) {
+        Iron_Ident *id = (Iron_Ident *)operand;
+        if (id->resolved_sym && id->resolved_sym->decl_node) {
+            Iron_Node *decl = id->resolved_sym->decl_node;
+            Iron_Node *init_node = NULL;
+            if (decl->kind == IRON_NODE_VAL_DECL) {
+                init_node = ((Iron_ValDecl *)decl)->init;
+            } else if (decl->kind == IRON_NODE_VAR_DECL) {
+                init_node = ((Iron_VarDecl *)decl)->init;
+            }
+            if (init_node && init_node->kind == IRON_NODE_HEAP) {
+                return IRON_HIR_GEN_HEAP;
+            }
+        }
+    }
+    return IRON_HIR_GEN_STACK;
+}
+
+/* True when the checker marked this call argument for auto-address: a T
+ * binding, field or element passed to a `*T` / `*var T` parameter. */
+static bool is_auto_address_arg(Iron_Node *arg) {
+    if (!arg) return false;
+    switch ((int)arg->kind) {
+        case IRON_NODE_IDENT:        return ((Iron_Ident *)arg)->is_auto_address_target;
+        case IRON_NODE_FIELD_ACCESS: return ((Iron_FieldAccess *)arg)->is_auto_address_target;
+        case IRON_NODE_INDEX:        return ((Iron_IndexExpr *)arg)->is_auto_address_target;
+        /* -Wswitch-enum opt-out: only lvalue shapes can be auto-addressed. */
+        default:                     return false;
+    }
+}
+
+/* Lower a call argument, inserting the implicit `&` for auto-address
+ * arguments. Without it the struct was passed by value to an Iron_FatPtr
+ * parameter and the build failed in the C compiler. */
+static IronHIR_Expr *lower_call_arg_hir(IronHIR_LowerCtx *ctx, Iron_Node *arg) {
+    IronHIR_Expr *v = lower_expr_hir(ctx, arg);
+    if (!is_auto_address_arg(arg)) return v;
+    Iron_Type *at = expr_type(arg);
+    Iron_Type *pt = at ? iron_type_make_ptr(ctx->module->arena, at, false, false)
+                       : NULL;
+    return iron_hir_expr_addr_of(ctx->module, v, addr_gen_source(arg), pt,
+                                 arg->span);
 }
 
 /* ── Find HIR func by name ───────────────────────────────────────────────── */
@@ -1723,28 +1782,8 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
          * so HIR carries the typed result-of-& through unchanged. */
         if ((int)un->op == IRON_TOK_AMP) {
             IronHIR_Expr *target = lower_expr_hir(ctx, un->operand);
-            /* Phase 21 Plan 02: detect heap-allocated bindings so ADDR_OF
-             * carries IRON_HIR_GEN_HEAP when &binding targets heap T(...)
-             * storage. The deref-side runtime check then calls
-             * iron_check_pointer_gen (header-based) not iron_check_stack_pointer_gen
-             * (TLS-based) — correct for use-after-free detection (SAFE-01). */
-            IronHIR_GenSource gen_src = IRON_HIR_GEN_STACK;
-            if (un->operand && un->operand->kind == IRON_NODE_IDENT) {
-                Iron_Ident *id = (Iron_Ident *)un->operand;
-                if (id->resolved_sym && id->resolved_sym->decl_node) {
-                    Iron_Node *decl = id->resolved_sym->decl_node;
-                    Iron_Node *init_node = NULL;
-                    if (decl->kind == IRON_NODE_VAL_DECL) {
-                        init_node = ((Iron_ValDecl *)decl)->init;
-                    } else if (decl->kind == IRON_NODE_VAR_DECL) {
-                        init_node = ((Iron_VarDecl *)decl)->init;
-                    }
-                    if (init_node && init_node->kind == IRON_NODE_HEAP) {
-                        gen_src = IRON_HIR_GEN_HEAP;
-                    }
-                }
-            }
-            return iron_hir_expr_addr_of(mod, target, gen_src,
+            return iron_hir_expr_addr_of(mod, target,
+                                         addr_gen_source(un->operand),
                                          un->resolved_type, span);
         }
 
@@ -1831,7 +1870,7 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         /* Build arg list */
         IronHIR_Expr **args = NULL;
         for (int i = 0; i < ce->arg_count; i++) {
-            IronHIR_Expr *a = lower_expr_hir(ctx, ce->args[i]);
+            IronHIR_Expr *a = lower_call_arg_hir(ctx, ce->args[i]);
             arrput(args, a);
         }
         int arg_count = (int)arrlen(args);
@@ -1879,7 +1918,7 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
 
         IronHIR_Expr **args = NULL;
         for (int i = 0; i < mc->arg_count; i++) {
-            IronHIR_Expr *a = lower_expr_hir(ctx, mc->args[i]);
+            IronHIR_Expr *a = lower_call_arg_hir(ctx, mc->args[i]);
             arrput(args, a);
         }
         int arg_count = (int)arrlen(args);
@@ -2514,7 +2553,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                     for (int p = 0; p < total_params; p++) {
                         Iron_Param *ap = (Iron_Param *)md->params[p + skip_self];
                         params[p].name   = ap->name;
-                        params[p].type   = resolve_type_ann(ctx, ap->type_ann);
+                        params[p].type   = param_type_hir(ctx, ap);
                         params[p].var_id = IRON_HIR_VAR_INVALID;
                     }
                 }
@@ -2534,7 +2573,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                 for (int p = 0; p < md->param_count; p++) {
                     Iron_Param *ap = (Iron_Param *)md->params[p];
                     params[p].name   = ap->name;
-                    params[p].type   = resolve_type_ann(ctx, ap->type_ann);
+                    params[p].type   = param_type_hir(ctx, ap);
                     params[p].var_id = IRON_HIR_VAR_INVALID;
                 }
             } else {
@@ -2574,7 +2613,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                 for (int p = 0; p < md->param_count; p++) {
                     Iron_Param *ap = (Iron_Param *)md->params[p];
                     params[p + 1].name   = ap->name;
-                    params[p + 1].type   = resolve_type_ann(ctx, ap->type_ann);
+                    params[p + 1].type   = param_type_hir(ctx, ap);
                     params[p + 1].var_id = IRON_HIR_VAR_INVALID;
                 }
             }

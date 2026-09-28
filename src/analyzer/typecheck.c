@@ -7646,6 +7646,7 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
     for (int i = 0; i < fd->param_count; i++) {
         Iron_Param *p = (Iron_Param *)fd->params[i];
         param_types[i] = resolve_type_annotation(ctx, p->type_ann);
+        p->resolved_type = param_types[i];
     }
 
     /* Phase 33 OQ-02: restore the real global scope now that all annotation
@@ -7791,6 +7792,7 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     for (int i = 0; i < md->param_count; i++) {
         Iron_Param *p = (Iron_Param *)md->params[i];
         param_types[i] = resolve_type_annotation(ctx, p->type_ann);
+        p->resolved_type = param_types[i];
     }
 
     /* Phase 33 OQ-02: restore the real global scope now that return + param

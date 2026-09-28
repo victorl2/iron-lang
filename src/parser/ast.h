@@ -404,6 +404,10 @@ typedef struct {
     Iron_NodeKind kind;  /* IRON_NODE_PARAM */
     const char   *name;
     Iron_Node    *type_ann;  /* NULL if inferred */
+    /* Set by the type checker when it resolves type_ann for a function or
+     * method signature. Lowering uses it instead of re-resolving the
+     * annotation with its own, less complete resolver. */
+    struct Iron_Type *resolved_type;
     bool          is_var;
     /* Phase 79 MUT-01: true when this param is a receiver-binding declared
      * with the `mut` prefix (`func (mut t: Timer) update(...)`). Always
