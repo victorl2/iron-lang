@@ -104,6 +104,27 @@ static const IronLIR_Func *emit_find_lir_func_by_name(const EmitCtx *ctx,
     return NULL;
 }
 
+/* Emit a Float constant as a C floating-point literal cast to its C type.
+ * %.17g round-trips every IEEE-754 double but prints integral values
+ * without a decimal point ("1"), and an inlined `1 / 3` is then integer
+ * division in C. Force a floating literal and wrap it in the target type so
+ * Float32 arithmetic stays single precision. inf/nan have no portable
+ * literal, so emit constant expressions. */
+static void emit_float_literal(Iron_StrBuf *sb, double v, const char *ctype) {
+    if (isnan(v)) {
+        iron_strbuf_appendf(sb, "((%s)(0.0/0.0))", ctype);
+        return;
+    }
+    if (isinf(v)) {
+        iron_strbuf_appendf(sb, "((%s)(%s1.0/0.0))", ctype, v > 0 ? "" : "-");
+        return;
+    }
+    char buf[40];
+    snprintf(buf, sizeof(buf), "%.17g", v);
+    bool is_floating = strpbrk(buf, ".eE") != NULL;
+    iron_strbuf_appendf(sb, "((%s)%s%s)", ctype, buf, is_floating ? "" : ".0");
+}
+
 /* Forward declaration -- emit_instr and emit_expr_to_buf are mutually recursive.
  * emit_expr_to_buf is non-static: also called from emit_fusion.c. */
 void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
@@ -814,17 +835,8 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                             (long long)instr->const_int.value);
         break;
     case IRON_LIR_CONST_FLOAT:
-        /* Same round-trip discipline as the statement-form CONST_FLOAT:
-         * %.17g preserves the exact double; %g truncated inlined literals
-         * to 6 significant digits. */
-        if (isnan(instr->const_float.value)) {
-            iron_strbuf_appendf(sb, "(0.0/0.0)");
-        } else if (isinf(instr->const_float.value)) {
-            iron_strbuf_appendf(sb, "(%s1.0/0.0)",
-                                instr->const_float.value > 0 ? "" : "-");
-        } else {
-            iron_strbuf_appendf(sb, "%.17g", instr->const_float.value);
-        }
+        emit_float_literal(sb, instr->const_float.value,
+                           emit_type_to_c(instr->type, ctx));
         break;
     case IRON_LIR_CONST_BOOL:
         iron_strbuf_appendf(sb, "%s", instr->const_bool.value ? "true" : "false");
@@ -1339,18 +1351,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
-        /* %.17g is the shortest precision that round-trips every IEEE-754
-         * double; %g keeps only 6 significant digits and silently corrupts
-         * any richer literal (3.141592653589793 emitted as 3.14159).
-         * inf/nan have no portable literal, so emit constant expressions. */
-        if (isnan(instr->const_float.value)) {
-            iron_strbuf_appendf(sb, " = (0.0/0.0);\n");
-        } else if (isinf(instr->const_float.value)) {
-            iron_strbuf_appendf(sb, " = (%s1.0/0.0);\n",
-                                instr->const_float.value > 0 ? "" : "-");
-        } else {
-            iron_strbuf_appendf(sb, " = %.17g;\n", instr->const_float.value);
-        }
+        iron_strbuf_appendf(sb, " = ");
+        emit_float_literal(sb, instr->const_float.value,
+                           emit_type_to_c(instr->type, ctx));
+        iron_strbuf_appendf(sb, ";\n");
         break;
 
     case IRON_LIR_CONST_BOOL:
