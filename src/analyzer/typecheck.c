@@ -112,6 +112,9 @@ typedef struct {
      * field accesses, otherwise HIR would infinitely re-dispatch through the
      * same accessor. */
     bool               in_synth_accessor;
+    /* Type of the innermost enclosing `match` subject, so case patterns bind
+     * payloads with the subject's instantiated payload types. */
+    Iron_Type         *match_subject_type;
     /* Phase 84 MUTTIER-02/03: tracks whether the enclosing method is readonly
      * or pure. Both bits saved/restored around every method body in
      * check_method_decl (mirrors in_synth_accessor pattern). `in_readonly_method`
@@ -524,8 +527,16 @@ static void tc_define_pattern_bindings(TypeCtx *ctx,
     Iron_EnumDecl *ed = NULL;
     Iron_Type     *pat_enum_type = enum_type;
 
-    /* If the pattern names its own enum (e.g. Inner.Val(n)), resolve by name */
-    if (pat->enum_name) {
+    /* If the pattern names its own enum (e.g. Inner.Val(n)), resolve by name.
+     * When it names the scrutinee's own enum, keep the scrutinee's type: for
+     * a generic enum that is the instantiation (Opt[Int]) whose payload
+     * types are substituted, while the global symbol is the generic decl
+     * whose payloads are the bare type parameters. */
+    bool names_scrutinee_enum =
+        pat->enum_name && enum_type && enum_type->kind == IRON_TYPE_ENUM &&
+        enum_type->enu.decl && enum_type->enu.decl->name &&
+        strcmp(enum_type->enu.decl->name, pat->enum_name) == 0;
+    if (pat->enum_name && !names_scrutinee_enum) {
         Iron_Symbol *esym = iron_scope_lookup(ctx->global_scope, pat->enum_name);
         if (esym && esym->type && esym->type->kind == IRON_TYPE_ENUM) {
             pat_enum_type = esym->type;
@@ -6817,9 +6828,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                            ms->subject->span, msg,
                            "rewrite as an if/else chain");
             }
+            Iron_Type *prev_subject = ctx->match_subject_type;
+            ctx->match_subject_type = subject_type;
             for (int i = 0; i < ms->case_count; i++) {
                 if (ms->cases[i]) check_stmt(ctx, ms->cases[i]);
             }
+            ctx->match_subject_type = prev_subject;
             if (ms->else_body) check_stmt(ctx, ms->else_body);
             /* Exhaustiveness check */
             if (subject_type && subject_type->kind == IRON_TYPE_ENUM) {
@@ -7025,7 +7039,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
             if (mc->pattern && mc->pattern->kind == IRON_NODE_PATTERN) {
                 /* Recursively define all binding variables (including nested patterns) */
-                tc_define_pattern_bindings(ctx, NULL, mc->pattern);
+                tc_define_pattern_bindings(ctx, ctx->match_subject_type, mc->pattern);
             } else if (mc->pattern) {
                 /* Non-pattern (e.g. integer literal) — check as expression */
                 check_expr(ctx, mc->pattern);
