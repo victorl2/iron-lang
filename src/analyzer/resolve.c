@@ -1668,7 +1668,7 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     }
 
     /* Register remaining builtins: len(String)->Int, min/max(Int,Int)->Int,
-     * clamp(Int,Int,Int)->Int, abs(Int)->Int, assert(Bool)->Void.
+     * clamp(Int,Int,Int)->Int, abs(Int)->Int, assert(Bool, String?)->Void.
      * These are handled by the codegen but must be in scope so the resolver
      * and type-checker accept call sites without emitting undefined-identifier
      * errors.  Signatures use Int/String for simplicity; the type-checker
@@ -1744,10 +1744,12 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
             else     { ctx.in_error_recovery = true; }
         }
-        /* assert(Bool) -> Void */
+        /* assert(Bool, String) -> Void. The message is optional at call
+         * sites: typecheck accepts assert(cond) and lowering supplies the
+         * source location as the message (the runtime takes both). */
         {
-            Iron_Type *params[1] = { bool_t };
-            Iron_Type *fn = iron_type_make_func(arena, params, 1, void_t);
+            Iron_Type *params[2] = { bool_t, str_t };
+            Iron_Type *fn = iron_type_make_func(arena, params, 2, void_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "assert",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
             /* HARD-09 CR-03: skip builtin on arena OOM. */

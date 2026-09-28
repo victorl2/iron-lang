@@ -3161,7 +3161,17 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
-            if (ce->arg_count != expected_count) {
+            /* Builtin assert takes an optional message: assert(cond). */
+            bool assert_without_msg = false;
+            if (ce->callee && ce->callee->kind == IRON_NODE_IDENT &&
+                ce->arg_count == 1 && expected_count == 2) {
+                Iron_Ident *as_id = (Iron_Ident *)ce->callee;
+                Iron_Symbol *as_sym = as_id->name
+                    ? iron_scope_lookup(ctx->global_scope, as_id->name) : NULL;
+                assert_without_msg = as_sym && !as_sym->decl_node &&
+                                     as_id->name && strcmp(as_id->name, "assert") == 0;
+            }
+            if (ce->arg_count != expected_count && !assert_without_msg) {
                 char msg[256];
                 snprintf(msg, sizeof(msg),
                          "expected %d argument(s), got %d",

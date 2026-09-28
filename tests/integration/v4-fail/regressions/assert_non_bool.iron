@@ -1,0 +1,5 @@
+-- @expected-error: E0217
+-- assert's condition must be a Bool.
+func main() {
+    assert(1)
+}

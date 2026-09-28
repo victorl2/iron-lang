@@ -1,0 +1,21 @@
+-- @expect-panic: assertion failed: assert_forms.iron:19
+-- Regression: assert was unusable.
+--
+-- The builtin was registered as assert(Bool) while the runtime takes a
+-- condition and a message, so `assert(cond)` emitted a C call with a
+-- missing argument and `assert(cond, "msg")` was rejected by the checker.
+-- It is now assert(Bool, String) with an optional message: `assert(cond)`
+-- reports its source location. Output printed before a failing assert is
+-- flushed before the process aborts.
+func main() {
+    val x = 3
+    assert(x == 3)
+    assert(x > 0, "x must be positive")
+    println("both asserts passed")
+    val names = ["a", "b"]
+    assert(len(names) == 2, "two names")
+    println("third passed")
+    -- The next line fails and reports its location.
+    assert(x == 4)
+    println("unreachable")
+}

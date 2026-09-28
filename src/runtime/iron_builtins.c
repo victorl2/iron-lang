@@ -45,7 +45,12 @@ int64_t Iron_abs(int64_t val) {
 
 void Iron_assert(bool cond, Iron_String msg) {
     if (!cond) {
+        /* Buffered stdout dies with abort(); flush it first so a failing
+         * program keeps every line it printed before the assertion, in
+         * order (same discipline as the iron_panic_* helpers). */
+        fflush(stdout);
         fprintf(stderr, "assertion failed: %s\n", iron_string_cstr(&msg));
+        fflush(stderr);
         abort();
     }
 }

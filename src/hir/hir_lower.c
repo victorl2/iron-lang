@@ -514,6 +514,15 @@ static IronHIR_Expr *lower_call_arg_hir(IronHIR_LowerCtx *ctx, Iron_Node *arg) {
                                  arg->span);
 }
 
+/* `assert(cond)` calling the builtin (not a user function named assert). */
+static bool is_builtin_assert_without_msg(Iron_CallExpr *ce) {
+    if (!ce || ce->arg_count != 1 || !ce->callee ||
+        ce->callee->kind != IRON_NODE_IDENT) return false;
+    Iron_Ident *id = (Iron_Ident *)ce->callee;
+    return id->name && strcmp(id->name, "assert") == 0 &&
+           (!id->resolved_sym || !id->resolved_sym->decl_node);
+}
+
 /* ── Find HIR func by name ───────────────────────────────────────────────── */
 
 static IronHIR_Func *find_hir_func(IronHIR_Module *mod, const char *name) {
@@ -1872,6 +1881,18 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         for (int i = 0; i < ce->arg_count; i++) {
             IronHIR_Expr *a = lower_call_arg_hir(ctx, ce->args[i]);
             arrput(args, a);
+        }
+        if (is_builtin_assert_without_msg(ce)) {
+            /* assert(cond): the message defaults to the source location. */
+            const char *file = node->span.filename ? node->span.filename : "?";
+            const char *base = strrchr(file, '/');
+            base = base ? base + 1 : file;
+            char loc[512];
+            snprintf(loc, sizeof(loc), "%s:%u", base, (unsigned)node->span.line);
+            const char *loc_copy = iron_arena_strdup(mod->arena, loc, strlen(loc));
+            if (!loc_copy) iron_oom_abort("hir_lower.c:assert location message");
+            arrput(args, iron_hir_expr_string_lit(
+                mod, loc_copy, iron_type_make_primitive(IRON_TYPE_STRING), span));
         }
         int arg_count = (int)arrlen(args);
         IronHIR_Expr *callee = lower_expr_hir(ctx, ce->callee);
