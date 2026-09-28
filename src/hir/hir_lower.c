@@ -1844,6 +1844,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_METHOD_CALL: {
         Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
 
+        if (mc->is_builtin_to_string) {
+            /* Numeric / Bool `x.to_string()`: the same code as "{x}". */
+            IronHIR_Expr **parts = NULL;
+            arrput(parts, lower_expr_hir(ctx, mc->object));
+            return iron_hir_expr_interp_string(mod, parts, 1,
+                                               mc->resolved_type, span);
+        }
+
         /* Phase 27 POL-08 / POL-09 (Plan 27-02): intercept .downgrade() and
          * .upgrade() built-in method calls before generic method-call
          * lowering. Typecheck has already validated the receiver kind and

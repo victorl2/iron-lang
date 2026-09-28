@@ -4502,6 +4502,21 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     }
                 }
             }
+            /* `x.to_string()` for every numeric type and Bool. Only Int,
+             * Int32 and Float declare it (stdlib/int.iron, float.iron); on
+             * the other types the call typed as Void. It formats exactly
+             * like interpolation, so "{x}" and x.to_string() agree. */
+            if ((!result || result->kind == IRON_TYPE_VOID) && mc->method &&
+                strcmp(mc->method, "to_string") == 0 && mc->arg_count == 0 &&
+                mc->object) {
+                Iron_Type *recv_ts = ((Iron_ExprNode *)mc->object)->resolved_type;
+                if (recv_ts && (iron_type_is_integer(recv_ts) ||
+                                iron_type_is_float(recv_ts) ||
+                                recv_ts->kind == IRON_TYPE_BOOL)) {
+                    result = iron_type_make_primitive(IRON_TYPE_STRING);
+                    mc->is_builtin_to_string = true;
+                }
+            }
             mc->resolved_type = result;
 
             /* Phase 22 READ-04: readonly method calling I/O stdlib module method.

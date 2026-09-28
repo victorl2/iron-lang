@@ -5507,12 +5507,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     case IRON_TYPE_INT16:
                     case IRON_TYPE_INT32:
                     case IRON_TYPE_INT64:
+                        fmt_spec = "%lld";
+                        break;
+                    /* Unsigned values print unsigned: through %lld,
+                     * UInt(0) - UInt(1) printed -1. */
                     case IRON_TYPE_UINT:
                     case IRON_TYPE_UINT8:
                     case IRON_TYPE_UINT16:
                     case IRON_TYPE_UINT32:
                     case IRON_TYPE_UINT64:
-                        fmt_spec = "%lld";
+                        fmt_spec = "%llu";
                         break;
                     case IRON_TYPE_FLOAT:
                     case IRON_TYPE_FLOAT32:
@@ -5541,12 +5545,13 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 case IRON_TYPE_INT16:
                                 case IRON_TYPE_INT32:
                                 case IRON_TYPE_INT64:
+                                    fmt_spec = "%lld"; break;
                                 case IRON_TYPE_UINT:
                                 case IRON_TYPE_UINT8:
                                 case IRON_TYPE_UINT16:
                                 case IRON_TYPE_UINT32:
                                 case IRON_TYPE_UINT64:
-                                    fmt_spec = "%lld"; break;
+                                    fmt_spec = "%llu"; break;
                                 case IRON_TYPE_FLOAT:
                                 case IRON_TYPE_FLOAT32:
                                 case IRON_TYPE_FLOAT64:
@@ -5579,16 +5584,24 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     case IRON_TYPE_INT8:
                     case IRON_TYPE_INT16:
                     case IRON_TYPE_INT32:
-                    case IRON_TYPE_INT64:
+                    case IRON_TYPE_INT64: {
+                        /* Cast to long long for %lld */
+                        Iron_StrBuf tmp = iron_strbuf_create(32);
+                        emit_val(&tmp, part_id);
+                        iron_strbuf_appendf(&args_sb, "(long long)(%s)",
+                                            iron_strbuf_get(&tmp));
+                        iron_strbuf_free(&tmp);
+                        break;
+                    }
                     case IRON_TYPE_UINT:
                     case IRON_TYPE_UINT8:
                     case IRON_TYPE_UINT16:
                     case IRON_TYPE_UINT32:
                     case IRON_TYPE_UINT64: {
-                        /* Cast to long long for %lld */
+                        /* Cast to unsigned long long for %llu */
                         Iron_StrBuf tmp = iron_strbuf_create(32);
                         emit_val(&tmp, part_id);
-                        iron_strbuf_appendf(&args_sb, "(long long)(%s)",
+                        iron_strbuf_appendf(&args_sb, "(unsigned long long)(%s)",
                                             iron_strbuf_get(&tmp));
                         iron_strbuf_free(&tmp);
                         break;
@@ -5636,13 +5649,17 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 case IRON_TYPE_INT16:
                                 case IRON_TYPE_INT32:
                                 case IRON_TYPE_INT64:
+                                    iron_strbuf_appendf(&args_sb,
+                                        "(long long)(*(%s))",
+                                        iron_strbuf_get(&tmp));
+                                    break;
                                 case IRON_TYPE_UINT:
                                 case IRON_TYPE_UINT8:
                                 case IRON_TYPE_UINT16:
                                 case IRON_TYPE_UINT32:
                                 case IRON_TYPE_UINT64:
                                     iron_strbuf_appendf(&args_sb,
-                                        "(long long)(*(%s))",
+                                        "(unsigned long long)(*(%s))",
                                         iron_strbuf_get(&tmp));
                                     break;
                                 case IRON_TYPE_FLOAT:

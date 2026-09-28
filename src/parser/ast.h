@@ -783,6 +783,9 @@ typedef struct {
      * this bit to emit `iron_check_pointer_gen` + load before dispatching the
      * method against the pointee type. Default false (arena zero-init). */
     bool               is_auto_deref;
+    /* Set by typecheck.c for `x.to_string()` on a numeric or Bool receiver
+     * with no declared to_string method: lowered exactly like "{x}". */
+    bool               is_builtin_to_string;
 } Iron_MethodCallExpr;
 
 typedef struct {
