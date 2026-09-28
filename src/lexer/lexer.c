@@ -393,6 +393,29 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
             continue;
         }
 
+        if (interp_depth > 0 && c == '\\' && iron_peek_next(l) == '"') {
+            /* Before nested literals were allowed, `"{f(\"a\")}"` was the
+             * way to put a string inside an interpolation. Keep accepting
+             * it: `\"` opens a nested literal that closes at the next `\"`,
+             * and both become plain quotes in the expression text. */
+            iron_advance_char(l);
+            iron_advance_char(l);
+            PUSH_CHAR('"');
+            for (;;) {
+                char d = iron_peek_char(l);
+                if (d == '\0' || d == '\n') break;
+                if (d == '\\' && iron_peek_next(l) == '"') {
+                    iron_advance_char(l);
+                    iron_advance_char(l);
+                    PUSH_CHAR('"');
+                    break;
+                }
+                iron_advance_char(l);
+                PUSH_CHAR(d);
+            }
+            continue;
+        }
+
         if (interp_depth > 0 && c == '\\') {
             /* Expression text is re-lexed by the parser: keep escapes raw. */
             iron_advance_char(l);

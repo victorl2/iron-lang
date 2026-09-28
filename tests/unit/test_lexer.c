@@ -296,6 +296,14 @@ void test_interp_expression_escapes_kept_raw(void) {
     arrfree(toks);
 }
 
+void test_interp_escaped_quotes_still_accepted(void) {
+    Iron_Token *toks = lex("\"{f(\\\"a\\\")}\"");
+    TEST_ASSERT_EQUAL(IRON_TOK_INTERP_STRING, toks[0].kind);
+    TEST_ASSERT_EQUAL_STRING("{f(\"a\")}", toks[0].value);
+    TEST_ASSERT_EQUAL(0, diags.error_count);
+    arrfree(toks);
+}
+
 void test_escaped_braces_marked_in_interp_string(void) {
     Iron_Token *toks = lex("\"\\{ {x} \\}\"");
     TEST_ASSERT_EQUAL(IRON_TOK_INTERP_STRING, toks[0].kind);
@@ -620,6 +628,7 @@ int main(void) {
     RUN_TEST(test_interpolated_string);
     RUN_TEST(test_interp_nested_string_does_not_end_outer);
     RUN_TEST(test_interp_expression_escapes_kept_raw);
+    RUN_TEST(test_interp_escaped_quotes_still_accepted);
     RUN_TEST(test_escaped_braces_marked_in_interp_string);
     RUN_TEST(test_escaped_braces_plain_string);
     RUN_TEST(test_unicode_escape);

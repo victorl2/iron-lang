@@ -9,7 +9,8 @@
 --
 -- The lexer now copies interpolation expressions raw (nested strings
 -- included), marks escaped braces so the splitter keeps them literal, and
--- decodes `\u{HEX}` to UTF-8.
+-- decodes `\u{HEX}` to UTF-8. The older `{f(\"a\")}` spelling for a
+-- string inside an interpolation keeps working.
 func greet(name: String) -> String {
     return "hi " + name
 }
@@ -24,6 +25,7 @@ func main() {
     println("nested {greet("{x}")} quote {greet("a\"b")}")
     println("braces in nested {greet("\}\{")} done")
     println("plain \{no interp\}")
+    println("escaped quotes still work {greet(\"old\")}")
     println("""multi {greet("line")}
 second {x}""")
 }
