@@ -13,6 +13,10 @@ typedef struct {
     struct Iron_Symbol *sym;        /* identity for param-shadowing case */
     bool         is_param;          /* true → IRON_WARN_UNUSED_VAR_PARAM */
     bool         was_reassigned;
+    /* Set by the type checker on the declaring node when the binding is
+     * used in a way `val` rejects (mutating method call, field write,
+     * `var` / `*var` argument). Such a binding must stay `var`. */
+    bool         requires_mutable;
 } VarTracker;
 
 typedef struct {
@@ -228,6 +232,7 @@ static void check_function_body(UnusedVarCtx *ctx,
             t.sym = NULL;
             t.is_param = true;
             t.was_reassigned = false;
+            t.requires_mutable = p->requires_mutable;
             arrput(ctx->trackers, t);
         }
     }
@@ -248,6 +253,7 @@ static void check_function_body(UnusedVarCtx *ctx,
                     t.sym = NULL;
                     t.is_param = false;
                     t.was_reassigned = false;
+                    t.requires_mutable = vd->requires_mutable;
                     arrput(ctx->trackers, t);
                 }
             }
@@ -260,7 +266,7 @@ static void check_function_body(UnusedVarCtx *ctx,
     /* Emit warnings for unmarked entries. */
     for (ptrdiff_t i = 0; i < arrlen(ctx->trackers); i++) {
         VarTracker *t = &ctx->trackers[i];
-        if (t->was_reassigned) continue;
+        if (t->was_reassigned || t->requires_mutable) continue;
         int code = t->is_param
             ? IRON_WARN_UNUSED_VAR_PARAM
             : IRON_WARN_UNUSED_VAR;
