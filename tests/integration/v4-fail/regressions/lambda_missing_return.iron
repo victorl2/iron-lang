@@ -1,0 +1,9 @@
+-- @expected-error: E0293
+-- A lambda that declares a return type must return on every path; this
+-- used to pass the checker and fail with an internal error in lowering.
+func main() {
+    val f = func(x: Int) -> Int {
+        val y = x * 2
+    }
+    println("{f(1)}")
+}

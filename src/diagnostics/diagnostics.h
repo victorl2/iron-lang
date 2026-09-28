@@ -539,6 +539,9 @@ void iron_diaglist_free(Iron_DiagList *list);
  *        Rejected at typecheck until general pattern dispatch exists. */
 #define IRON_ERR_UNSUPPORTED_TYPE_TEST    322
 #define IRON_ERR_MATCH_SUBJECT_UNSUPPORTED 323
+/* A lambda parameter has no type annotation and no expected function type
+ * to infer it from (untyped params used to become Void silently). */
+#define IRON_ERR_LAMBDA_PARAM_TYPE        324
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400

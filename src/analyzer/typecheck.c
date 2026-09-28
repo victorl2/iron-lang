@@ -116,6 +116,9 @@ typedef struct {
     /* Type of the innermost enclosing `match` subject, so case patterns bind
      * payloads with the subject's instantiated payload types. */
     Iron_Type         *match_subject_type;
+    /* Function type expected where the next lambda is checked (a call
+     * argument or an annotated binding); consumed by the lambda arm. */
+    Iron_Type         *lambda_expected_type;
     /* Phase 84 MUTTIER-02/03: tracks whether the enclosing method is readonly
      * or pure. Both bits saved/restored around every method body in
      * check_method_decl (mirrors in_synth_accessor pattern). `in_readonly_method`
@@ -2052,6 +2055,14 @@ static void check_unchecked_index_intrinsic(TypeCtx *ctx,
 }
 
 /* ── Expression type inference ───────────────────────────────────────────── */
+
+/* True for a node that is an expression producing a value (the range of
+ * expression kinds in Iron_NodeKind, plus enum construction). */
+static bool node_is_value_expression(const Iron_Node *n) {
+    if (!n) return false;
+    return (n->kind >= IRON_NODE_INT_LIT && n->kind <= IRON_NODE_AWAIT) ||
+           n->kind == IRON_NODE_ENUM_CONSTRUCT;
+}
 
 /* Check a method call's arguments against the declared parameters
  * params[first..count). Method calls used to skip this entirely:
@@ -5203,8 +5214,17 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_LAMBDA: {
             Iron_LambdaExpr *le = (Iron_LambdaExpr *)node;
+            /* The function type expected here, if the lambda is a call
+             * argument or initializes an annotated binding. Consume it so it
+             * does not leak into lambdas nested in this one. */
+            Iron_Type *expected_fn = ctx->lambda_expected_type;
+            ctx->lambda_expected_type = NULL;
+            if (expected_fn && (expected_fn->kind != IRON_TYPE_FUNC ||
+                                expected_fn->func.param_count != le->param_count))
+                expected_fn = NULL;
             /* Build the FUNC type for the lambda so it is callable.
-             * Collect param types from param annotations. */
+             * Param types come from annotations, or from the expected
+             * function type for unannotated params. */
             Iron_Type **param_types = NULL;
             if (le->param_count > 0) {
                 param_types = (Iron_Type **)iron_arena_alloc(
@@ -5214,13 +5234,52 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 if (!param_types) { /* HARD-09 REPLACE (typecheck.c:check_expr LAMBDA param_types) */ return false; }
                 for (int p = 0; p < le->param_count; p++) {
                     Iron_Param *ap = (Iron_Param *)le->params[p];
-                    param_types[p] = resolve_type_annotation(ctx, ap->type_ann);
+                    if (ap->type_ann) {
+                        param_types[p] = resolve_type_annotation(ctx, ap->type_ann);
+                    } else if (expected_fn && expected_fn->func.param_types[p]) {
+                        param_types[p] = expected_fn->func.param_types[p];
+                    } else {
+                        /* Used to become Void silently, which surfaced as
+                         * confusing mismatches at every use of the param. */
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot infer the type of lambda parameter '%s'",
+                                 ap->name ? ap->name : "?");
+                        emit_error(ctx, IRON_ERR_LAMBDA_PARAM_TYPE, ap->span, msg,
+                                   "annotate it, e.g. func(x: Int), or pass the "
+                                   "lambda where a function type is expected");
+                        param_types[p] = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    }
+                    ap->resolved_type = param_types[p];
                 }
             }
-            Iron_Type *ret_t = le->return_type
-                ? resolve_type_annotation(ctx, le->return_type)
-                : iron_type_make_primitive(IRON_TYPE_VOID);
+            Iron_Type *ret_t = NULL;
+            if (le->return_type) {
+                ret_t = resolve_type_annotation(ctx, le->return_type);
+            } else if (expected_fn) {
+                /* func(e) { e > 3 } passed as func(Int) -> Bool returns Bool. */
+                ret_t = expected_fn->func.return_type;
+            }
             if (ret_t && ret_t->kind == IRON_TYPE_VOID) ret_t = NULL;
+            /* A single-expression body is its return value when the lambda
+             * returns something: func(x: Int) -> Int { x * 2 }. It used to
+             * pass the checker and fail in lowering with an internal
+             * return-type error. */
+            if (ret_t && le->body && le->body->kind == IRON_NODE_BLOCK) {
+                Iron_Block *lb = (Iron_Block *)le->body;
+                if (lb->stmt_count == 1 && lb->stmts[0] &&
+                    node_is_value_expression(lb->stmts[0])) {
+                    Iron_ReturnStmt *rs = iron_arena_alloc(
+                        ctx->arena, sizeof(Iron_ReturnStmt), _Alignof(Iron_ReturnStmt));
+                    if (rs) {
+                        memset(rs, 0, sizeof(*rs));
+                        rs->kind  = IRON_NODE_RETURN;
+                        rs->span  = lb->stmts[0]->span;
+                        rs->value = lb->stmts[0];
+                        lb->stmts[0] = (Iron_Node *)rs;
+                    }
+                }
+            }
             /* Push a function scope and declare lambda params so the body
              * can type-check variable references correctly. */
             Iron_Type *prev_ret = ctx->current_return_type;
@@ -5232,6 +5291,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                           ap->span, false, param_types ? param_types[p] : NULL);
             }
             if (le->body) check_stmt(ctx, le->body);
+            check_missing_return_body(ctx, ret_t, le->body, NULL);
             tc_pop_scope(ctx);
             ctx->current_return_type = prev_ret;
             result = iron_type_make_func(ctx->arena, param_types, le->param_count, ret_t);
@@ -5677,6 +5737,10 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
     /* HARD-05: cancel poll at expected-type walker entry. */
     if (iron_cancel_requested(ctx->cancel_flag)) {
         return iron_type_make_primitive(IRON_TYPE_VOID);
+    }
+    if (node && node->kind == IRON_NODE_LAMBDA && expected &&
+        expected->kind == IRON_TYPE_FUNC) {
+        ctx->lambda_expected_type = expected;
     }
     if (node && node->kind == IRON_NODE_ARRAY_LIT && expected &&
         expected->kind == IRON_TYPE_ARRAY) {
