@@ -207,13 +207,6 @@ patch Player {
 }
 ```
 
-## `:IronLspMigrateV2ToV3`
-
-Run `:IronLspMigrateV2ToV3` to invoke `workspace/executeCommand iron.migrate`
-on the running `ironls`. The command calls `ironc migrate` on your workspace,
-computes the rewrite diff, and applies it in-editor as a `WorkspaceEdit` (no
-disk writes until you `:w`). Requires ironls >= 3.0.0.
-
 ---
 
 ## `:IronLspDiagnose`

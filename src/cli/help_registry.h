@@ -23,7 +23,7 @@
 #include <stdio.h>
 
 typedef struct {
-    /* "build" / "run" / "check" / "fmt" / "test" / "init" / "migrate",
+    /* "build" / "run" / "check" / "fmt" / "test" / "init",
      * or "" for global flags that apply regardless of subcommand. */
     const char *subcommand;
     /* "--release", "--target", etc. Always non-NULL. */

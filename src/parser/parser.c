@@ -1079,7 +1079,7 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
                            iron_token_span(p, iron_current(p)),
                            "'mut' keyword removed in v3.0; use 'var' for mutable bindings "
                            "or declare a default in-object method to mutate self",
-                           "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+                           "write 'var name: T' for a mutable binding or parameter");
             iron_advance(p);  /* consume 'mut' for recovery */
         }
 
@@ -3168,7 +3168,7 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
                                iron_token_span(p, t),
                                "'mut' keyword removed in v3.0; use 'var' for mutable bindings "
                                "or declare a default in-object method to mutate self",
-                               "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+                               "write 'var name = value' for a mutable binding");
                 iron_advance(p);  /* consume 'mut' for recovery */
                 return iron_parse_expr(p);
             }
@@ -3446,7 +3446,7 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, code,
                            iron_token_span(p, start),
                            msg,
-                           "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+                           "move the method into the object block: object T { func name() { ... } }");
             p->in_error_recovery = true;
             iron_parser_sync_toplevel(p);
             return iron_make_error(p);
@@ -4429,7 +4429,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
                            iron_token_span(p, iron_current(p)),
                            "inline field defaults 'var x: T = expr' removed in v3.0; "
                            "assign fields in an init instead",
-                           "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+                           "remove '= expr' and assign the field in init: init() { self.x = expr }");
             iron_advance(p);  /* consume '=' */
             (void)iron_parse_expr(p);  /* discard initializer expression for recovery */
         }
@@ -4952,7 +4952,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
                                IRON_ERR_V3_NO_INIT,
                                iron_token_span(p, name_tok),
                                msg,
-                               "run 'ironc migrate --from v2 --to v3 <file>' to migrate");
+                               "add an init that assigns every field: init(...) { self.field = ... }");
             }
         }
     }

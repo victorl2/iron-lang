@@ -532,8 +532,7 @@ Call sites are unchanged: `player.take_damage(5)` works exactly as before.
 
 **Removed in v3.0:** The receiver-method form `func (p: Player) name()`
 and the mutable receiver form `func (mut p: Player) name()` are parse
-errors in v3.0. Use `ironc migrate --from v2 --to v3` to convert existing
-code automatically.
+errors; declare methods inside the `object` block instead.
 
 ### Mutation tiers
 
@@ -825,10 +824,6 @@ pub object Player {            -- public: visible to importers
 synthesizes a read-only getter. Call sites use property syntax:
 `player.name` rather than an explicit getter call.
 
-The codemod does not add `pub` automatically after migration. You must
-audit your exported API and add `pub` to any declaration that must cross
-module boundaries.
-
 **v2.x (removed in v3.0):** The old model was public-by-default with an
 explicit `private` keyword to restrict scope. That behavior is reversed
 in v3.0.
@@ -1041,8 +1036,8 @@ There are no pointer types in the language. The compiler handles all reference-t
 | `data: [UInt8; 64]` | `const uint8_t *data` |
 
 > **v4 note:** the v4 memory model adds explicit checked pointers `*T` and the
-> explicit unchecked regime `*unchecked T` (see the v3→v4 migration guide,
-> §3.3 and §3.8). The section below extends the same checked/unchecked
+> explicit unchecked regime `*unchecked T` (see Memory Management above).
+> The section below extends the same checked/unchecked
 > philosophy to indexing.
 
 ### Unchecked Indexing — `get_unchecked` / `set_unchecked` (v4)
@@ -1773,7 +1768,7 @@ func main() {
 
 ## Command-line interface
 
-Both `iron` and `ironc` accept `--help` (or `-h`) at the top level and on every subcommand. `iron --help` lists every subcommand and every flag the CLI parses, grouped by subcommand and sorted alphabetically within each group. `iron <subcommand> --help` (for example, `iron build --help`, `iron init --help`, `iron migrate --help`) prints help scoped to that subcommand and exits with status 0 without performing any subcommand work: `iron init --help` does not scaffold a new project, `iron build --help` does not create `target/`, and no temporary files are written to the current directory. The same shape applies to `ironc`. Help text is generated from a single registry inside the compiler so adding a flag is a one-line edit, and the live `iron <subcommand> --help` output is the canonical CLI reference.
+Both `iron` and `ironc` accept `--help` (or `-h`) at the top level and on every subcommand. `iron --help` lists every subcommand and every flag the CLI parses, grouped by subcommand and sorted alphabetically within each group. `iron <subcommand> --help` (for example, `iron build --help`, `iron init --help`) prints help scoped to that subcommand and exits with status 0 without performing any subcommand work: `iron init --help` does not scaffold a new project, `iron build --help` does not create `target/`, and no temporary files are written to the current directory. The same shape applies to `ironc`. Help text is generated from a single registry inside the compiler so adding a flag is a one-line edit, and the live `iron <subcommand> --help` output is the canonical CLI reference.
 
 ---
 
