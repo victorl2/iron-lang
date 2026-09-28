@@ -3175,9 +3175,20 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                      * incompatible-pointer warnings in generated C now that
                      * M4 materializes loads of mutable rc slots). Keep the
                      * type as-is when it is already pointer-shaped. */
-                    alloca_type = (type->kind == IRON_TYPE_RC)
-                        ? type
-                        : iron_type_make_rc(ctx->lir_arena, type);
+                    if (type->kind == IRON_TYPE_RC) {
+                        alloca_type = type;
+                    } else if (ik == IRON_HIR_EXPR_RC) {
+                        alloca_type = iron_type_make_rc(ctx->lir_arena, type);
+                    } else {
+                        /* heap / arena allocations are Iron_FatPtr values.
+                         * An RC-typed slot was declared `T *`, which only
+                         * worked while the SSA pass promoted the slot away;
+                         * unpromoted (--no-optimize) it could not hold the
+                         * fat pointer. A checked-pointer slot is emitted as
+                         * Iron_FatPtr and reads go through `.addr`. */
+                        alloca_type = iron_type_make_ptr(ctx->lir_arena, type,
+                                                         true, false);
+                    }
                 }
             }
             const char *name = iron_hir_var_name(ctx->hir, vid);

@@ -1182,6 +1182,28 @@ bool emit_val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
  * which also returns true for IRON_LIR_RC_ALLOC (T * local — still a pointer).
  * Used at field-access / field-store / addr-of sites to select the
  * `((T *)_vN.addr)->field` form vs `_vN->field` for RC pointers. */
+/* A heap / arena binding's slot: an alloca typed as a checked pointer `*T`
+ * whose loads are typed T (the binding's surface type). hir_to_lir types
+ * those slots this way so they hold the Iron_FatPtr handle; a genuine
+ * `*T` pointer variable's loads are typed `*T` instead. */
+bool emit_slot_is_heap_handle(IronLIR_Func *fn, IronLIR_ValueId slot,
+                              Iron_Type *load_type) {
+    if (slot == IRON_LIR_VALUE_INVALID ||
+        slot >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *a = fn->value_table[slot];
+    if (!a || a->kind != IRON_LIR_ALLOCA || !a->alloca.alloc_type) return false;
+    Iron_Type *at = a->alloca.alloc_type;
+    return at->kind == IRON_TYPE_PTR && !at->ptr.is_unchecked &&
+           load_type && load_type->kind != IRON_TYPE_PTR &&
+           at->ptr.pointee && iron_type_equals(at->ptr.pointee, load_type);
+}
+
+/* A LOAD of a heap / arena binding slot (see emit_slot_is_heap_handle). */
+static bool emit_is_heap_handle_load(IronLIR_Instr *instr, IronLIR_Func *fn) {
+    return instr && instr->kind == IRON_LIR_LOAD &&
+           emit_slot_is_heap_handle(fn, instr->load.ptr, instr->type);
+}
+
 bool emit_val_is_heap_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
     if (vid == IRON_LIR_VALUE_INVALID) return false;
     if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
@@ -1191,7 +1213,8 @@ bool emit_val_is_heap_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
      * Iron_FatPtr local whose .addr points at the arena-allocated object, so
      * ADDR_OF / field-access through it uses the same ((T *)_vN.addr) form. */
     return instr->kind == IRON_LIR_HEAP_ALLOC ||
-           instr->kind == IRON_LIR_ARENA_ALLOC;
+           instr->kind == IRON_LIR_ARENA_ALLOC ||
+           emit_is_heap_handle_load(instr, fn);
 }
 
 /* Phase 21: Returns true when a value is ANY Iron_FatPtr at runtime:
@@ -1207,7 +1230,8 @@ bool emit_val_is_any_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
      * ADDR_OF as an Iron_FatPtr-producing opcode. */
     return instr->kind == IRON_LIR_HEAP_ALLOC ||
            instr->kind == IRON_LIR_ARENA_ALLOC ||
-           instr->kind == IRON_LIR_ADDR_OF;
+           instr->kind == IRON_LIR_ADDR_OF ||
+           emit_is_heap_handle_load(instr, fn);
 }
 
 /* Phase 21: Return the C pointee-type string for any Iron_FatPtr value.
@@ -1223,7 +1247,8 @@ const char *emit_fat_ptr_pointee_type_c(IronLIR_Func *fn, IronLIR_ValueId vid, E
     /* Phase 28 ARENA-03 (Plan 28-04): arena alloc pointee type is instr->type,
      * exactly like a heap alloc. */
     if (instr->kind == IRON_LIR_HEAP_ALLOC ||
-        instr->kind == IRON_LIR_ARENA_ALLOC) {
+        instr->kind == IRON_LIR_ARENA_ALLOC ||
+        emit_is_heap_handle_load(instr, fn)) {
         return emit_type_to_c(instr->type, ctx);
     }
     if (instr->kind == IRON_LIR_ADDR_OF) {

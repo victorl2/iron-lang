@@ -347,6 +347,42 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                        IronLIR_Func *fn, EmitCtx *ctx,
                        IronLIR_BlockId use_block_id, int depth);
 
+/* The instruction that defines `vid` in the current function's blocks.
+ * fn->value_table can alias a promoted slot's LOAD to the stored value (the
+ * SSA pass does this for interface-array slots), which hides that the
+ * value is a load of a binding. Code that needs the binding's storage (a
+ * pointer receiver, a field write) asks this map for the real definition.
+ * Rebuilt at the start of each emit_func_body. */
+static IronLIR_Instr **g_def_instrs;
+static ptrdiff_t       g_def_instrs_len;
+
+static void emit_build_def_instrs(IronLIR_Func *fn) {
+    free(g_def_instrs);
+    g_def_instrs = NULL;
+    g_def_instrs_len = arrlen(fn->value_table);
+    if (g_def_instrs_len <= 0) return;
+    g_def_instrs = (IronLIR_Instr **)calloc((size_t)g_def_instrs_len,
+                                            sizeof(IronLIR_Instr *));
+    if (!g_def_instrs) iron_oom_abort("emit_c.c:emit_build_def_instrs");
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (in && in->id != IRON_LIR_VALUE_INVALID &&
+                (ptrdiff_t)in->id < g_def_instrs_len)
+                g_def_instrs[in->id] = in;
+        }
+    }
+}
+
+static IronLIR_Instr *emit_def_instr(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID || (ptrdiff_t)vid >= arrlen(fn->value_table))
+        return NULL;
+    if (g_def_instrs && (ptrdiff_t)vid < g_def_instrs_len && g_def_instrs[vid])
+        return g_def_instrs[vid];
+    return fn->value_table[vid];
+}
+
 /* Emit a C expression that is a POINTER to the storage `vid` names, for a
  * call whose target takes its receiver by pointer (self_by_addr). The point
  * is to never hand the callee the address of a temporary copy: a mutating
@@ -371,9 +407,7 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
         emit_val(sb, vid);
         return;
     }
-    IronLIR_Instr *in = (vid != IRON_LIR_VALUE_INVALID &&
-                         (ptrdiff_t)vid < arrlen(fn->value_table))
-                        ? fn->value_table[vid] : NULL;
+    IronLIR_Instr *in = emit_def_instr(fn, vid);
     if (in && in->kind == IRON_LIR_ALLOCA) {
         /* Split-loop body: the loop variable's slot is dead storage; the
          * per-branch item variable is the element. */
@@ -478,9 +512,7 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
  * falling back to `&<expr>`: a LOAD from a value-typed alloca, or a
  * GET_FIELD chain rooted in one (or in a pointer). */
 static bool emit_vid_is_storage_path(IronLIR_Func *fn, IronLIR_ValueId vid) {
-    if (vid == IRON_LIR_VALUE_INVALID || (ptrdiff_t)vid >= arrlen(fn->value_table))
-        return false;
-    IronLIR_Instr *in = fn->value_table[vid];
+    IronLIR_Instr *in = emit_def_instr(fn, vid);
     if (!in) return false;
     if (in->kind == IRON_LIR_LOAD) {
         IronLIR_ValueId p = in->load.ptr;
@@ -552,6 +584,35 @@ static void emit_split_elem_writeback(Iron_StrBuf *sb, int ind, IronLIR_Func *fn
     }
     emit_indent(sb, ind);
     iron_strbuf_appendf(sb, "}\n");
+}
+
+/* The storage a mutating split-collection operation (push / pop) works
+ * on. The receiver value may be a materialized copy of the binding (always
+ * under --no-optimize), so address the binding itself: popping from the
+ * copy left the original collection unchanged. */
+static void emit_split_self_lvalue(Iron_StrBuf *sb, IronLIR_Func *fn,
+                                   EmitCtx *ctx, IronLIR_ValueId self_arg) {
+    iron_strbuf_appendf(sb, "(*");
+    emit_receiver_addr(sb, fn, ctx, self_arg, ctx->current_block_id);
+    iron_strbuf_appendf(sb, ")");
+}
+
+/* True when every STORE into `slot` stores a freshly produced value (a
+ * CONSTRUCT or a CALL result) and there is at least one such store. */
+static bool emit_slot_owns_stored_values(IronLIR_Func *fn, IronLIR_ValueId slot) {
+    bool any = false;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (!in || in->kind != IRON_LIR_STORE || in->store.ptr != slot) continue;
+            IronLIR_Instr *v = emit_def_instr(fn, in->store.value);
+            if (!v || (v->kind != IRON_LIR_CONSTRUCT && v->kind != IRON_LIR_CALL))
+                return false;
+            any = true;
+        }
+    }
+    return any;
 }
 
 /* ── Expression inlining recursive helper ─────────────────────────────────── */
@@ -1497,35 +1558,41 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         break;
     }
 
-    case IRON_LIR_CONST_NULL:
+    case IRON_LIR_CONST_NULL: {
+        /* A null constant typed as a value (the SSA pass uses these as the
+         * "no value on this path" input of a phi) must be a zero of that
+         * type: emitted as `void* NULL` it could not flow into, for
+         * example, a String phi under --no-optimize. Pointer-shaped C types
+         * get NULL, scalars 0, structs {0}; an untyped null stays void*. */
         emit_indent(sb, ind);
-        if (instr->type && instr->type->kind == IRON_TYPE_OBJECT) {
-            /* Zero-initialize struct so it can be used in PHI/assignment contexts */
-            const char *c_type = emit_type_to_c(instr->type, ctx);
-            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", c_type);
-            emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = {0};\n");
-        } else if (instr->type && (instr->type->kind == IRON_TYPE_INT   ||
-                                    instr->type->kind == IRON_TYPE_INT8  ||
-                                    instr->type->kind == IRON_TYPE_INT16 ||
-                                    instr->type->kind == IRON_TYPE_INT32 ||
-                                    instr->type->kind == IRON_TYPE_INT64 ||
-                                    instr->type->kind == IRON_TYPE_UINT  ||
-                                    instr->type->kind == IRON_TYPE_UINT8 ||
-                                    instr->type->kind == IRON_TYPE_UINT16||
-                                    instr->type->kind == IRON_TYPE_UINT32||
-                                    instr->type->kind == IRON_TYPE_UINT64)) {
-            /* Scalar integer: emit type-correct zero instead of void* NULL */
-            const char *c_type = emit_type_to_c(instr->type, ctx);
-            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", c_type);
-            emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = 0;\n");
+        Iron_Type *nt = instr->type;
+        bool untyped = !nt || nt->kind == IRON_TYPE_NULL ||
+                       nt->kind == IRON_TYPE_VOID || nt->kind == IRON_TYPE_ERROR;
+        const char *c_type = untyped ? "void*" : emit_type_to_c(nt, ctx);
+        const char *zero;
+        if (untyped || strchr(c_type, '*')) {
+            zero = "NULL";
+        } else if (iron_type_is_integer(nt) || iron_type_is_float(nt) ||
+                   nt->kind == IRON_TYPE_BOOL) {
+            zero = "0";
         } else {
-            if (!is_hoisted) iron_strbuf_appendf(sb, "void* ");
+            zero = "{0}";
+        }
+        if (!is_hoisted) {
+            iron_strbuf_appendf(sb, "%s ", c_type);
             emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = NULL;\n");
+            iron_strbuf_appendf(sb, " = %s;\n", zero);
+        } else if (strcmp(zero, "{0}") == 0) {
+            /* A hoisted declaration cannot take an initializer list here:
+             * assign a compound literal instead. */
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = (%s){0};\n", c_type);
+        } else {
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = %s;\n", zero);
         }
         break;
+    }
 
     /* ── Arithmetic ─────────────────────────────────────────────────────── */
 
@@ -2081,6 +2148,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     /* Alloca holds a pointer: use the alloca's RC type for C type */
                     load_c_type = fn->value_table[ptr]->alloca.alloc_type;
                 }
+                /* heap / arena binding slot: the load reads the Iron_FatPtr
+                 * handle, not the object. */
+                if (emit_slot_is_heap_handle(fn, ptr, instr->type)) {
+                    load_c_type = fn->value_table[ptr]->alloca.alloc_type;
+                }
                 /* Module-global slot: the load copies the STATIC's value, so
                  * type it from the slot's alloc_type (authoritative). */
                 if (emit_vid_global_slot(fn, ptr) &&
@@ -2187,9 +2259,22 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             /* PARM-02 copy-in: the entry-block store of a var param copies
              * the pointed-to value into the local alloca slot — deref the
              * `T *_vN` by-ref slot. */
+            /* A heap / arena fat pointer stored into a slot of the pointee
+             * type (the inliner binds a callee's by-value param this way):
+             * copy the object out of the allocation. */
+            IronLIR_Instr *slot_in = (instr->store.ptr < (IronLIR_ValueId)arrlen(fn->value_table))
+                                     ? fn->value_table[instr->store.ptr] : NULL;
+            Iron_Type *slot_t = (slot_in && slot_in->kind == IRON_LIR_ALLOCA)
+                                ? slot_in->alloca.alloc_type : NULL;
+            bool deref_fat = slot_t && slot_t->kind == IRON_TYPE_OBJECT &&
+                             emit_val_is_heap_fat_ptr(fn, instr->store.value);
             if (vid_is_var_param(fn, instr->store.value)) {
                 iron_strbuf_appendf(sb, "*");
                 emit_val(sb, instr->store.value);
+            } else if (deref_fat) {
+                iron_strbuf_appendf(sb, "*((%s *)(", emit_type_to_c(slot_t, ctx));
+                emit_expr_to_buf(sb, instr->store.value, fn, ctx, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ").addr)");
             } else {
                 emit_expr_to_buf(sb, instr->store.value, fn, ctx, ctx->current_block_id, 0);
             }
@@ -3487,9 +3572,9 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             if (et && et->kind == IRON_TYPE_OBJECT && et->object.decl) {
                                 /* --- Mode (a): concrete object arg --- */
                                 emit_indent(sb, ind);
-                                iron_strbuf_appendf(sb, "Iron_SplitList_%s_push_%s(&",
+                                iron_strbuf_appendf(sb, "Iron_SplitList_%s_push_%s(",
                                     sp_iface, et->object.decl->name);
-                                emit_val(sb, self_arg);
+                                emit_receiver_addr(sb, fn, ctx, self_arg, ctx->current_block_id);
                                 iron_strbuf_appendf(sb, ", ");
                                 emit_expr_to_buf(sb, push_val, fn, ctx, ctx->current_block_id, 0);
                                 iron_strbuf_appendf(sb, ");\n");
@@ -3516,9 +3601,9 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                                         shgeti(ctx->indirect_variants, ikey) >= 0);
                                     emit_indent(sb, ind + 2);
                                     iron_strbuf_appendf(sb,
-                                        "case %d: Iron_SplitList_%s_push_%s(&",
+                                        "case %d: Iron_SplitList_%s_push_%s(",
                                         impl->tag, sp_iface, impl->type_name);
-                                    emit_val(sb, self_arg);
+                                    emit_receiver_addr(sb, fn, ctx, self_arg, ctx->current_block_id);
                                     iron_strbuf_appendf(sb,
                                         ", %s_sp_push_val.data.%s); break;\n",
                                         is_indirect ? "*" : "",
@@ -3623,12 +3708,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             /* Compute last-index once */
                             emit_indent(sb, ind + 1);
                             iron_strbuf_appendf(sb, "int64_t _sp_pop_i = ");
-                            emit_val(sb, self_arg);
+                            emit_split_self_lvalue(sb, fn, ctx, self_arg);
                             iron_strbuf_appendf(sb, "._total_count - 1;\n");
                             /* Tag switch over _order[_sp_pop_i].tag */
                             emit_indent(sb, ind + 1);
                             iron_strbuf_appendf(sb, "switch (");
-                            emit_val(sb, self_arg);
+                            emit_split_self_lvalue(sb, fn, ctx, self_arg);
                             iron_strbuf_appendf(sb, "._order[_sp_pop_i].tag) {\n");
                             for (int ji = 0; ji < sp_entry->impl_count; ji++) {
                                 Iron_IfaceImpl *impl = &sp_entry->impls[ji];
@@ -3650,11 +3735,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 emit_val(sb, instr->id);
                                 iron_strbuf_appendf(sb, " = %s_from_%s(",
                                     sp_iface, impl->type_name);
-                                emit_val(sb, self_arg);
+                                emit_split_self_lvalue(sb, fn, ctx, self_arg);
                                 iron_strbuf_appendf(sb, ".%s_items[", lower_name);
-                                emit_val(sb, self_arg);
+                                emit_split_self_lvalue(sb, fn, ctx, self_arg);
                                 iron_strbuf_appendf(sb, "._order[_sp_pop_i].idx]); ");
-                                emit_val(sb, self_arg);
+                                emit_split_self_lvalue(sb, fn, ctx, self_arg);
                                 iron_strbuf_appendf(sb, ".%s_count--; break;\n", lower_name);
                             }
                             emit_indent(sb, ind + 2);
@@ -3667,10 +3752,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             iron_strbuf_appendf(sb, "}\n");
                             /* Decrement order and total counts */
                             emit_indent(sb, ind + 1);
-                            emit_val(sb, self_arg);
+                            emit_split_self_lvalue(sb, fn, ctx, self_arg);
                             iron_strbuf_appendf(sb, "._order_count--;\n");
                             emit_indent(sb, ind + 1);
-                            emit_val(sb, self_arg);
+                            emit_split_self_lvalue(sb, fn, ctx, self_arg);
                             iron_strbuf_appendf(sb, "._total_count--;\n");
                             emit_indent(sb, ind);
                             iron_strbuf_appendf(sb, "}\n");
@@ -4716,6 +4801,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 Iron_Type *atype = ctx->adt_boxed_allocas[ai].value;
                 /* Skip the alloca that holds the returned value */
                 if (alloca_id == ret_alloca) continue;
+                /* A parameter's slot aliases the caller's value, which the
+                 * caller still owns (and frees). It is not even declared as
+                 * a local under --no-optimize. */
+                if (ctx->param_alias_ids &&
+                    hmgeti(ctx->param_alias_ids, alloca_id) >= 0) continue;
                 const char *atype_c = emit_type_to_c(atype, ctx);
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "%s_free(&_v%u);\n",
@@ -7104,6 +7194,7 @@ static int emit_structured_lexical_rank(EmitStructuredLoop *loops, int bi) {
 }
 
 void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
+    emit_build_def_instrs(fn);
     /* Choose target buffer: lifted functions go to lifted_funcs */
     Iron_StrBuf *sb = is_lifted_func(fn->name)
                       ? &ctx->lifted_funcs
@@ -7434,7 +7525,13 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                         }
                     }
                 }
-                if (any_boxed) {
+                /* Free only slots that own their value: every store into the
+                 * slot is a fresh construction or a call result. A slot
+                 * holding a parameter, a copy of another binding or a
+                 * payload extracted by a pattern borrows boxes someone else
+                 * frees (the `__match_scrut` of a recursive function stores
+                 * its parameter), and freeing it was a double free. */
+                if (any_boxed && emit_slot_owns_stored_values(fn, in->id)) {
                     hmput(ctx->adt_boxed_allocas, in->id, atype);
                 }
             }
@@ -8392,8 +8489,10 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                     for (int ii = 0; ii < fn->blocks[bi]->instr_count; ii++) {
                         IronLIR_Instr *in2 = fn->blocks[bi]->instrs[ii];
                         if (in2->kind == IRON_LIR_JUMP) break;
-                        if (in2->kind == IRON_LIR_GET_FIELD &&
-                            in2->field.object == matched->iterable_vid) continue;
+                        /* The iterable's `.count` read is emitted too (as
+                         * `._total_count`): unoptimized builds still store it
+                         * into the loop's count slot, and skipping it left
+                         * that store reading an undeclared temporary. */
                         emit_instr(sb, in2, fn, ctx);
                     }
 

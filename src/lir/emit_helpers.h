@@ -354,6 +354,8 @@ void emit_val(Iron_StrBuf *sb, IronLIR_ValueId id);
 
 bool emit_type_is_pointer(const Iron_Type *t);
 bool emit_val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid);
+bool emit_slot_is_heap_handle(IronLIR_Func *fn, IronLIR_ValueId slot,
+                              Iron_Type *load_type);
 bool emit_val_is_heap_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid);
 /* Phase 21: Returns true when the value is ANY Iron_FatPtr at runtime:
  * IRON_LIR_HEAP_ALLOC (heap binding) or IRON_LIR_ADDR_OF (pointer to heap/stack).

@@ -469,7 +469,16 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
             for (int ii = 0; ii < block->instr_count; ii++) {
                 IronLIR_Instr *instr = block->instrs[ii];
                 if (instr->kind == IRON_LIR_ARRAY_LIT) {
-                    if (instr->array_lit.element_count > 0 &&
+                    /* Interface-element arrays are split collections with
+                     * their own representation (Iron_SplitList_<Iface>).
+                     * Marking them stack arrays declared the binding as
+                     * `Iface *` + `_len` and, once loads were not forwarded
+                     * (--no-optimize), the generated C mixed both forms. */
+                    bool is_split =
+                        instr->array_lit.elem_type &&
+                        instr->array_lit.elem_type->kind == IRON_TYPE_INTERFACE;
+                    if (!is_split &&
+                        instr->array_lit.element_count > 0 &&
                         instr->array_lit.element_count <= 256) {
                         instr->array_lit.use_stack_repr = true;
                     }

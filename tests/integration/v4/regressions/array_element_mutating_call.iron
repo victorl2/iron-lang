@@ -1,4 +1,3 @@
--- @skip-no-optimize: #153 (interface arrays do not compile under --no-optimize)
 -- Regression: mutating method calls on array elements changed a copy.
 --
 -- For `xs[i].m()` with a pointer receiver, unoptimized builds materialized
