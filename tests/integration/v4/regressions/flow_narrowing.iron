@@ -1,0 +1,61 @@
+-- Flow narrowing (#179): each branch of an if/elif/else chain sees what its
+-- condition proves and what the earlier conditions ruled out; `not`, `and`
+-- and `or` combine null checks and type tests; an early exit narrows the
+-- code after the if; and a narrowing never outlives its block.
+interface Shape {
+    readonly func area() -> Int
+}
+object Circle impl Shape {
+    val r: Int
+    readonly func area() -> Int { return self.r * 3 }
+}
+object Square impl Shape {
+    val s: Int
+    readonly func area() -> Int { return self.s }
+}
+func early(sh: Shape) -> Int {
+    if not (sh is Circle) {
+        return -1
+    }
+    return sh.r
+}
+func chain(sh: Shape, n: Int?) -> String {
+    if n == null {
+        return "no n"
+    } elif sh is Circle {
+        return "circle {sh.r} n={n + 1}"
+    } else {
+        return "n={n + 2}"
+    }
+}
+func both(sh: Shape, n: Int?) -> Int {
+    if sh is Square and n != null {
+        return sh.s + n
+    }
+    if n == null or not (sh is Circle) {
+        return 0
+    }
+    return sh.r + n
+}
+func else_exit(n: Int?) -> Int {
+    if n != null {
+        println("has n")
+    } else {
+        return -1
+    }
+    return n * 2
+}
+func after(n: Int?) -> Int {
+    if n == null {
+        return 0
+    }
+    return n + 100
+}
+func main() {
+    println("{else_exit(4)} {else_exit(null)} {after(1)}")
+    println("{early(Circle(5))} {early(Square(2))}")
+    println(chain(Circle(1), 3))
+    println(chain(Square(1), 3))
+    println(chain(Square(1), null))
+    println("{both(Square(2), 1)} {both(Circle(4), 1)} {both(Circle(4), null)}")
+}

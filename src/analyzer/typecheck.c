@@ -276,6 +276,8 @@ static Iron_Symbol *tc_define(TypeCtx *ctx, const char *name, Iron_SymbolKind ki
     sym->is_mutable = is_mutable;
     sym->type = type;
     iron_scope_define(ctx->current_scope, ctx->arena, sym);
+    /* A new binding is not the narrowed one it shadows. */
+    if (name && ctx->narrowed) (void)shdel(ctx->narrowed, name);
     return sym;
 }
 
@@ -2042,20 +2044,6 @@ static int classify_null_check(Iron_Node *expr, const char **out_name) {
     return is_neq ? 1 : -1;
 }
 
-/* Check if expr is `e is TypeName`, return type_name or NULL */
-static const char *classify_is_check(Iron_Node *expr) {
-    if (!expr || expr->kind != IRON_NODE_IS) return NULL;
-    Iron_IsExpr *ie = (Iron_IsExpr *)expr;
-    return ie->type_name;
-}
-
-/* Check if a block always returns (for early-return narrowing) */
-static bool block_always_returns(Iron_Block *block) {
-    if (!block || block->stmt_count == 0) return false;
-    Iron_Node *last = block->stmts[block->stmt_count - 1];
-    return last && last->kind == IRON_NODE_RETURN;
-}
-
 /* Phase 4 Plan 04-01 (EDIT-07): recursive "always returns" check that also
  * counts if/else with both arms terminating + match with all arms
  * terminating. This is a minimal-but-correct reachability pass for the
@@ -2079,6 +2067,9 @@ static bool stmt_always_returns(Iron_Node *node) {
             Iron_IfStmt *is = (Iron_IfStmt *)node;
             /* if-else with BOTH arms terminating always returns. */
             if (!is->else_body) return false;
+            for (int i = 0; i < is->elif_count; i++) {
+                if (!stmt_always_returns(is->elif_bodies[i])) return false;
+            }
             return stmt_always_returns(is->body) &&
                    stmt_always_returns(is->else_body);
         }
@@ -2096,6 +2087,48 @@ static bool stmt_always_returns(Iron_Node *node) {
         }
         default:
             return false;
+    }
+}
+
+/* Narrow the bindings `cond` proves something about, for the code that runs
+ * when `cond` evaluates to `truth`: `x != null` / `x == null` narrow a T?
+ * binding to T, `x is T` narrows an interface binding to a view of T, and
+ * `not`, `and` (when true) and `or` (when false) combine them. */
+static void narrow_for_cond(TypeCtx *ctx, Iron_Node *cond, bool truth) {
+    if (!cond) return;
+    if (cond->kind == IRON_NODE_UNARY) {
+        Iron_UnaryExpr *ue = (Iron_UnaryExpr *)cond;
+        if ((int)ue->op == (int)IRON_TOK_NOT) narrow_for_cond(ctx, ue->operand, !truth);
+        return;
+    }
+    if (cond->kind == IRON_NODE_BINARY) {
+        Iron_BinaryExpr *be = (Iron_BinaryExpr *)cond;
+        if (((int)be->op == (int)IRON_TOK_AND && truth) ||
+            ((int)be->op == (int)IRON_TOK_OR && !truth)) {
+            narrow_for_cond(ctx, be->left, truth);
+            narrow_for_cond(ctx, be->right, truth);
+            return;
+        }
+        const char *name = NULL;
+        int dir = classify_null_check(cond, &name);
+        if (dir == 0 || !name || (dir == 1) != truth) return;
+        Iron_Symbol *sym = tc_lookup(ctx, name);
+        Iron_Type *t = sym ? sym->type : NULL;
+        if (t && t->kind == IRON_TYPE_NULLABLE) narrowing_set(ctx, name, t->nullable.inner);
+        return;
+    }
+    if (cond->kind == IRON_NODE_IS && truth) {
+        /* Only an interface value narrows (#179): a concrete value's test
+         * is a constant and its type is already known. */
+        Iron_IsExpr *ie = (Iron_IsExpr *)cond;
+        if (!ie->expr || ie->expr->kind != IRON_NODE_IDENT || !ie->type_name) return;
+        Iron_Type *opt = ((Iron_ExprNode *)ie->expr)->resolved_type;
+        if (opt && opt->kind == IRON_TYPE_NULLABLE) opt = opt->nullable.inner;
+        if (!opt || opt->kind != IRON_TYPE_INTERFACE) return;
+        Iron_Symbol *type_sym = iron_scope_lookup(ctx->global_scope, ie->type_name);
+        if (!type_sym || (type_sym->sym_kind != IRON_SYM_TYPE &&
+                          type_sym->sym_kind != IRON_SYM_INTERFACE)) return;
+        narrowing_set(ctx, ((Iron_Ident *)ie->expr)->name, type_sym->type);
     }
 }
 
@@ -7990,180 +8023,101 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
         }
 
         case IRON_NODE_IF: {
+            /* Narrowing: each branch sees what its condition proves (a null
+             * check or a type test, through `not`, `and` and `or`), later
+             * branches of the chain see what the earlier conditions ruled
+             * out, and the code after the if sees what an early exit left
+             * behind. */
             Iron_IfStmt *is_s = (Iron_IfStmt *)node;
-
-            /* Type-check condition */
-            check_expr(ctx, is_s->condition);
-
-            const char *null_check_name = NULL;
-            int null_check_dir = classify_null_check(is_s->condition, &null_check_name);
-            const char *is_check_name  = classify_is_check(is_s->condition);
-
-            /* ── Case 1: x != null — narrow x to non-nullable in then-block ── */
-            if (null_check_dir == 1 && null_check_name) {
-                Iron_Symbol *sym = tc_lookup(ctx, null_check_name);
-                Iron_Type *sym_type = sym ? sym->type : NULL;
-                /* Also check resolved_sym fallback */
-                if (!sym_type && !sym) {
-                    /* look via global for param fallback */
-                }
-
-                if (sym_type && sym_type->kind == IRON_TYPE_NULLABLE) {
-                    NarrowEntry *saved = narrowing_copy(ctx);
-                    narrowing_set(ctx, null_check_name, sym_type->nullable.inner);
-                    if (is_s->body) check_stmt(ctx, is_s->body);
-                    shfree(ctx->narrowed);
-                    ctx->narrowed = saved;
-                } else {
-                    if (is_s->body) check_stmt(ctx, is_s->body);
-                }
-                if (is_s->else_body) check_stmt(ctx, is_s->else_body);
+            int n_conds = 1 + is_s->elif_count;
+            Iron_Node **conds = (Iron_Node **)iron_arena_alloc(
+                ctx->arena, (size_t)n_conds * sizeof(Iron_Node *), _Alignof(Iron_Node *));
+            Iron_Node **bodies = (Iron_Node **)iron_arena_alloc(
+                ctx->arena, (size_t)n_conds * sizeof(Iron_Node *), _Alignof(Iron_Node *));
+            if (!conds || !bodies) iron_oom_abort("typecheck.c:IF branches");
+            conds[0] = is_s->condition;
+            bodies[0] = is_s->body;
+            for (int i = 0; i < is_s->elif_count; i++) {
+                conds[1 + i] = is_s->elif_conds[i];
+                bodies[1 + i] = is_s->elif_bodies[i];
             }
-            /* ── Case 2: x == null ─────────────────────────────────────────── */
-            else if (null_check_dir == -1 && null_check_name) {
-                Iron_Symbol *sym = tc_lookup(ctx, null_check_name);
-                Iron_Type *sym_type = sym ? sym->type : NULL;
 
-                if (is_s->body) check_stmt(ctx, is_s->body);
-
-                bool then_returns = false;
-                if (is_s->body && is_s->body->kind == IRON_NODE_BLOCK) {
-                    then_returns = block_always_returns((Iron_Block *)is_s->body);
-                }
-
-                /* If then-block always returns: narrow x to non-nullable in continuation */
-                if (then_returns && sym_type && sym_type->kind == IRON_TYPE_NULLABLE) {
-                    narrowing_set(ctx, null_check_name, sym_type->nullable.inner);
-                }
-
-                if (is_s->else_body) {
-                    if (sym_type && sym_type->kind == IRON_TYPE_NULLABLE) {
-                        NarrowEntry *saved = narrowing_copy(ctx);
-                        narrowing_set(ctx, null_check_name, sym_type->nullable.inner);
-                        check_stmt(ctx, is_s->else_body);
-                        shfree(ctx->narrowed);
-                        ctx->narrowed = saved;
-                    } else {
-                        check_stmt(ctx, is_s->else_body);
-                    }
-                }
+            /* Phase 85 INIT-04/06: inside an init body, the definite-
+             * assignment analysis unions unassigned_fields across every
+             * branch: a field is unassigned on the merged path if it is
+             * unassigned on ANY branch. Without an else the implicit
+             * "no writes" branch keeps the pre-branch set. */
+            bool track_init = ctx->in_init_method && ctx->unassigned_fields;
+            InitUnassignedEntry *pre = NULL;
+            InitUnassignedEntry **post = NULL;
+            int branch_idx = 0;
+            if (track_init) {
+                init_unassigned_clone(&pre, ctx->unassigned_fields);
+                post = (InitUnassignedEntry **)iron_arena_alloc(
+                    ctx->arena, (size_t)(n_conds + 1) * sizeof(InitUnassignedEntry *),
+                    _Alignof(InitUnassignedEntry *));
+                if (!post) iron_oom_abort("typecheck.c:IF init branch-merge post");
             }
-            /* ── Case 3: e is TypeName — narrow in then-block ─────────────── */
-            else if (is_check_name) {
-                Iron_Symbol *type_sym = iron_scope_lookup(ctx->global_scope, is_check_name);
-                /* Only an interface value narrows (#179): a concrete value's
-                 * test is a constant and its type is already known. */
-                Iron_IsExpr *ie0 = (Iron_IsExpr *)is_s->condition;
-                Iron_Type *opt0 = ie0->expr ? ((Iron_ExprNode *)ie0->expr)->resolved_type : NULL;
-                if (opt0 && opt0->kind == IRON_TYPE_NULLABLE) opt0 = opt0->nullable.inner;
-                bool narrowable = opt0 && opt0->kind == IRON_TYPE_INTERFACE;
-                if (narrowable && type_sym && (type_sym->sym_kind == IRON_SYM_TYPE ||
-                                               type_sym->sym_kind == IRON_SYM_INTERFACE)) {
-                    /* PROT-03 row 19 (AUDIT-01 M-severity): is_s->condition is
-                     * already classified as IRON_NODE_IS by classify_is_check
-                     * upstream; the assert documents the invariant and catches
-                     * future predicate drift. */
-                    IRON_NODE_ASSERT_KIND(is_s->condition, IRON_NODE_IS);
-                    Iron_IsExpr *ie = (Iron_IsExpr *)is_s->condition;
-                    if (ie->expr && ie->expr->kind == IRON_NODE_IDENT) {
-                        const char *ident_name = ((Iron_Ident *)ie->expr)->name;
-                        NarrowEntry *saved = narrowing_copy(ctx);
-                        narrowing_set(ctx, ident_name, type_sym->type);
-                        if (is_s->body) check_stmt(ctx, is_s->body);
-                        shfree(ctx->narrowed);
-                        ctx->narrowed = saved;
-                    } else {
-                        if (is_s->body) check_stmt(ctx, is_s->body);
-                    }
-                } else {
-                    if (is_s->body) check_stmt(ctx, is_s->body);
-                }
-                if (is_s->else_body) check_stmt(ctx, is_s->else_body);
-            }
-            /* ── Default: no narrowing ─────────────────────────────────────── */
-            else {
-                /* Phase 85 INIT-04/06: inside an init body, the definite-
-                 * assignment analysis must union unassigned_fields across
-                 * every control-flow branch. A field is considered unassigned
-                 * on the merged path if it remains unassigned on ANY branch
-                 * (then, any elif, else). If else is absent, the implicit
-                 * "fall-through with no writes" branch preserves the
-                 * pre-branch set (so no field is removed by the else path).
-                 *
-                 * Strategy: snapshot the pre-branch set once, run each branch
-                 * starting from a fresh clone of the snapshot, capture the
-                 * branch's resulting set, and union (keep-unassigned-in-ANY)
-                 * them all into a merged set after traversal. */
-                if (ctx->in_init_method && ctx->unassigned_fields) {
-                    InitUnassignedEntry *pre = NULL;
-                    init_unassigned_clone(&pre, ctx->unassigned_fields);
 
-                    /* Collect per-branch post-traversal sets. We cap at
-                     * 1 (then) + elif_count + 1 (else/implicit) branches. */
-                    int branch_count = 1 + is_s->elif_count + 1;
-                    InitUnassignedEntry **post =
-                        (InitUnassignedEntry **)iron_arena_alloc(
-                            ctx->arena,
-                            (size_t)branch_count * sizeof(InitUnassignedEntry *),
-                            _Alignof(InitUnassignedEntry *));
-                    if (!post) iron_oom_abort("typecheck.c:IF init branch-merge post");
-                    int branch_idx = 0;
-
-                    /* then-branch */
+            NarrowEntry *chain_saved = narrowing_copy(ctx);
+            for (int i = 0; i < n_conds; i++) {
+                check_expr(ctx, conds[i]);
+                if (track_init) {
                     shfree(ctx->unassigned_fields);
                     init_unassigned_clone(&ctx->unassigned_fields, pre);
-                    if (is_s->body) check_stmt(ctx, is_s->body);
+                }
+                NarrowEntry *saved = narrowing_copy(ctx);
+                narrow_for_cond(ctx, conds[i], true);
+                if (bodies[i]) check_stmt(ctx, bodies[i]);
+                shfree(ctx->narrowed);
+                ctx->narrowed = saved;
+                if (track_init) {
                     post[branch_idx++] = ctx->unassigned_fields;
                     ctx->unassigned_fields = NULL;
-
-                    /* elif branches */
-                    for (int i = 0; i < is_s->elif_count; i++) {
-                        check_expr(ctx, is_s->elif_conds[i]);
-                        init_unassigned_clone(&ctx->unassigned_fields, pre);
-                        if (is_s->elif_bodies[i]) check_stmt(ctx, is_s->elif_bodies[i]);
-                        post[branch_idx++] = ctx->unassigned_fields;
-                        ctx->unassigned_fields = NULL;
-                    }
-
-                    /* else branch. If absent, the implicit "no writes"
-                     * branch means the starting set (pre) is the ending set;
-                     * record a clone of pre as the post-set. */
-                    if (is_s->else_body) {
-                        init_unassigned_clone(&ctx->unassigned_fields, pre);
-                        check_stmt(ctx, is_s->else_body);
-                        post[branch_idx++] = ctx->unassigned_fields;
-                        ctx->unassigned_fields = NULL;
-                    } else {
-                        InitUnassignedEntry *pre_clone = NULL;
-                        init_unassigned_clone(&pre_clone, pre);
-                        post[branch_idx++] = pre_clone;
-                    }
-
-                    /* Union: a field is unassigned on the merged path if it
-                     * is unassigned on ANY branch's post-set. */
-                    InitUnassignedEntry *merged = NULL;
-                    sh_new_strdup(merged);
-                    for (int b = 0; b < branch_idx; b++) {
-                        if (!post[b]) continue;
-                        for (ptrdiff_t i = 0; i < shlen(post[b]); i++) {
-                            if (shget(merged, post[b][i].key) == 0) {
-                                shput(merged, post[b][i].key, 1);
-                            }
+                }
+                /* The rest of the chain runs only when this condition is false. */
+                narrow_for_cond(ctx, conds[i], false);
+            }
+            if (track_init) {
+                init_unassigned_clone(&ctx->unassigned_fields, pre);
+            }
+            if (is_s->else_body) check_stmt(ctx, is_s->else_body);
+            if (track_init) {
+                /* Without an else, ctx->unassigned_fields is the clone of pre
+                 * made above: the implicit fall-through branch. */
+                post[branch_idx++] = ctx->unassigned_fields;
+                ctx->unassigned_fields = NULL;
+                InitUnassignedEntry *merged = NULL;
+                sh_new_strdup(merged);
+                for (int b = 0; b < branch_idx; b++) {
+                    if (!post[b]) continue;
+                    for (ptrdiff_t k = 0; k < shlen(post[b]); k++) {
+                        if (shget(merged, post[b][k].key) == 0) {
+                            shput(merged, post[b][k].key, 1);
                         }
                     }
-                    for (int b = 0; b < branch_idx; b++) {
-                        if (post[b]) shfree(post[b]);
-                    }
-                    shfree(pre);
-                    ctx->unassigned_fields = merged;
-                } else {
-                    if (is_s->body) check_stmt(ctx, is_s->body);
-                    for (int i = 0; i < is_s->elif_count; i++) {
-                        check_expr(ctx, is_s->elif_conds[i]);
-                        if (is_s->elif_bodies[i]) check_stmt(ctx, is_s->elif_bodies[i]);
-                    }
-                    if (is_s->else_body) check_stmt(ctx, is_s->else_body);
+                    shfree(post[b]);
                 }
+                shfree(pre);
+                ctx->unassigned_fields = merged;
+            }
+            shfree(ctx->narrowed);
+            ctx->narrowed = chain_saved;
+
+            /* Early exits: when every branch but the else always returns, the
+             * code after the if runs only when every condition was false; when
+             * only the then branch falls through, only when it was true. */
+            bool all_exit = true;
+            for (int i = 0; i < n_conds; i++) {
+                if (!stmt_always_returns(bodies[i])) { all_exit = false; break; }
+            }
+            if (all_exit) {
+                if (!is_s->else_body || !stmt_always_returns(is_s->else_body)) {
+                    for (int i = 0; i < n_conds; i++) narrow_for_cond(ctx, conds[i], false);
+                }
+            } else if (n_conds == 1 && is_s->else_body &&
+                       stmt_always_returns(is_s->else_body)) {
+                narrow_for_cond(ctx, conds[0], true);
             }
             break;
         }
@@ -8753,11 +8707,17 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 }
 
 static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count) {
+    /* Narrowing an early exit leaves behind lasts until the end of the
+     * block: restore the map on the way out so it never reaches the code
+     * after the block (or another function with a same-named binding). */
+    NarrowEntry *saved = narrowing_copy(ctx);
     for (int i = 0; i < count; i++) {
         /* HARD-05: cancel poll at top of block-statement bulk walker. */
-        if (iron_cancel_requested(ctx->cancel_flag)) return;
+        if (iron_cancel_requested(ctx->cancel_flag)) break;
         check_stmt(ctx, stmts[i]);
     }
+    shfree(ctx->narrowed);
+    ctx->narrowed = saved;
 }
 
 /* ── Phase 24 DROP-06: compute_has_user_copy_transitive cache-populator ──── */
