@@ -1,1 +1,1 @@
-mut-receiver syntax 'func (mut recv: T) name()' removed in v3.0
+mut-receiver syntax 'func (mut recv: T) name()' is not supported

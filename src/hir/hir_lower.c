@@ -357,6 +357,15 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
         return wt ? wt : iron_type_make_primitive(IRON_TYPE_ERROR);
     }
 
+    if (ta->is_rc) {
+        Iron_Type *inner_t = ta->rc_inner
+            ? resolve_type_ann(ctx, ta->rc_inner)
+            : iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (!inner_t) inner_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+        Iron_Type *rt = iron_type_make_rc(ctx->module->arena, inner_t);
+        return rt ? rt : iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+
     /* Any shape that reaches the name dispatch without a name is a gap in the
      * arms above; report it as unresolved instead of dereferencing NULL. */
     if (!ta->name) return NULL;

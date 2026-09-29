@@ -203,7 +203,7 @@ static bool emit_object_field_is_value_slot(Iron_ObjectDecl *od, int idx) {
         return false;
     Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
     return !ta->is_pointer && !ta->is_func && !ta->is_array &&
-           !ta->is_tuple && !ta->is_weak_rc;
+           !ta->is_tuple && !ta->is_weak_rc && !ta->is_rc;
 }
 
 static void emit_construct_field_value(Iron_StrBuf *sb, IronLIR_Func *fn,

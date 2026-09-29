@@ -1156,6 +1156,12 @@ bool emit_val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
      * must use `->` not `.`. Parameter values have NULL entries in
      * value_table, so this check has to come BEFORE the instr-NULL guard. */
     if (fn->is_mut_receiver_method && vid == 1) return true;
+    /* Any value typed `rc T` (an rc parameter, field read, call result) is
+     * a T* in C. */
+    {
+        Iron_Type *vt = emit_get_value_type(fn, vid);
+        if (vt && vt->kind == IRON_TYPE_RC) return true;
+    }
     if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
     IronLIR_Instr *instr = fn->value_table[vid];
     if (!instr) return false;

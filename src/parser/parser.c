@@ -657,19 +657,25 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         iron_advance(p);  /* consume `heap`, re-parse as if absent */
     }
 
-    /* Phase 26 POL-11 (Plan 26-02): rc keyword is illegal in type-annotation
-     * position. Mirrors the POL-03 IRON_TOK_HEAP rejection above. The
-     * legitimate `rc T(...)` allocation lives in iron_parse_primary's
-     * `case IRON_TOK_RC:` arm — NOT here. Position-distinguishing hint
-     * per E0297 GA2 convention. */
+    /* `rc T`: a strong reference-counted handle. Stored in fields, passed
+     * to parameters and returned like any other type; copies retain. */
     if (iron_check(p, IRON_TOK_RC)) {
-        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                       IRON_ERR_RC_BAD_POSITION,
-                       iron_token_span(p, iron_current(p)),
-                       "`rc` only valid at allocation expression"
-                       " \342\200\224 got `rc` in type annotation",
-                       NULL);
-        iron_advance(p);  /* consume `rc`, re-parse as if absent */
+        Iron_Token *rc_tok = iron_current(p);
+        iron_advance(p);  /* consume `rc` */
+        Iron_Node *inner_ann = iron_parse_type_annotation_impl(p);
+        Iron_TypeAnnotation *outer = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+        if (!outer) {
+            p->in_error_recovery = true;
+            return iron_make_error(p);
+        }
+        memset(outer, 0, sizeof(*outer));
+        outer->kind     = IRON_NODE_TYPE_ANNOTATION;
+        outer->span     = iron_span_merge(iron_token_span(p, rc_tok),
+                                          inner_ann ? inner_ann->span
+                                                    : iron_token_span(p, rc_tok));
+        outer->is_rc    = true;
+        outer->rc_inner = inner_ann;
+        return (Iron_Node *)outer;
     }
 
     Iron_Token *start = iron_current(p);
@@ -696,11 +702,12 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
                            iron_span_merge(q_span, rc_span),
                            "`rc` only valid at allocation expression"
                            " \342\200\224 `?rc T` not supported;"
-                           " use `weak rc T?` (Phase 27)",
+                           " use `weak rc T?`",
                            NULL);
             iron_advance(p);  /* consume `rc`; recover by parsing inner */
-            /* Fall through and parse remaining inner type so cascading
-             * errors are suppressed. */
+            /* Already reported: return the inner type so the leading-`?`
+             * check below does not add a second error. */
+            return iron_parse_type_annotation_impl(p);
         }
         Iron_Node *inner = iron_parse_type_annotation_impl(p);
         if (inner && inner->kind == IRON_NODE_TYPE_ANNOTATION) {
@@ -1096,7 +1103,7 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_V3_MUT_KEYWORD,
                            iron_token_span(p, iron_current(p)),
-                           "'mut' keyword removed in v3.0; use 'var' for mutable bindings "
+                           "'mut' is not a keyword; use 'var' for mutable bindings "
                            "or declare a default in-object method to mutate self",
                            "write 'var name: T' for a mutable binding or parameter");
             iron_advance(p);  /* consume 'mut' for recovery */
@@ -1687,7 +1694,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                            IRON_ERR_CLOSED_POLICY_KEYWORD,
                            iron_token_span(p, t),
                            msg,
-                           "Phase 26 lifecycle policy closed set is"
+                           "the lifecycle policy closed set is"
                            " {stack, heap, rc, weak rc};"
                            " `pool` and `arena` not supported as"
                            " lifecycle policy keywords at allocation"
@@ -1764,7 +1771,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                            "weak rc allocation form is invalid; use"
                            " `weak rc null` or `<rc_value>.downgrade()`"
                            " to construct a weak reference",
-                           "Phase 27 lifecycle policy closed set is"
+                           "the lifecycle policy closed set is"
                            " {stack, heap, rc, weak rc};"
                            " weak rc values are constructed via"
                            " `weak rc null` (constructor) or"
@@ -1906,7 +1913,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                                            IRON_ERR_CLOSED_POLICY_KEYWORD,
                                            iron_token_span(p, t),
                                            msg,
-                                           "Phase 26 lifecycle policy closed set"
+                                           "the lifecycle policy closed set"
                                            " is {stack, heap, rc, weak rc};"
                                            " `pool`, `arena`, `weak` not"
                                            " supported as lifecycle policy"
@@ -3240,7 +3247,7 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_V3_MUT_KEYWORD,
                                iron_token_span(p, t),
-                               "'mut' keyword removed in v3.0; use 'var' for mutable bindings "
+                               "'mut' is not a keyword; use 'var' for mutable bindings "
                                "or declare a default in-object method to mutate self",
                                "write 'var name = value' for a mutable binding");
                 iron_advance(p);  /* consume 'mut' for recovery */
@@ -3513,9 +3520,9 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
         if (p->v3_strict_mode) {
             int code = recv_is_mut ? IRON_ERR_V3_MUT_RECEIVER : IRON_ERR_V3_RECEIVER_SYNTAX;
             const char *msg = recv_is_mut
-                ? "mut-receiver syntax 'func (mut recv: T) name()' removed in v3.0; "
+                ? "mut-receiver syntax 'func (mut recv: T) name()' is not supported; "
                   "declare as a default method inside 'object T { func name() { ... } }'"
-                : "receiver-method syntax 'func (recv: T) name()' removed in v3.0; "
+                : "receiver-method syntax 'func (recv: T) name()' is not supported; "
                   "declare as a method inside 'object T { func name() { ... } }'";
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, code,
                            iron_token_span(p, start),
@@ -4524,7 +4531,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_V3_INLINE_DEFAULT,
                            iron_token_span(p, iron_current(p)),
-                           "inline field defaults 'var x: T = expr' removed in v3.0; "
+                           "inline field defaults 'var x: T = expr' are not supported; "
                            "assign fields in an init instead",
                            "remove '= expr' and assign the field in init: init() { self.x = expr }");
             iron_advance(p);  /* consume '=' */
@@ -5043,7 +5050,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
                 char msg[256];
                 snprintf(msg, sizeof(msg),
                          "object '%s' has %d mutable field(s) but no init; "
-                         "v3.0 requires an explicit init to construct objects with mutable fields",
+                         "an object with mutable fields needs an explicit init",
                          enclosing, var_field_count);
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_V3_NO_INIT,
@@ -5154,7 +5161,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
                        iron_token_span(p, iron_current(p)),
-                       "generic patch targets not supported in v3.0", NULL);
+                       "generic patch targets are not supported", NULL);
         int generic_count = 0;
         (void)iron_parse_generic_params(p, &generic_count, p->arena);
     }

@@ -1214,8 +1214,8 @@ void test_parse_patch_with_generic_params_rejected(void) {
         has_diag_code(IRON_ERR_UNEXPECTED_TOKEN),
         "expected IRON_ERR_UNEXPECTED_TOKEN for generic patch target");
     TEST_ASSERT_TRUE_MESSAGE(
-        has_diag_msg_substring("generic patch targets not supported in v3.0"),
-        "expected locked 'generic patch targets not supported in v3.0' message");
+        has_diag_msg_substring("generic patch targets are not supported"),
+        "expected locked 'generic patch targets are not supported' message");
 }
 
 /* ── Interface declarations ──────────────────────────────────────────────── */

@@ -1,0 +1,33 @@
+-- `rc T` in field, parameter and return types: every holder retains, the
+-- last release destroys the value exactly once.
+object Tex {
+    val name: String
+    drop { println("free {self.name}") }
+}
+
+object Holder {
+    val tex: rc Tex
+    val id: Int
+    drop { println("drop holder {self.id}") }
+}
+
+func make(name: String) -> rc Tex {
+    return rc Tex(name)
+}
+
+func name_of(t: rc Tex) -> String {
+    return t.name
+}
+
+func wrap(t: rc Tex, id: Int) -> Holder {
+    return Holder(t, id)
+}
+
+func main() {
+    val a = make("a")
+    println(name_of(a))
+    val h1 = wrap(a, 1)
+    val h2 = Holder(a, 2)
+    println("{h1.tex.name} {h2.tex.name}")
+    println("end")
+}

@@ -1447,6 +1447,38 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         return wt ? wt : iron_type_make_primitive(IRON_TYPE_ERROR);
     }
 
+    if (ann->is_rc) {
+        Iron_Type *inner_t = ann->rc_inner
+            ? resolve_type_annotation(ctx, ann->rc_inner)
+            : iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (!inner_t) inner_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (inner_t->kind == IRON_TYPE_ERROR) return inner_t;
+        if (inner_t->kind == IRON_TYPE_RC || inner_t->kind == IRON_TYPE_WEAK_RC ||
+            inner_t->kind == IRON_TYPE_PTR) {
+            /* Parameter annotations are resolved more than once; report
+             * each bad annotation a single time. */
+            bool seen = false;
+            for (int di = 0; di < ctx->diags->count && !seen; di++) {
+                const Iron_Diagnostic *d = &ctx->diags->items[di];
+                seen = d->code == IRON_ERR_RC_BAD_POSITION &&
+                       d->span.line == ann->span.line &&
+                       d->span.col == ann->span.col &&
+                       d->span.filename == ann->span.filename;
+            }
+            if (seen) return iron_type_make_primitive(IRON_TYPE_ERROR);
+            char msg[256];
+            snprintf(msg, sizeof(msg), "`rc` cannot wrap '%s'",
+                     iron_type_to_string(inner_t, ctx->arena));
+            iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_RC_BAD_POSITION, ann->span, msg,
+                           "`rc T` holds a shared, reference-counted T; "
+                           "it is not a wrapper for handles or pointers");
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
+        Iron_Type *rt = iron_type_make_rc(ctx->arena, inner_t);
+        return rt ? rt : iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+
     /* Phase 20 PTR-01/13: lower `*T` / `*var T` / `?*T` / `?*var T`. The
      * outer is_nullable on a pointer annotation surfaces as
      * IRON_TYPE_NULLABLE wrapping IRON_TYPE_PTR — `?*T` composes the two
@@ -6033,7 +6065,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                "weak rc allocation form is invalid; use "
                                "`weak rc null` or `<rc_value>.downgrade()` "
                                "to construct a weak reference",
-                               "Phase 27 lifecycle policy closed set is "
+                               "the lifecycle policy closed set is "
                                "{stack, heap, rc, weak rc}; weak rc values are "
                                "constructed via `weak rc null` or "
                                "`<rc_value>.downgrade()`");
@@ -9071,23 +9103,9 @@ static void check_iface_tier_strengthening(TypeCtx *ctx, Iron_Program *program) 
                 Iron_MethodDecl *impl =
                     find_method_for_object(program, od->name, sig->name);
 
-                if (!impl) {
-                    /* No impl found. If sig has a default body, the implementer
-                     * inherits it — no E0258. Otherwise emit E0258 (PATCH-08). */
-                    if (sig->body != NULL) continue;  /* default body inherited */
-                    char msg[256];
-                    snprintf(msg, sizeof(msg),
-                             "missing interface method '%s.%s' on '%s'",
-                             iface_name, sig->name, od->name);
-                    const char *msg_copy =
-                        iron_arena_strdup(ctx->arena, msg, strlen(msg));
-                    if (!msg_copy)
-                        iron_oom_abort("typecheck.c:check_iface_tier_strengthening e0258 msg");
-                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
-                                   IRON_ERR_IFACE_CONFORMANCE_MISSING,
-                                   od->span, msg_copy, NULL);
-                    continue;
-                }
+                /* A missing method is reported once, by the conformance
+                 * check (E0205); only the tier comparison happens here. */
+                if (!impl) continue;
 
                 /* Tier comparison:
                  *   iface pure     => impl must be pure

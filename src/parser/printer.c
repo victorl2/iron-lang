@@ -196,6 +196,11 @@ static void print_type_ann(PrintCtx *ctx, Iron_Node *node) {
             print_type_ann(ctx, t->pointer_pointee);
             return;
         }
+        if (t->is_rc || t->is_weak_rc) {
+            iron_strbuf_appendf(ctx->sb, t->is_rc ? "rc " : "weak rc ");
+            print_type_ann(ctx, t->is_rc ? t->rc_inner : t->weak_rc_inner);
+            return;
+        }
         if (t->is_func) {
             /* func(A, B) -> R; the return part is omitted for Void. */
             iron_strbuf_appendf(ctx->sb, "func(");
@@ -1177,7 +1182,7 @@ static void stub_emit_param(FILE *out, Iron_Node *node) {
         Iron_TypeAnnotation *t = (Iron_TypeAnnotation *)p->type_ann;
         fprintf(out, ": ");
         /* Phase 20 PTR-13/14: pointer types (delegate to shared helper). */
-        if (t->is_pointer) {
+        if (t->is_pointer || t->is_rc || t->is_weak_rc) {
             stub_emit_type_ann(out, p->type_ann);
             return;
         }
@@ -1212,6 +1217,11 @@ static void stub_emit_params(FILE *out, Iron_Node **params, int count) {
 static void stub_emit_type_ann(FILE *out, Iron_Node *node) {
     if (!node || node->kind != IRON_NODE_TYPE_ANNOTATION) return;
     Iron_TypeAnnotation *t = (Iron_TypeAnnotation *)node;
+    if (t->is_rc || t->is_weak_rc) {
+        fprintf(out, t->is_rc ? "rc " : "weak rc ");
+        stub_emit_type_ann(out, t->is_rc ? t->rc_inner : t->weak_rc_inner);
+        return;
+    }
     /* Phase 20 PTR-13/14: pointer-type stub emission. */
     if (t->is_pointer) {
         if (t->is_nullable) fprintf(out, "?");

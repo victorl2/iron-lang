@@ -423,7 +423,8 @@ for test_file in ${_main_loop_files}; do
                 echo "[XFAIL] (@expect-panic: panic missing substring; expected-pass-after: phase-${expected_pass_after})"
                 XFAIL=$((XFAIL + 1))
             else
-                echo "[FAIL] (@expect-panic: stderr missing '${expect_panic_substr}')"
+                echo "[FAIL] (@expect-panic: stderr missing '${expect_panic_substr}', exit ${run_rc})"
+                printf '%s\n' "${run_output}" | head -20 >&2
                 FAIL=$((FAIL + 1))
             fi
         else
@@ -575,7 +576,17 @@ if [ "${CATEGORY}" = "v4-fail" ] || [ "${CATEGORY}" = "compile_fail" ]; then
         # Build failed. Check substring.
         expected_substr=$(cat "${expected_file}")
         expected_substr="${expected_substr%$'\n'}"
-        if grep -qF "${expected_substr}" "${build_log}"; then
+        # A fixture that does not parse proves nothing about the rule it
+        # targets: a syntax error must be the expected diagnostic itself.
+        stray_syntax=""
+        first_syntax=$(grep -m1 -E '^error\[E0(002|101|102)\]' "${build_log}" || true)
+        if [ -n "${first_syntax}" ] && ! printf '%s' "${first_syntax}" | grep -qF "${expected_substr}"; then
+            stray_syntax="${first_syntax}"
+        fi
+        if grep -qF "${expected_substr}" "${build_log}" && [ -n "${stray_syntax}" ]; then
+            echo "[FAIL] (fixture has an unrelated syntax error: ${stray_syntax})"
+            FAIL=$((FAIL + 1))
+        elif grep -qF "${expected_substr}" "${build_log}"; then
             if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
                 echo "[FAIL] (stale XFAIL: rejected as expected; remove @expected-pass-after: phase-${expected_pass_after})"
                 FAIL=$((FAIL + 1))

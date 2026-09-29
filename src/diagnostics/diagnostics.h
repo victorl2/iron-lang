@@ -465,7 +465,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 /* Phase 87-02 PATCH-08: retroactive conformance completeness check.
  * Emitted when a patch or object declares `implements I` but a required
  * interface method is not provided across in-object + patch decls. */
-#define IRON_ERR_IFACE_CONFORMANCE_MISSING  258   /* PATCH-08 */
+#define IRON_ERR_IFACE_CONFORMANCE_MISSING  258   /* retired: a missing method is E0205 */
 /* Phase 87-02 SELF: Self type used outside a method or interface sig.
  * Emitted when `Self` appears as a return-type annotation in a top-level
  * free function or any other non-method context. */

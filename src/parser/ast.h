@@ -517,6 +517,9 @@ typedef struct {
      * this to IRON_TYPE_WEAK_RC(inner). Default-zero via arena-zalloc. */
     bool          is_weak_rc;
     Iron_Node    *weak_rc_inner;
+    /* `rc T`: is_rc=true wraps rc_inner; lowers to IRON_TYPE_RC(inner). */
+    bool          is_rc;
+    Iron_Node    *rc_inner;
 } Iron_TypeAnnotation;
 
 #define IRON_LAYOUT_HINT_NONE 0

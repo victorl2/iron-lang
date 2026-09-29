@@ -1,7 +1,5 @@
 -- section 3.6 policies are non-transitive
 -- @req: POL-02, POL-06, POL-10
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): `rc T` field type annotations not in the v4 surface (E0297).
 -- extends-spec: heap container holding rc field; rc lifetime independent of heap container
 
 object Texture {

@@ -126,7 +126,9 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
              * IS an Iron_Node-derived sub-struct (first field is kind). */
             IRON_NODE_ASSERT_KIND(f->type_ann, IRON_NODE_TYPE_ANNOTATION);
             Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
-            if (ta->is_nullable) continue;
+            /* rc / weak rc / pointer fields hold a pointer: no value
+             * dependency (and their wrapper annotation has no name). */
+            if (ta->is_nullable || !ta->name) continue;
             int dep = find_ir_type_decl_idx(state->module, ta->name);
             if (dep >= 0 && dep != idx) ir_topo_visit(state, dep);
         }
@@ -675,7 +677,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
         if (!f || !f->type_ann || !f->resolved_type ||
             f->resolved_type->kind == IRON_TYPE_ERROR) continue;
         Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
-        if (ta->generic_arg_count > 0 || ta->is_weak_rc || (ta->is_array && ta->bounded))
+        if (ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || (ta->is_array && ta->bounded))
             (void)emit_type_to_c(f->resolved_type, ctx);
     }
     iron_strbuf_appendf(&ctx->struct_bodies, "struct %s {\n", mangled);
@@ -702,7 +704,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                  * f->type_ann before the Iron_TypeAnnotation cast. */
                 IRON_NODE_ASSERT_KIND(f->type_ann, IRON_NODE_TYPE_ANNOTATION);
                 Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
-                if ((ta->generic_arg_count > 0 || ta->is_weak_rc || (ta->is_array && ta->bounded)) &&
+                if ((ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || (ta->is_array && ta->bounded)) &&
                     f->resolved_type && f->resolved_type->kind != IRON_TYPE_ERROR) {
                     /* Box[T], a generic enum, weak rc T, a bounded vector:
                      * the name alone is not the C type (Box[Counter] was
