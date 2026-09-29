@@ -55,19 +55,15 @@ _AMP_ON_RC_SOURCE = (
     "}\n"
 )
 
-# POL-11 trigger: `rc` keyword in parameter declaration (illegal position).
-# Uses `rc Point` as a parameter type annotation; rc is reserved for
-# allocation expression only.
-# Triggers IRON_ERR_RC_BAD_POSITION=297 from src/parser/parser.c
-# parameter-list parsing site (mirror of Phase 21 E0273 heap pattern).
-# Spec POL-11: rc is closed-set lifecycle keyword bound to allocation
-# expression position; using it as a type annotation, binding declaration,
-# or parameter is a parse error.
+# POL-11 trigger: `rc` used as a parameter qualifier (illegal position).
+# `p: rc Point` is a valid rc parameter type; `var rc p: Point` puts the
+# keyword where a binding qualifier goes and triggers
+# IRON_ERR_RC_BAD_POSITION=297 from the parser's parameter-list site.
 _RC_IN_PARAMETER_SOURCE = (
     "object Point {\n"
     "    val x: Int\n"
     "}\n"
-    "func work(p: rc Point) {\n"
+    "func work(var rc p: Point) {\n"
     "    val q = p\n"
     "}\n"
 )
