@@ -2665,6 +2665,22 @@ void iron_lir_compute_inline_eligible(IronLIR_Func *fn,
                 }
             }
 
+            /* Values captured by a spawn / parallel-for / closure are copied
+             * into the task's environment by name (emit_c writes
+             * `_env->x = _vN`), never reconstructed inline: a single-use
+             * captured value marked inline-eligible lost its declaration and
+             * the env store referenced an undeclared `_vN`. */
+            if (in->kind == IRON_LIR_SPAWN) {
+                for (int ci = 0; ci < in->spawn.capture_count; ci++)
+                    hmput(excluded, in->spawn.captures[ci], true);
+            } else if (in->kind == IRON_LIR_PARALLEL_FOR) {
+                for (int ci = 0; ci < in->parallel_for.capture_count; ci++)
+                    hmput(excluded, in->parallel_for.captures[ci], true);
+            } else if (in->kind == IRON_LIR_MAKE_CLOSURE) {
+                for (int ci = 0; ci < in->make_closure.capture_count; ci++)
+                    hmput(excluded, in->make_closure.captures[ci], true);
+            }
+
             /* Record use-site block/position for all operands; mark cross-block uses */
             IronLIR_ValueId ops[MAX_OPERANDS];
             int op_count = 0;
