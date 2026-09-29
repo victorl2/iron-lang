@@ -521,6 +521,23 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
             return;
         }
     }
+    {
+        /* A receiver reached through a pointer value (`p.m()`, p: *T):
+         * the pointee is the storage. */
+        Iron_Type *pvt = emit_get_value_type(fn, vid);
+        if (pvt && pvt->kind == IRON_TYPE_PTR && pvt->ptr.pointee &&
+            pvt->ptr.pointee->kind == IRON_TYPE_OBJECT &&
+            !(in && in->kind == IRON_LIR_ALLOCA)) {
+            if (pvt->ptr.is_unchecked) {
+                emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, 0);
+            } else {
+                iron_strbuf_appendf(sb, "((%s *)(", emit_type_to_c(pvt->ptr.pointee, ctx));
+                emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, 0);
+                iron_strbuf_appendf(sb, ").addr)");
+            }
+            return;
+        }
+    }
     if (emit_val_is_heap_ptr(fn, vid)) {
         if (emit_val_is_heap_fat_ptr(fn, vid)) {
             const char *pointee = emit_fat_ptr_pointee_type_c(fn, vid, ctx);
@@ -4663,6 +4680,28 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 continue;
             }
 
+            /* A by-value receiver reached through a pointer: pass the
+             * pointee (`p.m()` with p: *T and a readonly m). */
+            if (i == 0 && callee_ir_name) {
+                Iron_Type *a0t = emit_get_value_type(fn, arg_id);
+                IronLIR_Func *cfn0 = emit_find_ir_func(ctx, callee_ir_name);
+                Iron_Type *p0t = (cfn0 && cfn0->param_count > 0) ? cfn0->params[0].type : NULL;
+                if (a0t && a0t->kind == IRON_TYPE_PTR && a0t->ptr.pointee &&
+                    p0t && p0t->kind == IRON_TYPE_OBJECT &&
+                    iron_type_equals(a0t->ptr.pointee, p0t)) {
+                    if (a0t->ptr.is_unchecked) {
+                        iron_strbuf_appendf(sb, "(*");
+                        emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                        iron_strbuf_appendf(sb, ")");
+                    } else {
+                        iron_strbuf_appendf(sb, "(*((%s *)(", emit_type_to_c(p0t, ctx));
+                        emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                        iron_strbuf_appendf(sb, ").addr))");
+                    }
+                    continue;
+                }
+            }
+
             /* Phase 96 STR-01: runtime helper takes operands by pointer. */
             if (runtime_args_by_addr) {
                 iron_strbuf_appendf(sb, "&(");
@@ -6935,8 +6974,17 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_val(sb, instr->addr_of.target);
             iron_strbuf_appendf(sb, ".gen };\n");
         } else if (instr->addr_of.gen_source == IRON_LIR_GEN_STACK) {
-            iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)&");
-            emit_val(sb, instr->addr_of.target);
+            /* `&x`: the address of x's storage. The target is usually a
+             * LOAD of the binding's slot, a copy; &copy made writes through
+             * a *var pointer vanish. */
+            iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)");
+            if (emit_vid_is_storage_path(fn, instr->addr_of.target)) {
+                emit_receiver_addr(sb, fn, ctx, instr->addr_of.target,
+                                   ctx->current_block_id);
+            } else {
+                iron_strbuf_appendf(sb, "&");
+                emit_val(sb, instr->addr_of.target);
+            }
             iron_strbuf_appendf(sb, ", .gen = iron_stack_gen };\n");
         } else {
             iron_strbuf_appendf(sb, " = (Iron_FatPtr){ .addr = (void *)&");

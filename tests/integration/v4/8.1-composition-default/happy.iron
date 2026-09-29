@@ -1,18 +1,15 @@
--- section 8.1 default policy: per-frame game logic verbatim
+-- section 8.1 default policy: per-frame game logic
 -- @req: PTR-01, PTR-06, READ-01, READ-04
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): stale-surface doc transcription: explicit-self method signatures (E0101),
--- top-level `readonly func` (E0245), E0264 var-field-no-init, and List[T]/List.new not in surface.
 -- compute_damage + tick_combat; stack-allocated values throughout; no visible heap
 
 object Vec2 {
     val x: Float
     val y: Float
 
-    readonly func distance_to(self: *Vec2, other: *Vec2) -> Float {
+    readonly func distance_sq_to(other: *Vec2) -> Float {
         val dx = self.x - other.x
         val dy = self.y - other.y
-        return Float(dx * dx + dy * dy)
+        return dx * dx + dy * dy
     }
 }
 
@@ -22,8 +19,18 @@ object Player {
     val attack_range: Float
     val pos: Vec2
 
-    readonly func has_buff(self: *Player) -> Bool {
+    readonly func has_buff() -> Bool {
         return false
+    }
+
+    readonly func compute_damage(target: *Enemy) -> Int {
+        val base = self.attack
+        val defense = target.defense
+        var multiplier = 1.0
+        if self.has_buff() {
+            multiplier = 1.5
+        }
+        return Int(Float(base - defense) * multiplier)
     }
 }
 
@@ -31,25 +38,21 @@ object Enemy {
     var hp: Int
     val defense: Int
     val pos: Vec2
+
+    init(hp: Int, defense: Int, pos: Vec2) {
+        self.hp = hp
+        self.defense = defense
+        self.pos = pos
+    }
 }
 
-readonly func compute_damage(attacker: *Player, target: *Enemy) -> Int {
-    val base = attacker.attack
-    val defense = target.defense
-    val multiplier = if attacker.has_buff() { 1.5 } else { 1.0 }
-    return Int(Float(base - defense) * multiplier)
-}
-
-func tick_combat(players: *var List[Player], enemies: *var List[Enemy], dt: Float) {
-    for i in range(players.len) {
-        val player = &players[i]
-
-        for j in range(enemies.len) {
-            val enemy = &enemies[j]
-            val distance = player.pos.distance_to(&enemy.pos)
-
-            if distance < player.attack_range {
-                val damage = compute_damage(player, enemy)
+func tick_combat(players: [Player], var enemies: [Enemy]) {
+    for i in range(players.len()) {
+        val player = players[i]
+        for j in range(enemies.len()) {
+            val distance_sq = player.pos.distance_sq_to(&enemies[j].pos)
+            if distance_sq < player.attack_range * player.attack_range {
+                val damage = player.compute_damage(&enemies[j])
                 enemies[j].hp -= damage
             }
         }
@@ -57,15 +60,9 @@ func tick_combat(players: *var List[Player], enemies: *var List[Enemy], dt: Floa
 }
 
 func main() {
-    var players: List[Player] = List.new()
-    var enemies: List[Enemy] = List.new()
-
-    val p = Player(100, 20, 10.0, Vec2(0.0, 0.0))
-    val e = Enemy(50, 5, Vec2(3.0, 4.0))
-
-    players.add(p)
-    enemies.add(e)
-
-    tick_combat(&players, &enemies, 0.016)
+    val players = [Player(100, 20, 10.0, Vec2(0.0, 0.0))]
+    var enemies = [Enemy(50, 5, Vec2(3.0, 4.0))]
+    tick_combat(players, enemies)
+    println("enemy hp: {enemies[0].hp}")
     println("tick complete")
 }

@@ -111,7 +111,8 @@ static void scan_for_writes(UnusedVarCtx *ctx, Iron_Node *node) {
                  * for VAL-05 (val locals); for var-param VAL-06 the
                  * FIELD_ACCESS arm below also counts. */
                 mark_reassigned(ctx, (Iron_Ident *)as->target);
-            } else if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
+            } else if (as->target && (as->target->kind == IRON_NODE_FIELD_ACCESS ||
+                                      as->target->kind == IRON_NODE_INDEX)) {
                 /* Phase 18 VAL-06 false-positive fix: walk the FIELD_ACCESS
                  * chain to its root IDENT and mark the param binding as
                  * written.
@@ -129,9 +130,14 @@ static void scan_for_writes(UnusedVarCtx *ctx, Iron_Node *node) {
                  * is_param entries so the Phase 17 test
                  * test_val_05_field_write_does_not_count keeps passing
                  * (var-local field-writes still warn). */
+                /* Element writes (`xs[i] = v`, `xs[i].f -= d`) mutate a var
+                 * parameter the same way field writes do. */
                 Iron_Node *cur = as->target;
-                while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
-                    cur = ((Iron_FieldAccess *)cur)->object;
+                while (cur && (cur->kind == IRON_NODE_FIELD_ACCESS ||
+                               cur->kind == IRON_NODE_INDEX)) {
+                    cur = cur->kind == IRON_NODE_FIELD_ACCESS
+                        ? ((Iron_FieldAccess *)cur)->object
+                        : ((Iron_IndexExpr *)cur)->object;
                 }
                 if (cur && cur->kind == IRON_NODE_IDENT) {
                     mark_param_used_via_field_write(ctx, (Iron_Ident *)cur);

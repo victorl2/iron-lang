@@ -2141,6 +2141,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             if (obj_type->kind == IRON_TYPE_RC && obj_type->rc.inner) {
                 obj_type = obj_type->rc.inner;
             }
+            /* A call through a pointer (`p.m()`, p: *T) dispatches to T's
+             * method; the emitter reads the receiver through the pointer. */
+            if (obj_type->kind == IRON_TYPE_PTR && obj_type->ptr.pointee &&
+                obj_type->ptr.pointee->kind == IRON_TYPE_OBJECT) {
+                obj_type = obj_type->ptr.pointee;
+            }
             if (obj_type->kind == IRON_TYPE_OBJECT && obj_type->object.decl) {
                 type_name = obj_type->object.decl->name;
                 /* Check if method name is actually a func-typed field on the object.
@@ -4562,6 +4568,13 @@ static void ssa_collect_addr_taken(IronLIR_Func *fn) {
             case IRON_LIR_RETURN:
                 ssa_mark_addr_taken(fn, in->ret.value);
                 break;
+            case IRON_LIR_ADDR_OF: {
+                /* `&x` / `&x.f`: the pointer aliases x's slot, so writes
+                 * through it must be seen by later reads of x. */
+                IronLIR_ValueId root = ssa_root_alloca(fn, in->addr_of.target);
+                if (root != IRON_LIR_VALUE_INVALID) hmput(g_ssa_addr_taken, root, true);
+                break;
+            }
             case IRON_LIR_SET_FIELD: {
                 /* `p.f = v` and `p.a.b = v` lower to set_field on a load
                  * (or get_field chain) of p's slot and mean an in-place

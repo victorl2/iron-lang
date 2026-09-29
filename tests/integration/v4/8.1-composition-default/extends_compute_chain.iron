@@ -1,9 +1,7 @@
 -- section 8.1 extends-spec: compute_damage chained with armor lookup
 -- @req: PTR-01, PTR-06, READ-01, READ-04
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): explicit-self method signatures (E0101) and top-level `readonly func`
--- (E0245) not in the v4 surface.
--- extends-spec: verifies readonly composition; readonly func calls readonly func
+-- extends-spec: verifies readonly composition; a readonly method calls
+-- readonly methods through checked pointers
 
 object Armor {
     val value: Int
@@ -13,25 +11,28 @@ object Fighter {
     val attack: Int
     val armor: Armor
 
-    readonly func has_buff(self: *Fighter) -> Bool {
+    readonly func has_buff() -> Bool {
         return false
     }
-}
 
-readonly func lookup_armor(f: *Fighter) -> Int {
-    return f.armor.value
-}
+    readonly func armor_value() -> Int {
+        return self.armor.value
+    }
 
-readonly func calc_net_damage(attacker: *Fighter, defender: *Fighter) -> Int {
-    val base = attacker.attack
-    val reduction = lookup_armor(defender)
-    val multiplier = if attacker.has_buff() { 1.5 } else { 1.0 }
-    return Int(Float(base - reduction) * multiplier)
+    readonly func net_damage_against(defender: *Fighter) -> Int {
+        val base = self.attack
+        val reduction = defender.armor_value()
+        var multiplier = 1.0
+        if self.has_buff() {
+            multiplier = 1.5
+        }
+        return Int(Float(base - reduction) * multiplier)
+    }
 }
 
 func main() {
     val a = Fighter(30, Armor(5))
     val b = Fighter(10, Armor(8))
-    val dmg = calc_net_damage(&a, &b)
+    val dmg = a.net_damage_against(&b)
     println("damage: {dmg}")
 }

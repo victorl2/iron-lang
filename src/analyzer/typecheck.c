@@ -5087,7 +5087,17 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                         mark_requires_mutable(
                                             ctx, (Iron_Node *)recv_ident);
                                     }
-                                    if (recv_ident && recv_ident->resolved_sym &&
+                                    /* Through a pointer the pointer's var decides
+                                     * (d.bump() with d: *var T mutates the pointee). */
+                                    Iron_Type *rit = recv_ident ? recv_ident->resolved_type : NULL;
+                                    bool via_ptr = rit && rit->kind == IRON_TYPE_PTR;
+                                    if (via_ptr && !rit->ptr.is_var) {
+                                        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, mc->span,
+                                                   "cannot call mutable method through a read-only pointer",
+                                                   "use a *var pointer");
+                                    }
+                                    if (!via_ptr &&
+                                        recv_ident && recv_ident->resolved_sym &&
                                         recv_ident->resolved_sym->sym_kind != IRON_SYM_TYPE &&
                                         !recv_ident->resolved_sym->is_mutable) {
                                         char msg[256];

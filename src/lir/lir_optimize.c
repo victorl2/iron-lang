@@ -1327,6 +1327,24 @@ static LirRecvLoadEntry *lir_collect_receiver_loads(IronLIR_Func *fn) {
     return set;
 }
 
+/* Slots whose address is taken with `&` (the root of an ADDR_OF target):
+ * the pointer can be written through (by a callee, or later in this
+ * function), so a load of the slot must not be replaced by the value
+ * stored before. */
+static LirRecvLoadEntry *lir_collect_addr_of_slots(IronLIR_Func *fn) {
+    LirRecvLoadEntry *set = NULL;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (!in || in->kind != IRON_LIR_ADDR_OF) continue;
+            IronLIR_ValueId root = lir_storage_chain_root(fn, in->addr_of.target, NULL);
+            if (root != IRON_LIR_VALUE_INVALID) hmput(set, root, true);
+        }
+    }
+    return set;
+}
+
 static bool run_copy_propagation(IronLIR_Module *module) {
     bool changed = false;
     for (int fi = 0; fi < module->func_count; fi++) {
@@ -1372,10 +1390,14 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                             store_info[idx].value.count++;
                         }
                     }
-                } else if (in->kind == IRON_LIR_SET_FIELD) {
-                    /* A field write mutates the slot in place: the original
+                } else if (in->kind == IRON_LIR_SET_FIELD ||
+                           in->kind == IRON_LIR_ADDR_OF) {
+                    /* A field write mutates the slot in place, and `&slot`
+                     * lets anything holding the pointer do so: the original
                      * STORE value no longer describes it. */
-                    IronLIR_ValueId root = lir_storage_chain_root(fn, in->field.object, NULL);
+                    IronLIR_ValueId root = lir_storage_chain_root(
+                        fn, in->kind == IRON_LIR_SET_FIELD ? in->field.object
+                                                           : in->addr_of.target, NULL);
                     if (root != IRON_LIR_VALUE_INVALID) {
                         ptrdiff_t idx = hmgeti(store_info, root);
                         if (idx < 0) {
@@ -2230,6 +2252,7 @@ static bool run_store_load_elim(IronLIR_Module *module) {
         /* Build the escape map for this function */
         IronLIR_EscapeEntry *escape_set = compute_escape_set(fn);
         LirRecvLoadEntry *recv_loads = lir_collect_receiver_loads(fn);
+        LirRecvLoadEntry *addr_slots = lir_collect_addr_of_slots(fn);
 
         /* Collect replacements across all blocks, then apply in second pass */
         ValueReplEntry *repl_map = NULL;
@@ -2262,7 +2285,8 @@ static bool run_store_load_elim(IronLIR_Module *module) {
                         (ptrdiff_t)in->store.ptr < arrlen(fn->value_table) &&
                         fn->value_table[in->store.ptr] != NULL &&
                         fn->value_table[in->store.ptr]->kind == IRON_LIR_ALLOCA &&
-                        !alloca_is_capture_alias(fn, in->store.ptr)) {
+                        !alloca_is_capture_alias(fn, in->store.ptr) &&
+                        hmgeti(addr_slots, in->store.ptr) < 0) {
                         hmput(last_store, in->store.ptr, in->store.value);
                     }
                     break;
@@ -2341,6 +2365,7 @@ static bool run_store_load_elim(IronLIR_Module *module) {
         }
 
         hmfree(repl_map);
+        hmfree(addr_slots);
         hmfree(recv_loads);
         hmfree(escape_set);
     }
@@ -6135,6 +6160,28 @@ static void run_function_inlining(IronLIR_Module *module,
                 ptrdiff_t ci = shgeti(candidates, (char*)callee_name);
                 if (ci < 0) continue;
                 IronLIR_Func *callee = candidates[ci].value;
+
+                /* Inlining substitutes each argument for its parameter; an
+                 * argument of a different representation (a pointer passed
+                 * for a by-value receiver, `p.m()` with p: *T) is adapted
+                 * by the call emission only, so keep the call. */
+                {
+                    bool arg_mismatch = false;
+                    for (int ai = 0; ai < instr->call.arg_count &&
+                                     ai < callee->param_count; ai++) {
+                        IronLIR_ValueId av = instr->call.args[ai];
+                        Iron_Type *at = NULL;
+                        if (av != IRON_LIR_VALUE_INVALID &&
+                            (ptrdiff_t)av < arrlen(fn->value_table) && fn->value_table[av])
+                            at = fn->value_table[av]->type;
+                        else if ((int)av >= 1 && (int)av <= fn->param_count)
+                            at = fn->params[av - 1].type;
+                        Iron_Type *pt = callee->params[ai].type;
+                        if (at && pt && at->kind == IRON_TYPE_PTR && pt->kind != IRON_TYPE_PTR)
+                            arg_mismatch = true;
+                    }
+                    if (arg_mismatch) continue;
+                }
 
                 /* Re-fetch block pointer (safe since no arrput happened yet) */
                 IronLIR_Block *call_block = fn->blocks[bi];
