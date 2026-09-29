@@ -37,6 +37,7 @@ TOPICS = [
     "unix",
     "statistics",
     "other",
+    "leetcode",
 ]
 DEPS = {"libc", "libm", "pthread", "posix", "sockets"}
 HEADER_KEYS = ("title", "topic", "covers", "deps")

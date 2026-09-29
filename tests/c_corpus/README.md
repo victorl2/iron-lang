@@ -88,3 +88,19 @@ Each file starts with a comment the harness parses:
 
 `deps` is a comma-separated subset of `libc`, `libm`, `pthread`, `posix`,
 `sockets`. Slugs are unique across the whole corpus.
+
+## Secondary set: LeetCode
+
+`leetcode/` holds C solutions to the free algorithmic LeetCode problems
+(3117 algorithm problems plus 6 concurrency problems). Database, shell,
+JavaScript and pandas problems are left out because they are not C problems.
+Premium problems are also left out.
+
+Each file is named `lc<NNNN>_<title_slug>.c`. The header adds `source:` (the
+problem URL) and `difficulty:` fields. A second comment block restates the
+problem, its input and output contract, and its constraints in our own
+words. The LeetCode text is not copied, so read the linked page for the
+original statement. The solution keeps LeetCode's C function signature
+where one exists. `main` runs hand-written cases, plus a brute-force or
+randomized cross-check where one is practical, and prints the results.
+These files follow the same program contract as the rest of the corpus.
