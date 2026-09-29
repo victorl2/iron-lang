@@ -1,0 +1,33 @@
+-- Regression: parallel for over array elements.
+--
+-- 1. `xs[i] = v` with i the loop variable was rejected (E0208) although
+--    every iteration writes its own element; it is allowed now.
+-- 2. `ps[i].update(dt)` failed LIR verification in optimized builds (the
+--    dead-alloca pass deleted the captured slot) and read an empty list in
+--    unoptimized ones (the captured array kept its stack representation,
+--    so the task received `int64_t **` instead of a list).
+-- Races stay errors: see v4-fail/regressions/parallel_closure_write.iron
+-- and parallel_outer_mutating_call.iron.
+object P {
+    var x: Int
+    init(x: Int) { self.x = x }
+    func update(dt: Int) { self.x = self.x + dt }
+}
+
+func main() {
+    var xs = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    for i in range(len(xs)) parallel {
+        xs[i] = i * i
+    }
+    var s = 0
+    for x in xs {
+        s += x
+    }
+    println("squares: sum {s}, xs[3] {xs[3]}")
+
+    var ps = [P(1), P(2), P(3), P(4)]
+    for i in range(len(ps)) parallel {
+        ps[i].update(10)
+    }
+    println("updated: {ps[0].x} {ps[1].x} {ps[2].x} {ps[3].x}")
+}

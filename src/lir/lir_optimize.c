@@ -658,16 +658,36 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
                         }
                     }
                 }
-                /* Check if stack array is used in MAKE_CLOSURE captures */
-                if (instr->kind == IRON_LIR_MAKE_CLOSURE) {
-                    for (int ci = 0; ci < instr->make_closure.capture_count; ci++) {
-                        ptrdiff_t vi = hmgeti(sa_map, instr->make_closure.captures[ci]);
-                        if (vi >= 0) {
-                            IronLIR_ValueId orig = sa_map[vi].value;
-                            if (orig < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                                fn->value_table[orig]) {
+                /* A stack array captured by a closure, spawn or parallel-for
+                 * body is stored in the task environment as a list: revoke
+                 * the stack representation (parallel-for captures used to
+                 * keep it, so the env received an `int64_t **` where it
+                 * expected an Iron_List_* and the body indexed an empty
+                 * list). A fill() origin is revoked through
+                 * revoked_fill_ids, not the array_lit payload. */
+                {
+                    IronLIR_ValueId *caps = NULL;
+                    int ncap = 0;
+                    if (instr->kind == IRON_LIR_MAKE_CLOSURE) {
+                        caps = instr->make_closure.captures;
+                        ncap = instr->make_closure.capture_count;
+                    } else if (instr->kind == IRON_LIR_SPAWN) {
+                        caps = instr->spawn.captures;
+                        ncap = instr->spawn.capture_count;
+                    } else if (instr->kind == IRON_LIR_PARALLEL_FOR) {
+                        caps = instr->parallel_for.captures;
+                        ncap = instr->parallel_for.capture_count;
+                    }
+                    for (int ci = 0; ci < ncap; ci++) {
+                        ptrdiff_t vi = hmgeti(sa_map, caps[ci]);
+                        if (vi < 0) continue;
+                        IronLIR_ValueId orig = sa_map[vi].value;
+                        if (orig < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                            fn->value_table[orig]) {
+                            if (fn->value_table[orig]->kind == IRON_LIR_ARRAY_LIT)
                                 fn->value_table[orig]->array_lit.use_stack_repr = false;
-                            }
+                            else
+                                hmput(info->revoked_fill_ids, orig, true);
                         }
                     }
                 }
@@ -1826,6 +1846,22 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
                 case IRON_LIR_GET_FIELD:
                 case IRON_LIR_SET_FIELD:
                     hmput(loaded, in->field.object, true);
+                    break;
+                /* A captured slot is read by the task / closure body through
+                 * its environment. Deleting it left `captures: [%1]`
+                 * pointing at nothing (a parallel-for over `var xs` failed
+                 * LIR verification). */
+                case IRON_LIR_MAKE_CLOSURE:
+                    for (int ci = 0; ci < in->make_closure.capture_count; ci++)
+                        hmput(loaded, in->make_closure.captures[ci], true);
+                    break;
+                case IRON_LIR_SPAWN:
+                    for (int ci = 0; ci < in->spawn.capture_count; ci++)
+                        hmput(loaded, in->spawn.captures[ci], true);
+                    break;
+                case IRON_LIR_PARALLEL_FOR:
+                    for (int ci = 0; ci < in->parallel_for.capture_count; ci++)
+                        hmput(loaded, in->parallel_for.captures[ci], true);
                     break;
                 /* -Wswitch-enum opt-out: live-slot scanner only needs to
                  * track direct reads/address-taking of allocas; all other

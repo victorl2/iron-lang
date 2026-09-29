@@ -11,6 +11,7 @@
  */
 
 #include "analyzer/concurrency.h"
+#include "analyzer/types.h"
 #include "vendor/stb_ds.h"
 
 #include <string.h>
@@ -44,6 +45,11 @@ typedef struct {
 
     /* HARD-05: cooperative cancellation flag (NULL means never cancel). */
     const _Atomic bool *cancel_flag;
+
+    /* Loop variable of the innermost parallel for (its element is private
+     * to one iteration: xs[i] with i the loop variable is disjoint). */
+    const char   *par_loop_var;
+    Iron_Program *program;
 } ConcurrencyCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -265,6 +271,175 @@ static void collect_spawn_refs(ConcurrencyCtx *ctx, Iron_Node *node) {
 /* ── Check assignments inside a parallel-for body ─────────────────────────── */
 
 /* Forward declaration */
+/* True when `n` is exactly the current parallel loop variable. */
+static bool is_par_loop_var(ConcurrencyCtx *ctx, Iron_Node *n) {
+    return ctx->par_loop_var && n && n->kind == IRON_NODE_IDENT &&
+           ((Iron_Ident *)n)->name &&
+           strcmp(((Iron_Ident *)n)->name, ctx->par_loop_var) == 0;
+}
+
+/* `outer[i]` where i is the parallel loop variable: each iteration owns a
+ * distinct element, so writing it (or calling a mutating method on it) is
+ * not a race. */
+static bool is_own_element(ConcurrencyCtx *ctx, Iron_Node *n) {
+    return n && n->kind == IRON_NODE_INDEX &&
+           is_par_loop_var(ctx, ((Iron_IndexExpr *)n)->index);
+}
+
+static bool list_method_mutates(const char *m) {
+    static const char *const k[] = { "push", "pop", "set", "insert", "remove",
+                                     "clear", "reverse", "sort", NULL };
+    for (int i = 0; k[i]; i++) if (m && strcmp(m, k[i]) == 0) return true;
+    return false;
+}
+
+/* Whether a method call can mutate its receiver, from the receiver type. */
+static bool method_call_mutates(ConcurrencyCtx *ctx, Iron_MethodCallExpr *mc) {
+    Iron_Type *t = mc->object ? ((Iron_ExprNode *)mc->object)->resolved_type : NULL;
+    if (!t || !mc->method) return false;
+    if (t->kind == IRON_TYPE_ARRAY) return list_method_mutates(mc->method);
+    if (t->kind != IRON_TYPE_OBJECT || !t->object.decl || !ctx->program) return false;
+    const char *tn = t->object.decl->name;
+    /* Mutex / Channel / RWLock operations synchronize: they are the way to
+     * share state across iterations. */
+    if (tn && (strcmp(tn, "Mutex") == 0 || strcmp(tn, "MutexGuard") == 0 ||
+               strcmp(tn, "Channel") == 0 || strcmp(tn, "RWLock") == 0 ||
+               strcmp(tn, "RWReadGuard") == 0 || strcmp(tn, "RWWriteGuard") == 0))
+        return false;
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (md->type_name && md->method_name && tn &&
+            strcmp(md->type_name, tn) == 0 && strcmp(md->method_name, mc->method) == 0)
+            return !md->is_readonly && !md->is_pure;
+    }
+    return false;
+}
+
+/* Names declared in a lambda (params + local val/var) are its own. */
+static bool lambda_declares(Iron_LambdaExpr *le, Iron_Node *n, const char *name);
+
+static bool block_declares(Iron_Node *n, const char *name) {
+    if (!n || n->kind != IRON_NODE_BLOCK) return false;
+    Iron_Block *b = (Iron_Block *)n;
+    for (int i = 0; i < b->stmt_count; i++) {
+        Iron_Node *st = b->stmts[i];
+        if (!st) continue;
+        if (st->kind == IRON_NODE_VAL_DECL && ((Iron_ValDecl *)st)->name &&
+            strcmp(((Iron_ValDecl *)st)->name, name) == 0) return true;
+        if (st->kind == IRON_NODE_VAR_DECL && ((Iron_VarDecl *)st)->name &&
+            strcmp(((Iron_VarDecl *)st)->name, name) == 0) return true;
+    }
+    return false;
+}
+
+static bool lambda_declares(Iron_LambdaExpr *le, Iron_Node *n, const char *name) {
+    (void)n;
+    for (int i = 0; i < le->param_count; i++) {
+        Iron_Param *p = (Iron_Param *)le->params[i];
+        if (p && p->name && strcmp(p->name, name) == 0) return true;
+    }
+    return block_declares(le->body, name);
+}
+
+/* The first captured variable a lambda assigns, or NULL. */
+static const char *lambda_writes_capture(Iron_LambdaExpr *le, Iron_Node *n) {
+    if (!n) return NULL;
+    switch ((int)n->kind) {
+        case IRON_NODE_ASSIGN: {
+            const char *root = expr_ident_name(((Iron_AssignStmt *)n)->target);
+            if (root && !lambda_declares(le, NULL, root)) return root;
+            return NULL;
+        }
+        case IRON_NODE_BLOCK: {
+            Iron_Block *b = (Iron_Block *)n;
+            for (int i = 0; i < b->stmt_count; i++) {
+                const char *w = lambda_writes_capture(le, b->stmts[i]);
+                if (w) return w;
+            }
+            return NULL;
+        }
+        case IRON_NODE_IF: {
+            Iron_IfStmt *is_ = (Iron_IfStmt *)n;
+            const char *w = lambda_writes_capture(le, is_->body);
+            for (int i = 0; !w && i < is_->elif_count; i++)
+                w = lambda_writes_capture(le, is_->elif_bodies[i]);
+            if (!w) w = lambda_writes_capture(le, is_->else_body);
+            return w;
+        }
+        case IRON_NODE_WHILE: return lambda_writes_capture(le, ((Iron_WhileStmt *)n)->body);
+        case IRON_NODE_FOR:   return lambda_writes_capture(le, ((Iron_ForStmt *)n)->body);
+        default: return NULL;
+    }
+}
+
+/* Scan an expression in a parallel-for body for writes that race: a
+ * mutating method call on an outer binding (other than this iteration's
+ * own element), or a call to a local closure that assigns a captured
+ * variable (the closure's write is a write to the outer variable). */
+static void check_expr_for_mutation(ConcurrencyCtx *ctx, Iron_Node *n) {
+    if (!n) return;
+    switch ((int)n->kind) {
+        case IRON_NODE_METHOD_CALL: {
+            Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)n;
+            check_expr_for_mutation(ctx, mc->object);
+            for (int i = 0; i < mc->arg_count; i++) check_expr_for_mutation(ctx, mc->args[i]);
+            const char *root = expr_ident_name(mc->object);
+            if (root && !name_is_local(ctx, root) && !is_own_element(ctx, mc->object) &&
+                method_call_mutates(ctx, mc)) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "cannot call mutating method '%s' on outer variable '%s' "
+                         "in parallel for body; use mutex for shared state (E0208)",
+                         mc->method ? mc->method : "?", root);
+                emit_err(ctx, IRON_ERR_PARALLEL_MUTATION, mc->span, msg);
+            }
+            break;
+        }
+        case IRON_NODE_CALL: {
+            Iron_CallExpr *ce = (Iron_CallExpr *)n;
+            for (int i = 0; i < ce->arg_count; i++) check_expr_for_mutation(ctx, ce->args[i]);
+            if (!ce->callee || ce->callee->kind != IRON_NODE_IDENT) break;
+            Iron_Ident *id = (Iron_Ident *)ce->callee;
+            Iron_Node *d = id->resolved_sym ? id->resolved_sym->decl_node : NULL;
+            Iron_Node *init = NULL;
+            if (d && d->kind == IRON_NODE_VAL_DECL) init = ((Iron_ValDecl *)d)->init;
+            else if (d && d->kind == IRON_NODE_VAR_DECL) init = ((Iron_VarDecl *)d)->init;
+            if (init && init->kind == IRON_NODE_LAMBDA) {
+                Iron_LambdaExpr *le = (Iron_LambdaExpr *)init;
+                const char *w = lambda_writes_capture(le, le->body);
+                if (w && !name_is_local(ctx, w)) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "closure '%s' assigns captured variable '%s'; calling it "
+                             "in a parallel for body races (E0208)",
+                             id->name ? id->name : "?", w);
+                    emit_err(ctx, IRON_ERR_PARALLEL_MUTATION, ce->span, msg);
+                }
+            }
+            break;
+        }
+        case IRON_NODE_BINARY:
+            check_expr_for_mutation(ctx, ((Iron_BinaryExpr *)n)->left);
+            check_expr_for_mutation(ctx, ((Iron_BinaryExpr *)n)->right);
+            break;
+        case IRON_NODE_UNARY: check_expr_for_mutation(ctx, ((Iron_UnaryExpr *)n)->operand); break;
+        case IRON_NODE_INTERP_STRING: {
+            Iron_InterpString *is_ = (Iron_InterpString *)n;
+            for (int i = 0; i < is_->part_count; i++) check_expr_for_mutation(ctx, is_->parts[i]);
+            break;
+        }
+        case IRON_NODE_FIELD_ACCESS: check_expr_for_mutation(ctx, ((Iron_FieldAccess *)n)->object); break;
+        case IRON_NODE_INDEX:
+            check_expr_for_mutation(ctx, ((Iron_IndexExpr *)n)->object);
+            check_expr_for_mutation(ctx, ((Iron_IndexExpr *)n)->index);
+            break;
+        default:
+            break;
+    }
+}
+
 static void check_body_stmts(ConcurrencyCtx *ctx, Iron_Node **stmts, int count);
 
 static void check_stmt_for_mutation(ConcurrencyCtx *ctx, Iron_Node *node) {
@@ -280,8 +455,11 @@ static void check_stmt_for_mutation(ConcurrencyCtx *ctx, Iron_Node *node) {
             const char *name = expr_ident_name(as->target);
             if (!name) break;  /* Non-identifier-rooted target; skip */
 
-            /* If the target root is NOT in our local set, it's an outer variable */
-            if (!name_is_local(ctx, name)) {
+            check_expr_for_mutation(ctx, as->value);
+            /* If the target root is NOT in our local set, it's an outer variable.
+             * `outer[i] = v` with i the parallel loop variable writes this
+             * iteration's own element and is allowed. */
+            if (!name_is_local(ctx, name) && !is_own_element(ctx, as->target)) {
                 char msg[256];
                 snprintf(msg, sizeof(msg),
                          "cannot mutate outer variable '%s' in parallel for body; "
@@ -319,11 +497,18 @@ static void check_stmt_for_mutation(ConcurrencyCtx *ctx, Iron_Node *node) {
             if (fs->body) check_stmt_for_mutation(ctx, fs->body);
             break;
         }
-        /* Val/var decls within the body are local — already collected. */
-        /* -Wswitch-enum opt-out: parallel-for mutation checker only cares
-         * about assignment / block / control-flow kinds; everything else
-         * (literals, expressions, decls) is safe. */
+        case IRON_NODE_VAL_DECL:
+            check_expr_for_mutation(ctx, ((Iron_ValDecl *)node)->init);
+            break;
+        case IRON_NODE_VAR_DECL:
+            check_expr_for_mutation(ctx, ((Iron_VarDecl *)node)->init);
+            break;
+        case IRON_NODE_RETURN:
+            check_expr_for_mutation(ctx, ((Iron_ReturnStmt *)node)->value);
+            break;
+        /* Expression statements: calls and method calls. */
         default:
+            check_expr_for_mutation(ctx, node);
             break;
     }
 }
@@ -398,6 +583,8 @@ static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
                 if (fs->var_name) {
                     arrpush(ctx->local_names, fs->var_name);
                 }
+                const char *prev_loop_var = ctx->par_loop_var;
+                ctx->par_loop_var = fs->var_name;
 
                 /* Collect all val/var decls inside the body as local */
                 if (fs->body->kind == IRON_NODE_BLOCK) {
@@ -414,6 +601,7 @@ static void walk_stmt(ConcurrencyCtx *ctx, Iron_Node *node) {
                 /* Restore local names to pre-parallel-for state */
                 arrsetlen(ctx->local_names, saved_count);
                 ctx->in_parallel = prev_in_parallel;
+                ctx->par_loop_var = prev_loop_var;
             } else {
                 /* Sequential for: walk body recursively for nested parallel fors */
                 if (fs->body) walk_stmt(ctx, fs->body);
@@ -762,6 +950,8 @@ void iron_concurrency_check(Iron_Program *program, Iron_Scope *global_scope,
     ctx.spawn_writes = NULL;
     ctx.spawn_reads  = NULL;
     ctx.cancel_flag  = cancel_flag;
+    ctx.par_loop_var = NULL;
+    ctx.program      = program;
 
     for (int i = 0; i < program->decl_count; i++) {
         /* HARD-05: cancel poll inside top-level decl loop. */

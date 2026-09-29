@@ -1,0 +1,16 @@
+-- @expected-error: E0208
+-- A mutating method call on an outer binding in a parallel for body races
+-- (only the element indexed by the loop variable is private).
+object Counter {
+    var n: Int
+    init() { self.n = 0 }
+    func inc() { self.n += 1 }
+}
+
+func main() {
+    var c = Counter()
+    for i in range(100) parallel {
+        c.inc()
+    }
+    println("{c.n}")
+}
