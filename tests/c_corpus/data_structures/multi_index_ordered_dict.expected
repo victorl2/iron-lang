@@ -1,0 +1,4 @@
+records=94 inserts=721 duplicate rejects=1337 deletes=627 score updates=598 renames=119 moves=312
+groups: 15 18 16 14 12 19
+lowest score 0, highest 49, top-3 sum 146
+first in insertion order: n81, last: n69

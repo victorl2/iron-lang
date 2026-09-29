@@ -1,0 +1,4 @@
+linear phase: 500 sets, reroot steps=0
+versions created=2501 sets=2500 gets=2500
+total reroot steps=34389, ping-pong steps=148
+checksum of live versions=612007

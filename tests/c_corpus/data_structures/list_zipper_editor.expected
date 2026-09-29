@@ -1,0 +1,5 @@
+edited: "hello, world!" cursor=13
+undo to v2: "hello, world" cursor=6
+delete word: "hello world!" len=12
+original still: "hello world"
+random session: 6000 ops, 8 versions, 595 chars total, cells allocated=16500

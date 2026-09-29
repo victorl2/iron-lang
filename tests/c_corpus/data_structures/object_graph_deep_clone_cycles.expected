@@ -1,0 +1,6 @@
+trial  0: 56 objects, 40 reachable, 24 SCCs, 15 shared, cycle=1, text length 344
+trial 12: 27 objects, 25 reachable,  5 SCCs, 15 shared, cycle=1, text length 231
+trial 24: 37 objects, 27 reachable, 13 SCCs, 10 shared, cycle=1, text length 245
+trial 36: 17 objects, 15 reachable,  3 SCCs,  5 shared, cycle=1, text length 137
+trial 48: 37 objects, 18 reachable,  3 SCCs,  9 shared, cycle=1, text length 156
+60 graphs: reachable=849 cyclic=47 SCCs=310 shared=311
