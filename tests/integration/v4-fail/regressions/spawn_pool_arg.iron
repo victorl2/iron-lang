@@ -1,0 +1,9 @@
+-- @expected-error: E0326
+-- Thread pools are not implemented: a pool argument to spawn used to be
+-- accepted (even a plain Int) and ignored.
+func main() {
+  val p = 5
+  spawn("x", p) {
+    println("ran")
+  }
+}

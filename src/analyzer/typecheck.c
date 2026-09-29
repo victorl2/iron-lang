@@ -3560,6 +3560,25 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
 
+            /* A spawn handle has no methods: `handle.done()` / `.result()`
+             * type-checked as Void and emitted undeclared C calls. */
+            if (mc->object && mc->object->kind == IRON_NODE_IDENT &&
+                ((Iron_Ident *)mc->object)->name && ctx->spawn_result_types &&
+                shgeti(ctx->spawn_result_types, ((Iron_Ident *)mc->object)->name) >= 0) {
+                const char *hn = ((Iron_Ident *)mc->object)->name;
+                char msg[256];
+                snprintf(msg, sizeof(msg), "spawn handle '%s' has no method '%s'",
+                         hn, mc->method ? mc->method : "?");
+                char hint[256];
+                snprintf(hint, sizeof(hint),
+                         "use `await %s` to wait for the task and get its result", hn);
+                emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg, hint);
+                for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                mc->resolved_type = result;
+                break;
+            }
+
             /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset + Ptr.diff compiler
              * builtins.  The Iron parser applies the Method-Call heuristic:
              * when the left-hand ident starts with an uppercase letter and the
@@ -7156,6 +7175,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
             Iron_Type *iter_t = check_expr(ctx, fs->iterable);
+            if (fs->is_parallel && fs->pool_expr) {
+                /* The pool expression was never resolved or type-checked:
+                 * `parallel(totally_bogus + 3)` compiled. */
+                emit_error(ctx, IRON_ERR_POOL_UNSUPPORTED, fs->pool_expr->span,
+                           "thread pools are not supported for parallel for",
+                           "write `for i in range(n) parallel { ... }`");
+            }
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
             /* Define loop variable with appropriate type.
              * For array iteration (for x in arr) the loop var has elem type.
@@ -7472,7 +7498,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_SPAWN: {
             Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
-            if (ss->pool_expr) check_expr(ctx, ss->pool_expr);
+            if (ss->pool_expr) {
+                check_expr(ctx, ss->pool_expr);
+                emit_error(ctx, IRON_ERR_POOL_UNSUPPORTED, ss->pool_expr->span,
+                           "thread pools are not supported; spawn runs the task "
+                           "on its own thread",
+                           "remove the pool argument: spawn(\"name\") { ... }");
+            }
             if (ss->body) check_stmt(ctx, ss->body);
 
             /* Store spawn body return type for downstream await lookup */

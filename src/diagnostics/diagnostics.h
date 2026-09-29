@@ -545,6 +545,9 @@ void iron_diaglist_free(Iron_DiagList *list);
 /* A spawn handle is awaited on a path where it may already have been
  * awaited (the first await joins and frees it; a second hung). */
 #define IRON_ERR_AWAIT_TWICE              325
+/* A thread pool argument to spawn(...) or parallel(...): pools are not
+ * implemented (the argument used to be accepted and ignored). */
+#define IRON_ERR_POOL_UNSUPPORTED         326
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400
