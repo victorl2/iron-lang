@@ -1,0 +1,10 @@
+thread 0 crc=91267e8a
+thread 1 crc=269179f9
+thread 2 crc=52df9a6a
+thread 3 crc=8982407c
+thread 4 crc=05475dbb
+thread 5 crc=acf078b2
+thread 6 crc=6cfa745c
+thread 7 crc=24ed75dc
+init calls=1
+crc32(123456789)=cbf43926

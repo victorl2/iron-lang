@@ -1,0 +1,10 @@
+unlock unlocked: EPERM
+first lock: OK
+relock by owner: EDEADLK
+trylock by owner: EBUSY
+unlock by non-owner: EPERM
+trylock from other thread while held: EBUSY
+owner unlock: OK
+double unlock: EPERM
+trylock from other thread when free: OK
+destroy: OK

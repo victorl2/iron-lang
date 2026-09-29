@@ -1,0 +1,11 @@
+range 0: [1..50] count=50 sum=1275 sumsq=42925
+range 1: [51..100] count=50 sum=3775 sumsq=295425
+range 2: [101..150] count=50 sum=6275 sumsq=797925
+range 3: [151..200] count=50 sum=8775 sumsq=1550425
+range 4: [201..250] count=50 sum=11275 sumsq=2552925
+range 5: [251..300] count=50 sum=13775 sumsq=3805425
+total=45150 totalsq=9045050 count=300
+scalar 3 -> 10
+scalar 4 -> 17
+scalar 5 -> 26
+scalar 6 -> 37
