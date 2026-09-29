@@ -1,0 +1,16 @@
+banana       distinct=15
+aaaa         distinct=4
+abcabc       distinct=15
+mississippi  distinct=53
+a            distinct=1
+random n=45 alphabet=2 distinct=850 of 1035
+random n=54 alphabet=3 distinct=1350 of 1485
+random n=53 alphabet=4 distinct=1330 of 1431
+random n=22 alphabet=2 distinct=189 of 253
+random n=27 alphabet=3 distinct=331 of 378
+random n=53 alphabet=4 distinct=1320 of 1431
+k=1 -> i
+k=10 -> issippi
+k=25 -> mississip
+k=40 -> sissip
+k=53 -> ssissippi

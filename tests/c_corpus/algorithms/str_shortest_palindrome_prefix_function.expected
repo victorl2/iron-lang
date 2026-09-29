@@ -1,0 +1,9 @@
+aacecaaa prepend -> aaacecaaa      append -> aacecaaacecaa  min insertions anywhere 1
+abcd     prepend -> dcbabcd        append -> abcdcba        min insertions anywhere 3
+race     prepend -> ecarace        append -> racecar        min insertions anywhere 3
+a        prepend -> a              append -> a              min insertions anywhere 0
+abab     prepend -> babab          append -> ababa          min insertions anywhere 1
+level    prepend -> level          append -> level          min insertions anywhere 0
+aaaab    prepend -> baaaab         append -> aaaabaaaa      min insertions anywhere 1
+abbacd   prepend -> dcabbacd       append -> abbacdcabba    min insertions anywhere 2
+random: 2000 strings, total gap between end-only and anywhere insertions: 8580
