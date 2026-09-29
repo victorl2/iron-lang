@@ -290,6 +290,7 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
 
 /* Ensure the list type for `[rc T]` / `[weak rc T]` elements; returns its
  * C name. */
+const char *emit_ensure_nested_list(EmitCtx *ctx, const Iron_Type *elem);
 const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem);
 
 /* Phase 26 POL-06 (Plan 26-03): synthesize <TypeName>_rc_drop trampoline.

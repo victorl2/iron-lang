@@ -8066,7 +8066,7 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                  * object's list field: every [Iface] value is a split
                  * collection, #180.) */
                 if ((in2->kind == IRON_LIR_CALL || in2->kind == IRON_LIR_GET_FIELD ||
-                     in2->kind == IRON_LIR_LOAD) &&
+                     in2->kind == IRON_LIR_LOAD || in2->kind == IRON_LIR_GET_INDEX) &&
                     in2->id != IRON_LIR_VALUE_INVALID &&
                     in2->type && in2->type->kind == IRON_TYPE_ARRAY &&
                     in2->type->array.elem &&
@@ -8833,7 +8833,7 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                  * object's list field: every [Iface] value is a split
                  * collection, #180.) */
                 if ((in2->kind == IRON_LIR_CALL || in2->kind == IRON_LIR_GET_FIELD ||
-                     in2->kind == IRON_LIR_LOAD) &&
+                     in2->kind == IRON_LIR_LOAD || in2->kind == IRON_LIR_GET_INDEX) &&
                     in2->id != IRON_LIR_VALUE_INVALID &&
                     in2->type && in2->type->kind == IRON_TYPE_ARRAY &&
                     in2->type->array.elem &&

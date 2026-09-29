@@ -149,6 +149,74 @@ const char *emit_optional_struct_name(const Iron_Type *inner,
  * element: _clone retains every element, _free / _clear release them. The
  * element is a pointer, so the typedef needs only T's forward declaration.
  * Returns the list's C type name. */
+/* The list type of a list whose elements are themselves dynamic lists
+ * (#176): Iron_List_<inner list C type>. The outer list owns its inner
+ * lists: _free frees each one (dropping their elements), _clone clones each
+ * one, _clear frees them. The inner type is emitted first by the recursive
+ * emit_type_to_c. Returns the list's C type name. */
+const char *emit_ensure_nested_list(EmitCtx *ctx, const Iron_Type *elem) {
+    const char *elem_c = emit_type_to_c((Iron_Type *)elem, ctx);
+    char list_name[512];
+    snprintf(list_name, sizeof(list_name), "Iron_List_%s", elem_c);
+    const char *result = iron_arena_strdup(ctx->arena, list_name, strlen(list_name));
+    if (!result) iron_oom_abort("emit_helpers.c:emit_ensure_nested_list");
+    for (int i = 0; i < (int)arrlen(ctx->emitted_rc_lists); i++)
+        if (strcmp(ctx->emitted_rc_lists[i], result) == 0) return result;
+    arrput(ctx->emitted_rc_lists, (char *)result);
+
+    bool split = elem->array.elem && elem->array.elem->kind == IRON_TYPE_INTERFACE;
+    Iron_StrBuf *sb = &ctx->struct_bodies;
+    /* The inner list's clone / free may be defined later in the file
+     * (object-element lists): declare them. Split lists define theirs as
+     * static inline with the interface, before any function body. */
+    if (!split)
+        iron_strbuf_appendf(sb,
+            "%s %s_clone(const %s *src);\n"
+            "void %s_free(%s *self);\n",
+            elem_c, elem_c, elem_c, elem_c, elem_c);
+    const char *suffix = result + strlen("Iron_List_");
+    iron_strbuf_appendf(sb,
+        "typedef struct %s {\n"
+        "    %s *items;\n"
+        "    int64_t count;\n"
+        "    int64_t capacity;\n"
+        "} %s;\n"
+        "IRON_LIST_DECL(%s, %s)\n"
+        "IRON_LIST_IMPL_CORE(%s, %s)\n",
+        result, elem_c, result, elem_c, suffix, elem_c, suffix);
+    iron_strbuf_appendf(sb,
+        "%s %s_clone(const %s *src) {\n"
+        "    %s dst;\n"
+        "    dst.count = src->count;\n"
+        "    dst.capacity = src->count;\n"
+        "    dst.items = NULL;\n"
+        "    if (src->count > 0) {\n"
+        "        dst.items = (%s *)malloc((size_t)src->count * sizeof(%s));\n"
+        "        if (!dst.items) iron_oom_abort(\"%s_clone\");\n"
+        "        for (int64_t _i = 0; _i < src->count; _i++)\n"
+        "            dst.items[_i] = %s_clone(&src->items[_i]);\n"
+        "    }\n"
+        "    return dst;\n"
+        "}\n"
+        "void %s_free(%s *self) {\n"
+        "    for (int64_t _i = 0; _i < self->count; _i++) %s_free(&self->items[_i]);\n"
+        "    free(self->items);\n"
+        "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
+        "}\n"
+        "void %s_clear(%s *self) {\n"
+        "    for (int64_t _i = 0; _i < self->count; _i++) %s_free(&self->items[_i]);\n"
+        "    self->count = 0;\n"
+        "}\n\n",
+        result, result, result,
+        result,
+        elem_c, elem_c,
+        result,
+        elem_c,
+        result, result, elem_c,
+        result, result, elem_c);
+    return result;
+}
+
 const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem) {
     bool weak = elem->kind == IRON_TYPE_WEAK_RC;
     const Iron_Type *inner = weak ? elem->weak_rc.inner : elem->rc.inner;
@@ -436,6 +504,11 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
             if (t->array.elem && (t->array.elem->kind == IRON_TYPE_RC ||
                                   t->array.elem->kind == IRON_TYPE_WEAK_RC)) {
                 return emit_ensure_rc_list(ctx, t->array.elem);
+            }
+            /* A list of lists owns its inner lists (#176). */
+            if (t->array.elem && t->array.elem->kind == IRON_TYPE_ARRAY &&
+                t->array.elem->array.size < 0 && !t->array.elem->array.is_bounded) {
+                return emit_ensure_nested_list(ctx, t->array.elem);
             }
             const char *elem_c = emit_type_to_c(t->array.elem, ctx);
             Iron_StrBuf sb = iron_strbuf_create(64);

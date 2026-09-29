@@ -4161,6 +4161,18 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 break;
             }
 
+            /* push / insert / set: the element argument takes the list's
+             * element type as its expected type, so `grid.push([])` and
+             * `shapes.push([Sq(1), Dot()])` infer [T] / [Shape] from the
+             * list. (Later checks of the argument reuse this result.) */
+            if (mc->method && mc->object && mc->arg_count > 0 &&
+                (strcmp(mc->method, "push") == 0 || strcmp(mc->method, "insert") == 0 ||
+                 strcmp(mc->method, "set") == 0)) {
+                Iron_Type *lt = check_expr(ctx, mc->object);
+                if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.elem)
+                    check_expr_with_expected(ctx, mc->args[mc->arg_count - 1], lt->array.elem);
+            }
+
             /* `x.copy()` on an object: the explicit duplicate (#174). An
              * object that declares its own copy method (Image.copy) keeps
              * it; the `copy { }` hook is not callable and runs inside. */
@@ -6331,6 +6343,14 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     break;
                 }
             }
+            if (al->context_type) {
+                for (int i = 0; i < al->element_count; i++)
+                    check_expr_with_expected(ctx, al->elements[i],
+                                             al->context_type->array.elem);
+                result = al->context_type;
+                al->resolved_type = result;
+                break;
+            }
             if (al->size) check_expr(ctx, al->size);
             Iron_Type *elem_type = NULL;
             Iron_Type **elem_types = NULL; /* track all element types for mixed-type detection */
@@ -6737,7 +6757,29 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
         Iron_ArrayLit *al = (Iron_ArrayLit *)node;
         if (al->element_count == 0) {
             al->resolved_type = expected;
+            al->context_type = expected;
             return expected;
+        }
+        /* A non-empty dynamic literal takes the expected list type when
+         * every element fits its element type (an interface list built
+         * from different implementors, a list of empty lists). */
+        if (!al->type_ann && !al->size && expected->array.size < 0 &&
+            !expected->array.is_bounded && expected->array.elem) {
+            bool fits = true;
+            for (int i = 0; i < al->element_count; i++) {
+                Iron_Type *et = check_expr_with_expected(ctx, al->elements[i],
+                                                         expected->array.elem);
+                if (!et || et->kind == IRON_TYPE_ERROR ||
+                    !types_assignable(expected->array.elem, et)) {
+                    fits = false;
+                    break;
+                }
+            }
+            if (fits) {
+                al->resolved_type = expected;
+                al->context_type = expected;
+                return expected;
+            }
         }
     }
     return check_expr(ctx, node);

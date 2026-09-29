@@ -961,6 +961,10 @@ typedef struct {
     Iron_Node         *size;          /* NULL if dynamic */
     Iron_Node        **elements;
     int                element_count;
+    /* Set by the type checker when the literal's type comes from its
+     * context (`xs.push([])`, `val xs: [Shape] = [Sq(1), Dot()]`): later
+     * re-checks keep it instead of re-inferring from the elements. */
+    struct Iron_Type  *context_type;
 } Iron_ArrayLit;
 
 typedef struct {

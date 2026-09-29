@@ -112,11 +112,22 @@ void emit_split_arena_helpers(EmitCtx *ctx) {
 /* An implementor with lifecycle glue (drop, copy, rc or list fields) is
  * stored as whole objects (AoS): its drop / copy glue works on an object,
  * which a per-field (SoA) layout does not hold. */
+/* The layout of one implementor: lifecycle forces AoS, then a `layout:`
+ * annotation on any collection of the interface, then the analysis. Used
+ * both for the common-field decision and for the per-type storage, which
+ * must agree (common fields only exist when no implementor is SoA). */
 static IronLayoutKind split_layout_kind(EmitCtx *ctx, const char *iface_mangled,
-                                        Iron_IfaceImpl *impl) {
+                                        Iron_IfaceImpl *impl,
+                                        IronLIR_ValueId *collection_vids) {
     if (impl->decl && (od_needs_drop(ctx, impl->decl) ||
                        od_needs_copy_fixup(ctx, impl->decl)))
         return IRON_LAYOUT_AOS;
+    for (int ci = 0; ci < (int)arrlen(collection_vids); ci++) {
+        ptrdiff_t ov = hmgeti(ctx->layout_overrides, collection_vids[ci]);
+        if (ov >= 0)
+            return ctx->layout_overrides[ov].value == 1 ? IRON_LAYOUT_SOA
+                                                        : IRON_LAYOUT_AOS;
+    }
     return iron_layout_get_kind(&ctx->layout, iface_mangled, impl->type_name);
 }
 
@@ -224,7 +235,8 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl_chk = &entry->impls[j];
         if (!impl_chk->is_alive) continue;
-        IronLayoutKind lk_chk = split_layout_kind(ctx, iface_mangled, impl_chk);
+        IronLayoutKind lk_chk = split_layout_kind(ctx, iface_mangled, impl_chk,
+                                                  iface_collection_vids);
         if (lk_chk == IRON_LAYOUT_SOA) { any_soa = true; break; }
     }
     CommonField *common_fields = NULL;
@@ -283,7 +295,8 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
         }
 
         /* Phase 48-02: Check SoA layout for this type */
-        IronLayoutKind lk = split_layout_kind(ctx, iface_mangled, impl2);
+        IronLayoutKind lk = iron_layout_get_kind(&ctx->layout, iface_mangled,
+                                                 impl2->type_name);
 
         /* Phase 48-03: Layout annotation override with warning */
         for (int ci4 = 0; ci4 < (int)arrlen(iface_collection_vids); ci4++) {
@@ -306,10 +319,9 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                 break;
             }
         }
-        /* (Lifecycle wins over an annotation: see split_layout_kind.) */
-        if (impl2->decl && (od_needs_drop(ctx, impl2->decl) ||
-                            od_needs_copy_fixup(ctx, impl2->decl)))
-            lk = IRON_LAYOUT_AOS;
+        /* The decision itself (lifecycle, annotation, analysis) is the
+         * same one the common-field check used. */
+        lk = split_layout_kind(ctx, iface_mangled, impl2, iface_collection_vids);
 
         if (lk == IRON_LAYOUT_SOA && impl2->decl) {
             /* SoA: emit separate per-field arrays */

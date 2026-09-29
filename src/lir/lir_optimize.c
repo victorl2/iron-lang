@@ -697,6 +697,23 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
                         }
                     }
                 }
+                /* A literal that is an element of another list literal is
+                 * owned by that list (lists of lists, #176): never a stack
+                 * array. */
+                if (instr->kind == IRON_LIR_ARRAY_LIT) {
+                    for (int ei = 0; ei < instr->array_lit.element_count; ei++) {
+                        ptrdiff_t vi = hmgeti(sa_map, instr->array_lit.elements[ei]);
+                        if (vi < 0) continue;
+                        IronLIR_ValueId orig = sa_map[vi].value;
+                        if (orig < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                            fn->value_table[orig]) {
+                            if (fn->value_table[orig]->kind == IRON_LIR_ARRAY_LIT)
+                                fn->value_table[orig]->array_lit.use_stack_repr = false;
+                            else
+                                hmput(info->revoked_fill_ids, orig, true);
+                        }
+                    }
+                }
                 /* Check if stack array is used in SET_FIELD (stored into object) */
                 if (instr->kind == IRON_LIR_SET_FIELD) {
                     ptrdiff_t vi = hmgeti(sa_map, instr->field.value);

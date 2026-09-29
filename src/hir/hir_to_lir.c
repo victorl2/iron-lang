@@ -583,6 +583,20 @@ static void note_owned_temp(HIR_to_LIR_Ctx *ctx, TempOwned **temps,
  * element type, or rc_ / weakrc_ plus the object for rc elements). */
 static const char *list_elem_suffix(HIR_to_LIR_Ctx *ctx, Iron_Type *elem) {
     const char *elem_suffix = "int64_t";
+    /* A list element that is itself a list: its C type, Iron_List_<suffix>
+     * (or the split list of an interface), matching emit_type_to_c. */
+    if (elem && elem->kind == IRON_TYPE_ARRAY && elem->array.size < 0 &&
+        !elem->array.is_bounded) {
+        bool split = elem->array.elem && elem->array.elem->kind == IRON_TYPE_INTERFACE;
+        const char *inner = split && elem->array.elem->interface.decl
+            ? elem->array.elem->interface.decl->name
+            : list_elem_suffix(ctx, elem->array.elem);
+        size_t slen = strlen(inner) + 24;
+        char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+        if (!s) iron_oom_abort("hir_to_lir.c:list_elem_suffix nested");
+        snprintf(s, slen, split ? "Iron_SplitList_Iron_%s" : "Iron_List_%s", inner);
+        return s;
+    }
     if (elem) {
         switch ((int)(elem->kind)) {
             case IRON_TYPE_INT:    elem_suffix = "int64_t";     break;
