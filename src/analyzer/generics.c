@@ -20,7 +20,10 @@ typedef struct {
     bool         materialized;
 } GenInst;
 
-static GenInst *g_insts;        /* stb_ds */
+/* Per thread: the language server analyzes documents on several worker
+ * threads at once, and each analysis owns its instance table from reset to
+ * drop_templates (a shared table raced and one analysis reset another's). */
+static _Thread_local GenInst *g_insts;        /* stb_ds */
 
 void iron_generics_reset(void) {
     for (ptrdiff_t i = 0; i < arrlen(g_insts); i++) arrfree(g_insts[i].arg_texts);

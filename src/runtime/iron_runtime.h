@@ -644,6 +644,13 @@ static inline void iron_check_arena_pointer_gen(Iron_FatPtr fp,
 }
 
 /* ── Platform threading abstraction ──────────────────────────────────────── */
+/* Stack size of every runtime thread (spawned tasks, the language
+ * server's reader and workers): the main thread's usual 8 MB. Secondary
+ * threads otherwise get the platform default (512 KB on macOS), where deep
+ * recursion (and the type checker under ASan) overflowed. */
+#ifndef IRON_THREAD_STACK_SIZE
+#define IRON_THREAD_STACK_SIZE ((size_t)8 * 1024 * 1024)
+#endif
 #ifdef _WIN32
 
   typedef HANDLE               iron_thread_t;
@@ -659,12 +666,14 @@ static inline void iron_check_arena_pointer_gen(Iron_FatPtr fp,
       free(p);
       return 0;
   }
+  /* See IRON_THREAD_STACK_SIZE below. */
   static inline int iron__win_thread_create(iron_thread_t *t,
                                             void *(*fn)(void*), void *arg) {
       iron__win_trampoline_t *tramp = (iron__win_trampoline_t *)malloc(sizeof(*tramp));
       if (!tramp) return -1;
       tramp->fn = fn; tramp->arg = arg;
-      *t = CreateThread(NULL, 0, iron__win_thread_proc, tramp, 0, NULL);
+      *t = CreateThread(NULL, IRON_THREAD_STACK_SIZE, iron__win_thread_proc, tramp,
+                        STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
       return *t ? 0 : -1;
   }
 
@@ -694,7 +703,16 @@ static inline void iron_check_arena_pointer_gen(Iron_FatPtr fp,
   typedef pthread_cond_t     iron_cond_t;
   typedef pthread_rwlock_t   iron_rwlock_t;
 
-  #define IRON_THREAD_CREATE(t,fn,arg)   pthread_create(&(t),NULL,(fn),(arg))
+  static inline int iron__posix_thread_create(iron_thread_t *t,
+                                              void *(*fn)(void*), void *arg) {
+      pthread_attr_t attr;
+      if (pthread_attr_init(&attr) != 0) return -1;
+      pthread_attr_setstacksize(&attr, IRON_THREAD_STACK_SIZE);
+      int rc = pthread_create(t, &attr, fn, arg);
+      pthread_attr_destroy(&attr);
+      return rc;
+  }
+  #define IRON_THREAD_CREATE(t,fn,arg)   iron__posix_thread_create(&(t),(fn),(arg))
   #define IRON_THREAD_JOIN(t)            pthread_join((t), NULL)
   #define IRON_MUTEX_INIT(m)             pthread_mutex_init(&(m), NULL)
   #define IRON_MUTEX_LOCK(m)             pthread_mutex_lock(&(m))
