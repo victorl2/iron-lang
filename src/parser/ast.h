@@ -933,6 +933,9 @@ typedef struct {
     struct Iron_Type  *resolved_type;  /* set by type checker */
     Iron_Node         *expr;
     const char        *type_name;
+    /* Set by the type checker for a type test (#179): the object or
+     * interface type named by type_name. NULL for `is Null`. */
+    struct Iron_Type  *target_type;
 } Iron_IsExpr;
 
 typedef struct {

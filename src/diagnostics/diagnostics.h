@@ -596,6 +596,7 @@ void iron_diaglist_free(Iron_DiagList *list);
  * differs ("change var → val" vs "drop var modifier") and the warning
  * text also differs ("never reassigned" vs "never mutated"). */
 #define IRON_WARN_UNUSED_VAR_PARAM  614   /* VAL-06 */
+#define IRON_WARN_CONSTANT_TYPE_TEST 615  /* `c is T` on a concrete value: known at compile time (#179) */
 
 /* Phase 28 ARENA-09 (Plan 28-03): arena-allocated type with a transitive
  * non-trivial destructor. A type warns if it (or a field whose type

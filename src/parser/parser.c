@@ -2429,9 +2429,13 @@ static Iron_Node *iron_parse_pattern(Iron_Parser *p) {
                        "expected enum name in pattern", NULL);
         return iron_make_error(p);
     }
-    Iron_Token *enum_tok = iron_advance(p);
-
-    if (!iron_expect(p, IRON_TOK_DOT)) return iron_make_error(p);
+    /* The qualifier is optional: `Shape.Circle(r)` or `Circle(c)` (a bare
+     * variant, or an implementor in a type match over an interface). */
+    Iron_Token *enum_tok = NULL;
+    if (p->pos + 1 < p->token_count && p->tokens[p->pos + 1].kind == IRON_TOK_DOT) {
+        enum_tok = iron_advance(p);
+        if (!iron_expect(p, IRON_TOK_DOT)) return iron_make_error(p);
+    }
 
     /* variant_name */
     if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
@@ -2496,9 +2500,9 @@ static Iron_Node *iron_parse_pattern(Iron_Parser *p) {
     pat->kind           = IRON_NODE_PATTERN;
     pat->span           = iron_span_merge(iron_token_span(p, start),
                                            iron_token_span(p, iron_current(p)));
-    pat->enum_name      = iron_arena_strdup(p->arena, enum_tok->value,
-                                             strlen(enum_tok->value));
-    if (!pat->enum_name) { /* HARD-09 REPLACE (iron_parse_pattern enum_name) */ pat->enum_name = "?"; }
+    pat->enum_name      = enum_tok ? iron_arena_strdup(p->arena, enum_tok->value,
+                                                        strlen(enum_tok->value)) : NULL;
+    if (enum_tok && !pat->enum_name) { /* HARD-09 REPLACE (iron_parse_pattern enum_name) */ pat->enum_name = "?"; }
     pat->variant_name   = iron_arena_strdup(p->arena, variant_tok->value,
                                              strlen(variant_tok->value));
     if (!pat->variant_name) { /* HARD-09 REPLACE (iron_parse_pattern variant_name) */ pat->variant_name = "?"; }
@@ -2567,6 +2571,13 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
         if (iron_check(p, IRON_TOK_IDENTIFIER) &&
             p->pos + 1 < p->token_count &&
             p->tokens[p->pos + 1].kind == IRON_TOK_DOT) {
+            pattern = iron_parse_pattern(p);
+        } else if (iron_check(p, IRON_TOK_IDENTIFIER) &&
+                   iron_current(p)->value &&
+                   iron_current(p)->value[0] >= 'A' && iron_current(p)->value[0] <= 'Z' &&
+                   p->pos + 1 < p->token_count &&
+                   p->tokens[p->pos + 1].kind == IRON_TOK_LPAREN) {
+            /* `Circle(c) ->`: an unqualified pattern with bindings. */
             pattern = iron_parse_pattern(p);
         } else {
             pattern = iron_parse_expr(p);

@@ -132,16 +132,166 @@ static void emit_float_literal(Iron_StrBuf *sb, double v, const char *ctype) {
  *   T  -> T?  (Opt){ .value = v, .has_value = true }
  *   T? -> T   v.value
  * Returns false for any other cast. */
+/* ── Interface type tests and narrowing views (#179) ──────────────────────
+ * An interface value is a tagged union over its live implementors. `x is T`
+ * compares the tag (or the set of tags whose implementor also implements
+ * interface T); on a concrete value the answer is a constant. A binding
+ * narrowed by such a test is read through a view: the payload for an
+ * object type, or the same payload re-tagged for another interface. Views
+ * never run copy or drop glue. */
+static bool iface_impl_alive(Iron_IfaceEntry *e, const char *type_name) {
+    for (int j = 0; e && j < e->impl_count; j++)
+        if (e->impls[j].is_alive && strcmp(e->impls[j].type_name, type_name) == 0)
+            return true;
+    return false;
+}
+
+static bool iface_variant_is_indirect(EmitCtx *ctx, const char *iface_c,
+                                      const char *type_name) {
+    char key[512];
+    snprintf(key, sizeof(key), "%s:%s", iface_c, type_name);
+    return ctx->indirect_variants && shgeti(ctx->indirect_variants, key) >= 0;
+}
+
+/* `Iron_J Iron_J_view_Iron_I(const Iron_I *p)`: the payload of *p as a J.
+ * Emitted once into lifted_funcs. */
+static const char *emit_ensure_iface_view(EmitCtx *ctx, Iron_IfaceEntry *from,
+                                          Iron_IfaceEntry *to) {
+    const char *fc = emit_mangle_name(from->iface_name, ctx->arena);
+    const char *tc = emit_mangle_name(to->iface_name, ctx->arena);
+    char name[512];
+    snprintf(name, sizeof(name), "%s_view_%s", tc, fc);
+    for (int i = 0; i < (int)arrlen(ctx->emitted_drops); i++)
+        if (strcmp(ctx->emitted_drops[i], name) == 0)
+            return iron_arena_strdup(ctx->arena, name, strlen(name));
+    char *nm = iron_arena_strdup(ctx->arena, name, strlen(name));
+    if (!nm) iron_oom_abort("emit_c.c:emit_ensure_iface_view");
+    arrput(ctx->emitted_drops, nm);
+    Iron_StrBuf *sb = &ctx->lifted_funcs;
+    iron_strbuf_appendf(sb, "static inline %s %s(const %s *p) {\n"
+                            "    %s r;\n    memset(&r, 0, sizeof(r));\n"
+                            "    switch (p->tag) {\n", tc, nm, fc, tc);
+    for (int j = 0; j < from->impl_count; j++) {
+        Iron_IfaceImpl *im = &from->impls[j];
+        if (!im->is_alive || !iface_impl_alive(to, im->type_name)) continue;
+        bool fi = iface_variant_is_indirect(ctx, fc, im->type_name);
+        bool ti = iface_variant_is_indirect(ctx, tc, im->type_name);
+        const char *src_expr = fi ? (ti ? "p->data.%s" : "*p->data.%s")
+                                  : (ti ? "(void *)&p->data.%s" : "p->data.%s");
+        char srcbuf[256];
+        snprintf(srcbuf, sizeof(srcbuf), src_expr, im->type_name);
+        iron_strbuf_appendf(sb, "    case %s_TAG_%s: r.tag = %s_TAG_%s; r.data.%s = %s; break;\n",
+                            fc, im->type_name, tc, im->type_name, im->type_name, srcbuf);
+    }
+    iron_strbuf_appendf(sb, "    default: break;\n    }\n    return r;\n}\n\n");
+    return nm;
+}
+
+/* Emit the Bool value of `x is T` for the `$is:<O|I>:<Name>` pseudo-call. */
+static void emit_type_test(Iron_StrBuf *sb, IronLIR_Instr *instr, IronLIR_Func *fn,
+                           EmitCtx *ctx, const char *gname,
+                           IronLIR_BlockId use_block_id, int depth) {
+    bool target_is_iface = gname[4] == 'I';
+    const char *tname = gname + 6;
+    IronLIR_ValueId v = instr->call.args[0];
+    Iron_Type *vt = emit_get_value_type(fn, v);
+    bool nullable = vt && vt->kind == IRON_TYPE_NULLABLE;
+    Iron_Type *base = nullable ? vt->nullable.inner : vt;
+    if (!base || !ctx->iface_reg) { iron_strbuf_appendf(sb, "false"); return; }
+    if (base->kind == IRON_TYPE_OBJECT && base->object.decl && base->object.decl->name) {
+        /* A concrete value: known now. */
+        bool yes;
+        if (target_is_iface) {
+            Iron_IfaceEntry *te = iron_iface_lookup(ctx->iface_reg, tname);
+            yes = iface_impl_alive(te, base->object.decl->name);
+            if (!yes && te)
+                for (int j = 0; j < te->impl_count; j++)
+                    if (strcmp(te->impls[j].type_name, base->object.decl->name) == 0) yes = true;
+        } else {
+            yes = strcmp(base->object.decl->name, tname) == 0;
+        }
+        iron_strbuf_appendf(sb, "%s", yes ? "true" : "false");
+        return;
+    }
+    if (base->kind != IRON_TYPE_INTERFACE || !base->interface.decl) {
+        iron_strbuf_appendf(sb, "false");
+        return;
+    }
+    Iron_IfaceEntry *ie = iron_iface_lookup(ctx->iface_reg, base->interface.decl->name);
+    Iron_IfaceEntry *te = target_is_iface ? iron_iface_lookup(ctx->iface_reg, tname) : NULL;
+    const char *ic = emit_mangle_name(base->interface.decl->name, ctx->arena);
+    iron_strbuf_appendf(sb, "(");
+    if (nullable) {
+        emit_expr_to_buf(sb, v, fn, ctx, use_block_id, depth + 1);
+        iron_strbuf_appendf(sb, ".has_value && (");
+    }
+    bool any = false;
+    for (int j = 0; ie && j < ie->impl_count; j++) {
+        Iron_IfaceImpl *im = &ie->impls[j];
+        if (!im->is_alive) continue;
+        bool match = target_is_iface ? iface_impl_alive(te, im->type_name)
+                                     : strcmp(im->type_name, tname) == 0;
+        if (!match) continue;
+        if (any) iron_strbuf_appendf(sb, " || ");
+        emit_expr_to_buf(sb, v, fn, ctx, use_block_id, depth + 1);
+        iron_strbuf_appendf(sb, "%s.tag == %s_TAG_%s", nullable ? ".value" : "",
+                            ic, im->type_name);
+        any = true;
+    }
+    if (!any) iron_strbuf_appendf(sb, "false");
+    if (nullable) iron_strbuf_appendf(sb, ")");
+    iron_strbuf_appendf(sb, ")");
+}
+
 static bool emit_optional_cast(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                IronLIR_Func *fn, EmitCtx *ctx,
                                IronLIR_BlockId use_block_id, int depth) {
     Iron_Type *dst = instr->cast.target_type;
     Iron_Type *src = emit_get_value_type(fn, instr->cast.value);
     if (!dst || !src) return false;
+    /* Narrowing views of an interface value (#179). */
+    {
+        bool snull = src->kind == IRON_TYPE_NULLABLE;
+        Iron_Type *sb2 = snull ? src->nullable.inner : src;
+        if (sb2 && sb2->kind == IRON_TYPE_INTERFACE && sb2->interface.decl &&
+            ctx->iface_reg) {
+            const char *ic = emit_mangle_name(sb2->interface.decl->name, ctx->arena);
+            if (dst->kind == IRON_TYPE_OBJECT && dst->object.decl && dst->object.decl->name) {
+                bool ind = iface_variant_is_indirect(ctx, ic, dst->object.decl->name);
+                iron_strbuf_appendf(sb, "(%s(", ind ? "*" : "");
+                emit_expr_to_buf(sb, instr->cast.value, fn, ctx, use_block_id, depth + 1);
+                iron_strbuf_appendf(sb, ")%s.data.%s)", snull ? ".value" : "",
+                                    dst->object.decl->name);
+                return true;
+            }
+            if (dst->kind == IRON_TYPE_INTERFACE && dst->interface.decl &&
+                dst->interface.decl != sb2->interface.decl) {
+                Iron_IfaceEntry *fe = iron_iface_lookup(ctx->iface_reg, sb2->interface.decl->name);
+                Iron_IfaceEntry *te = iron_iface_lookup(ctx->iface_reg, dst->interface.decl->name);
+                if (fe && te) {
+                    const char *vn = emit_ensure_iface_view(ctx, fe, te);
+                    iron_strbuf_appendf(sb, "%s(&(", vn);
+                    emit_expr_to_buf(sb, instr->cast.value, fn, ctx, use_block_id, depth + 1);
+                    iron_strbuf_appendf(sb, ")%s)", snull ? ".value" : "");
+                    return true;
+                }
+            }
+        }
+    }
     if (dst->kind == IRON_TYPE_NULLABLE && src->kind != IRON_TYPE_NULLABLE) {
         const char *opt_c = emit_type_to_c(dst, ctx);
         iron_strbuf_appendf(sb, "((%s){ .value = ", opt_c);
+        /* A concrete implementor stored in an interface optional is wrapped
+         * into the interface's union first. */
+        Iron_Type *din = dst->nullable.inner;
+        bool wrap = din && din->kind == IRON_TYPE_INTERFACE && din->interface.decl &&
+                    src->kind == IRON_TYPE_OBJECT && src->object.decl && src->object.decl->name;
+        if (wrap)
+            iron_strbuf_appendf(sb, "%s_from_%s(",
+                                emit_mangle_name(din->interface.decl->name, ctx->arena),
+                                src->object.decl->name);
         emit_expr_to_buf(sb, instr->cast.value, fn, ctx, use_block_id, depth + 1);
+        if (wrap) iron_strbuf_appendf(sb, ")");
         iron_strbuf_appendf(sb, ", .has_value = true })");
         return true;
     }
@@ -1641,6 +1791,18 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 
     /* CALL (pure calls only — must be in inline_eligible to reach here) */
     case IRON_LIR_CALL: {
+        {
+            IronLIR_ValueId tfp = instr->call.func_ptr;
+            const char *tn = (!instr->call.func_decl && tfp != IRON_LIR_VALUE_INVALID &&
+                              tfp < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                              fn->value_table[tfp] &&
+                              fn->value_table[tfp]->kind == IRON_LIR_FUNC_REF)
+                             ? fn->value_table[tfp]->func_ref.func_name : NULL;
+            if (tn && strncmp(tn, "$is:", 4) == 0 && instr->call.arg_count == 1) {
+                emit_type_test(sb, instr, fn, ctx, tn, use_block_id, depth);
+                break;
+            }
+        }
         /* Get callee name for comment */
         const char *callee_c = NULL;
         const char *callee_short = "call";
@@ -3016,17 +3178,65 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                     : impl2->type_name[ci3]);
                             lower_name[nl2] = '\0';
                         }
+                        /* The element at insertion position `idx`, read from
+                         * its type's storage: whole objects, reduced (_Stor)
+                         * objects, or per-field (SoA) arrays. */
+                        Iron_StrBuf arr_sb = iron_strbuf_create(64);
+                        emit_expr_to_buf(&arr_sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
+                        Iron_StrBuf idx_sb = iron_strbuf_create(64);
+                        emit_expr_to_buf(&idx_sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
+                        const char *arr_s = iron_strbuf_get(&arr_sb);
+                        const char *idx_s = iron_strbuf_get(&idx_sb);
+                        char soa_key[768];
+                        snprintf(soa_key, sizeof(soa_key), "%s:%s", sp_iface, impl2->type_name);
+                        bool el_soa = ctx->soa_types && shgeti(ctx->soa_types, soa_key) >= 0;
+                        bool el_reduced = ctx->reduced_storage_types &&
+                            shgeti(ctx->reduced_storage_types, impl2->type_name) >= 0;
                         emit_indent(sb, ind + 1);
-                        iron_strbuf_appendf(sb, "case %d: ", impl2->tag);
-                        emit_val(sb, instr->id);
-                        iron_strbuf_appendf(sb, " = %s_from_%s(",
-                            sp_iface, impl2->type_name);
-                        emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
-                        iron_strbuf_appendf(sb, ".%s_items[", lower_name);
-                        emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
-                        iron_strbuf_appendf(sb, "._order[");
-                        emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
-                        iron_strbuf_appendf(sb, "].idx]); break;\n");
+                        iron_strbuf_appendf(sb, "case %d: {\n", impl2->tag);
+                        if (el_soa && impl2->decl) {
+                            const char *im2 = emit_mangle_name(impl2->type_name, ctx->arena);
+                            emit_indent(sb, ind + 2);
+                            iron_strbuf_appendf(sb, "%s _el = {0};\n", im2);
+                            IronLIR_ValueId *cvids = NULL;
+                            for (ptrdiff_t si = 0; si < hmlen(ctx->split_collection_ids); si++)
+                                if (strcmp(ctx->split_collection_ids[si].value, sp_iface) == 0)
+                                    arrput(cvids, ctx->split_collection_ids[si].key);
+                            Iron_ObjectDecl *od = impl2->decl;
+                            for (int fi = 0; fi < od->field_count; fi++) {
+                                Iron_Field *f = (Iron_Field *)od->fields[fi];
+                                bool used = arrlen(cvids) == 0;
+                                for (int ci2 = 0; !used && ci2 < (int)arrlen(cvids); ci2++)
+                                    used = iron_layout_is_field_used(&ctx->layout, cvids[ci2], f->name);
+                                if (!used) continue;
+                                const char *nw = iron_vr_get_narrowed_type(&ctx->value_range,
+                                    impl2->type_name, f->name);
+                                const char *orig_type = "int64_t";
+                                if (nw && f->type_ann) {
+                                    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
+                                    if (!ta->is_func && !ta->is_nullable && !ta->is_array)
+                                        orig_type = emit_annotation_to_c(ta->name, ctx);
+                                }
+                                emit_indent(sb, ind + 2);
+                                iron_strbuf_appendf(sb, "_el.%s = %s%s%s%s.%s_%s[%s._order[%s].idx];\n",
+                                    f->name, nw ? "(" : "", nw ? orig_type : "", nw ? ")" : "",
+                                    arr_s, lower_name, f->name, arr_s, idx_s);
+                            }
+                            arrfree(cvids);
+                            emit_indent(sb, ind + 2);
+                            emit_val(sb, instr->id);
+                            iron_strbuf_appendf(sb, " = %s_from_%s(_el);\n", sp_iface, impl2->type_name);
+                        } else {
+                            emit_indent(sb, ind + 2);
+                            emit_val(sb, instr->id);
+                            iron_strbuf_appendf(sb, " = %s_from_%s%s(%s.%s_items[%s._order[%s].idx]);\n",
+                                sp_iface, impl2->type_name, el_reduced ? "_Stor" : "",
+                                arr_s, lower_name, arr_s, idx_s);
+                        }
+                        emit_indent(sb, ind + 1);
+                        iron_strbuf_appendf(sb, "} break;\n");
+                        iron_strbuf_free(&arr_sb);
+                        iron_strbuf_free(&idx_sb);
                     }
                     emit_indent(sb, ind);
                     iron_strbuf_appendf(sb, "}\n");
@@ -3344,6 +3554,15 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                  fn->value_table[gfp] &&
                                  fn->value_table[gfp]->kind == IRON_LIR_FUNC_REF)
                                 ? fn->value_table[gfp]->func_ref.func_name : NULL;
+            if (gname && strncmp(gname, "$is:", 4) == 0 && instr->call.arg_count == 1) {
+                emit_indent(sb, ind);
+                if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = ");
+                emit_type_test(sb, instr, fn, ctx, gname, ctx->current_block_id, 0);
+                iron_strbuf_appendf(sb, ";\n");
+                break;
+            }
             if (gname && gname[0] == '$' && instr->call.arg_count == 1) {
                 if (ctx->fusion_dead && hmgeti(ctx->fusion_dead, (const void *)instr) >= 0) break;
                 bool is_drop = strcmp(gname, "$drop") == 0;
@@ -8905,6 +9124,14 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                 }
             }
             if (split_arr_vid == IRON_LIR_VALUE_INVALID) continue;
+            /* Iterating one implementor type at a time reorders the loop:
+             * only a collection declared `[T, unordered]` allows it. Any
+             * other loop keeps insertion order (a body that prints, or a
+             * floating-point sum, observes the order). */
+            {
+                Iron_Type *it = emit_get_value_type(fn, split_arr_vid);
+                if (!it || it->kind != IRON_TYPE_ARRAY || !it->array.is_unordered) continue;
+            }
 
             /* Find header block (JUMP target of pre) */
             IronLIR_Instr *pre_term = blk->instrs[blk->instr_count - 1];

@@ -1,0 +1,29 @@
+-- Iterating an interface list keeps insertion order. Loops used to be
+-- split into one loop per implementor type, reordering any side effects;
+-- only a list declared [T, unordered] may be iterated that way.
+interface Shape {
+    readonly func name() -> String
+}
+object Circle impl Shape {
+    val r: Int
+    readonly func name() -> String { return "circle" }
+}
+object Square impl Shape {
+    val s: Int
+    readonly func name() -> String { return "square" }
+}
+object Dot impl Shape {
+    readonly func name() -> String { return "dot" }
+}
+func main() {
+    val xs: [Shape] = [Circle(2), Square(3), Dot(), Circle(1)]
+    for x in xs { println(x.name()) }
+    unordered_count()
+}
+
+func unordered_count() {
+    val ys: [Shape, unordered] = [Circle(1), Dot(), Square(2)]
+    var n = 0
+    for y in ys { n = n + 1 }
+    println("unordered {n}")
+}

@@ -3326,11 +3326,30 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     }
 
     case IRON_HIR_EXPR_IS: {
-        /* Type test — emit as IS_NULL check or poison for now */
+        /* Type test (#179): a `$is:<O|I>:<Name>` pseudo-call the emitter
+         * renders as a tag test on an interface value, or a constant on a
+         * concrete one. */
         IronLIR_ValueId val = lower_expr(ctx, expr->is_check.value);
-        (void)val;
-        /* IS check: emit a poison placeholder — type tests need runtime support */
-        return iron_lir_poison(ctx->current_func, ctx->current_block, type, span)->id;
+        Iron_Type *ct = expr->is_check.check_type;
+        const char *tn = NULL;
+        char kind = 'O';
+        if (ct && ct->kind == IRON_TYPE_OBJECT && ct->object.decl) tn = ct->object.decl->name;
+        if (ct && ct->kind == IRON_TYPE_INTERFACE && ct->interface.decl) {
+            tn = ct->interface.decl->name;
+            kind = 'I';
+        }
+        if (!tn || val == IRON_LIR_VALUE_INVALID)
+            return iron_lir_const_bool(ctx->current_func, ctx->current_block, false,
+                                       type, span)->id;
+        size_t nl = strlen(tn) + 8;
+        char *fname = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+        if (!fname) iron_oom_abort("hir_to_lir.c:is type test name");
+        snprintf(fname, nl, "$is:%c:%s", kind, tn);
+        IronLIR_Instr *fr = iron_lir_func_ref(ctx->current_func, ctx->current_block,
+                                              fname, NULL, span);
+        IronLIR_ValueId args[1] = { val };
+        return iron_lir_call(ctx->current_func, ctx->current_block, NULL, fr->id,
+                             args, 1, type, span)->id;
     }
 
     case IRON_HIR_EXPR_ENUM_CONSTRUCT: {

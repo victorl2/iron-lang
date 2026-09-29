@@ -1,0 +1,8 @@
+circle 2
+square 3 tag 9
+dot
+2 -1
+made square 4
+end
+drop tag 4
+drop tag 9

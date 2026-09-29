@@ -98,6 +98,11 @@ typedef struct {
      * T? identifier there is the slot itself, not its unwrapped payload. */
     bool             lowering_assign_target;
 
+    /* Type match bindings (#179): a binding var that is a read-only view
+     * of the subject's payload. Each use lowers to CAST(subject, T). */
+    struct { IronHIR_VarId key; struct { IronHIR_VarId subj; const char *subj_name;
+             Iron_Type *subj_type; Iron_Type *target; } value; } *type_views;
+
     /* ── Module-level globals (2026-07 remediation: true module storage) ──
      * Replaces the old per-function materialization scheme (immutable
      * pure-init globals re-LET per referencing function; everything else
@@ -1365,8 +1370,75 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Match statement ───────────────────────────────────────────────────── */
     case IRON_NODE_MATCH: {
         Iron_MatchStmt *ms    = (Iron_MatchStmt *)node;
-        IronHIR_Expr   *scrut = lower_expr_hir(ctx, ms->subject);
         Iron_Type      *scrut_ty = expr_type(ms->subject);
+        if (scrut_ty && scrut_ty->kind == IRON_TYPE_INTERFACE) {
+            /* A type match (#179) is an if/else chain of tag tests. The
+             * subject is read in place when it is a local binding, else
+             * evaluated once into a temporary; each arm's binding is a
+             * read-only view of the payload. */
+            Iron_Type *bool_ty = iron_type_make_primitive(IRON_TYPE_BOOL);
+            IronHIR_VarId subj = IRON_HIR_VAR_INVALID;
+            const char *subj_name = "__type_match";
+            if (ms->subject && ms->subject->kind == IRON_NODE_IDENT) {
+                subj = lookup_var(ctx, ((Iron_Ident *)ms->subject)->name);
+                subj_name = ((Iron_Ident *)ms->subject)->name;
+            }
+            if (subj == IRON_HIR_VAR_INVALID) {
+                subj_name = "__type_match";
+                subj = iron_hir_alloc_var(mod, subj_name, scrut_ty, false);
+                IronHIR_Expr *sv = lower_expr_hir(ctx, ms->subject);
+                iron_hir_block_add_stmt(blk, iron_hir_stmt_let(mod, subj, scrut_ty, sv,
+                                                               false, span));
+            }
+            IronHIR_Block *else_blk = NULL;
+            if (ms->else_body) {
+                else_blk = iron_hir_block_create(mod);
+                lower_block_hir(ctx, (Iron_Block *)ms->else_body, else_blk);
+            }
+            for (int i = ms->case_count - 1; i >= 0; i--) {
+                Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                if (!mc || !mc->pattern) continue;
+                const char *tn = NULL, *bname = NULL;
+                if (mc->pattern->kind == IRON_NODE_PATTERN) {
+                    Iron_Pattern *p = (Iron_Pattern *)mc->pattern;
+                    tn = p->variant_name;
+                    if (p->binding_count == 1 && p->binding_names) bname = p->binding_names[0];
+                } else if (mc->pattern->kind == IRON_NODE_IDENT) {
+                    tn = ((Iron_Ident *)mc->pattern)->name;
+                }
+                Iron_Symbol *ts = tn ? iron_scope_lookup(ctx->global_scope, tn) : NULL;
+                Iron_Type *tt = ts ? ts->type : NULL;
+                if (!tt) continue;
+                IronHIR_Expr *subj_ref = iron_hir_expr_ident(mod, subj, subj_name, scrut_ty, span);
+                IronHIR_Expr *cond = iron_hir_expr_is(mod, subj_ref, tt, span);
+                cond->type = bool_ty;
+                IronHIR_Block *then_blk = iron_hir_block_create(mod);
+                push_scope(ctx);
+                if (bname) {
+                    IronHIR_VarId bv = iron_hir_alloc_var(mod, bname, tt, false);
+                    declare_var(ctx, bname, bv);
+                    __typeof__(ctx->type_views[0].value) tv = { subj, subj_name, scrut_ty, tt };
+                    hmput(ctx->type_views, bv, tv);
+                }
+                lower_block_hir(ctx, (Iron_Block *)mc->body, then_blk);
+                pop_scope(ctx);
+                /* Without an else arm the checker proved the match
+                 * exhaustive: the last arm needs no test, so the chain ends
+                 * in an else and a match whose arms all return terminates. */
+                if (!else_blk) {
+                    else_blk = then_blk;
+                    continue;
+                }
+                IronHIR_Stmt *ifs = iron_hir_stmt_if(mod, cond, then_blk, else_blk, span);
+                IronHIR_Block *chain = iron_hir_block_create(mod);
+                iron_hir_block_add_stmt(chain, ifs);
+                else_blk = chain;
+            }
+            if (else_blk)
+                iron_hir_block_add_stmt(blk, iron_hir_stmt_block(mod, else_blk, span));
+            return NULL;
+        }
+        IronHIR_Expr   *scrut = lower_expr_hir(ctx, ms->subject);
         IronHIR_MatchArm *arms = NULL;
 
         for (int i = 0; i < ms->case_count; i++) {
@@ -1757,12 +1829,42 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
 
         /* 1. Look in lexical scope stack (locals and params) */
         IronHIR_VarId var_id = lookup_var(ctx, id->name);
+        if (var_id != IRON_HIR_VAR_INVALID && ctx->type_views &&
+            hmgeti(ctx->type_views, var_id) >= 0) {
+            ptrdiff_t tvi = hmgeti(ctx->type_views, var_id);
+            IronHIR_Expr *subj = iron_hir_expr_ident(mod, ctx->type_views[tvi].value.subj,
+                                                     ctx->type_views[tvi].value.subj_name,
+                                                     ctx->type_views[tvi].value.subj_type, span);
+            return iron_hir_expr_cast(mod, subj, ctx->type_views[tvi].value.target, span);
+        }
         if (var_id != IRON_HIR_VAR_INVALID) {
             /* A T? binding narrowed to T by a null check reads its payload:
              * the identifier keeps the binding's own T? type and a CAST to
              * T unwraps it (emitted as `.value`). Assignment targets keep
              * the slot. */
             Iron_Type *decl_t = hir_var_type(mod, var_id);
+            /* An interface binding narrowed by `x is T` (#179) is read
+             * through a view of its payload: a CAST from the interface. */
+            /* (The checker's symbol type: a collection loop variable's HIR
+             * type is its iterable's.) */
+            Iron_Type *iface_decl_t = (id->resolved_sym && id->resolved_sym->type)
+                ? id->resolved_sym->type : decl_t;
+            if (iface_decl_t && iface_decl_t->kind == IRON_TYPE_ARRAY &&
+                iface_decl_t->array.elem &&
+                iface_decl_t->array.elem->kind == IRON_TYPE_INTERFACE)
+                iface_decl_t = iface_decl_t->array.elem;   /* loop variable */
+            Iron_Type *decl_base = iface_decl_t && iface_decl_t->kind == IRON_TYPE_NULLABLE
+                                   ? iface_decl_t->nullable.inner : iface_decl_t;
+            if (!ctx->lowering_assign_target && decl_base &&
+                decl_base->kind == IRON_TYPE_INTERFACE && id->resolved_type &&
+                id->resolved_type != iface_decl_t &&
+                (id->resolved_type->kind == IRON_TYPE_OBJECT ||
+                 (id->resolved_type->kind == IRON_TYPE_INTERFACE &&
+                  id->resolved_type->interface.decl != decl_base->interface.decl))) {
+                IronHIR_Expr *slot = iron_hir_expr_ident(mod, var_id, id->name,
+                                                         iface_decl_t, span);
+                return iron_hir_expr_cast(mod, slot, id->resolved_type, span);
+            }
             if (!ctx->lowering_assign_target &&
                 decl_t && decl_t->kind == IRON_TYPE_NULLABLE &&
                 id->resolved_type &&
@@ -2389,9 +2491,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 val = val->cast.value;
             return iron_hir_expr_is_null(mod, val, span);
         }
-        /* General type test */
-        Iron_Type *check_ty = ie->resolved_type;
-        return iron_hir_expr_is(mod, val, check_ty, span);
+        /* Type test (#179): the checked-against type travels on the node;
+         * the expression itself is Bool. */
+        Iron_Type *check_ty = ie->target_type;
+        if (val && val->kind == IRON_HIR_EXPR_CAST && val->cast.value)
+            val = val->cast.value;   /* a narrowed binding: test its value */
+        IronHIR_Expr *is_e = iron_hir_expr_is(mod, val, check_ty, span);
+        is_e->type = ie->resolved_type;
+        return is_e;
     }
 
     /* ── ADT enum variant construction ─────────────────────────────────── */
@@ -3444,6 +3551,7 @@ IronHIR_Module *iron_hir_lower(Iron_Program *program, Iron_Scope *global_scope,
         shfree(ctx.scope_stack[d]);
     }
     arrfree(ctx.scope_stack);
+    hmfree(ctx.type_views);
     shfree(ctx.global_decls_map);
     arrfree(ctx.global_decl_order);
     shfree(ctx.global_active_set);

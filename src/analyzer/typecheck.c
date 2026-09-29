@@ -396,6 +396,58 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
  * field write inside an element) needs a mutable path to it: a `var`
  * binding or parameter, `var` fields, a `*var` pointer or an rc handle.
  * `val` means immutable for lists as for objects (#174). */
+/* Does object `od` implement interface `iface_name` (its impl list,
+ * patch conformance included)? */
+static bool object_implements(const Iron_ObjectDecl *od, const char *iface_name) {
+    if (!od || !iface_name) return false;
+    for (int i = 0; i < od->implements_count; i++)
+        if (od->implements_names[i] && strcmp(od->implements_names[i], iface_name) == 0)
+            return true;
+    return false;
+}
+
+static Iron_Type *narrowing_get(TypeCtx *ctx, const char *name);
+static Iron_Symbol *tc_lookup(TypeCtx *ctx, const char *name);
+static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
+                       const char *msg, const char *suggestion);
+
+/* A binding narrowed by `x is T` (#179) is read through a view of its
+ * payload; writes through it are not supported yet, so they are rejected
+ * instead of landing on a temporary copy. Returns true (and reports) when
+ * `root` (the root of a field / receiver chain) is such a view. */
+static bool reject_narrowed_view_write(TypeCtx *ctx, Iron_Node *root, Iron_Span span) {
+    while (root && root->kind == IRON_NODE_FIELD_ACCESS)
+        root = ((Iron_FieldAccess *)root)->object;
+    if (!root || root->kind != IRON_NODE_IDENT) return false;
+    Iron_Ident *id = (Iron_Ident *)root;
+    if (!id->name || !narrowing_get(ctx, id->name)) return false;
+    Iron_Symbol *sym = tc_lookup(ctx, id->name);
+    if (!sym || !sym->type) sym = id->resolved_sym;
+    if (!sym || !sym->type) return false;
+    Iron_Type *st = sym->type->kind == IRON_TYPE_NULLABLE ? sym->type->nullable.inner
+                                                         : sym->type;
+    if (!st || st->kind != IRON_TYPE_INTERFACE) return false;
+    char msg[256];
+    snprintf(msg, sizeof(msg),
+             "cannot modify '%s' through a type test: it is a read-only view here",
+             id->name);
+    emit_error(ctx, IRON_ERR_UNSUPPORTED_TYPE_TEST, span, msg,
+               "assign the whole binding instead (for example `x = updated`)");
+    return true;
+}
+
+/* The implementor named by a type match arm: `Circle(c)` (a pattern
+ * without an enum qualifier) or a bare `Circle`. */
+static const char *type_match_arm_name(Iron_MatchCase *mc) {
+    if (!mc || !mc->pattern) return NULL;
+    if (mc->pattern->kind == IRON_NODE_PATTERN) {
+        Iron_Pattern *p = (Iron_Pattern *)mc->pattern;
+        return p->enum_name ? NULL : p->variant_name;
+    }
+    if (mc->pattern->kind == IRON_NODE_IDENT) return ((Iron_Ident *)mc->pattern)->name;
+    return NULL;
+}
+
 /* Does object `type_name` declare a callable method `name` (the copy /
  * drop hooks are not callable methods)? */
 static bool object_declares_method(TypeCtx *ctx, const char *type_name,
@@ -2542,6 +2594,7 @@ static bool node_is_value_expression(const Iron_Node *n) {
  * instruction. */
 static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
                                     Iron_Node *receiver) {
+    if (reject_narrowed_view_write(ctx, receiver, mc->span)) return;
     Iron_Node *cur = receiver;
     for (;;) {
         /* Past a pointer, the pointer's `var` decides, not the binding
@@ -5243,6 +5296,9 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                         mark_requires_mutable(
                                             ctx, (Iron_Node *)recv_ident);
                                     }
+                                    if (recv_ident)
+                                        reject_narrowed_view_write(ctx, (Iron_Node *)recv_ident,
+                                                                   mc->span);
                                     /* Through a pointer the pointer's var decides
                                      * (d.bump() with d: *var T mutates the pointee). */
                                     Iron_Type *rit = recv_ident ? recv_ident->resolved_type : NULL;
@@ -5952,24 +6008,62 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_IS: {
             Iron_IsExpr *ie = (Iron_IsExpr *)node;
-            check_expr(ctx, ie->expr);
-            /* v4 hole-closure (E0322): only the null-test form of `is` has
-             * real HIR->LIR lowering (hir_lower.c maps `is Null` to
-             * IRON_HIR_EXPR_IS_NULL). Every other `x is <Type>` lowers to a
-             * POISON placeholder and dies later as an E0400 ICE (or emits
-             * invalid C). Reject the general type-test here with a clean
-             * diagnostic instead. The null-test spelling stays accepted. */
-            if (ie->type_name && strcmp(ie->type_name, "Null") != 0) {
+            Iron_Type *ot = check_expr(ctx, ie->expr);
+            result = iron_type_make_primitive(IRON_TYPE_BOOL);
+            ie->resolved_type = result;
+            if (!ie->type_name || strcmp(ie->type_name, "Null") == 0) break;
+            /* A type test (#179): `x is T` for an object or interface T.
+             * On an interface value it tests the tag; on a concrete value
+             * it is known at compile time. */
+            Iron_Symbol *ts = iron_scope_lookup(ctx->global_scope, ie->type_name);
+            Iron_Type *tt = (ts && (ts->sym_kind == IRON_SYM_TYPE ||
+                                    ts->sym_kind == IRON_SYM_INTERFACE)) ? ts->type : NULL;
+            if (!tt || (tt->kind != IRON_TYPE_OBJECT && tt->kind != IRON_TYPE_INTERFACE)) {
                 char msg[256];
                 snprintf(msg, sizeof(msg),
-                         "type-test `is %s` is not yet supported"
-                         " (only the null test `is Null` is implemented)",
+                         "`is %s`: a type test needs an object or interface type",
                          ie->type_name);
                 emit_error(ctx, IRON_ERR_UNSUPPORTED_TYPE_TEST, ie->span, msg,
                            "for null checks use `x is Null`, `x == null` or `x != null`");
+                break;
             }
-            result = iron_type_make_primitive(IRON_TYPE_BOOL);
-            ie->resolved_type = result;
+            ie->target_type = tt;
+            if (!ot || ot->kind == IRON_TYPE_ERROR) break;
+            Iron_Type *base = ot->kind == IRON_TYPE_NULLABLE ? ot->nullable.inner : ot;
+            if (base && base->kind == IRON_TYPE_INTERFACE && base->interface.decl) {
+                /* An object that does not implement the interface can never
+                 * be held by it. */
+                if (tt->kind == IRON_TYPE_OBJECT &&
+                    !object_implements(tt->object.decl, base->interface.decl->name)) {
+                    char msg[320];
+                    snprintf(msg, sizeof(msg),
+                             "'%s' does not implement '%s', so this test is never true",
+                             ie->type_name, base->interface.decl->name);
+                    emit_error(ctx, IRON_ERR_UNSUPPORTED_TYPE_TEST, ie->span, msg, NULL);
+                }
+                break;
+            }
+            if (base && base->kind == IRON_TYPE_OBJECT && base->object.decl &&
+                ot->kind != IRON_TYPE_NULLABLE) {
+                bool yes = tt->kind == IRON_TYPE_OBJECT
+                    ? tt->object.decl == base->object.decl
+                    : object_implements(base->object.decl,
+                                        tt->interface.decl ? tt->interface.decl->name : "");
+                char msg[320];
+                snprintf(msg, sizeof(msg),
+                         "'%s' is known here: this test is always %s",
+                         base->object.decl->name ? base->object.decl->name : "?",
+                         yes ? "true" : "false");
+                emit_warning(ctx, IRON_WARN_CONSTANT_TYPE_TEST, ie->span, msg, NULL);
+                break;
+            }
+            {
+                char msg[320];
+                snprintf(msg, sizeof(msg),
+                         "`is %s` needs an interface or object value, got '%s'",
+                         ie->type_name, iron_type_to_string(ot, ctx->arena));
+                emit_error(ctx, IRON_ERR_UNSUPPORTED_TYPE_TEST, ie->span, msg, NULL);
+            }
             break;
         }
 
@@ -7414,6 +7508,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     }
                 }
             }
+            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS)
+                reject_narrowed_view_write(ctx, as->target, as->span);
             if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
                 Iron_Node *cur = as->target;
                 while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
@@ -7955,7 +8051,14 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             /* ── Case 3: e is TypeName — narrow in then-block ─────────────── */
             else if (is_check_name) {
                 Iron_Symbol *type_sym = iron_scope_lookup(ctx->global_scope, is_check_name);
-                if (type_sym && type_sym->sym_kind == IRON_SYM_TYPE) {
+                /* Only an interface value narrows (#179): a concrete value's
+                 * test is a constant and its type is already known. */
+                Iron_IsExpr *ie0 = (Iron_IsExpr *)is_s->condition;
+                Iron_Type *opt0 = ie0->expr ? ((Iron_ExprNode *)ie0->expr)->resolved_type : NULL;
+                if (opt0 && opt0->kind == IRON_TYPE_NULLABLE) opt0 = opt0->nullable.inner;
+                bool narrowable = opt0 && opt0->kind == IRON_TYPE_INTERFACE;
+                if (narrowable && type_sym && (type_sym->sym_kind == IRON_SYM_TYPE ||
+                                               type_sym->sym_kind == IRON_SYM_INTERFACE)) {
                     /* PROT-03 row 19 (AUDIT-01 M-severity): is_s->condition is
                      * already classified as IRON_NODE_IS by classify_is_check
                      * upstream; the assert documents the invariant and catches
@@ -8161,15 +8264,17 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * invalid C is emitted). Reject non-integer, non-enum subjects
              * here with a clean diagnostic. NULL / ERROR subject types are
              * skipped to avoid cascading on already-diagnosed code. */
+            bool type_match = subject_type && subject_type->kind == IRON_TYPE_INTERFACE &&
+                              subject_type->interface.decl;
             if (subject_type &&
                 subject_type->kind != IRON_TYPE_ERROR &&
-                subject_type->kind != IRON_TYPE_ENUM &&
+                subject_type->kind != IRON_TYPE_ENUM && !type_match &&
                 !iron_type_is_integer(subject_type)) {
                 char msg[512];
                 const char *tname = iron_type_to_string(subject_type, ctx->arena);
                 snprintf(msg, sizeof(msg),
-                         "match is only supported on integer and enum"
-                         " subjects; got '%s'", tname ? tname : "unknown");
+                         "match is only supported on integer, enum and"
+                         " interface subjects; got '%s'", tname ? tname : "unknown");
                 emit_error(ctx, IRON_ERR_MATCH_SUBJECT_UNSUPPORTED,
                            ms->subject->span, msg,
                            "rewrite as an if/else chain");
@@ -8181,6 +8286,52 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
             ctx->match_subject_type = prev_subject;
             if (ms->else_body) check_stmt(ctx, ms->else_body);
+            /* A type match (#179): each implementor at most once, and all of
+             * them unless there is an else arm (the set of implementors is
+             * closed: the whole program is known). */
+            if (type_match) {
+                const char *iname = subject_type->interface.decl->name;
+                const char **seen = NULL;
+                for (int i = 0; i < ms->case_count; i++) {
+                    Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                    const char *tn = type_match_arm_name(mc);
+                    if (!tn) continue;
+                    bool dup = false;
+                    for (int k = 0; k < (int)arrlen(seen); k++)
+                        if (strcmp(seen[k], tn) == 0) dup = true;
+                    if (dup) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "unreachable match arm: '%s' already covered", tn);
+                        emit_error(ctx, IRON_ERR_UNREACHABLE_ARM, mc->pattern->span, msg, NULL);
+                    } else {
+                        arrput(seen, tn);
+                    }
+                }
+                if (!ms->else_body) {
+                    char msg[512];
+                    int pos = iron_sat_appendf(msg, 0, sizeof(msg),
+                                               "non-exhaustive match: missing implementor(s) of '%s': ",
+                                               iname);
+                    bool missing = false;
+                    for (int d = 0; d < ctx->program->decl_count; d++) {
+                        Iron_Node *dn = ctx->program->decls[d];
+                        if (!dn || dn->kind != IRON_NODE_OBJECT_DECL) continue;
+                        Iron_ObjectDecl *od = (Iron_ObjectDecl *)dn;
+                        if (!od->name || !object_implements(od, iname)) continue;
+                        bool cov = false;
+                        for (int k = 0; k < (int)arrlen(seen); k++)
+                            if (strcmp(seen[k], od->name) == 0) cov = true;
+                        if (cov) continue;
+                        pos = iron_sat_appendf(msg, pos, sizeof(msg), "%s%s",
+                                               missing ? ", " : "", od->name);
+                        missing = true;
+                    }
+                    if (missing)
+                        emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH, ms->span, msg,
+                                   "add 'else -> ...' or handle each implementor");
+                }
+                arrfree(seen);
+            }
             /* Exhaustiveness check */
             if (subject_type && subject_type->kind == IRON_TYPE_ENUM) {
                 Iron_EnumDecl *ed = subject_type->enu.decl;
@@ -8315,7 +8466,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                             }
                         } else if (mc->pattern->kind == IRON_NODE_PATTERN) {
                             Iron_Pattern *pp = (Iron_Pattern *)mc->pattern;
-                            if (strcmp(pp->enum_name, ed->name) == 0) {
+                            if (!pp->enum_name || strcmp(pp->enum_name, ed->name) == 0) {
                                 vname = pp->variant_name;
                             }
                         }
@@ -8370,8 +8521,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     /* FIX-04 row 13 — release the dynamic covered[] buffer. */
                     free(covered);
                 }
-            } else if (!ms->else_body) {
-                /* Non-enum subject without else clause */
+            } else if (!ms->else_body && !type_match) {
+                /* Non-enum subject without else clause (a type match checks
+                 * its implementors above) */
                 emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH,
                            ms->subject->span,
                            "match on non-enum type requires else clause",
@@ -8383,6 +8535,38 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_MATCH_CASE: {
             Iron_MatchCase *mc = (Iron_MatchCase *)node;
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
+            Iron_Type *tsubj = ctx->match_subject_type;
+            if (tsubj && tsubj->kind == IRON_TYPE_INTERFACE && tsubj->interface.decl) {
+                /* A type match arm (#179): `Circle(c)` or `Circle` names an
+                 * implementor; c is a read-only view of the payload. */
+                const char *tn = type_match_arm_name(mc);
+                Iron_Symbol *ts = tn ? iron_scope_lookup(ctx->global_scope, tn) : NULL;
+                Iron_Type *tt = ts && ts->sym_kind == IRON_SYM_TYPE ? ts->type : NULL;
+                if (!tt || tt->kind != IRON_TYPE_OBJECT ||
+                    !object_implements(tt->object.decl, tsubj->interface.decl->name)) {
+                    char msg[320];
+                    snprintf(msg, sizeof(msg),
+                             "match arm '%s' is not an implementor of '%s'",
+                             tn ? tn : "?", tsubj->interface.decl->name);
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH,
+                               mc->pattern ? mc->pattern->span : mc->span, msg,
+                               "name an object that implements the interface, e.g. `Circle(c) -> ...`");
+                } else if (mc->pattern && mc->pattern->kind == IRON_NODE_PATTERN) {
+                    Iron_Pattern *p = (Iron_Pattern *)mc->pattern;
+                    if (p->binding_count > 1) {
+                        emit_error(ctx, IRON_ERR_PATTERN_ARITY, p->span,
+                                   "a type match arm binds the whole value: use one name, e.g. `Circle(c)`",
+                                   NULL);
+                    } else if (p->binding_count == 1 && p->binding_names &&
+                               p->binding_names[0]) {
+                        tc_define(ctx, p->binding_names[0], IRON_SYM_VARIABLE,
+                                  mc->pattern, p->span, false, tt);
+                    }
+                }
+                if (mc->body) check_stmt(ctx, mc->body);
+                tc_pop_scope(ctx);
+                break;
+            }
             if (mc->pattern && mc->pattern->kind == IRON_NODE_PATTERN) {
                 Iron_Pattern *top = (Iron_Pattern *)mc->pattern;
                 Iron_Type *subj = ctx->match_subject_type;
