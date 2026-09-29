@@ -5476,6 +5476,14 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                    idx_e->index->span, msg, NULL);
                     }
                 }
+            } else if (obj_type && obj_type->kind == IRON_TYPE_STRING) {
+                /* s[i]: the character at position i, as a String. */
+                result = obj_type;
+                if (idx_type && idx_type->kind != IRON_TYPE_ERROR &&
+                    !iron_type_is_integer(idx_type)) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, idx_e->index->span,
+                               "string index must be an integer type", NULL);
+                }
             } else {
                 result = iron_type_make_primitive(IRON_TYPE_ERROR);
             }
@@ -6679,6 +6687,20 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_ASSIGN: {
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
 
+            /* Strings are immutable: `s[i] = ...` used to pass check and
+             * call an undeclared Iron_String_set. */
+            if (as->target && as->target->kind == IRON_NODE_INDEX) {
+                Iron_IndexExpr *ti = (Iron_IndexExpr *)as->target;
+                Iron_Type *tt = check_expr(ctx, ti->object);
+                if (tt && tt->kind == IRON_TYPE_STRING) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, as->target->span,
+                               "strings are immutable; cannot assign to a character",
+                               "build a new string, e.g. with substring() and +");
+                    if (as->value) check_expr(ctx, as->value);
+                    break;
+                }
+            }
+
             /* Mutability check: use resolved_sym (set by resolver) as authoritative
              * source of is_mutable. Also check type-checker scope as fallback. */
             bool is_immutable = false;
@@ -7492,6 +7514,14 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             Iron_Type *loop_var_type = iron_type_make_primitive(IRON_TYPE_INT);
             if (iter_t && iter_t->kind == IRON_TYPE_ARRAY) {
                 loop_var_type = iter_t->array.elem;
+            } else if (iter_t && iter_t->kind == IRON_TYPE_STRING) {
+                /* for c in s: each character, as a String */
+                loop_var_type = iter_t;
+                if (fs->is_parallel) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fs->iterable->span,
+                               "parallel for cannot iterate a String",
+                               "iterate s.chars() or a range instead");
+                }
             }
             tc_define(ctx, fs->var_name, IRON_SYM_VARIABLE, (Iron_Node *)fs, fs->span,
                       true, loop_var_type);

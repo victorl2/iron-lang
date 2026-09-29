@@ -1315,6 +1315,21 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                                          expr_type(fs->iterable),
                                                          false);
             IronHIR_Expr *iterable = lower_expr_hir(ctx, fs->iterable);
+            if (iterable && iterable->type &&
+                iterable->type->kind == IRON_TYPE_STRING) {
+                /* for c in s iterates s.chars(): one String per character. */
+                Iron_Type *chars_ty = iron_type_make_array(
+                    mod->arena, iterable->type, -1, false);
+                iterable = iron_hir_expr_method_call(mod, iterable, "chars",
+                                                     NULL, 0, chars_ty, span);
+                /* The loop variable's HIR type mirrors the iterable's. */
+                for (ptrdiff_t vi = arrlen(mod->name_table) - 1; vi >= 0; vi--) {
+                    if (mod->name_table[vi].id == loop_var) {
+                        mod->name_table[vi].type = chars_ty;
+                        break;
+                    }
+                }
+            }
 
             push_scope(ctx);
             declare_var(ctx, fs->var_name, loop_var);
@@ -2070,6 +2085,13 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_IndexExpr *ix = (Iron_IndexExpr *)node;
         IronHIR_Expr *arr = lower_expr_hir(ctx, ix->object);
         IronHIR_Expr *idx = lower_expr_hir(ctx, ix->index);
+        if (arr && arr->type && arr->type->kind == IRON_TYPE_STRING) {
+            /* s[i] is s.char_at(i) (code point position). */
+            IronHIR_Expr **cargs = NULL;
+            arrput(cargs, idx);
+            return iron_hir_expr_method_call(mod, arr, "char_at", cargs, 1,
+                                             arr->type, span);
+        }
         return iron_hir_expr_index(mod, arr, idx, ix->resolved_type, span);
     }
 
@@ -2079,6 +2101,16 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         IronHIR_Expr *arr   = lower_expr_hir(ctx, sl->object);
         IronHIR_Expr *start = sl->start ? lower_expr_hir(ctx, sl->start) : NULL;
         IronHIR_Expr *end   = sl->end   ? lower_expr_hir(ctx, sl->end)   : NULL;
+        if (arr && arr->type && arr->type->kind == IRON_TYPE_STRING) {
+            /* s[a..b] is s.substring(a, b) (code point positions; an open
+             * end runs to the end: substring clamps). */
+            Iron_Type *int_ty = iron_type_make_primitive(IRON_TYPE_INT);
+            IronHIR_Expr **cargs = NULL;
+            arrput(cargs, start ? start : iron_hir_expr_int_lit(mod, 0, int_ty, span));
+            arrput(cargs, end ? end : iron_hir_expr_int_lit(mod, INT64_MAX, int_ty, span));
+            return iron_hir_expr_method_call(mod, arr, "substring", cargs, 2,
+                                             arr->type, span);
+        }
         return iron_hir_expr_slice(mod, arr, start, end, sl->resolved_type, span);
     }
 

@@ -1,0 +1,8 @@
+-- @expected-error: E0202
+-- Strings are immutable: `s[i] = x` used to pass check and call an
+-- undeclared C function.
+func main() {
+  var s = "abc"
+  s[0] = "z"
+  println(s)
+}

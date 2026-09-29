@@ -13,11 +13,11 @@
 func main() {
     val s = "héllo→世界"   -- 15 UTF-8 bytes (1+2+3+3+3+3)
     val t = s             -- value copy (no re-encode, no double-free)
-    println("len: {s.len()}")
-    println("copy_len: {t.len()}")
+    println("len: {s.byte_len()}")
+    println("copy_len: {t.byte_len()}")
 
     var xs: [String] = []
     xs.push(s)
     val got = xs.get(0)
-    println("list_len: {got.len()}")
+    println("list_len: {got.byte_len()} chars: {got.len()}")
 }

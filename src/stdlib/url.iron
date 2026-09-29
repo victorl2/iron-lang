@@ -184,9 +184,9 @@ func Url.byte_to_hex(b: Int) -> String {
 -- Validate that every byte of `s` is an ASCII digit. Returns false for the
 -- empty string.
 func Url.all_digits(s: String) -> Bool {
-    if s.len() == 0 { return false }
+    if s.byte_len() == 0 { return false }
     var i = 0
-    while i < s.len() {
+    while i < s.byte_len() {
         if not Url.is_digit(s.byte_at(i)) { return false }
         i = i + 1
     }
@@ -201,7 +201,7 @@ func Url.all_digits(s: String) -> Bool {
 func Url.percent_encode(s: String, reserved_ok: Bool) -> String {
     var out = ""
     var i = 0
-    while i < s.len() {
+    while i < s.byte_len() {
         val b = s.byte_at(i)
         if Url.is_unreserved(b) {
             val ch = String.from_byte(b)
@@ -226,11 +226,11 @@ func Url.percent_encode(s: String, reserved_ok: Bool) -> String {
 func Url.percent_decode(s: String) -> (String, UrlError) {
     var out = ""
     var i = 0
-    while i < s.len() {
+    while i < s.byte_len() {
         val b = s.byte_at(i)
         if b == 37 {
             -- '%' — require two more hex digits
-            if i + 2 >= s.len() {
+            if i + 2 >= s.byte_len() {
                 return ("", UrlError(2007))
             }
             val hi = Url.hex_digit_value(s.byte_at(i + 1))
@@ -266,7 +266,7 @@ func Url.parse(s: String) -> (Url, UrlError) {
     if s.len() == 0 {
         return (Url.empty(), UrlError(2000))
     }
-    if s.len() > 8192 {
+    if s.byte_len() > 8192 {
         return (Url.empty(), UrlError(2009))
     }
 

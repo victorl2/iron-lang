@@ -1759,6 +1759,7 @@ bool                  Iron_string_contains(Iron_String self, Iron_String sub);
 bool                  Iron_string_starts_with(Iron_String self, Iron_String prefix);
 bool                  Iron_string_ends_with(Iron_String self, Iron_String suffix);
 Iron_List_Iron_String Iron_string_split(Iron_String self, Iron_String sep);
+Iron_List_Iron_String Iron_string_chars(Iron_String self);
 Iron_String           Iron_string_replace(Iron_String self, Iron_String old_s, Iron_String new_s);
 Iron_String           Iron_string_substring(Iron_String self, int64_t start, int64_t end_idx);
 int64_t               Iron_string_index_of(Iron_String self, Iron_String sub);
@@ -1781,6 +1782,7 @@ int64_t               Iron_string_count(Iron_String self, Iron_String sub);
 int64_t               Iron_string_rindex_of(Iron_String self, Iron_String sub);
 int64_t               Iron_string_byte_at(Iron_String self, int64_t i);
 Iron_String           Iron_string_from_byte(int64_t b);
+int64_t               Iron_string_byte_len(Iron_String self);
 void                  Iron_string_release(Iron_String self);
 
 #endif /* IRON_RUNTIME_H */

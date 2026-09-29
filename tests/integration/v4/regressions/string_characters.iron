@@ -1,0 +1,21 @@
+-- Regression: strings are character (code point) based.
+--
+-- for c in s, s[i] and s[a..b] emitted invalid C; len() counted bytes while
+-- len(s) counted characters; index_of / char_at used byte positions (char_at
+-- could return half a UTF-8 sequence); upper() / lower() were ASCII only;
+-- split("") split bytes. byte_len() gives the size in bytes.
+func main() {
+  val s = "hé"
+  for c in s {
+    println("{c}")
+  }
+  val name = "Victor"
+  println("{name[1]} {name[0..3]} {name[3..]}")
+  val h = "Héllo"
+  val l = "l"
+  println("{len(h)} {h.len()} {h.byte_len()} {h.index_of(l)} {h.rindex_of(l)} {h.char_at(1)} {h.char_at(2)}")
+  println("{h.upper()} {h.lower()} {"ÀÉÎÕÜ ÇÑ ΑΒΓ АБВ".lower()} {"straße ÿ".upper()}")
+  println("{h.substring(1, 3)} [{h.pad_left(7, "·")}] [{h.pad_right(7, "*")}]")
+  val parts = "añb".split("")
+  println("{parts.len()} {parts[1]}")
+}
