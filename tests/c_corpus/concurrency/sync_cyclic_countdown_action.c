@@ -31,9 +31,11 @@ static long action_witness; /* written only by the action */
 /* Runs once per completed cycle, on the thread that delivered the last event, without holding the lock. */
 static void on_cycle(int cycle_number) {
     action_runs[cycle_number]++;
-    if (atomic_fetch_add(&action_total, 1) + 1 != cycle_number)
+    if (atomic_load(&action_total) + 1 != cycle_number)
         action_order_bad++; /* cycles complete in order, so the k-th run is cycle k */
     action_witness += cycle_number;
+    /* publish last: the next cycle's action and the observers start once this store is visible */
+    atomic_fetch_add(&action_total, 1);
 }
 
 static void event(void) {

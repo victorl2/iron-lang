@@ -1,0 +1,9 @@
+n=1 sum=-1 minpre=-1 balanced=no agree=8
+n=2 sum=-2 minpre=-2 balanced=no agree=8
+n=7 sum=3 minpre=0 balanced=no agree=8
+n=64 sum=0 minpre=-2 balanced=no agree=8
+n=1000 sum=2 minpre=-17 balanced=no agree=8
+n=4000 sum=-46 minpre=-68 balanced=no agree=8
+( then ): sum=0 min=0
+) then (: sum=0 min=-1
+known balanced ok

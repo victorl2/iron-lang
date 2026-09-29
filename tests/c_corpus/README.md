@@ -32,6 +32,7 @@ python3 tests/c_corpus/run.py                  # everything
 python3 tests/c_corpus/run.py networking       # one topic
 python3 tests/c_corpus/run.py -k heap          # slug filter
 python3 tests/c_corpus/run.py --sanitize       # ASan + UBSan build
+python3 tests/c_corpus/run.py --tsan concurrency  # ThreadSanitizer (diagnostic, not in CI)
 python3 tests/c_corpus/run.py --lint           # headers and slugs only
 python3 tests/c_corpus/run.py --manifest       # regenerate MANIFEST.md
 ```

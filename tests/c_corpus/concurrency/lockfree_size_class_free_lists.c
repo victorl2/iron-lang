@@ -27,6 +27,9 @@ enum { ARENA = 1 << 16, T = 6, ITERS = 4000, HOLD = 4, NCLASS = 2 };
 static const unsigned class_size[NCLASS] = {16, 48};
 static unsigned char arena[ARENA];
 static atomic_uint arena_top;
+/* free-list links live in a side table of atomics, so a popper reading a stale link never races
+ * with the block owner writing its data (a plain-memory race would be undefined behaviour) */
+static atomic_uint link_of[ARENA];
 static atomic_uint_least64_t list_head[NCLASS];
 static atomic_int created[NCLASS];
 static atomic_int bad;
@@ -38,15 +41,14 @@ static void check(int c, const char *w) {
     }
 }
 
-/* the link lives in the first 4 bytes of a free block */
+/* the link of a free block at offset off is link_of[off] */
 static uint32_t alloc_block(int cls) {
     uint64_t h = atomic_load(&list_head[cls]);
     for (;;) {
         uint32_t off1 = (uint32_t)h;
         if (off1 == 0)
             break;
-        uint32_t nxt;
-        memcpy(&nxt, arena + off1 - 1, sizeof nxt); /* racy by design; validated by the tag */
+        uint32_t nxt = atomic_load_explicit(&link_of[off1 - 1], memory_order_relaxed); /* may be stale; the tag rejects it */
         uint64_t nh = ((uint64_t)((uint32_t)(h >> 32) + 1) << 32) | nxt;
         if (atomic_compare_exchange_weak(&list_head[cls], &h, nh))
             return off1 - 1;
@@ -62,7 +64,7 @@ static void free_block(int cls, uint32_t off) {
     uint64_t nh;
     do {
         uint32_t nxt = (uint32_t)h;
-        memcpy(arena + off, &nxt, sizeof nxt);
+        atomic_store_explicit(&link_of[off], nxt, memory_order_relaxed);
         nh = ((uint64_t)((uint32_t)(h >> 32) + 1) << 32) | (off + 1);
     } while (!atomic_compare_exchange_weak(&list_head[cls], &h, nh));
 }
@@ -125,7 +127,7 @@ int main(void) {
         while (off1) {
             in_list++;
             check(in_list <= atomic_load(&created[c]), "free list longer than creations");
-            memcpy(&off1, arena + off1 - 1, sizeof off1);
+            off1 = atomic_load(&link_of[off1 - 1]);
         }
         check(in_list == atomic_load(&created[c]), "every created block is back in its free list");
         check(created[c] >= 1 && created[c] <= T * HOLD, "creations bounded by concurrent holds");

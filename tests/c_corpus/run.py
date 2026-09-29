@@ -11,6 +11,7 @@ Usage:
   run.py algorithms networking   only these topics (or paths to .c files)
   run.py -k heap                 only programs whose slug contains "heap"
   run.py --sanitize              build with ASan + UBSan
+  run.py --tsan                  build with ThreadSanitizer
   run.py --update                (re)write .expected files from actual output
   run.py --lint                  check headers and slug uniqueness only
   run.py --manifest              regenerate MANIFEST.md
@@ -71,6 +72,7 @@ GCC_SOFT_WARNINGS = [
     "-Wno-alloc-size-larger-than",
     "-Wno-error=array-bounds",
 ]
+TSAN_FLAGS = ["-fsanitize=thread", "-fno-omit-frame-pointer"]
 SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -156,11 +158,11 @@ def is_gcc():
     return _IS_GCC
 
 
-def build_and_run(path, build_dir, sanitize, timeout, update):
+def build_and_run(path, build_dir, sanitize, timeout, update, tsan=False):
     slug = os.path.basename(path)[:-2]
     exe = os.path.join(build_dir, slug)
     cmd = [compiler()] + BASE_FLAGS + (GCC_SOFT_WARNINGS if is_gcc() else [])
-    cmd += (SAN_FLAGS if sanitize else []) + [path, "-o", exe, "-lm"]
+    cmd += (SAN_FLAGS if sanitize else []) + (TSAN_FLAGS if tsan else []) + [path, "-o", exe, "-lm"]
     if platform.system() == "Linux":
         cmd.append("-lrt")
     r = subprocess.run(cmd, capture_output=True, text=True)
@@ -168,6 +170,8 @@ def build_and_run(path, build_dir, sanitize, timeout, update):
         return path, "compile", r.stderr[-4000:]
     scratch = tempfile.mkdtemp(prefix=slug + ".", dir=build_dir)
     env = dict(os.environ, TMPDIR=scratch, LC_ALL="C")
+    if tsan:
+        env.setdefault("TSAN_OPTIONS", "halt_on_error=1")
     if sanitize:
         env.setdefault("ASAN_OPTIONS", "abort_on_error=0:halt_on_error=1")
         env.setdefault("UBSAN_OPTIONS", "halt_on_error=1:print_stacktrace=1")
@@ -184,7 +188,7 @@ def build_and_run(path, build_dir, sanitize, timeout, update):
     if r.returncode != 0:
         return path, "exit", f"exit {r.returncode}\n" + r.stderr.decode(errors="replace")[-4000:]
     stderr = r.stderr.decode(errors="replace")
-    if sanitize:
+    if sanitize or tsan:
         # macOS ASan can emit allocator notices that are not findings.
         stderr = "\n".join(l for l in stderr.splitlines() if "malloc: nano zone" not in l).strip()
     if stderr:
@@ -251,6 +255,7 @@ def main():
     ap.add_argument("-k", dest="keyword", help="substring filter on slug")
     ap.add_argument("-j", "--jobs", type=int, default=4)
     ap.add_argument("--sanitize", action="store_true", help="build with ASan + UBSan")
+    ap.add_argument("--tsan", action="store_true", help="build with ThreadSanitizer")
     ap.add_argument("--update", action="store_true", help="write .expected from actual output")
     ap.add_argument("--lint", action="store_true", help="only check headers and slugs")
     ap.add_argument("--manifest", action="store_true", help="regenerate MANIFEST.md")
@@ -282,7 +287,7 @@ def main():
     os.makedirs(build_dir, exist_ok=True)
     failures = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as ex:
-        futs = [ex.submit(build_and_run, p, build_dir, args.sanitize, args.timeout, args.update) for p in progs]
+        futs = [ex.submit(build_and_run, p, build_dir, args.sanitize, args.timeout, args.update, args.tsan) for p in progs]
         for fut in concurrent.futures.as_completed(futs):
             path, status, detail = fut.result()
             if status != "ok":

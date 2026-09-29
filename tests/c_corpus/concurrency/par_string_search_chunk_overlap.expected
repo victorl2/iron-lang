@@ -1,0 +1,5 @@
+pattern abcab      matches=  122 straddling boundaries=5 first=36
+pattern aaaa       matches=  376 straddling boundaries=7 first=0
+pattern a          matches= 9988 straddling boundaries=0 first=0
+pattern cbacbacba  matches=    9 straddling boundaries=6 first=2184
+pattern abababab   matches=   13 straddling boundaries=7 first=1346
