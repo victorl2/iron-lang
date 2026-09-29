@@ -1,7 +1,5 @@
 -- section 4.11 pointer-check elision: concurrent-mutation soundness trap
 -- @req: OPT-03, OQ-08
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): spawn handle surface (`val t = spawn f(args)` + `await t`) not implemented.
 -- extends-spec: POINTER-CHECK-ELISION.md soundness trap "concurrent mutation" —
 -- a generation check straddles a `spawn`/`await`. A naive elision that deleted
 -- the second deref's check (assuming the root allocation is still fresh) would
@@ -23,7 +21,7 @@ func main() {
     val ptr: *Sample = &sample
     -- first deref before the spawn
     println("before: {ptr.value}")
-    val t = spawn observe(&sample)
+    val t = spawn("observer") { observe(ptr) }
     await t
     -- second deref AFTER the spawn — its gen-check must NOT be elided across
     -- the concurrent barrier even though `sample` was not actually freed.

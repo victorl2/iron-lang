@@ -75,6 +75,7 @@ void iron_panic_init_from_env(void) {
 void iron_panic_stale_stack_pointer(const char *deref_file,
                                     int deref_line,
                                     uint64_t captured_frame_gen) {
+    fflush(stdout);  /* the program's earlier output comes first */
     /* Phase 24 DROP-04/05 (Plan 24-03): init-time cleanup + drop-time abort divert */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
@@ -124,6 +125,7 @@ void iron_panic_bvec_oob(const char *deref_file,
                          int deref_line,
                          int64_t index,
                          int64_t bound) {
+    fflush(stdout);  /* the program's earlier output comes first */
     /* Phase 24 DROP-04/05 (Plan 24-03): init-time cleanup + drop-time abort divert */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
@@ -167,6 +169,7 @@ void iron_panic_bvec_oob(const char *deref_file,
  *                        this access is undefined behavior in a non-debug build */
 void iron_panic_index_oob_unchecked(const char *site_file, int site_line,
                                     int64_t index, int64_t bound) {
+    fflush(stdout);  /* the program's earlier output comes first */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
         iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
@@ -215,6 +218,7 @@ void iron_panic_index_oob_unchecked(const char *site_file, int site_line,
  *                  index: <I> bound: <B> */
 void iron_panic_index_oob(const char *site_file, int site_line,
                           int64_t index, int64_t bound) {
+    fflush(stdout);  /* the program's earlier output comes first */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
         iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
@@ -244,6 +248,7 @@ void iron_panic_index_oob(const char *site_file, int site_line,
 
 void iron_panic_iface_rebound(const char *site_file, int site_line,
                               const char *iface_name, const char *expected_impl) {
+    fflush(stdout);  /* the program's earlier output comes first */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
         iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
@@ -272,6 +277,7 @@ void iron_panic_iface_rebound(const char *site_file, int site_line,
 }
 
 void iron_panic_div_by_zero(const char *site_file, int site_line) {
+    fflush(stdout);  /* the program's earlier output comes first */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
         iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
@@ -335,6 +341,7 @@ void iron_init_cleanup_run_and_clear(void) {
 void iron_panic_destructor_aborted(const char *type_name,
                                     const char *drop_site_file,
                                     int drop_site_line) {
+    fflush(stdout);  /* the program's earlier output comes first */
     const char *tn = type_name      ? type_name      : "<unknown>";
     const char *df = drop_site_file ? drop_site_file : "<unknown>";
 
@@ -375,6 +382,7 @@ void iron_panic_destructor_aborted(const char *type_name,
 void iron_panic_arena_stale(const char *deref_file,
                             int deref_line,
                             const struct IronArenaAllocHdr *hdr) {
+    fflush(stdout);  /* the program's earlier output comes first */
     /* Phase 24 DROP-04/05: init-time cleanup + drop-time abort divert */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
@@ -422,6 +430,7 @@ void iron_panic_arena_stale(const char *deref_file,
 void iron_panic_arena_oom(const char *arena_name,
                           uint64_t requested_size,
                           uint64_t capacity) {
+    fflush(stdout);  /* the program's earlier output comes first */
     /* Phase 24 DROP-04/05: init-time cleanup + drop-time abort divert */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
@@ -474,6 +483,7 @@ void iron_panic_double_free(const char *first_free_file,
                             const char *second_free_file,
                             int second_free_line,
                             const struct IronAllocHdr *hdr) {
+    fflush(stdout);  /* the program's earlier output comes first */
     /* Phase 24 DROP-04/05: init-time cleanup + drop-time abort divert */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
@@ -531,6 +541,7 @@ void iron_panic_double_free(const char *first_free_file,
 void iron_panic_stale_pointer(const char *deref_file,
                               int deref_line,
                               const struct IronAllocHdr *hdr) {
+    fflush(stdout);  /* the program's earlier output comes first */
     /* Phase 24 DROP-04/05 (Plan 24-03): init-time cleanup + drop-time abort divert */
     if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
     if (iron_in_destructor) {
