@@ -942,6 +942,7 @@ void iron_concurrency_check(Iron_Program *program, Iron_Scope *global_scope,
     (void)global_scope;
 
     ConcurrencyCtx ctx;
+    memset(&ctx, 0, sizeof(ctx));
     ctx.arena        = arena;
     ctx.diags        = diags;
     ctx.local_names  = NULL;

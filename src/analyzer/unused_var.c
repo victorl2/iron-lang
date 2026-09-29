@@ -440,6 +440,7 @@ void iron_unused_var_check(Iron_Program *program,
     (void)global_scope;
     if (!program) return;
     UnusedVarCtx ctx;
+    memset(&ctx, 0, sizeof(ctx));
     ctx.arena = arena;
     ctx.diags = diags;
     ctx.trackers = NULL;

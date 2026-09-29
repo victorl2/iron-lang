@@ -1633,6 +1633,8 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     if (iron_cancel_requested(cancel_flag)) return NULL;
 
     ResolveCtx ctx;
+
+    memset(&ctx, 0, sizeof(ctx));
     ctx.arena              = arena;
     ctx.diags              = diags;
     ctx.global_scope       = iron_scope_create(arena, NULL, IRON_SCOPE_GLOBAL);
@@ -1663,6 +1665,7 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     /* Phase 17 VAL-01: cleared by default; set true only inside the
      * IRON_NODE_ASSIGN case while walking a bare-IDENT LHS. */
     ctx.is_assign_lhs          = false;
+    ctx.in_match_pattern       = false;
 
     /* Initialize type system */
     iron_types_init(arena);

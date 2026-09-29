@@ -1368,6 +1368,7 @@ void iron_comptime_apply(Iron_Program *program, Iron_Scope *global_scope,
     (void)force_comptime;
 
     ReplaceCtx rctx;
+    memset(&rctx, 0, sizeof(rctx));
     rctx.eval_ctx = &eval_ctx;
     rctx.arena    = arena;
 
