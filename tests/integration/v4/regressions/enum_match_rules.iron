@@ -1,0 +1,51 @@
+-- Regression: enum match rules.
+--
+-- 1. An exhaustive match where every arm returns terminates the function
+--    (it used to report E0293, "may reach end without returning a value").
+-- 2. A bare variant pattern resolves against the subject's enum even when
+--    another enum declares a variant with the same name.
+-- 3. Bare variant arms on a plain enum lowered to function references and
+--    all became the switch default, so the last arm always ran.
+enum Shape { Circle, Square }
+enum Sh { Round(Float), Box }
+enum Other { Circle, Square }
+
+func sides(s: Shape) -> Int {
+    match s {
+        Shape.Circle -> return 0
+        Shape.Square -> return 4
+    }
+}
+
+func area(s: Sh) -> Float {
+    match s {
+        Sh.Round(r) -> return r * 2.0
+        Sh.Box -> return 1.0
+    }
+}
+
+func pick(n: Int) -> String {
+    match n {
+        1 -> return "one"
+        else -> return "many"
+    }
+}
+
+func bare(s: Shape) -> String {
+    match s {
+        Circle -> return "circle"
+        Square -> return "square"
+    }
+}
+
+func main() {
+    println("{sides(Shape.Square)} {sides(Shape.Circle)}")
+    println("{area(Sh.Round(2.0))} {area(Sh.Box)}")
+    println("{pick(1)} {pick(5)}")
+    println("{bare(Shape.Circle)} {bare(Shape.Square)}")
+    val o = Other.Square
+    match o {
+        Circle -> println("other circle")
+        Square -> println("other square")
+    }
+}

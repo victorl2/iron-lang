@@ -73,6 +73,9 @@ typedef struct {
      * before walking as->value so a use of `y` in `x = y` (where neither
      * is bound) still gets E0200 on `y`. */
     bool is_assign_lhs;
+    /* True while resolving a bare-identifier match arm pattern, the one
+     * place an unqualified enum variant name is allowed. */
+    bool in_match_pattern;
 } ResolveCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -512,6 +515,27 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
             /* Normal identifier */
             Iron_Symbol *sym = iron_scope_lookup(ctx->current_scope, id->name);
+            if (sym && sym->sym_kind == IRON_SYM_ENUM_VARIANT &&
+                !ctx->in_match_pattern) {
+                /* Enum variants live in their enum's namespace; a bare
+                 * variant name in an expression has no C counterpart. */
+                const char *enum_name = (sym->type && sym->type->kind == IRON_TYPE_ENUM &&
+                                         sym->type->enu.decl)
+                    ? sym->type->enu.decl->name : NULL;
+                char msg[256];
+                snprintf(msg, sizeof(msg), "undefined identifier '%s'", id->name);
+                char help[256];
+                snprintf(help, sizeof(help),
+                         "enum variants are qualified by their enum: write '%s.%s'",
+                         enum_name ? enum_name : "Enum", id->name);
+                const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                const char *help_copy = iron_arena_strdup(ctx->arena, help, strlen(help));
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNDEFINED_VAR, id->span,
+                               msg_copy ? msg_copy : "undefined identifier",
+                               help_copy);
+                break;
+            }
             if (sym) {
                 id->resolved_sym = sym;
 
@@ -801,7 +825,12 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
         case IRON_NODE_MATCH_CASE: {
             Iron_MatchCase *mc = (Iron_MatchCase *)node;
             push_scope(ctx, IRON_SCOPE_BLOCK);
-            if (mc->pattern) resolve_node(ctx, mc->pattern);
+            if (mc->pattern) {
+                bool prev_pat = ctx->in_match_pattern;
+                ctx->in_match_pattern = mc->pattern->kind == IRON_NODE_IDENT;
+                resolve_node(ctx, mc->pattern);
+                ctx->in_match_pattern = prev_pat;
+            }
             if (mc->body) resolve_node(ctx, mc->body);
             pop_scope(ctx);
             break;

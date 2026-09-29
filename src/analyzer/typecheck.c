@@ -1689,6 +1689,18 @@ static bool stmt_always_returns(Iron_Node *node) {
             return stmt_always_returns(is->body) &&
                    stmt_always_returns(is->else_body);
         }
+        case IRON_NODE_MATCH: {
+            /* A match without else must be exhaustive (E0224 otherwise), so
+             * it always returns when every arm, and the else arm if any,
+             * does. */
+            Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
+            if (ms->case_count == 0 && !ms->else_body) return false;
+            for (int i = 0; i < ms->case_count; i++) {
+                Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                if (!mc || !stmt_always_returns(mc->body)) return false;
+            }
+            return !ms->else_body || stmt_always_returns(ms->else_body);
+        }
         default:
             return false;
     }
@@ -7456,11 +7468,72 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             Iron_MatchCase *mc = (Iron_MatchCase *)node;
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
             if (mc->pattern && mc->pattern->kind == IRON_NODE_PATTERN) {
+                Iron_Pattern *top = (Iron_Pattern *)mc->pattern;
+                Iron_Type *subj = ctx->match_subject_type;
+                if (top->enum_name && subj && subj->kind == IRON_TYPE_ENUM &&
+                    subj->enu.decl && subj->enu.decl->name &&
+                    strcmp(top->enum_name, subj->enu.decl->name) != 0) {
+                    const char *want = iron_type_to_string(subj, ctx->arena);
+                    char msg[512];
+                    snprintf(msg, sizeof(msg),
+                             "match arm pattern is a variant of '%s' but the"
+                             " subject has type '%s'",
+                             top->enum_name, want ? want : "?");
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->pattern->span,
+                               msg, "use a variant of the subject's enum");
+                }
                 /* Recursively define all binding variables (including nested patterns) */
                 tc_define_pattern_bindings(ctx, ctx->match_subject_type, mc->pattern);
             } else if (mc->pattern) {
-                /* Non-pattern (e.g. integer literal) — check as expression */
-                check_expr(ctx, mc->pattern);
+                Iron_Type *subj = ctx->match_subject_type;
+                bool subj_enum = subj && subj->kind == IRON_TYPE_ENUM && subj->enu.decl;
+                /* Bare variant pattern: enum variant names share one global
+                 * namespace, so `X` may have resolved to another enum's
+                 * variant of the same name.  Rebind it to the subject's. */
+                if (subj_enum && mc->pattern->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *pid = (Iron_Ident *)mc->pattern;
+                    Iron_Symbol *ps = pid->resolved_sym;
+                    Iron_EnumDecl *sed = subj->enu.decl;
+                    int vi = find_variant_index(sed, pid->name);
+                    if (ps && ps->sym_kind == IRON_SYM_ENUM_VARIANT && vi >= 0 &&
+                        !iron_type_equals(ps->type, subj)) {
+                        Iron_Symbol *vs = iron_symbol_create(ctx->arena, pid->name,
+                            IRON_SYM_ENUM_VARIANT, sed->variants[vi],
+                            sed->variants[vi]->span);
+                        if (vs) {
+                            vs->type = subj;
+                            vs->is_pub = sed->is_pub;
+                            pid->resolved_sym = vs;
+                        }
+                    }
+                }
+                /* Non-pattern (e.g. integer literal) — check as expression.
+                 * A variant-ident pattern takes its (possibly rebound)
+                 * symbol's type; a scope lookup by name would find the
+                 * first enum that declared that variant name. */
+                Iron_Type *pt = NULL;
+                if (mc->pattern->kind == IRON_NODE_IDENT &&
+                    ((Iron_Ident *)mc->pattern)->resolved_sym &&
+                    ((Iron_Ident *)mc->pattern)->resolved_sym->sym_kind == IRON_SYM_ENUM_VARIANT &&
+                    ((Iron_Ident *)mc->pattern)->resolved_sym->type) {
+                    Iron_Ident *pid = (Iron_Ident *)mc->pattern;
+                    pt = pid->resolved_sym->type;
+                    pid->resolved_type = pt;
+                } else {
+                    pt = check_expr(ctx, mc->pattern);
+                }
+                if (subj_enum && pt && pt->kind == IRON_TYPE_ENUM &&
+                    !iron_type_equals(pt, subj)) {
+                    const char *want = iron_type_to_string(subj, ctx->arena);
+                    const char *got  = iron_type_to_string(pt, ctx->arena);
+                    char msg[512];
+                    snprintf(msg, sizeof(msg),
+                             "match arm pattern is a variant of '%s' but the"
+                             " subject has type '%s'",
+                             got ? got : "?", want ? want : "?");
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->pattern->span,
+                               msg, "use a variant of the subject's enum");
+                }
             }
             if (mc->body) check_stmt(ctx, mc->body);
             tc_pop_scope(ctx);

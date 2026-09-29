@@ -3735,6 +3735,14 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
             }
 
+            /* An enum match without else is exhaustive (the typechecker
+             * rejects it otherwise), so the default edge is dead: send it
+             * to the last arm rather than the join.  That keeps the join
+             * unreachable when every arm returns, so the match terminates
+             * the function like an if/else whose branches both return. */
+            if (default_block == join_block && arm_count > 0)
+                default_block = arm_blocks[arm_count - 1];
+
             /* 2e. Emit SWITCH on tag */
             int cc = (int)arrlen(case_blocks);
             iron_lir_switch(ctx->current_func, ctx->current_block,
@@ -3809,6 +3817,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                     default_block = arm_blk;
                 }
             }
+
+            /* Exhaustive enum match: dead default edge (see ADT path). */
+            if (match_ed && default_block == join_block && arm_count > 0)
+                default_block = arm_blocks[arm_count - 1];
 
             int cc = (int)arrlen(case_blocks);
             iron_lir_switch(ctx->current_func, ctx->current_block,

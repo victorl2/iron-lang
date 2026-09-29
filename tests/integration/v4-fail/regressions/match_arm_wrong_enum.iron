@@ -1,0 +1,13 @@
+-- @expected-error: E0202
+-- A match arm naming a variant of a different enum is a type error, even
+-- with an else arm (it used to be accepted and never match).
+enum A { X, Y }
+enum B { Q, R }
+
+func main() {
+    val a = A.X
+    match a {
+        B.Q -> println("wrong")
+        else -> println("else")
+    }
+}

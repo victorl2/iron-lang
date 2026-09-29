@@ -1715,6 +1715,19 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                        id->resolved_type, span);
         }
 
+        /* 1b. Bare enum variant (only valid as a match arm pattern): lower
+         * it like the qualified `Enum.Variant` pattern so the match switch
+         * gets a case for it instead of treating it as the default arm. */
+        if (id->resolved_sym &&
+            id->resolved_sym->sym_kind == IRON_SYM_ENUM_VARIANT &&
+            id->resolved_sym->type &&
+            id->resolved_sym->type->kind == IRON_TYPE_ENUM &&
+            id->resolved_sym->type->enu.decl) {
+            return iron_hir_expr_pattern(mod,
+                id->resolved_sym->type->enu.decl->name, id->name,
+                -1, NULL, NULL, 0, span);
+        }
+
         /* 2. Module-level global (2026-07 remediation): emit the marker ident
          * (var_id == IRON_HIR_VAR_INVALID + name) and record the reference.
          * hir_to_lir routes it through a per-function global-slot ALLOCA
