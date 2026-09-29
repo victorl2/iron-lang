@@ -16,6 +16,7 @@ typedef enum {
 
 typedef struct {
     int major, minor, patch;
+    char pre[64];   /* pre-release identifiers ("alpha.1"), "" for a release */
 } SemverVersion;
 
 typedef struct {
@@ -53,12 +54,14 @@ static bool parse_uint(const char **p, int *out) {
     return true;
 }
 
-/* Parse "X.Y.Z" optionally followed by "-suffix" or "+build". On success,
- * advances *p past the suffix (so the caller can see what's left). The
- * X.Y.Z components must each be non-negative integers. Returns false on
- * any malformed component. */
+/* Parse "X.Y.Z" optionally followed by "-prerelease" and/or "+build". On
+ * success, advances *p past the suffix (so the caller can see what's left).
+ * The X.Y.Z components must each be non-negative integers. The pre-release
+ * identifiers are kept for precedence; build metadata is ignored, as semver
+ * specifies. Returns false on any malformed component. */
 static bool parse_version_triple(const char **p, SemverVersion *out) {
     const char *s = *p;
+    out->pre[0] = '\0';
     if (!parse_uint(&s, &out->major)) return false;
     if (*s != '.') return false;
     s++;
@@ -66,8 +69,18 @@ static bool parse_version_triple(const char **p, SemverVersion *out) {
     if (*s != '.') return false;
     s++;
     if (!parse_uint(&s, &out->patch)) return false;
-    /* Optional pre-release / build suffix, stripped. */
-    if (*s == '-' || *s == '+') {
+    if (*s == '-') {
+        s++;
+        size_t n = 0;
+        while (*s && *s != '+' && *s != ',' && !isspace((unsigned char)*s)) {
+            if (!isalnum((unsigned char)*s) && *s != '-' && *s != '.') return false;
+            if (n + 1 >= sizeof(out->pre)) return false;
+            out->pre[n++] = *s++;
+        }
+        out->pre[n] = '\0';
+        if (n == 0) return false;
+    }
+    if (*s == '+') {
         s++;
         while (*s && *s != ',' && !isspace((unsigned char)*s)) s++;
     }
@@ -75,11 +88,55 @@ static bool parse_version_triple(const char **p, SemverVersion *out) {
     return true;
 }
 
-/* Compare two versions: returns <0, 0, >0 (per major, then minor, then patch). */
+static bool ident_is_numeric(const char *s, size_t n) {
+    if (n == 0) return false;
+    for (size_t i = 0; i < n; i++)
+        if (!isdigit((unsigned char)s[i])) return false;
+    return true;
+}
+
+/* Semver precedence of two pre-release strings (both non-empty): compare
+ * dot-separated identifiers left to right; numeric identifiers numerically,
+ * others in ASCII order, numeric below alphanumeric; a shorter list that is
+ * a prefix of the longer one is lower. */
+static int prerelease_cmp(const char *a, const char *b) {
+    while (*a && *b) {
+        size_t na = strcspn(a, "."), nb = strcspn(b, ".");
+        bool da = ident_is_numeric(a, na), db = ident_is_numeric(b, nb);
+        int c;
+        if (da && db) {
+            /* Compare by length then digits (no overflow on long numbers). */
+            while (na > 1 && *a == '0') { a++; na--; }
+            while (nb > 1 && *b == '0') { b++; nb--; }
+            c = (na != nb) ? (na < nb ? -1 : 1) : strncmp(a, b, na);
+        } else if (da != db) {
+            c = da ? -1 : 1;
+        } else {
+            size_t m = na < nb ? na : nb;
+            c = strncmp(a, b, m);
+            if (c == 0 && na != nb) c = na < nb ? -1 : 1;
+        }
+        if (c != 0) return c;
+        a += na; b += nb;
+        if (*a == '.') a++;
+        if (*b == '.') b++;
+    }
+    if (*a) return 1;
+    if (*b) return -1;
+    return 0;
+}
+
+/* Compare two versions by semver precedence: major, minor, patch, then a
+ * pre-release version is below the same version without one. */
 static int version_cmp(const SemverVersion *a, const SemverVersion *b) {
     if (a->major != b->major) return a->major - b->major;
     if (a->minor != b->minor) return a->minor - b->minor;
-    return a->patch - b->patch;
+    if (a->patch != b->patch) return a->patch - b->patch;
+    if (!a->pre[0] || !b->pre[0]) {
+        if (!a->pre[0] && !b->pre[0]) return 0;
+        return a->pre[0] ? -1 : 1;
+    }
+    return prerelease_cmp(a->pre, b->pre);
 }
 
 /* Match an operator prefix (longest first). On success, sets *op and
@@ -134,8 +191,9 @@ IronSemverConstraint *iron_semver_parse(const char *constraint_str) {
         /* Capture lower-bound string from the first GE/EQ/CARET/TILDE clause. */
         if (!lower_bound_str &&
             (op == SV_GE || op == SV_EQ || op == SV_CARET || op == SV_TILDE)) {
-            char buf[32];
-            snprintf(buf, sizeof(buf), "%d.%d.%d", v.major, v.minor, v.patch);
+            char buf[128];
+            snprintf(buf, sizeof(buf), "%d.%d.%d%s%s", v.major, v.minor, v.patch,
+                     v.pre[0] ? "-" : "", v.pre);
             lower_bound_str = strdup(buf);
             if (!lower_bound_str) { free(clauses); return NULL; }
         }
@@ -207,6 +265,29 @@ bool iron_semver_satisfies(const IronSemverConstraint *c, const char *version_st
 const char *iron_semver_suggest_version(const IronSemverConstraint *c) {
     if (!c) return NULL;
     return c->lower_bound_str;
+}
+
+bool iron_semver_below_lower_bound(const IronSemverConstraint *c,
+                                   const char *version_str) {
+    if (!c || !version_str) return false;
+    const char *p = skip_ws(version_str);
+    SemverVersion v;
+    if (!parse_version_triple(&p, &v)) return false;
+    for (int i = 0; i < c->clause_count; i++) {
+        const SemverClause *cl = &c->clauses[i];
+        int cmp = version_cmp(&v, &cl->version);
+        switch (cl->op) {
+            case SV_GE: case SV_EQ: case SV_CARET: case SV_TILDE:
+                if (cmp < 0) return true;
+                break;
+            case SV_GT:
+                if (cmp <= 0) return true;
+                break;
+            case SV_LE: case SV_LT:
+                break;
+        }
+    }
+    return false;
 }
 
 void iron_semver_free(IronSemverConstraint *c) {

@@ -399,12 +399,17 @@ static int check_legacy_dependencies(const IronProject *proj, bool colors) {
  *   'curl --proto =https --tlsv1.2 -sSfL https://ironlang.dev/install.sh |
  *   sh -s -- --version <suggested>' to update.
  *
- * Scope (v3.2): the version check fires for `iron build` and `iron run`
- * (which dispatches through cmd_build) only. `iron check` and `iron test`
- * intentionally skip the check per CONTEXT.md so contributors can iterate
- * on a package whose pin floor has drifted ahead of their toolchain.
+ * When the installed compiler is too new (only upper bounds fail), the
+ * install hint would name the version the user already has, so the message
+ * states the constraint instead.
+ *
+ * Scope: the check is an error for `iron build` and `iron run`. `iron check`
+ * reports it as a warning (as_warning) so contributors can still iterate on
+ * a package whose pin has drifted from their toolchain, but are told about
+ * it.
  */
-static int check_iron_version(const IronProject *proj, bool colors) {
+static int check_iron_version(const IronProject *proj, bool colors,
+                              bool as_warning) {
     if (!proj->iron_constraint || proj->iron_constraint[0] == '\0') {
         return 0;  /* PIN-04: missing/empty field is permitted */
     }
@@ -428,17 +433,28 @@ static int check_iron_version(const IronProject *proj, bool colors) {
     }
 
     const char *suggested = iron_semver_suggest_version(c);
-    if (!suggested) suggested = IRON_VERSION_STRING;
-
     char msg[2048];
-    snprintf(msg, sizeof(msg),
-             "%s requires iron %s, but you have %s. Run 'curl --proto =https --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh -s -- --version %s' to update.",
-             proj->name,
-             proj->iron_constraint,
-             IRON_VERSION_STRING,
-             suggested);
-    iron_print_error(colors, msg);
+    if (suggested && iron_semver_below_lower_bound(c, IRON_VERSION_STRING)) {
+        snprintf(msg, sizeof(msg),
+                 "%s requires iron %s, but you have %s. Run 'curl --proto =https --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh -s -- --version %s' to update.",
+                 proj->name,
+                 proj->iron_constraint,
+                 IRON_VERSION_STRING,
+                 suggested);
+    } else {
+        snprintf(msg, sizeof(msg),
+                 "%s requires iron %s, but you have %s, which is newer. Install an iron release that satisfies '%s'.",
+                 proj->name,
+                 proj->iron_constraint,
+                 IRON_VERSION_STRING,
+                 proj->iron_constraint);
+    }
     iron_semver_free(c);
+    if (as_warning) {
+        iron_print_warning(colors, msg);
+        return 0;
+    }
+    iron_print_error(colors, msg);
     return 1;
 }
 
@@ -517,7 +533,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * constraint is fail-fast and side-effect-free. cmd_run dispatches
      * through cmd_build(true, ...) (see cmd_project), so this single
      * call site covers both `iron build` and `iron run`. */
-    if (check_iron_version(proj, colors) != 0) {
+    if (check_iron_version(proj, colors, false) != 0) {
         free(toml_path);
         iron_toml_free(proj);
         return 1;
@@ -727,6 +743,14 @@ static int cmd_check(int argc, char **argv) {
     }
 
     if (check_legacy_dependencies(proj, colors) != 0) {
+        free(toml_path);
+        iron_toml_free(proj);
+        return 1;
+    }
+
+    /* Report a version pin mismatch as a warning (malformed pins still
+     * fail). */
+    if (check_iron_version(proj, colors, true) != 0) {
         free(toml_path);
         iron_toml_free(proj);
         return 1;

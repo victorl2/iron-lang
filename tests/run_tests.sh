@@ -603,7 +603,10 @@ fi
 #                   stderr MUST contain the substring in
 #                   expected_stderr_substring (TEST-04 lock); target/
 #                   MUST NOT have been created (fail-fast invariant).
+#   pin_too_new/    iron = "< 1.0.0" -> same as pin_mismatch; the message
+#                   must not suggest installing the current version.
 #   pin_absent/     no iron field -> build + run + stdout-compare
+# Any pin_* case with an expected_stderr_substring file is a mismatch case.
 if [ "${CATEGORY}" = "integration" ]; then
     for case_dir in "${TEST_DIR}"/pin_*/; do
         [ -d "${case_dir}" ] || continue
@@ -618,7 +621,7 @@ if [ "${CATEGORY}" = "integration" ]; then
         build_rc=$?
         set -e
 
-        if [ "${case_name}" = "pin_mismatch" ]; then
+        if [ -f "${case_dir}expected_stderr_substring" ]; then
             if [ "${build_rc}" -eq 0 ]; then
                 echo "[FAIL] (expected build to fail; exit 0)"
                 cat "${build_log}" >&2

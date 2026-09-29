@@ -1,0 +1,5 @@
+[package]
+name = "pin_too_new"
+version = "0.1.0"
+type = "bin"
+iron = "< 1.0.0"
