@@ -1,0 +1,3 @@
+vertices 40 edges 70
+components: 24, singletons: 23, largest: 17
+component 3: 0 1 2 3 4 5 7 15 16 22 25 26 27 31 36 37 38

@@ -1,0 +1,8 @@
+density 10%: edges  13, max degree  5, dsatur 3, welsh-powell 3, chromatic 3
+density 18%: edges  23, max degree  6, dsatur 3, welsh-powell 3, chromatic 3
+density 26%: edges  34, max degree  6, dsatur 3, welsh-powell 3, chromatic 3
+density 34%: edges  38, max degree  7, dsatur 4, welsh-powell 4, chromatic 4
+density 42%: edges  58, max degree 11, dsatur 5, welsh-powell 5, chromatic 5
+density 50%: edges  81, max degree 13, dsatur 7, welsh-powell 6, chromatic 6
+density 58%: edges  78, max degree 12, dsatur 5, welsh-powell 5, chromatic 5
+cycle C9 plus 9 isolated vertices: chromatic 3

@@ -1,0 +1,5 @@
+mst weight 7145 over 59 edges
+heaviest tree edge: 35-50 weight 331
+non-tree edges strictly heavier than path max: 241 of 241
+union-find finds 210, hops 158
+max tree degree 6
