@@ -1,0 +1,5 @@
+streams 5, lengths 175 106 315 313 113
+merged 1022 values, min 3 max 808
+first 10 (value:stream): 3:0 3:1 4:0 4:1 4:3 4:4 5:2 6:4 7:3 8:0
+stream share of first 60: 15 9 11 13 12
+merge hash 690288009

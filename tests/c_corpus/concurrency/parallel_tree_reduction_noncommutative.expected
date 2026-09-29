@@ -1,0 +1,10 @@
+sequential: matrix [386204 676722; 39605 938233] affine (117969, 852132)
+chunks  1: combine levels 0, equal to sequential: yes
+chunks  2: combine levels 1, equal to sequential: yes
+chunks  3: combine levels 2, equal to sequential: yes
+chunks  5: combine levels 3, equal to sequential: yes
+chunks  8: combine levels 3, equal to sequential: yes
+chunks 13: combine levels 4, equal to sequential: yes
+chunks 16: combine levels 4, equal to sequential: yes
+chunks 32: combine levels 5, equal to sequential: yes
+reversed product differs: yes

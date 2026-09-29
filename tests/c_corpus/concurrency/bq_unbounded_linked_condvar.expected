@@ -1,0 +1,4 @@
+single thread fifo ok, len 0
+items 3000 sum 6001498500
+xor 3228435600256
+allocs equal frees: yes

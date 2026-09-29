@@ -1,0 +1,10 @@
+no failures: resolution order 4 1 5 7 2 6 0 3
+  race -> 4, any -> 4, all -> values sum 220
+some failures: resolution order 3 0 4 2 7 1 5 6
+  race -> 3, any -> 4, all -> error at index 0
+first resolved fails: resolution order 5 2 4 3 6 1 0 7
+  race -> 5, any -> 4, all -> error at index 0
+all fail: resolution order 4 6 3 1 0 7 2 5
+  race -> 4, any -> -1, all -> error at index 0
+last index fails: resolution order 6 2 4 3 1 7 0 5
+  race -> 6, any -> 6, all -> error at index 7

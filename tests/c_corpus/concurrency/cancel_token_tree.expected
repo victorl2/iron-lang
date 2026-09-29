@@ -1,0 +1,5 @@
+scenario 1: units done 200 38 200
+scenario 1: root cancelled 0, c1 cancelled 1
+scenario 2: callback order: r2.a r2.b d0.a d1.a d1.b d2.a
+scenario 2: child created after cancel is cancelled: 1
+scenario 3: first match at 749, search token cancelled 1
