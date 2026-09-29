@@ -1,0 +1,50 @@
+-- A type match on a nullable interface (#179): implementor arms see the
+-- payload, null takes the else arm. An implementor that is never
+-- constructed can still be named in an arm (it never runs).
+interface Shape {
+    readonly func area() -> Int
+}
+object Circle impl Shape {
+    val r: Int
+    readonly func area() -> Int { return self.r * 3 }
+}
+object Square impl Shape {
+    val s: Int
+    readonly func area() -> Int { return self.s * self.s }
+}
+object Hexagon impl Shape {
+    val side: Int
+    readonly func area() -> Int { return self.side * 6 }
+}
+func pick(n: Int) -> Shape? {
+    if n == 0 {
+        return null
+    }
+    if n == 1 {
+        return Circle(2)
+    }
+    return Square(3)
+}
+func describe(sh: Shape?) -> String {
+    match sh {
+        Circle(c) -> { return "circle {c.r}" }
+        Square(q) -> { return "square {q.s}" }
+        Hexagon(h) -> { return "hexagon {h.side}" }
+        else -> { return "none" }
+    }
+}
+func main() {
+    println(describe(pick(0)))
+    println(describe(pick(1)))
+    println(describe(pick(2)))
+    match pick(1) {
+        Circle(c) -> println("c {c.area()}")
+        else -> println("other")
+    }
+    val s: Shape = Circle(5)
+    match s {
+        Circle(c) -> println("r {c.r}")
+        Square(q) -> println("s {q.s}")
+        Hexagon(h) -> println("h {h.side}")
+    }
+}

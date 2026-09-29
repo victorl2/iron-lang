@@ -277,6 +277,13 @@ static bool emit_optional_cast(Iron_StrBuf *sb, IronLIR_Instr *instr,
             ctx->iface_reg) {
             const char *ic = emit_mangle_name(sb2->interface.decl->name, ctx->arena);
             if (dst->kind == IRON_TYPE_OBJECT && dst->object.decl && dst->object.decl->name) {
+                /* An implementor never constructed has no member in the
+                 * union; a view of it sits in code that never runs. */
+                Iron_IfaceEntry *se = iron_iface_lookup(ctx->iface_reg, sb2->interface.decl->name);
+                if (se && !iface_impl_alive(se, dst->object.decl->name)) {
+                    iron_strbuf_appendf(sb, "((%s){0})", emit_type_to_c(dst, ctx));
+                    return true;
+                }
                 bool ind = iface_variant_is_indirect(ctx, ic, dst->object.decl->name);
                 iron_strbuf_appendf(sb, "(%s(", ind ? "*" : "");
                 emit_expr_to_buf(sb, instr->cast.value, fn, ctx, use_block_id, depth + 1);
@@ -653,6 +660,12 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
         bool vi_null = false;
         if (emit_is_iface_object_view(fn, uw, &vi_iface, &vi_impl, &vi_null) &&
             emit_vid_is_storage_path(fn, uw->cast.value)) {
+            Iron_IfaceEntry *ve = ctx->iface_reg ? iron_iface_lookup(ctx->iface_reg, vi_iface) : NULL;
+            if (ve && !iface_impl_alive(ve, vi_impl)) {
+                /* never constructed: unreachable code */
+                iron_strbuf_appendf(sb, "((%s *)NULL)", emit_mangle_name(vi_impl, ctx->arena));
+                return;
+            }
             bool ind = ctx->iface_reg &&
                 iface_variant_is_indirect(ctx, emit_mangle_name(vi_iface, ctx->arena), vi_impl);
             iron_strbuf_appendf(sb, "%s((*", ind ? "" : "&");

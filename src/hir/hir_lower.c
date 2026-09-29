@@ -1371,7 +1371,9 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_MATCH: {
         Iron_MatchStmt *ms    = (Iron_MatchStmt *)node;
         Iron_Type      *scrut_ty = expr_type(ms->subject);
-        if (scrut_ty && scrut_ty->kind == IRON_TYPE_INTERFACE) {
+        Iron_Type      *scrut_base = scrut_ty && scrut_ty->kind == IRON_TYPE_NULLABLE
+                                     ? scrut_ty->nullable.inner : scrut_ty;
+        if (scrut_base && scrut_base->kind == IRON_TYPE_INTERFACE) {
             /* A type match (#179) is an if/else chain of tag tests. The
              * subject is read in place when it is a local binding, else
              * evaluated once into a temporary; each arm's binding is a

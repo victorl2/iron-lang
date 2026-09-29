@@ -8240,6 +8240,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * invalid C is emitted). Reject non-integer, non-enum subjects
              * here with a clean diagnostic. NULL / ERROR subject types are
              * skipped to avoid cascading on already-diagnosed code. */
+            /* A nullable interface subject matches its implementors too;
+             * null goes to the else arm, which is then required. */
+            bool subject_nullable = subject_type && subject_type->kind == IRON_TYPE_NULLABLE &&
+                                    subject_type->nullable.inner &&
+                                    subject_type->nullable.inner->kind == IRON_TYPE_INTERFACE;
+            if (subject_nullable) subject_type = subject_type->nullable.inner;
             bool type_match = subject_type && subject_type->kind == IRON_TYPE_INTERFACE &&
                               subject_type->interface.decl;
             if (subject_type &&
@@ -8283,7 +8289,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         arrput(seen, tn);
                     }
                 }
-                if (!ms->else_body) {
+                if (!ms->else_body && subject_nullable) {
+                    char msg[320];
+                    snprintf(msg, sizeof(msg),
+                             "non-exhaustive match: a '%s?' subject can be null", iname);
+                    emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH, ms->span, msg,
+                               "add 'else -> ...' to handle null");
+                } else if (!ms->else_body) {
                     char msg[512];
                     int pos = iron_sat_appendf(msg, 0, sizeof(msg),
                                                "non-exhaustive match: missing implementor(s) of '%s': ",
