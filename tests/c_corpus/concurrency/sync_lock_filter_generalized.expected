@@ -1,0 +1,8 @@
+levels=4 threads=5
+thread 0 entered 200 times
+thread 1 entered 200 times
+thread 2 entered 200 times
+thread 3 entered 200 times
+thread 4 entered 200 times
+counter=1000 violations=0
+Peterson-level occupancy above capacity: 0

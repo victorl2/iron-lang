@@ -1,0 +1,4 @@
+stress: table[0]=360 table[7]=360 reads=1000
+inconsistent observations 0
+demo A: new reader admitted while writer waits: no
+demo B: admission order WR
