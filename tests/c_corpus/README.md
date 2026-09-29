@@ -1,6 +1,6 @@
 # C reference corpus
 
-2000 small, self-contained, self-checking C programs. They cover nine topics
+About 2,200 small, self-contained, self-checking C programs. They cover ten topics
 and give Iron a correctness baseline: each program's `.expected` file records
 the exact stdout of a known-good C build. Later on, an Iron port of any
 program must print the same bytes.
@@ -18,7 +18,12 @@ tests/c_corpus/
 ```
 
 Topics: `algorithms`, `data_structures`, `memory`, `concurrency`, `io_files`,
-`networking`, `unix`, `statistics`, `other`.
+`networking`, `unix`, `statistics`, `other`, `crypto`.
+
+The `crypto` programs are educational reference implementations checked
+against published test vectors (RFCs, NIST, FIPS). They are not hardened
+for production use: small key sizes keep run times short, and randomness
+comes from seeded deterministic generators so output is reproducible.
 
 ## Running
 

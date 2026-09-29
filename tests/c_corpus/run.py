@@ -37,6 +37,7 @@ TOPICS = [
     "unix",
     "statistics",
     "other",
+    "crypto",
     "leetcode",
 ]
 DEPS = {"libc", "libm", "pthread", "posix", "sockets"}
