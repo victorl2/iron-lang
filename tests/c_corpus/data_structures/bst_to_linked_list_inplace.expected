@@ -1,0 +1,6 @@
+round 0: n=38 height before=10 after=6
+round 1: n=44 height before=9 after=6
+round 2: n=80 height before=13 after=7
+round 3: n=44 height before=11 after=6
+40 rounds of tree -> circular list -> balanced tree -> preorder list verified
+single node list: self-linked=1

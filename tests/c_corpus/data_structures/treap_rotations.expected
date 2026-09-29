@@ -1,0 +1,4 @@
+ascending 1000: height=21 rotations=990
+after deleting evens: size=500 height=21
+random: inserts=1067 deletes=969 size=598 maxheight=22 rotations=4271
+drained

@@ -1,0 +1,5 @@
+ascending 300: depth=14 rotations=286
+inserts=1531 deletes=1290 size=241
+worst depth=14 rotations=1258 fixup steps=1895
+red nodes=94 of 241
+drained

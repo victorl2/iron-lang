@@ -1,0 +1,5 @@
+round 0: n=39 swapped positions 15 and 16 (adjacent), first=1809 second=1912
+round 1: n=92 swapped positions 66 and 4 (distant), first=366 second=3486
+round 2: n=124 swapped positions 65 and 66 (adjacent), first=2692 second=2783
+swap repairs: 40 adjacent, 40 distant; sort repairs: 80; nodes processed=5414
+violations in a valid tree: 0

@@ -1,0 +1,5 @@
+versions=161, final size=56, height=7
+operations=160, total nodes allocated=594, max per operation=10
+sum of version sizes=6064, distinct nodes reachable=545
+2000 lookups across versions: 618 hits
+fork of version 80: branch size 74, original still 44
