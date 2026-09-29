@@ -321,6 +321,13 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
                                       line_markers);
     }
 
+    /* Mirrors build.c: `import hint` prepends hint.iron. */
+    if (iron_detect_import(source, source_path, "hint", &detect_arena)) {
+        stdlib_prepended_lines +=
+            check_prepend_marked_file(&source, base_dir, "stdlib/hint.iron",
+                                      line_markers);
+    }
+
     /* Phase 59 02: detect "import net" and prepend net.iron so `iron check`
      * sees the Net/TcpSocket/TcpListener/NetError decls that live in stdlib
      * rather than in user source. */
@@ -360,6 +367,14 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
     /* Always prepend string.iron — String methods are available without import */
     stdlib_prepended_lines +=
         check_prepend_marked_file(&source, base_dir, "stdlib/string.iron",
+                                  line_markers);
+
+    /* Always prepend list.iron, as build.c does: without it `iron check`
+     * did not know map / filter / reduce / forEach / sum and diverged from
+     * `iron build` (now an unknown-method error rather than a silent
+     * mistyping). */
+    stdlib_prepended_lines +=
+        check_prepend_marked_file(&source, base_dir, "stdlib/list.iron",
                                   line_markers);
 
     /* Phase 78 FMT: always prepend int.iron — Int.to_string / Int32.to_string
