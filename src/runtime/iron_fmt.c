@@ -8,18 +8,21 @@
  * Semantics (per Phase 78 CONTEXT.md):
  *   Int   — signed 64-bit decimal; INT64_MIN → "-9223372036854775808" (20 chars)
  *   Int32 — signed 32-bit decimal; INT32_MIN → "-2147483648"          (11 chars)
- *   Float — libc %.6g semantics (6 significant digits, trailing zeros trimmed);
+ *   Float — shortest round-trip digits (see iron_fmt_float);
  *           special values: NaN → "NaN", +inf → "inf", -inf → "-inf",
  *           -0.0 → "0" (canonicalized after sign stripping for zero magnitude).
  *
  * Buffer sizes:
  *   Int   — 24 bytes (INT64_MIN needs 21 incl sign + nul; round up for margin)
  *   Int32 — 16 bytes (INT32_MIN needs 12 incl sign + nul)
- *   Float — 32 bytes (%.6g worst case ~14 chars: "-1.23457e-308" + margin)
+ *   Float — IRON_FMT_FLOAT_BUF bytes (worst case "-0.0000001234567890123456"
+ *           or "-1.2345678901234567e-308", under 32 chars)
  */
 
 #include <stdio.h>
 #include <math.h>
+#include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "iron_runtime.h"
@@ -49,30 +52,70 @@ Iron_String Iron_int32_to_string(int32_t n) {
     return iron_string_from_cstr(buf, (size_t)len);
 }
 
-Iron_String Iron_float_to_string(double f) {
-    /* Special values first — libc's %g handling is platform-dependent
-     * for NaN/Inf (glibc emits "nan"/"inf", musl "nan"/"inf", Windows
-     * historically "1.#QNAN"). Normalize to Iron's convention per
-     * CONTEXT.md: "NaN" / "inf" / "-inf". */
-    if (isnan(f))                 return iron_string_from_cstr("NaN",  3);
-    if (isinf(f) && f > 0)        return iron_string_from_cstr("inf",  3);
-    if (isinf(f) && f < 0)        return iron_string_from_cstr("-inf", 4);
+/* Shortest round-trip decimal form of v (the digits Python's repr and
+ * JavaScript's Number.toString choose): the fewest significant digits that
+ * parse back to exactly v, or to exactly (float)v when is_f32.  Layout
+ * follows JavaScript: plain decimal for exponents -6..20 with no trailing
+ * ".0" on whole values, scientific ("1e+21", "1.5e-7") outside that range.
+ * NaN -> "NaN", infinities -> "inf" / "-inf", both zeros -> "0".
+ * out must hold IRON_FMT_FLOAT_BUF bytes; returns out. */
+const char *iron_fmt_float(double v, bool is_f32, char *out) {
+    if (isnan(v))            { strcpy(out, "NaN");  return out; }
+    if (isinf(v) && v > 0)   { strcpy(out, "inf");  return out; }
+    if (isinf(v))            { strcpy(out, "-inf"); return out; }
+    if (v == 0.0)            { strcpy(out, "0");    return out; }
 
-    /* -0.0 canonicalization: trim the sign so Iron_float_to_string(-0.0)
-     * returns "0" (matches CONTEXT.md's "trim trailing zeros rule applies
-     * after sign stripping for zero magnitude"). IEEE 754 §5.11 guarantees
-     * that the equality `f == 0.0` also matches -0.0, so this single branch
-     * handles both zero encodings. */
-    if (f == 0.0) return iron_string_from_cstr("0", 1);
-
-    char buf[32];
-    /* %.6g — 6 significant digits, trailing zeros trimmed, scientific
-     * form for magnitudes < 1e-4 or >= 1e+6 (standard libc behavior).
-     * This matches the v2.2 CONTEXT.md decision: "libc %g semantics for
-     * C-backend parity". No precision parameter this phase. */
-    int len = snprintf(buf, sizeof(buf), "%.6g", f);
-    if (len < 0 || len >= (int)sizeof(buf)) {
-        return iron_string_from_cstr("", 0);
+    char sci[40];
+    int max_p = is_f32 ? 9 : 17;
+    for (int p = 1; p <= max_p; p++) {
+        snprintf(sci, sizeof(sci), "%.*e", p - 1, v);
+        double back = strtod(sci, NULL);
+        if (is_f32 ? ((float)back == (float)v) : (back == v)) break;
     }
-    return iron_string_from_cstr(buf, (size_t)len);
+
+    /* sci is "[-]d[.ddd]e(+|-)XX": split into sign, digits, exponent. */
+    const char *c = sci;
+    bool neg = (*c == '-');
+    if (neg) c++;
+    char digits[24];
+    int n = 0;
+    for (; *c && *c != 'e'; c++) {
+        if (*c >= '0' && *c <= '9' && n < (int)sizeof(digits) - 1)
+            digits[n++] = *c;
+    }
+    int e = (*c == 'e') ? atoi(c + 1) : 0;
+    while (n > 1 && digits[n - 1] == '0') n--;
+    digits[n] = '\0';
+
+    char *o = out;
+    if (neg) *o++ = '-';
+    if (e >= -6 && e < 21) {
+        if (e >= 0) {
+            for (int i = 0; i <= e; i++) *o++ = (i < n) ? digits[i] : '0';
+            if (n > e + 1) {
+                *o++ = '.';
+                for (int i = e + 1; i < n; i++) *o++ = digits[i];
+            }
+        } else {
+            *o++ = '0';
+            *o++ = '.';
+            for (int i = 0; i < -e - 1; i++) *o++ = '0';
+            for (int i = 0; i < n; i++) *o++ = digits[i];
+        }
+        *o = '\0';
+    } else {
+        *o++ = digits[0];
+        if (n > 1) {
+            *o++ = '.';
+            for (int i = 1; i < n; i++) *o++ = digits[i];
+        }
+        snprintf(o, 8, "e%c%d", e < 0 ? '-' : '+', e < 0 ? -e : e);
+    }
+    return out;
+}
+
+Iron_String Iron_float_to_string(double f) {
+    char buf[IRON_FMT_FLOAT_BUF];
+    iron_fmt_float(f, false, buf);
+    return iron_string_from_cstr(buf, strlen(buf));
 }

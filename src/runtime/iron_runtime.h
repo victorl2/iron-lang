@@ -932,12 +932,17 @@ void    Iron_assert(bool cond, Iron_String msg);
  *
  * Iron_int_to_string   — signed 64-bit decimal (INT64_MIN safe).
  * Iron_int32_to_string — signed 32-bit decimal (INT32_MIN safe).
- * Iron_float_to_string — libc %.6g (6 sig digits, trailing zeros trimmed);
+ * Iron_float_to_string — shortest round-trip digits (iron_fmt_float);
  *                        NaN/±Inf/-0.0 normalize to "NaN"/"inf"/"-inf"/"0".
  */
 Iron_String Iron_int_to_string(int64_t n);
 Iron_String Iron_int32_to_string(int32_t n);
 Iron_String Iron_float_to_string(double f);
+/* Shortest round-trip float formatting shared by to_string and string
+ * interpolation; is_f32 picks the shortest form that round-trips as a
+ * Float32.  out must hold IRON_FMT_FLOAT_BUF bytes; returns out. */
+#define IRON_FMT_FLOAT_BUF 40
+const char *iron_fmt_float(double v, bool is_f32, char *out);
 
 static inline int64_t Iron_range(int64_t n) { return n; }
 

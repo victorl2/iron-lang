@@ -5833,7 +5833,9 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     case IRON_TYPE_FLOAT:
                     case IRON_TYPE_FLOAT32:
                     case IRON_TYPE_FLOAT64:
-                        fmt_spec = "%g";
+                        /* Formatted by iron_fmt_float (shortest
+                         * round-trip), passed as a string. */
+                        fmt_spec = "%s";
                         break;
                     case IRON_TYPE_BOOL:
                         /* emitted as ternary inline */
@@ -5867,7 +5869,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 case IRON_TYPE_FLOAT:
                                 case IRON_TYPE_FLOAT32:
                                 case IRON_TYPE_FLOAT64:
-                                    fmt_spec = "%g"; break;
+                                    fmt_spec = "%s"; break;
                                 case IRON_TYPE_BOOL:
                                     fmt_spec = "%s"; break;
                                 default:
@@ -5923,8 +5925,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     case IRON_TYPE_FLOAT64: {
                         Iron_StrBuf tmp = iron_strbuf_create(32);
                         emit_val(&tmp, part_id);
-                        iron_strbuf_appendf(&args_sb, "(double)(%s)",
-                                            iron_strbuf_get(&tmp));
+                        iron_strbuf_appendf(&args_sb,
+                            "iron_fmt_float((double)(%s), %s, (char[IRON_FMT_FLOAT_BUF]){0})",
+                            iron_strbuf_get(&tmp),
+                            part_type->kind == IRON_TYPE_FLOAT32 ? "true" : "false");
                         iron_strbuf_free(&tmp);
                         break;
                     }
@@ -5978,8 +5982,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 case IRON_TYPE_FLOAT32:
                                 case IRON_TYPE_FLOAT64:
                                     iron_strbuf_appendf(&args_sb,
-                                        "(double)(*(%s))",
-                                        iron_strbuf_get(&tmp));
+                                        "iron_fmt_float((double)(*(%s)), %s, (char[IRON_FMT_FLOAT_BUF]){0})",
+                                        iron_strbuf_get(&tmp),
+                                        part_type->ptr.pointee->kind == IRON_TYPE_FLOAT32
+                                            ? "true" : "false");
                                     break;
                                 case IRON_TYPE_BOOL:
                                     iron_strbuf_appendf(&args_sb,
