@@ -1,0 +1,7 @@
+-- @expected-error: E0219
+-- Only objects have fields. `.count` on a list used to type-check silently
+-- and fail in the generated C; the element count is `.len()`.
+func main() {
+    val xs = [1, 2, 3]
+    println("{xs.count}")
+}

@@ -332,6 +332,9 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
              * the binding that holds the pointer. */
             if (id->resolved_type && id->resolved_type->kind == IRON_TYPE_PTR)
                 return id->resolved_type->ptr.is_var;
+            /* A shared rc object is mutable through any handle. */
+            if (id->resolved_type && id->resolved_type->kind == IRON_TYPE_RC)
+                return true;
             if (id->resolved_sym) return id->resolved_sym->is_mutable;
             Iron_Symbol *s = id->name ? tc_lookup(ctx, id->name) : NULL;
             return s ? s->is_mutable : false;
@@ -344,7 +347,8 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
              * to count as mutable. */
             Iron_Type *obj_ty = fa->object
                 ? ((Iron_ExprNode *)fa->object)->resolved_type : NULL;
-            if (obj_ty && obj_ty->kind == IRON_TYPE_RC) obj_ty = obj_ty->rc.inner;
+            bool through_rc = obj_ty && obj_ty->kind == IRON_TYPE_RC;
+            if (through_rc) obj_ty = obj_ty->rc.inner;
             if (obj_ty && obj_ty->kind == IRON_TYPE_PTR) {
                 /* p.f through a pointer: the pointer's var and the field. */
                 bool ptr_var = obj_ty->ptr.is_var;
@@ -371,7 +375,7 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
                     }
                 }
             }
-            return field_mut && arg_source_is_mutable(ctx, fa->object);
+            return field_mut && (through_rc || arg_source_is_mutable(ctx, fa->object));
         }
         /* Calls, literals, binops, unary, struct-literal, list-literal,
          * map-literal, casts, lambdas — all rvalues, not mutable sources. */
@@ -1445,6 +1449,27 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         if (!inner_t) inner_t = iron_type_make_primitive(IRON_TYPE_ERROR);
         Iron_Type *wt = iron_type_make_weak_rc(ctx->arena, inner_t);
         return wt ? wt : iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+
+    if (ann->is_array && ann->array_elem_ann) {
+        Iron_Type *elem = resolve_type_annotation(ctx, ann->array_elem_ann);
+        if (!elem || elem->kind == IRON_TYPE_ERROR)
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        int size = -1;
+        if (ann->array_size && ann->array_size->kind == IRON_NODE_INT_LIT) {
+            Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
+            if (il->value) size = (int)strtol(il->value, NULL, 10);
+        }
+        Iron_Type *arr = iron_type_make_array(ctx->arena, elem, size, ann->bounded);
+        if (!arr) return iron_type_make_primitive(IRON_TYPE_ERROR);
+        arr->array.layout_hint  = ann->layout_hint;
+        arr->array.is_unordered = ann->is_unordered;
+        arr->array.is_bounded   = ann->bounded;
+        if (ann->is_nullable) {
+            Iron_Type *nb = iron_type_make_nullable(ctx->arena, arr);
+            return nb ? nb : iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
+        return arr;
     }
 
     if (ann->is_rc) {
@@ -3664,7 +3689,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                 Iron_Field *fld = (Iron_Field *)od->fields[fi];
                                 if (fld && fld->type_ann && fld->type_ann->kind == IRON_NODE_TYPE_ANNOTATION) {
                                     Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)fld->type_ann;
-                                    if (strcmp(ta->name, gp->name) == 0) {
+                                    if (ta->name && strcmp(ta->name, gp->name) == 0) {
                                         concrete[gi] = check_expr(ctx, ce->args[fi]);
                                         break;
                                     }
@@ -4021,7 +4046,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                 Iron_Param *fp = (Iron_Param *)fd->params[pi];
                                 if (fp && fp->type_ann && fp->type_ann->kind == IRON_NODE_TYPE_ANNOTATION) {
                                     Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)fp->type_ann;
-                                    if (strcmp(ta->name, gp->name) == 0) {
+                                    if (ta->name && strcmp(ta->name, gp->name) == 0) {
                                         concrete[gi] = check_expr(ctx, ce->args[pi]);
                                         break;
                                     }
@@ -5588,6 +5613,16 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     emit_error(ctx, IRON_ERR_NULLABLE_ACCESS, fa->span,
                                "cannot access field of nullable type without null check",
                                "Check for null before accessing");
+                } else if (obj_type && obj_type->kind != IRON_TYPE_ERROR) {
+                    /* Only objects have fields; `xs.count` on a list used to
+                     * pass silently and fail in the generated C. */
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "type '%s' has no field '%s'",
+                             iron_type_to_string(obj_type, ctx->arena),
+                             fa->field ? fa->field : "?");
+                    emit_error(ctx, IRON_ERR_NO_SUCH_FIELD, fa->span, msg,
+                               obj_type->kind == IRON_TYPE_ARRAY
+                                   ? "use .len() for the element count" : NULL);
                 }
                 result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 fa->resolved_type = result;
@@ -6623,6 +6658,29 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
 
 /* ── Statement type checking ─────────────────────────────────────────────── */
 
+/* Does destroying a value of type `t` run code: a drop block, an rc /
+ * weak rc field to release, or a by-value object field with a destructor? */
+static bool type_has_destructor(TypeCtx *ctx, Iron_Type *t, int depth) {
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || depth > 16)
+        return false;
+    Iron_ObjectDecl *od = t->object.decl;
+    for (int i = 0; od->name && i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+        if (m->is_drop && m->type_name && strcmp(m->type_name, od->name) == 0)
+            return true;
+    }
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        Iron_Type *ft = f ? f->resolved_type : NULL;
+        if (!ft) continue;
+        if (ft->kind == IRON_TYPE_RC || ft->kind == IRON_TYPE_WEAK_RC) return true;
+        if (type_has_destructor(ctx, ft, depth + 1)) return true;
+    }
+    return false;
+}
+
 static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return;
     /* HARD-05: cancel poll at recursive statement walker entry. */
@@ -6900,6 +6958,17 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
             if (vd->type_ann) {
                 decl_type = resolve_type_annotation(ctx, vd->type_ann);
+            }
+            /* The destructor runs at scope exit and on every reassignment,
+             * so such a binding must hold a value from its declaration on. */
+            if (!vd->init && decl_type && type_has_destructor(ctx, decl_type, 0)) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "'%s' has a type with a destructor and needs an initializer",
+                         vd->name ? vd->name : "binding");
+                emit_error(ctx, IRON_ERR_DROP_BINDING_UNINIT, vd->span, msg,
+                           "give it a value where it is declared; a destructor "
+                           "must never run on an unset binding");
             }
 
             Iron_Type *init_type = NULL;
@@ -7207,6 +7276,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         ((Iron_ExprNode *)outer_fa->object)->resolved_type;
                     if (recv_t && recv_t->kind == IRON_TYPE_PTR &&
                         recv_t->ptr.is_var) {
+                        lhs_is_var_ptr_auto_deref = true;
+                    }
+                    /* An rc handle refers to a shared object: like a pointer,
+                     * the field's own `var` decides, not the handle binding. */
+                    if (recv_t && recv_t->kind == IRON_TYPE_RC) {
                         lhs_is_var_ptr_auto_deref = true;
                     }
                 }

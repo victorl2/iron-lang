@@ -120,7 +120,7 @@ func main() -> Int32 {
     -- Attempt to load a nonexistent .iqm — expect empty list (see RESEARCH.md
     -- Claude's Discretion: no .iqm asset vendored; ABI-level smoke only).
     val anims = ModelAnimation.load("/tmp/phase70_nonexistent.iqm")
-    val _k_count = anims.count
+    val _k_count = anims.len()
     -- If the list is non-empty, exercise update_animation + animation_valid;
     -- on empty list (expected), we skip those calls safely.
     ModelAnimation.unload_all(anims)
