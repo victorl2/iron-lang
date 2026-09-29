@@ -6158,6 +6158,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                             emit_error(ctx, IRON_ERR_VEC_STRICT_LENGTH_MISMATCH,
                                        vd->init->span, msg_copy,
                                        "§3.3: [T; N] requires exactly N elements in the initializer literal");
+                        } else {
+                            /* The literal is this [T; N] value: give it the
+                             * declared type. Left as dynamic [T], the binding
+                             * and the literal disagreed downstream (returning
+                             * it was an internal return-type error, assigning
+                             * it across an if an internal PHI error). */
+                            al->resolved_type = decl_type;
                         }
                         /* If count matches, suppress the generic E0202: the literal is valid. */
                     } else {
@@ -6322,6 +6329,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                             emit_error(ctx, IRON_ERR_VEC_STRICT_LENGTH_MISMATCH,
                                        vd->init->span, msg_copy,
                                        "§3.3: [T; N] requires exactly N elements in the initializer literal");
+                        } else {
+                            /* The literal is this [T; N] value: give it the
+                             * declared type. Left as dynamic [T], the binding
+                             * and the literal disagreed downstream (returning
+                             * it was an internal return-type error, assigning
+                             * it across an if an internal PHI error). */
+                            al->resolved_type = decl_type;
                         }
                         /* If count matches, suppress the generic E0202: the literal is valid. */
                     } else if (decl_type->kind == IRON_TYPE_PTR &&

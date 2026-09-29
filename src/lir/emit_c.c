@@ -5495,9 +5495,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
 
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s ", c_type);
-            emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = {");
+            /* A value hoisted to function entry (used by a block emitted
+             * earlier) is already declared: assign a compound literal. */
+            if (is_hoisted) {
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = (%s){", c_type);
+            } else {
+                iron_strbuf_appendf(sb, "%s ", c_type);
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = {");
+            }
 
             /* Emit .tag */
             iron_strbuf_appendf(sb, " .tag = %s_TAG_%s", adt_mangled, adt_ev->name);
@@ -5521,9 +5528,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             instr->construct.type->kind == IRON_TYPE_OBJECT &&
             instr->construct.type->object.decl) {
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s ", c_type);
-            emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = {");
+            /* A value hoisted to function entry (used by a block emitted
+             * earlier) is already declared: assign a compound literal. */
+            if (is_hoisted) {
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = (%s){", c_type);
+            } else {
+                iron_strbuf_appendf(sb, "%s ", c_type);
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = {");
+            }
             Iron_ObjectDecl *od = instr->construct.type->object.decl;
             int field_start = 0;
             /* If the object has a parent, first field is _base */
@@ -5564,9 +5578,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         } else if (instr->construct.type &&
             instr->construct.type->kind == IRON_TYPE_TUPLE) {
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s ", c_type);
-            emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = {");
+            /* A value hoisted to function entry (used by a block emitted
+             * earlier) is already declared: assign a compound literal. */
+            if (is_hoisted) {
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = (%s){", c_type);
+            } else {
+                iron_strbuf_appendf(sb, "%s ", c_type);
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = {");
+            }
             for (int i = 0; i < instr->construct.field_count; i++) {
                 if (i > 0) iron_strbuf_appendf(sb, ",");
                 iron_strbuf_appendf(sb, " .v%d = ", i);
@@ -5574,9 +5595,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         } else {
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s ", c_type);
-            emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = {");
+            /* A value hoisted to function entry (used by a block emitted
+             * earlier) is already declared: assign a compound literal. */
+            if (is_hoisted) {
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = (%s){", c_type);
+            } else {
+                iron_strbuf_appendf(sb, "%s ", c_type);
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = {");
+            }
             /* Fallback: positional initialization */
             for (int i = 0; i < instr->construct.field_count; i++) {
                 if (i > 0) iron_strbuf_appendf(sb, ", ");

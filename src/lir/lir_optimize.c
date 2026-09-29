@@ -5975,6 +5975,35 @@ static void inline_call_site(IronLIR_Func *fn,
         hmfree(result_remap);
     }
 
+    /* ── Step 10: Lay the inlined blocks out right after the call block ── */
+    /*
+     * The cloned blocks, merge and continuation were appended at the end of
+     * fn->blocks.  The emitter prints blocks in array order, so leaving them
+     * there puts the continuation (which holds the rest of the caller's
+     * block, including its allocas) textually after the caller's later
+     * blocks that use those values.  Moving the slice to follow call_block
+     * restores dominator-compatible textual order.
+     */
+    {
+        int call_pos = -1;
+        for (int bi2 = 0; bi2 < cloned_block_start; bi2++) {
+            if (fn->blocks[bi2] == call_block) { call_pos = bi2; break; }
+        }
+        int tail_len = fn->block_count - cloned_block_start;
+        if (call_pos >= 0 && call_pos + 1 < cloned_block_start && tail_len > 0) {
+            IronLIR_Block **tail = (IronLIR_Block **)malloc(
+                (size_t)tail_len * sizeof(IronLIR_Block *));
+            if (!tail) iron_oom_abort("lir_optimize.c:inline_call_site layout");
+            memcpy(tail, &fn->blocks[cloned_block_start],
+                   (size_t)tail_len * sizeof(IronLIR_Block *));
+            memmove(&fn->blocks[call_pos + 1 + tail_len], &fn->blocks[call_pos + 1],
+                    (size_t)(cloned_block_start - call_pos - 1) * sizeof(IronLIR_Block *));
+            memcpy(&fn->blocks[call_pos + 1], tail,
+                   (size_t)tail_len * sizeof(IronLIR_Block *));
+            free(tail);
+        }
+    }
+
     hmfree(id_remap);
     hmfree(block_remap);
 }
@@ -6101,9 +6130,16 @@ static void run_function_inlining(IronLIR_Module *module,
                 /* Re-fetch block pointer (safe since no arrput happened yet) */
                 IronLIR_Block *call_block = fn->blocks[bi];
 
-                /* Inline this call site */
+                /* Inline this call site.  The inlined blocks are laid out
+                 * right after call_block, shifting the remaining original
+                 * blocks; skip over them so this round still visits exactly
+                 * the original blocks. */
+                int before_count = fn->block_count;
                 inline_call_site(fn, call_block, ii, instr, callee);
                 inlined_any = true;
+                int inserted = fn->block_count - before_count;
+                bi += inserted;
+                orig_block_count += inserted;
 
                 /* Block is now split — stop iterating its instructions */
                 break;

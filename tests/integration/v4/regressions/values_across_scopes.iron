@@ -1,0 +1,51 @@
+-- Regression: fixed arrays and objects moved across scopes.
+--
+-- 1. A [T; N] literal kept the dynamic type [T], so returning a fixed-array
+--    local was an internal return-type error (E0305) and assigning one to
+--    an outer binding inside an if was an internal PHI error (E0306), both
+--    after `iron check` passed. The literal now takes the declared type.
+-- 2. A construction whose value is used by a block emitted earlier is
+--    hoisted to function entry, but the construct still emitted a full
+--    declaration: `redefinition of '_vN'` in optimized builds (for example
+--    after inlining a function that returns an object).
+-- 3. The inliner appended the inlined blocks at the end of the function, so
+--    the rest of the caller's block (with its declarations) was emitted after
+--    later blocks that used it: `use of undeclared identifier`. Inlined
+--    blocks now follow the call site.
+object V {
+    val x: Int
+}
+
+func make_grid() -> [Int; 4] {
+    val grid: [Int; 4] = [0, 9, 0, 0]
+    return grid
+}
+
+func make_v() -> V {
+    val v = V(3)
+    return v
+}
+
+func main() {
+    val g = make_grid()
+    var outer: [Int; 4] = [0, 0, 0, 0]
+    if g[1] == 9 {
+        val inner: [Int; 4] = [1, 2, 5, 4]
+        outer = inner
+    }
+    println("grid {g[1]} outer {outer[2]}")
+
+    var copied: [Int; 4] = [0, 0, 0, 0]
+    if g[1] == 9 {
+        copied = g
+    }
+    println("copied {copied[1]}")
+
+    val v = make_v()
+    var ov = V(0)
+    if true {
+        val inner = V(7)
+        ov = inner
+    }
+    println("objects {v.x} {ov.x}")
+}
