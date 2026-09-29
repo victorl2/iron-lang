@@ -1,0 +1,8 @@
+tic-tac-toe: value 0 (draw)
+  minimax 549946 nodes, alpha-beta 18297 nodes, alpha-beta centre-first 7275 nodes, memoized 16168 nodes (10690 table hits)
+  first-move values: 0 0 0 0 0 0 0 0 0
+  position with X to move and a top-row threat: best move 2 value 1
+synthetic b=4 d=4: value  -14, best root move 3, minimax    341 nodes, alpha-beta    228, ordered     62
+synthetic b=4 d=6: value  -44, best root move 3, minimax   5461 nodes, alpha-beta   1531, ordered    268
+synthetic b=4 d=8: value  -41, best root move 0, minimax  87381 nodes, alpha-beta   8129, ordered   1098
+subtraction games k=2..5 over n<150: 143 losing positions, all multiples of k+1

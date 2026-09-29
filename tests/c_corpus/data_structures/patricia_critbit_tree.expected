@@ -1,0 +1,8 @@
+prefix 'a': 79 keys a aa aaa aaaaa
+prefix 'ab': 20 keys aba abaa abacd abada
+prefix 'ba': 15 keys baa baac baacac babaab
+prefix 'dd': 21 keys dda ddabc ddac ddad
+prefix 'cdc': 8 keys cdcb cdcbad cdcbb cdccb
+prefix '': 328 keys a aa aaa aaaaa
+inserted 426 duplicates 179 deleted 98 missing 197
+final keys 328, depth 16, internal nodes 327

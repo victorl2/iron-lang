@@ -1,0 +1,3 @@
+phase 0: size 3490 buckets 229 inserts 5108 erases 1618 queries 2544 splits 228 merges 0
+phase 1: size 1791 buckets 145 inserts 3577 erases 5276 queries 2538 splits 243 merges 99
+phase 2: size 1850 buckets 145 inserts 4279 erases 4220 queries 2521 splits 243 merges 99

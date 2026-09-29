@@ -1,0 +1,3 @@
+points 1024, height 11, stored entries 11264 (n log n = 10240)
+500 count queries, total 25183; reported ids over 100 queries 7010
+binary-search comparisons: plain range tree 24406, with cascading 10002

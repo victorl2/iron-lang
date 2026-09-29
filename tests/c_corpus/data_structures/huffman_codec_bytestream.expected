@@ -1,0 +1,12 @@
+english    n=  108 distinct= 18 header= 179 bits payload=   396 bits ->    72 bytes
+           code lengths 2..7, cost 396
+empty      n=    0 distinct=  0 header=   0 bits payload=     0 bits ->     0 bytes
+single     n=  300 distinct=  1 header=   9 bits payload=   300 bits ->    39 bytes
+skewed     n= 2000 distinct=  7 header=  69 bits payload=  3217 bits ->   411 bytes
+           code lengths 1..5, cost 3217
+uniform    n= 4000 distinct=256 header=2559 bits payload= 32000 bits ->  4320 bytes
+           code lengths 8..8, cost 32000
+noise      n= 4000 distinct=256 header=2559 bits payload= 31904 bits ->  4308 bytes
+           code lengths 7..10, cost 31904
+fibonacci  n=  986 distinct= 14 header= 139 bits payload=  2566 bits ->   339 bytes
+           code lengths 1..13, cost 2566

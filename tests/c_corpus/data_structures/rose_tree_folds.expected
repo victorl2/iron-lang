@@ -1,0 +1,5 @@
+tree 1(2(4 5) 3 -6(7))
+size 7 sum 16 height 3 leaves 4 max 7 maxpath 8
+pruned 1(2(4 5) 3) size 5
+200 random trees: total size 3826, total leaves 1999, max height 6
+sample hash 4195942528

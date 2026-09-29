@@ -1,0 +1,5 @@
+points 3000 nodes 2273 leaves 1989 max depth 7
+depth-first leaf order equals Morton order; first ids 1359 1539 2396
+200 box queries: 1069 hits, avg nodes touched 46
+200 nearest queries: sum of squared distances 787655
+after deleting 2000 points: 1000 remain, nodes 585 leaves 512 max depth 4
