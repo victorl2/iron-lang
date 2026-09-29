@@ -1,0 +1,3 @@
+A: area=235 nodes=293   B: area=371 nodes=261 (raw pixels 1024)
+union area=522 nodes=437, intersection area=84 nodes=113
+after 4000 writes and a full fill: nodes=1 area=1024

@@ -1,0 +1,5 @@
+block size 1    blocks=1000 digest=729960531 elements touched=4031
+block size 7    blocks=143  digest=525748212 elements touched=21738
+block size 32   blocks=32   digest=372328926 elements touched=94398
+block size 100  blocks=10   digest=963309632 elements touched=282174
+block size 1000 blocks=1    digest=307563757 elements touched=1008288

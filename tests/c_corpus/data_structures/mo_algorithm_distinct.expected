@@ -1,0 +1,3 @@
+n=2000 queries=1500 block=45
+distinct total=329299 max=298 weighted digest=624998081
+pointer moves=69290 (naive would be about 982671)
