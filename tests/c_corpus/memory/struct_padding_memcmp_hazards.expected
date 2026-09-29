@@ -1,0 +1,13 @@
+sizeof(Rec)=32, padding ranges:
+  [1, 4) 3 bytes
+  [9, 16) 7 bytes
+  [26, 32) 6 bytes
+padding total 16 of 32 bytes (16 payload)
+fieldwise equal: yes
+raw memcmp equal: no
+raw hash differs: yes
+canonical length 16, hashes equal: yes (0xeafcaf30)
+padding bit flips: 16, each invisible to fields but visible to memcmp: 16
+payload byte flips detected by both methods: 16 of 16
+equal pairs of 6: by fields 3, by raw bytes 0
+union: first byte 0x11, untouched tail bytes 7 of 7

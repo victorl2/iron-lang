@@ -1,0 +1,11 @@
+initial:   M16
+punch 0:   M4 H2 M10
+punch 1:   M4 H2 M4 H1 M5
+punch 2:   H1 M3 H2 M4 H1 M5
+punch 3:   H1 M3 H5 M1 H1 M5
+punch 4:   H1 M3 H5 M1 H1 M3 H2
+surviving pages: 7
+hole edge probes: 18
+munmap of hole: ok
+refilled:  H1 M4 H4 M1 H1 M3 H2
+mapped pages remaining: 0
