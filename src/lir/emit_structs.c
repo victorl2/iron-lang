@@ -278,7 +278,15 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
             "    }\n"
             "    free(self->items);\n"
             "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
+            "}\n"
+            "void Iron_List_%s_clear(Iron_List_%s *self) {\n"
+            "    for (int64_t _i = 0; _i < self->count; _i++) {\n"
+            "        %s_drop(&self->items[_i]);\n"
+            "    }\n"
+            "    self->count = 0;\n"
             "}\n\n",
+            mangled,
+            mangled, mangled,
             mangled,
             mangled, mangled,
             mangled);
@@ -287,8 +295,11 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
             "void Iron_List_%s_free(Iron_List_%s *self) {\n"
             "    free(self->items);\n"
             "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
+            "}\n"
+            "void Iron_List_%s_clear(Iron_List_%s *self) {\n"
+            "    self->count = 0;\n"
             "}\n\n",
-            mangled, mangled);
+            mangled, mangled, mangled, mangled);
     }
 }
 

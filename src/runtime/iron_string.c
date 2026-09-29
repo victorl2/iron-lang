@@ -127,6 +127,16 @@ bool iron_string_equals(const Iron_String *a, const Iron_String *b) {
     return memcmp(iron_string_cstr(a), iron_string_cstr(b), la) == 0;
 }
 
+/* Lexicographic order by bytes, which for UTF-8 is code point order.
+ * Returns <0, 0 or >0 like memcmp. */
+int iron_string_compare(const Iron_String *a, const Iron_String *b) {
+    size_t la = iron_string_byte_len(a);
+    size_t lb = iron_string_byte_len(b);
+    int c = memcmp(iron_string_cstr(a), iron_string_cstr(b), la < lb ? la : lb);
+    if (c != 0) return c;
+    return (la > lb) - (la < lb);
+}
+
 Iron_String iron_string_concat(const Iron_String *a, const Iron_String *b) {
     /* Phase 96 STR-01: defense-in-depth NULL guard — the compiler-side
      * lowering at hir_lower.c always emits two valid Iron_String pointers,

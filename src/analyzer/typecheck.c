@@ -1969,29 +1969,117 @@ static bool push_type_compatible(const Iron_Type *elem_type,
  * that don't have explicit extension method declarations yet. */
 static Iron_Type *resolve_array_builtin_method(const char *method,
                                                Iron_Type *arr_type) {
+    Iron_Type *elem = arr_type->array.elem
+        ? arr_type->array.elem : iron_type_make_primitive(IRON_TYPE_VOID);
     if (strcmp(method, "len") == 0) {
         return iron_type_make_primitive(IRON_TYPE_INT);
     } else if (strcmp(method, "push") == 0 || strcmp(method, "set") == 0 ||
                strcmp(method, "free") == 0 || strcmp(method, "sort") == 0 ||
-               strcmp(method, "reverse") == 0 || strcmp(method, "for_each") == 0) {
+               strcmp(method, "reverse") == 0 || strcmp(method, "insert") == 0 ||
+               strcmp(method, "clear") == 0) {
         return iron_type_make_primitive(IRON_TYPE_VOID);
     } else if (strcmp(method, "get") == 0 || strcmp(method, "pop") == 0 ||
-               strcmp(method, "find") == 0) {
-        return (arr_type->array.elem != NULL)
-                   ? arr_type->array.elem
-                   : iron_type_make_primitive(IRON_TYPE_VOID);
-    } else if (strcmp(method, "any") == 0 || strcmp(method, "all") == 0) {
+               strcmp(method, "remove") == 0) {
+        return elem;
+    } else if (strcmp(method, "contains") == 0) {
         return iron_type_make_primitive(IRON_TYPE_BOOL);
     } else if (strcmp(method, "get_unchecked") == 0) {
         /* 2026-07 UNCHK-IDX: same typing as get — element type. */
-        return (arr_type->array.elem != NULL)
-                   ? arr_type->array.elem
-                   : iron_type_make_primitive(IRON_TYPE_VOID);
+        return elem;
     } else if (strcmp(method, "set_unchecked") == 0) {
         /* 2026-07 UNCHK-IDX: same typing as set — Void. */
         return iron_type_make_primitive(IRON_TYPE_VOID);
     }
-    return arr_type;
+    /* Unknown names used to type as the array itself, so `xs.bogus()` and
+     * never-implemented methods passed the checker and failed in C. */
+    return NULL;
+}
+
+/* Type a builtin list method call: result type, arity and argument types.
+ * `contains` needs element equality and `sort` an ordering, which only the
+ * numeric, Bool (contains) and String element types have. */
+static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                           Iron_Type *arr_type) {
+    const char *m = mc->method ? mc->method : "";
+    Iron_Type *result = resolve_array_builtin_method(m, arr_type);
+    if (!result) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "no method '%s' on '%s'", m,
+                 iron_type_to_string(arr_type, ctx->arena));
+        emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                   "list methods: len, push, pop, get, set, insert, remove, "
+                   "clear, reverse, contains, sort, map, filter, reduce, "
+                   "forEach, sum");
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    /* A fixed-size array [T; N] keeps its length: push, pop, insert, remove
+     * and clear used to compile and change it. */
+    if (arr_type->array.size >= 0 && !arr_type->array.is_bounded &&
+        (strcmp(m, "push") == 0 || strcmp(m, "pop") == 0 ||
+         strcmp(m, "insert") == 0 || strcmp(m, "remove") == 0 ||
+         strcmp(m, "clear") == 0)) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "'%s' would change the length of fixed-size array '%s'",
+                 m, iron_type_to_string(arr_type, ctx->arena));
+        emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                   "use a dynamic list [T] or a bounded vector [T; <=N]");
+        return result;
+    }
+    /* get_unchecked / set_unchecked and push keep their dedicated checks. */
+    if (strcmp(m, "get_unchecked") == 0 || strcmp(m, "set_unchecked") == 0 ||
+        strcmp(m, "push") == 0)
+        return result;
+
+    Iron_Type *elem = arr_type->array.elem;
+    Iron_Type *int_t = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *want[2] = { NULL, NULL };
+    int nwant = 0;
+    if (strcmp(m, "get") == 0 || strcmp(m, "remove") == 0) {
+        want[0] = int_t; nwant = 1;
+    } else if (strcmp(m, "set") == 0 || strcmp(m, "insert") == 0) {
+        want[0] = int_t; want[1] = elem; nwant = 2;
+    } else if (strcmp(m, "contains") == 0) {
+        want[0] = elem; nwant = 1;
+    }
+    if (mc->arg_count != nwant) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "list method '%s' expects %d argument(s), got %d",
+                 m, nwant, mc->arg_count);
+        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+        return result;
+    }
+    for (int i = 0; i < nwant; i++) {
+        Iron_Type *at = mc->args[i] ? ((Iron_ExprNode *)mc->args[i])->resolved_type : NULL;
+        if (!want[i] || !at || at->kind == IRON_TYPE_ERROR ||
+            want[i]->kind == IRON_TYPE_ERROR) continue;
+        if (is_int_literal_narrowing(want[i], at, mc->args[i])) {
+            ((Iron_IntLit *)mc->args[i])->resolved_type = want[i];
+            continue;
+        }
+        if (!types_assignable(want[i], at)) {
+            char msg[256];
+            snprintf(msg, sizeof(msg),
+                     "argument %d type mismatch: expected '%s', got '%s'", i + 1,
+                     iron_type_to_string(want[i], ctx->arena),
+                     iron_type_to_string(at, ctx->arena));
+            emit_error(ctx, IRON_ERR_ARG_TYPE, mc->args[i]->span, msg, NULL);
+        }
+    }
+    bool is_sort = strcmp(m, "sort") == 0;
+    if ((is_sort || strcmp(m, "contains") == 0) && elem) {
+        bool ok = iron_type_is_integer(elem) || iron_type_is_float(elem) ||
+                  elem->kind == IRON_TYPE_STRING ||
+                  (!is_sort && elem->kind == IRON_TYPE_BOOL);
+        if (!ok) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "'%s' is not available on '%s'", m,
+                     iron_type_to_string(arr_type, ctx->arena));
+            emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                       is_sort ? "sort needs numeric or String elements"
+                               : "contains needs numeric, Bool or String elements");
+        }
+    }
+    return result;
 }
 
 /* 2026-07 UNCHK-IDX: strict-form validation for the per-site unchecked
@@ -4196,7 +4284,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_Type *arr_type = obj_id->resolved_type;
                     Iron_Type *ext_result = resolve_array_ext_method(ctx, mc, arr_type);
                     result = ext_result ? ext_result
-                                        : resolve_array_builtin_method(mc->method, arr_type);
+                                        : check_array_builtin_call(ctx, mc, arr_type);
 
                     /* 2026-07 UNCHK-IDX: strict validation for the per-site
                      * unchecked indexing intrinsics (no-op for other names).
@@ -4618,7 +4706,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                  * like arr.map(...).filter(...)): resolve via extension methods. */
                 Iron_Type *ext_result = resolve_array_ext_method(ctx, mc, obj_type_mc);
                 result = ext_result ? ext_result
-                                    : resolve_array_builtin_method(mc->method, obj_type_mc);
+                                    : check_array_builtin_call(ctx, mc, obj_type_mc);
 
                 /* 2026-07 UNCHK-IDX: mirror the ident-receiver arm's strict
                  * validation for chained array receivers. */

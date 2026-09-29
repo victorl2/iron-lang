@@ -1,0 +1,10 @@
+-- @expected-error: E0220
+-- sort needs an ordering: only numeric and String elements have one.
+object Enemy {
+    val hp: Int
+}
+
+func main() {
+    var enemies = [Enemy(3), Enemy(8)]
+    enemies.sort()
+}

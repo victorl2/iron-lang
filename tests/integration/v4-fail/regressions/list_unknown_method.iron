@@ -1,0 +1,8 @@
+-- @expected-error: E0220
+-- An unknown list method is an error (it used to type as the list itself
+-- and fail later in the C compiler).
+func main() {
+    val xs = [1, 2, 3]
+    val ys = xs.bogus()
+    println("{ys.len()}")
+}

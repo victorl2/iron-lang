@@ -755,6 +755,7 @@ const char  *iron_string_cstr(const Iron_String *s);
 size_t       iron_string_byte_len(const Iron_String *s);
 size_t       iron_string_codepoint_count(const Iron_String *s);
 bool         iron_string_equals(const Iron_String *a, const Iron_String *b);
+int          iron_string_compare(const Iron_String *a, const Iron_String *b);
 Iron_String  iron_string_concat(const Iron_String *a, const Iron_String *b);
 Iron_String  iron_string_intern(Iron_String s);
 /* Consumes one owned string value. Heap-backed interned literals remain owned
@@ -1149,6 +1150,34 @@ typedef struct {
  *       int64_t  capacity;
  *   } Iron_List_##suffix;
  */
+/* qsort comparators for list.sort() on numeric and String elements.
+ * Floats order NaN after every number so the order is total. */
+#define IRON_SORT_CMP_NUM(name, T) \
+    static inline int name(const void *pa, const void *pb) { \
+        T a = *(const T *)pa, b = *(const T *)pb; \
+        return (a > b) - (a < b); \
+    }
+IRON_SORT_CMP_NUM(iron_sort_cmp_int8_t,   int8_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_int16_t,  int16_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_int32_t,  int32_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_int64_t,  int64_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_uint8_t,  uint8_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_uint16_t, uint16_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_uint32_t, uint32_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_uint64_t, uint64_t)
+#define IRON_SORT_CMP_FLOAT(name, T) \
+    static inline int name(const void *pa, const void *pb) { \
+        T a = *(const T *)pa, b = *(const T *)pb; \
+        if (a != a) return (b != b) ? 0 : 1; \
+        if (b != b) return -1; \
+        return (a > b) - (a < b); \
+    }
+IRON_SORT_CMP_FLOAT(iron_sort_cmp_float,  float)
+IRON_SORT_CMP_FLOAT(iron_sort_cmp_double, double)
+static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
+    return iron_string_compare((const Iron_String *)pa, (const Iron_String *)pb);
+}
+
 #define IRON_LIST_DECL(T, suffix) \
     Iron_List_##suffix Iron_List_##suffix##_create(void); \
     Iron_List_##suffix Iron_List_##suffix##_create_with_capacity(int64_t cap); \
@@ -1158,6 +1187,10 @@ typedef struct {
     void               Iron_List_##suffix##_set(Iron_List_##suffix *self, int64_t index, T item); \
     T                  Iron_List_##suffix##_pop(Iron_List_##suffix *self); \
     int64_t            Iron_List_##suffix##_len(const Iron_List_##suffix *self); \
+    T                  Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index); \
+    void               Iron_List_##suffix##_insert(Iron_List_##suffix *self, int64_t index, T item); \
+    void               Iron_List_##suffix##_reverse(Iron_List_##suffix *self); \
+    void               Iron_List_##suffix##_clear(Iron_List_##suffix *self); \
     void               Iron_List_##suffix##_free(Iron_List_##suffix *self);
 
 /* Phase 33 STDLIB-02 (Plan 33-04): IRON_LIST_IMPL is split into
@@ -1218,6 +1251,32 @@ typedef struct {
             iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
         return self->items[--self->count]; \
     } \
+    T Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index) { \
+        /* Removes and returns items[index], shifting the tail down. */ \
+        if ((uint64_t)index >= (uint64_t)self->count) \
+            iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
+        T removed = self->items[index]; \
+        memmove(&self->items[index], &self->items[index + 1], \
+                (size_t)(self->count - index - 1) * sizeof(T)); \
+        self->count--; \
+        return removed; \
+    } \
+    void Iron_List_##suffix##_insert(Iron_List_##suffix *self, int64_t index, T item) { \
+        /* index == count appends. */ \
+        if ((uint64_t)index > (uint64_t)self->count) \
+            iron_panic_index_oob("Iron_List_" #suffix "_insert", 0, index, self->count + 1); \
+        Iron_List_##suffix##_push(self, item); \
+        memmove(&self->items[index + 1], &self->items[index], \
+                (size_t)(self->count - 1 - index) * sizeof(T)); \
+        self->items[index] = item; \
+    } \
+    void Iron_List_##suffix##_reverse(Iron_List_##suffix *self) { \
+        for (int64_t i = 0, j = self->count - 1; i < j; i++, j--) { \
+            T tmp = self->items[i]; \
+            self->items[i] = self->items[j]; \
+            self->items[j] = tmp; \
+        } \
+    } \
     int64_t Iron_List_##suffix##_len(const Iron_List_##suffix *self) { \
         return self->count; \
     }
@@ -1237,6 +1296,9 @@ typedef struct {
             dst.items = NULL; \
         } \
         return dst; \
+    } \
+    void Iron_List_##suffix##_clear(Iron_List_##suffix *self) { \
+        self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
         free(self->items); \
@@ -1308,8 +1370,37 @@ typedef struct {
             iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
         return self->items[--self->count]; \
     } \
+    T Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index) { \
+        /* Removes and returns items[index], shifting the tail down. */ \
+        if ((uint64_t)index >= (uint64_t)self->count) \
+            iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
+        T removed = self->items[index]; \
+        memmove(&self->items[index], &self->items[index + 1], \
+                (size_t)(self->count - index - 1) * sizeof(T)); \
+        self->count--; \
+        return removed; \
+    } \
+    void Iron_List_##suffix##_insert(Iron_List_##suffix *self, int64_t index, T item) { \
+        /* index == count appends. */ \
+        if ((uint64_t)index > (uint64_t)self->count) \
+            iron_panic_index_oob("Iron_List_" #suffix "_insert", 0, index, self->count + 1); \
+        Iron_List_##suffix##_push(self, item); \
+        memmove(&self->items[index + 1], &self->items[index], \
+                (size_t)(self->count - 1 - index) * sizeof(T)); \
+        self->items[index] = item; \
+    } \
+    void Iron_List_##suffix##_reverse(Iron_List_##suffix *self) { \
+        for (int64_t i = 0, j = self->count - 1; i < j; i++, j--) { \
+            T tmp = self->items[i]; \
+            self->items[i] = self->items[j]; \
+            self->items[j] = tmp; \
+        } \
+    } \
     int64_t Iron_List_##suffix##_len(const Iron_List_##suffix *self) { \
         return self->count; \
+    } \
+    void Iron_List_##suffix##_clear(Iron_List_##suffix *self) { \
+        self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
         free(self->items); \

@@ -615,6 +615,190 @@ static bool emit_slot_owns_stored_values(IronLIR_Func *fn, IronLIR_ValueId slot)
     return any;
 }
 
+/* Emit `list.contains(v)` / `list.sort()` inline when `instr` is a call to
+ * Iron_List_<T>_contains / _sort on a dynamic list. Returns false when the
+ * call is something else. */
+static bool emit_list_contains_or_sort(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                                       IronLIR_Func *fn, EmitCtx *ctx,
+                                       int ind, bool is_hoisted) {
+    if (instr->call.arg_count < 1) return false;
+    IronLIR_ValueId fp = instr->call.func_ptr;
+    if (fp == IRON_LIR_VALUE_INVALID || fp >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+        !fn->value_table[fp] || fn->value_table[fp]->kind != IRON_LIR_FUNC_REF)
+        return false;
+    const char *name = fn->value_table[fp]->func_ref.func_name;
+    if (!name || strncmp(name, "Iron_List_", 10) != 0) return false;
+    size_t n = strlen(name);
+    bool is_contains = n > 9 && strcmp(name + n - 9, "_contains") == 0;
+    bool is_sort = n > 5 && strcmp(name + n - 5, "_sort") == 0;
+    if (!is_contains && !is_sort) return false;
+    Iron_Type *lt = emit_get_value_type(fn, instr->call.args[0]);
+    if (!lt || lt->kind != IRON_TYPE_ARRAY || !lt->array.elem ||
+        lt->array.is_bounded) return false;
+    Iron_Type *et = lt->array.elem;
+    const char *list_c = emit_type_to_c(lt, ctx);
+    const char *elem_c = emit_type_to_c(et, ctx);
+    bool is_str = et->kind == IRON_TYPE_STRING;
+
+    emit_indent(sb, ind);
+    if (is_contains) {
+        if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = false;\n");
+    }
+    emit_indent(sb, ind);
+    iron_strbuf_appendf(sb, "{\n");
+    emit_indent(sb, ind + 1);
+    iron_strbuf_appendf(sb, "%s *_ls = ", list_c);
+    emit_receiver_addr(sb, fn, ctx, instr->call.args[0], ctx->current_block_id);
+    iron_strbuf_appendf(sb, ";\n");
+    if (is_sort) {
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb,
+            "if (_ls->count > 1) qsort(_ls->items, (size_t)_ls->count, sizeof(%s), "
+            "iron_sort_cmp_%s);\n", elem_c, elem_c);
+    } else {
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "%s _lv = ", elem_c);
+        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ";\n");
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "for (int64_t _li = 0; _li < _ls->count; _li++) {\n");
+        emit_indent(sb, ind + 2);
+        if (is_str)
+            iron_strbuf_appendf(sb, "if (iron_string_equals(&_ls->items[_li], &_lv)) { ");
+        else
+            iron_strbuf_appendf(sb, "if (_ls->items[_li] == _lv) { ");
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = true; break; }\n");
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "}\n");
+    }
+    emit_indent(sb, ind);
+    iron_strbuf_appendf(sb, "}\n");
+    return true;
+}
+
+/* `bv.<method>(...)` on a bounded vector [T; <=N] for the methods the
+ * push / len interception does not cover. The receiver is an Iron_BVec
+ * struct ({ data[N], len }); calling the Iron_List_* runtime on it was a C
+ * type error and clear() emitted nothing. Returns false for other calls. */
+static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                             IronLIR_Func *fn, EmitCtx *ctx,
+                             int ind, bool is_hoisted) {
+    if (instr->call.arg_count < 1) return false;
+    IronLIR_ValueId fp = instr->call.func_ptr;
+    if (fp == IRON_LIR_VALUE_INVALID || fp >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+        !fn->value_table[fp] || fn->value_table[fp]->kind != IRON_LIR_FUNC_REF)
+        return false;
+    const char *name = fn->value_table[fp]->func_ref.func_name;
+    if (!name || strncmp(name, "Iron_List_", 10) != 0) return false;
+    Iron_Type *bt = emit_get_value_type(fn, instr->call.args[0]);
+    if (!bt || bt->kind != IRON_TYPE_ARRAY || !bt->array.is_bounded ||
+        bt->array.size < 0 || !bt->array.elem) return false;
+    const char *m = strrchr(name, '_');
+    if (!m) return false;
+    m++;
+    static const char *const k_methods[] = {
+        "pop", "clear", "remove", "insert", "reverse", "contains", "sort", NULL
+    };
+    bool known = false;
+    for (int i = 0; k_methods[i]; i++) if (strcmp(m, k_methods[i]) == 0) known = true;
+    if (!known) return false;
+
+    int N = bt->array.size;
+    const char *bv_c = emit_type_to_c(bt, ctx);
+    const char *elem_c = emit_type_to_c(bt->array.elem, ctx);
+    bool has_result = instr->type && instr->type->kind != IRON_TYPE_VOID;
+    if (has_result) {
+        emit_indent(sb, ind);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, strcmp(m, "contains") == 0 ? " = false;\n" : ";\n");
+    }
+    emit_indent(sb, ind);
+    iron_strbuf_appendf(sb, "{\n");
+    emit_indent(sb, ind + 1);
+    iron_strbuf_appendf(sb, "%s *_bv = ", bv_c);
+    emit_receiver_addr(sb, fn, ctx, instr->call.args[0], ctx->current_block_id);
+    iron_strbuf_appendf(sb, ";\n");
+    emit_indent(sb, ind + 1);
+    if (strcmp(m, "pop") == 0) {
+        iron_strbuf_appendf(sb,
+            "if (_bv->len <= 0) iron_panic_bvec_oob(__FILE__, __LINE__, -1, _bv->len);\n");
+        emit_indent(sb, ind + 1);
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = _bv->data[--_bv->len];\n");
+    } else if (strcmp(m, "clear") == 0) {
+        iron_strbuf_appendf(sb, "_bv->len = 0;\n");
+    } else if (strcmp(m, "remove") == 0) {
+        iron_strbuf_appendf(sb, "int64_t _bi = ");
+        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb,
+            ";\n");
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb,
+            "if ((uint64_t)_bi >= (uint64_t)_bv->len) "
+            "iron_panic_bvec_oob(__FILE__, __LINE__, _bi, _bv->len);\n");
+        emit_indent(sb, ind + 1);
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = _bv->data[_bi];\n");
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb,
+            "memmove(&_bv->data[_bi], &_bv->data[_bi + 1], "
+            "(size_t)(_bv->len - _bi - 1) * sizeof(%s));\n", elem_c);
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "_bv->len--;\n");
+    } else if (strcmp(m, "insert") == 0) {
+        iron_strbuf_appendf(sb, "int64_t _bi = ");
+        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ";\n");
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "%s _bx = ", elem_c);
+        emit_expr_to_buf(sb, instr->call.args[2], fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ";\n");
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb,
+            "if (_bv->len >= %d) iron_panic_bvec_oob(__FILE__, __LINE__, _bv->len, %d);\n",
+            N, N);
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb,
+            "if ((uint64_t)_bi > (uint64_t)_bv->len) "
+            "iron_panic_bvec_oob(__FILE__, __LINE__, _bi, _bv->len + 1);\n");
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb,
+            "memmove(&_bv->data[_bi + 1], &_bv->data[_bi], "
+            "(size_t)(_bv->len - _bi) * sizeof(%s));\n", elem_c);
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "_bv->data[_bi] = _bx; _bv->len++;\n");
+    } else if (strcmp(m, "reverse") == 0) {
+        iron_strbuf_appendf(sb,
+            "for (int64_t _i = 0, _j = _bv->len - 1; _i < _j; _i++, _j--) { "
+            "%s _t = _bv->data[_i]; _bv->data[_i] = _bv->data[_j]; _bv->data[_j] = _t; }\n",
+            elem_c);
+    } else if (strcmp(m, "sort") == 0) {
+        iron_strbuf_appendf(sb,
+            "if (_bv->len > 1) qsort(_bv->data, (size_t)_bv->len, sizeof(%s), "
+            "iron_sort_cmp_%s);\n", elem_c, elem_c);
+    } else { /* contains */
+        iron_strbuf_appendf(sb, "%s _bx = ", elem_c);
+        emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ";\n");
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "for (int64_t _i = 0; _i < _bv->len; _i++) { if (");
+        if (bt->array.elem->kind == IRON_TYPE_STRING)
+            iron_strbuf_appendf(sb, "iron_string_equals(&_bv->data[_i], &_bx)");
+        else
+            iron_strbuf_appendf(sb, "_bv->data[_i] == _bx");
+        iron_strbuf_appendf(sb, ") { ");
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = true; break; } }\n");
+    }
+    emit_indent(sb, ind);
+    iron_strbuf_appendf(sb, "}\n");
+    return true;
+}
+
 /* ── Expression inlining recursive helper ─────────────────────────────────── */
 
 /* Recursively build a C expression string for vid.
@@ -4004,6 +4188,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
         }
+
+        /* list.contains(v) / list.sort(): need element equality / ordering,
+         * which the generic Iron_List_<T> macros cannot provide, so emit them
+         * here from the element type (the checker restricts both to
+         * numeric, Bool and String elements). */
+        if (emit_list_contains_or_sort(sb, instr, fn, ctx, ind, is_hoisted)) break;
+
+        /* Bounded-vector methods beyond push / len (pop, clear, remove,
+         * insert, reverse, contains, sort), emitted on the Iron_BVec struct. */
+        if (emit_bvec_method(sb, instr, fn, ctx, ind, is_hoisted)) break;
 
         /* Phase 23 VEC-01: bounded-vector method interception.
          * hir_to_lir.c generates `CALL Iron_List_<elem>_<method>(&bv, ...)` for

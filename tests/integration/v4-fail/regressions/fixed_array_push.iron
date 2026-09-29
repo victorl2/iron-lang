@@ -1,0 +1,7 @@
+-- @expected-error: E0220
+-- A fixed-size array keeps its length: push used to compile and grow it.
+func main() {
+    var a: [Int; 3] = [1, 2, 3]
+    a.push(4)
+    println("{a.len()}")
+}
