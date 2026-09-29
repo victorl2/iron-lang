@@ -1,0 +1,4 @@
+allocs ok=6347 failed=101 live blocks=65
+compactions=571 blocks moved=23397 bytes moved=2017808 pinned obstacles=2962
+top=6736 live bytes=5064 dead bytes=1672 pinned now=6
+after freeing everything and compacting: top=0

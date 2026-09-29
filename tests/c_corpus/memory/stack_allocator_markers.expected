@@ -1,0 +1,4 @@
+pushes=4524 pops=4193 refused (full)=2992
+non-top pops rejected=915 resizes=581 marker releases=202
+peak=4096 of 4096, top now=4052, live=78
+unwound to empty stack

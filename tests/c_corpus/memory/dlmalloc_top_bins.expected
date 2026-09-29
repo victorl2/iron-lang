@@ -1,0 +1,10 @@
+allocs=9687 frees=9598 failed=715 live=89
+  small bin exact          3781
+  unsorted exact           484
+  large/next-bin best fit  5278
+  top split                144
+  failed                   715
+  remainder reuse          3676
+unsorted chunks binned=12199 top merges=114 top splits=144
+top size now=560 (min seen 16); free chunks below top=21 bytes=2912 largest=528
+drained: everything merged back into top (12288 bytes)

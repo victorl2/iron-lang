@@ -1,0 +1,5 @@
+stage 1: nodes=100 strings=71 used=6240 depth=17 checksum=51276774
+stage 2: copied image identical, checksum=51276774
+stage 3: nodes=1511 strings=200 used=71704 depth=26 checksum=1135709252
+growth copies while inserting: 4
+stage 4: shrink-wrapped copy of 71704 bytes verified

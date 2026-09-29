@@ -1,0 +1,5 @@
+single allocs=2464 run allocs=867 frees=2669 refused=0
+hierarchy steps=13072 hint wraps=0
+blocks used=3154 of 32768, live records=662
+exhausted 32768 blocks, summary word=0
+wrapped searches=20, holes refilled from 7 to 102

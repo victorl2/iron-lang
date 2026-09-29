@@ -1,0 +1,5 @@
+allocs=5865 frees=5738 failed=397 live=127
+blocks used=427 peak=497 of 512; free=85 in 26 runs, largest run=15
+scan work: words skipped=1205 bits tested=902755
+run-length classes 1,2,3-4,5-8,9-16,17+: 1899 1908 585 1114 186 173
+drained: one run of 512 blocks

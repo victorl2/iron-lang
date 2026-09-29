@@ -1,0 +1,5 @@
+allocs=5883 frees=5769 failed=348 (all justified: 348)
+splits=2117 merges=1988 first-level hops=1882
+free blocks=16 free bytes=3608 largest=584 fl_bitmap=01f
+bin hits by first level (32<<fl): 1459 1769 1750 415 237 69 16 24 119 25
+drained: single block of 16384 bytes in bin fl=9

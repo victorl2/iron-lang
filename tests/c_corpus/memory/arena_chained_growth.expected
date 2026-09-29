@@ -1,0 +1,8 @@
+round 0: live=352 blocks=25 cap=92144 used=87512 slack=4632
+round 1: live=921 blocks=53 cap=210496 used=205248 slack=5248
+round 2: live=245 blocks=16 cap=57200 used=53784 slack=3416
+round 3: live=575 blocks=35 cap=135728 used=131432 slack=4296
+round 4: live=471 blocks=29 cap=118696 used=113392 slack=5304
+round 5: live=816 blocks=48 cap=198840 used=192880 slack=5960
+small=1839 medium=399 large=74
+oversize blocks=74 peak blocks=53 resets=3
