@@ -997,14 +997,88 @@ static bool try_get_constant_int(Iron_Node *node, long long *out);
  * `val x: UInt8 = someIntVar` is NOT allowed -- use UInt8(someIntVar).
  * A bare INT_LIT or `-INT_LIT` counts as a literal for this check.
  */
+static bool is_integer_kind(const Iron_Type *t) {
+    if (!t) return false;
+    switch ((int)(t->kind)) {
+        case IRON_TYPE_INT:   case IRON_TYPE_INT8:   case IRON_TYPE_INT16:
+        case IRON_TYPE_INT32: case IRON_TYPE_INT64:
+        case IRON_TYPE_UINT:  case IRON_TYPE_UINT8:  case IRON_TYPE_UINT16:
+        case IRON_TYPE_UINT32: case IRON_TYPE_UINT64:
+            return true;
+        /* -Wswitch-enum opt-out: every other kind is not an integer. */
+        default:
+            return false;
+    }
+}
+
+/* A FLOAT_LIT or -FLOAT_LIT. */
+static bool is_constant_float_literal(const Iron_Node *node) {
+    if (!node) return false;
+    if (node->kind == IRON_NODE_FLOAT_LIT) return true;
+    if (node->kind == IRON_NODE_UNARY) {
+        const Iron_UnaryExpr *ue = (const Iron_UnaryExpr *)node;
+        return ue->op == IRON_TOK_MINUS && ue->operand &&
+               ue->operand->kind == IRON_NODE_FLOAT_LIT;
+    }
+    return false;
+}
+
+/* A numeric literal takes the numeric type its context requires: an integer
+ * literal (INT_LIT or -INT_LIT) becomes any integer type whose range holds
+ * its value; a float literal becomes Float32 / Float64.  Callers retype the
+ * literal node to decl_t when this returns true.  Integer and float
+ * literals never cross over.
+ * `val x: UInt8 = 255` is fine; `val x: UInt8 = someIntVar` is NOT -- use
+ * UInt8(someIntVar). */
 static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *init_t,
                                      const Iron_Node *init_node) {
     if (!decl_t || !init_t || !init_node) return false;
+    if (init_t->kind == IRON_TYPE_FLOAT) {
+        return (decl_t->kind == IRON_TYPE_FLOAT32 ||
+                decl_t->kind == IRON_TYPE_FLOAT64) &&
+               is_constant_float_literal(init_node);
+    }
     if (init_t->kind != IRON_TYPE_INT) return false;
-    if (!is_narrow_integer(decl_t)) return false;
+    if (!is_integer_kind(decl_t) || decl_t->kind == IRON_TYPE_INT) return false;
     long long val;
     if (!try_get_constant_int((Iron_Node *)init_node, &val)) return false;
     return value_fits_type(val, decl_t);
+}
+
+/* Range text for an integer type, e.g. "-128..127". */
+static const char *integer_range_text(const Iron_Type *t) {
+    switch ((int)(t ? t->kind : IRON_TYPE_ERROR)) {
+        case IRON_TYPE_INT8:   return "-128..127";
+        case IRON_TYPE_INT16:  return "-32768..32767";
+        case IRON_TYPE_INT32:  return "-2147483648..2147483647";
+        case IRON_TYPE_UINT8:  return "0..255";
+        case IRON_TYPE_UINT16: return "0..65535";
+        case IRON_TYPE_UINT32: return "0..4294967295";
+        case IRON_TYPE_UINT:
+        case IRON_TYPE_UINT64: return "0..18446744073709551615";
+        /* -Wswitch-enum opt-out: Int / Int64 hold every literal value. */
+        default:               return NULL;
+    }
+}
+
+/* An integer literal whose context wants an integer type that cannot hold
+ * it: report "literal 300 does not fit in Int8 (-128..127)" and return true
+ * so the caller skips its generic type-mismatch error. */
+static bool literal_range_error(TypeCtx *ctx, const Iron_Type *decl_t,
+                                const Iron_Type *init_t, Iron_Node *init_node) {
+    if (!decl_t || !init_t || !init_node) return false;
+    if (init_t->kind != IRON_TYPE_INT || !is_integer_kind(decl_t)) return false;
+    long long val;
+    if (!try_get_constant_int(init_node, &val)) return false;
+    if (value_fits_type(val, decl_t)) return false;
+    const char *range = integer_range_text(decl_t);
+    char msg[256];
+    snprintf(msg, sizeof(msg), "literal %lld does not fit in %s%s%s%s", val,
+             iron_type_to_string((Iron_Type *)decl_t, ctx->arena),
+             range ? " (" : "", range ? range : "", range ? ")" : "");
+    emit_error(ctx, IRON_ERR_TYPE_MISMATCH_LITERAL, init_node->span, msg,
+               "use a value within the type's range or a wider type");
+    return true;
 }
 
 /* Try to extract a compile-time constant integer from an AST node.
@@ -2081,6 +2155,7 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
             ((Iron_IntLit *)mc->args[i])->resolved_type = want[i];
             continue;
         }
+        if (literal_range_error(ctx, want[i], at, mc->args[i])) continue;
         if (!types_assignable(want[i], at)) {
             char msg[256];
             snprintf(msg, sizeof(msg),
@@ -2274,6 +2349,7 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
             ((Iron_IntLit *)mc->args[i])->resolved_type = pt;
             continue;
         }
+        if (literal_range_error(ctx, pt, at, mc->args[i])) continue;
         if (!types_assignable(pt, at)) {
             char msg[256];
             snprintf(msg, sizeof(msg),
@@ -2359,7 +2435,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             for (int i = 0; i < n->part_count; i++) {
                 Iron_Type *part_type = check_expr(ctx, n->parts[i]);
                 /* Skip string literals -- they are always stringifiable */
-                if (n->parts[i]->kind != IRON_NODE_STRING_LIT && part_type) {
+                if (n->parts[i]->kind != IRON_NODE_STRING_LIT && part_type &&
+                    part_type->kind != IRON_TYPE_ERROR) {
                     if (!is_stringifiable(ctx, part_type)) {
                         char msg[256];
                         const char *ts = iron_type_to_string(part_type, ctx->arena);
@@ -2444,6 +2521,27 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_BinaryExpr *be = (Iron_BinaryExpr *)node;
             Iron_Type *lt = check_expr(ctx, be->left);
             Iron_Type *rt = check_expr(ctx, be->right);
+
+            /* A numeric literal operand takes the other operand's numeric
+             * type: `x + 1` with `x: Int8` is Int8 arithmetic.  An integer
+             * literal that does not fit an arithmetic partner is an error. */
+            bool literal_range_reported = false;
+            if (lt && rt && lt->kind != IRON_TYPE_ERROR &&
+                rt->kind != IRON_TYPE_ERROR && !iron_type_equals(lt, rt)) {
+                if (is_int_literal_narrowing(lt, rt, be->right)) {
+                    ((Iron_ExprNode *)be->right)->resolved_type = lt;
+                    rt = lt;
+                } else if (is_int_literal_narrowing(rt, lt, be->left)) {
+                    ((Iron_ExprNode *)be->left)->resolved_type = rt;
+                    lt = rt;
+                } else if (be->op == IRON_TOK_PLUS || be->op == IRON_TOK_MINUS ||
+                           be->op == IRON_TOK_STAR || be->op == IRON_TOK_SLASH ||
+                           be->op == IRON_TOK_PERCENT) {
+                    literal_range_reported =
+                        literal_range_error(ctx, lt, rt, be->right) ||
+                        literal_range_error(ctx, rt, lt, be->left);
+                }
+            }
 
             int op = be->op;
             bool is_comparison = (op == IRON_TOK_EQUALS || op == IRON_TOK_NOT_EQUALS ||
@@ -2583,7 +2681,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         be->is_string_concat = true;
                         result = lt;  /* String */
                     } else if (!iron_type_equals(lt, rt)) {
-                        emit_type_mismatch(ctx, be->span, lt, rt);
+                        if (!literal_range_reported)
+                            emit_type_mismatch(ctx, be->span, lt, rt);
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     } else if (!iron_type_is_numeric(lt)) {
                         emit_error(ctx, IRON_ERR_TYPE_MISMATCH, be->span,
@@ -3107,7 +3206,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                     arg_t->kind   != IRON_TYPE_ERROR &&
                                     param_t->kind != IRON_TYPE_ERROR &&
                                     !types_assignable(param_t, arg_t) &&
-                                    !is_int_literal_narrowing(param_t, arg_t, ce->args[i])) {
+                                    !is_int_literal_narrowing(param_t, arg_t, ce->args[i]) &&
+            !literal_range_error(ctx, param_t, arg_t, ce->args[i])) {
                                     char msg[256];
                                     snprintf(msg, sizeof(msg),
                                              "init param '%s' expects '%s', got '%s'",
@@ -3154,7 +3254,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                 arg_t->kind  != IRON_TYPE_ERROR &&
                                 fld_t->kind  != IRON_TYPE_ERROR &&
                                 !types_assignable(fld_t, arg_t) &&
-                                !is_int_literal_narrowing(fld_t, arg_t, ce->args[i])) {
+                                !is_int_literal_narrowing(fld_t, arg_t, ce->args[i]) &&
+            !literal_range_error(ctx, fld_t, arg_t, ce->args[i])) {
                                 char msg[256];
                                 snprintf(msg, sizeof(msg),
                                          "field '%s' expects '%s', got '%s'",
@@ -3388,7 +3489,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         arg_type->kind   != IRON_TYPE_ERROR &&
                         !auto_address_applies &&
                         !types_assignable(param_type, arg_type) &&
-                        !is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
+                        !is_int_literal_narrowing(param_type, arg_type, ce->args[i]) &&
+            !literal_range_error(ctx, param_type, arg_type, ce->args[i])) {
                         /* Phase 25 PTR-02/03/UNCK-05 (Plan 25-01): specialize to
                          * E0289 IRON_ERR_PTR_REGIME_MISMATCH when both types are
                          * IRON_TYPE_PTR and is_unchecked differs (regime crossing
@@ -4299,7 +4401,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                     at->kind != IRON_TYPE_ERROR &&
                                     pt->kind != IRON_TYPE_ERROR &&
                                     !types_assignable(pt, at) &&
-                                    !is_int_literal_narrowing(pt, at, mc->args[i])) {
+                                    !is_int_literal_narrowing(pt, at, mc->args[i]) &&
+            !literal_range_error(ctx, pt, at, mc->args[i])) {
                                     char msg[256];
                                     snprintf(msg, sizeof(msg),
                                              "init param '%s' expects '%s', got '%s'",
@@ -5096,7 +5199,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             arg_t->kind  != IRON_TYPE_ERROR &&
                             fld_t->kind  != IRON_TYPE_ERROR &&
                             !types_assignable(fld_t, arg_t) &&
-                            !is_int_literal_narrowing(fld_t, arg_t, ce->args[i])) {
+                            !is_int_literal_narrowing(fld_t, arg_t, ce->args[i]) &&
+            !literal_range_error(ctx, fld_t, arg_t, ce->args[i])) {
                             char msg[256];
                             snprintf(msg, sizeof(msg),
                                      "field '%s' expects '%s', got '%s'",
@@ -6102,7 +6206,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
-                    !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
+                    !is_int_literal_narrowing(decl_type, init_type, vd->init) &&
+            !literal_range_error(ctx, decl_type, init_type, vd->init)) {
                     /* Phase 20 PTR-13: null literal assigned to non-nullable
                      * pointer type. Emit IRON_ERR_PTR_NULL_DEREF=272 with the
                      * spec-locked substring "non-nullable pointer" and a hint
@@ -6285,7 +6390,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
-                    !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
+                    !is_int_literal_narrowing(decl_type, init_type, vd->init) &&
+            !literal_range_error(ctx, decl_type, init_type, vd->init)) {
                     /* Phase 20 PTR-13: null literal assigned to non-nullable
                      * pointer type. Emit IRON_ERR_PTR_NULL_DEREF=272 with the
                      * spec-locked substring "non-nullable pointer" and a hint
@@ -6814,7 +6920,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 target_type->kind != IRON_TYPE_ERROR &&
                 value_type->kind  != IRON_TYPE_ERROR &&
                 !types_assignable(target_type, value_type) &&
-                !is_int_literal_narrowing(target_type, value_type, as->value)) {
+                !is_int_literal_narrowing(target_type, value_type, as->value) &&
+            !literal_range_error(ctx, target_type, value_type, as->value)) {
                 emit_type_mismatch(ctx, as->span, target_type, value_type);
             }
             /* Narrow literal in assignment (e.g., x = 42 where x: Int32) */
@@ -6940,7 +7047,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                    "cannot return nullable value without null check",
                                    "Check for null before returning");
                     } else if (!types_assignable(ctx->current_return_type, ret_type) &&
-                               !is_int_literal_narrowing(ctx->current_return_type, ret_type, rs->value)) {
+                               !is_int_literal_narrowing(ctx->current_return_type, ret_type, rs->value) &&
+            !literal_range_error(ctx, ctx->current_return_type, ret_type, rs->value)) {
                         /* Phase 25 PTR-03 (Plan 25-01): specialize to E0289
                          * IRON_ERR_PTR_REGIME_MISMATCH when both types are
                          * IRON_TYPE_PTR with differing is_unchecked (regime
@@ -8488,6 +8596,7 @@ static void check_top_level_binding_init(TypeCtx *ctx, Iron_Type *decl_type,
         return;
     }
     if (types_assignable(decl_type, init_type)) return;
+    if (literal_range_error(ctx, decl_type, init_type, init)) return;
     /* Strict-array-literal carve-out: `val a: [T; N] = [e1..eN]` — the
      * literal infers [T] (dynamic) so types_assignable rejects it, but a
      * matching element count is valid (same carve-out as the local path). */

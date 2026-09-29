@@ -1,0 +1,7 @@
+-- @expected-error: E0292
+-- A literal that does not fit its target type is reported with the type's
+-- range: "literal 300 does not fit in Int8 (-128..127)".
+func main() {
+    val big: Int8 = 300
+    println("{big}")
+}

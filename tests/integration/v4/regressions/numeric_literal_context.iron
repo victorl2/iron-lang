@@ -1,0 +1,42 @@
+-- Regression: numeric literals take the type their context requires.
+--
+-- Literals were always Int / Float, so `val a: Int64 = 5`,
+-- `val f: Float32 = 1.5` and `x + 1` with `x: Int8` were type errors. An
+-- integer literal now becomes any integer type that holds its value, and a
+-- float literal becomes Float32, in bindings, assignments, arguments,
+-- returns, fields and binary operands. Out-of-range literals are errors
+-- (see v4-fail/regressions/literal_out_of_range.iron).
+object Pixel {
+    val r: UInt8
+    val depth: Float32
+}
+
+func widen(v: Int64) -> UInt64 {
+    return 7
+}
+
+func half(v: Float32) -> Float32 {
+    return v * 0.5
+}
+
+func main() {
+    val a: Int64 = 5
+    val f: Float32 = 1.5
+    val x: Int8 = 3
+    val y = x + 1
+    val z = 2 * x
+    var w: UInt = 9
+    w = 10
+    w += 1
+    var c: Int16 = -300
+    c -= 2
+    val n: Int8 = -128
+    val big: UInt64 = 9000000000
+    val p = Pixel(255, 0.25)
+    val g = f * 2.0
+    println("{a} {f} {y} {z} {w} {c} {n} {big}")
+    println("{widen(3)} {half(3.0)} {p.r} {p.depth} {g}")
+    if x < 100 {
+        println("small")
+    }
+}
