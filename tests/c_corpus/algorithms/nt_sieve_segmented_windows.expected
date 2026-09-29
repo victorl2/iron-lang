@@ -1,0 +1,9 @@
+window [0,1000): 168 primes, first 2, last 997
+window [1000,2000): 135 primes, first 1009, last 1999
+window [5000,6000): 114 primes, first 5003, last 5987
+window [99000,100000): 87 primes, first 99013, last 99991
+window [1000000,1001000): 75 primes, first 1000003, last 1000999
+window [3999000,4000000): 63 primes, first 3999001, last 3999971
+total primes over windows: 642
+largest gap between consecutive found primes: 2998002 after 1000999
+sum of primes below 100000: 454396537

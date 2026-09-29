@@ -1,0 +1,7 @@
+C(6,3) by Gosper (bit 0 leftmost): 111000 110100 101100 011100 110010 101010 011010 100110 010110 001110 110001 101001 011001 100101 010101 001101 100011 010011 001011 000111
+count 20
+sum over k of C(12,k) = 4096 = 2^12
+element occurrences in 5-subsets of 12: 330 each (C(11,4)=330)
+mask 44739242 (popcount 13) has colex rank 7030570; unrank gives 44739242
+revolving door C(7,3): 1110000 1011000 0111000 1101000 1001100 0101100 0011100 1010100 ...
+revolving door single-swap and all-distinct properties hold: yes
