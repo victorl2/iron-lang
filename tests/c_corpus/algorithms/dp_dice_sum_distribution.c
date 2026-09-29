@@ -85,8 +85,9 @@ int main(void) {
     u64 total = 60466176ULL, m1 = 0, m2 = 0;
     for (int s = 0; s < MAXS; s++) { m1 += w[s] * (u64)s; m2 += w[s] * (u64)s * (u64)s; }
     /* variance*total^2*12 = 12*(m2*total - m1^2) should equal n*(f^2-1)*total^2 */
-    unsigned __int128 lhs = (unsigned __int128)12 * ((unsigned __int128)m2 * total - (unsigned __int128)m1 * m1);
-    unsigned __int128 rhs = (unsigned __int128)10 * 35 * total * total;
+    /* the exact values exceed 64 bits, so compare them modulo 2^64 (unsigned wraparound) */
+    u64 lhs = 12u * (m2 * total - m1 * m1);
+    u64 rhs = 10u * 35u * total * total;
     CHECK(lhs == rhs);
     printf("10d6 variance identity holds; mean*2=%llu\n", 2 * m1 / total);
     return 0;

@@ -27,7 +27,7 @@ static int head, tail;
 
 static int bad(Line l1, Line l2, Line l3) {
     /* l2 is unnecessary if intersection(l1,l3) is left of intersection(l1,l2) */
-    return (__int128)(l3.b - l1.b) * (l1.m - l2.m) <= (__int128)(l2.b - l1.b) * (l1.m - l3.m);
+    return (l3.b - l1.b) * (l1.m - l2.m) <= (l2.b - l1.b) * (l1.m - l3.m); /* |products| < 2^42 here */
 }
 static void add(Line l) {
     while (tail - head >= 2 && bad(hull[tail - 2], hull[tail - 1], l)) tail--;

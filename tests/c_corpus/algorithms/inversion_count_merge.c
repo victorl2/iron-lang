@@ -56,7 +56,7 @@ static uint64_t count_brute(const int *a, int n) {
 
 /* Fenwick tree over values 0..m-1 */
 static uint64_t count_bit(const int *a, int n, int m) {
-    int *bit = calloc((size_t)m + 1, sizeof(int));
+    int *bit = calloc((size_t)(unsigned)m + 1, sizeof(int));
     check(bit != NULL, "alloc");
     uint64_t inv = 0;
     for (int i = n - 1; i >= 0; i--) {

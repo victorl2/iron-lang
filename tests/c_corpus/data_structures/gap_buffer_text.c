@@ -66,7 +66,8 @@ int main(void) {
         } else if (op < 60) {
             /* local edits dominate real usage: small cursor moves */
             long d = (long)(rnd() % 21) - 10; long np = (long)mcur + d;
-            if (np < 0) np = 0; if (np > (long)mlen) np = (long)mlen;
+            if (np < 0) np = 0;
+            if (np > (long)mlen) np = (long)mlen;
             gap_move(&g, (size_t)np); mcur = (size_t)np; cnt[1]++;
         } else if (op < 68) {
             size_t np = rnd() % (mlen + 1); gap_move(&g, np); mcur = np; cnt[2]++;

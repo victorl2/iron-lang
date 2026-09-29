@@ -38,16 +38,14 @@ int main(void) {
             gn[g] = 1 + rr(K);
             for (int j = 0; j < gn[g]; j++) { gw[g][j] = 2 + rr(25); gv[g][j] = 1 + rr(50); }
         }
-        int d[100], choice[G][100];
+        int d[100];
         memset(d, 0, sizeof d);
         for (int g = 0; g < G; g++) {
             for (int c = cap; c >= 0; c--) {
-                choice[g][c] = -1;
                 int best = d[c];
                 for (int j = 0; j < gn[g]; j++)
                     if (gw[g][j] <= c && d[c - gw[g][j]] + gv[g][j] > best) {
                         best = d[c - gw[g][j]] + gv[g][j];
-                        choice[g][c] = j;
                     }
                 d[c] = best;
             }

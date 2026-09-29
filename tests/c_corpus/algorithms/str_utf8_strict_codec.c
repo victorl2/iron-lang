@@ -168,7 +168,7 @@ int main(void) {
     };
     for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
         Status st;
-        size_t at;
+        size_t at = 0;
         long r = validate(bad[i].bytes, bad[i].len, &st, &at);
         check(r < 0, "must reject");
         printf("  %-18s -> %s at %zu\n", bad[i].name, status_name(st), at);

@@ -84,12 +84,11 @@ int main(void) {
     long total_nodes = 0; unsigned long chk = 0;
     for (int round = 0; round < 60; round++) {
         int k = 1 + (int)(rnd() % 9);
-        Node *lists[10], *copy[10];
+        Node *lists[10];
         int expected = 0;
         for (int i = 0; i < k; i++) {
             int n = (int)(rnd() % 30);
             lists[i] = random_sorted(n, i);
-            copy[i] = NULL;
             expected += n;
         }
         /* histogram model over keys */

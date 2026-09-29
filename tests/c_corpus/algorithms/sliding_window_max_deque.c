@@ -68,7 +68,7 @@ static int window_max(const int *a, int n, int k, int *out, long *ops) {
 
 int main(void) {
     enum { N = 2000 };
-    static int a[N], out[N], want[N];
+    static int a[N], out[N];
     for (int i = 0; i < N; i++)
         a[i] = (int)(rnd() % 1000);
     int ks[] = {1, 2, 3, 7, 50, 333, 2000};
@@ -83,7 +83,6 @@ int main(void) {
             for (int j = 1; j < k; j++)
                 if (a[i + j] > m)
                     m = a[i + j];
-            want[i] = m;
             if (out[i] != m)
                 fail("window max");
         }

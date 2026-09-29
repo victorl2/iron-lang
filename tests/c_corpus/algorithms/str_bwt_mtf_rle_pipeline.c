@@ -156,18 +156,18 @@ static int rle0_decode(const unsigned short *in, int n, unsigned char *out) {
 }
 
 static int stage_check(const char *name, const unsigned char *src, int n) {
-    unsigned char *b = malloc((size_t)n), *m = malloc((size_t)n), *m2 = malloc((size_t)n),
-                  *b2 = malloc((size_t)n), *o = malloc((size_t)n);
+    unsigned char *b = malloc((size_t)(unsigned)n), *m = malloc((size_t)(unsigned)n), *m2 = malloc((size_t)(unsigned)n),
+                  *b2 = calloc((size_t)(unsigned)n, 1), *o = malloc((size_t)(unsigned)n);
     unsigned short *r = malloc(sizeof(unsigned short) * (size_t)(n + 8));
     int row = bwt(src, n, b);
     mtf(b, n, m);
     int rn = rle0_encode(m, n, r);
     int mn = rle0_decode(r, rn, m2);
-    check(mn == n && memcmp(m, m2, (size_t)n) == 0, "rle0 roundtrip");
+    check(mn == n && memcmp(m, m2, (size_t)(unsigned)n) == 0, "rle0 roundtrip");
     unmtf(m2, n, b2);
-    check(memcmp(b, b2, (size_t)n) == 0, "mtf roundtrip");
+    check(memcmp(b, b2, (size_t)(unsigned)n) == 0, "mtf roundtrip");
     unbwt(b2, n, row, o);
-    check(memcmp(o, src, (size_t)n) == 0, "bwt roundtrip");
+    check(memcmp(o, src, (size_t)(unsigned)n) == 0, "bwt roundtrip");
     int zeros = 0, runs0 = 0, runs_src = 1, runs_bwt = 1;
     for (int i = 0; i < n; i++)
         zeros += m[i] == 0;

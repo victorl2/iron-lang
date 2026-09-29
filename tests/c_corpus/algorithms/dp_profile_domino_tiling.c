@@ -19,7 +19,7 @@ static int rr(int n) { return (int)(rnd() % (unsigned long long)n); }
 typedef unsigned long long u64;
 
 /* count tilings of an h x w board with dominoes, cells with blocked[r][c] excluded, cell-by-cell profile */
-static u64 tilings(int h, int w, const unsigned char blocked[][10]) {
+static u64 tilings(int h, int w, unsigned char blocked[][10]) {
     size_t sz = (size_t)1 << w;
     u64 *cur = calloc(sz, sizeof *cur), *nxt = calloc(sz, sizeof *nxt);
     CHECK(cur && nxt);
