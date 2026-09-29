@@ -1,0 +1,13 @@
+-- @expected-error: E0204
+-- A method call on a T? without a null check is rejected like a field
+-- access (it used to call an undeclared C function).
+object Enemy {
+  var hp: Int
+  init(hp: Int) { self.hp = hp }
+  func attack() { self.hp = self.hp - 1 }
+}
+func main() {
+  var target: Enemy? = null
+  target.attack()
+  println("done")
+}

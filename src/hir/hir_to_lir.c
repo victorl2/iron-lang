@@ -1458,6 +1458,41 @@ static bool lir_value_roots_at_arena(IronLIR_Func *fn, IronLIR_ValueId vid) {
     return false;
 }
 
+/* A T value flowing into a T? slot (binding, assignment, return, argument)
+ * is wrapped with has_value = true via a CAST to the nullable type; a
+ * bare null literal takes the nullable type so it emits as an empty
+ * optional. Anything else is returned unchanged. */
+static IronLIR_ValueId coerce_to_optional(HIR_to_LIR_Ctx *ctx, IronLIR_ValueId v,
+                                          Iron_Type *target, Iron_Span span) {
+    if (v == IRON_LIR_VALUE_INVALID || !target ||
+        target->kind != IRON_TYPE_NULLABLE || !ctx->current_block ||
+        block_is_terminated(ctx->current_block))
+        return v;
+    IronLIR_Func *fn = ctx->current_func;
+    IronLIR_Instr *vi = ((ptrdiff_t)v < arrlen(fn->value_table)) ? fn->value_table[v] : NULL;
+    Iron_Type *vt = NULL;
+    if (vi) {
+        vt = vi->type;
+    } else if ((int)v >= 1 && (int)v <= fn->param_count) {
+        vt = fn->params[v - 1].type;
+    }
+    if (vi && vi->kind == IRON_LIR_CONST_NULL) {
+        if (!vt || vt->kind == IRON_TYPE_NULL || vt->kind == IRON_TYPE_VOID)
+            vi->type = target;
+        return v;
+    }
+    if (!vt || vt->kind == IRON_TYPE_NULLABLE || vt->kind == IRON_TYPE_NULL ||
+        vt->kind == IRON_TYPE_ERROR || vt->kind == IRON_TYPE_VOID)
+        return v;
+    return iron_lir_cast(fn, ctx->current_block, v, target, span)->id;
+}
+
+static IronLIR_ValueId lower_expr_as(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr,
+                                     Iron_Type *target) {
+    IronLIR_ValueId v = lower_expr(ctx, expr);
+    return coerce_to_optional(ctx, v, target, expr ? expr->span : (Iron_Span){0});
+}
+
 static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     if (!expr) return IRON_LIR_VALUE_INVALID;
     if (!ctx->current_block) return IRON_LIR_VALUE_INVALID; /* dead code after return */
@@ -1679,6 +1714,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 }
             }
             IronLIR_ValueId av = lower_expr(ctx, expr->call.args[i]);
+            {
+                Iron_Type *ct = expr->call.callee ? expr->call.callee->type : NULL;
+                if (ct && ct->kind == IRON_TYPE_FUNC && i < ct->func.param_count &&
+                    ct->func.param_types)
+                    av = coerce_to_optional(ctx, av, ct->func.param_types[i], span);
+            }
             /* Phase 37 rc-balance (M2): rc arguments are BORROWED for the
              * call duration — the caller keeps ownership and its own
              * scope-exit release; the callee never releases parameters
@@ -3202,7 +3243,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             hmput(ctx->var_alloca_map, vid, alloca_id);
 
             if (stmt->let.init) {
-                IronLIR_ValueId init_val = lower_expr(ctx, stmt->let.init);
+                IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
                 tag_arena_ctor_binding(ctx, init_val, vid);
                 /* Phase 37 rc-balance (M4): a mutable rc/weak-rc/nullable-rc
                  * var that ALIASES an existing reference needs its own +1
@@ -3245,7 +3286,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             hmput(ctx->var_alloca_map, vid, alloca_id);
 
             if (stmt->let.init) {
-                IronLIR_ValueId init_val = lower_expr(ctx, stmt->let.init);
+                IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
                 if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
                     iron_lir_store(ctx->current_func, ctx->current_block,
                                    alloca_id, init_val, span);
@@ -3290,7 +3331,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 const char *vname = iron_hir_var_name(ctx->hir, vid);
                 IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, type, vname, span);
                 hmput(ctx->var_alloca_map, vid, alloca_id);
-                IronLIR_ValueId init_val = lower_expr(ctx, stmt->let.init);
+                IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
                 if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
                     iron_lir_store(ctx->current_func, ctx->current_block,
                                    alloca_id, init_val, span);
@@ -3300,7 +3341,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             } else {
                 if (stmt->let.init) {
-                    IronLIR_ValueId init_val = lower_expr(ctx, stmt->let.init);
+                    IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
                     hmput(ctx->val_binding_map, vid, init_val);
                     tag_arena_ctor_binding(ctx, init_val, vid);
                     /* Phase 26 POL-06 / Phase 27 POL-08 / Phase 37 rc-balance:
@@ -3371,6 +3412,23 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         /* Evaluate RHS value */
         IronLIR_ValueId val = lower_expr(ctx, stmt->assign.value);
         if (!ctx->current_block || block_is_terminated(ctx->current_block)) break;
+        {
+            /* The slot's own type decides T -> T? wrapping: a narrowed
+             * identifier's HIR type is the unwrapped T. */
+            Iron_Type *slot_t = stmt->assign.target ? stmt->assign.target->type : NULL;
+            if (stmt->assign.target && stmt->assign.target->kind == IRON_HIR_EXPR_IDENT) {
+                ptrdiff_t sai = hmgeti(ctx->var_alloca_map,
+                                       stmt->assign.target->ident.var_id);
+                if (sai >= 0) {
+                    IronLIR_ValueId sid = ctx->var_alloca_map[sai].value;
+                    IronLIR_Instr *sin = ((ptrdiff_t)sid < arrlen(ctx->current_func->value_table))
+                        ? ctx->current_func->value_table[sid] : NULL;
+                    if (sin && sin->kind == IRON_LIR_ALLOCA && sin->alloca.alloc_type)
+                        slot_t = sin->alloca.alloc_type;
+                }
+            }
+            val = coerce_to_optional(ctx, val, slot_t, span);
+        }
 
         /* Phase 26 POL-06 (Plan 26-02) + Phase 37 rc-balance (M4): rc copy
          * site. For non-IDENT targets (field/index slots) an rc RHS keeps the
@@ -3861,7 +3919,8 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         bool            has_value = (stmt->return_stmt.value != NULL);
         Iron_Type      *ret_type  = has_value ? stmt->return_stmt.value->type : NULL;
         if (has_value) {
-            ret_val = lower_expr(ctx, stmt->return_stmt.value);
+            ret_val = lower_expr_as(ctx, stmt->return_stmt.value,
+                                    ctx->current_func->return_type);
             /* Phase 26 POL-06 (Plan 26-02) + Phase 37 rc-balance: returning an
              * rc-like value (rc T / weak rc T / rc T?) bumps the count so the
              * caller's received reference is independently lifetime-tracked.

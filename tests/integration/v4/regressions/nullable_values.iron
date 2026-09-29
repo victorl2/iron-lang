@@ -1,0 +1,63 @@
+-- Regression: nullable T? values end to end.
+--
+-- `== null`, `!= null` and `is Null` on a T? compared an optional struct
+-- with a NULL pointer in C; a T could not be stored in, returned as or
+-- passed as a T?; and a null-checked binding was read as the optional
+-- struct. Mutations through a null-checked binding reach the binding.
+object E {
+  val n: Int
+}
+func f(e: E?) -> Bool {
+  return e == null
+}
+func g(e: E?) -> Int {
+  if e != null {
+    return e.n
+  }
+  return -1
+}
+func h(e: E?) -> Bool {
+  return e is Null
+}
+func find(n: Int) -> Int? {
+  if n > 0 { return n }
+  return null
+}
+func main() {
+  mutate()
+  println("{f(null)} {f(E(1))} {g(E(7))} {g(null)} {h(null)}")
+  var t: Int? = null
+  println("{t == null}")
+  t = 5
+  if t != null {
+    println("t {t}")
+  }
+  val r = find(3)
+  if r != null {
+    println("r {r}")
+  }
+  val z = find(0)
+  println("{z == null} {z != null}")
+  var en: E? = E(4)
+  if en != null {
+    println("en {en.n}")
+  }
+  en = null
+  println("{en is Null}")
+}
+
+object Enemy {
+  var hp: Int
+  init(hp: Int) { self.hp = hp }
+  func attack() { self.hp = self.hp - 1 }
+}
+
+func mutate() {
+  var target: Enemy? = Enemy(10)
+  if target != null {
+    target.attack()
+    target.attack()
+    target.hp = target.hp * 2
+    println("hp {target.hp}")
+  }
+}

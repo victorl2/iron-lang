@@ -1161,6 +1161,11 @@ bool emit_val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
     if (!instr) return false;
     if (instr->kind == IRON_LIR_HEAP_ALLOC || instr->kind == IRON_LIR_RC_ALLOC)
         return true;
+    /* The payload of a null-checked `rc T?` (a CAST to rc T) is the rc
+     * pointer itself. */
+    if (instr->kind == IRON_LIR_CAST && instr->cast.target_type &&
+        instr->cast.target_type->kind == IRON_TYPE_RC)
+        return true;
     /* LOAD from an RC-typed alloca: the alloca was declared as T* (via RC wrapper).
      * hir_to_lir.c sets the alloca type to IRON_TYPE_RC when the init is heap/rc. */
     if (instr->kind == IRON_LIR_LOAD) {

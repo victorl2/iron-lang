@@ -94,6 +94,9 @@ typedef struct {
      * lambda-queue site to populate LiftPending.is_readonly_context for
      * Plan 22-03's IronHIR_Func.is_readonly assignment. */
     bool             current_func_is_readonly;
+    /* True while lowering the direct target of an assignment: a narrowed
+     * T? identifier there is the slot itself, not its unwrapped payload. */
+    bool             lowering_assign_target;
 
     /* ── Module-level globals (2026-07 remediation: true module storage) ──
      * Replaces the old per-function materialization scheme (immutable
@@ -159,6 +162,13 @@ static void declare_var(IronHIR_LowerCtx *ctx, const char *name,
                         IronHIR_VarId id) {
     if (ctx->scope_depth <= 0) return;
     shput(ctx->scope_stack[ctx->scope_depth - 1], name, id);
+}
+
+/* The declared type of a HIR variable (its binding's type). */
+static Iron_Type *hir_var_type(IronHIR_Module *mod, IronHIR_VarId id) {
+    for (ptrdiff_t i = arrlen(mod->name_table) - 1; i >= 0; i--)
+        if (mod->name_table[i].id == id) return mod->name_table[i].type;
+    return NULL;
 }
 
 static IronHIR_VarId lookup_var(IronHIR_LowerCtx *ctx, const char *name) {
@@ -1077,7 +1087,11 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                     mod, lower_expr_hir(ctx, tfa->object), tfa->field,
                     tfa->resolved_type, as->target->span);
             } else {
+                bool saved_at = ctx->lowering_assign_target;
+                ctx->lowering_assign_target = as->target &&
+                                              as->target->kind == IRON_NODE_IDENT;
                 target = lower_expr_hir(ctx, as->target);
+                ctx->lowering_assign_target = saved_at;
             }
             IronHIR_Expr *value  = lower_expr_hir(ctx, as->value);
             IronHIR_Stmt *s = iron_hir_stmt_assign(mod, target, value, span);
@@ -1711,6 +1725,21 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         /* 1. Look in lexical scope stack (locals and params) */
         IronHIR_VarId var_id = lookup_var(ctx, id->name);
         if (var_id != IRON_HIR_VAR_INVALID) {
+            /* A T? binding narrowed to T by a null check reads its payload:
+             * the identifier keeps the binding's own T? type and a CAST to
+             * T unwraps it (emitted as `.value`). Assignment targets keep
+             * the slot. */
+            Iron_Type *decl_t = hir_var_type(mod, var_id);
+            if (!ctx->lowering_assign_target &&
+                decl_t && decl_t->kind == IRON_TYPE_NULLABLE &&
+                id->resolved_type &&
+                id->resolved_type->kind != IRON_TYPE_NULLABLE &&
+                id->resolved_type->kind != IRON_TYPE_NULL &&
+                id->resolved_type->kind != IRON_TYPE_ERROR) {
+                IronHIR_Expr *slot = iron_hir_expr_ident(mod, var_id, id->name,
+                                                         decl_t, span);
+                return iron_hir_expr_cast(mod, slot, id->resolved_type, span);
+            }
             return iron_hir_expr_ident(mod, var_id, id->name,
                                        id->resolved_type, span);
         }
@@ -1760,6 +1789,34 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_BinaryExpr *bin = (Iron_BinaryExpr *)node;
         IronHIR_Expr *lhs = lower_expr_hir(ctx, bin->left);
         IronHIR_Expr *rhs = lower_expr_hir(ctx, bin->right);
+
+        /* `x == null` / `x != null`: on a T? test has_value; any other
+         * operand is never null. Compared as values these emitted an
+         * optional struct against a NULL pointer. */
+        if ((bin->op == IRON_TOK_EQUALS || bin->op == IRON_TOK_NOT_EQUALS) &&
+            lhs && rhs &&
+            (lhs->kind == IRON_HIR_EXPR_NULL_LIT) != (rhs->kind == IRON_HIR_EXPR_NULL_LIT)) {
+            IronHIR_Expr *other = lhs->kind == IRON_HIR_EXPR_NULL_LIT ? rhs : lhs;
+            bool eq = bin->op == IRON_TOK_EQUALS;
+            Iron_Type *bool_ty = iron_type_make_primitive(IRON_TYPE_BOOL);
+            Iron_Type *ot = other->type;
+            /* A narrowed identifier arrives as CAST(slot): test the slot. */
+            if (other->kind == IRON_HIR_EXPR_CAST && other->cast.value &&
+                other->cast.value->type &&
+                other->cast.value->type->kind == IRON_TYPE_NULLABLE) {
+                other = other->cast.value;
+                ot = other->type;
+            }
+            if (ot && ot->kind == IRON_TYPE_NULLABLE) {
+                return eq ? iron_hir_expr_is_null(mod, other, span)
+                          : iron_hir_expr_is_not_null(mod, other, span);
+            }
+            if (ot && ot->kind != IRON_TYPE_ERROR && ot->kind != IRON_TYPE_NULL &&
+                ot->kind != IRON_TYPE_PTR && ot->kind != IRON_TYPE_RC &&
+                ot->kind != IRON_TYPE_WEAK_RC && ot->kind != IRON_TYPE_FUNC) {
+                return iron_hir_expr_bool_lit(mod, !eq, bool_ty, span);
+            }
+        }
 
         /* Phase 96 STR-01: lower String + String as a runtime call to
          * iron_string_concat. The bit is set by typecheck.c when op ==
@@ -2261,9 +2318,12 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             if (!is_nullable) {
                 return iron_hir_expr_bool_lit(mod, false, bool_ty, span);
             }
-            IronHIR_Expr *null_lit = iron_hir_expr_null_lit(mod, val_ty, span);
-            return iron_hir_expr_binop(mod, IRON_HIR_BINOP_EQ, val, null_lit,
-                                       bool_ty, span);
+            if (val && val->kind == IRON_HIR_EXPR_NULL_LIT)
+                return iron_hir_expr_bool_lit(mod, true, bool_ty, span);
+            /* A narrowed identifier arrives as CAST(slot): test the slot. */
+            if (val && val->kind == IRON_HIR_EXPR_CAST && val->cast.value)
+                val = val->cast.value;
+            return iron_hir_expr_is_null(mod, val, span);
         }
         /* General type test */
         Iron_Type *check_ty = ie->resolved_type;

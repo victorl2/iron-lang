@@ -994,6 +994,12 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
     if (decl_t->kind == IRON_TYPE_NULLABLE && init_t->kind == IRON_TYPE_NULL) {
         return true;
     }
+    /* A T value is a T? (lowering wraps it with has_value = true). */
+    if (decl_t->kind == IRON_TYPE_NULLABLE && decl_t->nullable.inner &&
+        init_t->kind != IRON_TYPE_NULLABLE &&
+        types_assignable(decl_t->nullable.inner, init_t)) {
+        return true;
+    }
 
     /* Phase 27 POL-08 (Plan 27-02): `weak rc T` is implicitly nullable.
      * `var w: weak rc T = weak rc null` lowers to an assignment from
@@ -4101,6 +4107,17 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
 
+            /* A method call on an un-narrowed T? is rejected like a field
+             * access (it used to call an undeclared C function). */
+            if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_NULLABLE) {
+                emit_error(ctx, IRON_ERR_NULLABLE_ACCESS, mc->span,
+                           "cannot call a method on a nullable value without a null check",
+                           "check for null first: `if x != null { x.method() }`");
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                mc->resolved_type = result;
+                break;
+            }
+
             /* Phase 27 POL-08 / POL-09 (Plan 27-02): dispatch .downgrade()
              * and .upgrade() built-in method calls.
              *   - .downgrade() requires receiver of kind IRON_TYPE_RC;
@@ -5421,10 +5438,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 char msg[256];
                 snprintf(msg, sizeof(msg),
                          "type-test `is %s` is not yet supported"
-                         " (only the null test `is null` is implemented)",
+                         " (only the null test `is Null` is implemented)",
                          ie->type_name);
                 emit_error(ctx, IRON_ERR_UNSUPPORTED_TYPE_TEST, ie->span, msg,
-                           "use `== null` / `!= null` for null checks");
+                           "for null checks use `x is Null`, `x == null` or `x != null`");
             }
             result = iron_type_make_primitive(IRON_TYPE_BOOL);
             ie->resolved_type = result;

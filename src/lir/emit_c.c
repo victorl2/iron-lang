@@ -127,6 +127,33 @@ static void emit_float_literal(Iron_StrBuf *sb, double v, const char *ctype) {
 
 /* Forward declaration -- emit_instr and emit_expr_to_buf are mutually recursive.
  * emit_expr_to_buf is non-static: also called from emit_fusion.c. */
+/* CAST between T and T? (inserted by hir_to_lir for implicit wrapping and
+ * by hir_lower for a null-checked binding):
+ *   T  -> T?  (Opt){ .value = v, .has_value = true }
+ *   T? -> T   v.value
+ * Returns false for any other cast. */
+static bool emit_optional_cast(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                               IronLIR_Func *fn, EmitCtx *ctx,
+                               IronLIR_BlockId use_block_id, int depth) {
+    Iron_Type *dst = instr->cast.target_type;
+    Iron_Type *src = emit_get_value_type(fn, instr->cast.value);
+    if (!dst || !src) return false;
+    if (dst->kind == IRON_TYPE_NULLABLE && src->kind != IRON_TYPE_NULLABLE) {
+        const char *opt_c = emit_type_to_c(dst, ctx);
+        iron_strbuf_appendf(sb, "((%s){ .value = ", opt_c);
+        emit_expr_to_buf(sb, instr->cast.value, fn, ctx, use_block_id, depth + 1);
+        iron_strbuf_appendf(sb, ", .has_value = true })");
+        return true;
+    }
+    if (src->kind == IRON_TYPE_NULLABLE && dst->kind != IRON_TYPE_NULLABLE) {
+        iron_strbuf_appendf(sb, "(");
+        emit_expr_to_buf(sb, instr->cast.value, fn, ctx, use_block_id, depth + 1);
+        iron_strbuf_appendf(sb, ").value");
+        return true;
+    }
+    return false;
+}
+
 void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                        IronLIR_Func *fn, EmitCtx *ctx,
                        IronLIR_BlockId use_block_id, int depth);
@@ -397,8 +424,31 @@ static IronLIR_Instr *emit_def_instr(IronLIR_Func *fn, IronLIR_ValueId vid) {
  *   - rc / heap / arena pointees (`T *` verbatim, or `((T *)fat.addr)`)
  *   - a GET_FIELD chain (`&((*<lvalue>).field)` / `&(ptr->field)`)
  * and otherwise falls back to `&<expr>`, which is the old behavior. */
+static bool emit_vid_is_storage_path(IronLIR_Func *fn, IronLIR_ValueId vid);
+
+/* A CAST from T? to T: reading the payload of a null-checked binding. */
+static bool emit_is_optional_unwrap(IronLIR_Func *fn, IronLIR_Instr *in) {
+    if (!in || in->kind != IRON_LIR_CAST || !in->cast.target_type ||
+        in->cast.target_type->kind == IRON_TYPE_NULLABLE) return false;
+    Iron_Type *src = emit_get_value_type(fn, in->cast.value);
+    return src && src->kind == IRON_TYPE_NULLABLE;
+}
+
 static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
                                IronLIR_ValueId vid, IronLIR_BlockId use_block_id) {
+    {
+        /* The payload of a null-checked T? binding is addressed inside the
+         * binding's own storage, so a mutating call or field write reaches
+         * the binding rather than an unwrapped copy. */
+        IronLIR_Instr *uw = emit_def_instr(fn, vid);
+        if (emit_is_optional_unwrap(fn, uw) &&
+            emit_vid_is_storage_path(fn, uw->cast.value)) {
+            iron_strbuf_appendf(sb, "&((*");
+            emit_receiver_addr(sb, fn, ctx, uw->cast.value, use_block_id);
+            iron_strbuf_appendf(sb, ").value)");
+            return;
+        }
+    }
     if (fn->is_mut_receiver_method && vid == 1) {
         emit_val(sb, vid);
         return;
@@ -514,6 +564,8 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
 static bool emit_vid_is_storage_path(IronLIR_Func *fn, IronLIR_ValueId vid) {
     IronLIR_Instr *in = emit_def_instr(fn, vid);
     if (!in) return false;
+    if (emit_is_optional_unwrap(fn, in))
+        return emit_vid_is_storage_path(fn, in->cast.value);
     if (in->kind == IRON_LIR_LOAD) {
         IronLIR_ValueId p = in->load.ptr;
         IronLIR_Instr *pin = (p != IRON_LIR_VALUE_INVALID &&
@@ -1184,7 +1236,12 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         iron_strbuf_appendf(sb, "%s", instr->const_bool.value ? "true" : "false");
         break;
     case IRON_LIR_CONST_NULL:
-        iron_strbuf_appendf(sb, "NULL");
+        /* A null typed as T? is an empty optional, not a pointer. */
+        if (instr->type && instr->type->kind == IRON_TYPE_NULLABLE) {
+            iron_strbuf_appendf(sb, "((%s){0})", emit_type_to_c(instr->type, ctx));
+        } else {
+            iron_strbuf_appendf(sb, "NULL");
+        }
         break;
 
     /* LOAD: pass through to the stored value (alloca variable) */
@@ -1236,6 +1293,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 
     /* CAST */
     case IRON_LIR_CAST: {
+        if (emit_optional_cast(sb, instr, fn, ctx, use_block_id, depth)) break;
         const char *src_t = emit_type_to_c(instr->type, ctx);  /* type of input is cast.value's type */
         const char *dst_t = emit_type_to_c(instr->cast.target_type, ctx);
         (void)src_t; /* comment just uses type names — keep dst */
@@ -5084,8 +5142,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", target_c);
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = (%s)", target_c);
-        emit_expr_to_buf(sb, instr->cast.value, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, " = ");
+        if (!emit_optional_cast(sb, instr, fn, ctx, ctx->current_block_id, 0)) {
+            iron_strbuf_appendf(sb, "(%s)", target_c);
+            emit_expr_to_buf(sb, instr->cast.value, fn, ctx, ctx->current_block_id, 0);
+        }
         iron_strbuf_appendf(sb, ";\n");
         break;
     }
