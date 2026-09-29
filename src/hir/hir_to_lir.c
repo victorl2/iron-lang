@@ -181,7 +181,13 @@ typedef struct {
     IronHIR_Expr    *match_scrut_expr;
     IronLIR_ValueId  match_scrut_alloca;
     Iron_Type       *match_scrut_type;
+    /* Capture list of the lifted function being lowered (lambda / spawn /
+     * parallel-for body); NULL for ordinary functions. */
+    Iron_CaptureEntry *cur_captures;
+    int                cur_capture_count;
 } HIR_to_LIR_Ctx;
+
+static bool var_is_capture(HIR_to_LIR_Ctx *ctx, IronHIR_VarId vid);
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
 static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr);
@@ -3224,7 +3230,8 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
             }
             /* Phase 24 DROP-01 (Plan 24-02): push drop entry for mutable binding */
-            if (type_has_drop_block(type, ctx->program) && ctx->defer_depth > 0 &&
+            if (!var_is_capture(ctx, vid) &&
+                type_has_drop_block(type, ctx->program) && ctx->defer_depth > 0 &&
                 ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
                 IronLIR_DropEntry de = { alloca_id, type, false, false, NULL };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
@@ -3245,7 +3252,8 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
             }
             /* Phase 24 DROP-01 (Plan 24-02): push drop entry for interface-alloca binding */
-            if (type_has_drop_block(type, ctx->program) && ctx->defer_depth > 0 &&
+            if (!var_is_capture(ctx, vid) &&
+                type_has_drop_block(type, ctx->program) && ctx->defer_depth > 0 &&
                 ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
                 IronLIR_DropEntry de = { alloca_id, type, false, false, NULL };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
@@ -4190,6 +4198,8 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     /* Propagate capture metadata from HIR func to LIR func (for lifted lambdas) */
     lir_func->capture_metadata = hir_func->captures;
     lir_func->capture_count    = hir_func->capture_count;
+    ctx->cur_captures      = hir_func->captures;
+    ctx->cur_capture_count = hir_func->capture_count;
 
     /* PARM-02: propagate the honored var-param flags (NULL = none). */
     lir_func->param_is_var = lir_param_is_var;
@@ -4834,6 +4844,21 @@ static bool global_needs_cleanup(HIR_to_LIR_Ctx *ctx, Iron_Type *t) {
         t->object.decl->name &&
         strcmp(t->object.decl->name, "Box") == 0 && t->object.elem)
         return true;
+    return false;
+}
+
+/* True when `vid` names a captured variable of the lifted function being
+ * lowered. Its declaration in the lifted body is a placeholder aliased to
+ * the closure environment: the enclosing function owns the value, so the
+ * lifted body must not drop it at scope exit (a spawn body destroyed a
+ * captured Mutex / Channel while the spawner still used it). */
+static bool var_is_capture(HIR_to_LIR_Ctx *ctx, IronHIR_VarId vid) {
+    if (!ctx->cur_captures || ctx->cur_capture_count <= 0) return false;
+    const char *name = iron_hir_var_name(ctx->hir, vid);
+    if (!name) return false;
+    for (int i = 0; i < ctx->cur_capture_count; i++)
+        if (ctx->cur_captures[i].name && strcmp(ctx->cur_captures[i].name, name) == 0)
+            return true;
     return false;
 }
 
