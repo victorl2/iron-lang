@@ -1,0 +1,8 @@
+-- @expected-error: E0209
+-- An import must name a stdlib module or a file of the package; missing
+-- modules used to be accepted silently.
+import totally_missing_module
+import a.b.c
+func main() {
+  println("ok")
+}
