@@ -5,7 +5,7 @@
 
 -- Insertion sort: sort arr[lo..hi] inclusive, return sorted copy
 func insertion_sort_range(arr: [Int], lo: Int, hi: Int) -> [Int] {
-  var a = arr
+  var a = arr.copy()
   var i = lo + 1
   while i <= hi {
     val key = a[i]
@@ -27,7 +27,7 @@ func insertion_sort_range(arr: [Int], lo: Int, hi: Int) -> [Int] {
 
 -- In-place merge of arr[lo..mid) and arr[mid..hi)
 func inplace_merge(arr: [Int], lo: Int, mid: Int, hi: Int) -> [Int] {
-  var a = arr
+  var a = arr.copy()
   var i = mid
   while i < hi {
     val key = a[i]

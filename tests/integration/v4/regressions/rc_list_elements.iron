@@ -17,7 +17,7 @@ func shared_handles() {
     val t = rc Tex("shared")
     val l = [t, t]
     println(l[0].name)
-    val more = [rc Tex("fresh")]
+    var more = [rc Tex("fresh")]
     more.push(t)
     val hs = [Holder(t)]
     println("{l.len()} {more.len()} {hs.len()}")

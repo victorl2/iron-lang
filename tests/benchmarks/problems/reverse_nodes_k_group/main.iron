@@ -1,6 +1,6 @@
 import time
 
-func reverse_k_group(vals: [Int], nxt: [Int], n: Int, k: Int, output: [Int]) {
+func reverse_k_group(vals: [Int], nxt: [Int], n: Int, k: Int, var output: [Int]) {
     -- Count nodes
     var count = 0
     var cur = 0

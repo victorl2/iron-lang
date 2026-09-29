@@ -208,8 +208,8 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
     }
     if (has_copy) {
         iron_strbuf_appendf(&ctx->struct_bodies,
-            "static void %s_copy(%s *dest, const %s *src);\n",
-            mangled, mangled, mangled);
+            "static void %s_copied(%s *self);\n",
+            mangled, mangled);
     }
 
     /* Core surface (create/push/get/set/pop/len) is always the macro body. */
@@ -229,7 +229,8 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
             "        dst.items = (%s *)malloc((size_t)src->count * sizeof(%s));\n"
             "        if (!dst.items) iron_oom_abort(\"Iron_List_%s_clone\");\n"
             "        for (int64_t _i = 0; _i < src->count; _i++) {\n"
-            "            %s_copy(&dst.items[_i], &src->items[_i]);\n"
+            "            dst.items[_i] = src->items[_i];\n"
+            "            %s_copied(&dst.items[_i]);\n"
             "        }\n"
             "    } else {\n"
             "        dst.items = NULL;\n"
@@ -320,13 +321,25 @@ static void elem_lifecycle_flags(EmitCtx *ctx, Iron_Type *et,
     } else if (et && et->kind == IRON_TYPE_OBJECT && et->object.decl) {
         struct Iron_ObjectDecl *od = et->object.decl;
         if (od_needs_drop(ctx, od)) has_drop = true;
-        if (!od->is_nocopy && et->has_user_copy_cached &&
-            et->has_user_copy_transitive) {
-            has_copy = true;
-        }
+        /* Copying an element runs its copy glue: rc fields are retained,
+         * nested objects fixed up, then the user copy block runs. */
+        if (!od->is_nocopy && od_needs_copy_fixup(ctx, od)) has_copy = true;
     }
     *out_has_drop = has_drop;
     *out_has_copy = has_copy;
+}
+
+/* True when the Iron_List_<mangled> struct was already defined with the
+ * forward declarations (every non-runtime object type gets one there). */
+static bool list_struct_predeclared(EmitCtx *ctx, const char *mangled) {
+    IronLIR_Module *module = ctx->module;
+    for (int i = 0; module && i < module->type_decl_count; i++) {
+        IronLIR_TypeDecl *td = module->type_decls[i];
+        if (td->kind != IRON_LIR_TYPE_OBJECT || ir_is_runtime_provided_type(td->name))
+            continue;
+        if (strcmp(emit_object_type_name(td->name, ctx), mangled) == 0) return true;
+    }
+    return false;
 }
 
 static void emit_mono_list_decls(EmitCtx *ctx) {
@@ -392,13 +405,14 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
                     emit_ensure_drop(ctx, mangled, et->object.decl);
                 }
                 if (elem_has_copy) {
-                    emit_ensure_copy(ctx, mangled, et->object.decl);
+                    emit_ensure_copy_fixup(ctx, mangled, et->object.decl);
                 }
 
                 /* Emit Iron_List_<mangled> struct typedef.  The
                  * IRON_LIST_DECL and the IMPL bodies assume this struct is
                  * already declared with fields
                  *   { T *items; int64_t count; int64_t capacity; }. */
+                if (!list_struct_predeclared(ctx, mangled))
                 iron_strbuf_appendf(&ctx->struct_bodies,
                     "/* Phase 56: Iron_List type for mono-collapsed %s */\n"
                     "typedef struct Iron_List_%s {\n"
@@ -515,6 +529,7 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
             if (shgeti(emitted_mono_list_types, mangled) >= 0) continue;
             shput(emitted_mono_list_types, mangled, true);
 
+            if (!list_struct_predeclared(ctx, mangled))
             iron_strbuf_appendf(&ctx->struct_bodies,
                 "/* Phase 56: Iron_List type for mono-collapsed %s (via monomorphic_collections) */\n"
                 "typedef struct Iron_List_%s {\n"
@@ -552,6 +567,7 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
                     __et->object.decl->name, ctx->arena);                        \
                 if (shgeti(emitted_mono_list_types, __mangled) < 0) {            \
                     shput(emitted_mono_list_types, __mangled, true);             \
+                    if (!list_struct_predeclared(ctx, __mangled))                \
                     iron_strbuf_appendf(&ctx->struct_bodies,                     \
                         "/* Phase 56: Iron_List type for mono-collapsed %s ("    \
                         scan_label ") */\n"                                      \
@@ -807,6 +823,18 @@ void emit_type_decls(EmitCtx *ctx) {
                 : emit_mangle_name(td->name, ctx->arena);
             iron_strbuf_appendf(&ctx->forward_decls,
                                  "typedef struct %s %s;\n", type_name, type_name);
+            /* The list of an object type holds only a pointer to its
+             * elements, so it can be defined here, before any struct body:
+             * an object may then have a [T] field of another object type
+             * (the list used to be declared after the structs using it). */
+            if (td->kind == IRON_LIR_TYPE_OBJECT)
+                iron_strbuf_appendf(&ctx->forward_decls,
+                    "typedef struct Iron_List_%s {\n"
+                    "    %s *items;\n"
+                    "    int64_t count;\n"
+                    "    int64_t capacity;\n"
+                    "} Iron_List_%s;\n",
+                    type_name, type_name, type_name);
         }
     }
     if (ctx->forward_decls.len > 0) {

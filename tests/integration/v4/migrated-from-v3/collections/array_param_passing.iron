@@ -12,7 +12,7 @@ func sum(arr: [Int], n: Int) -> Int {
     return total
 }
 
-func double_each(arr: [Int], n: Int) {
+func double_each(var arr: [Int], n: Int) {
     var i = 0
     while i < n {
         arr[i] = arr[i] * 2

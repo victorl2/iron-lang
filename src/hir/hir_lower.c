@@ -2076,7 +2076,13 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
          *
          * Non-pub reads fall through to the normal field-load path,
          * preserving the pure-superset guard. */
-        if (fa->is_pub_access) {
+        /* A dynamic list field is read in place: the value is a borrowed
+         * view of the field (#174), and a getter call would look like a
+         * call returning a fresh list the caller owns. */
+        bool list_field = fa->resolved_type &&
+            fa->resolved_type->kind == IRON_TYPE_ARRAY &&
+            fa->resolved_type->array.size < 0 && !fa->resolved_type->array.is_bounded;
+        if (fa->is_pub_access && !list_field) {
             IronHIR_Expr **args = NULL;  /* zero-arg getter */
             return iron_hir_expr_method_call(mod, obj, fa->field,
                                               args, 0,

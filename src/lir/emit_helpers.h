@@ -212,6 +212,10 @@ typedef struct {
     bool warn_fusion_break;  /* --warn-fusion-break: emit diagnostic at chain break points */
     FusionChain *fusion_chains;        /* stb_ds array of detected chains */
     struct { IronLIR_ValueId key; int value; } *fusion_chain_member;
+    /* STOREs and $drop glue calls of fused intermediates: the intermediate
+     * list is never materialised, so its binding's store and drop vanish.
+     * Keyed by instruction pointer: value-less instructions share an id. */
+    struct { const void *key; bool value; } *fusion_dead;  /* keyed by instruction */
         /* maps call_vid -> chain_index; positive = chain idx */
     struct { IronLIR_ValueId key; int value; } *fusion_chain_position;
         /* maps call_vid -> position within its chain (0 = first, N-1 = terminal) */

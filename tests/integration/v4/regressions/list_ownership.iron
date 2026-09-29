@@ -1,0 +1,42 @@
+-- Lists have one owner and are never duplicated implicitly (#174).
+-- copy() makes an independent list, take() moves the buffer out and leaves
+-- the source empty, a var parameter grows the caller's list in place, an
+-- object frees its list fields, and every list is freed exactly once.
+object Res {
+    val n: Int
+    drop { println("drop {self.n}") }
+}
+object Bag {
+    var items: [Res]
+    init() { self.items = [Res(1)] }
+}
+object Inv {
+    pub val counts: [Int]
+    init() { self.counts = [4, 5] }
+}
+func make(k: Int) -> [Res] {
+    var out: [Res] = []
+    out.push(Res(k))
+    return out
+}
+func grow(var xs: [Int], n: Int) {
+    for i in range(n) { xs.push(i) }
+}
+func main() {
+    var a = [1, 2]
+    val b = a.copy()
+    a.push(3)
+    println("copy: {a.len()} {b.len()}")
+    val c = a.take()
+    println("take: {a.len()} {c.len()}")
+    grow(a, 100)
+    println("grow: {a.len()} {a[99]}")
+    val made = make(2)
+    println("made: {made[0].n}")
+    var bag = Bag()
+    bag.items = make(3)
+    println("replaced")
+    val inv = Inv()
+    println("pub: {inv.counts.len()} {inv.counts[1]}")
+    println("end")
+}

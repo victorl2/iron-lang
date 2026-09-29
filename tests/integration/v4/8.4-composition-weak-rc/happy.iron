@@ -1,8 +1,5 @@
 -- section 8.4 weak rc parent/child Node graph
 -- @req: POL-08, POL-09
--- @expected-pass-after: phase-38
--- XFAIL (#174): an object's drop does not free its list fields, so the
--- [rc T] children list and every node in it leak.
 -- parent->child is rc (owning); child->parent is weak rc (non-owning); no cycle
 
 object Mat4 {

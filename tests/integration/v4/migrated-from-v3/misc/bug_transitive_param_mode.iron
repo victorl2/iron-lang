@@ -1,13 +1,13 @@
 -- Regression test: array passed through a chain of function calls
 -- should use pointer mode transitively (not fall back to Iron_List_T).
 
-func swap(arr: [Int], i: Int, j: Int) {
+func swap(var arr: [Int], i: Int, j: Int) {
     val tmp = arr[i]
     arr[i] = arr[j]
     arr[j] = tmp
 }
 
-func partition(arr: [Int], lo: Int, hi: Int) -> Int {
+func partition(var arr: [Int], lo: Int, hi: Int) -> Int {
     val pivot = arr[hi]
     var i = lo - 1
     var j = lo
@@ -22,7 +22,7 @@ func partition(arr: [Int], lo: Int, hi: Int) -> Int {
     return i + 1
 }
 
-func qsort(arr: [Int], lo: Int, hi: Int) {
+func qsort(var arr: [Int], lo: Int, hi: Int) {
     if lo < hi {
         val p = partition(arr, lo, hi)
         qsort(arr, lo, p - 1)

@@ -1,0 +1,9 @@
+-- @expected-error: E0328
+-- A parameter is borrowed, so returning it would hand out a second owner.
+func same(xs: [Int]) -> [Int] {
+    return xs
+}
+func main() {
+    val a = [1]
+    println("{same(a).len()}")
+}

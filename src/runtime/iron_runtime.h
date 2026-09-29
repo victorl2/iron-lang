@@ -1188,6 +1188,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
     Iron_List_##suffix Iron_List_##suffix##_create(void); \
     Iron_List_##suffix Iron_List_##suffix##_create_with_capacity(int64_t cap); \
     Iron_List_##suffix Iron_List_##suffix##_clone(const Iron_List_##suffix *src); \
+    Iron_List_##suffix Iron_List_##suffix##_take(Iron_List_##suffix *self); \
     void               Iron_List_##suffix##_push(Iron_List_##suffix *self, T item); \
     T                  Iron_List_##suffix##_get(const Iron_List_##suffix *self, int64_t index); \
     void               Iron_List_##suffix##_set(Iron_List_##suffix *self, int64_t index, T item); \
@@ -1210,6 +1211,11 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
  * element-destructor-aware _free / _clone — see the per-element drop/copy loop
  * gated on od_has_drop_lir / the FileHandle nocopy surface. */
 #define IRON_LIST_IMPL_CORE(T, suffix) \
+    Iron_List_##suffix Iron_List_##suffix##_take(Iron_List_##suffix *self) { \
+        Iron_List_##suffix out = *self; \
+        self->items = NULL; self->count = 0; self->capacity = 0; \
+        return out; \
+    } \
     Iron_List_##suffix Iron_List_##suffix##_create(void) { \
         Iron_List_##suffix l; \
         l.items = NULL; l.count = 0; l.capacity = 0; \
@@ -1317,6 +1323,11 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
  * The CORE / TRIVIAL macros above are for the emitter, which always passes
  * already-mangled (non-keyword) names. */
 #define IRON_LIST_IMPL(T, suffix) \
+    Iron_List_##suffix Iron_List_##suffix##_take(Iron_List_##suffix *self) { \
+        Iron_List_##suffix out = *self; \
+        self->items = NULL; self->count = 0; self->capacity = 0; \
+        return out; \
+    } \
     Iron_List_##suffix Iron_List_##suffix##_create(void) { \
         Iron_List_##suffix l; \
         l.items = NULL; l.count = 0; l.capacity = 0; \

@@ -4,7 +4,7 @@ import time
 -- Uses min-h simulation on flat array
 -- Heap entries: [value, row, col] stored as value * 10000 + row * 100 + col
 
-func heap_up(h: [Int], idx: Int) {
+func heap_up(var h: [Int], idx: Int) {
     var i = idx
     while i > 0 {
         val parent = (i - 1) / 2
@@ -19,7 +19,7 @@ func heap_up(h: [Int], idx: Int) {
     }
 }
 
-func heap_down_min(h: [Int], size: Int, idx: Int) {
+func heap_down_min(var h: [Int], size: Int, idx: Int) {
     var i = idx
     var cont = 1
     while cont == 1 {

@@ -305,11 +305,12 @@ static Iron_Symbol *tc_lookup(TypeCtx *ctx, const char *name) {
  * `*var` argument, or `&` producing a `*var T`. The flag lives on the
  * declaring VAR_DECL / PARAM node so the unused-var pass (W0613 / W0614)
  * does not suggest `val` for a binding that `val` would reject.
- * Indexing stops the walk: `val` lists accept element writes. */
+ * The walk goes through fields and elements to the root binding. */
 static void mark_requires_mutable(TypeCtx *ctx, Iron_Node *expr) {
     Iron_Node *cur = expr;
-    while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
-        cur = ((Iron_FieldAccess *)cur)->object;
+    while (cur && (cur->kind == IRON_NODE_FIELD_ACCESS || cur->kind == IRON_NODE_INDEX)) {
+        cur = cur->kind == IRON_NODE_FIELD_ACCESS ? ((Iron_FieldAccess *)cur)->object
+                                                  : ((Iron_IndexExpr *)cur)->object;
     }
     if (!cur || cur->kind != IRON_NODE_IDENT) return;
     Iron_Ident *id = (Iron_Ident *)cur;
@@ -377,10 +378,44 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
             }
             return field_mut && (through_rc || arg_source_is_mutable(ctx, fa->object));
         }
+        case IRON_NODE_INDEX: {
+            /* An element is as mutable as the list or array holding it. */
+            Iron_IndexExpr *ix = (Iron_IndexExpr *)arg;
+            Iron_Type *ot = ix->object ? ((Iron_ExprNode *)ix->object)->resolved_type : NULL;
+            if (ot && ot->kind == IRON_TYPE_PTR) return ot->ptr.is_var;
+            return arg_source_is_mutable(ctx, ix->object);
+        }
         /* Calls, literals, binops, unary, struct-literal, list-literal,
          * map-literal, casts, lambdas — all rvalues, not mutable sources. */
         default:
             return false;
+    }
+}
+
+/* Mutating a list or array (a mutator method, an element write, or a
+ * field write inside an element) needs a mutable path to it: a `var`
+ * binding or parameter, `var` fields, a `*var` pointer or an rc handle.
+ * `val` means immutable for lists as for objects (#174). */
+static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
+                       const char *msg, const char *suggestion);
+static void check_array_mutable(TypeCtx *ctx, Iron_Node *place, Iron_Span span,
+                                const char *what) {
+    if (!place || arg_source_is_mutable(ctx, place)) {
+        if (place) mark_requires_mutable(ctx, place);
+        return;
+    }
+    Iron_Symbol *root = iron_walk_to_root_binding(place);
+    char msg[256];
+    if (root && root->sym_kind == IRON_SYM_PARAM) {
+        snprintf(msg, sizeof(msg), "cannot %s read-only parameter '%s'", what,
+                 root->name ? root->name : "");
+        emit_error(ctx, IRON_ERR_PARM_READ_ONLY, span, msg,
+                   "add 'var' modifier to grant in-body mutation: 'var <name>: T'");
+    } else {
+        snprintf(msg, sizeof(msg), "cannot %s an immutable list", what);
+        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, span, msg,
+                   root && sym_is_loop_var(root) ? LOOP_VAR_MUT_HELP
+                                                 : "declare it with 'var'");
     }
 }
 
@@ -2284,6 +2319,9 @@ static Iron_Type *resolve_array_builtin_method(const char *method,
         return elem;
     } else if (strcmp(method, "contains") == 0) {
         return iron_type_make_primitive(IRON_TYPE_BOOL);
+    } else if (strcmp(method, "copy") == 0 || strcmp(method, "take") == 0) {
+        /* Explicit duplication / transfer (#174): a new list of the same type. */
+        return arr_type;
     } else if (strcmp(method, "get_unchecked") == 0) {
         /* 2026-07 UNCHK-IDX: same typing as get — element type. */
         return elem;
@@ -2312,9 +2350,23 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
                  iron_type_to_string(arr_type, ctx->arena));
         emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
                    "list methods: len, push, pop, get, set, insert, remove, "
-                   "clear, reverse, contains, sort, map, filter, reduce, "
-                   "forEach, sum");
+                   "clear, reverse, contains, sort, copy, take, map, filter, "
+                   "reduce, forEach, sum");
         return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    /* copy() duplicates a dynamic list and take() moves its buffer out,
+     * leaving the receiver empty, so take() needs a mutable receiver.
+     * Fixed-size arrays and bounded vectors are plain values. */
+    if (strcmp(m, "copy") == 0 || strcmp(m, "take") == 0) {
+        if (arr_type->array.size >= 0 || arr_type->array.is_bounded) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "'%s' is only available on dynamic lists, not '%s'",
+                     m, iron_type_to_string(arr_type, ctx->arena));
+            emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                       "fixed-size arrays and bounded vectors are copied by value");
+            return result;
+        }
+        if (m[0] == 't') check_array_mutable(ctx, mc->object, mc->span, "take from");
     }
     /* A fixed-size array [T; N] keeps its length: push, pop, insert, remove
      * and clear used to compile and change it. */
@@ -2329,15 +2381,12 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
                    "use a dynamic list [T] or a bounded vector [T; <=N]");
         return result;
     }
-    /* A bounded vector is a value (struct): mutating it needs a mutable
-     * binding. (Dynamic lists keep the binding / contents distinction:
-     * `val xs` may still push.) */
-    if (arr_type->array.is_bounded &&
-        (strcmp(m, "push") == 0 || strcmp(m, "pop") == 0 || strcmp(m, "set") == 0 ||
-         strcmp(m, "insert") == 0 || strcmp(m, "remove") == 0 ||
-         strcmp(m, "clear") == 0 || strcmp(m, "reverse") == 0 ||
-         strcmp(m, "sort") == 0 || strcmp(m, "set_unchecked") == 0)) {
-        check_mutating_receiver(ctx, mc, mc->object);
+    /* Mutating a list or array needs a mutable path to it (#174). */
+    if (strcmp(m, "push") == 0 || strcmp(m, "pop") == 0 || strcmp(m, "set") == 0 ||
+        strcmp(m, "insert") == 0 || strcmp(m, "remove") == 0 ||
+        strcmp(m, "clear") == 0 || strcmp(m, "reverse") == 0 ||
+        strcmp(m, "sort") == 0 || strcmp(m, "set_unchecked") == 0) {
+        check_array_mutable(ctx, mc->object, mc->span, "modify");
     }
     /* get_unchecked / set_unchecked and push keep their dedicated checks. */
     if (strcmp(m, "get_unchecked") == 0 || strcmp(m, "set_unchecked") == 0 ||
@@ -7304,6 +7353,21 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         field_root_name = root_id->name;
                         field_root_sym = root_id->resolved_sym;
                     }
+                }
+            }
+
+            /* An element write, or a field write inside an element, needs
+             * a mutable path to the list or array (#174). */
+            if (as->target) {
+                Iron_Node *cur = as->target;
+                while (cur && cur->kind == IRON_NODE_FIELD_ACCESS)
+                    cur = ((Iron_FieldAccess *)cur)->object;
+                if (cur && cur->kind == IRON_NODE_INDEX) {
+                    Iron_IndexExpr *ix = (Iron_IndexExpr *)cur;
+                    Iron_Type *ot = ix->object
+                        ? ((Iron_ExprNode *)ix->object)->resolved_type : NULL;
+                    if (ot && ot->kind == IRON_TYPE_ARRAY)
+                        check_array_mutable(ctx, ix->object, as->span, "modify");
                 }
             }
 

@@ -1,6 +1,6 @@
 import time
 
-func product_except_self(nums: [Int], n: Int, out: [Int]) -> Int {
+func product_except_self(nums: [Int], n: Int, var out: [Int]) -> Int {
     -- Left pass
     out[0] = 1
     var i = 1

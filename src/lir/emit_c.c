@@ -2344,6 +2344,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 
     case IRON_LIR_LOAD: {
+        /* A load of a fused intermediate's slot (never written). */
+        if (ctx->fusion_dead && hmgeti(ctx->fusion_dead, (const void *)instr) >= 0) break;
         /* Split-loop body: the loop variable's slot is dead storage there;
          * read the per-branch item instead. */
         if (ctx->in_split_loop &&
@@ -2482,6 +2484,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     }
 
     case IRON_LIR_STORE: {
+        /* The store of a fused intermediate (never materialised). */
+        if (ctx->fusion_dead && hmgeti(ctx->fusion_dead, (const void *)instr) >= 0) break;
         /* PARM-02 write-back: a STORE whose ptr is a synthetic var-param
          * ValueId (emitted by emit_var_param_writebacks before each RETURN)
          * writes the final value through the `T *_vN` by-ref slot. */
@@ -3324,6 +3328,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                  fn->value_table[gfp]->kind == IRON_LIR_FUNC_REF)
                                 ? fn->value_table[gfp]->func_ref.func_name : NULL;
             if (gname && gname[0] == '$' && instr->call.arg_count == 1) {
+                if (ctx->fusion_dead && hmgeti(ctx->fusion_dead, (const void *)instr) >= 0) break;
                 bool is_drop = strcmp(gname, "$drop") == 0;
                 IronLIR_ValueId ga = instr->call.args[0];
                 IronLIR_Instr *gin = (ga != IRON_LIR_VALUE_INVALID &&
@@ -3332,6 +3337,19 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 Iron_Type *gt = (gin && gin->kind == IRON_LIR_ALLOCA)
                                 ? gin->alloca.alloc_type
                                 : emit_get_value_type(fn, ga);
+                /* An owned list: free it through its runtime _free, which
+                 * drops each element. A list the optimizer kept as a C stack
+                 * array owns no heap buffer and is skipped. */
+                if (is_drop && gt && gt->kind == IRON_TYPE_ARRAY &&
+                    gt->array.size < 0 && !gt->array.is_bounded) {
+                    if (get_stack_array_origin(ctx, ga) == IRON_LIR_VALUE_INVALID) {
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "%s_free(", emit_type_to_c(gt, ctx));
+                        emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
+                        iron_strbuf_appendf(sb, ");\n");
+                    }
+                    break;
+                }
                 if (gt && gt->kind == IRON_TYPE_OBJECT && gt->object.decl) {
                     struct Iron_ObjectDecl *god = gt->object.decl;
                     const char *gc = emit_type_to_c(gt, ctx);
@@ -5092,68 +5110,9 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb, "iron_stack_gen += 1;\n");
         }
-        /* COLL-04: Emit _free() for non-escaping heap arrays before return.
-         * We iterate over all unique original ARRAY_LIT ids tracked in
-         * heap_array_ids and free those that haven't escaped. */
-        if (ctx->opt_info->heap_array_ids) {
-            /* Collect unique original ARRAY_LIT ids to avoid double-free */
-            struct { IronLIR_ValueId key; bool value; } *freed = NULL;
-            for (ptrdiff_t hi = 0; hi < hmlen(ctx->opt_info->heap_array_ids); hi++) {
-                IronLIR_ValueId orig = ctx->opt_info->heap_array_ids[hi].value;
-                /* Skip if already freed, if this array escapes, or if it's a stack array */
-                if (hmgeti(freed, orig) >= 0) continue;
-                if (hmgeti(ctx->opt_info->escaped_heap_ids, orig) >= 0) continue;
-                if (hmgeti(ctx->opt_info->stack_array_ids, orig) >= 0) continue;
-                hmput(freed, orig, true);
-
-                /* Look up the original instruction to get the list type */
-                if (orig < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                    fn->value_table[orig] != NULL) {
-                    IronLIR_Instr *orig_instr = fn->value_table[orig];
-                    /* (debug removed) */
-                    const char *list_type = NULL;
-                    if (orig_instr->kind == IRON_LIR_ARRAY_LIT) {
-                        Iron_Type *arr_type = iron_type_make_array(
-                            ctx->arena, orig_instr->array_lit.elem_type, -1, false);
-                        list_type = emit_type_to_c(arr_type, ctx);
-                    } else if (orig_instr->type &&
-                               orig_instr->type->kind == IRON_TYPE_ARRAY) {
-                        /* __builtin_fill result */
-                        list_type = emit_type_to_c(orig_instr->type, ctx);
-                    }
-                    if (list_type &&
-                        get_stack_array_origin(ctx, orig) == IRON_LIR_VALUE_INVALID) {
-                        /* The list value may have been stored into a binding
-                         * slot whose address was taken (pushes through
-                         * `&slot`): that slot, not the creation value, holds
-                         * the live items/count — free it instead. */
-                        IronLIR_ValueId free_vid = orig;
-                        for (int sbi = 0; sbi < fn->block_count && free_vid == orig; sbi++) {
-                            IronLIR_Block *sblk = fn->blocks[sbi];
-                            for (int sii = 0; sii < sblk->instr_count; sii++) {
-                                IronLIR_Instr *sin = sblk->instrs[sii];
-                                if (!sin || sin->kind != IRON_LIR_STORE ||
-                                    sin->store.value != orig) continue;
-                                IronLIR_ValueId sp = sin->store.ptr;
-                                if (sp != IRON_LIR_VALUE_INVALID &&
-                                    (ptrdiff_t)sp < arrlen(fn->value_table) &&
-                                    fn->value_table[sp] &&
-                                    fn->value_table[sp]->kind == IRON_LIR_ALLOCA &&
-                                    fn->value_table[sp]->alloca.addr_taken &&
-                                    !fn->value_table[sp]->alloca.global_name) {
-                                    free_vid = sp;
-                                }
-                                break;
-                            }
-                        }
-                        emit_indent(sb, ind);
-                        iron_strbuf_appendf(sb, "%s_free(&_v%u);\n",
-                                            list_type, (unsigned)free_vid);
-                    }
-                }
-            }
-            hmfree(freed);
-        }
+        /* Owned lists are freed through their binding's scope-exit $drop
+         * (hir_to_lir), which is correct on every path. (Freeing each list
+         * origin at every return freed lists a path never created.) */
 
         /* Phase 38: Free recursive ADT locals that are NOT the returned value */
         if (ctx->adt_boxed_allocas) {
@@ -7712,6 +7671,8 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     }
     hmfree(ctx->fusion_chain_member);
     ctx->fusion_chain_member = NULL;
+    hmfree(ctx->fusion_dead);
+    ctx->fusion_dead = NULL;
     hmfree(ctx->fusion_chain_position);
     ctx->fusion_chain_position = NULL;
 
@@ -7897,41 +7858,17 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                         if (vi >= 0) hmput(ctx->opt_info->escaped_heap_ids, ha_pre[vi].value, true);
                     }
                 }
-                /* Escapes via CALL argument (passed to another function) */
-                if (instr->kind == IRON_LIR_CALL) {
-                    /* Phase 33 STDLIB-02 (Plan 33-04): passing a list to its OWN
-                     * runtime method (Iron_List_<T>_push / _get / _set / _pop /
-                     * _len) is NOT an escape — those methods operate on the list
-                     * in place and never retain the pointer.  Treating them as
-                     * escapes suppressed the scope-exit _free that runs each
-                     * element's destructor for managed-element lists.  Skip the
-                     * escape mark for these self-mutating calls. */
-                    bool is_list_self_method = false;
-                    IronLIR_ValueId fpref = instr->call.func_ptr;
-                    if (fpref != IRON_LIR_VALUE_INVALID &&
-                        fpref < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                        fn->value_table[fpref] != NULL &&
-                        fn->value_table[fpref]->kind == IRON_LIR_FUNC_REF) {
-                        const char *fnm =
-                            fn->value_table[fpref]->func_ref.func_name;
-                        if (fnm && strncmp(fnm, "Iron_List_", 10) == 0) {
-                            size_t L = strlen(fnm);
-                            if ((L >= 5 && strcmp(fnm + L - 5, "_push") == 0) ||
-                                (L >= 4 && strcmp(fnm + L - 4, "_get") == 0) ||
-                                (L >= 4 && strcmp(fnm + L - 4, "_set") == 0) ||
-                                (L >= 4 && strcmp(fnm + L - 4, "_pop") == 0) ||
-                                (L >= 4 && strcmp(fnm + L - 4, "_len") == 0)) {
-                                is_list_self_method = true;
-                            }
-                        }
-                    }
-                    if (!is_list_self_method) {
-                        for (int ai = 0; ai < instr->call.arg_count; ai++) {
-                            ptrdiff_t vi = hmgeti(ha_pre, instr->call.args[ai]);
-                            if (vi >= 0) hmput(ctx->opt_info->escaped_heap_ids, ha_pre[vi].value, true);
-                        }
+                /* A spawned thread may outlive the scope: a captured list
+                 * is not freed here. */
+                if (instr->kind == IRON_LIR_SPAWN) {
+                    for (int ci = 0; ci < instr->spawn.capture_count; ci++) {
+                        ptrdiff_t vi = hmgeti(ha_pre, instr->spawn.captures[ci]);
+                        if (vi >= 0) hmput(ctx->opt_info->escaped_heap_ids, ha_pre[vi].value, true);
                     }
                 }
+                /* Call arguments are borrowed (#174): the callee never keeps
+                 * a list it was passed, so a call is not an escape. Only a
+                 * constructor stores its arguments, and that is a CONSTRUCT. */
                 /* Escapes via MAKE_CLOSURE capture */
                 if (instr->kind == IRON_LIR_MAKE_CLOSURE) {
                     for (int ci = 0; ci < instr->make_closure.capture_count; ci++) {
@@ -8244,7 +8181,12 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
             for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
                 IronLIR_ValueId sa = fusible_calls[i].self_arg;
                 ptrdiff_t oi = hmgeti(val_origin, sa);
-                if (oi >= 0) {
+                /* Without use counts (--no-optimize) the escape check below
+                 * cannot see other uses of a result that went through a
+                 * binding's slot (a list binding also frees it at scope
+                 * exit), so only direct call-to-call links fuse. */
+                bool have_uses = ctx->opt_info && ctx->opt_info->use_counts;
+                if (oi >= 0 && (have_uses || val_origin[oi].value == sa)) {
                     IronLIR_ValueId origin_vid = val_origin[oi].value;
                     ptrdiff_t ri = hmgeti(result_to_call, origin_vid);
                     if (ri >= 0) {
@@ -8257,6 +8199,31 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                 }
             }
 
+            /* A binding's scope-exit $drop is not a real use of an
+             * intermediate: when the chain fuses, the list never exists and
+             * the drop is removed with it (fusion_dead below). */
+            struct { IronLIR_ValueId key; int value; } *drop_uses = NULL;
+            IronLIR_Instr **glue_drops = NULL;
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *block = fn->blocks[bi];
+                for (int ii = 0; ii < block->instr_count; ii++) {
+                    IronLIR_Instr *in = block->instrs[ii];
+                    if (in->kind != IRON_LIR_CALL || in->call.func_decl ||
+                        in->call.arg_count != 1) continue;
+                    IronLIR_ValueId gp = in->call.func_ptr;
+                    if (gp == IRON_LIR_VALUE_INVALID ||
+                        gp >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+                        !fn->value_table[gp] ||
+                        fn->value_table[gp]->kind != IRON_LIR_FUNC_REF ||
+                        !fn->value_table[gp]->func_ref.func_name ||
+                        strcmp(fn->value_table[gp]->func_ref.func_name, "$drop") != 0)
+                        continue;
+                    ptrdiff_t di = hmgeti(drop_uses, in->call.args[0]);
+                    hmput(drop_uses, in->call.args[0], di >= 0 ? drop_uses[di].value + 1 : 1);
+                    arrput(glue_drops, in);
+                }
+            }
+
             /* Step E: Use-count escape check — break chains at intermediate nodes with use_count > 1 */
             if (ctx->opt_info && ctx->opt_info->use_counts) {
                 for (int i = 0; i < (int)arrlen(fusible_calls); i++) {
@@ -8264,6 +8231,36 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                     IronLIR_ValueId cvid = fusible_calls[i].call_vid;
                     ptrdiff_t uc_idx = hmgeti(ctx->opt_info->use_counts, cvid);
                     int uc = (uc_idx >= 0) ? ctx->opt_info->use_counts[uc_idx].value : 0;
+                    ptrdiff_t cdu = hmgeti(drop_uses, cvid);
+                    if (cdu >= 0) uc -= drop_uses[cdu].value;
+                    /* A store of the result into a binding slot that nothing
+                     * else reads (only stores, its $drop, and loads that
+                     * forwarding left dead) is not a use either. */
+                    for (int bi = 0; bi < fn->block_count; bi++) {
+                        IronLIR_Block *block = fn->blocks[bi];
+                        for (int ii = 0; ii < block->instr_count; ii++) {
+                            IronLIR_Instr *st = block->instrs[ii];
+                            if (st->kind != IRON_LIR_STORE || st->store.value != cvid) continue;
+                            IronLIR_ValueId slot = st->store.ptr;
+                            ptrdiff_t su = hmgeti(ctx->opt_info->use_counts, slot);
+                            int left = su >= 0 ? ctx->opt_info->use_counts[su].value : 0;
+                            ptrdiff_t sd = hmgeti(drop_uses, slot);
+                            if (sd >= 0) left -= drop_uses[sd].value;
+                            for (int bj = 0; bj < fn->block_count && left > 0; bj++) {
+                                IronLIR_Block *b2 = fn->blocks[bj];
+                                for (int ij = 0; ij < b2->instr_count; ij++) {
+                                    IronLIR_Instr *u = b2->instrs[ij];
+                                    if (u->kind == IRON_LIR_STORE && u->store.ptr == slot) {
+                                        left--;
+                                    } else if (u->kind == IRON_LIR_LOAD && u->load.ptr == slot) {
+                                        ptrdiff_t lu = hmgeti(ctx->opt_info->use_counts, u->id);
+                                        if (lu < 0 || ctx->opt_info->use_counts[lu].value == 0) left--;
+                                    }
+                                }
+                            }
+                            if (left <= 0) uc--;
+                        }
+                    }
                     if (uc > 1) {
                         /* Intermediate result escapes — break chain */
                         int ni = next[i];
@@ -8275,7 +8272,18 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                     for (ptrdiff_t vo = 0; vo < hmlen(val_origin); vo++) {
                         if (val_origin[vo].value == cvid && val_origin[vo].key != cvid) {
                             ptrdiff_t st_uc = hmgeti(ctx->opt_info->use_counts, val_origin[vo].key);
-                            if (st_uc >= 0 && ctx->opt_info->use_counts[st_uc].value > 1) {
+                            ptrdiff_t sdu = hmgeti(drop_uses, val_origin[vo].key);
+                            int st_n = st_uc >= 0 ? ctx->opt_info->use_counts[st_uc].value : 0;
+                            if (sdu >= 0) st_n -= drop_uses[sdu].value;
+                            /* (A store's own pointer operand is not a read.) */
+                            for (int bj = 0; bj < fn->block_count; bj++) {
+                                IronLIR_Block *b2 = fn->blocks[bj];
+                                for (int ij = 0; ij < b2->instr_count; ij++)
+                                    if (b2->instrs[ij]->kind == IRON_LIR_STORE &&
+                                        b2->instrs[ij]->store.ptr == val_origin[vo].key)
+                                        st_n--;
+                            }
+                            if (st_uc >= 0 && st_n > 1) {
                                 int ni = next[i];
                                 if (ni >= 0) prev[ni] = -1;
                                 next[i] = -1;
@@ -8341,6 +8349,52 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                     hmput(ctx->fusion_chain_member, chain.nodes[ni].call_vid, chain_idx);
                     hmput(ctx->fusion_chain_position, chain.nodes[ni].call_vid, ni);
                 }
+                /* Intermediates (every node but the terminal) never
+                 * materialise: drop the stores of their results into
+                 * binding slots and those slots' $drop glue. */
+                for (int ni = 0; ni + 1 < chain.node_count; ni++) {
+                    IronLIR_ValueId cv = chain.nodes[ni].call_vid;
+                    for (int bi = 0; bi < fn->block_count; bi++) {
+                        IronLIR_Block *block = fn->blocks[bi];
+                        for (int ii = 0; ii < block->instr_count; ii++) {
+                            IronLIR_Instr *in = block->instrs[ii];
+                            if (in->kind != IRON_LIR_STORE) continue;
+                            ptrdiff_t oi = hmgeti(val_origin, in->store.value);
+                            if (oi >= 0 && val_origin[oi].value == cv)
+                                hmput(ctx->fusion_dead, (const void *)in, true);
+                        }
+                    }
+                    for (int gi = 0; gi < (int)arrlen(glue_drops); gi++) {
+                        ptrdiff_t oi = hmgeti(val_origin, glue_drops[gi]->call.args[0]);
+                        if (oi >= 0 && val_origin[oi].value == cv)
+                            hmput(ctx->fusion_dead, (const void *)glue_drops[gi], true);
+                    }
+                }
+                /* A slot all of whose stores vanished is never written, so
+                 * its loads (read only by the fused chain) vanish too. */
+                for (int bi = 0; bi < fn->block_count; bi++) {
+                    IronLIR_Block *block = fn->blocks[bi];
+                    for (int ii = 0; ii < block->instr_count; ii++) {
+                        IronLIR_Instr *ld = block->instrs[ii];
+                        if (ld->kind != IRON_LIR_LOAD) continue;
+                        bool any_store = false, all_dead = true;
+                        for (int bj = 0; bj < fn->block_count && all_dead; bj++) {
+                            IronLIR_Block *b2 = fn->blocks[bj];
+                            for (int ij = 0; ij < b2->instr_count; ij++) {
+                                IronLIR_Instr *st = b2->instrs[ij];
+                                if (st->kind != IRON_LIR_STORE || st->store.ptr != ld->load.ptr)
+                                    continue;
+                                any_store = true;
+                                if (hmgeti(ctx->fusion_dead, (const void *)st) < 0) {
+                                    all_dead = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if (any_store && all_dead)
+                            hmput(ctx->fusion_dead, (const void *)ld, true);
+                    }
+                }
             }
 
             /* Step F2: Emit --warn-fusion-break diagnostics */
@@ -8384,6 +8438,8 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
             hmfree(val_origin);
             free(next);
             free(prev);
+            hmfree(drop_uses);
+            arrfree(glue_drops);
         }
 
         /* Free lambda_args for candidates not adopted into chains */

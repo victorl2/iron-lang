@@ -8,7 +8,7 @@ object Queue {
   var head: Int
   var tail: Int
     init(data: [Int], head: Int, tail: Int) {
-        self.data = data
+        self.data = data.copy()
         self.head = head
         self.tail = tail
     }

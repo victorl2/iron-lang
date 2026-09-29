@@ -1,0 +1,9 @@
+-- @expected-error: E0328
+-- A list is never duplicated implicitly: a second owner must get a.copy()
+-- or a.take(). Sharing the buffer let a push through one copy free the
+-- buffer under the other.
+func main() {
+    val a = [1, 2]
+    val b = a
+    println("{b.len()}")
+}

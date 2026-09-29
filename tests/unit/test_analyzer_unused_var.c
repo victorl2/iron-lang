@@ -132,15 +132,17 @@ void test_val_05_readonly_method_call_still_warns(void) {
     TEST_ASSERT_GREATER_THAN_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
 }
 void test_val_05_suggested_val_empty_list_compiles(void) {
-    /* The W0613 suggestion for `var xs: [Int] = []` is `val xs: [Int] = []`,
-     * which must typecheck (the annotation supplies the element type). */
+    /* A list that is pushed must stay `var` (list mutators need a mutable
+     * binding, #174), so W0613 must not suggest `val` for it; the annotated
+     * empty literal typechecks. */
     analyze_src(
         "func main() {\n"
-        "    val xs: [Int] = []\n"
+        "    var xs: [Int] = []\n"
         "    xs.push(1)\n"
         "    println(\"{len(xs)}\")\n"
         "}\n");
     TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_ERR_EMPTY_LITERAL_NO_TYPE));
+    TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);
 }
 

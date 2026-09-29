@@ -531,6 +531,51 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
                 }
             }
         }
+        /* A slot written more than once (`var a = [1, 2]` then `a = [9]`)
+         * holds whichever list the path stored last; the slot's C type must
+         * be one representation, so every stack array stored into such a
+         * slot reverts to a list. (Only the last store's array used to be
+         * revoked by the return check below, leaving `int64_t *` and
+         * Iron_List values mixed in one variable.) */
+        {
+            struct { IronLIR_ValueId key; int value; } *store_count = NULL;
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *block = fn->blocks[bi];
+                for (int ii = 0; ii < block->instr_count; ii++) {
+                    IronLIR_Instr *instr = block->instrs[ii];
+                    if (instr->kind != IRON_LIR_STORE) continue;
+                    ptrdiff_t ci = hmgeti(store_count, instr->store.ptr);
+                    hmput(store_count, instr->store.ptr, ci >= 0 ? store_count[ci].value + 1 : 1);
+                }
+            }
+            for (int bi = 0; bi < fn->block_count; bi++) {
+                IronLIR_Block *block = fn->blocks[bi];
+                for (int ii = 0; ii < block->instr_count; ii++) {
+                    IronLIR_Instr *instr = block->instrs[ii];
+                    if (instr->kind != IRON_LIR_STORE) continue;
+                    ptrdiff_t ci = hmgeti(store_count, instr->store.ptr);
+                    if (ci < 0 || store_count[ci].value < 2) continue;
+                    ptrdiff_t vi = hmgeti(sa_map, instr->store.value);
+                    if (vi < 0) continue;
+                    IronLIR_ValueId orig = sa_map[vi].value;
+                    /* Fixed-size arrays are values in every representation. */
+                    if (orig < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                        fn->value_table[orig] && fn->value_table[orig]->type &&
+                        fn->value_table[orig]->type->kind == IRON_TYPE_ARRAY &&
+                        fn->value_table[orig]->type->array.size >= 0)
+                        continue;
+                    if (orig < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                        fn->value_table[orig]) {
+                        if (fn->value_table[orig]->kind == IRON_LIR_ARRAY_LIT)
+                            fn->value_table[orig]->array_lit.use_stack_repr = false;
+                        else
+                            hmput(info->revoked_fill_ids, orig, true);
+                    }
+                    hmdel(sa_map, instr->store.value);
+                }
+            }
+            hmfree(store_count);
+        }
         /* Propagate through store/load */
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronLIR_Block *block = fn->blocks[bi];
@@ -616,7 +661,20 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
                             if (cf && !cf->is_extern) call_ir_name = rn;
                         }
                     }
-                    for (int ai = 0; ai < instr->call.arg_count; ai++) {
+                    /* Lifecycle glue ($drop / $copy) runs in place; a stack
+                     * array's $drop emits nothing. */
+                    bool is_glue = false;
+                    if (!instr->call.func_decl) {
+                        IronLIR_ValueId gp = instr->call.func_ptr;
+                        if (gp != IRON_LIR_VALUE_INVALID &&
+                            gp < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                            fn->value_table[gp] &&
+                            fn->value_table[gp]->kind == IRON_LIR_FUNC_REF &&
+                            fn->value_table[gp]->func_ref.func_name &&
+                            fn->value_table[gp]->func_ref.func_name[0] == '$')
+                            is_glue = true;
+                    }
+                    for (int ai = 0; !is_glue && ai < instr->call.arg_count; ai++) {
                         ptrdiff_t vi = hmgeti(sa_map, instr->call.args[ai]);
                         if (vi >= 0) {
                             /* Check if callee accepts pointer mode for this param */

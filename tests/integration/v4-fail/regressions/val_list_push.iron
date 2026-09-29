@@ -1,0 +1,7 @@
+-- @expected-error: E0235
+-- val means immutable for lists as for objects: push needs a var binding.
+func main() {
+    val xs = [1]
+    xs.push(2)
+    println("{xs.len()}")
+}

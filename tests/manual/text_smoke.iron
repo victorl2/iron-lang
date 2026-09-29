@@ -168,7 +168,7 @@ func main() -> Int32 {
     val _k8  = glyph_index
     val _k9  = glyph_info
     val _k10 = glyph_rec
-    val _k11 = cps
+    val _k11 = cps.len()
     val _k12 = cp_count
     val _k13 = cp0
     val _k14 = step0
@@ -187,7 +187,7 @@ func main() -> Int32 {
     val _k27 = sub
     val _k28 = repl
     val _k29 = ins
-    val _k30 = split_parts
+    val _k30 = split_parts.len()
     val _k31 = joined
     val _k32 = idx
     val _k33 = upper

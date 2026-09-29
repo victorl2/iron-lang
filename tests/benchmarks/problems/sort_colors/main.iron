@@ -1,6 +1,6 @@
 import time
 
-func sort_colors(arr: [Int], n: Int) -> Int {
+func sort_colors(var arr: [Int], n: Int) -> Int {
     var lo = 0
     var mid = 0
     var hi = n - 1

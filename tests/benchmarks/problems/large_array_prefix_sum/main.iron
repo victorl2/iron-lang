@@ -3,7 +3,7 @@ import time
 -- Large array operations: prefix sum, range queries, and bulk manipulation
 -- Uses fill(10000, 0) to exercise large array allocation and traversal
 
-func build_prefix_sum(arr: [Int], n: Int, prefix: [Int]) {
+func build_prefix_sum(arr: [Int], n: Int, var prefix: [Int]) {
     prefix[0] = arr[0]
     var i = 1
     while i < n {
@@ -19,7 +19,7 @@ func range_sum(prefix: [Int], l: Int, r: Int) -> Int {
     return prefix[r] - prefix[l - 1]
 }
 
-func bulk_transform(arr: [Int], n: Int) {
+func bulk_transform(var arr: [Int], n: Int) {
     -- In-place transform: arr[i] = (arr[i] * 31 + 17) % 10007
     var i = 0
     while i < n {

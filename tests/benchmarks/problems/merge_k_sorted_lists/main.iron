@@ -5,9 +5,9 @@ import time
 
 func heap_down(hv: [Int], hli: [Int], hei: [Int], size: Int, idx: Int) -> [Int] {
     -- Returns updated arrays packed as: hv ++ hli ++ hei (we return hv only, mutate in-place via copy)
-    var vals = hv
-    var lis = hli
-    var eis = hei
+    var vals = hv.copy()
+    var lis = hli.copy()
+    var eis = hei.copy()
     var i = idx
     var cont = 1
     while cont == 1 {

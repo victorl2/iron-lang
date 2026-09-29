@@ -1,6 +1,6 @@
 import time
 
-func reverse_range(arr: [Int], lo_in: Int, hi_in: Int) -> Int {
+func reverse_range(var arr: [Int], lo_in: Int, hi_in: Int) -> Int {
     var lo = lo_in
     var hi = hi_in
     while lo < hi {
@@ -14,7 +14,7 @@ func reverse_range(arr: [Int], lo_in: Int, hi_in: Int) -> Int {
     return 0
 }
 
-func rotate_array(arr: [Int], n: Int, k: Int) -> Int {
+func rotate_array(var arr: [Int], n: Int, k: Int) -> Int {
     val kk = k % n
     if kk > 0 {
         val d1 = reverse_range(arr, 0, n - 1)

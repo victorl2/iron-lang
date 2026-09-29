@@ -195,7 +195,7 @@ func main() -> Int32 {
     -- Keep values alive so the compiler doesn't DCE the call sites.
     val _k0  = master
     val _k1  = w_valid
-    val _k2  = samples
+    val _k2  = samples.len()
     val _k3  = s_from_wave
     val _k4  = s_to_sound
     val _k5  = exp_ok

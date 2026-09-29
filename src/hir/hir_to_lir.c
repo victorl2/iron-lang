@@ -90,7 +90,12 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
     for (int i = 0; i < od->field_count; i++) {
         Iron_Type *ft = field_stored_type((Iron_Field *)od->fields[i]);
         if (!ft) continue;
+        /* rc fields and owned list fields (#174; interface-element split
+         * lists excluded, matching emit_helpers.c) need lifecycle glue. */
         if (type_is_rc_like(ft)) return true;
+        if (ft->kind == IRON_TYPE_ARRAY && ft->array.size < 0 && !ft->array.is_bounded &&
+            !(ft->array.elem && ft->array.elem->kind == IRON_TYPE_INTERFACE))
+            return true;
         if (ft->kind == IRON_TYPE_OBJECT &&
             type_lifecycle_rec(ft, program, want_copy, depth + 1))
             return true;
@@ -98,8 +103,18 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
     return false;
 }
 
+/* A dynamic list owns its buffer and its elements (#174). Interface-element
+ * split lists are left out (no clone / uniform free yet). */
+static bool type_is_owned_list(const Iron_Type *t) {
+    return t && t->kind == IRON_TYPE_ARRAY && t->array.size < 0 &&
+           !t->array.is_bounded &&
+           !(t->array.elem && t->array.elem->kind == IRON_TYPE_INTERFACE);
+}
+
+/* Values that must be destroyed by their owner: objects with lifecycle
+ * glue, and owned lists (freed through the same $drop glue). */
 static bool type_needs_drop(Iron_Type *t, Iron_Program *program) {
-    return type_lifecycle_rec(t, program, false, 0);
+    return type_is_owned_list(t) || type_lifecycle_rec(t, program, false, 0);
 }
 
 static bool type_needs_copy_fixup(Iron_Type *t, Iron_Program *program) {
@@ -532,11 +547,122 @@ static void note_owned_temp(HIR_to_LIR_Ctx *ctx, TempOwned **temps,
             TempOwned to = { av, at, false };
             arrput(*temps, to);
         }
-    } else if (!hir_expr_is_place(ae) && type_needs_drop(at, ctx->program)) {
+    } else if (!hir_expr_is_place(ae) && type_needs_drop(at, ctx->program) &&
+               !(ae->kind == IRON_HIR_EXPR_METHOD_CALL && ae->method_call.method &&
+                 (strcmp(ae->method_call.method, "get") == 0 ||
+                  strcmp(ae->method_call.method, "get_unchecked") == 0))) {
+        /* (get / get_unchecked return an element the list keeps owning.) */
         IronLIR_ValueId ts = emit_alloca_in_entry(ctx, at, "__arg_tmp", span);
         iron_lir_store(ctx->current_func, ctx->current_block, ts, av, span);
         TempOwned to = { ts, at, true };
         arrput(*temps, to);
+    }
+}
+
+/* The Iron_List_<suffix> runtime name part for a list of `elem` (the C
+ * element type, or rc_ / weakrc_ plus the object for rc elements). */
+static const char *list_elem_suffix(HIR_to_LIR_Ctx *ctx, Iron_Type *elem) {
+    const char *elem_suffix = "int64_t";
+    if (elem) {
+        switch ((int)(elem->kind)) {
+            case IRON_TYPE_INT:    elem_suffix = "int64_t";     break;
+            case IRON_TYPE_INT32:  elem_suffix = "int32_t";     break;
+            case IRON_TYPE_FLOAT:  elem_suffix = "double";      break;
+            case IRON_TYPE_BOOL:   elem_suffix = "bool";        break;
+            case IRON_TYPE_STRING: elem_suffix = "Iron_String"; break;
+            /* AUDIT-02 #6 fix: narrow/wide int and float kinds
+             * previously fell through to the silent default,
+             * mis-dispatching [Int8].method() etc. to
+             * Iron_List_int64_t_*. */
+            case IRON_TYPE_INT8:   elem_suffix = "int8_t";      break;
+            case IRON_TYPE_INT16:  elem_suffix = "int16_t";     break;
+            case IRON_TYPE_INT64:  elem_suffix = "int64_t";     break;
+            case IRON_TYPE_UINT:   elem_suffix = "uint64_t";    break;
+            case IRON_TYPE_UINT8:  elem_suffix = "uint8_t";     break;
+            case IRON_TYPE_UINT16: elem_suffix = "uint16_t";    break;
+            case IRON_TYPE_UINT32: elem_suffix = "uint32_t";    break;
+            case IRON_TYPE_UINT64: elem_suffix = "uint64_t";    break;
+            case IRON_TYPE_FLOAT32: elem_suffix = "float";      break;
+            case IRON_TYPE_FLOAT64: elem_suffix = "double";     break;
+            case IRON_TYPE_OBJECT:
+                if (elem->object.decl) {
+                    size_t slen = 5 + strlen(elem->object.decl->name) + 1;
+                    char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                    if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix object");
+                    snprintf(s, slen, "Iron_%s", elem->object.decl->name);
+                    elem_suffix = s;
+                }
+                break;
+            case IRON_TYPE_INTERFACE:
+                if (elem->interface.decl) {
+                    size_t slen = 5 + strlen(elem->interface.decl->name) + 1;
+                    char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                    if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix interface");
+                    snprintf(s, slen, "Iron_%s", elem->interface.decl->name);
+                    elem_suffix = s;
+                }
+                break;
+            case IRON_TYPE_RC:
+            case IRON_TYPE_WEAK_RC: {
+                /* Matches emit_ensure_rc_list's list name. */
+                const Iron_Type *in = elem->kind == IRON_TYPE_RC
+                    ? elem->rc.inner : elem->weak_rc.inner;
+                const char *iname =
+                    (in && in->kind == IRON_TYPE_OBJECT && in->object.decl)
+                        ? in->object.decl->name : NULL;
+                if (iname) {
+                    size_t slen = 16 + strlen(iname);
+                    char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                    if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix rc");
+                    snprintf(s, slen, "%s_Iron_%s",
+                             elem->kind == IRON_TYPE_RC ? "rc" : "weakrc", iname);
+                    elem_suffix = s;
+                }
+                break;
+            }
+            case IRON_TYPE_ENUM:
+                /* Phase 59 P04: DNS returns [Address] where
+                 * Address is an Iron ADT enum. The list
+                 * dispatcher was only handling OBJECT and
+                 * INTERFACE elem types — without this case,
+                 * any .method() call on an enum array
+                 * mis-dispatches to Iron_List_int64_t_*. */
+                if (elem->enu.decl) {
+                    size_t slen = 5 + strlen(elem->enu.decl->name) + 1;
+                    char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                    if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix enum");
+                    snprintf(s, slen, "Iron_%s", elem->enu.decl->name);
+                    elem_suffix = s;
+                }
+                break;
+            /* -Wswitch-enum opt-out: composite types (ARRAY,
+             * NULLABLE, FUNC, TUPLE) and meta kinds (VOID,
+             * NULL, ERROR) are not supported as list elem
+             * types yet; fall through to int64_t fallback. */
+            default: break;
+        }
+    }
+    return elem_suffix;
+}
+
+/* A list captured by a closure or spawned task is used through the
+ * capture's copy of the list header, possibly after this scope ends (a
+ * thread, an escaping closure). The enclosing scope then does not free it:
+ * a leak, never a use after free (scoped spawn borrows are future work,
+ * #174). Objects keep their existing capture handling. */
+static void forget_captured_list_drops(HIR_to_LIR_Ctx *ctx, IronHIR_VarId vid) {
+    ptrdiff_t ai = hmgeti(ctx->var_alloca_map, vid);
+    if (ai < 0) return;
+    IronLIR_ValueId slot = ctx->var_alloca_map[ai].value;
+    for (int d = 0; d < (int)arrlen(ctx->drop_stacks); d++) {
+        IronLIR_DropEntry *es = ctx->drop_stacks[d];
+        for (int k = 0; k < (int)arrlen(es); k++) {
+            if (es[k].alloca_id == slot && type_is_owned_list(es[k].object_type)) {
+                arrdel(ctx->drop_stacks[d], k);
+                es = ctx->drop_stacks[d];
+                k--;
+            }
+        }
     }
 }
 
@@ -611,6 +737,14 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
                                   v, entry->object_type, span)->id;
             }
             emit_rc_release_for_type(ctx, entry->object_type, v, span);
+            continue;
+        }
+        /* An owned list binding frees its list (and drops its elements)
+         * unless `return` moved it out. */
+        if (type_is_owned_list(entry->object_type)) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            if (entry->alloca_id == ctx->moved_slot) continue;
+            emit_drop_glue_call(ctx, entry->alloca_id, span);
             continue;
         }
         if (entry->object_type->kind != IRON_TYPE_OBJECT) continue;
@@ -2437,88 +2571,10 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 /* Collection: build the full "Iron_List_<elem_suffix>_<method>" name
                  * directly and return early. mangle_func_name() skips names that
                  * already start with "Iron_", so no double-prefixing. */
-                Iron_Type *elem = obj_type->array.elem;
-                const char *elem_suffix = "int64_t";
-                if (elem) {
-                    switch ((int)(elem->kind)) {
-                        case IRON_TYPE_INT:    elem_suffix = "int64_t";     break;
-                        case IRON_TYPE_INT32:  elem_suffix = "int32_t";     break;
-                        case IRON_TYPE_FLOAT:  elem_suffix = "double";      break;
-                        case IRON_TYPE_BOOL:   elem_suffix = "bool";        break;
-                        case IRON_TYPE_STRING: elem_suffix = "Iron_String"; break;
-                        /* AUDIT-02 #6 fix: narrow/wide int and float kinds
-                         * previously fell through to the silent default,
-                         * mis-dispatching [Int8].method() etc. to
-                         * Iron_List_int64_t_*. */
-                        case IRON_TYPE_INT8:   elem_suffix = "int8_t";      break;
-                        case IRON_TYPE_INT16:  elem_suffix = "int16_t";     break;
-                        case IRON_TYPE_INT64:  elem_suffix = "int64_t";     break;
-                        case IRON_TYPE_UINT:   elem_suffix = "uint64_t";    break;
-                        case IRON_TYPE_UINT8:  elem_suffix = "uint8_t";     break;
-                        case IRON_TYPE_UINT16: elem_suffix = "uint16_t";    break;
-                        case IRON_TYPE_UINT32: elem_suffix = "uint32_t";    break;
-                        case IRON_TYPE_UINT64: elem_suffix = "uint64_t";    break;
-                        case IRON_TYPE_FLOAT32: elem_suffix = "float";      break;
-                        case IRON_TYPE_FLOAT64: elem_suffix = "double";     break;
-                        case IRON_TYPE_OBJECT:
-                            if (elem->object.decl) {
-                                size_t slen = 5 + strlen(elem->object.decl->name) + 1;
-                                char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
-                                if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix object");
-                                snprintf(s, slen, "Iron_%s", elem->object.decl->name);
-                                elem_suffix = s;
-                            }
-                            break;
-                        case IRON_TYPE_INTERFACE:
-                            if (elem->interface.decl) {
-                                size_t slen = 5 + strlen(elem->interface.decl->name) + 1;
-                                char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
-                                if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix interface");
-                                snprintf(s, slen, "Iron_%s", elem->interface.decl->name);
-                                elem_suffix = s;
-                            }
-                            break;
-                        case IRON_TYPE_RC:
-                        case IRON_TYPE_WEAK_RC: {
-                            /* Matches emit_ensure_rc_list's list name. */
-                            const Iron_Type *in = elem->kind == IRON_TYPE_RC
-                                ? elem->rc.inner : elem->weak_rc.inner;
-                            const char *iname =
-                                (in && in->kind == IRON_TYPE_OBJECT && in->object.decl)
-                                    ? in->object.decl->name : NULL;
-                            if (iname) {
-                                size_t slen = 16 + strlen(iname);
-                                char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
-                                if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix rc");
-                                snprintf(s, slen, "%s_Iron_%s",
-                                         elem->kind == IRON_TYPE_RC ? "rc" : "weakrc", iname);
-                                elem_suffix = s;
-                            }
-                            break;
-                        }
-                        case IRON_TYPE_ENUM:
-                            /* Phase 59 P04: DNS returns [Address] where
-                             * Address is an Iron ADT enum. The list
-                             * dispatcher was only handling OBJECT and
-                             * INTERFACE elem types — without this case,
-                             * any .method() call on an enum array
-                             * mis-dispatches to Iron_List_int64_t_*. */
-                            if (elem->enu.decl) {
-                                size_t slen = 5 + strlen(elem->enu.decl->name) + 1;
-                                char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
-                                if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix enum");
-                                snprintf(s, slen, "Iron_%s", elem->enu.decl->name);
-                                elem_suffix = s;
-                            }
-                            break;
-                        /* -Wswitch-enum opt-out: composite types (ARRAY,
-                         * NULLABLE, FUNC, TUPLE) and meta kinds (VOID,
-                         * NULL, ERROR) are not supported as list elem
-                         * types yet; fall through to int64_t fallback. */
-                        default: break;
-                    }
-                }
+                const char *elem_suffix = list_elem_suffix(ctx, obj_type->array.elem);
                 const char *coll_method = expr->method_call.method;
+                /* list.copy() is the runtime's element-aware _clone. */
+                if (strcmp(coll_method, "copy") == 0) coll_method = "clone";
                 size_t clen = 10 + strlen(elem_suffix) + 1 + strlen(coll_method) + 1;
                 char *full_name = (char *)iron_arena_alloc(ctx->lir_arena, clen, 1);
                 if (!full_name) iron_oom_abort("hir_to_lir.c:lower_expr list_method_full_name");
@@ -2526,9 +2582,24 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
 
                 /* Build args and return early — skip the generic mangling path below */
                 IronLIR_ValueId *coll_args = NULL;
+                TempOwned *coll_temps = NULL;
                 if (!is_static_call) {
                     IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
                     arrput(coll_args, self_val);
+                    /* A fresh list receiver (`make().len()`) is freed after a
+                     * reading call. (A modifying call on a temporary could
+                     * reallocate it under the saved copy, so it is left.) */
+                    bool reads_only =
+                        strcmp(coll_method, "push") != 0 && strcmp(coll_method, "pop") != 0 &&
+                        strcmp(coll_method, "insert") != 0 && strcmp(coll_method, "remove") != 0 &&
+                        strcmp(coll_method, "clear") != 0 && strcmp(coll_method, "set") != 0 &&
+                        strcmp(coll_method, "sort") != 0 && strcmp(coll_method, "reverse") != 0 &&
+                        strcmp(coll_method, "take") != 0 && strcmp(coll_method, "set_unchecked") != 0;
+                    /* (Chained collection calls such as xs.map(f).sum() are
+                     * fused and never materialise the intermediate list.) */
+                    IronHIR_Expr *ro = expr->method_call.object;
+                    if (reads_only && ro && ro->kind != IRON_HIR_EXPR_METHOD_CALL)
+                        note_owned_temp(ctx, &coll_temps, ro, self_val, span);
                 }
                 /* push / insert store their element argument: the list owns
                  * it from then on (an rc element takes its own reference
@@ -2539,7 +2610,6 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 bool stores_elem = !obj_type->array.is_bounded &&
                     (strcmp(coll_method, "push") == 0 ||
                      strcmp(coll_method, "insert") == 0);
-                TempOwned *coll_temps = NULL;
                 for (int i = 0; i < expr->method_call.arg_count; i++) {
                     IronHIR_Expr *ae = expr->method_call.args[i];
                     IronLIR_ValueId av = lower_expr(ctx, ae);
@@ -2893,6 +2963,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         if (cap_count > 0 && expr->closure.capture_var_ids) {
             for (int ci = 0; ci < cap_count; ci++) {
                 IronHIR_VarId vid = expr->closure.capture_var_ids[ci];
+                forget_captured_list_drops(ctx, vid);
                 IronLIR_ValueId lir_val = IRON_LIR_VALUE_INVALID;
                 bool is_mutable = expr->closure.captures
                                   ? expr->closure.captures[ci].is_mutable
@@ -3038,6 +3109,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         if (pfor_cap_count > 0 && expr->parallel_for.capture_var_ids) {
             for (int ci = 0; ci < pfor_cap_count; ci++) {
                 IronHIR_VarId vid = expr->parallel_for.capture_var_ids[ci];
+                forget_captured_list_drops(ctx, vid);
                 IronLIR_ValueId lir_val = IRON_LIR_VALUE_INVALID;
                 bool is_mutable = pfor_cap_meta ? pfor_cap_meta[ci].is_mutable : false;
                 if (is_mutable) {
@@ -3759,8 +3831,11 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 IronLIR_ValueId fobj = lower_expr(ctx, target->field_access.object);
                 IronLIR_Instr *gf = iron_lir_get_field(ctx->current_func,
                     ctx->current_block, fobj, target->field_access.field, fld_t, span);
-                if (fld_rc) fld_old = gf->id;
-                else        emit_drop_glue_call(ctx, gf->id, span);
+                if (fld_rc) {
+                    fld_old = gf->id;
+                } else {
+                    emit_drop_glue_call(ctx, gf->id, span);
+                }
             }
             /* PARM-02: when the object is a `var` param, mutate the alloca
              * slot IN PLACE (SET_FIELD on the alloca id). Lowering the
@@ -4407,6 +4482,12 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         if (ex && type_is_rc_like(ex->type) &&
             rc_expr_transfers_ownership(ex)) {
             emit_rc_release_for_type(ctx, ex->type, ev, span);
+        } else if (ex && ev != IRON_LIR_VALUE_INVALID) {
+            /* A discarded fresh object or list (`make()` as a statement)
+             * is dropped at the end of the statement. */
+            TempOwned *disc = NULL;
+            note_owned_temp(ctx, &disc, ex, ev, span);
+            release_owned_temps(ctx, &disc, span);
         }
         break;
     }
@@ -4443,6 +4524,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             if (cap_count > 0 && stmt->spawn.capture_var_ids) {
                 for (int ci = 0; ci < cap_count; ci++) {
                     IronHIR_VarId vid = stmt->spawn.capture_var_ids[ci];
+                    forget_captured_list_drops(ctx, vid);
                     IronLIR_ValueId lir_val = IRON_LIR_VALUE_INVALID;
                     bool is_mutable = cap_meta ? cap_meta[ci].is_mutable : false;
                     if (is_mutable) {

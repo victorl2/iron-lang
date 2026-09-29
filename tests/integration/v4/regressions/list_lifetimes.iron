@@ -1,0 +1,36 @@
+-- A list is freed through the binding that owns it, on every path.
+-- Lists used to be freed per creation site at every return: a list created
+-- only on a path not taken was freed uninitialized, and a var list
+-- reassigned from two literals mixed a C stack array with a heap list.
+-- Temporaries (a call's result used once or discarded) are freed too.
+object Res {
+    val n: Int
+    drop { println("drop {self.n}") }
+}
+func pick(c: Bool) -> [Int] {
+    var a = [1, 2, 3]
+    if c {
+        a = [9]
+    }
+    return a
+}
+func make(k: Int) -> [Res] {
+    var out: [Res] = []
+    out.push(Res(k))
+    return out
+}
+func main() {
+    val x = pick(false)
+    val y = pick(true)
+    println("{x.len()} {x[0]} {y.len()} {y[0]}")
+    var z = [1]
+    z = [5, 6]
+    z = [7, 8, 9]
+    println("{z.len()}")
+    val n = make(1).len()
+    println("n={n}")
+    make(2)
+    var held = make(3)
+    held = make(4)
+    println("end")
+}

@@ -1439,6 +1439,15 @@ static bool od_has_lir_method(EmitCtx *ctx, struct Iron_ObjectDecl *od,
  * rc / weak rc field to release, or a by-value object field needing drop.
  * Copy: a lowered user copy body, rc fields to retain, or an object field
  * needing the same. Mirrors hir_to_lir.c type_needs_drop. */
+/* A dynamic list field owns its buffer (#174): the object frees it when
+ * dropped and clones it when copied. Interface-element (split) lists have
+ * no clone yet and are left out. */
+static bool emit_field_is_owned_list(const Iron_Type *ft) {
+    return ft && ft->kind == IRON_TYPE_ARRAY && ft->array.size < 0 &&
+           !ft->array.is_bounded &&
+           !(ft->array.elem && ft->array.elem->kind == IRON_TYPE_INTERFACE);
+}
+
 static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
                              bool want_copy, int depth) {
     if (!od || depth > 16) return false;
@@ -1447,7 +1456,7 @@ static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
     for (int i = 0; i < od->field_count; i++) {
         Iron_Type *ft = emit_field_type((Iron_Field *)od->fields[i]);
         if (!ft) continue;
-        if (emit_type_is_rc_like(ft)) return true;
+        if (emit_type_is_rc_like(ft) || emit_field_is_owned_list(ft)) return true;
         if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
             od_lifecycle_rec(ctx, ft->object.decl, want_copy, depth + 1))
             return true;
@@ -1508,6 +1517,10 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
         if (!ft || !f->name) continue;
         if (emit_type_is_rc_like(ft)) {
             emit_rc_field_op(sb, ft, f->name, false);
+        } else if (emit_field_is_owned_list(ft)) {
+            const char *lt = emit_type_to_c(ft, ctx);
+            iron_strbuf_appendf(sb, "    self->%s = %s_clone(&self->%s);\n",
+                                f->name, lt, f->name);
         } else if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
                    od_needs_copy_fixup(ctx, ft->object.decl)) {
             iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
@@ -1591,6 +1604,11 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
         if (!ft || !f->name) continue;
         if (emit_type_is_rc_like(ft)) {
             emit_rc_field_op(&ctx->lifted_funcs, ft, f->name, true);
+            continue;
+        }
+        if (emit_field_is_owned_list(ft)) {
+            iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_free(&self->%s);\n",
+                                emit_type_to_c(ft, ctx), f->name);
             continue;
         }
         if (ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;

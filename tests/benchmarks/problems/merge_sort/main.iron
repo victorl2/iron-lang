@@ -1,6 +1,6 @@
 import time
 
-func merge(arr: [Int], tmp: [Int], lo: Int, mid: Int, hi: Int) -> Int {
+func merge(var arr: [Int], var tmp: [Int], lo: Int, mid: Int, hi: Int) -> Int {
     var x = lo
     while x <= hi {
         tmp[x] = arr[x]
@@ -32,7 +32,7 @@ func merge(arr: [Int], tmp: [Int], lo: Int, mid: Int, hi: Int) -> Int {
     return 0
 }
 
-func merge_sort_rec(arr: [Int], tmp: [Int], lo: Int, hi: Int) -> Int {
+func merge_sort_rec(var arr: [Int], var tmp: [Int], lo: Int, hi: Int) -> Int {
     if lo < hi {
         val mid = lo + (hi - lo) / 2
         val d1 = merge_sort_rec(arr, tmp, lo, mid)

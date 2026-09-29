@@ -1,0 +1,12 @@
+-- @expected-error: E0266
+-- A callee that grows a list needs a var parameter. Growing a borrowed
+-- list reallocated the caller's buffer and left the caller reading freed
+-- memory.
+func add(xs: [Int]) {
+    xs.push(3)
+}
+func main() {
+    var a = [1, 2]
+    add(a)
+    println("{a.len()}")
+}

@@ -1,8 +1,5 @@
 -- section 8.4 extends-spec: cycle-break proof with 3-node parent/child chain
 -- @req: POL-08, POL-09, DROP-01
--- @expected-pass-after: phase-38
--- XFAIL (#174): an object's drop does not free its list fields, so the
--- [rc T] children list and every node in it leak.
 -- extends-spec: parent->child is rc (owning); child->parent is weak (non-owning)
 -- all 3 nodes must be freed because weak refs do not prevent collection.
 -- A node's drop body runs before its fields are released, so the chain

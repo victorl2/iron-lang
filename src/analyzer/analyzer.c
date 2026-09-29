@@ -5,6 +5,7 @@
 #include "analyzer/iface_defaults.h"
 #include "analyzer/generics.h"
 #include "analyzer/init_check.h"
+#include "analyzer/list_ownership.h"
 #include "analyzer/effects.h"
 #include "analyzer/unused_var.h"
 #include "analyzer/escape.h"
@@ -244,6 +245,11 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
 
     /* Step 3.5: Definite assignment analysis */
     iron_init_check(program, result.global_scope, arena, diags, cancel_flag);
+
+    if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
+
+    /* Step 3.55: lists get new owners only as fresh values (#174). */
+    iron_list_ownership_check(program, arena, diags, cancel_flag);
 
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 
