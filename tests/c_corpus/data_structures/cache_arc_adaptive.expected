@@ -1,0 +1,5 @@
+phase 0: ARC hits=5229 LRU hits=5154 p= 2 |T1|= 1 |T2|=23 |B1|= 8 |B2|=16
+phase 1: ARC hits= 469 LRU hits= 481 p=19 |T1|=20 |T2|= 4 |B1|= 4 |B2|=20
+phase 2: ARC hits=3083 LRU hits=2591 p= 0 |T1|= 4 |T2|=20 |B1|=20 |B2|= 4
+phase 3: ARC hits=4782 LRU hits=4787 p= 0 |T1|= 0 |T2|=24 |B1|=10 |B2|=14
+total ARC hits=13563 LRU hits=13013 of 24000

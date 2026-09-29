@@ -1,0 +1,6 @@
+round 0: |A|= 730 runs= 13 |B|= 437 runs= 11 union=1022 inter= 145 complementA runs= 14 longest gap in A=347 at 170
+round 1: |A|=1121 runs= 18 |B|=1032 runs= 19 union=1744 inter= 409 complementA runs= 19 longest gap in A=288 at 900
+round 2: |A|=1297 runs= 19 |B|=1245 runs= 21 union=2023 inter= 519 complementA runs= 20 longest gap in A=288 at 900
+round 3: |A|=1681 runs= 24 |B|=1508 runs= 24 union=2353 inter= 836 complementA runs= 25 longest gap in A=182 at 170
+round 4: |A|=1591 runs= 25 |B|=1663 runs= 22 union=2336 inter= 918 complementA runs= 26 longest gap in A=208 at 2502
+round 5: |A|=1762 runs= 26 |B|=1701 runs= 22 union=2451 inter=1012 complementA runs= 27 longest gap in A=123 at 2877

@@ -1,0 +1,3 @@
+puts=14955 deletes=4796 hits=3238 size=2257
+pages live=281 peak=281 allocated=334 freed=53; dense array would need 4096 pages
+iterated 2257 entries, value sum=113391741
