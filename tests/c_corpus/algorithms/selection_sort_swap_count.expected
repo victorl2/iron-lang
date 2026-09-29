@@ -1,0 +1,5 @@
+swap selection: swaps=20 stable=0
+rotate selection: moves=142 stable=1
+double selection: swaps=26 stable=0
+swap order  : 0b 0t 0y 1d 1f 1v 1w 2o 2p 2s 3n 3h 3i 3r 3a 3e 3x 4j 4l 4g 4c 5m 5k 5q 5u 5z
+stable order: 0b 0t 0y 1d 1f 1v 1w 2o 2p 2s 3a 3e 3h 3i 3n 3r 3x 4c 4g 4j 4l 5k 5m 5q 5u 5z

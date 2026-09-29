@@ -1,0 +1,7 @@
+sorted             runs=1     inversions=0        rounds=0  cmps=1999
+one swap           runs=3     inversions=2799     rounds=2  cmps=8997
+10 random swaps    runs=21    inversions=14178    rounds=5  cmps=20238
+few sorted blocks  runs=5     inversions=750000   rounds=3  cmps=11746
+sorted+tail        runs=27    inversions=45770    rounds=5  cmps=21477
+reversed           runs=2000  inversions=1999000  rounds=11 cmps=34852
+random             runs=986   inversions=987638   rounds=10 cmps=40419

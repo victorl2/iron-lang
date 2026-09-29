@@ -1,0 +1,4 @@
+n=15     classic=76      bottom-up=61      ratio(classic/nlogn)=1.30 ratio(bu/nlogn)=1.04
+n=100    classic=1027    bottom-up=702     ratio(classic/nlogn)=1.55 ratio(bu/nlogn)=1.06
+n=1000   classic=16848   bottom-up=10293   ratio(classic/nlogn)=1.69 ratio(bu/nlogn)=1.03
+n=10000  classic=235454  bottom-up=136590  ratio(classic/nlogn)=1.77 ratio(bu/nlogn)=1.03
