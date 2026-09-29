@@ -62,7 +62,8 @@ int main(void) {
     View v = sb_view(&b);
     printf("frozen hash=%08x verify=%d\n", (unsigned)b.seal_hash, sb_verify(&b));
     printf("write while frozen: %d\n", sb_write(&b, 0, "J", 1));
-    printf("write while frozen again: %d refused=%ld\n", sb_write(&b, 1, "J", 1), b.refused_writes);
+    int again = sb_write(&b, 1, "J", 1);
+    printf("write while frozen again: %d refused=%ld\n", again, b.refused_writes);
     unsigned char c;
     int vr = view_read(v, 4, &c);
     printf("view read [4]: %d '%c'\n", vr, c);

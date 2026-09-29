@@ -65,7 +65,11 @@ int main(void) {
     for (int i = 0; i < N; i++) {
         e[i].id = 100 + i;
         strcpy(e[i].dept, depts[rng() % 4]);
-        snprintf(e[i].name, sizeof e[i].name, "%s%d", first[rng() % 8], (int)(rng() % 3));
+        {
+            const char *fn = first[rng() % 8];
+            int suffix = (int)(rng() % 3);
+            snprintf(e[i].name, sizeof e[i].name, "%s%d", fn, suffix);
+        }
         e[i].salary = 40 + (int)(rng() % 8) * 5;
         e[i].year = 2015 + (int)(rng() % 8);
     }

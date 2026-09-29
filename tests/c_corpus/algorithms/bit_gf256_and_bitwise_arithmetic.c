@@ -136,7 +136,8 @@ static uint8_t gf_pow(uint8_t a, unsigned e) {
 
 int main(void) {
     int it;
-    printf("57+13=%u  (iterations %d)\n", add_bits(57, 13, &it), it);
+    unsigned sum57 = add_bits(57, 13, &it);
+    printf("57+13=%u  (iterations %d)\n", sum57, it);
     long total_iter = 0, samples = 0;
     int worst = 0;
     for (int t = 0; t < 20000; t++) {

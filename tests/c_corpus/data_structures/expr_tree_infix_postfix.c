@@ -152,7 +152,9 @@ static Node *randtree(int depth) {
     if (depth == 0 || rnd() % 5 == 0) return mk(0, 1 + rnd() % 6, NULL, NULL);
     const char ops[] = "+-*/";
     char o = ops[rnd() % 4];
-    return mk(o, 0, randtree(depth - 1), randtree(depth - 1));
+    Node *l = randtree(depth - 1);
+    Node *r = randtree(depth - 1);
+    return mk(o, 0, l, r);
 }
 static int height(const Node *n) { return n ? 1 + (height(n->l) > height(n->r) ? height(n->l) : height(n->r)) : 0; }
 static int count(const Node *n) { return n ? 1 + count(n->l) + count(n->r) : 0; }

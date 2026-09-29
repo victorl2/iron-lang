@@ -45,6 +45,7 @@ HEADER_KEYS = ("title", "topic", "covers", "deps")
 BASE_FLAGS = [
     "-std=gnu11",
     "-O1",
+    "-ffp-contract=off",
     "-Wall",
     "-Wextra",
     "-Wpedantic",
@@ -56,6 +57,19 @@ SAN_FLAGS = [
     "-fsanitize=address,undefined",
     "-fno-sanitize-recover=undefined",
     "-fno-omit-frame-pointer",
+]
+# gcc's flow-sensitive heuristics (worse under glibc's _FORTIFY_SOURCE) vary by
+# version and give false positives on correct code. Keep them as warnings.
+GCC_SOFT_WARNINGS = [
+    "-Wno-error=maybe-uninitialized",
+    "-Wno-error=restrict",
+    "-Wno-error=stringop-overflow",
+    "-Wno-error=stringop-overread",
+    "-Wno-error=stringop-truncation",
+    "-Wno-error=format-truncation",
+    "-Wno-error=format-overflow",
+    "-Wno-alloc-size-larger-than",
+    "-Wno-error=array-bounds",
 ]
 SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -131,10 +145,22 @@ def compiler():
     return os.environ.get("CC", "cc")
 
 
+_IS_GCC = None
+
+
+def is_gcc():
+    global _IS_GCC
+    if _IS_GCC is None:
+        r = subprocess.run([compiler(), "--version"], capture_output=True, text=True)
+        _IS_GCC = "Free Software Foundation" in r.stdout
+    return _IS_GCC
+
+
 def build_and_run(path, build_dir, sanitize, timeout, update):
     slug = os.path.basename(path)[:-2]
     exe = os.path.join(build_dir, slug)
-    cmd = [compiler()] + BASE_FLAGS + (SAN_FLAGS if sanitize else []) + [path, "-o", exe, "-lm"]
+    cmd = [compiler()] + BASE_FLAGS + (GCC_SOFT_WARNINGS if is_gcc() else [])
+    cmd += (SAN_FLAGS if sanitize else []) + [path, "-o", exe, "-lm"]
     if platform.system() == "Linux":
         cmd.append("-lrt")
     r = subprocess.run(cmd, capture_output=True, text=True)

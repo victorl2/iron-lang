@@ -66,7 +66,11 @@ static int terms(const Term *p) { int n = 0; for (; p; p = p->next) n++; return 
 static void to_dense(const Term *p, long long *d) { memset(d, 0, D * sizeof *d); for (; p; p = p->next) { CHECK(p->exp < D); d[p->exp] = p->coef; } }
 static Term *random_poly(int nterms, int maxexp) {
     Term *p = NULL;
-    for (int i = 0; i < nterms; i++) p = add_term(p, (int)(rnd() % (unsigned)(maxexp + 1)), (long long)(rnd() % 21) - 10);
+    for (int i = 0; i < nterms; i++) {
+        int ex = (int)(rnd() % (unsigned)(maxexp + 1));
+        long long co = (long long)(rnd() % 21) - 10;
+        p = add_term(p, ex, co);
+    }
     return p;
 }
 static void check_canonical(const Term *p) { for (; p; p = p->next) { CHECK(p->coef != 0); if (p->next) CHECK(p->exp > p->next->exp); } }

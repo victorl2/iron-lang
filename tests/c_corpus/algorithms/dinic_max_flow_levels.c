@@ -77,7 +77,11 @@ int main(void) {
     for (int i = 0; i < PER; i++) add_edge(s, i, 5 + (int)(rnd() % 20));
     for (int l = 0; l + 1 < LAYERS; l++)
         for (int i = 0; i < PER; i++)
-            for (int k = 0; k < 3; k++) add_edge(l * PER + i, (l + 1) * PER + (int)(rnd() % PER), 1 + (int)(rnd() % 12));
+            for (int k = 0; k < 3; k++) {
+                int to = (l + 1) * PER + (int)(rnd() % PER);
+                int cap = 1 + (int)(rnd() % 12);
+                add_edge(l * PER + i, to, cap);
+            }
     for (int k = 0; k < 30; k++) { /* skip edges break the uniform layering */
         int l = (int)(rnd() % (LAYERS - 2)), i = (int)(rnd() % PER), j = (int)(rnd() % PER);
         add_edge(l * PER + i, (l + 2) * PER + j, 1 + (int)(rnd() % 8));

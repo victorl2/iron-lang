@@ -116,8 +116,8 @@ int main(void) {
         t_begin(&a, &s);
         t_begin(&b, &s);
         int na = 1 + (int)(rnd() % 3), nb = 1 + (int)(rnd() % 3);
-        for (int i = 0; i < na; i++) { int k = (int)(rnd() % NKEYS); t_put(&a, k, (int)(rnd() % 1000), rnd() % 4 == 0); }
-        for (int i = 0; i < nb; i++) { int k = (int)(rnd() % NKEYS); t_put(&b, k, (int)(rnd() % 1000), rnd() % 4 == 0); }
+        for (int i = 0; i < na; i++) { int k = (int)(rnd() % NKEYS); int v = (int)(rnd() % 1000); int del = rnd() % 4 == 0; t_put(&a, k, v, del); }
+        for (int i = 0; i < nb; i++) { int k = (int)(rnd() % NKEYS); int v = (int)(rnd() % 1000); int del = rnd() % 4 == 0; t_put(&b, k, v, del); }
         Txn *order[2] = { &a, &b };
         for (int o = 0; o < 2; o++) {
             Txn *t = order[o];

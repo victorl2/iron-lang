@@ -106,7 +106,9 @@ int main(void) {
     printf("resolve h2 as sound: %s\n", name(h_resolve(h[2], T_SOUND, &s)));
     printf("resolve null: %s\n", name(h_resolve(0, 0, &s)));
 
-    printf("destroy h1: %s, again: %s\n", name(h_destroy(h[1])), name(h_destroy(h[1])));
+    const char *first_destroy = name(h_destroy(h[1]));
+    const char *second_destroy = name(h_destroy(h[1]));
+    printf("destroy h1: %s, again: %s\n", first_destroy, second_destroy);
     printf("stale resolve: %s\n", name(h_resolve(h[1], 0, &s)));
     Handle re;
     check(h_create(T_MESH, 555, &re) == OK, "recreate");

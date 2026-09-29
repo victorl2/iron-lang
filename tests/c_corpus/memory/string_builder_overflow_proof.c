@@ -83,8 +83,10 @@ int main(void) {
 
     /* fill up to exactly the ceiling: 63 chars + NUL fit, 64 do not */
     size_t room = 64 - 1 - b.len;
-    printf("repeat %zu: %d, len=%zu cap=%zu\n", room, sb_repeat(&b, '.', room), b.len, b.cap);
-    printf("one more byte: %d failed=%d len=%zu\n", sb_putc(&b, '#'), b.failed, b.len);
+    int rep = sb_repeat(&b, '.', room);
+    printf("repeat %zu: %d, len=%zu cap=%zu\n", room, rep, b.len, b.cap);
+    int more = sb_putc(&b, '#');
+    printf("one more byte: %d failed=%d len=%zu\n", more, b.failed, b.len);
     if (b.len != 63 || strlen(b.s) != 63) return 1;
     printf("content unchanged after failure: %d\n", b.s[62] == '.' && b.s[63] == '\0');
     sb_free(&b);

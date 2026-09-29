@@ -106,8 +106,9 @@ int main(void) {
         p[off] = save;
     }
     printf("guard sweep: %d/%d positions, all %d guard-byte flips detected\n", total, total, detected);
-    size_t n;
-    printf("intact block check=%s size=%zu\n", gname(g_check(p, &n)), n);
+    size_t n = 0;
+    int intact = g_check(p, &n);
+    printf("intact block check=%s size=%zu\n", gname(intact), n);
     g_free(p);
     return 0;
 }

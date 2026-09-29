@@ -131,7 +131,11 @@ int main(void) {
         Obj *objs[MAXN];
         static int adj[MAXN][MAXN];
         memset(adj, 0, sizeof adj);
-        for (int i = 0; i < n; i++) objs[i] = obj_new(i, (int)(rnd() % 1000), 1 + (int)(rnd() % (unsigned)maxref));
+        for (int i = 0; i < n; i++) {
+            int val = (int)(rnd() % 1000);
+            int nref = 1 + (int)(rnd() % (unsigned)maxref);
+            objs[i] = obj_new(i, val, nref);
+        }
         for (int i = 0; i < n; i++)
             for (int k = 0; k < objs[i]->nref; k++)
                 if ((int)(rnd() % 100) < density) {

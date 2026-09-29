@@ -166,7 +166,12 @@ int main(void) {
     static char store[N][14];
     char *keys[N];
     for (int i = 0; i < N; i++) {
-        snprintf(store[i], sizeof store[i], "%c%c-%u", (int)('a' + rnd() % 26), (int)('a' + rnd() % 26), (unsigned)(rnd() % 100000) + 100000u * (unsigned)i);
+        {
+            int c0 = (int)('a' + rnd() % 26);
+            int c1 = (int)('a' + rnd() % 26);
+            unsigned num = (unsigned)(rnd() % 100000) + 100000u * (unsigned)i;
+            snprintf(store[i], sizeof store[i], "%c%c-%u", c0, c1, num);
+        }
         keys[i] = store[i];
     }
     static const uint32_t lambdas[3] = {2, 4, 5};

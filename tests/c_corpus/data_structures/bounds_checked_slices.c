@@ -147,7 +147,8 @@ int main(void) {
     printf("get[63]: %s\n", status_name(s_get(all, N - 1, &tmp)));
     printf("sub(10,5): %s\n", status_name(s_sub(all, 10, 5, &a)));
     printf("sub(0,65): %s\n", status_name(s_sub(all, 0, N + 1, &a)));
-    printf("sub(64,64): %s (len %zu)\n", status_name(s_sub(all, N, N, &a)), a.n);
+    Status st_end = s_sub(all, N, N, &a);
+    printf("sub(64,64): %s (len %zu)\n", status_name(st_end), a.n);
     printf("split_at(65): %s\n", status_name(s_split_at(all, N + 1, &a, &b)));
     Slice empty = s_from(buf, 0);
     printf("split_first(empty): %s\n", status_name(s_split_first(empty, &tmp, &a)));

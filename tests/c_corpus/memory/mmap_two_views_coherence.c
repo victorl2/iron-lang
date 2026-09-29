@@ -64,7 +64,9 @@ int main(void) {
         check(*at(&A, off + 1) == (unsigned char)(off * 7 + 1), "B write seen in A");
         agree += 2;
     }
-    printf("cross-window writes observed immediately: %lu\n", agree);
+    /* the probe count depends on the page size, so report only whether all were seen */
+    printf("cross-window writes observed immediately: %s\n",
+           agree == 2 * ((overlap_hi - overlap_lo + 250) / 251) ? "all" : "some");
 
     /* fill B only, and read it all back through a positional file read: no msync needed for coherence */
     for (size_t i = 0; i < B.len; i++)

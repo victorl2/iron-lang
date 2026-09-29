@@ -109,6 +109,7 @@ int main(void) {
     for (int i = 0; i < 1024; i++)
         arr[i] = (i + 300) % 1024;
     steps = 0;
-    printf("distinct rotated: min %d in %ld steps\n", min_value(arr, 1024), steps);
+    int distinct_min = min_value(arr, 1024);
+    printf("distinct rotated: min %d in %ld steps\n", distinct_min, steps);
     return 0;
 }

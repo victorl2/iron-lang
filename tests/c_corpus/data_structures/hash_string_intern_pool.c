@@ -166,7 +166,11 @@ int main(void) {
         else if (r < 80)
             snprintf(text[i], sizeof text[i], "var%u", (unsigned)(rnd() % 400));
         else
-            snprintf(text[i], sizeof text[i], "tmp_%u_%u", (unsigned)(rnd() % 30), (unsigned)(rnd() % 30));
+            {
+                unsigned t0 = (unsigned)(rnd() % 30);
+                unsigned t1 = (unsigned)(rnd() % 30);
+                snprintf(text[i], sizeof text[i], "tmp_%u_%u", t0, t1);
+            }
         ids[i] = intern(&p, text[i]);
     }
     /* equal strings must have equal ids, distinct strings distinct ids; ids are dense in first-seen order */
