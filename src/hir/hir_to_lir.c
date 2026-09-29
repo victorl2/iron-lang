@@ -2699,6 +2699,36 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                   ? expr->closure.captures[ci].is_mutable
                                   : false;
 
+                /* A `heap` binding's slot / value is its Iron_FatPtr handle
+                 * (the binding's surface type is the pointee). */
+                Iron_Type *cap_surface = expr->closure.captures
+                                         ? expr->closure.captures[ci].type : NULL;
+                bool surface_is_ptr = cap_surface && cap_surface->kind == IRON_TYPE_PTR;
+                if (expr->closure.captures && !surface_is_ptr) {
+                    ptrdiff_t hvi = hmgeti(ctx->val_binding_map, vid);
+                    ptrdiff_t hai = hmgeti(ctx->var_alloca_map, vid);
+                    IronLIR_Instr *hin = NULL;
+                    if (hvi >= 0) {
+                        IronLIR_ValueId hv = ctx->val_binding_map[hvi].value;
+                        if ((ptrdiff_t)hv < arrlen(ctx->current_func->value_table))
+                            hin = ctx->current_func->value_table[hv];
+                        if (hin && (hin->kind == IRON_LIR_HEAP_ALLOC ||
+                                    (hin->type && hin->type->kind == IRON_TYPE_PTR &&
+                                     !hin->type->ptr.is_unchecked)))
+                            expr->closure.captures[ci].is_heap_handle = true;
+                    } else if (hai >= 0) {
+                        IronLIR_ValueId ha = ctx->var_alloca_map[hai].value;
+                        if ((ptrdiff_t)ha < arrlen(ctx->current_func->value_table))
+                            hin = ctx->current_func->value_table[ha];
+                        if (hin && hin->kind == IRON_LIR_ALLOCA && hin->alloca.alloc_type &&
+                            hin->alloca.alloc_type->kind == IRON_TYPE_PTR &&
+                            !hin->alloca.alloc_type->ptr.is_unchecked)
+                            expr->closure.captures[ci].is_heap_handle = true;
+                    }
+                }
+                bool cap_heap = expr->closure.captures &&
+                                expr->closure.captures[ci].is_heap_handle;
+
                 if (!is_mutable) {
                     /* val capture: emit a LOAD to get the current value */
                     ptrdiff_t vi = hmgeti(ctx->val_binding_map, vid);
@@ -2711,6 +2741,10 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                             Iron_Type *val_ty = expr->closure.captures
                                                ? expr->closure.captures[ci].type
                                                : NULL;
+                            /* A heap binding is captured as its handle. */
+                            if (cap_heap && alloca_id < (IronLIR_ValueId)arrlen(ctx->current_func->value_table) &&
+                                ctx->current_func->value_table[alloca_id])
+                                val_ty = ctx->current_func->value_table[alloca_id]->alloca.alloc_type;
                             IronLIR_Instr *load = iron_lir_load(ctx->current_func,
                                                                   ctx->current_block,
                                                                   alloca_id, val_ty, span);

@@ -1,0 +1,51 @@
+-- Regression: lambda captures.
+--
+-- Capturing self in a mutating method, capturing a heap binding, and a
+-- lambda nested in a lambda (capturing the outer one's parameter or a
+-- variable from outside both) emitted invalid C or read garbage.
+object Counter {
+  var n: Int
+  init() { self.n = 0 }
+  func bump() {
+    val f = func() { self.n = self.n + 1 }
+    f()
+    f()
+  }
+}
+
+object Cell {
+  var n: Int
+  init() { self.n = 1 }
+  func grow() { self.n = self.n + 10 }
+}
+
+func main() {
+  var c = Counter()
+  c.bump()
+  println("self: {c.n}")
+
+  var h = heap Cell()
+  val read = func() -> Int { return h.n }
+  val write = func() {
+    h.n = h.n + 1
+    h.grow()
+  }
+  write()
+  println("heap: {h.n} {read()}")
+  free h
+
+  val nested = func(a: Int) -> Int {
+    val g = func(b: Int) -> Int { return b + a }
+    return g(1)
+  }
+  println("nested: {nested(4)}")
+
+  var total = 0
+  val outer = func(k: Int) {
+    val inner = func() { total = total + k }
+    inner()
+    inner()
+  }
+  outer(5)
+  println("through two lambdas: {total}")
+}

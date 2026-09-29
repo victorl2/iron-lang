@@ -458,6 +458,18 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
         return;
     }
     IronLIR_Instr *in = emit_def_instr(fn, vid);
+    if (in && in->kind == IRON_LIR_ALLOCA && ctx->param_alias_ids) {
+        /* A read-only parameter's alias slot is not declared: address the
+         * parameter itself (the mutating receiver's self is already a
+         * pointer). */
+        ptrdiff_t pa = hmgeti(ctx->param_alias_ids, vid);
+        if (pa >= 0) {
+            IronLIR_ValueId pv = ctx->param_alias_ids[pa].value;
+            if (!(fn->is_mut_receiver_method && pv == 1)) iron_strbuf_appendf(sb, "&");
+            emit_val(sb, pv);
+            return;
+        }
+    }
     if (in && in->kind == IRON_LIR_ALLOCA) {
         /* Split-loop body: the loop variable's slot is dead storage; the
          * per-branch item variable is the element. */
@@ -473,6 +485,12 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
             if (ca_idx >= 0) {
                 int ci = ctx->capture_alias_map[ca_idx].value;
                 Iron_CaptureEntry *cap = &ctx->current_captures[ci];
+                if (cap->is_heap_handle && cap->type) {
+                    iron_strbuf_appendf(sb, "((%s *)(%s_e->%s).addr)",
+                                        emit_type_to_c(cap->type, ctx),
+                                        cap->is_mutable ? "*" : "", cap->name);
+                    return;
+                }
                 iron_strbuf_appendf(sb, "%s_e->%s", cap->is_mutable ? "" : "&", cap->name);
                 return;
             }
@@ -2307,14 +2325,21 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 Iron_CaptureEntry *cap = &ctx->current_captures[ci];
                 emit_indent(sb, ind);
                 if (!is_hoisted) {
-                    const char *c_type = cap->type
+                    const char *c_type = (cap->is_heap_handle && instr->type)
+                                         ? emit_type_to_c(instr->type, ctx)
+                                         : cap->type
                                          ? emit_type_to_c(cap->type, ctx)
                                          : "void*";
                     iron_strbuf_appendf(sb, "%s ", c_type);
                 }
                 emit_val(sb, instr->id);
                 iron_strbuf_appendf(sb, " = ");
-                if (cap->is_mutable) {
+                if (cap->is_heap_handle) {
+                    /* heap binding: read the value through the handle */
+                    const char *vt = emit_type_to_c(instr->type ? instr->type : cap->type, ctx);
+                    iron_strbuf_appendf(sb, "*((%s *)(%s_e->%s).addr);\n", vt,
+                                        cap->is_mutable ? "*" : "", cap->name);
+                } else if (cap->is_mutable) {
                     /* var capture: dereference pointer field */
                     iron_strbuf_appendf(sb, "*_e->%s;\n", cap->name);
                 } else {
@@ -2723,7 +2748,17 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     if (ca_idx >= 0) {
                         int ci = ctx->capture_alias_map[ca_idx].value;
                         Iron_CaptureEntry *cap = &ctx->current_captures[ci];
-                        if (cap->is_mutable) {
+                        if (cap->is_heap_handle) {
+                            /* heap binding: write into the heap object */
+                            const char *vt = emit_type_to_c(obj_instr->type ? obj_instr->type : cap->type, ctx);
+                            emit_indent(sb, ind);
+                            iron_strbuf_appendf(sb, "((%s *)(%s_e->%s).addr)->%s = ", vt,
+                                                cap->is_mutable ? "*" : "", cap->name,
+                                                instr->field.field);
+                            emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, ";\n");
+                            wrote_via_capture = true;
+                        } else if (cap->is_mutable) {
                             /* Write through the capture pointer to the original struct */
                             emit_indent(sb, ind);
                             iron_strbuf_appendf(sb, "_e->%s->%s = ", cap->name, instr->field.field);
@@ -6197,7 +6232,9 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 shput(ctx->mono_registry, (char *)env_type, true);
                 iron_strbuf_appendf(&ctx->struct_bodies, "typedef struct {\n");
                 for (int ci = 0; ci < cap_count; ci++) {
-                    const char *field_type = cap_meta[ci].type
+                    const char *field_type = cap_meta[ci].is_heap_handle
+                                             ? "Iron_FatPtr"
+                                             : cap_meta[ci].type
                                              ? emit_type_to_c(cap_meta[ci].type, ctx)
                                              : "void*";
                     if (cap_meta[ci].is_mutable) {
@@ -6216,7 +6253,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
 
             /* Phase 26 OQ-03 (Plan 26-03): synthesize <func_name>_env_drop
-             * companion function (Approach A). For each rc-typed val capture,
+             * companion function (Approach A). It goes into struct_bodies,
+             * after the env typedef: this closure may be created inside a
+             * lifted lambda whose own body is being written to lifted_funcs
+             * right now, and appending there split that function in two. For each rc-typed val capture,
              * emit iron_rc_release on the env field; then free the env block.
              * Dedup via ctx->emitted_env_drops -- one companion per lifted
              * closure function. The hir_to_lir.c IRON_HIR_EXPR_CLOSURE arm
@@ -6238,7 +6278,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (!func_copy) iron_oom_abort("emit_c.c MAKE_CLOSURE env_drop name");
                 arrput(ctx->emitted_env_drops, func_copy);
 
-                iron_strbuf_appendf(&ctx->lifted_funcs,
+                iron_strbuf_appendf(&ctx->struct_bodies,
                     "/* Phase 26 OQ-03 (Plan 26-03) + Phase 27 OQ-04 (Plan 27-03):\n"
                     " * env-drop companion for %s.\n"
                     " * Releases each rc/weak-rc-typed captured field then frees the\n"
@@ -6258,7 +6298,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     Iron_Type *cap_ty = cap_meta[ci].type;
                     if (!cap_ty) continue;
                     if (cap_ty->kind == IRON_TYPE_RC) {
-                        iron_strbuf_appendf(&ctx->lifted_funcs,
+                        iron_strbuf_appendf(&ctx->struct_bodies,
                             "    iron_rc_release((void *)_env->%s);\n",
                             cap_meta[ci].name);
                         any_rc_field = true;
@@ -6267,17 +6307,17 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                          * mirror of Phase 26 OQ-03. iron_weak_rc_release
                          * relaxed-decs weak_count; if both counts hit 0
                          * the block is freed (Plan 27-01 substrate). */
-                        iron_strbuf_appendf(&ctx->lifted_funcs,
+                        iron_strbuf_appendf(&ctx->struct_bodies,
                             "    iron_weak_rc_release((void *)_env->%s);\n",
                             cap_meta[ci].name);
                         any_rc_field = true;  /* triggers env_drop emission for weak-rc-only captures */
                     }
                 }
                 if (!any_rc_field) {
-                    iron_strbuf_appendf(&ctx->lifted_funcs,
+                    iron_strbuf_appendf(&ctx->struct_bodies,
                         "    (void)_env;  /* no rc-typed captures */\n");
                 }
-                iron_strbuf_appendf(&ctx->lifted_funcs,
+                iron_strbuf_appendf(&ctx->struct_bodies,
                     "    free(env_void);\n"
                     "}\n\n");
             }
@@ -6297,9 +6337,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_indent(sb, ind);
                 iron_strbuf_appendf(sb, "_env_%u->%s = ", instr->id, cap_meta[ci].name);
                 if (cap_meta[ci].is_mutable) {
-                    /* var capture: store address of the outer alloca variable */
-                    iron_strbuf_appendf(sb, "&");
-                    emit_val(sb, instr->make_closure.captures[ci]);
+                    /* var capture: store the address of the outer variable's
+                     * storage (an alloca, the mutating receiver's self
+                     * pointer, a parameter, or an enclosing lambda's
+                     * capture). */
+                    emit_receiver_addr(sb, fn, ctx, instr->make_closure.captures[ci],
+                                       ctx->current_block_id);
                 } else {
                     /* val capture: store loaded value */
                     emit_val(sb, instr->make_closure.captures[ci]);

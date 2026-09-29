@@ -2134,10 +2134,11 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             if (hir_params) hir_params[p].var_id = pid;
             declare_var(ctx, ap->name, pid);
         }
+        /* The body is lowered once, when the lambda is lifted (LIFT_LAMBDA).
+         * Lowering it here as well lifted every lambda nested inside it
+         * twice; the copy made here captured variable ids of this
+         * throwaway scope, and its env type was never emitted. */
         IronHIR_Block *lambda_body = iron_hir_block_create(mod);
-        {
-            lower_block_hir(ctx, (Iron_Block *)le->body, lambda_body);
-        }
         pop_scope(ctx);
 
         /* Assign lifted name now so the closure expr can store it */
@@ -2949,9 +2950,12 @@ static void lower_func_bodies_hir(IronHIR_LowerCtx *ctx) {
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
-    int n = (int)arrlen(ctx->pending_lifts);
-    for (int i = 0; i < n; i++) {
-        LiftPending *lp = &ctx->pending_lifts[i];
+    /* Lifting a lambda lowers its body, which queues the lambdas nested in
+     * it: iterate to the live length (they used to be dropped) and work on
+     * a copy, since queueing can reallocate the array. */
+    for (int i = 0; i < (int)arrlen(ctx->pending_lifts); i++) {
+        LiftPending lp_copy = ctx->pending_lifts[i];
+        LiftPending *lp = &lp_copy;
         IronHIR_Module *mod = ctx->module;
 
         switch (lp->kind) {

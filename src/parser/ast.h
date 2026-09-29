@@ -17,6 +17,10 @@ typedef struct {
     const char      *name;        /* original Iron variable name */
     struct Iron_Type *type;       /* resolved type from symbol table */
     bool             is_mutable;  /* true = var capture (by pointer), false = val (by value) */
+    /* Set by hir_to_lir: the captured binding holds a `heap` value, so the
+     * env stores its Iron_FatPtr handle (or a pointer to it for a var
+     * capture) and reads go through the handle. */
+    bool             is_heap_handle;
 } Iron_CaptureEntry;
 
 /* ── Node kinds ──────────────────────────────────────────────────────────── */

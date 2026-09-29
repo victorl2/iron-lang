@@ -193,12 +193,31 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
             arrput(*captures, cap);
             break;
         }
-        /* Do NOT recurse into nested IRON_NODE_LAMBDA — the inner lambda
-         * will be processed separately by walk_node_for_lambdas. Its own
-         * captures from the outer scope will include variables the inner
-         * lambda closes over via the outer one. */
-        case IRON_NODE_LAMBDA:
+        /* Do NOT recurse into a nested IRON_NODE_LAMBDA: it was analyzed
+         * first (walk_node_for_lambdas goes inner-out). But every variable it
+         * captures from outside this lambda must be captured here too, or
+         * the inner closure has nothing to take it from (its env field was
+         * filled from an undeclared value). */
+        case IRON_NODE_LAMBDA: {
+            Iron_LambdaExpr *inner = (Iron_LambdaExpr *)node;
+            for (int i = 0; i < inner->capture_count; i++) {
+                Iron_CaptureEntry *ic = &inner->captures[i];
+                if (!ic->name || shgeti(*locals, ic->name) >= 0) continue;
+                if (shgeti(*seen, ic->name) >= 0) {
+                    for (ptrdiff_t k = 0; k < arrlen(*captures); k++)
+                        if (strcmp((*captures)[k].name, ic->name) == 0 && ic->is_mutable)
+                            (*captures)[k].is_mutable = true;
+                    continue;
+                }
+                shput(*seen, ic->name, 1);
+                TmpCapture cap;
+                cap.name       = ic->name;
+                cap.type       = ic->type;
+                cap.is_mutable = ic->is_mutable;
+                arrput(*captures, cap);
+            }
             break;
+        }
 
         /* Recurse into all other node types that can contain expressions */
         case IRON_NODE_BLOCK: {
