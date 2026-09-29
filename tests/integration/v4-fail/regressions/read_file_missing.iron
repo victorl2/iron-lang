@@ -1,0 +1,8 @@
+-- @expect-panic: read_file: cannot open
+-- The builtin read_file(path) at run time (it used to have no C
+-- implementation). An unreadable file panics, as it is a build error at
+-- compile time.
+func main() {
+    val s = read_file("/nonexistent/iron-read-file-test.txt")
+    println("{len(s)}")
+}

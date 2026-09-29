@@ -1,0 +1,11 @@
+-- @expected-error: E0201
+-- Handle (like Closure, Pool, String, ...) names a type the runtime
+-- defines; a user type with that name emitted a second C struct.
+object Handle {
+    val fd: Int
+}
+
+func main() {
+    val h = Handle(3)
+    println("{h.fd}")
+}

@@ -618,6 +618,47 @@ static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
                    msg_copy, sug_copy);
 }
 
+static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t);
+static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *init_t,
+                                     const Iron_Node *init_node);
+
+/* `[T; <=N]` initialized with a list literal: the literal becomes the
+ * bounded vector (it used to stay a dynamic list, so `= []` emitted a list
+ * assigned to a bounded-vector struct and `= [1, 2]` was a type error).
+ * Elements must match T and there may be at most N of them. Returns the
+ * type the initializer now has. */
+static Iron_Type *type_bounded_vector_literal(TypeCtx *ctx, Iron_Type *decl_type,
+                                             Iron_Type *init_type, Iron_Node *init) {
+    if (!decl_type || !init_type || !init || init->kind != IRON_NODE_ARRAY_LIT)
+        return init_type;
+    if (decl_type->kind != IRON_TYPE_ARRAY || !decl_type->array.is_bounded)
+        return init_type;
+    if (init_type->kind != IRON_TYPE_ARRAY) return init_type;
+    Iron_ArrayLit *al = (Iron_ArrayLit *)init;
+    Iron_Type *elem = decl_type->array.elem;
+    for (int i = 0; i < al->element_count; i++) {
+        Iron_Node *e = al->elements[i];
+        Iron_Type *et = e ? ((Iron_ExprNode *)e)->resolved_type : NULL;
+        if (!et || !elem || et->kind == IRON_TYPE_ERROR) continue;
+        if (is_int_literal_narrowing(elem, et, e)) {
+            ((Iron_ExprNode *)e)->resolved_type = elem;
+        } else if (!types_assignable(elem, et)) {
+            return init_type;   /* reported as a mismatch by the caller */
+        }
+    }
+    if (al->element_count > decl_type->array.size) {
+        char msg[256];
+        snprintf(msg, sizeof(msg),
+                 "%d elements do not fit in a bounded vector of at most %d",
+                 al->element_count, decl_type->array.size);
+        emit_error(ctx, IRON_ERR_VEC_STRICT_LENGTH_MISMATCH, init->span, msg,
+                   "remove elements or raise the bound");
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    al->resolved_type = decl_type;
+    return decl_type;
+}
+
 /* Visibility: a member (field, method, init) without `pub` is private to
  * the file that declares it.  Reports E0320 and returns true when the use
  * site is in another user file.  Stdlib declarations are exempt, and
@@ -3759,6 +3800,24 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 break;
             }
 
+            /* String.from_byte(b) is a static constructor. Called on a
+             * String value it passed the receiver as an extra C argument. */
+            if (mc->method && strcmp(mc->method, "from_byte") == 0 && mc->object &&
+                !(mc->object->kind == IRON_NODE_IDENT &&
+                  ((Iron_Ident *)mc->object)->name &&
+                  strcmp(((Iron_Ident *)mc->object)->name, "String") == 0)) {
+                Iron_Type *recv_t = check_expr(ctx, mc->object);
+                if (recv_t && recv_t->kind == IRON_TYPE_STRING) {
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span,
+                               "from_byte is not a String instance method",
+                               "call it on the type: String.from_byte(b)");
+                    for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
+            }
+
             /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset + Ptr.diff compiler
              * builtins.  The Iron parser applies the Method-Call heuristic:
              * when the left-hand ident starts with an uppercase letter and the
@@ -6294,6 +6353,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                "for explicit unchecked pointer construction");
                 }
 
+                init_type = type_bounded_vector_literal(ctx, decl_type, init_type, vd->init);
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
@@ -6478,6 +6538,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                "for explicit unchecked pointer construction");
                 }
 
+                init_type = type_bounded_vector_literal(ctx, decl_type, init_type, vd->init);
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&

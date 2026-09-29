@@ -1,0 +1,7 @@
+-- @expected-error: E0220
+-- String.from_byte(b) is static; calling it on a String value passed the
+-- receiver as an extra C argument.
+func main() {
+    val s = "".from_byte(66)
+    println("{s}")
+}

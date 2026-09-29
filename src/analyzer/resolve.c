@@ -213,6 +213,33 @@ static void emit_cross_module_private(ResolveCtx *ctx,
 
 /* ── Pass 1a: Collect top-level declarations ─────────────────────────────── */
 
+/* Type names the core runtime header (always included in generated C)
+ * already defines as Iron_<Name>. A user type with one of these names
+ * emitted a second `struct Iron_<Name>` and failed in clang. */
+static const char *const k_runtime_type_names[] = {
+    "Channel", "Closure", "CondVar", "Deadline", "Error", "FatPtr", "Handle",
+    "Lock", "Mutex", "Pool", "PoolWait", "RcHeader", "String", NULL
+};
+
+static void check_runtime_type_name(ResolveCtx *ctx, const char *name,
+                                    Iron_Span span) {
+    if (!name) return;
+    /* Only user declarations: the stdlib wrappers declare some of these
+     * (Channel, Mutex) as the Iron face of the runtime type. */
+    if (iron_stdlib_origin_classify(span.filename) != 0) return;
+    for (int i = 0; k_runtime_type_names[i]; i++) {
+        if (strcmp(name, k_runtime_type_names[i]) != 0) continue;
+        char msg[256];
+        snprintf(msg, sizeof(msg), "type name '%s' is reserved by the runtime", name);
+        const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_DUPLICATE_DECL, span,
+                       msg_copy ? msg_copy : "type name is reserved by the runtime",
+                       "choose another name for this type");
+        return;
+    }
+}
+
 static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
     switch ((int)(node->kind)) {
         case IRON_NODE_OBJECT_DECL: {
@@ -224,6 +251,7 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
              * registry (iron_type_patch_registry_build) keys on
              * target_type_name, so no global symbol is needed here. */
             if (od->is_patch) break;
+            check_runtime_type_name(ctx, od->name, od->span);
             /* Create an object type and attach to symbol */
             Iron_Type *ty = iron_type_make_object(ctx->arena, od);
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, od->name,
@@ -243,6 +271,7 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_INTERFACE_DECL: {
             Iron_InterfaceDecl *id = (Iron_InterfaceDecl *)node;
+            check_runtime_type_name(ctx, id->name, id->span);
             Iron_Type *ty = iron_type_make_interface(ctx->arena, id);
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, id->name,
                                                    IRON_SYM_INTERFACE,
@@ -264,6 +293,7 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_ENUM_DECL: {
             Iron_EnumDecl *ed = (Iron_EnumDecl *)node;
+            check_runtime_type_name(ctx, ed->name, ed->span);
             Iron_Type *ty = iron_type_make_enum(ctx->arena, ed);
             Iron_Symbol *enum_sym = iron_symbol_create(ctx->arena, ed->name,
                                                        IRON_SYM_ENUM,

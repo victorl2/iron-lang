@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 /* ── print / println ─────────────────────────────────────────────────────── */
 
@@ -53,6 +54,47 @@ void Iron_assert(bool cond, Iron_String msg) {
         fflush(stderr);
         abort();
     }
+}
+
+/* ── read_file ──────────────────────────────────────────────────────────── */
+
+/* The builtin read_file(path) outside comptime: the whole file as a String.
+ * At compile time an unreadable file is a build error; at run time it is a
+ * panic (IO.read_file returns a Result-style value for recoverable reads). */
+Iron_String Iron_read_file(Iron_String path) {
+    const char *p = iron_string_cstr(&path);
+    FILE *f = fopen(p, "rb");
+    if (!f) {
+        fflush(stdout);
+        fprintf(stderr, "panic: read_file: cannot open '%s'\n", p);
+        fflush(stderr);
+        abort();
+    }
+    size_t cap = 4096, len = 0;
+    char *buf = (char *)malloc(cap);
+    if (!buf) iron_oom_abort("read_file");
+    size_t n;
+    while ((n = fread(buf + len, 1, cap - len, f)) > 0) {
+        len += n;
+        if (len == cap) {
+            cap *= 2;
+            char *nb = (char *)realloc(buf, cap);
+            if (!nb) { free(buf); iron_oom_abort("read_file"); }
+            buf = nb;
+        }
+    }
+    bool failed = ferror(f) != 0;
+    fclose(f);
+    if (failed) {
+        free(buf);
+        fflush(stdout);
+        fprintf(stderr, "panic: read_file: error reading '%s'\n", p);
+        fflush(stderr);
+        abort();
+    }
+    Iron_String s = iron_string_from_cstr(buf, len);
+    free(buf);
+    return s;
 }
 
 /* ── range ──────────────────────────────────────────────────────────────── */

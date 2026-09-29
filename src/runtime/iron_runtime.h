@@ -925,6 +925,7 @@ int64_t Iron_max(int64_t a, int64_t b);
 int64_t Iron_clamp(int64_t val, int64_t lo, int64_t hi);
 int64_t Iron_abs(int64_t val);
 void    Iron_assert(bool cond, Iron_String msg);
+Iron_String Iron_read_file(Iron_String path);
 
 /* ── Phase 78 FMT — Int/Int32/Float → String conversion ─────────────────
  * Defined in src/runtime/iron_fmt.c. Consumed by the Iron-side stubs in

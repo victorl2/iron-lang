@@ -5637,6 +5637,36 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * method dispatch while eliminating split collection overhead (no per-type
          * sub-arrays, no _order array, no tag dispatch in for-loop iteration). */
 
+        /* A literal typed as a bounded vector [T; <=N] builds the vector
+         * value directly: { .len = count, .data = { e0, e1, ... } }. */
+        if (instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
+            instr->type->array.is_bounded) {
+            const char *bvec_c = emit_type_to_c(instr->type, ctx);
+            bool bv_hoisted = ctx->phi_hoisted &&
+                              hmgeti(ctx->phi_hoisted, instr->id) >= 0;
+            emit_indent(sb, ind);
+            if (bv_hoisted) {
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = (%s){ .len = %d", bvec_c,
+                                    instr->array_lit.element_count);
+            } else {
+                iron_strbuf_appendf(sb, "%s ", bvec_c);
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = { .len = %d", instr->array_lit.element_count);
+            }
+            if (instr->array_lit.element_count > 0) {
+                iron_strbuf_appendf(sb, ", .data = { ");
+                for (int i = 0; i < instr->array_lit.element_count; i++) {
+                    if (i > 0) iron_strbuf_appendf(sb, ", ");
+                    emit_expr_to_buf(sb, instr->array_lit.elements[i], fn, ctx,
+                                     ctx->current_block_id, 0);
+                }
+                iron_strbuf_appendf(sb, " }");
+            }
+            iron_strbuf_appendf(sb, " };\n");
+            break;
+        }
+
         /* Phase 41: Interface arrays use split collection instead of stack/heap array */
         if (is_iface_array && ctx->iface_reg) {
             /* Emit as Iron_SplitList_<Iface> with per-type push calls.
@@ -7565,7 +7595,11 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
             IronLIR_Block *block = fn->blocks[bi];
             for (int ii = 0; ii < block->instr_count; ii++) {
                 IronLIR_Instr *instr = block->instrs[ii];
-                if (instr->kind == IRON_LIR_ARRAY_LIT && !instr->array_lit.use_stack_repr) {
+                if (instr->kind == IRON_LIR_ARRAY_LIT && !instr->array_lit.use_stack_repr &&
+                    !(instr->type && instr->type->kind == IRON_TYPE_ARRAY &&
+                      instr->type->array.is_bounded)) {
+                    /* (a bounded-vector literal is an inline value, not a
+                     * heap list to free) */
                     hmput(ha_pre, instr->id, instr->id);
                 }
                 /* __builtin_fill calls produce heap lists ONLY if not stack-eligible */
