@@ -51,6 +51,61 @@ static bool type_has_drop_block(Iron_Type *t, Iron_Program *program) {
     return false;
 }
 
+/* True when object type `t` has a user `copy { }` block. */
+static bool type_has_copy_block(Iron_Type *t, Iron_Program *program) {
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || !program) return false;
+    const char *type_name = t->object.decl->name;
+    if (!type_name) return false;
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+        if (m->type_name && strcmp(m->type_name, type_name) == 0 && m->is_copy)
+            return true;
+    }
+    return false;
+}
+
+static bool type_is_rc_like(Iron_Type *t);
+
+/* The type a field is stored as (resolved by the type checker). */
+static Iron_Type *field_stored_type(Iron_Field *f) {
+    if (!f) return NULL;
+    return f->resolved_type ? f->resolved_type : f->field_type_cached;
+}
+
+/* Does destroying a value of type `t` have work to do: a user drop block,
+ * an rc / weak rc field to release, or a by-value object field that itself
+ * needs drop? `want_copy` asks the copy-side question instead: does a
+ * fresh copy need fixing up (a user copy block, rc fields to retain, or a
+ * by-value object field needing the same)? */
+static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
+                               bool want_copy, int depth) {
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || depth > 16)
+        return false;
+    if (want_copy ? type_has_copy_block(t, program)
+                  : type_has_drop_block(t, program))
+        return true;
+    Iron_ObjectDecl *od = t->object.decl;
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Type *ft = field_stored_type((Iron_Field *)od->fields[i]);
+        if (!ft) continue;
+        if (type_is_rc_like(ft)) return true;
+        if (ft->kind == IRON_TYPE_OBJECT &&
+            type_lifecycle_rec(ft, program, want_copy, depth + 1))
+            return true;
+    }
+    return false;
+}
+
+static bool type_needs_drop(Iron_Type *t, Iron_Program *program) {
+    return type_lifecycle_rec(t, program, false, 0);
+}
+
+static bool type_needs_copy_fixup(Iron_Type *t, Iron_Program *program) {
+    return type_lifecycle_rec(t, program, true, 0);
+}
+
 /* ── Phase 37 rc-balance helpers ─────────────────────────────────────────── */
 
 /* True for `rc T?` — IRON_TYPE_NULLABLE wrapping IRON_TYPE_RC. Produced by
@@ -117,6 +172,14 @@ typedef struct IronLIR_DropEntry_s {
     const char     *env_drop_name;
 } IronLIR_DropEntry;
 
+/* An owned temporary passed as a call argument, released / dropped after
+ * the call (value is the rc value, or the slot holding the object). */
+typedef struct {
+    IronLIR_ValueId value;
+    Iron_Type      *type;
+    bool            is_slot;
+} TempOwned;
+
 /* ── Lowering context ────────────────────────────────────────────────────── */
 typedef struct {
     IronHIR_Module  *hir;
@@ -164,6 +227,11 @@ typedef struct {
      * a drop block; emit_defer_cleanup emits drop calls AFTER defer-free
      * bodies at the same depth (DROP-DEFER-04 ordering). */
     IronLIR_DropEntry **drop_stacks; /* stb_ds array of stb_ds arrays of IronLIR_DropEntry */
+    /* `return x` of a local droppable binding moves it: the scope-exit drop
+     * pump skips this slot while the return's cleanup runs. */
+    IronLIR_ValueId moved_slot;
+    /* Lowering an object's init (fields start uninitialized). */
+    bool            cur_is_init;
 
     /* Cleanup blocks for defer */
     IronLIR_Block  **cleanup_blocks; /* stb_ds array, one per scope depth */
@@ -372,6 +440,117 @@ static void emit_rc_release_for_type(HIR_to_LIR_Ctx *ctx, Iron_Type *t,
     }
 }
 
+/* Call the emitter-synthesized lifecycle glue `name` ("$drop" / "$copy")
+ * on the object stored at `slot` (an ALLOCA or a storage path; the callee
+ * receives its address). */
+static void emit_lifecycle_glue_call(HIR_to_LIR_Ctx *ctx, const char *name,
+                                     IronLIR_ValueId slot, Iron_Span span) {
+    if (!ctx->current_block || block_is_terminated(ctx->current_block)) return;
+    IronLIR_Instr *fref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
+                                            name, NULL, span);
+    if (!fref) return;
+    IronLIR_ValueId args[1] = { slot };
+    IronLIR_Instr *call = iron_lir_call(ctx->current_func, ctx->current_block,
+                                        NULL, fref->id, args, 1, NULL, span);
+    if (call) call->call.self_by_addr = true;
+}
+
+static void emit_drop_glue_call(HIR_to_LIR_Ctx *ctx, IronLIR_ValueId slot,
+                                Iron_Span span) {
+    emit_lifecycle_glue_call(ctx, "$drop", slot, span);
+}
+
+/* An expression naming existing storage: copying out of it duplicates what
+ * the storage owns, so the new owner needs a copy fixup. Constructors,
+ * calls and other value-producing expressions hand over fresh values. */
+static bool hir_expr_is_place(IronHIR_Expr *e) {
+    return e && (e->kind == IRON_HIR_EXPR_IDENT ||
+                 e->kind == IRON_HIR_EXPR_FIELD_ACCESS ||
+                 e->kind == IRON_HIR_EXPR_INDEX);
+}
+
+/* Fix up the copy stored at `slot` when it was copied out of a place. */
+static void emit_copy_fixup_at(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src,
+                               Iron_Type *t, IronLIR_ValueId slot,
+                               Iron_Span span) {
+    if (hir_expr_is_place(src) && type_needs_copy_fixup(t, ctx->program))
+        emit_lifecycle_glue_call(ctx, "$copy", slot, span);
+}
+
+/* A value about to be owned by a new holder (field, element, return
+ * value) that has no slot of its own yet: when it was copied out of a
+ * place, spill it, fix the copy up, and hand back the fixed-up value. */
+static IronLIR_ValueId copy_for_new_owner(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src,
+                                          IronLIR_ValueId v, Iron_Type *t,
+                                          Iron_Span span) {
+    if (!hir_expr_is_place(src) || !type_needs_copy_fixup(t, ctx->program))
+        return v;
+    if (!ctx->current_block || block_is_terminated(ctx->current_block)) return v;
+    IronLIR_ValueId tmp = emit_alloca_in_entry(ctx, t, "__copy", span);
+    iron_lir_store(ctx->current_func, ctx->current_block, tmp, v, span);
+    emit_lifecycle_glue_call(ctx, "$copy", tmp, span);
+    return iron_lir_load(ctx->current_func, ctx->current_block, tmp, t, span)->id;
+}
+
+/* Lower the field values of an object construction. The object owns its
+ * fields: an rc field takes its own reference unless the argument hands one
+ * over, and an object copied out of a place is fixed up for its new owner.
+ * Returns an stb_ds array the caller frees. */
+static IronLIR_ValueId *lower_construct_fields(HIR_to_LIR_Ctx *ctx,
+                                               Iron_Type *obj_type,
+                                               IronHIR_Expr **vals, int count,
+                                               Iron_Span span) {
+    IronLIR_ValueId *field_vals = NULL;
+    Iron_ObjectDecl *cod = (obj_type && obj_type->kind == IRON_TYPE_OBJECT)
+                           ? obj_type->object.decl : NULL;
+    for (int i = 0; i < count; i++) {
+        IronHIR_Expr *fe = vals[i];
+        IronLIR_ValueId fv = lower_expr(ctx, fe);
+        Iron_Type *ft = (cod && i < cod->field_count)
+                        ? field_stored_type((Iron_Field *)cod->fields[i]) : NULL;
+        if (ft && type_is_rc_like(ft)) {
+            if (!rc_expr_transfers_ownership(fe))
+                emit_rc_retain_for_type(ctx, ft, fv, span);
+        } else if (ft) {
+            fv = copy_for_new_owner(ctx, fe, fv, ft, span);
+        }
+        arrput(field_vals, fv);
+    }
+    return field_vals;
+}
+
+/* Arguments are borrowed for a call. An owned temporary argument (a fresh
+ * rc value, a constructed or returned object) has no other owner, so the
+ * caller releases / drops it once the call returns. */
+static void note_owned_temp(HIR_to_LIR_Ctx *ctx, TempOwned **temps,
+                            IronHIR_Expr *ae, IronLIR_ValueId av, Iron_Span span) {
+    Iron_Type *at = ae ? ae->type : NULL;
+    if (!at || !ctx->current_block || block_is_terminated(ctx->current_block))
+        return;
+    if (type_is_rc_like(at)) {
+        if (rc_expr_transfers_ownership(ae)) {
+            TempOwned to = { av, at, false };
+            arrput(*temps, to);
+        }
+    } else if (!hir_expr_is_place(ae) && type_needs_drop(at, ctx->program)) {
+        IronLIR_ValueId ts = emit_alloca_in_entry(ctx, at, "__arg_tmp", span);
+        iron_lir_store(ctx->current_func, ctx->current_block, ts, av, span);
+        TempOwned to = { ts, at, true };
+        arrput(*temps, to);
+    }
+}
+
+static void release_owned_temps(HIR_to_LIR_Ctx *ctx, TempOwned **temps,
+                                Iron_Span span) {
+    for (int ti = 0; ti < (int)arrlen(*temps); ti++) {
+        if ((*temps)[ti].is_slot)
+            emit_drop_glue_call(ctx, (*temps)[ti].value, span);
+        else
+            emit_rc_release_for_type(ctx, (*temps)[ti].type, (*temps)[ti].value, span);
+    }
+    arrfree(*temps);
+}
+
 /* Phase 24 DROP-01 (Plan 24-02): emit drop calls for the drop_stacks entries
  * from scope depth d, in LIFO order (most-recently-bound dropped first).
  *
@@ -517,44 +696,11 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
             }
         }
 
-        /* Find the drop method's LIR mangled name */
-        const char *type_name = od->name;
-        if (!type_name) continue;
-        size_t tlen = strlen(type_name);
-        if (tlen + 6 >= 256) continue;
-        char lir_drop_name[256];
-        memcpy(lir_drop_name, type_name, tlen);
-        lir_drop_name[tlen]   = '_';
-        lir_drop_name[tlen+1] = 'd';
-        lir_drop_name[tlen+2] = 'r';
-        lir_drop_name[tlen+3] = 'o';
-        lir_drop_name[tlen+4] = 'p';
-        lir_drop_name[tlen+5] = '\0';
-        /* Lowercase chars before first '_' (mirror hir_lower.c mangling) */
-        for (int ci = 0; lir_drop_name[ci] && lir_drop_name[ci] != '_'; ci++) {
-            if (lir_drop_name[ci] >= 'A' && lir_drop_name[ci] <= 'Z')
-                lir_drop_name[ci] = (char)(lir_drop_name[ci] + ('a' - 'A'));
-        }
-        /* Arena-copy the name so it outlives the stack buffer */
-        const char *drop_name_arena = iron_arena_strdup(ctx->lir_arena,
-                                                         lir_drop_name,
-                                                         strlen(lir_drop_name));
-        if (!drop_name_arena) continue;
-
-        /* Emit: call <type>_drop(&alloca) — alloca_id is always an alloca/slot
-         * pointer in the LIR. Set self_by_addr=true so emit_c.c emits "&arg"
-         * for the first argument (the compiled drop method takes T *self). */
+        /* User objects: the emitter's `$drop` glue runs the user drop body,
+         * then drops / releases the fields in reverse declaration order. */
         if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
-
-        /* func_ref for the drop method */
-        IronLIR_Instr *fref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
-                                                  drop_name_arena, NULL, span);
-        if (!fref) continue;
-        /* Pass alloca_id as the self argument; self_by_addr makes emit_c emit &arg */
-        IronLIR_ValueId args[1] = { entry->alloca_id };
-        IronLIR_Instr *call = iron_lir_call(ctx->current_func, ctx->current_block,
-                                             NULL, fref->id, args, 1, NULL, span);
-        if (call) call->call.self_by_addr = true;
+        if (entry->alloca_id == ctx->moved_slot) continue;
+        emit_drop_glue_call(ctx, entry->alloca_id, span);
     }
 }
 
@@ -1646,11 +1792,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * type — for that case, callee->type is IRON_TYPE_FUNC. */
         if (expr->call.callee && expr->call.callee->kind == IRON_HIR_EXPR_FUNC_REF &&
             expr->call.callee->type && expr->call.callee->type->kind == IRON_TYPE_OBJECT) {
-            IronLIR_ValueId *field_vals = NULL;
-            for (int i = 0; i < expr->call.arg_count; i++) {
-                IronLIR_ValueId fv = lower_expr(ctx, expr->call.args[i]);
-                arrput(field_vals, fv);
-            }
+            IronLIR_ValueId *field_vals = lower_construct_fields(ctx, type,
+                expr->call.args, expr->call.arg_count, span);
             IronLIR_Instr *instr = iron_lir_construct(ctx->current_func, ctx->current_block,
                                                         type,
                                                         field_vals, expr->call.arg_count,
@@ -1688,6 +1831,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
 
         /* Lower callee expression to get callee info */
         IronLIR_ValueId *args = NULL;
+        TempOwned *temps = NULL;
         for (int i = 0; i < expr->call.arg_count; i++) {
             /* PARM-02: arg bound to a `var` param — pass the binding's
              * alloca; emit_c renders it "&_vN". E0267 already guarantees
@@ -1731,6 +1875,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
              * call forms consistent. Sound single-threaded because the
              * caller's reference outlives the call; a callee that stores
              * the argument into a binding retains via the LET alias path. */
+            note_owned_temp(ctx, &temps, expr->call.args[i], av, span);
             arrput(args, av);
         }
         /* For direct calls: callee is an IDENT or FUNC_REF → look up func_decl */
@@ -1765,6 +1910,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         /* PARM-02: record which args pass their binding's address. */
         if (call && any_by_addr) call->call.args_by_addr = by_addr_flags;
         arrfree(args);
+        release_owned_temps(ctx, &temps, span);
         return call->id;
     }
 
@@ -2332,6 +2478,24 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                 elem_suffix = s;
                             }
                             break;
+                        case IRON_TYPE_RC:
+                        case IRON_TYPE_WEAK_RC: {
+                            /* Matches emit_ensure_rc_list's list name. */
+                            const Iron_Type *in = elem->kind == IRON_TYPE_RC
+                                ? elem->rc.inner : elem->weak_rc.inner;
+                            const char *iname =
+                                (in && in->kind == IRON_TYPE_OBJECT && in->object.decl)
+                                    ? in->object.decl->name : NULL;
+                            if (iname) {
+                                size_t slen = 16 + strlen(iname);
+                                char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                                if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix rc");
+                                snprintf(s, slen, "%s_Iron_%s",
+                                         elem->kind == IRON_TYPE_RC ? "rc" : "weakrc", iname);
+                                elem_suffix = s;
+                            }
+                            break;
+                        }
                         case IRON_TYPE_ENUM:
                             /* Phase 59 P04: DNS returns [Address] where
                              * Address is an Iron ADT enum. The list
@@ -2366,8 +2530,29 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                     IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
                     arrput(coll_args, self_val);
                 }
+                /* push / insert store their element argument: the list owns
+                 * it from then on (an rc element takes its own reference
+                 * unless the argument hands one over; a copy out of a place
+                 * is fixed up; a temporary moves in). Other arguments are
+                 * borrowed, and owned temporaries among them are released
+                 * after the call. */
+                bool stores_elem = !obj_type->array.is_bounded &&
+                    (strcmp(coll_method, "push") == 0 ||
+                     strcmp(coll_method, "insert") == 0);
+                TempOwned *coll_temps = NULL;
                 for (int i = 0; i < expr->method_call.arg_count; i++) {
-                    IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+                    IronHIR_Expr *ae = expr->method_call.args[i];
+                    IronLIR_ValueId av = lower_expr(ctx, ae);
+                    bool is_elem = stores_elem && ae && ae->type &&
+                                   i == expr->method_call.arg_count - 1;
+                    if (is_elem && type_is_rc_like(ae->type)) {
+                        if (!rc_expr_transfers_ownership(ae))
+                            emit_rc_retain_for_type(ctx, ae->type, av, span);
+                    } else if (is_elem) {
+                        av = copy_for_new_owner(ctx, ae, av, ae->type, span);
+                    } else {
+                        note_owned_temp(ctx, &coll_temps, ae, av, span);
+                    }
                     arrput(coll_args, av);
                 }
                 int coll_argc = (int)arrlen(coll_args);
@@ -2384,6 +2569,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                  * to both instance-style calls (xs.len()) and static-style
                  * (List.len(xs)) — the C signature is the same either way. */
                 coll_call->call.self_by_addr = true;
+                release_owned_temps(ctx, &coll_temps, span);
                 arrfree(coll_args);
                 return coll_call->id;
             } else if (obj_type->kind == IRON_TYPE_ENUM && obj_type->enu.decl) {
@@ -2630,8 +2816,14 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                                        self_alloca, synth_self_type, span);
             arrput(args, self_load->id);
         }
+        TempOwned *temps = NULL;
+        /* Arguments are borrowed; owned temporaries are released after the
+         * call. (List push / insert take ownership on the collection path
+         * above.) */
         for (int i = (ufcs_static ? 1 : 0); i < expr->method_call.arg_count; i++) {
-            IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+            IronHIR_Expr *ae = expr->method_call.args[i];
+            IronLIR_ValueId av = lower_expr(ctx, ae);
+            note_owned_temp(ctx, &temps, ae, av, span);
             arrput(args, av);
         }
         int arg_count = (int)arrlen(args);
@@ -2661,6 +2853,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             call->call.self_by_addr = true;
         }
         arrfree(args);
+        release_owned_temps(ctx, &temps, span);
         return call->id;
     }
 
@@ -2940,11 +3133,9 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
 
     case IRON_HIR_EXPR_CONSTRUCT: {
         /* Lower field values, build field_vals array in declaration order */
-        IronLIR_ValueId *field_vals = NULL;
-        for (int i = 0; i < expr->construct.field_count; i++) {
-            IronLIR_ValueId fv = lower_expr(ctx, expr->construct.field_values[i]);
-            arrput(field_vals, fv);
-        }
+        IronLIR_ValueId *field_vals = lower_construct_fields(ctx,
+            expr->construct.type, expr->construct.field_values,
+            expr->construct.field_count, span);
         IronLIR_Instr *instr = iron_lir_construct(ctx->current_func, ctx->current_block,
                                                     expr->construct.type,
                                                     field_vals, expr->construct.field_count,
@@ -2955,14 +3146,25 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
 
     case IRON_HIR_EXPR_ARRAY_LIT: {
         IronLIR_ValueId *elements = NULL;
+        Iron_Type *lit_et = expr->array_lit.elem_type;
         for (int i = 0; i < expr->array_lit.element_count; i++) {
-            IronLIR_ValueId ev = lower_expr(ctx, expr->array_lit.elements[i]);
+            IronHIR_Expr *ee = expr->array_lit.elements[i];
+            IronLIR_ValueId ev = lower_expr(ctx, ee);
+            /* The list owns its elements (see push). */
+            if (lit_et && type_is_rc_like(lit_et)) {
+                if (!rc_expr_transfers_ownership(ee))
+                    emit_rc_retain_for_type(ctx, lit_et, ev, span);
+            } else if (lit_et) {
+                ev = copy_for_new_owner(ctx, ee, ev, lit_et, span);
+            }
             arrput(elements, ev);
         }
         IronLIR_Instr *instr = iron_lir_array_lit(ctx->current_func, ctx->current_block,
                                                     expr->array_lit.elem_type,
                                                     elements, expr->array_lit.element_count,
                                                     type, span);
+        instr->array_lit.elems_need_cleanup =
+            type_is_rc_like(lit_et) || type_needs_drop(lit_et, ctx->program);
         arrfree(elements);
         return instr->id;
     }
@@ -3297,6 +3499,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                     iron_lir_store(ctx->current_func, ctx->current_block,
                                    alloca_id, init_val, span);
                 }
+                emit_copy_fixup_at(ctx, stmt->let.init, type, alloca_id, span);
                 /* Phase 37 rc-balance (M4): register the slot for scope-exit
                  * release. type_has_drop_block only covers IRON_TYPE_OBJECT,
                  * so `var r = rc T(...)` / `var w: weak rc T = ...` were
@@ -3312,7 +3515,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             }
             /* Phase 24 DROP-01 (Plan 24-02): push drop entry for mutable binding */
             if (!var_is_capture(ctx, vid) &&
-                type_has_drop_block(type, ctx->program) && ctx->defer_depth > 0 &&
+                type_needs_drop(type, ctx->program) && ctx->defer_depth > 0 &&
                 ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
                 IronLIR_DropEntry de = { alloca_id, type, false, false, NULL };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
@@ -3334,7 +3537,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             }
             /* Phase 24 DROP-01 (Plan 24-02): push drop entry for interface-alloca binding */
             if (!var_is_capture(ctx, vid) &&
-                type_has_drop_block(type, ctx->program) && ctx->defer_depth > 0 &&
+                type_needs_drop(type, ctx->program) && ctx->defer_depth > 0 &&
                 ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
                 IronLIR_DropEntry de = { alloca_id, type, false, false, NULL };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
@@ -3362,7 +3565,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                  stmt->let.init->kind == IRON_HIR_EXPR_ARENA_ALLOC);
             bool needs_drop_alloca = stmt->let.init &&
                                      !init_is_heap_or_rc &&
-                                     type_has_drop_block(type, ctx->program) &&
+                                     type_needs_drop(type, ctx->program) &&
                                      ctx->defer_depth > 0 &&
                                      ctx->drop_stacks &&
                                      ctx->defer_depth <= (int)arrlen(ctx->drop_stacks);
@@ -3376,12 +3579,16 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                     iron_lir_store(ctx->current_func, ctx->current_block,
                                    alloca_id, init_val, span);
                 }
+                emit_copy_fixup_at(ctx, stmt->let.init, type, alloca_id, span);
                 /* Push drop entry using alloca_id (is_direct_value=false → &alloca) */
                 IronLIR_DropEntry de = { alloca_id, type, false, false, NULL };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             } else {
                 if (stmt->let.init) {
                     IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
+                    if (!init_is_heap_or_rc)
+                        init_val = copy_for_new_owner(ctx, stmt->let.init,
+                                                      init_val, type, span);
                     hmput(ctx->val_binding_map, vid, init_val);
                     tag_arena_ctor_binding(ctx, init_val, vid);
                     /* Phase 26 POL-06 / Phase 27 POL-08 / Phase 37 rc-balance:
@@ -3479,7 +3686,6 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
          * released after the store — reassignment used to leak the old
          * reference on every store. */
         Iron_Type *rhs_type = stmt->assign.value ? stmt->assign.value->type : NULL;
-        bool rhs_is_rc = rhs_type && rhs_type->kind == IRON_TYPE_RC;
 
         /* Determine target: IDENT -> store to alloca, FIELD_ACCESS -> SET_FIELD, INDEX -> SET_INDEX */
         IronHIR_Expr *target = stmt->assign.target;
@@ -3501,6 +3707,21 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 Iron_Type *tgt_type = target->type ? target->type : rhs_type;
                 bool tgt_rc = type_is_rc_like(tgt_type);
                 IronLIR_ValueId old_val = IRON_LIR_VALUE_INVALID;
+                /* A droppable object slot: fix up a copied value for its new
+                 * owner, then drop the outgoing value before the store (the
+                 * fixup runs first, so `x = x` stays balanced). A module
+                 * global's first write (from __iron_module_init) replaces a
+                 * zeroed static, which is never dropped. */
+                if (!tgt_rc && type_needs_drop(tgt_type, ctx->program)) {
+                    val = copy_for_new_owner(ctx, stmt->assign.value, val,
+                                             tgt_type, span);
+                    bool module_init = ctx->current_func && ctx->current_func->name &&
+                        strcmp(ctx->current_func->name, "__iron_module_init") == 0;
+                    if (!module_init) emit_drop_glue_call(ctx, slot, span);
+                } else if (!tgt_rc) {
+                    val = copy_for_new_owner(ctx, stmt->assign.value, val,
+                                             tgt_type, span);
+                }
                 if (tgt_rc) {
                     if (!rc_expr_transfers_ownership(stmt->assign.value)) {
                         emit_rc_retain_for_type(ctx, tgt_type, val, span);
@@ -3520,9 +3741,26 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
             }
         } else if (target->kind == IRON_HIR_EXPR_FIELD_ACCESS) {
-            if (rhs_is_rc) {
-                iron_lir_rc_retain(ctx->current_func, ctx->current_block,
-                                   val, span);
+            /* The object owns its fields: a new rc value takes its own
+             * reference unless the RHS hands one over; a copied object is
+             * fixed up. The outgoing value is released / dropped, except in
+             * init, where fields start unset. */
+            Iron_Type *fld_t = target->type ? target->type : rhs_type;
+            bool fld_rc = type_is_rc_like(fld_t);
+            bool fld_drop = !fld_rc && type_needs_drop(fld_t, ctx->program);
+            if (fld_rc) {
+                if (!rc_expr_transfers_ownership(stmt->assign.value))
+                    emit_rc_retain_for_type(ctx, fld_t, val, span);
+            } else {
+                val = copy_for_new_owner(ctx, stmt->assign.value, val, fld_t, span);
+            }
+            IronLIR_ValueId fld_old = IRON_LIR_VALUE_INVALID;
+            if (!ctx->cur_is_init && (fld_rc || fld_drop)) {
+                IronLIR_ValueId fobj = lower_expr(ctx, target->field_access.object);
+                IronLIR_Instr *gf = iron_lir_get_field(ctx->current_func,
+                    ctx->current_block, fobj, target->field_access.field, fld_t, span);
+                if (fld_rc) fld_old = gf->id;
+                else        emit_drop_glue_call(ctx, gf->id, span);
             }
             /* PARM-02: when the object is a `var` param, mutate the alloca
              * slot IN PLACE (SET_FIELD on the alloca id). Lowering the
@@ -3552,11 +3790,21 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             }
             iron_lir_set_field(ctx->current_func, ctx->current_block,
                                obj, target->field_access.field, val, span);
+            if (fld_old != IRON_LIR_VALUE_INVALID)
+                emit_rc_release_for_type(ctx, fld_t, fld_old, span);
         } else if (target->kind == IRON_HIR_EXPR_INDEX) {
-            if (rhs_is_rc) {
-                iron_lir_rc_retain(ctx->current_func, ctx->current_block,
-                                   val, span);
+            /* The list owns its elements: take ownership of the new value
+             * (see push), then release / drop the element it replaces. */
+            Iron_Type *el_t = target->type ? target->type : rhs_type;
+            bool el_rc = type_is_rc_like(el_t);
+            bool el_drop = !el_rc && type_needs_drop(el_t, ctx->program);
+            if (el_rc) {
+                if (!rc_expr_transfers_ownership(stmt->assign.value))
+                    emit_rc_retain_for_type(ctx, el_t, val, span);
+            } else {
+                val = copy_for_new_owner(ctx, stmt->assign.value, val, el_t, span);
             }
+            IronLIR_ValueId el_old = IRON_LIR_VALUE_INVALID;
             /* PARM-02: same in-place rule for element writes through a
              * `var` array param. */
             IronLIR_ValueId arr = IRON_LIR_VALUE_INVALID;
@@ -3572,8 +3820,30 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 arr = lower_expr(ctx, target->index.array);
             }
             IronLIR_ValueId idx = lower_expr(ctx, target->index.index);
+            if (el_rc || el_drop) {
+                /* A `var` array param's `arr` is its slot; read through a
+                 * load of it (an identifier, so no repeated side effects). */
+                bool arr_is_slot = target->index.array &&
+                    target->index.array->kind == IRON_HIR_EXPR_IDENT &&
+                    hmgeti(ctx->var_param_ids, target->index.array->ident.var_id) >= 0;
+                IronLIR_ValueId get_arr = arr_is_slot
+                    ? lower_expr(ctx, target->index.array) : arr;
+                IronLIR_Instr *gi = iron_lir_get_index(ctx->current_func,
+                    ctx->current_block, get_arr, idx, el_t, span);
+                if (el_rc) {
+                    el_old = gi->id;
+                } else {
+                    IronLIR_ValueId os = emit_alloca_in_entry(ctx, el_t, "__old_elem", span);
+                    iron_lir_store(ctx->current_func, ctx->current_block, os, gi->id, span);
+                    el_old = os;
+                }
+            }
             iron_lir_set_index(ctx->current_func, ctx->current_block,
                                arr, idx, val, span);
+            if (el_old != IRON_LIR_VALUE_INVALID) {
+                if (el_rc) emit_rc_release_for_type(ctx, el_t, el_old, span);
+                else       emit_drop_glue_call(ctx, el_old, span);
+            }
         }
         break;
     }
@@ -3975,6 +4245,17 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 !rc_expr_transfers_ownership(stmt->return_stmt.value)) {
                 emit_rc_retain_for_type(ctx, ret_type, ret_val, span);
             }
+            /* `return x` of a droppable local moves it to the caller (its
+             * scope-exit drop is skipped below); any other place is copied
+             * for the caller, who will drop the returned value. */
+            IronHIR_Expr *rv = stmt->return_stmt.value;
+            if (rv->kind == IRON_HIR_EXPR_IDENT &&
+                type_needs_drop(ret_type, ctx->program) &&
+                hmgeti(ctx->var_alloca_map, rv->ident.var_id) >= 0) {
+                ctx->moved_slot = hmget(ctx->var_alloca_map, rv->ident.var_id);
+            } else if (!type_is_rc_like(ret_type)) {
+                ret_val = copy_for_new_owner(ctx, rv, ret_val, ret_type, span);
+            }
         }
 
         if (!ctx->current_block || block_is_terminated(ctx->current_block)) {
@@ -3999,6 +4280,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
              * earlier block referencing a value defined in an appended tail
              * would trip emit_c's hoisting path, which not every instruction
              * emitter supports (OBJECT_LIT/tuple compound literals). */
+            ctx->moved_slot = IRON_LIR_VALUE_INVALID;
             emit_var_param_writebacks(ctx, span);
             if (has_value) {
                 iron_lir_return(ctx->current_func, ctx->current_block,
@@ -4028,6 +4310,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
 
         /* Emit deferred cleanups between value computation and the RETURN */
         emit_defer_cleanup(ctx, exit_block, span);
+        ctx->moved_slot = IRON_LIR_VALUE_INVALID;
         /* After emitting cleanup, switch_block to exit_block happens inside */
         switch_block(ctx, exit_block);
 
@@ -4318,6 +4601,7 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     /* Phase 80 MUT-07: propagate mut-receiver flag HIR→LIR so emit_c.c can
      * emit pointer-receiver signature + `->` field access for the body. */
     lir_func->is_mut_receiver_method = hir_func->is_mut_receiver_method;
+    ctx->cur_is_init = hir_func->is_init;
 
     /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr flag
      * HIR -> LIR so emit_c.c can inject `iron_stack_gen += 1;` prologue
@@ -4957,7 +5241,7 @@ static void ssa_construct_func(IronLIR_Func *fn) {
 static bool global_needs_cleanup(HIR_to_LIR_Ctx *ctx, Iron_Type *t) {
     if (!t) return false;
     if (type_is_rc_like(t)) return true;
-    if (type_has_drop_block(t, ctx->program)) return true;
+    if (type_needs_drop(t, ctx->program)) return true;
     if (t->kind == IRON_TYPE_OBJECT && t->object.decl &&
         t->object.decl->name &&
         strcmp(t->object.decl->name, "Box") == 0 && t->object.elem)

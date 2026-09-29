@@ -226,7 +226,9 @@ static void print_type_ann(PrintCtx *ctx, Iron_Node *node) {
             return;
         }
         if (t->is_array) {
-            iron_strbuf_appendf(ctx->sb, "[%s", t->name);
+            iron_strbuf_appendf(ctx->sb, "[");
+            if (t->array_elem_ann) print_type_ann(ctx, t->array_elem_ann);
+            else iron_strbuf_appendf(ctx->sb, "%s", t->name);
             if (t->generic_arg_count > 0) {
                 iron_strbuf_appendf(ctx->sb, "[");
                 for (int i = 0; i < t->generic_arg_count; i++) {

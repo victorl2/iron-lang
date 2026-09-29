@@ -1,40 +1,27 @@
--- section 8.4 weak rc parent/child Node graph verbatim
+-- section 8.4 weak rc parent/child Node graph
 -- @req: POL-08, POL-09
 -- @expected-pass-after: phase-38
--- XFAIL (phase-38): stale-surface doc transcription: rc/weak-rc-in-annotation fields (E0297),
--- explicit-self method signatures (E0101), `weak rc self` form, List[rc T]/List.new not in surface.
+-- XFAIL (#174): an object's drop does not free its list fields, so the
+-- [rc T] children list and every node in it leak.
 -- parent->child is rc (owning); child->parent is weak rc (non-owning); no cycle
 
 object Mat4 {
     val m00: Float
 
-    readonly func mul(self: *Mat4, other: *Mat4) -> Mat4 {
+    readonly func mul(other: Mat4) -> Mat4 {
         return Mat4(self.m00 * other.m00)
     }
 }
 
 object SceneNode {
     var transform: Mat4
-    var children: List[rc SceneNode]
+    var children: [rc SceneNode]
     var parent: weak rc SceneNode
 
     init(transform: Mat4) {
         self.transform = transform
-        self.children = List.new()
+        self.children = []
         self.parent = weak rc null
-    }
-
-    func add_child(self: *var SceneNode, child: rc SceneNode) {
-        child.parent = weak rc self
-        self.children.add(child)
-    }
-
-    readonly func world_transform(self: *SceneNode) -> Mat4 {
-        val parent_strong = self.parent.upgrade()
-        if parent_strong == null {
-            return self.transform
-        }
-        return parent_strong.value.world_transform().mul(&self.transform)
     }
 
     drop {
@@ -42,10 +29,24 @@ object SceneNode {
     }
 }
 
+func add_child(parent: rc SceneNode, child: rc SceneNode) {
+    child.parent = parent.downgrade()
+    parent.children.push(child)
+}
+
+func world_transform(node: rc SceneNode) -> Mat4 {
+    val parent_strong = node.parent.upgrade()
+    if parent_strong != null {
+        return world_transform(parent_strong).mul(node.transform)
+    }
+    return node.transform
+}
+
 func main() {
-    val root = rc SceneNode(Mat4(1.0))
+    val root = rc SceneNode(Mat4(3.0))
     val child = rc SceneNode(Mat4(2.0))
-    root.add_child(child)
+    add_child(root, child)
     println("tree built")
+    println("{world_transform(child).m00}")
     -- root and child freed when main exits; no cycle so both drop
 }

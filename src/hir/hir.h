@@ -582,6 +582,9 @@ struct IronHIR_Func {
      * receiver by pointer so field mutations persist to the caller's binding.
      * Default false (iron_hir_func_create memsets the struct). */
     bool               is_mut_receiver_method;
+    /* True for an object's `init`: its fields start uninitialized, so field
+     * writes there never release / drop a previous value. */
+    bool               is_init;
     /* Phase 20 PTR-10 (Plan 20-02b): mirrors Iron_FuncDecl.takes_local_addr.
      * Propagated by hir_lower from the AST decl; further propagated by
      * hir_to_lir to IronLIR_Func.takes_local_addr so emit_c.c can inject

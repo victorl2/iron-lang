@@ -520,6 +520,9 @@ typedef struct {
     /* `rc T`: is_rc=true wraps rc_inner; lowers to IRON_TYPE_RC(inner). */
     bool          is_rc;
     Iron_Node    *rc_inner;
+    /* `[E]` whose element is not a plain type name (`[rc T]`, `[[Int]]`,
+     * `[*T]`): the element's own annotation. `name` is then NULL. */
+    Iron_Node    *array_elem_ann;
 } Iron_TypeAnnotation;
 
 #define IRON_LAYOUT_HINT_NONE 0

@@ -842,6 +842,12 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
             } else {
                 ann->name = "<error>";
             }
+        } else if (iron_check(p, IRON_TOK_RC) || iron_check(p, IRON_TOK_WEAK) ||
+                   iron_check(p, IRON_TOK_LBRACKET) || iron_check(p, IRON_TOK_STAR) ||
+                   iron_check(p, IRON_TOK_LPAREN)) {
+            /* Element with its own structure: [rc T], [[Int]], [*T], [(A, B)] */
+            ann->array_elem_ann = iron_parse_type_annotation_impl(p);
+            ann->name = NULL;
         } else if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,

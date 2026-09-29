@@ -1,0 +1,44 @@
+-- rc fields own a reference: construction and field writes retain (unless
+-- the value is fresh), the container's destructor releases, a replaced
+-- field value is released, and a fresh rc value passed as an argument is
+-- released after the call.
+
+object Tex {
+    val name: String
+    drop { println("free {self.name}") }
+}
+
+object Holder {
+    var tex: rc Tex
+    init(t: rc Tex) {
+        self.tex = t
+    }
+}
+
+object Pair {
+    val tex: rc Tex
+}
+
+func make() -> Pair {
+    val t = rc Tex("made")
+    return Pair(t)
+}
+
+func name_of(t: rc Tex) -> String {
+    return t.name
+}
+
+func main() {
+    val p = make()
+    println("got {p.tex.name}")
+    println(name_of(rc Tex("temp")))
+    var h = Holder(rc Tex("first"))
+    h.tex = rc Tex("second")
+    val keep = rc Tex("kept")
+    h.tex = keep
+    if true {
+        val inner = Pair(rc Tex("inner"))
+        println("inner {inner.tex.name}")
+    }
+    println("end")
+}

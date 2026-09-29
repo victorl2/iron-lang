@@ -425,6 +425,8 @@ struct IronLIR_Instr {
             IronLIR_ValueId *elements;    /* stb_ds array */
             int             element_count;
             bool            use_stack_repr;  /* emit as C stack array instead of Iron_List_T */
+            bool            elems_need_cleanup; /* rc or droppable elements: a stack
+                                                 * array would never release them */
         } array_lit;
 
         /* IRON_LIR_SLICE */

@@ -357,6 +357,15 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
         return wt ? wt : iron_type_make_primitive(IRON_TYPE_ERROR);
     }
 
+    if (ta->is_array && ta->array_elem_ann) {
+        Iron_Type *elem = resolve_type_ann(ctx, ta->array_elem_ann);
+        if (!elem) return NULL;
+        Iron_Type *arr = iron_type_make_array(ctx->module->arena, elem, -1, ta->bounded);
+        if (arr && ta->is_nullable)
+            arr = iron_type_make_nullable(ctx->module->arena, arr);
+        return arr;
+    }
+
     if (ta->is_rc) {
         Iron_Type *inner_t = ta->rc_inner
             ? resolve_type_ann(ctx, ta->rc_inner)
@@ -2927,6 +2936,7 @@ static void lower_method_body_hir(IronHIR_LowerCtx *ctx, Iron_MethodDecl *md) {
      * a properly-typed C return. The definite-assignment pass (Plan 85-02)
      * already guaranteed every field was written on every exit path before
      * this point, so reading `self` here is safe. */
+    if (md->is_init) fn->is_init = true;
     if (md->is_init && fn->param_count > 0 &&
         fn->params[0].name && strcmp(fn->params[0].name, "self") == 0) {
         IronHIR_Expr *self_expr = iron_hir_expr_ident(

@@ -319,7 +319,7 @@ static void elem_lifecycle_flags(EmitCtx *ctx, Iron_Type *et,
         has_drop = true;
     } else if (et && et->kind == IRON_TYPE_OBJECT && et->object.decl) {
         struct Iron_ObjectDecl *od = et->object.decl;
-        if (od_has_drop_lir(ctx, od)) has_drop = true;
+        if (od_needs_drop(ctx, od)) has_drop = true;
         if (!od->is_nocopy && et->has_user_copy_cached &&
             et->has_user_copy_transitive) {
             has_copy = true;
@@ -677,7 +677,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
         if (!f || !f->type_ann || !f->resolved_type ||
             f->resolved_type->kind == IRON_TYPE_ERROR) continue;
         Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
-        if (ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || (ta->is_array && ta->bounded))
+        if (ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || (ta->is_array && (ta->bounded || ta->array_elem_ann)))
             (void)emit_type_to_c(f->resolved_type, ctx);
     }
     iron_strbuf_appendf(&ctx->struct_bodies, "struct %s {\n", mangled);
@@ -704,7 +704,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                  * f->type_ann before the Iron_TypeAnnotation cast. */
                 IRON_NODE_ASSERT_KIND(f->type_ann, IRON_NODE_TYPE_ANNOTATION);
                 Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
-                if ((ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || (ta->is_array && ta->bounded)) &&
+                if ((ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || (ta->is_array && (ta->bounded || ta->array_elem_ann))) &&
                     f->resolved_type && f->resolved_type->kind != IRON_TYPE_ERROR) {
                     /* Box[T], a generic enum, weak rc T, a bounded vector:
                      * the name alone is not the C type (Box[Counter] was
@@ -776,7 +776,7 @@ int emit_estimate_type_size(Iron_ObjectDecl *od) {
             Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
             if (ta->is_array)       total += 24;  /* pointer + count + cap */
             else if (ta->is_func)   total += 16;  /* Iron_Closure */
-            else if (strcmp(ta->name, "String") == 0) total += 16;  /* Iron_String */
+            else if (ta->name && strcmp(ta->name, "String") == 0) total += 16;  /* Iron_String */
             else total += 8;  /* Int, Bool, Float, etc. */
         } else {
             total += 8;

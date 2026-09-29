@@ -486,7 +486,9 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
                     bool is_split =
                         instr->array_lit.elem_type &&
                         instr->array_lit.elem_type->kind == IRON_TYPE_INTERFACE;
-                    if (!is_split &&
+                    /* A stack array has no cleanup, so elements that must
+                     * be released or dropped stay in a List. */
+                    if (!is_split && !instr->array_lit.elems_need_cleanup &&
                         instr->array_lit.element_count > 0 &&
                         instr->array_lit.element_count <= 256) {
                         instr->array_lit.use_stack_repr = true;

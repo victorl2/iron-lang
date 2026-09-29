@@ -2899,7 +2899,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     }
                     if (field_ty && field_ty->kind == IRON_TYPE_OBJECT &&
                         field_ty->object.decl &&
-                        od_has_drop_lir(ctx, field_ty->object.decl)) {
+                        od_needs_drop(ctx, field_ty->object.decl)) {
                         const char *field_c = emit_type_to_c(field_ty, ctx);
                         /* Ensure the drop function exists before referencing it */
                         emit_ensure_drop(ctx, field_c, field_ty->object.decl);
@@ -3309,6 +3309,44 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 /* Terminal node — emit fused loop */
                 emit_fused_chain(ctx, sb, fn, chain, instr, ctx->indent);
                 break;  /* skip normal CALL emission */
+            }
+        }
+
+        /* Lifecycle glue (`$drop` / `$copy`, produced by hir_to_lir): run
+         * the synthesized destructor / copy fixup of the object stored at
+         * the argument's storage path. */
+        {
+            IronLIR_ValueId gfp = instr->call.func_ptr;
+            const char *gname = (!instr->call.func_decl &&
+                                 gfp != IRON_LIR_VALUE_INVALID &&
+                                 gfp < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                                 fn->value_table[gfp] &&
+                                 fn->value_table[gfp]->kind == IRON_LIR_FUNC_REF)
+                                ? fn->value_table[gfp]->func_ref.func_name : NULL;
+            if (gname && gname[0] == '$' && instr->call.arg_count == 1) {
+                bool is_drop = strcmp(gname, "$drop") == 0;
+                IronLIR_ValueId ga = instr->call.args[0];
+                IronLIR_Instr *gin = (ga != IRON_LIR_VALUE_INVALID &&
+                                      ga < (IronLIR_ValueId)arrlen(fn->value_table))
+                                     ? fn->value_table[ga] : NULL;
+                Iron_Type *gt = (gin && gin->kind == IRON_LIR_ALLOCA)
+                                ? gin->alloca.alloc_type
+                                : emit_get_value_type(fn, ga);
+                if (gt && gt->kind == IRON_TYPE_OBJECT && gt->object.decl) {
+                    struct Iron_ObjectDecl *god = gt->object.decl;
+                    const char *gc = emit_type_to_c(gt, ctx);
+                    bool need = is_drop ? od_needs_drop(ctx, god)
+                                        : od_needs_copy_fixup(ctx, god);
+                    if (need) {
+                        if (is_drop) emit_ensure_drop(ctx, gc, god);
+                        else         emit_ensure_copy_fixup(ctx, gc, god);
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "%s_%s(", gc, is_drop ? "drop" : "copied");
+                        emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
+                        iron_strbuf_appendf(sb, ");\n");
+                    }
+                }
+                break;
             }
         }
 
@@ -5548,7 +5586,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (od) {
             /* Check that this object type has a drop block via od_has_drop_lir.
              * Methods are LIR top-level functions (Plan 86), NOT od->methods. */
-            if (od_has_drop_lir(ctx, od)) {
+            if (od_needs_drop(ctx, od)) {
                 const char *obj_c = emit_type_to_c(vt, ctx);
                 emit_ensure_drop(ctx, obj_c, od);   /* synthesis BEFORE use — Pitfall 3 */
                 /* Phase 24 DROP-04 (Plan 24-03): the drop function itself sets
@@ -7313,7 +7351,7 @@ static bool instr_list_create_has_managed_elem(EmitCtx *ctx, IronLIR_Func *fn,
         return false;
     struct Iron_ObjectDecl *od = elem->object.decl;
     if (od->name && strcmp(od->name, "FileHandle") == 0) return true;
-    return od_has_drop_lir(ctx, od);
+    return od_needs_drop(ctx, od);
 }
 
 /* ── Structured natural-loop reconstruction (P6) ──────────────────────── */

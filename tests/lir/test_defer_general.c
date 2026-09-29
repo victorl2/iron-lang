@@ -200,12 +200,12 @@ void test_defer_then_drop(void) {
 
     long defer2   = find_order(c_src, "defer2");
     long defer1   = find_order(c_src, "defer1");
-    /* The drop function is emitted as `Iron_<lowercased-type>_drop` (Iron_
-     * prefix + lowercased object name). Key on the CALL site specifically
-     * (`_resource_drop(&` — a pointer argument) rather than the forward
-     * declaration / definition (`_resource_drop(Iron_Resource ...`), which
-     * appear earlier in the file and would defeat the ordering assert. */
-    long drop_call = find_order(c_src, "_resource_drop(&");
+    /* Scope exit calls the synthesized destructor `Iron_Resource_drop`
+     * (user drop body, then field drops). Key on the CALL site specifically
+     * (`Iron_Resource_drop(&` — a pointer argument) rather than the
+     * definition (`Iron_Resource_drop(Iron_Resource *self)`), which appears
+     * earlier in the file and would defeat the ordering assert. */
+    long drop_call = find_order(c_src, "Iron_Resource_drop(&");
     TEST_ASSERT_TRUE_MESSAGE(defer2 >= 0 && defer1 >= 0 && drop_call >= 0,
         "Expected defer1/defer2 literals + the resource drop call in emitted C");
     /* defers LIFO (defer2 < defer1) THEN the first drop call (DEFER-04). */

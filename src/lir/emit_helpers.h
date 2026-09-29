@@ -68,6 +68,8 @@ typedef struct {
      * Parallel to emitted_bvecs; same arrput/arrlen/strcmp shape. */
     char        **emitted_drops;
     char        **emitted_copies;
+    char        **emitted_copy_fixups;  /* <T>_copied glue already emitted */
+    char        **emitted_rc_lists;     /* Iron_List_rc_<T> types already emitted */
     /* Phase 26 POL-06 (Plan 26-03): per-type rc-drop trampoline synthesis dedup.
      * Parallel to emitted_drops; same arrput/arrlen/strcmp shape. The trampoline
      * <TypeName>_rc_drop(void *self_void) is a type-erased wrapper around the
@@ -267,6 +269,20 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
  * (Plan 86 layout), NOT stored on Iron_ObjectDecl.
  * Used by emit_c.c and emit_helpers.c to gate drop synthesis. */
 bool od_has_drop_lir(EmitCtx *ctx, struct Iron_ObjectDecl *od);
+
+/* Transitive lifecycle needs: destroying / copying a value of this object
+ * type has work to do (user body, rc fields, or object fields needing it). */
+bool od_needs_drop(EmitCtx *ctx, struct Iron_ObjectDecl *od);
+bool od_needs_copy_fixup(EmitCtx *ctx, struct Iron_ObjectDecl *od);
+
+/* Synthesize `static void <T>_copied(<T> *self)`, the fixup run on a fresh
+ * bitwise copy (retain rc fields, fix up object fields, user copy body). */
+void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
+                            struct Iron_ObjectDecl *od);
+
+/* Ensure the list type for `[rc T]` / `[weak rc T]` elements; returns its
+ * C name. */
+const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem);
 
 /* Phase 26 POL-06 (Plan 26-03): synthesize <TypeName>_rc_drop trampoline.
  *

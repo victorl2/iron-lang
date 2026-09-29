@@ -555,6 +555,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 /* A thread pool argument to spawn(...) or parallel(...): pools are not
  * implemented (the argument used to be accepted and ignored). */
 #define IRON_ERR_POOL_UNSUPPORTED         326
+#define IRON_ERR_DROP_BINDING_UNINIT      327   /* binding of a type with a destructor declared without an initializer */
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400
