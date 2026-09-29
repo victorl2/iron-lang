@@ -428,8 +428,9 @@ for test_file in ${_main_loop_files}; do
             fi
         else
             if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
-                echo "[XFAIL] (@expect-panic: correct but not yet unlocked; expected-pass-after: phase-${expected_pass_after})"
-                XFAIL=$((XFAIL + 1))
+                # A fixed gap must not stay parked behind its marker.
+                echo "[FAIL] (stale XFAIL: panics as expected; remove @expected-pass-after: phase-${expected_pass_after})"
+                FAIL=$((FAIL + 1))
             else
                 echo "[PASS] (@expect-panic)"
                 PASS=$((PASS + 1))
@@ -447,8 +448,9 @@ for test_file in ${_main_loop_files}; do
 
     if [ "${actual}" = "${expected}" ]; then
         if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
-            echo "[XFAIL] (build+output correct but not yet unlocked; expected-pass-after: phase-${expected_pass_after})"
-            XFAIL=$((XFAIL + 1))
+            # A fixed gap must not stay parked behind its marker.
+            echo "[FAIL] (stale XFAIL: build and output are correct; remove @expected-pass-after: phase-${expected_pass_after})"
+            FAIL=$((FAIL + 1))
         elif ! noopt_parity_check "${test_file}" "${test_name}" "${expected}"; then
             FAIL=$((FAIL + 1))
         else
@@ -574,8 +576,13 @@ if [ "${CATEGORY}" = "v4-fail" ] || [ "${CATEGORY}" = "compile_fail" ]; then
         expected_substr=$(cat "${expected_file}")
         expected_substr="${expected_substr%$'\n'}"
         if grep -qF "${expected_substr}" "${build_log}"; then
-            echo "[PASS]"
-            PASS=$((PASS + 1))
+            if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+                echo "[FAIL] (stale XFAIL: rejected as expected; remove @expected-pass-after: phase-${expected_pass_after})"
+                FAIL=$((FAIL + 1))
+            else
+                echo "[PASS]"
+                PASS=$((PASS + 1))
+            fi
         else
             if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
                 echo "[XFAIL] (substring mismatch; expected-pass-after: phase-${expected_pass_after})"
