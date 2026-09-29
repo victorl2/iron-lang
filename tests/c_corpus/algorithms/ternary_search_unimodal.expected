@@ -1,0 +1,6 @@
+parabola max 1000 at x=37
+tent     max 750 at x=250
+profit   max 2222 at x=44
+bowl min at 1.50000 value 4.00000
+cosh_shift min at 0.50131
+median-distance min at 4.000 value 9.000

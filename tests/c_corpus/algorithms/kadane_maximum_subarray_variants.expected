@@ -1,0 +1,6 @@
+500 random arrays verified
+classic: sum 6 over [3..6]
+all negative: sum -1 at 3
+circular {5,-3,5}: 10
+max product {2,3,-2,4}: 6
+max product {-2,3,-4}: 24
