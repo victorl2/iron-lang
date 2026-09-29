@@ -1,0 +1,12 @@
+messages sent (row = sender, column = receiver):
+    0   75   66   82   77
+   80    0   78   82   60
+   88   75    0   73   64
+   88   78   63    0   71
+   65   64   88   83    0
+actor 0 received 321 messages, payload sum 171715
+actor 1 received 292 messages, payload sum 156706
+actor 2 received 295 messages, payload sum 150097
+actor 3 received 320 messages, payload sum 153075
+actor 4 received 272 messages, payload sum 133172
+total delivered=1500

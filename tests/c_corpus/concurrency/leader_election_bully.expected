@@ -1,0 +1,25 @@
+leader crashed: dead={7} initiator=2
+  leader chosen by all live processes: 6
+  ELECTION    messages: 10
+  OK          messages: 10
+  COORDINATOR messages: 6
+two top nodes crashed: dead={7,6,3} initiator=0
+  leader chosen by all live processes: 5
+  ELECTION    messages: 10
+  OK          messages: 10
+  COORDINATOR messages: 4
+only low ids left: dead={7,6,5,4} initiator=1
+  leader chosen by all live processes: 3
+  ELECTION    messages: 3
+  OK          messages: 3
+  COORDINATOR messages: 3
+everyone alive, lowest starts: dead={} initiator=0
+  leader chosen by all live processes: 7
+  ELECTION    messages: 28
+  OK          messages: 28
+  COORDINATOR messages: 7
+top alive, odd ids crashed: dead={1,3,5} initiator=6
+  leader chosen by all live processes: 7
+  ELECTION    messages: 1
+  OK          messages: 1
+  COORDINATOR messages: 4

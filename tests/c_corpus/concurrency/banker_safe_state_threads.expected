@@ -1,0 +1,9 @@
+initial state safe=1, safe sequence: P1 P3 P4 P0 P2
+P1 requests (1,0,2): granted
+P4 requests (3,3,0): not enough now
+P0 requests (0,2,0): unsafe
+P3 requests (0,0,2): exceeds claim
+P1 requests (9,9,9): exceeds claim
+state after requests: safe=1, sequence: P1 P3 P4 P0 P2
+clients finished: grants=15 unsafe states seen=0
+resources returned: (10,5,7)

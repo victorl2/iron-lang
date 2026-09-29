@@ -1,0 +1,4 @@
+capacity=3 men=5 women=4
+men: visits=300 minutes=1458
+women: visits=240 minutes=1215
+mixed-gender or over-capacity moments: 0

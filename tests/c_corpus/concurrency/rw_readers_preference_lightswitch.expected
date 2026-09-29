@@ -1,0 +1,7 @@
+readers=5 writers=3
+reads=2000 torn reads=0
+writer 0 wrote 120 times (delta 1)
+writer 1 wrote 120 times (delta 2)
+writer 2 wrote 120 times (delta 3)
+final cell value=720
+readers all saw a consistent snapshot

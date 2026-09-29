@@ -1,0 +1,4 @@
+phase 1 outcomes: 0:served 1:served 2:served 3:left 4:left 5:left 6:left 7:left
+phase 2 outcomes: 8:served 9:served 10:served 11:served 12:served 13:served 14:served 15:served 16:served 17:served
+service order: 0 1 2 8 9 10 11 12 13 14 15 16 17
+served=13 left=5 total cut time=265

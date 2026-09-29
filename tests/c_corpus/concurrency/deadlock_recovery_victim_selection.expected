@@ -1,0 +1,26 @@
+P0 wants: R5 R0 R3 R1
+P1 wants: R4 R1 R0 R5
+P2 wants: R0 R1 R5 R2
+P3 wants: R5 R3 R0 R4
+P4 wants: R1 R0 R3 R4
+P5 wants: R5 R3 R4 R0
+round 2: deadlock among P2 P4; victim P2 (cost 10)
+round 5: deadlock among P0 P4; victim P4 (cost 10)
+round 8: P0 finished
+round 9: deadlock among P1 P2; victim P1 (cost 20)
+round 11: deadlock among P2 P3; victim P3 (cost 20)
+round 15: P2 finished
+round 17: deadlock among P4 P3; victim P3 (cost 45)
+round 19: deadlock among P1 P4; victim P1 (cost 35)
+round 22: P4 finished
+round 26: deadlock among P1 P5; victim P5 (cost 20)
+round 29: P1 finished
+round 34: P3 finished
+round 39: P5 finished
+finished after 39 rounds: deadlocks=7 aborts=7
+P0 rollbacks=0 finished in round 8
+P1 rollbacks=2 finished in round 29
+P2 rollbacks=1 finished in round 15
+P3 rollbacks=2 finished in round 34
+P4 rollbacks=1 finished in round 22
+P5 rollbacks=1 finished in round 39
