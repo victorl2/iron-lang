@@ -30,8 +30,10 @@ if(NOT WIN32)
                 ${CMAKE_BINARY_DIR}/iron
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
+    # Not in the v4-acceptance label: it builds every fixture twice, which
+    # pushed that 30-minute gate over its limit. The full test jobs run it.
     set_tests_properties(test_opt_parity PROPERTIES
-        LABELS "oracle;v4-acceptance"
+        LABELS "oracle"
         TIMEOUT 1800)
 endif()
 
