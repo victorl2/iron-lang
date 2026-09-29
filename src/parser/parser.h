@@ -19,6 +19,7 @@ typedef struct {
     const char         *filename;
     const char         *source;       /* original source text for diagnostics */
     bool                in_error_recovery;
+    bool                stmt_errored; /* the statement being parsed reported an error */
     /* BREAK gate -- default false; flip true after codemod sweep */
     bool                v3_strict_mode;
     IronAnalysisMode    mode;         /* HARD-02: gate cascade-suppression on LSP mode */

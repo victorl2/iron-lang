@@ -2057,6 +2057,7 @@ static bool stmt_always_returns(Iron_Node *node) {
     if (!node) return false;
     switch ((int)node->kind) {
         case IRON_NODE_RETURN:
+        case IRON_NODE_ERROR:   /* a statement that failed to parse (already reported) */
             return true;
         case IRON_NODE_BLOCK: {
             Iron_Block *b = (Iron_Block *)node;
