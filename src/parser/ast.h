@@ -811,6 +811,10 @@ typedef struct {
     /* Set by typecheck.c for `x.to_string()` on a numeric or Bool receiver
      * with no declared to_string method: lowered exactly like "{x}". */
     bool               is_builtin_to_string;
+    /* Set by typecheck.c for `x.copy()` on an object that declares no
+     * method named copy: an explicit duplicate (copy glue runs, list
+     * fields are cloned, the user copy block runs). */
+    bool               is_builtin_copy;
     /* `x.m[A, B](args)`: explicit type arguments of a generic method
      * (type annotations); NULL / 0 otherwise. */
     Iron_Node        **generic_args;

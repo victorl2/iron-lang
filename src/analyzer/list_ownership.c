@@ -26,6 +26,26 @@ static bool is_dynamic_list(const Iron_Type *t) {
            !t->array.is_bounded;
 }
 
+/* An object that owns a list, directly or through object fields (rc, heap
+ * and pointer fields are handles and do not count): copying it copies the
+ * list, so it is never duplicated implicitly either. */
+static bool object_holds_list(const Iron_Type *t, int depth) {
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || depth > 16) return false;
+    Iron_ObjectDecl *od = t->object.decl;
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        Iron_Type *ft = f ? (f->resolved_type ? f->resolved_type : f->field_type_cached) : NULL;
+        if (!ft) continue;
+        if (is_dynamic_list(ft)) return true;
+        if (object_holds_list(ft, depth + 1)) return true;
+    }
+    return false;
+}
+
+static bool owns_list(const Iron_Type *t) {
+    return is_dynamic_list(t) || object_holds_list(t, 0);
+}
+
 static Iron_Type *node_type(Iron_Node *n) {
     if (!n) return NULL;
     switch ((int)n->kind) {  /* only the ownership-relevant kinds */
@@ -40,7 +60,7 @@ static Iron_Type *node_type(Iron_Node *n) {
  * element. Literals, calls and method calls (copy / take included) produce
  * fresh lists and are not places. */
 static bool is_list_place(Iron_Node *n) {
-    if (!n || !is_dynamic_list(node_type(n))) return false;
+    if (!n || !owns_list(node_type(n))) return false;
     if (n->kind == IRON_NODE_IDENT) {
         Iron_Symbol *sym = ((Iron_Ident *)n)->resolved_sym;
         return sym && (sym->sym_kind == IRON_SYM_VARIABLE ||
@@ -60,7 +80,13 @@ static void require_fresh(ListOwnCtx *c, Iron_Node *value) {
     if (!is_list_place(value)) return;
     const char *name = place_text(value);
     char msg[320], help[320];
-    if (name) {
+    bool is_obj = !is_dynamic_list(node_type(value));
+    if (name && is_obj) {
+        snprintf(msg, sizeof(msg),
+                 "'%s' holds a list and cannot be duplicated implicitly", name);
+        snprintf(help, sizeof(help),
+                 "use %s.copy() for an independent copy, or share it as rc", name);
+    } else if (name) {
         snprintf(msg, sizeof(msg),
                  "list '%s' cannot be duplicated implicitly", name);
         snprintf(help, sizeof(help),

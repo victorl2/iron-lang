@@ -2049,6 +2049,15 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     }
 
     case IRON_HIR_EXPR_METHOD_CALL: {
+        /* `x.copy()` on an object: its value with the copy glue applied
+         * (rc fields retained, list fields cloned, the copy block run). A
+         * receiver that is already a fresh value needs nothing. */
+        if (expr->method_call.method &&
+            strcmp(expr->method_call.method, "$copy") == 0) {
+            IronHIR_Expr *src = expr->method_call.object;
+            IronLIR_ValueId v = lower_expr(ctx, src);
+            return copy_for_new_owner(ctx, src, v, expr->type, span);
+        }
         /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset / Ptr.diff compiler builtins.
          * `Ptr.offset(p, n)` parses as IRON_NODE_METHOD_CALL (uppercase "Ptr" +
          * lowercase "offset" heuristic) and lowers to IRON_HIR_EXPR_METHOD_CALL

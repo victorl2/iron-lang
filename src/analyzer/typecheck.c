@@ -396,6 +396,23 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
  * field write inside an element) needs a mutable path to it: a `var`
  * binding or parameter, `var` fields, a `*var` pointer or an rc handle.
  * `val` means immutable for lists as for objects (#174). */
+/* Does object `type_name` declare a callable method `name` (the copy /
+ * drop hooks are not callable methods)? */
+static bool object_declares_method(TypeCtx *ctx, const char *type_name,
+                                   const char *name) {
+    if (!ctx->program || !type_name) return false;
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+        if (m->is_copy || m->is_drop) continue;
+        if (m->type_name && m->method_name && strcmp(m->type_name, type_name) == 0 &&
+            strcmp(m->method_name, name) == 0)
+            return true;
+    }
+    return false;
+}
+
 static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
                        const char *msg, const char *suggestion);
 static void check_array_mutable(TypeCtx *ctx, Iron_Node *place, Iron_Span span,
@@ -4142,6 +4159,27 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 mc->resolved_type = result;
                 break;
+            }
+
+            /* `x.copy()` on an object: the explicit duplicate (#174). An
+             * object that declares its own copy method (Image.copy) keeps
+             * it; the `copy { }` hook is not callable and runs inside. */
+            if (mc->method && strcmp(mc->method, "copy") == 0 &&
+                mc->arg_count == 0 && mc->object) {
+                Iron_Type *ct = check_expr(ctx, mc->object);
+                if (ct && ct->kind == IRON_TYPE_OBJECT && ct->object.decl &&
+                    !object_declares_method(ctx, ct->object.decl->name, "copy")) {
+                    if (ct->object.decl->is_nocopy) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "'%s' cannot be copied",
+                                 ct->object.decl->name ? ct->object.decl->name : "?");
+                        emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg, NULL);
+                    }
+                    mc->is_builtin_copy = true;
+                    result = ct;
+                    mc->resolved_type = result;
+                    break;
+                }
             }
 
             /* String.from_byte(b) is a static constructor. Called on a

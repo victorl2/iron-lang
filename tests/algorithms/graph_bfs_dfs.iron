@@ -19,14 +19,14 @@ func queue_create() -> Queue {
 }
 
 func queue_push(q: Queue, val_in: Int) -> Queue {
-  var nq = q
+  var nq = q.copy()
   nq.data[nq.tail] = val_in
   nq.tail = nq.tail + 1
   return nq
 }
 
 func queue_pop(q: Queue) -> Queue {
-  var nq = q
+  var nq = q.copy()
   nq.head = nq.head + 1
   return nq
 }

@@ -2008,6 +2008,13 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_METHOD_CALL: {
         Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
 
+        if (mc->is_builtin_copy) {
+            /* Explicit object duplicate: lowered by hir_to_lir as the
+             * copy glue applied to the receiver's value. */
+            return iron_hir_expr_method_call(mod, lower_expr_hir(ctx, mc->object),
+                                              "$copy", NULL, 0,
+                                              mc->resolved_type, span);
+        }
         if (mc->is_builtin_to_string) {
             /* Numeric / Bool `x.to_string()`: the same code as "{x}". */
             IronHIR_Expr **parts = NULL;
