@@ -1,0 +1,32 @@
+-- Regression: copying a scalar field out of a heap value is not an escape.
+--
+-- return e.hp and total = e.hp reported E0207 (heap value escapes its
+-- scope); the object stays put, so this is the ordinary never-freed case
+-- (W0606) at most. Here the values are freed.
+object Enemy {
+    val hp: Int
+}
+
+func peek(v: Int) -> Int {
+    return v
+}
+
+func b() -> Int {
+    val e = heap Enemy(5)
+    defer free e
+    return e.hp
+}
+
+func c() -> Int {
+    var total = 0
+    if true {
+        val e = heap Enemy(7)
+        total = e.hp + peek(e.hp)
+        free e
+    }
+    return total
+}
+
+func main() {
+    println("{b()} {c()}")
+}
