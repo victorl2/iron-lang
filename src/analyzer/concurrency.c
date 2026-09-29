@@ -494,10 +494,253 @@ static void walk_stmts(ConcurrencyCtx *ctx, Iron_Node **stmts, int count) {
 
 /* ── Per-function analysis ────────────────────────────────────────────────── */
 
+/* ── Await-once analysis ────────────────────────────────────────────────────
+ *
+ * `await h` joins the task and frees its handle, so a handle can be awaited
+ * once: a second await used a freed handle and hung forever. This walks
+ * each function body tracking the handles that MAY already have been
+ * awaited on the current path (branches are merged, loop bodies are
+ * processed twice so a second iteration is seen, `return` ends a path, and
+ * declaring a binding makes it a fresh handle) and reports an await of a
+ * handle in that set. */
+
+typedef struct {
+    const char **names;   /* stb_ds: handles that may have been awaited */
+    bool         dead;    /* the path has returned */
+} AwaitState;
+
+typedef struct { Iron_Node *key; bool value; } AwaitReported;
+
+static bool aw_has(const AwaitState *s, const char *n) {
+    for (ptrdiff_t i = 0; i < arrlen(s->names); i++)
+        if (strcmp(s->names[i], n) == 0) return true;
+    return false;
+}
+
+static void aw_add(AwaitState *s, const char *n) {
+    if (!aw_has(s, n)) arrput(s->names, n);
+}
+
+static void aw_remove(AwaitState *s, const char *n) {
+    for (ptrdiff_t i = 0; i < arrlen(s->names); i++)
+        if (strcmp(s->names[i], n) == 0) { arrdelswap(s->names, i); return; }
+}
+
+static AwaitState aw_copy(const AwaitState *s) {
+    AwaitState c = { NULL, s->dead };
+    for (ptrdiff_t i = 0; i < arrlen(s->names); i++) arrput(c.names, s->names[i]);
+    return c;
+}
+
+/* dst := dst joined with src (a dead path contributes nothing). */
+static void aw_join(AwaitState *dst, const AwaitState *src) {
+    if (src->dead) return;
+    if (dst->dead) {
+        arrfree(dst->names);
+        *dst = aw_copy(src);
+        return;
+    }
+    for (ptrdiff_t i = 0; i < arrlen(src->names); i++) aw_add(dst, src->names[i]);
+}
+
+static void aw_stmt(ConcurrencyCtx *ctx, Iron_Node *n, AwaitState *s,
+                    AwaitReported **reported);
+
+static void aw_expr(ConcurrencyCtx *ctx, Iron_Node *n, AwaitState *s,
+                    AwaitReported **reported) {
+    if (!n || s->dead) return;
+    switch ((int)n->kind) {
+        case IRON_NODE_AWAIT: {
+            Iron_AwaitExpr *ae = (Iron_AwaitExpr *)n;
+            aw_expr(ctx, ae->handle, s, reported);
+            const char *h = expr_ident_name(ae->handle);
+            if (!h) break;
+            if (aw_has(s, h) && hmgeti(*reported, n) < 0) {
+                hmput(*reported, n, true);
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "handle '%s' may already have been awaited", h);
+                emit_err(ctx, IRON_ERR_AWAIT_TWICE, n->span, msg);
+            }
+            aw_add(s, h);
+            break;
+        }
+        case IRON_NODE_BINARY:
+            aw_expr(ctx, ((Iron_BinaryExpr *)n)->left, s, reported);
+            aw_expr(ctx, ((Iron_BinaryExpr *)n)->right, s, reported);
+            break;
+        case IRON_NODE_UNARY: aw_expr(ctx, ((Iron_UnaryExpr *)n)->operand, s, reported); break;
+        case IRON_NODE_CALL: {
+            Iron_CallExpr *c = (Iron_CallExpr *)n;
+            for (int i = 0; i < c->arg_count; i++) aw_expr(ctx, c->args[i], s, reported);
+            break;
+        }
+        case IRON_NODE_METHOD_CALL: {
+            Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)n;
+            aw_expr(ctx, mc->object, s, reported);
+            for (int i = 0; i < mc->arg_count; i++) aw_expr(ctx, mc->args[i], s, reported);
+            break;
+        }
+        case IRON_NODE_INTERP_STRING: {
+            Iron_InterpString *is_ = (Iron_InterpString *)n;
+            for (int i = 0; i < is_->part_count; i++) aw_expr(ctx, is_->parts[i], s, reported);
+            break;
+        }
+        case IRON_NODE_FIELD_ACCESS: aw_expr(ctx, ((Iron_FieldAccess *)n)->object, s, reported); break;
+        case IRON_NODE_INDEX:
+            aw_expr(ctx, ((Iron_IndexExpr *)n)->object, s, reported);
+            aw_expr(ctx, ((Iron_IndexExpr *)n)->index, s, reported);
+            break;
+        case IRON_NODE_CONSTRUCT: {
+            Iron_ConstructExpr *ct = (Iron_ConstructExpr *)n;
+            for (int i = 0; i < ct->arg_count; i++) aw_expr(ctx, ct->args[i], s, reported);
+            break;
+        }
+        case IRON_NODE_ARRAY_LIT: {
+            Iron_ArrayLit *al = (Iron_ArrayLit *)n;
+            for (int i = 0; i < al->element_count; i++) aw_expr(ctx, al->elements[i], s, reported);
+            break;
+        }
+        /* -Wswitch-enum opt-out: lambdas run later (not on this path);
+         * leaves contain no await. */
+        default:
+            break;
+    }
+}
+
+static void aw_block(ConcurrencyCtx *ctx, Iron_Node *n, AwaitState *s,
+                     AwaitReported **reported) {
+    aw_stmt(ctx, n, s, reported);
+}
+
+static void aw_stmt(ConcurrencyCtx *ctx, Iron_Node *n, AwaitState *s,
+                    AwaitReported **reported) {
+    if (!n || s->dead) return;
+    switch ((int)n->kind) {
+        case IRON_NODE_BLOCK: {
+            Iron_Block *b = (Iron_Block *)n;
+            for (int i = 0; i < b->stmt_count; i++) aw_stmt(ctx, b->stmts[i], s, reported);
+            break;
+        }
+        case IRON_NODE_VAL_DECL: {
+            Iron_ValDecl *vd = (Iron_ValDecl *)n;
+            aw_expr(ctx, vd->init, s, reported);
+            if (vd->name) aw_remove(s, vd->name);   /* a fresh binding */
+            break;
+        }
+        case IRON_NODE_VAR_DECL: {
+            Iron_VarDecl *vd = (Iron_VarDecl *)n;
+            aw_expr(ctx, vd->init, s, reported);
+            if (vd->name) aw_remove(s, vd->name);
+            break;
+        }
+        case IRON_NODE_SPAWN: {
+            Iron_SpawnStmt *sp = (Iron_SpawnStmt *)n;
+            if (sp->handle_name) aw_remove(s, sp->handle_name);
+            break;
+        }
+        case IRON_NODE_ASSIGN: {
+            Iron_AssignStmt *as = (Iron_AssignStmt *)n;
+            aw_expr(ctx, as->value, s, reported);
+            const char *t = expr_ident_name(as->target);
+            if (t && as->target && as->target->kind == IRON_NODE_IDENT) aw_remove(s, t);
+            break;
+        }
+        case IRON_NODE_RETURN:
+            aw_expr(ctx, ((Iron_ReturnStmt *)n)->value, s, reported);
+            s->dead = true;
+            break;
+        case IRON_NODE_IF: {
+            Iron_IfStmt *is_ = (Iron_IfStmt *)n;
+            aw_expr(ctx, is_->condition, s, reported);
+            AwaitState out = { NULL, true };
+            AwaitState br = aw_copy(s);
+            aw_block(ctx, is_->body, &br, reported);
+            aw_join(&out, &br);
+            arrfree(br.names);
+            for (int i = 0; i < is_->elif_count; i++) {
+                AwaitState eb = aw_copy(s);
+                aw_expr(ctx, is_->elif_conds[i], &eb, reported);
+                aw_block(ctx, is_->elif_bodies[i], &eb, reported);
+                aw_join(&out, &eb);
+                arrfree(eb.names);
+            }
+            AwaitState el = aw_copy(s);
+            if (is_->else_body) aw_block(ctx, is_->else_body, &el, reported);
+            aw_join(&out, &el);
+            arrfree(el.names);
+            arrfree(s->names);
+            *s = out;
+            break;
+        }
+        case IRON_NODE_MATCH: {
+            Iron_MatchStmt *m = (Iron_MatchStmt *)n;
+            aw_expr(ctx, m->subject, s, reported);
+            AwaitState out = { NULL, true };
+            for (int i = 0; i < m->case_count; i++) {
+                Iron_Node *cn = m->cases[i];
+                if (!cn || cn->kind != IRON_NODE_MATCH_CASE) continue;
+                AwaitState cb = aw_copy(s);
+                aw_block(ctx, ((Iron_MatchCase *)cn)->body, &cb, reported);
+                aw_join(&out, &cb);
+                arrfree(cb.names);
+            }
+            AwaitState el = aw_copy(s);
+            if (m->else_body) aw_block(ctx, m->else_body, &el, reported);
+            aw_join(&out, &el);
+            arrfree(el.names);
+            arrfree(s->names);
+            *s = out;
+            break;
+        }
+        case IRON_NODE_WHILE:
+        case IRON_NODE_FOR: {
+            Iron_Node *body;
+            if (n->kind == IRON_NODE_WHILE) {
+                aw_expr(ctx, ((Iron_WhileStmt *)n)->condition, s, reported);
+                body = ((Iron_WhileStmt *)n)->body;
+            } else {
+                aw_expr(ctx, ((Iron_ForStmt *)n)->iterable, s, reported);
+                body = ((Iron_ForStmt *)n)->body;
+            }
+            /* Two passes: the second iteration sees handles the first
+             * awaited. The loop may also run zero times. */
+            AwaitState it = aw_copy(s);
+            it.dead = false;
+            aw_block(ctx, body, &it, reported);
+            AwaitState it2 = aw_copy(&it);
+            it2.dead = false;
+            aw_join(&it2, s);
+            aw_block(ctx, body, &it2, reported);
+            aw_join(s, &it);
+            aw_join(s, &it2);
+            arrfree(it.names);
+            arrfree(it2.names);
+            break;
+        }
+        case IRON_NODE_DEFER:
+            aw_stmt(ctx, ((Iron_DeferStmt *)n)->expr, s, reported);
+            break;
+        default:
+            /* Expression statements. */
+            aw_expr(ctx, n, s, reported);
+            break;
+    }
+}
+
+static void check_await_once(ConcurrencyCtx *ctx, Iron_Node *body) {
+    AwaitState s = { NULL, false };
+    AwaitReported *reported = NULL;
+    aw_stmt(ctx, body, &s, &reported);
+    arrfree(s.names);
+    hmfree(reported);
+}
+
 static void analyze_function(ConcurrencyCtx *ctx, Iron_Node *body_node) {
     if (!body_node || body_node->kind != IRON_NODE_BLOCK) return;
     Iron_Block *body = (Iron_Block *)body_node;
     walk_stmts(ctx, body->stmts, body->stmt_count);
+    check_await_once(ctx, body_node);
 }
 
 /* ── Public API ───────────────────────────────────────────────────────────── */

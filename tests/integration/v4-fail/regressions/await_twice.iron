@@ -1,0 +1,11 @@
+-- @expected-error: E0325
+-- The first await joins the task and frees its handle; awaiting the same
+-- handle again used a freed handle and hung forever.
+func main() {
+  val h = spawn("h") {
+    return 7
+  }
+  val a = await h
+  val b = await h
+  println("{a} {b}")
+}

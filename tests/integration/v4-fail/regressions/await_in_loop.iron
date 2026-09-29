@@ -1,0 +1,11 @@
+-- @expected-error: E0325
+-- A handle declared outside a loop and awaited inside it is awaited again
+-- on the second iteration.
+func main() {
+    val h = spawn("once") { return 1 }
+    var total = 0
+    for i in range(2) {
+        total += await h
+    }
+    println("{total}")
+}

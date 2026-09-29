@@ -1,0 +1,25 @@
+-- Regression companion for the await-once check (see
+-- v4-fail/regressions/await_twice.iron and await_in_loop.iron): patterns
+-- that stay valid. Awaiting in exclusive branches, and spawning and
+-- awaiting a fresh handle on every loop iteration.
+func work(n: Int) -> Int { return n * 2 }
+
+func pick(flag: Bool) -> Int {
+    val h = spawn("a") { return work(1) }
+    if flag {
+        val a = await h
+        return a
+    } else {
+        val b = await h
+        return b + 100
+    }
+}
+
+func main() {
+    var total = 0
+    for i in range(3) {
+        val h = spawn("loop") { return work(i) }
+        total += await h
+    }
+    println("{total} {pick(true)} {pick(false)}")
+}

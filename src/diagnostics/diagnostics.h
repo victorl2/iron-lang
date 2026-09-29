@@ -542,6 +542,9 @@ void iron_diaglist_free(Iron_DiagList *list);
 /* A lambda parameter has no type annotation and no expected function type
  * to infer it from (untyped params used to become Void silently). */
 #define IRON_ERR_LAMBDA_PARAM_TYPE        324
+/* A spawn handle is awaited on a path where it may already have been
+ * awaited (the first await joins and frees it; a second hung). */
+#define IRON_ERR_AWAIT_TWICE              325
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400
