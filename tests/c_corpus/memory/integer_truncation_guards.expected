@@ -1,0 +1,15 @@
+fits: u8=256 i8=256 u16=65536 i16=65536 of 110001 values
+naive (uint8_t)300 = 44, (uint16_t)70000 = 4464, (int8_t)200 = -56
+size_t 2^31-1 -> int: 1
+size_t 2^31   -> int: 0
+size_t max    -> int: 0
+int -1 -> size_t: 0, int 0 -> size_t: 1
+naive unsigned compare (-1 < 1u) = 0, guarded = 1
+random u64 -> 32 with limit 1e6: passed=1609 refused=3391
+payload      0 -> prefix 00 00
+payload      1 -> prefix 00 01
+payload    255 -> prefix 00 ff
+payload    256 -> prefix 01 00
+payload  65535 -> prefix ff ff
+payload  65536 -> refused
+payload 100000 -> refused

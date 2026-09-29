@@ -1,0 +1,15 @@
+a: off=16 size=13 | b: off=64 size=32 | c: off=128 size=5
+a[0..12]   -> ok
+a[0..13]   -> overflow
+a[12]      -> ok
+a[13]      -> overflow
+a[-1]      -> overflow
+b whole    -> ok
+b[31..32]  -> overflow
+b[-8..0]   -> overflow
+c[0..4]    -> ok
+c[4..6]    -> overflow
+c[5]       -> overflow
+after free(b): b[0] -> use-after-free, b[16..24] -> use-after-free, a[0] -> ok
+never-allocated tail: wild
+bad probes=7 mismatches=0

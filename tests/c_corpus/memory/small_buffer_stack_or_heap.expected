@@ -1,0 +1,8 @@
+"one two three" -> "three two one" (stack)
+"  leading and trailing  " -> "trailing and leading" (stack)
+"single" -> "single" (stack)
+"" -> "" (stack)
+long sentence: 2500 chars -> heap, first word "w521 w"
+threshold: 62=stack 63=stack 64=stack 65=heap 66=heap
+grown to cap 1024 on_heap=1 intact=1 checksum=3217843567
+heap allocs=4 frees=4

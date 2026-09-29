@@ -1,0 +1,8 @@
+alloc ok=1322 rejected=360
+  total    used= 5485 peak= 5999 limit= 6000 rejects=128
+  net      used= 2294 peak= 3000 limit= 3000 rejects=134
+  fs       used= 3191 peak= 3993 limit= 4000 rejects=33
+  net.rx   used=  370 peak= 1493 limit= 1500 rejects=13
+  net.tx   used= 1924 peak= 2489 limit= 2500 rejects=52
+tiny: first=1 second=0 tiny.used=5000 total.used=5000 total.rejects=129
+after free: total.used=0

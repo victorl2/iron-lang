@@ -1,0 +1,17 @@
+round-tripped 1112064 scalar values
+lone continuation                -> bad-lead
+0xC0 0x80 (overlong NUL)         -> overlong
+0xE0 0x80 0x80 (overlong)        -> overlong
+0xED 0xA0 0x80 (surrogate)       -> surrogate
+0xF4 0x90 0x80 0x80 (>10FFFF)    -> out-of-range
+0xF8 (5-byte lead)               -> bad-lead
+0xE2 0x82 (cut)                  -> truncated
+0xE2 0x28 0xA1                   -> bad-continuation
+ok                460
+truncated         170
+bad-lead          2871
+bad-continuation  2474
+overlong          22
+surrogate         0
+out-of-range      3
+code points in valid strings: 309
