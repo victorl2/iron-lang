@@ -1,0 +1,9 @@
+-- @expected-error: E0235
+-- Timer.update advances the timer in place; it was declared readonly, so a
+-- `val timer` could be mutated.
+import time
+
+func main() {
+    val timer = Time.Timer(0.1)
+    timer.update(0.2)
+}

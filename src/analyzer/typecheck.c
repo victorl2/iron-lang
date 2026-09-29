@@ -1995,6 +1995,9 @@ static Iron_Type *resolve_array_builtin_method(const char *method,
     return NULL;
 }
 
+static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                    Iron_Node *receiver);
+
 /* Type a builtin list method call: result type, arity and argument types.
  * `contains` needs element equality and `sort` an ordering, which only the
  * numeric, Bool (contains) and String element types have. */
@@ -2024,6 +2027,16 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
         emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
                    "use a dynamic list [T] or a bounded vector [T; <=N]");
         return result;
+    }
+    /* A bounded vector is a value (struct): mutating it needs a mutable
+     * binding. (Dynamic lists keep the binding / contents distinction:
+     * `val xs` may still push.) */
+    if (arr_type->array.is_bounded &&
+        (strcmp(m, "push") == 0 || strcmp(m, "pop") == 0 || strcmp(m, "set") == 0 ||
+         strcmp(m, "insert") == 0 || strcmp(m, "remove") == 0 ||
+         strcmp(m, "clear") == 0 || strcmp(m, "reverse") == 0 ||
+         strcmp(m, "sort") == 0 || strcmp(m, "set_unchecked") == 0)) {
+        check_mutating_receiver(ctx, mc, mc->object);
     }
     /* get_unchecked / set_unchecked and push keep their dedicated checks. */
     if (strcmp(m, "get_unchecked") == 0 || strcmp(m, "set_unchecked") == 0 ||
@@ -2150,6 +2163,68 @@ static bool node_is_value_expression(const Iron_Node *n) {
     if (!n) return false;
     return (n->kind >= IRON_NODE_INT_LIT && n->kind <= IRON_NODE_AWAIT) ||
            n->kind == IRON_NODE_ENUM_CONSTRUCT;
+}
+
+/* A call that mutates its receiver: the receiver's root binding must be
+ * mutable. Marks it for the unused-var lint (so `var` is not reported as
+ * removable) and reports E0235 when it is immutable, as concrete-object
+ * method calls already do. Used for interface methods, which accepted
+ * mutating calls through `val` bindings and read-only params, and for
+ * bounded vectors, whose `val` push reached lowering as a poison
+ * instruction. */
+static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                    Iron_Node *receiver) {
+    Iron_Node *cur = receiver;
+    while (cur && cur->kind == IRON_NODE_FIELD_ACCESS)
+        cur = ((Iron_FieldAccess *)cur)->object;
+    if (!cur || cur->kind != IRON_NODE_IDENT) return;
+    Iron_Ident *id = (Iron_Ident *)cur;
+    Iron_Symbol *sym = id->resolved_sym;
+    if (!sym && id->name) sym = tc_lookup(ctx, id->name);
+    if (!sym || sym->sym_kind == IRON_SYM_TYPE) return;
+    mark_requires_mutable(ctx, receiver);
+    if (!sym->is_mutable) {
+        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, mc->span,
+                   "cannot call mutable method on immutable binding",
+                   sym_is_loop_var(sym) ? LOOP_VAR_MUT_HELP : NULL);
+    }
+}
+
+/* Whether calling interface method `sig` can mutate the receiver. The
+ * signature's own tier decides when it is readonly / pure; otherwise the
+ * program is compiled whole, so every implementor is known: the call
+ * mutates only if some implementation of the method is not readonly /
+ * pure. (Interfaces commonly leave query methods like `area()` untiered
+ * while every implementation is readonly.) */
+static bool iface_call_may_mutate(TypeCtx *ctx, Iron_InterfaceDecl *iface,
+                                  Iron_FuncDecl *sig) {
+    if (sig->is_readonly || sig->is_pure) return false;
+    if (!ctx->program || !iface || !iface->name || !sig->name) return true;
+    bool any_impl = false;
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+        bool implements = false;
+        for (int k = 0; k < od->implements_count; k++)
+            if (od->implements_names[k] &&
+                strcmp(od->implements_names[k], iface->name) == 0) implements = true;
+        if (!implements) continue;
+        const char *tn = od->is_patch ? od->target_type_name : od->name;
+        for (int j = 0; tn && j < ctx->program->decl_count; j++) {
+            Iron_Node *m = ctx->program->decls[j];
+            if (!m || m->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *md = (Iron_MethodDecl *)m;
+            if (md->type_name && md->method_name &&
+                strcmp(md->type_name, tn) == 0 &&
+                strcmp(md->method_name, sig->name) == 0) {
+                any_impl = true;
+                if (!md->is_readonly && !md->is_pure) return true;
+            }
+        }
+    }
+    /* No implementation to go by: the untiered signature may mutate. */
+    return !any_impl;
 }
 
 /* Check a method call's arguments against the declared parameters
@@ -4340,6 +4415,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         Iron_FuncDecl *fd = (Iron_FuncDecl *)msig;
                         if (strcmp(fd->name, mc->method) != 0) continue;
                         check_iface_call_args(ctx, mc, iface_mc, fd);
+                        if (iface_call_may_mutate(ctx, iface_mc, fd))
+                            check_mutating_receiver(ctx, mc, mc->object);
                         if (fd->resolved_return_type) {
                             result = fd->resolved_return_type;
                         } else if (fd->return_type &&
@@ -4617,6 +4694,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         continue;
                     found_ni = true;
                     check_iface_call_args(ctx, mc, iface_ni, fd);
+                    if (iface_call_may_mutate(ctx, iface_ni, fd))
+                        check_mutating_receiver(ctx, mc, mc->object);
                     if (fd->resolved_return_type) {
                         result = fd->resolved_return_type;
                     } else if (fd->return_type &&

@@ -214,6 +214,152 @@ static void scan_for_writes(UnusedVarCtx *ctx, Iron_Node *node) {
     }
 }
 
+/* A `var` referenced inside a lambda is captured by reference; a `val` is
+ * captured as a snapshot. Changing such a binding to `val` changes what
+ * the closure sees (and breaks writes made through it), so a captured
+ * `var` is never reported. */
+static void mark_captured_name(UnusedVarCtx *ctx, const char *name) {
+    if (!name) return;
+    for (ptrdiff_t i = 0; i < arrlen(ctx->trackers); i++) {
+        VarTracker *t = &ctx->trackers[i];
+        if (t->name && strcmp(t->name, name) == 0) {
+            t->requires_mutable = true;
+            return;
+        }
+    }
+}
+
+static void walk_node(UnusedVarCtx *ctx, Iron_Node *node, bool in_lambda);
+
+static void walk_nodes(UnusedVarCtx *ctx, Iron_Node **nodes, int count,
+                       bool in_lambda) {
+    for (int i = 0; nodes && i < count; i++) walk_node(ctx, nodes[i], in_lambda);
+}
+
+/* Visit every statement and expression under `node`, marking tracked
+ * bindings referenced inside lambda bodies. */
+static void walk_node(UnusedVarCtx *ctx, Iron_Node *node, bool in_lambda) {
+    if (!node) return;
+    switch ((int)node->kind) {
+        case IRON_NODE_IDENT:
+            if (in_lambda) mark_captured_name(ctx, ((Iron_Ident *)node)->name);
+            break;
+        case IRON_NODE_LAMBDA:
+            walk_node(ctx, ((Iron_LambdaExpr *)node)->body, true);
+            break;
+        case IRON_NODE_SPAWN:
+            /* spawn bodies capture like lambdas. */
+            walk_node(ctx, ((Iron_SpawnStmt *)node)->body, true);
+            break;
+        case IRON_NODE_BLOCK: {
+            Iron_Block *b = (Iron_Block *)node;
+            walk_nodes(ctx, b->stmts, b->stmt_count, in_lambda);
+            break;
+        }
+        case IRON_NODE_VAR_DECL: walk_node(ctx, ((Iron_VarDecl *)node)->init, in_lambda); break;
+        case IRON_NODE_VAL_DECL: walk_node(ctx, ((Iron_ValDecl *)node)->init, in_lambda); break;
+        case IRON_NODE_ASSIGN: {
+            Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+            walk_node(ctx, as->target, in_lambda);
+            walk_node(ctx, as->value, in_lambda);
+            break;
+        }
+        case IRON_NODE_RETURN: walk_node(ctx, ((Iron_ReturnStmt *)node)->value, in_lambda); break;
+        case IRON_NODE_IF: {
+            Iron_IfStmt *is_ = (Iron_IfStmt *)node;
+            walk_node(ctx, is_->condition, in_lambda);
+            walk_node(ctx, is_->body, in_lambda);
+            walk_nodes(ctx, is_->elif_conds, is_->elif_count, in_lambda);
+            walk_nodes(ctx, is_->elif_bodies, is_->elif_count, in_lambda);
+            walk_node(ctx, is_->else_body, in_lambda);
+            break;
+        }
+        case IRON_NODE_WHILE: {
+            Iron_WhileStmt *w = (Iron_WhileStmt *)node;
+            walk_node(ctx, w->condition, in_lambda);
+            walk_node(ctx, w->body, in_lambda);
+            break;
+        }
+        case IRON_NODE_FOR: {
+            Iron_ForStmt *f = (Iron_ForStmt *)node;
+            walk_node(ctx, f->iterable, in_lambda);
+            walk_node(ctx, f->body, in_lambda);
+            break;
+        }
+        case IRON_NODE_MATCH: {
+            Iron_MatchStmt *m = (Iron_MatchStmt *)node;
+            walk_node(ctx, m->subject, in_lambda);
+            walk_nodes(ctx, m->cases, m->case_count, in_lambda);
+            walk_node(ctx, m->else_body, in_lambda);
+            break;
+        }
+        case IRON_NODE_MATCH_CASE: walk_node(ctx, ((Iron_MatchCase *)node)->body, in_lambda); break;
+        case IRON_NODE_DEFER: walk_node(ctx, ((Iron_DeferStmt *)node)->expr, in_lambda); break;
+        case IRON_NODE_INTERP_STRING: {
+            Iron_InterpString *is_ = (Iron_InterpString *)node;
+            walk_nodes(ctx, is_->parts, is_->part_count, in_lambda);
+            break;
+        }
+        case IRON_NODE_BINARY: {
+            Iron_BinaryExpr *b = (Iron_BinaryExpr *)node;
+            walk_node(ctx, b->left, in_lambda);
+            walk_node(ctx, b->right, in_lambda);
+            break;
+        }
+        case IRON_NODE_UNARY: walk_node(ctx, ((Iron_UnaryExpr *)node)->operand, in_lambda); break;
+        case IRON_NODE_CALL: {
+            Iron_CallExpr *c = (Iron_CallExpr *)node;
+            walk_node(ctx, c->callee, in_lambda);
+            walk_nodes(ctx, c->args, c->arg_count, in_lambda);
+            break;
+        }
+        case IRON_NODE_METHOD_CALL: {
+            Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+            walk_node(ctx, mc->object, in_lambda);
+            walk_nodes(ctx, mc->args, mc->arg_count, in_lambda);
+            break;
+        }
+        case IRON_NODE_FIELD_ACCESS: walk_node(ctx, ((Iron_FieldAccess *)node)->object, in_lambda); break;
+        case IRON_NODE_INDEX: {
+            Iron_IndexExpr *ix = (Iron_IndexExpr *)node;
+            walk_node(ctx, ix->object, in_lambda);
+            walk_node(ctx, ix->index, in_lambda);
+            break;
+        }
+        case IRON_NODE_SLICE: {
+            Iron_SliceExpr *sl = (Iron_SliceExpr *)node;
+            walk_node(ctx, sl->object, in_lambda);
+            walk_node(ctx, sl->start, in_lambda);
+            walk_node(ctx, sl->end, in_lambda);
+            break;
+        }
+        case IRON_NODE_HEAP: walk_node(ctx, ((Iron_HeapExpr *)node)->inner, in_lambda); break;
+        case IRON_NODE_RC: walk_node(ctx, ((Iron_RcExpr *)node)->inner, in_lambda); break;
+        case IRON_NODE_COMPTIME: walk_node(ctx, ((Iron_ComptimeExpr *)node)->inner, in_lambda); break;
+        case IRON_NODE_IS: walk_node(ctx, ((Iron_IsExpr *)node)->expr, in_lambda); break;
+        case IRON_NODE_AWAIT: walk_node(ctx, ((Iron_AwaitExpr *)node)->handle, in_lambda); break;
+        case IRON_NODE_CONSTRUCT: {
+            Iron_ConstructExpr *c = (Iron_ConstructExpr *)node;
+            walk_nodes(ctx, c->args, c->arg_count, in_lambda);
+            break;
+        }
+        case IRON_NODE_ARRAY_LIT: {
+            Iron_ArrayLit *al = (Iron_ArrayLit *)node;
+            walk_nodes(ctx, al->elements, al->element_count, in_lambda);
+            break;
+        }
+        case IRON_NODE_ENUM_CONSTRUCT: {
+            Iron_EnumConstruct *ec = (Iron_EnumConstruct *)node;
+            walk_nodes(ctx, ec->args, ec->arg_count, in_lambda);
+            break;
+        }
+        /* -Wswitch-enum opt-out: literals, declarations and structural
+         * helpers hold no identifiers that can be captured. */
+        default:
+            break;
+    }
+}
+
 /* Per-function entry: collect var locals + params, walk body, emit. */
 static void check_function_body(UnusedVarCtx *ctx,
                                  Iron_Node **params, int param_count,
@@ -262,6 +408,8 @@ static void check_function_body(UnusedVarCtx *ctx,
 
     /* Scan entire body for IDENT-LHS writes. */
     scan_for_writes(ctx, body);
+    /* Bindings captured by lambdas / spawn bodies must stay `var`. */
+    walk_node(ctx, body, false);
 
     /* Emit warnings for unmarked entries. */
     for (ptrdiff_t i = 0; i < arrlen(ctx->trackers); i++) {

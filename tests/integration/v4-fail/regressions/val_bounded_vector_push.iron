@@ -1,0 +1,7 @@
+-- @expected-error: E0235
+-- A bounded vector is a value: pushing to a `val` one used to pass the
+-- checker and fail in lowering with an internal poison-instruction error.
+func main() {
+    val bv: [Int; <=8]
+    bv.push(7)
+}

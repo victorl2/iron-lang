@@ -13,7 +13,7 @@ func main() {
     println("since ok")
 
     -- TIME-02: Timer constructor with duration and elapsed fields
-    val t = Time.Timer(5.0)
+    var t = Time.Timer(5.0)
     println("{t.duration_ms}")
     println("{t.elapsed_ms}")
 
