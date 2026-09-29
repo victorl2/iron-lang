@@ -880,7 +880,9 @@ void emit_type_decls(EmitCtx *ctx) {
         emit_split_arena_helpers(ctx);
         for (int i = 0; i < shlen(ctx->iface_reg->map); i++) {
             Iron_IfaceEntry *entry = &ctx->iface_reg->map[i].value;
-            if (entry->alive_count == 0) continue;
+            /* An interface with no (live) implementor still needs its type
+             * and dispatch functions: it can be a parameter type, and code
+             * using it must compile even though no value of it can exist. */
 
             const char *iface_mangled = emit_mangle_name(entry->iface_name, ctx->arena);
             Iron_StrBuf *sb = &ctx->struct_bodies;
@@ -897,6 +899,8 @@ void emit_type_decls(EmitCtx *ctx) {
                 iron_strbuf_appendf(sb, "    %s_TAG_%s = %d,\n",
                                      iface_mangled, impl->type_name, impl->tag);
             }
+            if (entry->alive_count == 0)
+                iron_strbuf_appendf(sb, "    %s_TAG__NONE = 0,\n", iface_mangled);
             iron_strbuf_appendf(sb, "} %s_Tag;\n\n", iface_mangled);
 
             /* Phase 48-03: Variant size analysis for large variant indirection.

@@ -422,6 +422,15 @@ static void analyze_array_param_modes(IronLIR_Module *module,
 
                 hmfree(aliases);
 
+                /* An interface array is an Iron_SplitList (one array per
+                 * implementor): callers pass the list itself, so there is no
+                 * element pointer to pass instead. */
+                {
+                    Iron_Type *ipt = fn->params[pi].type;
+                    if (ipt && ipt->kind == IRON_TYPE_ARRAY && ipt->array.elem &&
+                        ipt->array.elem->kind == IRON_TYPE_INTERFACE)
+                        disqualified = true;
+                }
                 if (!disqualified) {
                     ArrayParamMode mode = has_write
                         ? ARRAY_PARAM_MUT_PTR : ARRAY_PARAM_CONST_PTR;

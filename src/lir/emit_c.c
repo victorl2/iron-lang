@@ -2927,11 +2927,14 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     }
                 }
                 if (sp_entry) {
-                    /* Emit: switch on order[idx].tag to select from correct sub-array */
-                    emit_indent(sb, ind);
-                    if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", sp_iface);
-                    emit_val(sb, instr->id);
-                    iron_strbuf_appendf(sb, ";\n");
+                    /* Emit: switch on order[idx].tag to select from correct sub-array
+                     * (a hoisted value is already declared) */
+                    if (!is_hoisted) {
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "%s ", sp_iface);
+                        emit_val(sb, instr->id);
+                        iron_strbuf_appendf(sb, ";\n");
+                    }
                     emit_indent(sb, ind);
                     iron_strbuf_appendf(sb, "switch (");
                     emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
@@ -8015,6 +8018,19 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                 }
             }
         }
+        /* [Iface] parameters arrive as Iron_SplitList values. */
+        for (int pi = 0; pi < fn->param_count; pi++) {
+            Iron_Type *pt = fn->params[pi].type;
+            if (pt && pt->kind == IRON_TYPE_ARRAY && pt->array.elem &&
+                pt->array.elem->kind == IRON_TYPE_INTERFACE &&
+                pt->array.elem->interface.decl) {
+                const char *im = emit_mangle_name(
+                    pt->array.elem->interface.decl->name, ctx->arena);
+                const char *im_copy = iron_arena_strdup(ctx->arena, im, strlen(im));
+                if (!im_copy) iron_oom_abort("emit_c.c:emit_func_body param iface_mangled");
+                hmput(ctx->split_collection_ids, (IronLIR_ValueId)(pi + 1), im_copy);
+            }
+        }
         /* Propagate split_collection_ids through STORE/LOAD chains so that
          * fusion chain detection can find split sources after val assignment. */
         for (int bi = 0; bi < fn->block_count; bi++) {
@@ -10055,7 +10071,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     if (ctx.iface_reg) {
         for (int ri = 0; ri < shlen(ctx.iface_reg->map); ri++) {
             Iron_IfaceEntry *entry = &ctx.iface_reg->map[ri].value;
-            if (entry->alive_count == 0) continue;
+            /* (emitted even without implementors; see emit_structs.c) */
 
             const char *iface_mangled = emit_mangle_name(entry->iface_name, ctx.arena);
 

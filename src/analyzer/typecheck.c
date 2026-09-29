@@ -632,6 +632,23 @@ static Iron_Type *type_bounded_vector_literal(TypeCtx *ctx, Iron_Type *decl_type
                                              Iron_Type *init_type, Iron_Node *init) {
     if (!decl_type || !init_type || !init || init->kind != IRON_NODE_ARRAY_LIT)
         return init_type;
+    /* `val xs: [Iface] = [A(1)]`: a literal whose elements all implement
+     * the interface is an interface list (a literal mixing two implementors
+     * was already inferred that way; one with a single implementor was
+     * typed [A] and rejected). */
+    if (decl_type->kind == IRON_TYPE_ARRAY && !decl_type->array.is_bounded &&
+        decl_type->array.size < 0 && decl_type->array.elem &&
+        decl_type->array.elem->kind == IRON_TYPE_INTERFACE &&
+        init_type->kind == IRON_TYPE_ARRAY) {
+        Iron_ArrayLit *ial = (Iron_ArrayLit *)init;
+        for (int i = 0; i < ial->element_count; i++) {
+            Iron_Node *e = ial->elements[i];
+            Iron_Type *et = e ? ((Iron_ExprNode *)e)->resolved_type : NULL;
+            if (!et || !types_assignable(decl_type->array.elem, et)) return init_type;
+        }
+        ial->resolved_type = decl_type;
+        return decl_type;
+    }
     if (decl_type->kind != IRON_TYPE_ARRAY || !decl_type->array.is_bounded)
         return init_type;
     if (init_type->kind != IRON_TYPE_ARRAY) return init_type;
