@@ -4085,9 +4085,51 @@ static IronLIR_ValueId canonicalize_root(IronLIR_Func *fn,
  * On a match, *out_ptr / *out_gen are filled with the checked fat-ptr value and
  * its gen_source (copied from the deref instr / its ADDR_OF object), so the
  * inserted GENCHECK and the late emit expansion are byte-identical. */
+/* A `heap T(...)` handle: the HEAP_ALLOC value itself, or a load of a
+ * binding slot (typed as a checked pointer, loaded as the value type) whose
+ * every store is a HEAP_ALLOC. Field access through it reads the heap
+ * block, which `free` releases. */
+static bool gencheck_is_heap_handle(IronLIR_Func *fn, IronLIR_ValueId v) {
+    if (v == IRON_LIR_VALUE_INVALID || (ptrdiff_t)v >= arrlen(fn->value_table)) return false;
+    IronLIR_Instr *d = fn->value_table[v];
+    if (!d) return false;
+    if (d->kind == IRON_LIR_HEAP_ALLOC) return true;
+    if (d->kind != IRON_LIR_LOAD) return false;
+    if (d->type && d->type->kind == IRON_TYPE_PTR) return false;
+    IronLIR_ValueId slot = d->load.ptr;
+    if (slot == IRON_LIR_VALUE_INVALID || (ptrdiff_t)slot >= arrlen(fn->value_table)) return false;
+    IronLIR_Instr *a = fn->value_table[slot];
+    if (!a || a->kind != IRON_LIR_ALLOCA || !a->alloca.alloc_type ||
+        a->alloca.alloc_type->kind != IRON_TYPE_PTR || a->alloca.alloc_type->ptr.is_unchecked)
+        return false;
+    bool any = false;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *st = blk->instrs[ii];
+            if (!st || st->kind != IRON_LIR_STORE || st->store.ptr != slot) continue;
+            IronLIR_ValueId sv = st->store.value;
+            IronLIR_Instr *sd = (sv != IRON_LIR_VALUE_INVALID &&
+                                 (ptrdiff_t)sv < arrlen(fn->value_table))
+                                ? fn->value_table[sv] : NULL;
+            if (!sd || sd->kind != IRON_LIR_HEAP_ALLOC) return false;
+            any = true;
+        }
+    }
+    return any;
+}
+
 static bool gencheck_deref_needs_check(IronLIR_Func *fn, IronLIR_Instr *in,
                                        IronLIR_ValueId *out_ptr,
                                        IronLIR_GenSource *out_gen) {
+    /* Field access through a heap handle: after `free h`, h.f reads freed
+     * memory (it used to run to completion). */
+    if ((in->kind == IRON_LIR_GET_FIELD || in->kind == IRON_LIR_SET_FIELD) &&
+        gencheck_is_heap_handle(fn, in->field.object)) {
+        *out_ptr = in->field.object;
+        *out_gen = IRON_LIR_GEN_HEAP;
+        return true;
+    }
     switch ((int)(in->kind)) {
     case IRON_LIR_PTR_LOAD: {
         /* emit_c.c:5142-5183 — is_unchecked branch emits NO check (unchanged). */

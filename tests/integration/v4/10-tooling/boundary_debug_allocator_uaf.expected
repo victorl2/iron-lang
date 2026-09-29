@@ -1,1 +1,1 @@
-use after free
+stale pointer dereference
