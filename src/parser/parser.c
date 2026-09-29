@@ -997,6 +997,9 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
             iron_skip_newlines(p);
         }
         iron_expect(p, IRON_TOK_RBRACKET);
+        /* `Name[T]?`: the `?` after the type arguments (the printer's form;
+         * `Name?[T]` is still accepted above). */
+        if (!ann->is_nullable) ann->is_nullable = iron_match(p, IRON_TOK_QUESTION);
     } else {
         ann->generic_args      = NULL;
         ann->generic_arg_count = 0;
@@ -2038,6 +2041,44 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                                                   strlen(name_tok->value));
             if (!name) { /* HARD-09 REPLACE (iron_parse_expr_prec dot name) */ name = "?"; }
 
+            /* `x.m[Type, ...](args)`: explicit type arguments of a generic
+             * method. Told apart from indexing a field (`x.fs[i](a)`) by the
+             * first token inside the brackets (a capitalised type name or a
+             * `[` of a list type) and the `(` right after the `]`. */
+            Iron_Node **m_type_args = NULL;
+            int m_type_arg_count = 0;
+            bool type_namespace = left->kind == IRON_NODE_IDENT &&
+                                  ((Iron_Ident *)left)->name &&
+                                  ((Iron_Ident *)left)->name[0] >= 'A' &&
+                                  ((Iron_Ident *)left)->name[0] <= 'Z';
+            /* (`Ptr.cast[T](p)` and other `Type.f[...]` forms keep their
+             * index-then-call shape: the builtins read it that way.) */
+            if (!type_namespace &&
+                iron_check(p, IRON_TOK_LBRACKET) && p->pos + 1 < p->token_count) {
+                Iron_Token *first = &p->tokens[p->pos + 1];
+                bool typeish = first->kind == IRON_TOK_LBRACKET ||
+                               (first->kind == IRON_TOK_IDENTIFIER && first->value &&
+                                first->value[0] >= 'A' && first->value[0] <= 'Z');
+                int depth = 0, j = p->pos;
+                for (; j < p->token_count; j++) {
+                    if (p->tokens[j].kind == IRON_TOK_LBRACKET) depth++;
+                    else if (p->tokens[j].kind == IRON_TOK_RBRACKET && --depth == 0) break;
+                    else if (p->tokens[j].kind == IRON_TOK_NEWLINE ||
+                             p->tokens[j].kind == IRON_TOK_EOF) break;
+                }
+                if (typeish && j + 1 < p->token_count &&
+                    p->tokens[j].kind == IRON_TOK_RBRACKET &&
+                    p->tokens[j + 1].kind == IRON_TOK_LPAREN) {
+                    iron_advance(p);  /* '[' */
+                    while (!iron_check(p, IRON_TOK_RBRACKET) && !iron_check(p, IRON_TOK_EOF)) {
+                        arrput(m_type_args, iron_parse_type_annotation(p));
+                        m_type_arg_count++;
+                        if (!iron_match(p, IRON_TOK_COMMA)) break;
+                    }
+                    iron_expect(p, IRON_TOK_RBRACKET);
+                }
+            }
+
             if (iron_check(p, IRON_TOK_LPAREN)) {
                 /* Heuristic: if the LHS is a simple identifier starting with
                  * an uppercase letter, treat as enum construction:
@@ -2079,6 +2120,8 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         mc->method    = name;
                         mc->args      = args;
                         mc->arg_count = arg_count;
+                        mc->generic_args      = m_type_args;
+                        mc->generic_arg_count = m_type_arg_count;
                         left = (Iron_Node *)mc;
                     }
                 } else {
@@ -2096,6 +2139,8 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                     mc->method    = name;
                     mc->args      = args;
                     mc->arg_count = arg_count;
+                    mc->generic_args      = m_type_args;
+                    mc->generic_arg_count = m_type_arg_count;
                     left = (Iron_Node *)mc;
                 }
             } else {
@@ -4302,6 +4347,13 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             }
             Iron_Token *mname_tok = iron_advance(p);
 
+            /* Optional method type parameters: func name[T](...) */
+            int m_generic_count = 0;
+            Iron_Node **m_generic_params = NULL;
+            if (iron_check(p, IRON_TOK_LBRACKET)) {
+                m_generic_params = iron_parse_generic_params(p, &m_generic_count, p->arena);
+            }
+
             /* Explicit params (no receiver in source; we synthesize self). */
             int explicit_count = 0;
             Iron_Node **explicit_params = iron_parse_param_list(p, &explicit_count);
@@ -4374,8 +4426,8 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->return_type          = mret;
             m->body                 = mbody;
             m->is_private           = false;  /* Phase 82: default public; Phase 83 adds pub opt-in */
-            m->generic_params       = NULL;
-            m->generic_param_count  = 0;
+            m->generic_params       = m_generic_params;
+            m->generic_param_count  = m_generic_count;
             m->resolved_return_type = NULL;
             m->owner_sym            = NULL;
             m->is_array_extension   = false;

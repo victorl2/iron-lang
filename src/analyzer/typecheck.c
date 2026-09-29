@@ -26,6 +26,7 @@
 
 #include "analyzer/typecheck.h"
 #include "hir/stdlib_origin.h"
+#include "analyzer/generics.h"
 #include "analyzer/resolve.h"
 #include "lexer/lexer.h"
 #include "util/strbuf.h"
@@ -1597,6 +1598,20 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                                           od->generic_param_count,
                                           concrete, gc, ann_node->span);
 
+                /* User generic object: `C[Int]` names the instance C__Int,
+                 * cloned after this round (generics.c). Until it exists the
+                 * annotation is unresolved; the round is redone. */
+                if (ctx->program &&
+                    iron_generics_is_template(ctx->program, (Iron_Node *)od)) {
+                    const char *mangled = (ac == gc)
+                        ? iron_generics_request((Iron_Node *)od, concrete, gc, ctx->arena)
+                        : NULL;
+                    Iron_Symbol *isym = mangled
+                        ? iron_scope_lookup(ctx->global_scope, mangled) : NULL;
+                    if (isym && isym->type) return isym->type;
+                    return iron_type_make_primitive(IRON_TYPE_ERROR);
+                }
+
                 /* Phase 33 STDLIB-07/08 (Plan 33-05): the builtin generic
                  * nocopy resource surfaces carry their element on
                  * object.elem (not the enum-style monomorphization path).
@@ -2499,6 +2514,157 @@ static void check_iface_call_args(TypeCtx *ctx, Iron_MethodCallExpr *mc,
                       iface ? iface->name : NULL, fd->name);
 }
 
+/* ── User generics: instantiation at call sites (see generics.h) ──────── */
+
+/* A type written in expression position (`f[Int]`, `C[Int]`) as an
+ * annotation: an identifier, or `X[Y]` for a generic type argument. */
+static Iron_Node *type_ann_from_expr(TypeCtx *ctx, Iron_Node *n) {
+    if (!n) return NULL;
+    if (n->kind == IRON_NODE_TYPE_ANNOTATION) return n;
+    if (n->kind == IRON_NODE_IDENT) {
+        Iron_TypeAnnotation *ta = ARENA_ALLOC(ctx->arena, Iron_TypeAnnotation);
+        if (!ta) return NULL;
+        memset(ta, 0, sizeof(*ta));
+        ta->kind = IRON_NODE_TYPE_ANNOTATION;
+        ta->span = n->span;
+        ta->name = ((Iron_Ident *)n)->name;
+        return (Iron_Node *)ta;
+    }
+    if (n->kind == IRON_NODE_INDEX) {
+        Iron_IndexExpr *ix = (Iron_IndexExpr *)n;
+        Iron_TypeAnnotation *base = (Iron_TypeAnnotation *)type_ann_from_expr(ctx, ix->object);
+        Iron_Node *arg = type_ann_from_expr(ctx, ix->index);
+        if (!base || !arg) return NULL;
+        arrput(base->generic_args, arg);
+        base->generic_arg_count++;
+        return (Iron_Node *)base;
+    }
+    return NULL;
+}
+
+/* Bind the template's type parameters by matching a parameter annotation
+ * against the argument's type: `T`, `T?`, `[T]`, `func(T) -> U`. */
+static void unify_generic(Iron_Node *ann_node, Iron_Type *actual,
+                          Iron_Node **gps, int ngp, Iron_Type **bind) {
+    if (!ann_node || ann_node->kind != IRON_NODE_TYPE_ANNOTATION || !actual) return;
+    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)ann_node;
+    if (actual->kind == IRON_TYPE_ERROR) return;
+    if (ta->is_func) {
+        if (actual->kind != IRON_TYPE_FUNC) return;
+        for (int i = 0; i < ta->func_param_count && i < actual->func.param_count; i++)
+            unify_generic(ta->func_params[i], actual->func.param_types[i], gps, ngp, bind);
+        if (ta->func_return && actual->func.return_type)
+            unify_generic(ta->func_return, actual->func.return_type, gps, ngp, bind);
+        return;
+    }
+    Iron_Type *t = actual;
+    if (ta->is_nullable && t->kind == IRON_TYPE_NULLABLE) t = t->nullable.inner;
+    if (ta->is_array) {
+        if (t->kind != IRON_TYPE_ARRAY) return;
+        t = t->array.elem;
+    }
+    if (!ta->name || ta->generic_arg_count > 0) return;
+    for (int i = 0; i < ngp; i++) {
+        Iron_Ident *gp = (Iron_Ident *)gps[i];
+        if (gp && gp->name && strcmp(gp->name, ta->name) == 0) {
+            if (!bind[i] && t->kind != IRON_TYPE_NULL) bind[i] = t;
+            return;
+        }
+    }
+}
+
+/* Infer a generic object's type arguments from constructor arguments:
+ * against the anonymous init's parameters when it has one, otherwise
+ * against the fields in declaration order (the field-wise constructor). */
+static void infer_object_generic_args(TypeCtx *ctx, Iron_ObjectDecl *od,
+                                      Iron_Node **args, int argc,
+                                      Iron_Type **bind) {
+    Iron_MethodDecl *init = iron_find_init_by_name(ctx->program, od->name, NULL);
+    for (int i = 0; i < argc; i++) {
+        Iron_Type *at = check_expr(ctx, args[i]);
+        Iron_Node *ann = NULL;
+        if (init) {
+            if (i + 1 < init->param_count && init->params[i + 1])
+                ann = ((Iron_Param *)init->params[i + 1])->type_ann;
+        } else if (i < od->field_count && od->fields[i]) {
+            ann = ((Iron_Field *)od->fields[i])->type_ann;
+        }
+        unify_generic(ann, at, od->generic_params, od->generic_param_count, bind);
+    }
+}
+
+/* A call to a user generic function or a construction of a user generic
+ * object (`f(x)`, `f[Int](x)`, `C[Int](x)`): request the instance and, once
+ * it exists, point the callee at it so the call is checked as an ordinary
+ * call. Returns false when the call is not generic. */
+static bool redirect_generic_call(TypeCtx *ctx, Iron_CallExpr *ce) {
+    if (!ctx->program || !ce->callee) return false;
+    Iron_Node *base = ce->callee;
+    Iron_Node *explicit_arg = NULL;
+    if (base->kind == IRON_NODE_INDEX) {
+        explicit_arg = ((Iron_IndexExpr *)base)->index;
+        base = ((Iron_IndexExpr *)base)->object;
+    }
+    if (!base || base->kind != IRON_NODE_IDENT) return false;
+    Iron_Ident *bid = (Iron_Ident *)base;
+    Iron_Symbol *sym = bid->name ? iron_scope_lookup(ctx->global_scope, bid->name) : NULL;
+    if (!sym || !sym->decl_node || !iron_generics_is_template(ctx->program, sym->decl_node))
+        return false;
+    Iron_Node *tmpl = sym->decl_node;
+    if (tmpl->kind != IRON_NODE_FUNC_DECL && tmpl->kind != IRON_NODE_OBJECT_DECL) return false;
+
+    Iron_Node **gps = tmpl->kind == IRON_NODE_FUNC_DECL
+        ? ((Iron_FuncDecl *)tmpl)->generic_params : ((Iron_ObjectDecl *)tmpl)->generic_params;
+    int ngp = tmpl->kind == IRON_NODE_FUNC_DECL
+        ? ((Iron_FuncDecl *)tmpl)->generic_param_count
+        : ((Iron_ObjectDecl *)tmpl)->generic_param_count;
+    if (ngp <= 0 || ngp > 16) return false;
+    Iron_Type *bind[16] = {0};
+
+    if (explicit_arg) {
+        /* f[A](...) / C[A](...): a single explicit type argument. */
+        Iron_Node *ann = type_ann_from_expr(ctx, explicit_arg);
+        if (ann && ngp == 1) bind[0] = resolve_type_annotation(ctx, ann);
+    } else if (tmpl->kind == IRON_NODE_FUNC_DECL) {
+        /* f(...): infer from the argument types. */
+        Iron_FuncDecl *fd = (Iron_FuncDecl *)tmpl;
+        for (int i = 0; i < ce->arg_count && i < fd->param_count; i++) {
+            Iron_Type *at = check_expr(ctx, ce->args[i]);
+            Iron_Param *p = (Iron_Param *)fd->params[i];
+            if (p) unify_generic(p->type_ann, at, gps, ngp, bind);
+        }
+    } else {
+        infer_object_generic_args(ctx, (Iron_ObjectDecl *)tmpl, ce->args,
+                                  ce->arg_count, bind);
+    }
+    for (int i = 0; i < ngp; i++) {
+        if (!bind[i]) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "cannot infer the type arguments of '%s'",
+                     bid->name);
+            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ce->span, msg,
+                       "write them explicitly, e.g. f[Int](x)");
+            return false;
+        }
+    }
+    int errs_before = ctx->diags->error_count;
+    check_generic_constraints(ctx, gps, ngp, bind, ngp, ce->span);
+    if (ctx->diags->error_count != errs_before) return false;
+    const char *mangled = iron_generics_request(tmpl, bind, ngp, ctx->arena);
+    if (!mangled) return false;
+    Iron_Symbol *isym = iron_scope_lookup(ctx->global_scope, mangled);
+    if (!isym) return false;   /* cloned after this round; the round is redone */
+    Iron_Ident *nid = ARENA_ALLOC(ctx->arena, Iron_Ident);
+    if (!nid) return false;
+    memset(nid, 0, sizeof(*nid));
+    nid->kind = IRON_NODE_IDENT;
+    nid->span = ce->callee->span;
+    nid->name = mangled;
+    nid->resolved_sym = isym;
+    ce->callee = (Iron_Node *)nid;
+    return true;
+}
+
 static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return iron_type_make_primitive(IRON_TYPE_VOID);
     /* HARD-05: cancel poll at recursive expression walker entry. */
@@ -2927,6 +3093,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_CALL: {
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
+
+            /* User generics: redirect to the instance (or, in the round
+             * before the instance exists, type the call as unresolved). */
+            {
+                Iron_Node *gb = ce->callee;
+                if (gb && gb->kind == IRON_NODE_INDEX) gb = ((Iron_IndexExpr *)gb)->object;
+                Iron_Symbol *gs = (gb && gb->kind == IRON_NODE_IDENT && ((Iron_Ident *)gb)->name)
+                    ? iron_scope_lookup(ctx->global_scope, ((Iron_Ident *)gb)->name) : NULL;
+                if (gs && gs->decl_node && ctx->program &&
+                    iron_generics_is_template(ctx->program, gs->decl_node) &&
+                    !redirect_generic_call(ctx, ce)) {
+                    for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ce->resolved_type = result;
+                    break;
+                }
+            }
 
             /* Phase 20 OQ-D (Plan 20-02a): `Ptr.cast[T](p)` compiler
              * builtin. Parses as CALL(callee=INDEX(object=FIELD_ACCESS(
@@ -4726,6 +4909,68 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     /* Instance method on enum value */
                     type_name_mc = obj_id->resolved_type->enu.decl->name;
                 }
+                /* Generic method `x.m[A](...)` / `x.m(...)`: redirect to the
+                 * instance method (cloned after the round that requests it). */
+                if (type_name_mc && ctx->program && mc->method) {
+                    Iron_MethodDecl *gmd = NULL;
+                    for (int i = 0; i < ctx->program->decl_count && !gmd; i++) {
+                        Iron_Node *d = ctx->program->decls[i];
+                        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                        if (md->generic_param_count > 0 && md->type_name && md->method_name &&
+                            strcmp(md->type_name, type_name_mc) == 0 &&
+                            strcmp(md->method_name, mc->method) == 0 &&
+                            iron_generics_is_template(ctx->program, d))
+                            gmd = md;
+                    }
+                    if (gmd) {
+                        int ngp = gmd->generic_param_count;
+                        Iron_Type *bind[16] = {0};
+                        if (ngp <= 16 && mc->generic_arg_count == ngp) {
+                            for (int gi = 0; gi < ngp; gi++)
+                                bind[gi] = resolve_type_annotation(ctx, mc->generic_args[gi]);
+                        } else if (ngp <= 16) {
+                            /* params[0] is the synthesized self receiver. */
+                            int off = (gmd->param_count > mc->arg_count) ? 1 : 0;
+                            for (int ai = 0; ai < mc->arg_count; ai++) {
+                                Iron_Type *at = ((Iron_ExprNode *)mc->args[ai])->resolved_type;
+                                if (ai + off < gmd->param_count && gmd->params[ai + off])
+                                    unify_generic(((Iron_Param *)gmd->params[ai + off])->type_ann,
+                                                  at, gmd->generic_params, ngp, bind);
+                            }
+                        }
+                        bool all = ngp <= 16;
+                        for (int gi = 0; gi < ngp && all; gi++) if (!bind[gi]) all = false;
+                        const char *gm = all
+                            ? iron_generics_request((Iron_Node *)gmd, bind, ngp, ctx->arena)
+                            : NULL;
+                        bool inst_exists = false;
+                        for (int i = 0; gm && i < ctx->program->decl_count && !inst_exists; i++) {
+                            Iron_Node *d = ctx->program->decls[i];
+                            if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                            Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                            inst_exists = md->type_name && md->method_name &&
+                                          strcmp(md->type_name, type_name_mc) == 0 &&
+                                          strcmp(md->method_name, gm) == 0;
+                        }
+                        if (!all) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot infer the type arguments of '%s.%s'",
+                                     type_name_mc, mc->method);
+                            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->span, msg,
+                                       "write them explicitly, e.g. x.m[Int](y)");
+                        }
+                        if (!inst_exists) {
+                            result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                            mc->resolved_type = result;
+                            break;
+                        }
+                        mc->method = gm;
+                        mc->generic_args = NULL;
+                        mc->generic_arg_count = 0;
+                    }
+                }
                 bool method_found_mc = false;
                 if (type_name_mc && ctx->program) {
                     for (int i = 0; i < ctx->program->decl_count; i++) {
@@ -5324,6 +5569,49 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             }
 
             Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, ce->type_name);
+            /* User generic object `C[A](...)`: construct the instance. */
+            if (sym && sym->decl_node && ctx->program &&
+                iron_generics_is_template(ctx->program, sym->decl_node)) {
+                Iron_ObjectDecl *god = (Iron_ObjectDecl *)sym->decl_node;
+                Iron_Type *gargs[16] = {0};
+                int gn = god->generic_param_count;
+                const char *mangled = NULL;
+                if (gn > 0 && gn <= 16) {
+                    bool all = true;
+                    if (ce->generic_arg_count == gn) {
+                        for (int gi = 0; gi < gn; gi++) {
+                            Iron_Node *ga = type_ann_from_expr(ctx, ce->generic_args[gi]);
+                            gargs[gi] = ga ? resolve_type_annotation(ctx, ga) : NULL;
+                        }
+                    } else {
+                        infer_object_generic_args(ctx, god, ce->args, ce->arg_count, gargs);
+                    }
+                    for (int gi = 0; gi < gn; gi++) if (!gargs[gi]) all = false;
+                    if (!all) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "cannot infer the type arguments of '%s'",
+                                 ce->type_name);
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ce->span, msg,
+                                   "write them explicitly, e.g. C[Int](x)");
+                    } else {
+                        int errs_before = ctx->diags->error_count;
+                        check_generic_constraints(ctx, god->generic_params, gn, gargs, gn, ce->span);
+                        if (ctx->diags->error_count == errs_before)
+                            mangled = iron_generics_request(sym->decl_node, gargs, gn, ctx->arena);
+                    }
+                }
+                Iron_Symbol *isym = mangled ? iron_scope_lookup(ctx->global_scope, mangled) : NULL;
+                if (!isym) {
+                    for (int ai = 0; ai < ce->arg_count; ai++) check_expr(ctx, ce->args[ai]);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ce->resolved_type = result;
+                    break;
+                }
+                ce->type_name = mangled;
+                ce->generic_args = NULL;
+                ce->generic_arg_count = 0;
+                sym = isym;
+            }
             if (!sym) {
                 char msg[256];
                 snprintf(msg, sizeof(msg), "unknown type or function '%s'", ce->type_name);
@@ -8959,6 +9247,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             Iron_Type *ret_type = fd->return_type
                 ? resolve_type_annotation(&ctx, fd->return_type)
                 : iron_type_make_primitive(IRON_TYPE_VOID);
+            if (!fd->resolved_return_type) fd->resolved_return_type = ret_type;
             Iron_Type **param_types = NULL;
             if (fd->param_count > 0) {
                 param_types = (Iron_Type **)iron_arena_alloc(
@@ -8981,6 +9270,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
              * generic params (T, U) are not real types in the global scope.
              * Call-site type resolution is handled by resolve_array_ext_method. */
             if (md->is_array_extension) continue;
+            if (iron_generics_is_template(program, decl)) continue;
             /* Phase 87-02 SELF-01: set enclosing_type_name so that a method
              * return annotation of `Self` resolves correctly (and does not
              * trigger E0259) during this pre-pass signature building step. */
@@ -9009,6 +9299,9 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             Iron_Type *ret_type = md->return_type
                 ? resolve_type_annotation(&ctx, md->return_type)
                 : iron_type_make_primitive(IRON_TYPE_VOID);
+            /* Known before any body is checked: a call to a method declared
+             * later in the file (or in a later file) used to be typed Void. */
+            if (!md->resolved_return_type) md->resolved_return_type = ret_type;
             ctx.enclosing_type_name = NULL;  /* restore after pre-pass sig build */
             /* Method signatures are looked up by mangled name (type_method).
              * Phase 33 OQ-02: lookup runs against the REAL global scope, but
@@ -9103,6 +9396,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         for (int i = 0; i < program->decl_count; i++) {
             Iron_Node *d = program->decls[i];
             if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+            if (iron_generics_is_template(program, d)) continue;
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
             if (!od->is_patch) continue;
             const char *target = od->target_type_name
@@ -9178,6 +9472,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
         if (!decl || decl->kind != IRON_NODE_OBJECT_DECL) continue;
+        if (iron_generics_is_template(program, decl)) continue;
         Iron_ObjectDecl *od = (Iron_ObjectDecl *)decl;
 
         /* Duplicate drop/copy detection.
@@ -9215,10 +9510,12 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         }
     }
 
-    /* Check all func and method decls */
+    /* Check all func and method decls (generic templates are checked
+     * through their instances) */
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
+        if (iron_generics_is_template(program, decl)) continue;
 
         if (decl->kind == IRON_NODE_FUNC_DECL) {
             check_func_decl(&ctx, (Iron_FuncDecl *)decl);

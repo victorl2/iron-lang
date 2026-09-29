@@ -533,6 +533,13 @@ typedef struct {
     const char        *variant_name;   /* "Circle" */
     Iron_Node        **args;           /* argument expressions; NULL for plain variants */
     int                arg_count;
+    /* Unused by enum constructs; keeps the node large enough for the
+     * resolver's in-place rewrite into an Iron_MethodCallExpr (which grew
+     * the fields below and the two flags) when `Type.method(args)` was
+     * parsed as an enum construct. */
+    bool               reserved_flags[2];
+    Iron_Node        **reserved_generic_args;
+    int                reserved_generic_arg_count;
 } Iron_EnumConstruct;
 
 /* ── Statements ──────────────────────────────────────────────────────────── */
@@ -790,6 +797,10 @@ typedef struct {
     /* Set by typecheck.c for `x.to_string()` on a numeric or Bool receiver
      * with no declared to_string method: lowered exactly like "{x}". */
     bool               is_builtin_to_string;
+    /* `x.m[A, B](args)`: explicit type arguments of a generic method
+     * (type annotations); NULL / 0 otherwise. */
+    Iron_Node        **generic_args;
+    int                generic_arg_count;
 } Iron_MethodCallExpr;
 
 typedef struct {

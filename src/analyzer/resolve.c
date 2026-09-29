@@ -9,6 +9,7 @@
  */
 
 #include "hir/stdlib_origin.h"
+#include "analyzer/generics.h"
 #include "analyzer/resolve.h"
 #include "analyzer/typo_candidate.h"
 #include "parser/ast.h"
@@ -74,6 +75,7 @@ typedef struct {
      * before walking as->value so a use of `y` in `x = y` (where neither
      * is bound) still gets E0200 on `y`. */
     bool is_assign_lhs;
+    Iron_Program *program;   /* for user-generic template classification */
     /* True while resolving a bare-identifier match arm pattern, the one
      * place an unqualified enum variant name is allowed. */
     bool in_match_pattern;
@@ -616,6 +618,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
             /* Extern funcs have no body — skip resolution entirely */
             if (fd->is_extern) break;
+            /* A user generic template is resolved through its instances. */
+            if (ctx->program && iron_generics_is_template(ctx->program, node)) break;
 
             push_scope(ctx, IRON_SCOPE_FUNCTION);
             if (ctx->current_scope) ctx->current_scope->owner_name = fd->name;
@@ -641,6 +645,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_DECL: {
             Iron_MethodDecl *md = (Iron_MethodDecl *)node;
+            if (ctx->program && iron_generics_is_template(ctx->program, node)) break;
 
             /* Save previous method context */
             Iron_MethodDecl *prev_method = ctx->current_method;
@@ -1213,6 +1218,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     mc_slot->method        = member;
                     mc_slot->args          = ec_args;
                     mc_slot->arg_count     = ec_argc;
+                    mc_slot->is_auto_deref        = false;
+                    mc_slot->is_builtin_to_string = false;
+                    mc_slot->generic_args         = NULL;
+                    mc_slot->generic_arg_count    = 0;
                     resolve_expr(ctx, (Iron_Node *)ec);
                 } else {
                     _Static_assert(sizeof(Iron_FieldAccess) <= sizeof(Iron_EnumConstruct),
@@ -1603,6 +1612,7 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
 
     memset(&ctx, 0, sizeof(ctx));
     ctx.arena              = arena;
+    ctx.program            = program;
     ctx.diags              = diags;
     ctx.global_scope       = iron_scope_create(arena, NULL, IRON_SCOPE_GLOBAL);
     /* HARD-09 CR-03: if the top-level arena allocation fails we cannot

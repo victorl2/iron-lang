@@ -285,6 +285,7 @@ add_library(iron_compiler STATIC
     src/analyzer/effects.c
     src/analyzer/iface_collect.c
     src/analyzer/iface_defaults.c
+    src/analyzer/generics.c
     src/analyzer/analyzer.c
     src/comptime/comptime.c
     src/hir/hir.c

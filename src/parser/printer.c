@@ -196,18 +196,32 @@ static void print_type_ann(PrintCtx *ctx, Iron_Node *node) {
             print_type_ann(ctx, t->pointer_pointee);
             return;
         }
+        if (t->is_func) {
+            /* func(A, B) -> R; the return part is omitted for Void. */
+            iron_strbuf_appendf(ctx->sb, "func(");
+            for (int i = 0; i < t->func_param_count; i++) {
+                if (i > 0) iron_strbuf_appendf(ctx->sb, ", ");
+                print_type_ann(ctx, t->func_params[i]);
+            }
+            iron_strbuf_appendf(ctx->sb, ")");
+            if (t->func_return) {
+                iron_strbuf_appendf(ctx->sb, " -> ");
+                print_type_ann(ctx, t->func_return);
+            }
+            return;
+        }
+        if (t->is_tuple) {
+            iron_strbuf_appendf(ctx->sb, "(");
+            for (int i = 0; i < t->tuple_elem_count; i++) {
+                if (i > 0) iron_strbuf_appendf(ctx->sb, ", ");
+                print_type_ann(ctx, t->tuple_elems[i]);
+            }
+            iron_strbuf_appendf(ctx->sb, ")");
+            if (t->is_nullable) iron_strbuf_appendf(ctx->sb, "?");
+            return;
+        }
         if (t->is_array) {
             iron_strbuf_appendf(ctx->sb, "[%s", t->name);
-            if (t->array_size) {
-                iron_strbuf_appendf(ctx->sb, "; ");
-                print_node(ctx, t->array_size);
-            }
-            iron_strbuf_appendf(ctx->sb, "]");
-        } else {
-            iron_strbuf_appendf(ctx->sb, "%s", t->name);
-            if (t->is_nullable) {
-                iron_strbuf_appendf(ctx->sb, "?");
-            }
             if (t->generic_arg_count > 0) {
                 iron_strbuf_appendf(ctx->sb, "[");
                 for (int i = 0; i < t->generic_arg_count; i++) {
@@ -215,6 +229,28 @@ static void print_type_ann(PrintCtx *ctx, Iron_Node *node) {
                     print_type_ann(ctx, t->generic_args[i]);
                 }
                 iron_strbuf_appendf(ctx->sb, "]");
+            }
+            if (t->array_size) {
+                iron_strbuf_appendf(ctx->sb, t->bounded ? "; <=" : "; ");
+                print_node(ctx, t->array_size);
+            }
+            if (t->layout_hint == 1) iron_strbuf_appendf(ctx->sb, ", layout: soa");
+            else if (t->layout_hint == 2) iron_strbuf_appendf(ctx->sb, ", layout: aos");
+            if (t->is_unordered) iron_strbuf_appendf(ctx->sb, ", unordered");
+            iron_strbuf_appendf(ctx->sb, "]");
+            if (t->is_nullable) iron_strbuf_appendf(ctx->sb, "?");
+        } else {
+            iron_strbuf_appendf(ctx->sb, "%s", t->name);
+            if (t->generic_arg_count > 0) {
+                iron_strbuf_appendf(ctx->sb, "[");
+                for (int i = 0; i < t->generic_arg_count; i++) {
+                    if (i > 0) iron_strbuf_appendf(ctx->sb, ", ");
+                    print_type_ann(ctx, t->generic_args[i]);
+                }
+                iron_strbuf_appendf(ctx->sb, "]");
+            }
+            if (t->is_nullable) {
+                iron_strbuf_appendf(ctx->sb, "?");
             }
         }
     } else {
@@ -483,7 +519,9 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
         case IRON_NODE_ENUM_DECL: {
             Iron_EnumDecl *n = (Iron_EnumDecl *)node;
             if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
-            iron_strbuf_appendf(ctx->sb, "enum %s {\n", n->name);
+            iron_strbuf_appendf(ctx->sb, "enum %s", n->name);
+            print_generic_params(ctx, n->generic_params, n->generic_param_count);
+            iron_strbuf_appendf(ctx->sb, " {\n");
             ctx->indent_level++;
             for (int i = 0; i < n->variant_count; i++) {
                 print_indent(ctx);

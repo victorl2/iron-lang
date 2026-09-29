@@ -73,6 +73,10 @@ void iron_diag_emit(Iron_DiagList *list,
 void iron_diag_print(const Iron_Diagnostic *d, const char *source_text);
 
 /* Print all diagnostics in the list. */
+/* Drop every diagnostic after the first `count` (recomputing the error and
+ * warning totals). Used to discard a provisional analysis round. */
+void iron_diaglist_truncate(Iron_DiagList *list, int count);
+
 void iron_diag_print_all(const Iron_DiagList *list, const char *source_text);
 
 void iron_diaglist_free(Iron_DiagList *list);
