@@ -1,0 +1,3 @@
+allocated 0..63 in order, 65th allocation fails
+after freeing 5,40,0 the next allocations are 0 5 40
+concurrent phase: violations=0 final word=0

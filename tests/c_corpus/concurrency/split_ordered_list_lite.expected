@@ -1,0 +1,4 @@
+distinct keys=3943 table size power of two: yes
+list sorted by bit-reversed key: yes
+table grew beyond its initial 4 buckets: yes
+sentinel for bucket 0 is the list head: yes

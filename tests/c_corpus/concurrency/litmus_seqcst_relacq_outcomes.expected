@@ -1,0 +1,4 @@
+SB seq_cst           iterations=4000 forbidden outcomes=0
+MP release/acquire   iterations=4000 forbidden outcomes=0
+IRIW seq_cst         iterations=4000 forbidden outcomes=0
+CoRR relaxed         iterations=4000 forbidden outcomes=0

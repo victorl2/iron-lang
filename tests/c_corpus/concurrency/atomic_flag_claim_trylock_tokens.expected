@@ -1,0 +1,3 @@
+jobs=500 each ran once, job_total=250650
+accumulator=99987 from 4000 items per thread
+guard released: yes

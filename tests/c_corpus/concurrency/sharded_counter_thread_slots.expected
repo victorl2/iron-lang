@@ -1,0 +1,3 @@
+wave 1: 7 threads, total=105000
+wave 2: 5 threads reusing released shards, total=180000
+threads accounted: 12
