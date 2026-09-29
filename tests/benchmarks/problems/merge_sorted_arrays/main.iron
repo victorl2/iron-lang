@@ -1,6 +1,6 @@
 import time
 
-func merge_sorted(a: [Int], na: Int, b: [Int], nb: Int, out: [Int]) -> Int {
+func merge_sorted(a: [Int], na: Int, b: [Int], nb: Int, var out: [Int]) -> Int {
     var i = 0
     var j = 0
     var k = 0

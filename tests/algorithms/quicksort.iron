@@ -3,7 +3,7 @@
 -- Demonstrates: arrays, recursion, index-based mutation, range loops.
 
 func swap_at(arr: [Int], i: Int, j: Int) -> [Int] {
-  var a = arr
+  var a = arr.copy()
   val tmp = a[i]
   a[i] = a[j]
   a[j] = tmp
@@ -16,14 +16,14 @@ object PartResult {
   var arr: [Int]
   var pi:  Int
     init(arr: [Int], pi: Int) {
-        self.arr = arr
+        self.arr = arr.copy()
         self.pi = pi
     }
 }
 
 func partition(arr: [Int], low: Int, high: Int) -> PartResult {
   val pivot = arr[high]
-  var a = arr
+  var a = arr.copy()
   var i = low
   for j_off in range(high - low) {
     val j = low + j_off
@@ -38,10 +38,10 @@ func partition(arr: [Int], low: Int, high: Int) -> PartResult {
 
 func qs_sort(arr: [Int], low: Int, high: Int) -> [Int] {
   if low >= high {
-    return arr
+    return arr.copy()
   }
   val res = partition(arr, low, high)
-  var a = res.arr
+  var a = res.arr.copy()
   val pi = res.pi
   a = qs_sort(a, low, pi - 1)
   a = qs_sort(a, pi + 1, high)
@@ -57,7 +57,7 @@ func print_array(arr: [Int]) {
 func quicksort(arr: [Int]) -> [Int] {
   val n = len(arr)
   if n <= 1 {
-    return arr
+    return arr.copy()
   }
   return qs_sort(arr, 0, n - 1)
 }

@@ -177,8 +177,7 @@ static void test_workspace_symbol_public_fn_included(void) {
     fx_destroy(&f);
 }
 
-/* ── Test 03: VIS-02 -- Container object decl has no is_pub axis,  */
-/* default-true (RESEARCH Conflict 3); should appear ────────────── */
+/* ── Test 03: VIS-02 -- pub object Container should appear ──────── */
 
 static void test_workspace_symbol_object_decl_default_true(void) {
     fx_t f; fx_init(&f);
@@ -197,7 +196,7 @@ static void test_workspace_symbol_object_decl_default_true(void) {
         }
     }
     TEST_ASSERT_TRUE_MESSAGE(found,
-        "VIS-02: ObjectDecl has no is_pub axis (default-true); must appear");
+        "VIS-02: pub object Container must appear");
 
     iron_arena_free(&arena);
     fx_destroy(&f);
@@ -206,21 +205,23 @@ static void test_workspace_symbol_object_decl_default_true(void) {
 /* ── Test 04: predicate direct -- ilsp_vis_is_public 3-arm switch */
 
 static void test_predicate_is_public_arms(void) {
-    /* FuncDecl with is_private=true -> not public. */
+    /* FuncDecl without pub -> not public. */
     Iron_FuncDecl fd_priv = {0};
     fd_priv.kind = IRON_NODE_FUNC_DECL;
-    fd_priv.is_private = true;
+    fd_priv.is_pub = false;
     TEST_ASSERT_FALSE(ilsp_vis_is_public((const Iron_Node *)&fd_priv));
 
-    /* FuncDecl with is_private=false -> public. */
+    /* pub FuncDecl -> public. */
     Iron_FuncDecl fd_pub = {0};
     fd_pub.kind = IRON_NODE_FUNC_DECL;
-    fd_pub.is_private = false;
+    fd_pub.is_pub = true;
     TEST_ASSERT_TRUE(ilsp_vis_is_public((const Iron_Node *)&fd_pub));
 
-    /* ObjectDecl: no is_pub axis -> default-true. */
+    /* ObjectDecl follows its pub bit. */
     Iron_ObjectDecl od = {0};
     od.kind = IRON_NODE_OBJECT_DECL;
+    TEST_ASSERT_FALSE(ilsp_vis_is_public((const Iron_Node *)&od));
+    od.is_pub = true;
     TEST_ASSERT_TRUE(ilsp_vis_is_public((const Iron_Node *)&od));
 
     /* NULL input -> false (defensive). */

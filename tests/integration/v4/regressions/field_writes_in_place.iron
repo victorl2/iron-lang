@@ -1,0 +1,67 @@
+-- Regression: field writes on a `var` object binding landed on a copy.
+--
+-- `p.f = v` lowers to set_field on a LOAD of p's slot. The SSA pass did not
+-- count that as a use of the slot's address, so it promoted the slot and
+-- aliased the load to the last stored value; the LIR optimizer's
+-- store-to-load forwarding did the same, and its invalidation keyed on the
+-- load id instead of the slot. The C emitter then wrote into a temporary
+-- (`Iron_P _v8 = _v1; _v8.health = 7;`) and the store was lost: after a
+-- mutating call, after a closure captured the binding, for nested fields
+-- (`self.pos.y = v`), and for every field write under --no-optimize.
+--
+-- Field writes now pin the slot (no promotion, no forwarding) and the
+-- emitter writes through the binding's storage.
+object Vec {
+    var x: Float
+    var y: Float
+    init(x: Float, y: Float) {
+        self.x = x
+        self.y = y
+    }
+}
+
+object Body {
+    var pos: Vec
+    var hp: Int
+    init(hp: Int) {
+        self.pos = Vec(0.0, 0.0)
+        self.hp = hp
+    }
+    func lift() {
+        self.pos.y = 7.0
+    }
+    func step(dt: Float) {
+        self.pos.x += 2.0 * dt
+    }
+    func zero() {
+        self.hp = 0
+    }
+}
+
+func main() {
+    var b = Body(5)
+    b.zero()
+    b.hp = 7
+    println("write after mutating call: {b.hp}")
+
+    b.lift()
+    b.step(0.5)
+    b.step(0.5)
+    println("nested writes in methods: {b.pos.x} {b.pos.y}")
+
+    b.pos.x = 5.5
+    b.pos.y += 1.0
+    println("nested writes from caller: {b.pos.x} {b.pos.y}")
+
+    var c = Body(1)
+    val bump = func() { c.hp += 10 }
+    bump()
+    c.hp = c.hp + 8
+    bump()
+    println("write after capture: {c.hp}")
+
+    var d = Body(0)
+    val peek = func() -> Int { return d.hp }
+    d.hp = 8
+    println("closure sees later write: {peek()}")
+}

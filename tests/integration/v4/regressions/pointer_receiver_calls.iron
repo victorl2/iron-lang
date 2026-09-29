@@ -1,0 +1,42 @@
+-- Regression: calling a method through a pointer (`p.m()`, p: *T).
+--
+-- The call dispatched to Iron_unknown_<m> (invalid C); with the dispatch
+-- fixed, the inliner then substituted the pointer for the by-value self.
+-- `&y` also took the address of a copy of y, and the optimizer forwarded
+-- y's earlier value past writes through the pointer: bump_through(&y) left
+-- y unchanged.
+object F {
+    var a: Int
+
+    init(a: Int) {
+        self.a = a
+    }
+
+    readonly func v() -> Int {
+        return self.a
+    }
+
+    func bump() {
+        self.a = self.a + 10
+    }
+
+    readonly func sum_with(d: *F) -> Int {
+        return d.v() + self.a
+    }
+}
+
+func read_through(d: *F) -> Int {
+    return d.v()
+}
+
+func bump_through(d: *var F) {
+    d.bump()
+}
+
+func main() {
+    val x = F(1)
+    var y = F(2)
+    println("{x.sum_with(&y)} {read_through(&y)}")
+    bump_through(&y)
+    println("{y.a}")
+}

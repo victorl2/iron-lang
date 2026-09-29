@@ -196,18 +196,39 @@ static void print_type_ann(PrintCtx *ctx, Iron_Node *node) {
             print_type_ann(ctx, t->pointer_pointee);
             return;
         }
+        if (t->is_rc || t->is_weak_rc) {
+            iron_strbuf_appendf(ctx->sb, t->is_rc ? "rc " : "weak rc ");
+            print_type_ann(ctx, t->is_rc ? t->rc_inner : t->weak_rc_inner);
+            return;
+        }
+        if (t->is_func) {
+            /* func(A, B) -> R; the return part is omitted for Void. */
+            iron_strbuf_appendf(ctx->sb, "func(");
+            for (int i = 0; i < t->func_param_count; i++) {
+                if (i > 0) iron_strbuf_appendf(ctx->sb, ", ");
+                print_type_ann(ctx, t->func_params[i]);
+            }
+            iron_strbuf_appendf(ctx->sb, ")");
+            if (t->func_return) {
+                iron_strbuf_appendf(ctx->sb, " -> ");
+                print_type_ann(ctx, t->func_return);
+            }
+            return;
+        }
+        if (t->is_tuple) {
+            iron_strbuf_appendf(ctx->sb, "(");
+            for (int i = 0; i < t->tuple_elem_count; i++) {
+                if (i > 0) iron_strbuf_appendf(ctx->sb, ", ");
+                print_type_ann(ctx, t->tuple_elems[i]);
+            }
+            iron_strbuf_appendf(ctx->sb, ")");
+            if (t->is_nullable) iron_strbuf_appendf(ctx->sb, "?");
+            return;
+        }
         if (t->is_array) {
-            iron_strbuf_appendf(ctx->sb, "[%s", t->name);
-            if (t->array_size) {
-                iron_strbuf_appendf(ctx->sb, "; ");
-                print_node(ctx, t->array_size);
-            }
-            iron_strbuf_appendf(ctx->sb, "]");
-        } else {
-            iron_strbuf_appendf(ctx->sb, "%s", t->name);
-            if (t->is_nullable) {
-                iron_strbuf_appendf(ctx->sb, "?");
-            }
+            iron_strbuf_appendf(ctx->sb, "[");
+            if (t->array_elem_ann) print_type_ann(ctx, t->array_elem_ann);
+            else iron_strbuf_appendf(ctx->sb, "%s", t->name);
             if (t->generic_arg_count > 0) {
                 iron_strbuf_appendf(ctx->sb, "[");
                 for (int i = 0; i < t->generic_arg_count; i++) {
@@ -215,6 +236,28 @@ static void print_type_ann(PrintCtx *ctx, Iron_Node *node) {
                     print_type_ann(ctx, t->generic_args[i]);
                 }
                 iron_strbuf_appendf(ctx->sb, "]");
+            }
+            if (t->array_size) {
+                iron_strbuf_appendf(ctx->sb, t->bounded ? "; <=" : "; ");
+                print_node(ctx, t->array_size);
+            }
+            if (t->layout_hint == 1) iron_strbuf_appendf(ctx->sb, ", layout: soa");
+            else if (t->layout_hint == 2) iron_strbuf_appendf(ctx->sb, ", layout: aos");
+            if (t->is_unordered) iron_strbuf_appendf(ctx->sb, ", unordered");
+            iron_strbuf_appendf(ctx->sb, "]");
+            if (t->is_nullable) iron_strbuf_appendf(ctx->sb, "?");
+        } else {
+            iron_strbuf_appendf(ctx->sb, "%s", t->name);
+            if (t->generic_arg_count > 0) {
+                iron_strbuf_appendf(ctx->sb, "[");
+                for (int i = 0; i < t->generic_arg_count; i++) {
+                    if (i > 0) iron_strbuf_appendf(ctx->sb, ", ");
+                    print_type_ann(ctx, t->generic_args[i]);
+                }
+                iron_strbuf_appendf(ctx->sb, "]");
+            }
+            if (t->is_nullable) {
+                iron_strbuf_appendf(ctx->sb, "?");
             }
         }
     } else {
@@ -407,16 +450,9 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             if (n->is_patch) iron_strbuf_appendf(ctx->sb, "patch ");
             iron_strbuf_appendf(ctx->sb, "object %s", n->name);
             print_generic_params(ctx, n->generic_params, n->generic_param_count);
-            if (n->extends_name) {
-                iron_strbuf_appendf(ctx->sb, " extends %s", n->extends_name);
-            }
             if (n->implements_count > 0) {
-                /* Phase 9 Plan 09-02 D-10: classic `object T impl I` uses the
-                 * IRON_TOK_IMPL keyword (parser.c:3117); patches use the
-                 * contextual identifier `implements` (parser.c:4127-4129).
-                 * Round-tripping requires emitting the matching token. */
-                iron_strbuf_appendf(ctx->sb,
-                                     n->is_patch ? " implements " : " impl ");
+                /* `impl` is the conformance keyword for objects and patches. */
+                iron_strbuf_appendf(ctx->sb, " impl ");
                 for (int i = 0; i < n->implements_count; i++) {
                     if (i > 0) iron_strbuf_appendf(ctx->sb, ", ");
                     iron_strbuf_appendf(ctx->sb, "%s", n->implements_names[i]);
@@ -490,7 +526,9 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
         case IRON_NODE_ENUM_DECL: {
             Iron_EnumDecl *n = (Iron_EnumDecl *)node;
             if (n->is_pub) iron_strbuf_appendf(ctx->sb, "pub ");
-            iron_strbuf_appendf(ctx->sb, "enum %s {\n", n->name);
+            iron_strbuf_appendf(ctx->sb, "enum %s", n->name);
+            print_generic_params(ctx, n->generic_params, n->generic_param_count);
+            iron_strbuf_appendf(ctx->sb, " {\n");
             ctx->indent_level++;
             for (int i = 0; i < n->variant_count; i++) {
                 print_indent(ctx);
@@ -1146,7 +1184,7 @@ static void stub_emit_param(FILE *out, Iron_Node *node) {
         Iron_TypeAnnotation *t = (Iron_TypeAnnotation *)p->type_ann;
         fprintf(out, ": ");
         /* Phase 20 PTR-13/14: pointer types (delegate to shared helper). */
-        if (t->is_pointer) {
+        if (t->is_pointer || t->is_rc || t->is_weak_rc) {
             stub_emit_type_ann(out, p->type_ann);
             return;
         }
@@ -1181,6 +1219,11 @@ static void stub_emit_params(FILE *out, Iron_Node **params, int count) {
 static void stub_emit_type_ann(FILE *out, Iron_Node *node) {
     if (!node || node->kind != IRON_NODE_TYPE_ANNOTATION) return;
     Iron_TypeAnnotation *t = (Iron_TypeAnnotation *)node;
+    if (t->is_rc || t->is_weak_rc) {
+        fprintf(out, t->is_rc ? "rc " : "weak rc ");
+        stub_emit_type_ann(out, t->is_rc ? t->rc_inner : t->weak_rc_inner);
+        return;
+    }
     /* Phase 20 PTR-13/14: pointer-type stub emission. */
     if (t->is_pointer) {
         if (t->is_nullable) fprintf(out, "?");

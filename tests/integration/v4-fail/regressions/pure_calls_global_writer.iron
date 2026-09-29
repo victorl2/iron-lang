@@ -1,0 +1,19 @@
+-- @expected-error: E0242
+-- A pure method may not write global state, including through a free
+-- function it calls (bump used to make c.a() return 2 then 3).
+var G: Int = 0
+
+func bump() -> Int {
+    G = G + 1
+    return G
+}
+
+object C {
+    val v: Int
+    pure func a() -> Int { return self.v + bump() }
+}
+
+func main() {
+    val c = C(1)
+    println("{c.a()}")
+}

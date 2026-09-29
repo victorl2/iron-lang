@@ -1,0 +1,12 @@
+-- @expected-error: E0200
+-- An unqualified enum variant in an expression is an undefined identifier
+-- (it used to pass check and emit an undeclared C identifier). Bare variant
+-- names remain valid as match arm patterns.
+enum GameState { PAUSED, RUNNING }
+
+func main() {
+    val t = RUNNING
+    if t == GameState.RUNNING {
+        println("running")
+    }
+}

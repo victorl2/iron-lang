@@ -19,5 +19,23 @@ if(NOT WIN32)
         ENVIRONMENT "IRON_CURRENT_PHASE=${IRON_CURRENT_PHASE}")
 endif()
 
+# Optimizer parity oracle: every runnable v4 / algorithms fixture must behave
+# the same when built with and without --no-optimize (see
+# tests/oracles/opt_parity.sh). The two pipelines implement one language, so a
+# difference is a compiler bug even when the optimized build matches .expected.
+if(NOT WIN32)
+    add_test(
+        NAME test_opt_parity
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/oracles/opt_parity.sh
+                ${CMAKE_BINARY_DIR}/iron
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    # Not in the v4-acceptance label: it builds every fixture twice, which
+    # pushed that 30-minute gate over its limit. The full test jobs run it.
+    set_tests_properties(test_opt_parity PROPERTIES
+        LABELS "oracle"
+        TIMEOUT 1800)
+endif()
+
 # Phase 35 MIG-09: migrated-from-v3/ subdir hosts the hand-migrated v3 corpus.
 add_subdirectory(migrated-from-v3)

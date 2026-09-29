@@ -1,0 +1,41 @@
+-- Lists of rc handles and of droppable values own their elements: a literal
+-- or push takes a reference (or a copy), and freeing the list releases or
+-- drops each element. Small literal lists used to become C stack arrays with
+-- no cleanup, and push on [rc T] called the Int list's push.
+object Tex {
+    val name: String
+    drop { println("free {self.name}") }
+}
+object Res {
+    val n: Int
+    drop { println("drop {self.n}") }
+}
+object Holder {
+    val t: rc Tex
+}
+func shared_handles() {
+    val t = rc Tex("shared")
+    val l = [t, t]
+    println(l[0].name)
+    var more = [rc Tex("fresh")]
+    more.push(t)
+    val hs = [Holder(t)]
+    println("{l.len()} {more.len()} {hs.len()}")
+}
+func stack_values() {
+    val rs = [Res(1), Res(2)]
+    println("{rs[1].n}")
+}
+func weak_list() {
+    val t = rc Tex("target")
+    val ws = [t.downgrade()]
+    println("{ws.len()}")
+}
+func main() {
+    shared_handles()
+    println("after shared")
+    stack_values()
+    println("after stack")
+    weak_list()
+    println("end")
+}

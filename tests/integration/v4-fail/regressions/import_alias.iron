@@ -1,0 +1,7 @@
+-- @expected-error: E0209
+-- Import aliases are not supported (there are no module namespaces); an
+-- alias used to be accepted and every alias.f() call typed as Void.
+import math as m
+func main() {
+  println("{Math.sqrt(16.0)}")
+}

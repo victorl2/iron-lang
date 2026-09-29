@@ -8,6 +8,8 @@
  * full control over scope push/pop ordering.
  */
 
+#include "hir/stdlib_origin.h"
+#include "analyzer/generics.h"
 #include "analyzer/resolve.h"
 #include "analyzer/typo_candidate.h"
 #include "parser/ast.h"
@@ -73,6 +75,10 @@ typedef struct {
      * before walking as->value so a use of `y` in `x = y` (where neither
      * is bound) still gets E0200 on `y`. */
     bool is_assign_lhs;
+    Iron_Program *program;   /* for user-generic template classification */
+    /* True while resolving a bare-identifier match arm pattern, the one
+     * place an unqualified enum variant name is allowed. */
+    bool in_match_pattern;
 } ResolveCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -166,6 +172,12 @@ static void emit_undefined(ResolveCtx *ctx, const char *name, Iron_Span span) {
  * inactive (user_source_start_line <= 0) every decl tests false so the gate
  * still works on synthetic cross-module test inputs (e.g. unit tests). */
 static bool is_stdlib_decl(ResolveCtx *ctx, Iron_Symbol *sym) {
+    /* With `-- @file: ... @line:` markers every file's lines restart at 1,
+     * so a line threshold would call a user declaration near the top of a
+     * file stdlib. Decide by the declaring file whenever the driver
+     * registered its stdlib files. */
+    int origin = iron_stdlib_origin_classify(sym->span.filename);
+    if (origin >= 0) return origin == 1;
     if (ctx->user_source_start_line <= 0) return false;
     return sym->span.line > 0 &&
            sym->span.line < (uint32_t)ctx->user_source_start_line;
@@ -203,6 +215,33 @@ static void emit_cross_module_private(ResolveCtx *ctx,
 
 /* ── Pass 1a: Collect top-level declarations ─────────────────────────────── */
 
+/* Type names the core runtime header (always included in generated C)
+ * already defines as Iron_<Name>. A user type with one of these names
+ * emitted a second `struct Iron_<Name>` and failed in clang. */
+static const char *const k_runtime_type_names[] = {
+    "Channel", "Closure", "CondVar", "Deadline", "Error", "FatPtr", "Handle",
+    "Lock", "Mutex", "Pool", "PoolWait", "RcHeader", "String", NULL
+};
+
+static void check_runtime_type_name(ResolveCtx *ctx, const char *name,
+                                    Iron_Span span) {
+    if (!name) return;
+    /* Only user declarations: the stdlib wrappers declare some of these
+     * (Channel, Mutex) as the Iron face of the runtime type. */
+    if (iron_stdlib_origin_classify(span.filename) != 0) return;
+    for (int i = 0; k_runtime_type_names[i]; i++) {
+        if (strcmp(name, k_runtime_type_names[i]) != 0) continue;
+        char msg[256];
+        snprintf(msg, sizeof(msg), "type name '%s' is reserved by the runtime", name);
+        const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_DUPLICATE_DECL, span,
+                       msg_copy ? msg_copy : "type name is reserved by the runtime",
+                       "choose another name for this type");
+        return;
+    }
+}
+
 static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
     switch ((int)(node->kind)) {
         case IRON_NODE_OBJECT_DECL: {
@@ -214,6 +253,7 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
              * registry (iron_type_patch_registry_build) keys on
              * target_type_name, so no global symbol is needed here. */
             if (od->is_patch) break;
+            check_runtime_type_name(ctx, od->name, od->span);
             /* Create an object type and attach to symbol */
             Iron_Type *ty = iron_type_make_object(ctx->arena, od);
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, od->name,
@@ -233,6 +273,7 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_INTERFACE_DECL: {
             Iron_InterfaceDecl *id = (Iron_InterfaceDecl *)node;
+            check_runtime_type_name(ctx, id->name, id->span);
             Iron_Type *ty = iron_type_make_interface(ctx->arena, id);
             Iron_Symbol *sym = iron_symbol_create(ctx->arena, id->name,
                                                    IRON_SYM_INTERFACE,
@@ -254,6 +295,7 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_ENUM_DECL: {
             Iron_EnumDecl *ed = (Iron_EnumDecl *)node;
+            check_runtime_type_name(ctx, ed->name, ed->span);
             Iron_Type *ty = iron_type_make_enum(ctx->arena, ed);
             Iron_Symbol *enum_sym = iron_symbol_create(ctx->arena, ed->name,
                                                        IRON_SYM_ENUM,
@@ -308,17 +350,19 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_IMPORT_DECL: {
             Iron_ImportDecl *imp = (Iron_ImportDecl *)node;
-            /* If there's an alias, define it in the global scope as a placeholder.
-             * Actual module resolution happens in Phase 3 CLI. */
+            /* Imports make a module's declarations available by their own
+             * names; there are no module namespaces to alias. An alias used
+             * to be accepted and then typed every `alias.f()` call as Void. */
             if (imp->alias) {
-                Iron_Symbol *sym = iron_symbol_create(ctx->arena, imp->alias,
-                                                       IRON_SYM_TYPE,
-                                                       node, imp->span);
-                /* HARD-09 CR-03: skip this alias on arena OOM. */
-                if (!sym) { ctx->in_error_recovery = true; break; }
-                /* Tolerate duplicate alias silently — import ordering issues
-                 * will be caught by the module resolver later. */
-                iron_scope_define(ctx->global_scope, ctx->arena, sym);
+                char msg[256];
+                snprintf(msg, sizeof(msg), "import aliases are not supported ('as %s')",
+                         imp->alias);
+                const char *mc = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_IMPORT_NOT_FOUND, imp->span,
+                               mc ? mc : "import aliases are not supported",
+                               "remove `as ...` and use the module's names directly, "
+                               "e.g. Math.sqrt after `import math`");
             }
             break;
         }
@@ -512,6 +556,27 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
             /* Normal identifier */
             Iron_Symbol *sym = iron_scope_lookup(ctx->current_scope, id->name);
+            if (sym && sym->sym_kind == IRON_SYM_ENUM_VARIANT &&
+                !ctx->in_match_pattern) {
+                /* Enum variants live in their enum's namespace; a bare
+                 * variant name in an expression has no C counterpart. */
+                const char *enum_name = (sym->type && sym->type->kind == IRON_TYPE_ENUM &&
+                                         sym->type->enu.decl)
+                    ? sym->type->enu.decl->name : NULL;
+                char msg[256];
+                snprintf(msg, sizeof(msg), "undefined identifier '%s'", id->name);
+                char help[256];
+                snprintf(help, sizeof(help),
+                         "enum variants are qualified by their enum: write '%s.%s'",
+                         enum_name ? enum_name : "Enum", id->name);
+                const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+                const char *help_copy = iron_arena_strdup(ctx->arena, help, strlen(help));
+                iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                               IRON_ERR_UNDEFINED_VAR, id->span,
+                               msg_copy ? msg_copy : "undefined identifier",
+                               help_copy);
+                break;
+            }
             if (sym) {
                 id->resolved_sym = sym;
 
@@ -553,6 +618,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
             /* Extern funcs have no body — skip resolution entirely */
             if (fd->is_extern) break;
+            /* A user generic template is resolved through its instances. */
+            if (ctx->program && iron_generics_is_template(ctx->program, node)) break;
 
             push_scope(ctx, IRON_SCOPE_FUNCTION);
             if (ctx->current_scope) ctx->current_scope->owner_name = fd->name;
@@ -578,6 +645,7 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_DECL: {
             Iron_MethodDecl *md = (Iron_MethodDecl *)node;
+            if (ctx->program && iron_generics_is_template(ctx->program, node)) break;
 
             /* Save previous method context */
             Iron_MethodDecl *prev_method = ctx->current_method;
@@ -776,10 +844,13 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             /* Resolve iterable in current scope (not the for's inner scope) */
             resolve_expr(ctx, fs->iterable);
             push_scope(ctx, IRON_SCOPE_BLOCK);
-            /* Define loop variable in the inner scope */
+            /* Define loop variable in the inner scope. It is a fresh copy of
+             * the current element, so it is immutable: a mutating method call
+             * or field write on it would silently change only the copy. Index
+             * the collection (`xs[i].m()`) to mutate elements in place. */
             Iron_Span var_span = fs->span; /* use for-stmt span for the var */
             define_sym(ctx, fs->var_name, IRON_SYM_VARIABLE, node, var_span,
-                       /*is_mutable=*/true, /*is_private=*/false);
+                       /*is_mutable=*/false, /*is_private=*/false);
             if (fs->body) resolve_node(ctx, fs->body);
             pop_scope(ctx);
             break;
@@ -798,7 +869,12 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
         case IRON_NODE_MATCH_CASE: {
             Iron_MatchCase *mc = (Iron_MatchCase *)node;
             push_scope(ctx, IRON_SCOPE_BLOCK);
-            if (mc->pattern) resolve_node(ctx, mc->pattern);
+            if (mc->pattern) {
+                bool prev_pat = ctx->in_match_pattern;
+                ctx->in_match_pattern = mc->pattern->kind == IRON_NODE_IDENT;
+                resolve_node(ctx, mc->pattern);
+                ctx->in_match_pattern = prev_pat;
+            }
             if (mc->body) resolve_node(ctx, mc->body);
             pop_scope(ctx);
             break;
@@ -1142,6 +1218,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     mc_slot->method        = member;
                     mc_slot->args          = ec_args;
                     mc_slot->arg_count     = ec_argc;
+                    mc_slot->is_auto_deref        = false;
+                    mc_slot->is_builtin_to_string = false;
+                    mc_slot->generic_args         = NULL;
+                    mc_slot->generic_arg_count    = 0;
                     resolve_expr(ctx, (Iron_Node *)ec);
                 } else {
                     _Static_assert(sizeof(Iron_FieldAccess) <= sizeof(Iron_EnumConstruct),
@@ -1433,155 +1513,90 @@ void iron_type_patch_registry_free(Iron_TypePatchRegistry *reg) {
 
 
 /* ── Phase 4 Plan 04-01 (EDIT-07): unused-import post-pass walker ────────── */
-/* After Pass 2 completes, walk every Iron_Ident in the program AST looking
- * for uses of an import alias. Any IMPORT_DECL whose alias was never
- * referenced emits IRON_WARN_UNUSED_IMPORT with a non-NULL .suggestion
- * (empty string acts as a sentinel meaning "delete the line" in the
- * code-action dispatch layer of Plan 04-04; keeping it non-NULL satisfies
- * the "every P1 emit site populates .suggestion" invariant). */
 
-typedef struct {
-    const char **used_alias_set;   /* stb_ds dynamic array of alias names */
-} UnusedImportScan;
+/* Stdlib modules an `import` may name (src/stdlib/<name>.iron). */
+static const char *const k_stdlib_modules[] = {
+    "arena", "box", "channel", "filehandle", "float", "hashable", "hint",
+    "http", "int", "io", "list", "log", "map", "math", "mutex", "net",
+    "rawptr", "raylib", "rwlock", "set", "string", "time", "url",
+    "websocket", NULL
+};
 
-static void scan_collect_ident(UnusedImportScan *s, Iron_Node *node);
-
-static void scan_collect_list(UnusedImportScan *s, Iron_Node **nodes, int n) {
-    if (!nodes) return;
-    for (int i = 0; i < n; i++) if (nodes[i]) scan_collect_ident(s, nodes[i]);
+/* Does `filename` contain the dotted module path as consecutive path
+ * components (the last one may carry the .iron extension)? `lib` matches
+ * src/lib.iron, `greeter` matches vendor/greeter/src/lib.iron, `a.b.c`
+ * matches src/a/b/c.iron. */
+static bool file_matches_module(const char *filename, const char *mod) {
+    char comps[64][128];
+    int n = 0;
+    const char *p = filename;
+    while (*p && n < 64) {
+        const char *e = p;
+        while (*e && *e != '/' && *e != '\\') e++;
+        size_t len = (size_t)(e - p);
+        if (len >= 6 && strncmp(e - 5, ".iron", 5) == 0) len -= 5;
+        else if (len >= 11 && strncmp(e - 10, ".iron-stub", 10) == 0) len -= 10;
+        if (len > 0 && len < sizeof(comps[0])) {
+            memcpy(comps[n], p, len);
+            comps[n][len] = '\0';
+            n++;
+        }
+        p = *e ? e + 1 : e;
+    }
+    char segs[16][128];
+    int m = 0;
+    const char *q = mod;
+    while (*q && m < 16) {
+        const char *e = strchr(q, '.');
+        size_t len = e ? (size_t)(e - q) : strlen(q);
+        if (len == 0 || len >= sizeof(segs[0])) return false;
+        memcpy(segs[m], q, len);
+        segs[m][len] = '\0';
+        m++;
+        q = e ? e + 1 : q + len;
+    }
+    for (int i = 0; i + m <= n; i++) {
+        bool all = true;
+        for (int k = 0; k < m && all; k++) all = strcmp(comps[i + k], segs[k]) == 0;
+        if (all) return true;
+    }
+    return false;
 }
 
-/* Mark an import alias name as "used". O(n) dedup scan — alias sets are
- * small (<~20 per file in practice). */
-static void mark_alias_used(UnusedImportScan *s, const char *alias) {
-    if (!alias) return;
-    for (ptrdiff_t i = 0; i < arrlen(s->used_alias_set); i++) {
-        if (strcmp(s->used_alias_set[i], alias) == 0) return;
-    }
-    arrput(s->used_alias_set, alias);
-}
-
-/* Walk node subtree collecting any Iron_Ident whose resolved_sym's decl_node
- * kind is IRON_NODE_IMPORT_DECL. These are the "used import" names. */
-static void scan_collect_ident(UnusedImportScan *s, Iron_Node *node) {
-    if (!node) return;
-    switch ((int)node->kind) {
-        case IRON_NODE_IDENT: {
-            Iron_Ident *id = (Iron_Ident *)node;
-            if (id->resolved_sym && id->resolved_sym->decl_node &&
-                id->resolved_sym->decl_node->kind == IRON_NODE_IMPORT_DECL) {
-                /* The alias symbol's name *is* the alias. */
-                mark_alias_used(s, id->resolved_sym->name);
-            }
-            break;
-        }
-        case IRON_NODE_FUNC_DECL: {
-            Iron_FuncDecl *fd = (Iron_FuncDecl *)node;
-            scan_collect_ident(s, fd->body);
-            break;
-        }
-        case IRON_NODE_METHOD_DECL: {
-            Iron_MethodDecl *md = (Iron_MethodDecl *)node;
-            scan_collect_ident(s, md->body);
-            break;
-        }
-        case IRON_NODE_BLOCK: {
-            Iron_Block *b = (Iron_Block *)node;
-            scan_collect_list(s, b->stmts, b->stmt_count);
-            break;
-        }
-        case IRON_NODE_VAL_DECL: {
-            Iron_ValDecl *vd = (Iron_ValDecl *)node;
-            scan_collect_ident(s, vd->init);
-            break;
-        }
-        case IRON_NODE_VAR_DECL: {
-            Iron_VarDecl *vd = (Iron_VarDecl *)node;
-            scan_collect_ident(s, vd->init);
-            break;
-        }
-        case IRON_NODE_RETURN: {
-            Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
-            scan_collect_ident(s, rs->value);
-            break;
-        }
-        case IRON_NODE_BINARY: {
-            Iron_BinaryExpr *be = (Iron_BinaryExpr *)node;
-            scan_collect_ident(s, be->left);
-            scan_collect_ident(s, be->right);
-            break;
-        }
-        case IRON_NODE_UNARY: {
-            Iron_UnaryExpr *ue = (Iron_UnaryExpr *)node;
-            scan_collect_ident(s, ue->operand);
-            break;
-        }
-        case IRON_NODE_CALL: {
-            Iron_CallExpr *ce = (Iron_CallExpr *)node;
-            scan_collect_ident(s, ce->callee);
-            scan_collect_list(s, ce->args, ce->arg_count);
-            break;
-        }
-        case IRON_NODE_FIELD_ACCESS: {
-            Iron_FieldAccess *fa = (Iron_FieldAccess *)node;
-            scan_collect_ident(s, fa->object);
-            break;
-        }
-        case IRON_NODE_IF: {
-            Iron_IfStmt *is = (Iron_IfStmt *)node;
-            scan_collect_ident(s, is->condition);
-            scan_collect_ident(s, is->body);
-            scan_collect_ident(s, is->else_body);
-            break;
-        }
-        case IRON_NODE_ASSIGN: {
-            Iron_AssignStmt *as = (Iron_AssignStmt *)node;
-            scan_collect_ident(s, as->target);
-            scan_collect_ident(s, as->value);
-            break;
-        }
-        default:
-            /* Other kinds (literals, type decls, etc.) don't carry import refs. */
-            break;
-    }
-}
-
-/* Emit IRON_WARN_UNUSED_IMPORT for each import alias that was never
- * referenced. Non-aliased imports have no in-scope symbol to track, so
- * they are conservatively NOT flagged here (a future plan may extend
- * the tracker to cover path-based references). */
-static void emit_unused_imports(ResolveCtx *ctx, Iron_Program *program) {
-    UnusedImportScan s = { NULL };
-
-    /* Build the "used alias" set by walking every declaration body. */
-    for (int i = 0; i < program->decl_count; i++) {
-        Iron_Node *d = program->decls[i];
-        if (!d) continue;
-        scan_collect_ident(&s, d);
-    }
-
-    /* Emit for every aliased IMPORT_DECL whose alias isn't in the used set. */
+/* An import must name a stdlib module or a source file of the build.
+ * Skipped when the driver did not register stdlib origins (LSP buffers,
+ * unit tests): there the set of files is not known. */
+static void validate_imports(ResolveCtx *ctx, Iron_Program *program) {
+    if (iron_stdlib_origin_classify(NULL) < 0) return;
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *d = program->decls[i];
         if (!d || d->kind != IRON_NODE_IMPORT_DECL) continue;
         Iron_ImportDecl *imp = (Iron_ImportDecl *)d;
-        if (!imp->alias) continue; /* only aliased imports are tracked */
-
-        bool used = false;
-        for (ptrdiff_t k = 0; k < arrlen(s.used_alias_set); k++) {
-            if (strcmp(s.used_alias_set[k], imp->alias) == 0) { used = true; break; }
+        if (!imp->path) continue;
+        bool found = false;
+        for (int k = 0; k_stdlib_modules[k] && !found; k++)
+            found = strcmp(imp->path, k_stdlib_modules[k]) == 0;
+        for (int j = 0; j < program->decl_count && !found; j++) {
+            Iron_Node *o = program->decls[j];
+            if (!o || !o->span.filename) continue;
+            /* Registered stdlib files are not user modules; .iron-stub
+             * companions of vendored library packages are. */
+            size_t fl = strlen(o->span.filename);
+            bool is_stub = fl > 10 &&
+                           strcmp(o->span.filename + fl - 10, ".iron-stub") == 0;
+            if (!is_stub && iron_stdlib_origin_classify(o->span.filename) != 0) continue;
+            found = file_matches_module(o->span.filename, imp->path);
         }
-        if (used) continue;
-
-        /* Empty-string suggestion is the "delete line" sentinel. arena-strdup
-         * so .suggestion is non-NULL and owned by the compilation arena. */
-        const char *sug = iron_arena_strdup(ctx->arena, "", 0);
-        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_WARNING,
-                       IRON_WARN_UNUSED_IMPORT, imp->span,
-                       "unused import", sug);
+        if (found) continue;
+        char msg[512];
+        snprintf(msg, sizeof(msg), "module '%s' not found", imp->path);
+        const char *mc = iron_arena_strdup(ctx->arena, msg, strlen(msg));
+        iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_IMPORT_NOT_FOUND, imp->span,
+                       mc ? mc : "module not found",
+                       "import a stdlib module (math, io, time, ...) or a file of "
+                       "this package (src/<name>.iron, vendor/<name>/)");
     }
-
-    if (s.used_alias_set) arrfree(s.used_alias_set);
 }
 
 /* ── Entry point ─────────────────────────────────────────────────────────── */
@@ -1594,7 +1609,10 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     if (iron_cancel_requested(cancel_flag)) return NULL;
 
     ResolveCtx ctx;
+
+    memset(&ctx, 0, sizeof(ctx));
     ctx.arena              = arena;
+    ctx.program            = program;
     ctx.diags              = diags;
     ctx.global_scope       = iron_scope_create(arena, NULL, IRON_SCOPE_GLOBAL);
     /* HARD-09 CR-03: if the top-level arena allocation fails we cannot
@@ -1624,6 +1642,7 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     /* Phase 17 VAL-01: cleared by default; set true only inside the
      * IRON_NODE_ASSIGN case while walking a bare-IDENT LHS. */
     ctx.is_assign_lhs          = false;
+    ctx.in_match_pattern       = false;
 
     /* Initialize type system */
     iron_types_init(arena);
@@ -1665,7 +1684,7 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     }
 
     /* Register remaining builtins: len(String)->Int, min/max(Int,Int)->Int,
-     * clamp(Int,Int,Int)->Int, abs(Int)->Int, assert(Bool)->Void.
+     * clamp(Int,Int,Int)->Int, abs(Int)->Int, assert(Bool, String?)->Void.
      * These are handled by the codegen but must be in scope so the resolver
      * and type-checker accept call sites without emitting undefined-identifier
      * errors.  Signatures use Int/String for simplicity; the type-checker
@@ -1741,10 +1760,12 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
             if (sym) { sym->type = fn; iron_scope_define(ctx.global_scope, arena, sym); }
             else     { ctx.in_error_recovery = true; }
         }
-        /* assert(Bool) -> Void */
+        /* assert(Bool, String) -> Void. The message is optional at call
+         * sites: typecheck accepts assert(cond) and lowering supplies the
+         * source location as the message (the runtime takes both). */
         {
-            Iron_Type *params[1] = { bool_t };
-            Iron_Type *fn = iron_type_make_func(arena, params, 1, void_t);
+            Iron_Type *params[2] = { bool_t, str_t };
+            Iron_Type *fn = iron_type_make_func(arena, params, 2, void_t);
             Iron_Symbol *sym = iron_symbol_create(arena, "assert",
                                                    IRON_SYM_FUNCTION, NULL, no_span);
             /* HARD-09 CR-03: skip builtin on arena OOM. */
@@ -1851,7 +1872,7 @@ Iron_Scope *iron_resolve(Iron_Program *program, Iron_Arena *arena,
     /* Phase 4 Plan 04-01 (EDIT-07): post-pass — flag any aliased imports
      * that never resolved a reference. Runs after Pass 2 so every
      * Iron_Ident has its resolved_sym set (or NULL for unresolved). */
-    emit_unused_imports(&ctx, program);
+    validate_imports(&ctx, program);
 
     return ctx.global_scope;
 }

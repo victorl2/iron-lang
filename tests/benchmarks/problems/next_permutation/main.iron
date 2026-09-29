@@ -3,7 +3,7 @@ import time
 -- Next Permutation: Find next lexicographic permutation in-place
 -- Returns 1 if next permutation found, 0 if wrapped around to first
 
-func next_permutation(arr: [Int], n: Int) -> Int {
+func next_permutation(var arr: [Int], n: Int) -> Int {
     -- Find largest i such that arr[i] < arr[i+1]
     var i = n - 2
     var found = 0

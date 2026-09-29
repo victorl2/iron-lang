@@ -1,0 +1,10 @@
+copy: 3 2
+take: 0 3
+grow: 100 99
+made: 2
+drop 1
+replaced
+pub: 2 5
+end
+drop 3
+drop 2

@@ -1,6 +1,6 @@
 import time
 
-func remove_duplicates(arr: [Int], n: Int) -> Int {
+func remove_duplicates(var arr: [Int], n: Int) -> Int {
     if n == 0 {
         return 0
     }

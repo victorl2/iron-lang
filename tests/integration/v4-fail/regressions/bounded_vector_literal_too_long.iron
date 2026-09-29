@@ -1,0 +1,6 @@
+-- @expected-error: E0282
+-- A bounded vector literal may hold at most N elements.
+func main() {
+    var v: [Int; <=2] = [1, 2, 3]
+    println("{v.len()}")
+}

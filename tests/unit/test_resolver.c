@@ -396,46 +396,33 @@ void test_resolve_self_outside_method(void) {
     TEST_ASSERT_EQUAL_INT(IRON_ERR_SELF_OUTSIDE_METHOD, g_diags.items[0].code);
 }
 
-/* Test 10: super in child method resolves.
- *
- * Phase 98 PATCH-03: standalone `func Dog.bark()` is rejected with E0321.
- * Migrated to in-block form on Dog. */
+/* Test 10: `super` was removed with inheritance: parsing it reports one
+ * error. */
 void test_resolve_super_in_child_method(void) {
+    const char *src =
+        "object Dog {\n"
+        "  var name: String\n"
+        "  func bark() {\n"
+        "    val p = super\n"
+        "  }\n"
+        "}\n";
+    (void)parse_program(src);
+    TEST_ASSERT_EQUAL_INT(1, g_diags.error_count);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_UNEXPECTED_TOKEN, g_diags.items[0].code);
+}
+
+/* Test 11: `extends` was removed: parsing it reports one error. */
+void test_resolve_super_no_parent(void) {
     const char *src =
         "object Animal {\n"
         "  var hp: Int\n"
         "}\n"
         "object Dog extends Animal {\n"
         "  var name: String\n"
-        "  func bark() {\n"
-        "    val p = super\n"
-        "  }\n"
         "}\n";
-    Iron_Program *prog = parse_program(src);
-    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
-
-    iron_resolve(prog, &g_arena, &g_diags, NULL);
-    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
-}
-
-/* Test 11: super in non-extending type => E0211.
- *
- * Phase 98 PATCH-03: standalone `func Solo.action()` is rejected with E0321.
- * Migrated to in-block form on Solo. */
-void test_resolve_super_no_parent(void) {
-    const char *src =
-        "object Solo {\n"
-        "  var x: Int\n"
-        "  func action() {\n"
-        "    val p = super\n"
-        "  }\n"
-        "}\n";
-    Iron_Program *prog = parse_program(src);
-    TEST_ASSERT_EQUAL_INT(0, g_diags.error_count);
-
-    iron_resolve(prog, &g_arena, &g_diags, NULL);
+    (void)parse_program(src);
     TEST_ASSERT_EQUAL_INT(1, g_diags.error_count);
-    TEST_ASSERT_EQUAL_INT(IRON_ERR_SUPER_NO_PARENT, g_diags.items[0].code);
+    TEST_ASSERT_EQUAL_INT(IRON_ERR_UNEXPECTED_TOKEN, g_diags.items[0].code);
 }
 
 /* Test 12: method with unresolved type_name produces error.

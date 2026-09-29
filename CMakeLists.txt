@@ -281,9 +281,12 @@ add_library(iron_compiler STATIC
     src/analyzer/web_await_check.c
     src/analyzer/web_top_level_loader_check.c
     src/analyzer/init_check.c
+    src/analyzer/list_ownership.c
     src/analyzer/unused_var.c
+    src/analyzer/effects.c
     src/analyzer/iface_collect.c
     src/analyzer/iface_defaults.c
+    src/analyzer/generics.c
     src/analyzer/analyzer.c
     src/comptime/comptime.c
     src/hir/hir.c
@@ -291,6 +294,7 @@ add_library(iron_compiler STATIC
     src/hir/hir_verify.c
     src/hir/hir_lower.c
     src/hir/hir_to_lir.c
+    src/hir/stdlib_origin.c
     src/lir/lir.c
     src/lir/emit_c.c
     src/lir/emit_web.c
@@ -2226,11 +2230,24 @@ if(NOT WIN32)
         polymorphic_dispatch
     )
     foreach(_fix IN LISTS _PHASE_30_TRAP_FIXTURES)
-        add_test(
-            NAME v4_4.11-ptr-check-elision_${_fix}
-            COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
-            WORKING_DIRECTORY /tmp
-        )
+        set(_fixsrc "${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.iron")
+        # An @expect-panic fixture must exit through the named panic after
+        # printing exactly its .expected stdout.
+        file(STRINGS "${_fixsrc}" _panic_line REGEX "^-- @expect-panic:")
+        if(_panic_line)
+            string(REGEX REPLACE "^-- @expect-panic:[ ]*" "" _panic_msg "${_panic_line}")
+            add_test(
+                NAME v4_4.11-ptr-check-elision_${_fix}
+                COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${_fixsrc} && if \"\$d/${_fix}\" >\"\$d/out\" 2>\"\$d/err\"; then exit 1; fi && [ \"\$(cat \"\$d/out\")\" = \"\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected)\" ] && grep -qF \"${_panic_msg}\" \"\$d/err\" && rm -rf \"\$d\""
+                WORKING_DIRECTORY /tmp
+            )
+        else()
+            add_test(
+                NAME v4_4.11-ptr-check-elision_${_fix}
+                COMMAND /bin/sh -c "set -e && d=\$(mktemp -d /tmp/iron_test_XXXXXX) && ${CMAKE_BINARY_DIR}/ironc build -o \"\$d/${_fix}\" ${_fixsrc} && actual=\$(\"\$d/${_fix}\" 2>&1) && expected=\$(cat ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.11-ptr-check-elision/${_fix}.expected) && [ \"\$actual\" = \"\$expected\" ] && rm -rf \"\$d\""
+                WORKING_DIRECTORY /tmp
+            )
+        endif()
         # Every fixture in this list still rests on an unimplemented surface and
         # carries an @expected-pass-after marker in its header. The aggregate
         # test_v4_acceptance runner reads that marker; these per-fixture rows

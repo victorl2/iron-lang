@@ -2,7 +2,7 @@ interface Cmp {
     readonly func cmp(other: Int) -> Int
 }
 
-patch object Int implements Cmp {
+patch object Int impl Cmp {
 }
 
 func main() {}

@@ -4,7 +4,7 @@ import time
 -- Edge lists stored as two parallel Int32 arrays
 
 func find(parent: [Int32], x: Int32) -> [Int32] {
-    var p = parent
+    var p = parent.copy()
     var node = x
     while p[node] != node {
         p[node] = p[p[node]]
@@ -22,8 +22,8 @@ func find_root(parent: [Int32], x: Int32) -> Int32 {
 }
 
 func unite(parent: [Int32], rnk: [Int32], x: Int32, y: Int32) -> [Int32] {
-    var p = parent
-    var r = rnk
+    var p = parent.copy()
+    var r = rnk.copy()
     var rx = find_root(p, x)
     var ry = find_root(p, y)
     if rx != ry {

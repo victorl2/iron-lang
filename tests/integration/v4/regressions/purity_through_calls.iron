@@ -1,0 +1,26 @@
+-- Regression companion for the transitive purity checks (see the
+-- v4-fail/regressions/pure_calls_* and readonly_calls_* fixtures): calls
+-- that stay allowed. A pure method may call free functions without I/O or
+-- global writes, however deep, and a readonly method may call one that
+-- writes a global (readonly forbids only I/O).
+var counter: Int = 0
+
+func square(x: Int) -> Int { return x * x }
+func sum_squares(a: Int, b: Int) -> Int { return square(a) + square(b) }
+func tick() -> Int {
+    counter += 1
+    return counter
+}
+
+object P {
+    val x: Int
+    val y: Int
+    pure func norm2() -> Int { return sum_squares(self.x, self.y) }
+    readonly func stamped() -> Int { return self.x + tick() }
+}
+
+func main() {
+    val p = P(3, 4)
+    println("{p.norm2()}")
+    println("{p.stamped()} {p.stamped()}")
+}

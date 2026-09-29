@@ -3,11 +3,14 @@ Token               | Scope
 --------------------|--------------------------------
 "hello"             | string.quoted.double.iron
 "line\n"            | string.quoted.double.iron (containing constant.character.escape.iron for \n)
-$"value is ${...}"  | string.interpolated.iron (containing meta.interpolation.iron for ${...})
+"value is {x}"      | string.quoted.double.iron (containing meta.interpolation.iron for {x})
+"hi {f("bob")}"     | nested string.quoted.double.iron inside meta.interpolation.iron
+"\{a\} \u{e9}"      | constant.character.escape.iron for \{, \} and \u{...}
+"""..."""           | string.quoted.triple.iron
 
-Covers UI-SPEC S6: string.quoted.double.iron, string.interpolated.iron,
+Covers UI-SPEC S6: string.quoted.double.iron, string.quoted.triple.iron,
 meta.interpolation.iron (nested), constant.character.escape.iron.
 
-The interpolated-string pattern uses begin/end delimiter pairs at both
-levels — reviewed per CONTEXT D-02 specifics (no nested unbounded
-quantifiers; safe-regex lint green).
+The interpolation pattern uses a begin/end delimiter pair and includes
+$self, so string literals nested in an interpolation are scoped as strings
+(no nested unbounded quantifiers; safe-regex lint green).

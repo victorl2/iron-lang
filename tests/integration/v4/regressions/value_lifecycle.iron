@@ -1,0 +1,64 @@
+-- Value lifecycle of stack objects: a container's destructor drops its
+-- fields, a copy out of a place runs the copy hook, `return local` moves the
+-- value to the caller, reassignment drops the outgoing value, and a
+-- temporary passed as an argument is dropped after the call.
+
+object Inner {
+    val n: Int
+    drop { println("drop inner {self.n}") }
+}
+
+object Plain {
+    val a: Inner
+}
+
+object WithDrop {
+    val a: Inner
+    drop { println("drop outer") }
+}
+
+object Res {
+    val n: Int
+    copy { println("copy {self.n}") }
+    drop { println("drop {self.n}") }
+}
+
+object Holder {
+    val r: Res
+}
+
+func make(n: Int) -> Res {
+    val r = Res(n)
+    return r
+}
+
+func show(r: Res) {
+    println("show {r.n}")
+}
+
+func fields() {
+    val p = Plain(Inner(1))
+    val w = WithDrop(Inner(2))
+    println("fields end")
+}
+
+func copies() {
+    val a = Res(3)
+    val b = a
+    val c = make(4)
+    val h = Holder(a)
+    println("copies end")
+}
+
+func reassign() {
+    var x = Res(5)
+    x = Res(6)
+    show(Res(7))
+    println("reassign end")
+}
+
+func main() {
+    fields()
+    copies()
+    reassign()
+}

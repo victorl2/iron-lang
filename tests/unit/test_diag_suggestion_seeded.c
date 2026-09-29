@@ -89,15 +89,16 @@ static void test_missing_return_has_suggestion(void) {
 }
 
 static void test_unused_import_has_suggestion(void) {
-    /* Aliased import never referenced in the module. */
+    /* An import alias is rejected (E0209) with a suggestion to drop it; the
+     * unused-alias warning it used to get is gone. */
     const char *src =
         "import std.math as m\n"
         "func main() {}\n";
     analyze(src);
-    const Iron_Diagnostic *d = find_diag(&g_diags, IRON_WARN_UNUSED_IMPORT);
-    TEST_ASSERT_NOT_NULL_MESSAGE(d, "expected code 611 to fire");
+    const Iron_Diagnostic *d = find_diag(&g_diags, IRON_ERR_IMPORT_NOT_FOUND);
+    TEST_ASSERT_NOT_NULL_MESSAGE(d, "expected code 209 to fire");
     TEST_ASSERT_NOT_NULL_MESSAGE(d->suggestion,
-        "unused-import must carry a non-NULL suggestion (empty-string sentinel)");
+        "the import alias error must carry a suggestion");
 }
 
 static void test_redundant_cast_has_suggestion(void) {

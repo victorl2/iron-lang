@@ -132,15 +132,17 @@ void test_val_05_readonly_method_call_still_warns(void) {
     TEST_ASSERT_GREATER_THAN_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
 }
 void test_val_05_suggested_val_empty_list_compiles(void) {
-    /* The W0613 suggestion for `var xs: [Int] = []` is `val xs: [Int] = []`,
-     * which must typecheck (the annotation supplies the element type). */
+    /* A list that is pushed must stay `var` (list mutators need a mutable
+     * binding, #174), so W0613 must not suggest `val` for it; the annotated
+     * empty literal typechecks. */
     analyze_src(
         "func main() {\n"
-        "    val xs: [Int] = []\n"
+        "    var xs: [Int] = []\n"
         "    xs.push(1)\n"
         "    println(\"{len(xs)}\")\n"
         "}\n");
     TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_ERR_EMPTY_LITERAL_NO_TYPE));
+    TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);
 }
 
@@ -174,6 +176,66 @@ void test_val_06_param_shadowed_still_warns(void) {
     TEST_ASSERT_GREATER_THAN_INT(0, count_with_code(IRON_WARN_UNUSED_VAR_PARAM));
 }
 
+
+/* A var written inside a lambda is captured by reference: `val` would be
+ * rejected (E0203), so it must not be reported. */
+void test_val_05_lambda_write_no_warn(void) {
+    analyze_src("func main() {\n"
+                "    var score = 0\n"
+                "    val inc = func() { score += 1 }\n"
+                "    inc()\n"
+                "    println(\"{score}\")\n"
+                "}\n");
+    TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
+}
+
+/* A var only read inside a lambda is still captured by reference; as a
+ * val the closure would see a snapshot, so the advice would change
+ * behavior. */
+void test_val_05_lambda_read_no_warn(void) {
+    analyze_src("func main() {\n"
+                "    var xs = [1, 2]\n"
+                "    val g = func() -> Int { return len(xs) }\n"
+                "    xs.push(3)\n"
+                "    println(\"{g()}\")\n"
+                "}\n");
+    TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
+}
+
+/* A bounded vector is a value: push needs a mutable binding. */
+void test_val_05_bounded_vector_push_no_warn(void) {
+    analyze_src("func main() {\n"
+                "    var bv: [Int; <=8]\n"
+                "    bv.push(7)\n"
+                "    println(\"{bv[0]}\")\n"
+                "}\n");
+    TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
+}
+
+/* A var interface param mutated through a method is used for mutation. */
+void test_val_06_interface_mutating_call_no_warn(void) {
+    analyze_src("interface Tick {\n"
+                "    func tick()\n"
+                "}\n"
+                "func bump(var t: Tick) {\n"
+                "    t.tick()\n"
+                "}\n"
+                "func main() {\n"
+                "    println(\"x\")\n"
+                "}\n");
+    TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_WARN_UNUSED_VAR_PARAM));
+}
+
+/* The lint still fires for a var that is neither written nor captured. */
+void test_val_05_plain_unused_var_still_warns(void) {
+    analyze_src("func main() {\n"
+                "    var x = 5\n"
+                "    val f = func() -> Int { return 1 }\n"
+                "    println(\"{x} {f()}\")\n"
+                "}\n");
+    TEST_ASSERT_EQUAL_INT(1, count_with_code(IRON_WARN_UNUSED_VAR));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_val_05_unused_var_warn);
@@ -189,5 +251,10 @@ int main(void) {
     RUN_TEST(test_val_06_param_message);
     RUN_TEST(test_val_06_used_var_param_no_warn);
     RUN_TEST(test_val_06_param_shadowed_still_warns);
+    RUN_TEST(test_val_05_lambda_write_no_warn);
+    RUN_TEST(test_val_05_lambda_read_no_warn);
+    RUN_TEST(test_val_05_bounded_vector_push_no_warn);
+    RUN_TEST(test_val_06_interface_mutating_call_no_warn);
+    RUN_TEST(test_val_05_plain_unused_var_still_warns);
     return UNITY_END();
 }

@@ -83,6 +83,7 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
 /* Forward decls for helpers used before their definitions. */
 static Iron_Span   iron_token_span(Iron_Parser *p, Iron_Token *t);
 static Iron_Token *iron_current(Iron_Parser *p);
+static Iron_Span iron_token_span(Iron_Parser *p, Iron_Token *t);
 
 /* HARD-08: check-and-emit helper. Returns true if the parser has reached
  * IRON_PARSER_MAX_DEPTH — the caller must then return an ErrorNode (or the
@@ -240,6 +241,20 @@ static Iron_Token *iron_current(Iron_Parser *p) {
     if (p->pos >= p->token_count) return &p->tokens[p->token_count - 1];
     return &p->tokens[p->pos];
 }
+
+/* `implements` (an identifier, not a keyword) where a conformance clause
+ * may start: report it and let the caller parse the list as `impl`. */
+static bool iron_check_implements_word(Iron_Parser *p) {
+    Iron_Token *t = iron_current(p);
+    if (!t || t->kind != IRON_TOK_IDENTIFIER || !t->value ||
+        strcmp(t->value, "implements") != 0) return false;
+    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                   IRON_ERR_UNEXPECTED_TOKEN, iron_token_span(p, t),
+                   "use `impl` instead of `implements`",
+                   "declare conformance with `impl`: object T impl I { ... }");
+    return true;
+}
+
 
 static Iron_TokenKind iron_peek(Iron_Parser *p) {
     return iron_current(p)->kind;
@@ -498,6 +513,7 @@ static Iron_Node *iron_make_error(Iron_Parser *p) {
     }
     n->span = iron_token_span(p, iron_current(p));
     n->kind = IRON_NODE_ERROR;
+    n->resolved_type = NULL;
     return (Iron_Node *)n;
 }
 
@@ -641,19 +657,25 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         iron_advance(p);  /* consume `heap`, re-parse as if absent */
     }
 
-    /* Phase 26 POL-11 (Plan 26-02): rc keyword is illegal in type-annotation
-     * position. Mirrors the POL-03 IRON_TOK_HEAP rejection above. The
-     * legitimate `rc T(...)` allocation lives in iron_parse_primary's
-     * `case IRON_TOK_RC:` arm — NOT here. Position-distinguishing hint
-     * per E0297 GA2 convention. */
+    /* `rc T`: a strong reference-counted handle. Stored in fields, passed
+     * to parameters and returned like any other type; copies retain. */
     if (iron_check(p, IRON_TOK_RC)) {
-        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                       IRON_ERR_RC_BAD_POSITION,
-                       iron_token_span(p, iron_current(p)),
-                       "`rc` only valid at allocation expression"
-                       " \342\200\224 got `rc` in type annotation",
-                       NULL);
-        iron_advance(p);  /* consume `rc`, re-parse as if absent */
+        Iron_Token *rc_tok = iron_current(p);
+        iron_advance(p);  /* consume `rc` */
+        Iron_Node *inner_ann = iron_parse_type_annotation_impl(p);
+        Iron_TypeAnnotation *outer = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
+        if (!outer) {
+            p->in_error_recovery = true;
+            return iron_make_error(p);
+        }
+        memset(outer, 0, sizeof(*outer));
+        outer->kind     = IRON_NODE_TYPE_ANNOTATION;
+        outer->span     = iron_span_merge(iron_token_span(p, rc_tok),
+                                          inner_ann ? inner_ann->span
+                                                    : iron_token_span(p, rc_tok));
+        outer->is_rc    = true;
+        outer->rc_inner = inner_ann;
+        return (Iron_Node *)outer;
     }
 
     Iron_Token *start = iron_current(p);
@@ -680,11 +702,12 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
                            iron_span_merge(q_span, rc_span),
                            "`rc` only valid at allocation expression"
                            " \342\200\224 `?rc T` not supported;"
-                           " use `weak rc T?` (Phase 27)",
+                           " use `weak rc T?`",
                            NULL);
             iron_advance(p);  /* consume `rc`; recover by parsing inner */
-            /* Fall through and parse remaining inner type so cascading
-             * errors are suppressed. */
+            /* Already reported: return the inner type so the leading-`?`
+             * check below does not add a second error. */
+            return iron_parse_type_annotation_impl(p);
         }
         Iron_Node *inner = iron_parse_type_annotation_impl(p);
         if (inner && inner->kind == IRON_NODE_TYPE_ANNOTATION) {
@@ -819,6 +842,12 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
             } else {
                 ann->name = "<error>";
             }
+        } else if (iron_check(p, IRON_TOK_RC) || iron_check(p, IRON_TOK_WEAK) ||
+                   iron_check(p, IRON_TOK_LBRACKET) || iron_check(p, IRON_TOK_STAR) ||
+                   iron_check(p, IRON_TOK_LPAREN)) {
+            /* Element with its own structure: [rc T], [[Int]], [*T], [(A, B)] */
+            ann->array_elem_ann = iron_parse_type_annotation_impl(p);
+            ann->name = NULL;
         } else if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,
@@ -981,6 +1010,9 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
             iron_skip_newlines(p);
         }
         iron_expect(p, IRON_TOK_RBRACKET);
+        /* `Name[T]?`: the `?` after the type arguments (the printer's form;
+         * `Name?[T]` is still accepted above). */
+        if (!ann->is_nullable) ann->is_nullable = iron_match(p, IRON_TOK_QUESTION);
     } else {
         ann->generic_args      = NULL;
         ann->generic_arg_count = 0;
@@ -1077,7 +1109,7 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_V3_MUT_KEYWORD,
                            iron_token_span(p, iron_current(p)),
-                           "'mut' keyword removed in v3.0; use 'var' for mutable bindings "
+                           "'mut' is not a keyword; use 'var' for mutable bindings "
                            "or declare a default in-object method to mutate self",
                            "write 'var name: T' for a mutable binding or parameter");
             iron_advance(p);  /* consume 'mut' for recovery */
@@ -1668,7 +1700,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                            IRON_ERR_CLOSED_POLICY_KEYWORD,
                            iron_token_span(p, t),
                            msg,
-                           "Phase 26 lifecycle policy closed set is"
+                           "the lifecycle policy closed set is"
                            " {stack, heap, rc, weak rc};"
                            " `pool` and `arena` not supported as"
                            " lifecycle policy keywords at allocation"
@@ -1745,7 +1777,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                            "weak rc allocation form is invalid; use"
                            " `weak rc null` or `<rc_value>.downgrade()`"
                            " to construct a weak reference",
-                           "Phase 27 lifecycle policy closed set is"
+                           "the lifecycle policy closed set is"
                            " {stack, heap, rc, weak rc};"
                            " weak rc values are constructed via"
                            " `weak rc null` (constructor) or"
@@ -1887,7 +1919,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                                            IRON_ERR_CLOSED_POLICY_KEYWORD,
                                            iron_token_span(p, t),
                                            msg,
-                                           "Phase 26 lifecycle policy closed set"
+                                           "the lifecycle policy closed set"
                                            " is {stack, heap, rc, weak rc};"
                                            " `pool`, `arena`, `weak` not"
                                            " supported as lifecycle policy"
@@ -1924,16 +1956,14 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             return (Iron_Node *)id;
         }
         case IRON_TOK_SUPER: {
+            /* `super` was removed along with inheritance. */
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN, iron_token_span(p, t),
+                           "`super` is not supported: Iron has no inheritance",
+                           "call the other type's method through a field that "
+                           "holds it (composition)");
             iron_advance(p);
-            Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
-            if (!id) { /* HARD-09 REPLACE (iron_parse_primary Ident super) */ p->in_error_recovery = true; return iron_make_error(p); }
-            id->kind            = IRON_NODE_IDENT;
-            id->span            = iron_token_span(p, t);
-            id->name            = "super";
-            id->resolved_sym    = NULL;
-            id->resolved_type   = NULL;
-            id->constraint_name = NULL;
-            return (Iron_Node *)id;
+            return iron_make_error(p);
         }
         /* -Wswitch-enum opt-out: primary-expression switch only handles the
          * token kinds that can begin an expression; every other Iron_TokenKind
@@ -2024,6 +2054,44 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                                                   strlen(name_tok->value));
             if (!name) { /* HARD-09 REPLACE (iron_parse_expr_prec dot name) */ name = "?"; }
 
+            /* `x.m[Type, ...](args)`: explicit type arguments of a generic
+             * method. Told apart from indexing a field (`x.fs[i](a)`) by the
+             * first token inside the brackets (a capitalised type name or a
+             * `[` of a list type) and the `(` right after the `]`. */
+            Iron_Node **m_type_args = NULL;
+            int m_type_arg_count = 0;
+            bool type_namespace = left->kind == IRON_NODE_IDENT &&
+                                  ((Iron_Ident *)left)->name &&
+                                  ((Iron_Ident *)left)->name[0] >= 'A' &&
+                                  ((Iron_Ident *)left)->name[0] <= 'Z';
+            /* (`Ptr.cast[T](p)` and other `Type.f[...]` forms keep their
+             * index-then-call shape: the builtins read it that way.) */
+            if (!type_namespace &&
+                iron_check(p, IRON_TOK_LBRACKET) && p->pos + 1 < p->token_count) {
+                Iron_Token *first = &p->tokens[p->pos + 1];
+                bool typeish = first->kind == IRON_TOK_LBRACKET ||
+                               (first->kind == IRON_TOK_IDENTIFIER && first->value &&
+                                first->value[0] >= 'A' && first->value[0] <= 'Z');
+                int depth = 0, j = p->pos;
+                for (; j < p->token_count; j++) {
+                    if (p->tokens[j].kind == IRON_TOK_LBRACKET) depth++;
+                    else if (p->tokens[j].kind == IRON_TOK_RBRACKET && --depth == 0) break;
+                    else if (p->tokens[j].kind == IRON_TOK_NEWLINE ||
+                             p->tokens[j].kind == IRON_TOK_EOF) break;
+                }
+                if (typeish && j + 1 < p->token_count &&
+                    p->tokens[j].kind == IRON_TOK_RBRACKET &&
+                    p->tokens[j + 1].kind == IRON_TOK_LPAREN) {
+                    iron_advance(p);  /* '[' */
+                    while (!iron_check(p, IRON_TOK_RBRACKET) && !iron_check(p, IRON_TOK_EOF)) {
+                        arrput(m_type_args, iron_parse_type_annotation(p));
+                        m_type_arg_count++;
+                        if (!iron_match(p, IRON_TOK_COMMA)) break;
+                    }
+                    iron_expect(p, IRON_TOK_RBRACKET);
+                }
+            }
+
             if (iron_check(p, IRON_TOK_LPAREN)) {
                 /* Heuristic: if the LHS is a simple identifier starting with
                  * an uppercase letter, treat as enum construction:
@@ -2065,6 +2133,8 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         mc->method    = name;
                         mc->args      = args;
                         mc->arg_count = arg_count;
+                        mc->generic_args      = m_type_args;
+                        mc->generic_arg_count = m_type_arg_count;
                         left = (Iron_Node *)mc;
                     }
                 } else {
@@ -2082,6 +2152,8 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                     mc->method    = name;
                     mc->args      = args;
                     mc->arg_count = arg_count;
+                    mc->generic_args      = m_type_args;
+                    mc->generic_arg_count = m_type_arg_count;
                     left = (Iron_Node *)mc;
                 }
             } else {
@@ -2660,6 +2732,17 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
             size_t expr_start = i;
             int depth = 1;
             while (i < len && depth > 0) {
+                if (s[i] == '"') {
+                    /* A string literal inside the expression: its braces
+                     * and quotes are not delimiters of this one. */
+                    i++;
+                    while (i < len && s[i] != '"') {
+                        if (s[i] == '\\' && i + 1 < len) i++;
+                        i++;
+                    }
+                    if (i < len) i++;
+                    continue;
+                }
                 if (s[i] == '{') depth++;
                 else if (s[i] == '}') depth--;
                 if (depth > 0) i++;
@@ -2740,7 +2823,11 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                 }
             }
         } else {
-            lit_buf[lit_len++] = s[i++];
+            /* Escaped braces arrive as lexer marker bytes. */
+            char ch = s[i++];
+            if (ch == IRON_LEX_LITERAL_LBRACE) ch = '{';
+            else if (ch == IRON_LEX_LITERAL_RBRACE) ch = '}';
+            lit_buf[lit_len++] = ch;
         }
     }
 
@@ -3166,7 +3253,7 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_V3_MUT_KEYWORD,
                                iron_token_span(p, t),
-                               "'mut' keyword removed in v3.0; use 'var' for mutable bindings "
+                               "'mut' is not a keyword; use 'var' for mutable bindings "
                                "or declare a default in-object method to mutate self",
                                "write 'var name = value' for a mutable binding");
                 iron_advance(p);  /* consume 'mut' for recovery */
@@ -3439,9 +3526,9 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
         if (p->v3_strict_mode) {
             int code = recv_is_mut ? IRON_ERR_V3_MUT_RECEIVER : IRON_ERR_V3_RECEIVER_SYNTAX;
             const char *msg = recv_is_mut
-                ? "mut-receiver syntax 'func (mut recv: T) name()' removed in v3.0; "
+                ? "mut-receiver syntax 'func (mut recv: T) name()' is not supported; "
                   "declare as a default method inside 'object T { func name() { ... } }'"
-                : "receiver-method syntax 'func (recv: T) name()' removed in v3.0; "
+                : "receiver-method syntax 'func (recv: T) name()' is not supported; "
                   "declare as a method inside 'object T { func name() { ... } }'";
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, code,
                            iron_token_span(p, start),
@@ -3884,22 +3971,25 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
         generic_params = iron_parse_generic_params(p, &generic_count, p->arena);
     }
 
-    /* Optional: extends ParentName */
+    /* `extends` was removed: Iron has no inheritance. Report it once and
+     * skip the parent name so the rest of the declaration still parses. */
     const char *extends_name = NULL;
     if (iron_check(p, IRON_TOK_EXTENDS)) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, iron_current(p)),
+                       "`extends` is not supported: Iron has no inheritance",
+                       "use `impl` to conform to an interface, and composition "
+                       "(a field of the other type) to reuse state and behavior");
         iron_advance(p);
-        if (iron_check(p, IRON_TOK_IDENTIFIER)) {
-            Iron_Token *ext_tok = iron_advance(p);
-            extends_name = iron_arena_strdup(p->arena, ext_tok->value,
-                                              strlen(ext_tok->value));
-            if (!extends_name) { /* HARD-09 REPLACE (iron_parse_object_decl extends_name) */ extends_name = "?"; }
-        }
+        if (iron_check(p, IRON_TOK_IDENTIFIER)) iron_advance(p);
     }
 
-    /* Optional: impl I1, I2 */
+    /* Optional: impl I1, I2 (`implements` is reported and accepted for
+     * recovery). */
     const char **impl_names = NULL;
     int          impl_count = 0;
-    if (iron_check(p, IRON_TOK_IMPL)) {
+    if (iron_check_implements_word(p) || iron_check(p, IRON_TOK_IMPL)) {
         iron_advance(p);
         while (iron_check(p, IRON_TOK_IDENTIFIER)) {
             Iron_Token *it = iron_advance(p);
@@ -4270,6 +4360,13 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             }
             Iron_Token *mname_tok = iron_advance(p);
 
+            /* Optional method type parameters: func name[T](...) */
+            int m_generic_count = 0;
+            Iron_Node **m_generic_params = NULL;
+            if (iron_check(p, IRON_TOK_LBRACKET)) {
+                m_generic_params = iron_parse_generic_params(p, &m_generic_count, p->arena);
+            }
+
             /* Explicit params (no receiver in source; we synthesize self). */
             int explicit_count = 0;
             Iron_Node **explicit_params = iron_parse_param_list(p, &explicit_count);
@@ -4342,8 +4439,8 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->return_type          = mret;
             m->body                 = mbody;
             m->is_private           = false;  /* Phase 82: default public; Phase 83 adds pub opt-in */
-            m->generic_params       = NULL;
-            m->generic_param_count  = 0;
+            m->generic_params       = m_generic_params;
+            m->generic_param_count  = m_generic_count;
             m->resolved_return_type = NULL;
             m->owner_sym            = NULL;
             m->is_array_extension   = false;
@@ -4374,6 +4471,19 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
             iron_skip_newlines(p);
+            continue;
+        }
+
+        /* `private` is not a member modifier: members are private by
+         * default. It used to fall into the field path and report "must
+         * specify val or var". Report it and parse the member without it. */
+        if (iron_check(p, IRON_TOK_PRIVATE)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "`private` is not a member modifier",
+                           "members are private by default; use `pub` to export one");
+            iron_advance(p);
             continue;
         }
 
@@ -4427,7 +4537,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_V3_INLINE_DEFAULT,
                            iron_token_span(p, iron_current(p)),
-                           "inline field defaults 'var x: T = expr' removed in v3.0; "
+                           "inline field defaults 'var x: T = expr' are not supported; "
                            "assign fields in an init instead",
                            "remove '= expr' and assign the field in init: init() { self.x = expr }");
             iron_advance(p);  /* consume '=' */
@@ -4946,7 +5056,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
                 char msg[256];
                 snprintf(msg, sizeof(msg),
                          "object '%s' has %d mutable field(s) but no init; "
-                         "v3.0 requires an explicit init to construct objects with mutable fields",
+                         "an object with mutable fields needs an explicit init",
                          enclosing, var_field_count);
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_V3_NO_INIT,
@@ -5057,20 +5167,18 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
                        iron_token_span(p, iron_current(p)),
-                       "generic patch targets not supported in v3.0", NULL);
+                       "generic patch targets are not supported", NULL);
         int generic_count = 0;
         (void)iron_parse_generic_params(p, &generic_count, p->arena);
     }
 
-    /* Phase 87-02 PATCH-08: optional `implements I, J, K` clause.
-     * "implements" is a contextual keyword lexed as IRON_TOK_IDENTIFIER;
-     * we detect it by string comparison, matching the Phase 85 init-as-
-     * contextual-keyword precedent. Patches do NOT accept `extends`. */
+    /* Phase 87-02 PATCH-08: optional `impl I, J, K` clause, the same
+     * conformance keyword object declarations use. Patches do NOT accept
+     * `extends`. */
     const char **impl_names = NULL;
     int          impl_count = 0;
-    if (iron_check(p, IRON_TOK_IDENTIFIER) &&
-        strcmp(iron_current(p)->value, "implements") == 0) {
-        iron_advance(p);  /* consume 'implements' */
+    if (iron_check_implements_word(p) || iron_check(p, IRON_TOK_IMPL)) {
+        iron_advance(p);  /* consume 'impl' */
         iron_skip_newlines(p);
         while (iron_check(p, IRON_TOK_IDENTIFIER)) {
             Iron_Token *it = iron_advance(p);
@@ -6114,6 +6222,17 @@ Iron_Node *iron_parse(Iron_Parser *p) {
             }
             if (iron_check(p, IRON_TOK_PRIVATE)) {
                 Iron_Token *tok = iron_current(p);
+                /* `private` was removed: declarations are private to their
+                 * file by default. Report it once, then parse on as if it
+                 * were absent. */
+                if (!is_private && !is_pub) {
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_UNEXPECTED_TOKEN,
+                                   iron_token_span(p, tok),
+                                   "`private` is not a keyword",
+                                   "declarations are private to their file by "
+                                   "default; use `pub` to export one");
+                }
                 if (is_private) {
                     iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_UNEXPECTED_TOKEN,

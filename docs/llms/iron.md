@@ -63,9 +63,15 @@ explicit.
 ### When a binding must be `var`
 
 A `val` cannot be reassigned, have its fields written, or call a mutating
-method. Use `var` for any of those. Lists are handles, so a `val` list still
-accepts `push` and index writes. An empty list literal needs a type
-annotation.
+method. Use `var` for any of those. The same holds for lists: `push`, `pop`,
+`insert`, `remove`, `clear`, `sort`, `reverse` and index writes need a `var`
+list, and a function that changes a list it is given takes `var xs: [T]`.
+An empty list literal needs a type annotation.
+
+A list has one owner and is never copied implicitly. `val b = a`, storing
+`a` in a field or another list, or returning a parameter is an error; write
+`a.copy()` for an independent list or `a.take()` to move the contents out
+(leaving `a` empty). Passing a list to a function only lends it.
 
 ```iron
 object Counter {
@@ -84,11 +90,13 @@ func main() {
     var c = Counter(0)
     c.increment()
 
-    val xs: [Int] = []
+    var xs: [Int] = []
     xs.push(1)
     xs.push(2)
     xs[0] = 10
-    println("count={c.value} first={xs[0]} len={len(xs)}")
+    val snapshot = xs.copy()
+    xs.push(3)
+    println("count={c.value} first={xs[0]} len={len(xs)} snapshot={len(snapshot)}")
 }
 ```
 

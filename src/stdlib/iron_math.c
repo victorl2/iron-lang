@@ -21,8 +21,15 @@ double Iron_math_lerp(double a, double b, double t) {
 /* ── RNG — xorshift64 ────────────────────────────────────────────────────── */
 
 Iron_RNG Iron_rng_create(uint64_t seed) {
+    /* Scramble the seed with SplitMix64 before using it as xorshift state.
+     * Used raw, small seeds gave near-zero first outputs and neighboring
+     * seeds produced nearly proportional sequences. */
+    uint64_t z = seed + 0x9E3779B97F4A7C15ULL;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    z ^= z >> 31;
     Iron_RNG rng;
-    rng.state = seed != 0 ? seed : 0xDEADBEEFCAFEBABEULL;
+    rng.state = z != 0 ? z : 0xDEADBEEFCAFEBABEULL;  /* xorshift needs nonzero */
     return rng;
 }
 

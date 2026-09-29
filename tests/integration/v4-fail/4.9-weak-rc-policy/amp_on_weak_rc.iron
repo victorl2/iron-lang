@@ -4,7 +4,7 @@
 -- E0296 IRON_ERR_PTR_AMP_ON_RC — message extended to name both rc and weak rc (CONTEXT.md GA4)
 object Foo { val v: Int }
 
-func main(): Int {
+func main() -> Int {
     val r = rc Foo(1)
     val w = r.downgrade()
     val p = &w   -- E0296: cannot take address of rc/weak rc

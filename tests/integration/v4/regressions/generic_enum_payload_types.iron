@@ -1,0 +1,49 @@
+-- Regression: payload bindings from a generic enum were untyped.
+--
+-- Match-case patterns were typed without the subject's type, so the
+-- pattern's enum name was looked up globally and resolved to the generic
+-- declaration, whose payload types are unsubstituted. The binding became
+-- an error type that accepted any use: `val n: Int = v + 1` compiled to
+-- pointer arithmetic on a string and printed "+", and `val s: String = v`
+-- was accepted for an Int payload.
+--
+-- Case patterns now bind payloads with the subject's instantiated types.
+enum Opt[T] {
+    Some(T),
+    None
+}
+
+enum Pair[A, B] {
+    Both(A, B),
+    Neither
+}
+
+func describe(o: Opt[Int]) -> String {
+    match o {
+        Opt.Some(v) -> {
+            val n: Int = v + 1
+            return "some {n}"
+        }
+        Opt.None -> return "none"
+    }
+    return "unreachable"
+}
+
+func main() {
+    println(describe(Opt.Some(42)))
+    val none: Opt[Int] = Opt.None
+    println(describe(none))
+    val name: Opt[String] = Opt.Some("iron")
+    match name {
+        Opt.Some(s) -> println("hello {s} ({len(s)})")
+        Opt.None -> println("nobody")
+    }
+    val p: Pair[Int, Float] = Pair.Both(3, 1.5)
+    match p {
+        Pair.Both(a, b) -> {
+            val total: Float = Float(a) + b
+            println("pair {total}")
+        }
+        Pair.Neither -> println("neither")
+    }
+}

@@ -73,6 +73,10 @@ void iron_diag_emit(Iron_DiagList *list,
 void iron_diag_print(const Iron_Diagnostic *d, const char *source_text);
 
 /* Print all diagnostics in the list. */
+/* Drop every diagnostic after the first `count` (recomputing the error and
+ * warning totals). Used to discard a provisional analysis round. */
+void iron_diaglist_truncate(Iron_DiagList *list, int count);
+
 void iron_diag_print_all(const Iron_DiagList *list, const char *source_text);
 
 void iron_diaglist_free(Iron_DiagList *list);
@@ -461,7 +465,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 /* Phase 87-02 PATCH-08: retroactive conformance completeness check.
  * Emitted when a patch or object declares `implements I` but a required
  * interface method is not provided across in-object + patch decls. */
-#define IRON_ERR_IFACE_CONFORMANCE_MISSING  258   /* PATCH-08 */
+#define IRON_ERR_IFACE_CONFORMANCE_MISSING  258   /* retired: a missing method is E0205 */
 /* Phase 87-02 SELF: Self type used outside a method or interface sig.
  * Emitted when `Self` appears as a return-type annotation in a top-level
  * free function or any other non-method context. */
@@ -489,15 +493,18 @@ void iron_diaglist_free(Iron_DiagList *list);
  * (Phase 84 MUTTIER). */
 #define IRON_ERR_CANCELLED            290
 
-/* IR verifier errors */
-#define IRON_ERR_LIR_MISSING_TERMINATOR     300
-#define IRON_ERR_LIR_INVALID_BRANCH_TARGET  301
-#define IRON_ERR_LIR_USE_BEFORE_DEF         302
-#define IRON_ERR_LIR_INSTR_AFTER_TERMINATOR 303
-#define IRON_ERR_LIR_NO_ENTRY_BLOCK         304
-#define IRON_ERR_LIR_RETURN_TYPE_MISMATCH   305
-#define IRON_ERR_LIR_PHI_TYPE_MISMATCH      306
-#define IRON_ERR_LIR_CALL_TYPE_MISMATCH     307
+/* IR verifier errors.  These report a compiler bug (code the analyzer
+ * accepted but lowering got wrong), so they live in their own E09xx block.
+ * RENUMBERED 300..307 -> 900..907: 300 and 301 were also assigned to
+ * IRON_ERR_WEAK_RC_DOWNGRADE_NOT_RC and IRON_ERR_RC_IN_ARENA. */
+#define IRON_ERR_LIR_MISSING_TERMINATOR     900
+#define IRON_ERR_LIR_INVALID_BRANCH_TARGET  901
+#define IRON_ERR_LIR_USE_BEFORE_DEF         902
+#define IRON_ERR_LIR_INSTR_AFTER_TERMINATOR 903
+#define IRON_ERR_LIR_NO_ENTRY_BLOCK         904
+#define IRON_ERR_LIR_RETURN_TYPE_MISMATCH   905
+#define IRON_ERR_LIR_PHI_TYPE_MISMATCH      906
+#define IRON_ERR_LIR_CALL_TYPE_MISMATCH     907
 
 /* Type validation errors (309+ range) */
 #define IRON_ERR_DUPLICATE_MATCH_ARM    309
@@ -539,6 +546,17 @@ void iron_diaglist_free(Iron_DiagList *list);
  *        Rejected at typecheck until general pattern dispatch exists. */
 #define IRON_ERR_UNSUPPORTED_TYPE_TEST    322
 #define IRON_ERR_MATCH_SUBJECT_UNSUPPORTED 323
+/* A lambda parameter has no type annotation and no expected function type
+ * to infer it from (untyped params used to become Void silently). */
+#define IRON_ERR_LAMBDA_PARAM_TYPE        324
+/* A spawn handle is awaited on a path where it may already have been
+ * awaited (the first await joins and frees it; a second hung). */
+#define IRON_ERR_AWAIT_TWICE              325
+/* A thread pool argument to spawn(...) or parallel(...): pools are not
+ * implemented (the argument used to be accepted and ignored). */
+#define IRON_ERR_POOL_UNSUPPORTED         326
+#define IRON_ERR_DROP_BINDING_UNINIT      327   /* binding of a type with a destructor declared without an initializer */
+#define IRON_ERR_LIST_IMPLICIT_COPY       328   /* a list place given a second owner without copy() / take() (#174) */
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400

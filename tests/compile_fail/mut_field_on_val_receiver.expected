@@ -1,1 +1,1 @@
-receiver-method syntax 'func (recv: T) name()' removed in v3.0
+receiver-method syntax 'func (recv: T) name()' is not supported

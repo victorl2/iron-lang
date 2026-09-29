@@ -1,0 +1,11 @@
+-- @expected-error: E0328
+-- Copying an object copies its list fields, so an object that holds a list
+-- is never duplicated implicitly: write a.copy().
+object Bag {
+    val items: [Int]
+}
+func main() {
+    val a = Bag([1])
+    val b = a
+    println("{b.items.len()} {a.items.len()}")
+}

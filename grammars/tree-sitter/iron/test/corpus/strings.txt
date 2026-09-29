@@ -39,3 +39,36 @@ val s = "hello\nworld"
     binding: (identifier)
     value: (string_literal
       (escape_sequence))))
+
+==========
+string literal nested in interpolation
+==========
+
+val s = "hi {greet("bob")}"
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    value: (string_literal
+      (interpolation
+        (call_expression
+          function: (identifier)
+          (string_literal))))))
+
+==========
+unicode and brace escapes
+==========
+
+val s = "\u{e9} \{x\}"
+
+---
+
+(source_file
+  (val_declaration
+    binding: (identifier)
+    value: (string_literal
+      (escape_sequence)
+      (escape_sequence)
+      (escape_sequence))))

@@ -1,0 +1,30 @@
+-- x.copy() duplicates an object explicitly: its rc fields are retained,
+-- its list fields cloned, and its copy block run. An object that holds a
+-- list is never copied implicitly; an object of plain fields still is.
+object Res {
+    val n: Int
+    drop { println("drop {self.n}") }
+}
+object Bag {
+    var items: [Res]
+    var tag: Int
+    init(t: Int) {
+        self.items = [Res(t)]
+        self.tag = t
+    }
+}
+object Point {
+    val x: Int
+    copy { println("copy point") }
+}
+func main() {
+    var a = Bag(1)
+    val b = a.copy()
+    a.items.push(Res(2))
+    println("{a.items.len()} {b.items.len()} {b.tag}")
+    val p = Point(3)
+    val q = p
+    val r = p.copy()
+    println("{q.x} {r.x}")
+    println("end")
+}

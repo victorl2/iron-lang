@@ -644,6 +644,13 @@ static inline void iron_check_arena_pointer_gen(Iron_FatPtr fp,
 }
 
 /* ── Platform threading abstraction ──────────────────────────────────────── */
+/* Stack size of every runtime thread (spawned tasks, the language
+ * server's reader and workers): the main thread's usual 8 MB. Secondary
+ * threads otherwise get the platform default (512 KB on macOS), where deep
+ * recursion (and the type checker under ASan) overflowed. */
+#ifndef IRON_THREAD_STACK_SIZE
+#define IRON_THREAD_STACK_SIZE ((size_t)8 * 1024 * 1024)
+#endif
 #ifdef _WIN32
 
   typedef HANDLE               iron_thread_t;
@@ -659,12 +666,14 @@ static inline void iron_check_arena_pointer_gen(Iron_FatPtr fp,
       free(p);
       return 0;
   }
+  /* See IRON_THREAD_STACK_SIZE below. */
   static inline int iron__win_thread_create(iron_thread_t *t,
                                             void *(*fn)(void*), void *arg) {
       iron__win_trampoline_t *tramp = (iron__win_trampoline_t *)malloc(sizeof(*tramp));
       if (!tramp) return -1;
       tramp->fn = fn; tramp->arg = arg;
-      *t = CreateThread(NULL, 0, iron__win_thread_proc, tramp, 0, NULL);
+      *t = CreateThread(NULL, IRON_THREAD_STACK_SIZE, iron__win_thread_proc, tramp,
+                        STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
       return *t ? 0 : -1;
   }
 
@@ -694,7 +703,16 @@ static inline void iron_check_arena_pointer_gen(Iron_FatPtr fp,
   typedef pthread_cond_t     iron_cond_t;
   typedef pthread_rwlock_t   iron_rwlock_t;
 
-  #define IRON_THREAD_CREATE(t,fn,arg)   pthread_create(&(t),NULL,(fn),(arg))
+  static inline int iron__posix_thread_create(iron_thread_t *t,
+                                              void *(*fn)(void*), void *arg) {
+      pthread_attr_t attr;
+      if (pthread_attr_init(&attr) != 0) return -1;
+      pthread_attr_setstacksize(&attr, IRON_THREAD_STACK_SIZE);
+      int rc = pthread_create(t, &attr, fn, arg);
+      pthread_attr_destroy(&attr);
+      return rc;
+  }
+  #define IRON_THREAD_CREATE(t,fn,arg)   iron__posix_thread_create(&(t),(fn),(arg))
   #define IRON_THREAD_JOIN(t)            pthread_join((t), NULL)
   #define IRON_MUTEX_INIT(m)             pthread_mutex_init(&(m), NULL)
   #define IRON_MUTEX_LOCK(m)             pthread_mutex_lock(&(m))
@@ -755,6 +773,7 @@ const char  *iron_string_cstr(const Iron_String *s);
 size_t       iron_string_byte_len(const Iron_String *s);
 size_t       iron_string_codepoint_count(const Iron_String *s);
 bool         iron_string_equals(const Iron_String *a, const Iron_String *b);
+int          iron_string_compare(const Iron_String *a, const Iron_String *b);
 Iron_String  iron_string_concat(const Iron_String *a, const Iron_String *b);
 Iron_String  iron_string_intern(Iron_String s);
 /* Consumes one owned string value. Heap-backed interned literals remain owned
@@ -924,6 +943,7 @@ int64_t Iron_max(int64_t a, int64_t b);
 int64_t Iron_clamp(int64_t val, int64_t lo, int64_t hi);
 int64_t Iron_abs(int64_t val);
 void    Iron_assert(bool cond, Iron_String msg);
+Iron_String Iron_read_file(Iron_String path);
 
 /* ── Phase 78 FMT — Int/Int32/Float → String conversion ─────────────────
  * Defined in src/runtime/iron_fmt.c. Consumed by the Iron-side stubs in
@@ -931,12 +951,17 @@ void    Iron_assert(bool cond, Iron_String msg);
  *
  * Iron_int_to_string   — signed 64-bit decimal (INT64_MIN safe).
  * Iron_int32_to_string — signed 32-bit decimal (INT32_MIN safe).
- * Iron_float_to_string — libc %.6g (6 sig digits, trailing zeros trimmed);
+ * Iron_float_to_string — shortest round-trip digits (iron_fmt_float);
  *                        NaN/±Inf/-0.0 normalize to "NaN"/"inf"/"-inf"/"0".
  */
 Iron_String Iron_int_to_string(int64_t n);
 Iron_String Iron_int32_to_string(int32_t n);
 Iron_String Iron_float_to_string(double f);
+/* Shortest round-trip float formatting shared by to_string and string
+ * interpolation; is_f32 picks the shortest form that round-trips as a
+ * Float32.  out must hold IRON_FMT_FLOAT_BUF bytes; returns out. */
+#define IRON_FMT_FLOAT_BUF 40
+const char *iron_fmt_float(double v, bool is_f32, char *out);
 
 static inline int64_t Iron_range(int64_t n) { return n; }
 
@@ -1149,15 +1174,48 @@ typedef struct {
  *       int64_t  capacity;
  *   } Iron_List_##suffix;
  */
+/* qsort comparators for list.sort() on numeric and String elements.
+ * Floats order NaN after every number so the order is total. */
+#define IRON_SORT_CMP_NUM(name, T) \
+    static inline int name(const void *pa, const void *pb) { \
+        T a = *(const T *)pa, b = *(const T *)pb; \
+        return (a > b) - (a < b); \
+    }
+IRON_SORT_CMP_NUM(iron_sort_cmp_int8_t,   int8_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_int16_t,  int16_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_int32_t,  int32_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_int64_t,  int64_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_uint8_t,  uint8_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_uint16_t, uint16_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_uint32_t, uint32_t)
+IRON_SORT_CMP_NUM(iron_sort_cmp_uint64_t, uint64_t)
+#define IRON_SORT_CMP_FLOAT(name, T) \
+    static inline int name(const void *pa, const void *pb) { \
+        T a = *(const T *)pa, b = *(const T *)pb; \
+        if (a != a) return (b != b) ? 0 : 1; \
+        if (b != b) return -1; \
+        return (a > b) - (a < b); \
+    }
+IRON_SORT_CMP_FLOAT(iron_sort_cmp_float,  float)
+IRON_SORT_CMP_FLOAT(iron_sort_cmp_double, double)
+static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
+    return iron_string_compare((const Iron_String *)pa, (const Iron_String *)pb);
+}
+
 #define IRON_LIST_DECL(T, suffix) \
     Iron_List_##suffix Iron_List_##suffix##_create(void); \
     Iron_List_##suffix Iron_List_##suffix##_create_with_capacity(int64_t cap); \
     Iron_List_##suffix Iron_List_##suffix##_clone(const Iron_List_##suffix *src); \
+    Iron_List_##suffix Iron_List_##suffix##_take(Iron_List_##suffix *self); \
     void               Iron_List_##suffix##_push(Iron_List_##suffix *self, T item); \
     T                  Iron_List_##suffix##_get(const Iron_List_##suffix *self, int64_t index); \
     void               Iron_List_##suffix##_set(Iron_List_##suffix *self, int64_t index, T item); \
     T                  Iron_List_##suffix##_pop(Iron_List_##suffix *self); \
     int64_t            Iron_List_##suffix##_len(const Iron_List_##suffix *self); \
+    T                  Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index); \
+    void               Iron_List_##suffix##_insert(Iron_List_##suffix *self, int64_t index, T item); \
+    void               Iron_List_##suffix##_reverse(Iron_List_##suffix *self); \
+    void               Iron_List_##suffix##_clear(Iron_List_##suffix *self); \
     void               Iron_List_##suffix##_free(Iron_List_##suffix *self);
 
 /* Phase 33 STDLIB-02 (Plan 33-04): IRON_LIST_IMPL is split into
@@ -1171,6 +1229,11 @@ typedef struct {
  * element-destructor-aware _free / _clone — see the per-element drop/copy loop
  * gated on od_has_drop_lir / the FileHandle nocopy surface. */
 #define IRON_LIST_IMPL_CORE(T, suffix) \
+    Iron_List_##suffix Iron_List_##suffix##_take(Iron_List_##suffix *self) { \
+        Iron_List_##suffix out = *self; \
+        self->items = NULL; self->count = 0; self->capacity = 0; \
+        return out; \
+    } \
     Iron_List_##suffix Iron_List_##suffix##_create(void) { \
         Iron_List_##suffix l; \
         l.items = NULL; l.count = 0; l.capacity = 0; \
@@ -1218,6 +1281,32 @@ typedef struct {
             iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
         return self->items[--self->count]; \
     } \
+    T Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index) { \
+        /* Removes and returns items[index], shifting the tail down. */ \
+        if ((uint64_t)index >= (uint64_t)self->count) \
+            iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
+        T removed = self->items[index]; \
+        memmove(&self->items[index], &self->items[index + 1], \
+                (size_t)(self->count - index - 1) * sizeof(T)); \
+        self->count--; \
+        return removed; \
+    } \
+    void Iron_List_##suffix##_insert(Iron_List_##suffix *self, int64_t index, T item) { \
+        /* index == count appends. */ \
+        if ((uint64_t)index > (uint64_t)self->count) \
+            iron_panic_index_oob("Iron_List_" #suffix "_insert", 0, index, self->count + 1); \
+        Iron_List_##suffix##_push(self, item); \
+        memmove(&self->items[index + 1], &self->items[index], \
+                (size_t)(self->count - 1 - index) * sizeof(T)); \
+        self->items[index] = item; \
+    } \
+    void Iron_List_##suffix##_reverse(Iron_List_##suffix *self) { \
+        for (int64_t i = 0, j = self->count - 1; i < j; i++, j--) { \
+            T tmp = self->items[i]; \
+            self->items[i] = self->items[j]; \
+            self->items[j] = tmp; \
+        } \
+    } \
     int64_t Iron_List_##suffix##_len(const Iron_List_##suffix *self) { \
         return self->count; \
     }
@@ -1238,6 +1327,9 @@ typedef struct {
         } \
         return dst; \
     } \
+    void Iron_List_##suffix##_clear(Iron_List_##suffix *self) { \
+        self->count = 0; \
+    } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
         free(self->items); \
         self->items = NULL; self->count = 0; self->capacity = 0; \
@@ -1249,6 +1341,11 @@ typedef struct {
  * The CORE / TRIVIAL macros above are for the emitter, which always passes
  * already-mangled (non-keyword) names. */
 #define IRON_LIST_IMPL(T, suffix) \
+    Iron_List_##suffix Iron_List_##suffix##_take(Iron_List_##suffix *self) { \
+        Iron_List_##suffix out = *self; \
+        self->items = NULL; self->count = 0; self->capacity = 0; \
+        return out; \
+    } \
     Iron_List_##suffix Iron_List_##suffix##_create(void) { \
         Iron_List_##suffix l; \
         l.items = NULL; l.count = 0; l.capacity = 0; \
@@ -1308,8 +1405,37 @@ typedef struct {
             iron_panic_index_oob("Iron_List_" #suffix "_pop", 0, -1, self->count); \
         return self->items[--self->count]; \
     } \
+    T Iron_List_##suffix##_remove(Iron_List_##suffix *self, int64_t index) { \
+        /* Removes and returns items[index], shifting the tail down. */ \
+        if ((uint64_t)index >= (uint64_t)self->count) \
+            iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
+        T removed = self->items[index]; \
+        memmove(&self->items[index], &self->items[index + 1], \
+                (size_t)(self->count - index - 1) * sizeof(T)); \
+        self->count--; \
+        return removed; \
+    } \
+    void Iron_List_##suffix##_insert(Iron_List_##suffix *self, int64_t index, T item) { \
+        /* index == count appends. */ \
+        if ((uint64_t)index > (uint64_t)self->count) \
+            iron_panic_index_oob("Iron_List_" #suffix "_insert", 0, index, self->count + 1); \
+        Iron_List_##suffix##_push(self, item); \
+        memmove(&self->items[index + 1], &self->items[index], \
+                (size_t)(self->count - 1 - index) * sizeof(T)); \
+        self->items[index] = item; \
+    } \
+    void Iron_List_##suffix##_reverse(Iron_List_##suffix *self) { \
+        for (int64_t i = 0, j = self->count - 1; i < j; i++, j--) { \
+            T tmp = self->items[i]; \
+            self->items[i] = self->items[j]; \
+            self->items[j] = tmp; \
+        } \
+    } \
     int64_t Iron_List_##suffix##_len(const Iron_List_##suffix *self) { \
         return self->count; \
+    } \
+    void Iron_List_##suffix##_clear(Iron_List_##suffix *self) { \
+        self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
         free(self->items); \
@@ -1662,6 +1788,7 @@ bool                  Iron_string_contains(Iron_String self, Iron_String sub);
 bool                  Iron_string_starts_with(Iron_String self, Iron_String prefix);
 bool                  Iron_string_ends_with(Iron_String self, Iron_String suffix);
 Iron_List_Iron_String Iron_string_split(Iron_String self, Iron_String sep);
+Iron_List_Iron_String Iron_string_chars(Iron_String self);
 Iron_String           Iron_string_replace(Iron_String self, Iron_String old_s, Iron_String new_s);
 Iron_String           Iron_string_substring(Iron_String self, int64_t start, int64_t end_idx);
 int64_t               Iron_string_index_of(Iron_String self, Iron_String sub);
@@ -1684,6 +1811,7 @@ int64_t               Iron_string_count(Iron_String self, Iron_String sub);
 int64_t               Iron_string_rindex_of(Iron_String self, Iron_String sub);
 int64_t               Iron_string_byte_at(Iron_String self, int64_t i);
 Iron_String           Iron_string_from_byte(int64_t b);
+int64_t               Iron_string_byte_len(Iron_String self);
 void                  Iron_string_release(Iron_String self);
 
 #endif /* IRON_RUNTIME_H */

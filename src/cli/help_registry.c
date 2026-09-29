@@ -25,7 +25,7 @@
  *   "build"   — flags accepted by `iron build` (most build-time flags live here)
  *   "run"     — flags accepted by `iron run`. Most build-time flags are mirrored
  *               from "build" so iron run --help shows the full surface; entries
- *               unique to run (currently just --keep-binary) live here only.
+ *               unique to run live here only.
  *   "check"   — `iron check` accepts no subcommand-specific flags.
  *   "fmt"     — `iron fmt` (--check).
  *   "test"    — `iron test` accepts no subcommand-specific flags.
@@ -55,7 +55,7 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
     { "build", "--warn-fusion-break",  NULL, "off",    "Show where fusion chains are broken by non-fusible calls" },
     { "build", "--output",             "-o", NULL,     "Output binary path" },
 
-    /* ── iron run (mirrors most of build's surface; --keep-binary is unique) ── */
+    /* ── iron run (mirrors most of build's surface) ── */
     { "run", "--release",            NULL, "off",    "Optimized release build (native -O2, web -Oz -flto)" },
     { "run", "--debug-build",        NULL, "off",    "Keep .iron-build/ directory after compile for inspection" },
     { "run", "--no-optimize",        NULL, "off",    "Skip optimization passes (for A/B comparison)" },
@@ -66,7 +66,7 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
     { "run", "--dump-ir-passes",     NULL, "off",    "Print IR after each optimization pass" },
     { "run", "--report-compression", NULL, "off",    "Show fields narrowed for value range compression" },
     { "run", "--warn-fusion-break",  NULL, "off",    "Show where fusion chains are broken by non-fusible calls" },
-    { "run", "--keep-binary",        NULL, "off",    "(reserved, not yet implemented) Suppress atexit unlink of run-mode tempfile" },
+    { "run", "--output",             "-o", NULL,     "Keep the built binary at this path (default: temp file, removed on exit)" },
 
     /* ── iron fmt ───────────────────────────────────────────────────────── */
     { "fmt", "--check", NULL, "off", "Check formatting without rewriting; exit 1 if the file would change" },
@@ -187,8 +187,12 @@ void iron_help_print_all(const char *prog, FILE *out) {
     fprintf(out, "%s %s, Iron compiler\n\n", prog, IRON_VERSION_STRING);
     fprintf(out, "Usage:\n  %s <subcommand> [flags] [args]\n\n", prog);
 
+    /* `init` is an iron-only command; ironc does not implement it. */
+    int is_ironc = strcmp(prog, "ironc") == 0;
+
     fprintf(out, "Subcommands:\n");
     for (int i = 0; i < IRON_SUB_SUMMARIES_COUNT; i++) {
+        if (is_ironc && strcmp(IRON_SUB_SUMMARIES[i].name, "init") == 0) continue;
         fprintf(out, "  %-10s %s\n",
                 IRON_SUB_SUMMARIES[i].name, IRON_SUB_SUMMARIES[i].summary);
     }
@@ -209,6 +213,7 @@ void iron_help_print_all(const char *prog, FILE *out) {
     /* Per-subcommand sections in fixed display order. */
     for (int s = 0; s < IRON_SUB_SUMMARIES_COUNT; s++) {
         const char *sub = IRON_SUB_SUMMARIES[s].name;
+        if (is_ironc && strcmp(sub, "init") == 0) continue;
         n = collect_sorted(sub, sorted, 64);
         fprintf(out, "\n%s %s:\n", prog, sub);
         if (n == 0) {

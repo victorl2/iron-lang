@@ -15,7 +15,8 @@ here whenever a new code is allocated.
 - **Lexer errors:** 1–99 (`IRON_ERR_*`)
 - **Parser errors:** 101–199 (`IRON_ERR_*`)
 - **Semantic errors:** 200–299 (`IRON_ERR_*`); 290–293 reserved (Phase 8); 320–321 reserved (Phase 9)
-- **LIR verifier errors:** 300–399 (`IRON_ERR_LIR_*`)
+- **LIR verifier errors:** 900–907 (`IRON_ERR_LIR_*`). They report compiler bugs; they moved from 300–307, where 300 and 301 collided with semantic errors.
+- **Semantic errors (overflow):** 300–399 once 200–299 filled up
 - **Lowering errors:** 400–499 (`IRON_ERR_*`)
 - **HIR verifier errors:** 500–599 (`IRON_ERR_*`)
 - **Warnings:** 600+ (`IRON_WARN_*`)

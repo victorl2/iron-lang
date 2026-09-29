@@ -1,0 +1,19 @@
+-- Regression: a bounded vector initialized with a list literal.
+--
+-- `var v: [Int; <=4] = []` passed check and then assigned a list to the
+-- bounded-vector struct in C; `= [1, 2]` was rejected as a type mismatch.
+-- The literal now becomes the bounded vector (at most N elements; see
+-- v4-fail/regressions/bounded_vector_literal_too_long.iron).
+func main() {
+    var v: [Int; <=4] = []
+    v.push(1)
+    println("{v.len()}")
+
+    var w: [Int; <=4] = [1, 2]
+    w.push(3)
+    println("{w.len()} {w[0]} {w[2]}")
+
+    var names: [String; <=3] = ["a"]
+    names.push("b")
+    println("{names.len()} {names[1]}")
+}

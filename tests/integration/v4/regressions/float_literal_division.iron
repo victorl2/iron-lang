@@ -1,0 +1,30 @@
+-- Regression: Float constants inlined into C expressions lost their
+-- decimal point.
+--
+-- The C emitter printed CONST_FLOAT with "%.17g", which renders integral
+-- values without a decimal point. When the optimizer inlined both operands
+-- of a Float division, `1.0 / 3.0` was emitted as the C expression `1 / 3`,
+-- which is integer division: the program printed 0 instead of 1/3.
+-- Unoptimized builds hid the bug because each constant was first stored in
+-- a `double` local.
+--
+-- Float constants are now emitted as cast floating literals, for example
+-- `((double)1.0)`, so inlined arithmetic keeps Float semantics.
+func half(x: Float) -> Float {
+    return x / 2.0
+}
+
+func main() {
+    val third: Float = 1.0 / 3.0
+    val quot: Float = 7.0 / 2.0
+    val neg: Float = 2.0 - 5.0
+    val big: Float = 4294967296.0 / 8.0
+    println("{third}")
+    println("{quot}")
+    println("{neg}")
+    println("{big}")
+    println("{half(5.0)}")
+    if 1.0 / 2.0 > 0.0 {
+        println("inlined comparison keeps Float division")
+    }
+}

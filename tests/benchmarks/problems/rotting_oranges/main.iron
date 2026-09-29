@@ -4,7 +4,7 @@ import time
 -- Grid: 0=empty, 1=fresh, 2=rotten
 
 func rotting_oranges(grid: [Int], rows: Int, cols: Int) -> Int {
-    var g = grid
+    var g = grid.copy()
     var queue = fill(200, 0)
     var q_front = 0
     var q_back = 0
@@ -87,7 +87,7 @@ func rotting_oranges(grid: [Int], rows: Int, cols: Int) -> Int {
     return -1
 }
 
-func init_grid_10x10(g: [Int]) {
+func init_grid_10x10(var g: [Int]) {
     var i = 0
     while i < 100 {
         g[i] = 1

@@ -4,8 +4,9 @@
  * Locks Plan 97-01 Task 1's contract from the outside:
  *   - The IRON_CLI_FLAGS array has every flag listed in HELP-05.
  *   - Every entry is well-formed (non-NULL subcommand/flag/description).
- *   - --keep-binary's description mentions 'reserved' so RUN-03's status
- *     is visible in `iron run --help` output once Plan 97-02 wires it.
+ *   - No unimplemented flag is advertised (--keep-binary was listed as
+ *     reserved and then taken as the source path); ironc's help does not
+ *     list the iron-only `init` command.
  *   - Both printer functions emit non-empty output containing the
  *     expected substrings.
  *   - Within each subcommand block of iron_help_print_all, flags appear
@@ -18,6 +19,7 @@
 
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 void setUp(void)    {}
@@ -49,7 +51,7 @@ static void capture_print_sub(const char *sub, char *buf, size_t buf_size) {
 
 void test_v97_count_threshold(void) {
     /* Conservative floor: every flag named in HELP-05 + global trio +
-     * RUN-03 --keep-binary + init --lib is well over
+     * run --output + init --lib is well over
      * 18, but pick 18 so reasonable additions don't trigger churn. */
     TEST_ASSERT_GREATER_OR_EQUAL_INT(18, IRON_CLI_FLAGS_COUNT);
 }
@@ -80,7 +82,7 @@ void test_v97_required_flags_present(void) {
         "--strict-v3", "--no-strict-v3", "--force-comptime",
         "--dump-ir-passes", "--report-compression", "--warn-fusion-break",
         "--verbose", "--output", "--lib",
-        "--keep-binary", "--help", "--version",
+        "--help", "--version",
     };
     const int required_count = (int)(sizeof(required) / sizeof(required[0]));
     for (int i = 0; i < required_count; i++) {
@@ -90,17 +92,27 @@ void test_v97_required_flags_present(void) {
     }
 }
 
-/* ── 4. --keep-binary reserved ──────────────────────────────────────── */
+/* ── 4. no unimplemented flags; ironc help omits init ───────────────── */
 
-void test_v97_keep_binary_marked_reserved(void) {
-    int found = 0;
+void test_v97_no_reserved_flags_and_ironc_omits_init(void) {
     for (int i = 0; i < IRON_CLI_FLAGS_COUNT; i++) {
-        if (strcmp(IRON_CLI_FLAGS[i].flag, "--keep-binary") == 0) {
-            found = 1;
-            TEST_ASSERT_NOT_NULL(strstr(IRON_CLI_FLAGS[i].description, "reserved"));
-        }
+        TEST_ASSERT_NULL_MESSAGE(strstr(IRON_CLI_FLAGS[i].description, "reserved"),
+                                 IRON_CLI_FLAGS[i].flag);
+        TEST_ASSERT_TRUE(strcmp(IRON_CLI_FLAGS[i].flag, "--keep-binary") != 0);
     }
-    TEST_ASSERT_TRUE_MESSAGE(found, "--keep-binary entry not found");
+    FILE *f = tmpfile();
+    TEST_ASSERT_NOT_NULL(f);
+    iron_help_print_all("ironc", f);
+    long n = ftell(f);
+    rewind(f);
+    char *buf = (char *)calloc((size_t)n + 1, 1);
+    TEST_ASSERT_NOT_NULL(buf);
+    TEST_ASSERT_EQUAL_INT((int)n, (int)fread(buf, 1, (size_t)n, f));
+    fclose(f);
+    TEST_ASSERT_NULL(strstr(buf, "  init "));
+    TEST_ASSERT_NULL(strstr(buf, "ironc init"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "ironc run"));
+    free(buf);
 }
 
 /* ── 5. print_subcommand("build") contains --release ────────────────── */
@@ -207,7 +219,7 @@ int main(void) {
     RUN_TEST(test_v97_count_threshold);
     RUN_TEST(test_v97_every_entry_well_formed);
     RUN_TEST(test_v97_required_flags_present);
-    RUN_TEST(test_v97_keep_binary_marked_reserved);
+    RUN_TEST(test_v97_no_reserved_flags_and_ironc_omits_init);
     RUN_TEST(test_v97_print_build_contains_release);
     RUN_TEST(test_v97_print_init_contains_lib);
     RUN_TEST(test_v97_print_all_contains_every_subcommand);

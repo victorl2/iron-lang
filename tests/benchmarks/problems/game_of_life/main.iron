@@ -3,7 +3,7 @@ import time
 -- Conway's Game of Life: One generation step
 -- Rules: live cell with 2-3 neighbors survives, dead cell with exactly 3 becomes alive
 
-func game_of_life(grid: [Int], rows: Int, cols: Int, out: [Int]) {
+func game_of_life(grid: [Int], rows: Int, cols: Int, var out: [Int]) {
     for i in range(rows) {
         for j in range(cols) {
             var neighbors = 0

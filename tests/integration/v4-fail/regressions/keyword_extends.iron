@@ -1,0 +1,12 @@
+-- @expected-error: E0101
+-- `extends` is not part of Iron: one clear error instead of a cascade.
+object Entity {
+  val hp: Int
+}
+object Player extends Entity {
+  val name: String
+}
+func main() {
+  val p = Player("v")
+  println(p.name)
+}

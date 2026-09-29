@@ -1,0 +1,10 @@
+-- @expected-error: E0328
+-- Storing an existing list in a field gives it a second owner.
+object Bag {
+    val items: [Int]
+}
+func main() {
+    val a = [1, 2]
+    val b = Bag(a)
+    println("{b.items.len()} {a.len()}")
+}

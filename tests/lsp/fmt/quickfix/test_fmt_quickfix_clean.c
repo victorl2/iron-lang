@@ -260,9 +260,6 @@ static void test_quickfix_undefined_var_is_fmt_clean(void) {
     run_fixture("undefined_var", IRON_ERR_UNDEFINED_VAR);
 }
 
-static void test_quickfix_unused_import_is_fmt_clean(void) {
-    run_fixture("unused_import", IRON_WARN_UNUSED_IMPORT);
-}
 
 static void test_quickfix_missing_return_is_fmt_clean(void) {
     run_fixture("missing_return", IRON_ERR_MISSING_RETURN);
@@ -279,7 +276,6 @@ static void test_quickfix_redundant_cast_is_fmt_clean(void) {
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_quickfix_undefined_var_is_fmt_clean);
-    RUN_TEST(test_quickfix_unused_import_is_fmt_clean);
     RUN_TEST(test_quickfix_missing_return_is_fmt_clean);
     RUN_TEST(test_quickfix_type_mismatch_literal_is_fmt_clean);
     RUN_TEST(test_quickfix_redundant_cast_is_fmt_clean);

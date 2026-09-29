@@ -807,7 +807,7 @@ module.exports = grammar({
 
     interpolation: $ => seq('{', $._expression, '}'),
 
-    escape_sequence: $ => token.immediate(/\\[nrt"\\{}]/),
+    escape_sequence: $ => token.immediate(/\\(u\{[0-9a-fA-F]{1,6}\}|[nrt"\\{}])/),
 
     // NOTE: interpolated strings appear in the parse tree as
     // (string_literal (interpolation ...)) — queries/highlights.scm + folds.scm

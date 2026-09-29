@@ -3,7 +3,7 @@ import time
 -- Count islands in a 2D grid using DFS flood fill
 -- Grid stored as 1D array: grid[r * cols + c]
 
-func dfs_fill(grid: [Int], rows: Int, cols: Int, r: Int, c: Int) {
+func dfs_fill(var grid: [Int], rows: Int, cols: Int, r: Int, c: Int) {
     var stack = fill(400, 0)
     var top = 0
     stack[top] = r * cols + c
@@ -51,7 +51,7 @@ func dfs_fill(grid: [Int], rows: Int, cols: Int, r: Int, c: Int) {
     }
 }
 
-func num_islands(grid: [Int], rows: Int, cols: Int) -> Int {
+func num_islands(var grid: [Int], rows: Int, cols: Int) -> Int {
     var count = 0
     for r in range(rows) {
         for c in range(cols) {
@@ -64,7 +64,7 @@ func num_islands(grid: [Int], rows: Int, cols: Int) -> Int {
     return count
 }
 
-func init_grid(grid: [Int]) {
+func init_grid(var grid: [Int]) {
     -- Clear all to 0
     var i = 0
     while i < 400 {

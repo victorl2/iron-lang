@@ -1,0 +1,7 @@
+-- @expected-error: E0324
+-- An unannotated lambda parameter with no expected function type to infer
+-- it from is an error (it used to become Void silently).
+func main() {
+    val double = func(x) { println("{x * 2}") }
+    double(4)
+}

@@ -1,0 +1,12 @@
+-- @expected-error: E0327
+-- A binding whose type has a destructor must be initialized where it is
+-- declared: the destructor runs on reassignment and at scope exit.
+object Res {
+    val n: Int
+    drop { println("drop {self.n}") }
+}
+
+func main() {
+    var r: Res
+    r = Res(1)
+}

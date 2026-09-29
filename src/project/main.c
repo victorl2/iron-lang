@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <errno.h>
 
@@ -172,6 +173,13 @@ int spawn_and_wait(const char *prog, char *const argv[]) {
     }
     if (WIFEXITED(wstatus)) {
         return WEXITSTATUS(wstatus);
+    }
+    if (WIFSIGNALED(wstatus)) {
+        /* A crashing compiler must not look like an ordinary failed build. */
+        int sig = WTERMSIG(wstatus);
+        fprintf(stderr, "error: %s crashed (%s); this is a compiler bug, "
+                        "please report it\n", prog, strsignal(sig));
+        return 128 + sig;
     }
     return 1;
 #endif

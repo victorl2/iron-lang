@@ -113,7 +113,8 @@ static void test_list_drop_invokes_element_destructor(void) {
     iron_lir_optimize_info_free(&opt);
 }
 
-/* Case 2: List[Tracked] _clone deep-copies each element via Iron_Tracked_copy. */
+/* Case 2: List[Tracked] _clone deep-copies each element: a bitwise copy
+ * fixed up by the element's copy glue Iron_Tracked_copied. */
 static void test_list_copy_invokes_element_copy(void) {
     IronLIR_OptimizeInfo opt;
     const char *c = compile_to_c(kManagedSrc, &opt);
@@ -123,8 +124,8 @@ static void test_list_copy_invokes_element_copy(void) {
         strstr(c, "element-copy _clone for Iron_Tracked"),
         "Expected element-copy-aware _clone for Iron_Tracked");
     TEST_ASSERT_NOT_NULL_MESSAGE(
-        strstr(c, "Iron_Tracked_copy(&dst.items["),
-        "Expected per-element Iron_Tracked_copy(&dst.items[..]) loop in _clone");
+        strstr(c, "Iron_Tracked_copied(&dst.items["),
+        "Expected per-element Iron_Tracked_copied(&dst.items[..]) loop in _clone");
     iron_lir_optimize_info_free(&opt);
 }
 

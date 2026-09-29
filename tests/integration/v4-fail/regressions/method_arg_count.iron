@@ -1,0 +1,11 @@
+-- @expected-error: E0216
+-- Method call arity is checked: `c.add(1, 2)` on a one-parameter method.
+object C {
+    val k: Int
+    readonly func add(n: Int) -> Int { return self.k + n }
+}
+
+func main() {
+    val c = C(1)
+    println("{c.add(1, 2)}")
+}

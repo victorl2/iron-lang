@@ -1,0 +1,8 @@
+2 1 1
+copy point
+copy point
+3 3
+end
+drop 1
+drop 1
+drop 2

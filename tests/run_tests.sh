@@ -257,6 +257,36 @@ if [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/vendor_consume" ]; the
     done
 fi
 
+# Regression fixtures (any path containing /regressions/) must also produce
+# the expected output when built with --no-optimize: several miscompiles
+# showed up in only one of the two pipelines. A fixture opts out with
+# `-- @skip-no-optimize: #<issue>` naming the open issue that blocks it.
+# Prints the failure line itself and returns 1 on mismatch.
+noopt_parity_check() {
+    local file="$1" name="$2" want="$3"
+    case "${file}" in */regressions/*) ;; *) return 0 ;; esac
+    if head -n 20 "${file}" | grep -qE '^[[:space:]]*--[[:space:]]*@skip-no-optimize:'; then
+        return 0
+    fi
+    local dir="${WORK_DIR}/${name}_noopt"
+    mkdir -p "${dir}"
+    if ! (cd "${dir}" && "${IRON_BIN}" build --no-optimize "${file}") \
+            2>"${WORK_DIR}/${name}_noopt.err" >/dev/null; then
+        echo "[FAIL] (--no-optimize build failed)"
+        cat "${WORK_DIR}/${name}_noopt.err" >&2
+        return 1
+    fi
+    local got
+    got=$("${dir}/${name}" 2>&1) || true
+    if [ "${got}" != "${want}" ]; then
+        echo "[FAIL] (--no-optimize output differs)"
+        echo "  Expected: $(echo "${want}" | head -5)"
+        echo "  Actual:   $(echo "${got}" | head -5)"
+        return 1
+    fi
+    return 0
+}
+
 # v4 corpus uses §-section subdirs (e.g. v4/3.2-heap/happy.iron); walk recursively.
 # v4-migrated likewise (Phase 35 MIG-09: hand-migrated v3 corpus under v4/migrated-from-v3/<category>/).
 # Other categories use flat glob.
@@ -393,13 +423,15 @@ for test_file in ${_main_loop_files}; do
                 echo "[XFAIL] (@expect-panic: panic missing substring; expected-pass-after: phase-${expected_pass_after})"
                 XFAIL=$((XFAIL + 1))
             else
-                echo "[FAIL] (@expect-panic: stderr missing '${expect_panic_substr}')"
+                echo "[FAIL] (@expect-panic: stderr missing '${expect_panic_substr}', exit ${run_rc})"
+                printf '%s\n' "${run_output}" | head -20 >&2
                 FAIL=$((FAIL + 1))
             fi
         else
             if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
-                echo "[XFAIL] (@expect-panic: correct but not yet unlocked; expected-pass-after: phase-${expected_pass_after})"
-                XFAIL=$((XFAIL + 1))
+                # A fixed gap must not stay parked behind its marker.
+                echo "[FAIL] (stale XFAIL: panics as expected; remove @expected-pass-after: phase-${expected_pass_after})"
+                FAIL=$((FAIL + 1))
             else
                 echo "[PASS] (@expect-panic)"
                 PASS=$((PASS + 1))
@@ -417,8 +449,11 @@ for test_file in ${_main_loop_files}; do
 
     if [ "${actual}" = "${expected}" ]; then
         if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
-            echo "[XFAIL] (build+output correct but not yet unlocked; expected-pass-after: phase-${expected_pass_after})"
-            XFAIL=$((XFAIL + 1))
+            # A fixed gap must not stay parked behind its marker.
+            echo "[FAIL] (stale XFAIL: build and output are correct; remove @expected-pass-after: phase-${expected_pass_after})"
+            FAIL=$((FAIL + 1))
+        elif ! noopt_parity_check "${test_file}" "${test_name}" "${expected}"; then
+            FAIL=$((FAIL + 1))
         else
             echo "[PASS]"
             PASS=$((PASS + 1))
@@ -541,9 +576,24 @@ if [ "${CATEGORY}" = "v4-fail" ] || [ "${CATEGORY}" = "compile_fail" ]; then
         # Build failed. Check substring.
         expected_substr=$(cat "${expected_file}")
         expected_substr="${expected_substr%$'\n'}"
-        if grep -qF "${expected_substr}" "${build_log}"; then
-            echo "[PASS]"
-            PASS=$((PASS + 1))
+        # A fixture that does not parse proves nothing about the rule it
+        # targets: a syntax error must be the expected diagnostic itself.
+        stray_syntax=""
+        first_syntax=$(grep -m1 -E '^error\[E0(002|101|102)\]' "${build_log}" || true)
+        if [ -n "${first_syntax}" ] && ! printf '%s' "${first_syntax}" | grep -qF "${expected_substr}"; then
+            stray_syntax="${first_syntax}"
+        fi
+        if grep -qF "${expected_substr}" "${build_log}" && [ -n "${stray_syntax}" ]; then
+            echo "[FAIL] (fixture has an unrelated syntax error: ${stray_syntax})"
+            FAIL=$((FAIL + 1))
+        elif grep -qF "${expected_substr}" "${build_log}"; then
+            if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
+                echo "[FAIL] (stale XFAIL: rejected as expected; remove @expected-pass-after: phase-${expected_pass_after})"
+                FAIL=$((FAIL + 1))
+            else
+                echo "[PASS]"
+                PASS=$((PASS + 1))
+            fi
         else
             if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
                 echo "[XFAIL] (substring mismatch; expected-pass-after: phase-${expected_pass_after})"
@@ -571,7 +621,10 @@ fi
 #                   stderr MUST contain the substring in
 #                   expected_stderr_substring (TEST-04 lock); target/
 #                   MUST NOT have been created (fail-fast invariant).
+#   pin_too_new/    iron = "< 1.0.0" -> same as pin_mismatch; the message
+#                   must not suggest installing the current version.
 #   pin_absent/     no iron field -> build + run + stdout-compare
+# Any pin_* case with an expected_stderr_substring file is a mismatch case.
 if [ "${CATEGORY}" = "integration" ]; then
     for case_dir in "${TEST_DIR}"/pin_*/; do
         [ -d "${case_dir}" ] || continue
@@ -586,7 +639,7 @@ if [ "${CATEGORY}" = "integration" ]; then
         build_rc=$?
         set -e
 
-        if [ "${case_name}" = "pin_mismatch" ]; then
+        if [ -f "${case_dir}expected_stderr_substring" ]; then
             if [ "${build_rc}" -eq 0 ]; then
                 echo "[FAIL] (expected build to fail; exit 0)"
                 cat "${build_log}" >&2
@@ -677,6 +730,46 @@ if [ "${CATEGORY}" = "integration" ] && [ -x "${TEST_DIR}/run_cwd_clean_smoke.sh
     smoke_rc=$?
     set -e
     if [ "${smoke_rc}" -eq 0 ] && grep -q 'run_cwd_clean_smoke OK' "${smoke_log}"; then
+        echo "[PASS]"
+        PASS=$((PASS + 1))
+    else
+        echo "[FAIL] (exit ${smoke_rc})"
+        cat "${smoke_log}" >&2
+        FAIL=$((FAIL + 1))
+    fi
+fi
+
+# project_diag_smoke: multi-file packages report errors at the real file and
+# line, and non-pub declarations are private to their file.
+if [ "${CATEGORY}" = "integration" ] && [ -x "${TEST_DIR}/project_diag_smoke.sh" ]; then
+    TOTAL=$((TOTAL + 1))
+    echo -n "[RUN ] project_diag_smoke ... "
+    smoke_log="${WORK_DIR}/project_diag_smoke.log"
+    set +e
+    "${TEST_DIR}/project_diag_smoke.sh" "${IRON_BIN}" > "${smoke_log}" 2>&1
+    smoke_rc=$?
+    set -e
+    if [ "${smoke_rc}" -eq 0 ] && grep -q 'project_diag_smoke OK' "${smoke_log}"; then
+        echo "[PASS]"
+        PASS=$((PASS + 1))
+    else
+        echo "[FAIL] (exit ${smoke_rc})"
+        cat "${smoke_log}" >&2
+        FAIL=$((FAIL + 1))
+    fi
+fi
+
+# cli_args_smoke: unknown flags error in any position, ironc help omits
+# init, run -o keeps the binary, iron init <name> scaffolds <name>/.
+if [ "${CATEGORY}" = "integration" ] && [ -x "${TEST_DIR}/cli_args_smoke.sh" ]; then
+    TOTAL=$((TOTAL + 1))
+    echo -n "[RUN ] cli_args_smoke ... "
+    smoke_log="${WORK_DIR}/cli_args_smoke.log"
+    set +e
+    "${TEST_DIR}/cli_args_smoke.sh" "${IRON_BIN}" > "${smoke_log}" 2>&1
+    smoke_rc=$?
+    set -e
+    if [ "${smoke_rc}" -eq 0 ] && grep -q 'cli_args_smoke OK' "${smoke_log}"; then
         echo "[PASS]"
         PASS=$((PASS + 1))
     else

@@ -3,7 +3,7 @@ import time
 -- Flood fill: change all connected cells of same color to new color
 -- Grid stored as 1D array: grid[r * cols + c]
 
-func flood_fill(grid: [Int], rows: Int, cols: Int, sr: Int, sc: Int, new_color: Int) {
+func flood_fill(var grid: [Int], rows: Int, cols: Int, sr: Int, sc: Int, new_color: Int) {
     val old_color = grid[sr * cols + sc]
     if old_color == new_color {
         return
@@ -64,7 +64,7 @@ func checksum(grid: [Int], size: Int) -> Int {
     return s
 }
 
-func init_grid(grid: [Int]) {
+func init_grid(var grid: [Int]) {
     -- Fill all with 1
     for i in range(400) {
         grid[i] = 1

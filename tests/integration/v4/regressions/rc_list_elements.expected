@@ -1,0 +1,12 @@
+shared
+2 2 1
+free fresh
+free shared
+after shared
+2
+drop 1
+drop 2
+after stack
+1
+free target
+end

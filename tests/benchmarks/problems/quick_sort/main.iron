@@ -1,6 +1,6 @@
 import time
 
-func partition(arr: [Int], lo: Int, hi: Int) -> Int {
+func partition(var arr: [Int], lo: Int, hi: Int) -> Int {
     val pivot = arr[hi]
     var i = lo - 1
     var j = lo
@@ -19,7 +19,7 @@ func partition(arr: [Int], lo: Int, hi: Int) -> Int {
     return i + 1
 }
 
-func quicksort(arr: [Int], lo: Int, hi: Int) -> Int {
+func quicksort(var arr: [Int], lo: Int, hi: Int) -> Int {
     if lo < hi {
         val p = partition(arr, lo, hi)
         val d1 = quicksort(arr, lo, p - 1)

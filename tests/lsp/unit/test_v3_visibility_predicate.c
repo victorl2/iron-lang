@@ -7,7 +7,7 @@
  *   - same-string different-pointer same-module
  *   - stdlib carve-out (D-08): "stdlib://..." -> true regardless
  *   - is_pub field returns true (D-01 positive bit)
- *   - is_private func/method returns false cross-module (D-01 v2 inverse)
+ *   - non-pub func/method/object returns false cross-module
  *   - 1000-iteration determinism gate (Validation § Determinism Gate)
  *
  * Per src/parser/ast.h Iron_Field / Iron_FuncDecl / Iron_MethodDecl /
@@ -54,7 +54,7 @@ static void test_stdlib_carveout(void) {
     /* D-08: stdlib symbols always visible until Phase 14 MIG flips. */
     Iron_FuncDecl fd; memset(&fd, 0, sizeof(fd));
     fd.kind       = IRON_NODE_FUNC_DECL;
-    fd.is_private = true;
+    fd.is_pub     = false;
     TEST_ASSERT_TRUE(ilsp_vis_can_see("stdlib://math",
                                        "/abs/user.iron",
                                        (const Iron_Node *)&fd));
@@ -83,7 +83,7 @@ static void test_private_field_invisible_cross_module(void) {
 static void test_private_func_invisible_cross_module(void) {
     Iron_FuncDecl fd; memset(&fd, 0, sizeof(fd));
     fd.kind       = IRON_NODE_FUNC_DECL;
-    fd.is_private = true;
+    fd.is_pub     = false;
     TEST_ASSERT_FALSE(ilsp_vis_is_public((const Iron_Node *)&fd));
     TEST_ASSERT_FALSE(ilsp_vis_can_see("/abs/decl.iron",
                                         "/abs/req.iron",
@@ -93,7 +93,7 @@ static void test_private_func_invisible_cross_module(void) {
 static void test_private_method_invisible_cross_module(void) {
     Iron_MethodDecl md; memset(&md, 0, sizeof(md));
     md.kind       = IRON_NODE_METHOD_DECL;
-    md.is_private = true;
+    md.is_pub     = false;
     TEST_ASSERT_FALSE(ilsp_vis_is_public((const Iron_Node *)&md));
     TEST_ASSERT_FALSE(ilsp_vis_can_see("/abs/decl.iron",
                                         "/abs/req.iron",
@@ -103,17 +103,18 @@ static void test_private_method_invisible_cross_module(void) {
 static void test_pub_func_visible_cross_module(void) {
     Iron_FuncDecl fd; memset(&fd, 0, sizeof(fd));
     fd.kind       = IRON_NODE_FUNC_DECL;
-    fd.is_private = false;
+    fd.is_pub     = true;
     TEST_ASSERT_TRUE(ilsp_vis_is_public((const Iron_Node *)&fd));
     TEST_ASSERT_TRUE(ilsp_vis_can_see("/abs/decl.iron",
                                        "/abs/req.iron",
                                        (const Iron_Node *)&fd));
 }
 
-static void test_object_decl_default_true(void) {
-    /* RESEARCH Conflict 3: ObjectDecl has no is_private; default-true. */
+static void test_object_decl_follows_pub(void) {
     Iron_ObjectDecl od; memset(&od, 0, sizeof(od));
     od.kind = IRON_NODE_OBJECT_DECL;
+    TEST_ASSERT_FALSE(ilsp_vis_is_public((const Iron_Node *)&od));
+    od.is_pub = true;
     TEST_ASSERT_TRUE(ilsp_vis_is_public((const Iron_Node *)&od));
 }
 
@@ -121,7 +122,7 @@ static void test_determinism_gate(void) {
     /* Validation § Determinism Gate: 1000 iterations -> identical. */
     Iron_FuncDecl fd; memset(&fd, 0, sizeof(fd));
     fd.kind       = IRON_NODE_FUNC_DECL;
-    fd.is_private = false;
+    fd.is_pub     = true;
     bool first = ilsp_vis_can_see("/a.iron", "/b.iron", (const Iron_Node *)&fd);
     for (int i = 0; i < 1000; i++) {
         TEST_ASSERT_EQUAL(first,
@@ -139,7 +140,7 @@ int main(void) {
     RUN_TEST(test_private_func_invisible_cross_module);
     RUN_TEST(test_private_method_invisible_cross_module);
     RUN_TEST(test_pub_func_visible_cross_module);
-    RUN_TEST(test_object_decl_default_true);
+    RUN_TEST(test_object_decl_follows_pub);
     RUN_TEST(test_determinism_gate);
     return UNITY_END();
 }

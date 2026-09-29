@@ -281,6 +281,58 @@ void test_interpolated_string(void) {
     arrfree(toks);
 }
 
+void test_interp_nested_string_does_not_end_outer(void) {
+    Iron_Token *toks = lex("\"a {f(\"b\")} c\" x");
+    TEST_ASSERT_EQUAL(IRON_TOK_INTERP_STRING, toks[0].kind);
+    TEST_ASSERT_EQUAL_STRING("a {f(\"b\")} c", toks[0].value);
+    TEST_ASSERT_EQUAL(IRON_TOK_IDENTIFIER, toks[1].kind);
+    arrfree(toks);
+}
+
+void test_interp_expression_escapes_kept_raw(void) {
+    Iron_Token *toks = lex("\"{f(\"q\\\"\")}\"");
+    TEST_ASSERT_EQUAL(IRON_TOK_INTERP_STRING, toks[0].kind);
+    TEST_ASSERT_EQUAL_STRING("{f(\"q\\\"\")}", toks[0].value);
+    arrfree(toks);
+}
+
+void test_interp_escaped_quotes_still_accepted(void) {
+    Iron_Token *toks = lex("\"{f(\\\"a\\\")}\"");
+    TEST_ASSERT_EQUAL(IRON_TOK_INTERP_STRING, toks[0].kind);
+    TEST_ASSERT_EQUAL_STRING("{f(\"a\")}", toks[0].value);
+    TEST_ASSERT_EQUAL(0, diags.error_count);
+    arrfree(toks);
+}
+
+void test_escaped_braces_marked_in_interp_string(void) {
+    Iron_Token *toks = lex("\"\\{ {x} \\}\"");
+    TEST_ASSERT_EQUAL(IRON_TOK_INTERP_STRING, toks[0].kind);
+    TEST_ASSERT_EQUAL_STRING("\x01 {x} \x02", toks[0].value);
+    arrfree(toks);
+}
+
+void test_escaped_braces_plain_string(void) {
+    Iron_Token *toks = lex("\"\\{json\\}\"");
+    TEST_ASSERT_EQUAL(IRON_TOK_STRING, toks[0].kind);
+    TEST_ASSERT_EQUAL_STRING("{json}", toks[0].value);
+    arrfree(toks);
+}
+
+void test_unicode_escape(void) {
+    Iron_Token *toks = lex("\"A\\u{42}\\u{e9}\\u{1F600}\"");
+    TEST_ASSERT_EQUAL(IRON_TOK_STRING, toks[0].kind);
+    TEST_ASSERT_EQUAL_STRING("AB\xc3\xa9\xf0\x9f\x98\x80", toks[0].value);
+    TEST_ASSERT_EQUAL(0, diags.error_count);
+    arrfree(toks);
+}
+
+void test_unicode_escape_invalid(void) {
+    Iron_Token *toks = lex("\"\\u{D800}\"");
+    TEST_ASSERT_EQUAL(1, diags.error_count);
+    TEST_ASSERT_EQUAL(IRON_ERR_INVALID_CHAR, diags.items[0].code);
+    arrfree(toks);
+}
+
 void test_bool_true(void) {
     Iron_Token *toks = lex("true");
     TEST_ASSERT_EQUAL(IRON_TOK_TRUE, toks[0].kind);
@@ -574,6 +626,13 @@ int main(void) {
     RUN_TEST(test_float_literal);
     RUN_TEST(test_string_literal);
     RUN_TEST(test_interpolated_string);
+    RUN_TEST(test_interp_nested_string_does_not_end_outer);
+    RUN_TEST(test_interp_expression_escapes_kept_raw);
+    RUN_TEST(test_interp_escaped_quotes_still_accepted);
+    RUN_TEST(test_escaped_braces_marked_in_interp_string);
+    RUN_TEST(test_escaped_braces_plain_string);
+    RUN_TEST(test_unicode_escape);
+    RUN_TEST(test_unicode_escape_invalid);
     RUN_TEST(test_bool_true);
     RUN_TEST(test_bool_false);
     RUN_TEST(test_null_literal);

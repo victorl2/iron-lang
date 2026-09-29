@@ -13,6 +13,7 @@
  */
 
 #include "analyzer/escape.h"
+#include "lexer/lexer.h"
 #include "vendor/stb_ds.h"
 
 #include <string.h>
@@ -124,6 +125,19 @@ static const char *expr_ident_name(Iron_Node *node) {
     }
 }
 
+/* The heap binding an expression hands out when it is returned, assigned or
+ * passed on: the binding itself (`e`) or an address inside it (`&e.f`). A
+ * field or element read (`e.hp`) copies a value out and is not an escape
+ * of the heap object; it was reported as E0207. */
+static const char *escaping_ident_name(Iron_Node *node) {
+    if (!node) return NULL;
+    if (node->kind == IRON_NODE_IDENT) return ((Iron_Ident *)node)->name;
+    if (node->kind == IRON_NODE_UNARY &&
+        ((Iron_UnaryExpr *)node)->op == (Iron_OpKind)IRON_TOK_AMP)
+        return expr_ident_name(((Iron_UnaryExpr *)node)->operand);
+    return NULL;
+}
+
 /* ── Collect pass: walk a block and record heap bindings, freed, leaked ───── */
 
 /* Forward-declare the recursive collector. */
@@ -174,7 +188,7 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
         }
         case IRON_NODE_RETURN: {
             Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
-            const char *name = expr_ident_name(rs->value);
+            const char *name = escaping_ident_name(rs->value);
             if (name) {
                 arrpush(ctx->escaped_names, name);
             }
@@ -184,7 +198,7 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
             /* If we assign a heap value to something in the outer scope,
              * the RHS name escapes. */
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
-            const char *rhs = expr_ident_name(as->value);
+            const char *rhs = escaping_ident_name(as->value);
             if (rhs) {
                 /* Conservative: if the rhs is a heap-bound name, mark it escaped.
                  * (We can't easily determine if lhs is outer without full scope
@@ -201,7 +215,7 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
              * argument as escaped -- the callee may store the pointer. */
             Iron_CallExpr *call = (Iron_CallExpr *)node;
             for (int i = 0; i < call->arg_count; i++) {
-                const char *arg_name = expr_ident_name(call->args[i]);
+                const char *arg_name = escaping_ident_name(call->args[i]);
                 if (arg_name && find_heap_for_name(ctx, arg_name)) {
                     arrpush(ctx->escaped_names, arg_name);
                 }
@@ -212,7 +226,7 @@ static void collect_stmt(EscapeCtx *ctx, Iron_Node *node) {
             /* Same conservative treatment for method call arguments. */
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
             for (int i = 0; i < mc->arg_count; i++) {
-                const char *arg_name = expr_ident_name(mc->args[i]);
+                const char *arg_name = escaping_ident_name(mc->args[i]);
                 if (arg_name && find_heap_for_name(ctx, arg_name)) {
                     arrpush(ctx->escaped_names, arg_name);
                 }

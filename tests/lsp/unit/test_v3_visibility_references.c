@@ -164,7 +164,7 @@ static void test_predicate_drops_cross_module_private(void) {
 static void test_predicate_keeps_public_cross_module(void) {
     Iron_FuncDecl fd = {0};
     fd.kind = IRON_NODE_FUNC_DECL;
-    fd.is_private = false;
+    fd.is_pub = true;
 
     TEST_ASSERT_TRUE(ilsp_vis_can_see(
         "/tmp/mod_a.iron", "/tmp/mod_b.iron", (const Iron_Node *)&fd));

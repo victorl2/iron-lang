@@ -164,12 +164,16 @@ void test_parse_object_decl(void) {
     TEST_ASSERT_EQUAL_STRING("name", f1->name);
 }
 
+/* `extends` was removed (no inheritance): one error, and the rest of the
+ * declaration still parses. */
 void test_parse_object_extends(void) {
     Iron_Node *prog = parse("object Player extends Entity {\n  val name: String\n}");
+    TEST_ASSERT_EQUAL_INT(1, diags.error_count);
     Iron_Node *d    = first_decl(prog);
     TEST_ASSERT_EQUAL(IRON_NODE_OBJECT_DECL, d->kind);
     Iron_ObjectDecl *obj = (Iron_ObjectDecl *)d;
-    TEST_ASSERT_EQUAL_STRING("Entity", obj->extends_name);
+    TEST_ASSERT_NULL(obj->extends_name);
+    TEST_ASSERT_EQUAL(1, obj->field_count);
 }
 
 void test_parse_object_implements(void) {
@@ -1210,8 +1214,8 @@ void test_parse_patch_with_generic_params_rejected(void) {
         has_diag_code(IRON_ERR_UNEXPECTED_TOKEN),
         "expected IRON_ERR_UNEXPECTED_TOKEN for generic patch target");
     TEST_ASSERT_TRUE_MESSAGE(
-        has_diag_msg_substring("generic patch targets not supported in v3.0"),
-        "expected locked 'generic patch targets not supported in v3.0' message");
+        has_diag_msg_substring("generic patch targets are not supported"),
+        "expected locked 'generic patch targets are not supported' message");
 }
 
 /* ── Interface declarations ──────────────────────────────────────────────── */
@@ -1489,11 +1493,11 @@ void test_self_construct_named(void) {
 
 /* ── Phase 87-02 PATCH-08: patch implements clause ───────────────────────── */
 
-/* test_patch_implements_single: `patch object Int implements Comparable { ... }`
+/* test_patch_implements_single: `patch object Int impl Comparable { ... }`
  * ObjectDecl has is_patch==true, implements_count==1, implements_names[0]=="Comparable". */
 void test_patch_implements_single(void) {
     Iron_Node *prog = parse(
-        "patch object Int implements Comparable {\n"
+        "patch object Int impl Comparable {\n"
         "    readonly func cmp(other: Int) -> Int { return 0 }\n"
         "}\n"
     );
@@ -1514,10 +1518,10 @@ void test_patch_implements_single(void) {
     TEST_ASSERT_EQUAL_STRING("Comparable", od->implements_names[0]);
 }
 
-/* test_patch_implements_multiple: `patch object Foo implements A, B, C { }` => implements_count==3. */
+/* test_patch_implements_multiple: `patch object Foo impl A, B, C { }` => implements_count==3. */
 void test_patch_implements_multiple(void) {
     Iron_Node *prog = parse(
-        "patch object Foo implements A, B, C {\n"
+        "patch object Foo impl A, B, C {\n"
         "}\n"
     );
     TEST_ASSERT_EQUAL_INT(0, diags.error_count);

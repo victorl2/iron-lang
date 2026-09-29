@@ -1,0 +1,14 @@
+-- @expected-error: E0101
+-- `super` is not part of Iron: one clear error instead of a cascade.
+object Animal {
+  val tag: Int
+  readonly func kind() -> Int { return 7 }
+}
+object Dog {
+  val breed: Int
+  readonly func kind() -> Int { return super.kind() + 1 }
+}
+func main() {
+  val d = Dog(42)
+  println("{d.kind()}")
+}

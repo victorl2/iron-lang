@@ -2,7 +2,7 @@ interface Comparable {
     readonly func cmp(other: Int) -> Int
 }
 
-patch object Int implements Comparable {
+patch object Int impl Comparable {
     pub readonly func cmp(other: Int) -> Int { return self - other }
 }
 

@@ -179,6 +179,9 @@ void iron_leak_dump(void) {
     /* Count first so the header line can report the total. */
     uint64_t count = 0;
     for (IronAllocHdr *h = s_reg_head; h; h = h->reg_next) count++;
+    /* The program's own output comes first: stdout is still buffered
+     * when atexit handlers run. */
+    fflush(stdout);
     fprintf(stderr,
             "iron: %llu heap allocation(s) leaked at exit "
             "(heap allocations only; rc/arena not tracked)\n",

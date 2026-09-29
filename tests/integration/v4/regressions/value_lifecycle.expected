@@ -1,0 +1,16 @@
+fields end
+drop outer
+drop inner 2
+drop inner 1
+copy 3
+copy 3
+copies end
+drop 3
+drop 4
+drop 3
+drop 3
+drop 5
+show 7
+drop 7
+reassign end
+drop 6

@@ -1,0 +1,47 @@
+-- Regression: mutating method calls on array elements changed a copy.
+--
+-- For `xs[i].m()` with a pointer receiver, unoptimized builds materialized
+-- the element into a temporary and passed its address, so the call mutated
+-- the temporary. For interface arrays (split collections) the element is
+-- unpacked into a union temporary in every build mode, and the mutation was
+-- never stored back into the element's typed sub-array.
+--
+-- The receiver address is now taken on the element itself, and interface
+-- elements are written back after a mutating call.
+interface Hit {
+    func hit()
+    readonly func hp() -> Int
+}
+
+object A impl Hit {
+    var n: Int
+    init(n: Int) { self.n = n }
+    func hit() { self.n -= 1 }
+    readonly func hp() -> Int { return self.n }
+}
+
+object B impl Hit {
+    var k: Int
+    init(k: Int) { self.k = k }
+    func hit() { self.k -= 2 }
+    readonly func hp() -> Int { return self.k }
+}
+
+func main() {
+    var xs: [A] = [A(3), A(5)]
+    xs[0].hit()
+    xs[1].hit()
+    xs[1].hit()
+    println("concrete: {xs[0].n} {xs[1].n}")
+    for i in range(len(xs)) {
+        xs[i].hit()
+    }
+    println("concrete loop: {xs[0].n} {xs[1].n}")
+
+    var hs: [Hit] = [A(3), B(9)]
+    hs[0].hit()
+    hs[1].hit()
+    val a = hs[0].hp()
+    val b = hs[1].hp()
+    println("interface: {a} {b}")
+}

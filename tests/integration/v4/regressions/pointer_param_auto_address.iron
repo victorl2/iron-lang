@@ -1,0 +1,43 @@
+-- Regression: `*T` parameters on methods, and auto-address at call sites.
+--
+-- 1. Lowering re-resolved method parameter annotations with a resolver
+--    that does not know pointer types, so `other: *T` on a method became
+--    `void *` in C and the body failed to compile.
+-- 2. Passing a T binding to a `*T` parameter never inserted the implicit
+--    `&`: the struct was passed by value to an Iron_FatPtr parameter. The
+--    optimizer hid this for small free functions by inlining them.
+-- 3. An interface-typed local holding a concrete object was aliased to the
+--    concrete value under --no-optimize, so calls through it wrapped the
+--    interface union a second time.
+--
+-- Method parameters now use the checker's resolved types, flagged call
+-- arguments are lowered as address-of, and loads are only aliased to
+-- stored values of the same type.
+object Player {
+    var hp: Int
+    init(hp: Int) { self.hp = hp }
+    func heal_from(other: *Player) { self.hp += other.hp }
+}
+
+interface Scorer {
+    readonly func score(bonus: Int) -> Int
+}
+
+object Ranked impl Scorer {
+    val base: Int
+    readonly func score(bonus: Int) -> Int { return self.base + bonus }
+}
+
+func by_value(p: Player) -> Int { return p.hp }
+func by_pointer(p: *Player) -> Int { return p.hp }
+
+func main() {
+    var a = Player(3)
+    val b = Player(4)
+    println("{by_value(a)} {by_pointer(a)} {by_pointer(&a)}")
+    a.heal_from(b)
+    println("{a.hp}")
+    val r = Ranked(10)
+    val s: Scorer = r
+    println("{s.score(5)}")
+}

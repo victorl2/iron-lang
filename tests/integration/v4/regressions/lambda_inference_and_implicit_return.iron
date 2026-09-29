@@ -1,0 +1,35 @@
+-- Regression: lambda return and parameter typing.
+--
+-- 1. A single-expression body `func(x: Int) -> Int { x * 2 }` passed the
+--    checker and then failed in lowering with an internal return-type
+--    error: it is now the lambda's return value.
+-- 2. Unannotated parameters silently became Void, so a lambda passed as
+--    `func(Int) -> Bool` failed with "cannot compare 'Void' with 'Int'".
+--    They now take the expected parameter types (and a missing `->` takes
+--    the expected return type); without an expected type they are an error
+--    (see v4-fail/regressions/lambda_param_needs_type.iron).
+func count_if(items: [Int], check: func(Int) -> Bool) -> Int {
+    var n = 0
+    for item in items {
+        if check(item) { n += 1 }
+    }
+    return n
+}
+
+func apply(f: func(Int) -> Int, v: Int) -> Int {
+    return f(v)
+}
+
+func main() {
+    val double = func(x: Int) -> Int { x * 2 }
+    println("{double(4)}")
+    println("{count_if([1, 5, 9], func(e) -> Bool { return e > 3 })}")
+    println("{count_if([1, 5, 9], func(e) { e > 4 })}")
+    val inc: func(Int) -> Int = func(x) { x + 1 }
+    println("{inc(1)} {apply(func(x) { x * 10 }, 4)}")
+    val multi = func(x: Int) -> Int {
+        val y = x * 2
+        return y + 1
+    }
+    println("{multi(3)}")
+}

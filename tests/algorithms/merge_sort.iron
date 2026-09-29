@@ -7,7 +7,7 @@
 
 -- In-place merge of arr[lo..mid) and arr[mid..hi) using insertion-style shifts.
 func inplace_merge(arr: [Int], lo: Int, mid: Int, hi: Int) -> [Int] {
-  var a = arr
+  var a = arr.copy()
   var i = mid
   while i < hi {
     val key = a[i]
@@ -31,9 +31,9 @@ func inplace_merge(arr: [Int], lo: Int, mid: Int, hi: Int) -> [Int] {
 func merge_sort(arr: [Int]) -> [Int] {
   val n = len(arr)
   if n <= 1 {
-    return arr
+    return arr.copy()
   }
-  var a = arr
+  var a = arr.copy()
   -- Bottom-up merge sort: width starts at 1 and doubles each pass
   var width = 1
   while width < n {

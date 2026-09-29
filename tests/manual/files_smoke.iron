@@ -19,7 +19,7 @@ func main() {
     val save_ok: Bool = Files.save_data("/tmp/iron_phase72/raw.bin", bytes)
     val _k_save_ok = save_ok
     val loaded: [UInt8] = Files.load_data("/tmp/iron_phase72/raw.bin")
-    val _k_loaded = loaded
+    val _k_loaded = loaded.len()
     val code_ok: Bool = Files.export_data_as_code(bytes, "/tmp/iron_phase72/raw.h")
     val _k_code_ok = code_ok
     print("FILE-01 done")
@@ -87,13 +87,13 @@ func main() {
     -- payload = "abc" -> ASCII [97, 98, 99]
     val abc: [UInt8] = [UInt8(97), UInt8(98), UInt8(99)]
     val compressed: [UInt8] = Files.compress(abc)
-    val _k_compressed = compressed
+    val _k_compressed = compressed.len()
     val decompressed: [UInt8] = Files.decompress(compressed)
-    val _k_decompressed = decompressed
+    val _k_decompressed = decompressed.len()
     val b64: String = Files.encode_base64(abc)
     val _k_b64 = b64
     val decoded: [UInt8] = Files.decode_base64(b64)
-    val _k_decoded = decoded
+    val _k_decoded = decoded.len()
     -- Canonical test vectors:
     --   CRC32("123456789") = 0xcbf43926
     --   MD5("abc")         = 900150983cd24fb0d6963f7d28e17f72
@@ -102,9 +102,9 @@ func main() {
     val crc: UInt32 = Files.compute_crc32(crc_payload)
     val _k_crc = crc
     val md5: [UInt8] = Files.compute_md5(abc)        -- expect 16 bytes
-    val _k_md5 = md5
+    val _k_md5 = md5.len()
     val sha1: [UInt8] = Files.compute_sha1(abc)      -- expect 20 bytes
-    val _k_sha1 = sha1
+    val _k_sha1 = sha1.len()
     print("FILE-05 done")
 
 -- ── FILE-06: random (seed reproducibility)
@@ -114,7 +114,7 @@ func main() {
     val n2: Int32 = Random.get_value(Int32(0), Int32(100))
     val _k_n2 = n2
     val seq: [Int32] = Random.load_sequence(UInt32(10), Int32(0), Int32(100))
-    val _k_seq = seq
+    val _k_seq = seq.len()
     Random.unload_sequence(seq)
     print("FILE-06 done")
 

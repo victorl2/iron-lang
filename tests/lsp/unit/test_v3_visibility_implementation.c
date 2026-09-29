@@ -39,11 +39,10 @@ void tearDown(void) {}
 static void test_per_impl_objectdecl_default_true(void) {
     /* The implementation.c per-impl filter calls
      * ilsp_vis_can_see(impl_canonical, requester, (Iron_Node *)od).
-     * For ObjectDecl (no is_pub axis), the predicate default-trues so
-     * cross-module implementors of an interface are kept. This is the
-     * "default-allow" semantic per D-15 abort-audit posture. */
+     * A pub implementor in another module is kept. */
     Iron_ObjectDecl od = {0};
     od.kind = IRON_NODE_OBJECT_DECL;
+    od.is_pub = true;
 
     TEST_ASSERT_TRUE(ilsp_vis_can_see(
         "/tmp/mod_a.iron", "/tmp/mod_b.iron", (const Iron_Node *)&od));

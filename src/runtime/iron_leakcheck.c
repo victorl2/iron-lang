@@ -143,6 +143,9 @@ void iron_leakcheck_dump(void) {
     }
     uint64_t count = 0;
     for (LcNode *n = s_lc_head; n; n = n->next) count++;
+    /* The program's own output comes first: stdout is still buffered
+     * when atexit handlers run. */
+    fflush(stdout);
     fprintf(stderr,
             "iron: %llu heap allocation(s) leaked at exit "
             "[IRON_LEAK_CHECK] (heap allocations only; rc/arena not tracked)\n",

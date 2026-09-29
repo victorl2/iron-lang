@@ -1,0 +1,17 @@
+-- @expected-error: E0235
+-- A mutating interface method needs a mutable binding, as a concrete one
+-- does. `val t: Tick` accepted t.tick() and mutated through the val.
+interface Tick {
+    func tick()
+}
+
+object Counter impl Tick {
+    var n: Int
+    init() { self.n = 0 }
+    func tick() { self.n = self.n + 1 }
+}
+
+func main() {
+    val t: Tick = Counter()
+    t.tick()
+}

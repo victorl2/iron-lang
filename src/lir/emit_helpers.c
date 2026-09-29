@@ -144,6 +144,74 @@ const char *emit_optional_struct_name(const Iron_Type *inner,
     return result;
 }
 
+/* `[rc T]` / `[weak rc T]`: a list of reference-counted pointers named
+ * Iron_List_rc_<T> / Iron_List_weakrc_<T>. The list owns one reference per
+ * element: _clone retains every element, _free / _clear release them. The
+ * element is a pointer, so the typedef needs only T's forward declaration.
+ * Returns the list's C type name. */
+const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem) {
+    bool weak = elem->kind == IRON_TYPE_WEAK_RC;
+    const Iron_Type *inner = weak ? elem->weak_rc.inner : elem->rc.inner;
+    const char *inner_c = emit_type_to_c((Iron_Type *)inner, ctx);
+    const char *elem_c = emit_type_to_c((Iron_Type *)elem, ctx);
+    char suffix[256];
+    snprintf(suffix, sizeof(suffix), "%s_%s", weak ? "weakrc" : "rc", inner_c);
+    for (char *c = suffix; *c; c++) if (*c == ' ' || *c == '*') *c = '_';
+    char list_name[300];
+    snprintf(list_name, sizeof(list_name), "Iron_List_%s", suffix);
+    const char *result = iron_arena_strdup(ctx->arena, list_name, strlen(list_name));
+    if (!result) iron_oom_abort("emit_helpers.c:emit_ensure_rc_list");
+    for (int i = 0; i < (int)arrlen(ctx->emitted_rc_lists); i++)
+        if (strcmp(ctx->emitted_rc_lists[i], result) == 0) return result;
+    arrput(ctx->emitted_rc_lists, (char *)result);
+
+    const char *retain  = weak ? "iron_weak_rc_retain"  : "iron_rc_retain";
+    const char *release = weak ? "iron_weak_rc_release" : "iron_rc_release";
+    Iron_StrBuf *sb = &ctx->struct_bodies;
+    iron_strbuf_appendf(sb,
+        "typedef struct %s {\n"
+        "    %s *items;\n"
+        "    int64_t count;\n"
+        "    int64_t capacity;\n"
+        "} %s;\n"
+        "IRON_LIST_DECL(%s, %s)\n"
+        "IRON_LIST_IMPL_CORE(%s, %s)\n",
+        result, elem_c, result, elem_c, suffix, elem_c, suffix);
+    iron_strbuf_appendf(sb,
+        "%s %s_clone(const %s *src) {\n"
+        "    %s dst;\n"
+        "    dst.count = src->count;\n"
+        "    dst.capacity = src->count;\n"
+        "    dst.items = NULL;\n"
+        "    if (src->count > 0) {\n"
+        "        dst.items = (%s *)malloc((size_t)src->count * sizeof(%s));\n"
+        "        if (!dst.items) iron_oom_abort(\"%s_clone\");\n"
+        "        for (int64_t _i = 0; _i < src->count; _i++) {\n"
+        "            dst.items[_i] = src->items[_i];\n"
+        "            %s((void *)dst.items[_i]);\n"
+        "        }\n"
+        "    }\n"
+        "    return dst;\n"
+        "}\n"
+        "void %s_free(%s *self) {\n"
+        "    for (int64_t _i = 0; _i < self->count; _i++) %s((void *)self->items[_i]);\n"
+        "    free(self->items);\n"
+        "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
+        "}\n"
+        "void %s_clear(%s *self) {\n"
+        "    for (int64_t _i = 0; _i < self->count; _i++) %s((void *)self->items[_i]);\n"
+        "    self->count = 0;\n"
+        "}\n\n",
+        result, result, result,
+        result,
+        elem_c, elem_c,
+        result,
+        retain,
+        result, result, release,
+        result, result, release);
+    return result;
+}
+
 const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
     if (!t) return "void";
 
@@ -365,6 +433,10 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
              * Phase 53: Interface-typed arrays use Iron_SplitList_<Iface> since
              * they are always emitted as split collections in the emitter.
              * e.g. [Shape] -> Iron_SplitList_Iron_Shape */
+            if (t->array.elem && (t->array.elem->kind == IRON_TYPE_RC ||
+                                  t->array.elem->kind == IRON_TYPE_WEAK_RC)) {
+                return emit_ensure_rc_list(ctx, t->array.elem);
+            }
             const char *elem_c = emit_type_to_c(t->array.elem, ctx);
             Iron_StrBuf sb = iron_strbuf_create(64);
             bool is_iface_elem = t->array.elem &&
@@ -1156,10 +1228,21 @@ bool emit_val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
      * must use `->` not `.`. Parameter values have NULL entries in
      * value_table, so this check has to come BEFORE the instr-NULL guard. */
     if (fn->is_mut_receiver_method && vid == 1) return true;
+    /* Any value typed `rc T` (an rc parameter, field read, call result) is
+     * a T* in C. */
+    {
+        Iron_Type *vt = emit_get_value_type(fn, vid);
+        if (vt && vt->kind == IRON_TYPE_RC) return true;
+    }
     if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
     IronLIR_Instr *instr = fn->value_table[vid];
     if (!instr) return false;
     if (instr->kind == IRON_LIR_HEAP_ALLOC || instr->kind == IRON_LIR_RC_ALLOC)
+        return true;
+    /* The payload of a null-checked `rc T?` (a CAST to rc T) is the rc
+     * pointer itself. */
+    if (instr->kind == IRON_LIR_CAST && instr->cast.target_type &&
+        instr->cast.target_type->kind == IRON_TYPE_RC)
         return true;
     /* LOAD from an RC-typed alloca: the alloca was declared as T* (via RC wrapper).
      * hir_to_lir.c sets the alloca type to IRON_TYPE_RC when the init is heap/rc. */
@@ -1182,6 +1265,28 @@ bool emit_val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
  * which also returns true for IRON_LIR_RC_ALLOC (T * local — still a pointer).
  * Used at field-access / field-store / addr-of sites to select the
  * `((T *)_vN.addr)->field` form vs `_vN->field` for RC pointers. */
+/* A heap / arena binding's slot: an alloca typed as a checked pointer `*T`
+ * whose loads are typed T (the binding's surface type). hir_to_lir types
+ * those slots this way so they hold the Iron_FatPtr handle; a genuine
+ * `*T` pointer variable's loads are typed `*T` instead. */
+bool emit_slot_is_heap_handle(IronLIR_Func *fn, IronLIR_ValueId slot,
+                              Iron_Type *load_type) {
+    if (slot == IRON_LIR_VALUE_INVALID ||
+        slot >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
+    IronLIR_Instr *a = fn->value_table[slot];
+    if (!a || a->kind != IRON_LIR_ALLOCA || !a->alloca.alloc_type) return false;
+    Iron_Type *at = a->alloca.alloc_type;
+    return at->kind == IRON_TYPE_PTR && !at->ptr.is_unchecked &&
+           load_type && load_type->kind != IRON_TYPE_PTR &&
+           at->ptr.pointee && iron_type_equals(at->ptr.pointee, load_type);
+}
+
+/* A LOAD of a heap / arena binding slot (see emit_slot_is_heap_handle). */
+static bool emit_is_heap_handle_load(IronLIR_Instr *instr, IronLIR_Func *fn) {
+    return instr && instr->kind == IRON_LIR_LOAD &&
+           emit_slot_is_heap_handle(fn, instr->load.ptr, instr->type);
+}
+
 bool emit_val_is_heap_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
     if (vid == IRON_LIR_VALUE_INVALID) return false;
     if (vid >= (IronLIR_ValueId)arrlen(fn->value_table)) return false;
@@ -1191,7 +1296,8 @@ bool emit_val_is_heap_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
      * Iron_FatPtr local whose .addr points at the arena-allocated object, so
      * ADDR_OF / field-access through it uses the same ((T *)_vN.addr) form. */
     return instr->kind == IRON_LIR_HEAP_ALLOC ||
-           instr->kind == IRON_LIR_ARENA_ALLOC;
+           instr->kind == IRON_LIR_ARENA_ALLOC ||
+           emit_is_heap_handle_load(instr, fn);
 }
 
 /* Phase 21: Returns true when a value is ANY Iron_FatPtr at runtime:
@@ -1207,7 +1313,8 @@ bool emit_val_is_any_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid) {
      * ADDR_OF as an Iron_FatPtr-producing opcode. */
     return instr->kind == IRON_LIR_HEAP_ALLOC ||
            instr->kind == IRON_LIR_ARENA_ALLOC ||
-           instr->kind == IRON_LIR_ADDR_OF;
+           instr->kind == IRON_LIR_ADDR_OF ||
+           emit_is_heap_handle_load(instr, fn);
 }
 
 /* Phase 21: Return the C pointee-type string for any Iron_FatPtr value.
@@ -1223,7 +1330,8 @@ const char *emit_fat_ptr_pointee_type_c(IronLIR_Func *fn, IronLIR_ValueId vid, E
     /* Phase 28 ARENA-03 (Plan 28-04): arena alloc pointee type is instr->type,
      * exactly like a heap alloc. */
     if (instr->kind == IRON_LIR_HEAP_ALLOC ||
-        instr->kind == IRON_LIR_ARENA_ALLOC) {
+        instr->kind == IRON_LIR_ARENA_ALLOC ||
+        emit_is_heap_handle_load(instr, fn)) {
         return emit_type_to_c(instr->type, ctx);
     }
     if (instr->kind == IRON_LIR_ADDR_OF) {
@@ -1298,6 +1406,135 @@ bool od_has_drop_lir(EmitCtx *ctx, struct Iron_ObjectDecl *od) {
     return emit_find_ir_func(ctx, lir_name) != NULL;
 }
 
+/* The type a field is stored as (resolved by the type checker). */
+static Iron_Type *emit_field_type(Iron_Field *f) {
+    if (!f) return NULL;
+    return f->resolved_type ? f->resolved_type : f->field_type_cached;
+}
+
+static bool emit_type_is_rc_like(const Iron_Type *t) {
+    if (!t) return false;
+    if (t->kind == IRON_TYPE_RC || t->kind == IRON_TYPE_WEAK_RC) return true;
+    return t->kind == IRON_TYPE_NULLABLE && t->nullable.inner &&
+           t->nullable.inner->kind == IRON_TYPE_RC;
+}
+
+/* True when the object has a lowered user method named <type>_<suffix>. */
+static bool od_has_lir_method(EmitCtx *ctx, struct Iron_ObjectDecl *od,
+                              const char *suffix, char *out, size_t out_size) {
+    if (!ctx || !od || !od->name) return false;
+    char lir_name[256];
+    if (!build_drop_lir_name(od->name, lir_name, sizeof(lir_name))) return false;
+    /* build_drop_lir_name appends "_drop"; swap the suffix. */
+    size_t base = strlen(lir_name) - 4;
+    if (base + strlen(suffix) + 1 > sizeof(lir_name)) return false;
+    strcpy(lir_name + base, suffix);
+    if (!emit_find_ir_func(ctx, lir_name)) return false;
+    if (out) snprintf(out, out_size, "%s", lir_name);
+    return true;
+}
+
+/* Does destroying (want_copy=false) or copying (want_copy=true) a value of
+ * this object type have work to do? Drop: a lowered user drop body, an
+ * rc / weak rc field to release, or a by-value object field needing drop.
+ * Copy: a lowered user copy body, rc fields to retain, or an object field
+ * needing the same. Mirrors hir_to_lir.c type_needs_drop. */
+/* A dynamic list field owns its buffer (#174): the object frees it when
+ * dropped and clones it when copied. Interface-element (split) lists have
+ * no clone yet and are left out. */
+static bool emit_field_is_owned_list(const Iron_Type *ft) {
+    return ft && ft->kind == IRON_TYPE_ARRAY && ft->array.size < 0 &&
+           !ft->array.is_bounded &&
+           !(ft->array.elem && ft->array.elem->kind == IRON_TYPE_INTERFACE);
+}
+
+static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
+                             bool want_copy, int depth) {
+    if (!od || depth > 16) return false;
+    if (od_has_lir_method(ctx, od, want_copy ? "copy" : "drop", NULL, 0))
+        return true;
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Type *ft = emit_field_type((Iron_Field *)od->fields[i]);
+        if (!ft) continue;
+        if (emit_type_is_rc_like(ft) || emit_field_is_owned_list(ft)) return true;
+        if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
+            od_lifecycle_rec(ctx, ft->object.decl, want_copy, depth + 1))
+            return true;
+    }
+    return false;
+}
+
+bool od_needs_drop(EmitCtx *ctx, struct Iron_ObjectDecl *od) {
+    return od_lifecycle_rec(ctx, od, false, 0);
+}
+
+bool od_needs_copy_fixup(EmitCtx *ctx, struct Iron_ObjectDecl *od) {
+    return od_lifecycle_rec(ctx, od, true, 0);
+}
+
+/* Release (drop=true) or retain an rc-like field `self->name`. */
+static void emit_rc_field_op(Iron_StrBuf *sb, const Iron_Type *ft,
+                             const char *name, bool drop) {
+    if (ft->kind == IRON_TYPE_RC) {
+        iron_strbuf_appendf(sb, "    %s((void *)self->%s);\n",
+                            drop ? "iron_rc_release" : "iron_rc_retain", name);
+    } else if (ft->kind == IRON_TYPE_WEAK_RC) {
+        iron_strbuf_appendf(sb, "    %s((void *)self->%s);\n",
+                            drop ? "iron_weak_rc_release" : "iron_weak_rc_retain",
+                            name);
+    } else {
+        iron_strbuf_appendf(sb,
+            "    if (self->%s.has_value) %s((void *)self->%s.value);\n",
+            name, drop ? "iron_rc_release" : "iron_rc_retain", name);
+    }
+}
+
+/* Synthesize `static void <TypeName>_copied(<TypeName> *self)`: fix up a
+ * fresh bitwise copy so it owns what it references. Field fixups first
+ * (rc fields retained, object fields fixed up recursively), then the user
+ * copy body runs on the new copy. */
+void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
+                            struct Iron_ObjectDecl *od) {
+    if (!ctx || !obj_c_name || !od) return;
+    for (int i = 0; i < (int)arrlen(ctx->emitted_copy_fixups); i++) {
+        if (strcmp(ctx->emitted_copy_fixups[i], obj_c_name) == 0) return;
+    }
+    char *name_copy = iron_arena_strdup(ctx->arena, obj_c_name, strlen(obj_c_name));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_copy_fixup");
+    arrput(ctx->emitted_copy_fixups, name_copy);
+
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Type *ft = emit_field_type((Iron_Field *)od->fields[i]);
+        if (ft && ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
+            od_needs_copy_fixup(ctx, ft->object.decl))
+            emit_ensure_copy_fixup(ctx, emit_type_to_c(ft, ctx), ft->object.decl);
+    }
+    Iron_StrBuf *sb = &ctx->lifted_funcs;
+    iron_strbuf_appendf(sb, "static void %s_copied(%s *self) {\n", obj_c_name, obj_c_name);
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        Iron_Type *ft = emit_field_type(f);
+        if (!ft || !f->name) continue;
+        if (emit_type_is_rc_like(ft)) {
+            emit_rc_field_op(sb, ft, f->name, false);
+        } else if (emit_field_is_owned_list(ft)) {
+            const char *lt = emit_type_to_c(ft, ctx);
+            iron_strbuf_appendf(sb, "    self->%s = %s_clone(&self->%s);\n",
+                                f->name, lt, f->name);
+        } else if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
+                   od_needs_copy_fixup(ctx, ft->object.decl)) {
+            iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
+                                emit_type_to_c(ft, ctx), f->name);
+        }
+    }
+    char lir_name[256];
+    if (od_has_lir_method(ctx, od, "copy", lir_name, sizeof(lir_name))) {
+        iron_strbuf_appendf(sb, "    %s(self);\n",
+                            emit_resolve_func_c_name(ctx, lir_name));
+    }
+    iron_strbuf_appendf(sb, "}\n\n");
+}
+
 /* Synthesize a static destructor function for an object type.
  * Emits `static void <TypeName>_drop(<TypeName> *self) { ... }` into
  * ctx->lifted_funcs (Pitfall 3 — NOT struct_bodies). Dedupes via
@@ -1320,12 +1557,10 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
      * (forward-declaration safety — lifted_funcs ordering, Pitfall 3).
      * Check via od_has_drop_lir — methods are LIR top-level functions, NOT od->methods. */
     for (int i = 0; i < od->field_count; i++) {
-        Iron_Field *f = (Iron_Field *)od->fields[i];
-        if (!f || !f->field_type_cached) continue;
-        Iron_Type *ft = f->field_type_cached;
-        if (ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
+        Iron_Type *ft = emit_field_type((Iron_Field *)od->fields[i]);
+        if (!ft || ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
         struct Iron_ObjectDecl *field_od = ft->object.decl;
-        if (od_has_drop_lir(ctx, field_od)) {
+        if (od_needs_drop(ctx, field_od)) {
             const char *field_c_name = emit_type_to_c(ft, ctx);
             emit_ensure_drop(ctx, field_c_name, field_od);
         }
@@ -1365,11 +1600,20 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
      * Check via od_has_drop_lir — methods are LIR functions, NOT od->methods. */
     for (int i = od->field_count - 1; i >= 0; i--) {
         Iron_Field *f = (Iron_Field *)od->fields[i];
-        if (!f || !f->field_type_cached) continue;
-        Iron_Type *ft = f->field_type_cached;
+        Iron_Type *ft = emit_field_type(f);
+        if (!ft || !f->name) continue;
+        if (emit_type_is_rc_like(ft)) {
+            emit_rc_field_op(&ctx->lifted_funcs, ft, f->name, true);
+            continue;
+        }
+        if (emit_field_is_owned_list(ft)) {
+            iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_free(&self->%s);\n",
+                                emit_type_to_c(ft, ctx), f->name);
+            continue;
+        }
         if (ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
         struct Iron_ObjectDecl *field_od = ft->object.decl;
-        if (od_has_drop_lir(ctx, field_od)) {
+        if (od_needs_drop(ctx, field_od)) {
             const char *field_c_name = emit_type_to_c(ft, ctx);
             /* Phase 24 DROP-04 (Plan 24-03): the field's drop function sets
              * iron_in_destructor=true internally (emit_func_body prologue).
@@ -1391,17 +1635,7 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
  * frees the block. */
 bool od_has_rc_drop_need(EmitCtx *ctx, struct Iron_ObjectDecl *od) {
     if (!ctx || !od) return false;
-    if (od_has_drop_lir(ctx, od)) return true;
-    for (int i = 0; i < od->field_count; i++) {
-        Iron_Field *f = (Iron_Field *)od->fields[i];
-        if (!f || !f->field_type_cached) continue;
-        Iron_Type *ft = f->field_type_cached;
-        if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
-            od_has_drop_lir(ctx, ft->object.decl)) {
-            return true;
-        }
-    }
-    return false;
+    return od_needs_drop(ctx, od);
 }
 
 /* Phase 26 POL-06 (Plan 26-03): synthesize <TypeName>_rc_drop trampoline.
@@ -1521,6 +1755,8 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
     arrfree(ctx->emitted_bvecs);
     arrfree(ctx->emitted_drops);
     arrfree(ctx->emitted_copies);
+    arrfree(ctx->emitted_copy_fixups);
+    arrfree(ctx->emitted_rc_lists);
     arrfree(ctx->emitted_boxes);  /* Phase 25 UNCK-01/02 (Plan 25-02) */
     arrfree(ctx->emitted_rc_drops);  /* Phase 26 POL-06 (Plan 26-03) */
     arrfree(ctx->emitted_env_drops); /* Phase 26 OQ-03 (Plan 26-03) */

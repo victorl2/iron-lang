@@ -1,9 +1,11 @@
 #include "cli/build.h"
 #include "cli/toml.h"
+#include "hir/stdlib_origin.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -280,10 +282,15 @@ static char *write_temp_c(const char *c_src, bool debug_build,
                     strerror(errno));
             return NULL;
         }
-        size_t plen = strlen(binary_name) + 32;
+        /* binary_name may be a path (`run` builds into a temp directory,
+         * `-o dir/name`): keep only its last component. */
+        const char *base = binary_name;
+        for (const char *c = binary_name; *c; c++)
+            if (*c == '/' || *c == '\\') base = c + 1;
+        size_t plen = strlen(base) + 32;
         path = (char *)malloc(plen);
         if (!path) return NULL;
-        snprintf(path, plen, ".iron-build/%s.c", binary_name);
+        snprintf(path, plen, ".iron-build/%s.c", base);
 
         FILE *f = fopen(path, "w");
         if (!f) {
@@ -467,6 +474,10 @@ static int prepend_marked_file(char **source_io, const char *base_dir,
         int n = snprintf(marker, sizeof(marker), "-- @file: \"%s\" @line: 1\n", path);
         if (n > 0 && (size_t)n < sizeof(marker)) mlen = (size_t)n;
     }
+    /* Declarations from this file carry the marker path as their span
+     * filename; without a marker they carry the user file's name. */
+    if (mlen > 0) iron_stdlib_origin_add(path);
+    else iron_stdlib_origin_mark_unknown();
 
     size_t combined_len = mlen + (size_t)sz + 1 + strlen(*source_io) + 1;
     char *combined = (char *)malloc(combined_len);
@@ -1627,10 +1638,7 @@ int iron_build(const char *source_path, const char *output_path,
      * atexit handler unlinks it on process exit; the run_after branch below
      * also unlinks promptly at each return point as defense in depth.
      *
-     * RUN-03 (reserved, NOT implemented in v3.2): --keep-binary suppresses
-     * the cleanup; -o <path> forces an explicit output path. Both flags are
-     * intentionally deferred. Users who want to keep the produced binary
-     * should pass --output to ironc directly.
+     * `run -o <path>` builds to <path> and keeps the binary.
      *
      * `iron build foo.iron` (run_after=false, no -o) keeps the v3.1
      * basename-in-cwd behavior so users still get a useful binary name. */
@@ -2052,7 +2060,17 @@ int iron_build(const char *source_path, const char *output_path,
             iron_run_tempfile_path[0] = '\0';
         }
         free(derived_output);
-        return WIFEXITED(wstatus) ? WEXITSTATUS(wstatus) : 1;
+        if (WIFEXITED(wstatus)) return WEXITSTATUS(wstatus);
+        if (WIFSIGNALED(wstatus)) {
+            /* A panic ends in abort() after printing its own message; any
+             * other signal (a crash) would otherwise go unreported. */
+            int sig = WTERMSIG(wstatus);
+            if (sig != SIGABRT)
+                fprintf(stderr, "error: '%s' terminated by signal %d (%s)\n",
+                        binary_name, sig, strsignal(sig));
+            return 128 + sig;
+        }
+        return 1;
 #endif
     }
 

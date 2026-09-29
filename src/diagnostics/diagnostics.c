@@ -374,3 +374,15 @@ void iron_node_assert_kind_impl(const Iron_Node *node,
                  (int)expected, (int)node->kind, file, line, func);
     }
 }
+
+void iron_diaglist_truncate(Iron_DiagList *list, int count) {
+    if (!list || count < 0 || count >= list->count) return;
+    arrsetlen(list->items, count);
+    list->count = count;
+    list->error_count = 0;
+    list->warning_count = 0;
+    for (int i = 0; i < count; i++) {
+        if (list->items[i].level == IRON_DIAG_ERROR) list->error_count++;
+        else if (list->items[i].level == IRON_DIAG_WARNING) list->warning_count++;
+    }
+}

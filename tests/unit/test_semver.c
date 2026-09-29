@@ -10,14 +10,15 @@
  *     ^ / ~ / no-op forms; NULL for pure </<= constraints.
  *   - Malformed inputs ("", ">= ", ">= 3.x.0", ">= 3.2", "*", ">= 3.2.0,",
  *     ">>= 3.2.0") all return NULL.
- *   - Pre-release / build-metadata suffixes on the version-being-checked
- *     are stripped before comparison (v3.2 simplification).
+ *   - Versions compare by semver precedence: pre-releases sort below their
+ *     release; build metadata is ignored.
  *   - iron_semver_free is NULL-safe and leak-clean on valid constraints.
  */
 
 #include "unity.h"
 #include "cli/semver.h"
 
+#include <stdio.h>
 #include <string.h>
 
 void setUp(void)    {}
@@ -190,16 +191,60 @@ void test_v95_parse_returns_null_on_malformed(void) {
 }
 
 /* ── Pre-release suffix tolerance (suffix stripped before comparison) ───── */
-void test_v95_satisfies_strips_pre_release_suffix(void) {
-    IronSemverConstraint *c = iron_semver_parse(">= 3.2.0");
+void test_v95_satisfies_uses_pre_release_precedence(void) {
+    /* A pre-release sorts below its release (4.2.0-alpha < 4.2.0). */
+    IronSemverConstraint *c = iron_semver_parse("= 4.2.0");
     TEST_ASSERT_NOT_NULL(c);
-    TEST_ASSERT_TRUE(iron_semver_satisfies(c, "3.2.0-alpha"));
-    TEST_ASSERT_TRUE(iron_semver_satisfies(c, "3.2.0-beta+build.123"));
+    TEST_ASSERT_FALSE(iron_semver_satisfies(c, "4.2.0-alpha"));
+    TEST_ASSERT_TRUE(iron_semver_satisfies(c, "4.2.0"));
+    TEST_ASSERT_TRUE(iron_semver_satisfies(c, "4.2.0+build.7"));
     iron_semver_free(c);
 
-    c = iron_semver_parse("= 3.2.0");
+    c = iron_semver_parse("< 4.2.0");
     TEST_ASSERT_NOT_NULL(c);
-    TEST_ASSERT_TRUE(iron_semver_satisfies(c, "3.2.0-rc1"));
+    TEST_ASSERT_TRUE(iron_semver_satisfies(c, "4.2.0-alpha"));
+    TEST_ASSERT_FALSE(iron_semver_satisfies(c, "4.2.0"));
+    iron_semver_free(c);
+
+    c = iron_semver_parse(">= 3.2.0");
+    TEST_ASSERT_NOT_NULL(c);
+    TEST_ASSERT_FALSE(iron_semver_satisfies(c, "3.2.0-beta+build.123"));
+    TEST_ASSERT_TRUE(iron_semver_satisfies(c, "3.2.1-alpha"));
+    iron_semver_free(c);
+
+    /* Identifier ordering from the semver spec:
+     * alpha < alpha.1 < alpha.beta < beta < beta.2 < beta.11 < rc.1 */
+    const char *order[] = { "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta",
+                            "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11",
+                            "1.0.0-rc.1", "1.0.0" };
+    for (int i = 1; i < 8; i++) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "< %s", order[i]);
+        c = iron_semver_parse(buf);
+        TEST_ASSERT_NOT_NULL(c);
+        TEST_ASSERT_TRUE_MESSAGE(iron_semver_satisfies(c, order[i - 1]), buf);
+        TEST_ASSERT_FALSE_MESSAGE(iron_semver_satisfies(c, order[i]), buf);
+        iron_semver_free(c);
+    }
+}
+
+void test_v95_below_lower_bound_only_for_lower_clauses(void) {
+    IronSemverConstraint *c = iron_semver_parse("< 4.0.0");
+    TEST_ASSERT_NOT_NULL(c);
+    TEST_ASSERT_FALSE(iron_semver_below_lower_bound(c, "4.2.0-alpha"));
+    iron_semver_free(c);
+
+    c = iron_semver_parse(">= 4.3.0, < 5.0.0");
+    TEST_ASSERT_NOT_NULL(c);
+    TEST_ASSERT_TRUE(iron_semver_below_lower_bound(c, "4.2.0"));
+    TEST_ASSERT_FALSE(iron_semver_below_lower_bound(c, "5.1.0"));
+    TEST_ASSERT_EQUAL_STRING("4.3.0", iron_semver_suggest_version(c));
+    iron_semver_free(c);
+
+    c = iron_semver_parse("= 4.2.0-beta.1");
+    TEST_ASSERT_NOT_NULL(c);
+    TEST_ASSERT_TRUE(iron_semver_below_lower_bound(c, "4.2.0-alpha"));
+    TEST_ASSERT_EQUAL_STRING("4.2.0-beta.1", iron_semver_suggest_version(c));
     iron_semver_free(c);
 }
 
@@ -229,7 +274,8 @@ int main(void) {
     RUN_TEST(test_v95_suggest_version_for_each_op_form);
     RUN_TEST(test_v95_suggest_version_null_for_pure_upper_bound);
     RUN_TEST(test_v95_parse_returns_null_on_malformed);
-    RUN_TEST(test_v95_satisfies_strips_pre_release_suffix);
+    RUN_TEST(test_v95_satisfies_uses_pre_release_precedence);
+    RUN_TEST(test_v95_below_lower_bound_only_for_lower_clauses);
     RUN_TEST(test_v95_free_is_null_safe);
     return UNITY_END();
 }

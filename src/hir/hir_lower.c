@@ -20,6 +20,7 @@
  */
 
 #include "hir/hir_lower.h"
+#include "hir/stdlib_origin.h"
 #include "lexer/lexer.h"
 #include "vendor/stb_ds.h"
 #include <stdio.h>
@@ -93,6 +94,9 @@ typedef struct {
      * lambda-queue site to populate LiftPending.is_readonly_context for
      * Plan 22-03's IronHIR_Func.is_readonly assignment. */
     bool             current_func_is_readonly;
+    /* True while lowering the direct target of an assignment: a narrowed
+     * T? identifier there is the slot itself, not its unwrapped payload. */
+    bool             lowering_assign_target;
 
     /* ── Module-level globals (2026-07 remediation: true module storage) ──
      * Replaces the old per-function materialization scheme (immutable
@@ -158,6 +162,13 @@ static void declare_var(IronHIR_LowerCtx *ctx, const char *name,
                         IronHIR_VarId id) {
     if (ctx->scope_depth <= 0) return;
     shput(ctx->scope_stack[ctx->scope_depth - 1], name, id);
+}
+
+/* The declared type of a HIR variable (its binding's type). */
+static Iron_Type *hir_var_type(IronHIR_Module *mod, IronHIR_VarId id) {
+    for (ptrdiff_t i = arrlen(mod->name_table) - 1; i >= 0; i--)
+        if (mod->name_table[i].id == id) return mod->name_table[i].type;
+    return NULL;
 }
 
 static IronHIR_VarId lookup_var(IronHIR_LowerCtx *ctx, const char *name) {
@@ -346,6 +357,24 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
         return wt ? wt : iron_type_make_primitive(IRON_TYPE_ERROR);
     }
 
+    if (ta->is_array && ta->array_elem_ann) {
+        Iron_Type *elem = resolve_type_ann(ctx, ta->array_elem_ann);
+        if (!elem) return NULL;
+        Iron_Type *arr = iron_type_make_array(ctx->module->arena, elem, -1, ta->bounded);
+        if (arr && ta->is_nullable)
+            arr = iron_type_make_nullable(ctx->module->arena, arr);
+        return arr;
+    }
+
+    if (ta->is_rc) {
+        Iron_Type *inner_t = ta->rc_inner
+            ? resolve_type_ann(ctx, ta->rc_inner)
+            : iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (!inner_t) inner_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+        Iron_Type *rt = iron_type_make_rc(ctx->module->arena, inner_t);
+        return rt ? rt : iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+
     /* Any shape that reaches the name dispatch without a name is a gap in the
      * arms above; report it as unresolved instead of dereferencing NULL. */
     if (!ta->name) return NULL;
@@ -405,6 +434,15 @@ static Iron_Type *resolve_type_ann(IronHIR_LowerCtx *ctx, Iron_Node *ann_node) {
     return base;
 }
 
+/* A signature parameter's type: the checker's resolution when it has one.
+ * Method params used to be re-resolved by resolve_type_ann, which does not
+ * know pointer types, so `other: *T` on a method lowered to void*. */
+static Iron_Type *param_type_hir(IronHIR_LowerCtx *ctx, Iron_Param *ap) {
+    if (ap->resolved_type && ap->resolved_type->kind != IRON_TYPE_ERROR)
+        return ap->resolved_type;
+    return resolve_type_ann(ctx, ap->type_ann);
+}
+
 /* ── Build HIR param array from AST params ───────────────────────────────── */
 
 static IronHIR_Param *build_hir_params_named(IronHIR_LowerCtx *ctx,
@@ -438,7 +476,7 @@ static IronHIR_Param *build_hir_params_named(IronHIR_LowerCtx *ctx,
         if (resolved_types && resolved_types[p]) {
             pt = resolved_types[p];  /* use type-checker resolved type */
         } else {
-            pt = resolve_type_ann(ctx, ap->type_ann);
+            pt = param_type_hir(ctx, ap);
         }
         arr[p].name   = ap->name;
         arr[p].type   = pt;
@@ -452,6 +490,65 @@ static IronHIR_Param *build_hir_params_named(IronHIR_LowerCtx *ctx,
 static IronHIR_Param *build_hir_params(IronHIR_LowerCtx *ctx,
                                         Iron_Node **params, int param_count) {
     return build_hir_params_named(ctx, params, param_count, NULL);
+}
+
+/* Generation source for `&operand`. Heap-allocated bindings carry
+ * IRON_HIR_GEN_HEAP so the deref-side runtime check calls
+ * iron_check_pointer_gen (header-based) rather than
+ * iron_check_stack_pointer_gen (TLS-based), which is what use-after-free
+ * detection needs (SAFE-01). */
+static IronHIR_GenSource addr_gen_source(Iron_Node *operand) {
+    if (operand && operand->kind == IRON_NODE_IDENT) {
+        Iron_Ident *id = (Iron_Ident *)operand;
+        if (id->resolved_sym && id->resolved_sym->decl_node) {
+            Iron_Node *decl = id->resolved_sym->decl_node;
+            Iron_Node *init_node = NULL;
+            if (decl->kind == IRON_NODE_VAL_DECL) {
+                init_node = ((Iron_ValDecl *)decl)->init;
+            } else if (decl->kind == IRON_NODE_VAR_DECL) {
+                init_node = ((Iron_VarDecl *)decl)->init;
+            }
+            if (init_node && init_node->kind == IRON_NODE_HEAP) {
+                return IRON_HIR_GEN_HEAP;
+            }
+        }
+    }
+    return IRON_HIR_GEN_STACK;
+}
+
+/* True when the checker marked this call argument for auto-address: a T
+ * binding, field or element passed to a `*T` / `*var T` parameter. */
+static bool is_auto_address_arg(Iron_Node *arg) {
+    if (!arg) return false;
+    switch ((int)arg->kind) {
+        case IRON_NODE_IDENT:        return ((Iron_Ident *)arg)->is_auto_address_target;
+        case IRON_NODE_FIELD_ACCESS: return ((Iron_FieldAccess *)arg)->is_auto_address_target;
+        case IRON_NODE_INDEX:        return ((Iron_IndexExpr *)arg)->is_auto_address_target;
+        /* -Wswitch-enum opt-out: only lvalue shapes can be auto-addressed. */
+        default:                     return false;
+    }
+}
+
+/* Lower a call argument, inserting the implicit `&` for auto-address
+ * arguments. Without it the struct was passed by value to an Iron_FatPtr
+ * parameter and the build failed in the C compiler. */
+static IronHIR_Expr *lower_call_arg_hir(IronHIR_LowerCtx *ctx, Iron_Node *arg) {
+    IronHIR_Expr *v = lower_expr_hir(ctx, arg);
+    if (!is_auto_address_arg(arg)) return v;
+    Iron_Type *at = expr_type(arg);
+    Iron_Type *pt = at ? iron_type_make_ptr(ctx->module->arena, at, false, false)
+                       : NULL;
+    return iron_hir_expr_addr_of(ctx->module, v, addr_gen_source(arg), pt,
+                                 arg->span);
+}
+
+/* `assert(cond)` calling the builtin (not a user function named assert). */
+static bool is_builtin_assert_without_msg(Iron_CallExpr *ce) {
+    if (!ce || ce->arg_count != 1 || !ce->callee ||
+        ce->callee->kind != IRON_NODE_IDENT) return false;
+    Iron_Ident *id = (Iron_Ident *)ce->callee;
+    return id->name && strcmp(id->name, "assert") == 0 &&
+           (!id->resolved_sym || !id->resolved_sym->decl_node);
 }
 
 /* ── Find HIR func by name ───────────────────────────────────────────────── */
@@ -945,6 +1042,21 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             Iron_FieldAccess *tfa = (Iron_FieldAccess *)as->target;
             IronHIR_Expr *obj   = lower_expr_hir(ctx, tfa->object);
             IronHIR_Expr *value = lower_expr_hir(ctx, as->value);
+            if (is_compound_assign(as->op)) {
+                /* `o.f op= v` through a setter is set_f(f() op v). Passing v
+                 * alone turned `a.balance += 5` into `a.balance = 5`. The
+                 * receiver is read twice, so it must be pure; impure
+                 * receivers are hoisted to a temp first. */
+                IronHIR_Expr *obj_read = NULL;
+                obj = lower_ca_operand_dual(ctx, tfa->object, &obj_read);
+                IronHIR_Expr **no_args = NULL;
+                IronHIR_Expr *cur = iron_hir_expr_method_call(
+                    mod, obj_read, tfa->field, no_args, 0,
+                    tfa->resolved_type, span);
+                value = iron_hir_expr_binop(
+                    mod, ast_op_to_hir_binop(compound_assign_base_op(as->op)),
+                    cur, value, expr_type(as->target), span);
+            }
             /* Build the setter name: set_<field>. Arena-alloc so the HIR
              * expression can reference the string stably. */
             size_t flen = strlen(tfa->field);
@@ -982,7 +1094,23 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             IronHIR_Stmt *s = iron_hir_stmt_assign(mod, target, binop, span);
             iron_hir_block_add_stmt(blk, s);
         } else {
-            IronHIR_Expr *target = lower_expr_hir(ctx, as->target);
+            IronHIR_Expr *target;
+            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS &&
+                ((Iron_FieldAccess *)as->target)->is_pub_access) {
+                /* A pub field written without a setter (a `pub val` populated
+                 * in init) is a direct store. Lowering the target as a read
+                 * produced a getter call, and the store was dropped. */
+                Iron_FieldAccess *tfa = (Iron_FieldAccess *)as->target;
+                target = iron_hir_expr_field_access(
+                    mod, lower_expr_hir(ctx, tfa->object), tfa->field,
+                    tfa->resolved_type, as->target->span);
+            } else {
+                bool saved_at = ctx->lowering_assign_target;
+                ctx->lowering_assign_target = as->target &&
+                                              as->target->kind == IRON_NODE_IDENT;
+                target = lower_expr_hir(ctx, as->target);
+                ctx->lowering_assign_target = saved_at;
+            }
             IronHIR_Expr *value  = lower_expr_hir(ctx, as->value);
             IronHIR_Stmt *s = iron_hir_stmt_assign(mod, target, value, span);
             iron_hir_block_add_stmt(blk, s);
@@ -1205,6 +1333,21 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                                          expr_type(fs->iterable),
                                                          false);
             IronHIR_Expr *iterable = lower_expr_hir(ctx, fs->iterable);
+            if (iterable && iterable->type &&
+                iterable->type->kind == IRON_TYPE_STRING) {
+                /* for c in s iterates s.chars(): one String per character. */
+                Iron_Type *chars_ty = iron_type_make_array(
+                    mod->arena, iterable->type, -1, false);
+                iterable = iron_hir_expr_method_call(mod, iterable, "chars",
+                                                     NULL, 0, chars_ty, span);
+                /* The loop variable's HIR type mirrors the iterable's. */
+                for (ptrdiff_t vi = arrlen(mod->name_table) - 1; vi >= 0; vi--) {
+                    if (mod->name_table[vi].id == loop_var) {
+                        mod->name_table[vi].type = chars_ty;
+                        break;
+                    }
+                }
+            }
 
             push_scope(ctx);
             declare_var(ctx, fs->var_name, loop_var);
@@ -1615,8 +1758,36 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         /* 1. Look in lexical scope stack (locals and params) */
         IronHIR_VarId var_id = lookup_var(ctx, id->name);
         if (var_id != IRON_HIR_VAR_INVALID) {
+            /* A T? binding narrowed to T by a null check reads its payload:
+             * the identifier keeps the binding's own T? type and a CAST to
+             * T unwraps it (emitted as `.value`). Assignment targets keep
+             * the slot. */
+            Iron_Type *decl_t = hir_var_type(mod, var_id);
+            if (!ctx->lowering_assign_target &&
+                decl_t && decl_t->kind == IRON_TYPE_NULLABLE &&
+                id->resolved_type &&
+                id->resolved_type->kind != IRON_TYPE_NULLABLE &&
+                id->resolved_type->kind != IRON_TYPE_NULL &&
+                id->resolved_type->kind != IRON_TYPE_ERROR) {
+                IronHIR_Expr *slot = iron_hir_expr_ident(mod, var_id, id->name,
+                                                         decl_t, span);
+                return iron_hir_expr_cast(mod, slot, id->resolved_type, span);
+            }
             return iron_hir_expr_ident(mod, var_id, id->name,
                                        id->resolved_type, span);
+        }
+
+        /* 1b. Bare enum variant (only valid as a match arm pattern): lower
+         * it like the qualified `Enum.Variant` pattern so the match switch
+         * gets a case for it instead of treating it as the default arm. */
+        if (id->resolved_sym &&
+            id->resolved_sym->sym_kind == IRON_SYM_ENUM_VARIANT &&
+            id->resolved_sym->type &&
+            id->resolved_sym->type->kind == IRON_TYPE_ENUM &&
+            id->resolved_sym->type->enu.decl) {
+            return iron_hir_expr_pattern(mod,
+                id->resolved_sym->type->enu.decl->name, id->name,
+                -1, NULL, NULL, 0, span);
         }
 
         /* 2. Module-level global (2026-07 remediation): emit the marker ident
@@ -1651,6 +1822,34 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_BinaryExpr *bin = (Iron_BinaryExpr *)node;
         IronHIR_Expr *lhs = lower_expr_hir(ctx, bin->left);
         IronHIR_Expr *rhs = lower_expr_hir(ctx, bin->right);
+
+        /* `x == null` / `x != null`: on a T? test has_value; any other
+         * operand is never null. Compared as values these emitted an
+         * optional struct against a NULL pointer. */
+        if ((bin->op == IRON_TOK_EQUALS || bin->op == IRON_TOK_NOT_EQUALS) &&
+            lhs && rhs &&
+            (lhs->kind == IRON_HIR_EXPR_NULL_LIT) != (rhs->kind == IRON_HIR_EXPR_NULL_LIT)) {
+            IronHIR_Expr *other = lhs->kind == IRON_HIR_EXPR_NULL_LIT ? rhs : lhs;
+            bool eq = bin->op == IRON_TOK_EQUALS;
+            Iron_Type *bool_ty = iron_type_make_primitive(IRON_TYPE_BOOL);
+            Iron_Type *ot = other->type;
+            /* A narrowed identifier arrives as CAST(slot): test the slot. */
+            if (other->kind == IRON_HIR_EXPR_CAST && other->cast.value &&
+                other->cast.value->type &&
+                other->cast.value->type->kind == IRON_TYPE_NULLABLE) {
+                other = other->cast.value;
+                ot = other->type;
+            }
+            if (ot && ot->kind == IRON_TYPE_NULLABLE) {
+                return eq ? iron_hir_expr_is_null(mod, other, span)
+                          : iron_hir_expr_is_not_null(mod, other, span);
+            }
+            if (ot && ot->kind != IRON_TYPE_ERROR && ot->kind != IRON_TYPE_NULL &&
+                ot->kind != IRON_TYPE_PTR && ot->kind != IRON_TYPE_RC &&
+                ot->kind != IRON_TYPE_WEAK_RC && ot->kind != IRON_TYPE_FUNC) {
+                return iron_hir_expr_bool_lit(mod, !eq, bool_ty, span);
+            }
+        }
 
         /* Phase 96 STR-01: lower String + String as a runtime call to
          * iron_string_concat. The bit is set by typecheck.c when op ==
@@ -1695,28 +1894,8 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
          * so HIR carries the typed result-of-& through unchanged. */
         if ((int)un->op == IRON_TOK_AMP) {
             IronHIR_Expr *target = lower_expr_hir(ctx, un->operand);
-            /* Phase 21 Plan 02: detect heap-allocated bindings so ADDR_OF
-             * carries IRON_HIR_GEN_HEAP when &binding targets heap T(...)
-             * storage. The deref-side runtime check then calls
-             * iron_check_pointer_gen (header-based) not iron_check_stack_pointer_gen
-             * (TLS-based) — correct for use-after-free detection (SAFE-01). */
-            IronHIR_GenSource gen_src = IRON_HIR_GEN_STACK;
-            if (un->operand && un->operand->kind == IRON_NODE_IDENT) {
-                Iron_Ident *id = (Iron_Ident *)un->operand;
-                if (id->resolved_sym && id->resolved_sym->decl_node) {
-                    Iron_Node *decl = id->resolved_sym->decl_node;
-                    Iron_Node *init_node = NULL;
-                    if (decl->kind == IRON_NODE_VAL_DECL) {
-                        init_node = ((Iron_ValDecl *)decl)->init;
-                    } else if (decl->kind == IRON_NODE_VAR_DECL) {
-                        init_node = ((Iron_VarDecl *)decl)->init;
-                    }
-                    if (init_node && init_node->kind == IRON_NODE_HEAP) {
-                        gen_src = IRON_HIR_GEN_HEAP;
-                    }
-                }
-            }
-            return iron_hir_expr_addr_of(mod, target, gen_src,
+            return iron_hir_expr_addr_of(mod, target,
+                                         addr_gen_source(un->operand),
                                          un->resolved_type, span);
         }
 
@@ -1803,8 +1982,20 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         /* Build arg list */
         IronHIR_Expr **args = NULL;
         for (int i = 0; i < ce->arg_count; i++) {
-            IronHIR_Expr *a = lower_expr_hir(ctx, ce->args[i]);
+            IronHIR_Expr *a = lower_call_arg_hir(ctx, ce->args[i]);
             arrput(args, a);
+        }
+        if (is_builtin_assert_without_msg(ce)) {
+            /* assert(cond): the message defaults to the source location. */
+            const char *file = node->span.filename ? node->span.filename : "?";
+            const char *base = strrchr(file, '/');
+            base = base ? base + 1 : file;
+            char loc[512];
+            snprintf(loc, sizeof(loc), "%s:%u", base, (unsigned)node->span.line);
+            const char *loc_copy = iron_arena_strdup(mod->arena, loc, strlen(loc));
+            if (!loc_copy) iron_oom_abort("hir_lower.c:assert location message");
+            arrput(args, iron_hir_expr_string_lit(
+                mod, loc_copy, iron_type_make_primitive(IRON_TYPE_STRING), span));
         }
         int arg_count = (int)arrlen(args);
         IronHIR_Expr *callee = lower_expr_hir(ctx, ce->callee);
@@ -1816,6 +2007,21 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Method call ─────────────────────────────────────────────────────── */
     case IRON_NODE_METHOD_CALL: {
         Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+
+        if (mc->is_builtin_copy) {
+            /* Explicit object duplicate: lowered by hir_to_lir as the
+             * copy glue applied to the receiver's value. */
+            return iron_hir_expr_method_call(mod, lower_expr_hir(ctx, mc->object),
+                                              "$copy", NULL, 0,
+                                              mc->resolved_type, span);
+        }
+        if (mc->is_builtin_to_string) {
+            /* Numeric / Bool `x.to_string()`: the same code as "{x}". */
+            IronHIR_Expr **parts = NULL;
+            arrput(parts, lower_expr_hir(ctx, mc->object));
+            return iron_hir_expr_interp_string(mod, parts, 1,
+                                               mc->resolved_type, span);
+        }
 
         /* Phase 27 POL-08 / POL-09 (Plan 27-02): intercept .downgrade() and
          * .upgrade() built-in method calls before generic method-call
@@ -1843,7 +2049,7 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
 
         IronHIR_Expr **args = NULL;
         for (int i = 0; i < mc->arg_count; i++) {
-            IronHIR_Expr *a = lower_expr_hir(ctx, mc->args[i]);
+            IronHIR_Expr *a = lower_call_arg_hir(ctx, mc->args[i]);
             arrput(args, a);
         }
         int arg_count = (int)arrlen(args);
@@ -1877,7 +2083,13 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
          *
          * Non-pub reads fall through to the normal field-load path,
          * preserving the pure-superset guard. */
-        if (fa->is_pub_access) {
+        /* A dynamic list field is read in place: the value is a borrowed
+         * view of the field (#174), and a getter call would look like a
+         * call returning a fresh list the caller owns. */
+        bool list_field = fa->resolved_type &&
+            fa->resolved_type->kind == IRON_TYPE_ARRAY &&
+            fa->resolved_type->array.size < 0 && !fa->resolved_type->array.is_bounded;
+        if (fa->is_pub_access && !list_field) {
             IronHIR_Expr **args = NULL;  /* zero-arg getter */
             return iron_hir_expr_method_call(mod, obj, fa->field,
                                               args, 0,
@@ -1904,6 +2116,13 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_IndexExpr *ix = (Iron_IndexExpr *)node;
         IronHIR_Expr *arr = lower_expr_hir(ctx, ix->object);
         IronHIR_Expr *idx = lower_expr_hir(ctx, ix->index);
+        if (arr && arr->type && arr->type->kind == IRON_TYPE_STRING) {
+            /* s[i] is s.char_at(i) (code point position). */
+            IronHIR_Expr **cargs = NULL;
+            arrput(cargs, idx);
+            return iron_hir_expr_method_call(mod, arr, "char_at", cargs, 1,
+                                             arr->type, span);
+        }
         return iron_hir_expr_index(mod, arr, idx, ix->resolved_type, span);
     }
 
@@ -1913,6 +2132,16 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         IronHIR_Expr *arr   = lower_expr_hir(ctx, sl->object);
         IronHIR_Expr *start = sl->start ? lower_expr_hir(ctx, sl->start) : NULL;
         IronHIR_Expr *end   = sl->end   ? lower_expr_hir(ctx, sl->end)   : NULL;
+        if (arr && arr->type && arr->type->kind == IRON_TYPE_STRING) {
+            /* s[a..b] is s.substring(a, b) (code point positions; an open
+             * end runs to the end: substring clamps). */
+            Iron_Type *int_ty = iron_type_make_primitive(IRON_TYPE_INT);
+            IronHIR_Expr **cargs = NULL;
+            arrput(cargs, start ? start : iron_hir_expr_int_lit(mod, 0, int_ty, span));
+            arrput(cargs, end ? end : iron_hir_expr_int_lit(mod, INT64_MAX, int_ty, span));
+            return iron_hir_expr_method_call(mod, arr, "substring", cargs, 2,
+                                             arr->type, span);
+        }
         return iron_hir_expr_slice(mod, arr, start, end, sl->resolved_type, span);
     }
 
@@ -1936,10 +2165,11 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             if (hir_params) hir_params[p].var_id = pid;
             declare_var(ctx, ap->name, pid);
         }
+        /* The body is lowered once, when the lambda is lifted (LIFT_LAMBDA).
+         * Lowering it here as well lifted every lambda nested inside it
+         * twice; the copy made here captured variable ids of this
+         * throwaway scope, and its env type was never emitted. */
         IronHIR_Block *lambda_body = iron_hir_block_create(mod);
-        {
-            lower_block_hir(ctx, (Iron_Block *)le->body, lambda_body);
-        }
         pop_scope(ctx);
 
         /* Assign lifted name now so the closure expr can store it */
@@ -2152,9 +2382,12 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             if (!is_nullable) {
                 return iron_hir_expr_bool_lit(mod, false, bool_ty, span);
             }
-            IronHIR_Expr *null_lit = iron_hir_expr_null_lit(mod, val_ty, span);
-            return iron_hir_expr_binop(mod, IRON_HIR_BINOP_EQ, val, null_lit,
-                                       bool_ty, span);
+            if (val && val->kind == IRON_HIR_EXPR_NULL_LIT)
+                return iron_hir_expr_bool_lit(mod, true, bool_ty, span);
+            /* A narrowed identifier arrives as CAST(slot): test the slot. */
+            if (val && val->kind == IRON_HIR_EXPR_CAST && val->cast.value)
+                val = val->cast.value;
+            return iron_hir_expr_is_null(mod, val, span);
         }
         /* General type test */
         Iron_Type *check_ty = ie->resolved_type;
@@ -2282,6 +2515,10 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                                                      ret_ty);
             f->is_extern    = fd->is_extern;
             f->extern_c_name = fd->extern_c_name;
+            f->is_runtime_stub =
+                fd->body && fd->body->kind == IRON_NODE_BLOCK &&
+                ((Iron_Block *)fd->body)->stmt_count == 0 &&
+                iron_stdlib_origin_is_stub_file(fd->span.filename);
             /* Phase 20 PTR-10 (Plan 20-02b): propagate takes_local_addr from
              * AST decl (set by Plan 20-02a's mark_takes_local_addr_pass). */
             f->takes_local_addr = fd->takes_local_addr;
@@ -2381,7 +2618,13 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
             bool is_stub = (!md->body);
             if (!is_stub && md->body && md->body->kind == IRON_NODE_BLOCK) {
                 Iron_Block *blk = (Iron_Block *)md->body;
-                if (blk->stmt_count == 0) is_stub = true;
+                /* Only stdlib wrapper files declare runtime stubs; an empty
+                 * user method is an ordinary method with a self param.
+                 * Treating it as a stub dropped self and left the symbol
+                 * undefined at link time. */
+                if (blk->stmt_count == 0 &&
+                    iron_stdlib_origin_is_stub_file(md->span.filename))
+                    is_stub = true;
             }
             int total_params;
             IronHIR_Param *params;
@@ -2468,7 +2711,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                     for (int p = 0; p < total_params; p++) {
                         Iron_Param *ap = (Iron_Param *)md->params[p + skip_self];
                         params[p].name   = ap->name;
-                        params[p].type   = resolve_type_ann(ctx, ap->type_ann);
+                        params[p].type   = param_type_hir(ctx, ap);
                         params[p].var_id = IRON_HIR_VAR_INVALID;
                     }
                 }
@@ -2488,7 +2731,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                 for (int p = 0; p < md->param_count; p++) {
                     Iron_Param *ap = (Iron_Param *)md->params[p];
                     params[p].name   = ap->name;
-                    params[p].type   = resolve_type_ann(ctx, ap->type_ann);
+                    params[p].type   = param_type_hir(ctx, ap);
                     params[p].var_id = IRON_HIR_VAR_INVALID;
                 }
             } else {
@@ -2528,7 +2771,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                 for (int p = 0; p < md->param_count; p++) {
                     Iron_Param *ap = (Iron_Param *)md->params[p];
                     params[p + 1].name   = ap->name;
-                    params[p + 1].type   = resolve_type_ann(ctx, ap->type_ann);
+                    params[p + 1].type   = param_type_hir(ctx, ap);
                     params[p + 1].var_id = IRON_HIR_VAR_INVALID;
                 }
             }
@@ -2544,6 +2787,7 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
 
             IronHIR_Func *f = iron_hir_func_create(mod, mname, params,
                                                      total_params, ret_ty);
+            f->is_runtime_stub = is_stub;
             /* Phase 80 MUT-07: propagate receiver mut-ness to the HIR func so
              * HIR→LIR can fire self_by_addr at call sites. Gated on
              * is_receiver_form + params[0]->is_mut_receiver so non-receiver-form
@@ -2705,6 +2949,7 @@ static void lower_method_body_hir(IronHIR_LowerCtx *ctx, Iron_MethodDecl *md) {
      * a properly-typed C return. The definite-assignment pass (Plan 85-02)
      * already guaranteed every field was written on every exit path before
      * this point, so reading `self` here is safe. */
+    if (md->is_init) fn->is_init = true;
     if (md->is_init && fn->param_count > 0 &&
         fn->params[0].name && strcmp(fn->params[0].name, "self") == 0) {
         IronHIR_Expr *self_expr = iron_hir_expr_ident(
@@ -2737,9 +2982,12 @@ static void lower_func_bodies_hir(IronHIR_LowerCtx *ctx) {
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 static void lower_lift_pending_hir(IronHIR_LowerCtx *ctx) {
-    int n = (int)arrlen(ctx->pending_lifts);
-    for (int i = 0; i < n; i++) {
-        LiftPending *lp = &ctx->pending_lifts[i];
+    /* Lifting a lambda lowers its body, which queues the lambdas nested in
+     * it: iterate to the live length (they used to be dropped) and work on
+     * a copy, since queueing can reallocate the array. */
+    for (int i = 0; i < (int)arrlen(ctx->pending_lifts); i++) {
+        LiftPending lp_copy = ctx->pending_lifts[i];
+        LiftPending *lp = &lp_copy;
         IronHIR_Module *mod = ctx->module;
 
         switch (lp->kind) {

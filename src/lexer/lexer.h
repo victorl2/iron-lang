@@ -223,4 +223,10 @@ Iron_Token *iron_lex_all(Iron_Lexer *l);
 /* Return a human-readable name for the token kind, e.g. "IRON_TOK_VAL". */
 const char *iron_token_kind_str(Iron_TokenKind kind);
 
+/* In an IRON_TOK_INTERP_STRING value, `\{` and `\}` are stored as these
+ * marker bytes so they are not mistaken for interpolation delimiters. The
+ * parser's interpolation splitter turns them back into braces. */
+#define IRON_LEX_LITERAL_LBRACE '\x01'
+#define IRON_LEX_LITERAL_RBRACE '\x02'
+
 #endif /* IRON_LEXER_H */

@@ -22,8 +22,14 @@ object _Phase70Probe {}
 -- form to v3.2 patch-object form (Phase 98 PATCH-03 / E0321).
 patch object _Phase70Probe {
     readonly func list_matrix_in(items: [Matrix]) {}
-    readonly func list_material_out() -> [Material] {}
-    readonly func list_model_animation_out() -> [ModelAnimation] {}
+    readonly func list_material_out() -> [Material] {
+        val out: [Material] = []
+        return out
+    }
+    readonly func list_model_animation_out() -> [ModelAnimation] {
+        val out: [ModelAnimation] = []
+        return out
+    }
 }
 
 func main() -> Int32 {

@@ -1,0 +1,25 @@
+-- Regression: unsigned values printed as signed, and to_string() was
+-- missing on most numeric types.
+--
+-- Interpolation formatted every integer kind with %lld, so
+-- `UInt(0) - UInt(1)` printed -1 and UInt64 values above Int64's range
+-- printed negative. `to_string()` was only declared for Int, Int32 and
+-- Float; on any other numeric type (and Bool) the call typed as Void.
+--
+-- Unsigned kinds now format with %llu, and `x.to_string()` on any numeric
+-- or Bool value lowers to the same code as "{x}".
+func main() {
+    val u = UInt(0) - UInt(1)
+    val u64 = UInt64(0) - UInt64(1)
+    val u32 = UInt32(0) - UInt32(1)
+    val big = UInt64(9223372036854775807) + UInt64(10)
+    println("{u} {u64} {u32} {big}")
+
+    val s1: String = u64.to_string()
+    val s2: String = UInt32(5).to_string()
+    val s3: String = Int8(-3).to_string()
+    val s4: String = true.to_string()
+    val s5: String = (UInt(2) + UInt(3)).to_string()
+    println(s1 + " " + s2 + " " + s3 + " " + s4 + " " + s5)
+    println(42.to_string() + " " + Int32(7).to_string())
+}

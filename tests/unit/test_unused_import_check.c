@@ -1,9 +1,7 @@
 /* test_unused_import_check.c — Phase 4 Plan 04-01 Task 02 (EDIT-07).
  *
- * LIVE — exercises the emit_unused_imports post-pass walker in
- * src/analyzer/resolve.c. Asserts IRON_WARN_UNUSED_IMPORT (611) fires
- * on aliased imports that are never referenced, and stays quiet when
- * the alias IS referenced.
+ * Import aliases are rejected with IRON_ERR_IMPORT_NOT_FOUND; the unused
+ * alias warning (611) that aliased imports used to get stays quiet.
  */
 
 #include "unity.h"
@@ -40,7 +38,8 @@ static void analyze(const char *src) {
         0);
 }
 
-/* An aliased import that IS referenced stays quiet. */
+/* Import aliases are rejected (E0209), and the unused-alias warning
+ * they used to get no longer fires on top of the error. */
 static void test_used_import_stays_quiet(void) {
     const char *src =
         "import std.math as m\n"
@@ -49,15 +48,16 @@ static void test_used_import_stays_quiet(void) {
         "}\n";
     analyze(src);
     TEST_ASSERT_EQUAL_INT(0, count_code(&g_diags, IRON_WARN_UNUSED_IMPORT));
+    TEST_ASSERT_EQUAL_INT(1, count_code(&g_diags, IRON_ERR_IMPORT_NOT_FOUND));
 }
 
-/* An aliased import that is NEVER referenced fires 611. */
 static void test_unused_import_fires_611(void) {
     const char *src =
         "import std.math as m\n"
         "func main() {}\n";
     analyze(src);
-    TEST_ASSERT_EQUAL_INT(1, count_code(&g_diags, IRON_WARN_UNUSED_IMPORT));
+    TEST_ASSERT_EQUAL_INT(0, count_code(&g_diags, IRON_WARN_UNUSED_IMPORT));
+    TEST_ASSERT_EQUAL_INT(1, count_code(&g_diags, IRON_ERR_IMPORT_NOT_FOUND));
 }
 
 int main(void) {

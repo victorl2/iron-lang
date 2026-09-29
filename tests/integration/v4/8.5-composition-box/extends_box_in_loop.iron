@@ -1,12 +1,13 @@
--- section 8.5 extends-spec: Box.unwrap inside 1000-iteration loop
+-- section 8.5 extends-spec: Box.unwrap inside a loop
 -- @req: UNCK-01, UNCK-03
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): E0264 (Counter has a var field but no init) + explicit-self method
--- signatures (E0101) not in the v4 surface.
--- extends-spec: Box.unwrap inside 1000-iteration loop probes elision benefit; accumulates sum
+-- extends-spec: Box.unwrap inside a loop probes elision benefit; accumulates sum
 
 object Counter {
     var value: Int
+
+    init(value: Int) {
+        self.value = value
+    }
 }
 
 nocopy object CounterBox {
@@ -16,7 +17,7 @@ nocopy object CounterBox {
         self.data = Box.new(Counter(start))
     }
 
-    func accumulate(self: *var CounterBox, n: Int) -> Int {
+    func accumulate(n: Int) -> Int {
         val p: *var unchecked Counter = self.data.unwrap()
         var sum = 0
         for i in range(n) {

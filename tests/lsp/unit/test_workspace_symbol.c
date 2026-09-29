@@ -55,7 +55,7 @@ static void make_tmp_workspace(char *out_root, size_t cap) {
     write_file(tomlp,
         "[package]\nname=\"t\"\nversion=\"0.1.0\"\n");
     write_file(mainp,
-        "func greeter() {}\n"
+        "pub func greeter() {}\n"
         "func reader()  {}\n"
         "func writer()  {}\n");
     write_file(utilp,

@@ -286,6 +286,16 @@ static int append_file(FILE *out, const char *path) {
  * Writes the chosen path into source_out. Returns 0 on success, 1 on error
  * (already reported).
  */
+/* `-- @file: "<rel>" @line: 1` ahead of each file in combined.iron, so the
+ * lexer tags that file's tokens with its own path and 1-based lines:
+ * diagnostics point at src/lib.iron:2 instead of target/combined.iron:40,
+ * and cross-file visibility sees distinct files. A path the marker cannot
+ * quote is left unmarked. */
+static void write_file_marker(FILE *combined, const char *rel_path) {
+    if (strpbrk(rel_path, "\"\n\r")) return;
+    fprintf(combined, "-- @file: \"%s\" @line: 1\n", rel_path);
+}
+
 static int assemble_sources(const IronProject *proj, const char *proj_dir,
                             const char *entry_path, bool colors,
                             char *source_out, size_t source_out_size) {
@@ -332,6 +342,7 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
     int ret = 0;
     for (int i = 0; i < vendor_files.count && ret == 0; i++) {
         fprintf(combined, "-- vendor: %s\n", vendor_files.items[i] + proj_prefix);
+        write_file_marker(combined, vendor_files.items[i] + proj_prefix);
         if (append_file(combined, vendor_files.items[i]) != 0) {
             char msg[4200];
             snprintf(msg, sizeof(msg), "cannot read vendored file %s",
@@ -343,6 +354,7 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
     if (ret == 0) {
         fprintf(combined, "-- project: %s\n", proj->name);
         for (int i = 0; i < project_files.count; i++) {
+            write_file_marker(combined, project_files.items[i] + proj_prefix);
             append_file(combined, project_files.items[i]);
         }
     }
@@ -399,12 +411,17 @@ static int check_legacy_dependencies(const IronProject *proj, bool colors) {
  *   'curl --proto =https --tlsv1.2 -sSfL https://ironlang.dev/install.sh |
  *   sh -s -- --version <suggested>' to update.
  *
- * Scope (v3.2): the version check fires for `iron build` and `iron run`
- * (which dispatches through cmd_build) only. `iron check` and `iron test`
- * intentionally skip the check per CONTEXT.md so contributors can iterate
- * on a package whose pin floor has drifted ahead of their toolchain.
+ * When the installed compiler is too new (only upper bounds fail), the
+ * install hint would name the version the user already has, so the message
+ * states the constraint instead.
+ *
+ * Scope: the check is an error for `iron build` and `iron run`. `iron check`
+ * reports it as a warning (as_warning) so contributors can still iterate on
+ * a package whose pin has drifted from their toolchain, but are told about
+ * it.
  */
-static int check_iron_version(const IronProject *proj, bool colors) {
+static int check_iron_version(const IronProject *proj, bool colors,
+                              bool as_warning) {
     if (!proj->iron_constraint || proj->iron_constraint[0] == '\0') {
         return 0;  /* PIN-04: missing/empty field is permitted */
     }
@@ -428,18 +445,48 @@ static int check_iron_version(const IronProject *proj, bool colors) {
     }
 
     const char *suggested = iron_semver_suggest_version(c);
-    if (!suggested) suggested = IRON_VERSION_STRING;
-
     char msg[2048];
-    snprintf(msg, sizeof(msg),
-             "%s requires iron %s, but you have %s. Run 'curl --proto =https --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh -s -- --version %s' to update.",
-             proj->name,
-             proj->iron_constraint,
-             IRON_VERSION_STRING,
-             suggested);
-    iron_print_error(colors, msg);
+    if (suggested && iron_semver_below_lower_bound(c, IRON_VERSION_STRING)) {
+        snprintf(msg, sizeof(msg),
+                 "%s requires iron %s, but you have %s. Run 'curl --proto =https --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh -s -- --version %s' to update.",
+                 proj->name,
+                 proj->iron_constraint,
+                 IRON_VERSION_STRING,
+                 suggested);
+    } else {
+        snprintf(msg, sizeof(msg),
+                 "%s requires iron %s, but you have %s, which is newer. Install an iron release that satisfies '%s'.",
+                 proj->name,
+                 proj->iron_constraint,
+                 IRON_VERSION_STRING,
+                 proj->iron_constraint);
+    }
     iron_semver_free(c);
+    if (as_warning) {
+        iron_print_warning(colors, msg);
+        return 0;
+    }
+    iron_print_error(colors, msg);
     return 1;
+}
+
+/* Reject any flag in argv[2..] (up to a `--` separator) that is not in
+ * allowed[] (NULL-terminated). Unknown flags used to be ignored silently. */
+static int reject_unknown_flags(const char *cmd, int argc, char **argv,
+                                const char *const *allowed) {
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--") == 0) break;
+        if (argv[i][0] != '-') continue;
+        bool ok = false;
+        for (int k = 0; allowed[k]; k++) {
+            if (strcmp(argv[i], allowed[k]) == 0) { ok = true; break; }
+        }
+        if (!ok) {
+            fprintf(stderr, "error: unknown flag '%s' for 'iron %s'\n", argv[i], cmd);
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /* ── cmd_build (handles both build and run) ─────────────────────────────── */
@@ -451,6 +498,9 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * Phase 94 LIB-04: --release is parsed at the iron build CLI layer and
      * forwarded to ironc below; the Finished status line differentiates
      * "release [optimized]" from "dev [unoptimized]" based on the same flag. */
+    static const char *const allowed[] = { "--verbose", "--release", NULL };
+    if (reject_unknown_flags(run_after ? "run" : "build", argc, argv, allowed) != 0)
+        return 1;
     bool verbose = false;
     bool release = false;
     char **run_args = NULL;
@@ -517,7 +567,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * constraint is fail-fast and side-effect-free. cmd_run dispatches
      * through cmd_build(true, ...) (see cmd_project), so this single
      * call site covers both `iron build` and `iron run`. */
-    if (check_iron_version(proj, colors) != 0) {
+    if (check_iron_version(proj, colors, false) != 0) {
         free(toml_path);
         iron_toml_free(proj);
         return 1;
@@ -709,7 +759,8 @@ static int cmd_build(bool run_after, int argc, char **argv) {
 /* ── cmd_check ──────────────────────────────────────────────────────────── */
 
 static int cmd_check(int argc, char **argv) {
-    (void)argc; (void)argv;
+    static const char *const allowed[] = { NULL };
+    if (reject_unknown_flags("check", argc, argv, allowed) != 0) return 1;
     bool colors = iron_color_init();
 
     char *toml_path = find_iron_toml();
@@ -727,6 +778,14 @@ static int cmd_check(int argc, char **argv) {
     }
 
     if (check_legacy_dependencies(proj, colors) != 0) {
+        free(toml_path);
+        iron_toml_free(proj);
+        return 1;
+    }
+
+    /* Report a version pin mismatch as a warning (malformed pins still
+     * fail). */
+    if (check_iron_version(proj, colors, true) != 0) {
         free(toml_path);
         iron_toml_free(proj);
         return 1;
@@ -769,7 +828,8 @@ static int cmd_check(int argc, char **argv) {
 /* ── cmd_test ───────────────────────────────────────────────────────────── */
 
 static int cmd_test(int argc, char **argv) {
-    (void)argc; (void)argv;
+    static const char *const allowed[] = { NULL };
+    if (reject_unknown_flags("test", argc, argv, allowed) != 0) return 1;
     bool colors = iron_color_init();
 
     char *toml_path = find_iron_toml();
@@ -837,14 +897,6 @@ static int cmd_test(int argc, char **argv) {
 
 int cmd_project(const char *cmd, int argc, char **argv) {
     if (strcmp(cmd, "build") == 0) return cmd_build(false, argc, argv);
-    /* Phase 96 RUN-03 (reserved, NOT implemented in v3.2):
-     *   --keep-binary  reserved to suppress the atexit unlink (iron-run-XXXXXX)
-     *                  for users who want to inspect the produced binary.
-     *   -o <path>      reserved as an output-path override for `iron run`.
-     * Both flags are documented in `iron run --help` (Phase 97 HELP-03 scope).
-     * Implementing them in v3.2 was descoped: the cwd-clean default covers the
-     * primary issue (#53); a deliberate keep-binary flag belongs in a later
-     * phase alongside the broader CLI help registry work. */
     if (strcmp(cmd, "run") == 0)   return cmd_build(true, argc, argv);
     if (strcmp(cmd, "check") == 0) return cmd_check(argc, argv);
     if (strcmp(cmd, "test") == 0)  return cmd_test(argc, argv);

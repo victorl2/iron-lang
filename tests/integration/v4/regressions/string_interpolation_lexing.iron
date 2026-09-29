@@ -1,0 +1,31 @@
+-- Regression: string interpolation lexing.
+--
+-- 1. A string literal inside `{...}` ended the outer string, so
+--    `"{greet("bob")}"` did not parse.
+-- 2. Escaped braces were decoded before the interpolation splitter ran, so
+--    `"\{ {x} \}"` lost its literal text and `"{x} \{word\}"` tried to
+--    evaluate `word`.
+-- 3. `\u{HEX}` escapes were not decoded.
+--
+-- The lexer now copies interpolation expressions raw (nested strings
+-- included), marks escaped braces so the splitter keeps them literal, and
+-- decodes `\u{HEX}` to UTF-8. The older `{f(\"a\")}` spelling for a
+-- string inside an interpolation keeps working.
+func greet(name: String) -> String {
+    return "hi " + name
+}
+
+func main() {
+    val x = 7
+    val word = "héllo"
+    println("A\u{42}C \u{e9} \u{1F600}")
+    println("brace \{ x={x} \}")
+    println("{x} and \{literal\}")
+    println("len {len("héllo")} and {greet("bob")}")
+    println("nested {greet("{x}")} quote {greet("a\"b")}")
+    println("braces in nested {greet("\}\{")} done")
+    println("plain \{no interp\}")
+    println("escaped quotes still work {greet(\"old\")}")
+    println("""multi {greet("line")}
+second {x}""")
+}

@@ -1,0 +1,4 @@
+self: 2
+heap: 12 12
+nested: 5
+through two lambdas: 10

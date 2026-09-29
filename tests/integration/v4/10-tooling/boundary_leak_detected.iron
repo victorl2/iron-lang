@@ -1,20 +1,21 @@
--- section 10.5 extends-spec: leak detection at exit reports leaked allocations
+-- section 10.5: intentional leaks
 -- @req: POL-04
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): `leak` keyword not implemented (E0102 expected expression); leak-at-exit
--- reporting has no surface to attach to.
--- @expect-panic: leaked at exit:
--- extends-spec: intentional leak via 'leak' keyword; debug allocator reports at exit with non-zero code
+-- extends-spec: `leak h` marks a heap value as intentionally permanent: no
+-- never-freed warning, and the value stays usable. (The debug allocator's
+-- leak report, `iron build --debug-build`, lists heap values that were
+-- neither freed nor leaked.)
 
 object World {
     val seed: Int
     val size: Int
 }
 
+func make_world() -> Int {
+    val w = heap World(1, 64)
+    leak w
+    return w.size
+}
+
 func main() {
-    val w = leak heap World(1, 64)
-    -- 'leak' keyword marks intentional leak; allocation is not freed
-    -- section 10.5: debug build reports "leaked at exit: World@<addr> (1 allocation)"
-    -- harness verifies non-zero exit AND stderr contains "leaked at exit:"
-    println("work")
+    println("work {make_world()}")
 }

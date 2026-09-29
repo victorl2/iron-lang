@@ -1,0 +1,64 @@
+-- Regression: interfaces.
+--
+-- 1. An [Iface] parameter took an element pointer while callers built a
+--    split list: invalid C.
+-- 2. A literal of a single implementor was typed [B] and rejected as
+--    [Drawable].
+-- 3. An interface without implementors used as a parameter type had no C
+--    type or dispatch functions.
+-- 4. A default interface method called on a concrete receiver, and
+-- 5. a method calling another method declared later, were typed Void.
+interface Drawable {
+    readonly func draw() -> String
+}
+
+object B impl Drawable {
+    val n: Int
+    readonly func draw() -> String { return "B {self.n}" }
+}
+
+object C impl Drawable {
+    val s: String
+    readonly func draw() -> String { return "C {self.s}" }
+}
+
+interface Describable {
+    readonly func describe() -> String
+}
+
+interface Named {
+    readonly func id() -> Int
+    readonly func title() -> String { return "untitled" }
+}
+
+object Pong impl Named {
+    val n: Int
+    readonly func id() -> Int { return self.n }
+}
+
+object Chain {
+    val v: Int
+    readonly func first() -> Int { return self.second() + 1 }
+    readonly func second() -> Int { return self.v }
+}
+
+func draw_all(items: [Drawable]) {
+    for item in items {
+        println(item.draw())
+    }
+}
+
+func show(d: Describable) {
+    println(d.describe())
+}
+
+func main() {
+    val mixed: [Drawable] = [B(1), C("x")]
+    draw_all(mixed)
+    val single: [Drawable] = [B(2)]
+    draw_all(single)
+    val p = Pong(1)
+    val t: String = p.title()
+    println(t)
+    println("{Chain(1).first()}")
+}

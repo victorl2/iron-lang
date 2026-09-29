@@ -3,7 +3,10 @@
 #include "analyzer/typecheck.h"
 #include "analyzer/capture.h"
 #include "analyzer/iface_defaults.h"
+#include "analyzer/generics.h"
 #include "analyzer/init_check.h"
+#include "analyzer/list_ownership.h"
+#include "analyzer/effects.h"
 #include "analyzer/unused_var.h"
 #include "analyzer/escape.h"
 #include "analyzer/concurrency.h"
@@ -131,6 +134,40 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
  * cancel_flag is threaded into every pass; on observation each pass exits
  * early with partial annotations intact. Between-pass safepoint polls in
  * this dispatcher give O(1)-bounded cancel observation across passes. */
+
+static void merge_patch_conformance(Iron_Program *program) {
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *pd = program->decls[i];
+        if (!pd || pd->kind != IRON_NODE_OBJECT_DECL) continue;
+        Iron_ObjectDecl *patch = (Iron_ObjectDecl *)pd;
+        if (!patch->is_patch || patch->implements_count == 0 ||
+            !patch->target_type_name) continue;
+        Iron_ObjectDecl *target = NULL;
+        for (int j = 0; j < program->decl_count; j++) {
+            Iron_Node *td = program->decls[j];
+            if (!td || td->kind != IRON_NODE_OBJECT_DECL) continue;
+            Iron_ObjectDecl *od = (Iron_ObjectDecl *)td;
+            if (!od->is_patch && od->name &&
+                strcmp(od->name, patch->target_type_name) == 0) {
+                target = od;
+                break;
+            }
+        }
+        if (!target) continue;
+        for (int k = 0; k < patch->implements_count; k++) {
+            const char *nm = patch->implements_names[k];
+            bool have = false;
+            for (int t = 0; t < target->implements_count; t++)
+                if (strcmp(target->implements_names[t], nm) == 0) { have = true; break; }
+            if (!have) {
+                arrput(target->implements_names, nm);
+                target->implements_count++;
+            }
+        }
+        patch->implements_count = 0;
+    }
+}
+
 Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
                                            IronAnalysisMode mode,
                                            Iron_Arena *arena,
@@ -149,19 +186,45 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
     /* HARD-05: between-pass cancel safepoint. */
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 
+    /* Step 1a: `patch object T impl I` declares that T conforms to I. Move
+     * the conformance onto T's own declaration so every pass that reads
+     * implements (assignability, the interface registry, default bodies)
+     * sees it; it used to be parsed and then ignored. Patches of builtin
+     * types have no object declaration and keep theirs. */
+    merge_patch_conformance(program);
+
     /* Step 1b: interface default bodies — monomorphise each defaulted
      * interface method into every implementor that does not define it, so
      * the resolver and every later pass see an ordinary patch method. */
     iron_iface_synthesize_defaults(program, arena, diags);
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 
-    /* Step 2: Name resolution */
-    result.global_scope = iron_resolve(program, arena, diags, cancel_flag);
+    /* Steps 2-3: name resolution and type checking, repeated while type
+     * checking requests new generic instances: each round's instances are
+     * cloned into the program and the round is redone (its diagnostics
+     * discarded) so the instances are resolved and checked like the rest.
+     * Programs without user generics run exactly one round. */
+    iron_generics_reset();
+    int diag_mark = diags->count;
+    for (int round = 0; ; round++) {
+        /* Step 2: Name resolution */
+        result.global_scope = iron_resolve(program, arena, diags, cancel_flag);
 
-    if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
+        if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 
-    /* Step 3: Type checking — runs regardless of resolve errors (HARD-03) */
-    iron_typecheck(program, result.global_scope, arena, diags, cancel_flag);
+        /* Step 3: Type checking — runs regardless of resolve errors (HARD-03) */
+        iron_typecheck(program, result.global_scope, arena, diags, cancel_flag);
+
+        if (round >= 16) break;   /* runaway recursive instantiation */
+        int before = diags->count;
+        if (iron_generics_materialize(program, arena, diags) == 0) break;
+        /* A clone that fails to parse keeps its errors; otherwise redo. */
+        if (diags->count != before) break;
+        iron_diaglist_truncate(diags, diag_mark);
+    }
+    /* Later passes and lowering see only instances. The LSP keeps the
+     * templates for navigation and hover. */
+    if (mode != IRON_ANALYSIS_MODE_LSP) iron_generics_drop_templates(program);
 
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 
@@ -185,11 +248,22 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
 
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 
+    /* Step 3.55: lists get new owners only as fresh values (#174). */
+    iron_list_ownership_check(program, arena, diags, cancel_flag);
+
+    if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
+
     /* Step 3.6: Phase 17 VAL-05/VAL-06 unused-var warning pass.
      * Pure read pass; no AST mutation. Safe to run unconditionally on any
      * tree the resolver has seen, including ones with prior errors.
      * Cancellation polled at per-function boundary inside the pass. */
     iron_unused_var_check(program, result.global_scope, arena, diags, cancel_flag);
+
+    if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
+
+    /* Step 3c: purity tiers through calls (pure / readonly methods calling
+     * free functions that perform I/O or write globals). */
+    iron_effects_check(program, result.global_scope, arena, diags, cancel_flag);
 
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 

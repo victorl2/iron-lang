@@ -1,6 +1,9 @@
 -- string.iron -- Iron wrapper for String built-in methods
 patch object String {
+    -- Number of characters (Unicode code points).
     readonly func len() -> Int {}
+    -- Size of the UTF-8 encoding in bytes.
+    readonly func byte_len() -> Int {}
     readonly func upper() -> String {}
     readonly func lower() -> String {}
     readonly func trim() -> String {}
@@ -8,6 +11,8 @@ patch object String {
     readonly func starts_with(prefix: String) -> Bool {}
     readonly func ends_with(suffix: String) -> Bool {}
     readonly func split(sep: String) -> [String] {}
+    -- Each character as its own String (what `for c in s` iterates).
+    readonly func chars() -> [String] {}
     readonly func replace(old: String, new: String) -> String {}
     readonly func substring(start: Int, end: Int) -> String {}
     readonly func index_of(sub: String) -> Int {}

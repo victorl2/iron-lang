@@ -127,6 +127,16 @@ bool iron_string_equals(const Iron_String *a, const Iron_String *b) {
     return memcmp(iron_string_cstr(a), iron_string_cstr(b), la) == 0;
 }
 
+/* Lexicographic order by bytes, which for UTF-8 is code point order.
+ * Returns <0, 0 or >0 like memcmp. */
+int iron_string_compare(const Iron_String *a, const Iron_String *b) {
+    size_t la = iron_string_byte_len(a);
+    size_t lb = iron_string_byte_len(b);
+    int c = memcmp(iron_string_cstr(a), iron_string_cstr(b), la < lb ? la : lb);
+    if (c != 0) return c;
+    return (la > lb) - (la < lb);
+}
+
 Iron_String iron_string_concat(const Iron_String *a, const Iron_String *b) {
     /* Phase 96 STR-01: defense-in-depth NULL guard — the compiler-side
      * lowering at hir_lower.c always emits two valid Iron_String pointers,
@@ -406,32 +416,141 @@ void iron_runtime_shutdown(void) {
 
 /* ── String built-in methods (Phase 38) ─────────────────────────────────── */
 
-Iron_String Iron_string_upper(Iron_String self) {
+/* ── UTF-8 helpers: String positions count code points ─────────────────── */
+
+/* Length of the UTF-8 sequence led by byte c (an invalid or continuation
+ * byte counts as a 1-byte unit, so malformed input never stalls a walk). */
+static size_t utf8_seq_len(unsigned char c) {
+    if (c < 0x80) return 1;
+    if (c >= 0xC0 && c < 0xE0) return 2;
+    if (c >= 0xE0 && c < 0xF0) return 3;
+    if (c >= 0xF0 && c < 0xF8) return 4;
+    return 1;
+}
+
+/* Byte offset of code point `cp` (clamped to [0, len]). */
+static size_t utf8_cp_to_byte(const char *s, size_t len, int64_t cp) {
+    size_t b = 0;
+    while (cp > 0 && b < len) {
+        size_t n = utf8_seq_len((unsigned char)s[b]);
+        b = (b + n > len) ? len : b + n;
+        cp--;
+    }
+    return b;
+}
+
+/* Number of code points in the first `bytes` bytes. */
+static int64_t utf8_byte_to_cp(const char *s, size_t bytes) {
+    int64_t cp = 0;
+    size_t b = 0;
+    while (b < bytes) {
+        b += utf8_seq_len((unsigned char)s[b]);
+        cp++;
+    }
+    return cp;
+}
+
+/* Decode the code point at s[*b] and advance *b; malformed bytes decode
+ * as themselves. */
+static uint32_t utf8_decode(const char *s, size_t len, size_t *b) {
+    unsigned char c = (unsigned char)s[*b];
+    size_t n = utf8_seq_len(c);
+    if (n == 1 || *b + n > len) { (*b)++; return c; }
+    uint32_t cp = (n == 2) ? (c & 0x1Fu) : (n == 3) ? (c & 0x0Fu) : (c & 0x07u);
+    for (size_t k = 1; k < n; k++) {
+        unsigned char cc = (unsigned char)s[*b + k];
+        if ((cc & 0xC0) != 0x80) { (*b)++; return c; }
+        cp = (cp << 6) | (cc & 0x3Fu);
+    }
+    *b += n;
+    return cp;
+}
+
+static size_t utf8_encode(uint32_t cp, char *out) {
+    if (cp < 0x80) { out[0] = (char)cp; return 1; }
+    if (cp < 0x800) {
+        out[0] = (char)(0xC0 | (cp >> 6)); out[1] = (char)(0x80 | (cp & 0x3F));
+        return 2;
+    }
+    if (cp < 0x10000) {
+        out[0] = (char)(0xE0 | (cp >> 12)); out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (cp & 0x3F));
+        return 3;
+    }
+    out[0] = (char)(0xF0 | (cp >> 18)); out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    out[2] = (char)(0x80 | ((cp >> 6) & 0x3F)); out[3] = (char)(0x80 | (cp & 0x3F));
+    return 4;
+}
+
+/* Simple (one-to-one) case mapping for ASCII, Latin-1, Latin Extended-A,
+ * Greek and Cyrillic. Characters outside those blocks are unchanged. */
+static uint32_t cp_to_upper(uint32_t c) {
+    if (c >= 'a' && c <= 'z') return c - 32;
+    if (c < 0x80) return c;
+    if ((c >= 0xE0 && c <= 0xFE && c != 0xF7)) return c - 0x20;
+    if (c == 0xFF) return 0x178;
+    if (c >= 0x100 && c <= 0x17F) {
+        if ((c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E))
+            return (c % 2 == 0) ? c - 1 : c;
+        if (c == 0x131 || c == 0x138 || c == 0x149 || c == 0x17F) return c;
+        return (c % 2 == 1) ? c - 1 : c;
+    }
+    if (c >= 0x3B1 && c <= 0x3C9 && c != 0x3C2) return c - 0x20;
+    if (c == 0x3C2) return 0x3A3;
+    if (c >= 0x430 && c <= 0x44F) return c - 0x20;
+    if (c >= 0x450 && c <= 0x45F) return c - 0x50;
+    return c;
+}
+
+static uint32_t cp_to_lower(uint32_t c) {
+    if (c >= 'A' && c <= 'Z') return c + 32;
+    if (c < 0x80) return c;
+    if (c >= 0xC0 && c <= 0xDE && c != 0xD7) return c + 0x20;
+    if (c == 0x178) return 0xFF;
+    if (c >= 0x100 && c <= 0x17F) {
+        if ((c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E))
+            return (c % 2 == 1) ? c + 1 : c;
+        if (c == 0x130 || c == 0x131 || c == 0x138 || c == 0x149 || c == 0x17F) return c;
+        return (c % 2 == 0) ? c + 1 : c;
+    }
+    if (c >= 0x391 && c <= 0x3A9 && c != 0x3A2) return c + 0x20;
+    if (c >= 0x410 && c <= 0x42F) return c + 0x20;
+    if (c >= 0x400 && c <= 0x40F) return c + 0x50;
+    return c;
+}
+
+static Iron_String map_case(Iron_String self, uint32_t (*map)(uint32_t),
+                            const char *who) {
     const char *s   = iron_string_cstr(&self);
     size_t      len = iron_string_byte_len(&self);
-    /* FIX-02: replace silent empty-string fallback with iron_oom_abort. */
-    char *buf = (char *)malloc(len + 1);
-    if (!buf) iron_oom_abort("iron_string.c:Iron_string_upper");
-    for (size_t i = 0; i < len; i++)
-        buf[i] = (char)toupper((unsigned char)s[i]);
-    buf[len] = '\0';
-    Iron_String result = iron_string_from_cstr(buf, len);
+    /* Mapped characters in these blocks keep their UTF-8 length, except
+     * y-diaeresis (1 -> 2 bytes); 2x plus 4 bounds every case. */
+    char *buf = (char *)malloc(len * 2 + 4);
+    if (!buf) iron_oom_abort(who);
+    size_t b = 0, o = 0;
+    while (b < len) {
+        size_t before = b;
+        uint32_t cp = utf8_decode(s, len, &b);
+        uint32_t m = map(cp);
+        if (m == cp) {
+            memcpy(buf + o, s + before, b - before);
+            o += b - before;
+        } else {
+            o += utf8_encode(m, buf + o);
+        }
+    }
+    buf[o] = '\0';
+    Iron_String result = iron_string_from_cstr(buf, o);
     free(buf);
     return result;
 }
 
+Iron_String Iron_string_upper(Iron_String self) {
+    return map_case(self, cp_to_upper, "iron_string.c:Iron_string_upper");
+}
+
 Iron_String Iron_string_lower(Iron_String self) {
-    const char *s   = iron_string_cstr(&self);
-    size_t      len = iron_string_byte_len(&self);
-    /* FIX-02: replace silent empty-string fallback with iron_oom_abort. */
-    char *buf = (char *)malloc(len + 1);
-    if (!buf) iron_oom_abort("iron_string.c:Iron_string_lower");
-    for (size_t i = 0; i < len; i++)
-        buf[i] = (char)tolower((unsigned char)s[i]);
-    buf[len] = '\0';
-    Iron_String result = iron_string_from_cstr(buf, len);
-    free(buf);
-    return result;
+    return map_case(self, cp_to_lower, "iron_string.c:Iron_string_lower");
 }
 
 Iron_String Iron_string_trim(Iron_String self) {
@@ -472,17 +591,28 @@ int64_t Iron_string_index_of(Iron_String self, Iron_String sub) {
     const char *d   = iron_string_cstr(&sub);
     const char *hit = strstr(s, d);
     if (!hit) return -1;
-    return (int64_t)(hit - s);
+    return utf8_byte_to_cp(s, (size_t)(hit - s));
 }
 
+/* The character (code point) at position i, or "" when out of range. */
 Iron_String Iron_string_char_at(Iron_String self, int64_t i) {
     const char *s   = iron_string_cstr(&self);
     size_t      len = iron_string_byte_len(&self);
-    if (i < 0 || (size_t)i >= len) return iron_string_from_cstr("", 0);
-    return iron_string_from_cstr(s + (size_t)i, 1);
+    if (i < 0) return iron_string_from_cstr("", 0);
+    size_t b = utf8_cp_to_byte(s, len, i);
+    if (b >= len) return iron_string_from_cstr("", 0);
+    size_t n = utf8_seq_len((unsigned char)s[b]);
+    if (b + n > len) n = len - b;
+    return iron_string_from_cstr(s + b, n);
 }
 
+/* Number of characters (code points). */
 int64_t Iron_string_len(Iron_String self) {
+    return (int64_t)iron_string_codepoint_count(&self);
+}
+
+/* Size in bytes of the UTF-8 encoding. */
+int64_t Iron_string_byte_len(Iron_String self) {
     return (int64_t)iron_string_byte_len(&self);
 }
 
@@ -499,6 +629,21 @@ int64_t Iron_string_count(Iron_String self, Iron_String sub) {
 
 /* ── String built-in methods — wave 2 (Phase 38 Plan 02) ────────────────── */
 
+/* Each character (code point) as its own String. */
+Iron_List_Iron_String Iron_string_chars(Iron_String self) {
+    Iron_List_Iron_String result = Iron_List_Iron_String_create();
+    const char *s    = iron_string_cstr(&self);
+    size_t      slen = iron_string_byte_len(&self);
+    size_t b = 0;
+    while (b < slen) {
+        size_t n = utf8_seq_len((unsigned char)s[b]);
+        if (b + n > slen) n = slen - b;
+        Iron_List_Iron_String_push(&result, iron_string_from_cstr(s + b, n));
+        b += n;
+    }
+    return result;
+}
+
 Iron_List_Iron_String Iron_string_split(Iron_String self, Iron_String sep) {
     Iron_List_Iron_String result = Iron_List_Iron_String_create();
     const char *s    = iron_string_cstr(&self);
@@ -508,11 +653,8 @@ Iron_List_Iron_String Iron_string_split(Iron_String self, Iron_String sep) {
 
     if (dlen == 0) {
         /* empty separator: each character is its own element */
-        for (size_t i = 0; i < slen; i++) {
-            Iron_String ch = iron_string_from_cstr(s + i, 1);
-            Iron_List_Iron_String_push(&result, ch);
-        }
-        return result;
+        Iron_List_Iron_String_free(&result);
+        return Iron_string_chars(self);
     }
 
     const char *cur = s;
@@ -602,13 +744,15 @@ Iron_String Iron_string_replace(Iron_String self, Iron_String old_s, Iron_String
     return result;
 }
 
+/* Characters [start, end_idx) by code point position, clamped. */
 Iron_String Iron_string_substring(Iron_String self, int64_t start, int64_t end_idx) {
     const char *s   = iron_string_cstr(&self);
-    int64_t     len = (int64_t)iron_string_byte_len(&self);
+    size_t      len = iron_string_byte_len(&self);
     if (start < 0) start = 0;
-    if (end_idx > len) end_idx = len;
-    if (start > end_idx) start = end_idx;
-    return iron_string_from_cstr(s + start, (size_t)(end_idx - start));
+    if (end_idx < start) end_idx = start;
+    size_t bs = utf8_cp_to_byte(s, len, start);
+    size_t be = utf8_cp_to_byte(s, len, end_idx);
+    return iron_string_from_cstr(s + bs, be - bs);
 }
 
 int64_t Iron_string_to_int(Iron_String self) {
@@ -644,52 +788,59 @@ Iron_String Iron_string_repeat(Iron_String self, int64_t n) {
 }
 
 Iron_String Iron_string_pad_left(Iron_String self, int64_t width, Iron_String ch) {
+    /* width counts characters; the pad is the first character of ch. */
     const char *s    = iron_string_cstr(&self);
     size_t      slen = iron_string_byte_len(&self);
     const char *pad  = iron_string_cstr(&ch);
     size_t      plen = iron_string_byte_len(&ch);
-    char        pc   = (plen > 0) ? pad[0] : ' ';
+    size_t      pn   = plen > 0 ? utf8_seq_len((unsigned char)pad[0]) : 1;
+    if (pn > plen && plen > 0) pn = plen;
+    const char *pc   = plen > 0 ? pad : " ";
 
-    if ((int64_t)slen >= width) return self;
-    size_t pad_count = (size_t)width - slen;
-    size_t total     = (size_t)width;
-    /* FIX-02: replace silent self-return fallback with iron_oom_abort. */
+    int64_t chars = (int64_t)iron_string_codepoint_count(&self);
+    if (chars >= width) return self;
+    size_t pad_count = (size_t)(width - chars);
+    size_t total     = slen + pad_count * pn;
     char *buf = (char *)malloc(total + 1);
     if (!buf) iron_oom_abort("iron_string.c:Iron_string_pad_left");
-    for (size_t i = 0; i < pad_count; i++) buf[i] = pc;
-    memcpy(buf + pad_count, s, slen);
-    buf[total] = '\0';
-    Iron_String result = iron_string_from_cstr(buf, total);
+    size_t o = 0;
+    for (size_t i = 0; i < pad_count; i++) { memcpy(buf + o, pc, pn); o += pn; }
+    memcpy(buf + o, s, slen); o += slen;
+    buf[o] = '\0';
+    Iron_String result = iron_string_from_cstr(buf, o);
     free(buf);
     return result;
 }
 
 Iron_String Iron_string_pad_right(Iron_String self, int64_t width, Iron_String ch) {
+    /* width counts characters; the pad is the first character of ch. */
     const char *s    = iron_string_cstr(&self);
     size_t      slen = iron_string_byte_len(&self);
     const char *pad  = iron_string_cstr(&ch);
     size_t      plen = iron_string_byte_len(&ch);
-    char        pc   = (plen > 0) ? pad[0] : ' ';
+    size_t      pn   = plen > 0 ? utf8_seq_len((unsigned char)pad[0]) : 1;
+    if (pn > plen && plen > 0) pn = plen;
+    const char *pc   = plen > 0 ? pad : " ";
 
-    if ((int64_t)slen >= width) return self;
-    size_t pad_count = (size_t)width - slen;
-    size_t total     = (size_t)width;
-    /* FIX-02: replace silent self-return fallback with iron_oom_abort. */
+    int64_t chars = (int64_t)iron_string_codepoint_count(&self);
+    if (chars >= width) return self;
+    size_t pad_count = (size_t)(width - chars);
+    size_t total     = slen + pad_count * pn;
     char *buf = (char *)malloc(total + 1);
     if (!buf) iron_oom_abort("iron_string.c:Iron_string_pad_right");
-    memcpy(buf, s, slen);
-    for (size_t i = 0; i < pad_count; i++) buf[slen + i] = pc;
-    buf[total] = '\0';
-    Iron_String result = iron_string_from_cstr(buf, total);
+    size_t o = 0;
+    memcpy(buf + o, s, slen); o += slen;
+    for (size_t i = 0; i < pad_count; i++) { memcpy(buf + o, pc, pn); o += pn; }
+    buf[o] = '\0';
+    Iron_String result = iron_string_from_cstr(buf, o);
     free(buf);
     return result;
 }
 
 /* ── Phase 59 P01c: rindex_of / byte_at / from_byte ─────────────────────── */
 
-/* Rightmost occurrence of `sub` in `self` (byte-level). Returns -1 if not
- * found or if `sub` is empty. Mirrors the semantics of Iron_string_index_of
- * but scans from the end of the string. */
+/* Character position of the rightmost occurrence of `sub` in `self`.
+ * Returns -1 if not found or if `sub` is empty. */
 int64_t Iron_string_rindex_of(Iron_String self, Iron_String sub) {
     const char *s    = iron_string_cstr(&self);
     const char *d    = iron_string_cstr(&sub);
@@ -698,7 +849,7 @@ int64_t Iron_string_rindex_of(Iron_String self, Iron_String sub) {
     if (dlen == 0 || dlen > slen) return -1;
     /* Scan right-to-left, returning the first (rightmost) hit. */
     for (size_t i = slen - dlen + 1; i-- > 0; ) {
-        if (memcmp(s + i, d, dlen) == 0) return (int64_t)i;
+        if (memcmp(s + i, d, dlen) == 0) return utf8_byte_to_cp(s, i);
     }
     return -1;
 }

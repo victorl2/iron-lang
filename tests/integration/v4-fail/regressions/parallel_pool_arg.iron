@@ -1,0 +1,7 @@
+-- @expected-error: E0326
+-- parallel(<pool>) was never resolved or type-checked: this compiled.
+func main() {
+  for i in range(4) parallel(bogus + 3) {
+    println("x")
+  }
+}

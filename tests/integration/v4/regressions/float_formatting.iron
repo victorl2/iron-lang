@@ -1,0 +1,22 @@
+-- Regression: floats print as the shortest decimal that round-trips.
+--
+-- Interpolation and to_string used %g (6 significant digits), so
+-- 1234567.0 printed 1.23457e+06 and 0.1 + 0.2 printed 0.3. Whole values
+-- print without ".0"; exponent notation is used below 1e-6 and from 1e21.
+-- Float32 values use the shortest form that round-trips as Float32.
+func main() {
+  val a = 0.1 + 0.2
+  val b = 1234567.0
+  val c = 3.14159265358979
+  val d = 100000000.0
+  val e = 2.0
+  val f = 1.0 / 3.0
+  println("{a} {b} {c} {d} {e} {f}")
+  println(c.to_string())
+  val g = Float32(0.1)
+  val big = 100000000000.0 * 10000000000.0
+  val tiny = 0.000001 / 10.0
+  val z = 0.0 * -1.0
+  println("{g} {-1.5} {0.000001} {tiny} {big} {big / 10.0} {z}")
+  println("{123.456} {-0.5} {1.0 / 0.0} {0.0 / 0.0}")
+}

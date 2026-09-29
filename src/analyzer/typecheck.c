@@ -25,6 +25,8 @@
  */
 
 #include "analyzer/typecheck.h"
+#include "hir/stdlib_origin.h"
+#include "analyzer/generics.h"
 #include "analyzer/resolve.h"
 #include "lexer/lexer.h"
 #include "util/strbuf.h"
@@ -45,6 +47,16 @@
  * out-of-bounds base pointer and an underflowed (huge) size_t remaining
  * size. This helper clamps pos to bufsz-1 before and after each append so
  * truncation degrades to a shortened message instead of a buffer overflow. */
+
+/* A `for x in xs` loop variable is a copy of the element, so mutating it is
+ * rejected; point the user at indexing instead. */
+#define LOOP_VAR_MUT_HELP \
+    "the loop variable is a copy of the element; index the collection " \
+    "to mutate it in place: 'for i in range(len(xs)) { xs[i].m() }'"
+static bool sym_is_loop_var(const Iron_Symbol *sym) {
+    return sym && sym->decl_node && sym->decl_node->kind == IRON_NODE_FOR;
+}
+
 static int iron_sat_appendf(char *buf, int pos, size_t bufsz,
                             const char *fmt, ...) {
     if (pos < 0) pos = 0;
@@ -102,6 +114,12 @@ typedef struct {
      * field accesses, otherwise HIR would infinitely re-dispatch through the
      * same accessor. */
     bool               in_synth_accessor;
+    /* Type of the innermost enclosing `match` subject, so case patterns bind
+     * payloads with the subject's instantiated payload types. */
+    Iron_Type         *match_subject_type;
+    /* Function type expected where the next lambda is checked (a call
+     * argument or an annotated binding); consumed by the lambda arm. */
+    Iron_Type         *lambda_expected_type;
     /* Phase 84 MUTTIER-02/03: tracks whether the enclosing method is readonly
      * or pure. Both bits saved/restored around every method body in
      * check_method_decl (mirrors in_synth_accessor pattern). `in_readonly_method`
@@ -287,11 +305,12 @@ static Iron_Symbol *tc_lookup(TypeCtx *ctx, const char *name) {
  * `*var` argument, or `&` producing a `*var T`. The flag lives on the
  * declaring VAR_DECL / PARAM node so the unused-var pass (W0613 / W0614)
  * does not suggest `val` for a binding that `val` would reject.
- * Indexing stops the walk: `val` lists accept element writes. */
+ * The walk goes through fields and elements to the root binding. */
 static void mark_requires_mutable(TypeCtx *ctx, Iron_Node *expr) {
     Iron_Node *cur = expr;
-    while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
-        cur = ((Iron_FieldAccess *)cur)->object;
+    while (cur && (cur->kind == IRON_NODE_FIELD_ACCESS || cur->kind == IRON_NODE_INDEX)) {
+        cur = cur->kind == IRON_NODE_FIELD_ACCESS ? ((Iron_FieldAccess *)cur)->object
+                                                  : ((Iron_IndexExpr *)cur)->object;
     }
     if (!cur || cur->kind != IRON_NODE_IDENT) return;
     Iron_Ident *id = (Iron_Ident *)cur;
@@ -310,6 +329,13 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
     switch ((int)arg->kind) {
         case IRON_NODE_IDENT: {
             Iron_Ident *id = (Iron_Ident *)arg;
+            /* Through a pointer, what counts is the pointer's `var`, not
+             * the binding that holds the pointer. */
+            if (id->resolved_type && id->resolved_type->kind == IRON_TYPE_PTR)
+                return id->resolved_type->ptr.is_var;
+            /* A shared rc object is mutable through any handle. */
+            if (id->resolved_type && id->resolved_type->kind == IRON_TYPE_RC)
+                return true;
             if (id->resolved_sym) return id->resolved_sym->is_mutable;
             Iron_Symbol *s = id->name ? tc_lookup(ctx, id->name) : NULL;
             return s ? s->is_mutable : false;
@@ -322,7 +348,22 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
              * to count as mutable. */
             Iron_Type *obj_ty = fa->object
                 ? ((Iron_ExprNode *)fa->object)->resolved_type : NULL;
-            if (obj_ty && obj_ty->kind == IRON_TYPE_RC) obj_ty = obj_ty->rc.inner;
+            bool through_rc = obj_ty && obj_ty->kind == IRON_TYPE_RC;
+            if (through_rc) obj_ty = obj_ty->rc.inner;
+            if (obj_ty && obj_ty->kind == IRON_TYPE_PTR) {
+                /* p.f through a pointer: the pointer's var and the field. */
+                bool ptr_var = obj_ty->ptr.is_var;
+                Iron_Type *pt = obj_ty->ptr.pointee;
+                if (pt && pt->kind == IRON_TYPE_OBJECT && pt->object.decl) {
+                    Iron_ObjectDecl *pod = pt->object.decl;
+                    for (int fi = 0; fi < pod->field_count; fi++) {
+                        Iron_Field *f = (Iron_Field *)pod->fields[fi];
+                        if (f && f->name && fa->field && strcmp(f->name, fa->field) == 0)
+                            return ptr_var && f->is_var;
+                    }
+                }
+                return false;
+            }
             bool field_mut = false;
             if (obj_ty && obj_ty->kind == IRON_TYPE_OBJECT && obj_ty->object.decl) {
                 Iron_ObjectDecl *od = obj_ty->object.decl;
@@ -335,12 +376,63 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
                     }
                 }
             }
-            return field_mut && arg_source_is_mutable(ctx, fa->object);
+            return field_mut && (through_rc || arg_source_is_mutable(ctx, fa->object));
+        }
+        case IRON_NODE_INDEX: {
+            /* An element is as mutable as the list or array holding it. */
+            Iron_IndexExpr *ix = (Iron_IndexExpr *)arg;
+            Iron_Type *ot = ix->object ? ((Iron_ExprNode *)ix->object)->resolved_type : NULL;
+            if (ot && ot->kind == IRON_TYPE_PTR) return ot->ptr.is_var;
+            return arg_source_is_mutable(ctx, ix->object);
         }
         /* Calls, literals, binops, unary, struct-literal, list-literal,
          * map-literal, casts, lambdas — all rvalues, not mutable sources. */
         default:
             return false;
+    }
+}
+
+/* Mutating a list or array (a mutator method, an element write, or a
+ * field write inside an element) needs a mutable path to it: a `var`
+ * binding or parameter, `var` fields, a `*var` pointer or an rc handle.
+ * `val` means immutable for lists as for objects (#174). */
+/* Does object `type_name` declare a callable method `name` (the copy /
+ * drop hooks are not callable methods)? */
+static bool object_declares_method(TypeCtx *ctx, const char *type_name,
+                                   const char *name) {
+    if (!ctx->program || !type_name) return false;
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+        if (m->is_copy || m->is_drop) continue;
+        if (m->type_name && m->method_name && strcmp(m->type_name, type_name) == 0 &&
+            strcmp(m->method_name, name) == 0)
+            return true;
+    }
+    return false;
+}
+
+static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
+                       const char *msg, const char *suggestion);
+static void check_array_mutable(TypeCtx *ctx, Iron_Node *place, Iron_Span span,
+                                const char *what) {
+    if (!place || arg_source_is_mutable(ctx, place)) {
+        if (place) mark_requires_mutable(ctx, place);
+        return;
+    }
+    Iron_Symbol *root = iron_walk_to_root_binding(place);
+    char msg[256];
+    if (root && root->sym_kind == IRON_SYM_PARAM) {
+        snprintf(msg, sizeof(msg), "cannot %s read-only parameter '%s'", what,
+                 root->name ? root->name : "");
+        emit_error(ctx, IRON_ERR_PARM_READ_ONLY, span, msg,
+                   "add 'var' modifier to grant in-body mutation: 'var <name>: T'");
+    } else {
+        snprintf(msg, sizeof(msg), "cannot %s an immutable list", what);
+        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, span, msg,
+                   root && sym_is_loop_var(root) ? LOOP_VAR_MUT_HELP
+                                                 : "declare it with 'var'");
     }
 }
 
@@ -514,8 +606,16 @@ static void tc_define_pattern_bindings(TypeCtx *ctx,
     Iron_EnumDecl *ed = NULL;
     Iron_Type     *pat_enum_type = enum_type;
 
-    /* If the pattern names its own enum (e.g. Inner.Val(n)), resolve by name */
-    if (pat->enum_name) {
+    /* If the pattern names its own enum (e.g. Inner.Val(n)), resolve by name.
+     * When it names the scrutinee's own enum, keep the scrutinee's type: for
+     * a generic enum that is the instantiation (Opt[Int]) whose payload
+     * types are substituted, while the global symbol is the generic decl
+     * whose payloads are the bare type parameters. */
+    bool names_scrutinee_enum =
+        pat->enum_name && enum_type && enum_type->kind == IRON_TYPE_ENUM &&
+        enum_type->enu.decl && enum_type->enu.decl->name &&
+        strcmp(enum_type->enu.decl->name, pat->enum_name) == 0;
+    if (pat->enum_name && !names_scrutinee_enum) {
         Iron_Symbol *esym = iron_scope_lookup(ctx->global_scope, pat->enum_name);
         if (esym && esym->type && esym->type->kind == IRON_TYPE_ENUM) {
             pat_enum_type = esym->type;
@@ -550,6 +650,34 @@ static void tc_define_pattern_bindings(TypeCtx *ctx,
     }
 }
 
+
+/* True when t is, or contains, a generic type parameter. Method arguments
+ * against such parameters are not checked here: that needs the call's
+ * type arguments, which generic method support does not infer yet. */
+static bool type_mentions_generic(const Iron_Type *t) {
+    for (int guard = 0; t && guard < 32; guard++) {
+        switch ((int)t->kind) {
+        case IRON_TYPE_GENERIC_PARAM: return true;
+        case IRON_TYPE_ARRAY:    t = t->array.elem; break;
+        case IRON_TYPE_NULLABLE: t = t->nullable.inner; break;
+        case IRON_TYPE_RC:       t = t->rc.inner; break;
+        case IRON_TYPE_PTR:      t = t->ptr.pointee; break;
+        case IRON_TYPE_FUNC:
+            for (int i = 0; i < t->func.param_count; i++)
+                if (type_mentions_generic(t->func.param_types[i])) return true;
+            t = t->func.return_type;
+            break;
+        case IRON_TYPE_ENUM:
+            for (int i = 0; i < t->enu.type_arg_count; i++)
+                if (type_mentions_generic(t->enu.type_args[i])) return true;
+            return false;
+        /* -Wswitch-enum opt-out: leaf types carry no type parameters. */
+        default: return false;
+        }
+    }
+    return false;
+}
+
 /* ── Diagnostic helpers ──────────────────────────────────────────────────── */
 
 static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
@@ -563,6 +691,125 @@ static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
     }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR, code, span,
                    msg_copy, sug_copy);
+}
+
+static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t);
+static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *init_t,
+                                     const Iron_Node *init_node);
+
+/* `[T; <=N]` initialized with a list literal: the literal becomes the
+ * bounded vector (it used to stay a dynamic list, so `= []` emitted a list
+ * assigned to a bounded-vector struct and `= [1, 2]` was a type error).
+ * Elements must match T and there may be at most N of them. Returns the
+ * type the initializer now has. */
+static Iron_Type *type_bounded_vector_literal(TypeCtx *ctx, Iron_Type *decl_type,
+                                             Iron_Type *init_type, Iron_Node *init) {
+    if (!decl_type || !init_type || !init || init->kind != IRON_NODE_ARRAY_LIT)
+        return init_type;
+    /* `val xs: [Iface] = [A(1)]`: a literal whose elements all implement
+     * the interface is an interface list (a literal mixing two implementors
+     * was already inferred that way; one with a single implementor was
+     * typed [A] and rejected). */
+    if (decl_type->kind == IRON_TYPE_ARRAY && !decl_type->array.is_bounded &&
+        decl_type->array.size < 0 && decl_type->array.elem &&
+        decl_type->array.elem->kind == IRON_TYPE_INTERFACE &&
+        init_type->kind == IRON_TYPE_ARRAY && init_type->array.elem &&
+        init_type->array.elem->kind != IRON_TYPE_INTERFACE) {
+        Iron_ArrayLit *ial = (Iron_ArrayLit *)init;
+        for (int i = 0; i < ial->element_count; i++) {
+            Iron_Node *e = ial->elements[i];
+            Iron_Type *et = e ? ((Iron_ExprNode *)e)->resolved_type : NULL;
+            if (!et || !types_assignable(decl_type->array.elem, et)) return init_type;
+        }
+        ial->resolved_type = decl_type;
+        return decl_type;
+    }
+    if (decl_type->kind != IRON_TYPE_ARRAY || !decl_type->array.is_bounded)
+        return init_type;
+    if (init_type->kind != IRON_TYPE_ARRAY) return init_type;
+    Iron_ArrayLit *al = (Iron_ArrayLit *)init;
+    Iron_Type *elem = decl_type->array.elem;
+    for (int i = 0; i < al->element_count; i++) {
+        Iron_Node *e = al->elements[i];
+        Iron_Type *et = e ? ((Iron_ExprNode *)e)->resolved_type : NULL;
+        if (!et || !elem || et->kind == IRON_TYPE_ERROR) continue;
+        if (is_int_literal_narrowing(elem, et, e)) {
+            ((Iron_ExprNode *)e)->resolved_type = elem;
+        } else if (!types_assignable(elem, et)) {
+            return init_type;   /* reported as a mismatch by the caller */
+        }
+    }
+    if (al->element_count > decl_type->array.size) {
+        char msg[256];
+        snprintf(msg, sizeof(msg),
+                 "%d elements do not fit in a bounded vector of at most %d",
+                 al->element_count, decl_type->array.size);
+        emit_error(ctx, IRON_ERR_VEC_STRICT_LENGTH_MISMATCH, init->span, msg,
+                   "remove elements or raise the bound");
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    al->resolved_type = decl_type;
+    return decl_type;
+}
+
+/* Visibility: a member (field, method, init) without `pub` is private to
+ * the file that declares it.  Reports E0320 and returns true when the use
+ * site is in another user file.  Stdlib declarations are exempt, and
+ * nothing is enforced when the declaring file's origin is unknown. */
+static bool report_private_member(TypeCtx *ctx, bool is_pub, Iron_Span decl_span,
+                                  Iron_Span use_span, const char *what) {
+    if (is_pub) return false;
+    if (!decl_span.filename || !use_span.filename) return false;
+    if (strcmp(decl_span.filename, use_span.filename) == 0) return false;
+    if (iron_stdlib_origin_classify(decl_span.filename) != 0) return false;
+    if (iron_stdlib_origin_classify(use_span.filename) != 0) return false;
+    char msg[512];
+    snprintf(msg, sizeof(msg), "%s is private to %s and not visible from %s",
+             what, decl_span.filename, use_span.filename);
+    emit_error(ctx, IRON_ERR_CROSS_MODULE_PRIVATE, use_span, msg,
+               "mark it `pub` to use it from other files");
+    return true;
+}
+
+/* A method that implements an interface method is as visible as the
+ * interface: callers reach it through the interface anyway. */
+static bool method_implements_interface(TypeCtx *ctx, const char *type_name,
+                                        const char *method_name) {
+    if (!type_name || !method_name || !ctx->global_scope) return false;
+    Iron_Symbol *tsym = iron_scope_lookup(ctx->global_scope, type_name);
+    if (!tsym || !tsym->decl_node || tsym->decl_node->kind != IRON_NODE_OBJECT_DECL)
+        return false;
+    Iron_ObjectDecl *od = (Iron_ObjectDecl *)tsym->decl_node;
+    for (int j = 0; j < od->implements_count; j++) {
+        Iron_Symbol *isym = od->implements_names[j]
+            ? iron_scope_lookup(ctx->global_scope, od->implements_names[j]) : NULL;
+        if (!isym || !isym->decl_node ||
+            isym->decl_node->kind != IRON_NODE_INTERFACE_DECL) continue;
+        Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)isym->decl_node;
+        for (int k = 0; k < iface->method_count; k++) {
+            Iron_Node *sn = iface->method_sigs[k];
+            if (sn && sn->kind == IRON_NODE_FUNC_DECL &&
+                ((Iron_FuncDecl *)sn)->name &&
+                strcmp(((Iron_FuncDecl *)sn)->name, method_name) == 0)
+                return true;
+        }
+    }
+    return false;
+}
+
+/* An object without an init is constructed field by field, which writes
+ * every field; from another file that needs every field to be `pub`. */
+static void report_private_field_construction(TypeCtx *ctx, Iron_ObjectDecl *od,
+                                              Iron_Span use_span) {
+    if (!od || !od->is_pub) return;  /* a private object is reported by name */
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || f->is_pub) continue;
+        char what[256];
+        snprintf(what, sizeof(what), "field '%s' of '%s' (set by its field-wise constructor)",
+                 f->name ? f->name : "?", od->name ? od->name : "?");
+        if (report_private_member(ctx, false, od->span, use_span, what)) return;
+    }
 }
 
 static void emit_warning(TypeCtx *ctx, int code, Iron_Span span,
@@ -840,6 +1087,12 @@ static bool types_assignable(const Iron_Type *decl_t, const Iron_Type *init_t) {
     if (decl_t->kind == IRON_TYPE_NULLABLE && init_t->kind == IRON_TYPE_NULL) {
         return true;
     }
+    /* A T value is a T? (lowering wraps it with has_value = true). */
+    if (decl_t->kind == IRON_TYPE_NULLABLE && decl_t->nullable.inner &&
+        init_t->kind != IRON_TYPE_NULLABLE &&
+        types_assignable(decl_t->nullable.inner, init_t)) {
+        return true;
+    }
 
     /* Phase 27 POL-08 (Plan 27-02): `weak rc T` is implicitly nullable.
      * `var w: weak rc T = weak rc null` lowers to an assignment from
@@ -944,14 +1197,88 @@ static bool try_get_constant_int(Iron_Node *node, long long *out);
  * `val x: UInt8 = someIntVar` is NOT allowed -- use UInt8(someIntVar).
  * A bare INT_LIT or `-INT_LIT` counts as a literal for this check.
  */
+static bool is_integer_kind(const Iron_Type *t) {
+    if (!t) return false;
+    switch ((int)(t->kind)) {
+        case IRON_TYPE_INT:   case IRON_TYPE_INT8:   case IRON_TYPE_INT16:
+        case IRON_TYPE_INT32: case IRON_TYPE_INT64:
+        case IRON_TYPE_UINT:  case IRON_TYPE_UINT8:  case IRON_TYPE_UINT16:
+        case IRON_TYPE_UINT32: case IRON_TYPE_UINT64:
+            return true;
+        /* -Wswitch-enum opt-out: every other kind is not an integer. */
+        default:
+            return false;
+    }
+}
+
+/* A FLOAT_LIT or -FLOAT_LIT. */
+static bool is_constant_float_literal(const Iron_Node *node) {
+    if (!node) return false;
+    if (node->kind == IRON_NODE_FLOAT_LIT) return true;
+    if (node->kind == IRON_NODE_UNARY) {
+        const Iron_UnaryExpr *ue = (const Iron_UnaryExpr *)node;
+        return ue->op == IRON_TOK_MINUS && ue->operand &&
+               ue->operand->kind == IRON_NODE_FLOAT_LIT;
+    }
+    return false;
+}
+
+/* A numeric literal takes the numeric type its context requires: an integer
+ * literal (INT_LIT or -INT_LIT) becomes any integer type whose range holds
+ * its value; a float literal becomes Float32 / Float64.  Callers retype the
+ * literal node to decl_t when this returns true.  Integer and float
+ * literals never cross over.
+ * `val x: UInt8 = 255` is fine; `val x: UInt8 = someIntVar` is NOT -- use
+ * UInt8(someIntVar). */
 static bool is_int_literal_narrowing(const Iron_Type *decl_t, const Iron_Type *init_t,
                                      const Iron_Node *init_node) {
     if (!decl_t || !init_t || !init_node) return false;
+    if (init_t->kind == IRON_TYPE_FLOAT) {
+        return (decl_t->kind == IRON_TYPE_FLOAT32 ||
+                decl_t->kind == IRON_TYPE_FLOAT64) &&
+               is_constant_float_literal(init_node);
+    }
     if (init_t->kind != IRON_TYPE_INT) return false;
-    if (!is_narrow_integer(decl_t)) return false;
+    if (!is_integer_kind(decl_t) || decl_t->kind == IRON_TYPE_INT) return false;
     long long val;
     if (!try_get_constant_int((Iron_Node *)init_node, &val)) return false;
     return value_fits_type(val, decl_t);
+}
+
+/* Range text for an integer type, e.g. "-128..127". */
+static const char *integer_range_text(const Iron_Type *t) {
+    switch ((int)(t ? t->kind : IRON_TYPE_ERROR)) {
+        case IRON_TYPE_INT8:   return "-128..127";
+        case IRON_TYPE_INT16:  return "-32768..32767";
+        case IRON_TYPE_INT32:  return "-2147483648..2147483647";
+        case IRON_TYPE_UINT8:  return "0..255";
+        case IRON_TYPE_UINT16: return "0..65535";
+        case IRON_TYPE_UINT32: return "0..4294967295";
+        case IRON_TYPE_UINT:
+        case IRON_TYPE_UINT64: return "0..18446744073709551615";
+        /* -Wswitch-enum opt-out: Int / Int64 hold every literal value. */
+        default:               return NULL;
+    }
+}
+
+/* An integer literal whose context wants an integer type that cannot hold
+ * it: report "literal 300 does not fit in Int8 (-128..127)" and return true
+ * so the caller skips its generic type-mismatch error. */
+static bool literal_range_error(TypeCtx *ctx, const Iron_Type *decl_t,
+                                const Iron_Type *init_t, Iron_Node *init_node) {
+    if (!decl_t || !init_t || !init_node) return false;
+    if (init_t->kind != IRON_TYPE_INT || !is_integer_kind(decl_t)) return false;
+    long long val;
+    if (!try_get_constant_int(init_node, &val)) return false;
+    if (value_fits_type(val, decl_t)) return false;
+    const char *range = integer_range_text(decl_t);
+    char msg[256];
+    snprintf(msg, sizeof(msg), "literal %lld does not fit in %s%s%s%s", val,
+             iron_type_to_string((Iron_Type *)decl_t, ctx->arena),
+             range ? " (" : "", range ? range : "", range ? ")" : "");
+    emit_error(ctx, IRON_ERR_TYPE_MISMATCH_LITERAL, init_node->span, msg,
+               "use a value within the type's range or a wider type");
+    return true;
 }
 
 /* Try to extract a compile-time constant integer from an AST node.
@@ -1176,6 +1503,59 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         return wt ? wt : iron_type_make_primitive(IRON_TYPE_ERROR);
     }
 
+    if (ann->is_array && ann->array_elem_ann) {
+        Iron_Type *elem = resolve_type_annotation(ctx, ann->array_elem_ann);
+        if (!elem || elem->kind == IRON_TYPE_ERROR)
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        int size = -1;
+        if (ann->array_size && ann->array_size->kind == IRON_NODE_INT_LIT) {
+            Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
+            if (il->value) size = (int)strtol(il->value, NULL, 10);
+        }
+        Iron_Type *arr = iron_type_make_array(ctx->arena, elem, size, ann->bounded);
+        if (!arr) return iron_type_make_primitive(IRON_TYPE_ERROR);
+        arr->array.layout_hint  = ann->layout_hint;
+        arr->array.is_unordered = ann->is_unordered;
+        arr->array.is_bounded   = ann->bounded;
+        if (ann->is_nullable) {
+            Iron_Type *nb = iron_type_make_nullable(ctx->arena, arr);
+            return nb ? nb : iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
+        return arr;
+    }
+
+    if (ann->is_rc) {
+        Iron_Type *inner_t = ann->rc_inner
+            ? resolve_type_annotation(ctx, ann->rc_inner)
+            : iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (!inner_t) inner_t = iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (inner_t->kind == IRON_TYPE_ERROR) return inner_t;
+        if (inner_t->kind == IRON_TYPE_RC || inner_t->kind == IRON_TYPE_WEAK_RC ||
+            inner_t->kind == IRON_TYPE_PTR) {
+            /* Parameter annotations are resolved more than once; report
+             * each bad annotation a single time. */
+            bool seen = false;
+            for (int di = 0; di < ctx->diags->count && !seen; di++) {
+                const Iron_Diagnostic *d = &ctx->diags->items[di];
+                seen = d->code == IRON_ERR_RC_BAD_POSITION &&
+                       d->span.line == ann->span.line &&
+                       d->span.col == ann->span.col &&
+                       d->span.filename == ann->span.filename;
+            }
+            if (seen) return iron_type_make_primitive(IRON_TYPE_ERROR);
+            char msg[256];
+            snprintf(msg, sizeof(msg), "`rc` cannot wrap '%s'",
+                     iron_type_to_string(inner_t, ctx->arena));
+            iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_RC_BAD_POSITION, ann->span, msg,
+                           "`rc T` holds a shared, reference-counted T; "
+                           "it is not a wrapper for handles or pointers");
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
+        Iron_Type *rt = iron_type_make_rc(ctx->arena, inner_t);
+        return rt ? rt : iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+
     /* Phase 20 PTR-01/13: lower `*T` / `*var T` / `?*T` / `?*var T`. The
      * outer is_nullable on a pointer annotation surfaces as
      * IRON_TYPE_NULLABLE wrapping IRON_TYPE_PTR — `?*T` composes the two
@@ -1362,6 +1742,20 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                 check_generic_constraints(ctx, od->generic_params,
                                           od->generic_param_count,
                                           concrete, gc, ann_node->span);
+
+                /* User generic object: `C[Int]` names the instance C__Int,
+                 * cloned after this round (generics.c). Until it exists the
+                 * annotation is unresolved; the round is redone. */
+                if (ctx->program &&
+                    iron_generics_is_template(ctx->program, (Iron_Node *)od)) {
+                    const char *mangled = (ac == gc)
+                        ? iron_generics_request((Iron_Node *)od, concrete, gc, ctx->arena)
+                        : NULL;
+                    Iron_Symbol *isym = mangled
+                        ? iron_scope_lookup(ctx->global_scope, mangled) : NULL;
+                    if (isym && isym->type) return isym->type;
+                    return iron_type_make_primitive(IRON_TYPE_ERROR);
+                }
 
                 /* Phase 33 STDLIB-07/08 (Plan 33-05): the builtin generic
                  * nocopy resource surfaces carry their element on
@@ -1636,6 +2030,18 @@ static bool stmt_always_returns(Iron_Node *node) {
             return stmt_always_returns(is->body) &&
                    stmt_always_returns(is->else_body);
         }
+        case IRON_NODE_MATCH: {
+            /* A match without else must be exhaustive (E0224 otherwise), so
+             * it always returns when every arm, and the else arm if any,
+             * does. */
+            Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
+            if (ms->case_count == 0 && !ms->else_body) return false;
+            for (int i = 0; i < ms->case_count; i++) {
+                Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                if (!mc || !stmt_always_returns(mc->body)) return false;
+            }
+            return !ms->else_body || stmt_always_returns(ms->else_body);
+        }
         default:
             return false;
     }
@@ -1653,30 +2059,22 @@ static bool stmt_always_returns(Iron_Node *node) {
  * function has a non-void declared return type and the body's terminal
  * statement is NOT a return (and not an if-else where both arms return).
  * This mirrors rustc's "not all control paths return a value" check. */
-static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
-    if (!fd || !fd->resolved_return_type) return;
-    Iron_Type *rt = fd->resolved_return_type;
-    if (rt->kind == IRON_TYPE_VOID || rt->kind == IRON_TYPE_ERROR) return;
+static void check_missing_return_body(TypeCtx *ctx, Iron_Type *rt,
+                                      Iron_Node *body, const char *filename) {
+    if (!rt || rt->kind == IRON_TYPE_VOID || rt->kind == IRON_TYPE_ERROR) return;
 
     /* Extern functions have no body to check. */
-    if (!fd->body) return;
-    /* `.iron-stub` companion files are auto-generated signature-only
-     * surfaces emitted by `iron build` for type = "lib" projects. Their
-     * function bodies are intentionally empty; the implementation lives
-     * in the compiled artifact (.a) that gets linked alongside. Skip the
-     * missing-return walker for any decl whose source span belongs to a
-     * stub file — the @file: lexer directive tags spans with the stub
-     * filename when a stub is concatenated into a combined source. */
-    if (fd->span.filename) {
-        size_t fnlen = strlen(fd->span.filename);
-        const char suffix[] = ".iron-stub";
-        const size_t slen = sizeof(suffix) - 1;
-        if (fnlen >= slen &&
-            strcmp(fd->span.filename + fnlen - slen, suffix) == 0) {
-            return;
-        }
+    if (!body) return;
+    /* Runtime stubs have intentionally empty bodies: stdlib wrapper files
+     * (implemented in the C runtime) and the `.iron-stub` companions of
+     * `type = "lib"` packages (implemented in the package's archive). The
+     * @file: lexer directive tags each decl's span with its source file. */
+    if (body->kind == IRON_NODE_BLOCK &&
+        ((Iron_Block *)body)->stmt_count == 0 &&
+        iron_stdlib_origin_is_stub_file(filename)) {
+        return;
     }
-    if (stmt_always_returns(fd->body)) return;
+    if (stmt_always_returns(body)) return;
 
     /* Pick a type-appropriate "zero" return snippet. Skip emit for types
      * without an obvious zero (objects, enums, arrays) — Plan 04-04's code
@@ -1716,7 +2114,7 @@ static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
 
     /* Use the body's span so the squiggle highlights the whole function body
      * rather than just the decl header. */
-    Iron_Span emit_span = fd->body->span;
+    Iron_Span emit_span = body->span;
 
     if (zero) {
         emit_error(ctx, IRON_ERR_MISSING_RETURN, emit_span,
@@ -1743,6 +2141,21 @@ static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
                        "return <value>");
         }
     }
+}
+
+static void check_missing_return(TypeCtx *ctx, Iron_FuncDecl *fd) {
+    if (!fd) return;
+    check_missing_return_body(ctx, fd->resolved_return_type, fd->body,
+                              fd->span.filename);
+}
+
+/* Methods get the same check. An empty non-void user method used to be
+ * treated as a runtime stub and reached lowering, which failed with an
+ * internal return-type error. */
+static void check_missing_return_method(TypeCtx *ctx, Iron_MethodDecl *md) {
+    if (!md || md->is_synth_accessor) return;
+    check_missing_return_body(ctx, md->resolved_return_type, md->body,
+                              md->span.filename);
 }
 
 /* ── Array extension method return type resolution ──────────────────────── */
@@ -1909,29 +2322,145 @@ static bool push_type_compatible(const Iron_Type *elem_type,
  * that don't have explicit extension method declarations yet. */
 static Iron_Type *resolve_array_builtin_method(const char *method,
                                                Iron_Type *arr_type) {
+    Iron_Type *elem = arr_type->array.elem
+        ? arr_type->array.elem : iron_type_make_primitive(IRON_TYPE_VOID);
     if (strcmp(method, "len") == 0) {
         return iron_type_make_primitive(IRON_TYPE_INT);
     } else if (strcmp(method, "push") == 0 || strcmp(method, "set") == 0 ||
                strcmp(method, "free") == 0 || strcmp(method, "sort") == 0 ||
-               strcmp(method, "reverse") == 0 || strcmp(method, "for_each") == 0) {
+               strcmp(method, "reverse") == 0 || strcmp(method, "insert") == 0 ||
+               strcmp(method, "clear") == 0) {
         return iron_type_make_primitive(IRON_TYPE_VOID);
     } else if (strcmp(method, "get") == 0 || strcmp(method, "pop") == 0 ||
-               strcmp(method, "find") == 0) {
-        return (arr_type->array.elem != NULL)
-                   ? arr_type->array.elem
-                   : iron_type_make_primitive(IRON_TYPE_VOID);
-    } else if (strcmp(method, "any") == 0 || strcmp(method, "all") == 0) {
+               strcmp(method, "remove") == 0) {
+        return elem;
+    } else if (strcmp(method, "contains") == 0) {
         return iron_type_make_primitive(IRON_TYPE_BOOL);
+    } else if (strcmp(method, "copy") == 0 || strcmp(method, "take") == 0) {
+        /* Explicit duplication / transfer (#174): a new list of the same type. */
+        return arr_type;
     } else if (strcmp(method, "get_unchecked") == 0) {
         /* 2026-07 UNCHK-IDX: same typing as get — element type. */
-        return (arr_type->array.elem != NULL)
-                   ? arr_type->array.elem
-                   : iron_type_make_primitive(IRON_TYPE_VOID);
+        return elem;
     } else if (strcmp(method, "set_unchecked") == 0) {
         /* 2026-07 UNCHK-IDX: same typing as set — Void. */
         return iron_type_make_primitive(IRON_TYPE_VOID);
     }
-    return arr_type;
+    /* Unknown names used to type as the array itself, so `xs.bogus()` and
+     * never-implemented methods passed the checker and failed in C. */
+    return NULL;
+}
+
+static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                    Iron_Node *receiver);
+
+/* Type a builtin list method call: result type, arity and argument types.
+ * `contains` needs element equality and `sort` an ordering, which only the
+ * numeric, Bool (contains) and String element types have. */
+static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                           Iron_Type *arr_type) {
+    const char *m = mc->method ? mc->method : "";
+    Iron_Type *result = resolve_array_builtin_method(m, arr_type);
+    if (!result) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "no method '%s' on '%s'", m,
+                 iron_type_to_string(arr_type, ctx->arena));
+        emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                   "list methods: len, push, pop, get, set, insert, remove, "
+                   "clear, reverse, contains, sort, copy, take, map, filter, "
+                   "reduce, forEach, sum");
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    /* copy() duplicates a dynamic list and take() moves its buffer out,
+     * leaving the receiver empty, so take() needs a mutable receiver.
+     * Fixed-size arrays and bounded vectors are plain values. */
+    if (strcmp(m, "copy") == 0 || strcmp(m, "take") == 0) {
+        if (arr_type->array.size >= 0 || arr_type->array.is_bounded) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "'%s' is only available on dynamic lists, not '%s'",
+                     m, iron_type_to_string(arr_type, ctx->arena));
+            emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                       "fixed-size arrays and bounded vectors are copied by value");
+            return result;
+        }
+        if (m[0] == 't') check_array_mutable(ctx, mc->object, mc->span, "take from");
+    }
+    /* A fixed-size array [T; N] keeps its length: push, pop, insert, remove
+     * and clear used to compile and change it. */
+    if (arr_type->array.size >= 0 && !arr_type->array.is_bounded &&
+        (strcmp(m, "push") == 0 || strcmp(m, "pop") == 0 ||
+         strcmp(m, "insert") == 0 || strcmp(m, "remove") == 0 ||
+         strcmp(m, "clear") == 0)) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "'%s' would change the length of fixed-size array '%s'",
+                 m, iron_type_to_string(arr_type, ctx->arena));
+        emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                   "use a dynamic list [T] or a bounded vector [T; <=N]");
+        return result;
+    }
+    /* Mutating a list or array needs a mutable path to it (#174). */
+    if (strcmp(m, "push") == 0 || strcmp(m, "pop") == 0 || strcmp(m, "set") == 0 ||
+        strcmp(m, "insert") == 0 || strcmp(m, "remove") == 0 ||
+        strcmp(m, "clear") == 0 || strcmp(m, "reverse") == 0 ||
+        strcmp(m, "sort") == 0 || strcmp(m, "set_unchecked") == 0) {
+        check_array_mutable(ctx, mc->object, mc->span, "modify");
+    }
+    /* get_unchecked / set_unchecked and push keep their dedicated checks. */
+    if (strcmp(m, "get_unchecked") == 0 || strcmp(m, "set_unchecked") == 0 ||
+        strcmp(m, "push") == 0)
+        return result;
+
+    Iron_Type *elem = arr_type->array.elem;
+    Iron_Type *int_t = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *want[2] = { NULL, NULL };
+    int nwant = 0;
+    if (strcmp(m, "get") == 0 || strcmp(m, "remove") == 0) {
+        want[0] = int_t; nwant = 1;
+    } else if (strcmp(m, "set") == 0 || strcmp(m, "insert") == 0) {
+        want[0] = int_t; want[1] = elem; nwant = 2;
+    } else if (strcmp(m, "contains") == 0) {
+        want[0] = elem; nwant = 1;
+    }
+    if (mc->arg_count != nwant) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "list method '%s' expects %d argument(s), got %d",
+                 m, nwant, mc->arg_count);
+        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+        return result;
+    }
+    for (int i = 0; i < nwant; i++) {
+        Iron_Type *at = mc->args[i] ? ((Iron_ExprNode *)mc->args[i])->resolved_type : NULL;
+        if (!want[i] || !at || at->kind == IRON_TYPE_ERROR ||
+            want[i]->kind == IRON_TYPE_ERROR) continue;
+        if (is_int_literal_narrowing(want[i], at, mc->args[i])) {
+            ((Iron_IntLit *)mc->args[i])->resolved_type = want[i];
+            continue;
+        }
+        if (literal_range_error(ctx, want[i], at, mc->args[i])) continue;
+        if (!types_assignable(want[i], at)) {
+            char msg[256];
+            snprintf(msg, sizeof(msg),
+                     "argument %d type mismatch: expected '%s', got '%s'", i + 1,
+                     iron_type_to_string(want[i], ctx->arena),
+                     iron_type_to_string(at, ctx->arena));
+            emit_error(ctx, IRON_ERR_ARG_TYPE, mc->args[i]->span, msg, NULL);
+        }
+    }
+    bool is_sort = strcmp(m, "sort") == 0;
+    if ((is_sort || strcmp(m, "contains") == 0) && elem) {
+        bool ok = iron_type_is_integer(elem) || iron_type_is_float(elem) ||
+                  elem->kind == IRON_TYPE_STRING ||
+                  (!is_sort && elem->kind == IRON_TYPE_BOOL);
+        if (!ok) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "'%s' is not available on '%s'", m,
+                     iron_type_to_string(arr_type, ctx->arena));
+            emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                       is_sort ? "sort needs numeric or String elements"
+                               : "contains needs numeric, Bool or String elements");
+        }
+    }
+    return result;
 }
 
 /* 2026-07 UNCHK-IDX: strict-form validation for the per-site unchecked
@@ -1996,6 +2525,318 @@ static void check_unchecked_index_intrinsic(TypeCtx *ctx,
 
 /* ── Expression type inference ───────────────────────────────────────────── */
 
+/* True for a node that is an expression producing a value (the range of
+ * expression kinds in Iron_NodeKind, plus enum construction). */
+static bool node_is_value_expression(const Iron_Node *n) {
+    if (!n) return false;
+    return (n->kind >= IRON_NODE_INT_LIT && n->kind <= IRON_NODE_AWAIT) ||
+           n->kind == IRON_NODE_ENUM_CONSTRUCT;
+}
+
+/* A call that mutates its receiver: the receiver's root binding must be
+ * mutable. Marks it for the unused-var lint (so `var` is not reported as
+ * removable) and reports E0235 when it is immutable, as concrete-object
+ * method calls already do. Used for interface methods, which accepted
+ * mutating calls through `val` bindings and read-only params, and for
+ * bounded vectors, whose `val` push reached lowering as a poison
+ * instruction. */
+static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                    Iron_Node *receiver) {
+    Iron_Node *cur = receiver;
+    for (;;) {
+        /* Past a pointer, the pointer's `var` decides, not the binding
+         * holding it: `p.items.push(x)` with p: *var T is a mutation of
+         * the pointee. */
+        Iron_Type *ct = cur ? ((Iron_ExprNode *)cur)->resolved_type : NULL;
+        if (ct && ct->kind == IRON_TYPE_PTR) {
+            if (!ct->ptr.is_var)
+                emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, mc->span,
+                           "cannot call mutable method through a read-only pointer",
+                           "use a *var pointer");
+            return;
+        }
+        if (!cur || cur->kind != IRON_NODE_FIELD_ACCESS) break;
+        cur = ((Iron_FieldAccess *)cur)->object;
+    }
+    if (!cur || cur->kind != IRON_NODE_IDENT) return;
+    Iron_Ident *id = (Iron_Ident *)cur;
+    Iron_Symbol *sym = id->resolved_sym;
+    if (!sym && id->name) sym = tc_lookup(ctx, id->name);
+    if (!sym || sym->sym_kind == IRON_SYM_TYPE) return;
+    mark_requires_mutable(ctx, receiver);
+    if (!sym->is_mutable) {
+        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, mc->span,
+                   "cannot call mutable method on immutable binding",
+                   sym_is_loop_var(sym) ? LOOP_VAR_MUT_HELP : NULL);
+    }
+}
+
+/* Whether calling interface method `sig` can mutate the receiver. The
+ * signature's own tier decides when it is readonly / pure; otherwise the
+ * program is compiled whole, so every implementor is known: the call
+ * mutates only if some implementation of the method is not readonly /
+ * pure. (Interfaces commonly leave query methods like `area()` untiered
+ * while every implementation is readonly.) */
+static bool iface_call_may_mutate(TypeCtx *ctx, Iron_InterfaceDecl *iface,
+                                  Iron_FuncDecl *sig) {
+    if (sig->is_readonly || sig->is_pure) return false;
+    if (!ctx->program || !iface || !iface->name || !sig->name) return true;
+    bool any_impl = false;
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+        bool implements = false;
+        for (int k = 0; k < od->implements_count; k++)
+            if (od->implements_names[k] &&
+                strcmp(od->implements_names[k], iface->name) == 0) implements = true;
+        if (!implements) continue;
+        const char *tn = od->is_patch ? od->target_type_name : od->name;
+        for (int j = 0; tn && j < ctx->program->decl_count; j++) {
+            Iron_Node *m = ctx->program->decls[j];
+            if (!m || m->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *md = (Iron_MethodDecl *)m;
+            if (md->type_name && md->method_name &&
+                strcmp(md->type_name, tn) == 0 &&
+                strcmp(md->method_name, sig->name) == 0) {
+                any_impl = true;
+                if (!md->is_readonly && !md->is_pure) return true;
+            }
+        }
+    }
+    /* No implementation to go by: the untiered signature may mutate. */
+    return !any_impl;
+}
+
+/* Check a method call's arguments against the declared parameters
+ * params[first..count). Method calls used to skip this entirely:
+ * `c.add("x")`, `c.add(1, 2)` and `Math.sqrt("hello")` all type-checked
+ * and then failed in the C compiler, and a Float argument to an Int
+ * parameter was silently truncated. */
+static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                              Iron_Node **params, int count, int first,
+                              const char *owner, const char *name) {
+    int expected = count - first;
+    if (expected < 0) return;
+    if (mc->arg_count != expected) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "method '%s.%s' expects %d argument(s), got %d",
+                 owner ? owner : "?", name ? name : "?", expected, mc->arg_count);
+        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+        return;
+    }
+    for (int i = 0; i < mc->arg_count; i++) {
+        Iron_Node *pn = params[first + i];
+        if (!pn || pn->kind != IRON_NODE_PARAM || !mc->args[i]) continue;
+        Iron_Param *mp = (Iron_Param *)pn;
+        Iron_Type *pt = resolve_type_annotation(ctx, mp->type_ann);
+        Iron_Type *at = ((Iron_ExprNode *)mc->args[i])->resolved_type;
+        if (!pt || !at || pt->kind == IRON_TYPE_ERROR || at->kind == IRON_TYPE_ERROR)
+            continue;
+        if (type_mentions_generic(pt)) continue;
+        /* `*T` parameters take a T binding by auto-address (checked with
+         * E0270 / E0267 by the caller). */
+        if (pt->kind == IRON_TYPE_PTR && at->kind != IRON_TYPE_PTR &&
+            pt->ptr.pointee && iron_type_equals(pt->ptr.pointee, at))
+            continue;
+        if (is_int_literal_narrowing(pt, at, mc->args[i])) {
+            ((Iron_IntLit *)mc->args[i])->resolved_type = pt;
+            continue;
+        }
+        if (literal_range_error(ctx, pt, at, mc->args[i])) continue;
+        if (!types_assignable(pt, at)) {
+            char msg[256];
+            snprintf(msg, sizeof(msg),
+                     "argument %d type mismatch: expected '%s', got '%s'", i + 1,
+                     iron_type_to_string(pt, ctx->arena),
+                     iron_type_to_string(at, ctx->arena));
+            emit_error(ctx, IRON_ERR_ARG_TYPE, mc->args[i]->span, msg, NULL);
+        }
+    }
+}
+
+/* Argument check for a call that resolved to method `md`.
+ * via_type: the call names the type (`T.m(...)`). Lowering then treats
+ * `T.m(x, ...)` as `x.m(...)` when the argument count covers the receiver
+ * and the first argument has type T; otherwise it synthesizes a receiver
+ * (the stdlib module convention, `Math.sqrt(x)`). The check mirrors that. */
+static void check_method_call_args(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                   Iron_MethodDecl *md, bool via_type) {
+    if (md->generic_param_count > 0 || md->is_array_extension) return;
+    bool args_include_receiver = false;
+    if (via_type && md->is_receiver_form && mc->arg_count == md->param_count &&
+        mc->arg_count > 0 && mc->args[0] && md->params[0] &&
+        md->params[0]->kind == IRON_NODE_PARAM) {
+        Iron_Type *self_t = resolve_type_annotation(
+            ctx, ((Iron_Param *)md->params[0])->type_ann);
+        Iron_Type *a0 = ((Iron_ExprNode *)mc->args[0])->resolved_type;
+        args_include_receiver = self_t && a0 && iron_type_equals(self_t, a0);
+    }
+    int first = (md->is_receiver_form && !args_include_receiver) ? 1 : 0;
+    check_call_params(ctx, mc, md->params, md->param_count, first,
+                      md->type_name, md->method_name);
+}
+
+/* Argument check for a call dispatched through interface signature `fd`
+ * (interface signatures carry no receiver parameter). */
+static void check_iface_call_args(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                  Iron_InterfaceDecl *iface, Iron_FuncDecl *fd) {
+    if (fd->generic_param_count > 0) return;
+    check_call_params(ctx, mc, fd->params, fd->param_count, 0,
+                      iface ? iface->name : NULL, fd->name);
+}
+
+/* ── User generics: instantiation at call sites (see generics.h) ──────── */
+
+/* A type written in expression position (`f[Int]`, `C[Int]`) as an
+ * annotation: an identifier, or `X[Y]` for a generic type argument. */
+static Iron_Node *type_ann_from_expr(TypeCtx *ctx, Iron_Node *n) {
+    if (!n) return NULL;
+    if (n->kind == IRON_NODE_TYPE_ANNOTATION) return n;
+    if (n->kind == IRON_NODE_IDENT) {
+        Iron_TypeAnnotation *ta = ARENA_ALLOC(ctx->arena, Iron_TypeAnnotation);
+        if (!ta) return NULL;
+        memset(ta, 0, sizeof(*ta));
+        ta->kind = IRON_NODE_TYPE_ANNOTATION;
+        ta->span = n->span;
+        ta->name = ((Iron_Ident *)n)->name;
+        return (Iron_Node *)ta;
+    }
+    if (n->kind == IRON_NODE_INDEX) {
+        Iron_IndexExpr *ix = (Iron_IndexExpr *)n;
+        Iron_TypeAnnotation *base = (Iron_TypeAnnotation *)type_ann_from_expr(ctx, ix->object);
+        Iron_Node *arg = type_ann_from_expr(ctx, ix->index);
+        if (!base || !arg) return NULL;
+        arrput(base->generic_args, arg);
+        base->generic_arg_count++;
+        return (Iron_Node *)base;
+    }
+    return NULL;
+}
+
+/* Bind the template's type parameters by matching a parameter annotation
+ * against the argument's type: `T`, `T?`, `[T]`, `func(T) -> U`. */
+static void unify_generic(Iron_Node *ann_node, Iron_Type *actual,
+                          Iron_Node **gps, int ngp, Iron_Type **bind) {
+    if (!ann_node || ann_node->kind != IRON_NODE_TYPE_ANNOTATION || !actual) return;
+    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)ann_node;
+    if (actual->kind == IRON_TYPE_ERROR) return;
+    if (ta->is_func) {
+        if (actual->kind != IRON_TYPE_FUNC) return;
+        for (int i = 0; i < ta->func_param_count && i < actual->func.param_count; i++)
+            unify_generic(ta->func_params[i], actual->func.param_types[i], gps, ngp, bind);
+        if (ta->func_return && actual->func.return_type)
+            unify_generic(ta->func_return, actual->func.return_type, gps, ngp, bind);
+        return;
+    }
+    Iron_Type *t = actual;
+    if (ta->is_nullable && t->kind == IRON_TYPE_NULLABLE) t = t->nullable.inner;
+    if (ta->is_array) {
+        if (t->kind != IRON_TYPE_ARRAY) return;
+        t = t->array.elem;
+    }
+    if (!ta->name || ta->generic_arg_count > 0) return;
+    for (int i = 0; i < ngp; i++) {
+        Iron_Ident *gp = (Iron_Ident *)gps[i];
+        if (gp && gp->name && strcmp(gp->name, ta->name) == 0) {
+            if (!bind[i] && t->kind != IRON_TYPE_NULL) bind[i] = t;
+            return;
+        }
+    }
+}
+
+/* Infer a generic object's type arguments from constructor arguments:
+ * against the anonymous init's parameters when it has one, otherwise
+ * against the fields in declaration order (the field-wise constructor). */
+static void infer_object_generic_args(TypeCtx *ctx, Iron_ObjectDecl *od,
+                                      Iron_Node **args, int argc,
+                                      Iron_Type **bind) {
+    Iron_MethodDecl *init = iron_find_init_by_name(ctx->program, od->name, NULL);
+    for (int i = 0; i < argc; i++) {
+        Iron_Type *at = check_expr(ctx, args[i]);
+        Iron_Node *ann = NULL;
+        if (init) {
+            if (i + 1 < init->param_count && init->params[i + 1])
+                ann = ((Iron_Param *)init->params[i + 1])->type_ann;
+        } else if (i < od->field_count && od->fields[i]) {
+            ann = ((Iron_Field *)od->fields[i])->type_ann;
+        }
+        unify_generic(ann, at, od->generic_params, od->generic_param_count, bind);
+    }
+}
+
+/* A call to a user generic function or a construction of a user generic
+ * object (`f(x)`, `f[Int](x)`, `C[Int](x)`): request the instance and, once
+ * it exists, point the callee at it so the call is checked as an ordinary
+ * call. Returns false when the call is not generic. */
+static bool redirect_generic_call(TypeCtx *ctx, Iron_CallExpr *ce) {
+    if (!ctx->program || !ce->callee) return false;
+    Iron_Node *base = ce->callee;
+    Iron_Node *explicit_arg = NULL;
+    if (base->kind == IRON_NODE_INDEX) {
+        explicit_arg = ((Iron_IndexExpr *)base)->index;
+        base = ((Iron_IndexExpr *)base)->object;
+    }
+    if (!base || base->kind != IRON_NODE_IDENT) return false;
+    Iron_Ident *bid = (Iron_Ident *)base;
+    Iron_Symbol *sym = bid->name ? iron_scope_lookup(ctx->global_scope, bid->name) : NULL;
+    if (!sym || !sym->decl_node || !iron_generics_is_template(ctx->program, sym->decl_node))
+        return false;
+    Iron_Node *tmpl = sym->decl_node;
+    if (tmpl->kind != IRON_NODE_FUNC_DECL && tmpl->kind != IRON_NODE_OBJECT_DECL) return false;
+
+    Iron_Node **gps = tmpl->kind == IRON_NODE_FUNC_DECL
+        ? ((Iron_FuncDecl *)tmpl)->generic_params : ((Iron_ObjectDecl *)tmpl)->generic_params;
+    int ngp = tmpl->kind == IRON_NODE_FUNC_DECL
+        ? ((Iron_FuncDecl *)tmpl)->generic_param_count
+        : ((Iron_ObjectDecl *)tmpl)->generic_param_count;
+    if (ngp <= 0 || ngp > 16) return false;
+    Iron_Type *bind[16] = {0};
+
+    if (explicit_arg) {
+        /* f[A](...) / C[A](...): a single explicit type argument. */
+        Iron_Node *ann = type_ann_from_expr(ctx, explicit_arg);
+        if (ann && ngp == 1) bind[0] = resolve_type_annotation(ctx, ann);
+    } else if (tmpl->kind == IRON_NODE_FUNC_DECL) {
+        /* f(...): infer from the argument types. */
+        Iron_FuncDecl *fd = (Iron_FuncDecl *)tmpl;
+        for (int i = 0; i < ce->arg_count && i < fd->param_count; i++) {
+            Iron_Type *at = check_expr(ctx, ce->args[i]);
+            Iron_Param *p = (Iron_Param *)fd->params[i];
+            if (p) unify_generic(p->type_ann, at, gps, ngp, bind);
+        }
+    } else {
+        infer_object_generic_args(ctx, (Iron_ObjectDecl *)tmpl, ce->args,
+                                  ce->arg_count, bind);
+    }
+    for (int i = 0; i < ngp; i++) {
+        if (!bind[i]) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "cannot infer the type arguments of '%s'",
+                     bid->name);
+            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ce->span, msg,
+                       "write them explicitly, e.g. f[Int](x)");
+            return false;
+        }
+    }
+    int errs_before = ctx->diags->error_count;
+    check_generic_constraints(ctx, gps, ngp, bind, ngp, ce->span);
+    if (ctx->diags->error_count != errs_before) return false;
+    const char *mangled = iron_generics_request(tmpl, bind, ngp, ctx->arena);
+    if (!mangled) return false;
+    Iron_Symbol *isym = iron_scope_lookup(ctx->global_scope, mangled);
+    if (!isym) return false;   /* cloned after this round; the round is redone */
+    Iron_Ident *nid = ARENA_ALLOC(ctx->arena, Iron_Ident);
+    if (!nid) return false;
+    memset(nid, 0, sizeof(*nid));
+    nid->kind = IRON_NODE_IDENT;
+    nid->span = ce->callee->span;
+    nid->name = mangled;
+    nid->resolved_sym = isym;
+    ce->callee = (Iron_Node *)nid;
+    return true;
+}
+
 static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return iron_type_make_primitive(IRON_TYPE_VOID);
     /* HARD-05: cancel poll at recursive expression walker entry. */
@@ -2039,7 +2880,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             for (int i = 0; i < n->part_count; i++) {
                 Iron_Type *part_type = check_expr(ctx, n->parts[i]);
                 /* Skip string literals -- they are always stringifiable */
-                if (n->parts[i]->kind != IRON_NODE_STRING_LIT && part_type) {
+                if (n->parts[i]->kind != IRON_NODE_STRING_LIT && part_type &&
+                    part_type->kind != IRON_TYPE_ERROR) {
                     if (!is_stringifiable(ctx, part_type)) {
                         char msg[256];
                         const char *ts = iron_type_to_string(part_type, ctx->arena);
@@ -2124,6 +2966,27 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_BinaryExpr *be = (Iron_BinaryExpr *)node;
             Iron_Type *lt = check_expr(ctx, be->left);
             Iron_Type *rt = check_expr(ctx, be->right);
+
+            /* A numeric literal operand takes the other operand's numeric
+             * type: `x + 1` with `x: Int8` is Int8 arithmetic.  An integer
+             * literal that does not fit an arithmetic partner is an error. */
+            bool literal_range_reported = false;
+            if (lt && rt && lt->kind != IRON_TYPE_ERROR &&
+                rt->kind != IRON_TYPE_ERROR && !iron_type_equals(lt, rt)) {
+                if (is_int_literal_narrowing(lt, rt, be->right)) {
+                    ((Iron_ExprNode *)be->right)->resolved_type = lt;
+                    rt = lt;
+                } else if (is_int_literal_narrowing(rt, lt, be->left)) {
+                    ((Iron_ExprNode *)be->left)->resolved_type = rt;
+                    lt = rt;
+                } else if (be->op == IRON_TOK_PLUS || be->op == IRON_TOK_MINUS ||
+                           be->op == IRON_TOK_STAR || be->op == IRON_TOK_SLASH ||
+                           be->op == IRON_TOK_PERCENT) {
+                    literal_range_reported =
+                        literal_range_error(ctx, lt, rt, be->right) ||
+                        literal_range_error(ctx, rt, lt, be->left);
+                }
+            }
 
             int op = be->op;
             bool is_comparison = (op == IRON_TOK_EQUALS || op == IRON_TOK_NOT_EQUALS ||
@@ -2263,7 +3126,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         be->is_string_concat = true;
                         result = lt;  /* String */
                     } else if (!iron_type_equals(lt, rt)) {
-                        emit_type_mismatch(ctx, be->span, lt, rt);
+                        if (!literal_range_reported)
+                            emit_type_mismatch(ctx, be->span, lt, rt);
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     } else if (!iron_type_is_numeric(lt)) {
                         emit_error(ctx, IRON_ERR_TYPE_MISMATCH, be->span,
@@ -2401,6 +3265,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_CALL: {
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
+
+            /* User generics: redirect to the instance (or, in the round
+             * before the instance exists, type the call as unresolved). */
+            {
+                Iron_Node *gb = ce->callee;
+                if (gb && gb->kind == IRON_NODE_INDEX) gb = ((Iron_IndexExpr *)gb)->object;
+                Iron_Symbol *gs = (gb && gb->kind == IRON_NODE_IDENT && ((Iron_Ident *)gb)->name)
+                    ? iron_scope_lookup(ctx->global_scope, ((Iron_Ident *)gb)->name) : NULL;
+                if (gs && gs->decl_node && ctx->program &&
+                    iron_generics_is_template(ctx->program, gs->decl_node) &&
+                    !redirect_generic_call(ctx, ce)) {
+                    for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ce->resolved_type = result;
+                    break;
+                }
+            }
 
             /* Phase 20 OQ-D (Plan 20-02a): `Ptr.cast[T](p)` compiler
              * builtin. Parses as CALL(callee=INDEX(object=FIELD_ACCESS(
@@ -2765,6 +3646,11 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_MethodDecl *anon_init = iron_find_init_by_name(
                         ctx->program, callee_id->name, NULL);
                     if (anon_init) {
+                        char what_init[256];
+                        snprintf(what_init, sizeof(what_init), "init of '%s'",
+                                 callee_id->name);
+                        report_private_member(ctx, anon_init->is_pub, anon_init->span,
+                                              ce->span, what_init);
                         int init_param_count = anon_init->param_count > 0
                             ? anon_init->param_count - 1 : 0;
                         if (ce->arg_count != init_param_count) {
@@ -2787,7 +3673,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                     arg_t->kind   != IRON_TYPE_ERROR &&
                                     param_t->kind != IRON_TYPE_ERROR &&
                                     !types_assignable(param_t, arg_t) &&
-                                    !is_int_literal_narrowing(param_t, arg_t, ce->args[i])) {
+                                    !is_int_literal_narrowing(param_t, arg_t, ce->args[i]) &&
+            !literal_range_error(ctx, param_t, arg_t, ce->args[i])) {
                                     char msg[256];
                                     snprintf(msg, sizeof(msg),
                                              "init param '%s' expects '%s', got '%s'",
@@ -2818,6 +3705,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         break;
                     }
 
+                    report_private_field_construction(ctx, od, ce->span);
                     if (ce->arg_count != field_count) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
@@ -2834,7 +3722,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                 arg_t->kind  != IRON_TYPE_ERROR &&
                                 fld_t->kind  != IRON_TYPE_ERROR &&
                                 !types_assignable(fld_t, arg_t) &&
-                                !is_int_literal_narrowing(fld_t, arg_t, ce->args[i])) {
+                                !is_int_literal_narrowing(fld_t, arg_t, ce->args[i]) &&
+            !literal_range_error(ctx, fld_t, arg_t, ce->args[i])) {
                                 char msg[256];
                                 snprintf(msg, sizeof(msg),
                                          "field '%s' expects '%s', got '%s'",
@@ -2866,7 +3755,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                 Iron_Field *fld = (Iron_Field *)od->fields[fi];
                                 if (fld && fld->type_ann && fld->type_ann->kind == IRON_NODE_TYPE_ANNOTATION) {
                                     Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)fld->type_ann;
-                                    if (strcmp(ta->name, gp->name) == 0) {
+                                    if (ta->name && strcmp(ta->name, gp->name) == 0) {
                                         concrete[gi] = check_expr(ctx, ce->args[fi]);
                                         break;
                                     }
@@ -3027,7 +3916,17 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
-            if (ce->arg_count != expected_count) {
+            /* Builtin assert takes an optional message: assert(cond). */
+            bool assert_without_msg = false;
+            if (ce->callee && ce->callee->kind == IRON_NODE_IDENT &&
+                ce->arg_count == 1 && expected_count == 2) {
+                Iron_Ident *as_id = (Iron_Ident *)ce->callee;
+                Iron_Symbol *as_sym = as_id->name
+                    ? iron_scope_lookup(ctx->global_scope, as_id->name) : NULL;
+                assert_without_msg = as_sym && !as_sym->decl_node &&
+                                     as_id->name && strcmp(as_id->name, "assert") == 0;
+            }
+            if (ce->arg_count != expected_count && !assert_without_msg) {
                 char msg[256];
                 snprintf(msg, sizeof(msg),
                          "expected %d argument(s), got %d",
@@ -3058,7 +3957,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         arg_type->kind   != IRON_TYPE_ERROR &&
                         !auto_address_applies &&
                         !types_assignable(param_type, arg_type) &&
-                        !is_int_literal_narrowing(param_type, arg_type, ce->args[i])) {
+                        !is_int_literal_narrowing(param_type, arg_type, ce->args[i]) &&
+            !literal_range_error(ctx, param_type, arg_type, ce->args[i])) {
                         /* Phase 25 PTR-02/03/UNCK-05 (Plan 25-01): specialize to
                          * E0289 IRON_ERR_PTR_REGIME_MISMATCH when both types are
                          * IRON_TYPE_PTR and is_unchecked differs (regime crossing
@@ -3212,7 +4112,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                 Iron_Param *fp = (Iron_Param *)fd->params[pi];
                                 if (fp && fp->type_ann && fp->type_ann->kind == IRON_NODE_TYPE_ANNOTATION) {
                                     Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)fp->type_ann;
-                                    if (strcmp(ta->name, gp->name) == 0) {
+                                    if (ta->name && strcmp(ta->name, gp->name) == 0) {
                                         concrete[gi] = check_expr(ctx, ce->args[pi]);
                                         break;
                                     }
@@ -3241,6 +4141,64 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+
+            /* A spawn handle has no methods: `handle.done()` / `.result()`
+             * type-checked as Void and emitted undeclared C calls. */
+            if (mc->object && mc->object->kind == IRON_NODE_IDENT &&
+                ((Iron_Ident *)mc->object)->name && ctx->spawn_result_types &&
+                shgeti(ctx->spawn_result_types, ((Iron_Ident *)mc->object)->name) >= 0) {
+                const char *hn = ((Iron_Ident *)mc->object)->name;
+                char msg[256];
+                snprintf(msg, sizeof(msg), "spawn handle '%s' has no method '%s'",
+                         hn, mc->method ? mc->method : "?");
+                char hint[256];
+                snprintf(hint, sizeof(hint),
+                         "use `await %s` to wait for the task and get its result", hn);
+                emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg, hint);
+                for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                mc->resolved_type = result;
+                break;
+            }
+
+            /* `x.copy()` on an object: the explicit duplicate (#174). An
+             * object that declares its own copy method (Image.copy) keeps
+             * it; the `copy { }` hook is not callable and runs inside. */
+            if (mc->method && strcmp(mc->method, "copy") == 0 &&
+                mc->arg_count == 0 && mc->object) {
+                Iron_Type *ct = check_expr(ctx, mc->object);
+                if (ct && ct->kind == IRON_TYPE_OBJECT && ct->object.decl &&
+                    !object_declares_method(ctx, ct->object.decl->name, "copy")) {
+                    if (ct->object.decl->is_nocopy) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "'%s' cannot be copied",
+                                 ct->object.decl->name ? ct->object.decl->name : "?");
+                        emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg, NULL);
+                    }
+                    mc->is_builtin_copy = true;
+                    result = ct;
+                    mc->resolved_type = result;
+                    break;
+                }
+            }
+
+            /* String.from_byte(b) is a static constructor. Called on a
+             * String value it passed the receiver as an extra C argument. */
+            if (mc->method && strcmp(mc->method, "from_byte") == 0 && mc->object &&
+                !(mc->object->kind == IRON_NODE_IDENT &&
+                  ((Iron_Ident *)mc->object)->name &&
+                  strcmp(((Iron_Ident *)mc->object)->name, "String") == 0)) {
+                Iron_Type *recv_t = check_expr(ctx, mc->object);
+                if (recv_t && recv_t->kind == IRON_TYPE_STRING) {
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span,
+                               "from_byte is not a String instance method",
+                               "call it on the type: String.from_byte(b)");
+                    for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
+            }
 
             /* Phase 25 UNCK-06 (Plan 25-02): Ptr.offset + Ptr.diff compiler
              * builtins.  The Iron parser applies the Method-Call heuristic:
@@ -3525,6 +4483,26 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
 
+            /* The receiver already failed to type-check: propagate the
+             * error instead of typing the call Void (which cascaded into
+             * spurious mismatches). */
+            if (mc->object && mc->object->kind == IRON_NODE_ERROR) {
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                mc->resolved_type = result;
+                break;
+            }
+
+            /* A method call on an un-narrowed T? is rejected like a field
+             * access (it used to call an undeclared C function). */
+            if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_NULLABLE) {
+                emit_error(ctx, IRON_ERR_NULLABLE_ACCESS, mc->span,
+                           "cannot call a method on a nullable value without a null check",
+                           "check for null first: `if x != null { x.method() }`");
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                mc->resolved_type = result;
+                break;
+            }
+
             /* Phase 27 POL-08 / POL-09 (Plan 27-02): dispatch .downgrade()
              * and .upgrade() built-in method calls.
              *   - .downgrade() requires receiver of kind IRON_TYPE_RC;
@@ -3672,9 +4650,12 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             mc->resolved_type = result;
                             break;
                         }
-                        /* Box.unwrap() -> *unchecked elem (bare T*, 8B). */
+                        /* Box.unwrap() -> *var unchecked elem (bare T*, 8B).
+                         * The box owns the payload, so the pointer is
+                         * mutable (hot loops update in place); it also
+                         * binds to a read-only *unchecked T. */
                         Iron_Type *out = iron_type_make_ptr(ctx->arena, elem_t,
-                                                            false, true);
+                                                            true, true);
                         result = out ? out
                             : iron_type_make_primitive(IRON_TYPE_ERROR);
                         mc->resolved_type = result;
@@ -3926,6 +4907,11 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_MethodDecl *named_init = iron_find_init_by_name(
                         ctx->program, obj_id_ni->name, mc->method);
                     if (named_init) {
+                        char what_ni[256];
+                        snprintf(what_ni, sizeof(what_ni), "init '%s.%s'",
+                                 obj_id_ni->name, mc->method);
+                        report_private_member(ctx, named_init->is_pub,
+                                              named_init->span, mc->span, what_ni);
                         int init_param_count = named_init->param_count > 0
                             ? named_init->param_count - 1 : 0;
                         if (mc->arg_count != init_param_count) {
@@ -3950,7 +4936,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                     at->kind != IRON_TYPE_ERROR &&
                                     pt->kind != IRON_TYPE_ERROR &&
                                     !types_assignable(pt, at) &&
-                                    !is_int_literal_narrowing(pt, at, mc->args[i])) {
+                                    !is_int_literal_narrowing(pt, at, mc->args[i]) &&
+            !literal_range_error(ctx, pt, at, mc->args[i])) {
                                     char msg[256];
                                     snprintf(msg, sizeof(msg),
                                              "init param '%s' expects '%s', got '%s'",
@@ -4041,7 +5028,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_Type *arr_type = obj_id->resolved_type;
                     Iron_Type *ext_result = resolve_array_ext_method(ctx, mc, arr_type);
                     result = ext_result ? ext_result
-                                        : resolve_array_builtin_method(mc->method, arr_type);
+                                        : check_array_builtin_call(ctx, mc, arr_type);
 
                     /* 2026-07 UNCHK-IDX: strict validation for the per-site
                      * unchecked indexing intrinsics (no-op for other names).
@@ -4096,6 +5083,9 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         if (!msig || msig->kind != IRON_NODE_FUNC_DECL) continue;
                         Iron_FuncDecl *fd = (Iron_FuncDecl *)msig;
                         if (strcmp(fd->name, mc->method) != 0) continue;
+                        check_iface_call_args(ctx, mc, iface_mc, fd);
+                        if (iface_call_may_mutate(ctx, iface_mc, fd))
+                            check_mutating_receiver(ctx, mc, mc->object);
                         if (fd->resolved_return_type) {
                             result = fd->resolved_return_type;
                         } else if (fd->return_type &&
@@ -4115,6 +5105,68 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     /* Instance method on enum value */
                     type_name_mc = obj_id->resolved_type->enu.decl->name;
                 }
+                /* Generic method `x.m[A](...)` / `x.m(...)`: redirect to the
+                 * instance method (cloned after the round that requests it). */
+                if (type_name_mc && ctx->program && mc->method) {
+                    Iron_MethodDecl *gmd = NULL;
+                    for (int i = 0; i < ctx->program->decl_count && !gmd; i++) {
+                        Iron_Node *d = ctx->program->decls[i];
+                        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                        if (md->generic_param_count > 0 && md->type_name && md->method_name &&
+                            strcmp(md->type_name, type_name_mc) == 0 &&
+                            strcmp(md->method_name, mc->method) == 0 &&
+                            iron_generics_is_template(ctx->program, d))
+                            gmd = md;
+                    }
+                    if (gmd) {
+                        int ngp = gmd->generic_param_count;
+                        Iron_Type *bind[16] = {0};
+                        if (ngp <= 16 && mc->generic_arg_count == ngp) {
+                            for (int gi = 0; gi < ngp; gi++)
+                                bind[gi] = resolve_type_annotation(ctx, mc->generic_args[gi]);
+                        } else if (ngp <= 16) {
+                            /* params[0] is the synthesized self receiver. */
+                            int off = (gmd->param_count > mc->arg_count) ? 1 : 0;
+                            for (int ai = 0; ai < mc->arg_count; ai++) {
+                                Iron_Type *at = ((Iron_ExprNode *)mc->args[ai])->resolved_type;
+                                if (ai + off < gmd->param_count && gmd->params[ai + off])
+                                    unify_generic(((Iron_Param *)gmd->params[ai + off])->type_ann,
+                                                  at, gmd->generic_params, ngp, bind);
+                            }
+                        }
+                        bool all = ngp <= 16;
+                        for (int gi = 0; gi < ngp && all; gi++) if (!bind[gi]) all = false;
+                        const char *gm = all
+                            ? iron_generics_request((Iron_Node *)gmd, bind, ngp, ctx->arena)
+                            : NULL;
+                        bool inst_exists = false;
+                        for (int i = 0; gm && i < ctx->program->decl_count && !inst_exists; i++) {
+                            Iron_Node *d = ctx->program->decls[i];
+                            if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                            Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                            inst_exists = md->type_name && md->method_name &&
+                                          strcmp(md->type_name, type_name_mc) == 0 &&
+                                          strcmp(md->method_name, gm) == 0;
+                        }
+                        if (!all) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg),
+                                     "cannot infer the type arguments of '%s.%s'",
+                                     type_name_mc, mc->method);
+                            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->span, msg,
+                                       "write them explicitly, e.g. x.m[Int](y)");
+                        }
+                        if (!inst_exists) {
+                            result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                            mc->resolved_type = result;
+                            break;
+                        }
+                        mc->method = gm;
+                        mc->generic_args = NULL;
+                        mc->generic_arg_count = 0;
+                    }
+                }
                 bool method_found_mc = false;
                 if (type_name_mc && ctx->program) {
                     for (int i = 0; i < ctx->program->decl_count; i++) {
@@ -4126,6 +5178,22 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         if (strcmp(md->type_name, type_name_mc) == 0 &&
                             strcmp(md->method_name, mc->method) == 0) {
                             method_found_mc = true;
+                            {
+                                char what_m[256];
+                                snprintf(what_m, sizeof(what_m), "%s '%s.%s'",
+                                         md->is_init ? "init" : "method",
+                                         md->type_name, md->method_name);
+                                report_private_member(
+                                    ctx,
+                                    md->is_pub ||
+                                        method_implements_interface(
+                                            ctx, md->type_name, md->method_name),
+                                    md->span, mc->span, what_m);
+                            }
+                            check_method_call_args(
+                                ctx, mc, md,
+                                obj_id->resolved_sym &&
+                                obj_id->resolved_sym->sym_kind == IRON_SYM_TYPE);
                             if (md->resolved_return_type) {
                                 result = md->resolved_return_type;
                             }
@@ -4163,14 +5231,26 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                         mark_requires_mutable(
                                             ctx, (Iron_Node *)recv_ident);
                                     }
-                                    if (recv_ident && recv_ident->resolved_sym &&
+                                    /* Through a pointer the pointer's var decides
+                                     * (d.bump() with d: *var T mutates the pointee). */
+                                    Iron_Type *rit = recv_ident ? recv_ident->resolved_type : NULL;
+                                    bool via_ptr = rit && rit->kind == IRON_TYPE_PTR;
+                                    if (via_ptr && !rit->ptr.is_var) {
+                                        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, mc->span,
+                                                   "cannot call mutable method through a read-only pointer",
+                                                   "use a *var pointer");
+                                    }
+                                    if (!via_ptr &&
+                                        recv_ident && recv_ident->resolved_sym &&
                                         recv_ident->resolved_sym->sym_kind != IRON_SYM_TYPE &&
                                         !recv_ident->resolved_sym->is_mutable) {
                                         char msg[256];
                                         snprintf(msg, sizeof(msg),
                                                  "cannot call mutable method on immutable binding");
                                         emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL,
-                                                   mc->span, msg, NULL);
+                                                   mc->span, msg,
+                                                   sym_is_loop_var(recv_ident->resolved_sym)
+                                                       ? LOOP_VAR_MUT_HELP : NULL);
                                     }
                                     /* Phase 84 MUTTIER-02 E0239: readonly caller
                                      * calling a mutating callee (is_mut_receiver
@@ -4366,6 +5446,9 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     if (!fd->name || !mc->method || strcmp(fd->name, mc->method) != 0)
                         continue;
                     found_ni = true;
+                    check_iface_call_args(ctx, mc, iface_ni, fd);
+                    if (iface_call_may_mutate(ctx, iface_ni, fd))
+                        check_mutating_receiver(ctx, mc, mc->object);
                     if (fd->resolved_return_type) {
                         result = fd->resolved_return_type;
                     } else if (fd->return_type &&
@@ -4396,6 +5479,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     if (!md->type_name || !md->method_name || !mc->method) continue;
                     if (strcmp(md->type_name, type_name_ni) != 0 ||
                         strcmp(md->method_name, mc->method) != 0) continue;
+                    check_method_call_args(ctx, mc, md, false);
                     if (md->resolved_return_type) {
                         result = md->resolved_return_type;
                     } else if (md->return_type &&
@@ -4416,6 +5500,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         Iron_MethodDecl *md = (Iron_MethodDecl *)d;
                         if (strcmp(md->type_name, "String") == 0 &&
                             strcmp(md->method_name, mc->method) == 0) {
+                            check_method_call_args(ctx, mc, md, false);
                             if (md->resolved_return_type) {
                                 result = md->resolved_return_type;
                             }
@@ -4440,6 +5525,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         Iron_MethodDecl *md = (Iron_MethodDecl *)d;
                         if (strcmp(md->type_name, tn) == 0 &&
                             strcmp(md->method_name, mc->method) == 0) {
+                            check_method_call_args(ctx, mc, md, false);
                             if (md->resolved_return_type) {
                                 result = md->resolved_return_type;
                             }
@@ -4452,7 +5538,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                  * like arr.map(...).filter(...)): resolve via extension methods. */
                 Iron_Type *ext_result = resolve_array_ext_method(ctx, mc, obj_type_mc);
                 result = ext_result ? ext_result
-                                    : resolve_array_builtin_method(mc->method, obj_type_mc);
+                                    : check_array_builtin_call(ctx, mc, obj_type_mc);
 
                 /* 2026-07 UNCHK-IDX: mirror the ident-receiver arm's strict
                  * validation for chained array receivers. */
@@ -4477,6 +5563,21 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             actual_s, expected_s);
                         emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->span, msg, NULL);
                     }
+                }
+            }
+            /* `x.to_string()` for every numeric type and Bool. Only Int,
+             * Int32 and Float declare it (stdlib/int.iron, float.iron); on
+             * the other types the call typed as Void. It formats exactly
+             * like interpolation, so "{x}" and x.to_string() agree. */
+            if ((!result || result->kind == IRON_TYPE_VOID) && mc->method &&
+                strcmp(mc->method, "to_string") == 0 && mc->arg_count == 0 &&
+                mc->object) {
+                Iron_Type *recv_ts = ((Iron_ExprNode *)mc->object)->resolved_type;
+                if (recv_ts && (iron_type_is_integer(recv_ts) ||
+                                iron_type_is_float(recv_ts) ||
+                                recv_ts->kind == IRON_TYPE_BOOL)) {
+                    result = iron_type_make_primitive(IRON_TYPE_STRING);
+                    mc->is_builtin_to_string = true;
                 }
             }
             mc->resolved_type = result;
@@ -4599,6 +5700,16 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     emit_error(ctx, IRON_ERR_NULLABLE_ACCESS, fa->span,
                                "cannot access field of nullable type without null check",
                                "Check for null before accessing");
+                } else if (obj_type && obj_type->kind != IRON_TYPE_ERROR) {
+                    /* Only objects have fields; `xs.count` on a list used to
+                     * pass silently and fail in the generated C. */
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "type '%s' has no field '%s'",
+                             iron_type_to_string(obj_type, ctx->arena),
+                             fa->field ? fa->field : "?");
+                    emit_error(ctx, IRON_ERR_NO_SUCH_FIELD, fa->span, msg,
+                               obj_type->kind == IRON_TYPE_ARRAY
+                                   ? "use .len() for the element count" : NULL);
                 }
                 result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 fa->resolved_type = result;
@@ -4620,6 +5731,13 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
+            if (matched_field && !ctx->in_synth_accessor) {
+                char what_f[256];
+                snprintf(what_f, sizeof(what_f), "field '%s' of '%s'",
+                         matched_field->name, od->name ? od->name : "?");
+                report_private_member(ctx, matched_field->is_pub,
+                                      matched_field->span, fa->span, what_f);
+            }
             if (!field_type) {
                 char msg[256];
                 snprintf(msg, sizeof(msg), "no field '%s' on type", fa->field);
@@ -4667,6 +5785,49 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             }
 
             Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, ce->type_name);
+            /* User generic object `C[A](...)`: construct the instance. */
+            if (sym && sym->decl_node && ctx->program &&
+                iron_generics_is_template(ctx->program, sym->decl_node)) {
+                Iron_ObjectDecl *god = (Iron_ObjectDecl *)sym->decl_node;
+                Iron_Type *gargs[16] = {0};
+                int gn = god->generic_param_count;
+                const char *mangled = NULL;
+                if (gn > 0 && gn <= 16) {
+                    bool all = true;
+                    if (ce->generic_arg_count == gn) {
+                        for (int gi = 0; gi < gn; gi++) {
+                            Iron_Node *ga = type_ann_from_expr(ctx, ce->generic_args[gi]);
+                            gargs[gi] = ga ? resolve_type_annotation(ctx, ga) : NULL;
+                        }
+                    } else {
+                        infer_object_generic_args(ctx, god, ce->args, ce->arg_count, gargs);
+                    }
+                    for (int gi = 0; gi < gn; gi++) if (!gargs[gi]) all = false;
+                    if (!all) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "cannot infer the type arguments of '%s'",
+                                 ce->type_name);
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ce->span, msg,
+                                   "write them explicitly, e.g. C[Int](x)");
+                    } else {
+                        int errs_before = ctx->diags->error_count;
+                        check_generic_constraints(ctx, god->generic_params, gn, gargs, gn, ce->span);
+                        if (ctx->diags->error_count == errs_before)
+                            mangled = iron_generics_request(sym->decl_node, gargs, gn, ctx->arena);
+                    }
+                }
+                Iron_Symbol *isym = mangled ? iron_scope_lookup(ctx->global_scope, mangled) : NULL;
+                if (!isym) {
+                    for (int ai = 0; ai < ce->arg_count; ai++) check_expr(ctx, ce->args[ai]);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ce->resolved_type = result;
+                    break;
+                }
+                ce->type_name = mangled;
+                ce->generic_args = NULL;
+                ce->generic_arg_count = 0;
+                sym = isym;
+            }
             if (!sym) {
                 char msg[256];
                 snprintf(msg, sizeof(msg), "unknown type or function '%s'", ce->type_name);
@@ -4701,6 +5862,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_ObjectDecl *od = (Iron_ObjectDecl *)sym->decl_node;
                 int field_count = od->field_count;
 
+                report_private_field_construction(ctx, od, ce->span);
                 if (ce->arg_count != field_count) {
                     char msg[256];
                     snprintf(msg, sizeof(msg),
@@ -4717,7 +5879,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             arg_t->kind  != IRON_TYPE_ERROR &&
                             fld_t->kind  != IRON_TYPE_ERROR &&
                             !types_assignable(fld_t, arg_t) &&
-                            !is_int_literal_narrowing(fld_t, arg_t, ce->args[i])) {
+                            !is_int_literal_narrowing(fld_t, arg_t, ce->args[i]) &&
+            !literal_range_error(ctx, fld_t, arg_t, ce->args[i])) {
                             char msg[256];
                             snprintf(msg, sizeof(msg),
                                      "field '%s' expects '%s', got '%s'",
@@ -4788,10 +5951,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 char msg[256];
                 snprintf(msg, sizeof(msg),
                          "type-test `is %s` is not yet supported"
-                         " (only the null test `is null` is implemented)",
+                         " (only the null test `is Null` is implemented)",
                          ie->type_name);
                 emit_error(ctx, IRON_ERR_UNSUPPORTED_TYPE_TEST, ie->span, msg,
-                           "use `== null` / `!= null` for null checks");
+                           "for null checks use `x is Null`, `x == null` or `x != null`");
             }
             result = iron_type_make_primitive(IRON_TYPE_BOOL);
             ie->resolved_type = result;
@@ -4825,6 +5988,14 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         emit_error(ctx, IRON_ERR_INDEX_OUT_OF_BOUNDS,
                                    idx_e->index->span, msg, NULL);
                     }
+                }
+            } else if (obj_type && obj_type->kind == IRON_TYPE_STRING) {
+                /* s[i]: the character at position i, as a String. */
+                result = obj_type;
+                if (idx_type && idx_type->kind != IRON_TYPE_ERROR &&
+                    !iron_type_is_integer(idx_type)) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, idx_e->index->span,
+                               "string index must be an integer type", NULL);
                 }
             } else {
                 result = iron_type_make_primitive(IRON_TYPE_ERROR);
@@ -5016,7 +6187,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                "weak rc allocation form is invalid; use "
                                "`weak rc null` or `<rc_value>.downgrade()` "
                                "to construct a weak reference",
-                               "Phase 27 lifecycle policy closed set is "
+                               "the lifecycle policy closed set is "
                                "{stack, heap, rc, weak rc}; weak rc values are "
                                "constructed via `weak rc null` or "
                                "`<rc_value>.downgrade()`");
@@ -5033,8 +6204,17 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_LAMBDA: {
             Iron_LambdaExpr *le = (Iron_LambdaExpr *)node;
+            /* The function type expected here, if the lambda is a call
+             * argument or initializes an annotated binding. Consume it so it
+             * does not leak into lambdas nested in this one. */
+            Iron_Type *expected_fn = ctx->lambda_expected_type;
+            ctx->lambda_expected_type = NULL;
+            if (expected_fn && (expected_fn->kind != IRON_TYPE_FUNC ||
+                                expected_fn->func.param_count != le->param_count))
+                expected_fn = NULL;
             /* Build the FUNC type for the lambda so it is callable.
-             * Collect param types from param annotations. */
+             * Param types come from annotations, or from the expected
+             * function type for unannotated params. */
             Iron_Type **param_types = NULL;
             if (le->param_count > 0) {
                 param_types = (Iron_Type **)iron_arena_alloc(
@@ -5044,13 +6224,52 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 if (!param_types) { /* HARD-09 REPLACE (typecheck.c:check_expr LAMBDA param_types) */ return false; }
                 for (int p = 0; p < le->param_count; p++) {
                     Iron_Param *ap = (Iron_Param *)le->params[p];
-                    param_types[p] = resolve_type_annotation(ctx, ap->type_ann);
+                    if (ap->type_ann) {
+                        param_types[p] = resolve_type_annotation(ctx, ap->type_ann);
+                    } else if (expected_fn && expected_fn->func.param_types[p]) {
+                        param_types[p] = expected_fn->func.param_types[p];
+                    } else {
+                        /* Used to become Void silently, which surfaced as
+                         * confusing mismatches at every use of the param. */
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "cannot infer the type of lambda parameter '%s'",
+                                 ap->name ? ap->name : "?");
+                        emit_error(ctx, IRON_ERR_LAMBDA_PARAM_TYPE, ap->span, msg,
+                                   "annotate it, e.g. func(x: Int), or pass the "
+                                   "lambda where a function type is expected");
+                        param_types[p] = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    }
+                    ap->resolved_type = param_types[p];
                 }
             }
-            Iron_Type *ret_t = le->return_type
-                ? resolve_type_annotation(ctx, le->return_type)
-                : iron_type_make_primitive(IRON_TYPE_VOID);
+            Iron_Type *ret_t = NULL;
+            if (le->return_type) {
+                ret_t = resolve_type_annotation(ctx, le->return_type);
+            } else if (expected_fn) {
+                /* func(e) { e > 3 } passed as func(Int) -> Bool returns Bool. */
+                ret_t = expected_fn->func.return_type;
+            }
             if (ret_t && ret_t->kind == IRON_TYPE_VOID) ret_t = NULL;
+            /* A single-expression body is its return value when the lambda
+             * returns something: func(x: Int) -> Int { x * 2 }. It used to
+             * pass the checker and fail in lowering with an internal
+             * return-type error. */
+            if (ret_t && le->body && le->body->kind == IRON_NODE_BLOCK) {
+                Iron_Block *lb = (Iron_Block *)le->body;
+                if (lb->stmt_count == 1 && lb->stmts[0] &&
+                    node_is_value_expression(lb->stmts[0])) {
+                    Iron_ReturnStmt *rs = iron_arena_alloc(
+                        ctx->arena, sizeof(Iron_ReturnStmt), _Alignof(Iron_ReturnStmt));
+                    if (rs) {
+                        memset(rs, 0, sizeof(*rs));
+                        rs->kind  = IRON_NODE_RETURN;
+                        rs->span  = lb->stmts[0]->span;
+                        rs->value = lb->stmts[0];
+                        lb->stmts[0] = (Iron_Node *)rs;
+                    }
+                }
+            }
             /* Push a function scope and declare lambda params so the body
              * can type-check variable references correctly. */
             Iron_Type *prev_ret = ctx->current_return_type;
@@ -5062,6 +6281,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                           ap->span, false, param_types ? param_types[p] : NULL);
             }
             if (le->body) check_stmt(ctx, le->body);
+            check_missing_return_body(ctx, ret_t, le->body, NULL);
             tc_pop_scope(ctx);
             ctx->current_return_type = prev_ret;
             result = iron_type_make_func(ctx->arena, param_types, le->param_count, ret_t);
@@ -5508,6 +6728,10 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
     if (iron_cancel_requested(ctx->cancel_flag)) {
         return iron_type_make_primitive(IRON_TYPE_VOID);
     }
+    if (node && node->kind == IRON_NODE_LAMBDA && expected &&
+        expected->kind == IRON_TYPE_FUNC) {
+        ctx->lambda_expected_type = expected;
+    }
     if (node && node->kind == IRON_NODE_ARRAY_LIT && expected &&
         expected->kind == IRON_TYPE_ARRAY) {
         Iron_ArrayLit *al = (Iron_ArrayLit *)node;
@@ -5520,6 +6744,29 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
 }
 
 /* ── Statement type checking ─────────────────────────────────────────────── */
+
+/* Does destroying a value of type `t` run code: a drop block, an rc /
+ * weak rc field to release, or a by-value object field with a destructor? */
+static bool type_has_destructor(TypeCtx *ctx, Iron_Type *t, int depth) {
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || depth > 16)
+        return false;
+    Iron_ObjectDecl *od = t->object.decl;
+    for (int i = 0; od->name && i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *m = (Iron_MethodDecl *)d;
+        if (m->is_drop && m->type_name && strcmp(m->type_name, od->name) == 0)
+            return true;
+    }
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        Iron_Type *ft = f ? f->resolved_type : NULL;
+        if (!ft) continue;
+        if (ft->kind == IRON_TYPE_RC || ft->kind == IRON_TYPE_WEAK_RC) return true;
+        if (type_has_destructor(ctx, ft, depth + 1)) return true;
+    }
+    return false;
+}
 
 static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return;
@@ -5667,10 +6914,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                "for explicit unchecked pointer construction");
                 }
 
+                init_type = type_bounded_vector_literal(ctx, decl_type, init_type, vd->init);
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
-                    !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
+                    !is_int_literal_narrowing(decl_type, init_type, vd->init) &&
+            !literal_range_error(ctx, decl_type, init_type, vd->init)) {
                     /* Phase 20 PTR-13: null literal assigned to non-nullable
                      * pointer type. Emit IRON_ERR_PTR_NULL_DEREF=272 with the
                      * spec-locked substring "non-nullable pointer" and a hint
@@ -5738,6 +6987,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                             emit_error(ctx, IRON_ERR_VEC_STRICT_LENGTH_MISMATCH,
                                        vd->init->span, msg_copy,
                                        "§3.3: [T; N] requires exactly N elements in the initializer literal");
+                        } else {
+                            /* The literal is this [T; N] value: give it the
+                             * declared type. Left as dynamic [T], the binding
+                             * and the literal disagreed downstream (returning
+                             * it was an internal return-type error, assigning
+                             * it across an if an internal PHI error). */
+                            al->resolved_type = decl_type;
                         }
                         /* If count matches, suppress the generic E0202: the literal is valid. */
                     } else {
@@ -5789,6 +7045,17 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
             if (vd->type_ann) {
                 decl_type = resolve_type_annotation(ctx, vd->type_ann);
+            }
+            /* The destructor runs at scope exit and on every reassignment,
+             * so such a binding must hold a value from its declaration on. */
+            if (!vd->init && decl_type && type_has_destructor(ctx, decl_type, 0)) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "'%s' has a type with a destructor and needs an initializer",
+                         vd->name ? vd->name : "binding");
+                emit_error(ctx, IRON_ERR_DROP_BINDING_UNINIT, vd->span, msg,
+                           "give it a value where it is declared; a destructor "
+                           "must never run on an unset binding");
             }
 
             Iron_Type *init_type = NULL;
@@ -5843,10 +7110,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                "for explicit unchecked pointer construction");
                 }
 
+                init_type = type_bounded_vector_literal(ctx, decl_type, init_type, vd->init);
                 if (init_type->kind != IRON_TYPE_ERROR &&
                     decl_type->kind != IRON_TYPE_ERROR &&
                     !types_assignable(decl_type, init_type) &&
-                    !is_int_literal_narrowing(decl_type, init_type, vd->init)) {
+                    !is_int_literal_narrowing(decl_type, init_type, vd->init) &&
+            !literal_range_error(ctx, decl_type, init_type, vd->init)) {
                     /* Phase 20 PTR-13: null literal assigned to non-nullable
                      * pointer type. Emit IRON_ERR_PTR_NULL_DEREF=272 with the
                      * spec-locked substring "non-nullable pointer" and a hint
@@ -5902,6 +7171,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                             emit_error(ctx, IRON_ERR_VEC_STRICT_LENGTH_MISMATCH,
                                        vd->init->span, msg_copy,
                                        "§3.3: [T; N] requires exactly N elements in the initializer literal");
+                        } else {
+                            /* The literal is this [T; N] value: give it the
+                             * declared type. Left as dynamic [T], the binding
+                             * and the literal disagreed downstream (returning
+                             * it was an internal return-type error, assigning
+                             * it across an if an internal PHI error). */
+                            al->resolved_type = decl_type;
                         }
                         /* If count matches, suppress the generic E0202: the literal is valid. */
                     } else if (decl_type->kind == IRON_TYPE_PTR &&
@@ -5957,6 +7233,20 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_ASSIGN: {
             Iron_AssignStmt *as = (Iron_AssignStmt *)node;
+
+            /* Strings are immutable: `s[i] = ...` used to pass check and
+             * call an undeclared Iron_String_set. */
+            if (as->target && as->target->kind == IRON_NODE_INDEX) {
+                Iron_IndexExpr *ti = (Iron_IndexExpr *)as->target;
+                Iron_Type *tt = check_expr(ctx, ti->object);
+                if (tt && tt->kind == IRON_TYPE_STRING) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, as->target->span,
+                               "strings are immutable; cannot assign to a character",
+                               "build a new string, e.g. with substring() and +");
+                    if (as->value) check_expr(ctx, as->value);
+                    break;
+                }
+            }
 
             /* Mutability check: use resolved_sym (set by resolver) as authoritative
              * source of is_mutable. Also check type-checker scope as fallback. */
@@ -6075,6 +7365,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         recv_t->ptr.is_var) {
                         lhs_is_var_ptr_auto_deref = true;
                     }
+                    /* An rc handle refers to a shared object: like a pointer,
+                     * the field's own `var` decides, not the handle binding. */
+                    if (recv_t && recv_t->kind == IRON_TYPE_RC) {
+                        lhs_is_var_ptr_auto_deref = true;
+                    }
                 }
             }
             if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
@@ -6096,6 +7391,21 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         field_root_name = root_id->name;
                         field_root_sym = root_id->resolved_sym;
                     }
+                }
+            }
+
+            /* An element write, or a field write inside an element, needs
+             * a mutable path to the list or array (#174). */
+            if (as->target) {
+                Iron_Node *cur = as->target;
+                while (cur && cur->kind == IRON_NODE_FIELD_ACCESS)
+                    cur = ((Iron_FieldAccess *)cur)->object;
+                if (cur && cur->kind == IRON_NODE_INDEX) {
+                    Iron_IndexExpr *ix = (Iron_IndexExpr *)cur;
+                    Iron_Type *ot = ix->object
+                        ? ((Iron_ExprNode *)ix->object)->resolved_type : NULL;
+                    if (ot && ot->kind == IRON_TYPE_ARRAY)
+                        check_array_mutable(ctx, ix->object, as->span, "modify");
                 }
             }
 
@@ -6142,7 +7452,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     char msg[256];
                     snprintf(msg, sizeof(msg),
                              "cannot mutate field on immutable receiver");
-                    emit_error(ctx, IRON_ERR_MUT_FIELD_IMMUT_RECV, as->span, msg, NULL);
+                    emit_error(ctx, IRON_ERR_MUT_FIELD_IMMUT_RECV, as->span, msg,
+                               sym_is_loop_var(field_root_sym) ? LOOP_VAR_MUT_HELP : NULL);
                     (void)field_root_name;  /* reserved for future hint; silence unused warn */
                 }
             }
@@ -6367,7 +7678,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 target_type->kind != IRON_TYPE_ERROR &&
                 value_type->kind  != IRON_TYPE_ERROR &&
                 !types_assignable(target_type, value_type) &&
-                !is_int_literal_narrowing(target_type, value_type, as->value)) {
+                !is_int_literal_narrowing(target_type, value_type, as->value) &&
+            !literal_range_error(ctx, target_type, value_type, as->value)) {
                 emit_type_mismatch(ctx, as->span, target_type, value_type);
             }
             /* Narrow literal in assignment (e.g., x = 42 where x: Int32) */
@@ -6493,7 +7805,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                    "cannot return nullable value without null check",
                                    "Check for null before returning");
                     } else if (!types_assignable(ctx->current_return_type, ret_type) &&
-                               !is_int_literal_narrowing(ctx->current_return_type, ret_type, rs->value)) {
+                               !is_int_literal_narrowing(ctx->current_return_type, ret_type, rs->value) &&
+            !literal_range_error(ctx, ctx->current_return_type, ret_type, rs->value)) {
                         /* Phase 25 PTR-03 (Plan 25-01): specialize to E0289
                          * IRON_ERR_PTR_REGIME_MISMATCH when both types are
                          * IRON_TYPE_PTR with differing is_unchecked (regime
@@ -6754,6 +8067,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
             Iron_Type *iter_t = check_expr(ctx, fs->iterable);
+            if (fs->is_parallel && fs->pool_expr) {
+                /* The pool expression was never resolved or type-checked:
+                 * `parallel(totally_bogus + 3)` compiled. */
+                emit_error(ctx, IRON_ERR_POOL_UNSUPPORTED, fs->pool_expr->span,
+                           "thread pools are not supported for parallel for",
+                           "write `for i in range(n) parallel { ... }`");
+            }
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
             /* Define loop variable with appropriate type.
              * For array iteration (for x in arr) the loop var has elem type.
@@ -6761,6 +8081,14 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             Iron_Type *loop_var_type = iron_type_make_primitive(IRON_TYPE_INT);
             if (iter_t && iter_t->kind == IRON_TYPE_ARRAY) {
                 loop_var_type = iter_t->array.elem;
+            } else if (iter_t && iter_t->kind == IRON_TYPE_STRING) {
+                /* for c in s: each character, as a String */
+                loop_var_type = iter_t;
+                if (fs->is_parallel) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fs->iterable->span,
+                               "parallel for cannot iterate a String",
+                               "iterate s.chars() or a range instead");
+                }
             }
             tc_define(ctx, fs->var_name, IRON_SYM_VARIABLE, (Iron_Node *)fs, fs->span,
                       true, loop_var_type);
@@ -6804,9 +8132,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                            ms->subject->span, msg,
                            "rewrite as an if/else chain");
             }
+            Iron_Type *prev_subject = ctx->match_subject_type;
+            ctx->match_subject_type = subject_type;
             for (int i = 0; i < ms->case_count; i++) {
                 if (ms->cases[i]) check_stmt(ctx, ms->cases[i]);
             }
+            ctx->match_subject_type = prev_subject;
             if (ms->else_body) check_stmt(ctx, ms->else_body);
             /* Exhaustiveness check */
             if (subject_type && subject_type->kind == IRON_TYPE_ENUM) {
@@ -7011,11 +8342,72 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             Iron_MatchCase *mc = (Iron_MatchCase *)node;
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
             if (mc->pattern && mc->pattern->kind == IRON_NODE_PATTERN) {
+                Iron_Pattern *top = (Iron_Pattern *)mc->pattern;
+                Iron_Type *subj = ctx->match_subject_type;
+                if (top->enum_name && subj && subj->kind == IRON_TYPE_ENUM &&
+                    subj->enu.decl && subj->enu.decl->name &&
+                    strcmp(top->enum_name, subj->enu.decl->name) != 0) {
+                    const char *want = iron_type_to_string(subj, ctx->arena);
+                    char msg[512];
+                    snprintf(msg, sizeof(msg),
+                             "match arm pattern is a variant of '%s' but the"
+                             " subject has type '%s'",
+                             top->enum_name, want ? want : "?");
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->pattern->span,
+                               msg, "use a variant of the subject's enum");
+                }
                 /* Recursively define all binding variables (including nested patterns) */
-                tc_define_pattern_bindings(ctx, NULL, mc->pattern);
+                tc_define_pattern_bindings(ctx, ctx->match_subject_type, mc->pattern);
             } else if (mc->pattern) {
-                /* Non-pattern (e.g. integer literal) — check as expression */
-                check_expr(ctx, mc->pattern);
+                Iron_Type *subj = ctx->match_subject_type;
+                bool subj_enum = subj && subj->kind == IRON_TYPE_ENUM && subj->enu.decl;
+                /* Bare variant pattern: enum variant names share one global
+                 * namespace, so `X` may have resolved to another enum's
+                 * variant of the same name.  Rebind it to the subject's. */
+                if (subj_enum && mc->pattern->kind == IRON_NODE_IDENT) {
+                    Iron_Ident *pid = (Iron_Ident *)mc->pattern;
+                    Iron_Symbol *ps = pid->resolved_sym;
+                    Iron_EnumDecl *sed = subj->enu.decl;
+                    int vi = find_variant_index(sed, pid->name);
+                    if (ps && ps->sym_kind == IRON_SYM_ENUM_VARIANT && vi >= 0 &&
+                        !iron_type_equals(ps->type, subj)) {
+                        Iron_Symbol *vs = iron_symbol_create(ctx->arena, pid->name,
+                            IRON_SYM_ENUM_VARIANT, sed->variants[vi],
+                            sed->variants[vi]->span);
+                        if (vs) {
+                            vs->type = subj;
+                            vs->is_pub = sed->is_pub;
+                            pid->resolved_sym = vs;
+                        }
+                    }
+                }
+                /* Non-pattern (e.g. integer literal) — check as expression.
+                 * A variant-ident pattern takes its (possibly rebound)
+                 * symbol's type; a scope lookup by name would find the
+                 * first enum that declared that variant name. */
+                Iron_Type *pt = NULL;
+                if (mc->pattern->kind == IRON_NODE_IDENT &&
+                    ((Iron_Ident *)mc->pattern)->resolved_sym &&
+                    ((Iron_Ident *)mc->pattern)->resolved_sym->sym_kind == IRON_SYM_ENUM_VARIANT &&
+                    ((Iron_Ident *)mc->pattern)->resolved_sym->type) {
+                    Iron_Ident *pid = (Iron_Ident *)mc->pattern;
+                    pt = pid->resolved_sym->type;
+                    pid->resolved_type = pt;
+                } else {
+                    pt = check_expr(ctx, mc->pattern);
+                }
+                if (subj_enum && pt && pt->kind == IRON_TYPE_ENUM &&
+                    !iron_type_equals(pt, subj)) {
+                    const char *want = iron_type_to_string(subj, ctx->arena);
+                    const char *got  = iron_type_to_string(pt, ctx->arena);
+                    char msg[512];
+                    snprintf(msg, sizeof(msg),
+                             "match arm pattern is a variant of '%s' but the"
+                             " subject has type '%s'",
+                             got ? got : "?", want ? want : "?");
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->pattern->span,
+                               msg, "use a variant of the subject's enum");
+                }
             }
             if (mc->body) check_stmt(ctx, mc->body);
             tc_pop_scope(ctx);
@@ -7067,7 +8459,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_SPAWN: {
             Iron_SpawnStmt *ss = (Iron_SpawnStmt *)node;
-            if (ss->pool_expr) check_expr(ctx, ss->pool_expr);
+            if (ss->pool_expr) {
+                check_expr(ctx, ss->pool_expr);
+                emit_error(ctx, IRON_ERR_POOL_UNSUPPORTED, ss->pool_expr->span,
+                           "thread pools are not supported; spawn runs the task "
+                           "on its own thread",
+                           "remove the pool argument: spawn(\"name\") { ... }");
+            }
             if (ss->body) check_stmt(ctx, ss->body);
 
             /* Store spawn body return type for downstream await lookup */
@@ -7482,6 +8880,7 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
     for (int i = 0; i < fd->param_count; i++) {
         Iron_Param *p = (Iron_Param *)fd->params[i];
         param_types[i] = resolve_type_annotation(ctx, p->type_ann);
+        p->resolved_type = param_types[i];
     }
 
     /* Phase 33 OQ-02: restore the real global scope now that all annotation
@@ -7627,6 +9026,7 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     for (int i = 0; i < md->param_count; i++) {
         Iron_Param *p = (Iron_Param *)md->params[i];
         param_types[i] = resolve_type_annotation(ctx, p->type_ann);
+        p->resolved_type = param_types[i];
     }
 
     /* Phase 33 OQ-02: restore the real global scope now that return + param
@@ -7712,6 +9112,7 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
         Iron_Block *body = (Iron_Block *)md->body;
         check_block_stmts(ctx, body->stmts, body->stmt_count);
     }
+    if (!md->is_init) check_missing_return_method(ctx, md);
 
     tc_pop_scope(ctx);
 
@@ -7878,23 +9279,9 @@ static void check_iface_tier_strengthening(TypeCtx *ctx, Iron_Program *program) 
                 Iron_MethodDecl *impl =
                     find_method_for_object(program, od->name, sig->name);
 
-                if (!impl) {
-                    /* No impl found. If sig has a default body, the implementer
-                     * inherits it — no E0258. Otherwise emit E0258 (PATCH-08). */
-                    if (sig->body != NULL) continue;  /* default body inherited */
-                    char msg[256];
-                    snprintf(msg, sizeof(msg),
-                             "missing interface method '%s.%s' on '%s'",
-                             iface_name, sig->name, od->name);
-                    const char *msg_copy =
-                        iron_arena_strdup(ctx->arena, msg, strlen(msg));
-                    if (!msg_copy)
-                        iron_oom_abort("typecheck.c:check_iface_tier_strengthening e0258 msg");
-                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
-                                   IRON_ERR_IFACE_CONFORMANCE_MISSING,
-                                   od->span, msg_copy, NULL);
-                    continue;
-                }
+                /* A missing method is reported once, by the conformance
+                 * check (E0205); only the tier comparison happens here. */
+                if (!impl) continue;
 
                 /* Tier comparison:
                  *   iface pure     => impl must be pure
@@ -7961,6 +9348,7 @@ static void check_top_level_binding_init(TypeCtx *ctx, Iron_Type *decl_type,
         return;
     }
     if (types_assignable(decl_type, init_type)) return;
+    if (literal_range_error(ctx, decl_type, init_type, init)) return;
     /* Strict-array-literal carve-out: `val a: [T; N] = [e1..eN]` — the
      * literal infers [T] (dynamic) so types_assignable rejects it, but a
      * matching element count is valid (same carve-out as the local path). */
@@ -8115,6 +9503,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             Iron_Type *ret_type = fd->return_type
                 ? resolve_type_annotation(&ctx, fd->return_type)
                 : iron_type_make_primitive(IRON_TYPE_VOID);
+            if (!fd->resolved_return_type) fd->resolved_return_type = ret_type;
             Iron_Type **param_types = NULL;
             if (fd->param_count > 0) {
                 param_types = (Iron_Type **)iron_arena_alloc(
@@ -8137,6 +9526,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
              * generic params (T, U) are not real types in the global scope.
              * Call-site type resolution is handled by resolve_array_ext_method. */
             if (md->is_array_extension) continue;
+            if (iron_generics_is_template(program, decl)) continue;
             /* Phase 87-02 SELF-01: set enclosing_type_name so that a method
              * return annotation of `Self` resolves correctly (and does not
              * trigger E0259) during this pre-pass signature building step. */
@@ -8165,6 +9555,9 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
             Iron_Type *ret_type = md->return_type
                 ? resolve_type_annotation(&ctx, md->return_type)
                 : iron_type_make_primitive(IRON_TYPE_VOID);
+            /* Known before any body is checked: a call to a method declared
+             * later in the file (or in a later file) used to be typed Void. */
+            if (!md->resolved_return_type) md->resolved_return_type = ret_type;
             ctx.enclosing_type_name = NULL;  /* restore after pre-pass sig build */
             /* Method signatures are looked up by mangled name (type_method).
              * Phase 33 OQ-02: lookup runs against the REAL global scope, but
@@ -8259,6 +9652,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         for (int i = 0; i < program->decl_count; i++) {
             Iron_Node *d = program->decls[i];
             if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+            if (iron_generics_is_template(program, d)) continue;
             Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
             if (!od->is_patch) continue;
             const char *target = od->target_type_name
@@ -8334,6 +9728,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
         if (!decl || decl->kind != IRON_NODE_OBJECT_DECL) continue;
+        if (iron_generics_is_template(program, decl)) continue;
         Iron_ObjectDecl *od = (Iron_ObjectDecl *)decl;
 
         /* Duplicate drop/copy detection.
@@ -8371,10 +9766,26 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         }
     }
 
-    /* Check all func and method decls */
+    /* Record each field's resolved type for struct emission. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+        if (iron_generics_is_template(program, d)) continue;
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+        if (od->is_patch) continue;
+        for (int fi = 0; fi < od->field_count; fi++) {
+            Iron_Field *f = (Iron_Field *)od->fields[fi];
+            if (f && f->type_ann && !f->resolved_type)
+                f->resolved_type = resolve_type_annotation(&ctx, f->type_ann);
+        }
+    }
+
+    /* Check all func and method decls (generic templates are checked
+     * through their instances) */
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *decl = program->decls[i];
         if (!decl) continue;
+        if (iron_generics_is_template(program, decl)) continue;
 
         if (decl->kind == IRON_NODE_FUNC_DECL) {
             check_func_decl(&ctx, (Iron_FuncDecl *)decl);

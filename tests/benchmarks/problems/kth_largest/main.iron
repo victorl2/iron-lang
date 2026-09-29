@@ -1,6 +1,6 @@
 import time
 
-func qs_partition(arr: [Int], lo: Int, hi: Int) -> Int {
+func qs_partition(var arr: [Int], lo: Int, hi: Int) -> Int {
     val pivot = arr[hi]
     var i = lo - 1
     var j = lo
@@ -19,7 +19,7 @@ func qs_partition(arr: [Int], lo: Int, hi: Int) -> Int {
     return i + 1
 }
 
-func quickselect(arr: [Int], lo: Int, hi: Int, k: Int) -> Int {
+func quickselect(var arr: [Int], lo: Int, hi: Int, k: Int) -> Int {
     if lo == hi {
         return arr[lo]
     }

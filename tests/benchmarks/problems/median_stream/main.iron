@@ -3,7 +3,7 @@ import time
 -- Running median via two heaps (max-heap for lower half, min-heap for upper half)
 -- Using integer median (floor of average when even count)
 
-func heap_up_max(h: [Int], idx: Int) {
+func heap_up_max(var h: [Int], idx: Int) {
     var i = idx
     while i > 0 {
         val parent = (i - 1) / 2
@@ -18,7 +18,7 @@ func heap_up_max(h: [Int], idx: Int) {
     }
 }
 
-func heap_down_max(h: [Int], size: Int, idx: Int) {
+func heap_down_max(var h: [Int], size: Int, idx: Int) {
     var i = idx
     var cont = 1
     while cont == 1 {
@@ -42,7 +42,7 @@ func heap_down_max(h: [Int], size: Int, idx: Int) {
     }
 }
 
-func heap_up_min(h: [Int], idx: Int) {
+func heap_up_min(var h: [Int], idx: Int) {
     var i = idx
     while i > 0 {
         val parent = (i - 1) / 2
@@ -57,7 +57,7 @@ func heap_up_min(h: [Int], idx: Int) {
     }
 }
 
-func heap_down_min(h: [Int], size: Int, idx: Int) {
+func heap_down_min(var h: [Int], size: Int, idx: Int) {
     var i = idx
     var cont = 1
     while cont == 1 {

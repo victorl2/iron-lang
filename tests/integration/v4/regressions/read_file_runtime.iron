@@ -1,0 +1,6 @@
+-- Regression: the builtin read_file(path) works outside comptime.
+-- It used to pass check and then call an undeclared C function.
+func main() {
+    val s = read_file("/dev/null")
+    println("read {len(s)} bytes")
+}

@@ -3,7 +3,7 @@ import time
 -- N-Queens: recursive backtracking with O(1) conflict detection
 -- Uses cols[], diag1[], diag2[] arrays for fast validity checking
 
-func solve(row: Int, n: Int, cols: [Int], diag1: [Int], diag2: [Int]) -> Int {
+func solve(row: Int, n: Int, var cols: [Int], var diag1: [Int], var diag2: [Int]) -> Int {
     if row == n {
         return 1
     }

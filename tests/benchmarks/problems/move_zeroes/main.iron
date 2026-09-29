@@ -1,6 +1,6 @@
 import time
 
-func move_zeroes(arr: [Int], n: Int) -> Int {
+func move_zeroes(var arr: [Int], n: Int) -> Int {
     var write = 0
     for i in range(n) {
         if arr[i] != 0 {

@@ -1,1 +1,1 @@
-missing interface method
+object 'Int' implements 'Cmp' but is missing method 'cmp'

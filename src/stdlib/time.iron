@@ -15,8 +15,11 @@ object Timer {
 
 patch object Timer {
     readonly func done() -> Bool {}
-    readonly func update(dt: Float) {}
-    readonly func reset() {}
+    -- update and reset advance / rewind the timer in place, so they need a
+    -- `var` binding (they were declared readonly, which let a `val timer`
+    -- be mutated and made the unused-var lint suggest `val`).
+    func update(dt: Float) {}
+    func reset() {}
 }
 
 

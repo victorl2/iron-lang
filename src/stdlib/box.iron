@@ -6,7 +6,7 @@
 -- (Phase 25 Plan 25-02 compiler-builtin dispatch, mirroring Ptr.cast/Ptr.offset).
 -- Box[T] is nocopy (Phase 24 substrate): copying a Box[T] binding is a compile
 -- error (IRON_ERR_COPY_OF_NOCOPY_TYPE = E0286).
--- Box.unwrap() returns *unchecked T (bare C T*, 8B, no generation tracking).
+-- Box.unwrap() returns *var unchecked T (bare C T*, 8B, no generation tracking).
 -- Pre-free deref of the returned pointer is UNDEFINED BEHAVIOR (DROP-07 reference;
 -- see docs/dev/UNCHECKED-LAYOUT.md §4 for the UB contract).
 -- PHASE-26 HOOK: rc Box[T] interaction TBD — rc + nocopy may be forbidden.
@@ -63,7 +63,7 @@ func Box.new[T](value: T) -> Box[T] {}
 -- Calling unwrap() on a null Box panics deterministically.
 func Box.null[T]() -> Box[T] {}
 
--- Box.unwrap() -> *unchecked T   (receiver-form: boxed.unwrap())
+-- Box.unwrap() -> *var unchecked T   (receiver-form: boxed.unwrap())
 -- Returns a bare C T* (8B, no generation tracking, zero runtime check on deref).
 -- Box[T] remains alive and will drop at scope exit unless freed via Box.free().
 -- DO NOT use the returned *unchecked T after the Box is dropped or freed (UB).
@@ -73,7 +73,7 @@ func Box.null[T]() -> Box[T] {}
 -- binds the receiver implicitly through the `boxed.m()` call site + the by-name
 -- dispatch / emit_ensure_box synthesis. The compiler intercepts the method by
 -- name (unwrap/free/is_null) on Box[T] values, so no surface self is needed.
-func Box.unwrap[T]() -> *unchecked T {}
+func Box.unwrap[T]() -> *var unchecked T {}
 
 -- Box.free()   (receiver-form: boxed.free(), or associated Box.free(b))
 -- Explicitly releases the heap allocation. Faster than relying on the implicit

@@ -1,0 +1,13 @@
+-- @expected-error: E0206
+-- A generic argument must satisfy the type parameter's constraint.
+interface Printable {
+    readonly func describe() -> String
+}
+
+func show[T: Printable](x: T) {
+    println(x.describe())
+}
+
+func main() {
+    show(42)
+}

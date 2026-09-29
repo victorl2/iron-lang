@@ -16,7 +16,7 @@ from lsprotocol import types
 @pytest.mark.asyncio
 async def test_prepare_on_object(client, tmp_path):
     src = (
-        "object Circle implements Shape { val r: Int }\n"
+        "object Circle impl Shape { val r: Int }\n"
         "interface Shape { func area() -> Int }\n"
     )
     fp = tmp_path / "th_obj.iron"

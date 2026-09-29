@@ -1,0 +1,45 @@
+-- Regression: a Mutex or Channel captured by a spawn body or a parallel-for
+-- body was destroyed when the task finished.
+--
+-- A lifted task body declares each captured variable as a placeholder
+-- aliased to the closure environment, and lowering registered a scope-exit
+-- drop for it like any owned binding: the task destroyed the spawner's
+-- Mutex / Channel (segfault) or left it unusable (the channel hang). The
+-- enclosing function owns captured values; lifted bodies no longer drop
+-- them.
+func main() {
+    val m = Mutex.new(0)
+    val h = spawn("writer") {
+        val g = m.lock()
+        g.set(41)
+        return 0
+    }
+    val r = await h
+    val g = m.lock()
+    val v: Int = g.get()
+    println("spawn wrote {v} (task returned {r})")
+
+    val ch: Channel[Int] = Channel.new(4)
+    val p = spawn("producer") {
+        for i in range(10) {
+            ch.send(i)
+        }
+        return 0
+    }
+    var sum = 0
+    for i in range(10) {
+        val x: Int = ch.recv()
+        sum += x
+    }
+    val z = await p
+    println("channel sum {sum} ({z})")
+
+    val total = Mutex.new(0)
+    for i in range(8) parallel {
+        val t = total.lock()
+        t.set(t.get() + i)
+    }
+    val tg = total.lock()
+    val tv: Int = tg.get()
+    println("parallel total {tv}")
+}

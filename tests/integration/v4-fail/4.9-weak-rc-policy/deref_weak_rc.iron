@@ -2,9 +2,12 @@
 -- @req: POL-08
 -- @expected-pass-after: phase-27
 -- E0299 IRON_ERR_WEAK_RC_DEREF — use .upgrade() to obtain a strong reference
-object Point { val x: Int; val y: Int }
+object Point {
+    val x: Int
+    val y: Int
+}
 
-func main(): Int {
+func main() -> Int {
     val p = rc Point(1, 2)
     val w = p.downgrade()
     val x = w.x   -- E0299: cannot dereference weak rc T directly

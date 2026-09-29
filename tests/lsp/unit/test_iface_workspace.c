@@ -65,8 +65,8 @@ static void test_basic_aggregation(void) {
      * fallback covers this without a full workspace fixture. */
     const char *src =
         "interface Shape { func area() -> Int }\n"
-        "object Circle implements Shape { val r: Int }\n"
-        "object Square implements Shape { val s: Int }\n"
+        "object Circle impl Shape { val r: Int }\n"
+        "object Square impl Shape { val s: Int }\n"
         "func Circle.area() -> Int { return 0 }\n"
         "func Square.area() -> Int { return 0 }\n";
     fx_t f;
@@ -151,8 +151,8 @@ static void test_double_populate_no_duplicates(void) {
 static void test_implementation_on_iface_name(void) {
     const char *src =
         "interface Shape { func area() -> Int }\n"
-        "object Circle implements Shape { val r: Int }\n"
-        "object Square implements Shape { val s: Int }\n"
+        "object Circle impl Shape { val r: Int }\n"
+        "object Square impl Shape { val s: Int }\n"
         "func Circle.area() -> Int { return 0 }\n"
         "func Square.area() -> Int { return 0 }\n";
     fx_t f;
@@ -186,7 +186,7 @@ static void test_implementation_on_iface_name(void) {
 static void test_implementation_on_object_returns_empty(void) {
     const char *src =
         "interface Shape { func area() -> Int }\n"
-        "object Circle implements Shape { val r: Int }\n";
+        "object Circle impl Shape { val r: Int }\n";
     fx_t f;
     fx_init(&f, "/tmp/t_iface_c.iron", src);
 
@@ -211,8 +211,8 @@ static void test_implementation_on_object_returns_empty(void) {
 static void test_implementation_on_method_sig(void) {
     const char *src =
         "interface Shape { func area() -> Int }\n"
-        "object Circle implements Shape { val r: Int }\n"
-        "object Square implements Shape { val s: Int }\n"
+        "object Circle impl Shape { val r: Int }\n"
+        "object Square impl Shape { val s: Int }\n"
         "func Circle.area() -> Int { return 0 }\n"
         "func Square.area() -> Int { return 0 }\n";
     fx_t f;

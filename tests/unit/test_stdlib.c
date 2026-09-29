@@ -74,6 +74,21 @@ void test_rng_create_next(void) {
     TEST_ASSERT_NOT_EQUAL_UINT64(a, b);
 }
 
+/* Small seeds must not give near-zero first outputs or proportional
+ * sequences (the seed used to be the raw xorshift state). */
+void test_rng_small_seeds_scrambled(void) {
+    double firsts[4];
+    for (int s = 0; s < 4; s++) {
+        Iron_RNG rng = Iron_rng_create((uint64_t)s);
+        firsts[s] = Iron_rng_next_float(&rng);
+        TEST_ASSERT_TRUE(firsts[s] >= 0.0 && firsts[s] < 1.0);
+        TEST_ASSERT_TRUE(firsts[s] > 0.001);
+    }
+    /* Seeds 1, 2, 3 used to give first values k * 5.867e-11. */
+    TEST_ASSERT_FALSE(firsts[2] > firsts[1] * 1.9 && firsts[2] < firsts[1] * 2.1 &&
+                      firsts[3] > firsts[1] * 2.9 && firsts[3] < firsts[1] * 3.1);
+}
+
 void test_rng_next_int_range(void) {
     Iron_RNG rng = Iron_rng_create(12345);
     for (int i = 0; i < 100; i++) {
@@ -259,6 +274,7 @@ int main(void) {
     RUN_TEST(test_math_constants);
     RUN_TEST(test_rng_create_next);
     RUN_TEST(test_rng_next_int_range);
+    RUN_TEST(test_rng_small_seeds_scrambled);
     RUN_TEST(test_math_random);
 
     /* IO */

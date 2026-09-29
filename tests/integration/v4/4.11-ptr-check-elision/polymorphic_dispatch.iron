@@ -30,13 +30,13 @@
 -- implementation that does not free, so the value prints correctly.
 
 interface Greeter {
-    func greet() -> Int
+    readonly func greet() -> Int
 }
 
 object Friendly impl Greeter {
     val level: Int
 
-    func greet() -> Int {
+    readonly func greet() -> Int {
         return self.level
     }
 }

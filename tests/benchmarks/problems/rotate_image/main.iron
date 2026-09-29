@@ -4,7 +4,7 @@ import time
 -- Step 1: Transpose (swap [i][j] with [j][i])
 -- Step 2: Reverse each row
 
-func rotate_image(mat: [Int], n: Int) {
+func rotate_image(var mat: [Int], n: Int) {
     -- Transpose
     var i = 0
     while i < n {

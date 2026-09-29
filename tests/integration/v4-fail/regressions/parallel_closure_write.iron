@@ -1,0 +1,11 @@
+-- @expected-error: E0208
+-- Calling a closure that assigns a captured variable from a parallel for
+-- body is a data race (it used to compile and lose updates).
+func main() {
+    var total = 0
+    val bump = func() { total += 1 }
+    for i in range(100) parallel {
+        bump()
+    }
+    println("{total}")
+}

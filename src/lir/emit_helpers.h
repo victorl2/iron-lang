@@ -68,6 +68,8 @@ typedef struct {
      * Parallel to emitted_bvecs; same arrput/arrlen/strcmp shape. */
     char        **emitted_drops;
     char        **emitted_copies;
+    char        **emitted_copy_fixups;  /* <T>_copied glue already emitted */
+    char        **emitted_rc_lists;     /* Iron_List_rc_<T> types already emitted */
     /* Phase 26 POL-06 (Plan 26-03): per-type rc-drop trampoline synthesis dedup.
      * Parallel to emitted_drops; same arrput/arrlen/strcmp shape. The trampoline
      * <TypeName>_rc_drop(void *self_void) is a type-erased wrapper around the
@@ -139,6 +141,11 @@ typedef struct {
     IronLIR_InlineEligEntry *inline_eligible;  /* per-function inline eligibility map */
     IronLIR_ValueBlockEntry *value_block;      /* per-function value->block map */
     IronLIR_BlockId          current_block_id; /* set before each emit_instr call */
+    /* When set, emit_expr_to_buf reconstructs this one value's producing
+     * instruction even if it was materialized into a temporary. Used to take
+     * the address of an indexed element for a pointer receiver: `&_vN` of
+     * the temporary would hand the callee a copy. INVALID (0) when unused. */
+    IronLIR_ValueId          force_inline_vid;
 
     /* Backward-referenced values hoisted to function entry (type _vN;).
      * At the definition site, emit assignment without type prefix. */
@@ -205,6 +212,10 @@ typedef struct {
     bool warn_fusion_break;  /* --warn-fusion-break: emit diagnostic at chain break points */
     FusionChain *fusion_chains;        /* stb_ds array of detected chains */
     struct { IronLIR_ValueId key; int value; } *fusion_chain_member;
+    /* STOREs and $drop glue calls of fused intermediates: the intermediate
+     * list is never materialised, so its binding's store and drop vanish.
+     * Keyed by instruction pointer: value-less instructions share an id. */
+    struct { const void *key; bool value; } *fusion_dead;  /* keyed by instruction */
         /* maps call_vid -> chain_index; positive = chain idx */
     struct { IronLIR_ValueId key; int value; } *fusion_chain_position;
         /* maps call_vid -> position within its chain (0 = first, N-1 = terminal) */
@@ -262,6 +273,20 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
  * (Plan 86 layout), NOT stored on Iron_ObjectDecl.
  * Used by emit_c.c and emit_helpers.c to gate drop synthesis. */
 bool od_has_drop_lir(EmitCtx *ctx, struct Iron_ObjectDecl *od);
+
+/* Transitive lifecycle needs: destroying / copying a value of this object
+ * type has work to do (user body, rc fields, or object fields needing it). */
+bool od_needs_drop(EmitCtx *ctx, struct Iron_ObjectDecl *od);
+bool od_needs_copy_fixup(EmitCtx *ctx, struct Iron_ObjectDecl *od);
+
+/* Synthesize `static void <T>_copied(<T> *self)`, the fixup run on a fresh
+ * bitwise copy (retain rc fields, fix up object fields, user copy body). */
+void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
+                            struct Iron_ObjectDecl *od);
+
+/* Ensure the list type for `[rc T]` / `[weak rc T]` elements; returns its
+ * C name. */
+const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem);
 
 /* Phase 26 POL-06 (Plan 26-03): synthesize <TypeName>_rc_drop trampoline.
  *
@@ -349,6 +374,8 @@ void emit_val(Iron_StrBuf *sb, IronLIR_ValueId id);
 
 bool emit_type_is_pointer(const Iron_Type *t);
 bool emit_val_is_heap_ptr(IronLIR_Func *fn, IronLIR_ValueId vid);
+bool emit_slot_is_heap_handle(IronLIR_Func *fn, IronLIR_ValueId slot,
+                              Iron_Type *load_type);
 bool emit_val_is_heap_fat_ptr(IronLIR_Func *fn, IronLIR_ValueId vid);
 /* Phase 21: Returns true when the value is ANY Iron_FatPtr at runtime:
  * IRON_LIR_HEAP_ALLOC (heap binding) or IRON_LIR_ADDR_OF (pointer to heap/stack).

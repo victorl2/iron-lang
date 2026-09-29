@@ -16,8 +16,8 @@ object InsertResult {
   var keys: [Int]
   var vals: [Int]
     init(keys: [Int], vals: [Int]) {
-        self.keys = keys
-        self.vals = vals
+        self.keys = keys.copy()
+        self.vals = vals.copy()
     }
 }
 
@@ -26,8 +26,8 @@ func hm_insert(keys: [Int], vals: [Int], key: Int, val_in: Int) -> InsertResult 
   val cap = 16
   val empty_key = -9999
   val del_key   = -9998
-  var ks = keys
-  var vs = vals
+  var ks = keys.copy()
+  var vs = vals.copy()
   val h = hash_key(key, cap)
   var i = 0
   while i < cap {
@@ -67,7 +67,7 @@ func hm_get(keys: [Int], vals: [Int], key: Int) -> Int {
 func hm_delete(keys: [Int], key: Int) -> [Int] {
   val cap       = 16
   val empty_key = -9999
-  var ks = keys
+  var ks = keys.copy()
   val h = hash_key(key, cap)
   var i = 0
   while i < cap {

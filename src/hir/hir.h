@@ -570,6 +570,10 @@ struct IronHIR_Func {
     IronHIR_Block     *body;
     bool               is_extern;
     const char        *extern_c_name;
+    /* An empty-bodied function or method declared in a stdlib wrapper file:
+     * the runtime provides its C body, so lowering emits no body for it.
+     * Empty-bodied user functions are ordinary functions. */
+    bool               is_runtime_stub;
     Iron_CaptureEntry *captures;       /* from capture analysis; NULL for non-capturing */
     int                capture_count;
     /* Phase 80 MUT-07: true when this func was lowered from a receiver-form
@@ -578,6 +582,9 @@ struct IronHIR_Func {
      * receiver by pointer so field mutations persist to the caller's binding.
      * Default false (iron_hir_func_create memsets the struct). */
     bool               is_mut_receiver_method;
+    /* True for an object's `init`: its fields start uninitialized, so field
+     * writes there never release / drop a previous value. */
+    bool               is_init;
     /* Phase 20 PTR-10 (Plan 20-02b): mirrors Iron_FuncDecl.takes_local_addr.
      * Propagated by hir_lower from the AST decl; further propagated by
      * hir_to_lir to IronLIR_Func.takes_local_addr so emit_c.c can inject

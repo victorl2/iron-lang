@@ -1,0 +1,92 @@
+-- Regression: user generics (functions, objects, methods).
+--
+-- ident[Int](7) emitted invalid C, ident(7) failed to infer T, a generic
+-- object could not use T inside its own body, generic methods did not
+-- parse, and returning T from -> T? was rejected. Generics are now
+-- monomorphised: each set of type arguments gets its own instance.
+func ident[T](x: T) -> T {
+  return x
+}
+
+func twice[T](x: T) -> [T] {
+  return [ident(x), ident[T](x)]
+}
+
+func find[T](items: [T], check: func(T) -> Bool) -> T? {
+  for item in items {
+    if check(item) {
+      return item
+    }
+  }
+  return null
+}
+
+object Cell[T] {
+  var item: T
+  init(item: T) {
+    self.item = item
+  }
+  readonly func get() -> T {
+    return self.item
+  }
+  func set(v: T) {
+    self.item = v
+  }
+  readonly func copy() -> Cell[T] {
+    return Cell[T](self.item)
+  }
+}
+
+object Stack[T] {
+  var items: [T]
+  init() {
+    self.items = []
+  }
+  func push(v: T) {
+    self.items.push(v)
+  }
+  readonly func size() -> Int {
+    return self.items.len()
+  }
+}
+
+object Wrapper {
+  val n: Int
+  readonly func echo[T](x: T) -> T {
+    return x
+  }
+}
+
+func pick[T](x: T, ok: Bool) -> T? {
+  if ok {
+    return x
+  }
+  return null
+}
+
+func main() {
+  println("{ident(1)} {ident("a")} {ident[Float](2.5)}")
+  val t = twice(3)
+  println("{t.len()} {t[1]}")
+  val f = find([1, 5, 9], func(x: Int) -> Bool { return x > 4 })
+  if f != null {
+    println("found {f}")
+  }
+  var c = Cell[Int](5)
+  c.set(6)
+  val c2 = c.copy()
+  println("cell {c.get()} {c2.get()}")
+  val s = Cell[String]("x")
+  println("str {s.get()}")
+  var st = Stack[String]()
+  st.push("a")
+  st.push("b")
+  println("stack {st.size()}")
+  val w = Wrapper(1)
+  println("echo {w.echo[Int](3)} {w.echo("a")}")
+  val r = pick[Int](3, true)
+  if r != null {
+    println("picked {r}")
+  }
+  println("{pick("s", false) == null}")
+}

@@ -17,6 +17,10 @@ typedef struct {
     const char      *name;        /* original Iron variable name */
     struct Iron_Type *type;       /* resolved type from symbol table */
     bool             is_mutable;  /* true = var capture (by pointer), false = val (by value) */
+    /* Set by hir_to_lir: the captured binding holds a `heap` value, so the
+     * env stores its Iron_FatPtr handle (or a pointer to it for a var
+     * capture) and reads go through the handle. */
+    bool             is_heap_handle;
 } Iron_CaptureEntry;
 
 /* ── Node kinds ──────────────────────────────────────────────────────────── */
@@ -404,6 +408,10 @@ typedef struct {
     Iron_NodeKind kind;  /* IRON_NODE_PARAM */
     const char   *name;
     Iron_Node    *type_ann;  /* NULL if inferred */
+    /* Set by the type checker when it resolves type_ann for a function or
+     * method signature. Lowering uses it instead of re-resolving the
+     * annotation with its own, less complete resolver. */
+    struct Iron_Type *resolved_type;
     bool          is_var;
     /* Phase 79 MUT-01: true when this param is a receiver-binding declared
      * with the `mut` prefix (`func (mut t: Timer) update(...)`). Always
@@ -434,6 +442,10 @@ typedef struct {
     bool          is_pub;
     /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
     const char   *doc_comment;
+    /* Set by the type checker: the field's resolved type. Struct emission
+     * uses it for annotations the name alone cannot spell (Box[T],
+     * weak rc T). NULL until type checking. */
+    struct Iron_Type *resolved_type;
     /* Phase 24 DROP-06 (Plan 24-02): resolved Iron_Type* for this field,
      * cached by compute_has_user_copy_transitive / check_method_decl during
      * the analyzer pass so codegen can read field types without TypeCtx.
@@ -505,6 +517,12 @@ typedef struct {
      * this to IRON_TYPE_WEAK_RC(inner). Default-zero via arena-zalloc. */
     bool          is_weak_rc;
     Iron_Node    *weak_rc_inner;
+    /* `rc T`: is_rc=true wraps rc_inner; lowers to IRON_TYPE_RC(inner). */
+    bool          is_rc;
+    Iron_Node    *rc_inner;
+    /* `[E]` whose element is not a plain type name (`[rc T]`, `[[Int]]`,
+     * `[*T]`): the element's own annotation. `name` is then NULL. */
+    Iron_Node    *array_elem_ann;
 } Iron_TypeAnnotation;
 
 #define IRON_LAYOUT_HINT_NONE 0
@@ -529,6 +547,13 @@ typedef struct {
     const char        *variant_name;   /* "Circle" */
     Iron_Node        **args;           /* argument expressions; NULL for plain variants */
     int                arg_count;
+    /* Unused by enum constructs; keeps the node large enough for the
+     * resolver's in-place rewrite into an Iron_MethodCallExpr (which grew
+     * the fields below and the two flags) when `Type.method(args)` was
+     * parsed as an enum construct. */
+    bool               reserved_flags[2];
+    Iron_Node        **reserved_generic_args;
+    int                reserved_generic_arg_count;
 } Iron_EnumConstruct;
 
 /* ── Statements ──────────────────────────────────────────────────────────── */
@@ -783,6 +808,17 @@ typedef struct {
      * this bit to emit `iron_check_pointer_gen` + load before dispatching the
      * method against the pointee type. Default false (arena zero-init). */
     bool               is_auto_deref;
+    /* Set by typecheck.c for `x.to_string()` on a numeric or Bool receiver
+     * with no declared to_string method: lowered exactly like "{x}". */
+    bool               is_builtin_to_string;
+    /* Set by typecheck.c for `x.copy()` on an object that declares no
+     * method named copy: an explicit duplicate (copy glue runs, list
+     * fields are cloned, the user copy block runs). */
+    bool               is_builtin_copy;
+    /* `x.m[A, B](args)`: explicit type arguments of a generic method
+     * (type annotations); NULL / 0 otherwise. */
+    Iron_Node        **generic_args;
+    int                generic_arg_count;
 } Iron_MethodCallExpr;
 
 typedef struct {
@@ -930,6 +966,10 @@ typedef struct {
 typedef struct {
     Iron_Span     span;
     Iron_NodeKind kind;  /* IRON_NODE_ERROR */
+    /* Always NULL. An error node stands in for an expression, and passes
+     * read `((Iron_ExprNode *)n)->resolved_type` from expressions; without
+     * this slot that read ran past the node. */
+    struct Iron_Type *resolved_type;
 } Iron_ErrorNode;
 
 /* ── Visitor pattern ─────────────────────────────────────────────────────── */
