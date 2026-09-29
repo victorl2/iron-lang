@@ -40,3 +40,9 @@ bool iron_stdlib_origin_is_stub_file(const char *filename) {
         if (strcmp(g_paths[i], filename) == 0) return true;
     return false;
 }
+
+int iron_stdlib_origin_classify(const char *filename) {
+    if (g_unknown || g_count == 0) return -1;
+    if (!filename) return 0;
+    return iron_stdlib_origin_is_stub_file(filename) ? 1 : 0;
+}

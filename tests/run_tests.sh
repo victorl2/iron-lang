@@ -721,6 +721,26 @@ if [ "${CATEGORY}" = "integration" ] && [ -x "${TEST_DIR}/run_cwd_clean_smoke.sh
     fi
 fi
 
+# project_diag_smoke: multi-file packages report errors at the real file and
+# line, and non-pub declarations are private to their file.
+if [ "${CATEGORY}" = "integration" ] && [ -x "${TEST_DIR}/project_diag_smoke.sh" ]; then
+    TOTAL=$((TOTAL + 1))
+    echo -n "[RUN ] project_diag_smoke ... "
+    smoke_log="${WORK_DIR}/project_diag_smoke.log"
+    set +e
+    "${TEST_DIR}/project_diag_smoke.sh" "${IRON_BIN}" > "${smoke_log}" 2>&1
+    smoke_rc=$?
+    set -e
+    if [ "${smoke_rc}" -eq 0 ] && grep -q 'project_diag_smoke OK' "${smoke_log}"; then
+        echo "[PASS]"
+        PASS=$((PASS + 1))
+    else
+        echo "[FAIL] (exit ${smoke_rc})"
+        cat "${smoke_log}" >&2
+        FAIL=$((FAIL + 1))
+    fi
+fi
+
 # cli_args_smoke: unknown flags error in any position, ironc help omits
 # init, run -o keeps the binary, iron init <name> scaffolds <name>/.
 if [ "${CATEGORY}" = "integration" ] && [ -x "${TEST_DIR}/cli_args_smoke.sh" ]; then

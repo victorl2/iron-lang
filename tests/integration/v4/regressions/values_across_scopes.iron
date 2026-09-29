@@ -1,8 +1,8 @@
 -- Regression: fixed arrays and objects moved across scopes.
 --
 -- 1. A [T; N] literal kept the dynamic type [T], so returning a fixed-array
---    local was an internal return-type error (E0305) and assigning one to
---    an outer binding inside an if was an internal PHI error (E0306), both
+--    local was an internal return-type error (then E0305, now E0905) and assigning one to
+--    an outer binding inside an if was an internal PHI error (then E0306, now E0906), both
 --    after `iron check` passed. The literal now takes the declared type.
 -- 2. A construction whose value is used by a block emitted earlier is
 --    hoisted to function entry, but the construct still emitted a full

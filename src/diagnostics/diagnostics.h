@@ -489,15 +489,18 @@ void iron_diaglist_free(Iron_DiagList *list);
  * (Phase 84 MUTTIER). */
 #define IRON_ERR_CANCELLED            290
 
-/* IR verifier errors */
-#define IRON_ERR_LIR_MISSING_TERMINATOR     300
-#define IRON_ERR_LIR_INVALID_BRANCH_TARGET  301
-#define IRON_ERR_LIR_USE_BEFORE_DEF         302
-#define IRON_ERR_LIR_INSTR_AFTER_TERMINATOR 303
-#define IRON_ERR_LIR_NO_ENTRY_BLOCK         304
-#define IRON_ERR_LIR_RETURN_TYPE_MISMATCH   305
-#define IRON_ERR_LIR_PHI_TYPE_MISMATCH      306
-#define IRON_ERR_LIR_CALL_TYPE_MISMATCH     307
+/* IR verifier errors.  These report a compiler bug (code the analyzer
+ * accepted but lowering got wrong), so they live in their own E09xx block.
+ * RENUMBERED 300..307 -> 900..907: 300 and 301 were also assigned to
+ * IRON_ERR_WEAK_RC_DOWNGRADE_NOT_RC and IRON_ERR_RC_IN_ARENA. */
+#define IRON_ERR_LIR_MISSING_TERMINATOR     900
+#define IRON_ERR_LIR_INVALID_BRANCH_TARGET  901
+#define IRON_ERR_LIR_USE_BEFORE_DEF         902
+#define IRON_ERR_LIR_INSTR_AFTER_TERMINATOR 903
+#define IRON_ERR_LIR_NO_ENTRY_BLOCK         904
+#define IRON_ERR_LIR_RETURN_TYPE_MISMATCH   905
+#define IRON_ERR_LIR_PHI_TYPE_MISMATCH      906
+#define IRON_ERR_LIR_CALL_TYPE_MISMATCH     907
 
 /* Type validation errors (309+ range) */
 #define IRON_ERR_DUPLICATE_MATCH_ARM    309

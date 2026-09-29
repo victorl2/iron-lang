@@ -8,6 +8,7 @@
  * full control over scope push/pop ordering.
  */
 
+#include "hir/stdlib_origin.h"
 #include "analyzer/resolve.h"
 #include "analyzer/typo_candidate.h"
 #include "parser/ast.h"
@@ -169,6 +170,12 @@ static void emit_undefined(ResolveCtx *ctx, const char *name, Iron_Span span) {
  * inactive (user_source_start_line <= 0) every decl tests false so the gate
  * still works on synthetic cross-module test inputs (e.g. unit tests). */
 static bool is_stdlib_decl(ResolveCtx *ctx, Iron_Symbol *sym) {
+    /* With `-- @file: ... @line:` markers every file's lines restart at 1,
+     * so a line threshold would call a user declaration near the top of a
+     * file stdlib. Decide by the declaring file whenever the driver
+     * registered its stdlib files. */
+    int origin = iron_stdlib_origin_classify(sym->span.filename);
+    if (origin >= 0) return origin == 1;
     if (ctx->user_source_start_line <= 0) return false;
     return sym->span.line > 0 &&
            sym->span.line < (uint32_t)ctx->user_source_start_line;

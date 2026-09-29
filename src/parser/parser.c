@@ -4392,6 +4392,19 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             continue;
         }
 
+        /* `private` is not a member modifier: members are private by
+         * default. It used to fall into the field path and report "must
+         * specify val or var". Report it and parse the member without it. */
+        if (iron_check(p, IRON_TOK_PRIVATE)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "`private` is not a member modifier",
+                           "members are private by default; use `pub` to export one");
+            iron_advance(p);
+            continue;
+        }
+
         /* Phase 3 NAV-14: capture the doc-comment run that sits between
          * the previous field and this one (or between the object header
          * and the first field). Must be done BEFORE consuming val/var. */

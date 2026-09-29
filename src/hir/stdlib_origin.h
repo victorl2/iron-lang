@@ -30,4 +30,10 @@ void iron_stdlib_origin_mark_unknown(void);
  * for methods) and by the missing-return check. */
 bool iron_stdlib_origin_is_stub_file(const char *filename);
 
+/* Whether `filename` is a prepended stdlib file: 1 yes, 0 no, -1 unknown
+ * (nothing registered, or a stdlib file was prepended without a marker so
+ * its declarations carry the user file's name). The resolver's visibility
+ * carve-out falls back to its line threshold on -1. */
+int iron_stdlib_origin_classify(const char *filename);
+
 #endif

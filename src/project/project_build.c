@@ -286,6 +286,16 @@ static int append_file(FILE *out, const char *path) {
  * Writes the chosen path into source_out. Returns 0 on success, 1 on error
  * (already reported).
  */
+/* `-- @file: "<rel>" @line: 1` ahead of each file in combined.iron, so the
+ * lexer tags that file's tokens with its own path and 1-based lines:
+ * diagnostics point at src/lib.iron:2 instead of target/combined.iron:40,
+ * and cross-file visibility sees distinct files. A path the marker cannot
+ * quote is left unmarked. */
+static void write_file_marker(FILE *combined, const char *rel_path) {
+    if (strpbrk(rel_path, "\"\n\r")) return;
+    fprintf(combined, "-- @file: \"%s\" @line: 1\n", rel_path);
+}
+
 static int assemble_sources(const IronProject *proj, const char *proj_dir,
                             const char *entry_path, bool colors,
                             char *source_out, size_t source_out_size) {
@@ -332,6 +342,7 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
     int ret = 0;
     for (int i = 0; i < vendor_files.count && ret == 0; i++) {
         fprintf(combined, "-- vendor: %s\n", vendor_files.items[i] + proj_prefix);
+        write_file_marker(combined, vendor_files.items[i] + proj_prefix);
         if (append_file(combined, vendor_files.items[i]) != 0) {
             char msg[4200];
             snprintf(msg, sizeof(msg), "cannot read vendored file %s",
@@ -343,6 +354,7 @@ static int assemble_sources(const IronProject *proj, const char *proj_dir,
     if (ret == 0) {
         fprintf(combined, "-- project: %s\n", proj->name);
         for (int i = 0; i < project_files.count; i++) {
+            write_file_marker(combined, project_files.items[i] + proj_prefix);
             append_file(combined, project_files.items[i]);
         }
     }

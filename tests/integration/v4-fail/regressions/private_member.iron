@@ -1,0 +1,13 @@
+-- @expected-error: E0101
+-- `private` is not a member modifier (members are private by default). It
+-- used to be reported as "must specify val or var" (E0176).
+object A {
+    val x: Int
+    private func f() -> Int {
+        return self.x
+    }
+}
+
+func main() {
+    println("a")
+}
