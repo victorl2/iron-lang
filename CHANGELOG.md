@@ -3,6 +3,30 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v4.3.0-alpha: Correctness and Interfaces (2026-09-29)
+
+- **Breaking: lists are never copied implicitly.** A list has one owner;
+  `val b = a` on a list place is an error (E0328). Write `a.copy()` or
+  `a.take()`. List mutators and index writes need `var`.
+- **Breaking:** `extends` and `super` are removed (`impl` is the only
+  conformance keyword); strings are character based (`byte_len` for
+  bytes); interface lists keep insertion order (grouping needs
+  `[I, unordered]`, which cannot be indexed); named arguments are
+  rejected; `pub` is enforced across files.
+- **Interface type tests and type match:** `x is Circle`, narrowing
+  through `not` / `and` / `or` / `elif` and early returns, writes through
+  a narrowed `var`, and `match shape { Circle(c) -> ... }` with
+  exhaustiveness checking, including nullable subjects.
+- **Owned interface values and lists:** interface values are dropped and
+  deep copied; `[I]` lists support `copy`, `take`, `xs[i] = v`, `set`,
+  `insert`, `remove`, `clear`, `reverse`, `filter` and `map`. Lists of
+  lists copy deeply.
+- **Correctness:** value lifecycle (each copy dropped once, copy hooks,
+  moves on return), many memory fixes found with ASan and `leaks`, one
+  parse error per statement, `elif` bodies type checked, and an
+  optimizer parity oracle that runs every fixture with and without
+  optimization.
+
 ## v4.2.0-alpha: LLM Docs and Cleanup (2026-09-28)
 
 - **llms.txt for coding assistants:** ironlang.dev now serves
