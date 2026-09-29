@@ -1,0 +1,13 @@
+-- @expected-error: E0101
+-- `implements` is not part of Iron: one clear error instead of a cascade.
+interface D {
+  readonly func describe() -> String
+}
+object Pt implements D {
+  val x: Int
+  readonly func describe() -> String { return "Pt" }
+}
+func main() {
+  val d: D = Pt(1)
+  println(d.describe())
+}

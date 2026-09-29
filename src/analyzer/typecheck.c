@@ -4107,6 +4107,15 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
             for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
 
+            /* The receiver already failed to type-check: propagate the
+             * error instead of typing the call Void (which cascaded into
+             * spurious mismatches). */
+            if (mc->object && mc->object->kind == IRON_NODE_ERROR) {
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                mc->resolved_type = result;
+                break;
+            }
+
             /* A method call on an un-narrowed T? is rejected like a field
              * access (it used to call an undeclared C function). */
             if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_NULLABLE) {

@@ -83,6 +83,7 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
 /* Forward decls for helpers used before their definitions. */
 static Iron_Span   iron_token_span(Iron_Parser *p, Iron_Token *t);
 static Iron_Token *iron_current(Iron_Parser *p);
+static Iron_Span iron_token_span(Iron_Parser *p, Iron_Token *t);
 
 /* HARD-08: check-and-emit helper. Returns true if the parser has reached
  * IRON_PARSER_MAX_DEPTH — the caller must then return an ErrorNode (or the
@@ -240,6 +241,20 @@ static Iron_Token *iron_current(Iron_Parser *p) {
     if (p->pos >= p->token_count) return &p->tokens[p->token_count - 1];
     return &p->tokens[p->pos];
 }
+
+/* `implements` (an identifier, not a keyword) where a conformance clause
+ * may start: report it and let the caller parse the list as `impl`. */
+static bool iron_check_implements_word(Iron_Parser *p) {
+    Iron_Token *t = iron_current(p);
+    if (!t || t->kind != IRON_TOK_IDENTIFIER || !t->value ||
+        strcmp(t->value, "implements") != 0) return false;
+    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                   IRON_ERR_UNEXPECTED_TOKEN, iron_token_span(p, t),
+                   "use `impl` instead of `implements`",
+                   "declare conformance with `impl`: object T impl I { ... }");
+    return true;
+}
+
 
 static Iron_TokenKind iron_peek(Iron_Parser *p) {
     return iron_current(p)->kind;
@@ -498,6 +513,7 @@ static Iron_Node *iron_make_error(Iron_Parser *p) {
     }
     n->span = iron_token_span(p, iron_current(p));
     n->kind = IRON_NODE_ERROR;
+    n->resolved_type = NULL;
     return (Iron_Node *)n;
 }
 
@@ -1924,16 +1940,14 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             return (Iron_Node *)id;
         }
         case IRON_TOK_SUPER: {
+            /* `super` was removed along with inheritance. */
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN, iron_token_span(p, t),
+                           "`super` is not supported: Iron has no inheritance",
+                           "call the other type's method through a field that "
+                           "holds it (composition)");
             iron_advance(p);
-            Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
-            if (!id) { /* HARD-09 REPLACE (iron_parse_primary Ident super) */ p->in_error_recovery = true; return iron_make_error(p); }
-            id->kind            = IRON_NODE_IDENT;
-            id->span            = iron_token_span(p, t);
-            id->name            = "super";
-            id->resolved_sym    = NULL;
-            id->resolved_type   = NULL;
-            id->constraint_name = NULL;
-            return (Iron_Node *)id;
+            return iron_make_error(p);
         }
         /* -Wswitch-enum opt-out: primary-expression switch only handles the
          * token kinds that can begin an expression; every other Iron_TokenKind
@@ -3899,22 +3913,25 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
         generic_params = iron_parse_generic_params(p, &generic_count, p->arena);
     }
 
-    /* Optional: extends ParentName */
+    /* `extends` was removed: Iron has no inheritance. Report it once and
+     * skip the parent name so the rest of the declaration still parses. */
     const char *extends_name = NULL;
     if (iron_check(p, IRON_TOK_EXTENDS)) {
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN,
+                       iron_token_span(p, iron_current(p)),
+                       "`extends` is not supported: Iron has no inheritance",
+                       "use `impl` to conform to an interface, and composition "
+                       "(a field of the other type) to reuse state and behavior");
         iron_advance(p);
-        if (iron_check(p, IRON_TOK_IDENTIFIER)) {
-            Iron_Token *ext_tok = iron_advance(p);
-            extends_name = iron_arena_strdup(p->arena, ext_tok->value,
-                                              strlen(ext_tok->value));
-            if (!extends_name) { /* HARD-09 REPLACE (iron_parse_object_decl extends_name) */ extends_name = "?"; }
-        }
+        if (iron_check(p, IRON_TOK_IDENTIFIER)) iron_advance(p);
     }
 
-    /* Optional: impl I1, I2 */
+    /* Optional: impl I1, I2 (`implements` is reported and accepted for
+     * recovery). */
     const char **impl_names = NULL;
     int          impl_count = 0;
-    if (iron_check(p, IRON_TOK_IMPL)) {
+    if (iron_check_implements_word(p) || iron_check(p, IRON_TOK_IMPL)) {
         iron_advance(p);
         while (iron_check(p, IRON_TOK_IDENTIFIER)) {
             Iron_Token *it = iron_advance(p);
@@ -5090,15 +5107,13 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
         (void)iron_parse_generic_params(p, &generic_count, p->arena);
     }
 
-    /* Phase 87-02 PATCH-08: optional `implements I, J, K` clause.
-     * "implements" is a contextual keyword lexed as IRON_TOK_IDENTIFIER;
-     * we detect it by string comparison, matching the Phase 85 init-as-
-     * contextual-keyword precedent. Patches do NOT accept `extends`. */
+    /* Phase 87-02 PATCH-08: optional `impl I, J, K` clause, the same
+     * conformance keyword object declarations use. Patches do NOT accept
+     * `extends`. */
     const char **impl_names = NULL;
     int          impl_count = 0;
-    if (iron_check(p, IRON_TOK_IDENTIFIER) &&
-        strcmp(iron_current(p)->value, "implements") == 0) {
-        iron_advance(p);  /* consume 'implements' */
+    if (iron_check_implements_word(p) || iron_check(p, IRON_TOK_IMPL)) {
+        iron_advance(p);  /* consume 'impl' */
         iron_skip_newlines(p);
         while (iron_check(p, IRON_TOK_IDENTIFIER)) {
             Iron_Token *it = iron_advance(p);

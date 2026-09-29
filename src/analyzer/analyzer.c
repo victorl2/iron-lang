@@ -132,6 +132,40 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
  * cancel_flag is threaded into every pass; on observation each pass exits
  * early with partial annotations intact. Between-pass safepoint polls in
  * this dispatcher give O(1)-bounded cancel observation across passes. */
+
+static void merge_patch_conformance(Iron_Program *program) {
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *pd = program->decls[i];
+        if (!pd || pd->kind != IRON_NODE_OBJECT_DECL) continue;
+        Iron_ObjectDecl *patch = (Iron_ObjectDecl *)pd;
+        if (!patch->is_patch || patch->implements_count == 0 ||
+            !patch->target_type_name) continue;
+        Iron_ObjectDecl *target = NULL;
+        for (int j = 0; j < program->decl_count; j++) {
+            Iron_Node *td = program->decls[j];
+            if (!td || td->kind != IRON_NODE_OBJECT_DECL) continue;
+            Iron_ObjectDecl *od = (Iron_ObjectDecl *)td;
+            if (!od->is_patch && od->name &&
+                strcmp(od->name, patch->target_type_name) == 0) {
+                target = od;
+                break;
+            }
+        }
+        if (!target) continue;
+        for (int k = 0; k < patch->implements_count; k++) {
+            const char *nm = patch->implements_names[k];
+            bool have = false;
+            for (int t = 0; t < target->implements_count; t++)
+                if (strcmp(target->implements_names[t], nm) == 0) { have = true; break; }
+            if (!have) {
+                arrput(target->implements_names, nm);
+                target->implements_count++;
+            }
+        }
+        patch->implements_count = 0;
+    }
+}
+
 Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
                                            IronAnalysisMode mode,
                                            Iron_Arena *arena,
@@ -149,6 +183,13 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
 
     /* HARD-05: between-pass cancel safepoint. */
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
+
+    /* Step 1a: `patch object T impl I` declares that T conforms to I. Move
+     * the conformance onto T's own declaration so every pass that reads
+     * implements (assignability, the interface registry, default bodies)
+     * sees it; it used to be parsed and then ignored. Patches of builtin
+     * types have no object declaration and keep theirs. */
+    merge_patch_conformance(program);
 
     /* Step 1b: interface default bodies — monomorphise each defaulted
      * interface method into every implementor that does not define it, so

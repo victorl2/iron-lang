@@ -1,0 +1,22 @@
+-- Regression: `patch object T impl I` registers the conformance.
+--
+-- Patches only accepted `implements` (object declarations only `impl`), and
+-- the conformance was parsed and then ignored, so T could not be passed
+-- where I was expected.
+interface Describable {
+  readonly func describe() -> String
+}
+object Pt {
+  val x: Int
+}
+patch object Pt impl Describable {
+  readonly func describe() -> String { return "Pt {self.x}" }
+}
+func show(d: Describable) {
+  println(d.describe())
+}
+func main() {
+  show(Pt(1))
+  val d: Describable = Pt(2)
+  println(d.describe())
+}

@@ -64,7 +64,7 @@ static void fx_destroy(fx_t *f) {
 
 static void test_prepare_on_object(void) {
     const char *src =
-        "object Circle implements Shape { val r: Int }\n"
+        "object Circle impl Shape { val r: Int }\n"
         "interface Shape { func area() -> Int }\n";
     fx_t f;
     fx_init(&f, "/tmp/t_th_a.iron", src);

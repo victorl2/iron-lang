@@ -187,7 +187,7 @@ static void test_enclosing_first_match_wins(void) {
 /* ── Test 5: target_matches_interface user-object positive ───────── */
 
 static void test_target_matches_user_object_with_implements(void) {
-    /* User object MyGreeter implements Greeter. */
+    /* User object MyGreeter impl Greeter. */
     const char *impls[] = { "Greeter" };
     Iron_ObjectDecl mygreeter; memset(&mygreeter, 0, sizeof(mygreeter));
     mygreeter.kind              = IRON_NODE_OBJECT_DECL;

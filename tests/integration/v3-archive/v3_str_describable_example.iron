@@ -13,7 +13,7 @@ interface Describable {
   readonly func describe() -> String
 }
 
-patch object Int implements Describable {
+patch object Int impl Describable {
   pub readonly func describe() -> String {
     return "Int(" + self.to_string() + ")"
   }

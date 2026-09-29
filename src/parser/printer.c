@@ -407,16 +407,9 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             if (n->is_patch) iron_strbuf_appendf(ctx->sb, "patch ");
             iron_strbuf_appendf(ctx->sb, "object %s", n->name);
             print_generic_params(ctx, n->generic_params, n->generic_param_count);
-            if (n->extends_name) {
-                iron_strbuf_appendf(ctx->sb, " extends %s", n->extends_name);
-            }
             if (n->implements_count > 0) {
-                /* Phase 9 Plan 09-02 D-10: classic `object T impl I` uses the
-                 * IRON_TOK_IMPL keyword (parser.c:3117); patches use the
-                 * contextual identifier `implements` (parser.c:4127-4129).
-                 * Round-tripping requires emitting the matching token. */
-                iron_strbuf_appendf(ctx->sb,
-                                     n->is_patch ? " implements " : " impl ");
+                /* `impl` is the conformance keyword for objects and patches. */
+                iron_strbuf_appendf(ctx->sb, " impl ");
                 for (int i = 0; i < n->implements_count; i++) {
                     if (i > 0) iron_strbuf_appendf(ctx->sb, ", ");
                     iron_strbuf_appendf(ctx->sb, "%s", n->implements_names[i]);

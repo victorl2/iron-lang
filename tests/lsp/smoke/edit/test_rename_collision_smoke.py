@@ -167,7 +167,7 @@ async def test_rename_stdlib_implementor_guard_surface(client, tmp_path):
         "interface Printable {\n"
         "    func print_it() -> Int\n"
         "}\n"
-        "object Box implements Printable {}\n"
+        "object Box impl Printable {}\n"
         "func Box.print_it() -> Int {\n"
         "    return 0\n"
         "}\n"

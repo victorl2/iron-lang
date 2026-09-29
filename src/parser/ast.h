@@ -937,6 +937,10 @@ typedef struct {
 typedef struct {
     Iron_Span     span;
     Iron_NodeKind kind;  /* IRON_NODE_ERROR */
+    /* Always NULL. An error node stands in for an expression, and passes
+     * read `((Iron_ExprNode *)n)->resolved_type` from expressions; without
+     * this slot that read ran past the node. */
+    struct Iron_Type *resolved_type;
 } Iron_ErrorNode;
 
 /* ── Visitor pattern ─────────────────────────────────────────────────────── */

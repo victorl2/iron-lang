@@ -17,8 +17,8 @@ from lsprotocol import types
 async def test_implementation_on_iface_name(client, tmp_path):
     src = (
         "interface Shape { func area() -> Int }\n"
-        "object Circle implements Shape { val r: Int }\n"
-        "object Square implements Shape { val s: Int }\n"
+        "object Circle impl Shape { val r: Int }\n"
+        "object Square impl Shape { val s: Int }\n"
         "func Circle.area() -> Int { return 0 }\n"
         "func Square.area() -> Int { return 0 }\n"
     )
@@ -66,7 +66,7 @@ async def test_implementation_on_iface_name(client, tmp_path):
 async def test_implementation_on_object_returns_empty(client, tmp_path):
     src = (
         "interface Shape { func area() -> Int }\n"
-        "object Circle implements Shape { val r: Int }\n"
+        "object Circle impl Shape { val r: Int }\n"
     )
     fp = tmp_path / "impl_obj.iron"
     fp.write_text(src, encoding="utf-8")
