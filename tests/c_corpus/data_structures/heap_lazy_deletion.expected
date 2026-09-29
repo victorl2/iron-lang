@@ -1,0 +1,2 @@
+push=7298 update=7207 remove=4518 pop=2606 live=174
+popsum=2583198 compactions=60 stale_skipped=309 max_heap_size=403 final_heap_size=293

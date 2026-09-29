@@ -1,0 +1,20 @@
+random
+  two_pass       build_links=1499  total_links=19702  max_children=977
+  multi_pass     build_links=1499  total_links=22549  max_children=833
+  left_to_right  build_links=1499  total_links=390087 max_children=1288
+  right_to_left  build_links=1499  total_links=572227 max_children=1435
+ascending
+  two_pass       build_links=1499  total_links=8454   max_children=1499
+  multi_pass     build_links=1499  total_links=7154   max_children=1499
+  left_to_right  build_links=1499  total_links=4595   max_children=1499
+  right_to_left  build_links=1499  total_links=1125848 max_children=1499
+descending
+  two_pass       build_links=1499  total_links=3097   max_children=2
+  multi_pass     build_links=1499  total_links=3097   max_children=2
+  left_to_right  build_links=1499  total_links=3097   max_children=2
+  right_to_left  build_links=1499  total_links=3097   max_children=2
+sawtooth
+  two_pass       build_links=1499  total_links=18208  max_children=1499
+  multi_pass     build_links=1499  total_links=18125  max_children=1499
+  left_to_right  build_links=1499  total_links=238271 max_children=1499
+  right_to_left  build_links=1499  total_links=596329 max_children=1499

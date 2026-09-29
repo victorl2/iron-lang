@@ -1,0 +1,4 @@
+plain heap  : equal-priority pairs out of arrival order = 125
+with sequence: equal-priority pairs out of arrival order = 0
+wraps=2 served=99900 live=200 checksum=1643090
+last tags by priority: 97 96 70 7
