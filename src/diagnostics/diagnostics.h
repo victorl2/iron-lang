@@ -557,6 +557,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_POOL_UNSUPPORTED         326
 #define IRON_ERR_DROP_BINDING_UNINIT      327   /* binding of a type with a destructor declared without an initializer */
 #define IRON_ERR_LIST_IMPLICIT_COPY       328   /* a list place given a second owner without copy() / take() (#174) */
+#define IRON_ERR_UNORDERED_POSITION       329   /* indexing an [T, unordered] list, whose elements have no stable position */
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400

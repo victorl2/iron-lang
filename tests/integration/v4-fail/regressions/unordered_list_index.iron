@@ -1,0 +1,15 @@
+-- @expected-error: E0329
+-- An [T, unordered] list groups elements by implementor and has no element
+-- positions: indexing it is rejected (it used to fail in the C compiler).
+interface Shape {
+    readonly func area() -> Int
+}
+object Dot impl Shape {
+    val x: Int
+    readonly func area() -> Int { return self.x }
+}
+func main() {
+    var xs: [Shape, unordered] = [Dot(1), Dot(2)]
+    xs[1] = Dot(9)
+    println("{xs[0].area()}")
+}

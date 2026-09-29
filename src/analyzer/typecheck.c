@@ -414,15 +414,18 @@ static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
                        const char *msg, const char *suggestion);
 
 /* A binding narrowed by `x is T` (#179) is read through a view of its
- * payload; writes through it are not supported yet, so they are rejected
- * instead of landing on a temporary copy. Returns true (and reports) when
- * `root` (the root of a field / receiver chain) is such a view. */
+ * payload. A view of an implementor is the payload itself, so writes reach
+ * the binding (and the usual mutability rules apply); a view of another
+ * interface is a copy, so writes through it are rejected instead of being
+ * lost. Returns true (and reports) when `root` (the root of a field /
+ * receiver chain) is such a copy. */
 static bool reject_narrowed_view_write(TypeCtx *ctx, Iron_Node *root, Iron_Span span) {
     while (root && root->kind == IRON_NODE_FIELD_ACCESS)
         root = ((Iron_FieldAccess *)root)->object;
     if (!root || root->kind != IRON_NODE_IDENT) return false;
     Iron_Ident *id = (Iron_Ident *)root;
-    if (!id->name || !narrowing_get(ctx, id->name)) return false;
+    Iron_Type *view = id->name ? narrowing_get(ctx, id->name) : NULL;
+    if (!view || view->kind != IRON_TYPE_INTERFACE) return false;
     Iron_Symbol *sym = tc_lookup(ctx, id->name);
     if (!sym || !sym->type) sym = id->resolved_sym;
     if (!sym || !sym->type) return false;
@@ -431,7 +434,7 @@ static bool reject_narrowed_view_write(TypeCtx *ctx, Iron_Node *root, Iron_Span 
     if (!st || st->kind != IRON_TYPE_INTERFACE) return false;
     char msg[256];
     snprintf(msg, sizeof(msg),
-             "cannot modify '%s' through a type test: it is a read-only view here",
+             "cannot modify '%s' through an interface type test: it is a read-only view here",
              id->name);
     emit_error(ctx, IRON_ERR_UNSUPPORTED_TYPE_TEST, span, msg,
                "assign the whole binding instead (for example `x = updated`)");
@@ -2404,6 +2407,14 @@ static bool push_type_compatible(const Iron_Type *elem_type,
     return false;
 }
 
+/* An [T, unordered] list keeps each implementor's elements together and
+ * reorders them freely, so its elements have no position to index. */
+static void report_unordered_position(TypeCtx *ctx, Iron_Span span) {
+    emit_error(ctx, IRON_ERR_UNORDERED_POSITION, span,
+               "an unordered list has no element positions",
+               "iterate it with `for`, or use an ordered list [T] to index it");
+}
+
 /* Heuristic fallback for built-in array methods (push, pop, len, etc.)
  * that don't have explicit extension method declarations yet. */
 static Iron_Type *resolve_array_builtin_method(const char *method,
@@ -2482,6 +2493,13 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
                  m, iron_type_to_string(arr_type, ctx->arena));
         emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
                    "use a dynamic list [T] or a bounded vector [T; <=N]");
+        return result;
+    }
+    if (arr_type->array.is_unordered &&
+        (strcmp(m, "get") == 0 || strcmp(m, "set") == 0 ||
+         strcmp(m, "insert") == 0 || strcmp(m, "remove") == 0 ||
+         strcmp(m, "get_unchecked") == 0 || strcmp(m, "set_unchecked") == 0)) {
+        report_unordered_position(ctx, mc->span);
         return result;
     }
     /* Mutating a list or array needs a mutable path to it (#174). */
@@ -6108,6 +6126,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
             if (obj_type && obj_type->kind == IRON_TYPE_ARRAY) {
                 result = obj_type->array.elem;
+                if (obj_type->array.is_unordered)
+                    report_unordered_position(ctx, idx_e->span);
 
                 /* BOUNDS-03: Validate index expression is an integer type */
                 if (idx_type && idx_type->kind != IRON_TYPE_ERROR &&

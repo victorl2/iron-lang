@@ -2356,6 +2356,18 @@ static bool run_store_load_elim(IronLIR_Module *module) {
                         fn->value_table[in->store.ptr]->kind == IRON_LIR_ALLOCA &&
                         !alloca_is_capture_alias(fn, in->store.ptr) &&
                         hmgeti(addr_slots, in->store.ptr) < 0) {
+                        /* A store that converts its value (an object into an
+                         * interface slot, which may box it) must not be
+                         * forwarded: a load would repeat the conversion on
+                         * the raw value, building a second payload. */
+                        Iron_Type *slot_t = fn->value_table[in->store.ptr]->alloca.alloc_type;
+                        Iron_Type *val_t = ((ptrdiff_t)in->store.value < arrlen(fn->value_table) &&
+                                            fn->value_table[in->store.value])
+                            ? fn->value_table[in->store.value]->type : NULL;
+                        if (slot_t && val_t && slot_t->kind != val_t->kind) {
+                            hmdel(last_store, in->store.ptr);
+                            break;
+                        }
                         hmput(last_store, in->store.ptr, in->store.value);
                     }
                     break;

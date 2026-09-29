@@ -2619,6 +2619,28 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                         ctx->current_block, b_arr, b_idx, b_val, span);
                     return IRON_LIR_VALUE_INVALID;
                 }
+                /* `xs.set(i, v)` on an interface list is `xs[i] = v`: the
+                 * split list's set helper handles it (#180). */
+                if (obj_type->array.elem && obj_type->array.elem->kind == IRON_TYPE_INTERFACE &&
+                    expr->method_call.method &&
+                    strcmp(expr->method_call.method, "set") == 0 &&
+                    expr->method_call.arg_count == 2) {
+                    IronLIR_ValueId s_arr = IRON_LIR_VALUE_INVALID;
+                    IronHIR_Expr *s_obj = expr->method_call.object;
+                    if (s_obj && s_obj->kind == IRON_HIR_EXPR_IDENT &&
+                        hmgeti(ctx->var_param_ids, s_obj->ident.var_id) >= 0) {
+                        ptrdiff_t s_ai = hmgeti(ctx->var_alloca_map, s_obj->ident.var_id);
+                        if (s_ai >= 0) s_arr = ctx->var_alloca_map[s_ai].value;
+                    }
+                    if (s_arr == IRON_LIR_VALUE_INVALID) s_arr = lower_expr(ctx, s_obj);
+                    IronLIR_ValueId s_idx = lower_expr(ctx, expr->method_call.args[0]);
+                    IronLIR_ValueId s_val = lower_expr(ctx, expr->method_call.args[1]);
+                    s_val = copy_for_new_owner(ctx, expr->method_call.args[1], s_val,
+                                               obj_type->array.elem, span);
+                    iron_lir_set_index(ctx->current_func, ctx->current_block,
+                                       s_arr, s_idx, s_val, span);
+                    return IRON_LIR_VALUE_INVALID;
+                }
                 /* Collection: build the full "Iron_List_<elem_suffix>_<method>" name
                  * directly and return early. mangle_func_name() skips names that
                  * already start with "Iron_", so no double-prefixing. */
@@ -3949,6 +3971,13 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             Iron_Type *el_t = target->type ? target->type : rhs_type;
             bool el_rc = type_is_rc_like(el_t);
             bool el_drop = !el_rc && type_needs_drop(el_t, ctx->program);
+            /* An interface list's set helper drops the element it replaces
+             * in place: a read of it is a view into the list's storage,
+             * which the store moves or overwrites (#180). */
+            Iron_Type *set_arr_t = target->index.array ? target->index.array->type : NULL;
+            if (set_arr_t && set_arr_t->kind == IRON_TYPE_ARRAY && !set_arr_t->array.is_bounded &&
+                set_arr_t->array.elem && set_arr_t->array.elem->kind == IRON_TYPE_INTERFACE)
+                el_drop = false;
             if (el_rc) {
                 if (!rc_expr_transfers_ownership(stmt->assign.value))
                     emit_rc_retain_for_type(ctx, el_t, val, span);

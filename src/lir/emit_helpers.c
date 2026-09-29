@@ -1952,6 +1952,7 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
     hmfree(ctx->unordered_collections);
     iron_layout_free(&ctx->layout);
     shfree(ctx->reduced_storage_types);
+    shfree(ctx->iface_elem_assigned);
     shfree(ctx->soa_types);
 
     /* Fusion chain cleanup */

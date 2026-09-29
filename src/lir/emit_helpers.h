@@ -195,6 +195,10 @@ typedef struct {
 
     /* Map of type names that use reduced storage (type_name -> true) (Phase 48) */
     struct { char *key; bool value; } *reduced_storage_types;
+    /* Interfaces with an element assignment `xs[i] = v` on one of their
+     * lists: their implementors are stored whole (AoS, no reduced storage)
+     * so a set can move any element between the per-type arrays. */
+    struct { char *key; bool value; } *iface_elem_assigned;
 
     /* Map of "iface_mangled:type_name" -> true for SoA types (Phase 48-02) */
     struct { char *key; bool value; } *soa_types;
