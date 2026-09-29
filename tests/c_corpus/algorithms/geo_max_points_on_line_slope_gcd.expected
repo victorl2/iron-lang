@@ -1,0 +1,10 @@
+classic: best=4 direction=(1,-1)
+vertical: best=4 direction=(0,1)
+duplicates: best=4
+n= 10 span=  4 best= 6 direction=(1,0)
+n= 30 span=  6 best= 9 direction=(1,0)
+n= 60 span= 10 best=10 direction=(1,0)
+n=100 span= 20 best=10 direction=(1,1)
+n=150 span= 40 best= 9 direction=(0,1)
+n=200 span=100 best= 7 direction=(0,1)
+sum of best=51

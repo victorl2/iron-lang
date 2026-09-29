@@ -1,0 +1,7 @@
+classic: 4 activities: a0 a3 a7 a10
+400 random instances, total optimum=1447
+earliest-start optimal in 302, suboptimal in 98
+shortest-first optimal in 383, suboptimal in 17
+heuristics agreed with each other in 296
+earliest-start counter-example picks 1 (optimum 3)
+shortest-first counter-example picks 1 (optimum 2)

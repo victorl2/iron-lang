@@ -1,0 +1,27 @@
+n= 1 solutions=     1 nodes=       1
+n= 2 solutions=     0 nodes=       2
+n= 3 solutions=     0 nodes=       5
+n= 4 solutions=     2 nodes=      16
+n= 5 solutions=    10 nodes=      53
+n= 6 solutions=     4 nodes=     152
+n= 7 solutions=    40 nodes=     551
+n= 8 solutions=    92 nodes=    2056
+n= 9 solutions=   352 nodes=    8393
+n=10 solutions=   724 nodes=   35538
+n=11 solutions=  2680 nodes=  166925
+n=12 solutions= 14200 nodes=  856188
+n=4: 2 solutions, 1 fundamental, 1 with a symmetry
+n=5: 10 solutions, 2 fundamental, 1 with a symmetry
+n=6: 4 solutions, 1 fundamental, 1 with a symmetry
+n=7: 40 solutions, 6 fundamental, 2 with a symmetry
+n=8: 92 solutions, 12 fundamental, 1 with a symmetry
+n=9: 352 solutions, 46 fundamental, 4 with a symmetry
+first 8-queens solution (row -> col): 0 4 7 5 2 6 1 3
+Q.......
+....Q...
+.......Q
+.....Q..
+..Q.....
+......Q.
+.Q......
+...Q....

@@ -1,0 +1,12 @@
+AGGTAB vs GXTXAYB: lcs=4
+m=  1 n=  1 alphabet= 4 lcs=  0 word ops=0 (DP cells 1)
+m= 10 n= 25 alphabet= 4 lcs=  9 word ops=20 (DP cells 250)
+m= 63 n= 70 alphabet= 4 lcs= 39 word ops=70 (DP cells 4410)
+m= 64 n= 64 alphabet= 4 lcs= 40 word ops=64 (DP cells 4096)
+m= 65 n= 64 alphabet= 4 lcs= 39 word ops=128 (DP cells 4160)
+m=128 n=100 alphabet= 4 lcs= 72 word ops=200 (DP cells 12800)
+m=130 n=300 alphabet= 4 lcs=116 word ops=900 (DP cells 39000)
+m=200 n=200 alphabet= 4 lcs=127 word ops=800 (DP cells 40000)
+m=500 n=450 alphabet= 4 lcs=310 word ops=3600 (DP cells 225000)
+all 27 combinations verified: sum of lcs=2044, word ops=17323
+identical=199 disjoint=0 verified

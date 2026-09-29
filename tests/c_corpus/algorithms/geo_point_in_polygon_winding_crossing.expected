@@ -1,0 +1,18 @@
+U-shape probes:
+  ( 1, 1) in  w=1
+  ( 4, 5) out w=0
+  ( 4, 2) in  w=1
+  ( 6, 3) on  w=0
+  ( 3, 8) on  w=0
+  ( 0, 4) on  w=0
+  (10, 4) out w=0
+  ( 7, 5) in  w=1
+  (-1, 0) out w=0
+  ( 9, 8) on  w=0
+  ( 5, 3) on  w=0
+  ( 4, 8) out w=0
+U census: out=102 in=36 boundary=44
+pentagram: even-odd=60 nonzero=90 disagree=30
+pentagram centre: crossing=out winding=-2
+cw square: winding at (2,2) = -1
+staircase interior lattice points: 5

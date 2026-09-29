@@ -1,0 +1,4 @@
+parabola         n= 40 h= 40 tests=  1560 (h*n=  1600) extreme_raw=40 area2=19760
+blob             n= 50 h= 11 tests=   539 (h*n=   550) extreme_raw=11 area2=6329
+square+interior  n= 80 h=  4 tests=   316 (h*n=   320) extreme_raw=4 area2=20000
+blob-large       n=300 h=  7 tests=  2093 (h*n=  2100) extreme_raw=7 area2=7116
