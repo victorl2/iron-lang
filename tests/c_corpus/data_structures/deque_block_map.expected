@@ -1,0 +1,3 @@
+push_back=6181 push_front=10326 pop_front=9554 pop_back=6681 set=1567
+len=272 map_cap=64 recenters=8 block_allocs=4020 addr_checks=31535
+blocks balanced: allocs == frees
