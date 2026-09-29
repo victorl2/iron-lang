@@ -458,6 +458,25 @@ static int check_iron_version(const IronProject *proj, bool colors,
     return 1;
 }
 
+/* Reject any flag in argv[2..] (up to a `--` separator) that is not in
+ * allowed[] (NULL-terminated). Unknown flags used to be ignored silently. */
+static int reject_unknown_flags(const char *cmd, int argc, char **argv,
+                                const char *const *allowed) {
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--") == 0) break;
+        if (argv[i][0] != '-') continue;
+        bool ok = false;
+        for (int k = 0; allowed[k]; k++) {
+            if (strcmp(argv[i], allowed[k]) == 0) { ok = true; break; }
+        }
+        if (!ok) {
+            fprintf(stderr, "error: unknown flag '%s' for 'iron %s'\n", argv[i], cmd);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* ── cmd_build (handles both build and run) ─────────────────────────────── */
 
 static int cmd_build(bool run_after, int argc, char **argv) {
@@ -467,6 +486,9 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * Phase 94 LIB-04: --release is parsed at the iron build CLI layer and
      * forwarded to ironc below; the Finished status line differentiates
      * "release [optimized]" from "dev [unoptimized]" based on the same flag. */
+    static const char *const allowed[] = { "--verbose", "--release", NULL };
+    if (reject_unknown_flags(run_after ? "run" : "build", argc, argv, allowed) != 0)
+        return 1;
     bool verbose = false;
     bool release = false;
     char **run_args = NULL;
@@ -725,7 +747,8 @@ static int cmd_build(bool run_after, int argc, char **argv) {
 /* ── cmd_check ──────────────────────────────────────────────────────────── */
 
 static int cmd_check(int argc, char **argv) {
-    (void)argc; (void)argv;
+    static const char *const allowed[] = { NULL };
+    if (reject_unknown_flags("check", argc, argv, allowed) != 0) return 1;
     bool colors = iron_color_init();
 
     char *toml_path = find_iron_toml();
@@ -793,7 +816,8 @@ static int cmd_check(int argc, char **argv) {
 /* ── cmd_test ───────────────────────────────────────────────────────────── */
 
 static int cmd_test(int argc, char **argv) {
-    (void)argc; (void)argv;
+    static const char *const allowed[] = { NULL };
+    if (reject_unknown_flags("test", argc, argv, allowed) != 0) return 1;
     bool colors = iron_color_init();
 
     char *toml_path = find_iron_toml();
@@ -861,14 +885,6 @@ static int cmd_test(int argc, char **argv) {
 
 int cmd_project(const char *cmd, int argc, char **argv) {
     if (strcmp(cmd, "build") == 0) return cmd_build(false, argc, argv);
-    /* Phase 96 RUN-03 (reserved, NOT implemented in v3.2):
-     *   --keep-binary  reserved to suppress the atexit unlink (iron-run-XXXXXX)
-     *                  for users who want to inspect the produced binary.
-     *   -o <path>      reserved as an output-path override for `iron run`.
-     * Both flags are documented in `iron run --help` (Phase 97 HELP-03 scope).
-     * Implementing them in v3.2 was descoped: the cwd-clean default covers the
-     * primary issue (#53); a deliberate keep-binary flag belongs in a later
-     * phase alongside the broader CLI help registry work. */
     if (strcmp(cmd, "run") == 0)   return cmd_build(true, argc, argv);
     if (strcmp(cmd, "check") == 0) return cmd_check(argc, argv);
     if (strcmp(cmd, "test") == 0)  return cmd_test(argc, argv);

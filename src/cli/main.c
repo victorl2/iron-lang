@@ -205,7 +205,14 @@ int main(int argc, char **argv) {
             run_args = (const char **)&argv[i + 1];
             run_arg_count = argc - i - 1;
             break;
-        } else if (!source_file) {
+        } else if (argv[i][0] == '-' && argv[i][1] != '\0' &&
+                   !(strcmp(cmd, "fmt") == 0 && strcmp(argv[i], "--check") == 0)) {
+            /* Unknown flags were taken as the source path (before it) or
+             * silently ignored (after it). */
+            fprintf(stderr, "error: unknown flag '%s' for command '%s'\n",
+                    argv[i], cmd);
+            return 1;
+        } else if (!source_file && argv[i][0] != '-') {
             source_file = argv[i];
         }
     }
@@ -239,16 +246,8 @@ int main(int argc, char **argv) {
         return iron_build(source_file, output_file, opts);
     }
 
-    /* Phase 96 RUN-03 (reserved, NOT implemented in v3.2):
-     *   --keep-binary  reserved to suppress the atexit unlink of the
-     *                  ${TMPDIR}/iron-run-XXXXXX tempfile produced by the
-     *                  direct-source `iron run foo.iron` path.
-     *   -o <path>      reserved as an output-path override for `iron run`.
-     * Both flags are documented in `iron run --help` (Phase 97 HELP-03 scope).
-     * Implementing them in v3.2 was descoped: the cwd-clean default (mkstemp
-     * + atexit in iron_build) covers the primary issue (#53); a deliberate
-     * keep-binary flag belongs in a later phase alongside the broader CLI
-     * help registry work. */
+    /* `run -o <path>` keeps the built binary at <path>; without -o it goes
+     * to a temp file that is removed on exit. */
     if (strcmp(cmd, "run") == 0) {
         if (!source_file) {
             fprintf(stderr, "%s run: missing source file\n", IRON_BINARY_NAME);

@@ -721,6 +721,26 @@ if [ "${CATEGORY}" = "integration" ] && [ -x "${TEST_DIR}/run_cwd_clean_smoke.sh
     fi
 fi
 
+# cli_args_smoke: unknown flags error in any position, ironc help omits
+# init, run -o keeps the binary, iron init <name> scaffolds <name>/.
+if [ "${CATEGORY}" = "integration" ] && [ -x "${TEST_DIR}/cli_args_smoke.sh" ]; then
+    TOTAL=$((TOTAL + 1))
+    echo -n "[RUN ] cli_args_smoke ... "
+    smoke_log="${WORK_DIR}/cli_args_smoke.log"
+    set +e
+    "${TEST_DIR}/cli_args_smoke.sh" "${IRON_BIN}" > "${smoke_log}" 2>&1
+    smoke_rc=$?
+    set -e
+    if [ "${smoke_rc}" -eq 0 ] && grep -q 'cli_args_smoke OK' "${smoke_log}"; then
+        echo "[PASS]"
+        PASS=$((PASS + 1))
+    else
+        echo "[FAIL] (exit ${smoke_rc})"
+        cat "${smoke_log}" >&2
+        FAIL=$((FAIL + 1))
+    fi
+fi
+
 # Phase 97 TEST-05 help_no_side_effects_smoke: assert iron/ironc
 # <sub> --help invocations exit 0, produce non-empty stdout, and
 # leave zero side effects in cwd. Mirrors the Phase 96 run_cwd_clean

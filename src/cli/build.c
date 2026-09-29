@@ -1632,10 +1632,7 @@ int iron_build(const char *source_path, const char *output_path,
      * atexit handler unlinks it on process exit; the run_after branch below
      * also unlinks promptly at each return point as defense in depth.
      *
-     * RUN-03 (reserved, NOT implemented in v3.2): --keep-binary suppresses
-     * the cleanup; -o <path> forces an explicit output path. Both flags are
-     * intentionally deferred. Users who want to keep the produced binary
-     * should pass --output to ironc directly.
+     * `run -o <path>` builds to <path> and keeps the binary.
      *
      * `iron build foo.iron` (run_after=false, no -o) keeps the v3.1
      * basename-in-cwd behavior so users still get a useful binary name. */

@@ -75,7 +75,13 @@ static char *compute_minor_floor_version(void) {
         return NULL;
     }
     char buf[64];
-    snprintf(buf, sizeof(buf), "%d.%d.0", major, minor);
+    /* A pre-release compiler (4.2.0-alpha) sorts below 4.2.0, so a
+     * major.minor.0 floor would reject the compiler that wrote it; pin
+     * the running version itself instead. */
+    if (strchr(IRON_VERSION_STRING, '-'))
+        snprintf(buf, sizeof(buf), "%s", IRON_VERSION_STRING);
+    else
+        snprintf(buf, sizeof(buf), "%d.%d.0", major, minor);
     char *out = (char *)malloc(strlen(buf) + 1);
     if (!out) return NULL;
     strcpy(out, buf);
@@ -85,15 +91,60 @@ static char *compute_minor_floor_version(void) {
 /* ── cmd_init ───────────────────────────────────────────────────────────── */
 
 int cmd_init(int argc, char **argv) {
-    /* Parse --lib flag */
+    /* Parse --lib and an optional package name. `iron init <name>` creates
+     * <name>/ and scaffolds the package there (like `cargo new`); without a
+     * name the current directory is used and named after its basename. */
     bool is_lib = false;
+    const char *name_arg = NULL;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--lib") == 0) {
             is_lib = true;
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "error: unknown flag '%s' for 'iron init'\n", argv[i]);
+            return 1;
+        } else if (!name_arg) {
+            name_arg = argv[i];
+        } else {
+            fprintf(stderr, "error: unexpected argument '%s' for 'iron init'\n"
+                            "usage: iron init [--lib] [name]\n", argv[i]);
+            return 1;
         }
     }
 
     bool colors = iron_color_init();
+
+    if (name_arg) {
+        bool valid = (name_arg[0] == '_' ||
+                      (name_arg[0] >= 'a' && name_arg[0] <= 'z') ||
+                      (name_arg[0] >= 'A' && name_arg[0] <= 'Z'));
+        for (const char *c = name_arg; valid && *c; c++) {
+            valid = (*c == '_' || *c == '-' ||
+                     (*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') ||
+                     (*c >= '0' && *c <= '9'));
+        }
+        if (!valid) {
+            fprintf(stderr, "error: invalid package name '%s': use letters, digits,"
+                            " '_' and '-', starting with a letter or '_'\n", name_arg);
+            return 1;
+        }
+        struct stat dst;
+        if (stat(name_arg, &dst) == 0) {
+            fprintf(stderr, "error: destination '%s' already exists\n", name_arg);
+            return 1;
+        }
+#ifdef _WIN32
+        if (_mkdir(name_arg) != 0) {
+#else
+        if (mkdir(name_arg, 0755) != 0) {
+#endif
+            fprintf(stderr, "error: cannot create %s/: %s\n", name_arg, strerror(errno));
+            return 1;
+        }
+        if (chdir(name_arg) != 0) {
+            fprintf(stderr, "error: cannot enter %s/: %s\n", name_arg, strerror(errno));
+            return 1;
+        }
+    }
 
     /* Derive package name from current directory basename */
     char cwd[4096];
