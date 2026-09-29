@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Multi-file package diagnostics: errors point at the real source file and
-# its own line numbers (not target/combined.iron), and non-pub top-level
-# declarations are private to their file.
+# its own line numbers (not target/combined.iron), and declarations
+# (functions, objects, fields, methods, inits) without pub are private to
+# their file.
 #
 # Usage: project_diag_smoke.sh [IRON_BIN]
 
@@ -40,5 +41,52 @@ echo "${out}" | grep -q "E0320" || fail "private helper visible across files: ${
 printf 'pub func helper() -> Int {\n    return 42\n}\n' > "${SANDBOX}/pkg/src/lib.iron"
 out=$(cd "${SANDBOX}/pkg" && "${IRON}" run 2>&1 | tail -1)
 [ "${out}" = "42" ] || fail "pub helper: ${out}"
+
+# 4. Private fields, methods and inits of a pub object (#159).
+new_pkg
+cat > "${SANDBOX}/pkg/src/lib.iron" <<'IRON'
+pub object Player {
+    var health: Int
+    pub val name: String
+    pub init(health: Int) {
+        self.health = health
+        self.name = "p"
+    }
+    init hidden() {
+        self.health = 1
+        self.name = "h"
+    }
+    func recalc() {
+        self.health = 0
+    }
+    pub func hp() -> Int {
+        return self.health
+    }
+}
+pub object Point {
+    pub val x: Int
+    val y: Int
+}
+IRON
+cat > "${SANDBOX}/pkg/src/main.iron" <<'IRON'
+import lib
+func main() {
+    var p = Player(10)
+    p.health = 5
+    p.recalc()
+    var q = Player.hidden()
+    val pt = Point(1, 2)
+    println("{p.hp()} {p.name} {pt.x} {q.hp()}")
+}
+IRON
+out=$(cd "${SANDBOX}/pkg" && "${IRON}" check 2>&1 || true)
+for what in "field 'health' of 'Player'" "method 'Player.recalc'" "init 'Player.hidden'" \
+            "field 'y' of 'Point'"; do
+    echo "${out}" | grep -qF "${what} is private to src/lib.iron" \
+        || echo "${out}" | grep -qF "${what} (set by its field-wise constructor) is private" \
+        || fail "no visibility error for ${what}: ${out}"
+done
+# pub members stay usable: no error on the println line (line 8).
+echo "${out}" | grep -q "src/main.iron:8:" && fail "pub members rejected: ${out}"
 
 echo "project_diag_smoke OK"

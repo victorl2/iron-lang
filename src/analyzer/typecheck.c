@@ -618,6 +618,66 @@ static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
                    msg_copy, sug_copy);
 }
 
+/* Visibility: a member (field, method, init) without `pub` is private to
+ * the file that declares it.  Reports E0320 and returns true when the use
+ * site is in another user file.  Stdlib declarations are exempt, and
+ * nothing is enforced when the declaring file's origin is unknown. */
+static bool report_private_member(TypeCtx *ctx, bool is_pub, Iron_Span decl_span,
+                                  Iron_Span use_span, const char *what) {
+    if (is_pub) return false;
+    if (!decl_span.filename || !use_span.filename) return false;
+    if (strcmp(decl_span.filename, use_span.filename) == 0) return false;
+    if (iron_stdlib_origin_classify(decl_span.filename) != 0) return false;
+    if (iron_stdlib_origin_classify(use_span.filename) != 0) return false;
+    char msg[512];
+    snprintf(msg, sizeof(msg), "%s is private to %s and not visible from %s",
+             what, decl_span.filename, use_span.filename);
+    emit_error(ctx, IRON_ERR_CROSS_MODULE_PRIVATE, use_span, msg,
+               "mark it `pub` to use it from other files");
+    return true;
+}
+
+/* A method that implements an interface method is as visible as the
+ * interface: callers reach it through the interface anyway. */
+static bool method_implements_interface(TypeCtx *ctx, const char *type_name,
+                                        const char *method_name) {
+    if (!type_name || !method_name || !ctx->global_scope) return false;
+    Iron_Symbol *tsym = iron_scope_lookup(ctx->global_scope, type_name);
+    if (!tsym || !tsym->decl_node || tsym->decl_node->kind != IRON_NODE_OBJECT_DECL)
+        return false;
+    Iron_ObjectDecl *od = (Iron_ObjectDecl *)tsym->decl_node;
+    for (int j = 0; j < od->implements_count; j++) {
+        Iron_Symbol *isym = od->implements_names[j]
+            ? iron_scope_lookup(ctx->global_scope, od->implements_names[j]) : NULL;
+        if (!isym || !isym->decl_node ||
+            isym->decl_node->kind != IRON_NODE_INTERFACE_DECL) continue;
+        Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)isym->decl_node;
+        for (int k = 0; k < iface->method_count; k++) {
+            Iron_Node *sn = iface->method_sigs[k];
+            if (sn && sn->kind == IRON_NODE_FUNC_DECL &&
+                ((Iron_FuncDecl *)sn)->name &&
+                strcmp(((Iron_FuncDecl *)sn)->name, method_name) == 0)
+                return true;
+        }
+    }
+    return false;
+}
+
+/* An object without an init is constructed field by field, which writes
+ * every field; from another file that needs every field to be `pub`. */
+static void report_private_field_construction(TypeCtx *ctx, Iron_ObjectDecl *od,
+                                              Iron_Span use_span) {
+    if (!od || !od->is_pub) return;  /* a private object is reported by name */
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || f->is_pub) continue;
+        char what[256];
+        snprintf(what, sizeof(what), "field '%s' of '%s' (set by its field-wise constructor)",
+                 f->name ? f->name : "?", od->name ? od->name : "?");
+        if (report_private_member(ctx, false, od->span, use_span, what)) return;
+    }
+}
+
 static void emit_warning(TypeCtx *ctx, int code, Iron_Span span,
                          const char *msg, const char *suggestion) {
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
@@ -3184,6 +3244,11 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_MethodDecl *anon_init = iron_find_init_by_name(
                         ctx->program, callee_id->name, NULL);
                     if (anon_init) {
+                        char what_init[256];
+                        snprintf(what_init, sizeof(what_init), "init of '%s'",
+                                 callee_id->name);
+                        report_private_member(ctx, anon_init->is_pub, anon_init->span,
+                                              ce->span, what_init);
                         int init_param_count = anon_init->param_count > 0
                             ? anon_init->param_count - 1 : 0;
                         if (ce->arg_count != init_param_count) {
@@ -3238,6 +3303,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         break;
                     }
 
+                    report_private_field_construction(ctx, od, ce->span);
                     if (ce->arg_count != field_count) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
@@ -4377,6 +4443,11 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     Iron_MethodDecl *named_init = iron_find_init_by_name(
                         ctx->program, obj_id_ni->name, mc->method);
                     if (named_init) {
+                        char what_ni[256];
+                        snprintf(what_ni, sizeof(what_ni), "init '%s.%s'",
+                                 obj_id_ni->name, mc->method);
+                        report_private_member(ctx, named_init->is_pub,
+                                              named_init->span, mc->span, what_ni);
                         int init_param_count = named_init->param_count > 0
                             ? named_init->param_count - 1 : 0;
                         if (mc->arg_count != init_param_count) {
@@ -4581,6 +4652,18 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         if (strcmp(md->type_name, type_name_mc) == 0 &&
                             strcmp(md->method_name, mc->method) == 0) {
                             method_found_mc = true;
+                            {
+                                char what_m[256];
+                                snprintf(what_m, sizeof(what_m), "%s '%s.%s'",
+                                         md->is_init ? "init" : "method",
+                                         md->type_name, md->method_name);
+                                report_private_member(
+                                    ctx,
+                                    md->is_pub ||
+                                        method_implements_interface(
+                                            ctx, md->type_name, md->method_name),
+                                    md->span, mc->span, what_m);
+                            }
                             check_method_call_args(
                                 ctx, mc, md,
                                 obj_id->resolved_sym &&
@@ -5102,6 +5185,13 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 }
             }
 
+            if (matched_field && !ctx->in_synth_accessor) {
+                char what_f[256];
+                snprintf(what_f, sizeof(what_f), "field '%s' of '%s'",
+                         matched_field->name, od->name ? od->name : "?");
+                report_private_member(ctx, matched_field->is_pub,
+                                      matched_field->span, fa->span, what_f);
+            }
             if (!field_type) {
                 char msg[256];
                 snprintf(msg, sizeof(msg), "no field '%s' on type", fa->field);
@@ -5183,6 +5273,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 Iron_ObjectDecl *od = (Iron_ObjectDecl *)sym->decl_node;
                 int field_count = od->field_count;
 
+                report_private_field_construction(ctx, od, ce->span);
                 if (ce->arg_count != field_count) {
                     char msg[256];
                     snprintf(msg, sizeof(msg),

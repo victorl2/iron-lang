@@ -28,15 +28,19 @@ bool ilsp_vis_is_public(const Iron_Node *d) {
     switch ((int)d->kind) {
         case IRON_NODE_FIELD:
             return ((const Iron_Field *)d)->is_pub;
+        /* Declarations are private to their file unless marked `pub`,
+         * matching what the compiler enforces (E0320). */
         case IRON_NODE_FUNC_DECL:
-            return !((const Iron_FuncDecl *)d)->is_private;
+            return ((const Iron_FuncDecl *)d)->is_pub;
         case IRON_NODE_METHOD_DECL:
-            return !((const Iron_MethodDecl *)d)->is_private;
+            return ((const Iron_MethodDecl *)d)->is_pub;
+        case IRON_NODE_OBJECT_DECL:
+            return ((const Iron_ObjectDecl *)d)->is_pub;
+        case IRON_NODE_ENUM_DECL:
+            return ((const Iron_EnumDecl *)d)->is_pub;
         default:
-            /* RESEARCH Conflict 3: ObjectDecl/InterfaceDecl/EnumDecl/
-             * ValDecl/VarDecl have NO is_private field; parser drops
-             * the keyword. Params/locals are scope-local. All default
-             * to true because they are not cross-file-hideable. */
+            /* InterfaceDecl / ValDecl / VarDecl carry no visibility bit;
+             * params and locals are scope-local. */
             return true;
     }
 }

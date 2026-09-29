@@ -214,7 +214,7 @@ static void test_interface_signature(void) {
 static void test_pub_func_signature_renders_pub(void) {
     const char *src =
         "/// Greet someone.\n"
-        "func greet(name: String) -> String { return name }\n";
+        "pub func greet(name: String) -> String { return name }\n";
     fx_t f; fx_init(&f, "/tmp/h_pub_func.iron", src);
     /* Cursor on "greet" at line 1, col 5. */
     IronLsp_Position pos = { .line = 1, .character = 5 };
@@ -281,7 +281,7 @@ static void test_pub_object_signature_renders_pub_patch_object(void) {
      * predicate defaults-true and `pub patch object` renders for all
      * patch decls (the language cannot represent a private object
      * today). */
-    const char *src = "patch object Int { }\n";
+    const char *src = "pub patch object Int { }\n";
     fx_t f; fx_init(&f, "/tmp/h_pub_obj.iron", src);
     IronLsp_Position pos = { .line = 0, .character = 14 };  /* on "Int" */
     Iron_Arena arena = iron_arena_create(16 * 1024);

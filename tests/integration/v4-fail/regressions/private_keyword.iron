@@ -1,0 +1,10 @@
+-- @expected-error: E0101
+-- `private` was removed: declarations are private to their file unless
+-- marked `pub`. It used to be accepted silently at top level.
+private func helper() -> Int {
+    return 2
+}
+
+func main() {
+    println("{helper()}")
+}

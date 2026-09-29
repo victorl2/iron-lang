@@ -6142,6 +6142,17 @@ Iron_Node *iron_parse(Iron_Parser *p) {
             }
             if (iron_check(p, IRON_TOK_PRIVATE)) {
                 Iron_Token *tok = iron_current(p);
+                /* `private` was removed: declarations are private to their
+                 * file by default. Report it once, then parse on as if it
+                 * were absent. */
+                if (!is_private && !is_pub) {
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_UNEXPECTED_TOKEN,
+                                   iron_token_span(p, tok),
+                                   "`private` is not a keyword",
+                                   "declarations are private to their file by "
+                                   "default; use `pub` to export one");
+                }
                 if (is_private) {
                     iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_UNEXPECTED_TOKEN,

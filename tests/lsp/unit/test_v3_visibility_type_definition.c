@@ -35,9 +35,16 @@ void tearDown(void) {}
 static void test_objectdecl_default_true(void) {
     Iron_ObjectDecl od = {0};
     od.kind = IRON_NODE_OBJECT_DECL;
+    od.is_pub = true;
 
-    /* ObjectDecl has no is_pub axis -> default-true. Cross-module
-     * gate passes. */
+    /* A pub object passes the cross-module gate; a non-pub one does
+     * not. */
+    TEST_ASSERT_TRUE(ilsp_vis_can_see(
+        "/tmp/mod_a.iron", "/tmp/mod_b.iron", (const Iron_Node *)&od));
+    od.is_pub = false;
+    TEST_ASSERT_FALSE(ilsp_vis_can_see(
+        "/tmp/mod_a.iron", "/tmp/mod_b.iron", (const Iron_Node *)&od));
+    od.is_pub = true;
     TEST_ASSERT_TRUE(ilsp_vis_can_see(
         "/tmp/mod_a.iron", "/tmp/mod_b.iron", (const Iron_Node *)&od));
 }
