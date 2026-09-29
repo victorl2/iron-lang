@@ -1,0 +1,3 @@
+n=2240 groups=512 slots=4096 load=0.5469
+ctrl: full=2240 empty=1518 deleted=338 rehashes=8
+lookups=11936 avg groups probed=1.2468

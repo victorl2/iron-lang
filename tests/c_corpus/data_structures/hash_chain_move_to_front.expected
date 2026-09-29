@@ -1,0 +1,3 @@
+plain          hits=60000 value sum=5084589 avg probes per lookup=21.4240
+move-to-front  hits=60000 value sum=5084589 avg probes per lookup=8.7324
+transpose      hits=60000 value sum=5084589 avg probes per lookup=7.6279

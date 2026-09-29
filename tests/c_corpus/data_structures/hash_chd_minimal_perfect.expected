@@ -1,0 +1,4 @@
+lambda=2 buckets=750 max displacement=6923 search steps=18325 (6.50 bits/key at 13-bit seeds)
+lambda=4 buckets=375 max displacement=8524 search steps=82553 (3.50 bits/key at 14-bit seeds)
+lambda=5 buckets=300 max displacement=86882 search steps=478167 (3.40 bits/key at 17-bit seeds)
+value checksum=3374250 example: ab-42444 -> slot 525

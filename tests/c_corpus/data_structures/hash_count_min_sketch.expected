@@ -1,0 +1,7 @@
+stream=40000 universe=2000 width=256 depth=4
+plain:        mean overcount=80.8445 max=225 exact for 4 keys
+conservative: mean overcount=37.7530 max=75 exact for 29 keys
+keys with plain error above e*N/w=424.7: 0
+top 8 (key:estimate/true): 0:183/183 2:148/147 3:127/127 1:126/124 10:125/123 12:120/120 9:118/116 7:117/116
+overlap with true top 8: 7
+merge check passed
