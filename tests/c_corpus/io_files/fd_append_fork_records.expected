@@ -1,0 +1,8 @@
+records=900 crc_failures=0 order_failures=0 payload_failures=0
+writer 0: records=150 bytes=10094
+writer 1: records=150 bytes=10643
+writer 2: records=150 bytes=10400
+writer 3: records=150 bytes=10585
+writer 4: records=150 bytes=9868
+writer 5: records=150 bytes=10488
+file size equals sum of records: 62078

@@ -1,0 +1,5 @@
+inserts=211 deletes=165 updates=324 reused_slots=157
+live=46 slots=54 file size=2608
+rescan: used=46 free=8 value digest=-2962249
+free list length: 8
+corrupted record checksum ok: 0

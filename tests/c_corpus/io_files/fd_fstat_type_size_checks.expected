@@ -1,0 +1,17 @@
+plain file: regular size=0 nlink=1
+after writing 3000 bytes: size=3000
+after ftruncate to 10: size=10
+after link(): nlink=2 same file=1
+after unlinking the link: nlink=1
+dup and second open name the same file: 1 1
+mode after fchmod 0600: 600
+mode after fchmod 0444: 444
+directory: directory
+pipe read end: fifo
+named fifo: fifo
+/dev/null: chardev size=0
+/dev/null swallows writes and reads EOF
+socketpair end: socket
+lstat: symlink size=5; stat: regular size=10
+stat dangling: -1 ENOENT; lstat ok: 1
+fstat closed fd: -1 EBADF
