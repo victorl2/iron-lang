@@ -46,6 +46,13 @@ echo "${fmt_out}" | grep -q "unknown flag" && fail "fmt --check rejected: ${fmt_
 "${IRON}" run -o kept hello.iron > /dev/null || fail "run -o failed"
 [ -x kept ] || fail "run -o did not keep the binary"
 
+# run --debug-build builds into a temp directory; the debug allocator's
+# leak report follows the program's own output.
+printf 'object W { val n: Int }\nfunc main() {\n    val w = heap W(3)\n    println("n {w.n}")\n}\n' > leaky.iron
+dbg_out=$("${IRON}" run --debug-build leaky.iron 2>&1) || fail "run --debug-build: ${dbg_out}"
+echo "${dbg_out}" | grep -A1 '^n 3$' | grep -q 'leaked at exit' \
+    || fail "run --debug-build leak report: ${dbg_out}"
+
 mkdir work && cd work
 "${IRON}" init myapp > /dev/null || fail "iron init myapp failed"
 grep -q '^name = "myapp"' myapp/iron.toml || fail "package not named myapp"

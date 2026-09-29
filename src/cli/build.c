@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -281,10 +282,15 @@ static char *write_temp_c(const char *c_src, bool debug_build,
                     strerror(errno));
             return NULL;
         }
-        size_t plen = strlen(binary_name) + 32;
+        /* binary_name may be a path (`run` builds into a temp directory,
+         * `-o dir/name`): keep only its last component. */
+        const char *base = binary_name;
+        for (const char *c = binary_name; *c; c++)
+            if (*c == '/' || *c == '\\') base = c + 1;
+        size_t plen = strlen(base) + 32;
         path = (char *)malloc(plen);
         if (!path) return NULL;
-        snprintf(path, plen, ".iron-build/%s.c", binary_name);
+        snprintf(path, plen, ".iron-build/%s.c", base);
 
         FILE *f = fopen(path, "w");
         if (!f) {
@@ -2054,7 +2060,17 @@ int iron_build(const char *source_path, const char *output_path,
             iron_run_tempfile_path[0] = '\0';
         }
         free(derived_output);
-        return WIFEXITED(wstatus) ? WEXITSTATUS(wstatus) : 1;
+        if (WIFEXITED(wstatus)) return WEXITSTATUS(wstatus);
+        if (WIFSIGNALED(wstatus)) {
+            /* A panic ends in abort() after printing its own message; any
+             * other signal (a crash) would otherwise go unreported. */
+            int sig = WTERMSIG(wstatus);
+            if (sig != SIGABRT)
+                fprintf(stderr, "error: '%s' terminated by signal %d (%s)\n",
+                        binary_name, sig, strsignal(sig));
+            return 128 + sig;
+        }
+        return 1;
 #endif
     }
 
