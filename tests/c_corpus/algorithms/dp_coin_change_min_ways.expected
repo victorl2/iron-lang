@@ -1,0 +1,9 @@
+system {25,10,5,1}: min(63)=6 comb(50)=49 perm(20)=197 greedy_fail=0 first=-1
+  63 = 25 25 10 1 1 1
+system {4,3,1}: min(63)=16 comb(50)=121 perm(20)=7921 greedy_fail=49 first=6
+  63 = 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 3
+system {9,6,5,1}: min(63)=7 comb(50)=135 perm(20)=619 greedy_fail=85 first=11
+  63 = 9 9 9 9 9 9 9
+system {7,5,2}: min(63)=9 comb(50)=23 perm(20)=63 greedy_fail=84 first=6
+  63 = 7 7 7 7 7 7 7 7 7
+ways(100, 1..100 coins)=293

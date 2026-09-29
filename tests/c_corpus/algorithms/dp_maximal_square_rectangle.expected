@@ -1,0 +1,6 @@
+density=55% ones=94 square=2 at (0,0) rectangle=11
+density=62% ones=106 square=3 at (1,11) rectangle=9
+density=69% ones=120 square=3 at (5,0) rectangle=10
+density=76% ones=121 square=3 at (7,2) rectangle=14
+density=83% ones=141 square=4 at (0,6) rectangle=21
+density=90% ones=151 square=6 at (3,8) rectangle=36

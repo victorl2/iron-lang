@@ -1,0 +1,6 @@
+case 0: n=132 C=125 total=38720 hull_peak=4
+case 1: n=213 C=148 total=61107 hull_peak=4
+case 2: n=285 C=244 total=94600 hull_peak=6
+case 3: n=78 C=248 total=22779 hull_peak=4
+case 4: n=166 C=99 total=40055 hull_peak=3
+case 5: n=173 C=191 total=50528 hull_peak=4

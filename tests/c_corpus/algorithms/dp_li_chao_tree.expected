@@ -1,0 +1,5 @@
+run 0: lines=193 queries_checked=107 fingerprint=115420
+run 1: lines=209 queries_checked=91 fingerprint=195035
+run 2: lines=192 queries_checked=107 fingerprint=517154
+run 3: lines=202 queries_checked=98 fingerprint=1027196
+frog dp final=2963
