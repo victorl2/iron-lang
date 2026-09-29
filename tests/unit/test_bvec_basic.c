@@ -114,13 +114,12 @@ void test_bvec_push_emits_bounds_check(void) {
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, "iron_panic_bvec_oob"),
         "Expected iron_panic_bvec_oob in generated C (push bounds-check)");
 
-    /* Push site: data write through .data field */
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, ".data["),
-        "Expected .data[ in generated C (push write to data field)");
-
-    /* Push site: len increment */
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, ".len += 1"),
-        "Expected .len += 1 in generated C (push len bump)");
+    /* Push site: data write and len increment through the vector's
+     * storage (a pointer to the slot, so the write sticks) */
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, "_bv->data[_bv->len]"),
+        "Expected _bv->data[_bv->len] in generated C (push write to data field)");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, "_bv->len += 1"),
+        "Expected _bv->len += 1 in generated C (push len bump)");
 
     iron_lir_optimize_info_free(&opt);
 }

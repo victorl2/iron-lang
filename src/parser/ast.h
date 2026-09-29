@@ -442,6 +442,10 @@ typedef struct {
     bool          is_pub;
     /* Phase 3 NAV-14: arena-interned `///` run; NULL if none. */
     const char   *doc_comment;
+    /* Set by the type checker: the field's resolved type. Struct emission
+     * uses it for annotations the name alone cannot spell (Box[T],
+     * weak rc T). NULL until type checking. */
+    struct Iron_Type *resolved_type;
     /* Phase 24 DROP-06 (Plan 24-02): resolved Iron_Type* for this field,
      * cached by compute_has_user_copy_transitive / check_method_decl during
      * the analyzer pass so codegen can read field types without TypeCtx.

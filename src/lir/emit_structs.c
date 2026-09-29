@@ -662,12 +662,23 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
         return;
     }
     const char *mangled = emit_object_type_name(td->name, ctx);
-    iron_strbuf_appendf(&ctx->struct_bodies, "struct %s {\n", mangled);
 
     Iron_ObjectDecl *od = NULL;
     if (td->type && td->type->kind == IRON_TYPE_OBJECT && td->type->object.decl) {
         od = td->type->object.decl;
     }
+    /* Fields spelled through their resolved type (see below) may need
+     * helper definitions (Box[T] support code, optional structs); make them
+     * appear before this struct rather than inside it. */
+    for (int i = 0; od && i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        if (!f || !f->type_ann || !f->resolved_type ||
+            f->resolved_type->kind == IRON_TYPE_ERROR) continue;
+        Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
+        if (ta->generic_arg_count > 0 || ta->is_weak_rc || (ta->is_array && ta->bounded))
+            (void)emit_type_to_c(f->resolved_type, ctx);
+    }
+    iron_strbuf_appendf(&ctx->struct_bodies, "struct %s {\n", mangled);
 
     if (od) {
         if (od->extends_name) {
@@ -691,7 +702,13 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                  * f->type_ann before the Iron_TypeAnnotation cast. */
                 IRON_NODE_ASSERT_KIND(f->type_ann, IRON_NODE_TYPE_ANNOTATION);
                 Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
-                if (ta->is_func) {
+                if ((ta->generic_arg_count > 0 || ta->is_weak_rc || (ta->is_array && ta->bounded)) &&
+                    f->resolved_type && f->resolved_type->kind != IRON_TYPE_ERROR) {
+                    /* Box[T], a generic enum, weak rc T, a bounded vector:
+                     * the name alone is not the C type (Box[Counter] was
+                     * emitted as Iron_Box, [T; <=N] as a list). */
+                    c_type = emit_type_to_c(f->resolved_type, ctx);
+                } else if (ta->is_func) {
                     /* func() field: emit as Iron_Closure fat pointer */
                     c_type = "Iron_Closure";
                 } else if (ta->is_nullable) {

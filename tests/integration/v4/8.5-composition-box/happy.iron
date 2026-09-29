@@ -1,28 +1,35 @@
--- section 8.5 Box performance-critical tight loop verbatim
+-- section 8.5 Box performance-critical tight loop
 -- @req: UNCK-01, UNCK-03
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): stale-surface doc transcription: E0264 var-fields-without-init on doc-style
--- objects, explicit-self method signatures (E0101), and bounded-array constructor form
--- `[Particle; <=4096].new()` not parseable (E0102).
 -- Box[ParticleArray] for hot loop; unwrap yields *unchecked for zero-overhead inner loop
 
 object Vec2 {
     var x: Float
     var y: Float
+
+    init(x: Float, y: Float) {
+        self.x = x
+        self.y = y
+    }
 }
 
 object Particle {
     var pos: Vec2
     var vel: Vec2
     var lifetime: Float
+
+    init(pos: Vec2, vel: Vec2, lifetime: Float) {
+        self.pos = pos
+        self.vel = vel
+        self.lifetime = lifetime
+    }
 }
 
 nocopy object ParticleArray {
-    var items: [Particle; <=4096]
+    var items: [Particle; <=64]
     var count: Int
 
-    init(capacity: Int) {
-        self.items = [Particle; <=4096].new()
+    init() {
+        self.items = []
         self.count = 0
     }
 }
@@ -31,26 +38,37 @@ nocopy object ParticleSystem {
     var storage: Box[ParticleArray]
     var count: Int
 
-    init(capacity: Int) {
-        self.storage = Box.new(ParticleArray(capacity))
+    init() {
+        self.storage = Box.new(ParticleArray())
         self.count = 0
     }
 
-    func step(self: *var ParticleSystem, dt: Float) {
+    func add(p: Particle) {
         val particles: *var unchecked ParticleArray = self.storage.unwrap()
+        particles.items.push(p)
+        self.count += 1
+    }
 
+    func step(dt: Float) {
+        val particles: *var unchecked ParticleArray = self.storage.unwrap()
         -- tight inner loop, raw pointer access, no per-deref checks
         for i in range(self.count) {
-            val p: *var unchecked Particle = &particles.items[i]
-            p.pos.x += p.vel.x * dt
-            p.pos.y += p.vel.y * dt
-            p.lifetime -= dt
+            particles.items[i].pos.x += particles.items[i].vel.x * dt
+            particles.items[i].pos.y += particles.items[i].vel.y * dt
+            particles.items[i].lifetime -= dt
         }
+    }
+
+    readonly func first_x() -> Float {
+        val particles: *unchecked ParticleArray = self.storage.unwrap()
+        return particles.items[0].pos.x
     }
 }
 
 func main() {
-    var ps = ParticleSystem(4096)
-    ps.step(0.016)
+    var ps = ParticleSystem()
+    ps.add(Particle(Vec2(0.0, 0.0), Vec2(10.0, 0.0), 1.0))
+    ps.step(0.5)
+    println("x: {ps.first_x()}")
     println("step complete")
 }

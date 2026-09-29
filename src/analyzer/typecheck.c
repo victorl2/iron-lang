@@ -328,6 +328,10 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
     switch ((int)arg->kind) {
         case IRON_NODE_IDENT: {
             Iron_Ident *id = (Iron_Ident *)arg;
+            /* Through a pointer, what counts is the pointer's `var`, not
+             * the binding that holds the pointer. */
+            if (id->resolved_type && id->resolved_type->kind == IRON_TYPE_PTR)
+                return id->resolved_type->ptr.is_var;
             if (id->resolved_sym) return id->resolved_sym->is_mutable;
             Iron_Symbol *s = id->name ? tc_lookup(ctx, id->name) : NULL;
             return s ? s->is_mutable : false;
@@ -341,6 +345,20 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
             Iron_Type *obj_ty = fa->object
                 ? ((Iron_ExprNode *)fa->object)->resolved_type : NULL;
             if (obj_ty && obj_ty->kind == IRON_TYPE_RC) obj_ty = obj_ty->rc.inner;
+            if (obj_ty && obj_ty->kind == IRON_TYPE_PTR) {
+                /* p.f through a pointer: the pointer's var and the field. */
+                bool ptr_var = obj_ty->ptr.is_var;
+                Iron_Type *pt = obj_ty->ptr.pointee;
+                if (pt && pt->kind == IRON_TYPE_OBJECT && pt->object.decl) {
+                    Iron_ObjectDecl *pod = pt->object.decl;
+                    for (int fi = 0; fi < pod->field_count; fi++) {
+                        Iron_Field *f = (Iron_Field *)pod->fields[fi];
+                        if (f && f->name && fa->field && strcmp(f->name, fa->field) == 0)
+                            return ptr_var && f->is_var;
+                    }
+                }
+                return false;
+            }
             bool field_mut = false;
             if (obj_ty && obj_ty->kind == IRON_TYPE_OBJECT && obj_ty->object.decl) {
                 Iron_ObjectDecl *od = obj_ty->object.decl;
@@ -639,7 +657,8 @@ static Iron_Type *type_bounded_vector_literal(TypeCtx *ctx, Iron_Type *decl_type
     if (decl_type->kind == IRON_TYPE_ARRAY && !decl_type->array.is_bounded &&
         decl_type->array.size < 0 && decl_type->array.elem &&
         decl_type->array.elem->kind == IRON_TYPE_INTERFACE &&
-        init_type->kind == IRON_TYPE_ARRAY) {
+        init_type->kind == IRON_TYPE_ARRAY && init_type->array.elem &&
+        init_type->array.elem->kind != IRON_TYPE_INTERFACE) {
         Iron_ArrayLit *ial = (Iron_ArrayLit *)init;
         for (int i = 0; i < ial->element_count; i++) {
             Iron_Node *e = ial->elements[i];
@@ -2401,8 +2420,21 @@ static bool node_is_value_expression(const Iron_Node *n) {
 static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
                                     Iron_Node *receiver) {
     Iron_Node *cur = receiver;
-    while (cur && cur->kind == IRON_NODE_FIELD_ACCESS)
+    for (;;) {
+        /* Past a pointer, the pointer's `var` decides, not the binding
+         * holding it: `p.items.push(x)` with p: *var T is a mutation of
+         * the pointee. */
+        Iron_Type *ct = cur ? ((Iron_ExprNode *)cur)->resolved_type : NULL;
+        if (ct && ct->kind == IRON_TYPE_PTR) {
+            if (!ct->ptr.is_var)
+                emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, mc->span,
+                           "cannot call mutable method through a read-only pointer",
+                           "use a *var pointer");
+            return;
+        }
+        if (!cur || cur->kind != IRON_NODE_FIELD_ACCESS) break;
         cur = ((Iron_FieldAccess *)cur)->object;
+    }
     if (!cur || cur->kind != IRON_NODE_IDENT) return;
     Iron_Ident *id = (Iron_Ident *)cur;
     Iron_Symbol *sym = id->resolved_sym;
@@ -4474,9 +4506,12 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             mc->resolved_type = result;
                             break;
                         }
-                        /* Box.unwrap() -> *unchecked elem (bare T*, 8B). */
+                        /* Box.unwrap() -> *var unchecked elem (bare T*, 8B).
+                         * The box owns the payload, so the pointer is
+                         * mutable (hot loops update in place); it also
+                         * binds to a read-only *unchecked T. */
                         Iron_Type *out = iron_type_make_ptr(ctx->arena, elem_t,
-                                                            false, true);
+                                                            true, true);
                         result = out ? out
                             : iron_type_make_primitive(IRON_TYPE_ERROR);
                         mc->resolved_type = result;
@@ -9524,6 +9559,20 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         Iron_Symbol *type_sym = iron_scope_lookup(ctx.global_scope, od->name);
         if (type_sym && type_sym->type) {
             compute_has_user_copy_transitive(type_sym->type, &ctx);
+        }
+    }
+
+    /* Record each field's resolved type for struct emission. */
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+        if (iron_generics_is_template(program, d)) continue;
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+        if (od->is_patch) continue;
+        for (int fi = 0; fi < od->field_count; fi++) {
+            Iron_Field *f = (Iron_Field *)od->fields[fi];
+            if (f && f->type_ann && !f->resolved_type)
+                f->resolved_type = resolve_type_annotation(&ctx, f->type_ann);
         }
     }
 

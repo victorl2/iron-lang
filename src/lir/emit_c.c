@@ -535,6 +535,20 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
     if (in && in->kind == IRON_LIR_GET_INDEX &&
         !(ctx->split_collection_ids &&
           hmgeti(ctx->split_collection_ids, in->index.array) >= 0)) {
+        /* An element of a bounded vector held in storage (a slot, a field
+         * reached through a pointer): the vector is a value struct, so a
+         * loaded copy of it is not where the element lives; address it
+         * inside the vector's own storage. */
+        Iron_Type *at = emit_get_value_type(fn, in->index.array);
+        if (at && at->kind == IRON_TYPE_ARRAY && at->array.is_bounded &&
+            emit_vid_is_storage_path(fn, in->index.array)) {
+            iron_strbuf_appendf(sb, "&((*");
+            emit_receiver_addr(sb, fn, ctx, in->index.array, use_block_id);
+            iron_strbuf_appendf(sb, ").data[");
+            emit_expr_to_buf(sb, in->index.index, fn, ctx, use_block_id, 0);
+            iron_strbuf_appendf(sb, "])");
+            return;
+        }
         /* `xs[i].m()` with a pointer receiver: address the element in the
          * array's storage. The element value may have been materialized
          * into a temporary (always under --no-optimize); force its indexing
@@ -584,6 +598,15 @@ static bool emit_vid_is_storage_path(IronLIR_Func *fn, IronLIR_ValueId vid) {
     if (!in) return false;
     if (emit_is_optional_unwrap(fn, in))
         return emit_vid_is_storage_path(fn, in->cast.value);
+    if (in->kind == IRON_LIR_GET_INDEX) {
+        /* A dynamic list's elements live in its heap buffer (shared by
+         * every copy of the list header); a bounded vector's elements live
+         * inside the vector, so they are storage when the vector is. */
+        Iron_Type *at = emit_get_value_type(fn, in->index.array);
+        if (!at || at->kind != IRON_TYPE_ARRAY) return false;
+        if (at->array.is_bounded) return emit_vid_is_storage_path(fn, in->index.array);
+        return at->array.size < 0;
+    }
     if (in->kind == IRON_LIR_LOAD) {
         IronLIR_ValueId p = in->load.ptr;
         IronLIR_Instr *pin = (p != IRON_LIR_VALUE_INVALID &&
@@ -4323,49 +4346,31 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         recv_t->array.is_bounded && recv_t->array.size >= 0) {
                         if (is_push_call && instr->call.arg_count >= 2) {
                             int N = recv_t->array.size;
-                            /* Phase 23 VEC-01 push mutation fix: bounded vecs are
-                             * value types (structs).  If args[0] is a LOAD, the
-                             * SSA result is a *copy* — mutations there are lost.
-                             * Detect that pattern and operate directly on the alloca
-                             * (the ptr operand of the LOAD) so writes stick. */
-                            IronLIR_ValueId push_recv = instr->call.args[0];
-                            {
-                                IronLIR_ValueId raw = push_recv;
-                                if (raw != IRON_LIR_VALUE_INVALID &&
-                                    raw < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                                    fn->value_table[raw] != NULL &&
-                                    fn->value_table[raw]->kind == IRON_LIR_LOAD) {
-                                    push_recv = fn->value_table[raw]->load.ptr;
-                                }
-                            }
-                            /* if (bv.len >= N) iron_panic_bvec_oob(...) */
+                            /* Bounded vecs are value types (structs): push
+                             * through the receiver's storage (a slot, or a
+                             * field reached through a pointer) so the write
+                             * sticks; a loaded copy lost it. */
                             emit_indent(sb, ind);
-                            iron_strbuf_appendf(sb, "if (");
-                            emit_expr_to_buf(sb, push_recv, fn, ctx,
-                                             ctx->current_block_id, 0);
+                            iron_strbuf_appendf(sb, "{\n");
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "%s *_bv = ",
+                                                emit_type_to_c(recv_t, ctx));
+                            emit_receiver_addr(sb, fn, ctx, instr->call.args[0],
+                                               ctx->current_block_id);
+                            iron_strbuf_appendf(sb, ";\n");
+                            emit_indent(sb, ind + 1);
                             iron_strbuf_appendf(sb,
-                                ".len >= %d)"
-                                " iron_panic_bvec_oob(__FILE__, __LINE__, (int64_t)",
-                                N);
-                            emit_expr_to_buf(sb, push_recv, fn, ctx,
-                                             ctx->current_block_id, 0);
-                            iron_strbuf_appendf(sb, ".len, (int64_t)%d);\n", N);
-                            /* bv.data[bv.len] = value; */
-                            emit_indent(sb, ind);
-                            emit_expr_to_buf(sb, push_recv, fn, ctx,
-                                             ctx->current_block_id, 0);
-                            iron_strbuf_appendf(sb, ".data[");
-                            emit_expr_to_buf(sb, push_recv, fn, ctx,
-                                             ctx->current_block_id, 0);
-                            iron_strbuf_appendf(sb, ".len] = ");
+                                "if (_bv->len >= %d) iron_panic_bvec_oob(__FILE__, __LINE__,"
+                                " (int64_t)_bv->len, (int64_t)%d);\n", N, N);
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "_bv->data[_bv->len] = ");
                             emit_expr_to_buf(sb, instr->call.args[1], fn, ctx,
                                              ctx->current_block_id, 0);
                             iron_strbuf_appendf(sb, ";\n");
-                            /* bv.len += 1; */
+                            emit_indent(sb, ind + 1);
+                            iron_strbuf_appendf(sb, "_bv->len += 1;\n");
                             emit_indent(sb, ind);
-                            emit_expr_to_buf(sb, push_recv, fn, ctx,
-                                             ctx->current_block_id, 0);
-                            iron_strbuf_appendf(sb, ".len += 1;\n");
+                            iron_strbuf_appendf(sb, "}\n");
                             break;  /* skip standard CALL emission */
                         } else if (is_len_call) {
                             /* result = (int64_t)bv.len; */
