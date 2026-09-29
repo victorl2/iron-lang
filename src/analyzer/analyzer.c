@@ -4,6 +4,7 @@
 #include "analyzer/capture.h"
 #include "analyzer/iface_defaults.h"
 #include "analyzer/init_check.h"
+#include "analyzer/effects.h"
 #include "analyzer/unused_var.h"
 #include "analyzer/escape.h"
 #include "analyzer/concurrency.h"
@@ -190,6 +191,12 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
      * tree the resolver has seen, including ones with prior errors.
      * Cancellation polled at per-function boundary inside the pass. */
     iron_unused_var_check(program, result.global_scope, arena, diags, cancel_flag);
+
+    if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
+
+    /* Step 3c: purity tiers through calls (pure / readonly methods calling
+     * free functions that perform I/O or write globals). */
+    iron_effects_check(program, result.global_scope, arena, diags, cancel_flag);
 
     if (iron_cancel_requested(cancel_flag)) { result.has_errors = (diags->error_count > 0); return result; }
 

@@ -1,0 +1,19 @@
+-- @expected-error: E0242
+-- A pure method may not perform I/O through a helper it calls, even two
+-- calls deep.
+func log_it(x: Int) -> Int {
+    println("value {x}")
+    return x
+}
+
+func via(x: Int) -> Int { return log_it(x) }
+
+object C {
+    val v: Int
+    pure func a() -> Int { return via(self.v) }
+}
+
+func main() {
+    val c = C(1)
+    println("{c.a()}")
+}

@@ -1,0 +1,16 @@
+-- @expected-error: E0278
+-- A readonly method may not perform I/O through a helper it calls.
+func helper() -> Int {
+    println("side effect")
+    return 1
+}
+
+object C {
+    val v: Int
+    readonly func a() -> Int { return self.v + helper() }
+}
+
+func main() {
+    val c = C(1)
+    println("{c.a()}")
+}
