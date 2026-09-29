@@ -36,7 +36,7 @@ static void push(IntVec *v, int x) {
         check(ni != NULL, "alloc");
         if (v->n)
             memcpy(ni, v->items, (size_t)v->n * sizeof(int));
-        memset(v->items, 0xFF, (size_t)v->cap * sizeof(int)); /* poison old storage */
+        if (v->items) memset(v->items, 0xFF, (size_t)v->cap * sizeof(int)); /* poison old storage */
         free(v->items);
         v->items = ni;
         v->cap = ncap;

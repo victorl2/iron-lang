@@ -108,7 +108,8 @@ int main(void) {
         for (int q = 0; q < 5; q++) {
             int at = 100 + q * 700;
             memcpy(t + at, pats[c], (size_t)m);
-            t[at + (int)(rnd() % (unsigned)m)] = 'a' + (char)(rnd() % 3);
+            char ch = 'a' + (char)(rnd() % 3); /* value first, then position: the order the expected output uses */
+            t[at + (int)(rnd() % (unsigned)m)] = ch;
         }
         u64 *ht = prefix_hashes(t, N);
         u64 *hp = prefix_hashes(pats[c], m);

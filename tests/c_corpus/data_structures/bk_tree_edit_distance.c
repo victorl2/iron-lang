@@ -72,7 +72,7 @@ static void mutate(char *w, int k) {
         int len = (int)strlen(w), op = (int)(rnd() % 3);
         if (op == 0 && len > 1) { int p = (int)(rnd() % (unsigned)len); memmove(w + p, w + p + 1, (size_t)(len - p)); }
         else if (op == 1 && len < 11) { int p = (int)(rnd() % (unsigned)(len + 1)); memmove(w + p + 1, w + p, (size_t)(len - p + 1)); w[p] = (char)('a' + rnd() % 5); }
-        else if (len > 0) { w[rnd() % (unsigned)len] = (char)('a' + rnd() % 5); }
+        else if (len > 0) { char ch = (char)('a' + rnd() % 5); w[rnd() % (unsigned)len] = ch; }
     }
 }
 

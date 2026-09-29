@@ -128,7 +128,8 @@ int main(void) {
         check(floor_log2_32_db(1u << i) == i, "table log2 on powers of two");
     int ctz_hist[65] = {0}, lg_hist[65] = {0};
     for (int t = 0; t < 30000; t++) {
-        uint64_t v = rnd64() >> (rnd64() % 63);
+        uint64_t v = rnd64();
+        v >>= rnd64() % 63;
         if (t % 4 == 0)
             v <<= (rnd64() % 20);
         if (v == 0)

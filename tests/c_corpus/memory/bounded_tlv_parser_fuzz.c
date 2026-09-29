@@ -79,7 +79,10 @@ int main(void) {
         } else if (mode == 1) {
             n = make_valid(scratch);
             int flips = 1 + (int)(rnd() % 3);
-            for (int f = 0; f < flips; f++) scratch[rnd() % n] ^= (uint8_t)(1u << (rnd() % 8));
+            for (int f = 0; f < flips; f++) {
+                uint8_t bit = (uint8_t)(1u << (rnd() % 8));
+                scratch[rnd() % n] ^= bit;
+            }
         } else if (mode == 2) {
             n = make_valid(scratch);
             n = rnd() % (n + 1); /* truncate anywhere */

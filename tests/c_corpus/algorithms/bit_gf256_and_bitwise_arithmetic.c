@@ -157,7 +157,10 @@ int main(void) {
     printf("ripple additions: mean iterations %.2f over %ld samples, worst %d\n", (double)total_iter / (double)samples,
            samples, worst);
     for (int t = 0; t < 5000; t++) {
-        uint32_t a = rnd() >> (rnd() % 20), b = rnd() >> (rnd() % 30);
+        uint32_t a = rnd();
+        a >>= rnd() % 20;
+        uint32_t b = rnd();
+        b >>= rnd() % 30;
         check(mul_bits(a, b) == a * b, "multiplication");
         if (b) {
             uint32_t q, r;

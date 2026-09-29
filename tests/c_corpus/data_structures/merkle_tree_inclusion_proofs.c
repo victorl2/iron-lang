@@ -100,7 +100,7 @@ int main(void) {
             check(apply_proof(leaf_hash(data[i], 6), st, k) == r, "valid proof reaches root");
             verified++;
             /* tampered leaf must fail */
-            unsigned char bad[6]; memcpy(bad, data[i], 6); bad[rnd() % 6] ^= (unsigned char)(1u << (rnd() % 8));
+            unsigned char bad[6]; memcpy(bad, data[i], 6); unsigned pos = rnd() % 6; bad[pos] ^= (unsigned char)(1u << (rnd() % 8));
             check(apply_proof(leaf_hash(bad, 6), st, k) != r, "tampered leaf rejected");
             /* proof for a different index must fail on this leaf (when n>1) */
             if (m.n > 1) {

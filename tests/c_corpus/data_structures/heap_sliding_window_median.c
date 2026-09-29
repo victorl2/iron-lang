@@ -122,8 +122,10 @@ int main(void) {
     enum { N = 6000 };
     static int data[N];
     int windows[] = {1, 2, 3, 8, 25, 100};
-    for (int i = 0; i < N; i++)
-        data[i] = (int)(rng() % 200) + (int)(rng() % 200) / (1 + i / 1500);
+    for (int i = 0; i < N; i++) {
+        int base = (int)(rng() % 200);
+        data[i] = base + (int)(rng() % 200) / (1 + i / 1500);
+    }
     for (size_t wi = 0; wi < sizeof windows / sizeof windows[0]; wi++) {
         int k = windows[wi];
         Med m;

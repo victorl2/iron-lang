@@ -173,8 +173,10 @@ int main(void) {
                 prio = (int)(rng() % 8); /* very hot low priorities: long FIFOs */
             else if (shape == 1)
                 prio = (int)(rng() % 512);
-            else if (shape == 2)
-                prio = 4096 * (int)(rng() % 64) + (int)(rng() % 3);
+            else if (shape == 2) {
+                int high = (int)(rng() % 64);
+                prio = 4096 * high + (int)(rng() % 3);
+            }
             else
                 prio = (int)(rng() % PRIOS);
             enqueue(q, id, prio);

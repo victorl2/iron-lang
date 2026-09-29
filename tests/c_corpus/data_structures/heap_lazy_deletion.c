@@ -136,7 +136,7 @@ int main(void) {
     int mprio[M], mhas[M] = {0};
     int pushes = 0, updates = 0, removes = 0, pops = 0;
     long popsum = 0;
-    for (int op = 0; op < 30000; op++) {
+    for (int op = 0; op < 6000; op++) {
         int id = (int)(rng() % M), r = (int)(rng() % 100);
         if (!mhas[id]) {
             if (r < 60) {

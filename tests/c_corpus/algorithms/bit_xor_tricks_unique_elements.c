@@ -213,7 +213,8 @@ int main(void) {
         uint32_t v[16];
         Basis bs = {{0}, 0};
         for (int i = 0; i < n; i++) {
-            v[i] = rnd() >> (rnd() % 24);
+            v[i] = rnd();
+            v[i] >>= rnd() % 24;
             basis_insert(&bs, v[i]);
         }
         check(basis_max_xor(&bs) == brute_max_subset_xor(v, n), "max subset xor");

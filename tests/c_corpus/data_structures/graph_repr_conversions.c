@@ -41,7 +41,7 @@ static int cmp_edge(const void *a, const void *b) {
     if (x->u != y->u) return x->u < y->u ? -1 : 1;
     return (x->v > y->v) - (x->v < y->v);
 }
-static void al_sort(AdjList *g) { for (int i = 0; i < g->n; i++) qsort(g->adj[i], (size_t)g->len[i], sizeof(int), cmp_int); }
+static void al_sort(AdjList *g) { for (int i = 0; i < g->n; i++) if (g->len[i] > 0) qsort(g->adj[i], (size_t)g->len[i], sizeof(int), cmp_int); }
 static void el_add(EdgeList *l, int u, int v) {
     if (l->m == l->cap) { l->cap = l->cap ? l->cap * 2 : 16; l->e = realloc(l->e, (size_t)l->cap * sizeof(Edge)); }
     l->e[l->m].u = u; l->e[l->m].v = v; l->m++;

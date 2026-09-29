@@ -94,8 +94,10 @@ int main(void) {
     /* round trip with exact-size heap buffers */
     long rt = 0;
     for (int i = 0; i < 4000; i++) {
-        uint64_t v = rnd() >> (rnd() % 64);
-        int64_t sv = (int64_t)rnd() >> (rnd() % 64);
+        uint64_t v = rnd();
+        v >>= rnd() % 64;
+        int64_t sv = (int64_t)rnd();
+        sv >>= rnd() % 64;
         size_t n = enc_u(v, buf);
         uint8_t *ex = malloc(n);
         if (!ex) return 1;

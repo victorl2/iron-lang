@@ -88,7 +88,7 @@ int main(void) {
             CHECK(ok == (mn > 0) && (!ok || got == want)); cnt[5]++;
         }
         CHECK(l.n == mn);
-        CHECK(memcmp(l.a, m, mn * sizeof(int)) == 0);
+        CHECK(mn == 0 || memcmp(l.a, m, mn * sizeof(int)) == 0);
         for (size_t i = 1; i < mn; i++) CHECK(m[i - 1] <= m[i]);
         cnt[6] += (long)mn;
     }

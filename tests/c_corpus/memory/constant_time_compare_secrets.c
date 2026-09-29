@@ -86,7 +86,10 @@ int main(void) {
         for (int i = 0; i < 8; i++) a[i] = (unsigned char)rnd();
         memcpy(b, a, 8);
         uint32_t mode = rnd() % 4;
-        if (mode == 1) b[rnd() % 8] ^= (unsigned char)(1u << (rnd() % 8));
+        if (mode == 1) {
+            unsigned pos = rnd() % 8;
+            b[pos] ^= (unsigned char)(1u << (rnd() % 8));
+        }
         else if (mode == 2) for (int i = 0; i < 8; i++) b[i] = (unsigned char)rnd();
         else if (mode == 3) { size_t p = rnd() % 8; b[p] = (unsigned char)(a[p] + 1 + rnd() % 3); }
         int m = memcmp(a, b, 8);

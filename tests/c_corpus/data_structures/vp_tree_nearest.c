@@ -93,7 +93,10 @@ static int depth(const VP *v) { if (!v) return 0; int a = depth(v->in), b = dept
 int main(void) {
     /* clustered fingerprints: 12 centers, each perturbed by a few bit flips */
     uint32_t centers[12];
-    for (int i = 0; i < 12; i++) centers[i] = ((uint32_t)rnd() << 16) ^ (uint32_t)rnd();
+    for (int i = 0; i < 12; i++) {
+        centers[i] = (uint32_t)rnd() << 16;
+        centers[i] ^= (uint32_t)rnd();
+    }
     for (int i = 0; i < NP; i++) {
         uint32_t x = centers[rnd() % 12];
         int flips = (int)(rnd() % 6);
@@ -111,7 +114,13 @@ int main(void) {
         int k = ks[ki];
         long tc = 0; long sumd = 0;
         for (int q = 0; q < 100; q++) {
-            uint32_t qp = (q % 2) ? pts[rnd() % NP] ^ (1u << (rnd() % 32)) : (uint32_t)rnd() * 2654435761u;
+            uint32_t qp;
+            if (q % 2) {
+                qp = pts[rnd() % NP];
+                qp ^= 1u << (rnd() % 32);
+            } else {
+                qp = (uint32_t)rnd() * 2654435761u;
+            }
             Best b; b.n = 0; b.k = k;
             dcalls = 0;
             knn(root, qp, &b);
@@ -126,7 +135,8 @@ int main(void) {
     for (int r = 0; r <= 6; r += 3) {
         long total = 0, tc = 0;
         for (int q = 0; q < 50; q++) {
-            uint32_t qp = pts[rnd() % NP] ^ (uint32_t)(rnd() & 0x101);
+            uint32_t qp = pts[rnd() % NP];
+            qp ^= (uint32_t)(rnd() & 0x101);
             int got[NP]; dcalls = 0;
             int ng = range(root, qp, r, got, 0);
             tc += dcalls;
