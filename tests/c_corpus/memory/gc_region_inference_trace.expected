@@ -1,0 +1,14 @@
+trace events: 1238, allocation sites: 288
+constraint passes to fixed point: 5, objects lifted: 121
+depth  allocated-in-frame  assigned-region
+    0                   3                8
+    1                   7               10
+    2                  11               23
+    3                  16               23
+    4                  46               86
+    5                  60               64
+    6                 145               74
+naive frame-local regions: 3449 dangling reachable-object observations
+inferred regions: 0 dangling reachable-object observations
+peak allocated: 47, peak reachable: 37
+region waste summed over checkpoints: 865

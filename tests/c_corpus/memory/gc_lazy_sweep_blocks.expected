@@ -1,0 +1,7 @@
+objects allocated: 712
+collections: 13
+blocks swept lazily: 70, eagerly at next mark: 26
+objects reclaimed: 698
+garbage awaiting sweep at end: 7
+used slots at end: 14 of 96
+oracle checks: 13

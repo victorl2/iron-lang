@@ -1,0 +1,6 @@
+objects allocated: 812, large: 163
+collections: 20 (small space full: 6, page volume: 6, no page run: 2)
+pages freed: 949, peak pages in use: 90 of 96, in use at end: 25
+smallest largest-free-run after a collection: 25 pages
+failures caused by fragmentation alone: 0
+oracle checks: 20

@@ -1,0 +1,6 @@
+objects allocated: 957
+freed by counting: 830, freed by backup trace: 113 (of which stuck counts: 5)
+backup collections: 7, 6 of them found garbage
+count updates: 5324, counts that saturated: 6
+live at end: 14
+oracle checks: 2407

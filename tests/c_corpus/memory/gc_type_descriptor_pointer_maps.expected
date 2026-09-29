@@ -1,0 +1,10 @@
+type descriptors (pointer bitmap over 6 payload words):
+  0 pair     PPiiii
+  1 spread   iiPiiP
+  2 mixed    iPiPii
+  3 wrapped  PiiiPi
+objects allocated: 842, collections: 25, swept: 829
+integer words that alias a cell index: 2051
+survivors summed over collections: precise 314, conservative would keep 797
+false retention avoided: 483
+oracle checks: 25

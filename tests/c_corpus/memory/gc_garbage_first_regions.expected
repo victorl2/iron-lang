@@ -1,0 +1,6 @@
+objects allocated: 583, pauses: 6
+regions freed: 63, objects evacuated: 38, average cset size x100: 1050
+remembered set adds: 334, coarsened to full scan: 20
+regions skipped by budget: 6, by lack of free regions: 0
+peak regions in use: 16 of 16, objects at end: 11
+oracle checks: 6

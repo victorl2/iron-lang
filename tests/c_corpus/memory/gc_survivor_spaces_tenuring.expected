@@ -1,0 +1,7 @@
+objects allocated: 1017, minor collections: 46
+copied within survivor spaces: 195
+promoted by age: 366, promoted by survivor overflow: 139
+tenuring threshold now 1 (raised 21 times, lowered 23 times)
+survivors by age reached: 1:195 2:0 3:0 4:0 5:0 6:0 7:0
+old space used: 505, peak remembered set: 7, unreachable objects kept, summed over collections: 11363
+oracle checks: 46
