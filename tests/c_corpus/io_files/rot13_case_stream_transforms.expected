@@ -1,0 +1,29 @@
+== rot13 ==
+Uryyb, Jbeyq! Vg'f 2024: gur dhvpx oebja Sbk
+whzcf bire GUR ynml qbt (ntnva & ntnva).
+Cngu/gb-svyr_anzr.GKG 100% qbar?
+== upper ==
+HELLO, WORLD! IT'S 2024: THE QUICK BROWN FOX
+JUMPS OVER THE LAZY DOG (AGAIN & AGAIN).
+PATH/TO-FILE_NAME.TXT 100% DONE?
+== lower ==
+hello, world! it's 2024: the quick brown fox
+jumps over the lazy dog (again & again).
+path/to-file_name.txt 100% done?
+== swap ==
+hELLO, wORLD! iT'S 2024: THE QUICK BROWN fOX
+JUMPS OVER the LAZY DOG (AGAIN & AGAIN).
+pATH/TO-FILE_NAME.txt 100% DONE?
+== title ==
+Hello, World! It's 2024: The Quick Brown Fox
+Jumps Over The Lazy Dog (Again & Again).
+Path/To-File_Name.Txt 100% Done?
+== rot47 ==
+w6==@[ (@C=5P xEVD a_aci E96 BF:4< 3C@H? u@I
+;F>AD @G6C %wt =2KJ 5@8 W282:? U 282:?X]
+!2E9^E@\7:=60?2>6]%)% `__T 5@?6n
+rot13 twice restores input: yes
+rot47 twice restores input: yes
+swap twice restores input: yes
+upper-then-lower equals lower: yes
+Jul qvq gur puvpxra pebff gur ebnq?

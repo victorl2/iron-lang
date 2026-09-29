@@ -1,0 +1,6 @@
+lines 200 words 1099 bytes 6556
+longest line 79, digits 328, uppercase 205, whitespace 2422
+block size    1 -> identical counts: yes
+block size    7 -> identical counts: yes
+block size  100 -> identical counts: yes
+block size 4096 -> identical counts: yes

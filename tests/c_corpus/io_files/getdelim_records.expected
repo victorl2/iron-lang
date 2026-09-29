@@ -1,0 +1,15 @@
+#0 key="host" value="example"
+#1 key="port" value="8080"
+#2 empty record
+#3 key="debug" value=""
+#4 malformed "bad record"
+#5 key="name" value="with space"
+#6 key="last" value="x" (unterminated)
+records 7: good 5 empty 1 malformed 1
+nul record 0 len 5 term=1 "first"
+nul record 1 len 24 term=1 "second line\nwith newline"
+nul record 2 len 0 term=1 ""
+nul record 3 len 6 term=1 "fourth"
+nul record 4 len 4 term=0 "tail"
+nul records 5, bytes 43
+newline delimited lengths: 2 3 3

@@ -1,0 +1,10 @@
+long runs     raw 20000 encoded   355 (smaller) roundtrip ok
+no runs       raw 20000 encoded 20000 (equal) roundtrip ok
+escape heavy  raw 20000 encoded 27247 (larger) roundtrip ok
+all zeros     raw 20000 encoded   237 (smaller) roundtrip ok
+case 0 -> 90 04 61
+case 1 -> 61 61 61
+case 2 -> 61 62 90 05 63 64
+case 3 -> 90 00
+case 4 -> 90 00 90 00
+truncated stream accepted: no

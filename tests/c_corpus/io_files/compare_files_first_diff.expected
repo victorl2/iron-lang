@@ -1,0 +1,9 @@
+same           identical (17 bytes)
+one-byte       differ at byte 9 (line 2 col 3), 1 differing positions, lengths 17/17
+line-end       differ at byte 11 (line 2 col 5), 1 differing positions, lengths 11/10
+prefix         differ at byte 4 (line 1 col 4), 3 differing positions, lengths 3/6
+empty-vs-data  differ at byte 1 (line 1 col 1), 1 differing positions, lengths 0/1
+both-empty     identical (0 bytes)
+first-byte     differ at byte 1 (line 1 col 1), 1 differing positions, lengths 5/5
+many           differ at byte 5 (line 1 col 5), 2 differing positions, lengths 22/22
+line diff: 6 and 6 lines, 4 in common, 2 removed, 2 added
