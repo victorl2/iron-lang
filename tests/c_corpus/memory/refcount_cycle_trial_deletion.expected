@@ -1,0 +1,7 @@
+live before collect: 4, roots buffered: 3
+collected order: 2 3 1
+live after collect: 1 (d survives: rc=1)
+second collect order: 5
+live: 3, f alive=1 g alive=1
+third collect count: 2, live: 1
+final live: 0

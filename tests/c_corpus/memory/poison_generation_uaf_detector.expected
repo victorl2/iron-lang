@@ -1,0 +1,14 @@
+allocated blocks 0 1 2
+a[0]=11 b[5]=22
+oob at 24: rejected
+free b: 1
+stale read: rejected
+raw read of freed block: 0xA5
+double free: 0
+reused slot: yes, gen 1 vs old 0
+new ref reads 33, old ref rejected
+bytes leaked into new owner: 0
+filled heap with 5 more blocks; next alloc fails
+poisoned bytes: 192 of 192
+gens: 1 2 1 1 1 1 1 1
+errors: uaf=2 double=1 oob=1 poison_reads=1

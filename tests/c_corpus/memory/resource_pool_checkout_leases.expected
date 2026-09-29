@@ -1,0 +1,14 @@
+fifth checkout: exhausted
+return beta: ok
+return beta again: double-return
+reused conn id 101 (uses=2), lease 5
+stale lease returns: stale
+resets so far: 1
+outstanding: 4 [alpha#100,zeta#101,gamma#102,delta#103]
+return alpha,gamma,delta: ok ok ok
+outstanding now: 1 [zeta#101]
+conn 100 uses=15
+conn 101 uses=2
+conn 102 uses=14
+conn 103 uses=14
+resets total: 42, idle=4
