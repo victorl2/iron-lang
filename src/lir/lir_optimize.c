@@ -2365,7 +2365,7 @@ static bool run_store_load_elim(IronLIR_Module *module) {
                                             fn->value_table[in->store.value])
                             ? fn->value_table[in->store.value]->type : NULL;
                         if (slot_t && val_t && slot_t->kind != val_t->kind) {
-                            hmdel(last_store, in->store.ptr);
+                            if (last_store) hmdel(last_store, in->store.ptr);
                             break;
                         }
                         hmput(last_store, in->store.ptr, in->store.value);

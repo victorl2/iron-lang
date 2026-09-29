@@ -3942,6 +3942,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         else if (strcmp(suffix, "_len") == 0) coll_method = "len";     /* Phase 55: PUSH-01 (len) */
                         else if (strcmp(suffix, "_pop") == 0) coll_method = "pop";     /* Phase 55: PUSH-01 (pop) */
                         else if (strcmp(suffix, "_get") == 0) coll_method = "get";     /* Phase 55: PUSH-01 (get) */
+                        else if (strcmp(suffix, "_insert") == 0) coll_method = "insert";
+                        else if (strcmp(suffix, "_remove") == 0) coll_method = "remove";
+                        else if (strcmp(suffix, "_clear") == 0) coll_method = "clear";
+                        else if (strcmp(suffix, "_reverse") == 0) coll_method = "reverse";
                     }
                 }
                 if (coll_method) {
@@ -4006,7 +4010,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                     lower_name[nl2] = '\0';
                                 }
                                 emit_indent(sb, ind + 3);
-                                iron_strbuf_appendf(sb, "case %d: _sp_item = ", ji);
+                                iron_strbuf_appendf(sb, "case %d: _sp_item = ", impl->tag);
                                 emit_split_elem_read_open(sb, ctx, sp_iface, impl);
                                 emit_val(sb, self_arg);
                                 iron_strbuf_appendf(sb, ".%s_items[", lower_name);
@@ -4074,7 +4078,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                     lower_name[nl2] = '\0';
                                 }
                                 emit_indent(sb, ind + 3);
-                                iron_strbuf_appendf(sb, "case %d: _sp_item = ", ji);
+                                iron_strbuf_appendf(sb, "case %d: _sp_item = ", impl->tag);
                                 emit_split_elem_read_open(sb, ctx, sp_iface, impl);
                                 emit_val(sb, self_arg);
                                 iron_strbuf_appendf(sb, ".%s_items[", lower_name);
@@ -4111,14 +4115,20 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                     lower_name[nl2] = '\0';
                                 }
                                 emit_indent(sb, ind + 4);
-                                iron_strbuf_appendf(sb, "case %d: Iron_SplitList_%s_push_%s(&",
-                                    ji, sp_iface, impl->type_name);
-                                emit_val(sb, instr->id);
-                                iron_strbuf_appendf(sb, ", ");
+                                /* The kept element gets its own copy: the
+                                 * result list owns it (copy glue fixes up
+                                 * its lists, strings and rc fields). */
+                                const char *fim = emit_mangle_name(impl->type_name, ctx->arena);
+                                bool fcopy = impl->decl && od_needs_copy_fixup(ctx, impl->decl);
+                                iron_strbuf_appendf(sb, "case %d: { %s _fk = ", impl->tag, fim);
                                 emit_val(sb, self_arg);
                                 iron_strbuf_appendf(sb, ".%s_items[", lower_name);
                                 emit_val(sb, self_arg);
-                                iron_strbuf_appendf(sb, "._order[_oi].idx]); break;\n");
+                                iron_strbuf_appendf(sb, "._order[_oi].idx]; ");
+                                if (fcopy) iron_strbuf_appendf(sb, "%s_copied(&_fk); ", fim);
+                                iron_strbuf_appendf(sb, "Iron_SplitList_%s_push_%s(&", sp_iface, impl->type_name);
+                                emit_val(sb, instr->id);
+                                iron_strbuf_appendf(sb, ", _fk); } break;\n");
                             }
                             emit_indent(sb, ind + 3);
                             iron_strbuf_appendf(sb, "}\n");
@@ -4173,7 +4183,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                     lower_name[nl2] = '\0';
                                 }
                                 emit_indent(sb, ind + 3);
-                                iron_strbuf_appendf(sb, "case %d: _sp_item = ", ji);
+                                iron_strbuf_appendf(sb, "case %d: _sp_item = ", impl->tag);
                                 emit_split_elem_read_open(sb, ctx, sp_iface, impl);
                                 emit_val(sb, self_arg);
                                 iron_strbuf_appendf(sb, ".%s_items[", lower_name);
@@ -4233,7 +4243,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                     lower_name[nl2] = '\0';
                                 }
                                 emit_indent(sb, ind + 3);
-                                iron_strbuf_appendf(sb, "case %d: _sp_item = ", ji);
+                                iron_strbuf_appendf(sb, "case %d: _sp_item = ", impl->tag);
                                 emit_split_elem_read_open(sb, ctx, sp_iface, impl);
                                 emit_val(sb, self_arg);
                                 iron_strbuf_appendf(sb, ".%s_items[", lower_name);
@@ -4343,6 +4353,35 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                              * type — defer to generic emission (will produce the legacy bogus
                              * name and fail loudly at C compile time, which is strictly
                              * better than silently miscompiling). */
+                        } else if (strcmp(coll_method, "insert") == 0 ||
+                                   strcmp(coll_method, "remove") == 0 ||
+                                   strcmp(coll_method, "clear") == 0 ||
+                                   strcmp(coll_method, "reverse") == 0) {
+                            /* Generated split list helpers (emit_split.c): the
+                             * list by address, an inserted concrete object wrapped
+                             * into the interface. */
+                            bool returns = strcmp(coll_method, "remove") == 0;
+                            emit_indent(sb, ind);
+                            if (returns) {
+                                if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", sp_iface);
+                                emit_val(sb, instr->id);
+                                iron_strbuf_appendf(sb, " = ");
+                            }
+                            iron_strbuf_appendf(sb, "Iron_SplitList_%s_%s(", sp_iface, coll_method);
+                            emit_receiver_addr(sb, fn, ctx, self_arg, ctx->current_block_id);
+                            for (int ai = 1; ai < instr->call.arg_count; ai++) {
+                                IronLIR_ValueId av = instr->call.args[ai];
+                                Iron_Type *avt = emit_get_value_type(fn, av);
+                                bool wrap = ai == 2 && avt && avt->kind == IRON_TYPE_OBJECT &&
+                                            avt->object.decl && avt->object.decl->name;
+                                iron_strbuf_appendf(sb, ", ");
+                                if (wrap) iron_strbuf_appendf(sb, "%s_from_%s(", sp_iface,
+                                                              avt->object.decl->name);
+                                emit_expr_to_buf(sb, av, fn, ctx, ctx->current_block_id, 0);
+                                if (wrap) iron_strbuf_appendf(sb, ")");
+                            }
+                            iron_strbuf_appendf(sb, ");\n");
+                            break;
                         } else if (strcmp(coll_method, "len") == 0) {
                             /* Phase 55 / PUSH-01: .len() on interface split collection.
                              *

@@ -1,0 +1,67 @@
+-- insert, remove, clear and reverse on an interface list (#180): inline and
+-- boxed implementors keep insertion order, a removed element is owned by
+-- the caller, and clear drops every element.
+object Tag {
+    val id: Int
+    drop { println("drop tag {self.id}") }
+}
+interface Shape {
+    readonly func area() -> Int
+}
+object Dot impl Shape {
+    val x: Int
+    readonly func area() -> Int { return self.x }
+}
+object Bag impl Shape {
+    val items: [Int]
+    val tag: Tag
+    readonly func area() -> Int { return self.items.len() * 10 }
+}
+object Poly impl Shape {
+    val a: Int
+    val b: Int
+    val c: Int
+    val d: Int
+    val e: Int
+    val f: Int
+    val g: Int
+    val h: Int
+    val i: Int
+    val j: Int
+    readonly func area() -> Int { return self.a * 100 }
+}
+func poly(a: Int) -> Poly {
+    return Poly(a, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+}
+func show(xs: [Shape]) {
+    var out = ""
+    for s in xs {
+        out = out + " {s.area()}"
+    }
+    println(out)
+}
+func main() {
+    var xs: [Shape] = [Dot(1), Bag([1, 2], Tag(1)), Dot(3), poly(4)]
+    xs.insert(0, Dot(9))
+    show(xs)
+    xs.insert(5, Bag([1], Tag(2)))
+    show(xs)
+    xs.insert(2, poly(7))
+    show(xs)
+    val r = xs.remove(3)
+    println("removed {r.area()}")
+    show(xs)
+    val q = xs.remove(0)
+    println("removed {q.area()}")
+    show(xs)
+    xs.reverse()
+    show(xs)
+    val p: Shape = poly(5)
+    xs.insert(1, p)
+    show(xs)
+    xs.clear()
+    println("cleared {xs.len()}")
+    xs.push(Dot(2))
+    show(xs)
+    println("end")
+}

@@ -1,0 +1,14 @@
+-- @expected-error: E0329
+-- Reversing an [T, unordered] list is rejected: it has no order to reverse.
+interface Shape {
+    readonly func area() -> Int
+}
+object Dot impl Shape {
+    val x: Int
+    readonly func area() -> Int { return self.x }
+}
+func main() {
+    var xs: [Shape, unordered] = [Dot(1), Dot(2)]
+    xs.reverse()
+    println("{xs.len()}")
+}

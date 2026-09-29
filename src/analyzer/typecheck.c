@@ -2498,6 +2498,7 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
     if (arr_type->array.is_unordered &&
         (strcmp(m, "get") == 0 || strcmp(m, "set") == 0 ||
          strcmp(m, "insert") == 0 || strcmp(m, "remove") == 0 ||
+         strcmp(m, "reverse") == 0 ||
          strcmp(m, "get_unchecked") == 0 || strcmp(m, "set_unchecked") == 0)) {
         report_unordered_position(ctx, mc->span);
         return result;
