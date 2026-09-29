@@ -1305,12 +1305,7 @@ static IronLIR_ValueId lir_receiver_root_alloca(IronLIR_Func *fn, IronLIR_ValueI
             if (in->alloca.alloc_type &&
                 (in->alloca.alloc_type->kind == IRON_TYPE_RC ||
                  in->alloca.alloc_type->kind == IRON_TYPE_WEAK_RC ||
-                 in->alloca.alloc_type->kind == IRON_TYPE_PTR ||
-                 /* interface-element arrays are split collections keyed by
-                  * their literal value in emit_c — the slot is not storage */
-                 (in->alloca.alloc_type->kind == IRON_TYPE_ARRAY &&
-                  in->alloca.alloc_type->array.elem &&
-                  in->alloca.alloc_type->array.elem->kind == IRON_TYPE_INTERFACE)))
+                 in->alloca.alloc_type->kind == IRON_TYPE_PTR))
                 return IRON_LIR_VALUE_INVALID;
             return vid;
         case IRON_LIR_LOAD:      vid = in->load.ptr;     break;
@@ -1346,10 +1341,7 @@ static IronLIR_ValueId lir_storage_chain_root(IronLIR_Func *fn, IronLIR_ValueId 
             if (pin && pin->kind == IRON_LIR_ALLOCA && pin->alloca.alloc_type &&
                 pin->alloca.alloc_type->kind != IRON_TYPE_RC &&
                 pin->alloca.alloc_type->kind != IRON_TYPE_WEAK_RC &&
-                pin->alloca.alloc_type->kind != IRON_TYPE_PTR &&
-                !(pin->alloca.alloc_type->kind == IRON_TYPE_ARRAY &&
-                  pin->alloca.alloc_type->array.elem &&
-                  pin->alloca.alloc_type->array.elem->kind == IRON_TYPE_INTERFACE)) {
+                pin->alloca.alloc_type->kind != IRON_TYPE_PTR) {
                 if (out_load) *out_load = cur->id;
                 return p;
             }

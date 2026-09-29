@@ -278,6 +278,10 @@ bool od_has_drop_lir(EmitCtx *ctx, struct Iron_ObjectDecl *od);
  * type has work to do (user body, rc fields, or object fields needing it). */
 bool od_needs_drop(EmitCtx *ctx, struct Iron_ObjectDecl *od);
 bool od_needs_copy_fixup(EmitCtx *ctx, struct Iron_ObjectDecl *od);
+/* Interface value glue (#180): does the interface need drop (want_copy
+ * false) / copy glue, and emit `<Iface>_drop` / `<Iface>_copied`. */
+bool iface_needs_glue(EmitCtx *ctx, const Iron_Type *it, bool want_copy);
+void emit_ensure_iface_glue(EmitCtx *ctx, const Iron_Type *it, bool drop);
 
 /* Synthesize `static void <T>_copied(<T> *self)`, the fixup run on a fresh
  * bitwise copy (retain rc fields, fix up object fields, user copy body). */

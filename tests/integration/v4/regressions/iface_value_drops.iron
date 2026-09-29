@@ -1,0 +1,40 @@
+-- An interface value owns its implementor: the payload is dropped at
+-- scope exit, on reassignment and inside objects, and a function returning
+-- an interface hands its payload over. None of these ran drop before.
+object Res {
+    val n: Int
+    drop { println("drop {self.n}") }
+}
+interface Shape {
+    readonly func area() -> Float
+}
+object Circle impl Shape {
+    val r: Float
+    readonly func area() -> Float { return self.r }
+}
+object Square impl Shape {
+    val s: Float
+    val tag: Res
+    readonly func area() -> Float { return self.s }
+}
+object Holder {
+    val shape: Shape
+}
+func pick(big: Bool) -> Shape {
+    if big {
+        return Square(2.0, Res(10))
+    }
+    return Circle(1.0)
+}
+func main() {
+    val a: Shape = Square(1.0, Res(1))
+    val b: Shape = Circle(2.0)
+    println("{a.area()} {b.area()}")
+    val c = pick(true)
+    println("{c.area()}")
+    val h = Holder(Square(3.0, Res(3)))
+    println("{h.shape.area()}")
+    var v: Shape = Square(4.0, Res(4))
+    v = Circle(5.0)
+    println("end")
+}

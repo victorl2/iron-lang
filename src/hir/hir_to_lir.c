@@ -80,7 +80,26 @@ static Iron_Type *field_stored_type(Iron_Field *f) {
  * fresh copy need fixing up (a user copy block, rc fields to retain, or a
  * by-value object field needing the same)? */
 static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
+                               bool want_copy, int depth);
+
+/* An interface value holds one of its implementors (#180). */
+static bool iface_lifecycle(Iron_Type *t, Iron_Program *program,
+                            bool want_copy, int depth) {
+    if (!t || t->kind != IRON_TYPE_INTERFACE || !t->interface.decl ||
+        !t->interface.decl->name || !program || depth > 16)
+        return false;
+    /* A large implementor is stored behind a heap pointer in the union
+     * (emit_structs decides by size), which the value owns: every
+     * interface value gets drop and copy glue, and the emitter makes it a
+     * no-op when no implementor needs anything. */
+    (void)want_copy;
+    return true;
+}
+
+static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
                                bool want_copy, int depth) {
+    if (t && t->kind == IRON_TYPE_INTERFACE)
+        return iface_lifecycle(t, program, want_copy, depth);
     if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || depth > 16)
         return false;
     if (want_copy ? type_has_copy_block(t, program)
@@ -90,25 +109,22 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
     for (int i = 0; i < od->field_count; i++) {
         Iron_Type *ft = field_stored_type((Iron_Field *)od->fields[i]);
         if (!ft) continue;
-        /* rc fields and owned list fields (#174; interface-element split
-         * lists excluded, matching emit_helpers.c) need lifecycle glue. */
+        /* rc fields and owned list fields (#174, #180) need lifecycle glue. */
         if (type_is_rc_like(ft)) return true;
-        if (ft->kind == IRON_TYPE_ARRAY && ft->array.size < 0 && !ft->array.is_bounded &&
-            !(ft->array.elem && ft->array.elem->kind == IRON_TYPE_INTERFACE))
+        if (ft->kind == IRON_TYPE_ARRAY && ft->array.size < 0 && !ft->array.is_bounded)
             return true;
-        if (ft->kind == IRON_TYPE_OBJECT &&
+        if ((ft->kind == IRON_TYPE_OBJECT || ft->kind == IRON_TYPE_INTERFACE) &&
             type_lifecycle_rec(ft, program, want_copy, depth + 1))
             return true;
     }
     return false;
 }
 
-/* A dynamic list owns its buffer and its elements (#174). Interface-element
- * split lists are left out (no clone / uniform free yet). */
+/* A dynamic list owns its buffer and its elements (#174), interface-element
+ * split lists included (#180). */
 static bool type_is_owned_list(const Iron_Type *t) {
     return t && t->kind == IRON_TYPE_ARRAY && t->array.size < 0 &&
-           !t->array.is_bounded &&
-           !(t->array.elem && t->array.elem->kind == IRON_TYPE_INTERFACE);
+           !t->array.is_bounded;
 }
 
 /* Values that must be destroyed by their owner: objects with lifecycle
@@ -498,6 +514,10 @@ static void emit_copy_fixup_at(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src,
 static IronLIR_ValueId copy_for_new_owner(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src,
                                           IronLIR_ValueId v, Iron_Type *t,
                                           Iron_Span span) {
+    /* The copy is of the source's own type: a concrete object on its way
+     * into an interface (or optional) slot is fixed up as itself and
+     * wrapped afterwards. */
+    if (src && src->type && src->type->kind == IRON_TYPE_OBJECT) t = src->type;
     if (!hir_expr_is_place(src) || !type_needs_copy_fixup(t, ctx->program))
         return v;
     if (!ctx->current_block || block_is_terminated(ctx->current_block)) return v;
@@ -742,6 +762,14 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
         /* An owned list binding frees its list (and drops its elements)
          * unless `return` moved it out. */
         if (type_is_owned_list(entry->object_type)) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            if (entry->alloca_id == ctx->moved_slot) continue;
+            emit_drop_glue_call(ctx, entry->alloca_id, span);
+            continue;
+        }
+        /* An interface binding drops its payload (glue switches on the
+         * tag) unless `return` moved it out. */
+        if (entry->object_type->kind == IRON_TYPE_INTERFACE) {
             if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
             if (entry->alloca_id == ctx->moved_slot) continue;
             emit_drop_glue_call(ctx, entry->alloca_id, span);
@@ -2584,10 +2612,16 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 const char *coll_method = expr->method_call.method;
                 /* list.copy() is the runtime's element-aware _clone. */
                 if (strcmp(coll_method, "copy") == 0) coll_method = "clone";
-                size_t clen = 10 + strlen(elem_suffix) + 1 + strlen(coll_method) + 1;
+                /* An interface list is a split collection with its own
+                 * clone / take (the emitter handles its other methods). */
+                bool split_own = obj_type->array.elem &&
+                    obj_type->array.elem->kind == IRON_TYPE_INTERFACE &&
+                    (strcmp(coll_method, "clone") == 0 || strcmp(coll_method, "take") == 0);
+                size_t clen = 15 + strlen(elem_suffix) + 1 + strlen(coll_method) + 1;
                 char *full_name = (char *)iron_arena_alloc(ctx->lir_arena, clen, 1);
                 if (!full_name) iron_oom_abort("hir_to_lir.c:lower_expr list_method_full_name");
-                snprintf(full_name, clen, "Iron_List_%s_%s", elem_suffix, coll_method);
+                snprintf(full_name, clen, "%s_%s_%s",
+                         split_own ? "Iron_SplitList" : "Iron_List", elem_suffix, coll_method);
 
                 /* Build args and return early — skip the generic mangling path below */
                 IronLIR_ValueId *coll_args = NULL;

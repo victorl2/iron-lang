@@ -109,6 +109,17 @@ void emit_split_arena_helpers(EmitCtx *ctx) {
 
 /* ── Per-interface split collection emission ──────────────────────────────── */
 
+/* An implementor with lifecycle glue (drop, copy, rc or list fields) is
+ * stored as whole objects (AoS): its drop / copy glue works on an object,
+ * which a per-field (SoA) layout does not hold. */
+static IronLayoutKind split_layout_kind(EmitCtx *ctx, const char *iface_mangled,
+                                        Iron_IfaceImpl *impl) {
+    if (impl->decl && (od_needs_drop(ctx, impl->decl) ||
+                       od_needs_copy_fixup(ctx, impl->decl)))
+        return IRON_LAYOUT_AOS;
+    return iron_layout_get_kind(&ctx->layout, iface_mangled, impl->type_name);
+}
+
 void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                                       Iron_IfaceEntry *entry) {
     Iron_StrBuf *sb = &ctx->struct_bodies;
@@ -213,8 +224,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl_chk = &entry->impls[j];
         if (!impl_chk->is_alive) continue;
-        IronLayoutKind lk_chk = iron_layout_get_kind(&ctx->layout,
-            iface_mangled, impl_chk->type_name);
+        IronLayoutKind lk_chk = split_layout_kind(ctx, iface_mangled, impl_chk);
         if (lk_chk == IRON_LAYOUT_SOA) { any_soa = true; break; }
     }
     CommonField *common_fields = NULL;
@@ -223,6 +233,17 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
             &ctx->layout, entry->iface_name);
     }
 
+    /* Array members and their capacity fields, recorded as the struct is
+     * emitted, for the clone below. */
+    typedef struct { const char *arr; const char *cap; } SlMember;
+    SlMember *sl_members = NULL;
+#define SL_MEMBER(...) do { \
+        char _mb[512]; snprintf(_mb, sizeof(_mb), __VA_ARGS__); \
+        char *_cp = strchr(_mb, '|'); if (_cp) *_cp = '\0'; \
+        SlMember _m = { iron_arena_strdup(ctx->arena, _mb, strlen(_mb)), \
+                        _cp ? iron_arena_strdup(ctx->arena, _cp + 1, strlen(_cp + 1)) : NULL }; \
+        arrput(sl_members, _m); \
+    } while (0)
     iron_strbuf_appendf(sb, "/* Split collection for %s */\n", iface_mangled);
     iron_strbuf_appendf(sb, "typedef struct {\n");
 
@@ -238,6 +259,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
             iron_strbuf_appendf(sb, "    %s *%s_%s;\n",
                 common_fields[cfi].c_type, iface_lower,
                 common_fields[cfi].name);
+            SL_MEMBER("%s_%s|%s_common_cap", iface_lower, common_fields[cfi].name, iface_lower);
         }
         iron_strbuf_appendf(sb, "    int64_t %s_common_count;\n", iface_lower);
         iron_strbuf_appendf(sb, "    int64_t %s_common_cap;\n", iface_lower);
@@ -261,8 +283,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
         }
 
         /* Phase 48-02: Check SoA layout for this type */
-        IronLayoutKind lk = iron_layout_get_kind(&ctx->layout,
-            iface_mangled, impl2->type_name);
+        IronLayoutKind lk = split_layout_kind(ctx, iface_mangled, impl2);
 
         /* Phase 48-03: Layout annotation override with warning */
         for (int ci4 = 0; ci4 < (int)arrlen(iface_collection_vids); ci4++) {
@@ -285,6 +306,10 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                 break;
             }
         }
+        /* (Lifecycle wins over an annotation: see split_layout_kind.) */
+        if (impl2->decl && (od_needs_drop(ctx, impl2->decl) ||
+                            od_needs_copy_fixup(ctx, impl2->decl)))
+            lk = IRON_LAYOUT_AOS;
 
         if (lk == IRON_LAYOUT_SOA && impl2->decl) {
             /* SoA: emit separate per-field arrays */
@@ -342,6 +367,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                 if (narrowed_soa) c_type = narrowed_soa;
                 iron_strbuf_appendf(sb, "    %s *%s_%s;\n",
                     c_type, lower_name, f->name);
+                SL_MEMBER("%s_%s|%s_cap", lower_name, f->name, lower_name);
             }
             iron_strbuf_appendf(sb, "    int64_t %s_count;\n", lower_name);
             iron_strbuf_appendf(sb, "    int64_t %s_cap;\n", lower_name);
@@ -353,6 +379,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
             } else {
                 iron_strbuf_appendf(sb, "    %s *%s_items;\n", im, lower_name);
             }
+            SL_MEMBER("%s_items|%s_cap", lower_name, lower_name);
             iron_strbuf_appendf(sb, "    int64_t %s_count;\n", lower_name);
             iron_strbuf_appendf(sb, "    int64_t %s_cap;\n", lower_name);
         }
@@ -369,6 +396,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
     /* Order index array (skipped for [T, unordered] collections) */
     if (!all_unordered) {
         iron_strbuf_appendf(sb, "    struct { uint8_t tag; int64_t idx; } *_order;\n");
+        SL_MEMBER("_order|_order_cap");
         iron_strbuf_appendf(sb, "    int64_t _order_count;\n");
         iron_strbuf_appendf(sb, "    int64_t _order_cap;\n");
     }
@@ -615,11 +643,102 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
             "}\n\n",
             lower_name);
     }
+    /* take(): the list moves out and the source is left empty (#174). */
+    iron_strbuf_appendf(sb,
+        "static inline Iron_SplitList_%s Iron_SplitList_%s_take(Iron_SplitList_%s *_sl) {\n"
+        "    Iron_SplitList_%s out = *_sl;\n"
+        "    memset(_sl, 0, sizeof(*_sl));\n"
+        "    return out;\n"
+        "}\n\n",
+        iface_mangled, iface_mangled, iface_mangled, iface_mangled);
+    /* copy(): every array is duplicated into the copy's own tracked
+     * allocations, then elements with copy glue are fixed up (such
+     * implementors are always stored as whole objects, see
+     * split_layout_kind). */
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive || !impl2->decl || !od_needs_copy_fixup(ctx, impl2->decl)) continue;
+        const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
+        emit_ensure_copy_fixup(ctx, im, impl2->decl);
+        iron_strbuf_appendf(sb, "static void %s_copied(%s *self);\n", im, im);
+    }
+    iron_strbuf_appendf(sb,
+        "static inline Iron_SplitList_%s Iron_SplitList_%s_clone(const Iron_SplitList_%s *_src) {\n"
+        "    Iron_SplitList_%s dst = *_src;\n"
+        "    dst._tracked = NULL; dst._tracked_count = 0; dst._tracked_cap = 0;\n",
+        iface_mangled, iface_mangled, iface_mangled, iface_mangled);
+    for (int mi = 0; mi < (int)arrlen(sl_members); mi++) {
+        /* Allocated at the source's capacity; only `count` elements are
+         * initialised and copied (every cap field has a matching count). */
+        char cnt[512];
+        snprintf(cnt, sizeof(cnt), "%s", sl_members[mi].cap);
+        size_t cl = strlen(cnt);
+        if (cl >= 4 && strcmp(cnt + cl - 4, "_cap") == 0)
+            snprintf(cnt + cl - 4, sizeof(cnt) - (cl - 4), "_count");
+        iron_strbuf_appendf(sb,
+            "    if (_src->%s) {\n"
+            "        size_t _cap = (size_t)_src->%s * sizeof(*_src->%s);\n"
+            "        size_t _n = (size_t)_src->%s * sizeof(*_src->%s);\n"
+            "        dst.%s = _iron_sl_realloc_tracked(&dst._tracked, &dst._tracked_count, "
+            "&dst._tracked_cap, NULL, _cap ? _cap : 1);\n"
+            "        if (!dst.%s) iron_oom_abort(\"split list copy\");\n"
+            "        if (_n) memcpy(dst.%s, _src->%s, _n);\n"
+            "    }\n",
+            sl_members[mi].arr, sl_members[mi].cap, sl_members[mi].arr,
+            cnt, sl_members[mi].arr,
+            sl_members[mi].arr, sl_members[mi].arr, sl_members[mi].arr, sl_members[mi].arr);
+    }
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive || !impl2->decl || !od_needs_copy_fixup(ctx, impl2->decl)) continue;
+        const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
+        char lower_name[256];
+        size_t nl2 = strlen(impl2->type_name);
+        if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+        for (size_t ci3 = 0; ci3 < nl2; ci3++)
+            lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
+                                       impl2->type_name[ci3] <= 'Z')
+                ? impl2->type_name[ci3] + 32 : impl2->type_name[ci3]);
+        lower_name[nl2] = '\0';
+        iron_strbuf_appendf(sb,
+            "    for (int64_t _i = 0; _i < dst.%s_count; _i++) %s_copied(&dst.%s_items[_i]);\n",
+            lower_name, im, lower_name);
+    }
+    iron_strbuf_appendf(sb, "    return dst;\n}\n\n");
+    arrfree(sl_members);
+#undef SL_MEMBER
+
+    /* Drop glue of implementors the free function calls: synthesised into
+     * lifted_funcs (rendered later), so declare it first. */
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive || !impl2->decl || !od_needs_drop(ctx, impl2->decl)) continue;
+        const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
+        emit_ensure_drop(ctx, im, impl2->decl);
+        iron_strbuf_appendf(sb, "static void %s_drop(%s *self);\n", im, im);
+    }
     /* Free function -- Phase 50: single bulk free via tracked pointer registry */
     iron_strbuf_appendf(sb,
         "static inline void Iron_SplitList_%s_free("
         "Iron_SplitList_%s *_sl) {\n",
         iface_mangled, iface_mangled);
+    /* Each element is dropped before the arrays go (#180). */
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive || !impl2->decl || !od_needs_drop(ctx, impl2->decl)) continue;
+        const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
+        char lower_name[256];
+        size_t nl2 = strlen(impl2->type_name);
+        if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+        for (size_t ci3 = 0; ci3 < nl2; ci3++)
+            lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
+                                       impl2->type_name[ci3] <= 'Z')
+                ? impl2->type_name[ci3] + 32 : impl2->type_name[ci3]);
+        lower_name[nl2] = '\0';
+        iron_strbuf_appendf(sb,
+            "    for (int64_t _i = 0; _i < _sl->%s_count; _i++) %s_drop(&_sl->%s_items[_i]);\n",
+            lower_name, im, lower_name);
+    }
     iron_strbuf_appendf(sb,
         "    _iron_sl_free_all(_sl->_tracked, _sl->_tracked_count);\n");
     iron_strbuf_appendf(sb, "}\n\n");

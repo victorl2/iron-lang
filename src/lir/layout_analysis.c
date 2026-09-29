@@ -420,6 +420,27 @@ void iron_layout_analyze(LayoutAnalysis *la,
                 for (int j = 0; j < entry->impl_count; j++) {
                     Iron_ObjectDecl *od = entry->impls[j].decl;
                     if (!od) continue;
+                    /* A drop body may read any field: an implementor with a
+                     * user drop keeps all of them. (Its LIR name is the
+                     * lowercased type name + "_drop", as in emit_helpers.) */
+                    bool has_drop = false;
+                    if (od->name) {
+                        char dn[256];
+                        size_t tl = strlen(od->name);
+                        if (tl + 6 < sizeof(dn)) {
+                            for (size_t ci = 0; ci < tl; ci++) {
+                                char ch = od->name[ci];
+                                dn[ci] = (ch >= 'A' && ch <= 'Z') ? (char)(ch + 32) : ch;
+                            }
+                            memcpy(dn + tl, "_drop", 6);
+                            for (int mf = 0; mf < module->func_count; mf++)
+                                if (module->funcs[mf] && module->funcs[mf]->name &&
+                                    strcmp(module->funcs[mf]->name, dn) == 0) {
+                                    has_drop = true;
+                                    break;
+                                }
+                        }
+                    }
                     for (int fi = 0; fi < od->field_count; fi++) {
                         Iron_Field *f = (Iron_Field *)od->fields[fi];
                         if (!f || !f->name) continue;
@@ -428,7 +449,7 @@ void iron_layout_analyze(LayoutAnalysis *la,
                         bool scalar = ft && (iron_type_is_integer(ft) ||
                                              iron_type_is_float(ft) ||
                                              ft->kind == IRON_TYPE_BOOL);
-                        if (!scalar) mark_field_used(la, cv, f->name);
+                        if (!scalar || has_drop) mark_field_used(la, cv, f->name);
                     }
                 }
             }

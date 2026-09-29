@@ -1439,13 +1439,107 @@ static bool od_has_lir_method(EmitCtx *ctx, struct Iron_ObjectDecl *od,
  * rc / weak rc field to release, or a by-value object field needing drop.
  * Copy: a lowered user copy body, rc fields to retain, or an object field
  * needing the same. Mirrors hir_to_lir.c type_needs_drop. */
+/* ── Interface value glue (#180) ───────────────────────────────────────────
+ * An interface value holds one live implementor: inline in the union, or
+ * behind a heap pointer for a large variant (emit_structs indirect_variants),
+ * which the value owns. Its drop glue drops the payload and frees an
+ * indirect cell; its copy glue deep-copies an indirect cell and fixes up the
+ * payload. Either is a no-op when no implementor needs anything. */
+static Iron_IfaceEntry *iface_entry_of(EmitCtx *ctx, const Iron_Type *it) {
+    if (!ctx || !ctx->iface_reg || !it || it->kind != IRON_TYPE_INTERFACE ||
+        !it->interface.decl || !it->interface.decl->name) return NULL;
+    return iron_iface_lookup(ctx->iface_reg, it->interface.decl->name);
+}
+
+static bool iface_variant_indirect(EmitCtx *ctx, const char *iface_c,
+                                   const char *type_name) {
+    char key[512];
+    snprintf(key, sizeof(key), "%s:%s", iface_c, type_name);
+    return ctx->indirect_variants && shgeti(ctx->indirect_variants, key) >= 0;
+}
+
+bool iface_needs_glue(EmitCtx *ctx, const Iron_Type *it, bool want_copy) {
+    Iron_IfaceEntry *e = iface_entry_of(ctx, it);
+    if (!e) return false;
+    const char *ic = emit_mangle_name(e->iface_name, ctx->arena);
+    for (int j = 0; j < e->impl_count; j++) {
+        Iron_IfaceImpl *im = &e->impls[j];
+        if (!im->is_alive || !im->decl) continue;
+        if (iface_variant_indirect(ctx, ic, im->type_name)) return true;
+        if (want_copy ? od_needs_copy_fixup(ctx, im->decl) : od_needs_drop(ctx, im->decl))
+            return true;
+    }
+    return false;
+}
+
+void emit_ensure_iface_glue(EmitCtx *ctx, const Iron_Type *it, bool drop) {
+    Iron_IfaceEntry *e = iface_entry_of(ctx, it);
+    if (!e || !iface_needs_glue(ctx, it, !drop)) return;
+    const char *ic = emit_mangle_name(e->iface_name, ctx->arena);
+    char **done = drop ? ctx->emitted_drops : ctx->emitted_copy_fixups;
+    for (int i = 0; i < (int)arrlen(done); i++)
+        if (strcmp(done[i], ic) == 0) return;
+    char *name_copy = iron_arena_strdup(ctx->arena, ic, strlen(ic));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_iface_glue");
+    if (drop) arrput(ctx->emitted_drops, name_copy);
+    else      arrput(ctx->emitted_copy_fixups, name_copy);
+
+    /* The implementors' glue lands first (lifted_funcs order). */
+    for (int j = 0; j < e->impl_count; j++) {
+        Iron_IfaceImpl *im = &e->impls[j];
+        if (!im->is_alive || !im->decl) continue;
+        const char *tc = emit_mangle_name(im->type_name, ctx->arena);
+        if (drop && od_needs_drop(ctx, im->decl)) emit_ensure_drop(ctx, tc, im->decl);
+        if (!drop && od_needs_copy_fixup(ctx, im->decl))
+            emit_ensure_copy_fixup(ctx, tc, im->decl);
+    }
+    Iron_StrBuf *sb = &ctx->lifted_funcs;
+    iron_strbuf_appendf(sb, "static void %s_%s(%s *self) {\n    switch (self->tag) {\n",
+                        ic, drop ? "drop" : "copied", ic);
+    for (int j = 0; j < e->impl_count; j++) {
+        Iron_IfaceImpl *im = &e->impls[j];
+        if (!im->is_alive || !im->decl) continue;
+        const char *tc = emit_mangle_name(im->type_name, ctx->arena);
+        bool ind = iface_variant_indirect(ctx, ic, im->type_name);
+        bool need = drop ? od_needs_drop(ctx, im->decl) : od_needs_copy_fixup(ctx, im->decl);
+        if (!ind && !need) continue;
+        iron_strbuf_appendf(sb, "    case %s_TAG_%s:\n", ic, im->type_name);
+        if (drop) {
+            if (ind) {
+                iron_strbuf_appendf(sb, "        if (self->data.%s) {\n", im->type_name);
+                if (need) iron_strbuf_appendf(sb, "            %s_drop(self->data.%s);\n",
+                                              tc, im->type_name);
+                iron_strbuf_appendf(sb, "            free(self->data.%s);\n"
+                                        "            self->data.%s = NULL;\n        }\n",
+                                    im->type_name, im->type_name);
+            } else {
+                iron_strbuf_appendf(sb, "        %s_drop(&self->data.%s);\n", tc, im->type_name);
+            }
+        } else {
+            if (ind) {
+                iron_strbuf_appendf(sb,
+                    "        if (self->data.%s) {\n"
+                    "            %s *cell = (%s *)malloc(sizeof(%s));\n"
+                    "            if (!cell) iron_oom_abort(\"%s copy\");\n"
+                    "            *cell = *self->data.%s;\n",
+                    im->type_name, tc, tc, tc, ic, im->type_name);
+                if (need) iron_strbuf_appendf(sb, "            %s_copied(cell);\n", tc);
+                iron_strbuf_appendf(sb, "            self->data.%s = cell;\n        }\n",
+                                    im->type_name);
+            } else {
+                iron_strbuf_appendf(sb, "        %s_copied(&self->data.%s);\n", tc, im->type_name);
+            }
+        }
+        iron_strbuf_appendf(sb, "        break;\n");
+    }
+    iron_strbuf_appendf(sb, "    default:\n        break;\n    }\n}\n\n");
+}
+
 /* A dynamic list field owns its buffer (#174): the object frees it when
- * dropped and clones it when copied. Interface-element (split) lists have
- * no clone yet and are left out. */
+ * dropped and clones it when copied (interface lists too, #180). */
 static bool emit_field_is_owned_list(const Iron_Type *ft) {
     return ft && ft->kind == IRON_TYPE_ARRAY && ft->array.size < 0 &&
-           !ft->array.is_bounded &&
-           !(ft->array.elem && ft->array.elem->kind == IRON_TYPE_INTERFACE);
+           !ft->array.is_bounded;
 }
 
 static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
@@ -1457,6 +1551,7 @@ static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
         Iron_Type *ft = emit_field_type((Iron_Field *)od->fields[i]);
         if (!ft) continue;
         if (emit_type_is_rc_like(ft) || emit_field_is_owned_list(ft)) return true;
+        if (ft->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
             od_lifecycle_rec(ctx, ft->object.decl, want_copy, depth + 1))
             return true;
@@ -1505,6 +1600,7 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
 
     for (int i = 0; i < od->field_count; i++) {
         Iron_Type *ft = emit_field_type((Iron_Field *)od->fields[i]);
+        if (ft && ft->kind == IRON_TYPE_INTERFACE) emit_ensure_iface_glue(ctx, ft, false);
         if (ft && ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
             od_needs_copy_fixup(ctx, ft->object.decl))
             emit_ensure_copy_fixup(ctx, emit_type_to_c(ft, ctx), ft->object.decl);
@@ -1517,6 +1613,10 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
         if (!ft || !f->name) continue;
         if (emit_type_is_rc_like(ft)) {
             emit_rc_field_op(sb, ft, f->name, false);
+        } else if (ft->kind == IRON_TYPE_INTERFACE) {
+            if (iface_needs_glue(ctx, ft, true))
+                iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
+                                    emit_type_to_c(ft, ctx), f->name);
         } else if (emit_field_is_owned_list(ft)) {
             const char *lt = emit_type_to_c(ft, ctx);
             iron_strbuf_appendf(sb, "    self->%s = %s_clone(&self->%s);\n",
@@ -1558,6 +1658,10 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
      * Check via od_has_drop_lir — methods are LIR top-level functions, NOT od->methods. */
     for (int i = 0; i < od->field_count; i++) {
         Iron_Type *ft = emit_field_type((Iron_Field *)od->fields[i]);
+        if (ft && ft->kind == IRON_TYPE_INTERFACE) {
+            emit_ensure_iface_glue(ctx, ft, true);
+            continue;
+        }
         if (!ft || ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
         struct Iron_ObjectDecl *field_od = ft->object.decl;
         if (od_needs_drop(ctx, field_od)) {
@@ -1609,6 +1713,12 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
         if (emit_field_is_owned_list(ft)) {
             iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_free(&self->%s);\n",
                                 emit_type_to_c(ft, ctx), f->name);
+            continue;
+        }
+        if (ft->kind == IRON_TYPE_INTERFACE) {
+            if (iface_needs_glue(ctx, ft, false))
+                iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
+                                    emit_type_to_c(ft, ctx), f->name);
             continue;
         }
         if (ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;

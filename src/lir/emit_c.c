@@ -209,8 +209,23 @@ static bool emit_object_field_is_value_slot(Iron_ObjectDecl *od, int idx) {
 static void emit_construct_field_value(Iron_StrBuf *sb, IronLIR_Func *fn,
                                        EmitCtx *ctx, IronLIR_ValueId vid,
                                        bool field_is_value_slot,
+                                       const Iron_Field *field,
                                        IronLIR_BlockId use_block_id,
                                        int depth) {
+    /* A concrete implementor stored in an interface-typed field is wrapped
+     * into the interface's tagged union. */
+    Iron_Type *ft = field ? (field->resolved_type ? field->resolved_type
+                                                  : field->field_type_cached) : NULL;
+    Iron_Type *vt = emit_get_value_type(fn, vid);
+    if (ft && vt && ft->kind == IRON_TYPE_INTERFACE && ft->interface.decl &&
+        vt->kind == IRON_TYPE_OBJECT && vt->object.decl && vt->object.decl->name) {
+        iron_strbuf_appendf(sb, "%s_from_%s(",
+                            emit_mangle_name(ft->interface.decl->name, ctx->arena),
+                            vt->object.decl->name);
+        emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, depth);
+        iron_strbuf_appendf(sb, ")");
+        return;
+    }
     if (field_is_value_slot && emit_val_is_any_fat_ptr(fn, vid)) {
         const char *pt = emit_fat_ptr_pointee_type_c(fn, vid, ctx);
         if (pt) {
@@ -1589,8 +1604,10 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             for (int i = field_start; i < effective_field_count; i++) {
                 if (i > field_start) iron_strbuf_appendf(sb, ",");
                 bool value_slot = false;
+                Iron_Field *cf = NULL;
                 if (od_field_idx < od->field_count) {
                     Iron_Field *f = (Iron_Field *)od->fields[od_field_idx];
+                    cf = f;
                     value_slot = emit_object_field_is_value_slot(od, od_field_idx);
                     od_field_idx++;
                     iron_strbuf_appendf(sb, " .%s = ", f->name);
@@ -1601,7 +1618,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                  * by-value field → deref-copy (see emit_construct_field_value). */
                 emit_construct_field_value(sb, fn, ctx,
                                            instr->construct.field_vals[i],
-                                           value_slot, use_block_id, depth+1);
+                                           value_slot, cf, use_block_id, depth+1);
             }
         /* Phase 59 01d: tuple construct — designated init with v0/v1/... */
         } else if (instr->construct.type &&
@@ -3345,6 +3362,17 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     if (get_stack_array_origin(ctx, ga) == IRON_LIR_VALUE_INVALID) {
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "%s_free(", emit_type_to_c(gt, ctx));
+                        emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
+                        iron_strbuf_appendf(sb, ");\n");
+                    }
+                    break;
+                }
+                if (gt && gt->kind == IRON_TYPE_INTERFACE) {
+                    if (iface_needs_glue(ctx, gt, !is_drop)) {
+                        emit_ensure_iface_glue(ctx, gt, is_drop);
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "%s_%s(", emit_type_to_c(gt, ctx),
+                                            is_drop ? "drop" : "copied");
                         emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
                         iron_strbuf_appendf(sb, ");\n");
                     }
@@ -5698,8 +5726,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             for (int i = field_start; i < effective_field_count; i++) {
                 if (i > field_start) iron_strbuf_appendf(sb, ",");
                 bool value_slot = false;
+                Iron_Field *cf = NULL;
                 if (od_field_idx < od->field_count) {
                     Iron_Field *f = (Iron_Field *)od->fields[od_field_idx];
+                    cf = f;
                     value_slot = emit_object_field_is_value_slot(od, od_field_idx);
                     od_field_idx++;
                     iron_strbuf_appendf(sb, " .%s = ", f->name);
@@ -5710,7 +5740,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                  * by-value field → deref-copy (see emit_construct_field_value). */
                 emit_construct_field_value(sb, fn, ctx,
                                            instr->construct.field_vals[i],
-                                           value_slot, ctx->current_block_id, 0);
+                                           value_slot, cf, ctx->current_block_id, 0);
             }
         /* Phase 59 01d: tuple construct — emit C99 designated init
          * with field names v0, v1, ... matching the typedef produced
@@ -8032,7 +8062,11 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                 /* Phase 53: CALL instructions returning interface-typed arrays.
                  * The callee returns Iron_SplitList_<Iface>, so the CALL result
                  * must also be tracked as a split collection. */
-                if (in2->kind == IRON_LIR_CALL &&
+                /* (Also a field read or load of an [Iface] value, e.g. an
+                 * object's list field: every [Iface] value is a split
+                 * collection, #180.) */
+                if ((in2->kind == IRON_LIR_CALL || in2->kind == IRON_LIR_GET_FIELD ||
+                     in2->kind == IRON_LIR_LOAD) &&
                     in2->id != IRON_LIR_VALUE_INVALID &&
                     in2->type && in2->type->kind == IRON_TYPE_ARRAY &&
                     in2->type->array.elem &&
@@ -8795,7 +8829,11 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                     hmput(ctx->split_collection_ids, in2->id, im_copy);
                 }
                 /* Phase 53: CALL returning interface array -> split collection */
-                if (in2->kind == IRON_LIR_CALL &&
+                /* (Also a field read or load of an [Iface] value, e.g. an
+                 * object's list field: every [Iface] value is a split
+                 * collection, #180.) */
+                if ((in2->kind == IRON_LIR_CALL || in2->kind == IRON_LIR_GET_FIELD ||
+                     in2->kind == IRON_LIR_LOAD) &&
                     in2->id != IRON_LIR_VALUE_INVALID &&
                     in2->type && in2->type->kind == IRON_TYPE_ARRAY &&
                     in2->type->array.elem &&
