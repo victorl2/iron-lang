@@ -24,7 +24,7 @@
 #   iron:      Path to iron binary; defaults to ./build/iron relative to
 #              the project root (two levels above this script)
 #
-# Fixtures build and run on a worker pool sized to the core count
+# Fixtures build and run on a worker pool sized to half the core count
 # (IRON_TEST_JOBS=N overrides it; 1 runs them inline). Each worker is this
 # script re-invoked for one fixture (IRON_TEST_ONE), writing its console
 # lines and verdict under a results directory; the driver replays them in
@@ -501,7 +501,12 @@ fi
 # so the report reads exactly as the serial one did.
 JOBS="${IRON_TEST_JOBS:-}"
 if [ -z "${JOBS}" ]; then
+    # Half the cores: ctest runs several of these runners side by side
+    # (-j4 in CI) next to the optimizer parity oracle, which starved when
+    # every runner took all of them.
     JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+    JOBS=$((JOBS / 2))
+    [ "${JOBS}" -lt 2 ] && JOBS=2
 fi
 RESULTS_DIR="${WORK_DIR}/results"
 mkdir -p "${RESULTS_DIR}"
