@@ -1,0 +1,11 @@
+rfc7617 example: QWxhZGRpbjpvcGVuIHNlc2FtZQ==
+no credentials     -> 401  challenge=Basic realm="iron"
+ada ok             -> 200 hello ada on /data
+ada wrong pw       -> 401  challenge=Basic realm="iron"
+bob user page      -> 200 hello bob on /home
+bob admin page     -> 403 admins only
+ada admin page     -> 200 hello ada on /admin/users
+eve empty pw       -> 200 hello eve on /x
+unknown user       -> 401  challenge=Basic realm="iron"
+colon in password  -> 401  challenge=Basic realm="iron"
+granted=4 denied=4 forbidden=1

@@ -1,0 +1,8 @@
+first visit            -> visit 1 user=anon | set-cookie=yes jar=set
+second visit           -> visit 2 user=anon | set-cookie=no jar=set
+login                  -> visit 3 user=ada | set-cookie=no jar=set
+after login            -> visit 4 user=ada | set-cookie=no jar=set
+logout                 -> bye | set-cookie=yes jar=empty
+after logout           -> visit 1 user=anon | set-cookie=yes jar=set
+forged sid             -> visit 1 user=anon | set-cookie=yes jar=set
+sessions created=3 live=2

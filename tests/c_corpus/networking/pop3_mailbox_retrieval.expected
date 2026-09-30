@@ -1,0 +1,39 @@
+(greeting)     +OK POP3 ready
+STAT           -ERR not authenticated
+USER ada       +OK send PASS
+PASS wrong     -ERR invalid credentials
+USER ada       +OK send PASS
+PASS secret    +OK 4 messages
+STAT           +OK 4 146
+LIST           +OK listing
+  list: 1 37
+  list: 2 38
+  list: 3 18
+  list: 4 53
+UIDL 3         +OK 3 4d5110f9
+RETR 2         +OK message follows
+  retr2[0]: Subject: dots
+  retr2[1]: 
+  retr2[2]: .leading dot
+  retr2[3]: ..two
+  retr2[4]: end
+TOP 4 1        +OK message follows
+  top lines: 4
+DELE 1         +OK message 1 marked
+DELE 1         -ERR no such message
+DELE 3         +OK message 3 marked
+RETR 3         -ERR no such message
+RSET           +OK maildrop has 4 messages
+DELE 3         +OK message 3 marked
+BOGUS          -ERR unknown command
+QUIT           +OK bye, 3 left
+(greeting)     +OK POP3 ready
+USER ada       +OK send PASS
+PASS secret    +OK 3 messages
+UIDL           +OK listing
+  uidl entries: 3
+RETR 3         -ERR no such message
+RETR 4         +OK message follows
+  retr4 lines: 6, last=more2
+QUIT           +OK bye, 3 left
+sessions=2 live=3

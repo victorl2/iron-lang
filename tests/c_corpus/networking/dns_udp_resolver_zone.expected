@@ -1,0 +1,37 @@
+www.iron.test    A     -> NOERROR aa=1 answers=2 size=63 qname_ptr=yes
+    www.iron.test A ttl=300 10.0.0.1
+    www.iron.test A ttl=300 10.0.0.2
+WWW.Iron.TEST    A     -> NOERROR aa=1 answers=2 size=63 qname_ptr=yes
+    WWW.Iron.TEST A ttl=300 10.0.0.1
+    WWW.Iron.TEST A ttl=300 10.0.0.2
+api.iron.test    A     -> NOERROR aa=1 answers=3 size=81 qname_ptr=yes
+    api.iron.test CNAME ttl=120 www.iron.test
+    www.iron.test A ttl=300 10.0.0.1
+    www.iron.test A ttl=300 10.0.0.2
+edge.iron.test   A     -> NOERROR aa=1 answers=4 size=100 qname_ptr=yes
+    edge.iron.test CNAME ttl=120 api.iron.test
+    api.iron.test CNAME ttl=120 www.iron.test
+    www.iron.test A ttl=300 10.0.0.1
+    www.iron.test A ttl=300 10.0.0.2
+iron.test        MX    -> NOERROR aa=1 answers=1 size=48 qname_ptr=yes
+    iron.test MX ttl=3600 10 mail.iron.test
+iron.test        TXT   -> NOERROR aa=1 answers=1 size=57 qname_ptr=yes
+    iron.test TXT ttl=60 v=iron1 hello dns
+mail.iron.test   A     -> NOERROR aa=1 answers=1 size=48 qname_ptr=yes
+    mail.iron.test A ttl=3600 10.0.0.25
+mail.iron.test   MX    -> NOERROR aa=1 answers=0 size=32 qname_ptr=-
+ghost.iron.test  A     -> NXDOMAIN aa=1 answers=0 size=33 qname_ptr=-
+example.com      A     -> REFUSED aa=0 answers=0 size=29 qname_ptr=-
+loop.iron.test   A     -> NOERROR aa=1 answers=5 size=102 qname_ptr=yes
+    loop.iron.test CNAME ttl=5 loop.iron.test
+    loop.iron.test CNAME ttl=5 loop.iron.test
+    loop.iron.test CNAME ttl=5 loop.iron.test
+    loop.iron.test CNAME ttl=5 loop.iron.test
+    loop.iron.test CNAME ttl=5 loop.iron.test
+out.iron.test    A     -> NOERROR aa=1 answers=1 size=62 qname_ptr=yes
+    out.iron.test CNAME ttl=5 elsewhere.example
+www.iron.test    A     -> NOTIMP aa=0 answers=0 size=31 qname_ptr=-
+api.iron.test    CNAME -> NOERROR aa=1 answers=1 size=49 qname_ptr=yes
+    api.iron.test CNAME ttl=120 www.iron.test
+malformed query -> FORMERR id=abcd size=12
+server: served=15 bytes_in=442 bytes_out=810
