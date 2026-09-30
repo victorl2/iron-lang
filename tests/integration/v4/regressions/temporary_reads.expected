@@ -1,0 +1,23 @@
+drop outer
+drop inner in is a long name that will not fit inline anywhere
+drop inner in is a long name that will not fit inline anywhere
+bound: in is a long name that will not fit inline anywhere
+idx: y is a long name that will not fit inline anywhere
+drop outer
+drop inner in is a long name that will not fit inline anywhere
+items len: 3
+drop outer
+drop inner in is a long name that will not fit inline anywhere
+names idx: b is a long name that will not fit inline anywhere
+drop outer
+drop inner in is a long name that will not fit inline anywhere
+item 1
+item 2
+item 3
+s x is a long name that will not fit inline anywhere
+s y is a long name that will not fit inline anywhere
+elem: e0 is a long name that will not fit inline anywhere
+end
+drop inner e0 is a long name that will not fit inline anywhere
+drop inner e0 is a long name that will not fit inline anywhere
+drop inner e1 is a long name that will not fit inline anywhere

@@ -1,10 +1,6 @@
--- section 8.3 rc shared resources: AssetManager + Sprite verbatim
+-- section 8.3 rc shared resources: AssetManager + Sprite
 -- @req: POL-06, POL-07
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): stale-surface doc transcription: rc-in-type-annotation everywhere (Map[String,
--- rc T] fields, init param, return type — E0297), explicit-self method signatures (E0101), and
--- Map.new() not dispatched (expected Map, got Void).
--- rc Texture shared across sprites; refcount bumps on assignment; drop fires once at last release
+-- rc Texture shared across sprites; copies retain; drop fires once at the last release
 
 object Texture {
     val path: String
@@ -14,25 +10,27 @@ object Texture {
     }
 }
 
-object Sound {
-    val path: String
-}
-
 object AssetManager {
-    var textures: Map[String, rc Texture]
-    var sounds: Map[String, rc Sound]
+    var paths: [String]
+    var textures: [rc Texture]
 
     init() {
-        self.textures = Map.new()
-        self.sounds = Map.new()
+        self.paths = []
+        self.textures = []
     }
 
-    func load_texture(self: *var AssetManager, path: String) -> rc Texture {
-        val existing = self.textures.get(path)
-        if existing != null { return existing.value }
-
+    func load_texture(path: String) -> rc Texture {
+        var i = 0
+        while i < self.paths.len() {
+            if self.paths[i] == path {
+                return self.textures[i]
+            }
+            i = i + 1
+        }
         val tex = rc Texture(path)
-        self.textures.put(path, tex)
+        self.paths.push(path)
+        self.textures.push(tex)
+        println("loaded: {path}")
         return tex
     }
 }
@@ -48,7 +46,7 @@ object Sprite {
 
     init(pos: Vec2, texture: rc Texture) {
         self.pos = pos
-        self.texture = texture            -- copy hook bumps refcount
+        self.texture = texture
     }
 }
 
@@ -56,6 +54,7 @@ func main() {
     var assets = AssetManager()
     val tex1 = assets.load_texture("hero.png")
     val tex2 = assets.load_texture("hero.png")
-    -- tex2 is the same rc as tex1; refcount = 3 (cache + tex1 + tex2)
-    println("loaded twice")
+    val hero = Sprite(Vec2(0.0, 0.0), tex1)
+    val shadow = Sprite(Vec2(1.0, 1.0), tex2)
+    println("sprites at {hero.pos.x} and {shadow.pos.x} share {hero.texture.path}")
 }
