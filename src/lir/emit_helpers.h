@@ -37,6 +37,10 @@ typedef struct {
     IronLIR_ValueId source;        /* original collection input to the chain */
     bool is_split;                 /* true if source is a split collection */
     const char *sp_iface;          /* interface name if split, NULL otherwise */
+    /* $drop glue of the lambda temporaries an interior node borrowed:
+     * emitted after the fused loop instead of after the (unemitted)
+     * interior call, which ran before the loop and freed the env (#190). */
+    struct IronLIR_Instr **post_drops;
 } FusionChain;
 
 /* ── EmitCtx -- central emitter context ──────────────────────────────────── */

@@ -1,0 +1,17 @@
+1 2 52
+value number 2 in a long string form
+2 4
+false true
+2 52
+55
+1,2,3,4,
+each 1
+each 2
+each 52
+second tag with a long enough label
+1 2
+8 14
+end
+drop second tag with a long enough label
+drop first tag with a long enough label
+drop second tag with a long enough label

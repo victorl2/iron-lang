@@ -208,6 +208,182 @@ static const char *emit_ensure_iface_view(EmitCtx *ctx, Iron_IfaceEntry *from,
 }
 
 /* Emit the Bool value of `x is T` for the `$is:<O|I>:<Name>` pseudo-call. */
+/* A copy of `lv` (a C lvalue of type `t`) that gets its own owner: the
+ * copy fixup its type needs, if any. */
+static void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
+                                   Iron_Type *t, const char *lv) {
+    if (!t) return;
+    if (t->kind == IRON_TYPE_STRING) {
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_string_retain(&%s);\n", lv);
+    } else if (t->kind == IRON_TYPE_FUNC) {
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_closure_retain(%s);\n", lv);
+    } else if (t->kind == IRON_TYPE_RC) {
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "iron_rc_retain((void *)%s);\n", lv);
+    } else if (t->kind == IRON_TYPE_OBJECT && t->object.decl &&
+               od_needs_copy_fixup(ctx, t->object.decl)) {
+        const char *c = emit_type_to_c(t, ctx);
+        emit_ensure_copy_fixup(ctx, c, t->object.decl);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s_copied(&%s);\n", c, lv);
+    } else if (t->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, t, true)) {
+        emit_ensure_iface_glue(ctx, t, false);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s_copied(&%s);\n", emit_type_to_c(t, ctx), lv);
+    } else if (t->kind == IRON_TYPE_ARRAY && t->array.size < 0 && !t->array.is_bounded) {
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s = %s_clone(&%s);\n", lv, emit_type_to_c(t, ctx), lv);
+    }
+}
+
+/* map / filter / forEach / reduce on a flat list, as an inline loop typed
+ * by the lambda (#192). The runtime's Iron_List_<T>_map exists only for
+ * numeric lists and can only produce a list of the same T; here the
+ * result list takes the lambda's return type, a kept filter element is a
+ * copy with its own owner, and any element type works. Returns false
+ * when the call is not one of these. */
+static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
+                                 EmitCtx *ctx, IronLIR_Instr *instr,
+                                 const char *fname, bool is_hoisted) {
+    if (!fname || strncmp(fname, "Iron_List_", 10) != 0 || instr->call.arg_count < 2)
+        return false;
+    const char *suffix = strrchr(fname, '_');
+    if (!suffix) return false;
+    enum { M_MAP, M_FILTER, M_FOREACH, M_REDUCE } m;
+    if (strcmp(suffix, "_map") == 0) m = M_MAP;
+    else if (strcmp(suffix, "_filter") == 0) m = M_FILTER;
+    else if (strcmp(suffix, "_forEach") == 0) m = M_FOREACH;
+    else if (strcmp(suffix, "_reduce") == 0 && instr->call.arg_count >= 3) m = M_REDUCE;
+    else return false;
+    IronLIR_ValueId self_arg = instr->call.args[0];
+    Iron_Type *lt = emit_get_value_type(fn, self_arg);
+    if (!lt || lt->kind != IRON_TYPE_ARRAY || !lt->array.elem || lt->array.is_bounded ||
+        lt->array.elem->kind == IRON_TYPE_INTERFACE)
+        return false;
+    if (get_stack_array_origin(ctx, self_arg) != IRON_LIR_VALUE_INVALID) return false;
+    if (ctx->split_collection_ids && hmgeti(ctx->split_collection_ids, self_arg) >= 0)
+        return false;
+    Iron_Type *et = lt->array.elem;
+    const char *et_c = emit_type_to_c(et, ctx);
+    IronLIR_ValueId fn_arg = instr->call.args[m == M_REDUCE ? 2 : 1];
+    unsigned id = (unsigned)instr->id;
+    if (m == M_MAP || m == M_FILTER) {
+        Iron_Type *rt = instr->type;
+        Iron_Type *ret = (rt && rt->kind == IRON_TYPE_ARRAY && rt->array.elem) ? rt->array.elem : et;
+        const char *rt_c = rt ? emit_type_to_c(rt, ctx) : emit_type_to_c(lt, ctx);
+        const char *ret_c = emit_type_to_c(ret, ctx);
+        emit_indent(sb, ind);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", rt_c);
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = %s_create();\n", rt_c);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "{\n");
+        emit_indent(sb, ind + 1);
+        if (m == M_MAP)
+            iron_strbuf_appendf(sb, "typedef %s (*_HofFn%u)(void *, %s);\n", ret_c, id, et_c);
+        else
+            iron_strbuf_appendf(sb, "typedef bool (*_HofFn%u)(void *, %s);\n", id, et_c);
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "_HofFn%u _hof_fn%u; memcpy(&_hof_fn%u, &", id, id, id);
+        emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ".fn, sizeof(_hof_fn%u));\n", id);
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "for (int64_t _i = 0; _i < ");
+        emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ".count; _i++) {\n");
+        if (m == M_MAP) {
+            emit_indent(sb, ind + 2);
+            iron_strbuf_appendf(sb, "%s _r = _hof_fn%u(", ret_c, id);
+            emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ".env, ");
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ".items[_i]);\n");
+            emit_indent(sb, ind + 2);
+            iron_strbuf_appendf(sb, "%s_push(&", rt_c);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, ", _r);\n");
+        } else {
+            emit_indent(sb, ind + 2);
+            iron_strbuf_appendf(sb, "if (_hof_fn%u(", id);
+            emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ".env, ");
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ".items[_i])) {\n");
+            emit_indent(sb, ind + 3);
+            iron_strbuf_appendf(sb, "%s _k = ", et_c);
+            emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ".items[_i];\n");
+            emit_copy_fixup_lvalue(sb, ind + 3, ctx, et, "_k");
+            emit_indent(sb, ind + 3);
+            iron_strbuf_appendf(sb, "%s_push(&", rt_c);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, ", _k);\n");
+            emit_indent(sb, ind + 2);
+            iron_strbuf_appendf(sb, "}\n");
+        }
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "}\n");
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "}\n");
+        return true;
+    }
+    if (m == M_FOREACH) {
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "{\n");
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "typedef void (*_HofFn%u)(void *, %s);\n", id, et_c);
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "_HofFn%u _hof_fn%u; memcpy(&_hof_fn%u, &", id, id, id);
+        emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ".fn, sizeof(_hof_fn%u));\n", id);
+        emit_indent(sb, ind + 1);
+        iron_strbuf_appendf(sb, "for (int64_t _i = 0; _i < ");
+        emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ".count; _i++) _hof_fn%u(", id);
+        emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ".env, ");
+        emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ".items[_i]);\n");
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "}\n");
+        return true;
+    }
+    /* reduce: the accumulator has the init value's type (the result type). */
+    Iron_Type *at = instr->type ? instr->type : et;
+    const char *at_c = emit_type_to_c(at, ctx);
+    emit_indent(sb, ind);
+    if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", at_c);
+    emit_val(sb, instr->id);
+    iron_strbuf_appendf(sb, " = ");
+    emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
+    iron_strbuf_appendf(sb, ";\n");
+    emit_indent(sb, ind);
+    iron_strbuf_appendf(sb, "{\n");
+    emit_indent(sb, ind + 1);
+    iron_strbuf_appendf(sb, "typedef %s (*_HofFn%u)(void *, %s, %s);\n", at_c, id, at_c, et_c);
+    emit_indent(sb, ind + 1);
+    iron_strbuf_appendf(sb, "_HofFn%u _hof_fn%u; memcpy(&_hof_fn%u, &", id, id, id);
+    emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
+    iron_strbuf_appendf(sb, ".fn, sizeof(_hof_fn%u));\n", id);
+    emit_indent(sb, ind + 1);
+    iron_strbuf_appendf(sb, "for (int64_t _i = 0; _i < ");
+    emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+    iron_strbuf_appendf(sb, ".count; _i++) ");
+    emit_val(sb, instr->id);
+    iron_strbuf_appendf(sb, " = _hof_fn%u(", id);
+    emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
+    iron_strbuf_appendf(sb, ".env, ");
+    emit_val(sb, instr->id);
+    iron_strbuf_appendf(sb, ", ");
+    emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+    iron_strbuf_appendf(sb, ".items[_i]);\n");
+    emit_indent(sb, ind);
+    iron_strbuf_appendf(sb, "}\n");
+    return true;
+}
+
 static void emit_type_test(Iron_StrBuf *sb, IronLIR_Instr *instr, IronLIR_Func *fn,
                            EmitCtx *ctx, const char *gname,
                            IronLIR_BlockId use_block_id, int depth) {
@@ -497,9 +673,11 @@ static bool emit_call_param_is_arena(EmitCtx *ctx, IronLIR_Func *fn,
 static void emit_spawn_env_string_releases(Iron_StrBuf *sb, const Iron_CaptureEntry *caps,
                                            int count) {
     for (int ci = 0; ci < count; ci++) {
-        if (caps[ci].is_mutable || !caps[ci].type ||
-            caps[ci].type->kind != IRON_TYPE_STRING) continue;
-        iron_strbuf_appendf(sb, "    iron_string_release(&_e->%s);\n", caps[ci].name);
+        if (caps[ci].is_mutable || !caps[ci].type) continue;
+        if (caps[ci].type->kind == IRON_TYPE_STRING)
+            iron_strbuf_appendf(sb, "    iron_string_release(&_e->%s);\n", caps[ci].name);
+        else if (caps[ci].type->kind == IRON_TYPE_FUNC)
+            iron_strbuf_appendf(sb, "    iron_closure_release(_e->%s);\n", caps[ci].name);
     }
 }
 
@@ -3648,6 +3826,13 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
                 /* Terminal node — emit fused loop */
                 emit_fused_chain(ctx, sb, fn, chain, instr, ctx->indent);
+                /* Release the lambda temporaries the loop borrowed. */
+                for (int pd = 0; pd < (int)arrlen(chain->post_drops); pd++) {
+                    IronLIR_Instr *dr = chain->post_drops[pd];
+                    hmdel(ctx->fusion_dead, (const void *)dr);
+                    emit_instr(sb, dr, fn, ctx);
+                    hmput(ctx->fusion_dead, (const void *)dr, true);
+                }
                 break;  /* skip normal CALL emission */
             }
         }
@@ -3693,6 +3878,14 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
                         iron_strbuf_appendf(sb, ");\n");
                     }
+                    break;
+                }
+                /* A closure shares its counted env (#190). */
+                if (gt && gt->kind == IRON_TYPE_FUNC) {
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "%s(*", is_drop ? "iron_closure_release" : "iron_closure_retain");
+                    emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
+                    iron_strbuf_appendf(sb, ");\n");
                     break;
                 }
                 /* A string shares counted characters (#182). */
@@ -3958,6 +4151,15 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * on a split collection, emit inline per-item iteration using the _order
          * array instead of calling the Iron_List_*_method() C runtime function
          * (which only works on flat arrays). */
+        {
+            IronLIR_ValueId hfp = instr->call.func_ptr;
+            const char *hname = (!instr->call.func_decl && hfp != IRON_LIR_VALUE_INVALID &&
+                                 hfp < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                                 fn->value_table[hfp] &&
+                                 fn->value_table[hfp]->kind == IRON_LIR_FUNC_REF)
+                ? emit_resolve_func_c_name(ctx, fn->value_table[hfp]->func_ref.func_name) : NULL;
+            if (emit_inline_list_hof(sb, ind, fn, ctx, instr, hname, is_hoisted)) break;
+        }
         if (ctx->split_collection_ids && instr->call.arg_count >= 1) {
             IronLIR_ValueId self_arg = instr->call.args[0];
             ptrdiff_t sp_idx = hmgeti(ctx->split_collection_ids, self_arg);
@@ -6682,6 +6884,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         iron_strbuf_appendf(&ctx->struct_bodies,
                             "    iron_string_release(&_env->%s);\n", cap_meta[ci].name);
                         any_rc_field = true;
+                    } else if (cap_ty->kind == IRON_TYPE_FUNC) {
+                        /* A captured closure is the env's own share (#190). */
+                        iron_strbuf_appendf(&ctx->struct_bodies,
+                            "    iron_closure_release(_env->%s);\n", cap_meta[ci].name);
+                        any_rc_field = true;
                     }
                 }
                 if (!any_rc_field) {
@@ -6689,19 +6896,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         "    (void)_env;  /* no rc-typed captures */\n");
                 }
                 iron_strbuf_appendf(&ctx->struct_bodies,
-                    "    free(env_void);\n"
+                    "    iron_closure_env_free(env_void);\n"
                     "}\n\n");
             }
 
             /* Allocate env struct */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s *_env_%u = (%s *)malloc(sizeof(%s));\n",
-                                env_type, instr->id, env_type, env_type);
-            /* FIX-02 Phase 67-02: OOM guard on closure env (A) */
-            emit_indent(sb, ind);
-            iron_strbuf_appendf(sb,
-                "if (!_env_%u) iron_oom_abort(\"emit_c closure env (A)\");\n",
-                instr->id);
+            /* The env is counted (#190): its drop runs when the last copy
+             * of the closure is released. */
+            iron_strbuf_appendf(sb, "%s *_env_%u = (%s *)iron_closure_env_alloc(sizeof(%s), %s_env_drop);\n",
+                                env_type, instr->id, env_type, env_type, func_name);
 
             /* Populate env fields */
             for (int ci = 0; ci < cap_count; ci++) {
@@ -6723,6 +6927,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     cap_meta[ci].type->kind == IRON_TYPE_STRING) {
                     emit_indent(sb, ind);
                     iron_strbuf_appendf(sb, "iron_string_retain(&_env_%u->%s);\n",
+                                        instr->id, cap_meta[ci].name);
+                }
+                if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                    cap_meta[ci].type->kind == IRON_TYPE_FUNC) {
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "iron_closure_retain(_env_%u->%s);\n",
                                         instr->id, cap_meta[ci].name);
                 }
             }
@@ -6904,6 +7114,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         iron_strbuf_appendf(sb, "iron_string_retain(&_env_%u->%s);\n",
                                             instr->id, cap_meta[ci].name);
                     }
+                    if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                        cap_meta[ci].type->kind == IRON_TYPE_FUNC) {
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "iron_closure_retain(_env_%u->%s);\n",
+                                            instr->id, cap_meta[ci].name);
+                    }
                 }
                 /* Result wrappers receive both env and handle so the value is
                  * visible to await before completion is signalled. */
@@ -6956,6 +7172,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         cap_meta[ci].type->kind == IRON_TYPE_STRING) {
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "iron_string_retain(&_env_%u->%s);\n",
+                                            instr->id, cap_meta[ci].name);
+                    }
+                    if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                        cap_meta[ci].type->kind == IRON_TYPE_FUNC) {
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "iron_closure_retain(_env_%u->%s);\n",
                                             instr->id, cap_meta[ci].name);
                     }
                 }
@@ -8654,6 +8876,7 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                 FusionChain chain;
                 memset(&chain, 0, sizeof(chain));
                 chain.nodes = NULL;
+                chain.post_drops = NULL;
                 chain.source = fusible_calls[i].self_arg;
 
                 int cur = i;
@@ -8719,6 +8942,27 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
                         ptrdiff_t oi = hmgeti(val_origin, glue_drops[gi]->call.args[0]);
                         if (oi >= 0 && val_origin[oi].value == cv)
                             hmput(ctx->fusion_dead, (const void *)glue_drops[gi], true);
+                    }
+                    /* The interior node's lambda temporaries: their $drop
+                     * moves after the fused loop. A temporary is a slot
+                     * stored once with the closure value. */
+                    for (int li = 0; li < chain.nodes[ni].lambda_arg_count; li++) {
+                        IronLIR_ValueId lv = chain.nodes[ni].lambda_args[li];
+                        for (int gi = 0; gi < (int)arrlen(glue_drops); gi++) {
+                            IronLIR_ValueId slot = glue_drops[gi]->call.args[0];
+                            bool holds = false;
+                            for (int bi = 0; bi < fn->block_count && !holds; bi++) {
+                                IronLIR_Block *block = fn->blocks[bi];
+                                for (int ii = 0; ii < block->instr_count; ii++) {
+                                    IronLIR_Instr *st = block->instrs[ii];
+                                    if (st->kind == IRON_LIR_STORE && st->store.ptr == slot &&
+                                        st->store.value == lv) { holds = true; break; }
+                                }
+                            }
+                            if (!holds) continue;
+                            hmput(ctx->fusion_dead, (const void *)glue_drops[gi], true);
+                            arrput(ctx->fusion_chains[chain_idx].post_drops, glue_drops[gi]);
+                        }
                     }
                 }
                 /* A slot all of whose stores vanished is never written, so

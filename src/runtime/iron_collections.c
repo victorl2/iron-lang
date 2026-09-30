@@ -61,7 +61,60 @@ void Iron_List_Iron_String_free(Iron_List_Iron_String *self) {
     free(self->items);
     self->items = NULL; self->count = 0; self->capacity = 0;
 }
-IRON_LIST_IMPL(Iron_Closure, Iron_Closure)
+/* Closure envs are counted (#190). */
+typedef struct { _Atomic uint64_t rc; void (*drop)(void *env); } IronClosureEnvHdr;
+
+void *iron_closure_env_alloc(size_t env_size, void (*drop)(void *env)) {
+    IronClosureEnvHdr *h = (IronClosureEnvHdr *)malloc(sizeof(IronClosureEnvHdr) + env_size);
+    if (!h) iron_oom_abort("iron_closure_env_alloc");
+    atomic_init(&h->rc, 1);
+    h->drop = drop;
+    return (void *)(h + 1);
+}
+
+void iron_closure_env_free(void *env) {
+    if (env) free(((IronClosureEnvHdr *)env) - 1);
+}
+
+void iron_closure_retain(Iron_Closure c) {
+    if (!c.env) return;
+    (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED((((IronClosureEnvHdr *)c.env) - 1)->rc, 1);
+}
+
+void iron_closure_release(Iron_Closure c) {
+    if (!c.env) return;
+    IronClosureEnvHdr *h = ((IronClosureEnvHdr *)c.env) - 1;
+    uint64_t prev = IRON_ATOMIC_U64_FETCH_SUB_RELEASE(h->rc, 1);
+    if (prev == 1) {
+        IRON_ATOMIC_FENCE_ACQUIRE();
+        if (h->drop) h->drop(c.env); else iron_closure_env_free(c.env);
+    }
+}
+
+/* A list of closures owns a share of each element's env. */
+IRON_LIST_IMPL_CORE(Iron_Closure, Iron_Closure)
+Iron_List_Iron_Closure Iron_List_Iron_Closure_clone(const Iron_List_Iron_Closure *src) {
+    Iron_List_Iron_Closure dst;
+    dst.count = src->count;
+    dst.capacity = src->count;
+    dst.items = NULL;
+    if (src->count > 0) {
+        dst.items = (Iron_Closure *)malloc((size_t)src->count * sizeof(Iron_Closure));
+        if (!dst.items) iron_oom_abort("Iron_List_Iron_Closure_clone");
+        memcpy(dst.items, src->items, (size_t)src->count * sizeof(Iron_Closure));
+        for (int64_t i = 0; i < dst.count; i++) iron_closure_retain(dst.items[i]);
+    }
+    return dst;
+}
+void Iron_List_Iron_Closure_clear(Iron_List_Iron_Closure *self) {
+    for (int64_t i = 0; i < self->count; i++) iron_closure_release(self->items[i]);
+    self->count = 0;
+}
+void Iron_List_Iron_Closure_free(Iron_List_Iron_Closure *self) {
+    for (int64_t i = 0; i < self->count; i++) iron_closure_release(self->items[i]);
+    free(self->items);
+    self->items = NULL; self->count = 0; self->capacity = 0;
+}
 /* Phase 68 (Plan 68-01): ABI-FLOAT32 + ABI-UINT8 implementations.
  * Suffix matches ironc emit_type_to_c output: Float32 → "float",
  * UInt8 → "uint8_t". */
