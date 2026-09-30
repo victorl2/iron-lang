@@ -117,6 +117,7 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
             (ft->kind == IRON_TYPE_NULLABLE && ft->nullable.inner &&
              ft->nullable.inner->kind == IRON_TYPE_STRING))
             return true;
+        if (ft->kind == IRON_TYPE_FUNC) return true;
         if ((ft->kind == IRON_TYPE_OBJECT || ft->kind == IRON_TYPE_INTERFACE) &&
             type_lifecycle_rec(ft, program, want_copy, depth + 1))
             return true;
@@ -142,13 +143,19 @@ static bool type_is_counted_string(const Iron_Type *t) {
            t->nullable.inner->kind == IRON_TYPE_STRING;
 }
 
+/* A closure value shares its counted env (#190). */
+static bool type_is_closure(const Iron_Type *t) {
+    return t && t->kind == IRON_TYPE_FUNC;
+}
+
 static bool type_needs_drop(Iron_Type *t, Iron_Program *program) {
-    return type_is_owned_list(t) || type_is_counted_string(t) ||
+    return type_is_owned_list(t) || type_is_counted_string(t) || type_is_closure(t) ||
            type_lifecycle_rec(t, program, false, 0);
 }
 
 static bool type_needs_copy_fixup(Iron_Type *t, Iron_Program *program) {
-    return type_is_counted_string(t) || type_lifecycle_rec(t, program, true, 0);
+    return type_is_counted_string(t) || type_is_closure(t) ||
+           type_lifecycle_rec(t, program, true, 0);
 }
 
 /* ── Phase 37 rc-balance helpers ─────────────────────────────────────────── */
@@ -625,6 +632,7 @@ static const char *list_elem_suffix(HIR_to_LIR_Ctx *ctx, Iron_Type *elem) {
             case IRON_TYPE_FLOAT:  elem_suffix = "double";      break;
             case IRON_TYPE_BOOL:   elem_suffix = "bool";        break;
             case IRON_TYPE_STRING: elem_suffix = "Iron_String"; break;
+            case IRON_TYPE_FUNC:   elem_suffix = "Iron_Closure"; break;
             /* AUDIT-02 #6 fix: narrow/wide int and float kinds
              * previously fell through to the silent default,
              * mis-dispatching [Int8].method() etc. to
@@ -802,9 +810,10 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
             emit_drop_glue_call(ctx, entry->alloca_id, span);
             continue;
         }
-        /* A string binding releases its share of the characters (#182)
-         * unless `return` moved it out. */
-        if (type_is_counted_string(entry->object_type)) {
+        /* A string binding releases its share of the characters (#182),
+         * a closure binding its share of the env (#190), unless `return`
+         * moved it out. */
+        if (type_is_counted_string(entry->object_type) || type_is_closure(entry->object_type)) {
             if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
             if (entry->alloca_id == ctx->moved_slot) continue;
             emit_drop_glue_call(ctx, entry->alloca_id, span);
@@ -3827,35 +3836,6 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                         }
                         IronLIR_DropEntry de = { init_val, type, true, false, NULL };
                         arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
-                    }
-                    /* Phase 37 rc-balance (M3): a val bound to a CAPTURING
-                     * closure literal owns the closure's malloc'd env. Register
-                     * the env-teardown entry so scope exit calls
-                     * <lifted>_env_drop(<closure>.env) — releasing the rc/
-                     * weak-rc capture retains and freeing the env block, which
-                     * previously leaked on every capturing closure. Guarded on
-                     * captures metadata to mirror emit_c.c's synthesis
-                     * condition (cap_count > 0 && cap_meta): a companion is
-                     * only referenced when one is actually emitted. Closure
-                     * ALIASES are deliberately not registered (one teardown
-                     * per env allocation). */
-                    if (stmt->let.init->kind == IRON_HIR_EXPR_CLOSURE &&
-                        stmt->let.init->closure.capture_count > 0 &&
-                        stmt->let.init->closure.captures &&
-                        stmt->let.init->closure.lifted_name &&
-                        ctx->defer_depth > 0 &&
-                        ctx->drop_stacks &&
-                        ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
-                        const char *lname = stmt->let.init->closure.lifted_name;
-                        size_t nlen = strlen(lname) + 10; /* "_env_drop" + NUL */
-                        char *edname = (char *)iron_arena_alloc(ctx->lir_arena,
-                                                                nlen, 1);
-                        if (edname) {
-                            snprintf(edname, nlen, "%s_env_drop", lname);
-                            IronLIR_DropEntry de =
-                                { init_val, NULL, true, false, edname };
-                            arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
-                        }
                     }
                 }
             }

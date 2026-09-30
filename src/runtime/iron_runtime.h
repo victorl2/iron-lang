@@ -1142,6 +1142,16 @@ typedef struct {
     void (*fn)(void *);
 } Iron_Closure;
 
+/* A capturing closure's env block is shared by every copy of the value
+ * (#190): it sits behind a header holding an atomic reference count and
+ * the env's own drop function (which releases the captures and frees the
+ * block). A copy retains, a drop releases, the last release runs the
+ * drop. A NULL env (no captures) is never counted. */
+void *iron_closure_env_alloc(size_t env_size, void (*drop)(void *env));
+void  iron_closure_env_free(void *env);          /* called by the env drop */
+void  iron_closure_retain(Iron_Closure c);
+void  iron_closure_release(Iron_Closure c);
+
 /* Call a closure. Casts fn to the actual signature and passes env as first arg.
  * For void closures with no extra args: IRON_CALL_CLOSURE(c)
  * For closures with args, the emitter writes explicit casts instead. */

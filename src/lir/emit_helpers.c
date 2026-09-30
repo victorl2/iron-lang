@@ -1626,6 +1626,7 @@ static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
         if (!ft) continue;
         if (emit_type_is_rc_like(ft) || emit_field_is_owned_list(ft)) return true;
         if (emit_type_is_string_like(ft)) return true;
+        if (ft->kind == IRON_TYPE_FUNC) return true;
         if (ft->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
             od_lifecycle_rec(ctx, ft->object.decl, want_copy, depth + 1))
@@ -1709,6 +1710,8 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
             emit_rc_field_op(sb, ft, f->name, false);
         } else if (emit_type_is_string_like(ft)) {
             emit_string_field_op(sb, ft, f->name, false);
+        } else if (ft->kind == IRON_TYPE_FUNC) {
+            iron_strbuf_appendf(sb, "    iron_closure_retain(self->%s);\n", f->name);
         } else if (ft->kind == IRON_TYPE_INTERFACE) {
             if (iface_needs_glue(ctx, ft, true))
                 iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
@@ -1808,6 +1811,10 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
         }
         if (emit_type_is_string_like(ft)) {
             emit_string_field_op(&ctx->lifted_funcs, ft, f->name, true);
+            continue;
+        }
+        if (ft->kind == IRON_TYPE_FUNC) {
+            iron_strbuf_appendf(&ctx->lifted_funcs, "    iron_closure_release(self->%s);\n", f->name);
             continue;
         }
         if (emit_field_is_owned_list(ft)) {
@@ -1986,6 +1993,7 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
     if (ctx->fusion_chains) {
         for (int fci = 0; fci < (int)arrlen(ctx->fusion_chains); fci++) {
             arrfree(ctx->fusion_chains[fci].nodes);
+            arrfree(ctx->fusion_chains[fci].post_drops);
         }
         arrfree(ctx->fusion_chains);
     }

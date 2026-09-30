@@ -1,0 +1,43 @@
+-- Closure values own a share of their env (#190): a copy keeps the env
+-- alive after the original binding is gone, a closure returned from a
+-- function is freed by its last holder, closures in lists and fields are
+-- retained and released with them, and lambdas handed to map / filter /
+-- reduce / forEach (fused chains included) are released after the call.
+object Handler {
+    val name: String
+    val run: func(Int) -> String
+}
+func mk(i: Int) -> func(Int) -> String {
+    val a = "a captured string that is long enough to live on the heap {i}"
+    return func(x: Int) -> String { return "{a} {x}" }
+}
+func main() {
+    var g = func(x: Int) -> String { return "none" }
+    if true {
+        val a = "a captured string long enough to be on the heap for sure"
+        val f = func(x: Int) -> String { return "{a} {x}" }
+        g = f
+        println(f(1))
+    }
+    println(g(2))
+    val h = mk(7)
+    val h2 = h
+    println("{h(1)} / {h2(2)}")
+    val fs = [mk(1), mk(2)]
+    val fs2 = fs.copy()
+    println("{fs[1](3)} / {fs2[0](4)}")
+    val handler = Handler("a handler name that is long enough for the heap", mk(9))
+    val hc = handler
+    val run = hc.run
+    println(run(5))
+    val k = 10
+    val label = "a captured label string that is long enough for the heap"
+    val nums = [1, 2, 3, 4]
+    val total = nums.map(func(n: Int) -> Int { return n + k }).sum()
+    println("{total}")
+    val big = nums.filter(func(n: Int) -> Bool { return n > k - 8 }).map(func(n: Int) -> Int { return n * k }).sum()
+    println("{big}")
+    val names = nums.map(func(n: Int) -> String { return "{label} {n}" }).filter(func(s: String) -> Bool { return s.len() > 0 })
+    println("{names.len()} {names[3]}")
+    nums.forEach(func(n: Int) { if n == 4 { println("{label} last") } })
+}

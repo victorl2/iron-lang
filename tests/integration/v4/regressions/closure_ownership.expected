@@ -1,0 +1,9 @@
+a captured string long enough to be on the heap for sure 1
+a captured string long enough to be on the heap for sure 2
+a captured string that is long enough to live on the heap 7 1 / a captured string that is long enough to live on the heap 7 2
+a captured string that is long enough to live on the heap 2 3 / a captured string that is long enough to live on the heap 1 4
+a captured string that is long enough to live on the heap 9 5
+50
+70
+4 a captured label string that is long enough for the heap 4
+a captured label string that is long enough for the heap last
