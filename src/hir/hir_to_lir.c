@@ -80,7 +80,26 @@ static Iron_Type *field_stored_type(Iron_Field *f) {
  * fresh copy need fixing up (a user copy block, rc fields to retain, or a
  * by-value object field needing the same)? */
 static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
+                               bool want_copy, int depth);
+
+/* An interface value holds one of its implementors (#180). */
+static bool iface_lifecycle(Iron_Type *t, Iron_Program *program,
+                            bool want_copy, int depth) {
+    if (!t || t->kind != IRON_TYPE_INTERFACE || !t->interface.decl ||
+        !t->interface.decl->name || !program || depth > 16)
+        return false;
+    /* A large implementor is stored behind a heap pointer in the union
+     * (emit_structs decides by size), which the value owns: every
+     * interface value gets drop and copy glue, and the emitter makes it a
+     * no-op when no implementor needs anything. */
+    (void)want_copy;
+    return true;
+}
+
+static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
                                bool want_copy, int depth) {
+    if (t && t->kind == IRON_TYPE_INTERFACE)
+        return iface_lifecycle(t, program, want_copy, depth);
     if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || depth > 16)
         return false;
     if (want_copy ? type_has_copy_block(t, program)
@@ -90,25 +109,22 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
     for (int i = 0; i < od->field_count; i++) {
         Iron_Type *ft = field_stored_type((Iron_Field *)od->fields[i]);
         if (!ft) continue;
-        /* rc fields and owned list fields (#174; interface-element split
-         * lists excluded, matching emit_helpers.c) need lifecycle glue. */
+        /* rc fields and owned list fields (#174, #180) need lifecycle glue. */
         if (type_is_rc_like(ft)) return true;
-        if (ft->kind == IRON_TYPE_ARRAY && ft->array.size < 0 && !ft->array.is_bounded &&
-            !(ft->array.elem && ft->array.elem->kind == IRON_TYPE_INTERFACE))
+        if (ft->kind == IRON_TYPE_ARRAY && ft->array.size < 0 && !ft->array.is_bounded)
             return true;
-        if (ft->kind == IRON_TYPE_OBJECT &&
+        if ((ft->kind == IRON_TYPE_OBJECT || ft->kind == IRON_TYPE_INTERFACE) &&
             type_lifecycle_rec(ft, program, want_copy, depth + 1))
             return true;
     }
     return false;
 }
 
-/* A dynamic list owns its buffer and its elements (#174). Interface-element
- * split lists are left out (no clone / uniform free yet). */
+/* A dynamic list owns its buffer and its elements (#174), interface-element
+ * split lists included (#180). */
 static bool type_is_owned_list(const Iron_Type *t) {
     return t && t->kind == IRON_TYPE_ARRAY && t->array.size < 0 &&
-           !t->array.is_bounded &&
-           !(t->array.elem && t->array.elem->kind == IRON_TYPE_INTERFACE);
+           !t->array.is_bounded;
 }
 
 /* Values that must be destroyed by their owner: objects with lifecycle
@@ -498,6 +514,10 @@ static void emit_copy_fixup_at(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src,
 static IronLIR_ValueId copy_for_new_owner(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src,
                                           IronLIR_ValueId v, Iron_Type *t,
                                           Iron_Span span) {
+    /* The copy is of the source's own type: a concrete object on its way
+     * into an interface (or optional) slot is fixed up as itself and
+     * wrapped afterwards. */
+    if (src && src->type && src->type->kind == IRON_TYPE_OBJECT) t = src->type;
     if (!hir_expr_is_place(src) || !type_needs_copy_fixup(t, ctx->program))
         return v;
     if (!ctx->current_block || block_is_terminated(ctx->current_block)) return v;
@@ -563,6 +583,20 @@ static void note_owned_temp(HIR_to_LIR_Ctx *ctx, TempOwned **temps,
  * element type, or rc_ / weakrc_ plus the object for rc elements). */
 static const char *list_elem_suffix(HIR_to_LIR_Ctx *ctx, Iron_Type *elem) {
     const char *elem_suffix = "int64_t";
+    /* A list element that is itself a list: its C type, Iron_List_<suffix>
+     * (or the split list of an interface), matching emit_type_to_c. */
+    if (elem && elem->kind == IRON_TYPE_ARRAY && elem->array.size < 0 &&
+        !elem->array.is_bounded) {
+        bool split = elem->array.elem && elem->array.elem->kind == IRON_TYPE_INTERFACE;
+        const char *inner = split && elem->array.elem->interface.decl
+            ? elem->array.elem->interface.decl->name
+            : list_elem_suffix(ctx, elem->array.elem);
+        size_t slen = strlen(inner) + 24;
+        char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+        if (!s) iron_oom_abort("hir_to_lir.c:list_elem_suffix nested");
+        snprintf(s, slen, split ? "Iron_SplitList_Iron_%s" : "Iron_List_%s", inner);
+        return s;
+    }
     if (elem) {
         switch ((int)(elem->kind)) {
             case IRON_TYPE_INT:    elem_suffix = "int64_t";     break;
@@ -742,6 +776,14 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
         /* An owned list binding frees its list (and drops its elements)
          * unless `return` moved it out. */
         if (type_is_owned_list(entry->object_type)) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            if (entry->alloca_id == ctx->moved_slot) continue;
+            emit_drop_glue_call(ctx, entry->alloca_id, span);
+            continue;
+        }
+        /* An interface binding drops its payload (glue switches on the
+         * tag) unless `return` moved it out. */
+        if (entry->object_type->kind == IRON_TYPE_INTERFACE) {
             if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
             if (entry->alloca_id == ctx->moved_slot) continue;
             emit_drop_glue_call(ctx, entry->alloca_id, span);
@@ -2577,6 +2619,28 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                         ctx->current_block, b_arr, b_idx, b_val, span);
                     return IRON_LIR_VALUE_INVALID;
                 }
+                /* `xs.set(i, v)` on an interface list is `xs[i] = v`: the
+                 * split list's set helper handles it (#180). */
+                if (obj_type->array.elem && obj_type->array.elem->kind == IRON_TYPE_INTERFACE &&
+                    expr->method_call.method &&
+                    strcmp(expr->method_call.method, "set") == 0 &&
+                    expr->method_call.arg_count == 2) {
+                    IronLIR_ValueId s_arr = IRON_LIR_VALUE_INVALID;
+                    IronHIR_Expr *s_obj = expr->method_call.object;
+                    if (s_obj && s_obj->kind == IRON_HIR_EXPR_IDENT &&
+                        hmgeti(ctx->var_param_ids, s_obj->ident.var_id) >= 0) {
+                        ptrdiff_t s_ai = hmgeti(ctx->var_alloca_map, s_obj->ident.var_id);
+                        if (s_ai >= 0) s_arr = ctx->var_alloca_map[s_ai].value;
+                    }
+                    if (s_arr == IRON_LIR_VALUE_INVALID) s_arr = lower_expr(ctx, s_obj);
+                    IronLIR_ValueId s_idx = lower_expr(ctx, expr->method_call.args[0]);
+                    IronLIR_ValueId s_val = lower_expr(ctx, expr->method_call.args[1]);
+                    s_val = copy_for_new_owner(ctx, expr->method_call.args[1], s_val,
+                                               obj_type->array.elem, span);
+                    iron_lir_set_index(ctx->current_func, ctx->current_block,
+                                       s_arr, s_idx, s_val, span);
+                    return IRON_LIR_VALUE_INVALID;
+                }
                 /* Collection: build the full "Iron_List_<elem_suffix>_<method>" name
                  * directly and return early. mangle_func_name() skips names that
                  * already start with "Iron_", so no double-prefixing. */
@@ -2584,10 +2648,16 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 const char *coll_method = expr->method_call.method;
                 /* list.copy() is the runtime's element-aware _clone. */
                 if (strcmp(coll_method, "copy") == 0) coll_method = "clone";
-                size_t clen = 10 + strlen(elem_suffix) + 1 + strlen(coll_method) + 1;
+                /* An interface list is a split collection with its own
+                 * clone / take (the emitter handles its other methods). */
+                bool split_own = obj_type->array.elem &&
+                    obj_type->array.elem->kind == IRON_TYPE_INTERFACE &&
+                    (strcmp(coll_method, "clone") == 0 || strcmp(coll_method, "take") == 0);
+                size_t clen = 15 + strlen(elem_suffix) + 1 + strlen(coll_method) + 1;
                 char *full_name = (char *)iron_arena_alloc(ctx->lir_arena, clen, 1);
                 if (!full_name) iron_oom_abort("hir_to_lir.c:lower_expr list_method_full_name");
-                snprintf(full_name, clen, "Iron_List_%s_%s", elem_suffix, coll_method);
+                snprintf(full_name, clen, "%s_%s_%s",
+                         split_own ? "Iron_SplitList" : "Iron_List", elem_suffix, coll_method);
 
                 /* Build args and return early — skip the generic mangling path below */
                 IronLIR_ValueId *coll_args = NULL;
@@ -3278,11 +3348,30 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     }
 
     case IRON_HIR_EXPR_IS: {
-        /* Type test — emit as IS_NULL check or poison for now */
+        /* Type test (#179): a `$is:<O|I>:<Name>` pseudo-call the emitter
+         * renders as a tag test on an interface value, or a constant on a
+         * concrete one. */
         IronLIR_ValueId val = lower_expr(ctx, expr->is_check.value);
-        (void)val;
-        /* IS check: emit a poison placeholder — type tests need runtime support */
-        return iron_lir_poison(ctx->current_func, ctx->current_block, type, span)->id;
+        Iron_Type *ct = expr->is_check.check_type;
+        const char *tn = NULL;
+        char kind = 'O';
+        if (ct && ct->kind == IRON_TYPE_OBJECT && ct->object.decl) tn = ct->object.decl->name;
+        if (ct && ct->kind == IRON_TYPE_INTERFACE && ct->interface.decl) {
+            tn = ct->interface.decl->name;
+            kind = 'I';
+        }
+        if (!tn || val == IRON_LIR_VALUE_INVALID)
+            return iron_lir_const_bool(ctx->current_func, ctx->current_block, false,
+                                       type, span)->id;
+        size_t nl = strlen(tn) + 8;
+        char *fname = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+        if (!fname) iron_oom_abort("hir_to_lir.c:is type test name");
+        snprintf(fname, nl, "$is:%c:%s", kind, tn);
+        IronLIR_Instr *fr = iron_lir_func_ref(ctx->current_func, ctx->current_block,
+                                              fname, NULL, span);
+        IronLIR_ValueId args[1] = { val };
+        return iron_lir_call(ctx->current_func, ctx->current_block, NULL, fr->id,
+                             args, 1, type, span)->id;
     }
 
     case IRON_HIR_EXPR_ENUM_CONSTRUCT: {
@@ -3882,6 +3971,13 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             Iron_Type *el_t = target->type ? target->type : rhs_type;
             bool el_rc = type_is_rc_like(el_t);
             bool el_drop = !el_rc && type_needs_drop(el_t, ctx->program);
+            /* An interface list's set helper drops the element it replaces
+             * in place: a read of it is a view into the list's storage,
+             * which the store moves or overwrites (#180). */
+            Iron_Type *set_arr_t = target->index.array ? target->index.array->type : NULL;
+            if (set_arr_t && set_arr_t->kind == IRON_TYPE_ARRAY && !set_arr_t->array.is_bounded &&
+                set_arr_t->array.elem && set_arr_t->array.elem->kind == IRON_TYPE_INTERFACE)
+                el_drop = false;
             if (el_rc) {
                 if (!rc_expr_transfers_ownership(stmt->assign.value))
                     emit_rc_retain_for_type(ctx, el_t, val, span);

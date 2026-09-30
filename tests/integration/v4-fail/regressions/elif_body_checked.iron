@@ -1,0 +1,12 @@
+-- The elif bodies of a chain that starts with a null check are type checked.
+func f(n: Int?) {
+    if n != null {
+        println("n")
+    } elif true {
+        val bad: Int = "oops"
+        println("{bad}")
+    }
+}
+func main() {
+    f(null)
+}

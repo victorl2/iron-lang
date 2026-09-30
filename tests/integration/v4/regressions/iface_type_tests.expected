@@ -1,0 +1,11 @@
+true false true true false
+circle r=2
+square s=3 tag=7
+circle unnamed
+circle radii 4
+false
+true
+true
+end
+drop tag 8
+drop tag 7

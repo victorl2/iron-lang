@@ -1,0 +1,9 @@
+copy 1
+copy 2
+copied 6 3
+taken 0 3 6
+end
+drop 1
+drop 2
+drop 1
+drop 2

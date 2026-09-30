@@ -1,0 +1,19 @@
+-- @expected-error: E0224
+-- A type match without an else arm must cover every implementor.
+interface Shape {
+    readonly func area() -> Int
+}
+object Circle impl Shape {
+    val r: Int
+    readonly func area() -> Int { return self.r }
+}
+object Square impl Shape {
+    val s: Int
+    readonly func area() -> Int { return self.s }
+}
+func main() {
+    val s: Shape = Circle(1)
+    match s {
+        Circle(c) -> { println("{c.r}") }
+    }
+}

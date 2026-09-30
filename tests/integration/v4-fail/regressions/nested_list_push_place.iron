@@ -1,0 +1,8 @@
+-- @expected-error: E0328
+-- Pushing an existing list into a list of lists would give it two owners.
+func main() {
+    var grid: [[Int]] = []
+    val row = [1, 2]
+    grid.push(row)
+    println("{grid.len()} {row.len()}")
+}

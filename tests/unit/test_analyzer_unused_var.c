@@ -52,17 +52,17 @@ static const char *first_msg_with_code(int target) {
 /* ── VAL-05 (var binding) ─────────────────────────────────────────── */
 
 void test_val_05_unused_var_warn(void) {
-    analyze_src("func main() { var x = 5; println(\"x\") }\n");
+    analyze_src("func main() {\n    var x = 5\n    println(\"x\")\n}\n");
     TEST_ASSERT_GREATER_THAN_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
 }
 void test_val_05_warn_message(void) {
-    analyze_src("func main() { var x = 5; println(\"x\") }\n");
+    analyze_src("func main() {\n    var x = 5\n    println(\"x\")\n}\n");
     const char *m = first_msg_with_code(IRON_WARN_UNUSED_VAR);
     TEST_ASSERT_NOT_NULL(m);
     TEST_ASSERT_NOT_NULL(strstr(m, "never reassigned"));
 }
 void test_val_05_used_var_no_warn(void) {
-    analyze_src("func main() { var x = 5; x = 10; println(\"{x}\") }\n");
+    analyze_src("func main() {\n    var x = 5\n    x = 10\n    println(\"{x}\")\n}\n");
     TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
 }
 void test_val_05_conditional_write_no_warn(void) {
@@ -77,7 +77,7 @@ void test_val_05_conditional_write_no_warn(void) {
     TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
 }
 void test_val_05_compound_assign_counts(void) {
-    analyze_src("func main() { var x = 5; x += 1; println(\"{x}\") }\n");
+    analyze_src("func main() {\n    var x = 5\n    x += 1\n    println(\"{x}\")\n}\n");
     TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_WARN_UNUSED_VAR));
 }
 void test_val_05_field_write_keeps_var(void) {
@@ -159,7 +159,7 @@ void test_val_06_param_message(void) {
     TEST_ASSERT_NOT_NULL(strstr(m, "never mutated"));
 }
 void test_val_06_used_var_param_no_warn(void) {
-    analyze_src("func f(var p: Int) { p = p + 1; println(\"{p}\") }\nfunc main() { f(5) }\n");
+    analyze_src("func f(var p: Int) {\n    p = p + 1\n    println(\"{p}\")\n}\nfunc main() { f(5) }\n");
     TEST_ASSERT_EQUAL_INT(0, count_with_code(IRON_WARN_UNUSED_VAR_PARAM));
 }
 void test_val_06_param_shadowed_still_warns(void) {
