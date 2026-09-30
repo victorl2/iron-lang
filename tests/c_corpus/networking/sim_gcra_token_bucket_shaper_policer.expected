@@ -1,0 +1,9 @@
+offered: 300 packets, 198243 bytes over 1930042 us
+policer burst= 1500: conforming 153/300 packets (76941 bytes), token bucket == GCRA
+policer burst= 3000: conforming 217/300 packets (125855 bytes), token bucket == GCRA
+policer burst= 6000: conforming 263/300 packets (169033 bytes), token bucket == GCRA
+policer burst=12000: conforming 286/300 packets (186265 bytes), token bucket == GCRA
+shaper queue<=100000: sent 300 dropped   0 max delay 152045 us mean delay 36697 us
+shaper queue<=  6000: sent 278 dropped  22 max delay  45516 us mean delay 11117 us
+shaper queue<=  3000: sent 260 dropped  40 max delay  23060 us mean delay  3939 us
+trTCM: green=217 (125855 B) yellow=63 (53741 B) red=20 (18647 B)

@@ -1,0 +1,18 @@
+W= 1 loss= 0%  done@1508 sent= 60 retx=  0 acks= 60/ 60 ooo=  0 sum=52c5f67e
+W= 2 loss= 0%  done@ 733 sent= 60 retx=  0 acks= 59/ 60 ooo=  2 sum=52c5f67e
+W= 4 loss= 0%  done@ 410 sent= 60 retx=  0 acks= 60/ 60 ooo= 16 sum=52c5f67e
+W= 8 loss= 0%  done@ 211 sent= 60 retx=  0 acks= 60/ 60 ooo= 32 sum=52c5f67e
+W=16 loss= 0%  done@ 109 sent= 60 retx=  0 acks= 59/ 60 ooo= 37 sum=52c5f67e
+--
+W= 1 loss=10%  done@3055 sent= 82 retx= 22 acks= 60/ 74 ooo=  0 sum=52c5f67e
+W= 2 loss=10%  done@1233 sent= 66 retx=  6 acks= 55/ 62 ooo= 14 sum=52c5f67e
+W= 4 loss=10%  done@1248 sent= 71 retx= 11 acks= 53/ 60 ooo= 33 sum=52c5f67e
+W= 8 loss=10%  done@ 557 sent= 64 retx=  4 acks= 54/ 60 ooo= 34 sum=52c5f67e
+W=16 loss=10%  done@ 627 sent= 66 retx=  6 acks= 55/ 60 ooo= 48 sum=52c5f67e
+--
+W= 1 loss=25%  done@3601 sent= 90 retx= 30 acks= 60/ 79 ooo=  0 sum=52c5f67e
+W= 2 loss=25%  done@2131 sent= 78 retx= 18 acks= 50/ 65 ooo= 14 sum=52c5f67e
+W= 4 loss=25%  done@3131 sent= 96 retx= 36 acks= 49/ 70 ooo= 29 sum=52c5f67e
+W= 8 loss=25%  done@2695 sent= 93 retx= 33 acks= 48/ 70 ooo= 43 sum=52c5f67e
+W=16 loss=25%  done@2228 sent= 87 retx= 27 acks= 48/ 70 ooo= 46 sum=52c5f67e
+--

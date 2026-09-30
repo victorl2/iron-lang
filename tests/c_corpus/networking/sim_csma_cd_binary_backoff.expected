@@ -1,0 +1,9 @@
+  N  frames   coll dropped eff/1000 maxatt min..max/st
+  1   16667      0       0     1000      0 16667..16667
+  2   16451    740      47      987     16  7864..8587
+  4   16050   2126     143      963     16  3634..4357
+  8   15345   4552     328      920     16  1389..2740
+ 16   14388   7822     643      863     16   598..1002
+ 32   13234  11746    1232      794     16   280..748
+two stations, 40 short runs: 40 runs where one station got more than twice the other's frames
+N=16 attempts needed per delivered frame: 1:7697 2:6095 3:426 4:88 5:33 6:16 7:4 8:10

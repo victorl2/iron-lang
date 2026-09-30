@@ -1,0 +1,24 @@
+initial convergence
+  B0 id=3276810 root=409613 cost=23 ports: L0/block L1/root
+  B1 id=3276811 root=409613 cost=19 ports: L0/desig L2/root
+  B2 id=3276812 root=409613 cost=19 ports: L1/desig L2/root L4/block
+  B3 id=409613 root=409613 cost=0 ports: L2/desig L3/desig
+  B4 id=3276814 root=409613 cost=4 ports: L3/root L4/desig L5/desig
+  B5 id=3276815 root=409613 cost=23 ports: L4/block L5/root L6/desig
+  stable after 2 rounds
+root bridge B3 failed
+  B0 id=3276810 root=3276810 cost=0 ports: L0/desig L1/desig
+  B1 id=3276811 root=3276810 cost=19 ports: L0/root L2/block
+  B2 id=3276812 root=3276810 cost=4 ports: L1/root L2/desig L4/desig
+  B3 down
+  B4 id=3276814 root=3276810 cost=104 ports: L3/desig L4/root L5/desig
+  B5 id=3276815 root=3276810 cost=104 ports: L4/root L5/block L6/desig
+  stable after 19 rounds
+B3 returns
+  B0 id=3276810 root=409613 cost=23 ports: L0/block L1/root
+  B1 id=3276811 root=409613 cost=19 ports: L0/desig L2/root
+  B2 id=3276812 root=409613 cost=19 ports: L1/desig L2/root L4/block
+  B3 id=409613 root=409613 cost=0 ports: L2/desig L3/desig
+  B4 id=3276814 root=409613 cost=4 ports: L3/root L4/desig L5/desig
+  B5 id=3276815 root=409613 cost=23 ports: L4/block L5/root L6/desig
+blocked ports in final topology: 3
