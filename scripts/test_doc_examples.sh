@@ -2,8 +2,8 @@
 # Build and run every fenced ```iron block of a markdown file.
 #
 # For each ```iron block:
-#   1. the body is written to a temp .iron file (statement-only blocks are
-#      wrapped in `func main() { ... }`, see STARTER_RE below);
+#   1. the body is written to a temp .iron file (blocks without a
+#      `func main()` are wrapped in one, see MAIN_RE below);
 #   2. the file is compiled with `iron build`;
 #   3. the binary is run with a timeout; a non-zero exit fails the block;
 #   4. if a ```output block follows the ```iron block (only blank lines
@@ -24,10 +24,9 @@
 #   (default: docs/language_definition.md).
 #   DOCTEST_TIMEOUT=seconds caps each program run (default: 60).
 #
-# Statement-block wrapping heuristic: if the FIRST non-blank line of a
-# block does not start with one of
-#   func, object, enum, interface, import, pub, patch, nocopy, extern, @, --
-# the body is wrapped in `func main() {\n<body>\n}`.
+# Statement-block wrapping heuristic: a block that declares `func main()`
+# is compiled verbatim; any other block is wrapped in
+# `func main() {\n<body>\n}` so a few bare statements can be shown.
 #
 # Final marker on success: `test_doc_examples OK`.
 
@@ -171,9 +170,9 @@ TOTAL="$(cat "${WORK}/blocks/_count")"
 PASS=0
 SKIP=0
 
-# Blocks whose first non-blank line starts with one of these are complete
-# programs; anything else is wrapped in a main function.
-STARTER_RE='^[[:space:]]*(func|object|enum|interface|import|pub|patch|nocopy|extern|@|--)'
+# A block that declares `func main()` is a complete program; anything else
+# is wrapped in a main function.
+MAIN_RE='^[[:space:]]*(pub[[:space:]]+)?func[[:space:]]+main[[:space:]]*\('
 
 # Run a command with a timeout, portably (macOS has no `timeout`).
 run_with_timeout() {
@@ -213,9 +212,8 @@ while [ "$i" -lt "$TOTAL" ]; do
         continue
     fi
 
-    first_nonblank="$(awk 'NF { print; exit }' "${body_path}" || true)"
     src_path="${WORK}/blocks/block_${i}.iron"
-    if echo "${first_nonblank}" | grep -Eq "${STARTER_RE}"; then
+    if grep -Eq "${MAIN_RE}" "${body_path}"; then
         cp "${body_path}" "${src_path}"
     else
         { echo "func main() {"; cat "${body_path}"; echo "}"; } > "${src_path}"
