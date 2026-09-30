@@ -422,6 +422,22 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
         }
 
         case IRON_TYPE_RC: {
+            /* `rc [T]` is spelled as written, not as its wrapper object. */
+            if (t->rc.inner && t->rc.inner->kind == IRON_TYPE_OBJECT &&
+                t->rc.inner->object.decl && t->rc.inner->object.decl->name &&
+                strncmp(t->rc.inner->object.decl->name, "__RcList__", 10) == 0 &&
+                t->rc.inner->object.decl->field_count > 0) {
+                Iron_Field *f0 = (Iron_Field *)t->rc.inner->object.decl->fields[0];
+                Iron_Type *lt = f0 ? f0->resolved_type : NULL;
+                if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.elem) {
+                    const char *el = iron_type_to_string(lt->array.elem, a);
+                    size_t blen = strlen(el) + 6;
+                    char *b = (char *)iron_arena_alloc(a, blen, 1);
+                    if (!b) return "<oom rc>";
+                    snprintf(b, blen, "rc [%s]", el);
+                    return b;
+                }
+            }
             const char *inner = iron_type_to_string(t->rc.inner, a);
             size_t len = strlen(inner) + 4; /* "rc " + inner + '\0' */
             char *buf = (char *)iron_arena_alloc(a, len, 1);

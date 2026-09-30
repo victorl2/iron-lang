@@ -1,0 +1,33 @@
+-- `rc [T]` (#174): a shared, counted list. Every copy of the handle reaches
+-- the same list (a binding, a parameter, an object field, a closure or
+-- spawn capture), it can be grown through any handle, list methods,
+-- indexing, `len` and `for` work on the handle, and the list is freed with
+-- the last handle.
+func total(xs: rc [Int]) -> Int {
+    var t = 0
+    for x in xs { t = t + x }
+    return t
+}
+func mk() -> func() -> Int {
+    val xs: rc [Int] = rc [1, 2, 3]
+    return func() -> Int { return xs.len() + xs[0] }
+}
+object Registry {
+    val names: rc [String]
+}
+func main() {
+    val shared: rc [Int] = rc [1, 2, 3]
+    val other = shared
+    shared.push(4)
+    println("{total(shared)} {other.len()} {shared[3]} {other[3]}")
+    val g = mk()
+    println("{g()}")
+    val names = rc ["a long string that lives on the heap for sure", "b"]
+    val reg = Registry(names)
+    reg.names.push("another long string that lives on the heap for sure")
+    println("{names.len()} {reg.names[2].len()} {names[2] == reg.names[2]}")
+    val h = spawn("w") { return shared.len() }
+    println("{await h}")
+    val big = shared.filter(func(n: Int) -> Bool { return n > 2 })
+    println("{big.len()}")
+}

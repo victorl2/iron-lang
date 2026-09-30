@@ -326,6 +326,7 @@ static void mark_requires_mutable(TypeCtx *ctx, Iron_Node *expr) {
     }
 }
 
+static bool type_is_rc_list(const Iron_Type *t);
 static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
     if (!arg) return false;
     switch ((int)arg->kind) {
@@ -351,6 +352,11 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
             Iron_Type *obj_ty = fa->object
                 ? ((Iron_ExprNode *)fa->object)->resolved_type : NULL;
             bool through_rc = obj_ty && obj_ty->kind == IRON_TYPE_RC;
+            /* The list of an `rc [T]` handle is shared and mutable through
+             * every handle (#174). */
+            if (through_rc && type_is_rc_list(obj_ty) && fa->field &&
+                strcmp(fa->field, "items") == 0)
+                return true;
             if (through_rc) obj_ty = obj_ty->rc.inner;
             if (obj_ty && obj_ty->kind == IRON_TYPE_PTR) {
                 /* p.f through a pointer: the pointer's var and the field. */
@@ -1535,6 +1541,48 @@ static NarrowEntry *narrowing_copy(TypeCtx *ctx) {
  * Maps ed->generic_params[i].name -> type_args[i]. */
 /* ── Type annotation resolution ─────────────────────────────────────────── */
 
+/* `rc [T]` (#174): a shared list is `rc __RcList[T]`, a stdlib generic
+ * wrapping the list in its `items` field. The instance is requested like
+ * any user generic; until it is materialized (the next round) the type is
+ * unresolved. */
+static bool type_is_rc_list(const Iron_Type *t) {
+    return t && t->kind == IRON_TYPE_RC && t->rc.inner &&
+           t->rc.inner->kind == IRON_TYPE_OBJECT && t->rc.inner->object.decl &&
+           t->rc.inner->object.decl->name &&
+           strncmp(t->rc.inner->object.decl->name, "__RcList__", 10) == 0;
+}
+
+static Iron_Type *rc_list_type(TypeCtx *ctx, Iron_Type *elem) {
+    Iron_Symbol *tmpl = iron_scope_lookup(ctx->global_scope, "__RcList");
+    if (!tmpl || !tmpl->decl_node || !elem) return iron_type_make_primitive(IRON_TYPE_ERROR);
+    Iron_Type *args[1] = { elem };
+    const char *mangled = iron_generics_request(tmpl->decl_node, args, 1, ctx->arena);
+    Iron_Symbol *isym = mangled ? iron_scope_lookup(ctx->global_scope, mangled) : NULL;
+    if (!isym || !isym->type) return iron_type_make_primitive(IRON_TYPE_ERROR);
+    return iron_type_make_rc(ctx->arena, isym->type);
+}
+
+/* Rewrites `*slot` (an expression of rc list type) into `(*slot).items`,
+ * the list itself, so list methods, indexing and iteration apply. */
+static bool rc_list_unwrap_expr(TypeCtx *ctx, Iron_Node **slot) {
+    Iron_Node *e = slot ? *slot : NULL;
+    if (!e || (e->kind != IRON_NODE_IDENT && e->kind != IRON_NODE_FIELD_ACCESS &&
+               e->kind != IRON_NODE_INDEX && e->kind != IRON_NODE_CALL &&
+               e->kind != IRON_NODE_METHOD_CALL))
+        return false;
+    Iron_Type *t = check_expr(ctx, e);
+    if (!type_is_rc_list(t)) return false;
+    Iron_FieldAccess *fa = ARENA_ALLOC(ctx->arena, Iron_FieldAccess);
+    if (!fa) iron_oom_abort("typecheck.c:rc_list_unwrap_expr");
+    memset(fa, 0, sizeof(*fa));
+    fa->span = e->span;
+    fa->kind = IRON_NODE_FIELD_ACCESS;
+    fa->object = e;
+    fa->field = "items";
+    *slot = (Iron_Node *)fa;
+    return true;
+}
+
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     if (!ann_node) return iron_type_make_primitive(IRON_TYPE_VOID);
     /* HARD-05: cancel poll at type-annotation walker entry. */
@@ -1582,6 +1630,16 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     }
 
     if (ann->is_rc) {
+        /* `rc [T]`: the shared list wrapper (#174). */
+        if (ann->rc_inner && ann->rc_inner->kind == IRON_NODE_TYPE_ANNOTATION &&
+            ((Iron_TypeAnnotation *)ann->rc_inner)->is_array &&
+            !((Iron_TypeAnnotation *)ann->rc_inner)->bounded) {
+            Iron_Type *lt = resolve_type_annotation(ctx, ann->rc_inner);
+            if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.elem &&
+                lt->array.elem->kind != IRON_TYPE_ERROR)
+                return rc_list_type(ctx, lt->array.elem);
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
         Iron_Type *inner_t = ann->rc_inner
             ? resolve_type_annotation(ctx, ann->rc_inner)
             : iron_type_make_primitive(IRON_TYPE_ERROR);
@@ -3965,6 +4023,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 ce->arg_count == 1) {
                 Iron_Ident *fn_id = (Iron_Ident *)ce->callee;
                 if (strcmp(fn_id->name, "len") == 0) {
+                    rc_list_unwrap_expr(ctx, &ce->args[0]);   /* len(rc [T]) */
                     Iron_Type *arg_t = check_expr(ctx, ce->args[0]);
                     if (arg_t && arg_t->kind == IRON_TYPE_ARRAY) {
                         result = iron_type_make_primitive(IRON_TYPE_INT);
@@ -4247,6 +4306,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_METHOD_CALL: {
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+            /* A method on an `rc [T]` handle is a method on its list. */
+            rc_list_unwrap_expr(ctx, &mc->object);
 
             /* A spawn handle has no methods: `handle.done()` / `.result()`
              * type-checked as Void and emitted undeclared C calls. */
@@ -6157,6 +6218,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_INDEX: {
             Iron_IndexExpr *idx_e = (Iron_IndexExpr *)node;
+            rc_list_unwrap_expr(ctx, &idx_e->object);
             Iron_Type *obj_type = check_expr(ctx, idx_e->object);
             Iron_Type *idx_type = check_expr(ctx, idx_e->index);
 
@@ -6311,6 +6373,31 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_RC: {
             Iron_RcExpr *re = (Iron_RcExpr *)node;
             Iron_Type *inner = check_expr(ctx, re->inner);
+            /* `rc [..]` (#174): the list moves into a shared wrapper,
+             * `__RcList[T](list)`; the next round sees the construction. */
+            if (inner && inner->kind == IRON_TYPE_ARRAY && inner->array.size < 0 &&
+                !inner->array.is_bounded && inner->array.elem &&
+                inner->array.elem->kind != IRON_TYPE_ERROR) {
+                Iron_Type *rt = rc_list_type(ctx, inner->array.elem);
+                if (rt->kind == IRON_TYPE_RC) {
+                    Iron_ConstructExpr *ce = ARENA_ALLOC(ctx->arena, Iron_ConstructExpr);
+                    Iron_Node **cargs = (Iron_Node **)iron_arena_alloc(
+                        ctx->arena, sizeof(Iron_Node *), _Alignof(Iron_Node *));
+                    if (!ce || !cargs) iron_oom_abort("typecheck.c:rc list wrap");
+                    memset(ce, 0, sizeof(*ce));
+                    cargs[0] = re->inner;
+                    ce->span = re->span;
+                    ce->kind = IRON_NODE_CONSTRUCT;
+                    ce->type_name = rt->rc.inner->object.decl->name;
+                    ce->args = cargs;
+                    ce->arg_count = 1;
+                    ce->resolved_type = rt->rc.inner;
+                    re->inner = (Iron_Node *)ce;
+                }
+                re->resolved_type = rt;
+                result = rt;
+                break;
+            }
             result = inner ? iron_type_make_rc(ctx->arena, inner)
                            : iron_type_make_primitive(IRON_TYPE_ERROR);
             re->resolved_type = result;
@@ -8222,6 +8309,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            rc_list_unwrap_expr(ctx, &fs->iterable);
             Iron_Type *iter_t = check_expr(ctx, fs->iterable);
             if (fs->is_parallel && fs->pool_expr) {
                 /* The pool expression was never resolved or type-checked:
@@ -10030,7 +10118,10 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
         if (od->is_patch) continue;
         for (int fi = 0; fi < od->field_count; fi++) {
             Iron_Field *f = (Iron_Field *)od->fields[fi];
-            if (f && f->type_ann && !f->resolved_type)
+            /* (An ERROR from an earlier round names a generic instance
+             * that did not exist yet: resolve again.) */
+            if (f && f->type_ann &&
+                (!f->resolved_type || f->resolved_type->kind == IRON_TYPE_ERROR))
                 f->resolved_type = resolve_type_annotation(&ctx, f->type_ann);
         }
     }

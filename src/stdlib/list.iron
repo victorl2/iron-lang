@@ -13,3 +13,11 @@ func [T].reduce[U](init: U, f: func(U, T) -> U) -> U {}
 func [T].forEach(f: func(T)) {}
 @fusible
 func [T].sum() -> T {}
+
+-- `rc [T]` is sugar for `rc __RcList[T]`: a shared, counted list. Every
+-- copy of the handle reaches the same list, which is freed with the last
+-- handle. The checker rewrites `xs.push(v)`, `xs[i]`, `xs.len()` and
+-- `for x in xs` on the handle into accesses of `items`.
+object __RcList[T] {
+    val items: [T]
+}
