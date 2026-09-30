@@ -73,6 +73,21 @@ A list has one owner and is never copied implicitly. `val b = a`, storing
 `a.copy()` for an independent list or `a.take()` to move the contents out
 (leaving `a` empty). Passing a list to a function only lends it.
 
+A closure may borrow a list only for the duration of a call: a lambda
+passed directly as an argument (`xs.filter(func(x: Int) -> Bool { return
+ys.contains(x) })`) can read `ys`, but a closure that is bound, returned or
+stored cannot capture a list. A `spawn` that captures a list must be
+awaited in the same block. To share a list, use `rc [T]`: every copy of the
+handle reaches the same list, which is freed with the last handle, and the
+list can be grown through any handle.
+
+```iron
+func make_counter() -> func() -> Int {
+    val seen: rc [Int] = rc [1, 2, 3]
+    return func() -> Int { return len(seen) }
+}
+```
+
 ```iron
 object Counter {
     var value: Int

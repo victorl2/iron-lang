@@ -1,0 +1,10 @@
+-- @expected-error: E0328
+-- A closure bound to a name cannot capture an object that holds a list.
+object Bag {
+    val items: [Int]
+}
+func main() {
+    val b = Bag([1, 2])
+    val f = func() -> Int { return b.items.len() }
+    println("{f()}")
+}

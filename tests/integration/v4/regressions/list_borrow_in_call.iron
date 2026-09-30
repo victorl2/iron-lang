@@ -1,0 +1,19 @@
+-- A closure borrows a list only for a call (#174): a lambda passed directly
+-- as an argument reads the list, and a spawn whose handle is awaited in the
+-- same block does too.
+func main() {
+    val ys = [2, 3]
+    val xs = [1, 2, 3, 4]
+    val kept = xs.filter(func(x: Int) -> Bool { return ys.contains(x) })
+    println("{kept.len()}")
+    spawned()
+}
+func spawned() {
+    val xs = [1, 2, 3]
+    val h = spawn("w") { return xs.len() }
+    println("{await h}")
+    val h2 = spawn("v") { return xs[0] }
+    val n = await h2
+    println("{n}")
+}
+

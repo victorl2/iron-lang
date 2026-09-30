@@ -1,0 +1,7 @@
+-- @expected-error: E0328
+-- A spawn that captures a list must be awaited in the same block.
+func main() {
+    val xs = [1, 2, 3]
+    val h = spawn("w") { return xs.len() }
+    println("started")
+}

@@ -1,0 +1,8 @@
+-- @expected-error: E0328
+-- A closure that is returned cannot capture a list: it would outlive the
+-- list's owner. Share it as `rc [T]` instead.
+func mk() -> func() -> Int {
+    val xs = [1, 2, 3]
+    return func() -> Int { return xs.len() }
+}
+func main() { val g = mk() println("{g()}") }
