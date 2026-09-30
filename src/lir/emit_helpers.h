@@ -64,6 +64,9 @@ typedef struct {
 
     /* General emission state */
     char        **emitted_optionals;             /* stb_ds string array */
+    /* Interned literal cache (#202): literal text -> index of its static. */
+    struct { char *key; int value; } *literal_cache;
+    int           literal_cache_count;
     char        **emitted_tuples;                /* Phase 59 01d: stb_ds string array of tuple mangled names */
     /* Phase 23 VEC-01: per-(T, N) Iron_BVec_T_N typedef dedup.
      * Parallel to emitted_tuples; same arrput/arrlen/strcmp shape. */

@@ -2211,6 +2211,41 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
          * documents the flag is consumed at HIR. */
         (void)fa->is_auto_deref;  /* read flag — explicit handling tracked in 20-03 */
         (void)fa->is_auto_address_target;  /* documented at CALL-arg lowering */
+        /* A field path narrowed by a null check or type test (#200) reads
+         * the field at its declared type and casts, as a narrowed
+         * identifier does: T? to T unwraps, an interface to an implementor
+         * or another interface is a view. Assignment targets keep the
+         * field itself. */
+        if (!ctx->lowering_assign_target && fa->resolved_type && fa->object) {
+            Iron_Type *ot = ((Iron_ExprNode *)fa->object)->resolved_type;
+            if (ot && ot->kind == IRON_TYPE_RC && ot->rc.inner) ot = ot->rc.inner;
+            if (ot && ot->kind == IRON_TYPE_PTR && ot->ptr.pointee) ot = ot->ptr.pointee;
+            Iron_Type *decl_t = NULL;
+            if (ot && ot->kind == IRON_TYPE_OBJECT && ot->object.decl) {
+                Iron_ObjectDecl *od = ot->object.decl;
+                for (int fi = 0; fi < od->field_count; fi++) {
+                    Iron_Field *f = (Iron_Field *)od->fields[fi];
+                    if (f && f->name && fa->field && strcmp(f->name, fa->field) == 0) {
+                        decl_t = f->resolved_type;
+                        break;
+                    }
+                }
+            }
+            if (decl_t && decl_t != fa->resolved_type) {
+                Iron_Type *base = decl_t->kind == IRON_TYPE_NULLABLE ? decl_t->nullable.inner : decl_t;
+                bool unwrap = decl_t->kind == IRON_TYPE_NULLABLE &&
+                              fa->resolved_type->kind != IRON_TYPE_NULLABLE &&
+                              fa->resolved_type->kind != IRON_TYPE_ERROR;
+                bool view = base && base->kind == IRON_TYPE_INTERFACE &&
+                            (fa->resolved_type->kind == IRON_TYPE_OBJECT ||
+                             (fa->resolved_type->kind == IRON_TYPE_INTERFACE &&
+                              fa->resolved_type->interface.decl != base->interface.decl));
+                if (unwrap || view) {
+                    IronHIR_Expr *raw = iron_hir_expr_field_access(mod, obj, fa->field, decl_t, span);
+                    return iron_hir_expr_cast(mod, raw, fa->resolved_type, span);
+                }
+            }
+        }
         return iron_hir_expr_field_access(mod, obj, fa->field,
                                            fa->resolved_type, span);
     }
