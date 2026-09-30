@@ -1,0 +1,12 @@
+-- An object with both an init and a copy block: init hands the object it
+-- built to the caller, and only a copy of a binding runs the copy block (#212).
+object Counter {
+    var n: Int
+    init() { self.n = 0 }
+    copy { println("copied") }
+}
+func main() {
+    val c = Counter()
+    val d = c
+    println("{c.n} {d.n}")
+}

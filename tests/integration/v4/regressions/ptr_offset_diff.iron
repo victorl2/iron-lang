@@ -1,0 +1,12 @@
+-- Ptr.offset / Ptr.diff on unchecked pointers (#218).
+object Cell {
+    var v: Int
+    init(v: Int) { self.v = v }
+}
+func main() {
+    val b = Box.new(Cell(1))
+    val p: *var unchecked Cell = b.unwrap()
+    val one = 1
+    val q = Ptr.offset(p, one)
+    println("{Ptr.diff(q, p)}")
+}

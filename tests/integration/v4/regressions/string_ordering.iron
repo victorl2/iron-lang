@@ -1,0 +1,15 @@
+-- `<`, `<=`, `>`, `>=` compare strings by their bytes, and `s += t` joins
+-- strings like `s = s + t` (#214, #215).
+func main() {
+    println("{"a" < "b"} {"b" <= "a"} {"abc" > "abd"} {"x" >= "x"}")
+    var s = "a"
+    s += "b"
+    s += "{s.len()}"
+    println(s)
+    val words = ["pear", "apple", "fig"]
+    var smallest = words[0]
+    for w in words {
+        if w < smallest { smallest = w }
+    }
+    println(smallest)
+}

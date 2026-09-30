@@ -1,0 +1,8 @@
+object Node {
+    val value: Int
+    val next: Node?
+}
+func main() {
+    val n = Node(1, null)
+    println("{n.value}")
+}

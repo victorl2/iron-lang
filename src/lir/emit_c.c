@@ -1337,6 +1337,23 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
  * If vid is inline-eligible (single-use pure, same block), reconstructs the
  * producing instruction as a sub-expression. Otherwise emits `_vN`.
  * Always parenthesizes compound expressions for safety. */
+/* String ordering: `<`, `<=`, `>`, `>=` on two strings compare their
+ * bytes through iron_string_compare; the C operator would compare the
+ * struct. Emits `(iron_string_compare(&l, &r) OP 0)` and returns true, or
+ * emits nothing and returns false when the operands are not strings. */
+static bool emit_string_ordering(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                                 const char *op, IronLIR_Func *fn, EmitCtx *ctx,
+                                 IronLIR_BlockId use_block_id, int depth) {
+    Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
+    if (!lty || lty->kind != IRON_TYPE_STRING) return false;
+    iron_strbuf_appendf(sb, "(iron_string_compare(&(");
+    emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth + 1);
+    iron_strbuf_appendf(sb, "), &(");
+    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth + 1);
+    iron_strbuf_appendf(sb, ")) %s 0)", op);
+    return true;
+}
+
 void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                        IronLIR_Func *fn, EmitCtx *ctx,
                        IronLIR_BlockId use_block_id, int depth) {
@@ -1606,6 +1623,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         break;
     }
     case IRON_LIR_LT:
+        if (emit_string_ordering(sb, instr, "<", fn, ctx, use_block_id, depth)) break;
         if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " < ");
@@ -1613,6 +1631,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         if (depth > 0) iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_LTE:
+        if (emit_string_ordering(sb, instr, "<=", fn, ctx, use_block_id, depth)) break;
         if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " <= ");
@@ -1620,6 +1639,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         if (depth > 0) iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_GT:
+        if (emit_string_ordering(sb, instr, ">", fn, ctx, use_block_id, depth)) break;
         if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " > ");
@@ -1627,6 +1647,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         if (depth > 0) iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_GTE:
+        if (emit_string_ordering(sb, instr, ">=", fn, ctx, use_block_id, depth)) break;
         if (depth > 0) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " >= ");
@@ -2591,6 +2612,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
+        if (emit_string_ordering(sb, instr, "<", fn, ctx, ctx->current_block_id, 0)) {
+            iron_strbuf_appendf(sb, ";\n");
+            break;
+        }
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " < ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
@@ -2602,6 +2627,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
+        if (emit_string_ordering(sb, instr, "<=", fn, ctx, ctx->current_block_id, 0)) {
+            iron_strbuf_appendf(sb, ";\n");
+            break;
+        }
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " <= ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
@@ -2613,6 +2642,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
+        if (emit_string_ordering(sb, instr, ">", fn, ctx, ctx->current_block_id, 0)) {
+            iron_strbuf_appendf(sb, ";\n");
+            break;
+        }
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " > ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
@@ -2624,6 +2657,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
+        if (emit_string_ordering(sb, instr, ">=", fn, ctx, ctx->current_block_id, 0)) {
+            iron_strbuf_appendf(sb, ";\n");
+            break;
+        }
         emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " >= ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
@@ -6474,24 +6511,56 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     /* ── Slice ──────────────────────────────────────────────────────────── */
 
     case IRON_LIR_SLICE: {
+        /* `xs[a..b]`: a new list of the elements in [a, b), each copied
+         * for its new owner. The source is a runtime list (.items/.count)
+         * or a stack array with its companion _len. Bounds are checked
+         * like an index. */
+        Iron_Type *lt = instr->type;
+        Iron_Type *et = (lt && lt->kind == IRON_TYPE_ARRAY) ? lt->array.elem : NULL;
+        const char *list_c = emit_type_to_c(lt, ctx);
+        const char *elem_c = et ? emit_type_to_c(et, ctx) : "int64_t";
+        IronLIR_ValueId sa = get_stack_array_origin(ctx, instr->slice.array);
+        Iron_StrBuf src = iron_strbuf_create(64);
+        emit_expr_to_buf(&src, instr->slice.array, fn, ctx, ctx->current_block_id, 0);
+        const char *src_s = iron_strbuf_get(&src);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "Iron_List ");
+        iron_strbuf_appendf(sb, "%s ", list_c);
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = iron_list_slice(");
-        emit_expr_to_buf(sb, instr->slice.array, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ", ");
-        if (instr->slice.start == IRON_LIR_VALUE_INVALID) {
-            iron_strbuf_appendf(sb, "0");
+        iron_strbuf_appendf(sb, " = %s_create();\n", list_c);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "{ int64_t _sl_n = ");
+        if (sa != IRON_LIR_VALUE_INVALID) {
+            emit_val(sb, sa);
+            iron_strbuf_appendf(sb, "_len; ");
         } else {
-            emit_expr_to_buf(sb, instr->slice.start, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, "(%s).count; ", src_s);
         }
-        iron_strbuf_appendf(sb, ", ");
-        if (instr->slice.end == IRON_LIR_VALUE_INVALID) {
-            iron_strbuf_appendf(sb, "-1");
-        } else {
-            emit_expr_to_buf(sb, instr->slice.end, fn, ctx, ctx->current_block_id, 0);
-        }
-        iron_strbuf_appendf(sb, ");\n");
+        iron_strbuf_appendf(sb, "int64_t _sl_s = ");
+        if (instr->slice.start == IRON_LIR_VALUE_INVALID) iron_strbuf_appendf(sb, "0");
+        else emit_expr_to_buf(sb, instr->slice.start, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, "; int64_t _sl_e = ");
+        if (instr->slice.end == IRON_LIR_VALUE_INVALID) iron_strbuf_appendf(sb, "_sl_n");
+        else emit_expr_to_buf(sb, instr->slice.end, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ";\n");
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "  if (_sl_s < 0 || _sl_s > _sl_n) iron_panic_index_oob(__FILE__, __LINE__, _sl_s, _sl_n);\n");
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "  if (_sl_e < _sl_s || _sl_e > _sl_n) iron_panic_index_oob(__FILE__, __LINE__, _sl_e, _sl_n);\n");
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "  for (int64_t _sl_i = _sl_s; _sl_i < _sl_e; _sl_i++) {\n");
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "    %s _sl_el = %s%s[_sl_i];\n", elem_c, src_s,
+                            sa != IRON_LIR_VALUE_INVALID ? "" : ".items");
+        emit_copy_fixup_lvalue(sb, ind + 2, ctx, et, "_sl_el");
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "    %s_push(&", list_c);
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, ", _sl_el);\n");
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "  }\n");
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "}\n");
+        iron_strbuf_free(&src);
         break;
     }
 
@@ -7714,9 +7783,9 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_val(sb, instr->ptr_offset.ptr);
+        emit_expr_to_buf(sb, instr->ptr_offset.ptr, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, " + ");
-        emit_val(sb, instr->ptr_offset.offset);
+        emit_expr_to_buf(sb, instr->ptr_offset.offset, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
     }
@@ -7728,9 +7797,9 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (int64_t)((");
-        emit_val(sb, instr->ptr_diff.a);
+        emit_expr_to_buf(sb, instr->ptr_diff.a, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ") - (");
-        emit_val(sb, instr->ptr_diff.b);
+        emit_expr_to_buf(sb, instr->ptr_diff.b, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, "));\n");
         break;
     }
@@ -10912,7 +10981,17 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
 
                 const char *ret_type_c = "void";
                 bool has_return = false;
-                if (sig->resolved_return_type) {
+                /* `-> Self`: each implementor returns itself; the dispatcher
+                 * returns the interface, boxing the concrete result. */
+                bool returns_self = sig->return_type &&
+                    sig->return_type->kind == IRON_NODE_TYPE_ANNOTATION &&
+                    (((Iron_TypeAnnotation *)sig->return_type)->is_self_type ||
+                     (((Iron_TypeAnnotation *)sig->return_type)->name &&
+                      strcmp(((Iron_TypeAnnotation *)sig->return_type)->name, "Self") == 0));
+                if (returns_self) {
+                    ret_type_c = iface_mangled;
+                    has_return = true;
+                } else if (sig->resolved_return_type) {
                     ret_type_c = emit_type_to_c(sig->resolved_return_type, &ctx);
                     has_return = (sig->resolved_return_type->kind != IRON_TYPE_VOID);
                 } else if (sig->return_type) {
@@ -11021,20 +11100,32 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                     const char *recv_prefix = recv_is_ptr
                         ? (is_indirect ? ""  : "&")
                         : (is_indirect ? "*" : "");
-                    iron_strbuf_appendf(&ctx.lifted_funcs,
-                        "        case %s_TAG_%s: %s%s_%s(%sself%sdata.%s%s); break;\n",
-                        iface_mangled, impl->type_name,
-                        has_return ? "return " : "",
-                        impl_lower, sig->name,
-                        recv_prefix,
-                        sig_is_mut ? "->" : ".",
-                        impl->type_name,
-                        fwd_args);
+                    if (returns_self) {
+                        iron_strbuf_appendf(&ctx.lifted_funcs,
+                            "        case %s_TAG_%s: return %s_from_%s(%s_%s(%sself%sdata.%s%s));\n",
+                            iface_mangled, impl->type_name,
+                            iface_mangled, impl->type_name,
+                            impl_lower, sig->name,
+                            recv_prefix,
+                            sig_is_mut ? "->" : ".",
+                            impl->type_name,
+                            fwd_args);
+                    } else {
+                        iron_strbuf_appendf(&ctx.lifted_funcs,
+                            "        case %s_TAG_%s: %s%s_%s(%sself%sdata.%s%s); break;\n",
+                            iface_mangled, impl->type_name,
+                            has_return ? "return " : "",
+                            impl_lower, sig->name,
+                            recv_prefix,
+                            sig_is_mut ? "->" : ".",
+                            impl->type_name,
+                            fwd_args);
+                    }
                 }
 
                 {
                     const char *default_ret = "break;";
-                    if (has_return) {
+                    if (has_return && !returns_self) {
                         if (strcmp(ret_type_c, "Iron_String") == 0) {
                             default_ret = "return iron_string_from_literal(\"\", 0);";
                         } else if (strcmp(ret_type_c, "bool") == 0) {
@@ -11046,11 +11137,19 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                             default_ret = "return 0;";
                         }
                     }
-                    iron_strbuf_appendf(&ctx.lifted_funcs,
-                        "        default: %s\n"
-                        "    }\n"
-                        "}\n\n",
-                        default_ret);
+                    if (returns_self) {
+                        iron_strbuf_appendf(&ctx.lifted_funcs,
+                            "        default: { %s zero; memset(&zero, 0, sizeof zero); return zero; }\n"
+                            "    }\n"
+                            "}\n\n",
+                            iface_mangled);
+                    } else {
+                        iron_strbuf_appendf(&ctx.lifted_funcs,
+                            "        default: %s\n"
+                            "    }\n"
+                            "}\n\n",
+                            default_ret);
+                    }
                 }
             }
         }

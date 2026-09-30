@@ -129,6 +129,12 @@ typedef struct {
      * against the TLS-current arena (arena_expr NULL); outside any block it
      * stays a plain IRON_HIR_EXPR_HEAP. */
     int              in_arena_depth;
+
+    /* A named function used as a value (`apply(twice, 4)`, `val f = twice`)
+     * becomes a closure over a thunk `__fnref_<name>` with no captures;
+     * one thunk per function. The callee of a call is not a value use. */
+    struct { char *key; int value; } *fnref_thunks;
+    bool             lowering_callee;
 } IronHIR_LowerCtx;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
@@ -1130,8 +1136,18 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                                         &target_read);
             IronHIR_Expr *value  = lower_expr_hir(ctx, as->value);
             Iron_Type    *ty     = expr_type(as->target);
-            IronHIR_Expr *binop  = iron_hir_expr_binop(mod, hop, target_read,
-                                                        value, ty, span);
+            IronHIR_Expr *binop;
+            if (base == IRON_TOK_PLUS && ty && ty->kind == IRON_TYPE_STRING) {
+                /* `s += t` is `s = s + t`: a concat call, as for `+`. */
+                IronHIR_Expr **cargs = NULL;
+                arrput(cargs, target_read);
+                arrput(cargs, value);
+                binop = iron_hir_expr_call(
+                    mod, iron_hir_expr_func_ref(mod, "iron_string_concat", ty, span),
+                    cargs, 2, ty, span);
+            } else {
+                binop = iron_hir_expr_binop(mod, hop, target_read, value, ty, span);
+            }
             IronHIR_Stmt *s = iron_hir_stmt_assign(mod, target, binop, span);
             iron_hir_block_add_stmt(blk, s);
         } else {
@@ -1773,6 +1789,55 @@ static IronHIR_Expr *try_lower_anon_init_call(IronHIR_LowerCtx *ctx,
                                      ty, span);
 }
 
+/* The closure value of a named function: a thunk taking the closure
+ * environment slot plus the function's parameters, calling it through. */
+static IronHIR_Expr *make_func_value(IronHIR_LowerCtx *ctx, const char *name,
+                                     Iron_Type *type, Iron_Span span) {
+    IronHIR_Module *mod = ctx->module;
+    IronHIR_Func *target = NULL;
+    for (int i = 0; i < mod->func_count; i++)
+        if (strcmp(mod->funcs[i]->name, name) == 0) { target = mod->funcs[i]; break; }
+    if (!target) return iron_hir_expr_func_ref(mod, name, type, span);
+    size_t nlen = strlen(name) + 9;
+    char *thunk = (char *)iron_arena_alloc(mod->arena, nlen, 1);
+    if (!thunk) iron_oom_abort("hir_lower.c:make_func_value name");
+    snprintf(thunk, nlen, "__fnref_%s", name);
+    int n = target->param_count;
+    IronHIR_Param *params = (IronHIR_Param *)iron_arena_alloc(
+        mod->arena, (size_t)(n + 1) * sizeof(IronHIR_Param), _Alignof(IronHIR_Param));
+    if (!params) iron_oom_abort("hir_lower.c:make_func_value params");
+    if (shgeti(ctx->fnref_thunks, thunk) < 0) {
+        shput(ctx->fnref_thunks, thunk, 1);
+        params[0].name = "_env";
+        params[0].type = NULL;
+        params[0].var_id = iron_hir_alloc_var(mod, "_env", NULL, false);
+        IronHIR_Expr **args = NULL;
+        for (int i = 0; i < n; i++) {
+            params[i + 1].name = target->params[i].name;
+            params[i + 1].type = target->params[i].type;
+            params[i + 1].var_id = iron_hir_alloc_var(mod, target->params[i].name,
+                                                      target->params[i].type, false);
+            arrput(args, iron_hir_expr_ident(mod, params[i + 1].var_id,
+                                             params[i + 1].name,
+                                             params[i + 1].type, span));
+        }
+        IronHIR_Func *lifted = iron_hir_func_create(mod, thunk, params, n + 1,
+                                                    target->return_type);
+        lifted->body = iron_hir_block_create(mod);
+        IronHIR_Expr *call = iron_hir_expr_call(
+            mod, iron_hir_expr_func_ref(mod, name, type, span), args, n,
+            target->return_type, span);
+        bool is_void = !target->return_type ||
+                       target->return_type->kind == IRON_TYPE_VOID;
+        iron_hir_block_add_stmt(lifted->body,
+            is_void ? iron_hir_stmt_expr(mod, call, span)
+                    : iron_hir_stmt_return(mod, call, span));
+        iron_hir_module_add_func(mod, lifted);
+    }
+    return iron_hir_expr_closure(mod, params + 1, n, target->return_type, NULL,
+                                 type, thunk, NULL, 0, span);
+}
+
 static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     if (!node) return NULL;
     IronHIR_Module *mod  = ctx->module;
@@ -1956,6 +2021,10 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         /* 4. Function reference: check module funcs */
         for (int i = 0; i < mod->func_count; i++) {
             if (strcmp(mod->funcs[i]->name, id->name) == 0) {
+                if (!ctx->lowering_callee && id->resolved_type &&
+                    id->resolved_type->kind == IRON_TYPE_FUNC &&
+                    !mod->funcs[i]->is_extern)
+                    return make_func_value(ctx, id->name, id->resolved_type, span);
                 return iron_hir_expr_func_ref(mod, id->name,
                                               id->resolved_type, span);
             }
@@ -2146,7 +2215,10 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 mod, loc_copy, iron_type_make_primitive(IRON_TYPE_STRING), span));
         }
         int arg_count = (int)arrlen(args);
+        bool saved_callee = ctx->lowering_callee;
+        ctx->lowering_callee = ce->callee && ce->callee->kind == IRON_NODE_IDENT;
         IronHIR_Expr *callee = lower_expr_hir(ctx, ce->callee);
+        ctx->lowering_callee = saved_callee;
         /* NOTE: args stb_ds array ownership transfers to the HIR expr — do NOT arrfree */
         return iron_hir_expr_call(mod, callee, args, arg_count,
                                    ce->resolved_type, span);
@@ -3636,6 +3708,7 @@ IronHIR_Module *iron_hir_lower(Iron_Program *program, Iron_Scope *global_scope,
     shfree(ctx.global_decls_map);
     arrfree(ctx.global_decl_order);
     shfree(ctx.global_active_set);
+    shfree(ctx.fnref_thunks);
 
     /* Verify the output module */
     Iron_DiagList verify_diags;
