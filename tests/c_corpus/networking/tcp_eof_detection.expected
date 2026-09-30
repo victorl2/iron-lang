@@ -1,0 +1,9 @@
+tcp: 100 bytes then EOF, 3 consecutive zero reads
+socketpair: 3 bytes then EOF, 3 zero reads
+after SHUT_WR: peer read 7 bytes then 3 EOFs
+reverse direction still delivers data
+client 0: server read 0 bytes then EOF
+client 1: server read 5 bytes then EOF
+client 2: server read 10 bytes then EOF
+client 3: server read 15 bytes then EOF
+total EOF observations: 12

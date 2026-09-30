@@ -1,0 +1,6 @@
+client 0: 42 bytes sent, 42 echoed
+client 1: 54 bytes sent, 54 echoed
+client 2: 66 bytes sent, 66 echoed
+client 3: 78 bytes sent, 78 echoed
+client 4: 90 bytes sent, 90 echoed
+total 330 bytes over 5 connections

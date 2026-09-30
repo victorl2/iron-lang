@@ -1,0 +1,5 @@
+second listener while first is live: EADDRINUSE
+round 0: rebind same port succeeded
+round 1: rebind same port succeeded
+round 2: rebind same port succeeded
+rebound listener serves clients

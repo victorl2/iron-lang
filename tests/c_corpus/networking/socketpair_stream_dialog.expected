@@ -1,0 +1,13 @@
+ADD 95 -1 = 94
+MUL 2 22 = 44
+DIV 148 19 = 7
+POW 20 15 = error
+ADD 106 -1 = 105
+MUL -7 9 = -63
+DIV -48 26 = -1
+POW -21 16 = error
+ADD 29 -1 = 28
+MUL -38 1 = -38
+DIV -5 8 = 0
+POW 48 22 = error
+peer handled 13 requests

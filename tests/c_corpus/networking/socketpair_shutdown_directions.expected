@@ -1,0 +1,10 @@
+A shutdown(WR): B recv after data -> EOF
+A recv after B writes -> data
+A send after own SHUT_WR -> EPIPE
+A shutdown(RD): A recv -> EOF
+A poll POLLIN after SHUT_RD: yes
+B received A's data after A's SHUT_RD: yes
+A shutdown(RDWR): A recv -> EOF
+B recv -> EOF
+A send -> EPIPE
+orderly close: request 3 bytes, response 8 bytes, both sides saw EOF
