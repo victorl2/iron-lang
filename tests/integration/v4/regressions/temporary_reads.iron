@@ -1,0 +1,47 @@
+-- Reads off an owned temporary: the field or element is copied out and the
+-- temporary is dropped right after the read, so nothing leaks and nothing is
+-- freed under the value read. Lists move out of the temporary, a `for` loop
+-- drops a temporary iterable when it is done, and a list element bound with
+-- get() is a copy with its own drop.
+
+object Inner {
+    val name: String
+    drop { println("drop inner {self.name}") }
+}
+
+object Outer {
+    val inner: Inner
+    val items: [Int]
+    val names: [String]
+    drop { println("drop outer") }
+}
+
+func long(n: String) -> String {
+    return "{n} is a long name that will not fit inline anywhere"
+}
+
+func make() -> Outer {
+    return Outer(Inner(long("in")), [1, 2, 3], [long("a"), long("b")])
+}
+
+func make_list() -> [String] {
+    return [long("x"), long("y")]
+}
+
+func main() {
+    val n = make().inner.name
+    println("bound: {n}")
+    println("idx: {make_list()[1]}")
+    println("items len: {make().items.len()}")
+    println("names idx: {make().names[1]}")
+    for x in make().items {
+        println("item {x}")
+    }
+    for s in make_list() {
+        println("s {s}")
+    }
+    val ps = [Inner(long("e0")), Inner(long("e1"))]
+    val p = ps.get(0)
+    println("elem: {p.name}")
+    println("end")
+}

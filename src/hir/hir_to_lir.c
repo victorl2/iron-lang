@@ -515,10 +515,23 @@ static void emit_drop_glue_call(HIR_to_LIR_Ctx *ctx, IronLIR_ValueId slot,
 /* An expression naming existing storage: copying out of it duplicates what
  * the storage owns, so the new owner needs a copy fixup. Constructors,
  * calls and other value-producing expressions hand over fresh values. */
+/* A list `get` / `get_unchecked` result is an element the list keeps
+ * owning: the caller borrows it like a place. */
+static bool hir_expr_is_borrowed_elem(IronHIR_Expr *e) {
+    return e && e->kind == IRON_HIR_EXPR_METHOD_CALL && e->method_call.method &&
+           (strcmp(e->method_call.method, "get") == 0 ||
+            strcmp(e->method_call.method, "get_unchecked") == 0);
+}
+
+/* An expression whose value another holder owns: a binding, a borrowed
+ * element, or a field / element path rooted at one. A path rooted at a
+ * temporary (`make_probe().name`) is not a place: lowering copies the
+ * field out and drops the temporary, so the read is an owned value. */
 static bool hir_expr_is_place(IronHIR_Expr *e) {
-    return e && (e->kind == IRON_HIR_EXPR_IDENT ||
-                 e->kind == IRON_HIR_EXPR_FIELD_ACCESS ||
-                 e->kind == IRON_HIR_EXPR_INDEX);
+    while (e && (e->kind == IRON_HIR_EXPR_FIELD_ACCESS || e->kind == IRON_HIR_EXPR_INDEX))
+        e = e->kind == IRON_HIR_EXPR_FIELD_ACCESS ? e->field_access.object
+                                                   : e->index.array;
+    return e && (e->kind == IRON_HIR_EXPR_IDENT || hir_expr_is_borrowed_elem(e));
 }
 
 /* Fix up the copy stored at `slot` when it was copied out of a place. */
@@ -595,11 +608,7 @@ static void note_owned_temp(HIR_to_LIR_Ctx *ctx, TempOwned **temps,
             TempOwned to = { av, at, false };
             arrput(*temps, to);
         }
-    } else if (!hir_expr_is_place(ae) && type_needs_drop(at, ctx->program) &&
-               !(ae->kind == IRON_HIR_EXPR_METHOD_CALL && ae->method_call.method &&
-                 (strcmp(ae->method_call.method, "get") == 0 ||
-                  strcmp(ae->method_call.method, "get_unchecked") == 0))) {
-        /* (get / get_unchecked return an element the list keeps owning.) */
+    } else if (!hir_expr_is_place(ae) && type_needs_drop(at, ctx->program)) {
         IronLIR_ValueId ts = emit_alloca_in_entry(ctx, at, "__arg_tmp", span);
         iron_lir_store(ctx->current_func, ctx->current_block, ts, av, span);
         TempOwned to = { ts, at, true };
@@ -738,6 +747,41 @@ static void release_owned_temps(HIR_to_LIR_Ctx *ctx, TempOwned **temps,
             emit_rc_release_for_type(ctx, (*temps)[ti].type, (*temps)[ti].value, span);
     }
     arrfree(*temps);
+}
+
+/* A field or element read off an owned temporary (`make_probe().name`,
+ * `build()[0]`): the container is dropped once the read is done, so the
+ * value read out takes its own copy first and is owned by the reader. */
+static IronLIR_ValueId take_from_owned_temp(HIR_to_LIR_Ctx *ctx, TempOwned **temps,
+                                            IronLIR_ValueId v, Iron_Type *t,
+                                            const char *field, Iron_Span span) {
+    if (arrlen(*temps) == 0) return v;
+    if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+        if (type_is_rc_like(t)) {
+            emit_rc_retain_for_type(ctx, t, v, span);
+        } else if (type_is_owned_list(t)) {
+            /* Lists are never duplicated (#174): move the list out by
+             * leaving an empty one in the temporary for its drop to free.
+             * An element list of a temporary list has no slot to move
+             * out of; that outer list is left to leak rather than freed
+             * under the element. */
+            if (!field || !(*temps)[0].is_slot) {
+                arrfree(*temps);
+                return v;
+            }
+            IronLIR_ValueId empty = iron_lir_array_lit(ctx->current_func, ctx->current_block,
+                                                       t->array.elem, NULL, 0, t, span)->id;
+            iron_lir_set_field(ctx->current_func, ctx->current_block,
+                               (*temps)[0].value, field, empty, span);
+        } else if (type_needs_copy_fixup(t, ctx->program)) {
+            IronLIR_ValueId tmp = emit_alloca_in_entry(ctx, t, "__copy", span);
+            iron_lir_store(ctx->current_func, ctx->current_block, tmp, v, span);
+            emit_lifecycle_glue_call(ctx, "$copy", tmp, span);
+            v = iron_lir_load(ctx->current_func, ctx->current_block, tmp, t, span)->id;
+        }
+    }
+    release_owned_temps(ctx, temps, span);
+    return v;
 }
 
 /* Phase 24 DROP-01 (Plan 24-02): emit drop calls for the drop_stacks entries
@@ -3063,16 +3107,22 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     }
 
     case IRON_HIR_EXPR_FIELD_ACCESS: {
+        TempOwned *temps = NULL;
         IronLIR_ValueId obj = lower_expr(ctx, expr->field_access.object);
-        return iron_lir_get_field(ctx->current_func, ctx->current_block,
-                                   obj, expr->field_access.field, type, span)->id;
+        note_owned_temp(ctx, &temps, expr->field_access.object, obj, span);
+        IronLIR_ValueId fv = iron_lir_get_field(ctx->current_func, ctx->current_block,
+                                                obj, expr->field_access.field, type, span)->id;
+        return take_from_owned_temp(ctx, &temps, fv, type, expr->field_access.field, span);
     }
 
     case IRON_HIR_EXPR_INDEX: {
+        TempOwned *temps = NULL;
         IronLIR_ValueId arr = lower_expr(ctx, expr->index.array);
+        note_owned_temp(ctx, &temps, expr->index.array, arr, span);
         IronLIR_ValueId idx = lower_expr(ctx, expr->index.index);
-        return iron_lir_get_index(ctx->current_func, ctx->current_block,
-                                   arr, idx, type, span)->id;
+        IronLIR_ValueId ev = iron_lir_get_index(ctx->current_func, ctx->current_block,
+                                                arr, idx, type, span)->id;
+        return take_from_owned_temp(ctx, &temps, ev, type, NULL, span);
     }
 
     case IRON_HIR_EXPR_SLICE: {
@@ -3506,10 +3556,9 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         if (fp != IRON_LIR_VALUE_INVALID &&
             fp < (IronLIR_ValueId)arrlen(ctx->current_func->value_table) &&
             ctx->current_func->value_table[fp] &&
-            ctx->current_func->value_table[fp]->kind == IRON_LIR_ADDR_OF &&
-            ctx->current_func->value_table[fp]->addr_of.gen_source ==
-                IRON_LIR_GEN_ARENA) {
-            gs = IRON_LIR_GEN_ARENA;
+            ctx->current_func->value_table[fp]->kind == IRON_LIR_ADDR_OF) {
+            /* The pointer's own ADDR_OF knows where it points. */
+            gs = ctx->current_func->value_table[fp]->addr_of.gen_source;
         }
         return iron_lir_ptr_load(ctx->current_func, ctx->current_block,
                                  fp, gs, type, span)->id;
@@ -4152,6 +4201,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         /* Pre-header: evaluate iterable, create iter alloca, init index to 0 */
         switch_block(ctx, pre_header);
         IronLIR_ValueId iterable_val = lower_expr(ctx, stmt->for_loop.iterable);
+        /* A temporary iterable (`for x in build()`) is owned by the loop
+         * and dropped once it is done (or left behind by a break). */
+        TempOwned *iter_temps = NULL;
+        note_owned_temp(ctx, &iter_temps, stmt->for_loop.iterable, iterable_val, span);
         Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
 
         /* Alloca for loop index */
@@ -4219,6 +4272,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         }
 
         switch_block(ctx, exit_blk);
+        release_owned_temps(ctx, &iter_temps, span);
         break;
     }
 

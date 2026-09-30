@@ -1,9 +1,6 @@
 -- section 3.1 default stack policy
 -- @req: POL-01, DROP-01, DROP-03
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): DROP-03 field-drop chaining not implemented — a drop-less container's
--- fields' drops do not run at container scope exit (verified: builds+runs, "drop: first/second" missing).
--- extends-spec: container drop fires field drops in declaration order
+-- container drop fires field drops in reverse declaration order (DROP-LAYOUT.md)
 
 object Probe {
     val name: String

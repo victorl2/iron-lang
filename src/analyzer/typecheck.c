@@ -187,6 +187,7 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
 /* ── Forward declarations ────────────────────────────────────────────────── */
 
 static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node);
+static void mark_amp_call_args(Iron_Node **args, int count);
 static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
                                             Iron_Type *expected);
 static void check_stmt(TypeCtx *ctx, Iron_Node *node);
@@ -1666,6 +1667,13 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                            "`rc T` holds a shared, reference-counted T; "
                            "it is not a wrapper for handles or pointers");
             return iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
+        /* `rc T?` is a nullable strong handle (what `upgrade()` returns),
+         * not a handle to a nullable: the `?` applies to the whole type. */
+        if (inner_t->kind == IRON_TYPE_NULLABLE && inner_t->nullable.inner) {
+            Iron_Type *rt = iron_type_make_rc(ctx->arena, inner_t->nullable.inner);
+            Iron_Type *nt = rt ? iron_type_make_nullable(ctx->arena, rt) : NULL;
+            return nt ? nt : iron_type_make_primitive(IRON_TYPE_ERROR);
         }
         Iron_Type *rt = iron_type_make_rc(ctx->arena, inner_t);
         return rt ? rt : iron_type_make_primitive(IRON_TYPE_ERROR);
@@ -3434,6 +3442,26 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     ue->resolved_type = result;
                     break;
                 }
+                /* A growable list moves its elements when it grows, and
+                 * its buffer carries no generation the pointer could be
+                 * checked against; only fixed-size arrays give stable
+                 * element addresses. A borrow for the duration of a call
+                 * (`f(&list[i])`) is allowed, like auto-addressing. */
+                if (ue->operand->kind == IRON_NODE_INDEX && !ue->is_call_arg) {
+                    Iron_Node *lo = ((Iron_IndexExpr *)ue->operand)->object;
+                    Iron_Type *lt = lo ? ((Iron_ExprNode *)lo)->resolved_type : NULL;
+                    if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.size < 0 &&
+                        !lt->array.is_bounded) {
+                        emit_error(ctx, IRON_ERR_PTR_INTO_LIST, ue->span,
+                                   "cannot take the address of a list element;"
+                                   " the list may reallocate its elements",
+                                   "point at a fixed-size array element, or"
+                                   " store the element in a binding first");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        ue->resolved_type = result;
+                        break;
+                    }
+                }
                 bool is_var_src = arg_source_is_mutable(ctx, ue->operand);
                 mark_requires_mutable(ctx, ue->operand);
                 Iron_Type *ptr_t = iron_type_make_ptr(ctx->arena,
@@ -3477,6 +3505,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         }
 
         case IRON_NODE_CALL: {
+            mark_amp_call_args(((Iron_CallExpr *)node)->args, ((Iron_CallExpr *)node)->arg_count);
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
 
             /* User generics: redirect to the instance (or, in the round
@@ -4354,6 +4383,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         }
 
         case IRON_NODE_METHOD_CALL: {
+            mark_amp_call_args(((Iron_MethodCallExpr *)node)->args, ((Iron_MethodCallExpr *)node)->arg_count);
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
             /* A method on an `rc [T]` handle is a method on its list. */
             rc_list_unwrap_expr(ctx, &mc->object);
@@ -7066,6 +7096,15 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
  * Used by: val and var decl (vd->init), call arg (ce->args[i]), return (rs->value),
  * assignment (as->value). Other check_expr callers remain unchanged.
  */
+/* Flag `&expr` arguments written directly in a call's argument list. */
+static void mark_amp_call_args(Iron_Node **args, int count) {
+    for (int i = 0; i < count; i++) {
+        if (args[i] && args[i]->kind == IRON_NODE_UNARY &&
+            ((Iron_UnaryExpr *)args[i])->op == (Iron_OpKind)IRON_TOK_AMP)
+            ((Iron_UnaryExpr *)args[i])->is_call_arg = true;
+    }
+}
+
 static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
                                             Iron_Type *expected) {
     /* HARD-05: cancel poll at expected-type walker entry. */
@@ -7102,6 +7141,27 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
          * from different implementors, a list of empty lists). */
         if (!al->type_ann && !al->size && expected->array.size < 0 &&
             !expected->array.is_bounded && expected->array.elem) {
+            bool fits = true;
+            for (int i = 0; i < al->element_count; i++) {
+                Iron_Type *et = check_expr_with_expected(ctx, al->elements[i],
+                                                         expected->array.elem);
+                if (!et || et->kind == IRON_TYPE_ERROR ||
+                    !types_assignable(expected->array.elem, et)) {
+                    fits = false;
+                    break;
+                }
+            }
+            if (fits) {
+                al->resolved_type = expected;
+                al->context_type = expected;
+                return expected;
+            }
+        }
+        /* A literal with exactly N fitting elements is a `[T; N]` where one
+         * is expected (a fixed-size return or annotation). */
+        if (!al->type_ann && !al->size && expected->array.size >= 0 &&
+            !expected->array.is_bounded && expected->array.elem &&
+            al->element_count == expected->array.size) {
             bool fits = true;
             for (int i = 0; i < al->element_count; i++) {
                 Iron_Type *et = check_expr_with_expected(ctx, al->elements[i],
