@@ -1,0 +1,31 @@
+-- An implementor stored in an interface list may have fields of any type.
+-- The per-type storage used to leave out fields never read through the
+-- list and rebuild them as 0, which is not a value of an object, String or
+-- list field (invalid C).
+interface Shape {
+    readonly func area() -> Float
+}
+object Label {
+    val text: String
+}
+object Circle impl Shape {
+    val r: Float
+    val label: Label
+    val name: String
+    readonly func area() -> Float { return self.r * self.r * 3.0 }
+}
+object Square impl Shape {
+    val s: Float
+    val corners: [Int]
+    readonly func area() -> Float { return self.s * self.s }
+}
+func total(shapes: [Shape]) -> Float {
+    var t = 0.0
+    for s in shapes { t = t + s.area() }
+    return t
+}
+func main() {
+    var xs: [Shape] = [Circle(1.0, Label("a"), "c"), Square(2.0, [1, 2, 3, 4])]
+    xs.push(Circle(2.0, Label("b"), "d"))
+    println("{total(xs)} {xs.len()}")
+}

@@ -276,6 +276,8 @@ static Iron_Symbol *tc_define(TypeCtx *ctx, const char *name, Iron_SymbolKind ki
     sym->is_mutable = is_mutable;
     sym->type = type;
     iron_scope_define(ctx->current_scope, ctx->arena, sym);
+    /* A new binding is not the narrowed one it shadows. */
+    if (name && ctx->narrowed) (void)shdel(ctx->narrowed, name);
     return sym;
 }
 
@@ -396,6 +398,61 @@ static bool arg_source_is_mutable(TypeCtx *ctx, Iron_Node *arg) {
  * field write inside an element) needs a mutable path to it: a `var`
  * binding or parameter, `var` fields, a `*var` pointer or an rc handle.
  * `val` means immutable for lists as for objects (#174). */
+/* Does object `od` implement interface `iface_name` (its impl list,
+ * patch conformance included)? */
+static bool object_implements(const Iron_ObjectDecl *od, const char *iface_name) {
+    if (!od || !iface_name) return false;
+    for (int i = 0; i < od->implements_count; i++)
+        if (od->implements_names[i] && strcmp(od->implements_names[i], iface_name) == 0)
+            return true;
+    return false;
+}
+
+static Iron_Type *narrowing_get(TypeCtx *ctx, const char *name);
+static Iron_Symbol *tc_lookup(TypeCtx *ctx, const char *name);
+static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
+                       const char *msg, const char *suggestion);
+
+/* A binding narrowed by `x is T` (#179) is read through a view of its
+ * payload. A view of an implementor is the payload itself, so writes reach
+ * the binding (and the usual mutability rules apply); a view of another
+ * interface is a copy, so writes through it are rejected instead of being
+ * lost. Returns true (and reports) when `root` (the root of a field /
+ * receiver chain) is such a copy. */
+static bool reject_narrowed_view_write(TypeCtx *ctx, Iron_Node *root, Iron_Span span) {
+    while (root && root->kind == IRON_NODE_FIELD_ACCESS)
+        root = ((Iron_FieldAccess *)root)->object;
+    if (!root || root->kind != IRON_NODE_IDENT) return false;
+    Iron_Ident *id = (Iron_Ident *)root;
+    Iron_Type *view = id->name ? narrowing_get(ctx, id->name) : NULL;
+    if (!view || view->kind != IRON_TYPE_INTERFACE) return false;
+    Iron_Symbol *sym = tc_lookup(ctx, id->name);
+    if (!sym || !sym->type) sym = id->resolved_sym;
+    if (!sym || !sym->type) return false;
+    Iron_Type *st = sym->type->kind == IRON_TYPE_NULLABLE ? sym->type->nullable.inner
+                                                         : sym->type;
+    if (!st || st->kind != IRON_TYPE_INTERFACE) return false;
+    char msg[256];
+    snprintf(msg, sizeof(msg),
+             "cannot modify '%s' through an interface type test: it is a read-only view here",
+             id->name);
+    emit_error(ctx, IRON_ERR_UNSUPPORTED_TYPE_TEST, span, msg,
+               "assign the whole binding instead (for example `x = updated`)");
+    return true;
+}
+
+/* The implementor named by a type match arm: `Circle(c)` (a pattern
+ * without an enum qualifier) or a bare `Circle`. */
+static const char *type_match_arm_name(Iron_MatchCase *mc) {
+    if (!mc || !mc->pattern) return NULL;
+    if (mc->pattern->kind == IRON_NODE_PATTERN) {
+        Iron_Pattern *p = (Iron_Pattern *)mc->pattern;
+        return p->enum_name ? NULL : p->variant_name;
+    }
+    if (mc->pattern->kind == IRON_NODE_IDENT) return ((Iron_Ident *)mc->pattern)->name;
+    return NULL;
+}
+
 /* Does object `type_name` declare a callable method `name` (the copy /
  * drop hooks are not callable methods)? */
 static bool object_declares_method(TypeCtx *ctx, const char *type_name,
@@ -1990,20 +2047,6 @@ static int classify_null_check(Iron_Node *expr, const char **out_name) {
     return is_neq ? 1 : -1;
 }
 
-/* Check if expr is `e is TypeName`, return type_name or NULL */
-static const char *classify_is_check(Iron_Node *expr) {
-    if (!expr || expr->kind != IRON_NODE_IS) return NULL;
-    Iron_IsExpr *ie = (Iron_IsExpr *)expr;
-    return ie->type_name;
-}
-
-/* Check if a block always returns (for early-return narrowing) */
-static bool block_always_returns(Iron_Block *block) {
-    if (!block || block->stmt_count == 0) return false;
-    Iron_Node *last = block->stmts[block->stmt_count - 1];
-    return last && last->kind == IRON_NODE_RETURN;
-}
-
 /* Phase 4 Plan 04-01 (EDIT-07): recursive "always returns" check that also
  * counts if/else with both arms terminating + match with all arms
  * terminating. This is a minimal-but-correct reachability pass for the
@@ -2017,6 +2060,7 @@ static bool stmt_always_returns(Iron_Node *node) {
     if (!node) return false;
     switch ((int)node->kind) {
         case IRON_NODE_RETURN:
+        case IRON_NODE_ERROR:   /* a statement that failed to parse (already reported) */
             return true;
         case IRON_NODE_BLOCK: {
             Iron_Block *b = (Iron_Block *)node;
@@ -2027,6 +2071,9 @@ static bool stmt_always_returns(Iron_Node *node) {
             Iron_IfStmt *is = (Iron_IfStmt *)node;
             /* if-else with BOTH arms terminating always returns. */
             if (!is->else_body) return false;
+            for (int i = 0; i < is->elif_count; i++) {
+                if (!stmt_always_returns(is->elif_bodies[i])) return false;
+            }
             return stmt_always_returns(is->body) &&
                    stmt_always_returns(is->else_body);
         }
@@ -2044,6 +2091,48 @@ static bool stmt_always_returns(Iron_Node *node) {
         }
         default:
             return false;
+    }
+}
+
+/* Narrow the bindings `cond` proves something about, for the code that runs
+ * when `cond` evaluates to `truth`: `x != null` / `x == null` narrow a T?
+ * binding to T, `x is T` narrows an interface binding to a view of T, and
+ * `not`, `and` (when true) and `or` (when false) combine them. */
+static void narrow_for_cond(TypeCtx *ctx, Iron_Node *cond, bool truth) {
+    if (!cond) return;
+    if (cond->kind == IRON_NODE_UNARY) {
+        Iron_UnaryExpr *ue = (Iron_UnaryExpr *)cond;
+        if ((int)ue->op == (int)IRON_TOK_NOT) narrow_for_cond(ctx, ue->operand, !truth);
+        return;
+    }
+    if (cond->kind == IRON_NODE_BINARY) {
+        Iron_BinaryExpr *be = (Iron_BinaryExpr *)cond;
+        if (((int)be->op == (int)IRON_TOK_AND && truth) ||
+            ((int)be->op == (int)IRON_TOK_OR && !truth)) {
+            narrow_for_cond(ctx, be->left, truth);
+            narrow_for_cond(ctx, be->right, truth);
+            return;
+        }
+        const char *name = NULL;
+        int dir = classify_null_check(cond, &name);
+        if (dir == 0 || !name || (dir == 1) != truth) return;
+        Iron_Symbol *sym = tc_lookup(ctx, name);
+        Iron_Type *t = sym ? sym->type : NULL;
+        if (t && t->kind == IRON_TYPE_NULLABLE) narrowing_set(ctx, name, t->nullable.inner);
+        return;
+    }
+    if (cond->kind == IRON_NODE_IS && truth) {
+        /* Only an interface value narrows (#179): a concrete value's test
+         * is a constant and its type is already known. */
+        Iron_IsExpr *ie = (Iron_IsExpr *)cond;
+        if (!ie->expr || ie->expr->kind != IRON_NODE_IDENT || !ie->type_name) return;
+        Iron_Type *opt = ((Iron_ExprNode *)ie->expr)->resolved_type;
+        if (opt && opt->kind == IRON_TYPE_NULLABLE) opt = opt->nullable.inner;
+        if (!opt || opt->kind != IRON_TYPE_INTERFACE) return;
+        Iron_Symbol *type_sym = iron_scope_lookup(ctx->global_scope, ie->type_name);
+        if (!type_sym || (type_sym->sym_kind != IRON_SYM_TYPE &&
+                          type_sym->sym_kind != IRON_SYM_INTERFACE)) return;
+        narrowing_set(ctx, ((Iron_Ident *)ie->expr)->name, type_sym->type);
     }
 }
 
@@ -2318,6 +2407,14 @@ static bool push_type_compatible(const Iron_Type *elem_type,
     return false;
 }
 
+/* An [T, unordered] list keeps each implementor's elements together and
+ * reorders them freely, so its elements have no position to index. */
+static void report_unordered_position(TypeCtx *ctx, Iron_Span span) {
+    emit_error(ctx, IRON_ERR_UNORDERED_POSITION, span,
+               "an unordered list has no element positions",
+               "iterate it with `for`, or use an ordered list [T] to index it");
+}
+
 /* Heuristic fallback for built-in array methods (push, pop, len, etc.)
  * that don't have explicit extension method declarations yet. */
 static Iron_Type *resolve_array_builtin_method(const char *method,
@@ -2396,6 +2493,14 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
                  m, iron_type_to_string(arr_type, ctx->arena));
         emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
                    "use a dynamic list [T] or a bounded vector [T; <=N]");
+        return result;
+    }
+    if (arr_type->array.is_unordered &&
+        (strcmp(m, "get") == 0 || strcmp(m, "set") == 0 ||
+         strcmp(m, "insert") == 0 || strcmp(m, "remove") == 0 ||
+         strcmp(m, "reverse") == 0 ||
+         strcmp(m, "get_unchecked") == 0 || strcmp(m, "set_unchecked") == 0)) {
+        report_unordered_position(ctx, mc->span);
         return result;
     }
     /* Mutating a list or array needs a mutable path to it (#174). */
@@ -2542,6 +2647,7 @@ static bool node_is_value_expression(const Iron_Node *n) {
  * instruction. */
 static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
                                     Iron_Node *receiver) {
+    if (reject_narrowed_view_write(ctx, receiver, mc->span)) return;
     Iron_Node *cur = receiver;
     for (;;) {
         /* Past a pointer, the pointer's `var` decides, not the binding
@@ -4161,6 +4267,18 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 break;
             }
 
+            /* push / insert / set: the element argument takes the list's
+             * element type as its expected type, so `grid.push([])` and
+             * `shapes.push([Sq(1), Dot()])` infer [T] / [Shape] from the
+             * list. (Later checks of the argument reuse this result.) */
+            if (mc->method && mc->object && mc->arg_count > 0 &&
+                (strcmp(mc->method, "push") == 0 || strcmp(mc->method, "insert") == 0 ||
+                 strcmp(mc->method, "set") == 0)) {
+                Iron_Type *lt = check_expr(ctx, mc->object);
+                if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.elem)
+                    check_expr_with_expected(ctx, mc->args[mc->arg_count - 1], lt->array.elem);
+            }
+
             /* `x.copy()` on an object: the explicit duplicate (#174). An
              * object that declares its own copy method (Image.copy) keeps
              * it; the `copy { }` hook is not callable and runs inside. */
@@ -5231,6 +5349,9 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                         mark_requires_mutable(
                                             ctx, (Iron_Node *)recv_ident);
                                     }
+                                    if (recv_ident)
+                                        reject_narrowed_view_write(ctx, (Iron_Node *)recv_ident,
+                                                                   mc->span);
                                     /* Through a pointer the pointer's var decides
                                      * (d.bump() with d: *var T mutates the pointee). */
                                     Iron_Type *rit = recv_ident ? recv_ident->resolved_type : NULL;
@@ -5940,24 +6061,62 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_IS: {
             Iron_IsExpr *ie = (Iron_IsExpr *)node;
-            check_expr(ctx, ie->expr);
-            /* v4 hole-closure (E0322): only the null-test form of `is` has
-             * real HIR->LIR lowering (hir_lower.c maps `is Null` to
-             * IRON_HIR_EXPR_IS_NULL). Every other `x is <Type>` lowers to a
-             * POISON placeholder and dies later as an E0400 ICE (or emits
-             * invalid C). Reject the general type-test here with a clean
-             * diagnostic instead. The null-test spelling stays accepted. */
-            if (ie->type_name && strcmp(ie->type_name, "Null") != 0) {
+            Iron_Type *ot = check_expr(ctx, ie->expr);
+            result = iron_type_make_primitive(IRON_TYPE_BOOL);
+            ie->resolved_type = result;
+            if (!ie->type_name || strcmp(ie->type_name, "Null") == 0) break;
+            /* A type test (#179): `x is T` for an object or interface T.
+             * On an interface value it tests the tag; on a concrete value
+             * it is known at compile time. */
+            Iron_Symbol *ts = iron_scope_lookup(ctx->global_scope, ie->type_name);
+            Iron_Type *tt = (ts && (ts->sym_kind == IRON_SYM_TYPE ||
+                                    ts->sym_kind == IRON_SYM_INTERFACE)) ? ts->type : NULL;
+            if (!tt || (tt->kind != IRON_TYPE_OBJECT && tt->kind != IRON_TYPE_INTERFACE)) {
                 char msg[256];
                 snprintf(msg, sizeof(msg),
-                         "type-test `is %s` is not yet supported"
-                         " (only the null test `is Null` is implemented)",
+                         "`is %s`: a type test needs an object or interface type",
                          ie->type_name);
                 emit_error(ctx, IRON_ERR_UNSUPPORTED_TYPE_TEST, ie->span, msg,
                            "for null checks use `x is Null`, `x == null` or `x != null`");
+                break;
             }
-            result = iron_type_make_primitive(IRON_TYPE_BOOL);
-            ie->resolved_type = result;
+            ie->target_type = tt;
+            if (!ot || ot->kind == IRON_TYPE_ERROR) break;
+            Iron_Type *base = ot->kind == IRON_TYPE_NULLABLE ? ot->nullable.inner : ot;
+            if (base && base->kind == IRON_TYPE_INTERFACE && base->interface.decl) {
+                /* An object that does not implement the interface can never
+                 * be held by it. */
+                if (tt->kind == IRON_TYPE_OBJECT &&
+                    !object_implements(tt->object.decl, base->interface.decl->name)) {
+                    char msg[320];
+                    snprintf(msg, sizeof(msg),
+                             "'%s' does not implement '%s', so this test is never true",
+                             ie->type_name, base->interface.decl->name);
+                    emit_error(ctx, IRON_ERR_UNSUPPORTED_TYPE_TEST, ie->span, msg, NULL);
+                }
+                break;
+            }
+            if (base && base->kind == IRON_TYPE_OBJECT && base->object.decl &&
+                ot->kind != IRON_TYPE_NULLABLE) {
+                bool yes = tt->kind == IRON_TYPE_OBJECT
+                    ? tt->object.decl == base->object.decl
+                    : object_implements(base->object.decl,
+                                        tt->interface.decl ? tt->interface.decl->name : "");
+                char msg[320];
+                snprintf(msg, sizeof(msg),
+                         "'%s' is known here: this test is always %s",
+                         base->object.decl->name ? base->object.decl->name : "?",
+                         yes ? "true" : "false");
+                emit_warning(ctx, IRON_WARN_CONSTANT_TYPE_TEST, ie->span, msg, NULL);
+                break;
+            }
+            {
+                char msg[320];
+                snprintf(msg, sizeof(msg),
+                         "`is %s` needs an interface or object value, got '%s'",
+                         ie->type_name, iron_type_to_string(ot, ctx->arena));
+                emit_error(ctx, IRON_ERR_UNSUPPORTED_TYPE_TEST, ie->span, msg, NULL);
+            }
             break;
         }
 
@@ -5968,6 +6127,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
 
             if (obj_type && obj_type->kind == IRON_TYPE_ARRAY) {
                 result = obj_type->array.elem;
+                if (obj_type->array.is_unordered)
+                    report_unordered_position(ctx, idx_e->span);
 
                 /* BOUNDS-03: Validate index expression is an integer type */
                 if (idx_type && idx_type->kind != IRON_TYPE_ERROR &&
@@ -6330,6 +6491,14 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     al->resolved_type = result;
                     break;
                 }
+            }
+            if (al->context_type) {
+                for (int i = 0; i < al->element_count; i++)
+                    check_expr_with_expected(ctx, al->elements[i],
+                                             al->context_type->array.elem);
+                result = al->context_type;
+                al->resolved_type = result;
+                break;
             }
             if (al->size) check_expr(ctx, al->size);
             Iron_Type *elem_type = NULL;
@@ -6737,7 +6906,29 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
         Iron_ArrayLit *al = (Iron_ArrayLit *)node;
         if (al->element_count == 0) {
             al->resolved_type = expected;
+            al->context_type = expected;
             return expected;
+        }
+        /* A non-empty dynamic literal takes the expected list type when
+         * every element fits its element type (an interface list built
+         * from different implementors, a list of empty lists). */
+        if (!al->type_ann && !al->size && expected->array.size < 0 &&
+            !expected->array.is_bounded && expected->array.elem) {
+            bool fits = true;
+            for (int i = 0; i < al->element_count; i++) {
+                Iron_Type *et = check_expr_with_expected(ctx, al->elements[i],
+                                                         expected->array.elem);
+                if (!et || et->kind == IRON_TYPE_ERROR ||
+                    !types_assignable(expected->array.elem, et)) {
+                    fits = false;
+                    break;
+                }
+            }
+            if (fits) {
+                al->resolved_type = expected;
+                al->context_type = expected;
+                return expected;
+            }
         }
     }
     return check_expr(ctx, node);
@@ -7372,6 +7563,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     }
                 }
             }
+            if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS)
+                reject_narrowed_view_write(ctx, as->target, as->span);
             if (as->target && as->target->kind == IRON_NODE_FIELD_ACCESS) {
                 Iron_Node *cur = as->target;
                 while (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
@@ -7852,173 +8045,101 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
         }
 
         case IRON_NODE_IF: {
+            /* Narrowing: each branch sees what its condition proves (a null
+             * check or a type test, through `not`, `and` and `or`), later
+             * branches of the chain see what the earlier conditions ruled
+             * out, and the code after the if sees what an early exit left
+             * behind. */
             Iron_IfStmt *is_s = (Iron_IfStmt *)node;
-
-            /* Type-check condition */
-            check_expr(ctx, is_s->condition);
-
-            const char *null_check_name = NULL;
-            int null_check_dir = classify_null_check(is_s->condition, &null_check_name);
-            const char *is_check_name  = classify_is_check(is_s->condition);
-
-            /* ── Case 1: x != null — narrow x to non-nullable in then-block ── */
-            if (null_check_dir == 1 && null_check_name) {
-                Iron_Symbol *sym = tc_lookup(ctx, null_check_name);
-                Iron_Type *sym_type = sym ? sym->type : NULL;
-                /* Also check resolved_sym fallback */
-                if (!sym_type && !sym) {
-                    /* look via global for param fallback */
-                }
-
-                if (sym_type && sym_type->kind == IRON_TYPE_NULLABLE) {
-                    NarrowEntry *saved = narrowing_copy(ctx);
-                    narrowing_set(ctx, null_check_name, sym_type->nullable.inner);
-                    if (is_s->body) check_stmt(ctx, is_s->body);
-                    shfree(ctx->narrowed);
-                    ctx->narrowed = saved;
-                } else {
-                    if (is_s->body) check_stmt(ctx, is_s->body);
-                }
-                if (is_s->else_body) check_stmt(ctx, is_s->else_body);
+            int n_conds = 1 + is_s->elif_count;
+            Iron_Node **conds = (Iron_Node **)iron_arena_alloc(
+                ctx->arena, (size_t)n_conds * sizeof(Iron_Node *), _Alignof(Iron_Node *));
+            Iron_Node **bodies = (Iron_Node **)iron_arena_alloc(
+                ctx->arena, (size_t)n_conds * sizeof(Iron_Node *), _Alignof(Iron_Node *));
+            if (!conds || !bodies) iron_oom_abort("typecheck.c:IF branches");
+            conds[0] = is_s->condition;
+            bodies[0] = is_s->body;
+            for (int i = 0; i < is_s->elif_count; i++) {
+                conds[1 + i] = is_s->elif_conds[i];
+                bodies[1 + i] = is_s->elif_bodies[i];
             }
-            /* ── Case 2: x == null ─────────────────────────────────────────── */
-            else if (null_check_dir == -1 && null_check_name) {
-                Iron_Symbol *sym = tc_lookup(ctx, null_check_name);
-                Iron_Type *sym_type = sym ? sym->type : NULL;
 
-                if (is_s->body) check_stmt(ctx, is_s->body);
-
-                bool then_returns = false;
-                if (is_s->body && is_s->body->kind == IRON_NODE_BLOCK) {
-                    then_returns = block_always_returns((Iron_Block *)is_s->body);
-                }
-
-                /* If then-block always returns: narrow x to non-nullable in continuation */
-                if (then_returns && sym_type && sym_type->kind == IRON_TYPE_NULLABLE) {
-                    narrowing_set(ctx, null_check_name, sym_type->nullable.inner);
-                }
-
-                if (is_s->else_body) {
-                    if (sym_type && sym_type->kind == IRON_TYPE_NULLABLE) {
-                        NarrowEntry *saved = narrowing_copy(ctx);
-                        narrowing_set(ctx, null_check_name, sym_type->nullable.inner);
-                        check_stmt(ctx, is_s->else_body);
-                        shfree(ctx->narrowed);
-                        ctx->narrowed = saved;
-                    } else {
-                        check_stmt(ctx, is_s->else_body);
-                    }
-                }
+            /* Phase 85 INIT-04/06: inside an init body, the definite-
+             * assignment analysis unions unassigned_fields across every
+             * branch: a field is unassigned on the merged path if it is
+             * unassigned on ANY branch. Without an else the implicit
+             * "no writes" branch keeps the pre-branch set. */
+            bool track_init = ctx->in_init_method && ctx->unassigned_fields;
+            InitUnassignedEntry *pre = NULL;
+            InitUnassignedEntry **post = NULL;
+            int branch_idx = 0;
+            if (track_init) {
+                init_unassigned_clone(&pre, ctx->unassigned_fields);
+                post = (InitUnassignedEntry **)iron_arena_alloc(
+                    ctx->arena, (size_t)(n_conds + 1) * sizeof(InitUnassignedEntry *),
+                    _Alignof(InitUnassignedEntry *));
+                if (!post) iron_oom_abort("typecheck.c:IF init branch-merge post");
             }
-            /* ── Case 3: e is TypeName — narrow in then-block ─────────────── */
-            else if (is_check_name) {
-                Iron_Symbol *type_sym = iron_scope_lookup(ctx->global_scope, is_check_name);
-                if (type_sym && type_sym->sym_kind == IRON_SYM_TYPE) {
-                    /* PROT-03 row 19 (AUDIT-01 M-severity): is_s->condition is
-                     * already classified as IRON_NODE_IS by classify_is_check
-                     * upstream; the assert documents the invariant and catches
-                     * future predicate drift. */
-                    IRON_NODE_ASSERT_KIND(is_s->condition, IRON_NODE_IS);
-                    Iron_IsExpr *ie = (Iron_IsExpr *)is_s->condition;
-                    if (ie->expr && ie->expr->kind == IRON_NODE_IDENT) {
-                        const char *ident_name = ((Iron_Ident *)ie->expr)->name;
-                        NarrowEntry *saved = narrowing_copy(ctx);
-                        narrowing_set(ctx, ident_name, type_sym->type);
-                        if (is_s->body) check_stmt(ctx, is_s->body);
-                        shfree(ctx->narrowed);
-                        ctx->narrowed = saved;
-                    } else {
-                        if (is_s->body) check_stmt(ctx, is_s->body);
-                    }
-                } else {
-                    if (is_s->body) check_stmt(ctx, is_s->body);
-                }
-                if (is_s->else_body) check_stmt(ctx, is_s->else_body);
-            }
-            /* ── Default: no narrowing ─────────────────────────────────────── */
-            else {
-                /* Phase 85 INIT-04/06: inside an init body, the definite-
-                 * assignment analysis must union unassigned_fields across
-                 * every control-flow branch. A field is considered unassigned
-                 * on the merged path if it remains unassigned on ANY branch
-                 * (then, any elif, else). If else is absent, the implicit
-                 * "fall-through with no writes" branch preserves the
-                 * pre-branch set (so no field is removed by the else path).
-                 *
-                 * Strategy: snapshot the pre-branch set once, run each branch
-                 * starting from a fresh clone of the snapshot, capture the
-                 * branch's resulting set, and union (keep-unassigned-in-ANY)
-                 * them all into a merged set after traversal. */
-                if (ctx->in_init_method && ctx->unassigned_fields) {
-                    InitUnassignedEntry *pre = NULL;
-                    init_unassigned_clone(&pre, ctx->unassigned_fields);
 
-                    /* Collect per-branch post-traversal sets. We cap at
-                     * 1 (then) + elif_count + 1 (else/implicit) branches. */
-                    int branch_count = 1 + is_s->elif_count + 1;
-                    InitUnassignedEntry **post =
-                        (InitUnassignedEntry **)iron_arena_alloc(
-                            ctx->arena,
-                            (size_t)branch_count * sizeof(InitUnassignedEntry *),
-                            _Alignof(InitUnassignedEntry *));
-                    if (!post) iron_oom_abort("typecheck.c:IF init branch-merge post");
-                    int branch_idx = 0;
-
-                    /* then-branch */
+            NarrowEntry *chain_saved = narrowing_copy(ctx);
+            for (int i = 0; i < n_conds; i++) {
+                check_expr(ctx, conds[i]);
+                if (track_init) {
                     shfree(ctx->unassigned_fields);
                     init_unassigned_clone(&ctx->unassigned_fields, pre);
-                    if (is_s->body) check_stmt(ctx, is_s->body);
+                }
+                NarrowEntry *saved = narrowing_copy(ctx);
+                narrow_for_cond(ctx, conds[i], true);
+                if (bodies[i]) check_stmt(ctx, bodies[i]);
+                shfree(ctx->narrowed);
+                ctx->narrowed = saved;
+                if (track_init) {
                     post[branch_idx++] = ctx->unassigned_fields;
                     ctx->unassigned_fields = NULL;
-
-                    /* elif branches */
-                    for (int i = 0; i < is_s->elif_count; i++) {
-                        check_expr(ctx, is_s->elif_conds[i]);
-                        init_unassigned_clone(&ctx->unassigned_fields, pre);
-                        if (is_s->elif_bodies[i]) check_stmt(ctx, is_s->elif_bodies[i]);
-                        post[branch_idx++] = ctx->unassigned_fields;
-                        ctx->unassigned_fields = NULL;
-                    }
-
-                    /* else branch. If absent, the implicit "no writes"
-                     * branch means the starting set (pre) is the ending set;
-                     * record a clone of pre as the post-set. */
-                    if (is_s->else_body) {
-                        init_unassigned_clone(&ctx->unassigned_fields, pre);
-                        check_stmt(ctx, is_s->else_body);
-                        post[branch_idx++] = ctx->unassigned_fields;
-                        ctx->unassigned_fields = NULL;
-                    } else {
-                        InitUnassignedEntry *pre_clone = NULL;
-                        init_unassigned_clone(&pre_clone, pre);
-                        post[branch_idx++] = pre_clone;
-                    }
-
-                    /* Union: a field is unassigned on the merged path if it
-                     * is unassigned on ANY branch's post-set. */
-                    InitUnassignedEntry *merged = NULL;
-                    sh_new_strdup(merged);
-                    for (int b = 0; b < branch_idx; b++) {
-                        if (!post[b]) continue;
-                        for (ptrdiff_t i = 0; i < shlen(post[b]); i++) {
-                            if (shget(merged, post[b][i].key) == 0) {
-                                shput(merged, post[b][i].key, 1);
-                            }
+                }
+                /* The rest of the chain runs only when this condition is false. */
+                narrow_for_cond(ctx, conds[i], false);
+            }
+            if (track_init) {
+                init_unassigned_clone(&ctx->unassigned_fields, pre);
+            }
+            if (is_s->else_body) check_stmt(ctx, is_s->else_body);
+            if (track_init) {
+                /* Without an else, ctx->unassigned_fields is the clone of pre
+                 * made above: the implicit fall-through branch. */
+                post[branch_idx++] = ctx->unassigned_fields;
+                ctx->unassigned_fields = NULL;
+                InitUnassignedEntry *merged = NULL;
+                sh_new_strdup(merged);
+                for (int b = 0; b < branch_idx; b++) {
+                    if (!post[b]) continue;
+                    for (ptrdiff_t k = 0; k < shlen(post[b]); k++) {
+                        if (shget(merged, post[b][k].key) == 0) {
+                            shput(merged, post[b][k].key, 1);
                         }
                     }
-                    for (int b = 0; b < branch_idx; b++) {
-                        if (post[b]) shfree(post[b]);
-                    }
-                    shfree(pre);
-                    ctx->unassigned_fields = merged;
-                } else {
-                    if (is_s->body) check_stmt(ctx, is_s->body);
-                    for (int i = 0; i < is_s->elif_count; i++) {
-                        check_expr(ctx, is_s->elif_conds[i]);
-                        if (is_s->elif_bodies[i]) check_stmt(ctx, is_s->elif_bodies[i]);
-                    }
-                    if (is_s->else_body) check_stmt(ctx, is_s->else_body);
+                    shfree(post[b]);
                 }
+                shfree(pre);
+                ctx->unassigned_fields = merged;
+            }
+            shfree(ctx->narrowed);
+            ctx->narrowed = chain_saved;
+
+            /* Early exits: when every branch but the else always returns, the
+             * code after the if runs only when every condition was false; when
+             * only the then branch falls through, only when it was true. */
+            bool all_exit = true;
+            for (int i = 0; i < n_conds; i++) {
+                if (!stmt_always_returns(bodies[i])) { all_exit = false; break; }
+            }
+            if (all_exit) {
+                if (!is_s->else_body || !stmt_always_returns(is_s->else_body)) {
+                    for (int i = 0; i < n_conds; i++) narrow_for_cond(ctx, conds[i], false);
+                }
+            } else if (n_conds == 1 && is_s->else_body &&
+                       stmt_always_returns(is_s->else_body)) {
+                narrow_for_cond(ctx, conds[0], true);
             }
             break;
         }
@@ -8119,15 +8240,23 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * invalid C is emitted). Reject non-integer, non-enum subjects
              * here with a clean diagnostic. NULL / ERROR subject types are
              * skipped to avoid cascading on already-diagnosed code. */
+            /* A nullable interface subject matches its implementors too;
+             * null goes to the else arm, which is then required. */
+            bool subject_nullable = subject_type && subject_type->kind == IRON_TYPE_NULLABLE &&
+                                    subject_type->nullable.inner &&
+                                    subject_type->nullable.inner->kind == IRON_TYPE_INTERFACE;
+            if (subject_nullable) subject_type = subject_type->nullable.inner;
+            bool type_match = subject_type && subject_type->kind == IRON_TYPE_INTERFACE &&
+                              subject_type->interface.decl;
             if (subject_type &&
                 subject_type->kind != IRON_TYPE_ERROR &&
-                subject_type->kind != IRON_TYPE_ENUM &&
+                subject_type->kind != IRON_TYPE_ENUM && !type_match &&
                 !iron_type_is_integer(subject_type)) {
                 char msg[512];
                 const char *tname = iron_type_to_string(subject_type, ctx->arena);
                 snprintf(msg, sizeof(msg),
-                         "match is only supported on integer and enum"
-                         " subjects; got '%s'", tname ? tname : "unknown");
+                         "match is only supported on integer, enum and"
+                         " interface subjects; got '%s'", tname ? tname : "unknown");
                 emit_error(ctx, IRON_ERR_MATCH_SUBJECT_UNSUPPORTED,
                            ms->subject->span, msg,
                            "rewrite as an if/else chain");
@@ -8139,6 +8268,58 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
             ctx->match_subject_type = prev_subject;
             if (ms->else_body) check_stmt(ctx, ms->else_body);
+            /* A type match (#179): each implementor at most once, and all of
+             * them unless there is an else arm (the set of implementors is
+             * closed: the whole program is known). */
+            if (type_match) {
+                const char *iname = subject_type->interface.decl->name;
+                const char **seen = NULL;
+                for (int i = 0; i < ms->case_count; i++) {
+                    Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                    const char *tn = type_match_arm_name(mc);
+                    if (!tn) continue;
+                    bool dup = false;
+                    for (int k = 0; k < (int)arrlen(seen); k++)
+                        if (strcmp(seen[k], tn) == 0) dup = true;
+                    if (dup) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "unreachable match arm: '%s' already covered", tn);
+                        emit_error(ctx, IRON_ERR_UNREACHABLE_ARM, mc->pattern->span, msg, NULL);
+                    } else {
+                        arrput(seen, tn);
+                    }
+                }
+                if (!ms->else_body && subject_nullable) {
+                    char msg[320];
+                    snprintf(msg, sizeof(msg),
+                             "non-exhaustive match: a '%s?' subject can be null", iname);
+                    emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH, ms->span, msg,
+                               "add 'else -> ...' to handle null");
+                } else if (!ms->else_body) {
+                    char msg[512];
+                    int pos = iron_sat_appendf(msg, 0, sizeof(msg),
+                                               "non-exhaustive match: missing implementor(s) of '%s': ",
+                                               iname);
+                    bool missing = false;
+                    for (int d = 0; d < ctx->program->decl_count; d++) {
+                        Iron_Node *dn = ctx->program->decls[d];
+                        if (!dn || dn->kind != IRON_NODE_OBJECT_DECL) continue;
+                        Iron_ObjectDecl *od = (Iron_ObjectDecl *)dn;
+                        if (!od->name || !object_implements(od, iname)) continue;
+                        bool cov = false;
+                        for (int k = 0; k < (int)arrlen(seen); k++)
+                            if (strcmp(seen[k], od->name) == 0) cov = true;
+                        if (cov) continue;
+                        pos = iron_sat_appendf(msg, pos, sizeof(msg), "%s%s",
+                                               missing ? ", " : "", od->name);
+                        missing = true;
+                    }
+                    if (missing)
+                        emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH, ms->span, msg,
+                                   "add 'else -> ...' or handle each implementor");
+                }
+                arrfree(seen);
+            }
             /* Exhaustiveness check */
             if (subject_type && subject_type->kind == IRON_TYPE_ENUM) {
                 Iron_EnumDecl *ed = subject_type->enu.decl;
@@ -8273,7 +8454,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                             }
                         } else if (mc->pattern->kind == IRON_NODE_PATTERN) {
                             Iron_Pattern *pp = (Iron_Pattern *)mc->pattern;
-                            if (strcmp(pp->enum_name, ed->name) == 0) {
+                            if (!pp->enum_name || strcmp(pp->enum_name, ed->name) == 0) {
                                 vname = pp->variant_name;
                             }
                         }
@@ -8328,8 +8509,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     /* FIX-04 row 13 — release the dynamic covered[] buffer. */
                     free(covered);
                 }
-            } else if (!ms->else_body) {
-                /* Non-enum subject without else clause */
+            } else if (!ms->else_body && !type_match) {
+                /* Non-enum subject without else clause (a type match checks
+                 * its implementors above) */
                 emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH,
                            ms->subject->span,
                            "match on non-enum type requires else clause",
@@ -8341,6 +8523,38 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_MATCH_CASE: {
             Iron_MatchCase *mc = (Iron_MatchCase *)node;
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
+            Iron_Type *tsubj = ctx->match_subject_type;
+            if (tsubj && tsubj->kind == IRON_TYPE_INTERFACE && tsubj->interface.decl) {
+                /* A type match arm (#179): `Circle(c)` or `Circle` names an
+                 * implementor; c is a read-only view of the payload. */
+                const char *tn = type_match_arm_name(mc);
+                Iron_Symbol *ts = tn ? iron_scope_lookup(ctx->global_scope, tn) : NULL;
+                Iron_Type *tt = ts && ts->sym_kind == IRON_SYM_TYPE ? ts->type : NULL;
+                if (!tt || tt->kind != IRON_TYPE_OBJECT ||
+                    !object_implements(tt->object.decl, tsubj->interface.decl->name)) {
+                    char msg[320];
+                    snprintf(msg, sizeof(msg),
+                             "match arm '%s' is not an implementor of '%s'",
+                             tn ? tn : "?", tsubj->interface.decl->name);
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH,
+                               mc->pattern ? mc->pattern->span : mc->span, msg,
+                               "name an object that implements the interface, e.g. `Circle(c) -> ...`");
+                } else if (mc->pattern && mc->pattern->kind == IRON_NODE_PATTERN) {
+                    Iron_Pattern *p = (Iron_Pattern *)mc->pattern;
+                    if (p->binding_count > 1) {
+                        emit_error(ctx, IRON_ERR_PATTERN_ARITY, p->span,
+                                   "a type match arm binds the whole value: use one name, e.g. `Circle(c)`",
+                                   NULL);
+                    } else if (p->binding_count == 1 && p->binding_names &&
+                               p->binding_names[0]) {
+                        tc_define(ctx, p->binding_names[0], IRON_SYM_VARIABLE,
+                                  mc->pattern, p->span, false, tt);
+                    }
+                }
+                if (mc->body) check_stmt(ctx, mc->body);
+                tc_pop_scope(ctx);
+                break;
+            }
             if (mc->pattern && mc->pattern->kind == IRON_NODE_PATTERN) {
                 Iron_Pattern *top = (Iron_Pattern *)mc->pattern;
                 Iron_Type *subj = ctx->match_subject_type;
@@ -8527,11 +8741,17 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 }
 
 static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count) {
+    /* Narrowing an early exit leaves behind lasts until the end of the
+     * block: restore the map on the way out so it never reaches the code
+     * after the block (or another function with a same-named binding). */
+    NarrowEntry *saved = narrowing_copy(ctx);
     for (int i = 0; i < count; i++) {
         /* HARD-05: cancel poll at top of block-statement bulk walker. */
-        if (iron_cancel_requested(ctx->cancel_flag)) return;
+        if (iron_cancel_requested(ctx->cancel_flag)) break;
         check_stmt(ctx, stmts[i]);
     }
+    shfree(ctx->narrowed);
+    ctx->narrowed = saved;
 }
 
 /* ── Phase 24 DROP-06: compute_has_user_copy_transitive cache-populator ──── */

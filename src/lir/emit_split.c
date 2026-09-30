@@ -34,6 +34,34 @@ void emit_prescan_split_collections(EmitCtx *ctx) {
             IronLIR_Block *blk = fn->blocks[bi];
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *in2 = blk->instrs[ii];
+                if (in2->kind == IRON_LIR_CALL && in2->call.arg_count >= 2 &&
+                    in2->call.func_ptr != IRON_LIR_VALUE_INVALID &&
+                    (ptrdiff_t)in2->call.func_ptr < arrlen(fn->value_table) &&
+                    fn->value_table[in2->call.func_ptr] &&
+                    fn->value_table[in2->call.func_ptr]->kind == IRON_LIR_FUNC_REF) {
+                    const char *cn = fn->value_table[in2->call.func_ptr]->func_ref.func_name;
+                    size_t cl = cn ? strlen(cn) : 0;
+                    Iron_Type *at = emit_get_value_type(fn, in2->call.args[0]);
+                    if (cl > 7 && strncmp(cn, "Iron_List_", 10) == 0 &&
+                        strcmp(cn + cl - 7, "_remove") == 0 &&
+                        at && at->kind == IRON_TYPE_ARRAY && at->array.elem &&
+                        at->array.elem->kind == IRON_TYPE_INTERFACE &&
+                        at->array.elem->interface.decl) {
+                        shput(ctx->iface_elem_assigned,
+                              emit_mangle_name(at->array.elem->interface.decl->name, ctx->arena),
+                              true);
+                    }
+                }
+                if (in2->kind == IRON_LIR_SET_INDEX) {
+                    Iron_Type *at = emit_get_value_type(fn, in2->index.array);
+                    if (at && at->kind == IRON_TYPE_ARRAY && !at->array.is_bounded &&
+                        at->array.elem && at->array.elem->kind == IRON_TYPE_INTERFACE &&
+                        at->array.elem->interface.decl) {
+                        const char *im = emit_mangle_name(
+                            at->array.elem->interface.decl->name, ctx->arena);
+                        shput(ctx->iface_elem_assigned, im, true);
+                    }
+                }
                 if (in2->kind == IRON_LIR_ARRAY_LIT &&
                     in2->array_lit.elem_type &&
                     in2->array_lit.elem_type->kind == IRON_TYPE_INTERFACE &&
@@ -109,6 +137,249 @@ void emit_split_arena_helpers(EmitCtx *ctx) {
 
 /* ── Per-interface split collection emission ──────────────────────────────── */
 
+/* An implementor with lifecycle glue (drop, copy, rc or list fields) is
+ * stored as whole objects (AoS): its drop / copy glue works on an object,
+ * which a per-field (SoA) layout does not hold. */
+/* The layout of one implementor: lifecycle forces AoS, then a `layout:`
+ * annotation on any collection of the interface, then the analysis. Used
+ * both for the common-field decision and for the per-type storage, which
+ * must agree (common fields only exist when no implementor is SoA). */
+static bool iface_variant_is_boxed(EmitCtx *ctx, const char *iface_mangled,
+                                   const char *type_name) {
+    char key[512];
+    snprintf(key, sizeof(key), "%s:%s", iface_mangled, type_name);
+    return ctx->indirect_variants && shgeti(ctx->indirect_variants, key) >= 0;
+}
+
+/* A boxed (indirect) implementor: element reads borrow a pointer to the
+ * element in place, which needs the whole object stored (AoS, not
+ * reduced). */
+static bool split_impl_is_boxed(EmitCtx *ctx, const char *iface_mangled,
+                                Iron_IfaceImpl *impl) {
+    char key[512];
+    snprintf(key, sizeof(key), "%s:%s", iface_mangled, impl->type_name);
+    return ctx->indirect_variants && shgeti(ctx->indirect_variants, key) >= 0;
+}
+
+static IronLayoutKind split_layout_kind(EmitCtx *ctx, const char *iface_mangled,
+                                        Iron_IfaceImpl *impl,
+                                        IronLIR_ValueId *collection_vids) {
+    if (impl->decl && (od_needs_drop(ctx, impl->decl) ||
+                       od_needs_copy_fixup(ctx, impl->decl)))
+        return IRON_LAYOUT_AOS;
+    if (ctx->iface_elem_assigned && shgeti(ctx->iface_elem_assigned, iface_mangled) >= 0)
+        return IRON_LAYOUT_AOS;
+    if (split_impl_is_boxed(ctx, iface_mangled, impl))
+        return IRON_LAYOUT_AOS;
+    for (int ci = 0; ci < (int)arrlen(collection_vids); ci++) {
+        ptrdiff_t ov = hmgeti(ctx->layout_overrides, collection_vids[ci]);
+        if (ov >= 0)
+            return ctx->layout_overrides[ov].value == 1 ? IRON_LAYOUT_SOA
+                                                        : IRON_LAYOUT_AOS;
+    }
+    return iron_layout_get_kind(&ctx->layout, iface_mangled, impl->type_name);
+}
+
+/* The element-editing helpers of an interface list (#180):
+ *   set(i, v)    `xs[i] = v`: drops the element it replaces; the same
+ *                implementor overwrites its slot, another one moves it;
+ *   insert(i, v) appends v to its implementor's array, then gives it
+ *                position i in the order index;
+ *   remove(i)    returns the element (owned) and closes the gap;
+ *   clear()      drops every element;
+ *   reverse()    reverses the order index.
+ * A value passed in is owned: a boxed payload moves out of its box, which
+ * is freed. Taking an element out of its per-type array (_detach) refills
+ * the slot with that array's last element, so set and remove need whole
+ * objects stored (split_layout_kind). */
+static void lower_impl_name(char *out, size_t cap, const char *name) {
+    size_t n = strlen(name);
+    if (n >= cap) n = cap - 1;
+    for (size_t i = 0; i < n; i++)
+        out[i] = (char)((name[i] >= 'A' && name[i] <= 'Z') ? name[i] + 32 : name[i]);
+    out[n] = '\0';
+}
+
+static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *iface_mangled,
+                                    Iron_IfaceEntry *entry, bool all_unordered) {
+    bool edits = ctx->iface_elem_assigned &&
+                 shgeti(ctx->iface_elem_assigned, iface_mangled) >= 0;
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive || !impl2->decl || !od_needs_drop(ctx, impl2->decl)) continue;
+        const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
+        emit_ensure_drop(ctx, im, impl2->decl);
+        iron_strbuf_appendf(sb, "static void %s_drop(%s *self);\n", im, im);
+    }
+    /* clear() works on every layout: each count goes back to zero. */
+    iron_strbuf_appendf(sb,
+        "static inline void Iron_SplitList_%s_clear(Iron_SplitList_%s *_sl) {\n",
+        iface_mangled, iface_mangled);
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive) continue;
+        char ln[256];
+        lower_impl_name(ln, sizeof(ln), impl2->type_name);
+        if (impl2->decl && od_needs_drop(ctx, impl2->decl))
+            iron_strbuf_appendf(sb,
+                "    for (int64_t _k = 0; _k < _sl->%s_count; _k++) %s_drop(&_sl->%s_items[_k]);\n",
+                ln, emit_mangle_name(impl2->type_name, ctx->arena), ln);
+        iron_strbuf_appendf(sb, "    _sl->%s_count = 0;\n", ln);
+    }
+    if (!all_unordered) iron_strbuf_appendf(sb, "    _sl->_order_count = 0;\n");
+    iron_strbuf_appendf(sb, "    _sl->_total_count = 0;\n}\n\n");
+    if (all_unordered) return;
+
+    iron_strbuf_appendf(sb,
+        "static inline void Iron_SplitList_%s_reverse(Iron_SplitList_%s *_sl) {\n"
+        "    for (int64_t _a = 0, _b = _sl->_order_count - 1; _a < _b; _a++, _b--) {\n"
+        "        unsigned char _t[sizeof(*_sl->_order)];\n"
+        "        memcpy(_t, &_sl->_order[_a], sizeof(_t));\n"
+        "        memcpy(&_sl->_order[_a], &_sl->_order[_b], sizeof(_t));\n"
+        "        memcpy(&_sl->_order[_b], _t, sizeof(_t));\n"
+        "    }\n"
+        "}\n\n",
+        iface_mangled, iface_mangled);
+
+    /* Appends an owned interface value to its implementor's array (and the
+     * order index). */
+    iron_strbuf_appendf(sb,
+        "static inline bool Iron_SplitList_%s__append(Iron_SplitList_%s *_sl, %s _val) {\n"
+        "    switch (_val.tag) {\n",
+        iface_mangled, iface_mangled, iface_mangled);
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive) continue;
+        if (iface_variant_is_boxed(ctx, iface_mangled, impl2->type_name))
+            iron_strbuf_appendf(sb,
+                "    case %d: Iron_SplitList_%s_push_%s(_sl, *_val.data.%s); free(_val.data.%s); return true;\n",
+                impl2->tag, iface_mangled, impl2->type_name, impl2->type_name, impl2->type_name);
+        else
+            iron_strbuf_appendf(sb,
+                "    case %d: Iron_SplitList_%s_push_%s(_sl, _val.data.%s); return true;\n",
+                impl2->tag, iface_mangled, impl2->type_name, impl2->type_name);
+    }
+    iron_strbuf_appendf(sb, "    default: return false;\n    }\n}\n\n");
+
+    iron_strbuf_appendf(sb,
+        "static inline void Iron_SplitList_%s_insert(Iron_SplitList_%s *_sl, int64_t _i, %s _val) {\n"
+        "    if ((uint64_t)_i > (uint64_t)_sl->_order_count) iron_panic_index_oob(__FILE__, __LINE__, _i, _sl->_order_count);\n"
+        "    if (!Iron_SplitList_%s__append(_sl, _val)) return;\n"
+        "    int64_t _n = _sl->_order_count;\n"
+        "    unsigned char _t[sizeof(*_sl->_order)];\n"
+        "    memcpy(_t, &_sl->_order[_n - 1], sizeof(_t));\n"
+        "    memmove(&_sl->_order[_i + 1], &_sl->_order[_i], (size_t)(_n - 1 - _i) * sizeof(*_sl->_order));\n"
+        "    memcpy(&_sl->_order[_i], _t, sizeof(_t));\n"
+        "}\n\n",
+        iface_mangled, iface_mangled, iface_mangled, iface_mangled);
+
+    if (!edits) return;
+
+    /* Takes the element at per-type slot _oi of implementor _ot out of its
+     * array: the array's last element fills the slot. */
+    iron_strbuf_appendf(sb,
+        "static inline void Iron_SplitList_%s__detach(Iron_SplitList_%s *_sl, uint8_t _ot, int64_t _oi) {\n"
+        "    switch (_ot) {\n",
+        iface_mangled, iface_mangled);
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive) continue;
+        char ln[256];
+        lower_impl_name(ln, sizeof(ln), impl2->type_name);
+        iron_strbuf_appendf(sb,
+            "    case %d: {\n"
+            "        int64_t _last = _sl->%s_count - 1;\n"
+            "        if (_oi != _last) {\n"
+            "            _sl->%s_items[_oi] = _sl->%s_items[_last];\n"
+            "            for (int64_t _k = 0; _k < _sl->_order_count; _k++)\n"
+            "                if (_sl->_order[_k].tag == %d && _sl->_order[_k].idx == _last) { _sl->_order[_k].idx = _oi; break; }\n"
+            "        }\n"
+            "        _sl->%s_count--;\n"
+            "        break;\n"
+            "    }\n",
+            impl2->tag, ln, ln, ln, impl2->tag, ln);
+    }
+    iron_strbuf_appendf(sb, "    default: break;\n    }\n}\n\n");
+
+    /* set */
+    iron_strbuf_appendf(sb,
+        "static inline void Iron_SplitList_%s_set(Iron_SplitList_%s *_sl, int64_t _i, %s _val) {\n"
+        "    if ((uint64_t)_i >= (uint64_t)_sl->_order_count) iron_panic_index_oob(__FILE__, __LINE__, _i, _sl->_order_count);\n"
+        "    uint8_t _ot = _sl->_order[_i].tag;\n"
+        "    int64_t _oi = _sl->_order[_i].idx;\n"
+        "    switch (_ot) {\n",
+        iface_mangled, iface_mangled, iface_mangled);
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive || !impl2->decl || !od_needs_drop(ctx, impl2->decl)) continue;
+        char ln[256];
+        lower_impl_name(ln, sizeof(ln), impl2->type_name);
+        iron_strbuf_appendf(sb, "    case %d: %s_drop(&_sl->%s_items[_oi]); break;\n",
+                            impl2->tag, emit_mangle_name(impl2->type_name, ctx->arena), ln);
+    }
+    iron_strbuf_appendf(sb,
+        "    default: break;\n"
+        "    }\n"
+        "    if (_ot == _val.tag) {\n"
+        "        switch (_val.tag) {\n");
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive) continue;
+        char ln[256];
+        lower_impl_name(ln, sizeof(ln), impl2->type_name);
+        if (iface_variant_is_boxed(ctx, iface_mangled, impl2->type_name))
+            iron_strbuf_appendf(sb,
+                "        case %d: _sl->%s_items[_oi] = *_val.data.%s; free(_val.data.%s); break;\n",
+                impl2->tag, ln, impl2->type_name, impl2->type_name);
+        else
+            iron_strbuf_appendf(sb,
+                "        case %d: _sl->%s_items[_oi] = _val.data.%s; break;\n",
+                impl2->tag, ln, impl2->type_name);
+    }
+    iron_strbuf_appendf(sb,
+        "        default: break;\n"
+        "        }\n"
+        "        return;\n"
+        "    }\n"
+        "    Iron_SplitList_%s__detach(_sl, _ot, _oi);\n"
+        "    if (!Iron_SplitList_%s__append(_sl, _val)) return;\n"
+        "    /* the appended order entry takes position _i */\n"
+        "    _sl->_order[_i] = _sl->_order[_sl->_order_count - 1];\n"
+        "    _sl->_order_count--;\n"
+        "    _sl->_total_count--;\n"
+        "}\n\n",
+        iface_mangled, iface_mangled);
+
+    /* remove */
+    iron_strbuf_appendf(sb,
+        "static inline %s Iron_SplitList_%s_remove(Iron_SplitList_%s *_sl, int64_t _i) {\n"
+        "    if ((uint64_t)_i >= (uint64_t)_sl->_order_count) iron_panic_index_oob(__FILE__, __LINE__, _i, _sl->_order_count);\n"
+        "    uint8_t _ot = _sl->_order[_i].tag;\n"
+        "    int64_t _oi = _sl->_order[_i].idx;\n"
+        "    %s _out;\n"
+        "    memset(&_out, 0, sizeof(_out));\n"
+        "    switch (_ot) {\n",
+        iface_mangled, iface_mangled, iface_mangled, iface_mangled);
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive) continue;
+        char ln[256];
+        lower_impl_name(ln, sizeof(ln), impl2->type_name);
+        iron_strbuf_appendf(sb, "    case %d: _out = %s_from_%s(_sl->%s_items[_oi]); break;\n",
+                            impl2->tag, iface_mangled, impl2->type_name, ln);
+    }
+    iron_strbuf_appendf(sb,
+        "    default: break;\n"
+        "    }\n"
+        "    Iron_SplitList_%s__detach(_sl, _ot, _oi);\n"
+        "    memmove(&_sl->_order[_i], &_sl->_order[_i + 1], (size_t)(_sl->_order_count - 1 - _i) * sizeof(*_sl->_order));\n"
+        "    _sl->_order_count--;\n"
+        "    _sl->_total_count--;\n"
+        "    return _out;\n"
+        "}\n\n",
+        iface_mangled);
+}
+
 void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                                       Iron_IfaceEntry *entry) {
     Iron_StrBuf *sb = &ctx->struct_bodies;
@@ -160,8 +431,11 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
         }
 
         /* Emit reduced storage typedef if some fields are dead */
+        bool elem_assigned = ctx->iface_elem_assigned &&
+            shgeti(ctx->iface_elem_assigned, iface_mangled) >= 0;
         if (used_fields < total_fields && used_fields > 0 &&
-            arrlen(iface_collection_vids) > 0) {
+            arrlen(iface_collection_vids) > 0 && !elem_assigned &&
+            !split_impl_is_boxed(ctx, iface_mangled, impl2)) {
             const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
             iron_strbuf_appendf(sb,
                 "/* Phase 48: Reduced storage for %s (%d/%d fields) */\n",
@@ -213,8 +487,8 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
     for (int j = 0; j < entry->impl_count; j++) {
         Iron_IfaceImpl *impl_chk = &entry->impls[j];
         if (!impl_chk->is_alive) continue;
-        IronLayoutKind lk_chk = iron_layout_get_kind(&ctx->layout,
-            iface_mangled, impl_chk->type_name);
+        IronLayoutKind lk_chk = split_layout_kind(ctx, iface_mangled, impl_chk,
+                                                  iface_collection_vids);
         if (lk_chk == IRON_LAYOUT_SOA) { any_soa = true; break; }
     }
     CommonField *common_fields = NULL;
@@ -223,6 +497,17 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
             &ctx->layout, entry->iface_name);
     }
 
+    /* Array members and their capacity fields, recorded as the struct is
+     * emitted, for the clone below. */
+    typedef struct { const char *arr; const char *cap; } SlMember;
+    SlMember *sl_members = NULL;
+#define SL_MEMBER(...) do { \
+        char _mb[512]; snprintf(_mb, sizeof(_mb), __VA_ARGS__); \
+        char *_cp = strchr(_mb, '|'); if (_cp) *_cp = '\0'; \
+        SlMember _m = { iron_arena_strdup(ctx->arena, _mb, strlen(_mb)), \
+                        _cp ? iron_arena_strdup(ctx->arena, _cp + 1, strlen(_cp + 1)) : NULL }; \
+        arrput(sl_members, _m); \
+    } while (0)
     iron_strbuf_appendf(sb, "/* Split collection for %s */\n", iface_mangled);
     iron_strbuf_appendf(sb, "typedef struct {\n");
 
@@ -238,6 +523,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
             iron_strbuf_appendf(sb, "    %s *%s_%s;\n",
                 common_fields[cfi].c_type, iface_lower,
                 common_fields[cfi].name);
+            SL_MEMBER("%s_%s|%s_common_cap", iface_lower, common_fields[cfi].name, iface_lower);
         }
         iron_strbuf_appendf(sb, "    int64_t %s_common_count;\n", iface_lower);
         iron_strbuf_appendf(sb, "    int64_t %s_common_cap;\n", iface_lower);
@@ -261,8 +547,8 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
         }
 
         /* Phase 48-02: Check SoA layout for this type */
-        IronLayoutKind lk = iron_layout_get_kind(&ctx->layout,
-            iface_mangled, impl2->type_name);
+        IronLayoutKind lk = iron_layout_get_kind(&ctx->layout, iface_mangled,
+                                                 impl2->type_name);
 
         /* Phase 48-03: Layout annotation override with warning */
         for (int ci4 = 0; ci4 < (int)arrlen(iface_collection_vids); ci4++) {
@@ -285,6 +571,9 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                 break;
             }
         }
+        /* The decision itself (lifecycle, annotation, analysis) is the
+         * same one the common-field check used. */
+        lk = split_layout_kind(ctx, iface_mangled, impl2, iface_collection_vids);
 
         if (lk == IRON_LAYOUT_SOA && impl2->decl) {
             /* SoA: emit separate per-field arrays */
@@ -342,6 +631,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
                 if (narrowed_soa) c_type = narrowed_soa;
                 iron_strbuf_appendf(sb, "    %s *%s_%s;\n",
                     c_type, lower_name, f->name);
+                SL_MEMBER("%s_%s|%s_cap", lower_name, f->name, lower_name);
             }
             iron_strbuf_appendf(sb, "    int64_t %s_count;\n", lower_name);
             iron_strbuf_appendf(sb, "    int64_t %s_cap;\n", lower_name);
@@ -353,6 +643,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
             } else {
                 iron_strbuf_appendf(sb, "    %s *%s_items;\n", im, lower_name);
             }
+            SL_MEMBER("%s_items|%s_cap", lower_name, lower_name);
             iron_strbuf_appendf(sb, "    int64_t %s_count;\n", lower_name);
             iron_strbuf_appendf(sb, "    int64_t %s_cap;\n", lower_name);
         }
@@ -369,6 +660,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
     /* Order index array (skipped for [T, unordered] collections) */
     if (!all_unordered) {
         iron_strbuf_appendf(sb, "    struct { uint8_t tag; int64_t idx; } *_order;\n");
+        SL_MEMBER("_order|_order_cap");
         iron_strbuf_appendf(sb, "    int64_t _order_count;\n");
         iron_strbuf_appendf(sb, "    int64_t _order_cap;\n");
     }
@@ -615,11 +907,103 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
             "}\n\n",
             lower_name);
     }
+    emit_split_edit_helpers(ctx, sb, iface_mangled, entry, all_unordered);
+    /* take(): the list moves out and the source is left empty (#174). */
+    iron_strbuf_appendf(sb,
+        "static inline Iron_SplitList_%s Iron_SplitList_%s_take(Iron_SplitList_%s *_sl) {\n"
+        "    Iron_SplitList_%s out = *_sl;\n"
+        "    memset(_sl, 0, sizeof(*_sl));\n"
+        "    return out;\n"
+        "}\n\n",
+        iface_mangled, iface_mangled, iface_mangled, iface_mangled);
+    /* copy(): every array is duplicated into the copy's own tracked
+     * allocations, then elements with copy glue are fixed up (such
+     * implementors are always stored as whole objects, see
+     * split_layout_kind). */
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive || !impl2->decl || !od_needs_copy_fixup(ctx, impl2->decl)) continue;
+        const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
+        emit_ensure_copy_fixup(ctx, im, impl2->decl);
+        iron_strbuf_appendf(sb, "static void %s_copied(%s *self);\n", im, im);
+    }
+    iron_strbuf_appendf(sb,
+        "static inline Iron_SplitList_%s Iron_SplitList_%s_clone(const Iron_SplitList_%s *_src) {\n"
+        "    Iron_SplitList_%s dst = *_src;\n"
+        "    dst._tracked = NULL; dst._tracked_count = 0; dst._tracked_cap = 0;\n",
+        iface_mangled, iface_mangled, iface_mangled, iface_mangled);
+    for (int mi = 0; mi < (int)arrlen(sl_members); mi++) {
+        /* Allocated at the source's capacity; only `count` elements are
+         * initialised and copied (every cap field has a matching count). */
+        char cnt[512];
+        snprintf(cnt, sizeof(cnt), "%s", sl_members[mi].cap);
+        size_t cl = strlen(cnt);
+        if (cl >= 4 && strcmp(cnt + cl - 4, "_cap") == 0)
+            snprintf(cnt + cl - 4, sizeof(cnt) - (cl - 4), "_count");
+        iron_strbuf_appendf(sb,
+            "    if (_src->%s) {\n"
+            "        size_t _cap = (size_t)_src->%s * sizeof(*_src->%s);\n"
+            "        size_t _n = (size_t)_src->%s * sizeof(*_src->%s);\n"
+            "        dst.%s = _iron_sl_realloc_tracked(&dst._tracked, &dst._tracked_count, "
+            "&dst._tracked_cap, NULL, _cap ? _cap : 1);\n"
+            "        if (!dst.%s) iron_oom_abort(\"split list copy\");\n"
+            "        if (_n) memcpy(dst.%s, _src->%s, _n);\n"
+            "    }\n",
+            sl_members[mi].arr, sl_members[mi].cap, sl_members[mi].arr,
+            cnt, sl_members[mi].arr,
+            sl_members[mi].arr, sl_members[mi].arr, sl_members[mi].arr, sl_members[mi].arr);
+    }
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive || !impl2->decl || !od_needs_copy_fixup(ctx, impl2->decl)) continue;
+        const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
+        char lower_name[256];
+        size_t nl2 = strlen(impl2->type_name);
+        if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+        for (size_t ci3 = 0; ci3 < nl2; ci3++)
+            lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
+                                       impl2->type_name[ci3] <= 'Z')
+                ? impl2->type_name[ci3] + 32 : impl2->type_name[ci3]);
+        lower_name[nl2] = '\0';
+        iron_strbuf_appendf(sb,
+            "    for (int64_t _i = 0; _i < dst.%s_count; _i++) %s_copied(&dst.%s_items[_i]);\n",
+            lower_name, im, lower_name);
+    }
+    iron_strbuf_appendf(sb, "    return dst;\n}\n\n");
+    arrfree(sl_members);
+#undef SL_MEMBER
+
+    /* Drop glue of implementors the free function calls: synthesised into
+     * lifted_funcs (rendered later), so declare it first. */
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive || !impl2->decl || !od_needs_drop(ctx, impl2->decl)) continue;
+        const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
+        emit_ensure_drop(ctx, im, impl2->decl);
+        iron_strbuf_appendf(sb, "static void %s_drop(%s *self);\n", im, im);
+    }
     /* Free function -- Phase 50: single bulk free via tracked pointer registry */
     iron_strbuf_appendf(sb,
         "static inline void Iron_SplitList_%s_free("
         "Iron_SplitList_%s *_sl) {\n",
         iface_mangled, iface_mangled);
+    /* Each element is dropped before the arrays go (#180). */
+    for (int j = 0; j < entry->impl_count; j++) {
+        Iron_IfaceImpl *impl2 = &entry->impls[j];
+        if (!impl2->is_alive || !impl2->decl || !od_needs_drop(ctx, impl2->decl)) continue;
+        const char *im = emit_mangle_name(impl2->type_name, ctx->arena);
+        char lower_name[256];
+        size_t nl2 = strlen(impl2->type_name);
+        if (nl2 >= sizeof(lower_name)) nl2 = sizeof(lower_name) - 1;
+        for (size_t ci3 = 0; ci3 < nl2; ci3++)
+            lower_name[ci3] = (char)((impl2->type_name[ci3] >= 'A' &&
+                                       impl2->type_name[ci3] <= 'Z')
+                ? impl2->type_name[ci3] + 32 : impl2->type_name[ci3]);
+        lower_name[nl2] = '\0';
+        iron_strbuf_appendf(sb,
+            "    for (int64_t _i = 0; _i < _sl->%s_count; _i++) %s_drop(&_sl->%s_items[_i]);\n",
+            lower_name, im, lower_name);
+    }
     iron_strbuf_appendf(sb,
         "    _iron_sl_free_all(_sl->_tracked, _sl->_tracked_count);\n");
     iron_strbuf_appendf(sb, "}\n\n");

@@ -195,6 +195,10 @@ typedef struct {
 
     /* Map of type names that use reduced storage (type_name -> true) (Phase 48) */
     struct { char *key; bool value; } *reduced_storage_types;
+    /* Interfaces with an element assignment `xs[i] = v` on one of their
+     * lists: their implementors are stored whole (AoS, no reduced storage)
+     * so a set can move any element between the per-type arrays. */
+    struct { char *key; bool value; } *iface_elem_assigned;
 
     /* Map of "iface_mangled:type_name" -> true for SoA types (Phase 48-02) */
     struct { char *key; bool value; } *soa_types;
@@ -278,6 +282,10 @@ bool od_has_drop_lir(EmitCtx *ctx, struct Iron_ObjectDecl *od);
  * type has work to do (user body, rc fields, or object fields needing it). */
 bool od_needs_drop(EmitCtx *ctx, struct Iron_ObjectDecl *od);
 bool od_needs_copy_fixup(EmitCtx *ctx, struct Iron_ObjectDecl *od);
+/* Interface value glue (#180): does the interface need drop (want_copy
+ * false) / copy glue, and emit `<Iface>_drop` / `<Iface>_copied`. */
+bool iface_needs_glue(EmitCtx *ctx, const Iron_Type *it, bool want_copy);
+void emit_ensure_iface_glue(EmitCtx *ctx, const Iron_Type *it, bool drop);
 
 /* Synthesize `static void <T>_copied(<T> *self)`, the fixup run on a fresh
  * bitwise copy (retain rc fields, fix up object fields, user copy body). */
@@ -286,6 +294,7 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
 
 /* Ensure the list type for `[rc T]` / `[weak rc T]` elements; returns its
  * C name. */
+const char *emit_ensure_nested_list(EmitCtx *ctx, const Iron_Type *elem);
 const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem);
 
 /* Phase 26 POL-06 (Plan 26-03): synthesize <TypeName>_rc_drop trampoline.

@@ -1,0 +1,16 @@
+-- @expected-error: E0224
+-- A type match on a nullable interface needs an else arm: null matches no
+-- implementor.
+interface Shape {
+    readonly func area() -> Int
+}
+object Circle impl Shape {
+    val r: Int
+    readonly func area() -> Int { return self.r }
+}
+func main() {
+    val s: Shape? = Circle(1)
+    match s {
+        Circle(c) -> println("{c.r}")
+    }
+}

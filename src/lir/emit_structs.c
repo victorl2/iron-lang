@@ -720,7 +720,14 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                  * f->type_ann before the Iron_TypeAnnotation cast. */
                 IRON_NODE_ASSERT_KIND(f->type_ann, IRON_NODE_TYPE_ANNOTATION);
                 Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
-                if ((ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || (ta->is_array && (ta->bounded || ta->array_elem_ann))) &&
+                /* (An interface list is a split collection, which only the
+                 * resolved type spells: Iron_SplitList_<Iface>.) */
+                bool iface_list = ta->is_array && f->resolved_type &&
+                    f->resolved_type->kind == IRON_TYPE_ARRAY &&
+                    f->resolved_type->array.elem &&
+                    f->resolved_type->array.elem->kind == IRON_TYPE_INTERFACE;
+                if ((ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || iface_list ||
+                     (ta->is_array && (ta->bounded || ta->array_elem_ann))) &&
                     f->resolved_type && f->resolved_type->kind != IRON_TYPE_ERROR) {
                     /* Box[T], a generic enum, weak rc T, a bounded vector:
                      * the name alone is not the C type (Box[Counter] was

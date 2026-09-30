@@ -1,0 +1,34 @@
+-- filter, map, pop and copy on an interface list whose implementor owns a
+-- list (#180): the filtered list gets its own copies, so each list frees
+-- its own elements.
+interface Shape {
+    readonly func area() -> Int
+}
+object Dot impl Shape {
+    val x: Int
+    readonly func area() -> Int { return self.x }
+}
+object Bag impl Shape {
+    val items: [Int]
+    readonly func area() -> Int { return self.items.len() * 10 }
+}
+func show(xs: [Shape]) {
+    var out = ""
+    for s in xs {
+        out = out + " {s.area()}"
+    }
+    println(out)
+}
+func main() {
+    var xs: [Shape] = [Dot(1), Bag([1, 2]), Dot(3), Bag([1, 2, 3, 4])]
+    val big = xs.filter(func(s: Shape) -> Bool { return s.area() > 5 })
+    show(big)
+    val doubled = xs.map(func(s: Shape) -> Int { return s.area() * 2 })
+    println("{doubled.len()}")
+    val last = xs.pop()
+    println("popped {last.area()}")
+    show(xs)
+    val c = xs.copy()
+    show(c)
+    println("end")
+}

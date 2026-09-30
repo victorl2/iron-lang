@@ -1,0 +1,8 @@
+-- Arguments are positional: `name: value` at a call site is reported once,
+-- with no follow-on errors from the rest of the statement.
+object Square {
+    val s: Int
+}
+func main() {
+    println(Square(s: 4))
+}

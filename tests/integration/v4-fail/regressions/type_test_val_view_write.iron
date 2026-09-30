@@ -1,0 +1,18 @@
+-- @expected-error: E0234
+-- Writing through a type test needs a mutable binding: a `val` interface
+-- narrowed to an implementor is still immutable.
+interface Shape {
+    readonly func area() -> Int
+}
+object Circle impl Shape {
+    var r: Int
+    init(r: Int) { self.r = r }
+    readonly func area() -> Int { return self.r }
+}
+func main() {
+    val v: Shape = Circle(2)
+    if v is Circle {
+        v.r = 5
+    }
+    println("{v.area()}")
+}

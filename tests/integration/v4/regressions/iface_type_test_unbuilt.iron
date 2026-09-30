@@ -1,0 +1,23 @@
+-- A type test against an implementor that is never constructed (#179):
+-- the guarded write compiles (the payload has no member in the union) and
+-- never runs.
+interface Shape {
+    readonly func area() -> Int
+}
+object Circle impl Shape {
+    var r: Int
+    init(r: Int) { self.r = r }
+    readonly func area() -> Int { return self.r }
+}
+object Ghost impl Shape {
+    var g: Int
+    init(g: Int) { self.g = g }
+    readonly func area() -> Int { return self.g }
+}
+func main() {
+    var s: Shape = Circle(1)
+    if s is Ghost {
+        s.g = 3
+    }
+    println("{s.area()}")
+}

@@ -1,0 +1,8 @@
+-- @expected-error: E0328
+-- A row of a list of lists is owned by the outer list: binding it gives it
+-- a second owner. Use grid[0].copy() or grid[0].take().
+func main() {
+    val grid: [[Int]] = [[1, 2], [3]]
+    val row = grid[0]
+    println("{row.len()}")
+}
