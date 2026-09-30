@@ -1,0 +1,19 @@
+start: orig nlink=1
+after link l1: nlink=2
+after link l2: nlink=3
+after link l3: nlink=4
+append via l2, size via orig = 13
+chmod via l3 -> orig mode 0600
+after unlink orig: l1 nlink=3, orig exists=0
+after unlink l1: l2 nlink=2
+unlinked-but-open: nlink=0 size=13
+still readable: 0123456789abc
+l3 nlink=1 (l2 removed earlier)
+link onto itself: EEXIST
+link onto existing file: EEXIST
+link from missing: ENOENT
+link to directory: EPERM_OR_EACCES
+link into missing dir: ENOENT
+after symlink: l3 nlink=1
+fan of 20: l3 nlink=21
+after removing half: nlink=11

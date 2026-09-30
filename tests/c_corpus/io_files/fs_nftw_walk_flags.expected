@@ -1,0 +1,42 @@
+== FTW_PHYS: 12 entries, parent order before children
+FTW_D    L0 t
+FTW_D    L1 t/a
+FTW_D    L2 t/a/deep
+FTW_F    L3 t/a/deep/y (4 bytes)
+FTW_F    L2 t/a/x (2 bytes)
+FTW_D    L1 t/b
+FTW_SL   L2 t/b/to_a
+FTW_SL   L2 t/b/to_root
+FTW_F    L2 t/b/z (0 bytes)
+FTW_SL   L1 t/dangling
+FTW_D    L1 t/empty
+FTW_F    L1 t/root.txt (5 bytes)
+== FTW_PHYS|FTW_DEPTH: 12 entries, parent order after children
+FTW_DP   L0 t
+FTW_DP   L1 t/a
+FTW_DP   L2 t/a/deep
+FTW_F    L3 t/a/deep/y (4 bytes)
+FTW_F    L2 t/a/x (2 bytes)
+FTW_DP   L1 t/b
+FTW_SL   L2 t/b/to_a
+FTW_SL   L2 t/b/to_root
+FTW_F    L2 t/b/z (0 bytes)
+FTW_SL   L1 t/dangling
+FTW_DP   L1 t/empty
+FTW_F    L1 t/root.txt (5 bytes)
+== follow links: 13 entries, parent order before children
+FTW_D    L0 t
+FTW_D    L1 t/a
+FTW_D    L2 t/a/deep
+FTW_F    L3 t/a/deep/y (4 bytes)
+FTW_F    L2 t/a/x (2 bytes)
+FTW_D    L1 t/b
+FTW_D    L2 t/b/to_a
+FTW_F    L3 t/b/to_a/o1 (2 bytes)
+FTW_F    L2 t/b/to_root (5 bytes)
+FTW_F    L2 t/b/z (0 bytes)
+FTW_SLN  L1 t/dangling
+FTW_D    L1 t/empty
+FTW_F    L1 t/root.txt (5 bytes)
+aborted walk: rc=7 visited=4
+missing root: rc=-1 err=ENOENT visited=0

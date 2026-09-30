@@ -1,0 +1,18 @@
+l1 full    n=6 [target]
+cap=1      n=1 [.]
+cap=4      n=4 [../a]
+cap=7      n=7 [../a/b/]
+lstat size l1=6 l2=18
+long target length 200, fnv 684d53b5
+readlink(regular): EINVAL
+readlink(missing): ENOENT
+readlink(dir): EINVAL
+symlink onto existing: EEXIST
+symlink in missing dir: ENOENT
+readlinkat n=7 [sibling]
+follow c0     -> target after 4 hops
+follow c2     -> target after 2 hops
+follow target -> target after 0 hops
+follow cyc_a  -> cycle (gave up)
+follow dead   -> broken at gone
+open(c0) reads through 4 links: T

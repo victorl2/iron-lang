@@ -1,0 +1,13 @@
+s0: files=12 linked=0 copied=12 logical=1019 bytes
+s1: files=13 linked=9 copied=4 logical=1028 bytes
+s2: files=13 linked=11 copied=2 logical=1029 bytes
+s3: files=13 linked=13 copied=0 logical=1029 bytes
+logical bytes over 4 snapshots: 4105, physical bytes (distinct inodes): 1474
+f0.c untouched: nlink=4
+f1.c changed once (s1): nlink=3
+f3_renamed.c copied at s2 (new path): nlink=2
+top.txt only in s0: nlink=1
+after deleting s0: f0.c nlink=3
+s1..s3 tree hashes unchanged after pruning s0: yes
+physical bytes now: 1289
+in-place write to a linked file changed s1 as well: yes

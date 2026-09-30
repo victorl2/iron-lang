@@ -1,0 +1,26 @@
+rename f1        -> f2        : OK
+  f1: absent
+  f2: "one"
+rename f3        -> d2        : EISDIR
+rename d1        -> f2        : ENOTDIR
+rename d1        -> d2        : OK
+  d2/inside: "in1"
+rename d3        -> full      : ENOTEMPTY_OR_EEXIST
+rename d3        -> d2        : ENOTEMPTY_OR_EEXIST
+rename tree      -> tree/sub/moved : EINVAL
+rename tree      -> tree/self : EINVAL
+rename f2        -> f2        : OK
+  f2: "one"
+rename d3        -> d3        : OK
+rename ha        -> hb        : OK
+  both names survive, nlink=2
+rename other     -> ha        : OK
+  after replacing ha: hb nlink=1   hb: "shared"
+rename sl        -> sl2       : OK
+  real: "real-data"
+  victim: "victim-data"
+  sl2 now points at real, sl exists=0
+rename nothing   -> f9        : ENOENT
+rename f2        -> nodir/f2  : ENOENT
+rename f2/child  -> f9        : ENOTDIR
+  f2: "one"

@@ -1,0 +1,33 @@
+stat("")           : ENOENT
+stat("file")       : OK
+stat("file/")      : ENOTDIR
+stat("file/.")     : ENOTDIR
+stat("file/..")    : ENOTDIR
+stat("dir/")       : OK
+stat("dir//")      : OK
+stat("dir/.")      : OK
+stat("dir/./.")    : OK
+stat("dir/..")     : OK
+stat("nodir/..")   : ENOENT
+stat("./file")     : OK
+stat(".//file")    : OK
+dir/../file is file: yes
+mkdir("dir")       : EEXIST
+mkdir("dir/")      : EEXIST
+mkdir("sub/")      : OK
+mkdir("sub2//")    : OK
+mkdir("file/x")    : ENOTDIR
+mkdir("")          : ENOENT
+chdir("")          : ENOENT
+open(dir, RDONLY)  : OK
+read(dir fd)       : EISDIR
+open(dir, WRONLY)  : EISDIR
+open(dir, CREAT|EXCL): EEXIST
+open(file, O_DIRECTORY): ENOTDIR
+open("file/")      : ENOTDIR
+create 255-char name: OK
+create 256-char name: ENAMETOOLONG
+stat(6000-char path): ENAMETOOLONG
+deep path length 310 bytes, size of bottom.txt = 4
+nesting depth 150 built and removed
+odd names created and listed: 12 of 12
