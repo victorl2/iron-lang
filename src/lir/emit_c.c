@@ -2265,6 +2265,55 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_String ");
         emit_val(sb, instr->id);
+        /* Each distinct literal is interned once (#202): a static holds the
+         * interned value behind an atomic guard, and every use reads it.
+         * Interning is idempotent, so threads racing on first use just
+         * both take the slow path once. */
+        {
+            ptrdiff_t li = shgeti(ctx->literal_cache, sv);
+            int lit_idx;
+            if (li >= 0) {
+                lit_idx = ctx->literal_cache[li].value;
+            } else {
+                lit_idx = ctx->literal_cache_count++;
+                char *key = iron_arena_strdup(ctx->arena, sv, slen);
+                if (!key) iron_oom_abort("emit_c.c:literal cache key");
+                shput(ctx->literal_cache, key, lit_idx);
+                Iron_StrBuf *lf = &ctx->struct_bodies;   /* before every function */
+                iron_strbuf_appendf(lf,
+                    "static Iron_String _iron_lit_%d;\n"
+                    "static _Atomic int _iron_lit_%d_ready;\n"
+                    "static inline Iron_String _iron_lit_%d_get(void) {\n"
+                    "    if (atomic_load_explicit(&_iron_lit_%d_ready, memory_order_acquire) == 2) return _iron_lit_%d;\n"
+                    "    Iron_String s = iron_string_from_literal(\"",
+                    lit_idx, lit_idx, lit_idx, lit_idx, lit_idx);
+                for (size_t i = 0; i < slen; i++) {
+                    unsigned char ch = (unsigned char)sv[i];
+                    switch (ch) {
+                        case '\n': iron_strbuf_appendf(lf, "\\n");  break;
+                        case '\r': iron_strbuf_appendf(lf, "\\r");  break;
+                        case '\t': iron_strbuf_appendf(lf, "\\t");  break;
+                        case '\\': iron_strbuf_appendf(lf, "\\\\"); break;
+                        case '"':  iron_strbuf_appendf(lf, "\\\""); break;
+                        default:
+                            if (ch < 0x20 || ch == 0x7f) iron_strbuf_appendf(lf, "\\x%02x", ch);
+                            else iron_strbuf_appendf(lf, "%c", (int)ch);
+                            break;
+                    }
+                }
+                iron_strbuf_appendf(lf,
+                    "\", %zu);\n"
+                    "    int expect = 0;\n"
+                    "    if (atomic_compare_exchange_strong(&_iron_lit_%d_ready, &expect, 1)) {\n"
+                    "        _iron_lit_%d = s;\n"
+                    "        atomic_store_explicit(&_iron_lit_%d_ready, 2, memory_order_release);\n"
+                    "    }\n"
+                    "    return s;\n"
+                    "}\n\n", slen, lit_idx, lit_idx, lit_idx);
+            }
+            iron_strbuf_appendf(sb, " = _iron_lit_%d_get();\n", lit_idx);
+            break;
+        }
         /* Escape the literal for C source embedding. Iron's lexer decodes
          * `\n` / `\t` / `\"` / `\\` into the raw byte, so `sv` may contain
          * newlines, quotes, backslashes, and arbitrary control characters
@@ -9912,6 +9961,8 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     ctx.main_wrapper    = iron_strbuf_create(256);
 
     ctx.emitted_optionals = NULL;
+    ctx.literal_cache = NULL;
+    ctx.literal_cache_count = 0;
     ctx.mono_registry     = NULL;
     ctx.indent            = 0;
 

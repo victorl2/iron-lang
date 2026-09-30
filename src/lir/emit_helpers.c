@@ -1968,6 +1968,7 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
 
     /* Free stb_ds maps and arrays */
     arrfree(ctx->emitted_optionals);
+    shfree(ctx->literal_cache);
     arrfree(ctx->emitted_tuples);
     arrfree(ctx->emitted_bvecs);
     arrfree(ctx->emitted_drops);

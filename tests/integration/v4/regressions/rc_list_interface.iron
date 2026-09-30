@@ -1,0 +1,16 @@
+-- An rc list of an interface (#201): the literal inside `rc [..]` takes
+-- the annotation's element type, so implementors can be listed directly.
+interface Shape {
+    readonly func area() -> Int
+}
+object Dot impl Shape {
+    val x: Int
+    readonly func area() -> Int { return self.x }
+}
+func main() {
+    val xs: rc [Shape] = rc [Dot(1), Dot(2)]
+    xs.push(Dot(3))
+    var t = 0
+    for s in xs { t = t + s.area() }
+    println("{t} {xs.len()}")
+}

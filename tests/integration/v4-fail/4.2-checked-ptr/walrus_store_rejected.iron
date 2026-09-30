@@ -1,0 +1,10 @@
+-- section 4.2 negative: no ':=' store-through-pointer operator
+-- @req: PTR-02, PTR-06
+-- a checked pointer is read through field access and written through
+-- `p.field = v`; there is no scalar deref-assignment form
+func main() {
+    var x = 10
+    val mut_ptr: *var Int = &x
+    mut_ptr := 42
+    println("x: {x}")
+}

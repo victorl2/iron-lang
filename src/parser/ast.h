@@ -783,6 +783,9 @@ typedef struct {
     struct Iron_Type  *resolved_type;  /* set by type checker */
     Iron_OpKind        op;
     Iron_Node         *operand;
+    /* `&expr` written directly as a call argument: the pointer lives only
+     * for the call, so an element of a growable list may be borrowed. */
+    bool               is_call_arg;
 } Iron_UnaryExpr;
 
 typedef struct {

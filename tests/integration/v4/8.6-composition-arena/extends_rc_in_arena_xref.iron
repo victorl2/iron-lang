@@ -1,12 +1,7 @@
 -- section 8.6 extends-spec: heap-in-arena positive case (cross-reference v4-fail/3.7-arena/rc_in_arena)
 -- @req: ARENA-01, ARENA-03
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): .expected requires per-object drop execution for arena allocations at
--- `in arena {}` block exit ("particle N freed"), but ARENA-09/W0605 defines arena bulk-free
--- as SKIPPING drop. Needs a scoped-drop surface (or a re-authored .expected). Verified at
--- v4.0.0-alpha: builds+runs positionally; output differs only by the two drop lines.
--- extends-spec: cross-reference negative test in v4-fail/3.7-arena/rc_in_arena.iron
--- this fixture exercises the POSITIVE side: heap(in: arena) is legal; rc-in-arena is the error
+-- cross-reference: v4-fail/3.7-arena/rc_in_arena.iron pins the negative side (rc in arena)
+-- arena-backed heap allocation is legal; reset() bulk-frees without running drops (W0605)
 
 object Particle {
     val id: Int

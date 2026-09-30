@@ -225,7 +225,7 @@ void *iron_rc_alloc(size_t size, void (*drop_fn)(void *)) {
 
     IronAllocHdr *ahd =
         (IronAllocHdr *)((char *)block + sizeof(Iron_RcHeader));
-    IRON_ATOMIC_U64_INIT(ahd->gen, 1);
+    IRON_ATOMIC_U64_INIT(ahd->gen, iron_heap_next_gen());
     ahd->size = (uint64_t)size;
 
     /* Phase 37 rc-balance: debug leak detector — count the live block. */

@@ -354,6 +354,8 @@ const char *emit_web_module(IronLIR_Module *module, Iron_Arena *arena,
     ctx.main_wrapper    = iron_strbuf_create(256);
 
     ctx.emitted_optionals = NULL;
+    ctx.literal_cache = NULL;
+    ctx.literal_cache_count = 0;
     ctx.mono_registry     = NULL;
     ctx.indent            = 0;
 

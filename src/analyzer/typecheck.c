@@ -187,6 +187,7 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
 /* ── Forward declarations ────────────────────────────────────────────────── */
 
 static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node);
+static void mark_amp_call_args(Iron_Node **args, int count);
 static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
                                             Iron_Type *expected);
 static void check_stmt(TypeCtx *ctx, Iron_Node *node);
@@ -1667,6 +1668,13 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                            "it is not a wrapper for handles or pointers");
             return iron_type_make_primitive(IRON_TYPE_ERROR);
         }
+        /* `rc T?` is a nullable strong handle (what `upgrade()` returns),
+         * not a handle to a nullable: the `?` applies to the whole type. */
+        if (inner_t->kind == IRON_TYPE_NULLABLE && inner_t->nullable.inner) {
+            Iron_Type *rt = iron_type_make_rc(ctx->arena, inner_t->nullable.inner);
+            Iron_Type *nt = rt ? iron_type_make_nullable(ctx->arena, rt) : NULL;
+            return nt ? nt : iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
         Iron_Type *rt = iron_type_make_rc(ctx->arena, inner_t);
         return rt ? rt : iron_type_make_primitive(IRON_TYPE_ERROR);
     }
@@ -2086,7 +2094,46 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
 
 /* Check whether `expr` is a binary comparison of `sym_name != null` or
  * `sym_name == null`. Returns: 1 for != null, -1 for == null, 0 otherwise. */
-static int classify_null_check(Iron_Node *expr, const char **out_name) {
+/* The narrowing key of a place: an identifier, or a field path (`p.nick`)
+ * rooted at an identifier (#200). A field path narrows only when its root
+ * is an immutable binding (a `val` or a read only parameter) that is not
+ * an rc handle: nothing can change the field between the check and the
+ * read. NULL when the place does not qualify. */
+static const char *narrowing_key(TypeCtx *ctx, Iron_Node *place) {
+    if (!place) return NULL;
+    if (place->kind == IRON_NODE_IDENT) return ((Iron_Ident *)place)->name;
+    if (place->kind != IRON_NODE_FIELD_ACCESS) return NULL;
+    Iron_Node *root = place;
+    int depth = 0;
+    while (root && root->kind == IRON_NODE_FIELD_ACCESS && depth++ < 8)
+        root = ((Iron_FieldAccess *)root)->object;
+    if (!root || root->kind != IRON_NODE_IDENT) return NULL;
+    Iron_Ident *rid = (Iron_Ident *)root;
+    if (!rid->name) return NULL;
+    Iron_Symbol *sym = tc_lookup(ctx, rid->name);
+    if (!sym) sym = rid->resolved_sym;
+    if (!sym || sym->is_mutable) return NULL;
+    if (sym->sym_kind != IRON_SYM_VARIABLE && sym->sym_kind != IRON_SYM_PARAM) return NULL;
+    Iron_Type *rt = sym->type;
+    if (!rt || rt->kind == IRON_TYPE_RC || rt->kind == IRON_TYPE_WEAK_RC ||
+        rt->kind == IRON_TYPE_PTR) return NULL;
+    /* Build "root.f1.f2" from the chain. */
+    const char *parts[9];
+    int n = 0;
+    for (Iron_Node *c = place; c && c->kind == IRON_NODE_FIELD_ACCESS && n < 8;
+         c = ((Iron_FieldAccess *)c)->object)
+        parts[n++] = ((Iron_FieldAccess *)c)->field;
+    size_t len = strlen(rid->name) + 1;
+    for (int i = 0; i < n; i++) len += (parts[i] ? strlen(parts[i]) : 0) + 1;
+    char *key = (char *)iron_arena_alloc(ctx->arena, len, 1);
+    if (!key) return NULL;
+    size_t pos = (size_t)snprintf(key, len, "%s", rid->name);
+    for (int i = n - 1; i >= 0; i--)
+        pos += (size_t)snprintf(key + pos, len - pos, ".%s", parts[i] ? parts[i] : "");
+    return key;
+}
+
+static int classify_null_check(TypeCtx *ctx, Iron_Node *expr, const char **out_name) {
     if (!expr || expr->kind != IRON_NODE_BINARY) return 0;
     Iron_BinaryExpr *be = (Iron_BinaryExpr *)expr;
     int is_neq = (be->op == IRON_TOK_NOT_EQUALS);
@@ -2099,9 +2146,9 @@ static int classify_null_check(Iron_Node *expr, const char **out_name) {
     } else if (be->left && be->left->kind == IRON_NODE_NULL_LIT) {
         ident_side = be->right;
     }
-    if (!ident_side || ident_side->kind != IRON_NODE_IDENT) return 0;
-    Iron_Ident *id = (Iron_Ident *)ident_side;
-    if (out_name) *out_name = id->name;
+    const char *key = narrowing_key(ctx, ident_side);
+    if (!key) return 0;
+    if (out_name) *out_name = key;
     return is_neq ? 1 : -1;
 }
 
@@ -2172,10 +2219,19 @@ static void narrow_for_cond(TypeCtx *ctx, Iron_Node *cond, bool truth) {
             return;
         }
         const char *name = NULL;
-        int dir = classify_null_check(cond, &name);
+        int dir = classify_null_check(ctx, cond, &name);
         if (dir == 0 || !name || (dir == 1) != truth) return;
-        Iron_Symbol *sym = tc_lookup(ctx, name);
-        Iron_Type *t = sym ? sym->type : NULL;
+        /* The place's declared type: a binding's symbol type, or the
+         * checked field's own type (already narrowed reads keep their
+         * unwrapped type, so consult the map first). */
+        Iron_Node *side = (be->right && be->right->kind == IRON_NODE_NULL_LIT) ? be->left : be->right;
+        Iron_Type *t = NULL;
+        if (side && side->kind == IRON_NODE_IDENT) {
+            Iron_Symbol *sym = tc_lookup(ctx, name);
+            t = sym ? sym->type : NULL;
+        } else if (side) {
+            t = ((Iron_ExprNode *)side)->resolved_type;
+        }
         if (t && t->kind == IRON_TYPE_NULLABLE) narrowing_set(ctx, name, t->nullable.inner);
         return;
     }
@@ -2183,14 +2239,15 @@ static void narrow_for_cond(TypeCtx *ctx, Iron_Node *cond, bool truth) {
         /* Only an interface value narrows (#179): a concrete value's test
          * is a constant and its type is already known. */
         Iron_IsExpr *ie = (Iron_IsExpr *)cond;
-        if (!ie->expr || ie->expr->kind != IRON_NODE_IDENT || !ie->type_name) return;
+        const char *ikey = ie->expr ? narrowing_key(ctx, ie->expr) : NULL;
+        if (!ikey || !ie->type_name) return;
         Iron_Type *opt = ((Iron_ExprNode *)ie->expr)->resolved_type;
         if (opt && opt->kind == IRON_TYPE_NULLABLE) opt = opt->nullable.inner;
         if (!opt || opt->kind != IRON_TYPE_INTERFACE) return;
         Iron_Symbol *type_sym = iron_scope_lookup(ctx->global_scope, ie->type_name);
         if (!type_sym || (type_sym->sym_kind != IRON_SYM_TYPE &&
                           type_sym->sym_kind != IRON_SYM_INTERFACE)) return;
-        narrowing_set(ctx, ((Iron_Ident *)ie->expr)->name, type_sym->type);
+        narrowing_set(ctx, ikey, type_sym->type);
     }
 }
 
@@ -3385,6 +3442,26 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     ue->resolved_type = result;
                     break;
                 }
+                /* A growable list moves its elements when it grows, and
+                 * its buffer carries no generation the pointer could be
+                 * checked against; only fixed-size arrays give stable
+                 * element addresses. A borrow for the duration of a call
+                 * (`f(&list[i])`) is allowed, like auto-addressing. */
+                if (ue->operand->kind == IRON_NODE_INDEX && !ue->is_call_arg) {
+                    Iron_Node *lo = ((Iron_IndexExpr *)ue->operand)->object;
+                    Iron_Type *lt = lo ? ((Iron_ExprNode *)lo)->resolved_type : NULL;
+                    if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.size < 0 &&
+                        !lt->array.is_bounded) {
+                        emit_error(ctx, IRON_ERR_PTR_INTO_LIST, ue->span,
+                                   "cannot take the address of a list element;"
+                                   " the list may reallocate its elements",
+                                   "point at a fixed-size array element, or"
+                                   " store the element in a binding first");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        ue->resolved_type = result;
+                        break;
+                    }
+                }
                 bool is_var_src = arg_source_is_mutable(ctx, ue->operand);
                 mark_requires_mutable(ctx, ue->operand);
                 Iron_Type *ptr_t = iron_type_make_ptr(ctx->arena,
@@ -3428,6 +3505,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         }
 
         case IRON_NODE_CALL: {
+            mark_amp_call_args(((Iron_CallExpr *)node)->args, ((Iron_CallExpr *)node)->arg_count);
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
 
             /* User generics: redirect to the instance (or, in the round
@@ -4305,6 +4383,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         }
 
         case IRON_NODE_METHOD_CALL: {
+            mark_amp_call_args(((Iron_MethodCallExpr *)node)->args, ((Iron_MethodCallExpr *)node)->arg_count);
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
             /* A method on an `rc [T]` handle is a method on its list. */
             rc_list_unwrap_expr(ctx, &mc->object);
@@ -5962,6 +6041,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 result = iron_type_make_primitive(IRON_TYPE_ERROR);
             } else {
                 result = field_type;
+                /* A field path narrowed by a null check or type test (#200). */
+                const char *fkey = narrowing_key(ctx, node);
+                Iron_Type *fnarrow = fkey ? narrowing_get(ctx, fkey) : NULL;
+                if (fnarrow) result = fnarrow;
             }
             fa->resolved_type = result;
             /* Phase 83-02 ACCESS-05: flag pub-field reads so HIR can lower
@@ -7013,6 +7096,15 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
  * Used by: val and var decl (vd->init), call arg (ce->args[i]), return (rs->value),
  * assignment (as->value). Other check_expr callers remain unchanged.
  */
+/* Flag `&expr` arguments written directly in a call's argument list. */
+static void mark_amp_call_args(Iron_Node **args, int count) {
+    for (int i = 0; i < count; i++) {
+        if (args[i] && args[i]->kind == IRON_NODE_UNARY &&
+            ((Iron_UnaryExpr *)args[i])->op == (Iron_OpKind)IRON_TOK_AMP)
+            ((Iron_UnaryExpr *)args[i])->is_call_arg = true;
+    }
+}
+
 static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
                                             Iron_Type *expected) {
     /* HARD-05: cancel poll at expected-type walker entry. */
@@ -7022,6 +7114,19 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
     if (node && node->kind == IRON_NODE_LAMBDA && expected &&
         expected->kind == IRON_TYPE_FUNC) {
         ctx->lambda_expected_type = expected;
+    }
+    /* `rc [..]` against an `rc [T]` annotation: the literal inside takes
+     * the annotated list type, as a plain literal would (#201). */
+    if (node && node->kind == IRON_NODE_RC && expected && type_is_rc_list(expected)) {
+        Iron_RcExpr *re = (Iron_RcExpr *)node;
+        if (re->inner && re->inner->kind == IRON_NODE_ARRAY_LIT &&
+            expected->rc.inner->object.decl->field_count > 0) {
+            Iron_Field *f0 = (Iron_Field *)expected->rc.inner->object.decl->fields[0];
+            Iron_Type *lt = f0 ? f0->resolved_type : NULL;
+            if (lt && lt->kind == IRON_TYPE_ARRAY)
+                check_expr_with_expected(ctx, re->inner, lt);
+        }
+        return check_expr(ctx, node);
     }
     if (node && node->kind == IRON_NODE_ARRAY_LIT && expected &&
         expected->kind == IRON_TYPE_ARRAY) {
@@ -7036,6 +7141,27 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
          * from different implementors, a list of empty lists). */
         if (!al->type_ann && !al->size && expected->array.size < 0 &&
             !expected->array.is_bounded && expected->array.elem) {
+            bool fits = true;
+            for (int i = 0; i < al->element_count; i++) {
+                Iron_Type *et = check_expr_with_expected(ctx, al->elements[i],
+                                                         expected->array.elem);
+                if (!et || et->kind == IRON_TYPE_ERROR ||
+                    !types_assignable(expected->array.elem, et)) {
+                    fits = false;
+                    break;
+                }
+            }
+            if (fits) {
+                al->resolved_type = expected;
+                al->context_type = expected;
+                return expected;
+            }
+        }
+        /* A literal with exactly N fitting elements is a `[T; N]` where one
+         * is expected (a fixed-size return or annotation). */
+        if (!al->type_ann && !al->size && expected->array.size >= 0 &&
+            !expected->array.is_bounded && expected->array.elem &&
+            al->element_count == expected->array.size) {
             bool fits = true;
             for (int i = 0; i < al->element_count; i++) {
                 Iron_Type *et = check_expr_with_expected(ctx, al->elements[i],

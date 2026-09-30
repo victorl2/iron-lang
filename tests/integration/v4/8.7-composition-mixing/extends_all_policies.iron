@@ -1,10 +1,8 @@
 -- section 8.7 extends-spec: all-policies integration probe
 -- @req: POL-01, POL-02, POL-06, POL-08, ARENA-01, DROP-01
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): `weak rc T` field type annotation (E0297 class) + E0264 (Child var field,
--- no init); .expected additionally requires "arena 5 freed" at `in arena {}` block exit, which
--- ARENA-09/W0605 bulk-free deliberately skips.
--- extends-spec: stack + heap + rc + weak + arena lifecycle interleaved; destructors fire in correct order
+-- stack + heap + rc + weak + arena lifecycle interleaved; deferred frees run
+-- first, then destructors in reverse binding order; the arena bulk-frees without
+-- running drops (W0605, acknowledged with allow_drop_skip)
 
 object StackVal {
     val id: Int
@@ -40,7 +38,7 @@ object ArenaObj {
 
 object Child {
     val id: Int
-    var parent: weak rc Shared
+    val parent: weak rc Shared
 
     drop {
         println("child {self.id} freed")
@@ -55,24 +53,25 @@ func main() {
     val ho = heap HeapObj(2)
     defer free ho
 
-    -- rc allocation: freed when last reference goes out of scope
+    -- rc allocation: freed when the last reference goes out of scope
     val sh = rc Shared(3)
 
-    -- weak rc: child holds non-owning reference to shared
+    -- weak rc: child holds a non-owning reference to shared
     val ch = Child(4, sh.downgrade())
 
-    -- arena allocation: freed at arena.reset()
+    -- arena allocation: bulk-freed at arena.reset(), no drop
     val arena = heap Arena.new(64 * 1024)
     defer free arena
 
     in arena {
-        val ao = heap ArenaObj(5)
-        println("arena obj alive")
+        val ao = heap(allow_drop_skip: true) ArenaObj(5)
+        println("arena obj {ao.id} alive")
     }
     arena.reset()
 
+    val parent = ch.parent.upgrade()
+    if parent != null {
+        println("child {ch.id} sees shared {parent.id}")
+    }
     println("all alive")
-    -- rc sh drops at end of main scope
-    -- heap ho freed by defer before stack sv
-    -- sv drops last (stack; declaration order reversed by LIFO)
 }

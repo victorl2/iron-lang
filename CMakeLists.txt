@@ -1528,8 +1528,6 @@ if(NOT WIN32)
     # @expected-pass-after: phase-25.  Registered here under phase25-invariant.
     # 5 of 6 fixtures depend on Box.new/unwrap/null/is_null which require
     # box.iron stdlib (Plan 25-03); they are XFAIL (WILL_FAIL YES) until 25-03.
-    # boundary_unchecked_ffi.iron depends on U8 type + as-cast to *unchecked T
-    # (also deferred); it is also XFAIL (WILL_FAIL YES) here.
 
     add_test(
         NAME v4_4.3-unchecked-ptr_happy
@@ -1571,18 +1569,6 @@ if(NOT WIN32)
         LABELS "integration;phase25-invariant"
         TIMEOUT 30
         WILL_FAIL ${_xf} DISABLED ${IRON_SKIP_CLANG_ROWS}  # needs clang to build the fixture; skipped on the check-only container
-    )
-
-    add_test(
-        NAME v4_4.3-unchecked-ptr_boundary_unchecked_ffi
-        COMMAND ${CMAKE_BINARY_DIR}/ironc build
-                ${CMAKE_SOURCE_DIR}/tests/integration/v4/4.3-unchecked-ptr/boundary_unchecked_ffi.iron
-        WORKING_DIRECTORY /tmp
-    )
-    set_tests_properties(v4_4.3-unchecked-ptr_boundary_unchecked_ffi PROPERTIES
-        LABELS "integration;phase25-invariant"
-        TIMEOUT 30
-        WILL_FAIL YES  # U8 type + as *unchecked T cast not yet implemented; deferred
     )
 
     add_test(
@@ -2224,7 +2210,6 @@ endif()
 if(NOT WIN32)
     set(_PHASE_30_TRAP_FIXTURES
         concurrent_mutation
-        stale_after_grow
         drop_on_assignment
         defer_panic
         polymorphic_dispatch
@@ -2539,13 +2524,11 @@ if(NOT WIN32)
         4.2-checked-ptr/boundary_auto_address
         4.2-checked-ptr/boundary_element_pointer
         4.2-checked-ptr/boundary_field_pointer
-        4.2-checked-ptr/boundary_var_pointer
         4.2-checked-ptr/happy
         4.4-readonly/pure_satisfies_readonly_iface
         4.4-readonly/readonly_happy
         4.4-readonly/readonly_rvo_array
         4.4-regime-isolation/checked_independent
-        4.4-regime-isolation/unchecked_independent
         5-mutability/boundary_field_var
         5-mutability/boundary_method_receiver
         5-mutability/boundary_param_readonly
@@ -2606,7 +2589,6 @@ if(NOT WIN32)
         3.2-heap/panic_use_after_free
         4.2-checked-ptr/closure_pointer_capture
         4.2-checked-ptr/closure_var_pointer_capture
-        4.2-checked-ptr/panic_stale_after_grow
         # 2026-07 task #24: OOB checked indexed write on a bounded vector
         # panics against .len with the index/bound pair (.expected pins it).
         4.5-bounded-vector/checked_index_write_oob

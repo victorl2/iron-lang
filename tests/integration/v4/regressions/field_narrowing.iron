@@ -1,0 +1,52 @@
+-- Narrowing on field paths (#200): a null check or type test on a field
+-- of an immutable binding (a val or a parameter) narrows that path,
+-- through nested fields, in `and` conditions and after an early return.
+interface Shape {
+    readonly func area() -> Int
+}
+object Circle impl Shape {
+    val r: Int
+    readonly func area() -> Int { return self.r * 3 }
+}
+object Square impl Shape {
+    val s: Int
+    readonly func area() -> Int { return self.s * self.s }
+}
+object Tag {
+    val note: String?
+}
+object Person {
+    val name: String
+    val nick: String?
+    val age: Int?
+    val shape: Shape
+    val tag: Tag
+}
+func nick_of(p: Person) -> String {
+    if p.nick != null {
+        return p.nick
+    }
+    return p.name
+}
+func describe(p: Person) -> String {
+    if p.shape is Circle {
+        return "circle {p.shape.r}"
+    }
+    if p.shape is Square and p.age != null {
+        return "square {p.shape.s} age {p.age + 1}"
+    }
+    return "other"
+}
+func deep(p: Person) -> Int {
+    if p.tag.note == null {
+        return 0
+    }
+    return p.tag.note.len()
+}
+func main() {
+    val bob = Person("Bob", "a long nickname that is also long enough to be heap allocated", 7, Square(4), Tag("a long note that lives on the heap for sure"))
+    val ann = Person("Ann", null, null, Circle(2), Tag(null))
+    println("{nick_of(bob)} / {nick_of(ann)}")
+    println("{describe(bob)} / {describe(ann)}")
+    println("{deep(bob)} {deep(ann)}")
+}
