@@ -4,7 +4,9 @@ Iron is a general-purpose, statically typed language that compiles to C and
 then to native binaries. It favors explicit control and readable code: no
 garbage collector, no operator overloading, no implicit conversions. Iron is
 in alpha; this guide describes the current compiler, and every `iron` code
-block below is compiled by CI (`scripts/test_doc_examples.sh`).
+block below is compiled and run by CI (`scripts/test_doc_examples.sh`).
+The complete language, with its grammar, is in the
+[reference manual](../language_definition.md).
 
 When older Iron material disagrees with this guide, trust this guide.
 
@@ -41,8 +43,8 @@ the program's namespace, so call its `pub` functions directly.
 - Blocks use braces; statements end at the newline (no semicolons).
 - `val` is an immutable binding, `var` a mutable one. Types are inferred or
   written as `name: Type`.
-- Strings interpolate with braces: `"{name} has {hp} HP"`. Interpolated
-  expressions cannot contain string literals; bind them to a variable first.
+- Strings interpolate with braces: `"{name} has {hp} HP"`; any expression,
+  including calls and string literals, may appear inside the braces.
 - Print with `println(...)`; `len(x)` gives a length.
 
 ```iron
@@ -86,6 +88,15 @@ func make_counter() -> func() -> Int {
     val seen: rc [Int] = rc [1, 2, 3]
     return func() -> Int { return len(seen) }
 }
+
+func main() {
+    val count = make_counter()
+    println("{count()}")
+}
+```
+
+```output
+3
 ```
 
 ```iron
@@ -192,8 +203,9 @@ anonymous `init`, `Type.name(args)` a named one. An object whose fields are
 all `val` can be constructed positionally without an `init`; an object with a
 `var` field needs an explicit `init`.
 
-Method tiers: `func` may mutate `self`; `readonly func` may not; `pure func`
-may not mutate or do I/O.
+Method tiers: `func` may mutate `self`; `readonly func` may not mutate
+`self` or do I/O (no `println`); `pure func` may additionally only call
+other `pure` methods.
 
 ```iron
 import math
@@ -376,11 +388,9 @@ func main() {
 ## Known gaps (current alpha)
 
 - `Map` and `Set` are declared but not usable yet; use lists or objects.
-- A non-null value cannot yet be assigned to a nullable type (`T?`) or
-  returned from a function declared `-> T?`; nullable types currently only
-  hold `null` usefully. Prefer a `Result`-style enum.
-- Iterating a `String` with `for` yields `Int` code points, not
-  one-character strings; use `s.char_at(i)` for a `String`.
+- There are no `break` and `continue` statements; return from the function
+  or make the loop condition false.
+- `println` takes exactly one `String`; interpolate other values.
 - A payload bound from a generic enum in a `match` arm (`Result.Ok(v)`) has no
   resolved type for string interpolation; assign it to an annotated local
   (`val n: Int = v`) first.

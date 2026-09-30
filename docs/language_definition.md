@@ -1083,6 +1083,21 @@ when `main` returns. A run-time failure (index out of range, division by
 zero, failed `assert`, stale pointer) prints a message to standard error and
 aborts.
 
+```iron
+func main() {
+    val samples = [10, 20, 30, 40, 50]
+    var total: Int = 0
+    for sample in samples {
+        total += sample
+    }
+    println("processed={len(samples)} total={total}")
+}
+```
+
+```output
+processed=5 total=150
+```
+
 ### 5.2 Functions
 
 ```text
@@ -2648,3 +2663,132 @@ so that older material is not mistaken for the current language:
 - Lambda parameter inference outside a function-typed parameter position.
 - `String`, `Bool` and `Float` subjects in `match`.
 - Windows as a host for the web target.
+
+---
+
+## 13. Complete syntax of Iron
+
+This section gives the syntax of Iron in extended BNF, one production per
+construct, as implemented by the parser in `src/parser/parser.c`.
+`{ x }` means zero or more repetitions of `x`, `[ x ]` means optional,
+`( x | y )` groups alternatives and `'x'` is a literal token. `IDENT`,
+`INT`, `FLOAT` and `STRING` are the lexical tokens of section 1; `STRING`
+covers plain, multi-line and interpolated strings. `NAME` is an identifier
+or one of the keywords allowed in name position. Newlines and comments are
+not part of the grammar: the parser skips them between any two tokens (see
+section 1.6). The grammar is checked against the fixture corpus by
+`scripts/grammar_check.py`.
+
+```ebnf
+program        ::= { decl }
+
+decl           ::= import_decl
+                 | val_decl
+                 | var_decl
+                 | [ 'nocopy' ] [ 'pub' ] object_decl
+                 | [ 'pub' ] ( func_decl | extern_decl | patch_decl | interface_decl | enum_decl | array_ext_decl )
+
+import_decl    ::= 'import' IDENT { '.' IDENT }
+func_decl      ::= [ '@' 'fusible' ] 'func' IDENT [ generic_params ] param_list [ '->' type ] block
+extern_decl    ::= 'extern' 'func' IDENT param_list [ '->' type ]
+array_ext_decl ::= 'func' '[' IDENT ']' '.' NAME [ generic_params ] param_list [ '->' type ] block
+generic_params ::= '[' generic_param { ',' generic_param } [ ',' ] ']'
+generic_param  ::= IDENT [ ':' IDENT ]
+param_list     ::= '(' [ param { ',' param } [ ',' ] ] ')'
+param          ::= [ 'val' | 'var' ] NAME [ ':' type ]
+
+object_decl    ::= 'object' IDENT [ generic_params ] [ impl_clause ] '{' { member } '}'
+impl_clause    ::= 'impl' IDENT { ',' IDENT }
+member         ::= [ 'pub' ] [ 'readonly' | 'pure' ] ( field | method | init_decl | 'copy' block | 'drop' block )
+field          ::= ( 'val' | 'var' ) IDENT ':' type
+method         ::= 'func' NAME [ generic_params ] param_list [ '->' type ] block
+init_decl      ::= 'init' [ IDENT ] param_list block
+
+patch_decl     ::= 'patch' 'object' IDENT [ impl_clause ] '{' { patch_member } '}'
+patch_member   ::= [ 'pub' ] [ 'readonly' | 'pure' ] ( method | init_decl | 'copy' block | 'drop' block )
+
+interface_decl ::= 'interface' IDENT '{' { iface_method } '}'
+iface_method   ::= [ 'readonly' | 'pure' ] 'func' IDENT param_list [ '->' type ] [ block ]
+
+enum_decl      ::= 'enum' IDENT [ generic_params ] '{' [ variant { ',' variant } [ ',' ] ] '}'
+variant        ::= IDENT [ '(' type { ',' type } [ ',' ] ')' | '=' INT ]
+
+val_decl       ::= 'val' ( binding [ ':' type ] [ '=' init_expr ]
+                         | '(' binding { ',' binding } [ ',' ] ')' [ ':' type ] '=' expr )
+var_decl       ::= 'var' binding [ ':' type ] [ '=' init_expr ]
+binding        ::= IDENT | '_'
+init_expr      ::= spawn_expr | expr
+
+block          ::= '{' { stmt } '}'
+stmt           ::= val_decl | var_decl | return_stmt | if_stmt | while_stmt | for_stmt
+                 | match_stmt | defer_stmt | free_stmt | leak_stmt | in_arena_stmt
+                 | spawn_expr | block | expr_stmt
+return_stmt    ::= 'return' [ expr ]
+if_stmt        ::= 'if' expr block { 'elif' expr block } [ 'else' block ]
+while_stmt     ::= 'while' expr block
+for_stmt       ::= 'for' IDENT 'in' expr [ 'parallel' [ '(' expr ')' ] ] block
+match_stmt     ::= 'match' expr '{' { match_arm } [ 'else' '->' arm_body ] '}'
+match_arm      ::= pattern '->' arm_body
+arm_body       ::= block | stmt
+pattern        ::= [ IDENT '.' ] IDENT [ '(' [ sub_pattern { ',' sub_pattern } [ ',' ] ] ')' ]
+                 | expr
+sub_pattern    ::= '_' | IDENT '.' IDENT [ '(' [ sub_pattern { ',' sub_pattern } [ ',' ] ] ')' ] | IDENT
+defer_stmt     ::= 'defer' ( 'free' expr | block | stmt )
+free_stmt      ::= 'free' expr
+leak_stmt      ::= 'leak' expr
+in_arena_stmt  ::= 'in' expr block
+spawn_expr     ::= 'spawn' '(' STRING [ ',' expr ] ')' block
+expr_stmt      ::= expr [ assign_op expr ]
+assign_op      ::= '=' | '+=' | '-=' | '*=' | '/=' | '<<=' | '>>=' | '&=' | '|=' | '^='
+
+expr           ::= unary { binary_op unary | 'is' IDENT }
+binary_op      ::= 'or' | 'and' | '|' | '^' | '&' | '==' | '!=' | '<' | '>' | '<=' | '>='
+                 | '<<' | '>>' | '+' | '-' | '*' | '/' | '%'
+unary          ::= '-' unary | 'not' unary | '~' unary | '&' unary
+                 | 'heap' [ heap_opts ] unary | 'rc' unary | 'weak' 'rc' ( 'null' | unary )
+                 | 'comptime' unary | 'await' unary | postfix
+heap_opts      ::= '(' heap_opt { ',' heap_opt } ')'
+heap_opt       ::= 'in' ':' expr | 'allow_drop_skip' ':' ( 'true' | 'false' )
+postfix        ::= primary { '.' NAME [ type_args ] [ call_args ]
+                           | '[' expr [ '..' [ expr ] ] ']'
+                           | call_args }
+call_args      ::= '(' [ expr { ',' expr } [ ',' ] ] ')'
+type_args      ::= '[' type { ',' type } ']'
+primary        ::= INT | FLOAT | STRING | 'true' | 'false' | 'null' | IDENT | 'self'
+                 | '(' expr ')'
+                 | '(' expr ',' expr { ',' expr } [ ',' ] ')'
+                 | '[' type ';' expr ']'
+                 | '[' [ expr { ',' expr } [ ',' ] ] ']'
+                 | lambda
+lambda         ::= 'func' param_list [ '->' type ] block
+
+type           ::= 'weak' 'rc' type
+                 | 'rc' type
+                 | [ '?' ] ptr_type
+                 | tuple_type
+                 | list_type
+                 | func_type
+                 | named_type
+ptr_type       ::= '*' [ 'var' ] [ 'unchecked' ] type
+tuple_type     ::= '(' type ',' type { ',' type } ')'
+list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']'
+elem_type      ::= func_type | 'rc' type | 'weak' 'rc' type | list_type | ptr_type | tuple_type | IDENT
+list_attr      ::= 'layout' ':' ( 'soa' | 'aos' ) | 'unordered'
+func_type      ::= 'func' [ '(' [ type { ',' type } ] ')' ] [ '->' type ]
+named_type     ::= IDENT '?' [ type_args ] | IDENT [ type_args ] [ '?' ]
+
+NAME           ::= IDENT | 'init' | 'copy' | 'drop' | 'null' | 'free'
+```
+
+Operator precedence is given in section 3.1: `expr` is parsed by
+precedence climbing over the flat sequence of `unary` operands and
+operators, with every binary operator left associative and `is` binding
+loosest of all. In `postfix`, `X.Y(args)` and `X.Y` where `X` and `Y` both
+start with an uppercase letter denote an enum variant construction, and
+`x.m[T](args)` is only read as a generic method call when the token after
+`[` is a type name starting with an uppercase letter or `[`. In `pattern`,
+the first alternative is used when the arm starts with `IDENT '.'` or with
+an uppercase identifier followed by `(`, and `expr` otherwise. The
+standalone forms `func Type.method()` and `func (r: T) method()` are
+recognized only to report `E0321` and `E0260`; `array_ext_decl` is used by
+the standard library and cannot be implemented in user code.
