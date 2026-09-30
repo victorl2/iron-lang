@@ -1,0 +1,35 @@
+-- map, filter, reduce and forEach on lists of any element type (#192): the
+-- result takes the lambda's return type (String to Int, Int to String, Int
+-- to Bool), kept filter elements get their own copy, and object lists work.
+object Tag {
+    val label: String
+    val n: Int
+    drop { println("drop {self.label}") }
+}
+func main() {
+    val names = ["a", "bb", "a rather long string that lives on the heap for sure"]
+    val lens = names.map(func(s: String) -> Int { return s.len() })
+    println("{lens[0]} {lens[1]} {lens[2]}")
+    val nums = [1, 2, 3, 4]
+    val strs = nums.map(func(n: Int) -> String { return "value number {n} in a long string form" })
+    println(strs[1])
+    val evens = nums.filter(func(n: Int) -> Bool { return n % 2 == 0 })
+    println("{evens.len()} {evens[1]}")
+    val big = nums.map(func(n: Int) -> Bool { return n > 2 })
+    println("{big[0]} {big[3]}")
+    val long = names.filter(func(s: String) -> Bool { return s.len() > 1 })
+    println("{long.len()} {long[1].len()}")
+    val total = names.reduce(0, func(acc: Int, s: String) -> Int { return acc + s.len() })
+    println("{total}")
+    val joined = nums.reduce("", func(acc: String, n: Int) -> String { return acc + "{n}," })
+    println(joined)
+    names.forEach(func(s: String) { println("each {s.len()}") })
+    val tags = [Tag("first tag with a long enough label", 1), Tag("second tag with a long enough label", 2)]
+    val labels = tags.map(func(t: Tag) -> String { return t.label })
+    println(labels[1])
+    val picked = tags.filter(func(t: Tag) -> Bool { return t.n == 2 })
+    println("{picked.len()} {picked[0].n}")
+    val doubled = nums.map(func(n: Int) -> Int { return n * 2 })
+    println("{doubled[3]} {nums.map(func(n: Int) -> Int { return n + 1 }).sum()}")
+    println("end")
+}
