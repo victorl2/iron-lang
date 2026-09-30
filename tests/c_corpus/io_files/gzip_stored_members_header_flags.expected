@@ -1,0 +1,14 @@
+gzip stream: 1339 bytes, first header: 1F 8B 08 00 00 00 00 00 00 03
+member 0: at 0, name="" comment="" extra=0 mtime=0 blocks=1 isize=0 crc=00000000
+member 1: at 23, name="greeting.txt" comment="text member" extra=0 mtime=1700000000 blocks=3 isize=300 crc=4D32CEBC
+member 2: at 383, name="random.bin" comment="" extra=8 mtime=1700000123 blocks=3 isize=900 crc=7215D8CD
+concatenated payload: 1200 bytes
+empty member (23 bytes): 1F 8B 08 00 00 00 00 00 00 03 01 00 00 FF FF 00 00 00 00 00 00 00 00
+damage @  0: 0 good members, then bad magic
+damage @  2: 0 good members, then unsupported method
+damage @  3: 0 good members, then reserved flag bits
+damage @ 27: 1 good members, then header crc mismatch
+damage @ 35: 1 good members, then header crc mismatch
+damage @413: 2 good members, then header crc mismatch
+damage @1338: 2 good members, then isize mismatch
+damage @1333: 2 good members, then crc mismatch

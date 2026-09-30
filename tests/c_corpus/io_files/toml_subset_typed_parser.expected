@@ -1,0 +1,20 @@
+title          str   "Iron "Lang" demo"
+version        int   12
+big            int   1000000
+mask           int   65280
+perm           int   493
+flags          int   170
+negative       int   -42
+owner.name     str   "Tom<TAB>P"
+owner.active   bool  true
+owner.score    float 98.50
+ports.list     array [80, 443, 8080]
+ports.empty    array []
+ports.version  int   3
+database.pool.max int   16
+error: line 19: duplicate key
+error: line 20: unrecognized value
+error: line 21: unterminated string
+error: line 22: bad array element
+error: line 23: expected key = value
+entries=14 errors=5

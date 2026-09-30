@@ -90,7 +90,9 @@ def discover(selectors, keyword):
         for p in progs:
             topic = os.path.basename(os.path.dirname(p))
             for s in selectors:
-                if s == topic or os.path.abspath(s) == p:
+                if (s == topic or os.path.abspath(s) == p
+                        or os.path.abspath(os.path.join(ROOT, s)) == p
+                        or s in (os.path.basename(p), os.path.basename(p)[:-2])):
                     wanted.append(p)
                     break
         progs = wanted

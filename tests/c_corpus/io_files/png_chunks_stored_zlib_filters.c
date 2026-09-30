@@ -1,0 +1,301 @@
+/*
+ * title: PNG writer with stored zlib blocks, adler32, row filters and chunk walker
+ * topic: io_files
+ * covers: png chunks, crc32 over type+data, zlib stored blocks, adler32, scanline filters none/sub/up/average/paeth, IDAT splitting, chunk walk and decode
+ * deps: libc
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+
+void fail(const char *w) {
+    fprintf(stderr, "check failed: %s\n", w);
+    exit(1);
+}
+#define CHECK(c) do { if (!(c)) fail(#c); } while (0)
+
+void wfile(const char *name, const void *buf, size_t len) {
+    FILE *f = fopen(name, "wb");
+    if (!f) fail("open for write");
+    if (len && fwrite(buf, 1, len, f) != len) fail("write");
+    if (fclose(f) != 0) fail("close");
+}
+
+unsigned char *rfile(const char *name, size_t *len) {
+    FILE *f = fopen(name, "rb");
+    if (!f) fail("open for read");
+    size_t cap = 256, n = 0;
+    unsigned char *b = malloc(cap);
+    if (!b) fail("oom");
+    for (;;) {
+        if (n == cap) {
+            cap *= 2;
+            b = realloc(b, cap);
+            if (!b) fail("oom");
+        }
+        size_t r = fread(b + n, 1, cap - n, f);
+        if (r == 0) break;
+        n += r;
+    }
+    fclose(f);
+    *len = n;
+    return b;
+}
+
+
+static uint32_t rng_s = 0x2545F491u;
+uint32_t rnd(void) {
+    rng_s ^= rng_s << 13;
+    rng_s ^= rng_s >> 17;
+    rng_s ^= rng_s << 5;
+    return rng_s;
+}
+/* growable byte buffer */
+typedef struct { unsigned char *p; size_t n, cap; } Buf;
+void bput(Buf *b, const void *s, size_t k) {
+    if (b->n + k > b->cap) {
+        size_t nc = b->cap ? b->cap : 64;
+        while (nc < b->n + k) nc *= 2;
+        b->p = realloc(b->p, nc);
+        if (!b->p) fail("oom");
+        b->cap = nc;
+    }
+    if (k) memcpy(b->p + b->n, s, k);
+    b->n += k;
+}
+void bbyte(Buf *b, unsigned v) { unsigned char c = (unsigned char)v; bput(b, &c, 1); }
+void bstr(Buf *b, const char *s) { bput(b, s, strlen(s)); }
+void bfree(Buf *b) { free(b->p); b->p = NULL; b->n = b->cap = 0; }
+
+static uint32_t crc_tab[256];
+void crc_init(void) {
+    for (uint32_t i = 0; i < 256; i++) {
+        uint32_t c = i;
+        for (int k = 0; k < 8; k++) c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+        crc_tab[i] = c;
+    }
+}
+uint32_t crc32_update(uint32_t crc, const void *buf, size_t n) {
+    const unsigned char *p = buf;
+    crc = ~crc;
+    for (size_t i = 0; i < n; i++) crc = crc_tab[(crc ^ p[i]) & 0xFFu] ^ (crc >> 8);
+    return ~crc;
+}
+uint32_t crc32_of(const void *buf, size_t n) { return crc32_update(0, buf, n); }
+
+static void be32(Buf *b, uint32_t v) { for (int i = 3; i >= 0; i--) bbyte(b, (v >> (8 * i)) & 255u); }
+static uint32_t rbe32(const unsigned char *p) { return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]; }
+
+static uint32_t adler32(const unsigned char *p, size_t n) {
+    uint32_t a = 1, b = 0;
+    for (size_t i = 0; i < n; i++) { a = (a + p[i]) % 65521u; b = (b + a) % 65521u; }
+    return (b << 16) | a;
+}
+
+static void chunk(Buf *out, const char *type, const unsigned char *data, size_t len) {
+    be32(out, (uint32_t)len);
+    size_t start = out->n;
+    bput(out, type, 4);
+    bput(out, data, len);
+    be32(out, crc32_of(out->p + start, 4 + len));
+}
+
+/* zlib stream made only of stored (uncompressed) deflate blocks */
+static void zlib_stored(Buf *z, const unsigned char *d, size_t n, size_t block) {
+    bbyte(z, 0x78); bbyte(z, 0x01);
+    size_t pos = 0;
+    do {
+        size_t l = n - pos < block ? n - pos : block;
+        int last = pos + l >= n;
+        bbyte(z, last ? 1u : 0u);
+        bbyte(z, l & 255u); bbyte(z, l >> 8);
+        bbyte(z, ~l & 255u); bbyte(z, (~l >> 8) & 255u);
+        bput(z, d + pos, l);
+        pos += l;
+    } while (pos < n);
+    be32(z, adler32(d, n));
+}
+
+static int paeth(int a, int b, int c) {
+    int p = a + b - c, pa = abs(p - a), pb = abs(p - b), pc = abs(p - c);
+    return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+}
+
+static int predict(int ft, const unsigned char *cur, const unsigned char *prev, int i, int bpp) {
+    int a = i >= bpp ? cur[i - bpp] : 0, b = prev ? prev[i] : 0, c = (i >= bpp && prev) ? prev[i - bpp] : 0;
+    switch (ft) {
+    case 0: return 0;
+    case 1: return a;
+    case 2: return b;
+    case 3: return (a + b) / 2;
+    default: return paeth(a, b, c);
+    }
+}
+
+typedef struct { int w, h, bpp; unsigned char *px; } Image;
+
+static void build_png(Buf *out, const Image *im, size_t block, size_t idat_split) {
+    static const unsigned char sig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    bput(out, sig, 8);
+    Buf ih = {0};
+    be32(&ih, (uint32_t)im->w); be32(&ih, (uint32_t)im->h);
+    bbyte(&ih, 8); bbyte(&ih, im->bpp == 3 ? 2 : 0); bbyte(&ih, 0); bbyte(&ih, 0); bbyte(&ih, 0);
+    chunk(out, "IHDR", ih.p, ih.n);
+    bfree(&ih);
+    chunk(out, "tEXt", (const unsigned char *)"Comment\0generated by the corpus", 7 + 1 + 22);
+    Buf raw = {0};
+    size_t stride = (size_t)im->w * im->bpp;
+    for (int y = 0; y < im->h; y++) {
+        int ft = y % 5;
+        bbyte(&raw, (unsigned)ft);
+        const unsigned char *cur = im->px + (size_t)y * stride;
+        const unsigned char *prev = y ? cur - stride : NULL;
+        for (size_t i = 0; i < stride; i++)
+            bbyte(&raw, (unsigned)((cur[i] - predict(ft, cur, prev, (int)i, im->bpp)) & 255));
+    }
+    Buf z = {0};
+    zlib_stored(&z, raw.p, raw.n, block);
+    for (size_t off = 0; off < z.n; off += idat_split)
+        chunk(out, "IDAT", z.p + off, z.n - off < idat_split ? z.n - off : idat_split);
+    chunk(out, "IEND", NULL, 0);
+    bfree(&raw); bfree(&z);
+}
+
+typedef struct { int chunks, idat, idat_bytes, stored_blocks; uint32_t adler; const char *err; } Walk;
+
+/* walk chunks, verify CRCs, then inflate the stored zlib stream and unfilter into px */
+static int decode_png(const unsigned char *d, size_t n, Image *im, Walk *w) {
+    static const unsigned char sig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    memset(w, 0, sizeof *w);
+    if (n < 8 || memcmp(d, sig, 8)) { w->err = "bad signature"; return 0; }
+    size_t pos = 8;
+    Buf z = {0};
+    int have_ihdr = 0, have_iend = 0;
+    while (pos + 12 <= n && !have_iend) {
+        uint32_t len = rbe32(d + pos);
+        if (pos + 12 + len > n) { w->err = "chunk overruns file"; bfree(&z); return 0; }
+        if (crc32_of(d + pos + 4, 4 + len) != rbe32(d + pos + 8 + len)) { w->err = "chunk crc mismatch"; bfree(&z); return 0; }
+        const unsigned char *body = d + pos + 8;
+        w->chunks++;
+        if (!memcmp(d + pos + 4, "IHDR", 4)) {
+            im->w = (int)rbe32(body); im->h = (int)rbe32(body + 4);
+            if (body[8] != 8 || (body[9] != 0 && body[9] != 2)) { w->err = "unsupported format"; bfree(&z); return 0; }
+            im->bpp = body[9] == 2 ? 3 : 1;
+            have_ihdr = 1;
+        } else if (!memcmp(d + pos + 4, "IDAT", 4)) {
+            w->idat++;
+            w->idat_bytes += (int)len;
+            bput(&z, body, len);
+        } else if (!memcmp(d + pos + 4, "IEND", 4)) have_iend = 1;
+        else if (!(d[pos + 4] & 0x20)) { w->err = "unknown critical chunk"; bfree(&z); return 0; }
+        pos += 12 + len;
+    }
+    if (!have_ihdr || !have_iend) { w->err = "missing IHDR or IEND"; bfree(&z); return 0; }
+    /* zlib header + stored blocks */
+    if (z.n < 6 || ((z.p[0] << 8) | z.p[1]) % 31 || (z.p[0] & 15) != 8) { w->err = "bad zlib header"; bfree(&z); return 0; }
+    Buf raw = {0};
+    size_t q = 2;
+    for (;;) {
+        if (q + 5 > z.n) { w->err = "truncated deflate"; bfree(&z); bfree(&raw); return 0; }
+        int last = z.p[q] & 1, type = (z.p[q] >> 1) & 3;
+        if (type != 0) { w->err = "not a stored block"; bfree(&z); bfree(&raw); return 0; }
+        size_t l = (size_t)z.p[q + 1] | ((size_t)z.p[q + 2] << 8), nl = (size_t)z.p[q + 3] | ((size_t)z.p[q + 4] << 8);
+        if ((l ^ 0xFFFFu) != nl) { w->err = "stored length check failed"; bfree(&z); bfree(&raw); return 0; }
+        if (q + 5 + l > z.n) { w->err = "truncated stored block"; bfree(&z); bfree(&raw); return 0; }
+        bput(&raw, z.p + q + 5, l);
+        q += 5 + l;
+        w->stored_blocks++;
+        if (last) break;
+    }
+    if (q + 4 != z.n) { w->err = "bad zlib trailer"; bfree(&z); bfree(&raw); return 0; }
+    w->adler = rbe32(z.p + q);
+    if (adler32(raw.p, raw.n) != w->adler) { w->err = "adler32 mismatch"; bfree(&z); bfree(&raw); return 0; }
+    size_t stride = (size_t)im->w * im->bpp;
+    if (raw.n != (stride + 1) * (size_t)im->h) { w->err = "wrong image data size"; bfree(&z); bfree(&raw); return 0; }
+    im->px = malloc(stride * (size_t)im->h);
+    for (int y = 0; y < im->h; y++) {
+        const unsigned char *src = raw.p + (size_t)y * (stride + 1);
+        unsigned char *cur = im->px + (size_t)y * stride;
+        const unsigned char *prev = y ? cur - stride : NULL;
+        if (src[0] > 4) { w->err = "bad filter type"; free(im->px); im->px = NULL; bfree(&z); bfree(&raw); return 0; }
+        for (size_t i = 0; i < stride; i++)
+            cur[i] = (unsigned char)((src[1 + i] + predict(src[0], cur, prev, (int)i, im->bpp)) & 255);
+    }
+    bfree(&z); bfree(&raw);
+    return 1;
+}
+
+int main(void) {
+    crc_init();
+    CHECK(adler32((const unsigned char *)"Wikipedia", 9) == 0x11E60398u);
+    CHECK(crc32_of("IEND", 4) == 0xAE426082u);
+    static const int dims[][3] = {{1, 1, 1}, {7, 6, 3}, {32, 20, 1}, {13, 11, 3}, {50, 30, 3}};
+    static const size_t blocks[] = {65535, 100, 64, 1000, 4096};
+    for (int t = 0; t < 5; t++) {
+        Image im = {dims[t][0], dims[t][1], dims[t][2], NULL};
+        size_t sz = (size_t)im.w * im.h * im.bpp;
+        im.px = malloc(sz);
+        for (int y = 0; y < im.h; y++)
+            for (int x = 0; x < im.w; x++)
+                for (int c = 0; c < im.bpp; c++) {
+                    uint32_t r = rnd();
+                    im.px[((size_t)y * im.w + x) * im.bpp + c] = (unsigned char)((x * 8 + y * 3 + c * 40 + (r % 7)) & 255);
+                }
+        Buf png = {0};
+        build_png(&png, &im, blocks[t], 200);
+        wfile("t.png", png.p, png.n);
+        size_t n;
+        unsigned char *d = rfile("t.png", &n);
+        Image back = {0, 0, 0, NULL};
+        Walk w;
+        CHECK(decode_png(d, n, &back, &w));
+        CHECK(back.w == im.w && back.h == im.h && back.bpp == im.bpp && !memcmp(back.px, im.px, sz));
+        printf("%2dx%-2d %s: file=%4zu chunks=%d idat=%d(%d bytes) stored blocks=%d adler=%08X\n", im.w, im.h,
+               im.bpp == 3 ? "rgb " : "gray", n, w.chunks, w.idat, w.idat_bytes, w.stored_blocks, (unsigned)w.adler);
+        if (t == 1) {
+            /* walk again and list chunk types and lengths */
+            size_t pos = 8;
+            printf("  chunks:");
+            while (pos + 12 <= n) {
+                printf(" %.4s(%u)", (const char *)d + pos + 4, (unsigned)rbe32(d + pos));
+                pos += 12 + rbe32(d + pos);
+            }
+            putchar('\n');
+            /* damage tests */
+            static const struct { size_t off; const char *label; } hits[] = {
+                {1, "signature"}, {8 + 8 + 3, "IHDR data"}, {40, "text chunk body"}, {70, "IDAT body"}
+            };
+            for (int i = 0; i < 4; i++) {
+                unsigned char *c = malloc(n);
+                memcpy(c, d, n);
+                c[hits[i].off] ^= 0x04;
+                Image tmp = {0, 0, 0, NULL};
+                Walk w2;
+                int ok = decode_png(c, n, &tmp, &w2);
+                CHECK(!ok);
+                printf("  flip in %-16s -> %s\n", hits[i].label, w2.err);
+                free(c);
+            }
+            /* recompute a correct CRC after corrupting the deflate data: adler must still catch it */
+            unsigned char *c = malloc(n);
+            memcpy(c, d, n);
+            size_t pos2 = 8;
+            while (memcmp(c + pos2 + 4, "IDAT", 4)) pos2 += 12 + rbe32(c + pos2);
+            c[pos2 + 8 + 30] ^= 0x01;
+            uint32_t len = rbe32(c + pos2);
+            uint32_t crc = crc32_of(c + pos2 + 4, 4 + len);
+            for (int k = 0; k < 4; k++) c[pos2 + 8 + len + (size_t)k] = (unsigned char)(crc >> (8 * (3 - k)));
+            Image tmp = {0, 0, 0, NULL};
+            Walk w3;
+            CHECK(!decode_png(c, n, &tmp, &w3));
+            printf("  valid chunk crc, bad pixel data -> %s\n", w3.err);
+            free(c);
+            CHECK(!decode_png(d, n - 20, &tmp, &w3));
+            printf("  truncated file -> %s\n", w3.err);
+        }
+        free(back.px); free(im.px); free(d); bfree(&png);
+    }
+    remove("t.png");
+    return 0;
+}

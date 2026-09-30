@@ -1,0 +1,21 @@
+file 582 bytes, 14 physical lines, longest 75 octets, utf-8 splits broken: 0
+BEGIN:VCARD$
+VERSION:4.0$
+FN:Ada Lovelace$
+N:Lovelace\;Ada\;Augusta\;Countess\;$
+EMAIL;TYPE=work:ada@example.org$
+NOTE:Short note.$
+NOTE:Line one\nLine two\; with semicolon\, comma\, and back\\slash$
+NOTE:A long note without any special characters that just keeps going and g$
+ oing\, well past the seventy-five octet limit for a single content line.$
+NOTE;LANGUAGE=mul:Ünïcödé façade: 東京都渋谷区 — the quick bro$
+ wn fox jumps over the lazy dog 🦊 and keeps talking about multibyte text$
+  near fold points$
+ADR;TYPE=home:12 St James's Square\, London$
+END:VCARD$
+parsed 11 properties, longest logical line 166 octets
+note 0: 11 octets restored
+note 1: 56 octets restored
+note 2: 141 octets restored
+note 3: 148 octets restored, params LANGUAGE=mul
+160 fold/unfold round trips ok, 359 physical lines
