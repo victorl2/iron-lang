@@ -21,6 +21,9 @@ typedef struct {
      * env stores its Iron_FatPtr handle (or a pointer to it for a var
      * capture) and reads go through the handle. */
     bool             is_heap_handle;
+    /* Set by hir_lower: the captured var lives in a counted cell (#210),
+     * which the env retains and releases. */
+    bool             is_boxed;
 } Iron_CaptureEntry;
 
 /* ── Node kinds ──────────────────────────────────────────────────────────── */
@@ -584,6 +587,9 @@ typedef struct {
      * argument, `&` producing `*var T`). The W0613 unused-var pass skips
      * such bindings instead of suggesting `val`. */
     bool               requires_mutable;
+    /* Set by capture analysis: a closure captures this var, so it lives in
+     * a counted cell the closure env shares (#210). */
+    bool               is_boxed;
 } Iron_VarDecl;
 
 typedef struct {

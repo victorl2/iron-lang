@@ -1,0 +1,75 @@
+-- A var a closure captures lives in a counted cell shared by the frame and
+-- every closure env, so a closure that writes it may outlive the frame
+-- (#210): counters, a pair sharing one var, a string, an object with a
+-- drop, a doubly nested closure, and a plain local.
+object Res {
+    val id: Int
+    drop { println("drop res {self.id}") }
+}
+func long(n: String) -> String {
+    return "{n} is a long name that will not fit inline anywhere"
+}
+func make_counter() -> func() -> Int {
+    var count = 0
+    return func() -> Int {
+        count += 1
+        return count
+    }
+}
+func make_pair() -> [func() -> Int] {
+    var shared = 10
+    val inc = func() -> Int {
+        shared += 1
+        return shared
+    }
+    val dbl = func() -> Int {
+        shared = shared * 2
+        return shared
+    }
+    return [inc, dbl]
+}
+func make_logger() -> func(String) -> String {
+    var log = long("start")
+    return func(s: String) -> String {
+        log = log + ", " + s
+        return log
+    }
+}
+func make_holder() -> func() -> Int {
+    var r = Res(7)
+    return func() -> Int {
+        r = Res(r.id + 1)
+        return r.id
+    }
+}
+func nested() -> func() -> Int {
+    var n = 100
+    val outer = func() -> func() -> Int {
+        return func() -> Int {
+            n += 1
+            return n
+        }
+    }
+    return outer()
+}
+func main() {
+    val next = make_counter()
+    println("{next()} {next()} {next()}")
+    val fs = make_pair()
+    println("{fs[0]()} {fs[1]()} {fs[0]()}")
+    val lg = make_logger()
+    lg("a")
+    println(lg("b"))
+    val h = make_holder()
+    println("{h()} {h()}")
+    val nn = nested()
+    println("{nn()} {nn()}")
+    var local = 1
+    val bump = func() {
+        local += 5
+    }
+    bump()
+    bump()
+    println("local {local}")
+    println("end")
+}

@@ -257,6 +257,12 @@ struct IronLIR_Instr {
              * slot is the live storage — emit_c must free/drop the slot,
              * not the value that initialised it. */
             bool        addr_taken;
+            /* A var a closure writes (#210): the slot is a counted cell
+             * shared with every env that captured it. emit_c renders the
+             * alloca as `T *_vN_box = iron_cell_alloc(...)` with `_vN`
+             * standing for `(*_vN_box)`; the scope-exit release goes
+             * through iron_cell_release. */
+            bool        is_boxed;
         } alloca;
 
         /* IRON_LIR_LOAD */

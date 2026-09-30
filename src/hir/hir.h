@@ -185,6 +185,7 @@ typedef struct {
     const char    *name;
     Iron_Type     *type;
     bool           is_mutable;
+    bool           is_boxed;     /* a var a closure writes: lives in a counted cell (#210) */
 } IronHIR_VarInfo;
 
 /* ── Module-level global binding (2026-07 remediation: true globals) ───────
@@ -639,6 +640,8 @@ void            iron_hir_module_destroy(IronHIR_Module *mod);
 IronHIR_VarId   iron_hir_alloc_var(IronHIR_Module *mod, const char *name,
                                     Iron_Type *type, bool is_mutable);
 const char     *iron_hir_var_name(IronHIR_Module *mod, IronHIR_VarId id);
+void            iron_hir_var_set_boxed(IronHIR_Module *mod, IronHIR_VarId id);
+bool            iron_hir_var_is_boxed(IronHIR_Module *mod, IronHIR_VarId id);
 
 /* Function */
 IronHIR_Func   *iron_hir_func_create(IronHIR_Module *mod, const char *name,

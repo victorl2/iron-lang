@@ -76,6 +76,31 @@ void iron_closure_env_free(void *env) {
     if (env) free(((IronClosureEnvHdr *)env) - 1);
 }
 
+/* Mutable capture cells (#210): the same header as a closure env. */
+void *iron_cell_alloc(size_t size, void (*drop)(void *value)) {
+    IronClosureEnvHdr *h = (IronClosureEnvHdr *)calloc(1, sizeof(IronClosureEnvHdr) + size);
+    if (!h) iron_oom_abort("iron_cell_alloc");
+    atomic_init(&h->rc, 1);
+    h->drop = drop;
+    return (void *)(h + 1);
+}
+
+void iron_cell_retain(void *value) {
+    if (!value) return;
+    (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED((((IronClosureEnvHdr *)value) - 1)->rc, 1);
+}
+
+void iron_cell_release(void *value) {
+    if (!value) return;
+    IronClosureEnvHdr *h = ((IronClosureEnvHdr *)value) - 1;
+    uint64_t prev = IRON_ATOMIC_U64_FETCH_SUB_RELEASE(h->rc, 1);
+    if (prev == 1) {
+        IRON_ATOMIC_FENCE_ACQUIRE();
+        if (h->drop) h->drop(value);
+        free(h);
+    }
+}
+
 void iron_closure_retain(Iron_Closure c) {
     if (!c.env) return;
     (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED((((IronClosureEnvHdr *)c.env) - 1)->rc, 1);
