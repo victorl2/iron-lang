@@ -2121,6 +2121,10 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             func_ptr = lower_expr(ctx, expr->call.callee);
         } else {
             func_ptr = lower_expr(ctx, expr->call.callee);
+            /* A closure produced by the callee expression itself
+             * (`mk()()`) is an owned temporary released after the call
+             * (#203). */
+            note_owned_temp(ctx, &temps, expr->call.callee, func_ptr, span);
         }
 
         IronLIR_Instr *call = iron_lir_call(ctx->current_func, ctx->current_block,

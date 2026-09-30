@@ -1,0 +1,18 @@
+-- @expected-error: E0204
+-- A field of a var binding does not narrow: the binding can change
+-- between the check and the read.
+object Person {
+    val name: String
+    val nick: String?
+}
+func pick(a: Person, b: Person) -> String {
+    var p = a
+    if p.nick != null {
+        p = b
+        return p.nick
+    }
+    return p.name
+}
+func main() {
+    println(pick(Person("a", "x"), Person("b", null)))
+}

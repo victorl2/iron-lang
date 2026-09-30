@@ -1,0 +1,16 @@
+-- A closure returned by a call and invoked in the same expression (#203)
+-- is released after the call; string literals with escapes are interned
+-- once and reused (#202).
+func mk() -> func() -> Int {
+    val k = 41
+    return func() -> Int { return k + 1 }
+}
+func main() {
+    for i in range(3) {
+        val s = "a long literal string, interned once, \"quoted\" and\ttabbed"
+        if i == 2 { println("{s.len()} {s}") }
+    }
+    println("{mk()()}")
+    val f = mk()
+    println("{f()}")
+}
