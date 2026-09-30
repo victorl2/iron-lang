@@ -423,9 +423,10 @@ func main() {
 
 `func(T1, T2) -> R` is the type of functions and lambdas taking `T1` and
 `T2` and returning `R`; omit `-> R` for a function that returns nothing.
-Function values are created from lambda expressions (section 3.7) and from
-the names of top-level functions. They can be stored in bindings, fields and
-lists and passed as arguments.
+Function values are created from lambda expressions (section 3.7); they
+can be stored in bindings, fields and lists and passed as arguments. The
+name of a top-level function is not usable as a value today (section 11):
+wrap it in a lambda.
 
 ### 2.6 Objects, enums and interfaces
 
@@ -649,11 +650,12 @@ with `match` (section 4.7).
 
 ### 3.7 Lambdas and closures
 
-`func(params) [-> T] { body }` in expression position is a lambda. Its
-parameter types must be written unless the lambda is passed directly to a
-parameter of function type, in which case they are inferred (`E0324`
-otherwise); the return type must always be written when a value is
-returned. A lambda may refer to bindings of the enclosing function. A
+`func(params) [-> T] { body }` in expression position is a lambda. When
+the lambda is passed directly to a parameter of function type, its
+parameter and return types are taken from that parameter and may be
+omitted; everywhere else the parameter types must be written (`E0324`) and
+a lambda without `-> T` returns nothing, whatever its body does. A lambda
+may refer to bindings of the enclosing function. A
 `val` binding is captured by value. A `var` binding is captured by
 reference to the enclosing frame: mutations inside the lambda are visible
 outside, and the closure must not outlive the function that declared the
@@ -1161,9 +1163,9 @@ func main() {
 100 7 4
 ```
 
-A function name used without a call is a value of function type
-(`val f = twice`), except that a named function cannot be placed directly in
-a list literal of function type (section 11).
+A top-level function name cannot be used as a value (`val f = twice`,
+`apply(twice, 4)`); wrap it in a lambda (`func(x: Int) -> Int { return
+twice(x) }`). See section 11.
 
 `@fusible` before a `func` marks it as eligible for loop fusion of chained
 list operations; it changes nothing else about the function.
@@ -1230,7 +1232,7 @@ the object by default. `pub` on a field synthesizes a getter named after the
 field and, for `pub var`, a setter `set_<field>`; call sites keep using
 `obj.field` and `obj.field = v`, and a user method with one of those names
 is an error (`E0237`). `pub` on a method or `init` exports it; `pub init`
-is only allowed inside a `pub object`. See section 10.3 for cross-file
+is only allowed inside a `pub object`. See section 5.10 for cross-file
 rules.
 
 **`copy` and `drop` blocks** run when a value is copied or destroyed
@@ -1629,8 +1631,8 @@ neither freed nor leaked warns (`W0606`) and the memory and the `drop`
 block are lost. A heap value cannot leave the function that allocated it:
 returning it or storing it where it outlives the scope is an error
 (`E0207`); to share ownership use `rc`. `free` and `leak` apply only to
-heap bindings (`E0212`, `E0213`, `E0274`) and `free` cannot be applied to
-an `rc` handle (`E0214`). Freeing runs `drop`. Using a value after it was
+heap bindings (`E0212`, `E0213`, `E0274`, `E0275`), and an `rc` handle
+cannot be leaked (`E0214`). Freeing runs `drop`. Using a value after it was
 freed, including a second `free`, is caught at run time by a generation
 check and aborts the program with a "stale pointer dereference" message.
 
@@ -2005,7 +2007,7 @@ evaluates to a handle. The body is a block that must `return` a value, and
 `await handle` blocks until the thread finishes and yields that value. A
 handle can be awaited once (`E0325`). A spawn expression may only appear as
 the initializer of a `val` or `var`, or as a statement (its result is then
-discarded, `W0600`). The body may read `val` bindings of the enclosing
+discarded and the thread is never awaited). The body may read `val` bindings of the enclosing
 function and use `Mutex`, `Channel` and `rc` values; a list captured by a
 spawn must be awaited in the same block (`E0328`). Writing a captured
 `var` from a thread is a data race and warns (`W0604`). Named thread pools
@@ -2596,7 +2598,7 @@ codes cited in this manual:
 | E0203, E0234, E0235, E0266 | reassigning a `val`; writing a field of a `val`; mutating call on a `val`; writing a parameter |
 | E0204 | using a nullable value without a null check |
 | E0205, E0206 | missing interface method; unsatisfied generic constraint |
-| E0207, E0212, E0213, E0214 | heap value escapes; `free`/`leak` of a non-heap value; `leak` of an `rc` |
+| E0207, E0212, E0213, E0214, E0274, E0275 | heap value escapes; `free`/`leak` of a non-heap value; `leak` of an `rc`; `free`/`leak` of a non-binding |
 | E0208 | write to an outer binding inside `parallel` |
 | E0209 | module not found |
 | E0210 | `self` outside a method |
@@ -2626,7 +2628,7 @@ codes cited in this manual:
 | E0328, E0329 | implicit list copy or capture; indexing an unordered list |
 | E0501 | `await` on the web target |
 | E0700 to E0703 | web main loop rules |
-| W0600, W0601, W0604, W0605, W0606 | spawn without handle; narrowing cast; spawn data race; arena skips `drop`; heap value never freed |
+| W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |
 | W0611, W0613, W0614 | unused import; `var` never reassigned; `var` parameter never reassigned |
 
 `docs/dev/diagnostic-codes.md` lists every code with its message.
@@ -2638,8 +2640,8 @@ document them as features:
 - slicing a list (`xs[a..b]`),
 - `s += t` on strings (write `s = s + t`),
 - ordering comparisons of strings (`"a" < "b"`),
-- a named top-level function inside a list literal of function type
-  (`[square]`; wrap it in a lambda or bind it first),
+- a named top-level function used as a value (`val f = twice`,
+  `apply(twice, 4)`, `[twice]`; wrap it in a lambda),
 - an object that has both an `init` and a `copy` block,
 - an object with a field of its own nullable type (`var next: Node?`),
 - `-> Self` in an interface method signature,
