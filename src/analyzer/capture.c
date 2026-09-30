@@ -1172,6 +1172,8 @@ void iron_capture_analyze(Iron_Program *program, Iron_Scope *global_scope,
     CaptureCtx ctx;
     ctx.arena            = arena;
     ctx.diags            = diags;
+    ctx.lambda_is_call_arg = false;
+    ctx.spawn_awaited_here = false;
     ctx.cancel_flag      = cancel_flag;
     ctx.readonly_context = false;
 
