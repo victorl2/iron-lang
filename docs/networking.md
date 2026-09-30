@@ -24,29 +24,19 @@ header parsing, and body/frame decoding. Transport errors use codes
 ## Result ownership
 
 HTTP, WebSocket, and explicit file operations return model values that own
-their string fields. Consume those strings with the matching `release` call
-after the last read, on both success and error paths:
+their string fields. Those strings are freed with the value that holds them,
+like any other Iron string: nothing needs to be released by hand.
 
-- `HttpServerResult.release`, `HttpConnectionResult.release`,
-  `HttpsServerResult.release`, `HttpsConnectionResult.release`,
-  `HttpsPendingConnectionResult.release`, and `HttpClientResult.release`
-- `HttpRequest.release` and `HttpResponse.release`
-- `WebSocketResult.release` and `WebSocketMessage.release`
-- `FileReadResult.release`, `FileWriteResult.release`, and `FileInfo.release`
+The `release` helpers (`HttpRequest.release`, `HttpResponse.release`,
+`WebSocketMessage.release`, `FileReadResult.release`, `value.release()` on a
+string, and the other `*Result.release` functions) remain for source
+compatibility and do nothing.
 
 Resource handles have a separate lifetime: close or transfer the server,
-connection, client, or socket first, then release its result model. Response
-constructors clone their header and body inputs, so releasing a response never
-invalidates the caller's strings. `Http.header` and other standalone dynamic
-strings can be consumed with `value.release()`.
-
-Release is consuming. Iron strings and models are value types, so do not use a
-released value or a by-value alias afterwards. Inline strings and interned
-literals are safe no-ops. C callers use `iron_string_release` and the
-`Iron_*_release` functions declared in the corresponding public headers; the
-same no-alias-after-release rule applies. Low-level `iron_tls.h` result structs
-contain only resource handles and numeric `Iron_NetError` values, so they own
-no strings and need no result release; close or free any successful handle.
+connection, client, or socket when you are done with it. Response
+constructors clone their header and body inputs. Low-level `iron_tls.h`
+result structs contain only resource handles and numeric `Iron_NetError`
+values.
 
 ## Client
 
@@ -61,7 +51,6 @@ func main() {
         println("status={response.status}")
         println(response.body)
     }
-    HttpResponse.release(response)
 }
 ```
 
@@ -161,7 +150,6 @@ Production HTTPS and WSS accept loops should separate TCP admission from TLS:
 val pending = HttpsServer.accept_tcp(server, 60000)
 if pending.error == 0 {
     val connection = pending.connection
-    HttpsPendingConnectionResult.release(pending)
     spawn("tls-client") {
         val secure = HttpsPendingConnection.handshake(connection, 5000)
         val outcome = secure.error
@@ -169,11 +157,9 @@ if pending.error == 0 {
             -- read HTTP or upgrade to WebSocket here
             HttpsConnection.close(secure.connection)
         }
-        HttpsConnectionResult.release(secure)
         return outcome
     }
 } else {
-    HttpsPendingConnectionResult.release(pending)
 }
 ```
 
@@ -213,9 +199,7 @@ if connected.error == 0 {
         println(message.data)
     }
     val closed = WebSocket.close(connected.socket, 1000, "done", 5000)
-    WebSocketMessage.release(message)
 }
-WebSocketResult.release(connected)
 ```
 
 Use `connect_with_ca` for a private root. The explicitly named
@@ -279,12 +263,6 @@ if loaded.error == 0 {
 val appended = IO.append_bytes("asset.bin", "\0suffix")
 val copied = IO.copy_file("asset.bin", "asset-copy.bin", false)
 val moved = IO.move_file("asset-copy.bin", "archive.bin", false)
-FileWriteResult.release(written)
-FileReadResult.release(loaded)
-FileInfo.release(info)
-FileWriteResult.release(appended)
-FileWriteResult.release(copied)
-FileWriteResult.release(moved)
 ```
 
 Available result-returning operations are `read_text`, `read_bytes`,
@@ -311,7 +289,6 @@ owns a bounded pool:
 val opened = HttpClient.open(
     "https://api.example.com", "", false, 4, 30000)
 if opened.error != 0 {
-    HttpClientResult.release(opened)
     return
 }
 
@@ -320,9 +297,6 @@ val first = HttpClient.request(
 val second = HttpClient.request(
     opened.client, "GET", "/api/items", "", "", 1048576, 5000)
 HttpClient.close(opened.client)
-HttpResponse.release(first)
-HttpResponse.release(second)
-HttpClientResult.release(opened)
 ```
 
 The origin fixes scheme, host, port, certificate roots, and verification mode;
@@ -349,11 +323,9 @@ while running and served < 100 {
         val response = Http.text_response(200, "ok")
         val sent = HttpConnection.send_response_keep_alive(
             connection, response, keep, 5000)
-        HttpResponse.release(response)
         if sent != 0 { running = false }
         if sent == 0 { running = keep }
     }
-    HttpRequest.release(request)
 }
 HttpConnection.close(connection)
 ```

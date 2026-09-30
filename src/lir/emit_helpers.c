@@ -1615,6 +1615,7 @@ static bool emit_field_is_owned_list(const Iron_Type *ft) {
            !ft->array.is_bounded;
 }
 
+static bool emit_type_is_string_like(const Iron_Type *t);
 static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
                              bool want_copy, int depth) {
     if (!od || depth > 16) return false;
@@ -1624,12 +1625,32 @@ static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
         Iron_Type *ft = emit_field_type((Iron_Field *)od->fields[i]);
         if (!ft) continue;
         if (emit_type_is_rc_like(ft) || emit_field_is_owned_list(ft)) return true;
+        if (emit_type_is_string_like(ft)) return true;
         if (ft->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
             od_lifecycle_rec(ctx, ft->object.decl, want_copy, depth + 1))
             return true;
     }
     return false;
+}
+
+/* A String or String? field: its characters are shared and counted
+ * (#182), so a copy retains them and a drop releases them. */
+static bool emit_type_is_string_like(const Iron_Type *t) {
+    if (!t) return false;
+    if (t->kind == IRON_TYPE_STRING) return true;
+    return t->kind == IRON_TYPE_NULLABLE && t->nullable.inner &&
+           t->nullable.inner->kind == IRON_TYPE_STRING;
+}
+
+static void emit_string_field_op(Iron_StrBuf *sb, const Iron_Type *ft,
+                                 const char *name, bool drop) {
+    const char *op = drop ? "iron_string_release" : "iron_string_retain";
+    if (ft->kind == IRON_TYPE_STRING)
+        iron_strbuf_appendf(sb, "    %s(&self->%s);\n", op, name);
+    else
+        iron_strbuf_appendf(sb, "    if (self->%s.has_value) %s(&self->%s.value);\n",
+                            name, op, name);
 }
 
 bool od_needs_drop(EmitCtx *ctx, struct Iron_ObjectDecl *od) {
@@ -1686,6 +1707,8 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
         if (!ft || !f->name) continue;
         if (emit_type_is_rc_like(ft)) {
             emit_rc_field_op(sb, ft, f->name, false);
+        } else if (emit_type_is_string_like(ft)) {
+            emit_string_field_op(sb, ft, f->name, false);
         } else if (ft->kind == IRON_TYPE_INTERFACE) {
             if (iface_needs_glue(ctx, ft, true))
                 iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
@@ -1781,6 +1804,10 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
         if (!ft || !f->name) continue;
         if (emit_type_is_rc_like(ft)) {
             emit_rc_field_op(&ctx->lifted_funcs, ft, f->name, true);
+            continue;
+        }
+        if (emit_type_is_string_like(ft)) {
+            emit_string_field_op(&ctx->lifted_funcs, ft, f->name, true);
             continue;
         }
         if (emit_field_is_owned_list(ft)) {

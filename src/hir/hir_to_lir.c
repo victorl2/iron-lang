@@ -113,6 +113,10 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
         if (type_is_rc_like(ft)) return true;
         if (ft->kind == IRON_TYPE_ARRAY && ft->array.size < 0 && !ft->array.is_bounded)
             return true;
+        if (ft->kind == IRON_TYPE_STRING ||
+            (ft->kind == IRON_TYPE_NULLABLE && ft->nullable.inner &&
+             ft->nullable.inner->kind == IRON_TYPE_STRING))
+            return true;
         if ((ft->kind == IRON_TYPE_OBJECT || ft->kind == IRON_TYPE_INTERFACE) &&
             type_lifecycle_rec(ft, program, want_copy, depth + 1))
             return true;
@@ -129,12 +133,22 @@ static bool type_is_owned_list(const Iron_Type *t) {
 
 /* Values that must be destroyed by their owner: objects with lifecycle
  * glue, and owned lists (freed through the same $drop glue). */
+/* A String (or String?) shares counted characters (#182): a copy retains
+ * them and a drop releases them. */
+static bool type_is_counted_string(const Iron_Type *t) {
+    if (!t) return false;
+    if (t->kind == IRON_TYPE_STRING) return true;
+    return t->kind == IRON_TYPE_NULLABLE && t->nullable.inner &&
+           t->nullable.inner->kind == IRON_TYPE_STRING;
+}
+
 static bool type_needs_drop(Iron_Type *t, Iron_Program *program) {
-    return type_is_owned_list(t) || type_lifecycle_rec(t, program, false, 0);
+    return type_is_owned_list(t) || type_is_counted_string(t) ||
+           type_lifecycle_rec(t, program, false, 0);
 }
 
 static bool type_needs_copy_fixup(Iron_Type *t, Iron_Program *program) {
-    return type_lifecycle_rec(t, program, true, 0);
+    return type_is_counted_string(t) || type_lifecycle_rec(t, program, true, 0);
 }
 
 /* ── Phase 37 rc-balance helpers ─────────────────────────────────────────── */
@@ -531,6 +545,8 @@ static IronLIR_ValueId copy_for_new_owner(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src
  * fields: an rc field takes its own reference unless the argument hands one
  * over, and an object copied out of a place is fixed up for its new owner.
  * Returns an stb_ds array the caller frees. */
+static IronLIR_ValueId coerce_to_optional(HIR_to_LIR_Ctx *ctx, IronLIR_ValueId v,
+                                          Iron_Type *target, Iron_Span span);
 static IronLIR_ValueId *lower_construct_fields(HIR_to_LIR_Ctx *ctx,
                                                Iron_Type *obj_type,
                                                IronHIR_Expr **vals, int count,
@@ -543,6 +559,9 @@ static IronLIR_ValueId *lower_construct_fields(HIR_to_LIR_Ctx *ctx,
         IronLIR_ValueId fv = lower_expr(ctx, fe);
         Iron_Type *ft = (cod && i < cod->field_count)
                         ? field_stored_type((Iron_Field *)cod->fields[i]) : NULL;
+        /* A `T?` field takes a T argument wrapped (#189): the bare value
+         * would only fill the optional's first member. */
+        if (ft && ft->kind == IRON_TYPE_NULLABLE) fv = coerce_to_optional(ctx, fv, ft, span);
         if (ft && type_is_rc_like(ft)) {
             if (!rc_expr_transfers_ownership(fe))
                 emit_rc_retain_for_type(ctx, ft, fv, span);
@@ -562,6 +581,8 @@ static void note_owned_temp(HIR_to_LIR_Ctx *ctx, TempOwned **temps,
     Iron_Type *at = ae ? ae->type : NULL;
     if (!at || !ctx->current_block || block_is_terminated(ctx->current_block))
         return;
+    /* A string literal is interned: the runtime owns it. */
+    if (ae->kind == IRON_HIR_EXPR_STRING_LIT) return;
     if (type_is_rc_like(at)) {
         if (rc_expr_transfers_ownership(ae)) {
             TempOwned to = { av, at, false };
@@ -776,6 +797,14 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
         /* An owned list binding frees its list (and drops its elements)
          * unless `return` moved it out. */
         if (type_is_owned_list(entry->object_type)) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            if (entry->alloca_id == ctx->moved_slot) continue;
+            emit_drop_glue_call(ctx, entry->alloca_id, span);
+            continue;
+        }
+        /* A string binding releases its share of the characters (#182)
+         * unless `return` moved it out. */
+        if (type_is_counted_string(entry->object_type)) {
             if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
             if (entry->alloca_id == ctx->moved_slot) continue;
             emit_drop_glue_call(ctx, entry->alloca_id, span);
@@ -1856,13 +1885,19 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
 
     case IRON_HIR_EXPR_INTERP_STRING: {
         IronLIR_ValueId *parts = NULL;
+        /* The parts are read while the string is built; an owned part (a
+         * call result, a concatenation) is released afterwards (#182). */
+        TempOwned *part_temps = NULL;
         for (int i = 0; i < expr->interp_string.part_count; i++) {
-            IronLIR_ValueId pv = lower_expr(ctx, expr->interp_string.parts[i]);
+            IronHIR_Expr *pe = expr->interp_string.parts[i];
+            IronLIR_ValueId pv = lower_expr(ctx, pe);
+            note_owned_temp(ctx, &part_temps, pe, pv, span);
             arrput(parts, pv);
         }
         IronLIR_Instr *instr = iron_lir_interp_string(ctx->current_func, ctx->current_block,
                                                         parts, expr->interp_string.part_count,
                                                         type, span);
+        release_owned_temps(ctx, &part_temps, span);
         arrfree(parts);
         return instr->id;
     }
@@ -2890,6 +2925,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
 
         /* Build args: instance methods pass self as first arg, static methods
          * don't — except for the synth_self case above. */
+        TempOwned *temps = NULL;
         IronLIR_ValueId *args = NULL;
         if (!is_static_call) {
             IronLIR_ValueId self_val = IRON_LIR_VALUE_INVALID;
@@ -2946,6 +2982,9 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             }
             if (self_val == IRON_LIR_VALUE_INVALID) {
                 self_val = lower_expr(ctx, expr->method_call.object);
+                /* A temporary receiver (`build().len()`) is released after
+                 * the call like any owned argument. */
+                note_owned_temp(ctx, &temps, expr->method_call.object, self_val, span);
             }
             arrput(args, self_val);
         } else if (ufcs_static) {
@@ -2965,7 +3004,6 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                                        self_alloca, synth_self_type, span);
             arrput(args, self_load->id);
         }
-        TempOwned *temps = NULL;
         /* Arguments are borrowed; owned temporaries are released after the
          * call. (List push / insert take ownership on the collection path
          * above.) */

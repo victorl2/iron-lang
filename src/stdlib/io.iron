@@ -25,8 +25,8 @@ object FileInfo {
     val error_message: String
 }
 
--- Consuming ownership helpers. Do not use a result or a by-value alias after
--- release; inline strings and interned literals are safe no-ops.
+-- Kept for source compatibility: result strings are freed with the value
+-- that holds them, so these do nothing.
 func FileReadResult.release(result: FileReadResult) {}
 func FileWriteResult.release(result: FileWriteResult) {}
 func FileInfo.release(info: FileInfo) {}

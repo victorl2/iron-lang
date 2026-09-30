@@ -116,13 +116,15 @@ static Iron_WebSocketMessage ws_message_error(int64_t error) {
 }
 
 void Iron_websocketresult_release(Iron_WebSocketResult result) {
-    iron_string_release(&result.error_message);
-    iron_string_release(&result.protocol);
+    /* Strings are released by the value's own drop glue (#182); kept
+     * for source compatibility. */
+    (void)result;
 }
 
 void Iron_websocketmessage_release(Iron_WebSocketMessage message) {
-    iron_string_release(&message.data);
-    iron_string_release(&message.error_message);
+    /* Strings are released by the value's own drop glue (#182); kept
+     * for source compatibility. */
+    (void)message;
 }
 
 static int ascii_equal(const char *left, size_t left_len,

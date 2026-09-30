@@ -492,6 +492,17 @@ static bool emit_call_param_is_arena(EmitCtx *ctx, IronLIR_Func *fn,
  *
  * cap_type is the Iron_Type of the capture (from CaptureEntry.type); may be NULL.
  */
+/* A spawned body's env owns a share of each captured string (#182):
+ * released after the body ran, before the env block is freed. */
+static void emit_spawn_env_string_releases(Iron_StrBuf *sb, const Iron_CaptureEntry *caps,
+                                           int count) {
+    for (int ci = 0; ci < count; ci++) {
+        if (caps[ci].is_mutable || !caps[ci].type ||
+            caps[ci].type->kind != IRON_TYPE_STRING) continue;
+        iron_strbuf_appendf(sb, "    iron_string_release(&_e->%s);\n", caps[ci].name);
+    }
+}
+
 static void emit_capture_rhs(Iron_StrBuf *sb, IronLIR_ValueId cap_vid,
                               Iron_CaptureEntry *cap, EmitCtx *ctx) {
     /* Check if this is a stack-array value */
@@ -3684,6 +3695,24 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     }
                     break;
                 }
+                /* A string shares counted characters (#182). */
+                if (gt && (gt->kind == IRON_TYPE_STRING ||
+                           (gt->kind == IRON_TYPE_NULLABLE && gt->nullable.inner &&
+                            gt->nullable.inner->kind == IRON_TYPE_STRING))) {
+                    bool opt = gt->kind == IRON_TYPE_NULLABLE;
+                    emit_indent(sb, ind);
+                    if (opt) {
+                        iron_strbuf_appendf(sb, "if ((*");
+                        emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
+                        iron_strbuf_appendf(sb, ").has_value) ");
+                    }
+                    iron_strbuf_appendf(sb, "%s(", is_drop ? "iron_string_release" : "iron_string_retain");
+                    if (opt) iron_strbuf_appendf(sb, "&(*");
+                    emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
+                    if (opt) iron_strbuf_appendf(sb, ").value");
+                    iron_strbuf_appendf(sb, ");\n");
+                    break;
+                }
                 if (gt && gt->kind == IRON_TYPE_INTERFACE) {
                     if (iface_needs_glue(ctx, gt, !is_drop)) {
                         emit_ensure_iface_glue(ctx, gt, is_drop);
@@ -4872,7 +4901,29 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                      * degraded the dispatch to `((void (*)(void))v.fn)()` and
                      * produced invalid C for non-void closures. Dispatch
                      * env-first unconditionally instead. */
-                    iron_strbuf_appendf(sb, "((%s (*)(void*, ...))", ret_c);
+                    /* The cast spells the lambda's real prototype: calling
+                     * a fixed-arity function through a `...` pointer is
+                     * undefined, and on Apple arm64 variadic arguments go
+                     * on the stack while the callee reads registers. */
+                    Iron_Type *cft = NULL;
+                    if (fptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                        fn->value_table[fptr] && fn->value_table[fptr]->type &&
+                        fn->value_table[fptr]->type->kind == IRON_TYPE_FUNC)
+                        cft = fn->value_table[fptr]->type;
+                    else if (fptr >= 1 && fptr <= (IronLIR_ValueId)fn->param_count &&
+                             fn->params[fptr - 1].type &&
+                             fn->params[fptr - 1].type->kind == IRON_TYPE_FUNC)
+                        cft = fn->params[fptr - 1].type;
+                    iron_strbuf_appendf(sb, "((%s (*)(void*", ret_c);
+                    if (cft) {
+                        for (int pi = 0; pi < cft->func.param_count; pi++) {
+                            Iron_Type *pt = cft->func.param_types[pi];
+                            iron_strbuf_appendf(sb, ", %s", pt ? emit_type_to_c(pt, ctx) : "void*");
+                        }
+                    } else {
+                        iron_strbuf_appendf(sb, ", ...");
+                    }
+                    iron_strbuf_appendf(sb, "))");
                     emit_expr_to_buf(sb, fptr, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ".fn)(");
                     emit_expr_to_buf(sb, fptr, fn, ctx, ctx->current_block_id, 0);
@@ -6626,6 +6677,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             "    iron_weak_rc_release((void *)_env->%s);\n",
                             cap_meta[ci].name);
                         any_rc_field = true;  /* triggers env_drop emission for weak-rc-only captures */
+                    } else if (cap_ty->kind == IRON_TYPE_STRING) {
+                        /* A captured string is the env's own share (#182). */
+                        iron_strbuf_appendf(&ctx->struct_bodies,
+                            "    iron_string_release(&_env->%s);\n", cap_meta[ci].name);
+                        any_rc_field = true;
                     }
                 }
                 if (!any_rc_field) {
@@ -6663,6 +6719,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_val(sb, instr->make_closure.captures[ci]);
                 }
                 iron_strbuf_appendf(sb, ";\n");
+                if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                    cap_meta[ci].type->kind == IRON_TYPE_STRING) {
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "iron_string_retain(&_env_%u->%s);\n",
+                                        instr->id, cap_meta[ci].name);
+                }
             }
 
             /* Build Iron_Closure with env */
@@ -6787,6 +6849,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         "    %s _result = %s(_e);\n", ret_c, c_func_name);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    _h->result = (void *)(intptr_t)_result;\n");
+                    emit_spawn_env_string_releases(&ctx->lifted_funcs, cap_meta, cap_count);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    free(_arg);\n");
                 } else {
@@ -6794,6 +6857,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         "    %s *_e = (%s *)_arg;\n", env_type, env_type);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    %s(_e);\n", c_func_name);
+                    emit_spawn_env_string_releases(&ctx->lifted_funcs, cap_meta, cap_count);
                     iron_strbuf_appendf(&ctx->lifted_funcs, "    free(_arg);\n");
                 }
             } else {
@@ -6834,6 +6898,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         emit_capture_rhs(sb, instr->spawn.captures[ci], &cap_meta[ci], ctx);
                     }
                     iron_strbuf_appendf(sb, ";\n");
+                    if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                        cap_meta[ci].type->kind == IRON_TYPE_STRING) {
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "iron_string_retain(&_env_%u->%s);\n",
+                                            instr->id, cap_meta[ci].name);
+                    }
                 }
                 /* Result wrappers receive both env and handle so the value is
                  * visible to await before completion is signalled. */
@@ -6882,6 +6952,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         emit_capture_rhs(sb, instr->spawn.captures[ci], &cap_meta[ci], ctx);
                     }
                     iron_strbuf_appendf(sb, ";\n");
+                    if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                        cap_meta[ci].type->kind == IRON_TYPE_STRING) {
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "iron_string_retain(&_env_%u->%s);\n",
+                                            instr->id, cap_meta[ci].name);
+                    }
                 }
                 /* Emit a simple wrapper that calls with env and frees */
                 Iron_StrBuf ff_wrapper_sb = iron_strbuf_create(64);

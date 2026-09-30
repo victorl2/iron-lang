@@ -401,9 +401,9 @@ void test_iron_string_concat_heap_path(void) {
     TEST_ASSERT_EQUAL_INT(0, strncmp(iron_string_cstr(&cat),
                                       "abcdefghijklmnopqrstuvwxyz"
                                       "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 52));
-    free(cat.heap.data);
-    free(a.heap.data);
-    free(b.heap.data);
+    iron_string_release(&cat);
+    iron_string_release(&a);
+    iron_string_release(&b);
 }
 
 /* ── main ────────────────────────────────────────────────────────────────── */

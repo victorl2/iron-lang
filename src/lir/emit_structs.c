@@ -813,6 +813,25 @@ int emit_estimate_type_size(Iron_ObjectDecl *od) {
 void emit_type_decls(EmitCtx *ctx) {
     IronLIR_Module *module = ctx->module;
 
+    /* A `T?` field of a builtin T (String?, Int?): its Iron_Optional_T
+     * typedef must precede the object structs (#189). Optionals of user
+     * types are declared with the type they wrap. */
+    for (int i = 0; i < module->type_decl_count; i++) {
+        IronLIR_TypeDecl *td = module->type_decls[i];
+        if (td->kind != IRON_LIR_TYPE_OBJECT || !td->type ||
+            td->type->kind != IRON_TYPE_OBJECT || !td->type->object.decl) continue;
+        Iron_ObjectDecl *od = td->type->object.decl;
+        for (int fi = 0; fi < od->field_count; fi++) {
+            Iron_Field *f = (Iron_Field *)od->fields[fi];
+            Iron_Type *ft = f ? f->resolved_type : NULL;
+            if (!ft || ft->kind != IRON_TYPE_NULLABLE || !ft->nullable.inner) continue;
+            Iron_TypeKind ik = ft->nullable.inner->kind;
+            if (ik == IRON_TYPE_OBJECT || ik == IRON_TYPE_INTERFACE ||
+                ik == IRON_TYPE_ENUM || ik == IRON_TYPE_TUPLE) continue;
+            emit_ensure_optional(ctx, ft->nullable.inner);
+        }
+    }
+
     /* Forward declarations for all object and interface types */
     for (int i = 0; i < module->type_decl_count; i++) {
         IronLIR_TypeDecl *td = module->type_decls[i];

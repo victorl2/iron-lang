@@ -1,0 +1,23 @@
+-- A call through a closure value passes its arguments through the
+-- closure's real prototype (#191): a `...` cast put them on the stack on
+-- Apple arm64 and the lambda read registers.
+func mk(i: Int) -> func(Int) -> String {
+    val a = "short {i}"
+    return func(x: Int) -> String { return "{a} {x}" }
+}
+func adder(n: Int) -> func(Int, Int) -> Int {
+    return func(x: Int, y: Int) -> Int { return x * 10 + y + n }
+}
+func apply(f: func(Int) -> String, v: Int) -> String {
+    return f(v)
+}
+func main() {
+    val f = mk(1)
+    println(f(5))
+    println(apply(f, 6))
+    val add = adder(100)
+    println("{add(2, 3)}")
+    val nums = [1, 2, 3]
+    val doubled = nums.map(func(n: Int) -> Int { return n * 2 })
+    println("{doubled[2]}")
+}

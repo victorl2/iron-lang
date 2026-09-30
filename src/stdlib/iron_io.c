@@ -342,16 +342,21 @@ static Iron_FileWriteResult io_write_result(int64_t bytes, int64_t code) {
 }
 
 void Iron_filereadresult_release(Iron_FileReadResult result) {
-    iron_string_release(&result.data);
-    iron_string_release(&result.error_message);
+    /* Strings are released by the value's own drop glue (#182); kept
+     * for source compatibility. */
+    (void)result;
 }
 
 void Iron_filewriteresult_release(Iron_FileWriteResult result) {
-    iron_string_release(&result.error_message);
+    /* Strings are released by the value's own drop glue (#182); kept
+     * for source compatibility. */
+    (void)result;
 }
 
 void Iron_fileinfo_release(Iron_FileInfo info) {
-    iron_string_release(&info.error_message);
+    /* Strings are released by the value's own drop glue (#182); kept
+     * for source compatibility. */
+    (void)info;
 }
 
 static int io_path_copy(Iron_String path, char **output) {
