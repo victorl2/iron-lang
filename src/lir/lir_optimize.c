@@ -697,6 +697,23 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
                         }
                     }
                 }
+                /* A literal that is an element of another list literal is
+                 * owned by that list (lists of lists, #176): never a stack
+                 * array. */
+                if (instr->kind == IRON_LIR_ARRAY_LIT) {
+                    for (int ei = 0; ei < instr->array_lit.element_count; ei++) {
+                        ptrdiff_t vi = hmgeti(sa_map, instr->array_lit.elements[ei]);
+                        if (vi < 0) continue;
+                        IronLIR_ValueId orig = sa_map[vi].value;
+                        if (orig < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                            fn->value_table[orig]) {
+                            if (fn->value_table[orig]->kind == IRON_LIR_ARRAY_LIT)
+                                fn->value_table[orig]->array_lit.use_stack_repr = false;
+                            else
+                                hmput(info->revoked_fill_ids, orig, true);
+                        }
+                    }
+                }
                 /* Check if stack array is used in SET_FIELD (stored into object) */
                 if (instr->kind == IRON_LIR_SET_FIELD) {
                     ptrdiff_t vi = hmgeti(sa_map, instr->field.value);
@@ -1305,12 +1322,7 @@ static IronLIR_ValueId lir_receiver_root_alloca(IronLIR_Func *fn, IronLIR_ValueI
             if (in->alloca.alloc_type &&
                 (in->alloca.alloc_type->kind == IRON_TYPE_RC ||
                  in->alloca.alloc_type->kind == IRON_TYPE_WEAK_RC ||
-                 in->alloca.alloc_type->kind == IRON_TYPE_PTR ||
-                 /* interface-element arrays are split collections keyed by
-                  * their literal value in emit_c — the slot is not storage */
-                 (in->alloca.alloc_type->kind == IRON_TYPE_ARRAY &&
-                  in->alloca.alloc_type->array.elem &&
-                  in->alloca.alloc_type->array.elem->kind == IRON_TYPE_INTERFACE)))
+                 in->alloca.alloc_type->kind == IRON_TYPE_PTR))
                 return IRON_LIR_VALUE_INVALID;
             return vid;
         case IRON_LIR_LOAD:      vid = in->load.ptr;     break;
@@ -1346,10 +1358,7 @@ static IronLIR_ValueId lir_storage_chain_root(IronLIR_Func *fn, IronLIR_ValueId 
             if (pin && pin->kind == IRON_LIR_ALLOCA && pin->alloca.alloc_type &&
                 pin->alloca.alloc_type->kind != IRON_TYPE_RC &&
                 pin->alloca.alloc_type->kind != IRON_TYPE_WEAK_RC &&
-                pin->alloca.alloc_type->kind != IRON_TYPE_PTR &&
-                !(pin->alloca.alloc_type->kind == IRON_TYPE_ARRAY &&
-                  pin->alloca.alloc_type->array.elem &&
-                  pin->alloca.alloc_type->array.elem->kind == IRON_TYPE_INTERFACE)) {
+                pin->alloca.alloc_type->kind != IRON_TYPE_PTR) {
                 if (out_load) *out_load = cur->id;
                 return p;
             }
@@ -2347,6 +2356,18 @@ static bool run_store_load_elim(IronLIR_Module *module) {
                         fn->value_table[in->store.ptr]->kind == IRON_LIR_ALLOCA &&
                         !alloca_is_capture_alias(fn, in->store.ptr) &&
                         hmgeti(addr_slots, in->store.ptr) < 0) {
+                        /* A store that converts its value (an object into an
+                         * interface slot, which may box it) must not be
+                         * forwarded: a load would repeat the conversion on
+                         * the raw value, building a second payload. */
+                        Iron_Type *slot_t = fn->value_table[in->store.ptr]->alloca.alloc_type;
+                        Iron_Type *val_t = ((ptrdiff_t)in->store.value < arrlen(fn->value_table) &&
+                                            fn->value_table[in->store.value])
+                            ? fn->value_table[in->store.value]->type : NULL;
+                        if (slot_t && val_t && slot_t->kind != val_t->kind) {
+                            if (last_store) hmdel(last_store, in->store.ptr);
+                            break;
+                        }
                         hmput(last_store, in->store.ptr, in->store.value);
                     }
                     break;

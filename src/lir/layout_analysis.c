@@ -403,6 +403,58 @@ void iron_layout_analyze(LayoutAnalysis *la,
      * interface. This handles the common case where fields are accessed through
      * method calls (e.g., self.radius in Circle.area()). */
     analyze_method_fields(la, module, split_collection_ids, iface_reg);
+
+    /* Pass 3: only plain scalar fields may be left out of the per-type
+     * storage. A left-out field is rebuilt as `0`, which is not a value of
+     * an object, String, list, rc or pointer type, and it would lose its
+     * destructor (a field with drop, an rc field or a list field changes
+     * observable behaviour when it silently disappears). */
+    if (iface_reg && split_collection_ids) {
+        for (int ri = 0; ri < (int)shlen(iface_reg->map); ri++) {
+            Iron_IfaceEntry *entry = &iface_reg->map[ri].value;
+            char mangled[512];
+            snprintf(mangled, sizeof(mangled), "Iron_%s", entry->iface_name);
+            for (ptrdiff_t si = 0; si < hmlen(split_collection_ids); si++) {
+                if (strcmp(split_collection_ids[si].value, mangled) != 0) continue;
+                IronLIR_ValueId cv = split_collection_ids[si].key;
+                for (int j = 0; j < entry->impl_count; j++) {
+                    Iron_ObjectDecl *od = entry->impls[j].decl;
+                    if (!od) continue;
+                    /* A drop body may read any field: an implementor with a
+                     * user drop keeps all of them. (Its LIR name is the
+                     * lowercased type name + "_drop", as in emit_helpers.) */
+                    bool has_drop = false;
+                    if (od->name) {
+                        char dn[256];
+                        size_t tl = strlen(od->name);
+                        if (tl + 6 < sizeof(dn)) {
+                            for (size_t ci = 0; ci < tl; ci++) {
+                                char ch = od->name[ci];
+                                dn[ci] = (ch >= 'A' && ch <= 'Z') ? (char)(ch + 32) : ch;
+                            }
+                            memcpy(dn + tl, "_drop", 6);
+                            for (int mf = 0; mf < module->func_count; mf++)
+                                if (module->funcs[mf] && module->funcs[mf]->name &&
+                                    strcmp(module->funcs[mf]->name, dn) == 0) {
+                                    has_drop = true;
+                                    break;
+                                }
+                        }
+                    }
+                    for (int fi = 0; fi < od->field_count; fi++) {
+                        Iron_Field *f = (Iron_Field *)od->fields[fi];
+                        if (!f || !f->name) continue;
+                        Iron_Type *ft = f->resolved_type ? f->resolved_type
+                                                         : f->field_type_cached;
+                        bool scalar = ft && (iron_type_is_integer(ft) ||
+                                             iron_type_is_float(ft) ||
+                                             ft->kind == IRON_TYPE_BOOL);
+                        if (!scalar || has_drop) mark_field_used(la, cv, f->name);
+                    }
+                }
+            }
+        }
+    }
 }
 
 bool iron_layout_is_field_used(LayoutAnalysis *la,

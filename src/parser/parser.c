@@ -213,6 +213,7 @@ Iron_Parser iron_parser_create(Iron_Token *tokens, int token_count,
     p.filename          = filename;
     p.source            = source;
     p.in_error_recovery = false;
+    p.stmt_errored      = false;
     p.v3_strict_mode    = true;
     p.mode              = IRON_ANALYSIS_MODE_CLI; /* HARD-02: default preserves legacy behaviour */
     p.cancel_flag       = NULL;                   /* HARD-05: default = never cancel */
@@ -467,10 +468,28 @@ static Iron_Span iron_token_span(Iron_Parser *p, Iron_Token *t) {
  * error-recovery so the user sees a clean error list (HARD-11 parity). In
  * LSP mode (HARD-02) suppression is disabled: LSP clients dedupe. */
 static void iron_emit_diag(Iron_Parser *p, int code, Iron_Span sp, const char *msg) {
-    if (p->in_error_recovery && p->mode != IRON_ANALYSIS_MODE_LSP) {
+    /* Only the first error of a statement is reported: the rest of a
+     * broken statement produces follow-on errors about the same mistake. */
+    if ((p->in_error_recovery || p->stmt_errored) && p->mode != IRON_ANALYSIS_MODE_LSP) {
         return;
     }
+    p->stmt_errored = true;
     iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, code, sp, msg, NULL);
+}
+
+/* Skip what is left of a statement that reported an error, up to the end of
+ * its line or the brace closing its block, stepping over nested brackets,
+ * so the next statement starts at a statement boundary. */
+static void iron_skip_rest_of_stmt(Iron_Parser *p) {
+    int depth = 0;
+    while (iron_peek(p) != IRON_TOK_EOF) {
+        Iron_TokenKind k = iron_peek(p);
+        if (depth == 0 && (k == IRON_TOK_NEWLINE || k == IRON_TOK_RBRACE)) return;
+        if (k == IRON_TOK_LPAREN || k == IRON_TOK_LBRACKET || k == IRON_TOK_LBRACE) depth++;
+        if (k == IRON_TOK_RPAREN || k == IRON_TOK_RBRACKET || k == IRON_TOK_RBRACE) depth--;
+        if (depth < 0) depth = 0;   /* a stray closer: drop it */
+        p->pos++;
+    }
 }
 
 /* Emit a diagnostic and return NULL; used by iron_expect on failure */
@@ -1229,7 +1248,17 @@ static Iron_Node *iron_parse_block_impl(Iron_Parser *p) {
         int pos_before = p->pos;
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
+        bool outer_errored = p->stmt_errored;
+        p->stmt_errored = false;
         Iron_Node *s = iron_parse_stmt(p);
+        if (p->stmt_errored) {
+            iron_skip_rest_of_stmt(p);
+            /* The error is reported; checking what was parsed of the broken
+             * statement would only add follow-on errors. The LSP keeps the
+             * partial tree for hover and completion. */
+            if (p->mode != IRON_ANALYSIS_MODE_LSP) s = iron_make_error(p);
+        }
+        p->stmt_errored = outer_errored;
         arrput(stmts, s);
         stmt_count++;
         iron_skip_newlines(p);
@@ -1291,6 +1320,12 @@ static Iron_Node **iron_parse_call_args_ex(Iron_Parser *p, int *out_count,
         arrput(arr, arg);
         (*out_count)++;
         iron_skip_newlines(p);
+        if (arg && arg->kind == IRON_NODE_IDENT && iron_check(p, IRON_TOK_COLON)) {
+            iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "named arguments are not supported: pass arguments by position");
+            break;
+        }
         if (!iron_match(p, IRON_TOK_COMMA)) break;
         iron_skip_newlines(p);
     }
@@ -2429,9 +2464,13 @@ static Iron_Node *iron_parse_pattern(Iron_Parser *p) {
                        "expected enum name in pattern", NULL);
         return iron_make_error(p);
     }
-    Iron_Token *enum_tok = iron_advance(p);
-
-    if (!iron_expect(p, IRON_TOK_DOT)) return iron_make_error(p);
+    /* The qualifier is optional: `Shape.Circle(r)` or `Circle(c)` (a bare
+     * variant, or an implementor in a type match over an interface). */
+    Iron_Token *enum_tok = NULL;
+    if (p->pos + 1 < p->token_count && p->tokens[p->pos + 1].kind == IRON_TOK_DOT) {
+        enum_tok = iron_advance(p);
+        if (!iron_expect(p, IRON_TOK_DOT)) return iron_make_error(p);
+    }
 
     /* variant_name */
     if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
@@ -2496,9 +2535,9 @@ static Iron_Node *iron_parse_pattern(Iron_Parser *p) {
     pat->kind           = IRON_NODE_PATTERN;
     pat->span           = iron_span_merge(iron_token_span(p, start),
                                            iron_token_span(p, iron_current(p)));
-    pat->enum_name      = iron_arena_strdup(p->arena, enum_tok->value,
-                                             strlen(enum_tok->value));
-    if (!pat->enum_name) { /* HARD-09 REPLACE (iron_parse_pattern enum_name) */ pat->enum_name = "?"; }
+    pat->enum_name      = enum_tok ? iron_arena_strdup(p->arena, enum_tok->value,
+                                                        strlen(enum_tok->value)) : NULL;
+    if (enum_tok && !pat->enum_name) { /* HARD-09 REPLACE (iron_parse_pattern enum_name) */ pat->enum_name = "?"; }
     pat->variant_name   = iron_arena_strdup(p->arena, variant_tok->value,
                                              strlen(variant_tok->value));
     if (!pat->variant_name) { /* HARD-09 REPLACE (iron_parse_pattern variant_name) */ pat->variant_name = "?"; }
@@ -2567,6 +2606,13 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
         if (iron_check(p, IRON_TOK_IDENTIFIER) &&
             p->pos + 1 < p->token_count &&
             p->tokens[p->pos + 1].kind == IRON_TOK_DOT) {
+            pattern = iron_parse_pattern(p);
+        } else if (iron_check(p, IRON_TOK_IDENTIFIER) &&
+                   iron_current(p)->value &&
+                   iron_current(p)->value[0] >= 'A' && iron_current(p)->value[0] <= 'Z' &&
+                   p->pos + 1 < p->token_count &&
+                   p->tokens[p->pos + 1].kind == IRON_TOK_LPAREN) {
+            /* `Circle(c) ->`: an unqualified pattern with bindings. */
             pattern = iron_parse_pattern(p);
         } else {
             pattern = iron_parse_expr(p);
@@ -6046,6 +6092,7 @@ static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_
                     }
                 }
                 p->in_error_recovery = false;
+                p->stmt_errored = false;
                 return n;
             }
             iron_emit_diag(p, IRON_ERR_UNEXPECTED_TOKEN,
@@ -6056,47 +6103,56 @@ static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_
         case IRON_TOK_EXTERN:    {
             Iron_Node *n = iron_parse_extern_func(p, is_private);
             p->in_error_recovery = false;
+            p->stmt_errored = false;
             return n;
         }
         case IRON_TOK_FUNC:      {
             Iron_Node *n = iron_parse_func_or_method(p, is_private, is_pub);
             p->in_error_recovery = false;
+            p->stmt_errored = false;
             return n;
         }
         case IRON_TOK_OBJECT:    {
             Iron_Node *n = iron_parse_object_decl(p, is_private, is_pub, is_nocopy, extra_decls_out);
             p->in_error_recovery = false;
+            p->stmt_errored = false;
             return n;
         }
         case IRON_TOK_PATCH:     {
             /* Phase 86 PATCH-01: `patch object T { methods+inits }`. */
             Iron_Node *n = iron_parse_patch_decl(p, is_pub, extra_decls_out);
             p->in_error_recovery = false;
+            p->stmt_errored = false;
             return n;
         }
         case IRON_TOK_INTERFACE: {
             Iron_Node *n = iron_parse_interface_decl(p, is_private);
             p->in_error_recovery = false;
+            p->stmt_errored = false;
             return n;
         }
         case IRON_TOK_ENUM:      {
             Iron_Node *n = iron_parse_enum_decl(p, is_pub);
             p->in_error_recovery = false;
+            p->stmt_errored = false;
             return n;
         }
         case IRON_TOK_IMPORT:    {
             Iron_Node *n = iron_parse_import_decl(p);
             p->in_error_recovery = false;
+            p->stmt_errored = false;
             return n;
         }
         case IRON_TOK_VAL:       {
             Iron_Node *n = iron_parse_val_decl(p);
             p->in_error_recovery = false;
+            p->stmt_errored = false;
             return n;
         }
         case IRON_TOK_VAR:       {
             Iron_Node *n = iron_parse_var_decl(p);
             p->in_error_recovery = false;
+            p->stmt_errored = false;
             return n;
         }
         /* -Wswitch-enum opt-out: top-level declaration switch handles only

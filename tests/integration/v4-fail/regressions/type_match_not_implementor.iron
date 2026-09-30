@@ -1,0 +1,20 @@
+-- @expected-error: E0202
+-- A type match arm must name an implementor of the subject's interface.
+interface Shape {
+    readonly func area() -> Int
+}
+object Circle impl Shape {
+    val r: Int
+    readonly func area() -> Int { return self.r }
+}
+object Rock {
+    val w: Int
+}
+func main() {
+    val s: Shape = Circle(1)
+    match s {
+        Circle(c) -> { println("{c.r}") }
+        Rock(r) -> { println("rock") }
+        else -> { println("other") }
+    }
+}

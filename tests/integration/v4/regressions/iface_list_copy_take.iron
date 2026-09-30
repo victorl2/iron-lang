@@ -1,0 +1,34 @@
+-- Interface lists follow the list rules: copy() duplicates every element
+-- (running copy blocks), take() moves the list out, and freeing the list
+-- drops each element.
+object Res {
+    val n: Int
+    drop { println("drop {self.n}") }
+    copy { println("copy {self.n}") }
+}
+interface Shape {
+    readonly func area() -> Float
+}
+object Circle impl Shape {
+    val r: Float
+    readonly func area() -> Float { return self.r }
+}
+object Square impl Shape {
+    val s: Float
+    val tag: Res
+    readonly func area() -> Float { return self.s }
+}
+func total(xs: [Shape]) -> Float {
+    var t = 0.0
+    for x in xs { t = t + x.area() }
+    return t
+}
+func main() {
+    var xs: [Shape] = [Circle(1.0), Square(2.0, Res(1))]
+    xs.push(Square(3.0, Res(2)))
+    val ys = xs.copy()
+    println("copied {total(ys)} {ys.len()}")
+    val zs = xs.take()
+    println("taken {xs.len()} {zs.len()} {total(zs)}")
+    println("end")
+}

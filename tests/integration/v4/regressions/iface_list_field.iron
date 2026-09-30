@@ -1,0 +1,36 @@
+-- An interface list can be an object field: its type is the split list,
+-- push and len work on the field, the object frees it and x.copy() clones it.
+object Res {
+    val n: Int
+    drop { println("drop {self.n}") }
+}
+interface Shape {
+    readonly func area() -> Float
+}
+object Circle impl Shape {
+    val r: Float
+    readonly func area() -> Float { return self.r }
+}
+object Square impl Shape {
+    val s: Float
+    val tag: Res
+    readonly func area() -> Float { return self.s }
+}
+object Scene {
+    var shapes: [Shape]
+    init() { self.shapes = [] }
+}
+func total(xs: [Shape]) -> Float {
+    var t = 0.0
+    for x in xs { t = t + x.area() }
+    return t
+}
+func main() {
+    var sc = Scene()
+    sc.shapes.push(Circle(1.0))
+    sc.shapes.push(Square(2.0, Res(1)))
+    println("{total(sc.shapes)} {sc.shapes.len()}")
+    val sc2 = sc.copy()
+    println("{sc2.shapes.len()}")
+    println("end")
+}

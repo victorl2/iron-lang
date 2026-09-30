@@ -1,0 +1,49 @@
+-- build grid
+drop tag 1
+drop tag 2
+drop tag 3
+-- copy grid
+copy item a
+copy item b
+copy item c
+-- mutate original
+drop tag 4
+drop tag 5
+drop item a
+drop tag 1
+drop item b
+drop tag 2
+orig 18 copy 12 rows 3 3
+copy row0 2 first nums 2
+-- take a row
+taken 2 left 0
+-- bags
+drop tag 6
+copy item f
+-- deep ints
+deep 106 copy 21
+-- nested interfaces
+copy area 13 rows 2 orig row0 3 copy row0 2
+drop tag 100
+drop tag 101
+drop tag 100
+drop tag 102
+drop tag 101
+-- end
+drop item f
+drop tag 6
+drop item f
+drop tag 6
+drop item c
+drop tag 3
+drop item d
+drop tag 4
+drop item a
+drop tag 1
+drop item b
+drop tag 2
+drop item c
+drop tag 3
+drop item e
+drop tag 5
+free tex shared

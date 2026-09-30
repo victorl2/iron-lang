@@ -1,0 +1,17 @@
+-- An early exit narrows `x` only for the rest of its own function: a later
+-- function with a parameter of the same name still needs its own check.
+object Cell {
+    val v: Int
+}
+func first(x: Cell?) -> Int {
+    if x == null {
+        return 0
+    }
+    return x.v
+}
+func second(x: Cell?) -> Int {
+    return x.v
+}
+func main() {
+    println("{first(Cell(1))} {second(null)}")
+}
