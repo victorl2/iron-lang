@@ -656,10 +656,11 @@ parameter and return types are taken from that parameter and may be
 omitted; everywhere else the parameter types must be written (`E0324`) and
 a lambda without `-> T` returns nothing, whatever its body does. A lambda
 may refer to bindings of the enclosing function. A
-`val` binding is captured by value. A `var` binding is captured by
-reference to the enclosing frame: mutations inside the lambda are visible
-outside, and the closure must not outlive the function that declared the
-`var` (the compiler does not check this; see section 11). A lambda may
+`val` binding is captured by value. A `var` binding that a lambda
+captures moves into a reference counted cell shared by the enclosing
+function and every closure that captured it: mutations inside the lambda
+are visible outside, and the closure may outlive the function that
+declared the `var` (a counter closure keeps its count). A lambda may
 capture a list only when it is passed directly as a call argument
 (`E0328` otherwise); to share a list with a stored closure use `rc [T]`.
 The environment of a closure is reference counted, so a closure may be
@@ -2650,7 +2651,6 @@ document them as features:
 - an object with a field of its own nullable type (`var next: Node?`),
 - `-> Self` in an interface method signature,
 - `Ptr.offset` and `Ptr.diff`,
-- a closure that outlives the frame of a `var` it captured,
 - nested `match` patterns (`A.X(B.Y(v))`) are not checked at run time,
 - duplicate integer arms in a `match`.
 
