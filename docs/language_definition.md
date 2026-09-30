@@ -1589,9 +1589,11 @@ value, dereferencing a stale checked pointer.
 A binding initialized with a plain expression holds its value directly.
 Objects are copied on assignment, when passed by value and when stored in
 lists or fields; each copy is destroyed independently. A value is destroyed
-when its block exits (in reverse declaration order) or, for a temporary, at
-the end of the statement. Destruction runs the object's `drop` block, if
-any (section 6.7), then the drops of its fields.
+when its block exits (in reverse declaration order) or, for a temporary,
+as soon as the expression that used it is done: a field read off a
+temporary (`make().name`) copies the field out and then drops the
+temporary. Destruction runs the object's `drop` block, if any (section
+6.7), then the drops of its fields in reverse declaration order.
 
 ```iron
 object Res {
@@ -1697,11 +1699,10 @@ are not nullable (`?rc T` is rejected, `E0297`) and cannot be `leak`ed
 `weak rc T` is a handle that does not keep the object alive. It is obtained
 with `handle.downgrade()` on an `rc` value or written as the constant
 `weak rc null`, and turned back into a usable handle with `w.upgrade()`,
-which yields `null` when the object has already been destroyed. A weak
-handle cannot be dereferenced directly (`E0299`). Weak handles break
-reference cycles, for example a child that points back to its parent.
-`upgrade()` must be called on a binding, not directly on a field
-(section 11).
+which yields a nullable strong handle, written `rc T?`, that is `null` when
+the object has already been destroyed. A weak handle cannot be
+dereferenced directly (`E0299`). Weak handles break reference cycles, for
+example a child that points back to its parent.
 
 `rc [a, b, c]` is a shared list: every copy of the handle reaches the same
 list, it can be grown and indexed through any copy, and it is freed with the
@@ -1768,19 +1769,22 @@ drop Alice
 
 ### 6.4 Checked pointers
 
-`&x` takes the address of a binding, field or list element and yields a
-checked pointer: `*T` when `x` is a `val` and `*var T` when `x` is a
-`var`. `?*T` is a nullable pointer that may hold `null`. Fields are read
-and, through `*var T`, written with `p.field`; there is no prefix `*`
-operator, so a pointer to a primitive cannot be read or written directly.
-Passing a binding to a parameter of type `*T` takes its address
-automatically. A checked pointer carries the generation of the allocation
-it points to, and every dereference verifies it: reading through a pointer
-after the target was freed (or after a list reallocated) aborts with a
-"stale pointer dereference" message instead of reading garbage. Checked
-pointers support no arithmetic (`E0268`, `E0295`); `&` cannot be applied to
-a temporary (`E0270`), a pointer to a local cannot be returned (`E0271`)
-and `&` on an `rc` handle is rejected (`E0296`).
+`&x` takes the address of a binding, field or fixed array element and
+yields a checked pointer: `*T` when `x` is a `val` and `*var T` when `x`
+is a `var`. `?*T` is a nullable pointer that may hold `null`. Fields are
+read and, through `*var T`, written with `p.field`; a pointer to a
+primitive prints its pointee when interpolated into a string, but there is
+no prefix `*` operator, so it cannot be assigned through. Passing a binding
+to a parameter of type `*T` takes its address automatically. A checked
+pointer carries the generation of the allocation it points to, and every
+dereference verifies it: reading through a pointer after the target was
+freed aborts with a "stale pointer dereference" message instead of reading
+garbage, even when the allocator has reused the address. Checked pointers
+support no arithmetic (`E0268`, `E0295`); `&` cannot be applied to a
+temporary (`E0270`), a pointer to a local cannot be returned (`E0271`), `&`
+on an `rc` handle is rejected (`E0296`), and `&list[i]` on a growable list
+is rejected (`E0330`) unless it is written directly as a call argument,
+because the list may move its elements when it grows.
 
 ```iron
 object Player {
@@ -2625,7 +2629,7 @@ codes cited in this manual:
 | E0314 | possibly uninitialized `var` |
 | E0320, E0321 | private declaration used from another file; standalone `func Type.method` form |
 | E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
-| E0328, E0329 | implicit list copy or capture; indexing an unordered list |
+| E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element |
 | E0501 | `await` on the web target |
 | E0700 to E0703 | web main loop rules |
 | W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |
@@ -2645,7 +2649,6 @@ document them as features:
 - an object that has both an `init` and a `copy` block,
 - an object with a field of its own nullable type (`var next: Node?`),
 - `-> Self` in an interface method signature,
-- `field.upgrade()` directly on a `weak rc` field,
 - `Ptr.offset` and `Ptr.diff`,
 - a closure that outlives the frame of a `var` it captured,
 - nested `match` patterns (`A.X(B.Y(v))`) are not checked at run time,
