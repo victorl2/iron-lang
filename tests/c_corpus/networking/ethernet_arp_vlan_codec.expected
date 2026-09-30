@@ -1,0 +1,11 @@
+frame 0: 64 bytes on wire, payload offset 14, tags=0 fcs=a8e500a0
+frame 1: 64 bytes on wire, payload offset 18, tags=1 [tpid=8100 pcp=5 dei=0 vid=100] fcs=53dfabd5
+frame 2: 64 bytes on wire, payload offset 22, tags=2 [tpid=88a8 pcp=3 dei=1 vid=4094] [tpid=8100 pcp=0 dei=0 vid=7] fcs=a5011025
+tiny payload: wire=64, decoded payload length including pad=46, first bytes 616263
+corrupt payload: bad-fcs
+runt: runt
+arp who-has            10.0.0.1 is-sender 02:00:00:aa:bb:01 target 10.0.0.2
+arp is-at              10.0.0.2 is-sender 02:00:00:aa:bb:02 target 10.0.0.1
+arp gratuitous-request 10.0.0.9 is-sender 02:00:00:cc:dd:09 target 10.0.0.9
+cache entries: 3
+arp errors: bad-lengths bad-oper short

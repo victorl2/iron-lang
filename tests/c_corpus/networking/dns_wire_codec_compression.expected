@@ -1,0 +1,19 @@
+compressed message: 158 bytes
+  id=abcd response opcode=0 aa=0 tc=0 rd=1 ra=1 rcode=0 qd=1 an=6
+  Q www.example.com A
+  www.example.com        300 CNAME web.example.com
+  web.example.com         60 A     93.184.216.34
+  web.example.com         60 AAAA  2606:2800:220:1:248:1893:25c8:1946
+  example.com           3600 MX    10 mail.example.com
+  example.com          86400 NS    ns1.example.com
+  example.com            120 TXT   "v=spf1 -all"
+uncompressed message: 269 bytes
+compression saved 111 bytes
+self pointer         hop-limit policy: pointer-loop    backward-only policy: forward-pointer
+two-node loop        hop-limit policy: pointer-loop    backward-only policy: forward-pointer
+forward pointer      hop-limit policy: ok              backward-only policy: forward-pointer
+reserved label bits  hop-limit policy: bad-label-type  backward-only policy: bad-label-type
+label past end       hop-limit policy: truncated       backward-only policy: truncated
+header only          hop-limit policy: truncated       backward-only policy: truncated
+over-long name: name-too-long
+300 random name sets round-trip; bytes saved by suffix pointers: 1818

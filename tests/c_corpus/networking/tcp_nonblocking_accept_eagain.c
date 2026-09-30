@@ -151,7 +151,11 @@ int main(void) {
         for (int i = 0; i < n; i++)
             clients[i] = connect_to(la);
         check(wait_fd(ls, POLLIN, 2000), "listener readable with pending clients");
+        /* connections reach the accept queue asynchronously, so one drain can see only some of
+         * them; keep polling and draining until every client of this wave is accepted */
         int got = drain_accepts(ls, accepted, 8);
+        while (got < n && wait_fd(ls, POLLIN, 2000))
+            got += drain_accepts(ls, accepted + got, 8 - got);
         printf("wave %d: %d clients connected, accept loop got %d\n", wave, n, got);
         check(got == n, "accept count");
         total_accepted += got;

@@ -1,0 +1,29 @@
+12 integer encodings match minimal two's complement
+OID 1.3.6.1.2.1.1.1.0            -> 2b 06 01 02 01 01 01 00
+OID 1.3.6.1.4.1.311.1            -> 2b 06 01 04 01 82 37 01
+OID 2.999.3                      -> 88 37 03
+OID 1.3.6.1.4.1.2097152.4294967295 -> 2b 06 01 04 01 81 80 80 00 8f ff ff ff 7f
+length 126 uses 1 length byte(s)
+length 127 uses 1 length byte(s)
+length 128 uses 2 length byte(s)
+length 129 uses 2 length byte(s)
+length 130 uses 2 length byte(s)
+length 230 uses 2 length byte(s)
+GetNext request (38 bytes):
+      302402010104067075626c6963a117020203e8020100020100300b300906052b
+      060102010500
+  1.3.6.1.2.1.1.1.0        sysDescr.0       STRING "Iron test agent"
+  1.3.6.1.2.1.1.3.0        sysUpTime.0      TimeTicks 123456
+  1.3.6.1.2.1.1.5.0        sysName.0        STRING "router-7"
+  1.3.6.1.2.1.2.1.0        ifNumber.0       INTEGER 2
+  1.3.6.1.2.1.2.2.1.5.2    ifSpeed.2        Gauge32 100000000
+  1.3.6.1.2.1.2.2.1.10.1   ifInOctets.1     Counter32 4294967295
+  1.3.6.1.2.1.2.2.1.10.2   ifInOctets.2     Counter32 1000
+  1.3.6.1.2.1.2.2.1.10.2   endOfMibView
+walk visited 7 objects
+truncated message    -> truncated
+indefinite length    -> indefinite-length
+wrong outer tag      -> message-not-sequence
+unsupported version  -> unsupported-version
+non-minimal length   -> non-minimal-length
+PDU tag 0xa4         -> unsupported-pdu

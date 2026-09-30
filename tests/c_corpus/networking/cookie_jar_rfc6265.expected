@@ -1,0 +1,26 @@
+date checks: epoch, 2021-06-09, leap day 2000 ok (t=951868799)
+sid=abc123; Path=/; Secure; HttpOnly; SameSite=Lax                     stored: sid domain=www.example.com(host-only) path=/ exp=-1
+theme=dark; Domain=example.com; Max-Age=3600                           stored: theme domain=example.com path=/app exp=1700003600
+pref="a b"; Path=/app; Expires=Wed, 09 Jun 2031 10:18:14 GMT           stored: pref domain=www.example.com(host-only) path=/app exp=1938766694
+tmp=1; Expires=Wed, 09 Jun 2001 10:18:14 GMT                           expired on arrival: tmp domain=www.example.com(host-only) path=/app exp=992081894
+evil=1; Domain=other.org                                               ignored: domain-mismatch
+wide=1; Domain=com                                                     ignored: public-suffix-like-domain
+__Host-tok=z; Secure; Path=/                                           stored: __Host-tok domain=www.example.com(host-only) path=/ exp=-1
+__Secure-x=1; Secure                                                   ignored: secure-prefix-violation
+__Host-bad=1; Secure; Domain=example.com; Path=/                       ignored: host-prefix-violation
+noeq                                                                   ignored: no-equals
+bad name=1                                                             ignored: bad-name
+s=1; SameSite=None                                                     ignored: samesite-none-needs-secure
+deep=1                                                                 stored: deep domain=www.example.com(host-only) path=/app exp=-1
+theme=light; Domain=.EXAMPLE.com; Max-Age=7200                         stored: theme domain=example.com path=/app exp=1700007200
+gone=1; Max-Age=0                                                      expired on arrival: gone domain=www.example.com(host-only) path=/app exp=0
+jar holds 5 cookies
+GET www.example.com/app/login https -> Cookie: theme=light; pref=a b; deep=1; sid=abc123; __Host-tok=z
+GET www.example.com/app/login http -> Cookie: theme=light; pref=a b; deep=1
+GET www.example.com/ https -> Cookie: sid=abc123; __Host-tok=z
+GET api.example.com/app/x https -> Cookie: theme=light
+GET example.com/app https -> Cookie: theme=light
+GET www.example.com/application https -> Cookie: sid=abc123; __Host-tok=z
+GET notexample.com/ https -> Cookie: (none)
+two hours and 13 minutes later: pref=a b; deep=1; sid=abc123; __Host-tok=z
+request header parsed into 4 pairs: [a|1] [b|two] [c|"quoted] [d|]

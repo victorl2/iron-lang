@@ -1,0 +1,37 @@
+Accept: text/html, application/json;q=0.9, */*;q=0.1         -> text/html
+Accept: application/json                                     -> application/json
+Accept: text/*;q=0.5, image/png;q=0.8                        -> image/png
+Accept: */*                                                  -> text/html
+Accept: text/html;q=0                                        -> 406 Not Acceptable
+Accept: image/*;q=0.2, text/plain;q=0.2                      -> text/plain
+Accept: text/html;level=1, text/html;q=0.7                   -> text/html;level=1
+Accept: text/plain;q=0.3, text/html;q=0.3                    -> text/html
+Accept: text/html;q=1.000, application/json;q=1              -> text/html
+Accept: audio/mpeg                                           -> 406 Not Acceptable
+Accept: (empty)                                              -> 406 Not Acceptable
+Accept: text/html;q=1.5                                      -> bad-qvalue
+Accept: text/html;q=0.1234                                   -> bad-qvalue
+Accept: text/, image/png                                     -> bad-media-token
+Accept: */html                                               -> wildcard-type-needs-wildcard-subtype
+Accept: text/html;foo                                        -> bad-parameter
+Accept: text/html;charset=utf-8;q=0.4, application/json;q=0.4;ext=1 -> application/json
+Accept: text/html; q=0.5 , image/png ; q=0.5                 -> text/html
+q-value table of 14 cases verified
+Accept-Language: en-GB, en;q=0.8                            -> en-GB
+Accept-Language: fr;q=0.9, en;q=0.5                         -> fr
+Accept-Language: pt, en;q=0.1                               -> pt-BR
+Accept-Language: *;q=0.1, de;q=0.9                          -> de
+Accept-Language: it, es                                     -> no-acceptable-language
+Accept-Language: en;q=0                                     -> no-acceptable-language
+Accept-Language: en-US;q=0.4, en;q=0.4, *;q=0.1             -> en-US
+Accept-Language: EN-gb;q=0.7,x!;q=1                         -> bad-language-range
+Accept-Language: es;q=0.5, pt-PT;q=0.5, *;q=0.01            -> en-US
+Accept-Encoding: gzip, br;q=0.5                 -> gzip
+Accept-Encoding: br, gzip                       -> br
+Accept-Encoding: identity;q=0, gzip;q=0         -> 406/none
+Accept-Encoding: *;q=0                          -> 406/none
+Accept-Encoding: gzip;q=0.8, *;q=0.3            -> gzip
+Accept-Encoding: deflate                        -> identity
+Accept-Encoding: (empty)                        -> identity
+Accept-Encoding: gzip;q=0, identity;q=0.001     -> identity
+Accept-Encoding: br;q=0.2, gzip;q=0.2           -> identity
