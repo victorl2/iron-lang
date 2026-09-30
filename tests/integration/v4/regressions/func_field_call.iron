@@ -1,0 +1,21 @@
+-- A func typed field is called through its object (#196): `h.run(4)` calls
+-- the closure with the field's signature, on a binding, through an index,
+-- with String and Void results, and the wrong arity is an error.
+object Handler {
+    val name: String
+    val run: func(Int) -> Int
+    val greet: func(String) -> String
+    val fire: func()
+}
+func main() {
+    val k = 100
+    val h = Handler("a handler name that is long enough for the heap",
+                    func(x: Int) -> Int { return x * 2 + k },
+                    func(s: String) -> String { return "hello {s}" },
+                    func() { println("fired") })
+    println("{h.run(4)}")
+    println(h.greet("world"))
+    h.fire()
+    val hs = [h]
+    println("{hs[0].run(1)} {hs[0].greet("x")}")
+}

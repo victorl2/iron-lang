@@ -1,0 +1,9 @@
+-- @expected-error: E0216
+-- Calling a func typed field checks the arity of the field's type.
+object Handler {
+    val run: func(Int) -> Int
+}
+func main() {
+    val h = Handler(func(x: Int) -> Int { return x })
+    println("{h.run(1, 2)}")
+}

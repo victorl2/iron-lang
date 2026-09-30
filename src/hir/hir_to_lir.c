@@ -2538,7 +2538,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                      * The GET_FIELD must have IRON_TYPE_FUNC type so the CALL emitter
                      * recognises it as a closure call and dispatches through .fn(.env,...). */
                     IronLIR_ValueId obj_val = lower_expr(ctx, expr->method_call.object);
-                    Iron_Type *closure_type = iron_type_make_func(ctx->lir_arena, NULL, 0, type);
+                    /* The field's own func type: the call site casts to its
+                     * exact prototype (#191, #196). */
+                    Iron_Type *closure_type = (fld->resolved_type &&
+                                               fld->resolved_type->kind == IRON_TYPE_FUNC)
+                        ? fld->resolved_type
+                        : iron_type_make_func(ctx->lir_arena, NULL, 0, type);
                     IronLIR_Instr *gf = iron_lir_get_field(ctx->current_func, ctx->current_block,
                                                              obj_val, fld->name, closure_type, span);
                     IronLIR_ValueId *cargs = NULL;
