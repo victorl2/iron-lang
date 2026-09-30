@@ -1,0 +1,24 @@
+-- A `T?` field of a builtin type (#189): the object struct needs the
+-- optional's typedef first, and a constructor argument of type T is
+-- wrapped into the optional (it used to fill only its first member).
+object Person {
+    val name: String
+    val nick: String?
+    val age: Int?
+}
+func nick_of(p: Person) -> String {
+    val n = p.nick
+    if n != null {
+        return n
+    }
+    return p.name
+}
+func main() {
+    val bob = Person("Bob", "a long nickname that is also long enough to be heap allocated", 7)
+    val ann = Person("Ann", null, null)
+    println("{nick_of(bob)} / {nick_of(ann)}")
+    val age = bob.age
+    if age != null { println("age {age}") }
+    val none = ann.age
+    if none == null { println("no age") }
+}

@@ -9,6 +9,32 @@
 /* stb_ds hash map — STB_DS_IMPLEMENTATION is in src/util/stb_ds_impl.c */
 #include "vendor/stb_ds.h"
 
+/* A heap string's characters are shared by every copy of the value: the
+ * buffer sits behind a header holding an atomic reference count. A copy
+ * retains, a drop releases, and the last release frees the block. Interned
+ * literals belong to the runtime and are never counted. */
+typedef struct { _Atomic uint64_t rc; uint64_t _pad; } IronStrHdr;
+
+static char *iron__str_alloc(size_t byte_len, const char *where) {
+    IronStrHdr *h = (IronStrHdr *)malloc(sizeof(IronStrHdr) + byte_len + 1);
+    if (!h) iron_oom_abort(where);
+    atomic_init(&h->rc, 1);
+    h->_pad = 0;
+    return (char *)(h + 1);
+}
+
+static inline IronStrHdr *iron__str_hdr(const Iron_String *s) {
+    return ((IronStrHdr *)s->heap.data) - 1;
+}
+
+static inline bool iron__str_counted(const Iron_String *s) {
+    return (s->heap.flags & 0x01) && !(s->heap.flags & 0x02);
+}
+
+static void iron__str_free(Iron_String *s) {
+    free(iron__str_hdr(s));
+}
+
 /* ── Intern table ────────────────────────────────────────────────────────── */
 
 /* Key: heap-allocated C string (owned by the table)
@@ -79,8 +105,7 @@ Iron_String iron_string_from_cstr(const char *cstr, size_t byte_len) {
          * with a named location literal, so a grep of stderr during any
          * OOM run pinpoints this exact site. Row 10 is closed by that
          * earlier FIX-02 edit; no additional work required. */
-        char *buf = (char *)malloc(byte_len + 1);
-        if (!buf) iron_oom_abort("iron_string.c:iron_string_from_cstr");
+        char *buf = iron__str_alloc(byte_len, "iron_string.c:iron_string_from_cstr");
         memcpy(buf, cstr, byte_len);
         buf[byte_len] = '\0';
         s.heap.data            = buf;
@@ -166,8 +191,7 @@ Iron_String iron_string_concat(const Iron_String *a, const Iron_String *b) {
     }
 
     /* FIX-02: replace Phase 65 silent empty-string fallback with iron_oom_abort. */
-    char *buf = (char *)malloc(total + 1);
-    if (!buf) iron_oom_abort("iron_string.c:iron_string_concat");
+    char *buf = iron__str_alloc(total, "iron_string.c:iron_string_concat");
     memcpy(buf,      iron_string_cstr(a), la);
     memcpy(buf + la, iron_string_cstr(b), lb);
     buf[total] = '\0';
@@ -249,9 +273,7 @@ Iron_String iron_string_intern(Iron_String s) {
          * string if not yet interned. After this point `cstr` (computed
          * above from &s.heap.data) is dangling; DO NOT touch it again in
          * this function, and callers MUST discard their local copy of s. */
-        if ((s.heap.flags & 0x01) && !(s.heap.flags & 0x02)) {
-            free(s.heap.data);
-        }
+        if (iron__str_counted(&s)) iron_string_release(&s);
         return existing;
     }
 
@@ -273,10 +295,19 @@ Iron_String iron_string_intern(Iron_String s) {
     return interned;
 }
 
+void iron_string_retain(const Iron_String *s) {
+    if (!s || !iron__str_counted(s)) return;
+    (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(iron__str_hdr(s)->rc, 1);
+}
+
 void iron_string_release(Iron_String *s) {
     if (!s) return;
-    if ((s->heap.flags & 0x01) && !(s->heap.flags & 0x02)) {
-        free(s->heap.data);
+    if (iron__str_counted(s)) {
+        uint64_t prev = IRON_ATOMIC_U64_FETCH_SUB_RELEASE(iron__str_hdr(s)->rc, 1);
+        if (prev == 1) {
+            IRON_ATOMIC_FENCE_ACQUIRE();
+            iron__str_free(s);
+        }
     }
     memset(s, 0, sizeof(*s));
 }
@@ -406,7 +437,7 @@ void iron_runtime_shutdown(void) {
     for (ptrdiff_t i = 0; i < shlen(s_intern_table); i++) {
         Iron_String *v = &s_intern_table[i].value;
         if ((v->heap.flags & 0x01) && v->heap.data) {
-            free(v->heap.data);
+            iron__str_free(v);
         }
     }
     shfree(s_intern_table);

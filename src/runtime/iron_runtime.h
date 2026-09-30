@@ -780,6 +780,9 @@ Iron_String  iron_string_intern(Iron_String s);
  * by the runtime and are ignored; non-interned heap storage is freed. Any
  * by-value aliases of a released string become invalid and must not be used. */
 void         iron_string_release(Iron_String *s);
+/* Registers one more owner of the string's characters (a copy of the value
+ * that will be released on its own). No-op for inline and interned strings. */
+void         iron_string_retain(const Iron_String *s);
 
 /* ── Phase 26 POL-06: rc policy runtime API ──────────────────────────────────
  *

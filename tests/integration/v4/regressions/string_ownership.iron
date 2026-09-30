@@ -1,0 +1,54 @@
+-- Strings share counted characters (#182): every copy of a heap string
+-- (bindings, fields, list elements, closure and spawn captures, temporaries
+-- in interpolations) keeps the characters alive, and the last one frees
+-- them. This runs leak free under ASan on Linux and `leaks` on macOS.
+object Tag {
+    val label: String
+    val note: String?
+    drop { println("drop {self.label}") }
+}
+func build(i: Int) -> String {
+    val base = "prefix that is definitely longer than twenty three bytes"
+    return base + " {i}"
+}
+func mk(i: Int) -> func(Int) -> String {
+    val a = "a captured string that is long enough to live on the heap {i}"
+    return func(x: Int) -> String { return "{a} {x}" }
+}
+func main() {
+    val a = build(1)
+    val b = a
+    val c = build(2) + build(3)
+    println("{a} | {b} | {c.len()}")
+    var names: [String] = []
+    for i in range(3) {
+        names.push(build(i))
+    }
+    val more = names.copy()
+    names.push("another rather long string to push into the list here")
+    names[0] = build(7)
+    println("{names.len()} {more.len()} {names[0]} {more[0]}")
+    val t = Tag(build(4), "an optional note that is also long enough for the heap")
+    val tags = [t]
+    val tc = tags.copy()
+    val note = tc[0].note
+    if note != null {
+        println("{tc[0].label} / {note}")
+    }
+    var s = build(1)
+    s = s + " and grow"
+    s = build(9)
+    println(s)
+    println("{build(5)} {build(6).len()}")
+    val f = mk(1)
+    println(f(5))
+    val msg = "a message that is long enough to be heap allocated for sure"
+    val h = spawn("w") {
+        return "{msg} from worker".len()
+    }
+    println("{await h}")
+    for i in range(1000) {
+        val loop = "this is a fairly long interpolated string {msg} {i}"
+        if i == 999 { println("{loop.len()}") }
+    }
+}

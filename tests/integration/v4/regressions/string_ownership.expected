@@ -1,0 +1,11 @@
+prefix that is definitely longer than twenty three bytes 1 | prefix that is definitely longer than twenty three bytes 1 | 116
+4 3 prefix that is definitely longer than twenty three bytes 7 prefix that is definitely longer than twenty three bytes 0
+prefix that is definitely longer than twenty three bytes 4 / an optional note that is also long enough for the heap
+prefix that is definitely longer than twenty three bytes 9
+prefix that is definitely longer than twenty three bytes 5 58
+a captured string that is long enough to live on the heap 1 5
+71
+105
+drop prefix that is definitely longer than twenty three bytes 4
+drop prefix that is definitely longer than twenty three bytes 4
+drop prefix that is definitely longer than twenty three bytes 4

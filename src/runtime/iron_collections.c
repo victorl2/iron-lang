@@ -36,7 +36,31 @@ IRON_LIST_IMPL(int64_t,     int64_t)
 IRON_LIST_IMPL(int32_t,     int32_t)
 IRON_LIST_IMPL(double,      double)
 IRON_LIST_IMPL(bool,        bool)
-IRON_LIST_IMPL(Iron_String, Iron_String)
+/* A list of strings owns its elements' shares of their characters (#182):
+ * a copy of the list retains each element, clear and free release them. */
+IRON_LIST_IMPL_CORE(Iron_String, Iron_String)
+Iron_List_Iron_String Iron_List_Iron_String_clone(const Iron_List_Iron_String *src) {
+    Iron_List_Iron_String dst;
+    dst.count = src->count;
+    dst.capacity = src->count;
+    dst.items = NULL;
+    if (src->count > 0) {
+        dst.items = (Iron_String *)malloc((size_t)src->count * sizeof(Iron_String));
+        if (!dst.items) iron_oom_abort("Iron_List_Iron_String_clone");
+        memcpy(dst.items, src->items, (size_t)src->count * sizeof(Iron_String));
+        for (int64_t i = 0; i < dst.count; i++) iron_string_retain(&dst.items[i]);
+    }
+    return dst;
+}
+void Iron_List_Iron_String_clear(Iron_List_Iron_String *self) {
+    for (int64_t i = 0; i < self->count; i++) iron_string_release(&self->items[i]);
+    self->count = 0;
+}
+void Iron_List_Iron_String_free(Iron_List_Iron_String *self) {
+    for (int64_t i = 0; i < self->count; i++) iron_string_release(&self->items[i]);
+    free(self->items);
+    self->items = NULL; self->count = 0; self->capacity = 0;
+}
 IRON_LIST_IMPL(Iron_Closure, Iron_Closure)
 /* Phase 68 (Plan 68-01): ABI-FLOAT32 + ABI-UINT8 implementations.
  * Suffix matches ironc emit_type_to_c output: Float32 → "float",

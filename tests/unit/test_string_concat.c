@@ -49,7 +49,7 @@ void test_concat_crossing_sso_max_promotes_to_heap(void) {
         "aaaaaaaaaaaabbbbbbbbbbbb", iron_string_cstr(&cat));
     /* Heap path: flag bit 0 must be 1. */
     TEST_ASSERT_EQUAL_UINT8(1, cat.heap.flags & 0x01);
-    free(cat.heap.data);
+    iron_string_release(&cat);
 }
 
 /* ── Test 3: empty-string identity in both directions ─────────────────────── */

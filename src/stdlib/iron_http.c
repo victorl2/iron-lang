@@ -122,46 +122,52 @@ static void http_response_error(Iron_HttpResponse *r, int64_t code) {
 }
 
 void Iron_httpserverresult_release(Iron_HttpServerResult result) {
-    iron_string_release(&result.error_message);
+    /* Strings are released by the value's own drop glue (#182); kept
+     * for source compatibility. */
+    (void)result;
 }
 
 void Iron_httpconnectionresult_release(Iron_HttpConnectionResult result) {
-    iron_string_release(&result.error_message);
+    /* Strings are released by the value's own drop glue (#182); kept
+     * for source compatibility. */
+    (void)result;
 }
 
 void Iron_httpsserverresult_release(Iron_HttpsServerResult result) {
-    iron_string_release(&result.error_message);
+    /* Strings are released by the value's own drop glue (#182); kept
+     * for source compatibility. */
+    (void)result;
 }
 
 void Iron_httpsconnectionresult_release(Iron_HttpsConnectionResult result) {
-    iron_string_release(&result.error_message);
+    /* Strings are released by the value's own drop glue (#182); kept
+     * for source compatibility. */
+    (void)result;
 }
 
 void Iron_httpspendingconnectionresult_release(
     Iron_HttpsPendingConnectionResult result) {
-    iron_string_release(&result.error_message);
+    /* Strings are released by the value's own drop glue (#182); kept
+     * for source compatibility. */
+    (void)result;
 }
 
 void Iron_httpclientresult_release(Iron_HttpClientResult result) {
-    iron_string_release(&result.error_message);
+    /* Strings are released by the value's own drop glue (#182); kept
+     * for source compatibility. */
+    (void)result;
 }
 
 void Iron_httprequest_release(Iron_HttpRequest request) {
-    iron_string_release(&request.method);
-    iron_string_release(&request.target);
-    iron_string_release(&request.path);
-    iron_string_release(&request.query);
-    iron_string_release(&request.version);
-    iron_string_release(&request.headers);
-    iron_string_release(&request.body);
-    iron_string_release(&request.error_message);
+    /* Strings are released by the value's own drop glue (#182); kept
+     * for source compatibility. */
+    (void)request;
 }
 
 void Iron_httpresponse_release(Iron_HttpResponse response) {
-    iron_string_release(&response.reason);
-    iron_string_release(&response.headers);
-    iron_string_release(&response.body);
-    iron_string_release(&response.error_message);
+    /* Strings are released by the value's own drop glue (#182); kept
+     * for source compatibility. */
+    (void)response;
 }
 
 static int ascii_ieq_n(const char *a, size_t an, const char *b, size_t bn) {

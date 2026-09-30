@@ -3,9 +3,15 @@
 func @main() -> Void {
 entry:
   %1 = const_int 42 : Int
-  %2 = const_string "age is " : String
-  %3 = interp_string [%2, %1] : String
-  jump return_exit_0
+  %2 = alloca String
+  %3 = const_string "age is " : String
+  %4 = interp_string [%3, %1] : String
+  store %2, %4
+  jump drop_cleanup_1
 return_exit_0:
   ret void
+drop_cleanup_1:
+  %5 = func_ref @$drop : Void
+  call %5(%2)
+  jump return_exit_0
 }

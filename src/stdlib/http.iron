@@ -103,8 +103,8 @@ object HttpResponse {
     val error_message: String
 }
 
--- Result/model strings are owned by the returned value. `release` consumes
--- that ownership; the value and any by-value aliases must not be used again.
+-- Result/model strings are owned by the returned value and freed with it.
+-- `release` is kept for source compatibility and does nothing.
 func HttpServerResult.release(result: HttpServerResult) {}
 func HttpConnectionResult.release(result: HttpConnectionResult) {}
 func HttpsServerResult.release(result: HttpsServerResult) {}

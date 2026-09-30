@@ -28,7 +28,8 @@ object WebSocketMessage {
     val error_message: String
 }
 
--- Consuming ownership helpers for strings returned in these models.
+-- Kept for source compatibility: strings are freed with the value that
+-- holds them, so these do nothing.
 func WebSocketResult.release(result: WebSocketResult) {}
 func WebSocketMessage.release(message: WebSocketMessage) {}
 

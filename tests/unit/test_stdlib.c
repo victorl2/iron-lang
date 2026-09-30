@@ -134,7 +134,7 @@ void test_io_write_and_read(void) {
     /* Clean up */
     remove(s_tmp_file);
     /* Free heap string if needed */
-    if (result.v0.heap.flags & 0x01) free(result.v0.heap.data);
+    iron_string_release(&result.v0);
 }
 
 void test_io_read_nonexistent(void) {

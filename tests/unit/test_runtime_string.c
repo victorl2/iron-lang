@@ -37,7 +37,7 @@ void test_heap_long_string(void) {
     TEST_ASSERT_EQUAL_UINT8(1, is.heap.flags & 0x01);
     TEST_ASSERT_EQUAL_STRING(s, iron_string_cstr(&is));
     TEST_ASSERT_EQUAL_size_t(24, iron_string_byte_len(&is));
-    free(is.heap.data);
+    iron_string_release(&is);
 }
 
 void test_empty_string(void) {
@@ -97,7 +97,7 @@ void test_concat_heap(void) {
     TEST_ASSERT_EQUAL_STRING("abcdefghijklmnopqrstuvwxyz123", iron_string_cstr(&cat));
     TEST_ASSERT_EQUAL_size_t(29, iron_string_byte_len(&cat));
     TEST_ASSERT_EQUAL_UINT8(1, cat.heap.flags & 0x01);
-    free(cat.heap.data);
+    iron_string_release(&cat);
 }
 
 void test_intern_deduplicates(void) {
