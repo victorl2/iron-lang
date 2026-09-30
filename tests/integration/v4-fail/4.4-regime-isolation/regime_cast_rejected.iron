@@ -1,0 +1,12 @@
+-- section 4.4 negative: no 'as' conversion between pointer regimes
+-- @req: PTR-04, UNCK-01
+-- the checked and unchecked regimes are disjoint; a value is never cast
+-- into an unchecked pointer
+extern func c_abs(x: *unchecked Int) -> Int
+
+func main() {
+    val value: Int = -42
+    val raw: *unchecked Int = value as *unchecked Int
+    val result = c_abs(raw)
+    println("abs: {result}")
+}

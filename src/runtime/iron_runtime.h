@@ -391,6 +391,9 @@ static inline void iron_check_pointer_gen(Iron_FatPtr fp,
  * Initialized in iron_runtime_init via IRON_ATOMIC_U64_INIT.
  * Definition lives in src/runtime/iron_heap_track.c. */
 extern iron_atomic_u64 iron_alloc_id_counter;
+/* Process-wide monotonic generation source for heap and rc headers. */
+extern iron_atomic_u64 iron_heap_gen_counter;
+uint64_t iron_heap_next_gen(void);
 
 /* ── Phase 20 PTR-10: per-thread stack-frame generation counter ───────────
  * Bumped on entry/exit of each function whose body takes the address of a

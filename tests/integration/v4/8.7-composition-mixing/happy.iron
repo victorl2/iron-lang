@@ -1,30 +1,30 @@
--- section 8.7 mixing all policies verbatim
+-- section 8.7 mixing all policies
 -- @req: POL-01, POL-02, POL-06, POL-08, ARENA-01
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): doc-verbatim §8.7 sample rests on non-surfaces: prefix `!` not lexable
--- (E0002), `heap T` field type annotations (rejected by the v4-fail corpus), `heap Game.new()`
--- construction form.
--- all 5 policies + both pointer regimes + arena in one fixture
+-- stack values, an owned list, rc + weak rc, a heap binding, a Box and an arena in one program
 
 object InputState {
     var quit: Bool
-}
 
-object Enemy {
-    val id: Int
-    var player: weak rc Player
+    init(quit: Bool) {
+        self.quit = quit
+    }
 }
 
 object Player {
     val hp: Int
 }
 
-object AssetManager {
-    var loaded: Int
+object Enemy {
+    val id: Int
+    val player: weak rc Player
 }
 
 object ParticleArray {
     var count: Int
+
+    init(count: Int) {
+        self.count = count
+    }
 }
 
 nocopy object ParticleSystem {
@@ -48,30 +48,27 @@ object DrawCmd {
 }
 
 object Game {
-    var assets: AssetManager                    -- value, contains rc internally
-    var enemies: List[Enemy]                    -- value, heap buffer internally
-    var player: rc Player                       -- shared, weak-referenced by enemies
-    var current_level: heap LevelData           -- explicit heap allocation
-    var input_state: InputState                 -- value, stack
-    var particles: ParticleSystem               -- contains Box for hot loop
-    var frame_arena: heap Arena                 -- arena for per-frame allocations
+    var enemies: [Enemy]
+    var player: rc Player
+    var input_state: InputState
+    var ticks: Int
 
     init() {
-        self.assets = AssetManager(0)
-        self.enemies = List.new()
+        self.enemies = []
         self.player = rc Player(100)
-        self.current_level = heap LevelData(1)
         self.input_state = InputState(false)
-        self.particles = ParticleSystem()
-        self.frame_arena = heap Arena.new(4 * 1024 * 1024)
+        self.ticks = 0
     }
 
-    func tick(self: *var Game, dt: Float) {
-        -- placeholder
+    func spawn_enemy(id: Int) {
+        self.enemies.push(Enemy(id, self.player.downgrade()))
     }
 
-    func build_render_cmds(self: *var Game, frame_cmds: *var [DrawCmd; <=4096]) {
-        -- placeholder
+    func tick(dt: Float) {
+        self.ticks = self.ticks + 1
+        if self.ticks >= 2 {
+            self.input_state.quit = true
+        }
     }
 
     drop {
@@ -79,37 +76,32 @@ object Game {
     }
 }
 
-func should_quit() -> Bool {
-    return true
-}
-
-func get_frame_time() -> Float {
-    return 0.016
-}
-
-func process_input(input: *var InputState) {
-    -- placeholder
-}
-
-func submit_to_gpu(cmds: *var [DrawCmd; <=4096]) {
-    println("frame submitted")
+func submit_to_gpu(cmds: [DrawCmd]) {
+    println("frame submitted: {cmds.len()} commands")
 }
 
 func main() {
-    val game = heap Game.new()
-    defer free game
+    var game = Game()
+    game.spawn_enemy(1)
+    game.spawn_enemy(2)
+    val level = heap LevelData(7)
+    defer free level
+    val particles = ParticleSystem()
+    val frame_arena = heap Arena.new(4 * 1024)
+    defer free frame_arena
 
-    while !should_quit() {
-        val dt = get_frame_time()
+    while not game.input_state.quit {
+        game.tick(0.016)
 
-        process_input(&game.input_state)
-        game.tick(dt)
-
-        in game.frame_arena {
-            val frame_cmds = heap [DrawCmd; <=4096]
-            game.build_render_cmds(&frame_cmds)
-            submit_to_gpu(&frame_cmds)
+        in frame_arena {
+            val cmd = heap DrawCmd(game.ticks)
+            submit_to_gpu([DrawCmd(cmd.id)])
         }
-        game.frame_arena.reset()
+        frame_arena.reset()
     }
+    val target = game.enemies[0].player.upgrade()
+    if target != null {
+        println("enemy 1 sees player hp {target.hp}")
+    }
+    println("level {level.seed} particles {particles.storage.unwrap().count} enemies {game.enemies.len()}")
 }

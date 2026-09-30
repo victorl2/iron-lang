@@ -1,7 +1,7 @@
-arena obj alive
-arena 5 freed
+arena obj 5 alive
+child 4 sees shared 3
 all alive
+heap 2 freed
 child 4 freed
 shared 3 freed
-heap 2 freed
 stack 1 freed

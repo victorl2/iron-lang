@@ -2752,6 +2752,21 @@ void iron_lir_compute_inline_eligible(IronLIR_Func *fn,
                     hmput(excluded, in->spawn.pool_val, true);
             }
 
+            /* rc / weak rc operands are emitted by name, some of them
+             * twice (a nullable release reads .has_value and .value). */
+            if (in->kind == IRON_LIR_RC_RETAIN)
+                hmput(excluded, in->rc_retain.target, true);
+            else if (in->kind == IRON_LIR_RC_RELEASE)
+                hmput(excluded, in->rc_release.target, true);
+            else if (in->kind == IRON_LIR_WEAK_RC_RETAIN)
+                hmput(excluded, in->weak_rc_retain.target, true);
+            else if (in->kind == IRON_LIR_WEAK_RC_RELEASE)
+                hmput(excluded, in->weak_rc_release.target, true);
+            else if (in->kind == IRON_LIR_WEAK_RC_DOWNGRADE)
+                hmput(excluded, in->weak_rc_downgrade.source, true);
+            else if (in->kind == IRON_LIR_WEAK_RC_UPGRADE)
+                hmput(excluded, in->weak_rc_upgrade.source, true);
+
             /* 2026-07 remediation (4.2 boundary_field_pointer): ADDR_OF
              * references its target by NAME (emit_val) in the non-field
              * emit branches; a suppressed (inlined) declaration produced
