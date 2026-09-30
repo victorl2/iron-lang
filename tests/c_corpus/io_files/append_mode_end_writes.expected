@@ -1,0 +1,11 @@
+after entry 0 size 9
+after entry 1 size 19
+after entry 2 size 29
+after entry 3 size 41
+after entry 4 size 54
+after entry 5 size 63
+after entry 6 size 72
+lines 8, first "000 boot", last "999 rewound"
+size before 84, tell after write 89
+read back "999 rewound" then "tail"
+two handles: A=20 B=20 in-order=1 size=160

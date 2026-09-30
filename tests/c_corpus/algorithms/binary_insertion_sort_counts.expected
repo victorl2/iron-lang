@@ -1,0 +1,9 @@
+n=16    random    linear cmps=76       binary cmps=44      moves=64       lower bound~45
+n=16    reversed  linear cmps=120      binary cmps=49      moves=120      lower bound~45
+n=16    few keys  linear cmps=60       binary cmps=43      moves=46       lower bound~45
+n=128   random    linear cmps=4402     binary cmps=724     moves=4278     lower bound~717
+n=128   reversed  linear cmps=8128     binary cmps=769     moves=8128     lower bound~717
+n=128   few keys  linear cmps=3515     binary cmps=709     moves=3390     lower bound~717
+n=1024  random    linear cmps=259960   binary cmps=8806    moves=258942   lower bound~8770
+n=1024  reversed  linear cmps=523776   binary cmps=9217    moves=523776   lower bound~8770
+n=1024  few keys  linear cmps=229111   binary cmps=8772    moves=228090   lower bound~8770

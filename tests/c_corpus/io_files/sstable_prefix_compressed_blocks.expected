@@ -1,0 +1,20 @@
+120 entries in 8 blocks; raw key+value bytes 2162, file 2048 bytes
+  block 0: offset    0 len 227 last key config.0641
+  block 1: offset  227 len 226 last key config.net.0245
+  block 2: offset  453 len 242 last key config.net.0668
+  block 3: offset  695 len 224 last key session:0252
+  block 4: offset  919 len 238 last key user:0044
+  block 5: offset 1157 len 228 last key user:0536
+  block 6: offset 1385 len 247 last key user:admin:0427
+  block 7: offset 1632 len 227 last key user:admin:0758
+lookup aaa                -> absent
+lookup config.0000        -> absent
+lookup session:9999       -> absent
+lookup user:admin:0400x   -> absent
+lookup zzz                -> absent
+lookup user:              -> absent
+lookups: 106 live, 14 tombstones, 6 absent; 125 block reads for 126 gets (at most one each)
+data blocks 1859 bytes vs raw 2162 bytes
+range [session:0200, session:0300): 4 live keys, 2 of 8 blocks touched
+corrupted block 1 rejected, blocks 0 and 2 still readable
+bad magic: bad magic

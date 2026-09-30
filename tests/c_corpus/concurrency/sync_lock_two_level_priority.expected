@@ -1,0 +1,5 @@
+arrival order: L0 H1 L2 H3 L4
+grant order:   H1 H3 L0 L2 L4
+holder still holds while high waiter queued: yes, order log length 0
+stress: high sections 400, low sections 600, counter 1000
+priority inversions 0, exclusion violations 0

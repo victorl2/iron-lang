@@ -1,0 +1,7 @@
+minrun(64)=16 minrun(65)=17 minrun(1000)=32 minrun(5000)=20
+random    n=5000 cmps=55125   merges=249 max_stack=8
+sorted    n=5000 cmps=4999    merges=0   max_stack=1
+reversed  n=5000 cmps=4999    merges=0   max_stack=1
+sawtooth  n=5000 cmps=34266   merges=49  max_stack=6
+few-runs  n=5000 cmps=12997   merges=4   max_stack=3
+dups      n=5000 cmps=48260   merges=249 max_stack=8

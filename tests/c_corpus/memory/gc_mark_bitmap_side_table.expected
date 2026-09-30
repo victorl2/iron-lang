@@ -1,0 +1,6 @@
+objects allocated: 1030, collections: 6, swept: 1014
+sweep visited 144 bitmap words, skipped 91 with no garbage
+allocator skipped 4479 full words over 1030 searches
+free extents at end: 15, largest 858, total free 1493 of 1536 granules
+extents summed over collections: 57, largest run seen: 935
+oracle checks: 6

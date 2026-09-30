@@ -1,0 +1,22 @@
+i^2+3  >= 0          at i=0        oracle calls=1
+i^2+3  >= 3          at i=0        oracle calls=1
+i^2+3  >= 4          at i=1        oracle calls=2
+i^2+3  >= 100        at i=10       oracle calls=9
+i^2+3  >= 12345      at i=112      oracle calls=15
+i^2+3  >= 5000000    at i=2237     oracle calls=25
+i^2+3  >= 1000000000 at i=31623    oracle calls=31
+tri    >= 0          at i=0        oracle calls=1
+tri    >= 3          at i=1        oracle calls=2
+tri    >= 4          at i=2        oracle calls=3
+tri    >= 100        at i=10       oracle calls=9
+tri    >= 12345      at i=111      oracle calls=15
+tri    >= 5000000    at i=2236     oracle calls=25
+tri    >= 1000000000 at i=31622    oracle calls=31
+fibish >= 0          at i=0        oracle calls=1
+fibish >= 3          at i=0        oracle calls=1
+fibish >= 4          at i=1        oracle calls=2
+fibish >= 100        at i=10       oracle calls=9
+fibish >= 12345      at i=26       oracle calls=11
+fibish >= 5000000    at i=42       oracle calls=13
+fibish >= 1000000000 at i=58       oracle calls=13
+gallop hits: 1000, empty: -1

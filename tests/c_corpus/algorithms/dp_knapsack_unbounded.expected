@@ -1,0 +1,15 @@
+case 0: cap=16 best=32 exact=32 counts=0(w2,v3) 4(w4,v8) 0(w8,v13) used=16
+case 1: cap=12 best=78 exact=78 counts=0(w6,v6) 6(w2,v13) 0(w2,v6) 0(w8,v20) used=12
+case 2: cap=21 best=109 exact=109 counts=1(w2,v10) 4(w4,v21) 1(w3,v15) 0(w3,v6) used=21
+case 3: cap=25 best=138 exact=138 counts=0(w3,v12) 1(w4,v19) 7(w3,v17) 0(w8,v12) 0(w8,v15) used=25
+case 4: cap=18 best=84 exact=none counts=0(w8,v11) 4(w4,v21) 0(w4,v16) 0(w4,v3) 0(w4,v20) used=16
+rod  1:  1 cuts: 1
+rod  2:  5 cuts: 2
+rod  3:  8 cuts: 3
+rod  4: 10 cuts: 2 2
+rod  5: 13 cuts: 2 3
+rod  6: 17 cuts: 6
+rod  7: 18 cuts: 1 6
+rod  8: 22 cuts: 2 6
+rod  9: 25 cuts: 3 6
+rod 10: 30 cuts: 10

@@ -1,0 +1,7 @@
+n=1     leaves=1     build_cmps=0     total_cmps=0       min=482 max=482
+n=2     leaves=2     build_cmps=1     total_cmps=3       min=128 max=300
+n=3     leaves=4     build_cmps=3     total_cmps=9       min=11 max=94
+n=10    leaves=16    build_cmps=15    total_cmps=55      min=42 max=402
+n=64    leaves=64    build_cmps=63    total_cmps=447     min=4 max=488
+n=100   leaves=128   build_cmps=127   total_cmps=827     min=3 max=497
+n=1000  leaves=1024  build_cmps=1023  total_cmps=11023   min=0 max=499

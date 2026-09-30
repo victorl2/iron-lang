@@ -1,0 +1,5 @@
+demo 67 bytes -> 14 bytes: 12W 1B 12W 3B 24W 1B 14W
+short runs             n=5000 pairs=3028 packbits=3111
+long runs (over 255)   n=5000 pairs=70 packbits=106
+noisy                  n=5000 pairs=6670 packbits=5033
+malformed inputs rejected: 4

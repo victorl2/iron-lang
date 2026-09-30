@@ -1,0 +1,6 @@
+AIMD from (800,40):  r10=6518  r50=9466  r150=9997  r600=10000  final=(420,420) congestion_events=23
+AIAD from (800,40):  r10=6047  r50=6047  r150=6047  r600=6047  final=(850,90) congestion_events=119
+MIMD from (800,40):  r10=5541  r50=5808  r150=6323  r600=8164  final=(583,208) congestion_events=88
+MIAD from (800,40):  r10=5009  r50=5009  r150=5018  r600=5010  final=(982,1) congestion_events=451
+RTT bias (rtt 1:2:4) shares permille: 575 282 142
+asynchronous feedback, 3 flows: initial fairness=3908 mean fairness after warmup=9128

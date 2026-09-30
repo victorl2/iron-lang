@@ -1,0 +1,5 @@
+servers  total_wait  max_wait  makespan  max_queue peak_fel
+1        15531150    10300     19241     1601      2       
+2        1142068     726       9637      228       3       
+3        4201        19        8941      8         4       
+4        773         12        8941      7         5       

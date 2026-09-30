@@ -1,0 +1,14 @@
+maglev table slots per node: min=126 max=127 (spread 1)
+8 nodes, 20000 keys
+  rendezvous load min=2481 max=2529 (ideal 2500) max/ideal=101%
+  jump       load min=2428 max=2580 (ideal 2500) max/ideal=103%
+  maglev     load min=2445 max=2553 (ideal 2500) max/ideal=102%
+remove node 7:
+  rendezvous moved= 2521 (12%) of which forced= 2521 collateral=    0
+  jump       moved= 2459 (12%) of which forced= 2459 collateral=    0
+  maglev     moved= 2973 (14%) of which forced= 2478 collateral=  495
+remove node 3:
+  rendezvous moved= 2496 (12%) of which forced= 2496 collateral=    0
+  jump       cannot remove a middle bucket (renumbering moves keys)
+  maglev     moved= 3044 (15%) of which forced= 2500 collateral=  544
+jump 8->9 buckets: 2172 keys moved, all to the new bucket=yes (ideal 2222)

@@ -1,0 +1,4 @@
+vertices 80, edges 529
+mst weight 2878
+decrease-key operations 216
+first tree edges: 57-1(27) 28-2(24) 77-3(95) 8-4(47) 21-5(107) 1-6(30) 2-7(54) 67-8(51)

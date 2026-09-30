@@ -1,0 +1,18 @@
+~ alpha	tvenQgc => changed
++ another	
+- beta	cgreMmxx
+- mu	qdklpr
++ new-key	fresh
+~ weird	tab\there\nnl\\bs\x01\xff => tab\there\nnl\\bs\x01\xfe
+added=2 removed=2 changed=2
+canonical form stable: 219 bytes
+insertion-order independent: yes
+#snapshot v1
+alpha	tvenQgc
+beta	cgreMmxx
+delta	Vw\x1flc\xf4\...
+bad 0: rejected
+bad 1: rejected
+bad 2: rejected
+bad 3: rejected
+bad 4: rejected

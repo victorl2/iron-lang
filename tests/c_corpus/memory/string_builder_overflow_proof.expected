@@ -1,0 +1,10 @@
+"hello, world" len=12 cap=16 grows=2
+">> hello!!!, world" len=18
+bad insert position: 0
+repeat 45: 1, len=63 cap=64
+one more byte: 0 failed=1 len=63
+content unchanged after failure: 1
+caps: 8 16 32 64 128 256 512 1024 2048 4096 8192
+len=5000 grows=11
+repeat SIZE_MAX-2: 0 failed=1 len=4 s=seed
+repeat SIZE_MAX: 0 failed=1 cap=0

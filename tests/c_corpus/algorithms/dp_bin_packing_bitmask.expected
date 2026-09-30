@@ -1,0 +1,7 @@
+case 0: n=6 cap=55 total=225 lower_bound=5 optimal=5 ffd=5
+case 1: n=7 cap=35 total=75 lower_bound=3 optimal=3 ffd=3
+case 2: n=9 cap=39 total=138 lower_bound=4 optimal=4 ffd=4
+case 3: n=10 cap=46 total=228 lower_bound=5 optimal=6 ffd=6
+case 4: n=11 cap=40 total=193 lower_bound=5 optimal=6 ffd=6
+case 5: n=11 cap=35 total=175 lower_bound=5 optimal=6 ffd=6
+case 6: n=12 cap=36 total=191 lower_bound=6 optimal=7 ffd=7

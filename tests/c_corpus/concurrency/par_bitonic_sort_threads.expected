@@ -1,0 +1,6 @@
+n=1 padded=1 stages=0 min=-679 max=-679 weighted=-679
+n=5 padded=8 stages=6 min=-808 max=579 weighted=2749
+n=16 padded=16 stages=10 min=-957 max=831 weighted=35751
+n=100 padded=128 stages=28 min=-990 max=981 weighted=1545916
+n=333 padded=512 stages=45 min=-997 max=999 weighted=18254494
+n=1000 padded=1024 stages=55 min=-1000 max=1000 weighted=170706923

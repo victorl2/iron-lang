@@ -1,0 +1,16 @@
+fixed 0: proper at (2/1, 2/1)
+fixed 1: touch
+fixed 2: overlap
+fixed 3: collinear-disjoint
+fixed 4: touch
+fixed 5: proper at (10/3, 5/3)
+fixed 6: disjoint
+fixed 7: overlap
+fixed 8: overlap
+fixed 9: touch
+disjoint            2802
+proper              787
+touch               304
+overlap             9
+collinear-disjoint  3
+proper points verified: 787

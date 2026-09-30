@@ -1,0 +1,11 @@
+widths: name=11 dept=4 salary=6(num) ratio=5(num) note=18
+fixed-width file: 735 bytes, 49 bytes per line
+name       |dept|salary|ratio|note              
+Grace H.   |D0  | 95928| 3.24|ok                
+Margaret Z.|D2  | 95642|-1.69|ok                
+Ken J.     |D0  | 83196|-1.86|likes "quotes"    
+Barbara K. |D1  | 81045| 3.54|ok                
+Barbara G. |D1  | 76473| 1.23|a very long free-~
+Ken B.     |D1  | 55277|-1.52|comma, inside     
+Ken F.     |D2  | 54398| 1.46|likes "quotes"    
+cells exact=65 truncated=5

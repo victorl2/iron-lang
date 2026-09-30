@@ -1,0 +1,7 @@
+objects allocated: 651, trains created: 17, cars created: 632
+collector steps: 625 (whole trains reclaimed: 16, cars evacuated: 609)
+objects moved between cars: 2352, objects freed: 642
+most cars live at once: 10
+steps to drain all garbage after the mutator stopped: 1
+objects live at end: 9
+oracle checks: 34

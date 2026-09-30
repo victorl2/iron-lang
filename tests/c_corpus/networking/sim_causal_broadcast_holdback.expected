@@ -1,0 +1,4 @@
+arrival order          delivered=300 causal violations= 86 max hold-back= 1 mean delivery delay=15 ticks
+per-sender FIFO        delivered=300 causal violations= 16 max hold-back= 5 mean delivery delay=17 ticks
+causal (vector clock)  delivered=300 causal violations=  0 max hold-back= 5 mean delivery delay=18 ticks
+causally related pairs (same order at every process): 1558; concurrent pairs ordered differently somewhere: 212

@@ -1,0 +1,10 @@
+unbound: family AF_INET yes, wildcard addr yes, port zero yes
+getpeername on unconnected: ENOTCONN
+listener: loopback yes, port assigned yes
+client peer port == listener port: yes
+server-side local port == listener port: yes
+client local port == server-side peer port: yes
+client ephemeral port differs from listener: yes
+all four addresses are loopback: yes
+udp peer port matches receiver: yes
+unconnected udp receiver has a peer: no

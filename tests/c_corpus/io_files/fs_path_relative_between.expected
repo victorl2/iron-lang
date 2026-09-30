@@ -1,0 +1,15 @@
+from [a/b/c] to [a/b/c/d/e] : d/e
+from [a/b/c/d/e] to [a/b/c] : ../..
+from [a/b/c] to [a/b/x] : ../x
+from [a/b] to [c/d] : ../../c/d
+from [] to [x/y] : x/y
+from [x/y] to [] : ../..
+from [a] to [a] : .
+from [a/b/c] to [a/b] : ..
+from [a/b] to [a/bc] : ../bc
+from [lib/src] to [lib/srcs] : ../srcs
+2000 random pairs round-trip; total '..' steps=3671, longest relative path=27
+real tree: t/a/b/c -> t/lib/src/leaf via ../../../lib/src/leaf
+real tree: t/lib -> t/a/b/c/leaf via ../a/b/c/leaf
+real tree: t/a/b -> t/a via ..
+real tree: t/lib/src -> t/lib/src/leaf via leaf

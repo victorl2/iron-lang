@@ -1,0 +1,9 @@
+inserted=29 duplicates=31
+original: nodes=29 weighted-sum=1285 depth=9 used=708
+  first: dog(0)x1 fox(1)x3 fox(2)x3 hen(3)x1 hen(6)x3 ant(11)x2 
+moved-to-heap: nodes=29 weighted-sum=1285 depth=9 used=708
+  first: dog(0)x1 fox(1)x3 fox(2)x3 hen(3)x1 hen(6)x3 ant(11)x2 
+moved-shifted: nodes=29 weighted-sum=1285 depth=9 used=708
+  first: dog(0)x1 fox(1)x3 fox(2)x3 hen(3)x1 hen(6)x3 ant(11)x2 
+after-insert: nodes=30 weighted-sum=1485 depth=9 used=732
+  first: dog(0)x1 fox(1)x3 fox(2)x3 hen(3)x1 hen(6)x3 ant(11)x2 

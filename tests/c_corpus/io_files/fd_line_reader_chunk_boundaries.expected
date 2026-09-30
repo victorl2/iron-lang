@@ -1,0 +1,11 @@
+run 0: complete=39 empty=1 cut=2 unterminated=1 bytes=694 digest=a033866d6cb110e0
+run 1: complete=39 empty=1 cut=2 unterminated=1 bytes=694 digest=a033866d6cb110e0
+run 2: complete=39 empty=1 cut=2 unterminated=1 bytes=694 digest=a033866d6cb110e0
+chunk boundaries never change the parsed lines
+case 0 -> ''
+case 1 -> '1:0|'
+case 2 -> '3:3|'
+case 3 -> '1:3|'
+case 4 -> '1:1|1:0|1:1|'
+case 5 -> '2:40|1:0|'
+case 6 -> '2:40|3:1|'

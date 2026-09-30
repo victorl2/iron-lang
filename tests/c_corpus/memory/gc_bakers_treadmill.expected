@@ -1,0 +1,6 @@
+objects allocated: 842
+cycles: 10 (forced by allocation: 0), cells scanned: 126
+read barrier moved 4 cells from ecru to grey
+O(1) list splices: 29, grey peak: 9
+cells in use at end: 15 of 140
+oracle checks: 10

@@ -1,0 +1,5 @@
+accounts=8 movers=4 attempts=6000
+attempts accounted for: yes
+final total 8000 (initial 8000)
+mutual exclusion violations 0, audit failures 0
+trylock sequence: 1 0 1

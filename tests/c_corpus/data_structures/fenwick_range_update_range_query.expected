@@ -1,0 +1,6 @@
+n=1    adds=818 queries=879 digest=-686248738 total=-21176
+n=2    adds=847 queries=806 digest=-788260399 total=12772
+n=9    adds=852 queries=823 digest=-758118216 total=70754
+n=64   adds=831 queries=822 digest=840102434 total=109629
+n=333  adds=856 queries=805 digest=840514097 total=-1330775
+example: 0 3 3 5 5 2 2 2 | sum[3..6]=15

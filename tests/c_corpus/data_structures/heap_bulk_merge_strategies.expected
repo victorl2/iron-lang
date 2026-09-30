@@ -1,0 +1,13 @@
+na     nb     b->a      a->b      small->big rebuild  
+1000   1      2         1087      2         1000     
+1000   10     16        1222      16        1017     
+1000   100    210       1548      210       1167     
+1000   500    1093      1939      1093      1811     
+1000   1000   2123      2058      2123      2671     
+100    1000   1558      207       207       1719     
+10     1000   1252      14        14        1267     
+1      1000   1091      1         1         1104     
+0      300    299       0         0         299      
+300    0      0         299       0         299      
+random extra items: insertion always wins up to 1000
+record-breaking extra items: rebuilding wins from 154 on

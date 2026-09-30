@@ -1,0 +1,6 @@
+file size 960 = 40 records of 24 bytes
+scrambled sum 2861086
+first record bytes: e8 03 00 00 1b 00 6e 02 8d 36 0c 05 90 e5 91 ce
+id=1000 temp=27 flags=0x026e tag=s000
+tail read of 24 bytes returned 5, eof=1
+record 13 flags now 0xb690

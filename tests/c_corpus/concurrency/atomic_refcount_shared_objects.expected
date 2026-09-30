@@ -1,0 +1,3 @@
+cow: shared -> copied=1, unique -> copied=0
+objects=40 destroyed=41 exactly-once=yes
+bad payload reads: 0

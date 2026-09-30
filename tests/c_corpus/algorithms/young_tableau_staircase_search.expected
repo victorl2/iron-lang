@@ -1,0 +1,9 @@
+max value 204, present keys 194, total walk steps 4223
+step bound per query (R+C)=70
+k=1     kth smallest=0
+k=2     kth smallest=0
+k=100   kth smallest=29
+k=600   kth smallest=93
+k=1199  kth smallest=200
+k=1200  kth smallest=204
+count_le(0)=4 count_le(median)=600 count_le(max)=1200

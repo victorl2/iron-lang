@@ -1,0 +1,6 @@
+three sets before any wait: try_wait -> 1 then 0
+set #1: total wakeups 1
+set #2: total wakeups 2
+set #3: total wakeups 3
+pulses sent 400, wakeups 400, sum over waiters 400
+all 4 waiters shut down, signal state 0

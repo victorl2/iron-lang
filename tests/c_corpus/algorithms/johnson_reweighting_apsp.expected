@@ -1,0 +1,3 @@
+edges 160, negative 50, bellman-ford passes 6
+reachable pairs 1523, sum 15623, min -21, max 45
+potentials: -18 -9 -1 0 -1 0 0 -7 -10 -9

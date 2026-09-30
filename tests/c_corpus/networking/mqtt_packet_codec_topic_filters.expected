@@ -1,0 +1,24 @@
+remaining length         0 -> 1 byte(s): 00
+remaining length         1 -> 1 byte(s): 01
+remaining length       127 -> 1 byte(s): 7f
+remaining length       128 -> 2 byte(s): 80 01
+remaining length     16383 -> 2 byte(s): ff 7f
+remaining length     16384 -> 3 byte(s): 80 80 01
+remaining length   2097151 -> 3 byte(s): ff ff 7f
+remaining length   2097152 -> 4 byte(s): 80 80 80 01
+remaining length 268435455 -> 4 byte(s): ff ff ff 7f
+five continuation bytes: -1, non-minimal 0x80 0x00: -2, truncated: 0
+packet 1 (65 bytes): CONNECT id=client-42 keepalive=60 clean=1 will=status/client-42:offline(qos1,retain) user=alice pass=6 bytes
+packet 2 (31 bytes): PUBLISH topic=sensors/kitchen/temp qos=1 dup=1 retain=1 id=7 payload=5 bytes
+packet 3 (32 bytes): SUBSCRIBE id=10 sensors/+/temp@1 alerts/#@0
+packet 4 (914 bytes): PUBLISH topic=big/topic qos=0 dup=0 retain=0 id=0 payload=900 bytes
+packet 5 (2 bytes): PINGREQ
+publish qos 3            -> invalid-qos-3
+publish wildcard topic   -> wildcard-in-topic-name
+subscribe flags 0        -> bad-subscribe-flags
+subscribe bad filter     -> bad-topic-filter
+pingreq with body        -> bad-empty-packet
+connect wrong name       -> bad-protocol-name
+overlong remaining length -> remaining-length-too-long
+filter table: 17 cases verified, 10 matches
+invalid filters: 'a/b+' 'a/#/c' '#a' '' 'a++' '+a/b'

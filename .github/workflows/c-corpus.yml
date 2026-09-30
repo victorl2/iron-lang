@@ -1,0 +1,47 @@
+name: c-corpus
+
+# Builds and runs the C reference corpus (tests/c_corpus) on Linux and macOS,
+# once plain and once with ASan + UBSan, and diffs every program's stdout
+# against its .expected file. Not a required check.
+
+on:
+  pull_request:
+    paths:
+      - 'tests/c_corpus/**'
+      - '.github/workflows/c-corpus.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tests/c_corpus/**'
+      - '.github/workflows/c-corpus.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  corpus:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        mode: [plain, sanitize]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint headers and slugs
+        run: python3 tests/c_corpus/run.py --lint
+
+      - name: Build and run
+        run: |
+          if [ "${{ matrix.mode }}" = sanitize ]; then
+            python3 tests/c_corpus/run.py --sanitize -j 4
+          else
+            python3 tests/c_corpus/run.py -j 4
+          fi

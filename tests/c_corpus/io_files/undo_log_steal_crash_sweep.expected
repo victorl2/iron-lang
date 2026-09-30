@@ -1,0 +1,4 @@
+events=94 txns=12
+crash points=201 (torn log tails=106)
+undo records applied=408 max in one recovery=5
+final state hash=5be85a9e

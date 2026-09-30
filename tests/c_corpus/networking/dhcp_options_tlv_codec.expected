@@ -1,0 +1,21 @@
+DISCOVER (271 bytes)
+  op=1 xid=3903f326 type=DISCOVER yiaddr=0.0.0.0
+  hostname "laptop-7"
+  param request list: 1 3 6 15 28 51
+  client id: 01:02:00:00:12:34:56
+  4 distinct options
+OFFER (280 bytes)
+  op=2 xid=3903f326 type=OFFER yiaddr=192.168.1.10
+  subnet mask 255.255.255.0
+  router 192.168.1.1
+  dns: 1.1.1.1 9.9.9.9
+  lease 86400 s (24h), T1=43200 T2=75600
+  server id 192.168.1.1
+  6 distinct options
+ACK with overload (247 bytes)
+  op=2 xid=11223344 type=ACK yiaddr=10.0.0.5
+  lease 7200 s (2h), T1=3600 T2=6300
+  hostname "overloaded"
+  4 distinct options
+vendor option 43 reassembled from 2 chunks: 300 bytes
+errors: no-end-option bad-cookie option-overruns no-message-type too-short

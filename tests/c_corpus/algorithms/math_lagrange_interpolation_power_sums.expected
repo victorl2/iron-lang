@@ -1,0 +1,14 @@
+f(4) = 59 (direct 59)
+f(7) = 455 (direct 455)
+f(10) = 1517 (direct 1517)
+f(10^12) mod p = 754997816, direct 754997816
+interpolated power sums match naive for k=0..10
+sum_{i<=10^15} i^1 mod p = 996328507
+sum_{i<=10^15} i^2 mod p = 998656238
+sum_{i<=10^15} i^3 mod p = 912155647
+sum_{i<=10^15} i^4 mod p = 977687518
+sum_{i<=10^15} i^5 mod p = 116591262
+sum_{i<=10^15} i^6 mod p = 776451570
+sum of cubes to 123456789012 equals T^2: yes
+5th difference of 3x^5+2x+1: 360 (5! * 3 = 360)
+degree-10 interpolation of sum i^9 at 10^9+6: 0

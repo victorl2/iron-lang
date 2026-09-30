@@ -1,0 +1,4 @@
+ops=419 commits=70 rollbacks=53 keys present=14
+after inner rollback: k0=outer k1=one k2=(absent)
+after outer rollback: k0=base k1=v556 k3=v417
+live at end=0

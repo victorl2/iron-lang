@@ -1,0 +1,3 @@
+writers=3 writes each=2500 final sequence=15000 (even: yes)
+torn validated reads: 0
+final payload word multiples consistent: yes, sequence/2 = 7500

@@ -1,0 +1,6 @@
+barrier ablation: lost with barrier 0, without barrier 1
+objects allocated: 818
+minor passes: 58, of which 12 followed a full old-space sweep
+objects promoted: 583, old objects swept: 556
+barrier recorded: 245, remembered entries scanned: 231
+oracle checks: 58

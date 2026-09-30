@@ -1,0 +1,43 @@
+doc 0 (180 bytes)
+  PI
+  COMMENT len=5
+  START root id="7" name="a & b"
+  START item k="<x>"
+  TEXT "Tom & Jerry AB€"
+  END item
+  START empty /
+  CDATA "raw <b> & stuff"
+  END root
+  well-formed, 9 tokens
+doc 1 (14 bytes)
+  START a
+  START b
+  ERROR at 6: mismatched end tag
+doc 2 (18 bytes)
+  START a x="1"
+  ERROR at 0: malformed attribute
+doc 3 (14 bytes)
+  START a
+  ERROR at 10: unknown entity
+doc 4 (14 bytes)
+  START a
+  ERROR at 10: unterminated entity
+doc 5 (8 bytes)
+  START a /
+  ERROR at 4: multiple roots
+doc 6 (14 bytes)
+  START a
+  START b
+  TEXT "text"
+  END b
+  ERROR at 14: unclosed element
+doc 7 (8 bytes)
+  ERROR at 4: text outside root
+doc 8 (17 bytes)
+  START a
+  ERROR at 13: character reference out of range
+doc 9 (30 bytes)
+  START r a="it's"
+  TEXT "😀"
+  END r
+  well-formed, 3 tokens

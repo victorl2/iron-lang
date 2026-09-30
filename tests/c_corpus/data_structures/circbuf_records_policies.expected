@@ -1,0 +1,2 @@
+reject-new       pushed=6113 popped=6101 dropped_new=42922 overwritten=0 count=12 head=4 wrapped_views=1711 kind_sum=12266
+overwrite-oldest pushed=50090 popped=5939 dropped_new=0 overwritten=44144 count=7 head=3 wrapped_views=1788 kind_sum=11764

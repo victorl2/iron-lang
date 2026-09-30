@@ -1,0 +1,10 @@
+readers: shared shared shared (shared=3)
+writer while readers: DENIED
+writer with 1 reader left: DENIED
+writer with no readers: exclusive
+reader while writing: DENIED
+reader after write: shared value=42
+visit reentrant: -99 (conflicts=4)
+visit benign: 440
+shared shared DENIED shared shared DENIED
+max concurrent shared: 4, total conflicts: 6, final value 44

@@ -1,0 +1,4 @@
+pushed=15297 popped=14703 size=594 last=4211689
+redistributions=12888 moves=37875 popsum=54687506728 top=4211689
+bucket sizes: 11:8 12:9 13:25 14:55 16:118 17:147 18:152 19:79 20:1
+drained=594 max=4719403

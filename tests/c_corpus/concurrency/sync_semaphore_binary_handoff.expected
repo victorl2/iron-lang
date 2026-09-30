@@ -1,0 +1,4 @@
+mutex mode: counter=1600 expected=1600 violations=0 overflows=0
+signal mode: 1000 turns logged, strictly alternating=yes
+final values ping=1 pong=0
+after 3 posts: value=1 overflows=2

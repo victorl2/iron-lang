@@ -1,0 +1,13 @@
+PUT /doc -> 201 etag="5d8b6dab-1"
+GET /doc -> 200 body=alpha etag_same=1
+GET If-None-Match(current) -> 304 blen=0
+GET If-None-Match(list, weak) -> 304
+GET If-None-Match(*) -> 304
+GET If-None-Match(other) -> 200 body=alpha
+PUT If-Match(current) -> 200 etag_changed=1
+PUT If-Match(stale) -> 412
+GET with old tag after update -> 200 body=beta
+PUT If-Match(*) on missing -> 412
+PUT create -> 201
+GET /missing -> 404
+server: 200=3 304=3 412=2 docs=2

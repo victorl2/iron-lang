@@ -1,0 +1,3 @@
+nodes=120 conserved: free+retired+in_stack=120
+values popped at most once: yes
+stack values plus popped values equal pushes: yes

@@ -1,0 +1,10 @@
+fixed: rooms=2 reused=3
+n=50    max_len=200   rooms=3    reused=47    max_heap=3
+n=50    max_len=1000  rooms=7    reused=43    max_heap=7
+n=50    max_len=5000  rooms=20   reused=30    max_heap=20
+n=500   max_len=200   rooms=12   reused=488   max_heap=12
+n=500   max_len=1000  rooms=39   reused=461   max_heap=39
+n=500   max_len=5000  rooms=130  reused=370   max_heap=130
+n=2000  max_len=200   rooms=35   reused=1965  max_heap=35
+n=2000  max_len=1000  rooms=123  reused=1877  max_heap=123
+n=2000  max_len=5000  rooms=522  reused=1478  max_heap=522

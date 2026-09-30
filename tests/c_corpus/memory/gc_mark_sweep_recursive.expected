@@ -1,0 +1,6 @@
+objects allocated: 609
+collections: 16
+swept: 599 marked: 188
+max recursion depth: 7
+live at end: 10 of 110
+oracle checks: 16

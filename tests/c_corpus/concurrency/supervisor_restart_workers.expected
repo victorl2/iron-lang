@@ -1,0 +1,6 @@
+worker 0: done restarts 3 crashes 3 processed 12/12 sum 1683
+worker 1: done restarts 2 crashes 2 processed 12/12 sum 2883
+worker 2: dead restarts 3 crashes 4 processed  5/12 sum 1580
+worker 3: done restarts 2 crashes 2 processed 12/12 sum 5283
+total restarts 10, dead workers 1, total sum 11429
+exit notifications 14

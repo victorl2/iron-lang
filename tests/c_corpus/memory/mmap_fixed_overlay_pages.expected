@@ -1,0 +1,4 @@
+after splice: 10 11 f5 f0 14 15 16 f3 18 19 1a 1b
+after overlay: 10 11 f5 ab 14 15 16 f3 18 f2 f2 1b
+slots verified: 12
+slot origins: anon anon file5 zero anon anon anon file3 anon file2 file2 anon

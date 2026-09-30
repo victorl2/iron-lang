@@ -1,0 +1,4 @@
+write points checked=211 torn variants=140
+binary-search head discovery agreed 55 times, average probes=5.00 (slots=16)
+after 37 records: oldest=22 newest=37 valid=16
+after 37 records with torn last: oldest=22 newest=36 valid=15

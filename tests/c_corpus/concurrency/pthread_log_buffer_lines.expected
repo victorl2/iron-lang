@@ -1,0 +1,8 @@
+lines=250 bytes=9146
+worker 0 logged 40
+worker 1 logged 45
+worker 2 logged 50
+worker 3 logged 55
+worker 4 logged 60
+first: worker=0 seq=000 square=0 tag=even
+last: worker=4 seq=059 square=3481 tag=odd

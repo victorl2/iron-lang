@@ -1,0 +1,6 @@
+n=  1 m=  1 alphabet= 2 diagonals=  1 lcs=  0 seq=
+n= 10 m= 15 alphabet= 2 diagonals= 24 lcs=  8 seq=abaaabaa
+n= 40 m= 40 alphabet= 4 diagonals= 79 lcs= 25
+n=120 m= 90 alphabet= 3 diagonals=209 lcs= 73
+n=200 m=200 alphabet=26 diagonals=399 lcs= 64
+n=  7 m=300 alphabet= 2 diagonals=306 lcs=  7 seq=bababba

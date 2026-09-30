@@ -1,0 +1,17 @@
+line  0: len      0 newline=1
+line  1: len      1 newline=1
+line  2: len      5 newline=1
+line  3: len     80 newline=1
+line  4: len   1000 newline=1
+line  5: len   4095 newline=1
+line  6: len   4096 newline=1
+line  7: len   4097 newline=1
+line  8: len  20000 newline=1
+line  9: len 100000 newline=1
+line 10: len      3 newline=1
+line 11: len      0 newline=1
+line 12: len  65536 newline=1
+line 13: len      7 newline=0
+lines 14, bytes 198933
+first line empty: 1, cap still small enough: 1
+second line: 2 bytes "e"

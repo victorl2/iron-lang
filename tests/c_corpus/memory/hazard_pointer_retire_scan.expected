@@ -1,0 +1,8 @@
+slow reader holds value 0
+step 10: live=5 freed=6 retired=[2,2] scans=2
+step 20: live=5 freed=16 retired=[2,2] scans=5
+step 30: live=4 freed=27 retired=[1,2] scans=8
+slow reader still reads 0, freed marker 0
+stale reads: 0
+after releasing slow reader: live=1 (only the published cell), retired=[0,0]
+published value 30

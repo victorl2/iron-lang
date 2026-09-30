@@ -1,0 +1,16 @@
+n=3000 keys, m=4096 buckets: expected colliding pairs for an ideal hash = 1098.3
+key set: random
+  multiply-shift  mean pairs=  1095.8 worst=1159
+  carter-wegman   mean pairs=  1096.8 worst=1157
+  tabulation      mean pairs=  1099.1 worst=1165
+  low bits        mean pairs=  1111.0 worst=1111
+key set: multiples of 4096
+  multiply-shift  mean pairs=   733.9 worst=5160
+  carter-wegman   mean pairs=   782.2 worst=3899
+  tabulation      mean pairs=  1093.8 worst=1277
+  low bits        mean pairs=4498500.0 worst=4498500
+key set: byte-aligned 0x01010101*i
+  multiply-shift  mean pairs=   919.8 worst=3693
+  carter-wegman   mean pairs=  1143.1 worst=3807
+  tabulation      mean pairs=  1099.7 worst=1216
+  low bits        mean pairs= 16104.0 worst=16104

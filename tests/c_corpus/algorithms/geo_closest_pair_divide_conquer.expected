@@ -1,0 +1,7 @@
+n=   2 span=    10 min_dist_sq=49 strip_checks=0
+n=   5 span=    30 min_dist_sq=17 strip_checks=1
+n=  17 span=  1000 min_dist_sq=208 strip_checks=6
+n= 100 span=   500 min_dist_sq=4 strip_checks=35
+n=1000 span=100000 min_dist_sq=6970 strip_checks=606
+n=4000 span=  2000 min_dist_sq=0 strip_checks=1900 (duplicate points)
+grid: 2 between (20,20) and (21,21)

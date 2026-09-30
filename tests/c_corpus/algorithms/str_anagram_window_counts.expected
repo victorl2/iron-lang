@@ -1,0 +1,10 @@
+anagrams of abc in cbaebabacd: 0 6
+pattern abc     -> 1091 windows
+pattern aabb    -> 1833 windows
+pattern abcde   -> 190 windows
+pattern zzz     -> 1 windows
+pattern abcabc  -> 640 windows
+random anagram pairs: len3=5670 len5=2763
+random anagram pairs: len3=4857 len5=2305
+random anagram pairs: len3=5270 len5=2552
+random anagram pairs: len3=4846 len5=2509

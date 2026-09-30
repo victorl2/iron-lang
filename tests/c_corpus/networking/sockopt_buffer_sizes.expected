@@ -1,0 +1,5 @@
+tcp: rcvbuf>=requested yes, sndbuf>=requested yes, positive yes
+udp: rcvbuf>=requested yes, sndbuf>=requested yes, positive yes
+unix: rcvbuf>=requested yes, sndbuf>=requested yes, positive yes
+transferred 600000 bytes, checksum matches
+fnv 891ed78a

@@ -1,0 +1,9 @@
+use count after aliasing: 3
+alias values: 4 9
+after resetting owner: use=2, alias still reads 4
+events: R
+array use=6
+array use=1
+flag while shared: 1
+flag after last: 0
+events: RAC

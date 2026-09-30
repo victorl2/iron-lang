@@ -1,0 +1,10 @@
+strong=2 weak=3
+gold via lock: 15, strong=3
+expired after 1 drop: 0
+expired after 2 drops: 1 (objs=0 ctls=1)
+lock on expired: null
+ctls after w1: 1
+ctls after w2: 1
+ctls after w3: 0
+xooxooxoo
+surviving hp total: 270, zombies: 3

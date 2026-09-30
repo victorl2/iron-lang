@@ -1,0 +1,5 @@
+bits=6 sub[full]=984 sup[0]=984 sub[5]=-38 sup[5]=270 checksum=434997
+bits=7 sub[full]=2596 sup[0]=2596 sub[5]=63 sup[5]=514 checksum=3926348
+bits=8 sub[full]=4774 sup[0]=4774 sub[5]=20 sup[5]=1410 checksum=20924174
+bits=9 sub[full]=10137 sup[0]=10137 sub[5]=68 sup[5]=2141 checksum=137955019
+ordered pairs with zero AND among 300 values: 10008

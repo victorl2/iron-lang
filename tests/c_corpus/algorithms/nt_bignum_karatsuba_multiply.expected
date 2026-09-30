@@ -1,0 +1,9 @@
+n=2 limbs: schoolbook 4 limb mults, karatsuba 4, checksum 10094359764707828560
+n=4 limbs: schoolbook 16 limb mults, karatsuba 16, checksum 7566597131182452870
+n=8 limbs: schoolbook 64 limb mults, karatsuba 75, checksum 8678453922198399489
+n=16 limbs: schoolbook 256 limb mults, karatsuba 249, checksum 1247051856730681785
+n=32 limbs: schoolbook 1024 limb mults, karatsuba 781, checksum 14433084654963849659
+n=64 limbs: schoolbook 4096 limb mults, karatsuba 2501, checksum 1883932382694035295
+n=128 limbs: schoolbook 16384 limb mults, karatsuba 8405, checksum 11298752065127656653
+n=256 limbs: schoolbook 65536 limb mults, karatsuba 29749, checksum 6048505660002949463
+(B^64-1)^2 structure correct: yes

@@ -1,0 +1,6 @@
+step  500: edges=21 links=131 cuts=110 queries=106 largest component=28
+step 1000: edges=27 links=241 cuts=214 queries=208 largest component=30
+step 1500: edges=22 links=343 cuts=321 queries=306 largest component=30
+step 2000: edges=25 links=426 cuts=401 queries=411 largest component=30
+step 2500: edges=17 links=527 cuts=510 queries=507 largest component=30
+checksum 5872

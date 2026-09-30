@@ -1,0 +1,7 @@
+cat echoed 250000 of 250000 bytes, exit status 0, identical: 1
+checksum of echoed data: 2ca9e78e2ba95b2a
+cat with empty input: 0 bytes, status 0
+shell said: three-two-one
+shell exit status: 3
+echo said: spawned echo
+write to a finished child: -1 EPIPE, status 0

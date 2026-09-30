@@ -1,0 +1,36 @@
+ 1: deny ip host 10.1.2.3 any
+ 2: permit tcp 10.1.0.0 0.0.255.255 any eq 80
+ 3: permit tcp 10.1.0.0 0.0.255.255 any eq 443
+ 4: permit udp 192.168.0.0 0.0.0.255 gt 1023 10.0.0.0 0.255.255.255 eq 53
+ 5: deny tcp any any range 6000 6010
+ 6: permit ip 10.0.0.5 0.0.255.0 any   [non-contiguous wildcard]
+ 7: permit icmp any any
+ 8: permit tcp 10.1.5.0 0.0.0.255 any eq 80
+ 9: deny ip any any
+10: permit tcp any host 10.9.9.9 eq 22
+reject 'allow ip any any': bad-action
+reject 'permit gre any any': bad-protocol
+reject 'permit ip any': too-short
+reject 'permit tcp any eq 80': missing-address
+reject 'permit tcp 10.0.0.256 0.0.0.0 any any': bad-address
+reject 'permit ip host any any': bad-host-address
+reject 'permit icmp any eq 5 any': port-on-non-l4-protocol
+reject 'permit tcp any any eq 70000': bad-port
+reject 'permit tcp any any range 90 80': bad-port-range
+reject 'permit ip any any extra': trailing-tokens
+reject 'permit tcp any any neq 5': neq-unsupported-in-range-form
+tcp  10.1.2.3       :40000 -> 8.8.8.8        :80     deny            rule 1
+tcp  10.1.2.4       :40000 -> 8.8.8.8        :80     permit          rule 2
+tcp  10.1.5.4       :40000 -> 1.1.1.1        :80     permit          rule 2
+tcp  10.1.0.9       :1     -> 1.1.1.1        :443    permit          rule 3
+udp  192.168.0.5    :5000  -> 10.0.0.1       :53     permit          rule 4
+udp  192.168.0.5    :500   -> 10.0.0.1       :53     deny            rule 9
+tcp  10.10.10.10    :1     -> 1.1.1.1        :6005   deny            rule 5
+tcp  10.0.10.5      :1     -> 1.1.1.1        :6005   deny            rule 5
+tcp  10.0.255.5     :1     -> 1.1.1.1        :9      permit          rule 6
+icmp 11.0.0.1       :0     -> 11.0.0.2       :0      permit          rule 7
+tcp  11.0.0.1       :1     -> 10.9.9.9       :22     deny            rule 9
+udp  12.0.0.1       :1     -> 12.0.0.2       :2      deny            rule 9
+shadowed rules: 8(by 2) 10(by 9)
+20000 packets: 7516 permitted, 12484 denied by rule, 0 implicit deny
+hit counters: 1:1797 2:224 3:227 4:24 5:1124 6:3392 7:3649 8:0 9:9563 10:0

@@ -1,0 +1,4 @@
+worker critical sections 600
+grants in arrival order: yes, violations 0
+trylock right after handoff succeeded: no
+waiters served in arrival order: yes

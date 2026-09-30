@@ -1,0 +1,8 @@
+round  0 all-reduce sum 15
+round  1 all-reduce sum 26
+round  2 all-reduce sum 20
+round  3 all-reduce sum 14
+round  4 all-reduce sum 25
+round 39 all-reduce sum 36
+tree of 7 nodes, depth 3, 80 episodes
+grand total 850, mismatching views 0

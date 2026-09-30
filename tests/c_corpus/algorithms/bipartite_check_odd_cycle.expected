@@ -1,0 +1,13 @@
+graph  0: 13 edges, odd cycle of length 3: 12 5 10
+graph  1: 13 edges, bipartite
+graph  2: 15 edges, bipartite
+graph  3: 14 edges, odd cycle of length 3: 6 0 13
+graph  4: 15 edges, bipartite
+graph  5: 10 edges, bipartite
+graph  6: 15 edges, odd cycle of length 5: 7 12 2 6 4
+graph  7: 16 edges, bipartite
+graph  8: 16 edges, bipartite
+graph  9: 19 edges, odd cycle of length 3: 12 0 7
+graph 10: 18 edges, bipartite
+graph 11: 18 edges, bipartite
+bipartite graphs: 8 of 12

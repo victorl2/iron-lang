@@ -1,0 +1,4 @@
+log bytes=467 records=24
+cuts at record boundary=25, mid-record=443
+largest torn tail=41 bytes
+bit flips stopped scan: 101 flips over records 0..23

@@ -1,0 +1,5 @@
+ascending 500: height=9 rotations single=491 double=0
+after deleting 250: size=250 height=9
+random: inserts=1497 deletes=1201 size=296 maxheight=10 finalheight=10
+rotations single=961 double=290
+drained

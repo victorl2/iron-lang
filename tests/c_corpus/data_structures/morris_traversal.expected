@@ -1,0 +1,6 @@
+round 0: n=38 bst=1 postorder hash=554590196
+round 1: n=96 bst=1 postorder hash=1726712467
+round 2: n=72 bst=0 postorder hash=2060228691
+60 rounds, 4795 nodes, 40 valid BSTs, temporary links created=7269
+right chain postorder: 20..1 (20 nodes)
+zigzag preorder first five: 1 2 3 4 5

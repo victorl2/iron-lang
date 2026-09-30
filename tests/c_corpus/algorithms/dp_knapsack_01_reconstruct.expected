@@ -1,0 +1,7 @@
+trial 0: n=8 cap=92 best=272 weight=87 items=1,2,3,5,7,
+trial 1: n=10 cap=135 best=388 weight=130 items=1,2,3,5,7,9,
+trial 2: n=12 cap=133 best=318 weight=133 items=1,6,7,9,11,
+trial 3: n=14 cap=38 best=201 weight=28 items=4,5,11,
+trial 4: n=16 cap=56 best=293 weight=48 items=1,3,9,14,
+trial 5: n=18 cap=168 best=426 weight=167 items=1,2,3,4,5,11,15,17,
+textbook: 9

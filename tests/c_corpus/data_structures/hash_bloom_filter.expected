@@ -1,0 +1,5 @@
+bits/key= 4 k=3 fill=0.5228 measured fpr=0.1432 theory=0.1469
+bits/key= 8 k=6 fill=0.5267 measured fpr=0.0209 theory=0.0216
+bits/key=12 k=8 fill=0.4864 measured fpr=0.0032 theory=0.0031
+bits/key=16 k=11 fill=0.4968 measured fpr=0.0004 theory=0.0005
+union check: bits set=7840 (a=3042, b=5669)

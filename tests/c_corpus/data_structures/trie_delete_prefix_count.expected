@@ -1,0 +1,4 @@
+inserts=990 deletes=591 misses=1613 prefix_sum=14816
+stored=399 nodes=675
+prefix a=90 ab=30 abc=8 dd=21
+after drain nodes=1

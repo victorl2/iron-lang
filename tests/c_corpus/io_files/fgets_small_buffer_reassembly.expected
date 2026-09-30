@@ -1,0 +1,12 @@
+buffer  2: 5 lines in 85 fgets calls
+buffer  3: 5 lines in 44 fgets calls
+buffer  8: 5 lines in 14 fgets calls
+buffer 16: 5 lines in  9 fgets calls
+buffer 64: 5 lines in  5 fgets calls
+line 0 (6) nl: "short"
+line 1 (41) nl: "a somewhat longer line that will not fit"
+line 2 (1) nl: ""
+line 3 (16) nl: "exactly15chars!"
+line 4 (21) eof: "no newline at the end"
+fgets size 1: first byte still unread: 1
+boundary: "short" then newline=1

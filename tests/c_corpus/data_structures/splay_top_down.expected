@@ -1,0 +1,6 @@
+after ascending inserts: root=299 height=300
+sequential scan of 300 keys: steps=1143
+root after scan=299 height=300
+random: inserts=824 deletes=866 hits=883 size=258 steps=37599
+1000 accesses over 4 hot keys: steps=2518
+drained

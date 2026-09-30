@@ -1,0 +1,4 @@
+collections: 31, cells freed: 154, cells in use at end: 22
+ambiguous words examined: 4440, max stack depth: 77
+interior pointers recognised: 203, words hitting free cells: 632
+false retention: 447 cells total, 21 worst collection

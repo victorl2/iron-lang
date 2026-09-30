@@ -1,0 +1,19 @@
+tell after write             -> 100
+SEEK_SET 10                  -> 10
+SEEK_CUR +5                  -> 15
+SEEK_CUR -12                 -> 3
+SEEK_END 0                   -> 100
+SEEK_END -1                  -> 99
+SEEK_END -100                -> 0
+SEEK_END -101                -> error EINVAL
+SEEK_SET -1                  -> error EINVAL
+offset unchanged after failed seeks: 0
+bad whence                   -> error EINVAL
+SEEK_SET 250                 -> 250
+read past EOF -> 0, size still 100
+offset after pread+pwrite    -> 33
+pread at EOF -> 0
+pread straddling EOF -> 2
+pread at -1 -> EINVAL
+probes=300 mismatches=0
+lseek on pipe                -> error ESPIPE

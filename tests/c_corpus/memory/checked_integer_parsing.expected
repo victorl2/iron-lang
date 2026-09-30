@@ -1,0 +1,28 @@
+0                        -> ok 0
+  42                     -> ok 42
+-17                      -> ok -17
++5                       -> ok 5
+9223372036854775807      -> ok 9223372036854775807
+9223372036854775808      -> range
+-9223372036854775808     -> ok -9223372036854775808
+-9223372036854775809     -> range
+99999999999999999999999  -> range
+                         -> empty
+                         -> empty
+-                        -> no-digits
+12abc                    -> junk
+1 2                      -> junk
+0x1F                     -> ok 31
+ff                       -> ok 255
+-0xff                    -> ok -255
+0x                       -> no-digits
+7fffffffffffffff         -> ok 9223372036854775807
+8000000000000000         -> range
+300                      -> range
+255                      -> ok 255
+-1                       -> range
+2147483648               -> range
+-2147483648              -> ok -2147483648
+bounded 4 of "1234xyzw": ok 1234
+bounded 5 of "1234xyzw": junk
+decimal round trips: 9, accepted cases: 12

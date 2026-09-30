@@ -1,0 +1,20 @@
+process 0: events=21 final clock=21 timestamp sum=231
+process 1: events=22 final clock=28 timestamp sum=319
+process 2: events=18 final clock=24 timestamp sum=195
+process 3: events=22 final clock=23 timestamp sum=275
+messages=29 events=83
+first 14 events in total order (timestamp, pid):
+  (1,0) send to 3
+  (1,1) send to 2
+  (1,2) send to 1
+  (2,0) send to 3
+  (2,1) send to 3
+  (2,2) local
+  (2,3) recv from 0
+  (3,0) local
+  (3,1) local
+  (3,2) local
+  (3,3) recv from 0
+  (4,0) local
+  (4,1) send to 3
+  (4,2) send to 3

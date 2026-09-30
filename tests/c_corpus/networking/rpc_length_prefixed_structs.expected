@@ -1,0 +1,10 @@
+call 101 area: OK area=750
+call 102 stats: OK n=4 min=75 max=100 sum=353
+call 103 divide: OK q=-3 r=-2
+call 201 divide by zero: DIV_ZERO payload=0
+call 202 method 77: NO_METHOD
+call 203 truncated rect: BAD_PAYLOAD
+call 204 version 2: BAD_VERSION
+call 300 greet: OK "hello bob (41)" -> age 42, 2 scores, sum 3
+oversized frame: TOO_BIG
+server: calls=8 errors=5

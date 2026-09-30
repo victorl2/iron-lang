@@ -1,0 +1,4 @@
+snoc=2962 tail=1475 head=1508
+drained 1143 elements across 24 versions, checksum 967098061
+suspension forces=808, reverse steps=535
+linear run: forces=2000 reverse steps=2000

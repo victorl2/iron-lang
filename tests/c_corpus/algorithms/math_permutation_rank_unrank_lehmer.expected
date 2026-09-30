@@ -1,0 +1,10 @@
+rank table for n=4:
+  rank  0 -> 0123 lehmer 0000
+  rank  5 -> 0321 lehmer 0210
+  rank 10 -> 1302 lehmer 1200
+  rank 15 -> 2130 lehmer 2110
+  rank 20 -> 3102 lehmer 3100
+n=7: all 5040 ranks round-trip in lexicographic order
+n=20 200 random ranks OK, xor 275241990043192103
+last permutation of 20 starts 19 18 17 ... ends 0
+cycle count histogram over 2000 random perms of 10: 188 586 639 391 159 34 3 0 0 0

@@ -1,0 +1,3 @@
+resources=24 each initialized once
+value[0]=12344 value[23]=3204422182 chain sum=1699945798
+all 6 threads read the same total: yes

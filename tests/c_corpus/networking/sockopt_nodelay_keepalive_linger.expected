@@ -1,0 +1,13 @@
+client SO_TYPE is stream: yes
+TCP_NODELAY default: off
+TCP_NODELAY after set: on
+TCP_NODELAY after clear: off
+server-side TCP_NODELAY: on
+SO_KEEPALIVE default: off
+SO_KEEPALIVE after set: on
+SO_KEEPALIVE after clear: off
+SO_REUSEADDR default: off
+SO_REUSEADDR after set: on
+SO_LINGER default: off
+SO_LINGER after set: on, seconds nonzero yes
+data delivered with options applied

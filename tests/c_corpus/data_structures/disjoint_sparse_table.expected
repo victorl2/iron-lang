@@ -1,0 +1,6 @@
+n=2   queries=3     matrix digest=24118766 sum digest=398
+n=4   queries=10    matrix digest=12614869702655179987 sum digest=-1306
+n=16  queries=136   matrix digest=3869532601367299351 sum digest=157416
+n=64  queries=95    matrix digest=11366005407676917308 sum digest=263124
+n=256 queries=1601  matrix digest=14485063260669119587 sum digest=692046
+fib(90) mod p = 210345902

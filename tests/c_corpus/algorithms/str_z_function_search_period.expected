@@ -1,0 +1,10 @@
+z vs naive over 12 random strings: 0 mismatches
+z(aabxaabxcaabxaabxay): 19 1 0 0 4 1 0 0 0 8 1 0 0 5 1 0 0 1 0
+z_search abba   -> 180 hits
+z_search aaa    -> 382 hits
+z_search babab  -> 109 hits
+period(abcabcabc) = 3
+period(abcabcab) = 3
+period(aaaa) = 1
+period(abcd) = 4
+period(abaababaab) = 5

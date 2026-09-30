@@ -1,0 +1,3 @@
+trace(AB)=12802148 C00=152539 C[N-1][N-1]=190574
+trace((AB)C)=37930116 equal-to-A(BC)=yes
+identity ok

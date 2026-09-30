@@ -1,0 +1,10 @@
+allocs=7274 frees=7213 failed=513 live=61
+align   8: allocs= 1296 avg front gap=0.00 units
+align  16: allocs= 1271 avg front gap=0.00 units
+align  32: allocs= 1307 avg front gap=0.39 units
+align  64: allocs= 1172 avg front gap=1.18 units
+align 128: allocs= 1161 avg front gap=2.33 units
+align 256: allocs= 1067 avg front gap=4.49 units
+front pieces=3000 tail pieces=5252 whole-block takes=1407 merges=8161
+free blocks=31 free units=175 largest=36
+drained: one block of 512 units

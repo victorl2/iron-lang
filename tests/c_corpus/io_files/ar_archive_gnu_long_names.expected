@@ -1,0 +1,12 @@
+archive: 1158 bytes, 6 members
+  a.o                           17 bytes
+  libcore_utilities_impl.o     100 bytes  (long name)
+  x                              0 bytes
+  another_quite_long_name.c    255 bytes  (long name)
+  mid_size_name.h                1 bytes
+  z.txt                        300 bytes
+after edit: 848 bytes, members: a.o(5) libcore_utilities_impl.o(100) mid_size_name.h(1) z.txt(300) appended_member_with_long_name.bin(9)
+bad terminator: bad header terminator
+bad magic: bad magic
+truncated: member overruns archive
+dangling name ref: bad long name reference

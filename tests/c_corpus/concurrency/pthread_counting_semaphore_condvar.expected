@@ -1,0 +1,4 @@
+trywait drained 3 permits
+entries=800
+limit respected: yes
+permits at end=3

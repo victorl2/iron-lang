@@ -1,0 +1,5 @@
+ascending 1000: height=24 root rank=12
+random: inserts=1160 deletes=1389 size=771 maxheight=29
+rank histogram: 395 199 87 39 26 12 7 3 1 2
+shuffled rebuild has identical shape: yes (height 24)
+drained

@@ -1,0 +1,9 @@
+distinct subsequences: abc=7 aaa=3 abab=11
+rabbbit contains rabbit: 3 ways; babgbag contains bag: 5 ways
+random subsequence queries: 1335 of 3000 present
+distinct subsequence counts verified against enumeration for 25 strings
+smallest 9-subsequence of acdcccddcaddeee = accaddeee
+smallest 10-subsequence of abeedeedebdbb = abdedebdbb
+smallest 5-subsequence of bcbeeceacaeacb = aaacb
+smallest 5-subsequence of eebbbdecae = bbbae
+smallest-subsequence checks: 40

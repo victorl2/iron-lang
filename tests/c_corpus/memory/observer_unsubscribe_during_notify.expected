@@ -1,0 +1,11 @@
+event 1: A:1 B:1 C:1 | subs=3 tomb=0
+event 2: A:2 B:2 C:2 | subs=3 tomb=0
+event 3: B:3 C:3 child:3 | subs=3 tomb=0
+event 4: B:4 C:4 child:4 | subs=3 tomb=0
+A saw 2
+B saw 4
+C saw 4
+D saw 0
+child saw 2
+total deliveries: 12
+unsubscribe unknown id: 0

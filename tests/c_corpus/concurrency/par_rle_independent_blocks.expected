@@ -1,0 +1,6 @@
+input=12345 compressed=608 blocks=13 ratio*100=4
+block  0 -> 52 bytes
+block  1 -> 18 bytes
+block  2 -> 40 bytes
+block  3 -> 38 bytes
+block 12 -> 30 bytes

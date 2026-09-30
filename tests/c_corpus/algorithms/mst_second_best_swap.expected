@@ -1,0 +1,4 @@
+edges 22, spanning trees 59483
+mst weight 67
+second best (strictly larger) by swap: 71
+second best by brute force: 71

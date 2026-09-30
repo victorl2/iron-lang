@@ -1,0 +1,7 @@
+records=5000 memory=200 initial runs=25 fan-in=4
+pass 1 -> 7 runs
+pass 2 -> 2 runs
+pass 3 -> 1 runs
+first=(0,431) last=(999,4253)
+records written=20000 read during merge=15000
+digest=1411a280

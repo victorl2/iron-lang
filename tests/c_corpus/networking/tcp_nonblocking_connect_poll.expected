@@ -1,0 +1,4 @@
+connect to listener: connected
+data flows on the nonblocking-connected socket
+connect to closed port: ECONNREFUSED
+SO_ERROR after success: 0

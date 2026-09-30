@@ -1,0 +1,6 @@
+fail_step=0 ok=1 result=HDR|body|footer unwound: body header close 
+fail_step=1 ok=0 result=(none) unwound: header close 
+fail_step=2 ok=0 result=(none) unwound: body header close 
+fail_step=3 ok=0 result=(none) unwound: result body header close 
+inner: inner1 
+outer: outer2 outer1 

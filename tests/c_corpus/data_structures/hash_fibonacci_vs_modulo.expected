@@ -1,0 +1,9 @@
+pattern      | mask     (max/empty) mod 8191 (max/empty) fibonacci(max/empty) mix32    (max/empty)
+sequential   |         1/4096              1/4096              1/4096              4/4959     
+stride 8192  |      4096/8191              1/4096              1/4096              5/4961     
+stride 1000  |         4/7168              1/4096              2/4216              5/4967     
+high-bits    |      1024/8188              1/4096              3/5754              4/4961     
+random       |         5/4988              5/4972              5/4972              5/4995     
+2-D layout   |        32/8064             32/8002              5/6608              5/4974     
+fibonacci consecutive-key index gaps: 2 distinct values, min 5062 max 5063 of 8192
+fibonacci: 7035 distinct buckets for 8192 consecutive keys in 8192 buckets

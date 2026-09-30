@@ -1,0 +1,36 @@
+--- width 30, ragged: 14 lines, longest 35 ---
+|The standard library treats   |
+|every file as a stream of     |
+|bytes and leaves the structure|
+|to the program. Reading words |
+|one at a time, breaking lines |
+|at a fixed width, and padding |
+|gaps evenly is a classic      |
+|exercise.                     |
+|                              |
+|Some words, like              |
+|supercalifragilisticexpialidocious,|
+|are longer than a narrow      |
+|column and must sit alone on  |
+|their line.                   |
+words preserved: 55 (same order)
+--- width 30, justified: 14 lines, longest 35 ---
+|The  standard  library  treats|
+|every  file  as  a  stream  of|
+|bytes and leaves the structure|
+|to  the program. Reading words|
+|one  at a time, breaking lines|
+|at  a fixed width, and padding|
+|gaps   evenly   is  a  classic|
+|exercise.                     |
+|                              |
+|Some        words,        like|
+|supercalifragilisticexpialidocious,|
+|are   longer   than  a  narrow|
+|column  and  must sit alone on|
+|their line.                   |
+words preserved: 55 (same order)
+--- width 44, ragged: 10 lines, longest 44 ---
+words preserved: 55 (same order)
+--- width 44, justified: 10 lines, longest 44 ---
+words preserved: 55 (same order)

@@ -1,0 +1,7 @@
+k=2: 25 trials, unique tuples found 44
+k=3: 25 trials, unique tuples found 118
+k=4: 25 trials, unique tuples found 259
+k=5: 25 trials, unique tuples found 488
+n=300 4-sum to 0: 82795
+n=300 3-sum to 500: 1131
+n=300 4-sum to -3900 (prunes used): 0 yes

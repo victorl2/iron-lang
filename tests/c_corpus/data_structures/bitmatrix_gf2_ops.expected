@@ -1,0 +1,5 @@
+n= 8 rank(A)= 7 rank(B)= 7 rank(AB)= 7 invertible=0 singular rank= 7 null=c7
+n=17 rank(A)=17 rank(B)=16 rank(AB)=16 invertible=1 singular rank=16 null=19f08
+n=33 rank(A)=32 rank(B)=32 rank(AB)=31 invertible=0 singular rank=32 null=121b6e190
+n=40 rank(A)=38 rank(B)=40 rank(AB)=38 invertible=0 singular rank=38 null=622ea0c25d
+invertible 4x4 matrices over GF(2): 20160

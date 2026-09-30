@@ -1,0 +1,9 @@
+peeked length field: 5
+second peek sees the same bytes: yes
+body after consuming header: hello
+remaining: ' world'
+peek with room for 16 bytes saw 3
+recv with nothing pending: EAGAIN
+MSG_WAITALL collected 24 bytes: ABCDEFGHIJKLMNOPQRSTUVWX
+udp peeked twice, then read 9 bytes: datagram!
+udp queue is empty afterwards

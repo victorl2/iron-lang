@@ -1,0 +1,8 @@
+logical size: 1000100
+whole file: zero=999985 nonzero=115
+hole 1: zero=299990 nonzero=0
+hole 2: zero=699995 nonzero=0
+after filling 16 bytes in hole: nonzero=131
+size after write at 5000000: 5000001
+probe in new hole: 0 0 0
+random probe mismatches: 0

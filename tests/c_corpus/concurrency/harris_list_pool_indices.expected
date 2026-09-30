@@ -1,0 +1,3 @@
+keys=12, after the deterministic phase 6 live keys (the even ones)
+net insert-minus-remove equals presence for every key: yes
+list strictly sorted: yes

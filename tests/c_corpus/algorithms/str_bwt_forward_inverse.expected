@@ -1,0 +1,8 @@
+banana               -> annb$aa row=4
+abracadabra          -> ard$rcaaaabb row=3
+mississippi          -> ipssm$pissii row=5
+aaaaaaaa             -> aaaaaaaa$ row=8
+the quick brown fox  -> xkne ih tucwrf b$qoo row=16
+a                    -> a$ row=1
+random roundtrips ok, BWT reduced run count in 8 of 40 strings
+bad transform rejected: yes

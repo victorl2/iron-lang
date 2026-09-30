@@ -1,0 +1,12 @@
+allocs=6853 frees=6741 failed=406 live=112
+bin scans=16843 (2.32 per alloc) splits=2847 merges=2711
+bin 0: served= 2019 max depth= 20 now=8
+bin 1: served= 1831 max depth= 15 now=11
+bin 2: served=  910 max depth= 14 now=3
+bin 3: served= 1123 max depth= 10 now=0
+bin 4: served=  434 max depth=  7 now=3
+bin 5: served=  248 max depth=  6 now=0
+bin 6: served=   93 max depth=  3 now=0
+bin 7: served=  195 max depth=  2 now=0
+free blocks=25 bytes=1920 largest=368
+drained: one block of 12272 bytes in bin 7

@@ -1,0 +1,4 @@
+int      size=262 cap=512 inserts=1008 deletes=746 hits=732 max probe=27
+u64      size=196 cap=512 inserts=949 deletes=753 hits=767 max probe=23
+tag      size=126 cap=256 inserts=932 deletes=806 hits=731 max probe=18
+cluster: 50 keys left, value sum 2500

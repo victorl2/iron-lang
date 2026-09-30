@@ -1,0 +1,19 @@
+ 0 number 3.2500
+ 1 number -0.5000
+ 2 number 1000000000000000.0000
+ 3 number inf
+ 4 number -inf
+ 5 number nan
+ 6 int    0
+ 7 int    -1
+ 8 int    2147483647
+ 9 int    -2147483648
+10 bool   true
+11 bool   false
+12 null   null
+13 handle #4000000000
+14 sstr   'hello'
+15 sstr   'sixsix'
+random doubles: 99950 numbers, 50 nans, none boxed
+40+2=42.0000 0.25+(-3)=-2.7500
+finite numeric total=1000000000000000.7500 skipped=9

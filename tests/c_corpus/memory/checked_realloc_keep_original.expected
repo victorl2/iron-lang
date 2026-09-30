@@ -1,0 +1,8 @@
+step  8 rc=0 len=800 cap=1024 live=1024
+step 16 rc=0 len=1600 cap=2048 live=2048
+step 21 rc=-1 len=2000 cap=2048 live=2048
+survived: len=2000 verified, failures=2
+shrink to len ok
+after raising limit: rc=0 len=2100 cap=4000
+huge realloc: refused, block intact=1
+live at end=0 peak=6000

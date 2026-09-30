@@ -1,0 +1,8 @@
+acyclic: cycle=0 len=5
+destroyed 5 nodes live=0
+ring: cycle length=6 starts at index 0, bounded len=50
+destroyed 6 nodes live=0 avoided=1
+rho: cycle length=3 starts at index 4
+destroyed 7 nodes live=0 avoided=2
+shared tail lens: 5 6
+freed 8 unique nodes across two heads, live=0

@@ -1,0 +1,7 @@
+header (20 bytes): 45000050 1c464000 40119c3e c0a80001 c0a800c7
+checksum field 0x9c3e, validate: ok
+known example checksum: 0xb861
+single bit flips detected: 160 of 160
+incremental TTL update vs full recompute: 0 mismatches in 255 steps
+with options: ihl=7 header=28 total=40 ok
+errors: truncated bad-version bad-ihl short-packet bad-total-length bad-checksum

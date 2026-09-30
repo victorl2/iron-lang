@@ -1,0 +1,13 @@
+field 1 = 150: 08 96 01
+UINT64_MAX: ff ff ff ff ff ff ff ff ff 01
+zigzag vectors ok
+random roundtrips: 2000, overlong and truncated varints rejected
+request 1001 wire: 08 e9 07 12 03 73 75 6d 1a 0d 0a 17 d8 04 01 e0 c5 08 ff ff ff ff 0f 22 ...
+sum with meta          req 50 bytes -> id=1001 status=0 result=-2147413356 [6 args, 2 tags, deadline 2500, trace deadbeefcafef00d, 0 unknown]
+minmax + unknown fields req 58 bytes -> id=1002 status=0 result=2147553648 [6 args, 0 tags, deadline 0, trace 0, 3 unknown]
+unknown op             req 12 bytes -> id=1003 status=1 result=0 [unknown op]
+wrong wire type        req 5 bytes -> id=1004 status=2 result=0 [malformed request]
+truncated string       req 8 bytes -> id=1005 status=2 result=0 [malformed request]
+runaway varint         req 16 bytes -> id=1006 status=2 result=0 [malformed request]
+mul of -1,2,-3,4,-5    req 15 bytes -> id=1007 status=0 result=-120 [5 args, 0 tags, deadline 0, trace 0, 0 unknown]
+server handled 7 requests, 3 malformed

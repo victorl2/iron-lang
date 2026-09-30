@@ -1,0 +1,3 @@
+vertices=150 edges=1400 max degree 57 at vertex 0
+threads=1 triangles=1527 merge steps=15479
+threads=6 triangles=1527 merge steps=15479

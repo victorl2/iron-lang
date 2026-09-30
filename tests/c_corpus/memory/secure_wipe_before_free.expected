@@ -1,0 +1,6 @@
+naive free : secret visible=1 nonzero=16
+secure free: secret visible=0 nonzero=0
+shrink 48->16: head nonzero=16 tail nonzero=0
+session before wipe: user=user7 counter=21 key nonzero=24
+session graveyard nonzero after secure_free = 0 (was 30)
+5 sessions: nonzero bytes before=155 after=0

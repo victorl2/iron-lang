@@ -1,0 +1,25 @@
+ 0: ping 4
+ 1: pong 6
+ 2: ping 19
+ 3: pong 20
+ 4: ping 61
+ 5: pong 49
+ 6: ping 148
+ 7: pong 133
+ 8: ping 400
+ 9: pong 390
+10: ping 1171
+11: pong 1160
+12: ping 3481
+13: pong 3513
+14: ping 10540
+15: pong 10505
+16: ping 31516
+17: pong 31542
+18: ping 94627
+19: pong 94604
+20: ping 283813
+21: pong 283793
+22: ping 851380
+23: pong 851341
+final ball=851341 hits=24

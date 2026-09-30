@@ -1,0 +1,22 @@
+mkdir_p("a", 0755) -> 0 OK
+mkdir_p("a/b/c/d", 0750) -> 0 OK
+mkdir_p("a/b/c/d", 0700) -> 0 OK
+mkdir_p("a//b//e/", 0755) -> 0 OK
+mkdir_p("x/./y/../z", 0755) -> 0 OK
+mkdir_p("f/g", 0755) -> -1 ENOTDIR
+mkdir_p("a/b/c/d/../..", 0775) -> 0 OK
+mkdir_p("", 0755) -> -1 ENOENT
+parent m under umask 077: 0700
+leaf m/n/o chmod 0755: 0755
+d 0755 ./a
+d 0775 ./a/b
+d 0755 ./a/b/c
+d 0700 ./a/b/c/d
+d 0755 ./a/b/e
+- 0644 11 ./f
+d 0700 ./m
+d 0700 ./m/n
+d 0755 ./m/n/o
+d 0755 ./x
+d 0755 ./x/y
+d 0755 ./x/z

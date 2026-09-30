@@ -1,0 +1,9 @@
+insertion  stable=yes unstable_trials=0/60
+bubble     stable=yes unstable_trials=0/60
+gnome      stable=yes unstable_trials=0/60
+merge      stable=yes unstable_trials=0/60
+counting   stable=yes unstable_trials=0/60
+selection  stable=no  unstable_trials=60/60 first_bad_trial=0 key=1
+shell      stable=no  unstable_trials=60/60 first_bad_trial=0 key=0
+heap       stable=no  unstable_trials=60/60 first_bad_trial=0 key=0
+quick      stable=no  unstable_trials=60/60 first_bad_trial=0 key=0

@@ -1,0 +1,10 @@
+step  500: edges=26 links=120 cuts=94 updates=54 path-queries=29 lcas=6
+step 1000: edges=33 links=210 cuts=177 updates=101 path-queries=78 lcas=23
+step 1500: edges=27 links=311 cuts=284 updates=140 path-queries=143 lcas=36
+step 2000: edges=33 links=413 cuts=380 updates=183 path-queries=180 lcas=44
+step 2500: edges=34 links=508 cuts=474 updates=225 path-queries=244 lcas=62
+step 3000: edges=31 links=593 cuts=562 updates=287 path-queries=309 lcas=72
+step 3500: edges=25 links=683 cuts=658 updates=338 path-queries=355 lcas=84
+step 4000: edges=30 links=778 cuts=748 updates=382 path-queries=422 lcas=90
+checksum 937209
+path total 2089 max 99, connected after cut: 0

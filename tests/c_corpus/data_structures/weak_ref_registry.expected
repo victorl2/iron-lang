@@ -1,0 +1,4 @@
+created=676 attached=390 detached=102 destroyed=666
+weak locks: 71 succeeded, 886 found the object gone
+alive now=10 edges=4 control blocks kept by observers=676
+after releasing handles: objects=0; dropping registry freed 676 blocks, blocks left=0

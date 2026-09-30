@@ -1,0 +1,6 @@
+trial  0:  8x 9 matrix,  10 ones, min column 2 has 0 rows
+trial  8: 13x 8 matrix,  45 ones, min column 8 has 2 rows
+trial 16:  6x 9 matrix,  26 ones, min column 5 has 0 rows
+trial 24: 13x 7 matrix,  23 ones, min column 3 has 2 rows
+trial 32: 15x 7 matrix,  21 ones, min column 3 has 2 rows
+ops=4894 covers=1437 row selects=1028 unwinds=2313, every state matched the model and restored exactly

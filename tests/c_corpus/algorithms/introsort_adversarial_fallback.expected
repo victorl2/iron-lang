@@ -1,0 +1,3 @@
+random   no-limit cmps=24945   | introsort cmps=24945   fallbacks=0
+killer   no-limit cmps=34631   | introsort cmps=35630   fallbacks=9
+reversed no-limit cmps=16266   | introsort cmps=16266   fallbacks=0

@@ -1,0 +1,13 @@
+nodes 48 edges 94 sources 10 sinks 11
+critical path length 10 levels
+level 0: 10 nodes
+level 1: 6 nodes
+level 2: 6 nodes
+level 3: 6 nodes
+level 4: 4 nodes
+level 5: 3 nodes
+level 6: 2 nodes
+level 7: 2 nodes
+level 8: 5 nodes
+level 9: 4 nodes
+values hash 311829109, last node value 925315

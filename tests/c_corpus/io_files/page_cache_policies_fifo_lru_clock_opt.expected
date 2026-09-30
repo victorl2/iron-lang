@@ -1,0 +1,6 @@
+workload               FIFO    LRU  CLOCK    OPT
+looping (12 pages)        0      0      0    948
+hot set + scan          660    817    729   1019
+skewed random           626    691    659   1010
+phases                 1170   1182   1188   1360
+cache frames=8 pages=64 accesses per workload=1500

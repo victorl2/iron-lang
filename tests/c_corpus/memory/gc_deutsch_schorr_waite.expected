@@ -1,0 +1,5 @@
+objects allocated: 736
+collections: 22, swept: 721
+advances: 206, retreats: 206
+longest reversed path: 6
+oracle checks: 22

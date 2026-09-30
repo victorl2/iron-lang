@@ -1,0 +1,9 @@
+|A|=   0 |B|=   0 range= 3 ties=   0
+|A|=   0 |B|= 500 range= 3 ties= 169 first=(1,B) last=(504,B)
+|A|= 500 |B|=   0 range= 3 ties= 171 first=(2,A) last=(486,A)
+|A|=   1 |B|=   1 range= 2 ties=   1 first=(1,A) last=(1,B)
+|A|=1000 |B|=1000 range= 1 ties=1999 first=(0,A) last=(0,B)
+|A|=1000 |B|=1000 range=50 ties=  90 first=(2,B) last=(24947,B)
+|A|=3000 |B|=  17 range= 4 ties= 789 first=(1,B) last=(4468,A)
+|A|=  17 |B|=3000 range= 4 ties= 778 first=(1,A) last=(4507,B)
+|A|=4096 |B|=4099 range= 2 ties=6152 first=(0,A) last=(2042,B)

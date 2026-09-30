@@ -1,0 +1,13 @@
+source tree: 76 allocations live, height 9
+clone needs 76 allocations
+failure depth histogram (depth: count of injection points):
+  depth  1: 2
+  depth  2: 4
+  depth  3: 8
+  depth  4: 10
+  depth  5: 14
+  depth  6: 18
+  depth  7: 14
+  depth  8: 4
+  depth  9: 2
+final live=0
