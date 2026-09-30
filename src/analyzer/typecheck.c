@@ -5537,6 +5537,20 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             if (f && f->name &&
                                 strcmp(f->name, mc->method) == 0) {
                                 is_field_call = true;
+                                /* The call has the field's signature (#196). */
+                                Iron_Type *fty = f->resolved_type;
+                                if (fty && fty->kind == IRON_TYPE_FUNC) {
+                                    if (mc->arg_count != fty->func.param_count) {
+                                        char msg[256];
+                                        snprintf(msg, sizeof(msg),
+                                                 "expected %d argument(s), got %d",
+                                                 fty->func.param_count, mc->arg_count);
+                                        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                                    }
+                                    result = fty->func.return_type
+                                             ? fty->func.return_type
+                                             : iron_type_make_primitive(IRON_TYPE_VOID);
+                                }
                                 break;
                             }
                         }
@@ -5593,6 +5607,27 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 /* Non-ident receiver of object type (`self.ball.hp()`): resolve
                  * the return type from the method decl, as the ident arm does. */
                 const char *type_name_ni = obj_type_mc->object.decl->name;
+                /* A func typed field called through the receiver (#196). */
+                {
+                    Iron_ObjectDecl *od_ni = obj_type_mc->object.decl;
+                    for (int fi = 0; fi < od_ni->field_count; fi++) {
+                        Iron_Field *f = (Iron_Field *)od_ni->fields[fi];
+                        if (!f || !f->name || !mc->method || strcmp(f->name, mc->method) != 0)
+                            continue;
+                        Iron_Type *fty = f->resolved_type;
+                        if (!fty || fty->kind != IRON_TYPE_FUNC) break;
+                        if (mc->arg_count != fty->func.param_count) {
+                            char msg[256];
+                            snprintf(msg, sizeof(msg), "expected %d argument(s), got %d",
+                                     fty->func.param_count, mc->arg_count);
+                            emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+                        }
+                        result = fty->func.return_type
+                                 ? fty->func.return_type
+                                 : iron_type_make_primitive(IRON_TYPE_VOID);
+                        break;
+                    }
+                }
                 for (int i = 0; i < ctx->program->decl_count; i++) {
                     Iron_Node *d = ctx->program->decls[i];
                     if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
