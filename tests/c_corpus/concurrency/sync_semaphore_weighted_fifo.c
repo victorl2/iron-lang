@@ -69,8 +69,11 @@ typedef struct {
 
 static void *demo_req(void *p) {
     Req *r = p;
-    ws_acquire(r->weight);
-    grant_seq[atomic_fetch_add(&grant_pos, 1)] = r->id;
+    /* tickets are granted strictly in order under the lock, so slot by ticket (main holds ticket 0);
+     * recording in arrival order after unlocking would race between the two threads */
+    unsigned ticket = ws_acquire(r->weight);
+    grant_seq[ticket - 1] = r->id;
+    atomic_fetch_add(&grant_pos, 1);
     return NULL; /* keeps holding: main releases for it */
 }
 

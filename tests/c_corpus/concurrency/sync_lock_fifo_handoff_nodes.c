@@ -133,10 +133,13 @@ static void *barger(void *p) {
 
 static unsigned order_seen[4];
 static atomic_int order_pos;
+static atomic_int trylock_done; /* waiters keep the lock until main has probed it */
 static void *ordered(void *p) {
     (void)p;
     unsigned a = fl_lock();
     order_seen[atomic_fetch_add(&order_pos, 1)] = a;
+    while (!atomic_load(&trylock_done))
+        sched_yield();
     fl_unlock();
     return NULL;
 }
@@ -183,6 +186,7 @@ int main(void) {
     fl_unlock();
     unsigned a;
     int got = fl_trylock(&a);
+    atomic_store(&trylock_done, 1);
     printf("trylock right after handoff succeeded: %s\n", got ? "yes" : "no");
     for (int i = 0; i < 3; i++)
         pthread_join(ot[i], NULL);
