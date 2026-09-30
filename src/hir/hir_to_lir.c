@@ -528,9 +528,12 @@ static bool hir_expr_is_borrowed_elem(IronHIR_Expr *e) {
  * temporary (`make_probe().name`) is not a place: lowering copies the
  * field out and drops the temporary, so the read is an owned value. */
 static bool hir_expr_is_place(IronHIR_Expr *e) {
-    while (e && (e->kind == IRON_HIR_EXPR_FIELD_ACCESS || e->kind == IRON_HIR_EXPR_INDEX))
+    /* A cast (an interface view, an unwrap) of a place still names it. */
+    while (e && (e->kind == IRON_HIR_EXPR_FIELD_ACCESS || e->kind == IRON_HIR_EXPR_INDEX ||
+                 e->kind == IRON_HIR_EXPR_CAST))
         e = e->kind == IRON_HIR_EXPR_FIELD_ACCESS ? e->field_access.object
-                                                   : e->index.array;
+          : e->kind == IRON_HIR_EXPR_INDEX        ? e->index.array
+                                                   : e->cast.value;
     return e && (e->kind == IRON_HIR_EXPR_IDENT || hir_expr_is_borrowed_elem(e));
 }
 
