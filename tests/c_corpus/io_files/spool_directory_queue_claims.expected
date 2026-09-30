@@ -1,0 +1,6 @@
+queued=30 first=1-0005.r0 last=5-0029.r0
+consumer died holding 5-0016.r0
+recovered stale claim 5-0016.r0
+done=27 dead=3 failed attempts=12 requeued=9 races lost by second consumer=7
+first 10 completions: 5 10 15 20 25 30 1 2 3 4
+dead letters: 5-0007.r3 5-0011.r3 5-0022.r3

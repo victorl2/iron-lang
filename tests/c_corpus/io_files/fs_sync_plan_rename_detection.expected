@@ -1,0 +1,13 @@
+MKDIR  docs/img
+MKDIR  newdir
+UPDATE docs/guide.md
+MOVE   docs/logo.dat -> docs/img/logo.dat
+COPY   newdir/fresh.txt
+MOVE   old/report.txt -> newdir/moved_report.txt
+UPDATE src/util.c
+DELETE old/deep/junk.tmp
+DELETE src/stale.o
+RMDIR  old/deep
+RMDIR  old
+ops=11 (mkdir=2 move=2 copy=1 update=2 delete=2 rmdir=2) bytes copied=81
+entries after sync=11, second plan=0 ops

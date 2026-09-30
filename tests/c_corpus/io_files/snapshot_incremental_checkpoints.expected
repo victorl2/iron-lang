@@ -1,0 +1,13 @@
+checkpoint  kind  pages  bytes
+    0       full     48   1748
+    1       incr      1     56
+    2       incr      2     92
+    3       incr      5    200
+    4       incr      6    236
+    5       full     48   1748
+    6       incr      1     56
+    7       incr      7    272
+    8       incr      1     56
+all 9 checkpoints restore exactly; bytes total=4464 of which full=3496
+merged chain 0..4 into full snapshot of 1748 bytes; replay pages for seq 4: 48
+after bit flip in checkpoint 7: restore(6)=ok restore(7)=fail

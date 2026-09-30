@@ -1,0 +1,4 @@
+objects=3000 pack bytes=76049 index bytes=54748 large-offset entries=2215
+hits verified=3000 (crc checked), misses=2000
+avg probes with fanout=3.12, without fanout=10.64, misses=3.66
+entries resolved through the large-offset table=2215

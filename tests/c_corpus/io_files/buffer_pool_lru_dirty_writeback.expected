@@ -1,0 +1,4 @@
+accesses=3000 hits=1674 misses=1339
+evictions=1332 dirty writebacks=579 disk reads=1338 writes=579
+all-frames-pinned refused=1
+unpinned reference LRU hits=1670 (pool hits differ by pinning: small)

@@ -1,0 +1,9 @@
+commit 1 7480a611a6a09e36 objects=7 dedup hits=1
+commit 2 f4c727b70deb4da1 objects=13 dedup hits=4
+commit 3 89335346e7606cf2 objects=15 dedup hits=8
+log: 89335346 tree f596488f parent f4c727b7 drop docs, rename
+log: f4c727b7 tree 0e2af025 parent 7480a611 edit main, add notes
+log: 7480a611 tree 9ca35de6 parent - initial import
+checkout of commit 1 reproduces tree 9ca35de6
+objects before gc=15 reachable from commit 1=7 removed=8 fsck ok
+corrupted object detected by hash mismatch
