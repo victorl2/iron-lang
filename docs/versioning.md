@@ -148,7 +148,8 @@ tag they correspond to.
 | "Milestone v3.0" (internal: Iron v4 Memory Model) | `v4.0.0-alpha` | Internal planning tracked the memory-model overhaul as "milestone v3.0" (see `docs/release/v4.0.0-alpha.md`); it shipped publicly as `v4.0.0-alpha`. |
 | (public tag, no internal drift) | `v4.1.0-alpha` | Networking (HTTP/HTTPS/WebSocket), v4 remediation, and removal of the package manager in favor of vendoring. |
 | (public tag, no internal drift) | `v4.2.0-alpha` | llms.txt and the compiler-verified LLM guide, W0613 fixes, removal of the migrate command, and working release archives. |
-| (public tag, no internal drift) | `v4.3.0-alpha` | Correctness hardening, explicit list ownership (`copy()` / `take()`), interface type tests and type match, and owned interface lists. **Current release.** |
+| (public tag, no internal drift) | `v4.3.0-alpha` | Correctness hardening, explicit list ownership (`copy()` / `take()`), interface type tests and type match, and owned interface lists. |
+| (public tag, no internal drift) | `v4.4.0-alpha` | Strings and closure environments freed through reference counts, `rc [T]` shared lists, closures borrow lists only for a call, map / filter / reduce / forEach on any list, func typed fields callable. **Current release.** |
 
 Archived requirements files `.planning/REQUIREMENTS-v0.1.0.md`,
 `.planning/REQUIREMENTS-v0.1.x.md`, and `.planning/REQUIREMENTS-v0.2.0.md`
