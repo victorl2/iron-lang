@@ -904,6 +904,8 @@ Iron_String Iron_string_from_byte(int64_t b) {
     return iron_string_from_cstr(buf, 1);
 }
 
+/* `s.release()`: strings are freed with their owners (#182); kept for
+ * source compatibility and does nothing. */
 void Iron_string_release(Iron_String self) {
-    iron_string_release(&self);
+    (void)self;
 }
