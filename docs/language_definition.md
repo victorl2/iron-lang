@@ -2165,3 +2165,486 @@ func main() {
 ```output
 256 120 9 4
 ```
+
+---
+
+## 9. The standard library
+
+The standard library is a set of Iron declarations (in `src/stdlib/`)
+whose bodies are provided by the C runtime. Modules marked *import* must be
+imported by name (section 5.9); the rest is always available. Functions on a
+module object are called as `Module.function(args)`; methods are called on
+values.
+
+### 9.1 Built-in functions
+
+These are available everywhere without an import.
+
+| Function | Description |
+|---|---|
+| `println(s: String)` | writes `s` and a newline to standard output |
+| `print(s: String)` | writes `s` without a newline |
+| `len(x) -> Int` | number of elements of a list, array or vector, or characters of a string |
+| `range(n: Int)` | the sequence `0 .. n-1`, only valid as the iterable of `for` |
+| `fill(n: Int, v: T) -> [T]` | a list of `n` copies of `v` |
+| `min(a: Int, b: Int) -> Int`, `max(a: Int, b: Int) -> Int` | smaller or larger of two integers |
+| `clamp(x: Int, lo: Int, hi: Int) -> Int` | `x` limited to `[lo, hi]` |
+| `abs(x: Int) -> Int` | absolute value |
+| `assert(cond: Bool)`, `assert(cond: Bool, msg: String)` | abort with `msg` (or the source location) when `cond` is false |
+| `read_file(path: String) -> String` | file contents, only inside `comptime` |
+
+`print` and `println` take exactly one `String`; interpolate other values.
+`min`, `max`, `clamp` and `abs` are `Int` only (use `Math` for floats).
+
+```iron
+func main() {
+    println("{min(3, 9)} {max(3, 9)} {clamp(15, 0, 10)} {abs(-4)}")
+    print("no newline, ")
+    println("then one")
+    assert(len("abc") == 3, "len counts characters")
+}
+```
+
+```output
+3 9 10 4
+no newline, then one
+```
+
+### 9.2 `String` methods
+
+All string methods are `readonly`; indexes count characters from 0 and a
+missing substring gives `-1`.
+
+| Method | Description |
+|---|---|
+| `len() -> Int`, `byte_len() -> Int` | characters, bytes |
+| `upper() -> String`, `lower() -> String`, `trim() -> String` | case and whitespace |
+| `contains(sub) -> Bool`, `starts_with(p) -> Bool`, `ends_with(s) -> Bool` | tests |
+| `index_of(sub) -> Int`, `rindex_of(sub) -> Int`, `count(sub) -> Int` | search |
+| `split(sep: String) -> [String]`, `chars() -> [String]` | split into parts or characters |
+| `join(parts: [String]) -> String` | join `parts` with the receiver as separator |
+| `replace(old, new) -> String`, `repeat(n) -> String` | rewriting |
+| `substring(start, end) -> String`, `char_at(i) -> String` | slices (end exclusive) |
+| `pad_left(width, ch) -> String`, `pad_right(width, ch) -> String` | padding |
+| `to_int() -> Int`, `to_float() -> Float` | parsing (0 when not a number) |
+| `byte_at(i) -> Int`, `String.from_byte(b: Int) -> String` | byte access |
+| `release()` | does nothing (kept for source compatibility) |
+
+`Int`, `Int32` and `Float` have a `to_string() -> String` method. `s[i]`
+is `s.char_at(i)` and `s[a..b]` is `s.substring(a, b)`.
+
+```iron
+func main() {
+    val s = "Hello, Wörld"
+    println("{s.len()} {s.byte_len()} {s.upper()} {s.index_of("o")} {s.rindex_of("o")}")
+    println("{s.substring(7, 12)} {s.char_at(8)} {s.count("l")} {s.replace("l", "L")}")
+    val parts = "a,b,,c".split(",")
+    println("{parts.len()} {parts[2].len()} {",".join(["x", "y"])}")
+    println("[{"  x ".trim()}] {"ab".repeat(3)} {"7".pad_left(3, "0")} {"7".pad_right(3, "-")}")
+    println("{s.byte_at(0)} {String.from_byte(65)} {"abc".chars()[1]} {s[0]} {s[0..5]}")
+}
+```
+
+```output
+12 13 HELLO, WÖRLD 4 4
+Wörld ö 3 HeLLo, WörLd
+4 0 x,y
+[x] ababab 007 7--
+72 A b H Hello
+```
+
+### 9.3 List methods
+
+Methods on `[T]` (and, where noted, on fixed arrays, bounded vectors and
+`rc [T]`). Mutating methods need a `var` list.
+
+| Method | Description |
+|---|---|
+| `len() -> Int` | number of elements (also `len(xs)`) |
+| `push(v: T)`, `pop() -> T` | append, remove and return the last element |
+| `insert(i: Int, v: T)`, `remove(i: Int) -> T` | insert before / remove at index |
+| `get(i: Int) -> T`, `set(i: Int, v: T)` | checked element access (same as `xs[i]`) |
+| `get_unchecked(i: Int) -> T`, `set_unchecked(i: Int, v: T)` | access without the bounds check |
+| `clear()`, `reverse()`, `sort()` | in place; `sort` orders `Int`, `Float` and `String` ascending |
+| `contains(v: T) -> Bool` | membership |
+| `copy() -> [T]`, `take() -> [T]` | independent copy; move the contents out |
+| `map(f: func(T) -> U) -> [U]` | transform |
+| `filter(f: func(T) -> Bool) -> [T]` | keep matching elements |
+| `reduce(init: U, f: func(U, T) -> U) -> U` | fold |
+| `forEach(f: func(T))` | call `f` on each element |
+| `sum() -> T` | sum of an `[Int]` or `[Float]` |
+
+The lambdas passed to `map`, `filter`, `reduce` and `forEach` must write
+their parameter types. Chains of `map`/`filter`/`reduce` calls are fused
+into one loop by the optimizer.
+
+```iron
+func main() {
+    val ys = [1, 2, 3, 4, 5]
+    val squares = ys.map(func(x: Int) -> Int { return x * x })
+    val evens = ys.filter(func(x: Int) -> Bool { return x % 2 == 0 })
+    val total = ys.reduce(0, func(acc: Int, x: Int) -> Int { return acc + x })
+    val labels = ys.map(func(x: Int) -> String { return "n{x}" })
+    println("{squares[4]} {evens.len()} {total} {ys.sum()} {labels[0]}")
+    ys.forEach(func(x: Int) { print("{x},") })
+    println("")
+    var xs = [5, 6, 7, 8]
+    xs.set(1, 60)
+    val removed = xs.remove(0)
+    xs.reverse()
+    val popped = xs.pop()
+    println("{removed} {popped} {xs.get(0)} {xs.len()}")
+    var words = ["b", "c", "a"]
+    words.sort()
+    println("{words[0]}{words[1]}{words[2]}")
+}
+```
+
+```output
+25 2 15 15 n1
+1,2,3,4,5,
+5 60 8 2
+abc
+```
+
+### 9.4 `math` (import)
+
+`Math` has the constants `Math.PI`, `Math.TAU` and `Math.E` and the
+functions `sin`, `cos`, `tan`, `asin`, `acos`, `sqrt`, `floor`, `ceil`,
+`round`, `log`, `log2`, `exp` (all `(x: Float) -> Float`), `atan2(y, x)`,
+`pow(base, exp)`, `hypot(a, b)`, `lerp(a, b, t)` (`Float` arguments and
+results), `sign(x: Float) -> Int`, `random() -> Float` in `[0, 1)`,
+`random_float(min, max) -> Float`, `random_int(min: Int, max: Int) -> Int`
+(inclusive) and `seed(n: Int)`.
+
+```iron
+import math
+
+func main() {
+    println("{Math.PI > 3.14} {Math.floor(2.7)} {Math.pow(2.0, 10.0)} {Math.sign(-2.5)}")
+    Math.seed(42)
+    val r = Math.random()
+    println("{r >= 0.0 and r < 1.0} {Math.random_int(3, 3)} {Math.hypot(3.0, 4.0)}")
+}
+```
+
+```output
+true 2 1024 -1
+true 3 5
+```
+
+### 9.5 `io` (import)
+
+Simple functions on `IO`:
+
+| Function | Description |
+|---|---|
+| `read_file(path) -> String`, `write_file(path, content)`, `append_file(path, content)` | whole-file text I/O (an unreadable file reads as `""`) |
+| `read_lines(path) -> [String]` | the lines of a file |
+| `read_line() -> String` | one line from standard input |
+| `file_exists(path) -> Bool`, `is_dir(path) -> Bool` | tests |
+| `create_dir(path)`, `delete_file(path)` | directories and deletion |
+| `list_files(dir) -> String` | the entries of a directory, one per line |
+| `basename(path)`, `dirname(path)`, `extension(path)`, `join_path(a, b)` | path helpers (`extension` has no leading dot) |
+
+Result-returning functions, which report errors in the value instead of
+failing silently:
+
+| Function | Result |
+|---|---|
+| `read_text(path, max_bytes)`, `read_bytes(path, max_bytes)` | `FileReadResult { data: String, error: Int, error_message: String }` |
+| `write_text(path, content)`, `write_bytes(path, content)`, `append_text(path, content)`, `append_bytes(path, content)` | `FileWriteResult { bytes: Int, error: Int, error_message: String }` |
+| `copy_file(src, dst, overwrite: Bool)`, `move_file(src, dst, overwrite: Bool)` | `FileWriteResult` |
+| `file_info(path)` | `FileInfo { exists, is_file, is_dir: Bool, size, modified_unix, error: Int, error_message: String }` |
+
+`error` is 0 on success. `FileHandle.open(path) -> FileHandle` and
+`h.close()` give a `nocopy` handle to an open file descriptor (`h.fd`)
+that closes itself when dropped.
+
+```iron
+import io
+
+func main() {
+    val path = "/tmp/iron_manual_io.txt"
+    val w = IO.write_text(path, "one\ntwo\n")
+    val r = IO.read_text(path, 1024)
+    val lines = IO.read_lines(path)
+    val info = IO.file_info(path)
+    println("{w.error} {w.bytes} {r.error} {r.data.len()} {lines[1]} {info.size}")
+    val missing = IO.read_text("/tmp/iron_manual_missing_file", 16)
+    println("{missing.error != 0} {IO.extension("a/b.iron")} {IO.basename("a/b.iron")} {IO.join_path("a", "b")}")
+    IO.delete_file(path)
+    println("{IO.file_exists(path)}")
+}
+```
+
+```output
+0 8 0 8 two 8
+true iron b.iron a/b
+false
+```
+
+### 9.6 `time` (import)
+
+`Time.now() -> Float` (seconds since the Unix epoch), `Time.now_ms() -> Int`
+and `Time.now_ns() -> Int` (milliseconds and nanoseconds), `Time.sleep(ms:
+Int)`, `Time.since(start: Float) -> Float` (seconds elapsed since a
+`Time.now()` value), and `Time.Timer(seconds: Float) -> Timer` with the
+fields `elapsed_ms` and `duration_ms` and the methods `done() -> Bool`,
+`update(dt: Float)` and `reset()` (the last two need a `var` timer).
+`Duration` is a millisecond value type built with `Duration.millis(n)`,
+`Duration.seconds(n)`, `Duration.minutes(n)` or `Duration.from_ms(n)`,
+read with `d.ms` or `d.to_ms()`.
+
+```iron
+import time
+
+func main() {
+    val started = Time.now_ms()
+    Time.sleep(5)
+    println("{Time.now_ms() - started >= 5} {Duration.seconds(2).to_ms()} {Time.Timer(0.5).done()}")
+}
+```
+
+```output
+true 2000 false
+```
+
+### 9.7 `log` (import)
+
+`Log.debug(msg)`, `Log.info(msg)`, `Log.warn(msg)` and `Log.error(msg)`
+write a timestamped line to standard error; `Log.set_level(level)` with
+`Log.DEBUG`, `Log.INFO`, `Log.WARN` or `Log.ERROR` hides messages below
+the level.
+
+### 9.8 `hint` (import)
+
+`Hint.black_box(x: Int) -> Int` returns its argument while preventing the
+C optimizer from reasoning about it; it exists for benchmarks.
+
+### 9.9 Memory and concurrency types
+
+These are always available and are described in sections 6 and 7:
+
+| Type | API |
+|---|---|
+| `Box[T]` (nocopy) | `Box.new(v) -> Box[T]`, `Box.null() -> Box[T]`, `b.unwrap() -> *var unchecked T`, `b.is_null() -> Bool`, `b.free()` |
+| `Arena` | `Arena.new(bytes)`, `Arena.with_capacity(bytes)`, `Arena.new_threadsafe(bytes)`, `a.save() -> ArenaSave`, `a.restore(p: ArenaSave)`, `a.reset()`, `a.used() -> Int`, `a.capacity() -> Int` |
+| `RawPtr` | `RawPtr.of(x) -> RawPtr`, `Ptr.cast[T](raw) -> *unchecked T` |
+| `Channel[T]` (nocopy) | `Channel.new(capacity: Int)`, `ch.send(v: T)`, `ch.recv() -> T` |
+| `Mutex[T]`, `MutexGuard[T]` (nocopy) | `Mutex.new(v)`, `m.lock() -> MutexGuard[T]`, `g.get() -> T`, `g.set(v: T)` |
+| `RWLock[T]`, `RWReadGuard[T]`, `RWWriteGuard[T]` (nocopy) | `RWLock.new(v)`, `l.read()`, `l.write()`, `g.get() -> T`, `g.set(v: T)` (write guard only) |
+| `FileHandle` (nocopy) | `FileHandle.open(path) -> FileHandle`, `h.close()`, field `fd: Int` |
+
+### 9.10 `Hashable`, `Map` and `Set`
+
+`Hashable` is the interface of section 5.5. `Map[K: Hashable, V]` and
+`Set[T: Hashable]` are declared as generic object types so that the
+constraint is checked, but they have no methods yet (section 12); use lists
+and objects.
+
+### 9.11 `net`, `http`, `websocket` and `url` (import)
+
+The networking modules are documented in [docs/networking.md](networking.md).
+In summary: `net` provides `Net.tcp_dial(host, port, timeout)`,
+`Net.tcp_listen(host, port)`, `TcpListener.accept`, `TcpSocket.read`,
+`TcpSocket.write`, `close`, UDP (`Net.udp_bind`, `Net.udp_sendto_v4`,
+`Net.udp_sendto_v6`, `UdpSocket.recvfrom`), `IPv4Addr` / `IPv6Addr`
+parsing and formatting and `Net.lookup_host`; every fallible call returns a
+tuple whose second element is a `NetError { code: Int }` (0 on success).
+`http` provides a server (`Http.listen`, `HttpServer.accept`,
+`HttpConnection.read_request`, `send_response`, `Http.listen_tls`), a
+client (`Http.get`, `Http.post_json`, `Http.request`, `HttpClient.open`)
+and response builders (`Http.response`, `json_response`, `html_response`,
+`text_response`, `file_response`, `Http.header`); requests and responses
+are objects with `status`, `headers`, `body`, `error` and `error_message`
+fields. `websocket` provides `WebSocket.connect` (and the `_with_ca`,
+`_insecure` and `_with_protocols` variants), `send_text`, `send_bytes`,
+`ping`, `receive`, `close`, `abort`, `is_open` and the server side
+`HttpConnection.upgrade_websocket`. `url` provides `Url.parse(s) ->
+(Url, UrlError)`, `Url.build(u)`, `Url.resolve(base, ref)`,
+`Url.percent_encode`, `Url.percent_decode` and a `Url.builder()`.
+All timeouts are integer milliseconds.
+
+### 9.12 `raylib` (import)
+
+`import raylib` makes the raylib bindings available: the objects
+`Vector2`, `Vector3`, `Color`, `Rectangle`, `Texture`, `Font` and so on,
+the enums `KeyboardKey`, `MouseButton`, `ConfigFlags` and others, and the
+functions as `snake_case` methods on namespace objects (`Window.init`,
+`Window.should_close`, `Draw.begin`, `Draw.text`, `Input.is_key_down`, ...).
+The full binding list is `src/stdlib/raylib.iron`, and the graphics guide at
+[ironlang.dev/raylib](https://ironlang.dev/raylib/) shows complete programs.
+
+---
+
+## 10. Programs, projects and the command line
+
+### 10.1 Single files
+
+`ironc build file.iron` compiles one file to a binary next to it (`-o`
+picks the path), `ironc run file.iron` compiles and runs it, and
+`ironc check file.iron` type-checks it. `iron build file.iron`, `iron run
+file.iron` and `iron check file.iron` do the same. A single file may
+`import` only standard library modules.
+
+### 10.2 Packages
+
+`iron init name` (or `iron init --lib name`) creates a package: a
+directory with an `iron.toml` manifest, `src/main.iron` (or `src/lib.iron`
+for a library) and a `.gitignore`. Inside a package, `iron build` compiles
+every `.iron` file under `src/` and `vendor/` into `target/`, `iron run`
+builds and runs it, `iron check` type-checks the same sources, `iron test`
+compiles and runs every `tests/test_*.iron` file as a program (a test
+passes when it exits with 0) and `iron fmt file.iron` reformats a file
+(`--check` only reports). All files of a package share one namespace: a
+`pub` declaration in one file is visible in every other file, and a
+private one only in its own (`E0320`). `import` of a package file is
+optional and documents the dependency.
+
+```toml
+[package]
+name = "demo"
+version = "0.1.0"
+type = "bin"            # or "lib"
+description = "optional"
+iron = ">= 4.4.0"       # optional compiler version constraint
+```
+
+The `iron` constraint uses full `X.Y.Z` versions with the operators `>=`,
+`>`, `<=`, `<`, `=` (or no operator for an exact version), `^` (same
+major, or same minor before 1.0) and `~` (same minor), and comma-separated
+clauses are combined with AND (`">= 4.0.0, < 5.0.0"`). A pre-release such
+as `4.4.0-alpha` sorts before `4.4.0`. A mismatch stops the build with the
+version to install. There is no `[dependencies]` table: a manifest that
+declares one fails with a vendoring hint.
+
+### 10.3 Third-party code
+
+Iron has no package manager, registry or lockfile. To use third-party
+Iron code, copy its source into `vendor/<name>/` and commit it. `iron
+build`, `iron run` and `iron check` compile every `.iron` file under
+`vendor/` together with `src/`: a vendored directory that has its own
+`iron.toml` and `src/` contributes only its `src/`, other directories
+contribute every `.iron` file recursively, and `tests/`, `examples/`,
+`target/` and hidden directories are skipped. Vendored code shares the
+package namespace, so its `pub` declarations are used directly; two
+vendored libraries that declare the same name are a duplicate declaration
+(`E0201`).
+
+### 10.4 Build flags
+
+`iron build` and `iron run` accept `-o path` / `--output path`,
+`--release` (optimized C compilation), `--no-optimize` (skip Iron's own
+IR optimizations), `--debug-build` (keep the generated C under
+`.iron-build/`), `--dump-ir-passes`, `--report-compression`,
+`--warn-fusion-break`, `--force-comptime` (ignore the comptime cache) and
+`--target=web`. `--no-strict-v3` accepts a few removed syntax forms for
+debugging old code. `--verbose` prints the generated C and the link line
+and `--version` prints the compiler version.
+
+### 10.5 The web target
+
+`iron build --target=web` compiles a package to WebAssembly with the
+Emscripten toolchain pinned in `.emsdk-version`, producing
+`dist/web/index.html` together with its `.js` loader and `.wasm` module.
+The `[web]` table of the manifest configures it:
+
+```toml
+[web]
+title = "My App"                 # page title
+shell = "custom_shell.html"      # optional HTML template
+initial_memory = 67108864        # bytes
+stack_size = 5242880             # bytes
+pthread_pool_size = 4
+assets = ["assets/sprites.png"]  # files preloaded into the virtual FS
+```
+
+A web program cannot `await` (`E0501`) and must drive its frame loop from
+`main` with a single canonical `while` loop (`E0700` to `E0703`).
+
+---
+
+## 11. Diagnostics
+
+The compiler reports errors as `error[E0nnn]` and warnings as
+`warning[W0nnn]`, each with the source location and usually a hint. The
+codes cited in this manual:
+
+| Code | Meaning |
+|---|---|
+| E0001 to E0005 | lexical errors: unterminated string, invalid character, invalid number, string too long |
+| E0101, E0102 | unexpected token, expected expression |
+| E0175, E0176 | keyword used as a binding name; field without `val` or `var` |
+| E0200, E0201 | undefined identifier; duplicate declaration |
+| E0202, E0215, E0216, E0217, E0218 | type mismatch; return type; argument count; argument type; not callable |
+| E0203, E0234, E0235, E0266 | reassigning a `val`; writing a field of a `val`; mutating call on a `val`; writing a parameter |
+| E0204 | using a nullable value without a null check |
+| E0205, E0206 | missing interface method; unsatisfied generic constraint |
+| E0207, E0212, E0213, E0214 | heap value escapes; `free`/`leak` of a non-heap value; `leak` of an `rc` |
+| E0208 | write to an outer binding inside `parallel` |
+| E0209 | module not found |
+| E0210 | `self` outside a method |
+| E0219, E0220 | no such field; no such method |
+| E0222 | mixing `Int` and `Float` |
+| E0224, E0225, E0226, E0227, E0228 | non-exhaustive match; pattern arity; unreachable arm; pattern binding shadows a name; unknown variant |
+| E0229 | empty list literal without a type |
+| E0230, E0231, E0232 | comptime step limit; unsupported comptime construct; comptime error |
+| E0233 | bitwise operator on a non-integer |
+| E0237 | method name reserved by a `pub` field accessor |
+| E0238 to E0245 | method tier violations (`readonly` writes, `pure` I/O and calls, modifier placement) |
+| E0246 to E0252 | `init` rules (read before assign, unassigned field, double assign, method on partial `self`, early return, delegation, return value) |
+| E0253, E0254, E0255 | patch adds a field; patch target not found; patch redefines a method |
+| E0256, E0257 | `init` in an interface; tier mismatch with the interface |
+| E0262, E0264 | inline field default; `var` fields without an `init` |
+| E0268, E0270, E0271, E0294, E0295, E0296 | pointer arithmetic; address of a temporary; escaping stack reference; regime errors; `&` on an `rc` |
+| E0273, E0274, E0297, E0298 | `heap`/`rc`/`pool` in an invalid position |
+| E0278 | I/O in a `readonly` method |
+| E0284 to E0288 | duplicate `drop`/`copy`; copy of a `nocopy` value; `readonly drop`; early return in `drop` |
+| E0289 | checked/unchecked pointer mismatch |
+| E0293 | missing return |
+| E0299, E0301 | dereferencing a `weak rc`; `rc` inside an arena block |
+| E0310, E0311, E0312 | invalid cast; constant does not fit; constant index out of range |
+| E0314 | possibly uninitialized `var` |
+| E0320, E0321 | private declaration used from another file; standalone `func Type.method` form |
+| E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
+| E0328, E0329 | implicit list copy or capture; indexing an unordered list |
+| E0501 | `await` on the web target |
+| E0700 to E0703 | web main loop rules |
+| W0600, W0601, W0604, W0605, W0606 | spawn without handle; narrowing cast; spawn data race; arena skips `drop`; heap value never freed |
+| W0611, W0613, W0614 | unused import; `var` never reassigned; `var` parameter never reassigned |
+
+`docs/dev/diagnostic-codes.md` lists every code with its message.
+
+The following programs are accepted by the compiler but do not compile to
+valid C or misbehave at run time in the current release; the manual does not
+document them as features:
+
+- slicing a list (`xs[a..b]`),
+- `s += t` on strings (write `s = s + t`),
+- ordering comparisons of strings (`"a" < "b"`),
+- a named top-level function inside a list literal of function type
+  (`[square]`; wrap it in a lambda or bind it first),
+- an object that has both an `init` and a `copy` block,
+- an object with a field of its own nullable type (`var next: Node?`),
+- `-> Self` in an interface method signature,
+- `field.upgrade()` directly on a `weak rc` field,
+- `Ptr.offset` and `Ptr.diff`,
+- a closure that outlives the frame of a `var` it captured,
+- nested `match` patterns (`A.X(B.Y(v))`) are not checked at run time,
+- duplicate integer arms in a `match`.
+
+---
+
+## 12. Not yet implemented
+
+Settled design decisions that the compiler does not implement yet, listed
+so that older material is not mistaken for the current language:
+
+- `Map[K, V]` and `Set[T]` methods (`new`, `get`, `set`, `has`, `add`, `remove`, `len`).
+- Thread pools: the `pool` keyword, `spawn("name", pool)` and `for ... parallel(pool)`.
+- Reading and writing a primitive through a pointer (`*p`).
+- Method-level generic inference for the container methods (`ch.recv()` without a written type).
+- Lambda parameter inference outside a function-typed parameter position.
+- `String`, `Bool` and `Float` subjects in `match`.
+- Windows as a host for the web target.
