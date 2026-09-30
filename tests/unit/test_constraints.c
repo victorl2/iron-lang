@@ -64,7 +64,7 @@ static void test_int_satisfies_hashable(void) {
         "    val key: K\n"
         "}\n"
         "func main() {\n"
-        "    val h: Holder[Int] = Holder(key: 1)\n"
+        "    val h: Holder[Int] = Holder(1)\n"
         "}\n";
     analyze(src);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, count_constraint_errors(),
@@ -81,7 +81,7 @@ static void test_string_satisfies_hashable(void) {
         "    val key: K\n"
         "}\n"
         "func main() {\n"
-        "    val h: Holder[String] = Holder(key: \"x\")\n"
+        "    val h: Holder[String] = Holder(\"x\")\n"
         "}\n";
     analyze(src);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, count_constraint_errors(),
@@ -102,7 +102,7 @@ static void test_nonhashable_object_rejected(void) {
         "    val payload: Int\n"
         "}\n"
         "func main() {\n"
-        "    val h: Holder[NotHashable] = Holder(key: NotHashable(payload: 1))\n"
+        "    val h: Holder[NotHashable] = Holder(NotHashable(1))\n"
         "}\n";
     analyze(src);
     TEST_ASSERT_GREATER_THAN_INT_MESSAGE(0, count_constraint_errors(),
@@ -119,7 +119,7 @@ static void test_unresolved_constraint_passes(void) {
         "    val key: K\n"
         "}\n"
         "func main() {\n"
-        "    val h: Holder[Int] = Holder(key: 1)\n"
+        "    val h: Holder[Int] = Holder(1)\n"
         "}\n";
     analyze(src);
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, count_constraint_errors(),

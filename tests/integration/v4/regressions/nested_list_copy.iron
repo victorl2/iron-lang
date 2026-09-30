@@ -1,0 +1,103 @@
+-- copy() on nested lists of complex objects: [[Item]] where Item has a
+-- String, an rc field, a list field, a field with drop and a copy block;
+-- [[[Int]]]; [Bag] holding [Item]; and [[Shape]]. A copy is independent of
+-- later pushes, element writes, row replacement and take(), every copy block
+-- runs once per copied element, every value drops once, and the shared rc
+-- is freed last. Lists of lists did not compile before (#176).
+object Tex {
+    val name: String
+    drop { println("free tex {self.name}") }
+}
+object Tag {
+    val id: Int
+    drop { println("drop tag {self.id}") }
+}
+object Item {
+    val name: String
+    val tex: rc Tex
+    var nums: [Int]
+    val tag: Tag
+    init(name: String, tex: rc Tex, nums: [Int], tag: Tag) {
+        self.name = name
+        self.tex = tex
+        self.nums = nums.copy()
+        self.tag = tag
+    }
+    copy { println("copy item {self.name}") }
+    drop { println("drop item {self.name}") }
+}
+object Bag {
+    var items: [Item]
+    init() { self.items = [] }
+}
+interface Shape {
+    readonly func area() -> Int
+}
+object Sq impl Shape {
+    val s: Int
+    val tag: Tag
+    readonly func area() -> Int { return self.s * self.s }
+}
+object Dot impl Shape {
+    readonly func area() -> Int { return 0 }
+}
+func item(name: String, t: rc Tex, id: Int) -> Item {
+    return Item(name, t, [id, id * 10], Tag(id))
+}
+func grid_sum(g: [[Item]]) -> Int {
+    var s = 0
+    for row in g {
+        for it in row {
+            s = s + it.nums[0] + it.nums.len()
+        }
+    }
+    return s
+}
+func deep_sum(d: [[[Int]]]) -> Int {
+    var s = 0
+    for a in d { for b in a { for c in b { s = s + c } } }
+    return s
+}
+func scene() {
+    println("-- nested interfaces")
+    var shapes: [[Shape]] = []
+    shapes.push([Sq(2, Tag(100)), Dot()])
+    shapes.push([Sq(3, Tag(101))])
+    val sc = shapes.copy()
+    shapes[0].push(Sq(5, Tag(102)))
+    var total = 0
+    for row in sc { for s in row { total = total + s.area() } }
+    println("copy area {total} rows {sc.len()} orig row0 {shapes[0].len()} copy row0 {sc[0].len()}")
+}
+func main() {
+    val t = rc Tex("shared")
+    println("-- build grid")
+    var grid: [[Item]] = []
+    grid.push([item("a", t, 1), item("b", t, 2)])
+    grid.push([item("c", t, 3)])
+    grid.push([])
+    println("-- copy grid")
+    val snap = grid.copy()
+    println("-- mutate original")
+    grid[0][0].nums.push(99)
+    grid[1].push(item("d", t, 4))
+    grid[0] = [item("e", t, 5)]
+    println("orig {grid_sum(grid)} copy {grid_sum(snap)} rows {grid.len()} {snap.len()}")
+    println("copy row0 {snap[0].len()} first nums {snap[0][0].nums.len()}")
+    println("-- take a row")
+    val row1 = grid[1].take()
+    println("taken {row1.len()} left {grid[1].len()}")
+    println("-- bags")
+    var bags: [Bag] = []
+    var b = Bag()
+    b.items.push(item("f", t, 6))
+    bags.push(b.copy())
+    println("-- deep ints")
+    var deep: [[[Int]]] = [[[1, 2], [3]], [[4, 5, 6]]]
+    val deep2 = deep.copy()
+    deep[0][0].push(100)
+    deep[1] = []
+    println("deep {deep_sum(deep)} copy {deep_sum(deep2)}")
+    scene()
+    println("-- end")
+}

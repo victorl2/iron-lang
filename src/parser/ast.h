@@ -933,6 +933,9 @@ typedef struct {
     struct Iron_Type  *resolved_type;  /* set by type checker */
     Iron_Node         *expr;
     const char        *type_name;
+    /* Set by the type checker for a type test (#179): the object or
+     * interface type named by type_name. NULL for `is Null`. */
+    struct Iron_Type  *target_type;
 } Iron_IsExpr;
 
 typedef struct {
@@ -961,6 +964,10 @@ typedef struct {
     Iron_Node         *size;          /* NULL if dynamic */
     Iron_Node        **elements;
     int                element_count;
+    /* Set by the type checker when the literal's type comes from its
+     * context (`xs.push([])`, `val xs: [Shape] = [Sq(1), Dot()]`): later
+     * re-checks keep it instead of re-inferring from the elements. */
+    struct Iron_Type  *context_type;
 } Iron_ArrayLit;
 
 typedef struct {

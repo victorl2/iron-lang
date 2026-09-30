@@ -1,0 +1,16 @@
+-- @expected-error: E0322
+-- An object that does not implement the interface can never be held by it.
+interface Shape {
+    readonly func area() -> Int
+}
+object Circle impl Shape {
+    val r: Int
+    readonly func area() -> Int { return self.r }
+}
+object Rock {
+    val w: Int
+}
+func main() {
+    val s: Shape = Circle(1)
+    println("{s is Rock}")
+}

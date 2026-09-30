@@ -1,0 +1,63 @@
+-- Element assignment on an interface list (#180): `xs[i] = v` and
+-- `xs.set(i, v)` replace the element in place, keep insertion order when
+-- the new value is another implementor (inline or boxed), take a concrete
+-- object or an interface value, and drop the replaced element exactly once.
+object Tag {
+    val id: Int
+    drop { println("drop tag {self.id}") }
+}
+interface Shape {
+    readonly func area() -> Int
+}
+object Dot impl Shape {
+    val x: Int
+    readonly func area() -> Int { return self.x }
+}
+object Labeled impl Shape {
+    val w: Int
+    val tag: Tag
+    readonly func area() -> Int { return self.w * 10 }
+}
+object Poly impl Shape {
+    val a: Int
+    val b: Int
+    val c: Int
+    val d: Int
+    val e: Int
+    val f: Int
+    val g: Int
+    val h: Int
+    val i: Int
+    val j: Int
+    readonly func area() -> Int { return self.a * 100 }
+}
+func show(xs: [Shape]) {
+    var out = ""
+    for s in xs {
+        out = out + " {s.area()}"
+    }
+    println(out)
+}
+func poly(a: Int) -> Poly {
+    return Poly(a, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+}
+func main() {
+    var xs: [Shape] = [Dot(1), Labeled(2, Tag(1)), Dot(3), poly(4)]
+    show(xs)
+    xs[0] = Dot(5)
+    show(xs)
+    xs[1] = Dot(6)
+    show(xs)
+    xs[3] = Labeled(7, Tag(2))
+    show(xs)
+    val p: Shape = poly(8)
+    xs[2] = p
+    show(xs)
+    xs.set(0, poly(9))
+    show(xs)
+    xs.set(3, Dot(10))
+    show(xs)
+    xs.push(p)
+    show(xs)
+    println("len {xs.len()} first {xs[0].area()} last {xs[4].area()}")
+}

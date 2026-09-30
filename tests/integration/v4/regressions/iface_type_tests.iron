@@ -1,0 +1,62 @@
+-- `x is T` type tests (#179): an interface value is tested by its tag,
+-- against an implementor or another interface; a nullable interface is
+-- false when null; a concrete value is known at compile time (warning).
+-- Inside `if x is T` the binding is read as T: fields, nested fields and
+-- methods of the implementor, or the methods of the other interface, and
+-- loop variables narrow the same way.
+object Tag {
+    val id: Int
+    drop { println("drop tag {self.id}") }
+}
+interface Shape {
+    readonly func area() -> Int
+}
+interface Named {
+    readonly func name() -> String
+}
+object Circle impl Shape, Named {
+    val r: Int
+    readonly func area() -> Int { return self.r * self.r * 3 }
+    readonly func name() -> String { return "circle" }
+}
+object Square impl Shape {
+    val s: Int
+    val tag: Tag
+    readonly func area() -> Int { return self.s * self.s }
+}
+func describe(sh: Shape) -> String {
+    if sh is Circle {
+        return "circle r={sh.r}"
+    }
+    if sh is Square {
+        return "square s={sh.s} tag={sh.tag.id}"
+    }
+    return "other"
+}
+func label(sh: Shape) -> String {
+    if sh is Named {
+        return sh.name()
+    }
+    return "unnamed"
+}
+func main() {
+    val a: Shape = Circle(2)
+    val b: Shape = Square(3, Tag(7))
+    println("{a is Circle} {a is Square} {b is Square} {a is Named} {b is Named}")
+    println(describe(a))
+    println(describe(b))
+    println("{label(a)} {label(b)}")
+    val shapes: [Shape] = [Circle(1), Square(2, Tag(8)), Circle(3)]
+    var circles = 0
+    for s in shapes {
+        if s is Circle { circles = circles + s.r }
+    }
+    println("circle radii {circles}")
+    var m: Shape? = null
+    println("{m is Circle}")
+    m = Circle(5)
+    println("{m is Circle}")
+    val c = Circle(9)
+    println("{c is Named}")
+    println("end")
+}

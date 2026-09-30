@@ -1,0 +1,13 @@
+-- An if/elif/else only always returns when every elif body does too.
+func pick(n: Int) -> Int {
+    if n > 10 {
+        return 1
+    } elif n > 5 {
+        println("mid")
+    } else {
+        return 2
+    }
+}
+func main() {
+    println("{pick(7)}")
+}

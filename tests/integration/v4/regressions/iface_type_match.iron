@@ -1,0 +1,51 @@
+-- Type match over an interface (#179): each arm names an implementor and
+-- binds a read-only view of the payload; without an else arm every
+-- implementor must be covered, and such a match terminates. A subject that
+-- is not a binding (a call) is evaluated once and dropped at scope exit.
+object Tag {
+    val id: Int
+    drop { println("drop tag {self.id}") }
+}
+interface Shape {
+    readonly func area() -> Int
+}
+object Circle impl Shape {
+    val r: Int
+    readonly func area() -> Int { return self.r * self.r * 3 }
+}
+object Square impl Shape {
+    val s: Int
+    val tag: Tag
+    readonly func area() -> Int { return self.s * self.s }
+}
+object Dot impl Shape {
+    readonly func area() -> Int { return 0 }
+}
+func kind(sh: Shape) -> String {
+    match sh {
+        Circle(c) -> { return "circle {c.r}" }
+        Square(q) -> { return "square {q.s} tag {q.tag.id}" }
+        Dot -> { return "dot" }
+    }
+}
+func only_circles(sh: Shape) -> Int {
+    match sh {
+        Circle(c) -> { return c.r }
+        else -> { return -1 }
+    }
+}
+func make(n: Int) -> Shape {
+    if n == 0 { return Dot() }
+    return Square(n, Tag(n))
+}
+func main() {
+    val xs: [Shape] = [Circle(2), Square(3, Tag(9)), Dot()]
+    for x in xs { println(kind(x)) }
+    println("{only_circles(xs[0])} {only_circles(xs[1])}")
+    match make(4) {
+        Square(q) -> { println("made square {q.s}") }
+        Circle(c) -> { println("made circle") }
+        Dot -> { println("made dot") }
+    }
+    println("end")
+}
