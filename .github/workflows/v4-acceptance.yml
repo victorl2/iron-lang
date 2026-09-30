@@ -28,7 +28,7 @@ jobs:
     # The acceptance corpus runs regression fixtures in both pipelines
     # (optimized and --no-optimize) one at a time; 30 minutes no longer
     # fits. The limit guards against hangs, not normal growth.
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
