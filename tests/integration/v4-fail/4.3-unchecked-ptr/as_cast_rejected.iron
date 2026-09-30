@@ -1,0 +1,12 @@
+-- section 4.3 negative: no 'as' cast operator
+-- @req: UNCK-01, UNCK-02
+-- unchecked pointers come from Box.unwrap(), RawPtr.of() and Ptr.cast[T](),
+-- never from an `as` conversion
+extern func c_strlen(s: *unchecked U8) -> Int
+
+func main() {
+    val message = "Hello, Iron!"
+    val raw_ptr: *unchecked U8 = message as *unchecked U8
+    val length = c_strlen(raw_ptr)
+    println("length: {length}")
+}

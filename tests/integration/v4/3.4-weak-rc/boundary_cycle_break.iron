@@ -1,9 +1,6 @@
 -- section 3.4 weak rc: cycle breaking with weak rc
 -- @req: POL-08, POL-09
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): `rc T`/`weak rc T` FIELD type annotations not in the v4 surface (E0297) +
--- E0264 (var field without init) + field mutation through a val rc binding (E0234).
--- extends-spec: drop probes verify both A and B freed (without weak, both would leak)
+-- drop probes verify both A and B freed (with a strong back link both would leak)
 
 object NodeB {
     val id: Int
@@ -18,13 +15,19 @@ object NodeA {
     val b_link: rc NodeB
     var back: weak rc NodeA
 
+    init(id: Int, b: rc NodeB) {
+        self.id = id
+        self.b_link = b
+        self.back = weak rc null
+    }
+
     drop {
         println("drop: A-{self.id}")
     }
 }
 
 func main() {
-    val node_a = rc NodeA(1, rc NodeB(2), weak rc null)
+    var node_a = rc NodeA(1, rc NodeB(2))
     node_a.back = node_a.downgrade()
     println("cycle set up")
 }

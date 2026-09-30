@@ -1,0 +1,22 @@
+-- upgrade() on a weak rc read out of a field: the field read is emitted by
+-- name for the runtime call, so it must keep its declaration.
+
+object Shared {
+    val id: Int
+    drop { println("shared {self.id} freed") }
+}
+
+object Child {
+    val id: Int
+    val parent: weak rc Shared
+}
+
+func main() {
+    val sh = rc Shared(3)
+    val ch = Child(4, sh.downgrade())
+    val parent = ch.parent.upgrade()
+    if parent != null {
+        println("child {ch.id} sees shared {parent.id}")
+    }
+    println("done")
+}

@@ -502,6 +502,42 @@ static IronHIR_Param *build_hir_params(IronHIR_LowerCtx *ctx,
  * iron_check_pointer_gen (header-based) rather than
  * iron_check_stack_pointer_gen (TLS-based), which is what use-after-free
  * detection needs (SAFE-01). */
+static IronHIR_GenSource addr_gen_source(Iron_Node *operand);
+
+/* Generation source for a read through a pointer valued expression: the
+ * `&operand` it is, or the one its binding was initialized with. */
+static IronHIR_GenSource ptr_gen_source(Iron_Node *e) {
+    if (!e) return IRON_HIR_GEN_STACK;
+    if (e->kind == IRON_NODE_UNARY && (int)((Iron_UnaryExpr *)e)->op == IRON_TOK_AMP)
+        return addr_gen_source(((Iron_UnaryExpr *)e)->operand);
+    if (e->kind == IRON_NODE_IDENT) {
+        Iron_Ident *id = (Iron_Ident *)e;
+        Iron_Node *decl = id->resolved_sym ? id->resolved_sym->decl_node : NULL;
+        Iron_Node *init = NULL;
+        if (decl && decl->kind == IRON_NODE_VAL_DECL) init = ((Iron_ValDecl *)decl)->init;
+        else if (decl && decl->kind == IRON_NODE_VAR_DECL) init = ((Iron_VarDecl *)decl)->init;
+        if (init && init->kind == IRON_NODE_UNARY &&
+            (int)((Iron_UnaryExpr *)init)->op == IRON_TOK_AMP)
+            return addr_gen_source(((Iron_UnaryExpr *)init)->operand);
+    }
+    return IRON_HIR_GEN_STACK;
+}
+
+/* Pointees an interpolation can print directly. */
+static bool type_is_scalar_pointee(const Iron_Type *t) {
+    switch ((int)t->kind) {
+        case IRON_TYPE_INT: case IRON_TYPE_INT8: case IRON_TYPE_INT16:
+        case IRON_TYPE_INT32: case IRON_TYPE_INT64:
+        case IRON_TYPE_UINT: case IRON_TYPE_UINT8: case IRON_TYPE_UINT16:
+        case IRON_TYPE_UINT32: case IRON_TYPE_UINT64:
+        case IRON_TYPE_FLOAT: case IRON_TYPE_FLOAT32: case IRON_TYPE_FLOAT64:
+        case IRON_TYPE_BOOL: case IRON_TYPE_STRING:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static IronHIR_GenSource addr_gen_source(Iron_Node *operand) {
     if (operand && operand->kind == IRON_NODE_IDENT) {
         Iron_Ident *id = (Iron_Ident *)operand;
@@ -1777,6 +1813,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         IronHIR_Expr **parts = NULL;
         for (int i = 0; i < is->part_count; i++) {
             IronHIR_Expr *p = lower_expr_hir(ctx, is->parts[i]);
+            /* A checked pointer to a scalar interpolates as its pointee,
+             * like an unchecked one, through a generation checked load. */
+            if (p && p->type && p->type->kind == IRON_TYPE_PTR &&
+                !p->type->ptr.is_unchecked && p->type->ptr.pointee &&
+                type_is_scalar_pointee(p->type->ptr.pointee)) {
+                p = iron_hir_expr_deref(mod, p, ptr_gen_source(is->parts[i]),
+                                        p->type->ptr.pointee, span);
+            }
             /* FIX-03 / AUDIT-04 §7: SAFETY — lower_expr_hir may return NULL
              * (e.g., unrecognized inner node kind); storing NULL here is
              * safe — consumers tolerate NULL entries (see emit_c.c

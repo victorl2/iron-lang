@@ -1,0 +1,19 @@
+-- @expect-panic: stale pointer dereference
+-- A pointer into a freed heap value stays stale when the allocator hands the
+-- same address to a new allocation: generations come from a process-wide
+-- counter, never from a per-block count that restarts at 1.
+
+object Resource {
+    val id: Int
+}
+
+func main() {
+    val current = heap Resource(1)
+    val ptr: *Resource = &current
+    println("first: {ptr.id}")
+    free current
+    val other = heap Resource(2)
+    defer free other
+    println("second: {other.id}")
+    println("stale: {ptr.id}")
+}

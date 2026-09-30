@@ -1,2 +1,3 @@
-loaded twice
+loaded: hero.png
+sprites at 0 and 1 share hero.png
 freeing: hero.png
