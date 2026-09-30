@@ -3,6 +3,28 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v4.4.0-alpha: Strings, Closures and Shared Lists (2026-09-30)
+
+- **Strings are freed:** a heap string's characters are reference counted
+  and freed by their last owner (bindings, fields, list elements,
+  captures, temporaries). Every long or built string used to leak.
+  `s.release()` and the `*Result.release` helpers now do nothing.
+- **Closures own their environment:** the env is reference counted, so a
+  copied, returned, stored or captured closure keeps it alive and frees
+  it with the last copy (a closure that outlived its binding used to read
+  freed memory).
+- **`rc [T]` shared lists:** every copy of the handle reaches the same
+  list, it can be grown through any handle, and it is freed with the last
+  handle. Closures borrow lists only for a call: a bound, returned or
+  stored closure cannot capture a list (E0328), and a spawn capturing one
+  must be awaited in the same block.
+- **Lists:** `map`, `filter`, `reduce` and `forEach` work on any element
+  type and `map` produces the lambda's return type; `[func]` lists copy
+  and free their elements' environments.
+- **Fixes:** `String?` / `Int?` object fields compile and construct;
+  closure calls pass arguments correctly on Apple arm64; a `func` typed
+  field can be called through its object (`h.run(4)`).
+
 ## v4.3.0-alpha: Correctness and Interfaces (2026-09-29)
 
 - **Breaking: lists are never copied implicitly.** A list has one owner;
