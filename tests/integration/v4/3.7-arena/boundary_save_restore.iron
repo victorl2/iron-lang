@@ -15,7 +15,7 @@ object Scratch {
 }
 
 func main() {
-    val arena = Arena.with_capacity(65536)
+    val arena = Arena(65536)
     val before = heap(in: arena, allow_drop_skip: true) Scratch(0)
     println("before save: tag={before.tag}")
     val save = arena.save()

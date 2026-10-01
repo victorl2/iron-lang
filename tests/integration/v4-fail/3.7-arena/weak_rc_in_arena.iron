@@ -5,7 +5,7 @@
 -- E0301 (IRON_ERR_RC_IN_ARENA) is extended to reject BOTH rc and weak rc
 -- inside an `in arena {}` block (closed-policy lattice {stack, heap, rc, weak rc, arena}).
 func main() {
-    val arena = Arena.with_capacity(4096)
+    val arena = Arena(4096)
     in arena {
         val w = weak rc Texture.load("hero.png")
     }

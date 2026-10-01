@@ -129,7 +129,7 @@ Box is freed or dropped.
 
 ```iron
 func main() {
-    val boxed = Box.new(Point(x: 1, y: 2))
+    val boxed = Box(Point(x: 1, y: 2))
     val raw_ptr: *unchecked Point = boxed.unwrap()
     Box.free(boxed)
     -- raw_ptr.x is now UB -- Box has been freed

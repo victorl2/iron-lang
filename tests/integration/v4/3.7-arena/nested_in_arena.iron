@@ -14,8 +14,8 @@ object Node {
 }
 
 func main() {
-    val a = Arena.with_capacity(65536)
-    val b = Arena.with_capacity(65536)
+    val a = Arena(65536)
+    val b = Arena(65536)
 
     in a {
         val outer = heap Node(1)

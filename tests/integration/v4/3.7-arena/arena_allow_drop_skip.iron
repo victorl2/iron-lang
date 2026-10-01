@@ -17,7 +17,7 @@ object ArenaFile {
 }
 
 func main() {
-    val arena = Arena.with_capacity(4096)
+    val arena = Arena(4096)
     val fh = heap(in: arena, allow_drop_skip: true) ArenaFile(7)
     println("fd: {fh.fd}")
 }

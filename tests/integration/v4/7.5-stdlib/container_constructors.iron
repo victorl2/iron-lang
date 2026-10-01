@@ -1,0 +1,33 @@
+-- section: 7.5-stdlib
+-- Runtime-backed containers are constructed like any object: Channel[T](n),
+-- Mutex[T](v) / Mutex(v), RWLock(v), Box(v) / Box[T](v), Arena(bytes),
+-- Arena.threadsafe(bytes). Box.null() stays a named factory.
+
+object Sample {
+    val v: Int
+}
+
+func main() {
+    val ch = Channel[Int](4)
+    ch.send(7)
+    val got = ch.recv()
+    println("channel {got}")
+
+    val m = Mutex[Int](10)
+    val g = m.lock()
+    println("mutex {g.get()}")
+
+    val rw = RWLock(5)
+    val r = rw.read()
+    println("rwlock {r.get()}")
+
+    val b = Box(Sample(3))
+    println("box null? {b.is_null()}")
+    val e: Box[Sample] = Box.null()
+    println("empty null? {e.is_null()}")
+
+    val a = Arena(4096)
+    println("arena cap {a.capacity()}")
+    val t = Arena.threadsafe(4096)
+    println("threadsafe cap {t.capacity()}")
+}

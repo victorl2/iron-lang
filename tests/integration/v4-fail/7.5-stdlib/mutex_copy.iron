@@ -6,7 +6,7 @@
 -- RED until Wave 5 lands the nocopy Mutex[T] surface.
 
 func main() {
-    var a: Mutex[Int] = Mutex.new(0)
+    var a: Mutex[Int] = Mutex(0)
     var b = a
     println("unreachable")
 }

@@ -60,7 +60,7 @@ func main() {
     val ch = Child(4, sh.downgrade())
 
     -- arena allocation: bulk-freed at arena.reset(), no drop
-    val arena = heap Arena.new(64 * 1024)
+    val arena = heap Arena(64 * 1024)
     defer free arena
 
     in arena {

@@ -1,0 +1,6 @@
+-- section: 7.5-stdlib
+-- A channel carries no element in its arguments, so the type argument is required.
+
+func main() {
+    val ch = Channel(4)
+}

@@ -6,7 +6,7 @@
 -- RED until Wave 5 lands the nocopy Channel[T] surface.
 
 func main() {
-    var a: Channel[Int] = Channel.new(1)
+    var a = Channel[Int](1)
     var b = a
     println("unreachable")
 }

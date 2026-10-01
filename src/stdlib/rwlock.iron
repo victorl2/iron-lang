@@ -35,7 +35,7 @@ nocopy object RWWriteGuard[T] {
     }
 }
 
--- RWLock.new(value: T) -> RWLock[T]
+-- RWLock(value: T) -> RWLock[T]
 func RWLock.new[T](value: T) -> RWLock[T] {}
 
 -- l.read() -> RWReadGuard[T]   (receiver-form): acquires the shared (read) lock.

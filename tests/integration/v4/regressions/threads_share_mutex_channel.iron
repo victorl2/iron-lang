@@ -8,7 +8,7 @@
 -- enclosing function owns captured values; lifted bodies no longer drop
 -- them.
 func main() {
-    val m = Mutex.new(0)
+    val m = Mutex(0)
     val h = spawn("writer") {
         val g = m.lock()
         g.set(41)
@@ -19,7 +19,7 @@ func main() {
     val v: Int = g.get()
     println("spawn wrote {v} (task returned {r})")
 
-    val ch: Channel[Int] = Channel.new(4)
+    val ch = Channel[Int](4)
     val p = spawn("producer") {
         for i in range(10) {
             ch.send(i)
@@ -34,7 +34,7 @@ func main() {
     val z = await p
     println("channel sum {sum} ({z})")
 
-    val total = Mutex.new(0)
+    val total = Mutex(0)
     for i in range(8) parallel {
         val t = total.lock()
         t.set(t.get() + i)

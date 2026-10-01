@@ -15,7 +15,7 @@ object DrawCmd {
 }
 
 func main() {
-    val frame_arena = Arena.with_capacity(65536)
+    val frame_arena = Arena(65536)
     val cmd1 = heap(in: frame_arena, allow_drop_skip: true) DrawCmd(1)
     val cmd2 = heap(in: frame_arena, allow_drop_skip: true) DrawCmd(2)
     val cmd3 = heap(in: frame_arena, allow_drop_skip: true) DrawCmd(3)

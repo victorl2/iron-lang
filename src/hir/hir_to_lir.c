@@ -3663,9 +3663,8 @@ static void emit_defer_cleanup(HIR_to_LIR_Ctx *ctx, IronLIR_Block *after_block,
 /* ── Pass 1: Statement lowering ──────────────────────────────────────────── */
 
 /* 2026-07 remediation (ARENA-10 arena-OOM panic name): when a LET binds the
- * result of an Arena ctor stub call (Iron_arena_new / new_threadsafe /
- * with_capacity — LIR names arena_new / arena_new_threadsafe /
- * arena_with_capacity, mangled with the Iron_ prefix at emit), record the
+ * result of an Arena ctor stub call (Iron_arena_new / threadsafe, LIR names
+ * arena_new / arena_threadsafe, mangled with the Iron_ prefix at emit), record the
  * binding name on the CALL instruction. The emit CALL arm then stores it
  * into the runtime handle (`_vN->name = "<binding>"`; iron_arena_rt_new
  * already stores + forwards a name — see iron_arena_rt.h:78/91) so
@@ -3695,8 +3694,7 @@ static void tag_arena_ctor_binding(HIR_to_LIR_Ctx *ctx,
         !fref->func_ref.func_name) return;
     const char *fname = fref->func_ref.func_name;
     if (strcmp(fname, "arena_new") != 0 &&
-        strcmp(fname, "arena_new_threadsafe") != 0 &&
-        strcmp(fname, "arena_with_capacity") != 0) return;
+        strcmp(fname, "arena_threadsafe") != 0) return;
     const char *bname = iron_hir_var_name(ctx->hir, vid);
     if (!bname || !bname[0]) return;
     def->call.arena_binding_name = bname;

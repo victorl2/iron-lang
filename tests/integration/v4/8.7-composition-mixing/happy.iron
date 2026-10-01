@@ -31,7 +31,7 @@ nocopy object ParticleSystem {
     var storage: Box[ParticleArray]
 
     init() {
-        self.storage = Box.new(ParticleArray(0))
+        self.storage = Box(ParticleArray(0))
     }
 }
 
@@ -87,7 +87,7 @@ func main() {
     val level = heap LevelData(7)
     defer free level
     val particles = ParticleSystem()
-    val frame_arena = heap Arena.new(4 * 1024)
+    val frame_arena = heap Arena(4 * 1024)
     defer free frame_arena
 
     while not game.input_state.quit {

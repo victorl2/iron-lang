@@ -297,9 +297,9 @@ codes should accept either the bare integer or the `E<NNN>` string.
 
 | Code | Symbol | Message (locked substring) | Hint | Quickfix-Target (Phase 34 LSP-10) | Phase | Spec § |
 |-----:|--------|----------------------------|------|-----------------------------------|------:|--------|
-| 289 | `IRON_ERR_PTR_REGIME_MISMATCH` | `pointer regime mismatch` | `§4.3-§4.4: *T and *unchecked T are disjoint; use Box.unwrap() to escape to *unchecked T` | Wrap value in `Box.new()` and call `Box.unwrap()` (LSP-10) | 25 (Plan 25-01) | §4.3-§4.4 |
-| 294 | `IRON_ERR_PTR_AMP_NOT_UNCHECKED` | `& cannot produce unchecked pointer` | `§4.3: only Box.unwrap() (Phase 25) or RawPtr (Phase 33) can produce *unchecked T` | Replace `&expr` with `Box.new(expr).unwrap()` (LSP-10) | 25 (Plan 25-01) | §4.3 |
-| 295 | `IRON_ERR_PTR_ARITH_CHECKED` | `pointer arithmetic requires unchecked regime` | `§4.3: Ptr.offset / Ptr.diff operate only on *unchecked T; use Box.unwrap() to escape` | Wrap pointer in `Box.new()` and `unwrap()` before Ptr.offset (LSP-10) | 25 (Plan 25-02) | §4.3 |
+| 289 | `IRON_ERR_PTR_REGIME_MISMATCH` | `pointer regime mismatch` | `§4.3-§4.4: *T and *unchecked T are disjoint; use Box.unwrap() to escape to *unchecked T` | Wrap value in `Box()` and call `Box.unwrap()` (LSP-10) | 25 (Plan 25-01) | §4.3-§4.4 |
+| 294 | `IRON_ERR_PTR_AMP_NOT_UNCHECKED` | `& cannot produce unchecked pointer` | `§4.3: only Box.unwrap() (Phase 25) or RawPtr (Phase 33) can produce *unchecked T` | Replace `&expr` with `Box(expr).unwrap()` (LSP-10) | 25 (Plan 25-01) | §4.3 |
+| 295 | `IRON_ERR_PTR_ARITH_CHECKED` | `pointer arithmetic requires unchecked regime` | `§4.3: Ptr.offset / Ptr.diff operate only on *unchecked T; use Box.unwrap() to escape` | Wrap pointer in `Box()` and `unwrap()` before Ptr.offset (LSP-10) | 25 (Plan 25-02) | §4.3 |
 
 ### Notes
 

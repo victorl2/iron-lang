@@ -99,7 +99,7 @@ point. An opaque value struct at the Iron surface level.
 
 ### Threadsafe vs plain bump
 
-`Arena.new(size)` uses a plain `offset += need` bump. `Arena.new_threadsafe(size)`
+`Arena(size)` uses a plain `offset += need` bump. `Arena.threadsafe(size)`
 (ARENA-02) bumps a DEDICATED `atomic_offset` field via
 `IRON_ATOMIC_U64_FETCH_ADD_RELAXED` — never `gen` (which is the invalidation
 counter, not the bump pointer). `used()` reads whichever field the arena's mode

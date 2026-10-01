@@ -51,7 +51,7 @@ nocopy object Box[T] {
     }
 }
 
--- Box.new(value: T) -> Box[T]
+-- Box(value: T) -> Box[T]
 -- Allocates value on the heap and returns an owning Box[T].
 -- Wraps iron_heap_alloc (Phase 19 substrate) via Iron_Box_<T>_new generated helper.
 -- Emit: compiler-builtin dispatch in typecheck.c; Iron_Box_<T>_new in emit_ensure_box.

@@ -14,7 +14,7 @@ nocopy object CounterBox {
     var data: Box[Counter]
 
     init(start: Int) {
-        self.data = Box.new(Counter(start))
+        self.data = Box(Counter(start))
     }
 
     func accumulate(n: Int) -> Int {

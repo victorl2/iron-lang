@@ -561,6 +561,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_PTR_INTO_LIST            330   /* `&list[i]`: a growable list may move its elements */
 #define IRON_ERR_ARRAY_EXT_BODY           331   /* `func [T].m() { ... }` with a body: only the stdlib's intrinsic stubs exist */
 #define IRON_ERR_NESTED_PATTERN           332   /* `A.X(B.Y(v))` where B has several variants: the inner tag is not tested at run time */
+#define IRON_ERR_CTOR_SPELLING            333   /* `Channel.new(4)` / `Arena.with_capacity(n)`: containers are constructed as `Channel[Int](4)` / `Arena(n)` */
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400

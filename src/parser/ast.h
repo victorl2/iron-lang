@@ -802,6 +802,10 @@ typedef struct {
     Iron_Node        **args;
     int                arg_count;
     bool               is_primitive_cast; /* true when Float(x), Int(x), etc. */
+    /* Set by typecheck.c when the callee is a runtime-backed stdlib
+     * container (`Channel[Int](4)`, `Box(v)`, `Arena(n)`): the namespace
+     * method call the rest of the pipeline already lowers. */
+    Iron_Node         *desugared;
 } Iron_CallExpr;
 
 typedef struct {
@@ -828,6 +832,10 @@ typedef struct {
      * (type annotations); NULL / 0 otherwise. */
     Iron_Node        **generic_args;
     int                generic_arg_count;
+    /* Set by typecheck.c on the method call it synthesizes for a runtime
+     * container constructor (`Channel[Int](4)` becomes `Channel.new(4)`
+     * internally). User code spelling the `.new` form is rejected. */
+    bool               is_ctor_desugar;
 } Iron_MethodCallExpr;
 
 typedef struct {
@@ -862,6 +870,12 @@ typedef struct {
     struct Iron_Type  *resolved_type;  /* set by type checker */
     Iron_Node         *object;
     Iron_Node         *index;
+    /* `X[A, B]`: every bracketed expression when there is more than one
+     * (index is the first). Only meaningful as the type arguments of a
+     * generic construct or call, `Map[String, Int]()`; NULL / 0 for the
+     * single-index form. */
+    Iron_Node        **type_args;
+    int                type_arg_count;
     /* Phase 20 PTR-07 (Plan 20-02a): set when an index expression is a
      * call-arg that auto-addresses a *T / *var T parameter (e.g. `f(arr[i])`
      * where f expects `*Int`). HIR lowering reads this bit at call sites to
@@ -963,6 +977,10 @@ typedef struct {
     int                arg_count;
     Iron_Node        **generic_args;
     int                generic_arg_count;
+    /* Set by typecheck.c when the constructed type is a runtime-backed
+     * stdlib container (Channel, Mutex, RWLock, Box, Arena): the
+     * equivalent method call the rest of the pipeline already lowers. */
+    Iron_Node         *desugared;
 } Iron_ConstructExpr;
 
 typedef struct {
