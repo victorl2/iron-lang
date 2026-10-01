@@ -12,6 +12,8 @@ on:
       - 'scripts/check_site.py'
       - 'scripts/test_branding.py'
       - 'scripts/build_llms.py'
+      - 'scripts/build_reference.py'
+      - 'scripts/templates/**'
       - 'src/stdlib/*.iron'
       - '.github/workflows/docs-check.yml'
   push:
@@ -23,6 +25,8 @@ on:
       - 'scripts/check_site.py'
       - 'scripts/test_branding.py'
       - 'scripts/build_llms.py'
+      - 'scripts/build_reference.py'
+      - 'scripts/templates/**'
       - 'src/stdlib/*.iron'
       - '.github/workflows/docs-check.yml'
 
@@ -41,6 +45,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install the Markdown renderer
+        run: python3 -m pip install --quiet markdown
+      - name: Render the reference manual as /docs/
+        run: python3 scripts/build_reference.py --site docs/site
       - name: Test documentation validators
         run: python3 scripts/test_branding.py
       - name: Check positioning, example parity, links, and fragments

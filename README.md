@@ -26,7 +26,7 @@ Pre-built binaries are available for **macOS** (arm64, x86_64) and **Linux** (x8
 
 - **Control:** Choose stack allocation, explicit heap lifetimes, or reference-counted shared ownership, with compiler and runtime checks.
 
-- **Concurrency:** Thread pools, parallel loops, and concurrency primitives are first-class language features, not library afterthoughts.
+- **Concurrency:** Spawned tasks, parallel loops, channels and mutexes are first-class language features, not library afterthoughts.
 
 - **Legibility:** No operator overloading, no implicit conversions, no hidden control flow. When you read Iron code, you know what it does.
 

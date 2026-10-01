@@ -183,3 +183,6 @@ target/
 docs/site/llms.txt
 docs/site/llms-full.txt
 docs/site/llms/
+
+# Generated at deploy time by scripts/build_reference.py from docs/language_definition.md.
+docs/site/docs/index.html
