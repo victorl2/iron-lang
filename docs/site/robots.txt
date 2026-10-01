@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+# Machine-readable documentation for language models: https://ironlang.dev/llms.txt

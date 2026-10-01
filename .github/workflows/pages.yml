@@ -7,10 +7,13 @@ on:
     paths:
       - 'docs/site/**'
       - 'docs/llms/**'
+      - 'docs/language_definition.md'
       - 'docs/networking.md'
       - 'docs/examples/**'
       - 'src/stdlib/*.iron'
       - 'scripts/build_llms.py'
+      - 'scripts/build_reference.py'
+      - 'scripts/templates/**'
       - 'scripts/install.sh'
       - '.github/workflows/pages.yml'
 
@@ -42,6 +45,12 @@ jobs:
 
       - name: Stage install.sh at site root
         run: install -m 0755 scripts/install.sh docs/site/install.sh
+
+      - name: Install the Markdown renderer
+        run: python3 -m pip install --quiet markdown
+
+      - name: Render the reference manual as /docs/
+        run: python3 scripts/build_reference.py --site docs/site
 
       - name: Generate llms.txt, llms-full.txt, and LLM markdown pages
         run: python3 scripts/build_llms.py --site docs/site

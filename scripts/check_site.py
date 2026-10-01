@@ -80,15 +80,19 @@ def main() -> int:
                     errors.append(message)
             seen.add(element_id)
 
-    generated_paths = {"/install.sh"}
+    # Files staged or generated at deploy time (pages.yml) that are not
+    # checked in: install.sh and the llms.txt family from build_llms.py.
+    generated_paths = {"/install.sh", "/llms.txt", "/llms-full.txt"}
     for page, result in parsed.items():
         for line, href in result.links:
             parts = urlsplit(href)
             if parts.scheme or parts.netloc or href.startswith(("mailto:", "data:", "javascript:")):
                 continue
-            if parts.path in generated_paths:
+            if parts.path in generated_paths or parts.path.startswith("/llms/"):
                 continue
             target = page_target(site, page, parts.path)
+            if target not in parsed and not target.suffix == ".html" and target.is_file():
+                continue  # a non-HTML asset that exists on disk
             if target not in parsed:
                 errors.append(f"{page}:{line}: missing local page {href!r}")
                 continue

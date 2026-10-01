@@ -4,8 +4,10 @@
 Writes into the site directory (default: docs/site):
 
   llms.txt               index: summary, key rules, and links to the pages below
-  llms-full.txt          one file with the guide, networking guide, stdlib API,
-                         and runnable examples, for tools that load everything
+  llms-full.txt          one file with the reference manual, the guide, the
+                         networking guide, stdlib API, and runnable examples,
+                         for tools that load everything
+  llms/reference.md      the full reference manual (docs/language_definition.md)
   llms/iron.md           language guide for LLMs (docs/llms/iron.md)
   llms/networking.md     networking guide (docs/networking.md)
   llms/examples.md       runnable examples (docs/examples/*.iron)
@@ -32,6 +34,7 @@ REPO = Path(__file__).resolve().parent.parent
 SITE_URL = "https://ironlang.dev"
 
 GUIDE = REPO / "docs" / "llms" / "iron.md"
+MANUAL = REPO / "docs" / "language_definition.md"
 NETWORKING = REPO / "docs" / "networking.md"
 EXAMPLES_DIR = REPO / "docs" / "examples"
 STDLIB_DIR = REPO / "src" / "stdlib"
@@ -136,6 +139,11 @@ def llms_txt() -> str:
         "",
         "## Docs",
         "",
+        link("llms/reference.md", "Iron reference manual",
+             "the complete language definition: lexical rules, types, "
+             "expressions, statements, declarations, memory, concurrency, "
+             "comptime, the standard library and every diagnostic code; "
+             "every example is compiled in CI (HTML version at /docs/)"),
         link("llms/iron.md", "Iron language guide for LLMs",
              "syntax, objects, enums, memory, concurrency, stdlib usage, and "
              "known gaps; every example is compiled in CI"),
@@ -154,8 +162,8 @@ def llms_txt() -> str:
         lines.append(link(f"llms/stdlib/{name}.md", name, desc))
     lines += ["", "## Optional", ""]
     lines.append(link("llms-full.txt", "llms-full.txt",
-                      "the guide, networking guide, stdlib declarations, and "
-                      "examples in one file"))
+                      "the reference manual, guide, networking guide, stdlib "
+                      "declarations, and examples in one file"))
     for name, desc in OPTIONAL_MODULES.items():
         lines.append(link(f"llms/stdlib/{name}.md", name, desc))
     lines.append(link("raylib/", "Raylib guide and reference", "HTML docs"))
@@ -163,7 +171,7 @@ def llms_txt() -> str:
 
 
 def llms_full_txt(pages: dict[str, str]) -> str:
-    order = ["llms/iron.md", "llms/networking.md"]
+    order = ["llms/reference.md", "llms/iron.md", "llms/networking.md"]
     order += [f"llms/stdlib/{n}.md" for n in (*PRIMARY_MODULES, *CORE_MODULES)]
     order += ["llms/examples.md"]
     parts = [f"# Iron\n\n> {SUMMARY}\n\n{KEY_RULES}"]
@@ -174,6 +182,7 @@ def llms_full_txt(pages: dict[str, str]) -> str:
 
 def build(site: Path) -> list[str]:
     pages: dict[str, str] = {
+        "llms/reference.md": MANUAL.read_text(),
         "llms/iron.md": GUIDE.read_text(),
         "llms/networking.md": NETWORKING.read_text(),
         "llms/examples.md": examples_page(),
@@ -214,7 +223,7 @@ def main() -> int:
                         help="build into a temporary directory and verify links")
     args = parser.parse_args()
 
-    missing = [p for p in (GUIDE, NETWORKING, EXAMPLES_DIR)
+    missing = [p for p in (MANUAL, GUIDE, NETWORKING, EXAMPLES_DIR)
                if not p.exists()]
     missing += [module_path(n) for n in (*PRIMARY_MODULES, *CORE_MODULES, *OPTIONAL_MODULES)
                 if not module_path(n).exists()]

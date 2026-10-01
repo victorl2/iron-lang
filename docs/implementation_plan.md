@@ -1,5 +1,7 @@
 # Iron — Implementation Plan
 
+> **Historical document.** This is the original 2025 implementation plan. It describes features that were later dropped or redesigned (`extends`, auto-free, thread pools, `Map`/`Set` methods, `draw` blocks). For what the compiler accepts today, read the [reference manual](language_definition.md).
+
 Iron compiles `.iron` source files into **standalone executables**. The compilation pipeline is:
 
 ```
