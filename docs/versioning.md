@@ -149,7 +149,8 @@ tag they correspond to.
 | (public tag, no internal drift) | `v4.1.0-alpha` | Networking (HTTP/HTTPS/WebSocket), v4 remediation, and removal of the package manager in favor of vendoring. |
 | (public tag, no internal drift) | `v4.2.0-alpha` | llms.txt and the compiler-verified LLM guide, W0613 fixes, removal of the migrate command, and working release archives. |
 | (public tag, no internal drift) | `v4.3.0-alpha` | Correctness hardening, explicit list ownership (`copy()` / `take()`), interface type tests and type match, and owned interface lists. |
-| (public tag, no internal drift) | `v4.4.0-alpha` | Strings and closure environments freed through reference counts, `rc [T]` shared lists, closures borrow lists only for a call, map / filter / reduce / forEach on any list, func typed fields callable. **Current release.** |
+| (public tag, no internal drift) | `v4.4.0-alpha` | Strings and closure environments freed through reference counts, `rc [T]` shared lists, closures borrow lists only for a call, map / filter / reduce / forEach on any list, func typed fields callable. |
+| (public tag, no internal drift) | `v4.5.0-alpha` | Temporaries dropped, captured vars in shared cells, field narrowing, list slicing, functions as values, string ordering, generation-safe pointer reuse, the rewritten reference manual with a checked grammar, parallel test runner. **Current release.** |
 
 Archived requirements files `.planning/REQUIREMENTS-v0.1.0.md`,
 `.planning/REQUIREMENTS-v0.1.x.md`, and `.planning/REQUIREMENTS-v0.2.0.md`
