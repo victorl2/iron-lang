@@ -273,7 +273,7 @@ fi
 noopt_parity_check() {
     local file="$1" name="$2" want="$3"
     case "${file}" in */regressions/*) ;; *) return 0 ;; esac
-    if head -n 20 "${file}" | grep -qE '^[[:space:]]*--[[:space:]]*@skip-no-optimize:'; then
+    if grep -qE '^[[:space:]]*--[[:space:]]*@skip-no-optimize:' <<< "$(head -n 20 "${file}")"; then
         return 0
     fi
     local dir="${WORK_DIR}/${name}_noopt"
@@ -342,19 +342,19 @@ run_one_fixture() {
     # no output compare. Used for fixtures that require a GUI/display
     # at runtime (raylib window, audio device, …) which CI can't supply.
     compile_only=0
-    if head -n 10 "${test_file}" | grep -qE '^[[:space:]]*(--|//)[[:space:]]*@compile-only\b'; then
+    if grep -qE '^[[:space:]]*(--|//)[[:space:]]*@compile-only\b' <<< "$(head -n 10 "${test_file}")"; then
         compile_only=1
     fi
 
     # Extract v4 directives from first 10 lines.
     expected_pass_after=""
     expect_panic_substr=""
-    if head -n 10 "${test_file}" | grep -qE '^[[:space:]]*--[[:space:]]*@expected-pass-after:'; then
+    if grep -qE '^[[:space:]]*--[[:space:]]*@expected-pass-after:' <<< "$(head -n 10 "${test_file}")"; then
         expected_pass_after=$(head -n 10 "${test_file}" \
             | grep -oE '@expected-pass-after:[[:space:]]+phase-[0-9]+' \
             | head -1 | sed 's/.*phase-//')
     fi
-    if head -n 10 "${test_file}" | grep -qE '^[[:space:]]*--[[:space:]]*@expect-panic:'; then
+    if grep -qE '^[[:space:]]*--[[:space:]]*@expect-panic:' <<< "$(head -n 10 "${test_file}")"; then
         expect_panic_substr=$(head -n 10 "${test_file}" \
             | grep -E '^[[:space:]]*--[[:space:]]*@expect-panic:' \
             | head -1 | sed -E 's/^[[:space:]]*--[[:space:]]*@expect-panic:[[:space:]]*//')
@@ -431,7 +431,10 @@ run_one_fixture() {
                 echo "[FAIL] (@expect-panic: expected non-zero exit)"
                 echo FAIL > "${RESULT_FILE}"
             fi
-        elif ! echo "${run_output}" | grep -qF "${expect_panic_substr}"; then
+        # A here-string, not a pipe: with pipefail, `grep -q` exiting on the
+        # first match can leave `echo` with SIGPIPE and fail the pipeline,
+        # which reported a correct panic as missing (#228).
+        elif ! grep -qF "${expect_panic_substr}" <<< "${run_output}"; then
             if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
                 echo "[XFAIL] (@expect-panic: panic missing substring; expected-pass-after: phase-${expected_pass_after})"
                 echo XFAIL > "${RESULT_FILE}"
@@ -557,7 +560,7 @@ if [ "${CATEGORY}" = "v4-fail" ] || [ "${CATEGORY}" = "compile_fail" ]; then
 
         # Re-extract @expected-pass-after for XFAIL handling
         expected_pass_after=""
-        if head -n 10 "${test_file}" | grep -qE '^[[:space:]]*--[[:space:]]*@expected-pass-after:'; then
+        if grep -qE '^[[:space:]]*--[[:space:]]*@expected-pass-after:' <<< "$(head -n 10 "${test_file}")"; then
             expected_pass_after=$(head -n 10 "${test_file}" \
                 | grep -oE '@expected-pass-after:[[:space:]]+phase-[0-9]+' \
                 | head -1 | sed 's/.*phase-//')
@@ -593,7 +596,7 @@ if [ "${CATEGORY}" = "v4-fail" ] || [ "${CATEGORY}" = "compile_fail" ]; then
 
             # Carve-out 2: runtime-panic negative.
             expect_panic_neg=""
-            if head -n 10 "${test_file}" | grep -qE '^[[:space:]]*--[[:space:]]*@expect-panic:'; then
+            if grep -qE '^[[:space:]]*--[[:space:]]*@expect-panic:' <<< "$(head -n 10 "${test_file}")"; then
                 expect_panic_neg=1
             fi
             if [ -n "${expect_panic_neg}" ]; then
@@ -646,7 +649,7 @@ if [ "${CATEGORY}" = "v4-fail" ] || [ "${CATEGORY}" = "compile_fail" ]; then
         # targets: a syntax error must be the expected diagnostic itself.
         stray_syntax=""
         first_syntax=$(grep -m1 -E '^error\[E0(002|101|102)\]' "${build_log}" || true)
-        if [ -n "${first_syntax}" ] && ! printf '%s' "${first_syntax}" | grep -qF "${expected_substr}"; then
+        if [ -n "${first_syntax}" ] && ! grep -qF "${expected_substr}" <<< "${first_syntax}"; then
             stray_syntax="${first_syntax}"
         fi
         if grep -qF "${expected_substr}" "${build_log}" && [ -n "${stray_syntax}" ]; then
