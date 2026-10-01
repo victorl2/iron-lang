@@ -2819,7 +2819,8 @@ stmt           ::= val_decl | var_decl | return_stmt | if_stmt | while_stmt | fo
 return_stmt    ::= 'return' [ expr ]
 if_stmt        ::= 'if' expr block { 'elif' expr block } [ 'else' block ]
 while_stmt     ::= 'while' expr block
-for_stmt       ::= 'for' IDENT 'in' expr [ 'parallel' [ '(' expr ')' ] ] block
+for_stmt       ::= 'for' ( IDENT | '(' IDENT ',' IDENT ')' ) 'in' expr
+                   [ 'parallel' [ '(' expr ')' ] ] block
 match_stmt     ::= 'match' expr '{' { match_arm } [ 'else' '->' arm_body ] '}'
 match_arm      ::= pattern '->' arm_body
 arm_body       ::= block | stmt
@@ -2844,6 +2845,7 @@ heap_opts      ::= '(' heap_opt { ',' heap_opt } ')'
 heap_opt       ::= 'in' ':' expr | 'allow_drop_skip' ':' ( 'true' | 'false' )
 postfix        ::= primary { '.' NAME [ type_args ] [ call_args ]
                            | '[' expr [ '..' [ expr ] ] ']'
+                           | '[' type ',' type { ',' type } ']'
                            | call_args }
 call_args      ::= '(' [ expr { ',' expr } [ ',' ] ] ')'
 type_args      ::= '[' type { ',' type } ']'
