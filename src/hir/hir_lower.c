@@ -1063,6 +1063,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         if (!ty) ty = resolve_type_ann(ctx, vd->type_ann);
         IronHIR_Expr *init = vd->init ? lower_expr_hir(ctx, vd->init) : NULL;
         IronHIR_VarId id   = iron_hir_alloc_var(mod, vd->name, ty, true);
+        if (vd->is_boxed) iron_hir_var_set_boxed(mod, id);
         declare_var(ctx, vd->name, id);
         IronHIR_Stmt *s = iron_hir_stmt_let(mod, id, ty, init, true, span);
         iron_hir_block_add_stmt(blk, s);

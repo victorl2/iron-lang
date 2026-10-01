@@ -40,6 +40,30 @@
 
 /* Check if a ValueId is known to be a stack-represented array.
  * Returns the original ARRAY_LIT ValueId, or 0 if not a stack array. */
+/* An env field named after a capture: an Iron identifier that is a C
+ * keyword (`short`, `int`, `default`...) gets a suffix. Returns one of a
+ * few rotating buffers so several names can sit in one format call. */
+static const char *cap_c_name(const char *n) {
+    static const char *const kw[] = {
+        "auto", "break", "case", "char", "const", "continue", "default", "do",
+        "double", "else", "enum", "extern", "float", "for", "goto", "if",
+        "inline", "int", "long", "register", "restrict", "return", "short",
+        "signed", "sizeof", "static", "struct", "switch", "typedef", "union",
+        "unsigned", "void", "volatile", "while", "bool", "true", "false",
+        "NULL", "main", "free", "malloc", "errno", NULL };
+    if (!n) return n;
+    for (int i = 0; kw[i]; i++) {
+        if (strcmp(n, kw[i]) == 0) {
+            static char bufs[4][128];
+            static int next = 0;
+            char *b = bufs[next++ & 3];
+            snprintf(b, sizeof(bufs[0]), "%s_", n);
+            return b;
+        }
+    }
+    return n;
+}
+
 static IronLIR_ValueId get_stack_array_origin(EmitCtx *ctx, IronLIR_ValueId id) {
     if (!ctx->opt_info->stack_array_ids) return IRON_LIR_VALUE_INVALID;
     ptrdiff_t idx = hmgeti(ctx->opt_info->stack_array_ids, id);
@@ -675,9 +699,9 @@ static void emit_spawn_env_string_releases(Iron_StrBuf *sb, const Iron_CaptureEn
     for (int ci = 0; ci < count; ci++) {
         if (caps[ci].is_mutable || !caps[ci].type) continue;
         if (caps[ci].type->kind == IRON_TYPE_STRING)
-            iron_strbuf_appendf(sb, "    iron_string_release(&_e->%s);\n", caps[ci].name);
+            iron_strbuf_appendf(sb, "    iron_string_release(&_e->%s);\n", cap_c_name(caps[ci].name));
         else if (caps[ci].type->kind == IRON_TYPE_FUNC)
-            iron_strbuf_appendf(sb, "    iron_closure_release(_e->%s);\n", caps[ci].name);
+            iron_strbuf_appendf(sb, "    iron_closure_release(_e->%s);\n", cap_c_name(caps[ci].name));
     }
 }
 
@@ -909,10 +933,10 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
                 if (cap->is_heap_handle && cap->type) {
                     iron_strbuf_appendf(sb, "((%s *)(%s_e->%s).addr)",
                                         emit_type_to_c(cap->type, ctx),
-                                        cap->is_mutable ? "*" : "", cap->name);
+                                        cap->is_mutable ? "*" : "", cap_c_name(cap->name));
                     return;
                 }
-                iron_strbuf_appendf(sb, "%s_e->%s", cap->is_mutable ? "" : "&", cap->name);
+                iron_strbuf_appendf(sb, "%s_e->%s", cap->is_mutable ? "" : "&", cap_c_name(cap->name));
                 return;
             }
         }
@@ -1337,6 +1361,58 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
  * If vid is inline-eligible (single-use pure, same block), reconstructs the
  * producing instruction as a sub-expression. Otherwise emits `_vN`.
  * Always parenthesizes compound expressions for safety. */
+/* The drop of the value inside a mutable capture cell (#210): a thunk
+ * `static void __cell_drop_<TypeC>(void *p)` in struct_bodies, or "NULL"
+ * when the value needs no destruction. */
+static const char *emit_cell_drop_fn(EmitCtx *ctx, Iron_Type *t) {
+    if (!t) return "NULL";
+    const char *tc = emit_type_to_c(t, ctx);
+    char body[512];
+    body[0] = '\0';
+    char proto[256];
+    proto[0] = '\0';
+    if (t->kind == IRON_TYPE_STRING) {
+        snprintf(body, sizeof(body), "iron_string_release((Iron_String *)p);");
+    } else if (t->kind == IRON_TYPE_NULLABLE && t->nullable.inner &&
+               t->nullable.inner->kind == IRON_TYPE_STRING) {
+        snprintf(body, sizeof(body),
+                 "if (((%s *)p)->has_value) iron_string_release(&((%s *)p)->value);", tc, tc);
+    } else if (t->kind == IRON_TYPE_FUNC) {
+        snprintf(body, sizeof(body), "iron_closure_release(*(Iron_Closure *)p);");
+    } else if (t->kind == IRON_TYPE_RC) {
+        snprintf(body, sizeof(body), "iron_rc_release(*(void **)p);");
+    } else if (t->kind == IRON_TYPE_WEAK_RC) {
+        snprintf(body, sizeof(body), "iron_weak_rc_release(*(void **)p);");
+    } else if (t->kind == IRON_TYPE_NULLABLE && t->nullable.inner &&
+               t->nullable.inner->kind == IRON_TYPE_RC) {
+        snprintf(body, sizeof(body),
+                 "if (((%s *)p)->has_value) iron_rc_release((void *)((%s *)p)->value);", tc, tc);
+    } else if (t->kind == IRON_TYPE_ARRAY && t->array.size < 0 && !t->array.is_bounded) {
+        snprintf(body, sizeof(body), "%s_free((%s *)p);", tc, tc);
+    } else if (t->kind == IRON_TYPE_OBJECT && t->object.decl &&
+               od_needs_drop(ctx, t->object.decl)) {
+        emit_ensure_drop(ctx, tc, t->object.decl);
+        snprintf(proto, sizeof(proto), "static void %s_drop(%s *self);\n", tc, tc);
+        snprintf(body, sizeof(body), "%s_drop((%s *)p);", tc, tc);
+    } else if (t->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, t, false)) {
+        emit_ensure_iface_glue(ctx, t, true);
+        snprintf(proto, sizeof(proto), "static void %s_drop(%s *self);\n", tc, tc);
+        snprintf(body, sizeof(body), "%s_drop((%s *)p);", tc, tc);
+    } else {
+        return "NULL";
+    }
+    char name[300];
+    snprintf(name, sizeof(name), "__cell_drop_%s", tc);
+    if (shgeti(ctx->cell_drop_fns, name) < 0) {
+        char *key = iron_arena_strdup(ctx->arena, name, strlen(name));
+        if (!key) iron_oom_abort("emit_c.c:emit_cell_drop_fn");
+        shput(ctx->cell_drop_fns, key, 1);
+        iron_strbuf_appendf(&ctx->struct_bodies,
+                            "%sstatic void %s(void *p) { %s }\n\n", proto, name, body);
+    }
+    return iron_arena_strdup(ctx->arena, name, strlen(name));
+}
+
 /* String ordering: `<`, `<=`, `>`, `>=` on two strings compare their
  * bytes through iron_string_compare; the C operator would compare the
  * struct. Emits `(iron_string_compare(&l, &r) OP 0)` and returns true, or
@@ -2843,6 +2919,18 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             iron_strbuf_appendf(sb, "int64_t ");
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, "_len;\n");
+        } else if (instr->alloca.is_boxed) {
+            /* A var a closure captures (#210): the slot is a counted cell
+             * shared with the closure envs; `_vN` names the value inside
+             * it for every load, store and address-of below. */
+            const char *c_type = emit_local_decl_type(
+                fn, instr, instr->alloca.alloc_type, ctx);
+            const char *dropfn = emit_cell_drop_fn(ctx, instr->alloca.alloc_type);
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "%s *_v%u_box = (%s *)iron_cell_alloc(sizeof(%s), %s);\n",
+                                c_type, instr->id, c_type, c_type, dropfn);
+            iron_strbuf_appendf(sb, "#define _v%u (*_v%u_box)\n", instr->id, instr->id);
+            arrput(ctx->boxed_vids, instr->id);
         } else {
             /* Declare a C variable of the alloc_type */
             const char *c_type = emit_local_decl_type(
@@ -2902,13 +2990,13 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     /* heap binding: read the value through the handle */
                     const char *vt = emit_type_to_c(instr->type ? instr->type : cap->type, ctx);
                     iron_strbuf_appendf(sb, "*((%s *)(%s_e->%s).addr);\n", vt,
-                                        cap->is_mutable ? "*" : "", cap->name);
+                                        cap->is_mutable ? "*" : "", cap_c_name(cap->name));
                 } else if (cap->is_mutable) {
                     /* var capture: dereference pointer field */
-                    iron_strbuf_appendf(sb, "*_e->%s;\n", cap->name);
+                    iron_strbuf_appendf(sb, "*_e->%s;\n", cap_c_name(cap->name));
                 } else {
                     /* val capture: read field directly */
-                    iron_strbuf_appendf(sb, "_e->%s;\n", cap->name);
+                    iron_strbuf_appendf(sb, "_e->%s;\n", cap_c_name(cap->name));
                 }
                 break;
             }
@@ -3030,7 +3118,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (cap->is_mutable) {
                     /* var capture: write through pointer field */
                     emit_indent(sb, ind);
-                    iron_strbuf_appendf(sb, "*_e->%s = ", cap->name);
+                    iron_strbuf_appendf(sb, "*_e->%s = ", cap_c_name(cap->name));
                     emit_expr_to_buf(sb, instr->store.value, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ";\n");
                 }
@@ -3319,7 +3407,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             const char *vt = emit_type_to_c(obj_instr->type ? obj_instr->type : cap->type, ctx);
                             emit_indent(sb, ind);
                             iron_strbuf_appendf(sb, "((%s *)(%s_e->%s).addr)->%s = ", vt,
-                                                cap->is_mutable ? "*" : "", cap->name,
+                                                cap->is_mutable ? "*" : "", cap_c_name(cap->name),
                                                 instr->field.field);
                             emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
                             iron_strbuf_appendf(sb, ";\n");
@@ -3327,7 +3415,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         } else if (cap->is_mutable) {
                             /* Write through the capture pointer to the original struct */
                             emit_indent(sb, ind);
-                            iron_strbuf_appendf(sb, "_e->%s->%s = ", cap->name, instr->field.field);
+                            iron_strbuf_appendf(sb, "_e->%s->%s = ", cap_c_name(cap->name), instr->field.field);
                             emit_expr_to_buf(sb, instr->field.value, fn, ctx, ctx->current_block_id, 0);
                             iron_strbuf_appendf(sb, ";\n");
                             wrote_via_capture = true;
@@ -5302,6 +5390,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * own synthesis (lifted names are `__lambda_N` internal
          * identifiers), so suffix detection cannot collide with user code. */
         bool env_drop_call = false;
+        bool cell_release_call = false;
         {
             IronLIR_ValueId fptr_chk = instr->call.func_ptr;
             if (!instr->call.func_decl &&
@@ -5312,6 +5401,11 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 const char *rn_chk = fn->value_table[fptr_chk]->func_ref.func_name;
                 if (rn_chk && strcmp(rn_chk, "iron_string_concat") == 0) {
                     runtime_args_by_addr = true;
+                }
+                /* The frame's share of a mutable capture cell (#210): the
+                 * argument is the boxed slot; pass its storage address. */
+                if (rn_chk && strcmp(rn_chk, "iron_cell_release") == 0) {
+                    cell_release_call = true;
                 }
                 if (rn_chk) {
                     size_t rn_len = strlen(rn_chk);
@@ -5335,6 +5429,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * the argument is ALREADY a pointer — emit it directly instead
              * of taking its address, which would yield a pointer-to-pointer
              * and silently miscompile (and segfault) through the setter. */
+            if (cell_release_call && i == 0) {
+                emit_receiver_addr(sb, fn, ctx, arg_id, ctx->current_block_id);
+                continue;
+            }
             if (self_by_addr && i == 0) {
                 /* Pointer-receiver self: hand the callee the address of the
                  * storage the receiver names (binding slot, capture env
@@ -6927,12 +7025,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         /* var capture: store pointer to outer variable */
                         iron_strbuf_appendf(&ctx->struct_bodies,
                                             "    %s *%s;\n",
-                                            field_type, cap_meta[ci].name);
+                                            field_type, cap_c_name(cap_meta[ci].name));
                     } else {
                         /* val capture: store value copy */
                         iron_strbuf_appendf(&ctx->struct_bodies,
                                             "    %s %s;\n",
-                                            field_type, cap_meta[ci].name);
+                                            field_type, cap_c_name(cap_meta[ci].name));
                     }
                 }
                 iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n\n", env_type);
@@ -6980,13 +7078,21 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     func_name, func_name, env_type, env_type);
                 bool any_rc_field = false;
                 for (int ci = 0; ci < cap_count; ci++) {
-                    if (cap_meta[ci].is_mutable) continue;
+                    if (cap_meta[ci].is_mutable) {
+                        if (cap_meta[ci].is_boxed) {
+                            /* The env's share of the capture cell (#210). */
+                            iron_strbuf_appendf(&ctx->struct_bodies,
+                                "    iron_cell_release(_env->%s);\n", cap_c_name(cap_meta[ci].name));
+                            any_rc_field = true;
+                        }
+                        continue;
+                    }
                     Iron_Type *cap_ty = cap_meta[ci].type;
                     if (!cap_ty) continue;
                     if (cap_ty->kind == IRON_TYPE_RC) {
                         iron_strbuf_appendf(&ctx->struct_bodies,
                             "    iron_rc_release((void *)_env->%s);\n",
-                            cap_meta[ci].name);
+                            cap_c_name(cap_meta[ci].name));
                         any_rc_field = true;
                     } else if (cap_ty->kind == IRON_TYPE_WEAK_RC) {
                         /* Phase 27 OQ-04: env_drop releases weak-rc capture,
@@ -6995,17 +7101,17 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                          * the block is freed (Plan 27-01 substrate). */
                         iron_strbuf_appendf(&ctx->struct_bodies,
                             "    iron_weak_rc_release((void *)_env->%s);\n",
-                            cap_meta[ci].name);
+                            cap_c_name(cap_meta[ci].name));
                         any_rc_field = true;  /* triggers env_drop emission for weak-rc-only captures */
                     } else if (cap_ty->kind == IRON_TYPE_STRING) {
                         /* A captured string is the env's own share (#182). */
                         iron_strbuf_appendf(&ctx->struct_bodies,
-                            "    iron_string_release(&_env->%s);\n", cap_meta[ci].name);
+                            "    iron_string_release(&_env->%s);\n", cap_c_name(cap_meta[ci].name));
                         any_rc_field = true;
                     } else if (cap_ty->kind == IRON_TYPE_FUNC) {
                         /* A captured closure is the env's own share (#190). */
                         iron_strbuf_appendf(&ctx->struct_bodies,
-                            "    iron_closure_release(_env->%s);\n", cap_meta[ci].name);
+                            "    iron_closure_release(_env->%s);\n", cap_c_name(cap_meta[ci].name));
                         any_rc_field = true;
                     }
                 }
@@ -7028,7 +7134,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             /* Populate env fields */
             for (int ci = 0; ci < cap_count; ci++) {
                 emit_indent(sb, ind);
-                iron_strbuf_appendf(sb, "_env_%u->%s = ", instr->id, cap_meta[ci].name);
+                iron_strbuf_appendf(sb, "_env_%u->%s = ", instr->id, cap_c_name(cap_meta[ci].name));
                 if (cap_meta[ci].is_mutable) {
                     /* var capture: store the address of the outer variable's
                      * storage (an alloca, the mutating receiver's self
@@ -7041,17 +7147,23 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_val(sb, instr->make_closure.captures[ci]);
                 }
                 iron_strbuf_appendf(sb, ";\n");
+                if (cap_meta[ci].is_mutable && cap_meta[ci].is_boxed) {
+                    /* The env takes its own share of the capture cell (#210). */
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "iron_cell_retain(_env_%u->%s);\n",
+                                        instr->id, cap_c_name(cap_meta[ci].name));
+                }
                 if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
                     cap_meta[ci].type->kind == IRON_TYPE_STRING) {
                     emit_indent(sb, ind);
                     iron_strbuf_appendf(sb, "iron_string_retain(&_env_%u->%s);\n",
-                                        instr->id, cap_meta[ci].name);
+                                        instr->id, cap_c_name(cap_meta[ci].name));
                 }
                 if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
                     cap_meta[ci].type->kind == IRON_TYPE_FUNC) {
                     emit_indent(sb, ind);
                     iron_strbuf_appendf(sb, "iron_closure_retain(_env_%u->%s);\n",
-                                        instr->id, cap_meta[ci].name);
+                                        instr->id, cap_c_name(cap_meta[ci].name));
                 }
             }
 
@@ -7113,10 +7225,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                              : "void*";
                     if (cap_meta[ci].is_mutable) {
                         iron_strbuf_appendf(&ctx->struct_bodies,
-                            "    %s *%s;\n", field_type, cap_meta[ci].name);
+                            "    %s *%s;\n", field_type, cap_c_name(cap_meta[ci].name));
                     } else {
                         iron_strbuf_appendf(&ctx->struct_bodies,
-                            "    %s %s;\n", field_type, cap_meta[ci].name);
+                            "    %s %s;\n", field_type, cap_c_name(cap_meta[ci].name));
                     }
                 }
                 iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n\n", env_type);
@@ -7218,7 +7330,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 /* Populate env fields */
                 for (int ci = 0; ci < cap_count; ci++) {
                     emit_indent(sb, ind);
-                    iron_strbuf_appendf(sb, "_env_%u->%s = ", instr->id, cap_meta[ci].name);
+                    iron_strbuf_appendf(sb, "_env_%u->%s = ", instr->id, cap_c_name(cap_meta[ci].name));
                     if (cap_meta[ci].is_mutable) {
                         iron_strbuf_appendf(sb, "&");
                         emit_val(sb, instr->spawn.captures[ci]);
@@ -7230,13 +7342,13 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         cap_meta[ci].type->kind == IRON_TYPE_STRING) {
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "iron_string_retain(&_env_%u->%s);\n",
-                                            instr->id, cap_meta[ci].name);
+                                            instr->id, cap_c_name(cap_meta[ci].name));
                     }
                     if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
                         cap_meta[ci].type->kind == IRON_TYPE_FUNC) {
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "iron_closure_retain(_env_%u->%s);\n",
-                                            instr->id, cap_meta[ci].name);
+                                            instr->id, cap_c_name(cap_meta[ci].name));
                     }
                 }
                 /* Result wrappers receive both env and handle so the value is
@@ -7278,7 +7390,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     instr->id);
                 for (int ci = 0; ci < cap_count; ci++) {
                     emit_indent(sb, inner);
-                    iron_strbuf_appendf(sb, "_env_%u->%s = ", instr->id, cap_meta[ci].name);
+                    iron_strbuf_appendf(sb, "_env_%u->%s = ", instr->id, cap_c_name(cap_meta[ci].name));
                     if (cap_meta[ci].is_mutable) {
                         iron_strbuf_appendf(sb, "&");
                         emit_val(sb, instr->spawn.captures[ci]);
@@ -7290,13 +7402,13 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         cap_meta[ci].type->kind == IRON_TYPE_STRING) {
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "iron_string_retain(&_env_%u->%s);\n",
-                                            instr->id, cap_meta[ci].name);
+                                            instr->id, cap_c_name(cap_meta[ci].name));
                     }
                     if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
                         cap_meta[ci].type->kind == IRON_TYPE_FUNC) {
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "iron_closure_retain(_env_%u->%s);\n",
-                                            instr->id, cap_meta[ci].name);
+                                            instr->id, cap_c_name(cap_meta[ci].name));
                     }
                 }
                 /* Emit a simple wrapper that calls with env and frees */
@@ -9977,7 +10089,12 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     if (blk_reachable) free(blk_reachable);
 
     ctx->indent = 0;
-    iron_strbuf_appendf(sb, "}\n\n");
+    iron_strbuf_appendf(sb, "}\n");
+    /* The value names of boxed slots (#210) are function-local macros. */
+    for (ptrdiff_t bi = 0; bi < arrlen(ctx->boxed_vids); bi++)
+        iron_strbuf_appendf(sb, "#undef _v%u\n", ctx->boxed_vids[bi]);
+    arrsetlen(ctx->boxed_vids, 0);
+    iron_strbuf_appendf(sb, "\n");
 
     /* Cleanup per-function inlining maps */
     ctx->inline_eligible = NULL;
@@ -10032,6 +10149,8 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     ctx.emitted_optionals = NULL;
     ctx.literal_cache = NULL;
     ctx.literal_cache_count = 0;
+    ctx.boxed_vids = NULL;
+    ctx.cell_drop_fns = NULL;
     ctx.mono_registry     = NULL;
     ctx.indent            = 0;
 

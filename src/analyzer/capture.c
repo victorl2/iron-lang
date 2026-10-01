@@ -82,6 +82,7 @@ typedef struct {
     const char      *name;
     struct Iron_Type *type;
     bool             is_mutable;
+    bool             is_boxed;
 } TmpCapture;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -223,6 +224,13 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
                                  ? id->resolved_type
                                  : id->resolved_sym->type;
             cap.is_mutable = id->resolved_sym->is_mutable;
+            /* A captured `var` local moves into a counted cell (#210). */
+            cap.is_boxed = false;
+            if (cap.is_mutable && id->resolved_sym->decl_node &&
+                id->resolved_sym->decl_node->kind == IRON_NODE_VAR_DECL) {
+                ((Iron_VarDecl *)id->resolved_sym->decl_node)->is_boxed = true;
+                cap.is_boxed = true;
+            }
             arrput(*captures, cap);
             break;
         }
@@ -238,8 +246,10 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
                 if (!ic->name || shgeti(*locals, ic->name) >= 0) continue;
                 if (shgeti(*seen, ic->name) >= 0) {
                     for (ptrdiff_t k = 0; k < arrlen(*captures); k++)
-                        if (strcmp((*captures)[k].name, ic->name) == 0 && ic->is_mutable)
+                        if (strcmp((*captures)[k].name, ic->name) == 0 && ic->is_mutable) {
                             (*captures)[k].is_mutable = true;
+                            if (ic->is_boxed) (*captures)[k].is_boxed = true;
+                        }
                     continue;
                 }
                 shput(*seen, ic->name, 1);
@@ -247,6 +257,7 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
                 cap.name       = ic->name;
                 cap.type       = ic->type;
                 cap.is_mutable = ic->is_mutable;
+                cap.is_boxed   = ic->is_boxed;
                 arrput(*captures, cap);
             }
             break;
@@ -473,6 +484,7 @@ static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
             if (!arr[i].name) { /* HARD-09 REPLACE (capture.c:find_captures name) */ return; }
             arr[i].type       = captures[i].type;
             arr[i].is_mutable = captures[i].is_mutable;
+            arr[i].is_boxed   = captures[i].is_boxed;
         }
         le->captures      = arr;
         le->capture_count = count;
@@ -546,6 +558,7 @@ static void find_spawn_captures(CaptureCtx *ctx, Iron_SpawnStmt *ss) {
             if (!arr[i].name) { /* HARD-09 REPLACE (capture.c:find_spawn_captures name) */ return; }
             arr[i].type       = captures[i].type;
             arr[i].is_mutable = captures[i].is_mutable;
+            arr[i].is_boxed   = captures[i].is_boxed;
         }
         ss->captures      = arr;
         ss->capture_count = count;
@@ -595,6 +608,7 @@ static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
             if (!arr[i].name) { /* HARD-09 REPLACE (capture.c:find_pfor_captures name) */ return; }
             arr[i].type       = captures[i].type;
             arr[i].is_mutable = captures[i].is_mutable;
+            arr[i].is_boxed   = captures[i].is_boxed;
         }
         fs->pfor_captures      = arr;
         fs->pfor_capture_count = count;

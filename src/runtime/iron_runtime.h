@@ -1152,6 +1152,14 @@ typedef struct {
  * drop. A NULL env (no captures) is never counted. */
 void *iron_closure_env_alloc(size_t env_size, void (*drop)(void *env));
 void  iron_closure_env_free(void *env);          /* called by the env drop */
+
+/* A `var` that a closure writes lives in a counted cell (#210): the frame
+ * and every closure env that captured it share the cell, so the closure
+ * may outlive the frame. The value sits behind the header; `drop`, when
+ * set, destroys the value before the cell is freed. */
+void *iron_cell_alloc(size_t size, void (*drop)(void *value));
+void  iron_cell_retain(void *value);
+void  iron_cell_release(void *value);
 void  iron_closure_retain(Iron_Closure c);
 void  iron_closure_release(Iron_Closure c);
 

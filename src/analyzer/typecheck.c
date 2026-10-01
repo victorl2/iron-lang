@@ -1020,9 +1020,12 @@ static bool is_stringifiable(TypeCtx *ctx, const Iron_Type *t) {
      * dereferenced value. Matches the new interp-string formatter arm in
      * emit_c.c IRON_LIR_INTERP_STRING. Structured pointees still trigger
      * W0602 (no to_string contract for bare pointer to struct). */
-    if (t->kind == IRON_TYPE_PTR && t->ptr.is_unchecked && t->ptr.pointee) {
+    /* A checked pointer to a scalar prints its pointee too, through a
+     * generation checked load (hir_lower wraps the part in a deref). */
+    if (t->kind == IRON_TYPE_PTR && t->ptr.pointee) {
         const Iron_Type *p = t->ptr.pointee;
-        if (iron_type_is_numeric(p) || p->kind == IRON_TYPE_BOOL) return true;
+        if (iron_type_is_numeric(p) || p->kind == IRON_TYPE_BOOL ||
+            (!t->ptr.is_unchecked && p->kind == IRON_TYPE_STRING)) return true;
     }
     if (t->kind == IRON_TYPE_OBJECT && t->object.decl && ctx->program) {
         const char *tname = t->object.decl->name;

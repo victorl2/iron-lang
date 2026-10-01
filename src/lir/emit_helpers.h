@@ -67,6 +67,11 @@ typedef struct {
     /* Interned literal cache (#202): literal text -> index of its static. */
     struct { char *key; int value; } *literal_cache;
     int           literal_cache_count;
+    /* Boxed allocas of the function being emitted (#210): each got a
+     * `#define _vN (*_vN_box)` that is undefined after the body. */
+    IronLIR_ValueId *boxed_vids;
+    /* Cell drop thunks already emitted, keyed by the value's C type. */
+    struct { char *key; int value; } *cell_drop_fns;
     char        **emitted_tuples;                /* Phase 59 01d: stb_ds string array of tuple mangled names */
     /* Phase 23 VEC-01: per-(T, N) Iron_BVec_T_N typedef dedup.
      * Parallel to emitted_tuples; same arrput/arrlen/strcmp shape. */

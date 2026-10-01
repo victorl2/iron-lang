@@ -1,0 +1,11 @@
+-- A captured var named like a C keyword is a valid env field.
+func main() {
+    var short = 1
+    var int = 2
+    val bump = func() {
+        short += 10
+        int = int * 3
+    }
+    bump()
+    println("{short} {int}")
+}
