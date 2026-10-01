@@ -362,7 +362,10 @@ void test_map_get_missing_key_panics(void) {
 
 static void child_rehash_oom(void) {
     Iron_Map_int64_t_int64_t m = Iron_Map_int64_t_int64_t_create();
-    Iron_Map_int64_t_int64_t_rehash(&m, INT64_C(1) << 60);
+    /* volatile: GCC would otherwise fold the size into the inlined malloc
+     * and reject the constant with -Walloc-size-larger-than. */
+    volatile int64_t huge = INT64_C(1) << 60;
+    Iron_Map_int64_t_int64_t_rehash(&m, huge);
 }
 
 void test_map_rehash_oom_aborts(void) {
