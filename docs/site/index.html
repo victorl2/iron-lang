@@ -1047,8 +1047,51 @@
       </div>
     </div>
 
-    <!-- Networking -->
+    <!-- Collections -->
     <div class="feature reverse">
+      <div class="feature-text">
+        <h3>Maps and sets</h3>
+        <p>Hash tables are part of the standard surface: <code>Map[K, V]</code> and <code>Set[T]</code> are constructed with their types written out, keys are integers, strings, booleans or your own <code>Hashable</code> objects, and ownership follows the same rules as lists.</p>
+        <ul class="feature-list">
+          <li><code>put</code>, <code>get</code>, <code>get_or</code>, <code>has</code>, <code>remove</code>, <code>keys</code>, <code>values</code></li>
+          <li><code>get</code> on a missing key is a panic, never a silent default</li>
+          <li><code>for (key, value) in m</code> and <code>for item in s</code></li>
+          <li>No implicit copies: <code>copy()</code>, <code>take()</code> or share as <code>rc</code></li>
+        </ul>
+      </div>
+      <div class="feature-code">
+        <div class="code-window">
+          <div class="code-titlebar">
+            <div class="code-dot red"></div>
+            <div class="code-dot yellow"></div>
+            <div class="code-dot green"></div>
+            <span class="code-filename">collections.iron</span>
+          </div>
+          <div class="code-body">
+<pre data-example="native_collections"><span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="kw">var</span> counts = <span class="ty">Map</span>[<span class="ty">String</span>, <span class="ty">Int</span>]()
+    <span class="kw">for</span> word <span class="kw">in</span> [<span class="st">&quot;iron&quot;</span>, <span class="st">&quot;map&quot;</span>, <span class="st">&quot;iron&quot;</span>, <span class="st">&quot;set&quot;</span>, <span class="st">&quot;iron&quot;</span>] {
+        counts.<span class="fn">put</span>(word, counts.<span class="fn">get_or</span>(word, <span class="nu">0</span>) + <span class="nu">1</span>)
+    }
+    <span class="kw">var</span> words = counts.<span class="fn">keys</span>()
+    words.<span class="fn">sort</span>()
+    <span class="kw">for</span> word <span class="kw">in</span> words {
+        <span class="fn">println</span>(<span class="st">&quot;{word}={counts.get(word)}&quot;</span>)
+    }
+
+    <span class="kw">var</span> seen = <span class="ty">Set</span>[<span class="ty">Int</span>]()
+    <span class="kw">for</span> n <span class="kw">in</span> [<span class="nu">3</span>, <span class="nu">1</span>, <span class="nu">3</span>, <span class="nu">2</span>, <span class="nu">1</span>] {
+        seen.<span class="fn">add</span>(n)
+    }
+    <span class="fn">println</span>(<span class="st">&quot;distinct={seen.len()} has2={seen.has(2)} has9={seen.has(9)}&quot;</span>)
+}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Networking -->
+    <div class="feature">
       <div class="feature-text">
         <h3>Networking, batteries included</h3>
         <p>First-class stdlib for HTTP/HTTPS, WebSocket/WSS, TCP, UDP, DNS, typed IP addresses, and RFC 3986 URLs. Errors are concrete values, never exceptions. Timeouts are deadlines the runtime actually honours, from DNS through TLS and message decoding.</p>
