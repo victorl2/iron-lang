@@ -8952,7 +8952,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * For integer bound (for i in n) the loop var is Int. */
             Iron_Type *loop_var_type = iron_type_make_primitive(IRON_TYPE_INT);
             Iron_Type *loop_var2_type = NULL;
-            char hk = hash_container_kind(iter_t);
+            /* `for (k, v) in shared` through an rc handle iterates the table. */
+            Iron_Type *hash_t = (iter_t && iter_t->kind == IRON_TYPE_RC && iter_t->rc.inner)
+                                ? iter_t->rc.inner : iter_t;
+            char hk = hash_container_kind(hash_t);
             if (hk == 'M') {
                 /* for (k, v) in m: both are read-only views of an entry. */
                 if (!fs->var_name2) {
@@ -8960,10 +8963,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                "a map is iterated with two variables",
                                "write `for (key, value) in m`, or iterate m.keys() / m.values()");
                 }
-                loop_var_type = iter_t->object.elem;
-                loop_var2_type = iter_t->object.elem2;
+                loop_var_type = hash_t->object.elem;
+                loop_var2_type = hash_t->object.elem2;
             } else if (hk == 'S') {
-                loop_var_type = iter_t->object.elem;
+                loop_var_type = hash_t->object.elem;
             } else if (fs->var_name2) {
                 emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fs->span,
                            "only a Map is iterated with two variables",

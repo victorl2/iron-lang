@@ -1400,6 +1400,12 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
              * body may not grow or shrink the map it iterates: a removed key
              * would make the lookup panic. */
             Iron_Type *it_t = iterable ? iterable->type : NULL;
+            if (it_t && it_t->kind == IRON_TYPE_RC && it_t->rc.inner &&
+                it_t->rc.inner->kind == IRON_TYPE_OBJECT && it_t->rc.inner->object.decl &&
+                it_t->rc.inner->object.decl->name &&
+                (strcmp(it_t->rc.inner->object.decl->name, "Map") == 0 ||
+                 strcmp(it_t->rc.inner->object.decl->name, "Set") == 0))
+                it_t = it_t->rc.inner;   /* the rc handle's methods are the table's */
             bool it_map = it_t && it_t->kind == IRON_TYPE_OBJECT && it_t->object.decl &&
                           it_t->object.decl->name && it_t->object.elem &&
                           strcmp(it_t->object.decl->name, "Map") == 0;
@@ -1422,10 +1428,11 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                         char *nm = (char *)iron_arena_alloc(mod->arena, strlen(nb) + 1, 1);
                         if (!nm) iron_oom_abort("hir_lower.c:for map temp");
                         memcpy(nm, nb, strlen(nb) + 1);
-                        IronHIR_VarId mv = iron_hir_alloc_var(mod, nm, it_t, false);
-                        iron_hir_block_add_stmt(blk, iron_hir_stmt_let(mod, mv, it_t, iterable, false, span));
-                        iterable = iron_hir_expr_ident(mod, mv, nm, it_t, span);
-                        map_again = iron_hir_expr_ident(mod, mv, nm, it_t, span);
+                        Iron_Type *bind_t = iterable->type;
+                        IronHIR_VarId mv = iron_hir_alloc_var(mod, nm, bind_t, false);
+                        iron_hir_block_add_stmt(blk, iron_hir_stmt_let(mod, mv, bind_t, iterable, false, span));
+                        iterable = iron_hir_expr_ident(mod, mv, nm, bind_t, span);
+                        map_again = iron_hir_expr_ident(mod, mv, nm, bind_t, span);
                     }
                 }
                 iterable = iron_hir_expr_method_call(mod, iterable, it_map ? "keys" : "values",
