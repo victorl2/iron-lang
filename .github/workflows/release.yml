@@ -303,14 +303,39 @@ jobs:
           tar -xzf "$TARBALL" -C build/
           test -x build/ironls || { echo "ERROR: build/ironls not executable" >&2; exit 1; }
 
+      # Without the Developer ID secrets the binary cannot be signed; the
+      # unsigned tarball is published instead (with its sha256 sidecar)
+      # so macOS editors still have a server to download. A signed build
+      # takes over as soon as the secrets are configured.
+      - name: Decide whether signing is possible
+        id: signing
+        run: |
+          if [[ -n "${APPLE_DEVELOPER_ID_P12_BASE64:-}" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::APPLE_DEVELOPER_ID_P12_BASE64 is not configured; publishing the unsigned macOS ironls tarball"
+          fi
+
       - name: Sign + notarize + staple + re-tar (scripts/ci/sign_and_notarize_macos.sh)
+        if: steps.signing.outputs.enabled == 'true'
         run: |
           bash scripts/ci/sign_and_notarize_macos.sh \
             build/ironls \
             "${{ env.RELEASE_TAG }}" \
             "${{ matrix.arch }}"
 
-      - name: Upload signed macOS ironls asset to Release
+      - name: Publish the unsigned tarball with its sha256 sidecar
+        if: steps.signing.outputs.enabled != 'true'
+        run: |
+          set -euo pipefail
+          TARBALL=$(ls handoff/ironls-v*-macos-*.tar.gz | head -1)
+          NAME=$(basename "$TARBALL")
+          cp "$TARBALL" "build/$NAME"
+          (cd build && shasum -a 256 "$NAME" | awk '{print $1}' > "$NAME.sha256")
+          echo "unsigned: build/$NAME ($(cat build/$NAME.sha256))"
+
+      - name: Upload macOS ironls asset to Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
