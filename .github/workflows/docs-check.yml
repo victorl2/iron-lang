@@ -47,10 +47,10 @@ jobs:
           python-version: '3.12'
       - name: Install the Markdown renderer
         run: python3 -m pip install --quiet markdown
-      - name: Test documentation validators
-        run: python3 scripts/test_branding.py
       - name: Render the reference manual as /docs/
         run: python3 scripts/build_reference.py --site docs/site
+      - name: Test documentation validators
+        run: python3 scripts/test_branding.py
       - name: Check positioning, example parity, links, and fragments
         run: python3 scripts/check_site.py docs/site
       - name: Check llms.txt generation and links
