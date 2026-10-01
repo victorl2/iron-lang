@@ -157,6 +157,7 @@ static void collect_locals(Iron_Node *node, StrSet **locals) {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
             /* The loop variable is a local in the for body */
             if (fs->var_name) shput(*locals, fs->var_name, 1);
+            if (fs->var_name2) shput(*locals, fs->var_name2, 1);
             collect_locals(fs->body, locals);
             break;
         }
@@ -588,6 +589,7 @@ static void find_pfor_captures(CaptureCtx *ctx, Iron_ForStmt *fs) {
     /* Build locals: the loop variable + all decls inside the body */
     StrSet *locals = NULL;
     shput(locals, fs->var_name, 1);
+    if (fs->var_name2) shput(locals, fs->var_name2, 1);
     collect_locals(fs->body, &locals);
 
     /* Collect captures via ident walk (also walk iterable for range expr) */

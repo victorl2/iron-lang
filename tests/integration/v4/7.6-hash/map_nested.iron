@@ -1,0 +1,18 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Map[String, Map[String, Int]]: inner tables are owned by the outer one.
+func main() {
+    var nested = Map[String, Map[String, Int]]()
+    var inner = Map[String, Int]()
+    inner.put("x", 1)
+    inner.put("y", 2)
+    nested.put("outer", inner.take())
+    println("{nested.get("outer").len()} {inner.len()}")
+    var again = nested.get("outer")
+    again.put("z", 3)
+    println("{again.len()} {nested.get("outer").len()}")
+    nested.put("outer", again.take())
+    println("{nested.get("outer").get("z")}")
+    nested.remove("outer")
+    println("{nested.len()}")
+}

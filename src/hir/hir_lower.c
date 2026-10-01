@@ -1391,6 +1391,53 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                                          expr_type(fs->iterable),
                                                          false);
             IronHIR_Expr *iterable = lower_expr_hir(ctx, fs->iterable);
+
+            /* Map / Set iteration (#193) is a loop over a snapshot of the
+             * keys: `for (k, v) in m` runs `for k in m.keys() { val v =
+             * m.get(k) ... }` and `for x in s` runs over `s.values()`. The
+             * snapshot list is released when the loop exits (iter temps) and
+             * each value copy at the end of its iteration (LET drop), so the
+             * body may not grow or shrink the map it iterates: a removed key
+             * would make the lookup panic. */
+            Iron_Type *it_t = iterable ? iterable->type : NULL;
+            bool it_map = it_t && it_t->kind == IRON_TYPE_OBJECT && it_t->object.decl &&
+                          it_t->object.decl->name && it_t->object.elem &&
+                          strcmp(it_t->object.decl->name, "Map") == 0;
+            bool it_set = it_t && it_t->kind == IRON_TYPE_OBJECT && it_t->object.decl &&
+                          it_t->object.decl->name && it_t->object.elem &&
+                          strcmp(it_t->object.decl->name, "Set") == 0;
+            IronHIR_Expr *map_again = NULL;   /* the map, for the per-key lookup */
+            if (it_map || it_set) {
+                Iron_Type *key_t = it_t->object.elem;
+                Iron_Type *list_t = iron_type_make_array(mod->arena, key_t, -1, false);
+                if (it_map) {
+                    bool place = fs->iterable->kind == IRON_NODE_IDENT ||
+                                 fs->iterable->kind == IRON_NODE_FIELD_ACCESS;
+                    if (place) {
+                        map_again = lower_expr_hir(ctx, fs->iterable);
+                    } else {
+                        /* A temporary map: bind it once, iterate the binding. */
+                        char nb[48];
+                        snprintf(nb, sizeof(nb), "__for_map%d", ctx->lift_counter++);
+                        char *nm = (char *)iron_arena_alloc(mod->arena, strlen(nb) + 1, 1);
+                        if (!nm) iron_oom_abort("hir_lower.c:for map temp");
+                        memcpy(nm, nb, strlen(nb) + 1);
+                        IronHIR_VarId mv = iron_hir_alloc_var(mod, nm, it_t, false);
+                        iron_hir_block_add_stmt(blk, iron_hir_stmt_let(mod, mv, it_t, iterable, false, span));
+                        iterable = iron_hir_expr_ident(mod, mv, nm, it_t, span);
+                        map_again = iron_hir_expr_ident(mod, mv, nm, it_t, span);
+                    }
+                }
+                iterable = iron_hir_expr_method_call(mod, iterable, it_map ? "keys" : "values",
+                                                     NULL, 0, list_t, span);
+                for (ptrdiff_t vi = arrlen(mod->name_table) - 1; vi >= 0; vi--) {
+                    if (mod->name_table[vi].id == loop_var) {
+                        mod->name_table[vi].type = key_t;
+                        break;
+                    }
+                }
+            }
+
             if (iterable && iterable->type &&
                 iterable->type->kind == IRON_TYPE_STRING) {
                 /* for c in s iterates s.chars(): one String per character. */
@@ -1410,6 +1457,18 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             push_scope(ctx);
             declare_var(ctx, fs->var_name, loop_var);
             IronHIR_Block *body_blk = iron_hir_block_create(mod);
+            if (it_map && fs->var_name2 && map_again) {
+                /* val v = m.get(k): an owned copy of the entry's value. */
+                Iron_Type *val_t = it_t->object.elem2;
+                IronHIR_VarId vv = iron_hir_alloc_var(mod, fs->var_name2, val_t, false);
+                IronHIR_Expr **gargs = (IronHIR_Expr **)iron_arena_alloc(
+                    mod->arena, sizeof(IronHIR_Expr *), _Alignof(IronHIR_Expr *));
+                if (!gargs) iron_oom_abort("hir_lower.c:for map get");
+                gargs[0] = iron_hir_expr_ident(mod, loop_var, fs->var_name, it_t->object.elem, span);
+                IronHIR_Expr *get = iron_hir_expr_method_call(mod, map_again, "get", gargs, 1, val_t, span);
+                iron_hir_block_add_stmt(body_blk, iron_hir_stmt_let(mod, vv, val_t, get, false, span));
+                declare_var(ctx, fs->var_name2, vv);
+            }
             lower_block_hir(ctx, (Iron_Block *)fs->body, body_blk);
             pop_scope(ctx);
 

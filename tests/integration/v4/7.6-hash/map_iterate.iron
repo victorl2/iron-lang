@@ -1,0 +1,23 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- for (k, v) in m visits every entry once; order is unspecified so sort what is printed.
+func main() {
+    var m = Map[String, Int]()
+    m.put("c", 3)
+    m.put("a", 1)
+    m.put("b", 2)
+    var keys: [String] = []
+    var total = 0
+    for (k, v) in m {
+        keys.push(k)
+        total += v
+    }
+    keys.sort()
+    println("{keys.len()} {keys[0]} {keys[1]} {keys[2]} {total}")
+    var count = 0
+    val empty = Map[Int, Int]()
+    for (k, v) in empty {
+        count += 1
+    }
+    println("{count}")
+}

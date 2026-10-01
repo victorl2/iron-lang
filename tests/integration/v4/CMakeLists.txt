@@ -41,3 +41,20 @@ endif()
 
 # Phase 35 MIG-09: migrated-from-v3/ subdir hosts the hand-migrated v3 corpus.
 add_subdirectory(migrated-from-v3)
+
+# Leak oracle (#193): every Map / Set fixture runs under `leaks` (macOS) or
+# valgrind (Linux) and must release everything it allocated. The containers
+# allocate with malloc, which the runtime's own IRON_LEAK_CHECK tracker does
+# not see. Skips itself when no detector is installed.
+if(NOT WIN32)
+    add_test(
+        NAME test_leak_check_hash
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/oracles/leak_check.sh
+                ${CMAKE_BINARY_DIR}/iron
+                ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.6-hash
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(test_leak_check_hash PROPERTIES
+        LABELS "oracle;v4-acceptance"
+        TIMEOUT 900)
+endif()

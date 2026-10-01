@@ -1,0 +1,7 @@
+-- section: 7.6-hash (negative)
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Map needs both type arguments; nothing else carries them.
+func main() {
+    var m = Map()
+    m.put(1, 2)
+}

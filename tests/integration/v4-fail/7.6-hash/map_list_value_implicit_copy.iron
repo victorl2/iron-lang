@@ -1,0 +1,9 @@
+-- section: 7.6-hash (negative)
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- A list stored in a map needs a fresh list: xs.copy() or xs.take().
+func main() {
+    var m = Map[String, [Int]]()
+    val xs = [1, 2]
+    m.put("k", xs)
+    println("{m.len()} {xs.len()}")
+}

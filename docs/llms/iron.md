@@ -373,6 +373,32 @@ Strings have methods such as `upper`, `lower`, `trim`, `split`, `contains`,
 `replace`, `starts_with`, `to_int`. Lists have `push`, `map`, `filter`,
 `reduce`, `sum`.
 
+`Map[K, V]` and `Set[T]` are hash containers constructed empty with their
+type arguments written out. Keys must be `Int`, `Bool`, `String` or an
+object that implements `Hashable` (`hash()` and `equals()`). `get` panics
+on a missing key, so use `has` or `get_or`; `put`, `remove`, `clear` and
+`add` need a `var` binding; a map is never duplicated implicitly (`copy()`
+or `take()` it); iterate with `for (k, v) in m` or `for x in s`.
+
+```iron
+func main() {
+    var counts = Map[String, Int]()
+    for w in ["a", "b", "a"] {
+        counts.put(w, counts.get_or(w, 0) + 1)
+    }
+    var total = 0
+    for (k, v) in counts {
+        total += v
+    }
+    var seen = Set[Int]()
+    println("{counts.len()} {counts.get("a")} {counts.has("z")} {total} {seen.add(1)} {seen.add(1)}")
+}
+```
+
+```output
+2 2 false 3 true false
+```
+
 ```iron
 import io
 
@@ -387,7 +413,6 @@ func main() {
 
 ## Known gaps (current alpha)
 
-- `Map` and `Set` are declared but not usable yet; use lists or objects.
 - There are no `break` and `continue` statements; return from the function
   or make the loop condition false.
 - `println` takes exactly one `String`; interpolate other values.

@@ -1,0 +1,6 @@
+-- section: 7.6-hash (negative)
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Set takes one type argument.
+func main() {
+    var s = Set[String, Int]()
+}

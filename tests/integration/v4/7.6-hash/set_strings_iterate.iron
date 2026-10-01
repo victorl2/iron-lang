@@ -1,0 +1,22 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Set[String]: dedup by content; iteration and values() snapshot.
+func main() {
+    var s = Set[String]()
+    s.add("b")
+    s.add("a")
+    s.add("b" + "")
+    var vs = s.values()
+    vs.sort()
+    println("{s.len()} {vs[0]} {vs[1]}")
+    var n = 0
+    for x in s {
+        n += x.len()
+    }
+    println("{n}")
+    var c = s.copy()
+    c.add("c")
+    println("{s.len()} {c.len()}")
+    val t = c.take()
+    println("{c.len()} {t.len()}")
+}

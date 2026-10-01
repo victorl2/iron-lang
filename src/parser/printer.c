@@ -712,7 +712,8 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FOR: {
             Iron_ForStmt *n = (Iron_ForStmt *)node;
-            iron_strbuf_appendf(ctx->sb, "for %s in ", n->var_name);
+            if (n->var_name2) iron_strbuf_appendf(ctx->sb, "for (%s, %s) in ", n->var_name, n->var_name2);
+            else iron_strbuf_appendf(ctx->sb, "for %s in ", n->var_name);
             print_node(ctx, n->iterable);
             if (n->is_parallel) {
                 iron_strbuf_appendf(ctx->sb, " parallel");

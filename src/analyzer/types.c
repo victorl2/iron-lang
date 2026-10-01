@@ -350,7 +350,15 @@ bool iron_type_equals(const Iron_Type *a, const Iron_Type *b) {
         }
 
         case IRON_TYPE_OBJECT:
-            return a->object.decl == b->object.decl;
+            if (a->object.decl != b->object.decl) return false;
+            /* Runtime containers carry their element types on the object
+             * type; a side without them (an elem-less constructor result
+             * waiting for the binding's annotation) matches any. */
+            if (a->object.elem && b->object.elem &&
+                !iron_type_equals(a->object.elem, b->object.elem)) return false;
+            if (a->object.elem2 && b->object.elem2 &&
+                !iron_type_equals(a->object.elem2, b->object.elem2)) return false;
+            return true;
 
         case IRON_TYPE_INTERFACE:
             return a->interface.decl == b->interface.decl;
@@ -520,7 +528,22 @@ const char *iron_type_to_string(const Iron_Type *t, Iron_Arena *a) {
              * this fix both (Foo, Int) and (Bar, Int) mangled to
              * `Iron_Tuple__object__Int` causing silent C-level name
              * collisions. */
-            if (t->object.decl && t->object.decl->name) return t->object.decl->name;
+            if (t->object.decl && t->object.decl->name) {
+                /* Map[K, V] and Set[T] print their element types, which is
+                 * how a user wrote them. */
+                const char *on = t->object.decl->name;
+                if (t->object.elem && (strcmp(on, "Map") == 0 || strcmp(on, "Set") == 0)) {
+                    const char *k = iron_type_to_string(t->object.elem, a);
+                    const char *v = t->object.elem2 ? iron_type_to_string(t->object.elem2, a) : NULL;
+                    size_t n = strlen(on) + strlen(k) + (v ? strlen(v) + 2 : 0) + 3;
+                    char *buf = (char *)iron_arena_alloc(a, n, 1);
+                    if (!buf) return on;
+                    if (v) snprintf(buf, n, "%s[%s, %s]", on, k, v);
+                    else snprintf(buf, n, "%s[%s]", on, k);
+                    return buf;
+                }
+                return on;
+            }
             return "<object>";
 
         case IRON_TYPE_INTERFACE:

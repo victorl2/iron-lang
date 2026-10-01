@@ -102,6 +102,10 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
         return iface_lifecycle(t, program, want_copy, depth);
     if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || depth > 16)
         return false;
+    /* A Map or Set owns its table (#193): freed on drop, cloned on copy. */
+    if (t->object.decl->name &&
+        (strcmp(t->object.decl->name, "Map") == 0 || strcmp(t->object.decl->name, "Set") == 0))
+        return true;
     if (want_copy ? type_has_copy_block(t, program)
                   : type_has_drop_block(t, program))
         return true;
@@ -521,9 +525,12 @@ static void emit_drop_glue_call(HIR_to_LIR_Ctx *ctx, IronLIR_ValueId slot,
 /* A list `get` / `get_unchecked` result is an element the list keeps
  * owning: the caller borrows it like a place. */
 static bool hir_expr_is_borrowed_elem(IronHIR_Expr *e) {
-    return e && e->kind == IRON_HIR_EXPR_METHOD_CALL && e->method_call.method &&
-           (strcmp(e->method_call.method, "get") == 0 ||
-            strcmp(e->method_call.method, "get_unchecked") == 0);
+    if (!e || e->kind != IRON_HIR_EXPR_METHOD_CALL || !e->method_call.method) return false;
+    /* `m.get(k)` on a Map hands out an owned copy (#193), not a view. */
+    if (e->method_call.object && e->method_call.object->type &&
+        e->method_call.object->type->kind != IRON_TYPE_ARRAY) return false;
+    return strcmp(e->method_call.method, "get") == 0 ||
+           strcmp(e->method_call.method, "get_unchecked") == 0;
 }
 
 /* An expression whose value another holder owns: a binding, a borrowed
@@ -2429,7 +2436,13 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             /* Mutex.new(v) -> Iron_Mutex_<T>_new ; Channel.new(cap) ->
              * Iron_Channel_<T>_new ; FileHandle.open(path) ->
              * Iron_FileHandle_open. */
-            if (strcmp(ns, "Mutex") == 0 && strcmp(expr->method_call.method, "new") == 0 &&
+            if ((strcmp(ns, "Map") == 0 || strcmp(ns, "Set") == 0) &&
+                strcmp(expr->method_call.method, "new") == 0 && strcmp(on, ns) == 0 &&
+                type->object.elem) {
+                /* Resolved to <Iron_Map_K_V>_create by emit_resolve_hash_calls,
+                 * which knows the C names of the element types. */
+                fname = "__hash.create";
+            } else if (strcmp(ns, "Mutex") == 0 && strcmp(expr->method_call.method, "new") == 0 &&
                 strcmp(on, "Mutex") == 0 && type->object.elem) {
                 const char *esc = emit_resource_elem_escaped(ctx, type->object.elem);
                 if (esc) {
@@ -2483,6 +2496,52 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * passing the receiver by address (self_by_addr) so the helpers can
          * mutate the by-value resource-pointer slot. Mirrors the Box receiver
          * lowering above. */
+        /* A Map / Set method through an rc handle (#193): the handle is the
+         * table pointer the functions take, so it is passed as it is. */
+        if (expr->method_call.object && expr->method_call.object->type &&
+            expr->method_call.object->type->kind == IRON_TYPE_RC &&
+            expr->method_call.object->type->rc.inner &&
+            expr->method_call.object->type->rc.inner->kind == IRON_TYPE_OBJECT &&
+            expr->method_call.object->type->rc.inner->object.decl &&
+            expr->method_call.object->type->rc.inner->object.decl->name &&
+            expr->method_call.object->type->rc.inner->object.elem &&
+            (strcmp(expr->method_call.object->type->rc.inner->object.decl->name, "Map") == 0 ||
+             strcmp(expr->method_call.object->type->rc.inner->object.decl->name, "Set") == 0) &&
+            expr->method_call.method) {
+            const char *m = expr->method_call.method;
+            const char *tm = strcmp(m, "copy") == 0 ? "clone" : m;
+            size_t nl = strlen(tm) + 8;
+            char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+            if (!fn) iron_oom_abort("hir_to_lir.c:rc_hash_method_name");
+            snprintf(fn, nl, "__hash.%s", tm);
+            TempOwned *htemps = NULL;
+            IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
+            note_owned_temp(ctx, &htemps, expr->method_call.object, self_val, span);
+            IronLIR_ValueId *cargs = NULL;
+            arrput(cargs, self_val);
+            for (int i = 0; i < expr->method_call.arg_count; i++) {
+                IronHIR_Expr *ae = expr->method_call.args[i];
+                IronLIR_ValueId av = lower_expr(ctx, ae);
+                if (ae && ae->type) {
+                    if (type_is_rc_like(ae->type)) {
+                        if (!rc_expr_transfers_ownership(ae))
+                            emit_rc_retain_for_type(ctx, ae->type, av, span);
+                    } else {
+                        av = copy_for_new_owner(ctx, ae, av, ae->type, span);
+                    }
+                }
+                arrput(cargs, av);
+            }
+            int cargc = (int)arrlen(cargs);
+            IronLIR_Instr *cref = iron_lir_func_ref(ctx->current_func, ctx->current_block, fn, NULL, span);
+            IronLIR_Instr *ccall = iron_lir_call(ctx->current_func, ctx->current_block, NULL,
+                                                 cref->id, cargs, cargc, type, span);
+            ccall->call.self_by_addr = false;   /* the rc handle is the table pointer */
+            release_owned_temps(ctx, &htemps, span);
+            arrfree(cargs);
+            return ccall->id;
+        }
+
         if (expr->method_call.object && expr->method_call.object->type &&
             expr->method_call.object->type->kind == IRON_TYPE_OBJECT &&
             expr->method_call.object->type->object.decl &&
@@ -2492,7 +2551,17 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             const char *m  = expr->method_call.method;
             Iron_Type *elem = expr->method_call.object->type->object.elem;
             const char *fname = NULL;
-            if (strcmp(rn, "Mutex") == 0 && strcmp(m, "lock") == 0 && elem) {
+            if ((strcmp(rn, "Map") == 0 || strcmp(rn, "Set") == 0) && elem) {
+                /* Map / Set methods (#193): `__hash.<m>` is resolved to the
+                 * per-type table function once the emitter knows the C names
+                 * (emit_resolve_hash_calls). copy() is the table's clone. */
+                const char *tm = strcmp(m, "copy") == 0 ? "clone" : m;
+                size_t nl = strlen(tm) + 8;
+                char *fn = (char *)iron_arena_alloc(ctx->lir_arena, nl, 1);
+                if (!fn) iron_oom_abort("hir_to_lir.c:hash_method_name");
+                snprintf(fn, nl, "__hash.%s", tm);
+                fname = fn;
+            } else if (strcmp(rn, "Mutex") == 0 && strcmp(m, "lock") == 0 && elem) {
                 const char *esc = emit_resource_elem_escaped(ctx, elem);
                 if (esc) {
                     size_t nl = strlen(esc) + 24;
@@ -2548,11 +2617,29 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 }
             }
             if (fname) {
+                bool is_hash = strncmp(fname, "__hash.", 7) == 0;
+                TempOwned *htemps = NULL;
                 IronLIR_ValueId self_val = lower_expr(ctx, expr->method_call.object);
+                /* A temporary map receiver (`build().len()`) is released
+                 * after the call. */
+                if (is_hash) note_owned_temp(ctx, &htemps, expr->method_call.object, self_val, span);
                 IronLIR_ValueId *cargs = NULL;
                 arrput(cargs, self_val);
                 for (int i = 0; i < expr->method_call.arg_count; i++) {
-                    IronLIR_ValueId av = lower_expr(ctx, expr->method_call.args[i]);
+                    IronHIR_Expr *ae = expr->method_call.args[i];
+                    IronLIR_ValueId av = lower_expr(ctx, ae);
+                    /* Every key or value handed to a Map / Set method is
+                     * owned by the table from then on (it stores it, or
+                     * drops it after the lookup): a copy out of a place is
+                     * fixed up, a temporary moves in. */
+                    if (is_hash && ae && ae->type) {
+                        if (type_is_rc_like(ae->type)) {
+                            if (!rc_expr_transfers_ownership(ae))
+                                emit_rc_retain_for_type(ctx, ae->type, av, span);
+                        } else {
+                            av = copy_for_new_owner(ctx, ae, av, ae->type, span);
+                        }
+                    }
                     arrput(cargs, av);
                 }
                 int cargc = (int)arrlen(cargs);
@@ -2561,6 +2648,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 IronLIR_Instr *ccall = iron_lir_call(ctx->current_func,
                     ctx->current_block, NULL, cref->id, cargs, cargc, type, span);
                 ccall->call.self_by_addr = true;  /* helpers take T* / Iron_*** */
+                release_owned_temps(ctx, &htemps, span);
                 arrfree(cargs);
                 return ccall->id;
             }
@@ -2792,7 +2880,10 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                     /* (Chained collection calls such as xs.map(f).sum() are
                      * fused and never materialise the intermediate list.) */
                     IronHIR_Expr *ro = expr->method_call.object;
-                    if (reads_only && ro && ro->kind != IRON_HIR_EXPR_METHOD_CALL)
+                    bool list_chain = ro && ro->kind == IRON_HIR_EXPR_METHOD_CALL &&
+                                      ro->method_call.object && ro->method_call.object->type &&
+                                      ro->method_call.object->type->kind == IRON_TYPE_ARRAY;
+                    if (reads_only && ro && !list_chain)
                         note_owned_temp(ctx, &coll_temps, ro, self_val, span);
                 }
                 /* push / insert store their element argument: the list owns

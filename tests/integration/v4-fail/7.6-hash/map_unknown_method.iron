@@ -1,0 +1,7 @@
+-- section: 7.6-hash (negative)
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Map has no set() method: the insert is put().
+func main() {
+    var m = Map[String, Int]()
+    m.set("a", 1)
+}

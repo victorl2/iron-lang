@@ -648,6 +648,8 @@ typedef struct {
     Iron_Span          span;
     Iron_NodeKind      kind;        /* IRON_NODE_FOR */
     const char        *var_name;
+    /* `for (k, v) in m`: the second binding; NULL for the one-variable form. */
+    const char        *var_name2;
     Iron_Node         *iterable;
     Iron_Node         *body;
     bool               is_parallel;

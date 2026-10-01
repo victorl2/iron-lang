@@ -105,6 +105,13 @@ typedef struct {
     char        **emitted_mutexes;
     char        **emitted_channels;
     char        **emitted_rwlocks;
+    /* Map[K, V] / Set[T] hash tables (#193): typedef names already defined,
+     * and the keys()/values() list builders already emitted. */
+    char        **emitted_hashes;
+    char        **emitted_hash_lists;
+    /* Object-element list typedefs already emitted (emit_structs.c), keyed
+     * by the mangled element name. */
+    struct { char *key; bool value; } *emitted_mono_list_types;
     bool          emitted_filehandle;
     /* Phase 33 STDLIB-10 (Plan 33-06): per-T Iron_RawPtr_of_<elemC> dedup.
      * Each entry is the escaped element-C suffix (e.g. "int64_t"); the helper
@@ -357,6 +364,23 @@ void emit_ensure_mutex(EmitCtx *ctx, const Iron_Type *elem_type);
  * Iron_Channel_<T>_new is the bare runtime Iron_channel_create(capacity).
  * Idempotent via emitted_channels. */
 void emit_ensure_channel(EmitCtx *ctx, const Iron_Type *elem_type);
+
+/* Map[K, V] / Set[T] (#193): the typedef `Iron_Map_<K>_<V>` / `Iron_Set_<T>`
+ * and its table functions, instantiated once per element type pair from
+ * IRON_HMAP_DEFINE / IRON_HSET_DEFINE with the key hash, equality, copy and
+ * drop helpers of the concrete types. Returns the typedef name. */
+const char *emit_ensure_hash(EmitCtx *ctx, const Iron_Type *t);
+/* Resolve the symbolic `__hash.<method>` callee names hir_to_lir emits for
+ * Map/Set calls into `<typedef>_<method>` for the whole module. */
+void emit_resolve_hash_calls(EmitCtx *ctx);
+void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et);
+
+/* Lifecycle statements for any type (emit_c.c): the copy fixup that runs
+ * when the value at `lv` was duplicated, and a `void (*)(void *)` thunk
+ * that drops a value of type t ("NULL" when nothing needs to run). */
+void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
+                            Iron_Type *t, const char *lv);
+const char *emit_cell_drop_fn(EmitCtx *ctx, Iron_Type *t);
 
 /* Phase 33 STDLIB-07 (Plan 33-05): synthesize the per-T RWLock glue over the
  * IRON_RWLOCK_* macros (POSIX pthread_rwlock_t / Win32 SRWLOCK):

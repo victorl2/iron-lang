@@ -1,0 +1,13 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- A map captured by a lambda and shared through rc.
+func main() {
+    val shared = rc Map[String, Int]()
+    val add = func(k: String) {
+        shared.put(k, shared.get_or(k, 0) + 1)
+    }
+    add("a")
+    add("a")
+    add("b")
+    println("{shared.len()} {shared.get("a")} {shared.get("b")}")
+}

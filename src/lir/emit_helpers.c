@@ -348,6 +348,10 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
                      * runtime handle pointer. */
                     return "Iron_Arena_RT *";
                 }
+                if ((strcmp(on, "Map") == 0 || strcmp(on, "Set") == 0) && t->object.elem) {
+                    const char *hn = emit_ensure_hash(ctx, t);
+                    if (hn) return hn;
+                }
                 if (strcmp(on, "Mutex") == 0) {
                     if (t->object.elem) emit_ensure_mutex(ctx, t->object.elem);
                     return "Iron_Mutex *";
@@ -1619,6 +1623,9 @@ static bool emit_type_is_string_like(const Iron_Type *t);
 static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
                              bool want_copy, int depth) {
     if (!od || depth > 16) return false;
+    /* A Map or Set owns its table: freed on drop, cloned on copy (#193). */
+    if (od->name && (strcmp(od->name, "Map") == 0 || strcmp(od->name, "Set") == 0))
+        return true;
     if (od_has_lir_method(ctx, od, want_copy ? "copy" : "drop", NULL, 0))
         return true;
     for (int i = 0; i < od->field_count; i++) {
@@ -1686,6 +1693,8 @@ static void emit_rc_field_op(Iron_StrBuf *sb, const Iron_Type *ft,
 void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
                             struct Iron_ObjectDecl *od) {
     if (!ctx || !obj_c_name || !od) return;
+    if (od->name && (strcmp(od->name, "Map") == 0 || strcmp(od->name, "Set") == 0))
+        return;   /* <Iron_Map_K_V>_copied comes with the table (emit_ensure_hash) */
     for (int i = 0; i < (int)arrlen(ctx->emitted_copy_fixups); i++) {
         if (strcmp(ctx->emitted_copy_fixups[i], obj_c_name) == 0) return;
     }
@@ -1743,6 +1752,8 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
 void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
                       struct Iron_ObjectDecl *od) {
     if (!ctx || !obj_c_name || !od) return;
+    if (od->name && (strcmp(od->name, "Map") == 0 || strcmp(od->name, "Set") == 0))
+        return;   /* <Iron_Map_K_V>_drop comes with the table (emit_ensure_hash) */
 
     /* Dedupe: guard against double-synthesis (and self-referential loops) */
     for (int i = 0; i < (int)arrlen(ctx->emitted_drops); i++) {
@@ -2008,4 +2019,235 @@ void emit_ctx_cleanup(EmitCtx *ctx) {
 
     /* Per-function residuals (may already be freed, but safe to call on NULL) */
     hmfree(ctx->adt_boxed_allocas);
+}
+
+/* ── Map[K, V] / Set[T] hash tables (#193) ──────────────────────────────── */
+
+/* `Iron_<type lowercased>`: the prefix of a user method's C name (the
+ * method lowering in hir_to_lir.c lowercases the type portion). */
+static const char *hash_method_prefix(EmitCtx *ctx, const char *type_name) {
+    size_t n = strlen(type_name);
+    char *buf = (char *)iron_arena_alloc(ctx->arena, n + 6, 1);
+    if (!buf) iron_oom_abort("emit_helpers.c:hash_method_prefix");
+    memcpy(buf, "Iron_", 5);
+    for (size_t i = 0; i < n; i++) {
+        char c = type_name[i];
+        buf[5 + i] = (c >= 'A' && c <= 'Z') ? (char)(c + ('a' - 'A')) : c;
+    }
+    buf[5 + n] = '\0';
+    return buf;
+}
+
+/* The hash expression for a key of type k held at `*k`. NULL when the type
+ * cannot be a key (the type checker enforces Hashable, so this is only
+ * reached for the kinds it admits). */
+static const char *hash_key_expr(EmitCtx *ctx, const Iron_Type *k, Iron_StrBuf *protos) {
+    switch ((int)k->kind) {
+        case IRON_TYPE_INT: case IRON_TYPE_INT8: case IRON_TYPE_INT16:
+        case IRON_TYPE_INT32: case IRON_TYPE_INT64:
+        case IRON_TYPE_UINT: case IRON_TYPE_UINT8: case IRON_TYPE_UINT16:
+        case IRON_TYPE_UINT32: case IRON_TYPE_UINT64:
+        case IRON_TYPE_BOOL:
+            return "iron_hash_u64((uint64_t)*k)";
+        case IRON_TYPE_FLOAT: case IRON_TYPE_FLOAT32: case IRON_TYPE_FLOAT64:
+            return "iron_hash_f64((double)*k)";
+        case IRON_TYPE_STRING:
+            return "iron_string_hash(k)";
+        case IRON_TYPE_OBJECT: {
+            if (!k->object.decl || !k->object.decl->name) return NULL;
+            const char *tc = emit_type_to_c(k, ctx);
+            const char *lower = hash_method_prefix(ctx, k->object.decl->name);
+            Iron_StrBuf sb = iron_strbuf_create(96);
+            iron_strbuf_appendf(protos, "int64_t %s_hash(%s self);\n", lower, tc);
+            iron_strbuf_appendf(&sb, "iron_hash_u64((uint64_t)%s_hash(*k))", lower);
+            const char *r = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+            iron_strbuf_free(&sb);
+            return r;
+        }
+        default: return NULL;
+    }
+}
+
+/* Key equality of `*a` and `*b`. User objects go through their Hashable
+ * `equals(other: Hashable)`, which takes the interface box. */
+static const char *hash_key_eq_expr(EmitCtx *ctx, const Iron_Type *k, Iron_StrBuf *protos) {
+    if (k->kind == IRON_TYPE_STRING) return "iron_string_equals(a, b)";
+    if (k->kind != IRON_TYPE_OBJECT) return "(*a == *b)";
+    if (!k->object.decl || !k->object.decl->name) return NULL;
+    const char *tc = emit_type_to_c(k, ctx);
+    const char *name = k->object.decl->name;
+    const char *lower = hash_method_prefix(ctx, name);
+    char ikey[512];
+    snprintf(ikey, sizeof(ikey), "Iron_Hashable:%s", name);
+    bool indirect = ctx->indirect_variants && shgeti(ctx->indirect_variants, ikey) >= 0;
+    iron_strbuf_appendf(protos,
+        "bool %s_equals(%s self, Iron_Hashable other);\n"
+        "static inline Iron_Hashable Iron_Hashable_from_%s(%s val);\n",
+        lower, tc, name, tc);
+    Iron_StrBuf sb = iron_strbuf_create(160);
+    if (indirect)
+        iron_strbuf_appendf(&sb,
+            "({ Iron_Hashable _hb = Iron_Hashable_from_%s(*b); bool _r = %s_equals(*a, _hb); "
+            "free(_hb.data.%s); _r; })", name, lower, name);
+    else
+        iron_strbuf_appendf(&sb, "%s_equals(*a, Iron_Hashable_from_%s(*b))", lower, name);
+    const char *r = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    return r;
+}
+
+/* Prototypes the inline table helpers need for an element type whose
+ * lifecycle glue is defined later in the file (lifted_funcs). */
+static void hash_elem_protos(EmitCtx *ctx, const Iron_Type *t, Iron_StrBuf *protos) {
+    if (!t) return;
+    if (t->kind == IRON_TYPE_OBJECT && t->object.decl) {
+        const char *tc = emit_type_to_c(t, ctx);
+        if (od_needs_copy_fixup(ctx, t->object.decl))
+            iron_strbuf_appendf(protos, "static void %s_copied(%s *self);\n", tc, tc);
+        if (od_needs_drop(ctx, t->object.decl))
+            iron_strbuf_appendf(protos, "static void %s_drop(%s *self);\n", tc, tc);
+    }
+}
+
+const char *emit_ensure_hash(EmitCtx *ctx, const Iron_Type *t) {
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || !t->object.elem) return NULL;
+    bool is_map = strcmp(t->object.decl->name, "Map") == 0;
+    const Iron_Type *K = t->object.elem;
+    const Iron_Type *V = is_map ? t->object.elem2 : NULL;
+    if (is_map && !V) return NULL;
+
+    /* Dependencies first: their typedefs land in struct_bodies before ours. */
+    const char *k_c = emit_type_to_c(K, ctx);
+    const char *v_c = V ? emit_type_to_c(V, ctx) : NULL;
+    const char *k_esc = emit_elem_c_escaped(ctx, K);
+    const char *v_esc = V ? emit_elem_c_escaped(ctx, V) : NULL;
+    if (!k_c || !k_esc || (is_map && (!v_c || !v_esc))) return NULL;
+
+    Iron_StrBuf nsb = iron_strbuf_create(64);
+    if (is_map) iron_strbuf_appendf(&nsb, "Iron_Map_%s_%s", k_esc, v_esc);
+    else        iron_strbuf_appendf(&nsb, "Iron_Set_%s", k_esc);
+    const char *name = iron_arena_strdup(ctx->arena, iron_strbuf_get(&nsb), nsb.len);
+    iron_strbuf_free(&nsb);
+    if (!name) iron_oom_abort("emit_helpers.c:emit_ensure_hash name");
+    for (int i = 0; i < (int)arrlen(ctx->emitted_hashes); i++)
+        if (strcmp(ctx->emitted_hashes[i], name) == 0) return name;
+    arrput(ctx->emitted_hashes, (char *)name);
+
+    /* The drop thunks of the element types. */
+    const char *k_drop = emit_cell_drop_fn(ctx, (Iron_Type *)K);
+    const char *v_drop = V ? emit_cell_drop_fn(ctx, (Iron_Type *)V) : "NULL";
+
+    Iron_StrBuf protos = iron_strbuf_create(256);
+    const char *k_hash = hash_key_expr(ctx, K, &protos);
+    const char *k_eq = hash_key_eq_expr(ctx, K, &protos);
+    if (!k_hash || !k_eq) { iron_strbuf_free(&protos); return name; }
+    hash_elem_protos(ctx, K, &protos);
+    if (V) hash_elem_protos(ctx, V, &protos);
+
+    Iron_StrBuf body = iron_strbuf_create(2048);
+    iron_strbuf_appendf(&body, "/* %s: %s */\n%s",
+                        name, is_map ? "Map[K, V] hash table" : "Set[T] hash table",
+                        iron_strbuf_get(&protos));
+    iron_strbuf_free(&protos);
+    iron_strbuf_appendf(&body,
+        "static inline uint64_t %s_khash(const %s *k) { return %s; }\n"
+        "static inline bool %s_keq(const %s *a, const %s *b) { return %s; }\n",
+        name, k_c, k_hash, name, k_c, k_c, k_eq);
+    iron_strbuf_appendf(&body, "static inline void %s_kcopy(%s *k) {\n", name, k_c);
+    emit_copy_fixup_lvalue(&body, 1, ctx, (Iron_Type *)K, "(*k)");
+    iron_strbuf_appendf(&body, "    (void)k;\n}\n");
+    iron_strbuf_appendf(&body, "static inline void %s_kdrop(%s *k) { %s%s }\n",
+                        name, k_c, strcmp(k_drop, "NULL") == 0 ? "(void)k;" : k_drop,
+                        strcmp(k_drop, "NULL") == 0 ? "" : "(k);");
+    if (V) {
+        iron_strbuf_appendf(&body, "static inline void %s_vcopy(%s *v) {\n", name, v_c);
+        emit_copy_fixup_lvalue(&body, 1, ctx, (Iron_Type *)V, "(*v)");
+        iron_strbuf_appendf(&body, "    (void)v;\n}\n");
+        iron_strbuf_appendf(&body, "static inline void %s_vdrop(%s *v) { %s%s }\n",
+                            name, v_c, strcmp(v_drop, "NULL") == 0 ? "(void)v;" : v_drop,
+                            strcmp(v_drop, "NULL") == 0 ? "" : "(v);");
+        iron_strbuf_appendf(&body, "IRON_HMAP_DEFINE(%s, %s, %s)\n", name, k_c, v_c);
+        iron_strbuf_appendf(&body,
+            "#define %s_get(m, ...) %s_get_at((m), (__VA_ARGS__), __FILE__, __LINE__)\n", name, name);
+    } else {
+        iron_strbuf_appendf(&body, "IRON_HSET_DEFINE(%s, %s)\n", name, k_c);
+    }
+    /* The lifecycle entry points the drop pump and copy glue call. */
+    iron_strbuf_appendf(&body,
+        "static inline void %s_drop(%s *self) { %s_free(self); }\n"
+        "static inline void %s_copied(%s *self) { *self = %s_clone(self); }\n\n",
+        name, name, name, name, name, name);
+    iron_strbuf_appendf(&ctx->struct_bodies, "%s", iron_strbuf_get(&body));
+    iron_strbuf_free(&body);
+    return name;
+}
+
+/* `<table>_keys` / `<table>_values`: a fresh list of copies of the keys or
+ * values, emitted the first time a program calls it (its list type may
+ * exist nowhere else in the program). The builder goes to lifted_funcs,
+ * after every struct and list definition. */
+static void emit_hash_list_builder(EmitCtx *ctx, const char *table, const Iron_Type *t,
+                                   const char *method) {
+    bool is_map = strcmp(t->object.decl->name, "Map") == 0;
+    bool values = strcmp(method, "values") == 0;
+    const Iron_Type *E = (is_map && values) ? t->object.elem2 : t->object.elem;
+    if (!E) return;
+    char key[512];
+    snprintf(key, sizeof(key), "%s_%s", table, method);
+    for (int i = 0; i < (int)arrlen(ctx->emitted_hash_lists); i++)
+        if (strcmp(ctx->emitted_hash_lists[i], key) == 0) return;
+    char *kcopy = iron_arena_strdup(ctx->arena, key, strlen(key));
+    if (!kcopy) iron_oom_abort("emit_helpers.c:emit_hash_list_builder");
+    arrput(ctx->emitted_hash_lists, kcopy);
+
+    if (E->kind == IRON_TYPE_OBJECT) emit_ensure_object_list(ctx, E);
+    Iron_Type list; memset(&list, 0, sizeof list);
+    list.kind = IRON_TYPE_ARRAY; list.array.elem = (Iron_Type *)E; list.array.size = -1;
+    const char *list_c = emit_type_to_c(&list, ctx);
+    const char *e_c = emit_type_to_c(E, ctx);
+    const char *slot = is_map ? (values ? "vals" : "keys") : "items";
+    const char *fix = (is_map && values) ? "vcopy" : "kcopy";
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static %s %s(const %s *t) {\n"
+        "    %s out = %s_create();\n"
+        "    for (int64_t i = 0; i < t->cap; i++) {\n"
+        "        if (t->st[i] != IRON_HSLOT_FULL) continue;\n"
+        "        %s e = t->%s[i]; %s_%s(&e); %s_push(&out, e);\n"
+        "    }\n"
+        "    return out;\n"
+        "}\n\n",
+        list_c, key, table, list_c, list_c, e_c, slot, table, fix, list_c);
+    /* The call sites precede the definition in the file: declare it. */
+    iron_strbuf_appendf(&ctx->struct_bodies, "static %s %s(const %s *t);\n", list_c, key, table);
+}
+
+void emit_resolve_hash_calls(EmitCtx *ctx) {
+    if (!ctx || !ctx->module) return;
+    for (int fi = 0; fi < ctx->module->func_count; fi++) {
+        IronLIR_Func *fn = ctx->module->funcs[fi];
+        if (!fn) continue;
+        for (int vi = 0; vi < (int)arrlen(fn->value_table); vi++) {
+            IronLIR_Instr *call = fn->value_table[vi];
+            if (!call || call->kind != IRON_LIR_CALL || call->call.func_decl) continue;
+            IronLIR_ValueId fp = call->call.func_ptr;
+            if (fp == IRON_LIR_VALUE_INVALID || fp >= (IronLIR_ValueId)arrlen(fn->value_table)) continue;
+            IronLIR_Instr *ref = fn->value_table[fp];
+            if (!ref || ref->kind != IRON_LIR_FUNC_REF || !ref->func_ref.func_name) continue;
+            const char *nm = ref->func_ref.func_name;
+            if (strncmp(nm, "__hash.", 7) != 0) continue;
+            const char *method = nm + 7;
+            Iron_Type *recv = strcmp(method, "create") == 0 || call->call.arg_count == 0
+                ? call->type : emit_get_value_type(fn, call->call.args[0]);
+            if (recv && recv->kind == IRON_TYPE_RC) recv = recv->rc.inner;
+            const char *tc = recv ? emit_ensure_hash(ctx, recv) : NULL;
+            if (!tc) continue;
+            if (strcmp(method, "keys") == 0 || strcmp(method, "values") == 0)
+                emit_hash_list_builder(ctx, tc, recv, method);
+            size_t n = strlen(tc) + strlen(method) + 2;
+            char *out = (char *)iron_arena_alloc(ctx->arena, n, 1);
+            if (!out) iron_oom_abort("emit_helpers.c:emit_resolve_hash_calls");
+            snprintf(out, n, "%s_%s", tc, method);
+            ref->func_ref.func_name = out;
+        }
+    }
 }

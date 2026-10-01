@@ -1,0 +1,7 @@
+-- section: 7.6-hash (negative)
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- The key argument must have the key type.
+func main() {
+    var m = Map[String, Int]()
+    m.put(1, 1)
+}

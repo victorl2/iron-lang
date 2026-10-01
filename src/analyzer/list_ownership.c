@@ -21,7 +21,16 @@ typedef struct {
     Iron_DiagList *diags;
 } ListOwnCtx;
 
+/* A Map or Set owns its table exactly like a list owns its buffer (#193):
+ * the same rules apply, and `holds a list` below covers both. */
+static bool is_hash_container(const Iron_Type *t) {
+    return t && t->kind == IRON_TYPE_OBJECT && t->object.decl && t->object.decl->name &&
+           t->object.elem &&
+           (strcmp(t->object.decl->name, "Map") == 0 || strcmp(t->object.decl->name, "Set") == 0);
+}
+
 static bool is_dynamic_list(const Iron_Type *t) {
+    if (is_hash_container(t)) return true;
     return t && t->kind == IRON_TYPE_ARRAY && t->array.size < 0 &&
            !t->array.is_bounded;
 }
@@ -80,8 +89,16 @@ static void require_fresh(ListOwnCtx *c, Iron_Node *value) {
     if (!is_list_place(value)) return;
     const char *name = place_text(value);
     char msg[320], help[320];
+    bool is_hash = is_hash_container(node_type(value));
     bool is_obj = !is_dynamic_list(node_type(value));
-    if (name && is_obj) {
+    if (name && is_hash) {
+        const char *what = strcmp(node_type(value)->object.decl->name, "Map") == 0 ? "map" : "set";
+        snprintf(msg, sizeof(msg),
+                 "%s '%s' cannot be duplicated implicitly", what, name);
+        snprintf(help, sizeof(help),
+                 "use %s.copy() for an independent %s, %s.take() to move "
+                 "its contents out, or share it as rc", name, what, name);
+    } else if (name && is_obj) {
         snprintf(msg, sizeof(msg),
                  "'%s' holds a list and cannot be duplicated implicitly", name);
         snprintf(help, sizeof(help),
@@ -200,6 +217,12 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
             if (rt && rt->kind == IRON_TYPE_ARRAY && mc->method && mc->arg_count > 0 &&
                 (strcmp(mc->method, "push") == 0 || strcmp(mc->method, "insert") == 0 ||
                  strcmp(mc->method, "set") == 0))
+                require_fresh(c, mc->args[mc->arg_count - 1]);
+            /* A map stores the value of put / get_or's default; a set stores
+             * what it adds (#193). */
+            if (rt && is_hash_container(rt) && mc->method && mc->arg_count > 0 &&
+                (strcmp(mc->method, "put") == 0 || strcmp(mc->method, "get_or") == 0 ||
+                 strcmp(mc->method, "add") == 0))
                 require_fresh(c, mc->args[mc->arg_count - 1]);
             break;
         }

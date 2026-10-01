@@ -1,0 +1,17 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Map[String, [Int]]: get() hands out a copy; put the list back to change it.
+func main() {
+    var groups = Map[String, [Int]]()
+    groups.put("even", [2, 4])
+    groups.put("odd", [1, 3, 5])
+    var odd = groups.get("odd")
+    odd.push(7)
+    println("{odd.len()} {groups.get("odd").len()}")
+    groups.put("odd", odd.take())
+    println("{groups.get("odd").len()} {groups.get("even")[1]}")
+    var xs: [Int] = [9]
+    groups.put("nine", xs.copy())
+    xs.push(10)
+    println("{groups.get("nine").len()} {xs.len()} {groups.len()}")
+}

@@ -75,6 +75,9 @@ typedef struct Iron_Type {
              * machinery (only enums carry enu.type_args), so this single-arg
              * side channel is the narrowest Box-specific representation. */
             struct Iron_Type          *elem;
+            /* Map[K, V]: the value type (elem is the key type). NULL for
+             * every other object type. */
+            struct Iron_Type          *elem2;
         } object;
 
         /* IRON_TYPE_INTERFACE */

@@ -1,0 +1,23 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Repeated remove / put of the same keys: tombstones are recycled.
+func main() {
+    var m = Map[String, Int]()
+    for round in range(500) {
+        for i in range(8) {
+            m.put("k{i}", round)
+        }
+        for i in range(8) {
+            m.remove("k{i}")
+        }
+    }
+    println("{m.len()}")
+    for i in range(8) {
+        m.put("k{i}", i)
+    }
+    var sum = 0
+    for (k, v) in m {
+        sum += v
+    }
+    println("{m.len()} {sum}")
+}

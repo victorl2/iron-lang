@@ -234,8 +234,8 @@ static const char *emit_ensure_iface_view(EmitCtx *ctx, Iron_IfaceEntry *from,
 /* Emit the Bool value of `x is T` for the `$is:<O|I>:<Name>` pseudo-call. */
 /* A copy of `lv` (a C lvalue of type `t`) that gets its own owner: the
  * copy fixup its type needs, if any. */
-static void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
-                                   Iron_Type *t, const char *lv) {
+void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
+                            Iron_Type *t, const char *lv) {
     if (!t) return;
     if (t->kind == IRON_TYPE_STRING) {
         emit_indent(sb, ind);
@@ -1364,7 +1364,7 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
 /* The drop of the value inside a mutable capture cell (#210): a thunk
  * `static void __cell_drop_<TypeC>(void *p)` in struct_bodies, or "NULL"
  * when the value needs no destruction. */
-static const char *emit_cell_drop_fn(EmitCtx *ctx, Iron_Type *t) {
+const char *emit_cell_drop_fn(EmitCtx *ctx, Iron_Type *t) {
     if (!t) return "NULL";
     const char *tc = emit_type_to_c(t, ctx);
     char body[512];
@@ -1403,6 +1403,8 @@ static const char *emit_cell_drop_fn(EmitCtx *ctx, Iron_Type *t) {
     }
     char name[300];
     snprintf(name, sizeof(name), "__cell_drop_%s", tc);
+    /* `rc T` renders as `Iron_T*`: keep the thunk name an identifier. */
+    for (char *q = name; *q; q++) if (*q == '*' || *q == ' ') *q = '_';
     if (shgeti(ctx->cell_drop_fns, name) < 0) {
         char *key = iron_arena_strdup(ctx->arena, name, strlen(name));
         if (!key) iron_oom_abort("emit_c.c:emit_cell_drop_fn");
@@ -10687,6 +10689,10 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
 
     /* ── Phase 2: Type declarations (forward decls, structs, enums) ───────── */
     emit_type_decls(&ctx);
+
+    /* Map / Set tables (#193): resolve the symbolic callee names and emit
+     * each instantiation after the object structs it stores. */
+    emit_resolve_hash_calls(&ctx);
 
     /* ── Phase 3: Function prototypes ────────────────────────────────────── */
     for (int i = 0; i < module->func_count; i++) {

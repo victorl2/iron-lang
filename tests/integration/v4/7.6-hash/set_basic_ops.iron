@@ -1,0 +1,14 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Set[Int]: add returns whether the item was new; remove whether it was present.
+func main() {
+    var s = Set[Int]()
+    println("{s.add(1)} {s.add(2)} {s.add(1)} {s.len()}")
+    println("{s.has(1)} {s.has(3)} {s.remove(1)} {s.remove(1)} {s.len()}")
+    s.clear()
+    println("{s.len()} {s.has(2)}")
+    for i in range(1000) {
+        s.add(i % 100)
+    }
+    println("{s.len()}")
+}

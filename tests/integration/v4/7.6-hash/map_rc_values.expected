@@ -1,0 +1,5 @@
+1 2 2
+drop node 2
+after remove
+after clear
+drop node 1

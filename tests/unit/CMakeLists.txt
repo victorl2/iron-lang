@@ -253,10 +253,10 @@ target_link_libraries(test_alloc_list_push_oom iron_runtime unity)
 add_test(NAME test_alloc_list_push_oom COMMAND test_alloc_list_push_oom)
 set_tests_properties(test_alloc_list_push_oom PROPERTIES LABELS "unit")
 
-add_executable(test_alloc_map_put_oom test_alloc_map_put_oom.c)
-target_link_libraries(test_alloc_map_put_oom iron_runtime unity)
-add_test(NAME test_alloc_map_put_oom COMMAND test_alloc_map_put_oom)
-set_tests_properties(test_alloc_map_put_oom PROPERTIES LABELS "unit")
+add_executable(test_runtime_hash test_runtime_hash.c)
+target_link_libraries(test_runtime_hash iron_runtime unity)
+add_test(NAME test_runtime_hash COMMAND test_runtime_hash)
+set_tests_properties(test_runtime_hash PROPERTIES LABELS "unit")
 
 # ── Stdlib unit test ─────────────────────────────────────────────────────────
 add_executable(test_stdlib test_stdlib.c)
@@ -1699,7 +1699,7 @@ if(IRON_ENABLE_SANITIZERS)
     set_tests_properties(
         test_arena_scoping_stress
         test_alloc_list_push_oom
-        test_alloc_map_put_oom
+        test_runtime_hash
         test_runtime_heap_free
         test_runtime_panic_stale
         test_runtime_panic_stale_release

@@ -851,6 +851,9 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             Iron_Span var_span = fs->span; /* use for-stmt span for the var */
             define_sym(ctx, fs->var_name, IRON_SYM_VARIABLE, node, var_span,
                        /*is_mutable=*/false, /*is_private=*/false);
+            if (fs->var_name2)
+                define_sym(ctx, fs->var_name2, IRON_SYM_VARIABLE, node, var_span,
+                           /*is_mutable=*/false, /*is_private=*/false);
             if (fs->body) resolve_node(ctx, fs->body);
             pop_scope(ctx);
             break;

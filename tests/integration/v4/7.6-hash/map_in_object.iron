@@ -1,0 +1,33 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- A map field: mutated through methods, dropped with the object.
+object Inventory {
+    var counts: Map[String, Int]
+    var tags: Set[String]
+    init() {
+        self.counts = Map[String, Int]()
+        self.tags = Set[String]()
+    }
+    func add(name: String, n: Int) {
+        self.counts.put(name, self.counts.get_or(name, 0) + n)
+        self.tags.add(name)
+    }
+    readonly func total() -> Int {
+        var t = 0
+        for (k, v) in self.counts {
+            t += v
+        }
+        return t
+    }
+}
+
+func main() {
+    var inv = Inventory()
+    inv.add("sword", 1)
+    inv.add("sword", 2)
+    inv.add("shield", 1)
+    println("{inv.total()} {inv.tags.len()} {inv.counts.get("sword")} {inv.counts.len()}")
+    val snapshot = inv.copy()
+    inv.add("bow", 5)
+    println("{snapshot.total()} {inv.total()}")
+}

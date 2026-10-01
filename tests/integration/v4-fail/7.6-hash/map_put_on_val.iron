@@ -1,0 +1,7 @@
+-- section: 7.6-hash (negative)
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- put is a mutator: the map must be a var binding.
+func main() {
+    val m = Map[String, Int]()
+    m.put("x", 1)
+}

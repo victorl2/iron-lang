@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <string.h>  /* memcpy/memset in the inline hash helpers */
 #include <stdlib.h>  /* malloc/free — required on Windows because
                       * WIN32_LEAN_AND_MEAN strips transitive includes */
 
@@ -1177,7 +1178,7 @@ void  iron_closure_release(Iron_Closure c);
  *
  * Naming example (from gen_types.c mangle_generic):
  *   List[Int]        -> Iron_List_int64_t   (struct + functions)
- *   Map[String, Int] -> Iron_Map_Iron_String_int64_t
+ *   Map[String, Int] -> Iron_Map_Iron_String_int64_t (hash table, see IRON_HMAP_DEFINE)
  *   Set[Int]         -> Iron_Set_int64_t
  *
  * Usage:
@@ -1530,211 +1531,218 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return total; \
     }
 
-/* ── Map[K,V] macros ─────────────────────────────────────────────────────────
- * Simple array-based map with linear-scan lookup (O(n), sufficient for v1).
- * eq_fn has signature: bool (*)(const K *a, const K *b)
+/* ── Hash containers: Map[K, V] and Set[T] ───────────────────────────────────
+ * Open addressing with linear probing; slot states EMPTY / FULL / DELETED.
+ * The table grows at 70% occupancy (live + tombstones) and never shrinks.
  *
- * Expected struct layout:
- *   typedef struct Iron_Map_##ksuffix##_##vsuffix {
- *       K       *keys;
- *       V       *values;
- *       int64_t  count;
- *       int64_t  capacity;
- *   } Iron_Map_##ksuffix##_##vsuffix;
+ * The compiler instantiates one table per concrete (K, V) by emitting six
+ * small static helpers and then expanding IRON_HMAP_DEFINE (see
+ * emit_ensure_map in src/lir/emit_helpers.c):
+ *   uint64_t NAME_khash(const K *k);         hash of a key
+ *   bool     NAME_keq(const K *a, const K *b); key equality
+ *   void     NAME_kcopy(K *k);  NAME_kdrop(K *k);   key copy fixup / drop
+ *   void     NAME_vcopy(V *v);  NAME_vdrop(V *v);   value copy fixup / drop
+ * Copy fixups are the same ones every other container applies when a value
+ * is duplicated (string retain, rc retain, list clone, object copy glue);
+ * drops are what scope exit runs. Keys and values are owned by the table:
+ * put takes ownership of its arguments, remove and free drop what they
+ * remove, get and get_or hand out a fixed-up copy.
  */
-#define IRON_MAP_DECL(K, V, ksuffix, vsuffix) \
-    Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_create(void); \
-    Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_create_with_capacity(int64_t cap); \
-    Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_clone(const Iron_Map_##ksuffix##_##vsuffix *src); \
-    void  Iron_Map_##ksuffix##_##vsuffix##_put(Iron_Map_##ksuffix##_##vsuffix *self, K key, V value); \
-    V     Iron_Map_##ksuffix##_##vsuffix##_get(const Iron_Map_##ksuffix##_##vsuffix *self, K key); \
-    bool  Iron_Map_##ksuffix##_##vsuffix##_has(const Iron_Map_##ksuffix##_##vsuffix *self, K key); \
-    void  Iron_Map_##ksuffix##_##vsuffix##_remove(Iron_Map_##ksuffix##_##vsuffix *self, K key); \
-    int64_t Iron_Map_##ksuffix##_##vsuffix##_len(const Iron_Map_##ksuffix##_##vsuffix *self); \
-    void  Iron_Map_##ksuffix##_##vsuffix##_free(Iron_Map_##ksuffix##_##vsuffix *self);
+#define IRON_HSLOT_EMPTY   0
+#define IRON_HSLOT_FULL    1
+#define IRON_HSLOT_DELETED 2
 
-#define IRON_MAP_IMPL(K, V, ksuffix, vsuffix, eq_fn) \
-    Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_create(void) { \
-        Iron_Map_##ksuffix##_##vsuffix m; \
-        m.keys = NULL; m.values = NULL; m.count = 0; m.capacity = 0; \
-        return m; \
-    } \
-    Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_create_with_capacity(int64_t cap) { \
-        Iron_Map_##ksuffix##_##vsuffix m; \
-        m.count = 0; \
-        m.capacity = cap; \
-        m.keys = NULL; m.values = NULL; \
-        if (cap > 0) { \
-            m.keys = (K *)malloc((size_t)cap * sizeof(K)); \
-            if (!m.keys) iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_create_with_capacity: keys"); \
-            m.values = (V *)malloc((size_t)cap * sizeof(V)); \
-            if (!m.values) iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_create_with_capacity: values"); \
+/* splitmix64 finalizer: a strong integer mixer, also used over user hash(). */
+static inline uint64_t iron_hash_u64(uint64_t x) {
+    x += 0x9E3779B97F4A7C15ull;
+    x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+    x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+    return x ^ (x >> 31);
+}
+/* FNV-1a over bytes, mixed once more so short keys spread. */
+static inline uint64_t iron_hash_bytes(const void *data, size_t n) {
+    const unsigned char *p = (const unsigned char *)data;
+    uint64_t h = 0xCBF29CE484222325ull;
+    for (size_t i = 0; i < n; i++) { h ^= p[i]; h *= 0x100000001B3ull; }
+    return iron_hash_u64(h);
+}
+static inline uint64_t iron_hash_f64(double d) {
+    if (d == 0.0) d = 0.0;              /* -0.0 and 0.0 compare equal */
+    uint64_t bits; memcpy(&bits, &d, sizeof bits);
+    return iron_hash_u64(bits);
+}
+uint64_t iron_string_hash(const Iron_String *s);
+
+/* A key that is not in the map: `m.get(k)` panics (iron_panic.c). */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_key_missing(const char *site_file, int site_line);
+
+/* Every instantiation lands in the program's single translation unit, so
+ * the helpers are static; unused ones must not trip -Wunused-function. */
+#if defined(__GNUC__) || defined(__clang__)
+#define IRON_HT_FN static inline __attribute__((unused))
+#else
+#define IRON_HT_FN static inline
+#endif
+
+#define IRON_HMAP_DEFINE(NAME, K, V) \
+    typedef struct NAME { K *keys; V *vals; uint8_t *st; int64_t count; int64_t used; int64_t cap; } NAME; \
+    IRON_HT_FN NAME NAME##_create(void) { NAME m; memset(&m, 0, sizeof m); return m; } \
+    IRON_HT_FN int64_t NAME##_find(const NAME *m, const K *k) { \
+        if (m->cap == 0) return -1; \
+        uint64_t mask = (uint64_t)m->cap - 1; \
+        uint64_t i = NAME##_khash(k) & mask; \
+        for (;;) { \
+            uint8_t s = m->st[i]; \
+            if (s == IRON_HSLOT_EMPTY) return -1; \
+            if (s == IRON_HSLOT_FULL && NAME##_keq(&m->keys[i], k)) return (int64_t)i; \
+            i = (i + 1) & mask; \
         } \
-        return m; \
     } \
-    Iron_Map_##ksuffix##_##vsuffix Iron_Map_##ksuffix##_##vsuffix##_clone(const Iron_Map_##ksuffix##_##vsuffix *src) { \
-        Iron_Map_##ksuffix##_##vsuffix dst; \
-        dst.count = src->count; \
-        dst.capacity = src->count; \
-        if (src->count > 0) { \
-            dst.keys   = (K *)malloc((size_t)src->count * sizeof(K)); \
-            if (!dst.keys) iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_clone: keys"); \
-            dst.values = (V *)malloc((size_t)src->count * sizeof(V)); \
-            if (!dst.values) iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_clone: values"); \
-            memcpy(dst.keys,   src->keys,   (size_t)src->count * sizeof(K)); \
-            memcpy(dst.values, src->values, (size_t)src->count * sizeof(V)); \
-        } else { \
-            dst.keys = NULL; \
-            dst.values = NULL; \
+    IRON_HT_FN void NAME##_rehash(NAME *m, int64_t ncap) { \
+        K *nk = (K *)malloc((size_t)ncap * sizeof(K)); \
+        V *nv = (V *)malloc((size_t)ncap * sizeof(V)); \
+        uint8_t *ns = (uint8_t *)calloc((size_t)ncap, 1); \
+        if (!nk || !nv || !ns) iron_oom_abort(#NAME "_rehash"); \
+        uint64_t mask = (uint64_t)ncap - 1; \
+        for (int64_t i = 0; i < m->cap; i++) { \
+            if (m->st[i] != IRON_HSLOT_FULL) continue; \
+            uint64_t j = NAME##_khash(&m->keys[i]) & mask; \
+            while (ns[j] == IRON_HSLOT_FULL) j = (j + 1) & mask; \
+            nk[j] = m->keys[i]; nv[j] = m->vals[i]; ns[j] = IRON_HSLOT_FULL; \
+        } \
+        free(m->keys); free(m->vals); free(m->st); \
+        m->keys = nk; m->vals = nv; m->st = ns; m->cap = ncap; m->used = m->count; \
+    } \
+    IRON_HT_FN void NAME##_put(NAME *m, K key, V val) { \
+        int64_t at = NAME##_find(m, &key); \
+        if (at >= 0) { NAME##_kdrop(&key); NAME##_vdrop(&m->vals[at]); m->vals[at] = val; return; } \
+        if ((m->used + 1) * 10 > m->cap * 7) NAME##_rehash(m, m->cap ? m->cap * 2 : 8); \
+        uint64_t mask = (uint64_t)m->cap - 1; \
+        uint64_t i = NAME##_khash(&key) & mask; \
+        while (m->st[i] == IRON_HSLOT_FULL) i = (i + 1) & mask; \
+        if (m->st[i] == IRON_HSLOT_EMPTY) m->used++; \
+        m->keys[i] = key; m->vals[i] = val; m->st[i] = IRON_HSLOT_FULL; m->count++; \
+    } \
+    IRON_HT_FN bool NAME##_has(const NAME *m, K key) { \
+        bool r = NAME##_find(m, &key) >= 0; NAME##_kdrop(&key); return r; \
+    } \
+    IRON_HT_FN V NAME##_get_at(const NAME *m, K key, const char *site_file, int site_line) { \
+        int64_t at = NAME##_find(m, &key); NAME##_kdrop(&key); \
+        if (at < 0) iron_panic_key_missing(site_file, site_line); \
+        V out = m->vals[at]; NAME##_vcopy(&out); return out; \
+    } \
+    IRON_HT_FN V NAME##_get_or(const NAME *m, K key, V dflt) { \
+        int64_t at = NAME##_find(m, &key); NAME##_kdrop(&key); \
+        if (at < 0) return dflt; \
+        NAME##_vdrop(&dflt); \
+        V out = m->vals[at]; NAME##_vcopy(&out); return out; \
+    } \
+    IRON_HT_FN bool NAME##_remove(NAME *m, K key) { \
+        int64_t at = NAME##_find(m, &key); NAME##_kdrop(&key); \
+        if (at < 0) return false; \
+        NAME##_kdrop(&m->keys[at]); NAME##_vdrop(&m->vals[at]); \
+        m->st[at] = IRON_HSLOT_DELETED; m->count--; return true; \
+    } \
+    IRON_HT_FN int64_t NAME##_len(const NAME *m) { return m->count; } \
+    IRON_HT_FN void NAME##_clear(NAME *m) { \
+        for (int64_t i = 0; i < m->cap; i++) { \
+            if (m->st[i] != IRON_HSLOT_FULL) continue; \
+            NAME##_kdrop(&m->keys[i]); NAME##_vdrop(&m->vals[i]); \
+        } \
+        if (m->st) memset(m->st, 0, (size_t)m->cap); \
+        m->count = 0; m->used = 0; \
+    } \
+    IRON_HT_FN void NAME##_free(NAME *m) { \
+        NAME##_clear(m); \
+        free(m->keys); free(m->vals); free(m->st); \
+        m->keys = NULL; m->vals = NULL; m->st = NULL; m->cap = 0; \
+    } \
+    IRON_HT_FN NAME NAME##_clone(const NAME *src) { \
+        NAME dst; memset(&dst, 0, sizeof dst); \
+        if (src->count == 0) return dst; \
+        int64_t ncap = 8; while (src->count * 10 > ncap * 7) ncap *= 2; \
+        NAME##_rehash(&dst, ncap); \
+        for (int64_t i = 0; i < src->cap; i++) { \
+            if (src->st[i] != IRON_HSLOT_FULL) continue; \
+            K k = src->keys[i]; V v = src->vals[i]; \
+            NAME##_kcopy(&k); NAME##_vcopy(&v); \
+            NAME##_put(&dst, k, v); \
         } \
         return dst; \
     } \
-    void Iron_Map_##ksuffix##_##vsuffix##_put(Iron_Map_##ksuffix##_##vsuffix *self, K key, V value) { \
-        for (int64_t i = 0; i < self->count; i++) { \
-            if (eq_fn(&self->keys[i], &key)) { self->values[i] = value; return; } \
-        } \
-        if (self->count >= self->capacity) { \
-            int64_t new_cap = self->capacity ? self->capacity * 2 : 8; \
-            /* FIX-01/FIX-02: capacity doubling must not wrap int64_t (audit row 18) */ \
-            if (new_cap < self->capacity) { \
-                iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_put: capacity overflow"); \
-            } \
-            K *new_keys = (K *)realloc(self->keys, (size_t)new_cap * sizeof(K)); \
-            if (!new_keys) iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_put: keys"); \
-            self->keys = new_keys; \
-            V *new_values = (V *)realloc(self->values, (size_t)new_cap * sizeof(V)); \
-            if (!new_values) iron_oom_abort("Iron_Map_" #ksuffix "_" #vsuffix "_put: values"); \
-            self->values = new_values; \
-            self->capacity = new_cap; \
-        } \
-        self->keys[self->count]   = key; \
-        self->values[self->count] = value; \
-        self->count++; \
-    } \
-    V Iron_Map_##ksuffix##_##vsuffix##_get(const Iron_Map_##ksuffix##_##vsuffix *self, K key) { \
-        for (int64_t i = 0; i < self->count; i++) { \
-            if (eq_fn(&self->keys[i], &key)) { return self->values[i]; } \
-        } \
-        /* Caller must use has() first — undefined if key absent */ \
-        V _zero; \
-        memset(&_zero, 0, sizeof(V)); \
-        return _zero; \
-    } \
-    bool Iron_Map_##ksuffix##_##vsuffix##_has(const Iron_Map_##ksuffix##_##vsuffix *self, K key) { \
-        for (int64_t i = 0; i < self->count; i++) { \
-            if (eq_fn(&self->keys[i], &key)) { return true; } \
-        } \
-        return false; \
-    } \
-    void Iron_Map_##ksuffix##_##vsuffix##_remove(Iron_Map_##ksuffix##_##vsuffix *self, K key) { \
-        for (int64_t i = 0; i < self->count; i++) { \
-            if (eq_fn(&self->keys[i], &key)) { \
-                self->keys[i]   = self->keys[self->count - 1]; \
-                self->values[i] = self->values[self->count - 1]; \
-                self->count--; \
-                return; \
-            } \
-        } \
-    } \
-    int64_t Iron_Map_##ksuffix##_##vsuffix##_len(const Iron_Map_##ksuffix##_##vsuffix *self) { \
-        return self->count; \
-    } \
-    void Iron_Map_##ksuffix##_##vsuffix##_free(Iron_Map_##ksuffix##_##vsuffix *self) { \
-        free(self->keys);   self->keys   = NULL; \
-        free(self->values); self->values = NULL; \
-        self->count = 0; self->capacity = 0; \
-    }
+    IRON_HT_FN NAME NAME##_take(NAME *src) { NAME out = *src; memset(src, 0, sizeof *src); return out; }
 
-/* ── Set[T] macros ───────────────────────────────────────────────────────────
- * Simple array-based set with linear-scan deduplication (O(n), sufficient v1).
- * eq_fn has signature: bool (*)(const T *a, const T *b)
- *
- * Expected struct layout:
- *   typedef struct Iron_Set_##suffix {
- *       T       *items;
- *       int64_t  count;
- *       int64_t  capacity;
- *   } Iron_Set_##suffix;
- */
-#define IRON_SET_DECL(T, suffix) \
-    Iron_Set_##suffix Iron_Set_##suffix##_create(void); \
-    Iron_Set_##suffix Iron_Set_##suffix##_create_with_capacity(int64_t cap); \
-    Iron_Set_##suffix Iron_Set_##suffix##_clone(const Iron_Set_##suffix *src); \
-    void    Iron_Set_##suffix##_add(Iron_Set_##suffix *self, T item); \
-    bool    Iron_Set_##suffix##_contains(const Iron_Set_##suffix *self, T item); \
-    void    Iron_Set_##suffix##_remove(Iron_Set_##suffix *self, T item); \
-    int64_t Iron_Set_##suffix##_len(const Iron_Set_##suffix *self); \
-    void    Iron_Set_##suffix##_free(Iron_Set_##suffix *self);
-
-#define IRON_SET_IMPL(T, suffix, eq_fn) \
-    Iron_Set_##suffix Iron_Set_##suffix##_create(void) { \
-        Iron_Set_##suffix s; \
-        s.items = NULL; s.count = 0; s.capacity = 0; \
-        return s; \
-    } \
-    Iron_Set_##suffix Iron_Set_##suffix##_create_with_capacity(int64_t cap) { \
-        Iron_Set_##suffix s; \
-        s.count = 0; \
-        s.capacity = cap; \
-        s.items = NULL; \
-        if (cap > 0) { \
-            s.items = (T *)malloc((size_t)cap * sizeof(T)); \
-            if (!s.items) iron_oom_abort("Iron_Set_" #suffix "_create_with_capacity"); \
+#define IRON_HSET_DEFINE(NAME, T) \
+    typedef struct NAME { T *items; uint8_t *st; int64_t count; int64_t used; int64_t cap; } NAME; \
+    IRON_HT_FN NAME NAME##_create(void) { NAME s; memset(&s, 0, sizeof s); return s; } \
+    IRON_HT_FN int64_t NAME##_find(const NAME *s, const T *k) { \
+        if (s->cap == 0) return -1; \
+        uint64_t mask = (uint64_t)s->cap - 1; \
+        uint64_t i = NAME##_khash(k) & mask; \
+        for (;;) { \
+            uint8_t st = s->st[i]; \
+            if (st == IRON_HSLOT_EMPTY) return -1; \
+            if (st == IRON_HSLOT_FULL && NAME##_keq(&s->items[i], k)) return (int64_t)i; \
+            i = (i + 1) & mask; \
         } \
-        return s; \
     } \
-    Iron_Set_##suffix Iron_Set_##suffix##_clone(const Iron_Set_##suffix *src) { \
-        Iron_Set_##suffix dst; \
-        dst.count = src->count; \
-        dst.capacity = src->count; \
-        if (src->count > 0) { \
-            dst.items = (T *)malloc((size_t)src->count * sizeof(T)); \
-            if (!dst.items) iron_oom_abort("Iron_Set_" #suffix "_clone"); \
-            memcpy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
-        } else { \
-            dst.items = NULL; \
+    IRON_HT_FN void NAME##_rehash(NAME *s, int64_t ncap) { \
+        T *ni = (T *)malloc((size_t)ncap * sizeof(T)); \
+        uint8_t *ns = (uint8_t *)calloc((size_t)ncap, 1); \
+        if (!ni || !ns) iron_oom_abort(#NAME "_rehash"); \
+        uint64_t mask = (uint64_t)ncap - 1; \
+        for (int64_t i = 0; i < s->cap; i++) { \
+            if (s->st[i] != IRON_HSLOT_FULL) continue; \
+            uint64_t j = NAME##_khash(&s->items[i]) & mask; \
+            while (ns[j] == IRON_HSLOT_FULL) j = (j + 1) & mask; \
+            ni[j] = s->items[i]; ns[j] = IRON_HSLOT_FULL; \
+        } \
+        free(s->items); free(s->st); \
+        s->items = ni; s->st = ns; s->cap = ncap; s->used = s->count; \
+    } \
+    IRON_HT_FN bool NAME##_add(NAME *s, T item) { \
+        if (NAME##_find(s, &item) >= 0) { NAME##_kdrop(&item); return false; } \
+        if ((s->used + 1) * 10 > s->cap * 7) NAME##_rehash(s, s->cap ? s->cap * 2 : 8); \
+        uint64_t mask = (uint64_t)s->cap - 1; \
+        uint64_t i = NAME##_khash(&item) & mask; \
+        while (s->st[i] == IRON_HSLOT_FULL) i = (i + 1) & mask; \
+        if (s->st[i] == IRON_HSLOT_EMPTY) s->used++; \
+        s->items[i] = item; s->st[i] = IRON_HSLOT_FULL; s->count++; return true; \
+    } \
+    IRON_HT_FN bool NAME##_has(const NAME *s, T item) { \
+        bool r = NAME##_find(s, &item) >= 0; NAME##_kdrop(&item); return r; \
+    } \
+    IRON_HT_FN bool NAME##_remove(NAME *s, T item) { \
+        int64_t at = NAME##_find(s, &item); NAME##_kdrop(&item); \
+        if (at < 0) return false; \
+        NAME##_kdrop(&s->items[at]); s->st[at] = IRON_HSLOT_DELETED; s->count--; return true; \
+    } \
+    IRON_HT_FN int64_t NAME##_len(const NAME *s) { return s->count; } \
+    IRON_HT_FN void NAME##_clear(NAME *s) { \
+        for (int64_t i = 0; i < s->cap; i++) \
+            if (s->st[i] == IRON_HSLOT_FULL) NAME##_kdrop(&s->items[i]); \
+        if (s->st) memset(s->st, 0, (size_t)s->cap); \
+        s->count = 0; s->used = 0; \
+    } \
+    IRON_HT_FN void NAME##_free(NAME *s) { \
+        NAME##_clear(s); free(s->items); free(s->st); \
+        s->items = NULL; s->st = NULL; s->cap = 0; \
+    } \
+    IRON_HT_FN NAME NAME##_clone(const NAME *src) { \
+        NAME dst; memset(&dst, 0, sizeof dst); \
+        if (src->count == 0) return dst; \
+        int64_t ncap = 8; while (src->count * 10 > ncap * 7) ncap *= 2; \
+        NAME##_rehash(&dst, ncap); \
+        for (int64_t i = 0; i < src->cap; i++) { \
+            if (src->st[i] != IRON_HSLOT_FULL) continue; \
+            T k = src->items[i]; NAME##_kcopy(&k); NAME##_add(&dst, k); \
         } \
         return dst; \
     } \
-    void Iron_Set_##suffix##_add(Iron_Set_##suffix *self, T item) { \
-        for (int64_t i = 0; i < self->count; i++) { \
-            if (eq_fn(&self->items[i], &item)) { return; } \
-        } \
-        if (self->count >= self->capacity) { \
-            int64_t new_cap = self->capacity ? self->capacity * 2 : 8; \
-            /* FIX-01/FIX-02: capacity doubling must not wrap int64_t (audit row 18) */ \
-            if (new_cap < self->capacity) { \
-                iron_oom_abort("Iron_Set_" #suffix "_add: capacity overflow"); \
-            } \
-            T *new_items = (T *)realloc(self->items, (size_t)new_cap * sizeof(T)); \
-            if (!new_items) iron_oom_abort("Iron_Set_" #suffix "_add"); \
-            self->items = new_items; \
-            self->capacity = new_cap; \
-        } \
-        self->items[self->count++] = item; \
-    } \
-    bool Iron_Set_##suffix##_contains(const Iron_Set_##suffix *self, T item) { \
-        for (int64_t i = 0; i < self->count; i++) { \
-            if (eq_fn(&self->items[i], &item)) { return true; } \
-        } \
-        return false; \
-    } \
-    void Iron_Set_##suffix##_remove(Iron_Set_##suffix *self, T item) { \
-        for (int64_t i = 0; i < self->count; i++) { \
-            if (eq_fn(&self->items[i], &item)) { \
-                self->items[i] = self->items[self->count - 1]; \
-                self->count--; \
-                return; \
-            } \
-        } \
-    } \
-    int64_t Iron_Set_##suffix##_len(const Iron_Set_##suffix *self) { \
-        return self->count; \
-    } \
-    void Iron_Set_##suffix##_free(Iron_Set_##suffix *self) { \
-        free(self->items); \
-        self->items = NULL; self->count = 0; self->capacity = 0; \
-    }
+    IRON_HT_FN NAME NAME##_take(NAME *src) { NAME out = *src; memset(src, 0, sizeof *src); return out; }
 
 /* ── Pre-instantiated common collection struct typedefs ──────────────────────
  * The codegen emits its own struct typedefs in the generated C output.
@@ -1765,11 +1773,6 @@ typedef struct Iron_List_Iron_Closure { Iron_Closure *items; int64_t count; int6
 typedef struct Iron_List_float   { float   *items; int64_t count; int64_t capacity; } Iron_List_float;
 typedef struct Iron_List_uint8_t { uint8_t *items; int64_t count; int64_t capacity; } Iron_List_uint8_t;
 
-typedef struct Iron_Map_Iron_String_int64_t    { Iron_String *keys; int64_t     *values; int64_t count; int64_t capacity; } Iron_Map_Iron_String_int64_t;
-typedef struct Iron_Map_Iron_String_Iron_String { Iron_String *keys; Iron_String *values; int64_t count; int64_t capacity; } Iron_Map_Iron_String_Iron_String;
-
-typedef struct Iron_Set_int64_t    { int64_t     *items; int64_t count; int64_t capacity; } Iron_Set_int64_t;
-typedef struct Iron_Set_Iron_String { Iron_String *items; int64_t count; int64_t capacity; } Iron_Set_Iron_String;
 
 #endif /* IRON_CODEGEN_PROVIDES_STRUCTS */
 
@@ -1796,11 +1799,6 @@ IRON_LIST_COLL_DECL(double,  double)
 IRON_LIST_COLL_DECL(float,   float)
 IRON_LIST_COLL_DECL(uint8_t, uint8_t)
 
-IRON_MAP_DECL(Iron_String, int64_t,     Iron_String, int64_t)
-IRON_MAP_DECL(Iron_String, Iron_String, Iron_String, Iron_String)
-
-IRON_SET_DECL(int64_t,     int64_t)
-IRON_SET_DECL(Iron_String, Iron_String)
 
 /* ── String built-in method declarations (Phase 38) ─────────────────────────
  * Called by code generated by the Iron compiler for s.method() syntax.

@@ -835,9 +835,10 @@ function or by making the condition false.
 
 `for name in iterable { ... }` binds `name` to each element in turn. The
 iterable may be a list, fixed array, bounded vector or `rc [T]` (elements),
-a string (one-character strings) or `range(n)` (the integers `0` to
-`n - 1`). The loop variable is immutable inside the body. `range` takes
-exactly one argument. Appending `parallel` after the iterable runs the
+a string (one-character strings), a `Set[T]` (items) or `range(n)` (the
+integers `0` to `n - 1`); a `Map[K, V]` is iterated with two names, `for
+(key, value) in m` (section 9.10). The loop variable is immutable inside
+the body. `range` takes exactly one argument. Appending `parallel` after the iterable runs the
 iterations on several threads (section 7.4).
 
 ```iron
@@ -2461,13 +2462,96 @@ no argument carries the element type; there is no `.new` method
 | `Mutex[T]`, `MutexGuard[T]` (nocopy) | `Mutex(v)` or `Mutex[T](v)`, `m.lock() -> MutexGuard[T]`, `g.get() -> T`, `g.set(v: T)` |
 | `RWLock[T]`, `RWReadGuard[T]`, `RWWriteGuard[T]` (nocopy) | `RWLock(v)` or `RWLock[T](v)`, `l.read()`, `l.write()`, `g.get() -> T`, `g.set(v: T)` (write guard only) |
 | `FileHandle` (nocopy) | `FileHandle.open(path) -> FileHandle`, `h.close()`, field `fd: Int` |
+| `Map[K, V]`, `Set[T]` | section 9.10 |
 
 ### 9.10 `Hashable`, `Map` and `Set`
 
-`Hashable` is the interface of section 5.5. `Map[K: Hashable, V]` and
-`Set[T: Hashable]` are declared as generic object types so that the
-constraint is checked, but they have no methods yet (section 12); use lists
-and objects.
+`Map[K, V]` is a hash table from keys of type `K` to values of type `V`;
+`Set[T]` is a hash set of `T`. Both are constructed empty with their type
+arguments written out (`Map[String, Int]()`, `Set[Int]()`; nothing else
+carries them) and both are library objects: there is no literal and no
+`m[k]` indexing. The key type must satisfy `Hashable` (`E0206`): the
+integer types, `Bool` and `String` do, and an object does when it declares
+`impl Hashable` with `pure func hash() -> Int` and `pure func
+equals(other: Hashable) -> Bool` (section 5.5); two keys are the same
+entry when their hashes agree and `equals` is true. The value type may be
+anything that can be stored in a list, including lists, `rc` handles and
+other maps.
+
+| Method | Meaning |
+|---|---|
+| `m.put(k, v)` | insert or overwrite; the old value is dropped |
+| `m.get(k) -> V` | the value; panics when the key is absent |
+| `m.get_or(k, d) -> V` | the value, or `d` when the key is absent |
+| `m.has(k) -> Bool` | whether the key is present |
+| `m.remove(k) -> Bool` | drop the entry; whether it was present |
+| `m.len() -> Int`, `m.clear()` | entry count; drop every entry |
+| `m.keys() -> [K]`, `m.values() -> [V]` | fresh lists of copies, in no particular order |
+| `m.copy()`, `m.take()` | an independent copy; move the contents out, leaving `m` empty |
+| `s.add(x) -> Bool` | insert; whether `x` was new |
+| `s.has(x)`, `s.remove(x) -> Bool`, `s.len()`, `s.clear()` | as for a map |
+| `s.values() -> [T]`, `s.copy()`, `s.take()` | as for a map |
+
+A map or set owns its keys and values exactly as a list owns its elements
+(section 6.8): `put` and `add` take ownership of their arguments (a value
+copied out of a binding is retained or cloned first), `get` and `get_or`
+hand out a copy that the caller owns, `remove`, `clear` and scope exit
+drop what they remove, and a map binding is never duplicated implicitly
+(`E0328`): write `copy()` or `take()`, or share it as `rc Map[K, V]`.
+`put`, `remove`, `clear`, `add` and `take` need a `var` binding (`E0235`).
+`for (k, v) in m` visits every entry with read-only copies of the key and
+the value; `for x in s` visits every item. Iteration order is unspecified,
+and the loop body must not add or remove entries of the map it iterates.
+`get` on a missing key is a panic ("key not found in map"), so test with
+`has` or use `get_or` when the key may be absent.
+
+```iron
+object Pt impl Hashable {
+    val x: Int
+    val y: Int
+    pure func hash() -> Int {
+        return self.x * 31 + self.y
+    }
+    pure func equals(other: Hashable) -> Bool {
+        if other is Pt {
+            return self.x == other.x and self.y == other.y
+        }
+        return false
+    }
+}
+
+func main() {
+    var counts = Map[String, Int]()
+    for w in ["a", "b", "a"] {
+        counts.put(w, counts.get_or(w, 0) + 1)
+    }
+    var keys = counts.keys()
+    keys.sort()
+    println("{counts.len()} {keys[0]} {counts.get("a")} {counts.has("z")}")
+    var total = 0
+    for (k, v) in counts {
+        total += v
+    }
+    println("{total} {counts.remove("b")} {counts.remove("b")}")
+
+    var seen = Set[Pt]()
+    println("{seen.add(Pt(1, 2))} {seen.add(Pt(1, 2))} {seen.has(Pt(1, 2))} {seen.len()}")
+
+    var groups = Map[String, [Int]]()
+    groups.put("even", [2, 4])
+    var even = groups.get("even")
+    even.push(6)
+    groups.put("even", even.take())
+    println("{groups.get("even").len()}")
+}
+```
+
+```output
+2 a 2 false
+3 true false
+true false true 1
+3
+```
 
 ### 9.11 `net`, `http`, `websocket` and `url` (import)
 
@@ -2666,7 +2750,6 @@ document them as features:
 Settled design decisions that the compiler does not implement yet, listed
 so that older material is not mistaken for the current language:
 
-- `Map[K, V]` and `Set[T]` methods (`new`, `get`, `set`, `has`, `add`, `remove`, `len`).
 - Thread pools: the `pool` keyword, `spawn("name", pool)` and `for ... parallel(pool)`.
 - Reading and writing a primitive through a pointer (`*p`).
 - Method-level generic inference for the container methods (`ch.recv()` without a written type).

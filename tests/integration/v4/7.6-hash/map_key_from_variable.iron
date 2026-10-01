@@ -1,0 +1,17 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Keys and values taken from bindings leave the bindings usable.
+func main() {
+    var m = Map[String, String]()
+    val k = "key"
+    val v = "value"
+    m.put(k, v)
+    m.put(k, v)
+    println("{k} {v} {m.get(k)} {m.len()}")
+    val probe = "key"
+    println("{m.has(probe)} {probe}")
+    var s = Set[String]()
+    s.add(k)
+    s.add(v)
+    println("{s.has(k)} {s.len()} {k}")
+}
