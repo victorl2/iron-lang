@@ -3,6 +3,32 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v4.5.0-alpha: Temporaries, Pointers and the Manual (2026-10-01)
+
+- **Temporaries are dropped:** a field or element read off an owned
+  temporary copies the value out and drops the temporary; a list field
+  moves out of it; a `for` loop drops a temporary iterable. A list element
+  bound from `get()` was dropped twice.
+- **Closures keep their counters:** a `var` a closure captures lives in a
+  reference counted cell shared by the frame and every closure env, so a
+  closure that writes it may be returned or stored.
+- **Language:** field narrowing on immutable paths; `xs[a..b]` list
+  slicing; named functions as values; string ordering and `s += t`;
+  `-> Self` in interfaces; objects with both `init` and `copy`; `rc T?`;
+  `[T; N]` literals; `rc [Iface]` literals typed by the annotation.
+- **Pointers:** heap and rc generations come from a process wide counter
+  (a stale pointer stayed valid after address reuse); `&list[i]` on a
+  growable list is E0330 unless a direct call argument; checked scalar
+  pointers print their pointee; `Ptr.offset` / `Ptr.diff` compile.
+- **Diagnostics:** duplicate integer match arms (E0226), refutable nested
+  patterns (E0332), list extension methods with a body (E0331), a field of
+  the object's own nullable type (E0223); W0600 retired.
+- **Manual:** `docs/language_definition.md` rewritten as a reference manual
+  of the language as implemented, with an EBNF grammar checked against the
+  fixture corpus; every code block is built and run by the doc test.
+- **Tests:** the 23 parked phase-38 fixtures are unparked (Map/Set stay on
+  #193); `tests/run_tests.sh` runs fixtures on a worker pool.
+
 ## v4.4.0-alpha: Strings, Closures and Shared Lists (2026-09-30)
 
 - **Strings are freed:** a heap string's characters are reference counted
