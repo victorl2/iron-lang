@@ -1,36 +1,32 @@
 #!/usr/bin/env bash
-# Phase 99 DOC-01 / DOC-02: extract every fenced ```iron block from
-# docs/language_definition.md and feed each one to `iron check`. The
-# durable lock against future spec-vs-impl drift in the language
-# specification document.
+# Build and run every fenced ```iron block of a markdown file.
 #
-# DOC-01: extract every ```iron block, optionally wrap statement-only
-#         blocks in func main() { ... }, and run iron check per block.
-#         Exit non-zero on any failure.
-# DOC-02: recognize <!-- doctest-skip: <reason> --> on the line
-#         IMMEDIATELY before a ```iron fence (no blank line between)
-#         and skip the block with a SKIP log line.
+# For each ```iron block:
+#   1. the body is written to a temp .iron file (blocks without a
+#      `func main()` are wrapped in one, see MAIN_RE below);
+#   2. the file is compiled with `iron build`;
+#   3. the binary is run with a timeout; a non-zero exit fails the block;
+#   4. if a ```output block follows the ```iron block (only blank lines
+#      between them), the program's stdout must match it exactly.
+#
+# Directives on the line IMMEDIATELY before a ```iron fence:
+#   <!-- doctest-skip: <reason> -->          skip the block (logged as SKIP)
+#   <!-- doctest-expect-error: E0123 -->     the block must FAIL to compile
+#                                            and the compiler output must
+#                                            mention the given code
+#
+# Every fenced code block in the file must carry a language tag; an
+# untagged ``` fence fails the test so new examples cannot bypass it.
 #
 # Usage: test_doc_examples.sh [IRON_BIN]
 #   IRON_BIN: path to the iron binary (default: ./build/iron).
+#   MD_FILE=path/to/other.md overrides the markdown file
+#   (default: docs/language_definition.md).
+#   DOCTEST_TIMEOUT=seconds caps each program run (default: 60).
 #
-# Override the doc-test target via env:
-#   MD_FILE=path/to/other.md scripts/test_doc_examples.sh
-# Default MD_FILE is docs/language_definition.md (the only spec doc
-# under doc-test in v3.2; broader markdown coverage is deferred to v3.3+).
-#
-# Statement-block wrapping heuristic:
-#   if the FIRST non-blank line of a block does NOT start with one of
-#     func, object, enum, interface, import, pub, patch, --
-#   the entire body is wrapped in `func main() {\n<body>\n}` before
-#   the temp file is fed to `iron check`. Otherwise the body is used
-#   verbatim.
-#
-# On block failure, the diagnostic block prints THREE pieces for
-# reproducibility (locked CONTEXT decision):
-#   1. the source markdown line range (e.g., "lines 543-553"),
-#   2. the wrapped source actually fed to iron check,
-#   3. the iron check stderr.
+# Statement-block wrapping heuristic: a block that declares `func main()`
+# is compiled verbatim; any other block is wrapped in
+# `func main() {\n<body>\n}` so a few bare statements can be shown.
 #
 # Final marker on success: `test_doc_examples OK`.
 
@@ -43,175 +39,252 @@ IRON_BIN="$(cd "$(dirname "${IRON_BIN_ARG}")" && pwd)/$(basename "${IRON_BIN_ARG
 
 MD_FILE="${MD_FILE:-docs/language_definition.md}"
 [ -r "${MD_FILE}" ] || { echo "FAIL: cannot read MD_FILE: ${MD_FILE}" >&2; exit 1; }
+DOCTEST_TIMEOUT="${DOCTEST_TIMEOUT:-60}"
 
 WORK="$(mktemp -d -t iron-doctest-XXXXXX)"
 trap 'rm -rf "${WORK}"' EXIT
-
-# Walk MD_FILE line by line in a single awk pass and emit one
-# extracted block per file:
-#   ${WORK}/blocks/block_<N>.body  — raw block body
-#   ${WORK}/blocks/block_<N>.meta  — "<start_lineno> <end_lineno> <skip_reason_or_empty>"
-# The skip-reason field is empty when no <!-- doctest-skip: ... --> comment
-# precedes the fence; otherwise it carries the reason string.
 mkdir -p "${WORK}/blocks"
 
+# One awk pass over MD_FILE. For every fence it emits:
+#   block_<N>.body    the raw body of a ```iron block
+#   block_<N>.meta    "<start> <end> <mode> <arg>" where mode is one of
+#                     run | skip | error, and arg is the skip reason or the
+#                     expected error code
+#   block_<N>.out     the body of the ```output block that follows block N
+#   _untagged         start lines of fences without a language tag
+#   _error            UNCLOSED_FENCE <line>
 awk -v workdir="${WORK}/blocks" '
+    function flush_directive() { pending_mode = ""; pending_arg = "" }
     BEGIN {
-        in_block = 0
-        block_num = 0
-        # Last non-blank line seen OUTSIDE a fence — used to detect
-        # the doctest-skip directive on the line immediately before a
-        # ```iron fence open (no blank line between).
-        prev_nonblank = ""
-        prev_nonblank_was_skip = 0
-        skip_reason = ""
+        in_block = 0; block_num = 0; kind = ""
+        pending_mode = ""; pending_arg = ""
+        last_iron_block = 0; last_iron_end = 0
     }
     {
-        # Trim trailing whitespace for fence detection only; pass body
-        # lines through verbatim.
         line = $0
         trimmed = line
         sub(/[[:space:]]+$/, "", trimmed)
 
         if (in_block == 0) {
-            if (trimmed == "```iron") {
-                in_block = 1
-                start_lineno = NR
-                block_num++
-                body_path = workdir "/block_" block_num ".body"
-                meta_path = workdir "/block_" block_num ".meta"
-                # Reset body file for this block.
-                printf "" > body_path
-                # Carry the skip reason if the immediately preceding
-                # non-blank line was a doctest-skip directive.
-                if (prev_nonblank_was_skip) {
-                    skip_reason = prev_skip_reason
+            if (trimmed ~ /^```/) {
+                tag = trimmed
+                sub(/^```/, "", tag)
+                if (tag == "") {
+                    print NR >> (workdir "/_untagged")
+                    kind = "other"
+                } else if (tag == "iron") {
+                    kind = "iron"
+                    block_num++
+                    start_lineno = NR
+                    body_path = workdir "/block_" block_num ".body"
+                    printf "" > body_path
+                    mode = (pending_mode == "") ? "run" : pending_mode
+                    arg = pending_arg
+                } else if (tag == "output") {
+                    # An output block belongs to the iron block that ended
+                    # just before it (blank lines only in between).
+                    kind = "output"
+                    if (last_iron_block > 0 && only_blank_since_iron) {
+                        out_path = workdir "/block_" last_iron_block ".out"
+                        printf "" > out_path
+                    } else {
+                        print "STRAY_OUTPUT " NR >> (workdir "/_error")
+                        out_path = ""
+                    }
                 } else {
-                    skip_reason = ""
+                    kind = "other"
                 }
+                in_block = 1
+                flush_directive()
                 next
             }
-
-            # Track previous non-blank line for skip-comment detection.
-            # A blank line between the comment and the fence breaks
-            # the link (locked CONTEXT decision: must be IMMEDIATELY
-            # preceding, no blank line between).
             if (trimmed == "") {
-                prev_nonblank = ""
-                prev_nonblank_was_skip = 0
-                prev_skip_reason = ""
+                # A blank line keeps a pending directive only if it is
+                # directly followed by the fence; directives must be on the
+                # line immediately before the fence, so drop it here.
+                flush_directive()
+                next
+            }
+            only_blank_since_iron = 0
+            if (match(trimmed, /^<!--[[:space:]]*doctest-skip:[[:space:]]*.*-->[[:space:]]*$/)) {
+                reason = trimmed
+                sub(/^<!--[[:space:]]*doctest-skip:[[:space:]]*/, "", reason)
+                sub(/[[:space:]]*-->[[:space:]]*$/, "", reason)
+                pending_mode = "skip"; pending_arg = reason
+            } else if (match(trimmed, /^<!--[[:space:]]*doctest-expect-error:[[:space:]]*[EW][0-9]+[[:space:]]*-->[[:space:]]*$/)) {
+                code = trimmed
+                sub(/^<!--[[:space:]]*doctest-expect-error:[[:space:]]*/, "", code)
+                sub(/[[:space:]]*-->[[:space:]]*$/, "", code)
+                pending_mode = "error"; pending_arg = code
             } else {
-                prev_nonblank = trimmed
-                # Match: <!-- doctest-skip: <reason> -->
-                # Reason is captured greedy-up-to the trailing -->.
-                if (match(trimmed, /^<!--[[:space:]]*doctest-skip:[[:space:]]*.*-->[[:space:]]*$/)) {
-                    reason = trimmed
-                    sub(/^<!--[[:space:]]*doctest-skip:[[:space:]]*/, "", reason)
-                    sub(/[[:space:]]*-->[[:space:]]*$/, "", reason)
-                    prev_nonblank_was_skip = 1
-                    prev_skip_reason = reason
-                } else {
-                    prev_nonblank_was_skip = 0
-                    prev_skip_reason = ""
-                }
+                flush_directive()
             }
             next
         }
 
-        # Inside a block: close on a bare ``` line (trimmed match).
+        # Inside a fence: close on a bare ``` line.
         if (trimmed == "```") {
-            end_lineno = NR
-            print start_lineno " " end_lineno " " skip_reason > meta_path
-            close(meta_path)
-            close(body_path)
+            if (kind == "iron") {
+                meta_path = workdir "/block_" block_num ".meta"
+                print start_lineno " " NR " " mode " " arg > meta_path
+                close(meta_path)
+                close(body_path)
+                last_iron_block = block_num
+                only_blank_since_iron = 1
+            } else if (kind == "output") {
+                if (out_path != "") close(out_path)
+                only_blank_since_iron = 0
+            } else {
+                only_blank_since_iron = 0
+            }
             in_block = 0
-            # Reset skip tracking — a fresh skip directive must
-            # immediately precede the NEXT fence.
-            prev_nonblank = ""
-            prev_nonblank_was_skip = 0
-            prev_skip_reason = ""
+            kind = ""
             next
         }
-        # Append body line verbatim.
-        print line >> body_path
+        if (kind == "iron") print line >> body_path
+        else if (kind == "output" && out_path != "") print line >> out_path
     }
     END {
-        if (in_block) {
-            # Unclosed fence — report so the dev can find the typo.
-            err_path = workdir "/_error"
-            print "UNCLOSED_FENCE " start_lineno > err_path
-        }
-        count_path = workdir "/_count"
-        print block_num > count_path
+        if (in_block) print "UNCLOSED_FENCE " start_lineno >> (workdir "/_error")
+        print block_num > (workdir "/_count")
     }
 ' "${MD_FILE}"
 
+FAIL=0
+
 if [ -f "${WORK}/blocks/_error" ]; then
-    err="$(cat "${WORK}/blocks/_error")"
-    echo "FAIL: ${MD_FILE}: ${err} (fence opened but never closed)" >&2
-    exit 1
+    while read -r err; do
+        echo "FAIL: ${MD_FILE}: ${err}" >&2
+    done < "${WORK}/blocks/_error"
+    FAIL=1
+fi
+
+if [ -f "${WORK}/blocks/_untagged" ]; then
+    while read -r lineno; do
+        echo "FAIL: ${MD_FILE}:${lineno}: code fence without a language tag (use iron, output, toml, sh, text or ebnf)" >&2
+    done < "${WORK}/blocks/_untagged"
+    FAIL=1
 fi
 
 TOTAL="$(cat "${WORK}/blocks/_count")"
 PASS=0
 SKIP=0
-FAIL=0
 
-# First-non-blank starter regex: statement-block heuristic. If the
-# first non-blank body line starts with one of these keywords (or
-# Iron's `--` line comment), the body is used verbatim. Otherwise the
-# body is wrapped in a `func main() { ... }` harness so bare
-# statements compile.
-STARTER_RE='^[[:space:]]*(func|object|enum|interface|import|pub|patch|--)'
+# A block that declares `func main()` is a complete program; anything else
+# is wrapped in a main function.
+MAIN_RE='^[[:space:]]*(pub[[:space:]]+)?func[[:space:]]+main[[:space:]]*\('
+
+# Run a command with a timeout, portably (macOS has no `timeout`).
+run_with_timeout() {
+    local secs="$1"; shift
+    "$@" &
+    local pid=$!
+    local waited=0
+    while kill -0 "${pid}" 2>/dev/null; do
+        if [ "${waited}" -ge "${secs}" ]; then
+            kill -9 "${pid}" 2>/dev/null || true
+            wait "${pid}" 2>/dev/null || true
+            return 124
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    wait "${pid}"
+}
 
 i=0
 while [ "$i" -lt "$TOTAL" ]; do
     i=$((i + 1))
     body_path="${WORK}/blocks/block_${i}.body"
     meta_path="${WORK}/blocks/block_${i}.meta"
+    out_path="${WORK}/blocks/block_${i}.out"
 
-    # meta line: "<start> <end> <skip_reason_or_empty>"
     meta="$(cat "${meta_path}")"
     start_lineno="$(echo "${meta}" | awk '{print $1}')"
     end_lineno="$(echo "${meta}" | awk '{print $2}')"
-    skip_reason="$(echo "${meta}" | cut -d' ' -f3-)"
+    mode="$(echo "${meta}" | awk '{print $3}')"
+    arg="$(echo "${meta}" | cut -d' ' -f4-)"
+    where="lines ${start_lineno}-${end_lineno}"
 
-    if [ -n "${skip_reason}" ]; then
-        echo "SKIP lines ${start_lineno}-${end_lineno}: ${skip_reason}"
+    if [ "${mode}" = "skip" ]; then
+        echo "SKIP ${where}: ${arg}"
         SKIP=$((SKIP + 1))
         continue
     fi
 
-    # Statement-block detection: examine the FIRST non-blank line.
-    first_nonblank="$(awk 'NF { print; exit }' "${body_path}" || true)"
-
     src_path="${WORK}/blocks/block_${i}.iron"
-    if echo "${first_nonblank}" | grep -Eq "${STARTER_RE}"; then
+    if grep -Eq "${MAIN_RE}" "${body_path}"; then
         cp "${body_path}" "${src_path}"
     else
-        {
-            echo "func main() {"
-            cat "${body_path}"
-            echo "}"
-        } > "${src_path}"
+        { echo "func main() {"; cat "${body_path}"; echo "}"; } > "${src_path}"
     fi
 
+    bin_path="${WORK}/blocks/block_${i}.bin"
+    build_log="${WORK}/blocks/block_${i}.build"
     set +e
-    "${IRON_BIN}" check "${src_path}" > "${WORK}/blocks/block_${i}.stderr" 2>&1
+    (cd "${WORK}/blocks" && "${IRON_BIN}" build "${src_path}" -o "${bin_path}") > "${build_log}" 2>&1
     rc=$?
     set -e
 
-    if [ "${rc}" -eq 0 ]; then
-        echo "PASS lines ${start_lineno}-${end_lineno}"
-        PASS=$((PASS + 1))
-    else
-        echo "FAIL lines ${start_lineno}-${end_lineno}"
-        echo "--- wrapped source (fed to iron check) ---"
-        cat "${src_path}"
-        echo "--- iron check stderr ---"
-        cat "${WORK}/blocks/block_${i}.stderr"
-        echo "--- end of failure ${start_lineno}-${end_lineno} ---"
+    if [ "${mode}" = "error" ]; then
+        if [ "${rc}" -ne 0 ] && grep -Fq "${arg}" "${build_log}"; then
+            echo "PASS ${where} (rejected with ${arg})"
+            PASS=$((PASS + 1))
+        else
+            echo "FAIL ${where}: expected compile error ${arg}"
+            echo "--- source ---"; cat "${src_path}"
+            echo "--- iron build output (exit ${rc}) ---"; cat "${build_log}"
+            echo "--- end of failure ${where} ---"
+            FAIL=$((FAIL + 1))
+        fi
+        continue
+    fi
+
+    if [ "${rc}" -ne 0 ]; then
+        echo "FAIL ${where}: iron build failed"
+        echo "--- source ---"; cat "${src_path}"
+        echo "--- iron build output ---"; cat "${build_log}"
+        echo "--- end of failure ${where} ---"
         FAIL=$((FAIL + 1))
+        continue
+    fi
+
+    stdout_path="${WORK}/blocks/block_${i}.stdout"
+    stderr_path="${WORK}/blocks/block_${i}.stderr"
+    set +e
+    (cd "${WORK}/blocks" && run_with_timeout "${DOCTEST_TIMEOUT}" "${bin_path}" > "${stdout_path}" 2> "${stderr_path}" < /dev/null)
+    run_rc=$?
+    set -e
+    if [ "${run_rc}" -ne 0 ]; then
+        if [ "${run_rc}" -eq 124 ]; then
+            echo "FAIL ${where}: program timed out after ${DOCTEST_TIMEOUT}s"
+        else
+            echo "FAIL ${where}: program exited with ${run_rc}"
+        fi
+        echo "--- source ---"; cat "${src_path}"
+        echo "--- stdout ---"; cat "${stdout_path}"
+        echo "--- stderr ---"; cat "${stderr_path}"
+        echo "--- end of failure ${where} ---"
+        FAIL=$((FAIL + 1))
+        continue
+    fi
+
+    if [ -f "${out_path}" ]; then
+        if cmp -s "${stdout_path}" "${out_path}"; then
+            echo "PASS ${where} (output matches)"
+            PASS=$((PASS + 1))
+        else
+            echo "FAIL ${where}: stdout differs from the output block"
+            echo "--- source ---"; cat "${src_path}"
+            echo "--- expected ---"; cat "${out_path}"
+            echo "--- actual ---"; cat "${stdout_path}"
+            echo "--- diff ---"; diff "${out_path}" "${stdout_path}" || true
+            echo "--- end of failure ${where} ---"
+            FAIL=$((FAIL + 1))
+        fi
+    else
+        echo "PASS ${where}"
+        PASS=$((PASS + 1))
     fi
 done
 

@@ -1,11 +1,12 @@
 name: Doc Test
 
-# Phase 99 DOC-03: durable lock against future spec-vs-impl drift in
-# docs/language_definition.md. Builds iron from source, then runs
-# scripts/test_doc_examples.sh which extracts every fenced ```iron
-# block and feeds it to `iron check`. Adding this workflow as a
-# REQUIRED merge-gate via branch-protection is a config-only follow-up
-# tracked under Phase 99 deferred-items.
+# Lock against drift between the documentation and the compiler. Builds
+# iron from source, then runs scripts/test_doc_examples.sh, which builds
+# and runs every fenced ```iron block of docs/language_definition.md and
+# docs/llms/iron.md, compares program output with the ```output blocks
+# and checks that blocks marked doctest-expect-error fail with the given
+# code. scripts/grammar_check.py then runs the manual's EBNF grammar over
+# the fixture corpus.
 
 on:
   push:
@@ -16,6 +17,9 @@ on:
       - 'docs/examples/native_*.iron'
       - 'scripts/check_branding.py'
       - 'scripts/test_doc_examples.sh'
+      - 'scripts/grammar_check.py'
+      - 'tests/integration/v4/**'
+      - 'tests/integration/v4-fail/**'
       - 'src/**'
       - 'CMakeLists.txt'
       - '.github/workflows/doc-test.yml'
@@ -27,6 +31,9 @@ on:
       - 'docs/examples/native_*.iron'
       - 'scripts/check_branding.py'
       - 'scripts/test_doc_examples.sh'
+      - 'scripts/grammar_check.py'
+      - 'tests/integration/v4/**'
+      - 'tests/integration/v4-fail/**'
       - 'src/**'
       - 'CMakeLists.txt'
       - '.github/workflows/doc-test.yml'
@@ -74,6 +81,9 @@ jobs:
 
       - name: Run doc-test extractor against docs/llms/iron.md
         run: MD_FILE=docs/llms/iron.md bash scripts/test_doc_examples.sh ./build/iron
+
+      - name: Check the manual's grammar against the fixture corpus
+        run: python3 scripts/grammar_check.py --negative tests/integration/v4-fail
 
       - name: Execute featured native examples and verify output
         run: python3 scripts/check_branding.py --compiler ./build/iron
