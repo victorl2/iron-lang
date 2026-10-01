@@ -355,6 +355,8 @@ const char *emit_web_module(IronLIR_Module *module, Iron_Arena *arena,
 
     ctx.emitted_optionals = NULL;
     ctx.literal_cache = NULL;
+    ctx.boxed_vids = NULL;
+    ctx.cell_drop_fns = NULL;
     ctx.literal_cache_count = 0;
     ctx.mono_registry     = NULL;
     ctx.indent            = 0;

@@ -1,0 +1,12 @@
+-- section 4.2 negative: no pointer into a growable list element
+-- @req: PTR-08, SAFE-02
+-- a list moves its elements when it grows and its buffer carries no
+-- generation a checked pointer could be validated against, so `&list[i]`
+-- is rejected (E0330) unless it is written directly as a call argument, a
+-- borrow for the call; fixed-size array elements have stable addresses
+func main() {
+    var list: [Int] = [1, 2, 3, 4]
+    val ptr: *Int = &list[0]
+    list.push(5)
+    println("stale: {ptr}")
+}

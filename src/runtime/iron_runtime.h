@@ -391,6 +391,9 @@ static inline void iron_check_pointer_gen(Iron_FatPtr fp,
  * Initialized in iron_runtime_init via IRON_ATOMIC_U64_INIT.
  * Definition lives in src/runtime/iron_heap_track.c. */
 extern iron_atomic_u64 iron_alloc_id_counter;
+/* Process-wide monotonic generation source for heap and rc headers. */
+extern iron_atomic_u64 iron_heap_gen_counter;
+uint64_t iron_heap_next_gen(void);
 
 /* ── Phase 20 PTR-10: per-thread stack-frame generation counter ───────────
  * Bumped on entry/exit of each function whose body takes the address of a
@@ -1149,6 +1152,14 @@ typedef struct {
  * drop. A NULL env (no captures) is never counted. */
 void *iron_closure_env_alloc(size_t env_size, void (*drop)(void *env));
 void  iron_closure_env_free(void *env);          /* called by the env drop */
+
+/* A `var` that a closure writes lives in a counted cell (#210): the frame
+ * and every closure env that captured it share the cell, so the closure
+ * may outlive the frame. The value sits behind the header; `drop`, when
+ * set, destroys the value before the cell is freed. */
+void *iron_cell_alloc(size_t size, void (*drop)(void *value));
+void  iron_cell_retain(void *value);
+void  iron_cell_release(void *value);
 void  iron_closure_retain(Iron_Closure c);
 void  iron_closure_release(Iron_Closure c);
 

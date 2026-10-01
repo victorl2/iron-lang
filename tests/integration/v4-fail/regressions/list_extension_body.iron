@@ -1,0 +1,12 @@
+func [T].second() -> T {
+    return self[1]
+}
+func [Int].total() -> Int {
+    var t = 0
+    for x in self { t += x }
+    return t
+}
+func main() {
+    val xs = [3, 4, 5]
+    println("{xs.total()} {xs.second()}")
+}

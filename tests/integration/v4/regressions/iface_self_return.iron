@@ -1,0 +1,25 @@
+-- `-> Self` in an interface: each implementor returns itself; through an
+-- interface value the result is the interface (#217).
+interface Scalable {
+    readonly func scaled(k: Int) -> Self
+    readonly func size() -> Int
+}
+object V impl Scalable {
+    val n: Int
+    readonly func scaled(k: Int) -> Self { return V(self.n * k) }
+    readonly func size() -> Int { return self.n }
+}
+object W impl Scalable {
+    val a: Int
+    val b: Int
+    readonly func scaled(k: Int) -> Self { return W(self.a * k, self.b * k) }
+    readonly func size() -> Int { return self.a + self.b }
+}
+func main() {
+    println("{V(2).scaled(3).n}")
+    val xs: [Scalable] = [V(1), W(2, 3)]
+    for x in xs {
+        val y = x.scaled(10)
+        println("{y.size()}")
+    }
+}

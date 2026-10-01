@@ -222,6 +222,9 @@ typedef struct IronLIR_DropEntry_s {
      * which releases rc/weak-rc captures and frees the env block —
      * pairing the construct-time capture retains that previously leaked. */
     const char     *env_drop_name;
+    /* The slot is a mutable capture cell (#210): scope exit releases the
+     * frame's share instead of dropping the value. object_type is NULL. */
+    bool            is_cell;
 } IronLIR_DropEntry;
 
 /* An owned temporary passed as a call argument, released / dropped after
@@ -515,10 +518,26 @@ static void emit_drop_glue_call(HIR_to_LIR_Ctx *ctx, IronLIR_ValueId slot,
 /* An expression naming existing storage: copying out of it duplicates what
  * the storage owns, so the new owner needs a copy fixup. Constructors,
  * calls and other value-producing expressions hand over fresh values. */
+/* A list `get` / `get_unchecked` result is an element the list keeps
+ * owning: the caller borrows it like a place. */
+static bool hir_expr_is_borrowed_elem(IronHIR_Expr *e) {
+    return e && e->kind == IRON_HIR_EXPR_METHOD_CALL && e->method_call.method &&
+           (strcmp(e->method_call.method, "get") == 0 ||
+            strcmp(e->method_call.method, "get_unchecked") == 0);
+}
+
+/* An expression whose value another holder owns: a binding, a borrowed
+ * element, or a field / element path rooted at one. A path rooted at a
+ * temporary (`make_probe().name`) is not a place: lowering copies the
+ * field out and drops the temporary, so the read is an owned value. */
 static bool hir_expr_is_place(IronHIR_Expr *e) {
-    return e && (e->kind == IRON_HIR_EXPR_IDENT ||
-                 e->kind == IRON_HIR_EXPR_FIELD_ACCESS ||
-                 e->kind == IRON_HIR_EXPR_INDEX);
+    /* A cast (an interface view, an unwrap) of a place still names it. */
+    while (e && (e->kind == IRON_HIR_EXPR_FIELD_ACCESS || e->kind == IRON_HIR_EXPR_INDEX ||
+                 e->kind == IRON_HIR_EXPR_CAST))
+        e = e->kind == IRON_HIR_EXPR_FIELD_ACCESS ? e->field_access.object
+          : e->kind == IRON_HIR_EXPR_INDEX        ? e->index.array
+                                                   : e->cast.value;
+    return e && (e->kind == IRON_HIR_EXPR_IDENT || hir_expr_is_borrowed_elem(e));
 }
 
 /* Fix up the copy stored at `slot` when it was copied out of a place. */
@@ -595,11 +614,7 @@ static void note_owned_temp(HIR_to_LIR_Ctx *ctx, TempOwned **temps,
             TempOwned to = { av, at, false };
             arrput(*temps, to);
         }
-    } else if (!hir_expr_is_place(ae) && type_needs_drop(at, ctx->program) &&
-               !(ae->kind == IRON_HIR_EXPR_METHOD_CALL && ae->method_call.method &&
-                 (strcmp(ae->method_call.method, "get") == 0 ||
-                  strcmp(ae->method_call.method, "get_unchecked") == 0))) {
-        /* (get / get_unchecked return an element the list keeps owning.) */
+    } else if (!hir_expr_is_place(ae) && type_needs_drop(at, ctx->program)) {
         IronLIR_ValueId ts = emit_alloca_in_entry(ctx, at, "__arg_tmp", span);
         iron_lir_store(ctx->current_func, ctx->current_block, ts, av, span);
         TempOwned to = { ts, at, true };
@@ -740,6 +755,41 @@ static void release_owned_temps(HIR_to_LIR_Ctx *ctx, TempOwned **temps,
     arrfree(*temps);
 }
 
+/* A field or element read off an owned temporary (`make_probe().name`,
+ * `build()[0]`): the container is dropped once the read is done, so the
+ * value read out takes its own copy first and is owned by the reader. */
+static IronLIR_ValueId take_from_owned_temp(HIR_to_LIR_Ctx *ctx, TempOwned **temps,
+                                            IronLIR_ValueId v, Iron_Type *t,
+                                            const char *field, Iron_Span span) {
+    if (arrlen(*temps) == 0) return v;
+    if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+        if (type_is_rc_like(t)) {
+            emit_rc_retain_for_type(ctx, t, v, span);
+        } else if (type_is_owned_list(t)) {
+            /* Lists are never duplicated (#174): move the list out by
+             * leaving an empty one in the temporary for its drop to free.
+             * An element list of a temporary list has no slot to move
+             * out of; that outer list is left to leak rather than freed
+             * under the element. */
+            if (!field || !(*temps)[0].is_slot) {
+                arrfree(*temps);
+                return v;
+            }
+            IronLIR_ValueId empty = iron_lir_array_lit(ctx->current_func, ctx->current_block,
+                                                       t->array.elem, NULL, 0, t, span)->id;
+            iron_lir_set_field(ctx->current_func, ctx->current_block,
+                               (*temps)[0].value, field, empty, span);
+        } else if (type_needs_copy_fixup(t, ctx->program)) {
+            IronLIR_ValueId tmp = emit_alloca_in_entry(ctx, t, "__copy", span);
+            iron_lir_store(ctx->current_func, ctx->current_block, tmp, v, span);
+            emit_lifecycle_glue_call(ctx, "$copy", tmp, span);
+            v = iron_lir_load(ctx->current_func, ctx->current_block, tmp, t, span)->id;
+        }
+    }
+    release_owned_temps(ctx, temps, span);
+    return v;
+}
+
 /* Phase 24 DROP-01 (Plan 24-02): emit drop calls for the drop_stacks entries
  * from scope depth d, in LIFO order (most-recently-bound dropped first).
  *
@@ -769,6 +819,18 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
          * IRON_HIR_EXPR_CLOSURE arm) and frees the malloc'd env block.
          * The emitter's CALL arm recognizes the `_env_drop` callee suffix
          * and passes `<arg>.env` for the Iron_Closure argument. */
+        /* The frame's share of a mutable capture cell (#210): emit_c's CALL
+         * arm passes the slot's address to iron_cell_release. */
+        if (entry->is_cell) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            IronLIR_Instr *cref = iron_lir_func_ref(ctx->current_func,
+                ctx->current_block, "iron_cell_release", NULL, span);
+            if (!cref) continue;
+            IronLIR_ValueId cargs[1] = { entry->alloca_id };
+            iron_lir_call(ctx->current_func, ctx->current_block,
+                          NULL, cref->id, cargs, 1, NULL, span);
+            continue;
+        }
         if (entry->env_drop_name) {
             if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
             IronLIR_Instr *eref = iron_lir_func_ref(ctx->current_func,
@@ -3063,16 +3125,22 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
     }
 
     case IRON_HIR_EXPR_FIELD_ACCESS: {
+        TempOwned *temps = NULL;
         IronLIR_ValueId obj = lower_expr(ctx, expr->field_access.object);
-        return iron_lir_get_field(ctx->current_func, ctx->current_block,
-                                   obj, expr->field_access.field, type, span)->id;
+        note_owned_temp(ctx, &temps, expr->field_access.object, obj, span);
+        IronLIR_ValueId fv = iron_lir_get_field(ctx->current_func, ctx->current_block,
+                                                obj, expr->field_access.field, type, span)->id;
+        return take_from_owned_temp(ctx, &temps, fv, type, expr->field_access.field, span);
     }
 
     case IRON_HIR_EXPR_INDEX: {
+        TempOwned *temps = NULL;
         IronLIR_ValueId arr = lower_expr(ctx, expr->index.array);
+        note_owned_temp(ctx, &temps, expr->index.array, arr, span);
         IronLIR_ValueId idx = lower_expr(ctx, expr->index.index);
-        return iron_lir_get_index(ctx->current_func, ctx->current_block,
-                                   arr, idx, type, span)->id;
+        IronLIR_ValueId ev = iron_lir_get_index(ctx->current_func, ctx->current_block,
+                                                arr, idx, type, span)->id;
+        return take_from_owned_temp(ctx, &temps, ev, type, NULL, span);
     }
 
     case IRON_HIR_EXPR_SLICE: {
@@ -3506,10 +3574,9 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         if (fp != IRON_LIR_VALUE_INVALID &&
             fp < (IronLIR_ValueId)arrlen(ctx->current_func->value_table) &&
             ctx->current_func->value_table[fp] &&
-            ctx->current_func->value_table[fp]->kind == IRON_LIR_ADDR_OF &&
-            ctx->current_func->value_table[fp]->addr_of.gen_source ==
-                IRON_LIR_GEN_ARENA) {
-            gs = IRON_LIR_GEN_ARENA;
+            ctx->current_func->value_table[fp]->kind == IRON_LIR_ADDR_OF) {
+            /* The pointer's own ADDR_OF knows where it points. */
+            gs = ctx->current_func->value_table[fp]->addr_of.gen_source;
         }
         return iron_lir_ptr_load(ctx->current_func, ctx->current_block,
                                  fp, gs, type, span)->id;
@@ -3709,6 +3776,19 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             const char *name = iron_hir_var_name(ctx->hir, vid);
             IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, alloca_type, name, span);
             hmput(ctx->var_alloca_map, vid, alloca_id);
+            /* A var a closure captures lives in a counted cell (#210): the
+             * frame releases its share at scope exit and the cell's own
+             * drop destroys the value with the last share. */
+            bool boxed = iron_hir_var_is_boxed(ctx->hir, vid) && !var_is_capture(ctx, vid);
+            if (boxed && alloca_id < (IronLIR_ValueId)arrlen(ctx->current_func->value_table) &&
+                ctx->current_func->value_table[alloca_id]) {
+                ctx->current_func->value_table[alloca_id]->alloca.is_boxed = true;
+                if (ctx->defer_depth > 0 && ctx->drop_stacks &&
+                    ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
+                    IronLIR_DropEntry de = { alloca_id, NULL, false, false, NULL, true };
+                    arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
+                }
+            }
 
             if (stmt->let.init) {
                 IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
@@ -3732,18 +3812,18 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                  * never released — every mutable rc var leaked. The drop
                  * pump LOADs the slot (is_direct_value == false) so the
                  * release sees the latest reassigned value. */
-                if (type_is_rc_like(type) && ctx->defer_depth > 0 &&
+                if (!boxed && type_is_rc_like(type) && ctx->defer_depth > 0 &&
                     ctx->drop_stacks &&
                     ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
-                    IronLIR_DropEntry de = { alloca_id, type, false, false, NULL };
+                    IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
                     arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
                 }
             }
             /* Phase 24 DROP-01 (Plan 24-02): push drop entry for mutable binding */
-            if (!var_is_capture(ctx, vid) &&
+            if (!boxed && !var_is_capture(ctx, vid) &&
                 type_needs_drop(type, ctx->program) && ctx->defer_depth > 0 &&
                 ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
-                IronLIR_DropEntry de = { alloca_id, type, false, false, NULL };
+                IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             }
         } else if (type && type->kind == IRON_TYPE_INTERFACE) {
@@ -3765,7 +3845,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             if (!var_is_capture(ctx, vid) &&
                 type_needs_drop(type, ctx->program) && ctx->defer_depth > 0 &&
                 ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
-                IronLIR_DropEntry de = { alloca_id, type, false, false, NULL };
+                IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             }
         } else {
@@ -3807,7 +3887,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
                 emit_copy_fixup_at(ctx, stmt->let.init, type, alloca_id, span);
                 /* Push drop entry using alloca_id (is_direct_value=false → &alloca) */
-                IronLIR_DropEntry de = { alloca_id, type, false, false, NULL };
+                IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
                 arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
             } else {
                 if (stmt->let.init) {
@@ -3843,7 +3923,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                         if (!rc_expr_transfers_ownership(stmt->let.init)) {
                             emit_rc_retain_for_type(ctx, type, init_val, span);
                         }
-                        IronLIR_DropEntry de = { init_val, type, true, false, NULL };
+                        IronLIR_DropEntry de = { init_val, type, true, false, NULL, false };
                         arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
                     }
                 }
@@ -4152,6 +4232,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         /* Pre-header: evaluate iterable, create iter alloca, init index to 0 */
         switch_block(ctx, pre_header);
         IronLIR_ValueId iterable_val = lower_expr(ctx, stmt->for_loop.iterable);
+        /* A temporary iterable (`for x in build()`) is owned by the loop
+         * and dropped once it is done (or left behind by a break). */
+        TempOwned *iter_temps = NULL;
+        note_owned_temp(ctx, &iter_temps, stmt->for_loop.iterable, iterable_val, span);
         Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
 
         /* Alloca for loop index */
@@ -4219,6 +4303,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         }
 
         switch_block(ctx, exit_blk);
+        release_owned_temps(ctx, &iter_temps, span);
         break;
     }
 
@@ -4458,8 +4543,15 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             IronHIR_Expr *rv = stmt->return_stmt.value;
             if (rv->kind == IRON_HIR_EXPR_IDENT &&
                 type_needs_drop(ret_type, ctx->program) &&
-                hmgeti(ctx->var_alloca_map, rv->ident.var_id) >= 0) {
+                hmgeti(ctx->var_alloca_map, rv->ident.var_id) >= 0 &&
+                !var_is_capture(ctx, rv->ident.var_id)) {
+                /* (A captured var belongs to the env, not this frame: it
+                 * is copied for the caller below, never moved.) */
                 ctx->moved_slot = hmget(ctx->var_alloca_map, rv->ident.var_id);
+            } else if (ctx->cur_is_init && rv->kind == IRON_HIR_EXPR_IDENT &&
+                       rv->ident.name && strcmp(rv->ident.name, "self") == 0) {
+                /* init hands the object it built to the caller as is: the
+                 * self parameter is the object's own storage, not a copy. */
             } else if (!type_is_rc_like(ret_type)) {
                 ret_val = copy_for_new_owner(ctx, rv, ret_val, ret_type, span);
             }
@@ -4590,7 +4682,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         int arena_base_depth = ctx->defer_depth;
         /* Register the arena-pop marker so every exit edge runs the pop. */
         if (ctx->drop_stacks && arena_base_depth <= (int)arrlen(ctx->drop_stacks)) {
-            IronLIR_DropEntry pop_entry = { IRON_LIR_VALUE_INVALID, NULL, false, true, NULL };
+            IronLIR_DropEntry pop_entry = { IRON_LIR_VALUE_INVALID, NULL, false, true, NULL, false };
             arrput(ctx->drop_stacks[arena_base_depth - 1], pop_entry);
         }
         lower_block_stmts(ctx, stmt->in_arena.body);
@@ -5517,7 +5609,7 @@ static void synthesize_module_deinit(HIR_to_LIR_Ctx *ctx) {
         IronHIR_Global *g = &hir->globals[i];
         if (!global_needs_cleanup(ctx, g->type)) continue;
         IronLIR_ValueId slot = get_global_slot(ctx, g);
-        IronLIR_DropEntry de = { slot, g->type, false, false, NULL };
+        IronLIR_DropEntry de = { slot, g->type, false, false, NULL, false };
         arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
         span0 = g->span;
     }

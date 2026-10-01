@@ -32,9 +32,11 @@ if(NOT WIN32)
     )
     # Not in the v4-acceptance label: it builds every fixture twice, which
     # pushed that 30-minute gate over its limit. The full test jobs run it.
+    # Under ASan on a 4-core CI runner it takes about 25 minutes next to the
+    # other rows, so its own cap is an hour.
     set_tests_properties(test_opt_parity PROPERTIES
         LABELS "oracle"
-        TIMEOUT 1800)
+        TIMEOUT 3600)
 endif()
 
 # Phase 35 MIG-09: migrated-from-v3/ subdir hosts the hand-migrated v3 corpus.

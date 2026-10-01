@@ -82,8 +82,19 @@ IronHIR_VarId iron_hir_alloc_var(IronHIR_Module *mod, const char *name,
     info.name       = name;
     info.type       = type;
     info.is_mutable = is_mutable;
+    info.is_boxed   = false;
     arrput(mod->name_table, info);
     return id;
+}
+
+void iron_hir_var_set_boxed(IronHIR_Module *mod, IronHIR_VarId id) {
+    if (id != IRON_HIR_VAR_INVALID && (ptrdiff_t)id < arrlen(mod->name_table))
+        mod->name_table[id].is_boxed = true;
+}
+
+bool iron_hir_var_is_boxed(IronHIR_Module *mod, IronHIR_VarId id) {
+    return id != IRON_HIR_VAR_INVALID && (ptrdiff_t)id < arrlen(mod->name_table) &&
+           mod->name_table[id].is_boxed;
 }
 
 const char *iron_hir_var_name(IronHIR_Module *mod, IronHIR_VarId id) {

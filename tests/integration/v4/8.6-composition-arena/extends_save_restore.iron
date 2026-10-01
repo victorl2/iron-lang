@@ -1,11 +1,6 @@
--- section 8.6 extends-spec: save/restore boundary probe (CONTEXT.md mandate)
+-- section 8.6 extends-spec: save/restore boundary probe
 -- @req: ARENA-01, ARENA-03, ARENA-06
--- @expected-pass-after: phase-38
--- XFAIL (phase-38): .expected requires per-object drop execution on arena restore()/reset()
--- ("temp N freed"), but ARENA-09/W0605 defines arena bulk-free as SKIPPING drop. Needs a
--- destructor-running restore surface (or a re-authored .expected). Verified at v4.0.0-alpha:
--- builds+runs positionally; output differs only by the four drop lines.
--- extends-spec: arena with save mark; allocate 3 values; restore mark drops them; allocate 1 more
+-- arena with a save mark; restore(mark) and reset() bulk-free without running drops (W0605)
 
 object Temp {
     val id: Int

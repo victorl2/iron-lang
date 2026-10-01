@@ -94,10 +94,11 @@ void test_iron_heap_alloc_returns_unique_gens(void) {
         TEST_ASSERT_NOT_NULL(live[i].addr);
         TEST_ASSERT_NOT_EQUAL_UINT64(0, live[i].gen);
     }
-    /* Every live fp.gen must be exactly 1 (gen=0 reserved sentinel; first
-     * valid generation is 1; per-block counter only advances on free). */
+    /* Generations come from a process-wide counter: no two allocations
+     * ever share one, so a reused address cannot revalidate an old fp. */
     for (int i = 0; i < N; i++) {
-        TEST_ASSERT_EQUAL_UINT64(1, live[i].gen);
+        for (int j = 0; j < i; j++)
+            TEST_ASSERT_NOT_EQUAL_UINT64(live[j].gen, live[i].gen);
     }
     /* Free everything we allocated to keep the test leak-free. */
     for (int i = 0; i < N; i++) {

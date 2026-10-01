@@ -187,6 +187,7 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
 /* ── Forward declarations ────────────────────────────────────────────────── */
 
 static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node);
+static void mark_amp_call_args(Iron_Node **args, int count);
 static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
                                             Iron_Type *expected);
 static void check_stmt(TypeCtx *ctx, Iron_Node *node);
@@ -705,8 +706,20 @@ static void tc_define_pattern_bindings(TypeCtx *ctx,
             tc_define(ctx, bname, IRON_SYM_VARIABLE, pattern_node, pat->span,
                       /*is_mutable=*/false, btype);
         } else if (nested) {
-            /* Nested pattern: recurse with the payload type as the context enum type */
+            /* A nested pattern binds the inner payload but the arm is
+             * selected on the outer tag alone, so it is only sound when
+             * the inner enum has a single variant (nothing to test). */
             Iron_Type *payload_type = (ptypes && ptypes[j]) ? ptypes[j] : NULL;
+            if (payload_type && payload_type->kind == IRON_TYPE_ENUM &&
+                payload_type->enu.decl && payload_type->enu.decl->variant_count > 1) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "nested pattern on '%s' is not tested at run time: the enum has %d variants",
+                         payload_type->enu.decl->name ? payload_type->enu.decl->name : "?",
+                         payload_type->enu.decl->variant_count);
+                emit_error(ctx, IRON_ERR_NESTED_PATTERN, nested->span, msg,
+                           "bind the payload and match on it inside the arm");
+            }
             tc_define_pattern_bindings(ctx, payload_type, nested);
         }
         /* else: wildcard _ — no binding */
@@ -1007,9 +1020,12 @@ static bool is_stringifiable(TypeCtx *ctx, const Iron_Type *t) {
      * dereferenced value. Matches the new interp-string formatter arm in
      * emit_c.c IRON_LIR_INTERP_STRING. Structured pointees still trigger
      * W0602 (no to_string contract for bare pointer to struct). */
-    if (t->kind == IRON_TYPE_PTR && t->ptr.is_unchecked && t->ptr.pointee) {
+    /* A checked pointer to a scalar prints its pointee too, through a
+     * generation checked load (hir_lower wraps the part in a deref). */
+    if (t->kind == IRON_TYPE_PTR && t->ptr.pointee) {
         const Iron_Type *p = t->ptr.pointee;
-        if (iron_type_is_numeric(p) || p->kind == IRON_TYPE_BOOL) return true;
+        if (iron_type_is_numeric(p) || p->kind == IRON_TYPE_BOOL ||
+            (!t->ptr.is_unchecked && p->kind == IRON_TYPE_STRING)) return true;
     }
     if (t->kind == IRON_TYPE_OBJECT && t->object.decl && ctx->program) {
         const char *tname = t->object.decl->name;
@@ -1666,6 +1682,13 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                            "`rc T` holds a shared, reference-counted T; "
                            "it is not a wrapper for handles or pointers");
             return iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
+        /* `rc T?` is a nullable strong handle (what `upgrade()` returns),
+         * not a handle to a nullable: the `?` applies to the whole type. */
+        if (inner_t->kind == IRON_TYPE_NULLABLE && inner_t->nullable.inner) {
+            Iron_Type *rt = iron_type_make_rc(ctx->arena, inner_t->nullable.inner);
+            Iron_Type *nt = rt ? iron_type_make_nullable(ctx->arena, rt) : NULL;
+            return nt ? nt : iron_type_make_primitive(IRON_TYPE_ERROR);
         }
         Iron_Type *rt = iron_type_make_rc(ctx->arena, inner_t);
         return rt ? rt : iron_type_make_primitive(IRON_TYPE_ERROR);
@@ -3434,6 +3457,26 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     ue->resolved_type = result;
                     break;
                 }
+                /* A growable list moves its elements when it grows, and
+                 * its buffer carries no generation the pointer could be
+                 * checked against; only fixed-size arrays give stable
+                 * element addresses. A borrow for the duration of a call
+                 * (`f(&list[i])`) is allowed, like auto-addressing. */
+                if (ue->operand->kind == IRON_NODE_INDEX && !ue->is_call_arg) {
+                    Iron_Node *lo = ((Iron_IndexExpr *)ue->operand)->object;
+                    Iron_Type *lt = lo ? ((Iron_ExprNode *)lo)->resolved_type : NULL;
+                    if (lt && lt->kind == IRON_TYPE_ARRAY && lt->array.size < 0 &&
+                        !lt->array.is_bounded) {
+                        emit_error(ctx, IRON_ERR_PTR_INTO_LIST, ue->span,
+                                   "cannot take the address of a list element;"
+                                   " the list may reallocate its elements",
+                                   "point at a fixed-size array element, or"
+                                   " store the element in a binding first");
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                        ue->resolved_type = result;
+                        break;
+                    }
+                }
                 bool is_var_src = arg_source_is_mutable(ctx, ue->operand);
                 mark_requires_mutable(ctx, ue->operand);
                 Iron_Type *ptr_t = iron_type_make_ptr(ctx->arena,
@@ -3477,6 +3520,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         }
 
         case IRON_NODE_CALL: {
+            mark_amp_call_args(((Iron_CallExpr *)node)->args, ((Iron_CallExpr *)node)->arg_count);
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
 
             /* User generics: redirect to the instance (or, in the round
@@ -4354,6 +4398,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         }
 
         case IRON_NODE_METHOD_CALL: {
+            mark_amp_call_args(((Iron_MethodCallExpr *)node)->args, ((Iron_MethodCallExpr *)node)->arg_count);
             Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
             /* A method on an `rc [T]` handle is a method on its list. */
             rc_list_unwrap_expr(ctx, &mc->object);
@@ -5318,9 +5363,13 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             result = fd->resolved_return_type;
                         } else if (fd->return_type &&
                                    fd->return_type->kind == IRON_NODE_TYPE_ANNOTATION) {
-                            /* Resolve return type from annotation */
+                            /* Resolve return type from annotation; `Self`
+                             * on an interface value is the interface. */
                             Iron_TypeAnnotation *rta = (Iron_TypeAnnotation *)fd->return_type;
+                            const char *saved_enc = ctx->enclosing_type_name;
+                            ctx->enclosing_type_name = iface_mc->name;
                             Iron_Type *resolved_rt = resolve_type_annotation(ctx, (Iron_Node *)rta);
+                            ctx->enclosing_type_name = saved_enc;
                             if (resolved_rt) result = resolved_rt;
                         }
                         break;
@@ -5698,8 +5747,11 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         result = fd->resolved_return_type;
                     } else if (fd->return_type &&
                                fd->return_type->kind == IRON_NODE_TYPE_ANNOTATION) {
+                        const char *saved_enc = ctx->enclosing_type_name;
+                        ctx->enclosing_type_name = iface_ni->name;
                         Iron_Type *resolved_rt =
                             resolve_type_annotation(ctx, fd->return_type);
+                        ctx->enclosing_type_name = saved_enc;
                         if (resolved_rt) result = resolved_rt;
                     }
                     break;
@@ -6320,7 +6372,23 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_Type *obj_type = check_expr(ctx, se->object);
             Iron_Type *start_type = se->start ? check_expr(ctx, se->start) : NULL;
             Iron_Type *end_type   = se->end   ? check_expr(ctx, se->end)   : NULL;
-            result = obj_type ? obj_type : iron_type_make_primitive(IRON_TYPE_ERROR);
+            /* A slice is a new growable list of the elements in [start, end);
+             * a string slice is a substring (code point positions). */
+            result = iron_type_make_primitive(IRON_TYPE_ERROR);
+            if (obj_type && obj_type->kind == IRON_TYPE_STRING) {
+                result = obj_type;
+            } else if (obj_type && obj_type->kind == IRON_TYPE_ARRAY && obj_type->array.elem &&
+                !obj_type->array.is_bounded &&
+                obj_type->array.elem->kind != IRON_TYPE_INTERFACE) {
+                Iron_Type *lt = iron_type_make_array(ctx->arena, obj_type->array.elem, -1, false);
+                if (lt) result = lt;
+            } else if (obj_type && obj_type->kind != IRON_TYPE_ERROR) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "cannot slice a value of type '%s'",
+                         iron_type_to_string(obj_type, ctx->arena));
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, se->span, msg,
+                           "slicing takes a list or fixed-size array of non-interface elements");
+            }
             se->resolved_type = result;
 
             /* SLICE-01: Validate start and end are integer types */
@@ -7066,6 +7134,15 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
  * Used by: val and var decl (vd->init), call arg (ce->args[i]), return (rs->value),
  * assignment (as->value). Other check_expr callers remain unchanged.
  */
+/* Flag `&expr` arguments written directly in a call's argument list. */
+static void mark_amp_call_args(Iron_Node **args, int count) {
+    for (int i = 0; i < count; i++) {
+        if (args[i] && args[i]->kind == IRON_NODE_UNARY &&
+            ((Iron_UnaryExpr *)args[i])->op == (Iron_OpKind)IRON_TOK_AMP)
+            ((Iron_UnaryExpr *)args[i])->is_call_arg = true;
+    }
+}
+
 static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
                                             Iron_Type *expected) {
     /* HARD-05: cancel poll at expected-type walker entry. */
@@ -7102,6 +7179,27 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
          * from different implementors, a list of empty lists). */
         if (!al->type_ann && !al->size && expected->array.size < 0 &&
             !expected->array.is_bounded && expected->array.elem) {
+            bool fits = true;
+            for (int i = 0; i < al->element_count; i++) {
+                Iron_Type *et = check_expr_with_expected(ctx, al->elements[i],
+                                                         expected->array.elem);
+                if (!et || et->kind == IRON_TYPE_ERROR ||
+                    !types_assignable(expected->array.elem, et)) {
+                    fits = false;
+                    break;
+                }
+            }
+            if (fits) {
+                al->resolved_type = expected;
+                al->context_type = expected;
+                return expected;
+            }
+        }
+        /* A literal with exactly N fitting elements is a `[T; N]` where one
+         * is expected (a fixed-size return or annotation). */
+        if (!al->type_ann && !al->size && expected->array.size >= 0 &&
+            !expected->array.is_bounded && expected->array.elem &&
+            al->element_count == expected->array.size) {
             bool fits = true;
             for (int i = 0; i < al->element_count; i++) {
                 Iron_Type *et = check_expr_with_expected(ctx, al->elements[i],
@@ -8067,6 +8165,27 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (is_int_literal_narrowing(target_type, value_type, as->value)) {
                 ((Iron_IntLit *)as->value)->resolved_type = target_type;
             }
+            /* A compound assignment applies its operator to the target:
+             * arithmetic needs a numeric target (`+=` also joins strings),
+             * shifts and bitwise operators an integer one. */
+            if (is_compound_assign_op(as->op) && target_type &&
+                target_type->kind != IRON_TYPE_ERROR) {
+                bool arith = as->op == IRON_TOK_PLUS_ASSIGN || as->op == IRON_TOK_MINUS_ASSIGN ||
+                             as->op == IRON_TOK_STAR_ASSIGN || as->op == IRON_TOK_SLASH_ASSIGN;
+                bool ok = arith ? (iron_type_is_numeric(target_type) ||
+                                   (as->op == IRON_TOK_PLUS_ASSIGN &&
+                                    target_type->kind == IRON_TYPE_STRING))
+                                : iron_type_is_integer(target_type);
+                if (!ok) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "compound assignment operator cannot be applied to '%s'",
+                             iron_type_to_string(target_type, ctx->arena));
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, as->span, msg,
+                               arith ? "arithmetic compound assignment needs a numeric target; `+=` also joins strings"
+                                     : "bitwise and shift compound assignment need an integer target");
+                }
+            }
             /* Compound assignment overflow detection */
             if (is_compound_assign_op(as->op) && target_type &&
                 target_type->kind != IRON_TYPE_ERROR &&
@@ -8508,6 +8627,41 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                    "add 'else -> ...' or handle each implementor");
                 }
                 arrfree(seen);
+            }
+            /* An integer subject: the same constant twice is an
+             * unreachable arm (and a duplicate C case label). */
+            if (subject_type && iron_type_is_integer(subject_type)) {
+                int64_t *seen_vals = NULL;
+                for (int i = 0; i < ms->case_count; i++) {
+                    Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                    if (!mc || !mc->pattern) continue;
+                    Iron_Node *pn = mc->pattern;
+                    bool neg = false;
+                    if (pn->kind == IRON_NODE_UNARY &&
+                        ((Iron_UnaryExpr *)pn)->op == (Iron_OpKind)IRON_TOK_MINUS) {
+                        neg = true;
+                        pn = ((Iron_UnaryExpr *)pn)->operand;
+                    }
+                    if (!pn || pn->kind != IRON_NODE_INT_LIT ||
+                        !((Iron_IntLit *)pn)->value) continue;
+                    errno = 0;
+                    int64_t v = strtoll(((Iron_IntLit *)pn)->value, NULL, 10);
+                    if (errno == ERANGE) continue;
+                    if (neg) v = -v;
+                    bool dup = false;
+                    for (int k = 0; k < (int)arrlen(seen_vals); k++)
+                        if (seen_vals[k] == v) dup = true;
+                    if (dup) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg),
+                                 "unreachable match arm: value %lld already covered",
+                                 (long long)v);
+                        emit_error(ctx, IRON_ERR_UNREACHABLE_ARM, mc->pattern->span, msg, NULL);
+                    } else {
+                        arrput(seen_vals, v);
+                    }
+                }
+                arrfree(seen_vals);
             }
             /* Exhaustiveness check */
             if (subject_type && subject_type->kind == IRON_TYPE_ENUM) {
@@ -8964,6 +9118,22 @@ static bool compute_has_user_copy_rec(Iron_Type *t, TypeCtx *ctx,
     if (!t) return false;
     if (t->has_user_copy_cached) return t->has_user_copy_transitive;
     bool result = false;
+    /* `T?` and `[T; N]` hold their T by value: walk through them, so a
+     * `val next: Node?` field is caught as the cycle it is. */
+    if (t->kind == IRON_TYPE_NULLABLE && t->nullable.inner) {
+        result = compute_has_user_copy_rec(t->nullable.inner, ctx, stack, depth,
+                                           reported, reported_count);
+        t->has_user_copy_transitive = result;
+        t->has_user_copy_cached = true;
+        return result;
+    }
+    if (t->kind == IRON_TYPE_ARRAY && t->array.size >= 0 && t->array.elem) {
+        result = compute_has_user_copy_rec(t->array.elem, ctx, stack, depth,
+                                           reported, reported_count);
+        t->has_user_copy_transitive = result;
+        t->has_user_copy_cached = true;
+        return result;
+    }
     if (t->kind == IRON_TYPE_OBJECT && t->object.decl && ctx->program) {
         Iron_ObjectDecl *od = t->object.decl;
         /* Cycle detection: a by-value object type that (transitively)
@@ -8983,8 +9153,8 @@ static bool compute_has_user_copy_rec(Iron_Type *t, TypeCtx *ctx,
                              "by value",
                              od->name ? od->name : "<object>");
                     emit_error(ctx, IRON_ERR_CIRCULAR_TYPE, od->span, msg,
-                               "break the cycle with indirection, e.g. a "
-                               "pointer (*T) or rc T field");
+                               "break the cycle with indirection, e.g. an "
+                               "`rc T?` or `*T` field");
                 }
                 return false;
             }
@@ -9337,8 +9507,15 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
      * types in scope.  Return type resolution for call sites is handled by
      * resolve_array_ext_method().  Skip full type checking of stubs. */
     if (md->is_array_extension) {
-        /* For empty-body stubs, nothing to check. For future methods with
-         * real bodies, monomorphization would be needed. */
+        /* The stdlib's stubs have empty bodies and dispatch to intrinsics;
+         * a method with a body would need one instance per element type,
+         * which nothing generates yet. */
+        if (md->body && md->body->kind == IRON_NODE_BLOCK &&
+            ((Iron_Block *)md->body)->stmt_count > 0) {
+            emit_error(ctx, IRON_ERR_ARRAY_EXT_BODY, md->span,
+                       "list extension methods cannot have a body",
+                       "write a function that takes the list as a parameter");
+        }
         return;
     }
 

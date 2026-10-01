@@ -42,8 +42,8 @@ iron run docs/examples/native_summary.iron
 
 To start a project, run `iron init` in an empty directory, then `iron run`.
 
-Read the [language overview](docs/language_definition.md) for a tour of the
-language and its features.
+Read the [reference manual](docs/language_definition.md) for the complete
+language: syntax, types, memory model, standard library and grammar.
 
 For TCP, UDP, DNS, HTTP/HTTPS, REST servers, webpages, WebSocket/WSS, and
 binary-safe file examples, see the [networking guide](docs/networking.md).

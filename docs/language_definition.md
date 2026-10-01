@@ -1,1680 +1,1090 @@
-# Iron Language Definition
+# Iron Reference Manual
 
-**Iron** is a general-purpose native programming language built around native
-performance, explicit control, and readable code. Use it for command-line tools,
-network services, data processing, simulations, and games.
+This manual describes the Iron programming language as implemented by the
+`iron` compiler that ships with this repository (version 4.4). It is a
+reference, not a tutorial: each section states what the compiler accepts and
+what the program does, with a small complete example. Every `iron` code block
+in this document is compiled and executed by `scripts/test_doc_examples.sh`,
+and blocks that show a compile error are checked to fail with the stated
+diagnostic code, so the manual cannot drift from the compiler without the test
+failing.
 
-Iron is in alpha: language features and APIs may change. Game-oriented examples
-below illustrate particular features; they do not define the language's scope.
-For a small current-language program, start with the [native summary example](examples/native_summary.iron).
-For clients and services, see the [networking guide](networking.md).
+Iron is a general-purpose native programming language. It is statically typed
+and compiles to C, then to a native binary. It has no garbage collector, no
+exceptions, no operator overloading and no implicit numeric conversions.
+Values live on the stack by default; explicit `heap`, `rc` and arena
+allocation cover the other cases.
 
-- File extension: `.iron`
-- CLI: `iron build`, `iron run`, `iron test`
+Contents:
 
----
-
-## Philosophy
-
-- Concise: few keywords that express great meaning
-- Strong types, no implicit conversions
-- Manual memory management with built-in helpers (defer, ref counting)
-- Brace-delimited blocks
-- Positional arguments only, no named arguments at call sites
-- Unicode-first strings
-- Null safety by default
-- Legibility over magic
-
----
-
-## Primitive Types
-
-All primitive types start with uppercase.
-
-```
-Int       -- platform int (64-bit)
-Int8
-Int16
-Int32
-Int64
-UInt      -- platform unsigned
-UInt8     -- byte
-UInt16
-UInt32
-UInt64
-Float     -- f64
-Float32
-Float64
-Bool      -- true / false
-String    -- always unicode, always iterable
-```
-
-There is no `Char` type. A single character is a `String` of length 1.
+1. [Lexical conventions](#1-lexical-conventions)
+2. [Types](#2-types)
+3. [Expressions](#3-expressions)
+4. [Statements](#4-statements)
+5. [Declarations](#5-declarations)
+6. [Memory](#6-memory)
+7. [Concurrency](#7-concurrency)
+8. [Compile-time evaluation](#8-compile-time-evaluation)
+9. [The standard library](#9-the-standard-library)
+10. [Programs, projects and the command line](#10-programs-projects-and-the-command-line)
+11. [Diagnostics](#11-diagnostics)
+12. [Not yet implemented](#12-not-yet-implemented)
+13. [Complete syntax of Iron](#13-complete-syntax-of-iron)
 
 ---
 
-## Variables — val / var
-
-```
-val name = "Victor"          -- immutable, type inferred
-var hp = 100                 -- mutable, type inferred
-val speed: Float = 200.0     -- immutable, type explicit
-
-name = "Other"               -- COMPILE ERROR: val cannot be reassigned
-hp = 90                      -- ok
-```
-
-- `val` = immutable binding
-- `var` = mutable binding
-- Type is inferred by default, can be explicit with `: Type`
-- `:=` is NOT used; `val`/`var` replaces it
-
----
-
-## Nullable Types
-
-Non-nullable by default. Opt in with `?`.
-
-```
-val name: String = "Victor"
-name = null                    -- COMPILE ERROR: String is not nullable
-
-var target: Enemy? = null      -- explicitly nullable
-target.attack()                -- COMPILE ERROR: must check first
-
-if target != null {
-  target.attack()              -- ok, compiler narrows type
-}
-```
-
----
-
-## Strings — Unicode First, Immutable References
-
-Strings are **immutable reference types**. Passed by reference like objects (no copy of character data), but the characters can never be modified — operations always create new strings.
-
-### Basics
-
-```
-val greeting = "Hello World"
-
--- length = number of unicode codepoints
-print(len(greeting))
-
--- iterate characters
-for c in greeting {
-  print(c)
-}
-
--- iterate with index
-for i in range(len(greeting)) {
-  print(greeting[i])
-}
-
--- string interpolation
-val name = "Victor"
-val hp = 100
-print("{name} has {hp} HP")
-
--- multiline
-val text = """
-  multi
-  line
-  string
-"""
-
--- common operations
-val upper = greeting.upper()
-val sub = greeting[0..5]
-val has = greeting.contains("World")
-val parts = greeting.split(" ")
-```
-
-### Passing Semantics
-
-Strings are passed by reference — no character data is copied.
-
-```
-func greet(name: String) {
-  print("hello {name}")     -- no copy, reference to original data
-}
-
-val name = "Victor"
-greet(name)                  -- cheap, just passes a reference
-```
-
-Strings are immutable. `var` rebinds the reference, it does not mutate the characters.
-
-```
-func process(var name: String) {
-  name = name.upper()        -- rebinds to new string, original unchanged
-}
-
-var n = "Victor"
-process(n)
-print(n)                     -- still "Victor"
-```
-
-### Compiler Optimizations
-
-- **Interning:** identical string literals share the same memory at compile time
-- **Small string optimization:** short strings stored inline, no heap allocation
-- **Zero-copy passing:** only the reference struct is copied (pointer + length), never the characters
-
-```
--- interned: same memory, zero cost
-val a = "hello"
-val b = "hello"       -- points to same data as a
-
--- operations create new strings
-val upper = a.upper() -- new allocation: "HELLO"
-print(a)              -- still "hello", unchanged
-```
-
----
-
-## Objects
-
-Declared with the `object` keyword.
-
-```
-object Player {
-  var pos:    Vec2
-  var hp:     Int
-  val speed:  Float
-  val name:   String
-}
-```
-
-### Init — Mandatory Constructors (v3.0+)
-
-Every object must declare at least one `init`. Fieldless objects receive a
-synthesized empty init automatically. Two forms exist:
-
-**Anonymous init** — constructed via `Type(args)`:
-
-```
-object Vec2 {
-  val x: Float
-  val y: Float
-
-  init(x: Float, y: Float) {
-    self.x = x
-    self.y = y
-  }
-}
-
-val v = Vec2(3.0, 4.0)    -- anonymous init
-```
-
-**Named init** — constructed via `Type.name(args)`:
-
-```
-object Vec2 {
-  val x: Float
-  val y: Float
-
-  init(x: Float, y: Float) {
-    self.x = x
-    self.y = y
-  }
-
-  init zero() {
-    self.x = 0.0
-    self.y = 0.0
-  }
-}
-
-val a = Vec2(3.0, 4.0)    -- anonymous
-val b = Vec2.zero()       -- named
-```
-
-The compiler enforces definite assignment: every field must be assigned on
-every exit path through the `init` body. `val` fields may only be assigned
-once. Inline field defaults (`var x: Int = 0`) are a parse error in v3.0;
-assign in `init` instead.
-
-**Fieldless objects** need no init declaration:
-
-```
-object Marker {}    -- synthesized empty init; Marker() is valid
-```
-
-### Construction (pre-v3 reference)
-
-In v2.x, construction used positional arguments matching declaration order
-and field defaults were allowed inline. This syntax is removed in v3.0.
-
-```
--- v2.2 style (removed in v3.0):
--- val p = Player(vec2(100.0, 100.0), 100, 200.0, "Victor")
-```
-
-### Inheritance — `extends`
-
-Single inheritance only. Child objects inherit all fields and methods from the parent.
-
-```
-object Entity {
-  var pos: Vec2
-  var hp:  Int
-}
-
-object Player extends Entity {
-  val name:   String
-  val speed:  Float
-  val sprite: rc Texture
-}
-
-object Enemy extends Entity {
-  val damage:   Int
-  var ai_state: AIState
-}
-
--- Player has: pos, hp, name, speed, sprite
--- Enemy has: pos, hp, damage, ai_state
-```
-
-Parent methods are available on children. Children can override by defining the same method inside their own `object` block.
-
-```
-object Entity {
-  var pos: Vec2
-  var hp:  Int
-
-  func take_damage(amount: Int) {
-    self.hp = self.hp - amount
-  }
-}
-
-object Player extends Entity {
-  val name:  String
-  val speed: Float
-
-  -- override: no keyword needed, compiler knows
-  func take_damage(amount: Int) {
-    self.hp = self.hp - amount / 2
-  }
-}
-
-object Knight extends Entity {
-  val armor: Int
-
-  -- call parent method with super
-  func take_damage(amount: Int) {
-    val reduced = amount - self.armor
-    super.take_damage(reduced)
-  }
-}
-```
-
-### Interfaces — `implements`
-
-Interfaces define a contract of methods that an object must implement.
-
-```
-interface Drawable {
-  func draw()
-}
-
-interface Updatable {
-  func update(dt: Float)
-}
-
-interface Collidable {
-  func get_bounds() -> Rect
-}
-
-object Player extends Entity implements Drawable, Updatable, Collidable {
-  val name:   String
-  val speed:  Float
-  val sprite: rc Texture
-
-  pub init(name: String, speed: Float, sprite: rc Texture) {
-    self.name   = name
-    self.speed  = speed
-    self.sprite = sprite
-  }
-
-  pub func draw() {
-    draw_texture(self.sprite, self.pos)
-  }
-
-  pub func update(dt: Float) {
-    if is_key_down(.RIGHT) { self.pos.x += self.speed * dt }
-  }
-
-  pub func get_bounds() -> Rect {
-    return Rect(self.pos.x, self.pos.y, 32.0, 32.0)
-  }
-}
-```
-
-Missing an interface method is a compile error:
-
-```
-object Rock implements Drawable {
-  val pos: Vec2
-
-  -- COMPILE ERROR: Rock implements Drawable but missing func draw()
-}
-```
-
-Interfaces can be used as types for polymorphism:
-
-```
-func draw_all(items: [Drawable]) {
-  for item in items {
-    item.draw()
-  }
-}
-
--- mix different types in one collection
-val drawables: [Drawable] = [player, enemy, particle, ui_element]
-draw_all(drawables)
-```
-
-### Interface default bodies
-
-An interface method may carry a body. An implementor that does not define
-the method inherits it; one that does define it overrides the default. The
-default keeps the interface's tier (`readonly` / `pure` / mutating), so a
-`readonly` default that writes a field is rejected exactly like a readonly
-method that writes `self`. Inside the body, `self` is the implementor.
-
-```
-interface Game {
-  func update(dt: Float)
-  func keypressed(key: Key) { }          -- optional hook: default does nothing
-  readonly func title() -> String { return "untitled" }
-}
-
-object Pong implements Game {
-  var ball: Ball
-  func update(dt: Float) { self.ball.move(dt) }
-  -- keypressed and title are inherited
-}
-```
-
-The compiler monomorphises each default into every implementor that lacks
-it, so dispatch through the interface finds an ordinary method on the
-concrete type.
-
-### Mutation through interface bindings
-
-A `var` binding of interface type behaves like a `var` binding of the
-concrete type: a mutating interface method writes into the binding's own
-storage, whether the binding is a local, a field, a lambda capture, or a
-`var` parameter.
-
-```
-var g: Game = Pong()
-g.update(dt)                 -- mutates g
-
-func run(var game: Game) {
-  game.update(dt)            -- mutates the caller's binding
-}
-
-var pong = Pong()
-run(pong)                    -- pong sees the update
-```
-
-`var <Interface>` parameters have the same copy-in / write-back contract as
-every other `var` parameter. When the caller passes a concrete `var`
-binding, the call site wraps it into the interface representation, passes
-that by address, and writes the payload back after the call. If the callee
-rebinds the parameter to a *different* implementor, that write-back cannot
-store the new value into the caller's concrete binding and the program
-panics at the call site (`interface parameter rebound to a different
-implementor`). Rebinding is fine when the caller's binding is itself of the
-interface type.
-
-Elements of an interface-typed array (`[Shape]`) are still accessed by
-value; mutating an element through a loop variable does not write back.
-
-### Patch — Open Extension (v3.0+)
-
-`patch object T { ... }` adds methods and named inits to any type,
-including types you do not own and built-in primitives. Patches are
-program-wide and may not add fields.
-
-```
-patch object Int {
-  pub readonly func double() -> Int {
-    return self * 2
-  }
-
-  pub readonly func clamp(lo: Int, hi: Int) -> Int {
-    if self < lo { return lo }
-    if self > hi { return hi }
-    return self
-  }
-}
-
-func main() {
-  println("{5.double()}")           -- 10
-  println("{200.clamp(0, 100)}")    -- 100
-}
-```
-
-Patches may also declare retroactive interface conformance:
-
-```
-interface Describable {
-  readonly func describe() -> String
-}
-
-patch object Int implements Describable {
-  pub readonly func describe() -> String {
-    return "Int(" + self.to_string() + ")"
-  }
-}
-```
-
-<!-- Locked as a fixture at tests/integration/v3_str_describable_example.iron (Phase 96 STR-03). -->
-
-Rules: patches may not add fields or change the visibility of existing
-members. Duplicate method signatures across patches for the same type
-are a compile error (E03XX).
-
-### Runtime type checking — `is`
-
-```
-func handle_collision(a: Entity, b: Entity) {
-  if a is Player and b is Enemy {
-    a.take_damage(b.damage)
-  }
-}
-```
-
----
-
-## Functions and Methods
-
-All declared with the `func` keyword.
-
-### Standalone Functions
-
-```
-func add(a: Float, b: Float) -> Float {
-  return a + b
-}
-```
-
-### In-block methods (v3.0+)
-
-Instance methods are declared inside the `object` block. The receiver is
-always named `self` and is implicit — no receiver parameter is declared.
-Accessing a field inside a method requires the explicit `self.` prefix;
-bare field names without `self.` are a compile error.
-
-```
-object Player {
-  var health: Int
-  var name:   String
-
-  init(health: Int, name: String) {
-    self.health = health
-    self.name   = name
-  }
-
-  func take_damage(n: Int) {
-    self.health = self.health - n
-  }
-
-  readonly func is_alive() -> Bool {
-    return self.health > 0
-  }
-}
-```
-
-Call sites are unchanged: `player.take_damage(5)` works exactly as before.
-
-**Removed in v3.0:** The receiver-method form `func (p: Player) name()`
-and the mutable receiver form `func (mut p: Player) name()` are parse
-errors; declare methods inside the `object` block instead.
-
-### Mutation tiers
-
-Every in-block method belongs to one of three tiers. The tier is declared
-at the `func` keyword:
-
-| Tier | Declaration | Can write `self.field`? | Can do I/O / globals? |
-|------|-------------|------------------------|-----------------------|
-| Default | `func name()` | Yes | Yes |
-| Read-only | `readonly func name()` | No | Yes |
-| Pure | `pure func name()` | No | No |
-
-The default tier is mutating, matching v2.2 mutable-receiver behavior.
-Non-mutating methods opt in with `readonly` or `pure`.
-
-```
-object Counter {
-  var value: Int
-
-  init(start: Int) {
-    self.value = start
-  }
-
-  func increment() {
-    self.value = self.value + 1    -- default tier: may write fields
-  }
-
-  readonly func current() -> Int {
-    return self.value              -- no writes allowed
-  }
-
-  pure func doubled() -> Int {
-    return self.value * 2          -- no writes, no I/O
-  }
-}
-```
-
-The compiler enforces tiers transitively. A `readonly` method may only
-call other `readonly` or `pure` methods on `self`. A `pure` method may
-only call other `pure` methods.
-
-```
--- error[E03F1]: readonly func cannot write to self.value
-readonly func reset() {
-  self.value = 0    -- rejected
-}
-
--- error[E03F2]: readonly func cannot call mutating method
-readonly func reset_via_call() {
-  self.increment()  -- rejected
-}
-```
-
-### Static/factory methods
-
-Factory and utility helpers that do not need an instance receiver are
-written as standalone functions or named inits (see the Init section
-below).
-
-The legacy v2.x form `func TypeName.method_name(...)` for declaring
-instance methods at the top level is **rejected** in v3.2. Writing such
-a declaration produces diagnostic `E0321 IRON_ERR_STANDALONE_METHOD_FORM`
-at parse time:
-
-> error[E0321]: the standalone form \`func TypeName.method()\` is removed in v3.2
->
-> help: rewrite as \`patch object TypeName { func method() { ... } }\`
-
-To add a method to an existing type, use a `patch object` block (see the
-[Patch section](#patch--open-extension-v30) for the full grammar):
+## 1. Lexical conventions
+
+### 1.1 Source text
+
+Iron source files use the `.iron` extension and are UTF-8 text. Spaces,
+tabs and carriage returns separate tokens. Newlines are tokens for the
+lexer, but the parser skips them wherever they appear, so a newline never
+ends a statement by itself: statements are delimited by the grammar (section
+1.6). Semicolons are not statement terminators; `;` appears only inside list
+types and list literals (`[Int; 4]`).
+
+### 1.2 Comments
+
+A line comment starts with `--` and runs to the end of the line. There are
+no block comments, and `//` and `#` are not comments.
+
+A line starting with `///` is a documentation comment. A run of `///`
+lines directly above a declaration, field, enum variant or interface method
+(no blank line in between) is attached to it and shown by the language
+server; a blank line breaks the association. The compiler otherwise ignores
+doc comments.
 
 ```iron
-object Foo {
-  init() { }
+/// Doubles its argument.
+/// Attached to `twice` because no blank line separates them.
+func twice(x: Int) -> Int {
+    return x * 2   -- a line comment
 }
 
-patch object Foo {
-  readonly func bar() -> Int {
-    return 42
-  }
+func main() {
+    println("{twice(21)}")
 }
 ```
 
-In-block methods on an object you are declaring yourself stay in the
-object body and never use the standalone form:
+```output
+42
+```
+
+### 1.3 Identifiers and keywords
+
+An identifier is a letter or `_` followed by letters, digits and `_`
+(ASCII only). A lone `_` is the wildcard, usable as a binding name in
+`val`, `var`, tuple destructuring and `match` patterns; it is not an
+expression. Identifiers are case sensitive. By convention types and enum
+variants are `CapitalCase`; functions, variables and fields are
+`snake_case`. Capitalization is also significant in one place: in
+`X.Y(args)` and `X.Y`, when both `X` and `Y` start with an uppercase letter
+the expression is an enum variant construction rather than a method call or
+field access (section 3.6).
+
+The following words are keywords and cannot be used as identifiers:
+
+```text
+and       await     comptime  copy      defer     drop      elif      else
+enum      extends   extern    false     for       free      func      heap
+if        impl      import    in        init      interface is        leak
+match     mut       nocopy    not       null      object    or        parallel
+patch     pool      private   pub       pure      rc        readonly  return
+self      spawn     super     true      unchecked val       var       weak
+while
+```
+
+`extends`, `super`, `mut`, `private` and `pool` are reserved but have no
+valid use: the compiler rejects them with an explanation (`extends` and
+`super` because Iron has no inheritance, `mut` and `private` because `var`
+and default privacy replaced them, `pool` because thread pools are not
+implemented). `init`, `copy`, `drop`, `null` and `free` may additionally
+appear as method names after a `.` or after `func` inside an object body,
+which is how `Box.null()` and `b.free()` are spelled.
+
+The words `as`, `fusible`, `layout`, `soa`, `aos`, `unordered`,
+`allow_drop_skip` and `Self` are ordinary identifiers with a special meaning
+in specific positions (import aliases, `@fusible`, list attributes, `heap`
+options and the receiver type).
+
+### 1.4 Literals
+
+**Integers** are decimal (`42`), hexadecimal (`0xFF`, `0Xff`) or binary
+(`0b1010`). Digits may not be separated by `_`, and a letter directly after a
+number is an error. An integer literal has type `Int` (64-bit signed) unless
+it initializes a binding or field of another integer type, in which case it
+takes that type. Hexadecimal and binary literals must fit in 64 bits.
+
+**Floats** are a digit sequence, a `.` and a digit sequence: `3.25`,
+`0.5`. There is no exponent form and no trailing-dot form (`1.` and `.5`
+are not float literals). A float literal has type `Float` (64-bit) unless
+the context asks for `Float32`.
+
+**Booleans** are `true` and `false`. **`null`** is the value of every
+nullable type (section 2.2).
+
+**Strings** are written between double quotes on one line, or between
+`"""` and `"""` when they span lines (the newlines are part of the value).
+A string literal is at most 4095 bytes. The escape sequences are:
+
+| Escape | Meaning |
+|---|---|
+| `\n` | newline |
+| `\t` | tab |
+| `\\` | backslash |
+| `\"` | double quote |
+| `\{` and `\}` | literal braces (not interpolation) |
+| `\u{H}` | the Unicode scalar `H` (1 to 6 hex digits), encoded as UTF-8 |
+
+Any other character after a backslash is kept together with the backslash.
+
+A string literal that contains an unescaped `{` is an **interpolated
+string**: each `{expression}` is evaluated and its text spliced in (section
+3.3). Interpolated expressions may themselves contain string literals.
 
 ```iron
-object Foo {
-  init() { }
-
-  readonly func bar() -> Int {
-    return 42
-  }
+func main() {
+    val h = 0xFF
+    val b = 0b1010
+    val f = 3.25
+    val s = "tab\there \"quoted\" braces \{x\} unicode \u{48}\u{49}"
+    val m = """first line
+second line"""
+    val name = "iron"
+    println("{h} {b} {f}")
+    println(s)
+    println(m)
+    println("nested {name.upper()} and {"lit".len()} and {1 + 2 * 3}")
 }
 ```
 
-### Passing Convention
-
-Positional arguments only. No named arguments at call sites.
-
+```output
+255 10 3.25
+tab	here "quoted" braces {x} unicode HI
+first line
+second line
+nested IRON and 3 and 7
 ```
-add(10.0, 20.0)              -- ok
-add(a: 10.0, b: 20.0)        -- COMPILE ERROR
+
+### 1.5 Operators and punctuation
+
+```text
++    -    *    /    %    ==   !=   <    >    <=   >=
+and  or   not  &    |    ^    ~    <<   >>   is
+=    +=   -=   *=   /=   &=   |=   ^=   <<=  >>=
+.    ..   ,    :    ;    ->   ?    @    &(address-of)
+(    )    [    ]    {    }
 ```
 
-**Primitives** (`Int`, `Float`, `Bool`) are always **copied**.
-**Objects** and **Strings** are always passed by **reference**, immutable by default. Use `var` to allow rebinding.
+`!` on its own is not a token (`not` is the logical negation).
+Section 3.1 gives the precedence of the operators.
 
-```
--- object parameter: immutable reference by default
-func print_stats(player: Player) {
-  print("{player.name}: {player.hp}")    -- ok, reading
-  player.hp = 0                          -- COMPILE ERROR: immutable
+### 1.6 Newlines and statement boundaries
+
+Because the parser skips newlines everywhere, an expression continues onto
+the next line whenever that line starts with something that can extend it: a
+binary operator, `(`, `[`, `.`, or `is`. This is what allows long calls and
+list literals to be split across lines, but it also means that a line that
+begins with `-`, `(` or `[` continues the previous statement. A bare
+`return` must be the last statement of its block, since an expression on the
+following line would be taken as its value.
+
+```iron
+func f(x: Int) -> Int {
+    return x
 }
-
--- var parameter: mutable reference
-func heal(var player: Player, amount: Int) {
-  player.hp += amount                    -- ok, modifies original
-}
-
--- primitive parameter: copied
-func double(x: Int) -> Int {
-  return x * 2                           -- original unchanged
-}
-```
-
-### Multiple Return Values
-
-```
-func divide(a: Float, b: Float) -> Float, Err? {
-  if b == 0.0 {
-    return 0.0, Err("division by zero")
-  }
-  return a / b, null
-}
-
-val result, val err = divide(10.0, 0.0)
-
-if err != null {
-  log(err.msg)
-}
-
--- discard a value
-val result, _ = divide(10.0, 3.0)
-```
-
----
-
-## Project manifest
-
-Iron projects are declared by an `iron.toml` at the project root. The
-`[package]` table carries metadata. There is no `[dependencies]` table:
-Iron has no package manager (see [Third-party code](#third-party-code-vendoring)).
-
-```toml
-[package]
-name = "my_game"
-version = "0.1.0"
-type = "bin"               # "bin" (default) or "lib"
-iron = ">= 3.2.0"          # optional, minimum iron compiler version
-```
-
-The `iron` field is an optional Cargo-style semver constraint enforced
-by `iron build` and `iron run` before any compile work begins. Supported
-operators: `>=`, `>`, `<=`, `<`, `=` (or no operator = exact), `^`
-(compatible-with: same major), `~` (compatible-with: same minor).
-Comma-separated AND ranges are supported.
-
-Examples:
-
-```toml
-iron = ">= 3.2.0"                  # any version 3.2.0 or newer
-iron = ">= 3.0.0, < 4.0.0"         # any 3.x version
-iron = "^3.2"                       # any 3.x version (>= 3.2.0)
-```
-
-A version mismatch produces a clear error pointing at the install script
-with a `--version` argument. A package with no `iron` field is not
-version-checked.
-
-### Third-party code (vendoring)
-
-Iron deliberately has no package manager, registry, or lockfile. The
-standard library is meant to cover the common ground, and anything else is
-brought in the way Odin does it: copy the source into your project and
-commit it.
-
-```
-my_game/
-  iron.toml
-  src/
-    main.iron
-  vendor/
-    ecs/                 -- an Iron library project, copied as-is
-      iron.toml
-      src/
-        lib.iron
-    noise/               -- or just loose .iron files
-      perlin.iron
-```
-
-`iron build`, `iron run`, and `iron check` compile every `.iron` file under
-`vendor/` together with the project's `src/`. The rules:
-
-- A vendored directory that has its own `iron.toml` and `src/` contributes
-  only its `src/` directory, so a library can be dropped in unchanged.
-- Otherwise every `.iron` file is collected, recursively.
-- `tests/`, `examples/`, `target/`, and hidden directories (`.git`, ...)
-  are skipped.
-
-Vendored code shares the project's namespace: call its `pub` functions and
-types directly. `import ecs` is accepted and documents the dependency, but
-aliased access (`import ecs as e`) is not supported for vendored or
-project-local modules yet. If two vendored libraries declare the same
-name, the build fails with a duplicate-declaration error; rename one of
-them in your copy.
-
-Because the code is in your repository, updating a dependency is an
-ordinary commit (for example re-copying a newer release, or using
-`git subtree`), and a build never touches the network.
-
----
-
-## Module System
-
-### One file = one module
-
-No module declaration needed. The file path is the module name.
-
-```
-my_game/
-  main.iron              -- entry point (always "main" in project root)
-  player.iron            -- module: player
-  enemy.iron             -- module: enemy
-  physics/
-    collision.iron       -- module: physics.collision
-    rigid_body.iron      -- module: physics.rigid_body
-  ui/
-    menu.iron            -- module: ui.menu
-    hud.iron             -- module: ui.hud
-```
-
-### Imports
-
-```
--- import by path, flat access
-import player
-import physics.collision
-
--- import with alias, prefixed access
-import physics.rigid_body as rb
-import ui.menu as menu
-
-val body = rb.create_body(pos, mass)
-menu.show()
-```
-
-- `import x` = flat, everything available directly
-- `import x as y` = prefixed, access through alias
-- Import path matches file path with dots as separators
-
-### Visibility
-
-**v3.0:** Everything is private by default. Add `pub` to expose a field,
-method, or object across module boundaries.
-
-```
--- player.iron (v3.0)
-pub object Player {            -- public: visible to importers
-  var health: Int              -- private field
-  pub var name: String         -- public field (getter + setter)
-
-  pub init(health: Int, name: String) {
-    self.health = health
-    self.name   = name
-  }
-
-  pub func take_damage(n: Int) {
-    self.health = self.health - n
-  }
-
-  func recalc_stats() {        -- private: only callable inside Player
-    self.health = clamp(self.health, 0, 100)
-  }
-}
-```
-
-`pub var field` synthesizes a getter and a setter; `pub val field`
-synthesizes a read-only getter. Call sites use property syntax:
-`player.name` rather than an explicit getter call.
-
-**v2.x (removed in v3.0):** The old model was public-by-default with an
-explicit `private` keyword to restrict scope. That behavior is reversed
-in v3.0.
-
-### Entry Point
-
-The project entry point is always a file called `main` in the root of the project containing `func main()`.
-
-```
--- main.iron
-import player
-import ui.menu as menu
 
 func main() {
-  val window = init_window(800, 600, "Game")
-  defer close_window(window)
-  var p = Player.new()
-  menu.show()
+    val a = 10
+    val b = a
+    - 3              -- continues the previous line: b is 7
+    val c = f(
+        1,
+    )
+    val d = 1 +
+        2
+    println("{b} {c} {d}")
 }
+```
+
+```output
+7 1 3
 ```
 
 ---
 
-## Control Flow
+## 2. Types
 
-Brace-delimited blocks.
+Iron is statically typed. Every binding, field and parameter has a type that
+is either written after a colon or inferred from its initializer. There are
+no implicit conversions between numeric types, and none between numbers and
+strings.
 
-```
-if player.hp > 0 {
-  player.update(dt)
-}
+### 2.1 Primitive types
 
-if player.hp <= 0 {
-  player.die()
-} elif player.hp < 20 {
-  player.warn_low_hp()
-} else {
-  player.update(dt)
-}
-
-for i in range(len(bullets)) {
-  bullets[i].update(dt)
-}
-
-for c in name {
-  print(c)
-}
-
-while not window_should_close() {
-  val dt = get_frame_time()
-}
-
-match state {
-  GameState.RUNNING { player.update(dt) }
-  GameState.PAUSED  { draw_pause_menu() }
-  GameState.MENU    { draw_main_menu() }
-  else { log.warn("unknown state") }
-}
-```
-
----
-
-## Memory Management
-
-### Stack — Default
-
-No keyword needed. Values live on the stack and are freed when the scope ends.
-**Stack values can never escape their block.** Returning or storing them in an outer scope is a compile error. Use `heap` if the value needs to outlive its scope.
-
-```
-val pos = vec2(10.0, 20.0)   -- stack, freed when scope ends
-
--- COMPILE ERROR: stack value cannot escape
-func make_grid() -> [Vec2; 16] {
-  var grid = [Vec2; 16]
-  return grid                  -- ERROR
-}
-
--- correct: use heap to return
-func make_grid() -> [Vec2; 16] {
-  val grid = heap [Vec2; 16]
-  return grid                  -- ok
-}
-
--- correct: create in caller's scope
-val grid = [Vec2; 16]
-```
-
-### Heap — Manual with `heap` / `free`
-
-Use `heap` to allocate on the heap.
-
-```
-val enemies = heap [Enemy; 64]    -- heap array of 64 enemies
-val boss = heap Enemy(Vec2(0.0, 0.0), 1000)  -- single heap object
-```
-
-### Auto-Free — Block-Scoped
-
-Heap values that don't escape their block are automatically freed at block exit. No `defer free` needed.
-
-```
-func process() {
-  val data = heap [UInt8; 4096]
-  parse(data)
-  -- auto-freed here, data doesn't escape
-}
-
-if is_key_pressed(.SPACE) {
-  val particles = heap [Particle; 100]
-  -- ... use particles ...
-  -- auto-freed here, end of if block
-}
-
-while running {
-  val buf = heap [UInt8; 1024]
-  -- auto-freed here, end of each iteration
-}
-```
-
-A value "escapes" when it is returned or stored in an outer scope. Escaped values are not auto-freed and produce a compiler **warning**.
-
-```
-func create_boss() -> Enemy {
-  val boss = heap Enemy(Vec2(0.0, 0.0), 1000)
-  return boss    -- escapes: no auto-free, compiler warning
-}
-
-func spawn(var game: Game) {
-  val e = heap Enemy(Vec2(0.0, 0.0), 100)
-  game.enemies.add(e)    -- escapes: no auto-free, compiler warning
-}
-```
-
-### Manual `free`
-
-Still available for explicit control, especially for escaped values.
-
-```
-val boss = heap Enemy(Vec2(0.0, 0.0), 1000)
--- ... use boss ...
-free boss    -- explicit free
-```
-
-### `leak` — Intentional Permanent Allocation
-
-Silences the compiler warning. Signals that a heap value is meant to live forever.
-
-```
-val atlas = heap load_texture("atlas.png")
-leak atlas    -- no warning, lives for entire program
-
-val sin_table = heap [Float; 360]
-precompute_sin(sin_table)
-leak sin_table
-```
-
-Compiler rules:
-- `leak` on a non-heap value = **COMPILE ERROR**
-- `leak` on an `rc` value = **COMPILE ERROR**
-- Leaked values are still usable, they just never get freed
-
-### Compiler Diagnostics
-
-| Situation | Result |
-|-----------|--------|
-| `heap` without `free`, value doesn't escape | Auto-freed, no warning |
-| `heap` without `free`, value escapes | **Warning**: possible memory leak |
-| `heap` with `leak` | No warning, intentional |
-| `free` on a non-heap value | **COMPILE ERROR** |
-| `leak` on a non-heap value | **COMPILE ERROR** |
-| `leak` on an `rc` value | **COMPILE ERROR** |
-
-### Defer
-
-Runs at scope exit. Used for non-memory resource cleanup.
-
-```
-val window = init_window(800, 600, "Game")
-defer close_window(window)
-
-val file = open_file("save.dat")
-defer close_file(file)
-```
-
-Defer works at any scope level. Can still be used with `free` for explicit heap cleanup if preferred.
-
-### Reference Counting — Opt-in with `rc`
-
-For shared ownership. Automatically freed when the last reference dies.
-
-```
-val sprite = rc load_texture("hero.png")  -- ref count = 1
-var other = sprite                         -- ref count = 2
-other = null                               -- ref count = 1
--- when last ref dies, texture is freed automatically
-```
-
-No `free` or `leak` needed for `rc` values.
-
-### No Pointers
-
-There are no pointer types in the language. The compiler handles all reference-to-pointer translation when generating C code for FFI/raylib interop.
-
-| Language | Generated C |
+| Type | Description |
 |---|---|
-| `player: Player` | `const Player *player` |
-| `var player: Player` | `Player *player` |
-| `x: Int` | `int64_t x` (copied) |
-| `data: [UInt8; 64]` | `const uint8_t *data` |
-
-> **v4 note:** the v4 memory model adds explicit checked pointers `*T` and the
-> explicit unchecked regime `*unchecked T` (see Memory Management above).
-> The section below extends the same checked/unchecked
-> philosophy to indexing.
-
-### Unchecked Indexing — `get_unchecked` / `set_unchecked` (v4)
-
-Every indexing operation (`xs[i]`, `xs.get(i)`, `xs.set(i, v)`) is
-bounds-checked: out of bounds panics. For hot loops where the compiler's
-bounds-check-elision pass cannot prove the index in range (loop-varying,
-interprocedurally-bounded indices), a container offers a **per-site**
-unchecked spelling:
-
-```
--- dynamic list [T], bounded vector [T; <=N], stack array [T; N]
-val x = xs.get_unchecked(i)     -- read, no bounds check
-xs.set_unchecked(i, v)          -- write, no bounds check
-```
-
-Semantics:
-
-- **Same typing as the checked forms.** `get_unchecked(i: Int) -> T`,
-  `set_unchecked(i: Int, v: T)`. A non-integer index is the same E0202 error
-  as `xs[i]`; wrong arity is E0216; a value of the wrong element type is
-  E0202. For a bounded vector the bound is the initialized region
-  (`.len()`), not the capacity `N`.
-- **Explicit and local, never a mode.** Exactly one indexing site is
-  unchecked — the one spelled `get_unchecked`/`set_unchecked`. Checked and
-  unchecked sites mix freely in the same function; the spelling is greppable
-  (`grep -rn "get_unchecked\|set_unchecked"` audits every opt-out in a
-  codebase). There is deliberately NO global or release-mode switch that
-  turns bounds checks off — this mirrors the `*T` vs `*unchecked T` pointer
-  regime: unchecked-ness is a property of the site the author wrote, not of
-  the build.
-- **Out of bounds through an unchecked site is undefined behavior**, exactly
-  like C. No panic, no diagnostic; reads return garbage, writes corrupt
-  memory. The programmer accepts the UB contract at that one site.
-- **`--debug-build` keeps the check.** Under `iron build --debug-build` (the
-  extra-checking mode that also enables the debug allocator/leak detector)
-  every unchecked site keeps its full bounds guard and panics with a
-  distinct headline naming the opt-out:
-  `iron: index out of bounds (unchecked site)`. A normal build compiles the
-  same site to a raw access with zero overhead.
-
-When to use it: **only when you can state the in-bounds argument — and write
-it in a comment at the site.**
-
-```
-while k < wlen {
-    -- in-bounds: pos = i - wlen with wlen <= i <= sn <= s.len(), k < wlen
-    if s.get_unchecked(pos + k) != dict_flat.get_unchecked(wstart + k) {
-        return 0
-    }
-    k = k + 1
-}
-```
-
-If you cannot write that comment, use `xs[i]` and keep the check. The
-bounds-check-elision optimizer already removes provably-redundant checks on
-the checked surface; `get_unchecked` exists for the residue the compiler can
-never prove (bounds established by a caller's contract or a data-structure
-invariant).
-
----
-
-## Concurrency
-
-### Thread Pools
-
-```
--- create a pool with N threads
-val compute = pool("compute", 4)
-val io = pool("io", 1)
-val physics = pool("physics", 2)
-
--- pin a pool to specific CPU cores
-physics.pin(2, 3)
-```
-
-### Spawn — Launch a Thread
-
-`spawn(name, pool?) { }` — name is required, pool is optional (uses default runtime pool).
-
-A standalone `spawn` statement is intentionally detached: it is submitted to
-the selected pool and has no handle to await. Binding the expression to a
-`val` opts into structured task ownership and result collection.
-
-```
--- spawn on default pool
-spawn("autosave") {
-  save_game(state)
-}
-
--- spawn on a specific pool
-spawn("physics-step", physics) {
-  physics_step(world)
-}
-
--- get a handle to await the result
-val handle = spawn("asset-loader", io) {
-  return load_texture("hero.png")
-}
-
--- await: block until done
-val tex = await handle
-
--- non-blocking check
-if handle.done() {
-  val tex = handle.result()
-}
-```
-
-### Channels — Thread Communication
-
-Typed, optionally buffered.
-
-```
--- unbuffered channel
-val ch = channel[String]()
-
--- buffered channel (holds up to N values before send blocks)
-val ch = channel[Texture](4)
-
-spawn("loader", io) {
-  ch.send(load_texture("hero.png"))
-}
-
--- blocking receive
-val tex = ch.recv()
-
--- non-blocking receive (returns T?)
-val tex = ch.try_recv()
-if tex != null {
-  register_texture(tex)
-}
-
--- close a channel
-ch.close()
-```
-
-### Mutex — Shared State
-
-Wraps a value. Must lock to access.
-
-```
-val score = mutex(0)
-
-spawn("scorer") {
-  score.lock(func(var s) {
-    s += 10
-  })
-}
-
--- read also requires lock
-score.lock(func(val s) {
-  print("score: {s}")
-})
-```
-
-### Parallel For
-
-Add `parallel` after the range to split a loop across cores. Each iteration must be independent — no mutating outer variables. An implicit barrier at the end ensures all work completes before the next line runs.
-
-```
--- parallel on default runtime pool
-for i in range(len(particles)) parallel {
-  particles[i].update(dt)
-}
-
--- parallel on a specific pool
-for i in range(len(particles)) parallel(compute) {
-  particles[i].update(dt)
-}
-
--- sequential: no parallel keyword
-for i in range(len(particles)) {
-  particles[i].update(dt)
-}
-
--- COMPILE ERROR: can't mutate outer var in parallel for
-var total = 0
-for i in range(len(enemies)) parallel {
-  total += enemies[i].hp
-}
-
--- correct: use mutex
-val total = mutex(0)
-for i in range(len(enemies)) parallel {
-  total.lock(func(var t) { t += enemies[i].hp })
-}
-```
-
-### C Translation
-
-The compiler generates a small runtime (~500 lines of C) using pthreads.
-
-| Language | Generated C |
-|---|---|
-| `pool("name", N)` | `thread_pool_t` with N pthreads + work queue |
-| `pool.pin(cores...)` | `pthread_setaffinity_np` / `thread_policy_set` |
-| `spawn("name", pool) { }` | Extract block into function, submit to pool |
-| `await handle` | `pthread_cond_wait` on handle's condition var |
-| `channel[T](N)` | Ring buffer + mutex + condition variables |
-| `ch.send() / ch.recv()` | Lock, write/read buffer, signal condition |
-| `mutex(val)` | `pthread_mutex_t` wrapping value |
-| `for ... parallel(pool)` | Split range into chunks, submit to pool, barrier wait |
-
-### Full Threading Example
-
-```
-func main() {
-  val window = init_window(800, 600, "Game")
-  defer close_window(window)
-
-  val io = pool("io", 1)
-  val compute = pool("compute", 4)
-  val physics_pool = pool("physics", 2)
-  physics_pool.pin(2, 3)
-
-  val asset_ch = channel[Texture](8)
-
-  -- background asset loading on io pool
-  spawn("asset-loader", io) {
-    val files = list_files("assets/textures/")
-    for f in files {
-      asset_ch.send(load_texture(f))
-    }
-    asset_ch.close()
-  }
-
-  -- physics on its own pool
-  val world = mutex(PhysicsWorld.new())
-  spawn("physics", physics_pool) {
-    while not window_should_close() {
-      world.lock(func(var w) {
-        w.step(1.0 / 60.0)
-      })
-    }
-  }
-
-  -- main game loop
-  while not window_should_close() {
-    -- grab loaded assets as they arrive
-    val tex = asset_ch.try_recv()
-    if tex != null {
-      register_texture(tex)
-    }
-
-    -- update particles in parallel on compute pool
-    for i in range(len(particles)) parallel(compute) {
-      particles[i].update(get_frame_time())
-    }
-
-    draw {
-      clear(DARKGRAY)
-      draw_world()
-    }
-  }
-}
-```
-
----
-
-## Managed Blocks
-
-Managed blocks that auto-wrap begin/end pairs.
-
-```
-draw {
-  clear(DARKGRAY)
-  player.draw()
-}
-```
-
----
-
-## Access Control
-
-**v3.0:** All declarations are private by default. Use `pub` to opt into
-cross-module visibility. This is enforced by the compiler — omitting `pub`
-on a referenced declaration is a hard error, not a convention.
-
-```
--- v3.0 access control
-pub object Player {
-  var health: Int              -- private field
-  pub var name: String         -- public property
-
-  pub init(health: Int, name: String) {
-    self.health = health
-    self.name   = name
-  }
-
-  pub func take_damage(n: Int) {
-    self.health = self.health - n
-    self.recalc_stats()
-  }
-
-  func recalc_stats() {        -- private: not exported
-    self.health = clamp(self.health, 0, 100)
-  }
-}
-
--- private implementation detail: not importable
-object InternalMetrics {
-  var tick_count: Int
-  var debug_mode: Bool
-}
-```
-
-**v2.x reference (removed):** Public-by-default with `private` keyword.
-Replace `private func` with an unprefixed in-block method and remove the
-`private` keyword. Replace any "public by default" field with `pub var` or
-`pub val` as needed.
-
----
-
-## Enums
-
-### Plain Enums
-
-Simple C-style enums. Always accessed with the type prefix.
-
-```
-enum GameState {
-  PAUSED,
-  RUNNING,
-  MENU,
-}
-
-var state = GameState.RUNNING
-
-if state == GameState.PAUSED {
-  draw_text("PAUSED", 300, 250, 40, WHITE)
-}
-```
-
-### Algebraic Data Types (ADTs)
-
-Enum variants can carry data payloads, making them full algebraic data types.
-
-```
-enum Shape {
-  Circle(Float),
-  Rect(Float, Float),
-  Point,
-}
-
-val s = Shape.Circle(5.0)
-val r = Shape.Rect(10.0, 20.0)
-val p = Shape.Point
-```
-
-### Pattern Matching
-
-Use `match` with `->` arrow syntax to destructure enum variants. The compiler enforces exhaustiveness — all variants must be covered or an `else` arm provided.
-
-```
-match state {
-  GameState.RUNNING -> player.update(dt)
-  GameState.PAUSED  -> draw_pause_menu()
-  GameState.MENU    -> draw_main_menu()
-  else -> log.warn("unknown state")
-}
-
--- destructuring payloads
-match shape {
-  Shape.Circle(radius) -> {
-    val area = 3.14159 * radius * radius
-    println("circle area: {area}")
-  }
-  Shape.Rect(w, h) -> println("rect area: {w * h}")
-  Shape.Point -> println("point")
-}
-
--- wildcard _ ignores a binding
-match shape {
-  Shape.Rect(_, h) -> println("height: {h}")
-  else -> println("not a rect")
-}
-```
-
-### Methods on Enums
-
-Methods on enum types are declared inside the `enum` block and use
-`match self` to dispatch on variants.
-
-```
-enum Shape {
-  Circle(Float),
-  Rect(Float, Float),
-  Point,
-
-  readonly func area() -> Float {
-    match self {
-      Shape.Circle(r)  -> return 3.14159 * r * r
-      Shape.Rect(w, h) -> return w * h
-      Shape.Point      -> return 0.0
-    }
-  }
-}
-
-val s = Shape.Circle(5.0)
-println("area: {s.area()}")
-```
-
-### Generic Enums
-
-Enums support type parameters with monomorphization, just like objects.
-
-```
-enum Option[T] {
-  Some(T),
-  None,
-}
-
-enum Result[T, E] {
-  Ok(T),
-  Err(E),
-}
-
-val x = Option.Some(42)
-match x {
-  Option.Some(v) -> println("got {v}")
-  Option.None -> println("nothing")
-}
-```
-
-### Recursive Enums
-
-Enum variants can reference their own type. Recursive fields are automatically heap-allocated (auto-boxed) — no manual `heap` annotation needed.
-
-```
-enum Expr {
-  IntLit(Int),
-  BinOp(Expr, Op, Expr),
-}
-
-func eval(e: Expr) -> Int {
-  match e {
-    Expr.IntLit(n) -> return n
-    Expr.BinOp(left, op, right) -> {
-      return eval(left) + eval(right)
-    }
-  }
-}
-```
-
----
-
-## Generics
-
-Full generics using `[T]` syntax. Works on functions, objects, and methods.
-
-```
--- generic function
-func find[T](items: [T], check: func(T) -> Bool) -> T? {
-  for item in items {
-    if check(item) {
-      return item
-    }
-  }
-  return null
-}
-
--- generic object with in-block methods
-object Pool[T] {
-  var items: [T]
-  var count: Int
-
-  init(items: [T], count: Int) {
-    self.items = items
-    self.count = count
-  }
-
-  func get() -> T? {
-    if self.count > 0 {
-      self.count -= 1
-      return self.items[self.count]
+| `Int` | 64-bit signed integer (the default integer type) |
+| `Int8`, `Int16`, `Int32`, `Int64` | signed integers of the given width |
+| `UInt`, `UInt8`, `UInt16`, `UInt32`, `UInt64` | unsigned integers (`UInt` is 64-bit) |
+| `Float` | 64-bit IEEE double (the default float type) |
+| `Float32`, `Float64` | floats of the given width |
+| `Bool` | `true` or `false` |
+| `String` | an immutable sequence of Unicode characters, stored as UTF-8 |
+| `Void` | the result type of a function without `-> T` (never written) |
+
+Arithmetic on the same integer type wraps on overflow (two's complement).
+Integer division truncates toward zero and division by zero panics at run
+time. Mixing `Int` with `Float`, or two different integer widths, in one
+expression is an error (`E0222`, `E0202`); convert explicitly (section 2.9).
+
+Strings are values: copying a string copies a reference to shared,
+reference-counted characters and never mutates them. `len(s)` and
+`s.len()` count characters (code points); `s.byte_len()` counts bytes.
+Iterating a string with `for` yields one-character strings.
+
+### 2.2 Nullable types
+
+`T?` is a type whose values are either a `T` or `null`. A nullable type can
+be written for any non-pointer type (`Int?`, `String?`, `Node?`,
+`Result[Int, String]?`). A plain `T` converts to `T?` implicitly, so a
+function declared `-> Int?` may `return i` or `return null`. Reading a
+field or calling a method through a nullable value without checking it
+first is an error (`E0204`); compare with `null` first.
+
+```iron
+func find(xs: [Int], target: Int) -> Int? {
+    var i = 0
+    while i < len(xs) {
+        if xs[i] == target {
+            return i
+        }
+        i += 1
     }
     return null
-  }
-
-  func put(item: T) {
-    self.items[self.count] = item
-    self.count += 1
-  }
 }
 
--- usage
-var bullet_pool = Pool[Bullet](heap [Bullet; 256], 0)
-val b = bullet_pool.get()
+func main() {
+    val idx = find([4, 5, 6], 6)
+    if idx != null {
+        println("found at {idx}")
+    }
+    val missing = find([4, 5, 6], 9)
+    if missing == null {
+        println("missing")
+    }
+    var s: String? = null
+    s = "now"
+    println("{s}")
+}
+```
+
+```output
+found at 2
+missing
+now
+```
+
+Nullable pointers are written `?*T` (section 6.4), and a nullable weak
+reference `weak rc T?` (section 6.3).
+
+### 2.3 Lists, fixed arrays and bounded vectors
+
+`[T]` is a growable list of `T`. `[T; N]` is a fixed-size array of exactly
+`N` elements, where `N` is an integer constant. `[T; <=N]` is a bounded
+vector: a list that can hold at most `N` elements and whose storage is
+inline. All three are indexed with `xs[i]` from 0, checked at run time
+(an out-of-range index panics; a constant out-of-range index on a fixed
+array is a compile error, `E0312`), and iterated with `for`.
+
+A list literal `[a, b, c]` has the type of its elements; an empty literal
+`[]` needs a type annotation on the binding (`E0229`). `fill(n, v)` builds a
+list of `n` copies of `v`.
+
+A list has exactly one owner. Assigning a list binding to another binding,
+storing it in a field or another list, or returning a parameter list is an
+error (`E0328`): write `xs.copy()` for an independent copy or `xs.take()`
+to move the contents out and leave `xs` empty. Passing a list to a
+function lends it for the duration of the call. Growing or shrinking a
+list and writing an element require a `var` binding (`E0235`).
+`rc [T]` is a shared list (section 6.3). The list methods are listed in
+section 9.3.
+
+```iron
+func main() {
+    var xs: [Int] = []
+    xs.push(3)
+    xs.push(1)
+    xs.insert(0, 9)
+    xs[1] = 30
+    println("{xs.len()} {xs[0]} {xs[1]} {xs.contains(1)}")
+    val fixed: [Int; 3] = [7, 8, 9]
+    var bounded: [Int; <=4] = [1, 2]
+    bounded.push(3)
+    val zeros = fill(4, 0)
+    println("{fixed[1]} {len(fixed)} {bounded.len()} {zeros.len()}")
+    val dup = xs.copy()
+    val moved = xs.take()
+    println("{dup.len()} {moved.len()} {xs.len()}")
+    val grid: [[Int]] = [[1, 2], [3]]
+    println("{grid[0][1]} {grid.len()}")
+}
+```
+
+```output
+3 9 30 true
+8 3 3 4
+3 3 0
+2 2
+```
+
+A list type may carry attributes after the element type:
+`[T, layout: soa]` stores an object list field by field (structure of
+arrays) and `[T, layout: aos]` element by element (the default); either
+is used the same way. `[I, unordered]`, for an interface type `I`, keeps
+the elements grouped by concrete type instead of in insertion order and
+cannot be indexed (`E0329`); iteration visits every element.
+
+```iron
+object Particle {
+    var x: Float
+    var y: Float
+    init(x: Float, y: Float) {
+        self.x = x
+        self.y = y
+    }
+}
+
+interface Drawable {
+    readonly func draw() -> String
+}
+
+object Dot impl Drawable {
+    val id: Int
+    readonly func draw() -> String {
+        return "dot{self.id}"
+    }
+}
+
+object Square impl Drawable {
+    val id: Int
+    readonly func draw() -> String {
+        return "square{self.id}"
+    }
+}
+
+func main() {
+    var ps: [Particle, layout: soa] = []
+    ps.push(Particle(1.0, 2.0))
+    ps.push(Particle(3.0, 4.0))
+    var sum = 0.0
+    for p in ps {
+        sum += p.x
+    }
+    println("{sum} {ps.len()}")
+    val shapes: [Drawable, unordered] = [Dot(1), Square(2), Dot(3)]
+    for s in shapes {
+        print("{s.draw()} ")
+    }
+    println("")
+}
+```
+
+```output
+4 2
+dot1 dot3 square2 
+```
+
+### 2.4 Tuples
+
+`(T1, T2, ...)` with at least two element types is a tuple type. A tuple
+value is written `(a, b)`. Tuples are used to return several values; they
+are taken apart with a destructuring `val` (section 4.2) and have no other
+operations (there is no positional access).
+
+```iron
+func divmod(a: Int, b: Int) -> (Int, Int) {
+    return (a / b, a % b)
+}
+
+func main() {
+    val (q, r) = divmod(17, 5)
+    val (_, only_r) = divmod(9, 4)
+    println("{q} {r} {only_r}")
+}
+```
+
+```output
+3 2 1
+```
+
+### 2.5 Function types
+
+`func(T1, T2) -> R` is the type of functions and lambdas taking `T1` and
+`T2` and returning `R`; omit `-> R` for a function that returns nothing.
+Function values are created from lambda expressions (section 3.7); they
+can be stored in bindings, fields and lists and passed as arguments. The
+name of a top-level function is not usable as a value today (section 11):
+wrap it in a lambda.
+
+### 2.6 Objects, enums and interfaces
+
+Named types are declared with `object` (section 5.3), `enum` (5.6) and
+`interface` (5.5). An object is a value type: assigning it or passing it by
+value copies its fields. An interface type holds any object that implements
+the interface and dispatches method calls to that object.
+
+### 2.7 Pointer and lifecycle types
+
+These types are part of the memory model and are described in section 6:
+
+| Type | Meaning |
+|---|---|
+| `*T`, `*var T` | a checked pointer to a `T` (writable through `*var T`) |
+| `?*T` | a nullable checked pointer |
+| `*unchecked T`, `*var unchecked T` | an unchecked (raw) pointer for FFI and `Box` |
+| `rc T` | a strong reference-counted handle to a shared `T` |
+| `weak rc T`, `weak rc T?` | a weak handle that does not keep the `T` alive |
+| `rc [T]` | a shared, reference-counted list |
+| `Box[T]` | an owned heap cell that hands out unchecked pointers |
+
+`heap` is not a type: a `heap T(...)` expression produces a value of type
+`T` whose storage is on the heap and whose binding must be freed
+(section 6.2). Writing `heap` in a type annotation is an error (`E0273`).
+
+### 2.8 Generics
+
+Functions, objects and enums may take type parameters in square brackets:
+`func largest[T](xs: [T]) -> T`, `object Pair[A, B]`,
+`enum Result[T, E]`. A parameter may carry an interface constraint,
+`[T: Hashable]`, which every type argument must satisfy (`E0206`). Type
+arguments are inferred from the arguments of a call or construction
+(`Pair(1, "one")`) or written on the type (`Stack[Int]()`,
+`val r: Result[Int, String]`). Generic code is instantiated per set of type
+arguments at compile time.
+
+```iron
+func largest[T](xs: [T], less: func(T, T) -> Bool) -> T {
+    var best = xs[0]
+    for x in xs {
+        if less(best, x) {
+            best = x
+        }
+    }
+    return best
+}
+
+object Pair[A, B] {
+    val first: A
+    val second: B
+}
+
+object Stack[T] {
+    var items: [T]
+    init() {
+        self.items = []
+    }
+    func push(x: T) {
+        self.items.push(x)
+    }
+    func pop() -> T {
+        return self.items.pop()
+    }
+    readonly func size() -> Int {
+        return len(self.items)
+    }
+}
+
+func main() {
+    val big = largest([3, 9, 4], func(a: Int, b: Int) -> Bool { return a < b })
+    val p = Pair(1, "one")
+    var st = Stack[Int]()
+    st.push(1)
+    st.push(2)
+    println("{big} {p.first} {p.second} {st.pop()} {st.size()}")
+}
+```
+
+```output
+9 1 one 2 1
+```
+
+Two limits apply to generics today. A value of a generic enum must be bound
+to a binding with a written type before it is returned or matched, and a
+payload bound by a `match` on a generic enum must be copied into an
+annotated local before it is interpolated (section 5.6). The result of a
+generic method of the standard library containers (`Channel[T].recv`,
+`MutexGuard[T].get`, ...) must likewise be bound with a written type
+(section 7.2).
+
+### 2.9 Type conversions
+
+Calling a primitive type name like a function converts a value:
+`Int(x)`, `Float(x)`, `Int32(x)`, `UInt8(x)` and so on. The source must be
+a numeric type or `Bool` (`E0310`; `Bool` itself is not a conversion
+target); float to integer truncates toward zero, and `Int(true)` is 1. A
+conversion to a narrower integer type warns (`W0601`) and a constant that
+does not fit is an error (`E0311`). Numbers are converted to strings with
+`n.to_string()` or by interpolation; strings are parsed with `s.to_int()`
+and `s.to_float()`. There is no `String(x)`.
+
+```iron
+func main() {
+    val f: Float = 3.99
+    val n = Int(f)
+    val small: Int8 = 100
+    val u: UInt8 = 250
+    val total = Int(small) + Int(u)
+    println("{n} {Int(-3.99)} {Int(true)} {Float(n) / 2.0} {total}")
+    println("{"42".to_int() + 1} {"2.5".to_float() * 2.0} {n.to_string()}")
+}
+```
+
+```output
+3 -3 1 1.5 350
+43 5 3
 ```
 
 ---
 
-## Lambdas
+## 3. Expressions
 
-Anonymous functions use `func() { }` — same keyword as named functions, just without a name.
+### 3.1 Operators and precedence
 
+Binary operators are left associative. From lowest to highest precedence:
+
+| Level | Operators |
+|---|---|
+| 1 | `is` |
+| 2 | `or` |
+| 3 | `and` |
+| 4 | `\|` |
+| 5 | `^` |
+| 6 | `&` |
+| 7 | `==` `!=` |
+| 8 | `<` `>` `<=` `>=` |
+| 9 | `<<` `>>` |
+| 10 | `+` `-` |
+| 11 | `*` `/` `%` |
+| 12 | unary `-` `not` `~` `&` `heap` `rc` `weak rc` `comptime` `await` |
+| 13 | postfix `.name` `[i]` `[a..b]` `(args)` |
+
+`is` binds loosest of all: `not s is Circle` parses as `(not s) is Circle`
+and is a type error; write `not (s is Circle)`. Comparison binds tighter
+than equality, so `1 <= 2 == true` is `(1 <= 2) == true`. `and` and `or`
+short-circuit.
+
+```iron
+func main() {
+    println("{2 + 3 * 4 - 8 / 2 % 3}")
+    println("{1 << 4 | 1} {6 & 3 ^ 1} {~0} {-7 / 2} {-7 % 3}")
+    println("{1 < 2 and 2 < 3 or false} {not true} {1 <= 2 == true}")
+}
 ```
--- zero-arg lambda
-val greet = func() { print("hello") }
 
--- with parameters
-val add = func(a: Int, b: Int) -> Int { return a + b }
+```output
+13
+17 3 -1 -3 -1
+true false true
+```
 
--- single expression: implicit return
-val double = func(x: Int) -> Int { x * 2 }
+### 3.2 Arithmetic, comparison, logical and bitwise operators
 
--- multiline
-val on_collision = func(entity: Entity, other: Entity) {
-  entity.take_damage(10)
-  spawn_particles(entity.pos)
+`+ - * / %` apply to two operands of the same numeric type. `+` also
+concatenates two strings. `== !=` compare numbers, booleans, strings (by
+content), enum values and `null`. `< > <= >=` compare numbers. `and`,
+`or`, `not` take `Bool` operands. `& | ^ ~ << >>` take integer operands
+(`E0233`). Compound assignments `+= -= *= /= &= |= ^= <<= >>=` are
+statements (section 4.3).
+
+### 3.3 String interpolation and concatenation
+
+Inside a string literal, `{e}` evaluates `e` and inserts its text. Any
+value that can be printed may be interpolated: numbers, booleans, strings,
+and the results of calls and field accesses. Floats print the shortest
+decimal that reads back to the same value, without a trailing `.0`
+(`3.0` prints as `3`). Two strings are joined with `+`; the compound form
+`s += t` is not supported (see section 11).
+
+```iron
+func main() {
+    val f = 3.0
+    val name = "Iron"
+    val s = "a" + "b" + "c"
+    println("{name}: {f} {f / 4.0} {s} {s == "abc"} {true}")
+}
+```
+
+```output
+Iron: 3 0.75 abc true true
+```
+
+### 3.4 Calls, methods, fields and indexing
+
+`f(a, b)` calls a function or a function value; arguments are positional
+(`E0101` names named arguments as unsupported) and a trailing comma is
+allowed. `x.field` reads a field, `x.method(args)` calls a method,
+`Type.method(args)` calls a named init or a standard library function, and
+`Type(args)` constructs an object (section 5.3). `xs[i]` indexes a list,
+array or string (a string index yields a one-character string), and
+`xs[a..b]` takes the characters `a` (inclusive) to `b` (exclusive) of a
+string; `xs[a..]` runs to the end. Slicing a list compiles but fails to
+generate C today (section 11); use `copy()` and the list methods instead.
+
+A pointer, `rc` handle, `heap` value or `Box` cell is accessed with the
+same `.` syntax as the value it refers to (auto-dereference); there is no
+prefix `*` operator.
+
+### 3.5 List and tuple literals
+
+`[a, b, c]` is a list literal (a trailing comma is allowed and elements may
+be spread over lines); `[T; n]` is a typed array literal used to declare
+fixed arrays; `(a, b)` with two or more elements is a tuple literal.
+
+### 3.6 Enum values
+
+`Color.Red` names a unit variant and `Shape.Circle(1.0)` constructs a
+variant with a payload. Enum values are compared with `==` and taken apart
+with `match` (section 4.7).
+
+### 3.7 Lambdas and closures
+
+`func(params) [-> T] { body }` in expression position is a lambda. When
+the lambda is passed directly to a parameter of function type, its
+parameter and return types are taken from that parameter and may be
+omitted; everywhere else the parameter types must be written (`E0324`) and
+a lambda without `-> T` returns nothing, whatever its body does. A lambda
+may refer to bindings of the enclosing function. A
+`val` binding is captured by value. A `var` binding that a lambda
+captures moves into a reference counted cell shared by the enclosing
+function and every closure that captured it: mutations inside the lambda
+are visible outside, and the closure may outlive the function that
+declared the `var` (a counter closure keeps its count). A lambda may
+capture a list only when it is passed directly as a call argument
+(`E0328` otherwise); to share a list with a stored closure use `rc [T]`.
+The environment of a closure is reference counted, so a closure may be
+returned, stored in a field or list, and copied.
+
+```iron
+func make_adder(n: Int) -> func(Int) -> Int {
+    return func(x: Int) -> Int { return x + n }
 }
 
--- no params, return type inferred
-val get_value = func() {
-  val a = 100
-  return a
+func apply_twice(f: func(Int) -> Int, x: Int) -> Int {
+    return f(f(x))
 }
-```
 
-### Inference
-
-The compiler infers return type and captures. Parameter types can be inferred from context.
-
-```
--- compiler knows find expects func(Enemy) -> Bool
-val enemy = find[Enemy](enemies, func(e) { e.hp < 50 })
-
--- compiler infers return type as Int
-val get_hp = func() { player.hp }
-```
-
-### Capture
-
-Lambdas automatically capture outer variables. `val` bindings are captured by value (snapshot), `var` bindings are captured by reference (shared mutation).
-
-```
-var score = 0
-val on_kill = func() { score += 1 }
-on_kill()
-print(score)                     -- 1, var captured by reference
-
-val threshold = 50
-val check = func(hp: Int) -> Bool { hp < threshold }
--- threshold captured by value (snapshot at creation time)
-```
-
-### Lambdas as Types
-
-Use `func(...)` syntax for lambda types in object fields and parameters.
-
-```
 object Button {
-  val pos:      Vec2
-  val size:     Vec2
-  val label:    String
-  val on_click: func()
+    val on_click: func(Int) -> String
 }
 
-val btn = Button(Vec2(300.0, 200.0), Vec2(200.0, 50.0), "Start", func() { start_game() })
-
--- passing lambdas to functions
-func on_key_pressed(key: Key, callback: func()) {
-  if is_key_pressed(key) {
-    callback()
-  }
+func main() {
+    val add5 = make_adder(5)
+    println("{add5(1)} {apply_twice(add5, 0)}")
+    println("{apply_twice(func(x) { return x * 3 }, 2)}")
+    val handlers: [func(Int) -> Int] = [add5, add5]
+    println("{handlers[0](4)}")
+    val b = Button(func(n: Int) -> String { return "clicked {n}" })
+    println(b.on_click(3))
+    var local = 1
+    val bump = func() { local += 10 }
+    bump()
+    println("{local}")
+    val xs = [1, 2, 3]
+    val ys = [2]
+    val common = xs.filter(func(x: Int) -> Bool { return ys.contains(x) })
+    println("{common.len()}")
 }
-
-on_key_pressed(.SPACE, func() { player.shoot() })
 ```
+
+```output
+6 10
+18
+9
+clicked 3
+11
+1
+```
+
+### 3.8 Allocation expressions
+
+`heap T(args)`, `heap(in: arena) T(args)`, `rc T(args)`, `rc [a, b]`,
+`weak rc null` and `x.downgrade()` create values with an explicit
+lifecycle; they are described in section 6. `heap` and `rc` may only
+appear in front of an allocation expression, not in a type annotation, a
+parameter or a binding keyword position (`E0273`, `E0297`); the reserved
+`pool` keyword is rejected with `E0298`.
+
+### 3.9 Type tests
+
+`x is T` is `true` when the interface value `x` currently holds an object
+of type `T`. Inside the `if` block guarded by `x is T` (and after an early
+return in the other branch), `x` is narrowed and the fields and methods of
+`T` are available. The operand must be an interface or object value
+(`E0322`).
+
+```iron
+interface Shape {
+    readonly func area() -> Float
+}
+
+object Circle impl Shape {
+    val r: Float
+    readonly func area() -> Float {
+        return 3.0 * self.r * self.r
+    }
+}
+
+object Square impl Shape {
+    val side: Float
+    readonly func area() -> Float {
+        return self.side * self.side
+    }
+}
+
+func describe(s: Shape) -> String {
+    if s is Circle {
+        return "circle of radius {s.r}"
+    }
+    if not (s is Square) {
+        return "unknown"
+    }
+    return "square with area {s.area()}"
+}
+
+func main() {
+    println(describe(Circle(1.0)))
+    println(describe(Square(2.0)))
+}
+```
+
+```output
+circle of radius 1
+square with area 4
+```
+
+### 3.10 `comptime`, `spawn` and `await`
+
+`comptime e` evaluates `e` at compile time (section 8). `spawn("name") {
+body }` starts a thread and yields a handle; `await h` waits for it and
+yields the value the body returned (section 7).
 
 ---
 
-## Compile-Time Evaluation
+## 4. Statements
 
-Any pure function can be evaluated at compile time using `comptime` at the call site. The result is baked into the binary with zero runtime cost.
+### 4.1 Blocks and scope
 
+A block is `{ statement* }`. Blocks are the bodies of functions, methods,
+control statements and lambdas, and a bare block may appear as a statement.
+A binding is visible from its declaration to the end of the enclosing block.
+Stack values declared in a block are destroyed when the block exits, in
+reverse declaration order (section 6.1). A binding may shadow a binding of
+an enclosing scope, except that a `match` pattern binding may not shadow an
+existing name (`E0227`).
+
+### 4.2 Bindings
+
+`val name = expr` declares an immutable binding and `var name = expr` a
+mutable one. Either may carry a type (`val speed: Float = 2.5`), which is
+required when the initializer does not determine it (`val xs: [Int] = []`,
+`val h: Channel[Int] = Channel.new(4)`) and lets a literal take another
+numeric type (`val small: Int8 = 100`). A `var` binding may be declared
+without an initializer and assigned later; reading it before every path has
+assigned it is an error (`E0314`).
+
+A `val` cannot be reassigned (`E0203`), have a field written (`E0234`) or
+have a mutating method called on it (`E0235`); lists follow the same rule
+for their mutating methods and index writes. `_` as a binding name
+evaluates the initializer and discards it.
+
+`val (a, b) = expr` destructures a tuple; each position is a name or `_`,
+at least two positions are required, an initializer is mandatory and a type
+may be written after the pattern (`val (a, b): (Int, Int) = pair()`).
+
+The initializer of a `val` or `var` may be a `spawn` expression (section
+7.1); `spawn` cannot appear anywhere else inside an expression.
+
+### 4.3 Assignment
+
+`target = expr` stores into a `var` binding, a field of a `var` object or
+of a `var` parameter, an element `xs[i]` of a `var` list, or a field
+reached through a pointer, `rc` handle or `heap` binding. The compound
+forms `+= -= *= /= &= |= ^= <<= >>=` compute `target op expr` and store
+it; they are statements, not expressions, and are only defined for numeric
+operands. Assignment to a `val` parameter is an error (`E0266`); declare
+the parameter `var` to mutate it (section 5.2).
+
+### 4.4 `if`
+
+```text
+if cond { ... } elif cond { ... } else { ... }
 ```
--- a normal function
-func build_sin_table() -> [Float; 360] {
-  var table = [Float; 360]
-  for i in range(360) {
-    table[i] = sin(Float(i) * 3.14159 / 180.0)
-  }
-  return table
+
+Conditions must be `Bool`; the braces are mandatory; `elif` and `else`
+are optional. `if x is T` narrows `x` inside the block (section 3.9).
+
+### 4.5 `while`
+
+`while cond { ... }` repeats its block while the condition holds. There
+are no `break` and `continue` statements: leave a loop by returning from the
+function or by making the condition false.
+
+### 4.6 `for`
+
+`for name in iterable { ... }` binds `name` to each element in turn. The
+iterable may be a list, fixed array, bounded vector or `rc [T]` (elements),
+a string (one-character strings) or `range(n)` (the integers `0` to
+`n - 1`). The loop variable is immutable inside the body. `range` takes
+exactly one argument. Appending `parallel` after the iterable runs the
+iterations on several threads (section 7.4).
+
+```iron
+func main() {
+    var total = 0
+    for n in [1, 2, 3] {
+        total += n
+    }
+    for i in range(3) {
+        total += i
+    }
+    var k = 0
+    while k < 3 {
+        k += 1
+    }
+    for c in "héy" {
+        print("[{c}]")
+    }
+    println("")
+    if total > 100 {
+        println("big")
+    } elif total > 5 {
+        println("medium: {total} {k}")
+    } else {
+        println("small")
+    }
+}
+```
+
+```output
+[h][é][y]
+medium: 9 3
+```
+
+### 4.7 `match`
+
+```text
+match subject {
+    pattern -> statement
+    pattern -> { statements }
+    else -> statement
+}
+```
+
+The subject must be an enum value, an integer, or an interface value
+(`E0323`; `String`, `Bool` and `Float` subjects are rejected). Each arm is
+a pattern, `->`, and either a single statement or a block. The optional
+`else` arm must come last. `match` is a statement; arms usually `return` or
+print.
+
+Patterns:
+
+- `Enum.Variant` matches a unit variant; `Enum.Variant(a, b)` matches a
+  payload variant and binds its fields to new immutable names. `_` skips a
+  field. The `Enum.` qualifier may be omitted when the variant name is
+  unambiguous. A pattern may not bind a name that already exists in scope
+  (`E0227`), and the number of bindings must equal the payload arity
+  (`E0225`).
+- An integer literal (or constant expression) matches that value of an
+  integer subject; an `else` arm is then required (`E0224`).
+- For an interface subject, `Type(name)` matches when the value holds a
+  `Type` and binds it as `name`, giving access to the object's fields.
+
+A match on an enum or interface must cover every variant or implementor,
+or have an `else` arm (`E0224`); an arm that can never match is an error
+(`E0226`). Nested payload patterns such as `Outer.Some(Inner.Circle(r))`
+parse, but the inner pattern is not checked at run time (section 11), so
+match the inner value in a second `match`.
+
+```iron
+enum Shape {
+    Circle(Float),
+    Rect(Float, Float),
+    Empty,
 }
 
--- comptime at call site: evaluated during compilation
-val SIN_TABLE = comptime build_sin_table()
-
--- same function can also run at runtime
-val dynamic_table = build_sin_table()
-
--- embed files at compile time
-val SHADER_SOURCE = comptime read_file("shaders/main.glsl")
-val SPRITE_DATA = comptime read_file("assets/hero.png")
-
--- any pure function works
-func fibonacci(n: Int) -> Int {
-  if n <= 1 { return n }
-  return fibonacci(n - 1) + fibonacci(n - 2)
+interface Animal {
+    readonly func sound() -> String
 }
 
-val FIB_20 = comptime fibonacci(20)    -- baked into binary
-val fib_n = fibonacci(user_input)       -- computed at runtime
+object Dog impl Animal {
+    val name: String
+    readonly func sound() -> String {
+        return "woof"
+    }
+}
+
+object Cat impl Animal {
+    val lives: Int
+    readonly func sound() -> String {
+        return "meow"
+    }
+}
+
+func area(s: Shape) -> Float {
+    match s {
+        Shape.Circle(r) -> return 3.0 * r * r
+        Shape.Rect(w, h) -> return w * h
+        Shape.Empty -> return 0.0
+    }
+    return 0.0
+}
+
+func size(n: Int) -> String {
+    match n {
+        0 -> return "zero"
+        1 -> return "one"
+        else -> return "many"
+    }
+    return "unreachable"
+}
+
+func main() {
+    println("{area(Shape.Rect(2.0, 3.0))} {area(Shape.Empty)} {area(Shape.Circle(1.0))}")
+    println("{size(1)} {size(7)}")
+    val pets: [Animal] = [Dog("Rex"), Cat(9)]
+    for a in pets {
+        match a {
+            Dog(d) -> println("{d.name} says {d.sound()}")
+            Cat(c) -> {
+                val lives = c.lives
+                println("cat with {lives} lives says {c.sound()}")
+            }
+        }
+    }
+}
 ```
 
-### Comptime Restrictions
+```output
+6 0 3
+one many
+Rex says woof
+cat with 9 lives says meow
+```
 
-Comptime functions **can**:
-- Use math, loops, conditionals — anything pure
-- Read files (embed assets)
-- Build lookup tables
-- Manipulate strings
+Generic enums work the same way, with the two extra steps noted in section
+2.8:
 
-Comptime functions **cannot**:
-- Use `heap` or `free` (no heap allocation)
-- Use `rc` (no reference counting)
-- Call runtime APIs (raylib, OS, network)
-- Perform I/O beyond file reads
+```iron
+enum Result[T, E] {
+    Ok(T),
+    Err(E),
+}
+
+func parse_positive(n: Int) -> Result[Int, String] {
+    if n > 0 {
+        val ok: Result[Int, String] = Result.Ok(n)
+        return ok
+    }
+    val err: Result[Int, String] = Result.Err("not positive")
+    return err
+}
+
+func main() {
+    val r: Result[Int, String] = parse_positive(-1)
+    match r {
+        Result.Ok(v) -> {
+            val n: Int = v
+            println("ok {n}")
+        }
+        Result.Err(e) -> {
+            val msg: String = e
+            println("error: {msg}")
+        }
+    }
+}
+```
+
+```output
+error: not positive
+```
+
+### 4.8 `return`
+
+`return expr` leaves the function with a value; `return` alone leaves a
+function without a result type. Every path of a function with a result type
+must return (`E0293`), and the value must have the declared type (`E0215`).
+A `return` inside an `init` may not carry a value (`E0252`) and may not
+leave fields unassigned (`E0250`).
+
+### 4.9 `defer`
+
+`defer statement` and `defer { block }` schedule the statement to run when
+the enclosing block exits, whether by falling off its end or by `return`.
+Deferred statements run in reverse order of registration, after the
+block's own statements and before its stack values are destroyed. Inside a
+loop body, deferred statements run at the end of each iteration. The most
+common form is `defer free x` for a heap value (section 6.2).
+
+```iron
+func main() {
+    {
+        defer {
+            println("cleanup 2")
+        }
+        defer println("cleanup 1")
+        println("body")
+    }
+    var i = 0
+    while i < 2 {
+        defer println("end of iteration {i}")
+        i += 1
+    }
+    println("done")
+}
+```
+
+```output
+body
+cleanup 1
+cleanup 2
+end of iteration 1
+end of iteration 2
+done
+```
+
+### 4.10 `free` and `leak`
+
+`free x` releases the heap value bound to `x` and `leak x` marks it as
+intentionally never freed; both are described in section 6.2.
+
+### 4.11 `in arena { ... }`
+
+`in a { ... }` makes `a` (an `Arena`) the default allocator for every
+`heap` expression inside the block (section 6.6).
+
+### 4.12 Expression statements
+
+A call, method call or `spawn` expression may stand as a statement. Any
+other expression on its own is accepted by the parser but has no effect.
 
 ---
 
-## Comments
+## 5. Declarations
 
-```
--- single line comment
-```
+A program is a sequence of top-level declarations: imports, functions,
+objects, patches, interfaces, enums and global bindings. Declarations may
+appear in any order and are visible throughout the file (and, when `pub`,
+throughout the package, section 10.3).
 
----
+### 5.1 The entry point
 
-## Full Example
-
-### Native data summary
-
-This complete program needs no graphics library. Save it as `summary.iron` and
-run it with `iron run summary.iron`. It prints `processed=5 total=150`.
+A binary program has exactly one `func main()` with no parameters and no
+result type. Execution starts there and the process exits with status 0
+when `main` returns. A run-time failure (index out of range, division by
+zero, failed `assert`, stale pointer) prints a message to standard error and
+aborts.
 
 ```iron
 func main() {
@@ -1687,361 +1097,1703 @@ func main() {
 }
 ```
 
-### Game example
-
-The following Raylib example illustrates an interactive application. For current
-graphics APIs and runnable game examples, use the [Raylib guide](https://ironlang.dev/raylib/).
-
+```output
+processed=5 total=150
 ```
-import raylib
-import math as m
 
-pub object Player {
-  var pos:    Vec2
-  var hp:     Int
-  val speed:  Float
-  pub val name:   String
-  val sprite: rc Texture
+### 5.2 Functions
 
-  pub init(name: String) {
-    self.pos    = vec2(100.0, 100.0)
-    self.hp     = 100
-    self.speed  = 200.0
-    self.name   = name
-    self.sprite = rc load_texture("hero.png")
-  }
+```text
+func name[T, U](p1: T1, var p2: T2) -> R { body }
+```
 
-  pub func update(dt: Float) {
-    if is_key_down(.RIGHT) { self.pos.x += self.speed * dt }
-    if is_key_down(.LEFT)  { self.pos.x -= self.speed * dt }
-    if is_key_down(.UP)    { self.pos.y -= self.speed * dt }
-    if is_key_down(.DOWN)  { self.pos.y += self.speed * dt }
-  }
+Parameters are `val` by default: a parameter cannot be reassigned or
+mutated (`E0266`, `E0234`). A parameter declared `var` is a copy that the
+body may assign to and mutate; when the function returns, the final value
+is written back to the caller's `var` binding, so `var` parameters behave
+like in-out arguments. A list parameter is lent (never copied); a `var`
+list parameter lets the body grow or shrink the caller's list. Objects are
+passed by value. The result type follows `->`; omit it for a function that
+returns nothing. Argument count and types must match exactly (`E0216`,
+`E0217`). Functions cannot be overloaded (`E0201`) and there are no default
+or named arguments. Type parameters are written after the name (section
+2.8).
 
-  pub readonly func draw() {
-    draw_texture(self.sprite, self.pos)
-  }
+```iron
+object Point {
+    var x: Int
+    init(x: Int) {
+        self.x = x
+    }
+    func bump() {
+        self.x += 1
+    }
+}
 
-  pub readonly func is_alive() -> Bool {
-    return self.hp > 0
-  }
+func by_value(p: Point) -> Int {
+    return p.x + 100
+}
+
+func by_var(var p: Point) {
+    p.x = 99
+    p.bump()
+}
+
+func set_seven(var n: Int) {
+    n = 7
+}
+
+func grow(var xs: [Int]) {
+    xs.push(4)
 }
 
 func main() {
-  val window = init_window(800, 600, "My Game")
-  defer close_window(window)
-
-  var player = Player("Victor")
-
-  val bullets = heap [Bullet; 256]
-  var bullet_count = 0
-
-  while not window_should_close() {
-    val dt = get_frame_time()
-
-    player.update(dt)
-
-    if is_key_pressed(.SPACE) {
-      bullets[bullet_count] = player.shoot()
-      bullet_count += 1
-    }
-
-    for i in range(bullet_count) {
-      bullets[i].update(dt)
-    }
-
-    draw {
-      clear(DARKGRAY)
-      player.draw()
-      for i in range(bullet_count) {
-        if bullets[i].alive {
-          draw_circle(bullets[i].pos, 4.0, RED)
-        }
-      }
-      draw_text("{player.name}: {bullet_count} bullets", 10, 10, 20, WHITE)
-    }
-  }
+    var a = Point(1)
+    println("{by_value(a)} {a.x}")
+    by_var(a)
+    var n = 1
+    set_seven(n)
+    var xs = [1, 2, 3]
+    grow(xs)
+    println("{a.x} {n} {xs.len()}")
 }
 ```
 
----
-
-## Command-line interface
-
-Both `iron` and `ironc` accept `--help` (or `-h`) at the top level and on every subcommand. `iron --help` lists every subcommand and every flag the CLI parses, grouped by subcommand and sorted alphabetically within each group. `iron <subcommand> --help` (for example, `iron build --help`, `iron init --help`) prints help scoped to that subcommand and exits with status 0 without performing any subcommand work: `iron init --help` does not scaffold a new project, `iron build --help` does not create `target/`, and no temporary files are written to the current directory. The same shape applies to `ironc`. Help text is generated from a single registry inside the compiler so adding a flag is a one-line edit, and the live `iron <subcommand> --help` output is the canonical CLI reference.
-
----
-
-## Keywords Summary
-
-```
-val        -- immutable binding
-var        -- mutable binding
-func       -- function/method declaration
-object     -- data structure declaration
-enum       -- enumeration declaration
-interface  -- interface declaration
-patch      -- open extension of existing types (v3.0+)
-init       -- constructor declaration inside object block (v3.0+)
-pub        -- opt-in cross-module visibility (v3.0+)
-readonly   -- method modifier: no field writes (v3.0+)
-pure       -- method modifier: no field writes, no I/O (v3.0+)
-self       -- implicit method receiver (required in-block, v3.0+)
-import     -- module import
-if         -- conditional
-elif       -- else-if
-else       -- else branch
-for        -- loop (sequential), or parallel with `parallel` modifier
-while      -- loop with condition
-parallel   -- modifier on for loop for parallel execution
-match      -- pattern match on enums and values (-> arrow syntax)
-return     -- return from function
-heap       -- heap allocation
-free       -- heap deallocation
-leak       -- intentional permanent allocation
-defer      -- execute at scope exit
-rc         -- reference-counted wrapper
-extends    -- single inheritance
-implements -- interface implementation
-super      -- call parent method
-is         -- runtime type check
-spawn      -- launch a thread
-await      -- wait for thread result
-pool       -- create a thread pool
-true       -- boolean literal
-false      -- boolean literal
-null       -- nullable empty value
-not        -- logical negation
-and        -- logical and
-or         -- logical or
-comptime   -- compile-time evaluation at call site
+```output
+101 1
+100 7 4
 ```
 
----
+A top-level function name cannot be used as a value (`val f = twice`,
+`apply(twice, 4)`); wrap it in a lambda (`func(x: Int) -> Int { return
+twice(x) }`). See section 11.
 
-## Standard Library
+`@fusible` before a `func` marks it as eligible for loop fusion of chained
+list operations; it changes nothing else about the function.
 
-### Built-in — No Import Needed
+### 5.3 Objects
 
-#### Printing
+```text
+object Name[T] impl Interface1, Interface2 {
+    val immutable_field: Type
+    var mutable_field: Type
+    pub var exported_field: Type
 
-```
-print("hello")
-println("hello")
-```
+    init(params) { self.field = ... }
+    init named(params) { ... }
 
-#### Type Conversions
+    func mutating(...) -> R { ... }
+    readonly func observer(...) -> R { ... }
+    pure func computation(...) -> R { ... }
 
-```
-val f = Float(42)
-val i = Int(3.14)
-val s = String(100)
-```
-
-#### Common Functions
-
-```
-len(array)
-len(string)
-len(list)
-
-range(end)              -- 0..end-1
-range(start, end)       -- start..end-1
-
-abs(x)
-min(a, b)
-max(a, b)
-clamp(val, min, max)
-
-assert(condition)
-assert(condition, "message")
-```
-
-#### Collections
-
-```
--- List: dynamic array
-var enemies = List[Enemy]()
-enemies.add(enemy)
-enemies.remove(0)
-enemies.insert(2, enemy)
-val e = enemies.get(0)
-val n = enemies.len()
-enemies.clear()
-
-for e in enemies {
-  e.update(dt)
+    copy { ... }
+    drop { ... }
 }
-
--- Map: key-value store
-var scores = Map[String, Int]()
-scores.set("victor", 100)
-val s = scores.get("victor")       -- Int?
-val has = scores.has("victor")
-scores.remove("victor")
-val keys = scores.keys()
-
--- Set: unique values
-var tags = Set[String]()
-tags.add("enemy")
-tags.add("flying")
-val has = tags.has("enemy")
-tags.remove("flying")
 ```
 
-#### String Methods
+An object is a value type made of named fields. Every field is declared
+with `val` or `var` and a type (`E0176`); a field cannot have an inline
+default value (`E0262`). An object is constructed by calling its name with
+the arguments of its anonymous `init`: `Name(args)`. When an object declares
+no `init`, it must have only `val` fields (`E0264`) and is constructed
+positionally, one argument per field in declaration order.
 
-Methods directly on the String type.
+**Initializers.** `init(params) { ... }` is the anonymous initializer and
+`init name(params) { ... }` a named one, called as `Name.name(args)`. The
+body assigns every field through `self` exactly once for `val` fields
+(`E0248`) and at least once for `var` fields on every path (`E0247`); it
+may not read a field before assigning it (`E0246`), call a method on the
+partially built `self` (`E0249`), return early (`E0250`), delegate to
+another `init` (`E0251`) or return a value (`E0252`). An object has at
+most one anonymous `init` (`E0201`). `Name.init(args)` is an explicit
+spelling of `Name(args)`.
 
-```
-val upper = name.upper()
-val lower = name.lower()
-val trimmed = text.trim()
-val parts = text.split(",")
-val joined = ",".join(parts)
-val sub = text.substring(0, 5)
-val has = text.contains("hello")
-val starts = text.starts_with("http")
-val ends = text.ends_with(".png")
-val replaced = text.replace("old", "new")
-val padded = "42".pad_left(5, "0")       -- "00042"
-val idx = text.index_of("world")         -- -1 if not found
-val ch = text.char_at(0)
-val n = text.to_int()
-val f = text.to_float()
-val repeated = "ha".repeat(3)            -- "hahaha"
-val cnt = text.count("o")
-val rpad = "42".pad_right(5, " ")        -- "42   "
-```
+**Methods** are declared inside the object body with `func`, take an
+implicit receiver `self` of the object type, and are called as
+`value.method(args)`. A method has one of three tiers:
 
-#### Concurrency Primitives
+| Tier | May write `self` | May call | I/O |
+|---|---|---|---|
+| `func` (default, mutating) | yes | anything | yes |
+| `readonly func` | no (`E0238`) | `readonly` and `pure` methods (`E0239`) | no (`E0278`) |
+| `pure func` | no (`E0244`) | `pure` methods only (`E0242`) | no (`E0240`) |
 
-```
-channel[T]()
-channel[T](n)
-mutex(val)
-pool(name, count)
-```
+`readonly` and `pure` methods may be called on `val` bindings; a mutating
+method needs a `var` binding (`E0235`). A `pure` method may also not write
+its parameters (`E0243`) or read a global `var` (`E0241`). The modifiers
+are only valid inside object, patch and interface bodies (`E0245`), and
+`init` takes none.
 
-### `math` — Import Required
+**`self` and `Self`.** Inside a method `self` is the receiver;
+outside a method it is an error (`E0210`). The identifier `Self` names the
+enclosing object type and may be used as a result type.
 
-```
+**Visibility.** Fields and methods are private to the file that declares
+the object by default. `pub` on a field synthesizes a getter named after the
+field and, for `pub var`, a setter `set_<field>`; call sites keep using
+`obj.field` and `obj.field = v`, and a user method with one of those names
+is an error (`E0237`). `pub` on a method or `init` exports it; `pub init`
+is only allowed inside a `pub object`. See section 5.10 for cross-file
+rules.
+
+**`copy` and `drop` blocks** run when a value is copied or destroyed
+(section 6.7); `nocopy object` forbids copying (section 6.7).
+
+```iron
 import math
 
--- constants
-math.PI
-math.TAU
-math.E
+object Vec2 {
+    val x: Float
+    val y: Float
 
--- trig
-math.sin(x)
-math.cos(x)
-math.tan(x)
-math.asin(x)
-math.acos(x)
-math.atan2(y, x)
+    init(x: Float, y: Float) {
+        self.x = x
+        self.y = y
+    }
 
--- common
-math.floor(x)
-math.ceil(x)
-math.round(x)
-math.sqrt(x)
-math.pow(base, exp)
-math.lerp(a, b, t)
-math.sign(x)
-math.log(x)
-math.log2(x)
-math.exp(x)
-math.hypot(a, b)
+    init zero() {
+        self.x = 0.0
+        self.y = 0.0
+    }
 
--- random
-math.random()                -- 0.0..1.0
-math.random_int(min, max)
-math.random_float(min, max)
-math.seed(n)
-```
+    readonly func length() -> Float {
+        return Math.sqrt(self.x * self.x + self.y * self.y)
+    }
 
-### `io` — Import Required
+    readonly func scaled(k: Float) -> Self {
+        return Vec2(self.x * k, self.y * k)
+    }
+}
 
-```
-import io
+object Account {
+    pub var balance: Int
+    pub val id: Int
+    var history: Int
 
--- file operations
-val data = io.read_file("save.dat")
-io.write_file("save.dat", data)
-io.append_file("log.txt", "entry\n")
-val exists = io.file_exists("save.dat")
-val files = io.list_files("assets/")
-val lines = io.read_lines("data.csv")
-io.create_dir("saves/")
-io.delete_file("temp.dat")
+    init(id: Int) {
+        self.id = id
+        self.balance = 0
+        self.history = 0
+    }
 
--- console
-val input = io.read_line()
+    func deposit(amount: Int) {
+        self.balance += amount
+        self.history += 1
+    }
 
--- path utilities
-val name = io.basename("/home/user/file.txt")     -- "file.txt"
-val dir = io.dirname("/home/user/file.txt")        -- "/home/user"
-val full = io.join_path("assets", "hero.png")      -- "assets/hero.png"
-val ext = io.extension("hero.png")                 -- ".png"
-val is_d = io.is_dir("assets/")
-```
+    pure func fee(amount: Int) -> Int {
+        return amount / 100
+    }
+}
 
-### `time` — Import Required
+object Point {
+    val x: Int
+    val y: Int
+}
 
-```
-import time
-
-val now = time.now()              -- Float, seconds since program start
-val ms = time.now_ms()            -- Int, milliseconds
-time.sleep(0.5)                   -- sleep 500ms
-val elapsed = time.since(start)   -- seconds since timestamp
-
--- timer utility
-var timer = time.Timer(2.0)       -- 2 second timer
-timer.update(dt)
-if timer.done() {
-  spawn_wave()
-  timer.reset()
+func main() {
+    val v = Vec2(3.0, 4.0)
+    val origin = Vec2.zero()
+    val p = Point(1, 2)
+    println("{v.length()} {v.scaled(2.0).x} {origin.y} {p.x},{p.y}")
+    var acc = Account(7)
+    acc.deposit(50)
+    acc.balance = 60
+    acc.set_balance(acc.balance + 5)
+    println("{acc.id} {acc.balance} {acc.fee(250)}")
+    var copy_of_acc = acc
+    copy_of_acc.deposit(1)
+    println("{acc.balance} {copy_of_acc.balance}")
 }
 ```
 
-### `log` — Import Required
-
-```
-import log
-
-log.info("game started")
-log.warn("low memory")
-log.error("failed to load texture")
-log.debug("player pos: {player.pos}")
-
-log.set_level(log.WARN)
+```output
+5 6 0 1,2
+7 65 2
+65 66
 ```
 
-### Raylib — Import Required
+### 5.4 `patch object`
 
-Raylib ships with the compiler but is not part of the stdlib. It's the primary external library.
+`patch object Name { ... }` adds methods and initializers to an existing
+object declared in the same package or in the standard library. A patch may
+declare `impl Interface` to make the type conform; it may not add fields
+(`E0253`), patch an unknown type (`E0254`), redefine an existing method
+(`E0255`) or take type parameters. Methods added by a patch have the same
+tiers and visibility rules as methods declared in the object body.
 
+```iron
+object Celsius {
+    val degrees: Float
+}
+
+interface Describable {
+    readonly func describe() -> String
+}
+
+patch object Celsius impl Describable {
+    readonly func describe() -> String {
+        return "{self.degrees} C"
+    }
+
+    init freezing() {
+        self.degrees = 0.0
+    }
+}
+
+patch object String {
+    readonly func shout() -> String {
+        return self.upper() + "!"
+    }
+}
+
+func main() {
+    val c = Celsius.freezing()
+    println("{c.describe()} {"hey".shout()}")
+}
 ```
-import raylib
 
-val window = init_window(800, 600, "Game")
+```output
+0 C HEY!
+```
+
+### 5.5 Interfaces
+
+```text
+interface Name {
+    readonly func required() -> R
+    pure func also_required(x: T) -> R
+    func with_default() -> R { body }
+}
+```
+
+An interface lists method signatures, each with a tier modifier. An object
+conforms by naming the interface after `impl` and defining every listed
+method without a default body (`E0205`) with a tier at least as strict as
+the interface's (`E0257`; a `pure` method satisfies a `readonly`
+signature). A signature with a body is a default: an implementor that does
+not define the method inherits it, and may override it. Interfaces may not
+declare `init` (`E0256`), and the keyword is `impl`, not `implements`. An
+interface may have any number of implementors; a value of interface type
+can be built from any of them and dispatches calls at run time. Interfaces
+may be the element type of lists and the type of fields and parameters,
+and are the subjects of `is` (section 3.9) and type `match` (section 4.7).
+A `var` binding of interface type mutates the object it holds in place.
+
+```iron
+interface Shape {
+    readonly func area() -> Float
+    readonly func name() -> String {
+        return "shape"
+    }
+}
+
+object Square impl Shape {
+    val side: Float
+    readonly func area() -> Float {
+        return self.side * self.side
+    }
+}
+
+object Circle impl Shape {
+    val r: Float
+    readonly func area() -> Float {
+        return 3.0 * self.r * self.r
+    }
+    readonly func name() -> String {
+        return "circle"
+    }
+}
+
+func total(shapes: [Shape]) -> Float {
+    var t = 0.0
+    for s in shapes {
+        t += s.area()
+    }
+    return t
+}
+
+func main() {
+    val shapes: [Shape] = [Square(2.0), Circle(1.0)]
+    println("{total(shapes)}")
+    for s in shapes {
+        println("{s.name()} {s.area()}")
+    }
+}
+```
+
+```output
+7
+shape 4
+circle 3
+```
+
+`Hashable` is the one interface the standard library defines
+(`pure func hash() -> Int` and `pure func equals(other: Hashable) -> Bool`);
+the integer types, `Bool` and `String` satisfy it without declaring `impl`.
+
+### 5.6 Enums
+
+```text
+enum Name[T] {
+    Unit,
+    WithValue = 5,
+    Payload(T, Int),
+}
+```
+
+An enum lists variants separated by commas (a trailing comma is allowed).
+A variant may carry a payload of one or more types, or an explicit integer
+value (`= 5`). Unit variants are written `Name.Variant`, payload variants
+are constructed with `Name.Variant(args)`. Enum values are compared with
+`==` and inspected with `match`. Enums have no methods and cannot be
+converted to integers; put behavior in functions that take the enum. Enums
+may be generic, and a payload may be the enum type itself (recursive
+enums).
+
+```iron
+enum Color {
+    Red,
+    Green = 5,
+    Blue,
+}
+
+enum Token {
+    Number(Int),
+    Word(String),
+    End,
+}
+
+func show(t: Token) -> String {
+    match t {
+        Token.Number(n) -> return "number {n}"
+        Token.Word(w) -> return "word {w}"
+        Token.End -> return "end"
+    }
+    return ""
+}
+
+func main() {
+    val c = Color.Green
+    if c == Color.Green and c != Color.Blue {
+        println("green")
+    }
+    println("{show(Token.Number(4))} {show(Token.Word("hi"))} {show(Token.End)}")
+}
+```
+
+```output
+green
+number 4 word hi end
+```
+
+### 5.7 Global bindings
+
+`val` and `var` declarations may appear at the top level. A global `val`
+is a constant initialized before `main` runs (its initializer may call
+functions); a global `var` is a mutable variable shared by the whole
+program (and by all threads, without synchronization). Globals cannot be
+`pub`. A `pure` method may not read a global `var` (`E0241`).
+
+```iron
+val LIMIT = 10
+val ANSWER = compute()
+var counter = 0
+
+func compute() -> Int {
+    return 6 * 7
+}
+
+func bump() {
+    counter += 1
+}
+
+func main() {
+    bump()
+    bump()
+    println("{LIMIT} {ANSWER} {counter}")
+}
+```
+
+```output
+10 42 2
+```
+
+### 5.8 `extern func`
+
+`extern func name(params) -> R` declares a C function without a body. The
+call compiles to a direct C call; the C name is the Iron name with each
+`snake_case` segment capitalized and the underscores removed
+(`init_window` becomes `InitWindow`), and a name without underscores is
+used unchanged. Only functions whose declarations the generated C already
+includes (the C standard library, and raylib when it is imported) can be
+called; there is no way to name a header. `Int` maps to `int64_t`,
+`Float` to `double`, `Bool` to `bool`, `String` to the runtime string
+struct and `*unchecked T` to a raw pointer. Declaring an extern with the
+name of an Iron built-in is a duplicate declaration (`E0201`).
+
+```iron
+extern func labs(x: Int) -> Int
+extern func srand(seed: Int)
+extern func rand() -> Int
+
+func main() {
+    srand(1)
+    val r = rand()
+    println("{labs(-9)} {r >= 0}")
+}
+```
+
+```output
+9 true
+```
+
+### 5.9 Imports
+
+`import name` makes a standard library module available (section 9), or
+documents a dependency on a source file of the package: `import util`
+matches `src/util.iron` or any file under a directory named `util`, and a
+dotted path `import a.b` matches consecutive directory components. Importing
+an unknown module is an error (`E0209`); an unused import warns (`W0611`).
+`import x as y` is rejected: Iron has no module namespaces, so imported
+declarations are used by their own names.
+
+The modules that require an import are `math`, `io`, `time`, `log`,
+`hint`, `net`, `http`, `websocket`, `url` and `raylib`; their functions are
+called on the capitalized module object (`import math`, then
+`Math.sqrt(x)`). Everything else in section 9 (strings, lists, `Box`,
+`Arena`, `Channel`, `Mutex`, `RWLock`, `FileHandle`, `Hashable`, `RawPtr`)
+is available without an import.
+
+### 5.10 Visibility
+
+Every top-level declaration is private to its file unless marked `pub`.
+`pub` may prefix a function, object, patch, interface or enum (not a
+global binding). Using a private declaration from another file of the
+package is an error (`E0320`). Object members are private to the declaring
+file unless marked `pub` (section 5.3). The word `private` is not accepted
+(`E0101`).
+
+---
+
+## 6. Memory
+
+Iron has no garbage collector. Every value has one of five lifecycles,
+chosen at the point where the value is created: stack (the default),
+`heap`, `rc`, `weak rc`, and arena. Pointers (`*T`) and `Box[T]` refer to
+values without owning them. The compiler and runtime check the common
+mistakes: freeing a non-heap value, forgetting to free, escaping a heap
+value, dereferencing a stale checked pointer.
+
+### 6.1 Stack values
+
+A binding initialized with a plain expression holds its value directly.
+Objects are copied on assignment, when passed by value and when stored in
+lists or fields; each copy is destroyed independently. A value is destroyed
+when its block exits (in reverse declaration order) or, for a temporary,
+as soon as the expression that used it is done: a field read off a
+temporary (`make().name`) copies the field out and then drops the
+temporary. Destruction runs the object's `drop` block, if any (section
+6.7), then the drops of its fields in reverse declaration order.
+
+```iron
+object Res {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+
+func main() {
+    val a = Res(1)
+    val b = Res(2)
+    {
+        val c = Res(3)
+        println("inner")
+    }
+    println("end of main")
+}
+```
+
+```output
+inner
+drop 3
+end of main
+drop 2
+drop 1
+```
+
+### 6.2 `heap`, `free` and `leak`
+
+`heap T(args)` allocates the object on the heap and yields a binding that
+is used exactly like a stack value (fields through `.`, mutation only when
+the binding is `var`). The program must release it with `free x`, usually
+scheduled with `defer free x`, or declare that it is never released with
+`leak x`. Heap values are not freed automatically: a heap binding that is
+neither freed nor leaked warns (`W0606`) and the memory and the `drop`
+block are lost. A heap value cannot leave the function that allocated it:
+returning it or storing it where it outlives the scope is an error
+(`E0207`); to share ownership use `rc`. `free` and `leak` apply only to
+heap bindings (`E0212`, `E0213`, `E0274`, `E0275`), and an `rc` handle
+cannot be leaked (`E0214`). Freeing runs `drop`. Using a value after it was
+freed, including a second `free`, is caught at run time by a generation
+check and aborts the program with a "stale pointer dereference" message.
+
+```iron
+object World {
+    var seed: Int
+    init(seed: Int) {
+        self.seed = seed
+    }
+    drop {
+        println("drop world {self.seed}")
+    }
+}
+
+func main() {
+    var world = heap World(42)
+    defer free world
+    world.seed = 43
+    println("seed {world.seed}")
+    val forever = heap World(7)
+    leak forever
+    println("leaked {forever.seed}")
+}
+```
+
+```output
+seed 43
+leaked 7
+drop world 43
+```
+
+<!-- doctest-expect-error: E0207 -->
+```iron
+object Node {
+    val value: Int
+}
+
+func make() -> Node {
+    val n = heap Node(1)
+    return n
+}
+
+func main() {
+    val m = make()
+}
+```
+
+Inside `in arena { ... }` (section 6.6) `heap` allocates from the arena
+instead and needs no `free`.
+
+### 6.3 `rc` and `weak rc`
+
+`rc T(args)` allocates a shared, reference-counted object and yields a
+handle of type `rc T`. Copying the handle (assignment, passing, storing in
+a field or list, capturing in a closure) increments the count; destroying a
+copy decrements it, and when the last handle goes away the object's `drop`
+runs and the memory is released. All handles see the same object, and a
+field may be written through any handle, including a `val` one. Handles
+are not nullable (`?rc T` is rejected, `E0297`) and cannot be `leak`ed
+(`E0214`). The type `rc T` may be used for fields, parameters and results.
+
+`weak rc T` is a handle that does not keep the object alive. It is obtained
+with `handle.downgrade()` on an `rc` value or written as the constant
+`weak rc null`, and turned back into a usable handle with `w.upgrade()`,
+which yields a nullable strong handle, written `rc T?`, that is `null` when
+the object has already been destroyed. A weak handle cannot be
+dereferenced directly (`E0299`). Weak handles break reference cycles, for
+example a child that points back to its parent.
+
+`rc [a, b, c]` is a shared list: every copy of the handle reaches the same
+list, it can be grown and indexed through any copy, and it is freed with the
+last copy. It is the way to share a list with a closure or between fields.
+
+```iron
+object Player {
+    val name: String
+    drop {
+        println("drop {self.name}")
+    }
+}
+
+object Owner {
+    val name: String
+    var pet: weak rc Pet
+    init(name: String) {
+        self.name = name
+        self.pet = weak rc null
+    }
+}
+
+object Pet {
+    val owner: rc Owner
+    val nick: String
+}
+
+func make_counter() -> func() -> Int {
+    val seen: rc [Int] = rc [1, 2, 3]
+    return func() -> Int { return len(seen) }
+}
+
+func main() {
+    val strong = rc Player("Alice")
+    val weak_ref = strong.downgrade()
+    {
+        val another = strong
+        val maybe = weak_ref.upgrade()
+        if maybe != null {
+            println("alive: {maybe.name}")
+        }
+    }
+    val owner = rc Owner("Ann")
+    val pet = rc Pet(owner, "Rex")
+    owner.pet = pet.downgrade()
+    val link: weak rc Pet = owner.pet
+    val back = link.upgrade()
+    if back != null {
+        println("{back.owner.name} owns {back.nick}")
+    }
+    val shared: rc [Int] = rc [1, 2]
+    val alias = shared
+    alias.push(3)
+    println("{shared.len()} {shared[2]} {make_counter()()}")
+}
+```
+
+```output
+alive: Alice
+Ann owns Rex
+3 3 3
+drop Alice
+```
+
+### 6.4 Checked pointers
+
+`&x` takes the address of a binding, field or fixed array element and
+yields a checked pointer: `*T` when `x` is a `val` and `*var T` when `x`
+is a `var`. `?*T` is a nullable pointer that may hold `null`. Fields are
+read and, through `*var T`, written with `p.field`; a pointer to a
+primitive prints its pointee when interpolated into a string, but there is
+no prefix `*` operator, so it cannot be assigned through. Passing a binding
+to a parameter of type `*T` takes its address automatically. A checked
+pointer carries the generation of the allocation it points to, and every
+dereference verifies it: reading through a pointer after the target was
+freed aborts with a "stale pointer dereference" message instead of reading
+garbage, even when the allocator has reused the address. Checked pointers
+support no arithmetic (`E0268`, `E0295`); `&` cannot be applied to a
+temporary (`E0270`), a pointer to a local cannot be returned (`E0271`), `&`
+on an `rc` handle is rejected (`E0296`), and `&list[i]` on a growable list
+is rejected (`E0330`) unless it is written directly as a call argument,
+because the list may move its elements when it grows.
+
+```iron
+object Player {
+    var hp: Int
+    init(hp: Int) {
+        self.hp = hp
+    }
+}
+
+func observe(p: *Player) -> Int {
+    return p.hp
+}
+
+func heal(p: *var Player) {
+    p.hp += 10
+}
+
+func maybe(p: ?*Player) -> Bool {
+    return p != null
+}
+
+func main() {
+    var player = Player(80)
+    val view: *Player = &player
+    heal(&player)
+    println("{observe(player)} {view.hp} {maybe(&player)}")
+}
+```
+
+```output
+90 90 true
+```
+
+<!-- doctest-expect-error: E0271 -->
+```iron
+object Res {
+    val id: Int
+}
+
+func escape() -> *Res {
+    val local = Res(1)
+    return &local
+}
+
+func main() {
+    val p = escape()
+}
+```
+
+### 6.5 Unchecked pointers, `Box` and `RawPtr`
+
+`*unchecked T` and `*var unchecked T` are plain C pointers with no
+generation check; they exist for the FFI boundary and for `Box`. Iron code
+obtains them from `Box[T]`: `Box.new(value)` moves a value into an owned
+heap cell (`Box` is `nocopy`), `b.unwrap()` returns a
+`*var unchecked T` to the contents, `b.is_null()` tests the cell,
+`b.free()` releases it, and `Box.null()` is an empty cell. Fields are
+accessed through the pointer with `.` as usual. Checked and unchecked
+pointers are distinct types (`E0289`, `E0294`) and `&` never produces an
+unchecked pointer. `RawPtr.of(x)` produces a type-erased `RawPtr` and
+`Ptr.cast[T](raw)` turns it back into a `*unchecked T`.
+
+```iron
+object Config {
+    var width: Int
+    var title: String
+    init(width: Int, title: String) {
+        self.width = width
+        self.title = title
+    }
+}
+
+func main() {
+    val boxed = Box.new(Config(640, "Iron App"))
+    val cfg: *var unchecked Config = boxed.unwrap()
+    cfg.width = 800
+    println("{cfg.width} {cfg.title} {boxed.is_null()}")
+    boxed.free()
+    val empty: Box[Config] = Box.null()
+    println("{boxed.is_null()} {empty.is_null()}")
+    var n: Int = 7
+    val raw: RawPtr = RawPtr.of(n)
+    val p: *unchecked Int = Ptr.cast[Int](raw)
+    println("{p}")
+}
+```
+
+```output
+800 Iron App false
+true true
+7
+```
+
+### 6.6 Arenas
+
+`Arena.with_capacity(bytes)` (or `Arena.new(bytes)`) creates a bump
+allocator. `heap(in: a) T(args)` allocates from arena `a`, and inside
+`in a { ... }` every plain `heap T(args)` does. Arena values are never
+freed individually: `a.reset()` releases everything at once, and
+`a.save()` / `a.restore(point)` roll the arena back to an earlier mark.
+Because the arena frees in bulk, the `drop` block of an object allocated
+in it does not run; the compiler warns about it (`W0605`) unless the
+allocation says `heap(in: a, allow_drop_skip: true) T(args)`. Accessing an
+arena value after `reset` or `restore` is a stale pointer error at run
+time. `rc` allocation inside an `in arena` block is an error (`E0301`).
+`a.used()` and `a.capacity()` report the arena's byte counts.
+
+```iron
+object Particle {
+    val x: Int
+    val y: Int
+}
+
+func main() {
+    val frame = Arena.with_capacity(65536)
+    in frame {
+        val p1 = heap Particle(10, 20)
+        val p2 = heap Particle(30, 40)
+        println("p1 ({p1.x},{p1.y}) p2 ({p2.x},{p2.y})")
+    }
+    val mark = frame.save()
+    val p3 = heap(in: frame) Particle(1, 2)
+    println("{p3.x} {frame.used() > 0}")
+    frame.restore(mark)
+    frame.reset()
+    println("{frame.used()}")
+}
+```
+
+```output
+p1 (10,20) p2 (30,40)
+1 true
+0
+```
+
+### 6.7 `drop`, `copy` and `nocopy`
+
+An object body may contain a `drop { ... }` block, run once when each
+instance is destroyed (stack scope exit, `free`, last `rc` handle released,
+list cleared), with `self` bound to the dying value. It may contain a
+`copy { ... }` block, run after each implicit or explicit copy of the value
+(`x.copy()` copies an object explicitly, retaining its `rc` fields and
+cloning its list fields). An object declared `nocopy object` cannot be
+copied at all: assigning it to another binding, passing it by value or
+storing it is an error (`E0286`), which is how `Box`, `Channel`, `Mutex`,
+`RWLock` and `FileHandle` guarantee a single owner. Each object has at most
+one `drop` and one `copy` block (`E0284`, `E0285`); `drop` may not be
+`readonly` (`E0287`) and may not `return` early (`E0288`).
+
+```iron
+object Point {
+    val x: Int
+    copy {
+        println("copied {self.x}")
+    }
+    drop {
+        println("dropped {self.x}")
+    }
+}
+
+nocopy object Token {
+    val id: Int
+}
+
+func main() {
+    val p = Point(3)
+    val q = p
+    val t = Token(5)
+    println("{q.x} {t.id}")
+}
+```
+
+```output
+copied 3
+3 5
+dropped 3
+dropped 3
+```
+
+<!-- doctest-expect-error: E0286 -->
+```iron
+nocopy object Token {
+    val id: Int
+}
+
+func main() {
+    val t = Token(1)
+    val u = t
+}
+```
+
+### 6.8 List ownership
+
+Lists are the one kind of value that is never copied implicitly. The
+rules, all enforced at compile time with `E0328`:
+
+- `val b = a` where `a` is a list, storing a list binding in a field or in
+  another list, and returning a list parameter are rejected; write
+  `a.copy()` or `a.take()`.
+- A function receives a list argument by reference for the duration of the
+  call; it may read it, and mutate it only through a `var` parameter.
+- A lambda may capture a list only when the lambda is passed directly as a
+  call argument; a lambda that is bound, returned or stored cannot capture a
+  list. A `spawn` body that captures a list must be awaited in the block
+  that started it.
+- To share a list, use `rc [T]`.
+
+<!-- doctest-expect-error: E0328 -->
+```iron
+func main() {
+    val a = [1, 2, 3]
+    val b = a
+}
 ```
 
 ---
 
-## Resolved Design Decisions
+## 7. Concurrency
 
-- **Package manager:** No. External libraries are vendored as source under `vendor/` (see [Third-party code](#third-party-code-vendoring)); the stdlib covers the common ground.
-- **Operator overloading:** No. Operators (`+`, `-`, `*`, `/`) only work on primitives. Use explicit functions for custom types (e.g., `vec_add`, `vec_scale`). Legibility over magic.
-- **String methods:** On the type directly (`name.upper()`), not in a separate module.
-- **Collections:** Built-in, no import needed (`List[T]`, `Map[K,V]`, `Set[T]`).
-- **Math basics:** `min`, `max`, `clamp`, `abs` are built-in. Trig and advanced math require `import math`.
+### 7.1 `spawn` and `await`
+
+`spawn("name") { body }` runs the body on a new operating system thread and
+evaluates to a handle. The body is a block that must `return` a value, and
+`await handle` blocks until the thread finishes and yields that value. A
+handle can be awaited once (`E0325`). A spawn expression may only appear as
+the initializer of a `val` or `var`, or as a statement (its result is then
+discarded and the thread is never awaited). The body may read `val` bindings of the enclosing
+function and use `Mutex`, `Channel` and `rc` values; a list captured by a
+spawn must be awaited in the same block (`E0328`). Writing a captured
+`var` from a thread is a data race and warns (`W0604`). Named thread pools
+are not implemented: `spawn("name", pool)` is rejected (`E0326`).
+
+```iron
+func sum_to(n: Int) -> Int {
+    var total = 0
+    for i in range(n) {
+        total += i
+    }
+    return total
+}
+
+func main() {
+    val a = spawn("a") {
+        return sum_to(10)
+    }
+    val b = spawn("b") {
+        return sum_to(100)
+    }
+    val ra = await a
+    val rb = await b
+    println("{ra} {rb}")
+}
+```
+
+```output
+45 4950
+```
+
+### 7.2 `Channel[T]`
+
+`Channel.new(capacity)` creates a bounded queue; the binding must be
+annotated with the element type (`val ch: Channel[Int] = Channel.new(4)`).
+`ch.send(v)` blocks while the channel is full and `ch.recv()` blocks while
+it is empty; the received value must be bound with a written type
+(`val x: Int = ch.recv()`). Channels are `nocopy` and are closed when their
+owner goes out of scope; there is no explicit close and no non-blocking
+receive.
+
+### 7.3 `Mutex[T]` and `RWLock[T]`
+
+`Mutex.new(value)` wraps a value in a lock; `m.lock()` returns a
+`MutexGuard[T]` that holds the lock until the guard's scope ends, with
+`g.get()` and `g.set(v)` to read and write the protected value (the result
+of `get` must be bound with a written type). `RWLock.new(value)` is the
+reader-writer variant: `l.read()` returns an `RWReadGuard[T]` with `get()`,
+and `l.write()` an `RWWriteGuard[T]` with `get()` and `set(v)`. All of
+these are `nocopy`.
+
+```iron
+func main() {
+    val ch: Channel[Int] = Channel.new(4)
+    val producer = spawn("producer") {
+        for i in range(3) {
+            ch.send(i * 10)
+        }
+        return 0
+    }
+    var got = 0
+    for i in range(3) {
+        val x: Int = ch.recv()
+        got += x
+    }
+    await producer
+    println("{got}")
+
+    val counter = Mutex.new(0)
+    val worker = spawn("worker") {
+        for i in range(100) {
+            val g = counter.lock()
+            val cur: Int = g.get()
+            g.set(cur + 1)
+        }
+        return 0
+    }
+    for i in range(100) {
+        val g = counter.lock()
+        val cur: Int = g.get()
+        g.set(cur + 1)
+    }
+    await worker
+    val final_guard = counter.lock()
+    val total: Int = final_guard.get()
+    println("{total}")
+
+    val settings = RWLock.new(5)
+    val reader = settings.read()
+    val seen: Int = reader.get()
+    println("{seen}")
+}
+```
+
+```output
+30
+200
+5
+```
+
+### 7.4 Parallel `for`
+
+`for x in xs parallel { ... }` runs the iterations of the loop on several
+threads and waits for all of them. The body must not write bindings of the
+enclosing scope (`E0208`); use a `Mutex` to accumulate. `range(n)` and lists
+may be iterated in parallel. The `parallel(pool)` form parses but pools are
+not implemented (`E0326`).
+
+```iron
+func main() {
+    val total = Mutex.new(0)
+    for i in range(8) parallel {
+        val g = total.lock()
+        val cur: Int = g.get()
+        g.set(cur + i)
+    }
+    val g = total.lock()
+    val sum: Int = g.get()
+    println("{sum}")
+}
+```
+
+```output
+28
+```
 
 ---
 
-## Open Design Questions
+## 8. Compile-time evaluation
 
-- **Testing:** built-in test runner or external?
-- **Build configuration:** project file format?
+`comptime expr` evaluates `expr` while compiling and replaces it with the
+resulting constant. The evaluator handles integer, float and boolean
+literals and arithmetic (`+ - * / %`, comparisons, `==` and `!=`, unary
+`-` and `not`), string literals, list literals and indexing, object
+construction, the built-ins `len`, `range`, `fill` and `read_file(path)`
+(which reads a file relative to the source file and yields its contents),
+and calls to top-level functions whose bodies use only `val`, `var`,
+assignment, `if`, `while`, `for` and `return` over those values.
+Method calls, field access, string concatenation, interpolation,
+bitwise operators, lambdas, `match`, and `heap` or `rc` allocation are not
+available at compile time (`E0231`, `E0232`). Evaluation is limited to one
+million steps (`E0230`). The result is typically bound to a global `val`.
+
+```iron
+val TABLE_SIZE = comptime (64 * 4)
+val FACTORIAL_5 = comptime fact(5)
+val SQUARES = comptime squares(4)
+
+func fact(n: Int) -> Int {
+    var acc = 1
+    for i in range(n) {
+        acc = acc * (i + 1)
+    }
+    return acc
+}
+
+func squares(n: Int) -> [Int] {
+    var out = fill(n, 0)
+    var i = 0
+    while i < n {
+        out[i] = i * i
+        i += 1
+    }
+    return out
+}
+
+func main() {
+    println("{TABLE_SIZE} {FACTORIAL_5} {SQUARES[3]} {len(SQUARES)}")
+}
+```
+
+```output
+256 120 9 4
+```
+
+---
+
+## 9. The standard library
+
+The standard library is a set of Iron declarations (in `src/stdlib/`)
+whose bodies are provided by the C runtime. Modules marked *import* must be
+imported by name (section 5.9); the rest is always available. Functions on a
+module object are called as `Module.function(args)`; methods are called on
+values.
+
+### 9.1 Built-in functions
+
+These are available everywhere without an import.
+
+| Function | Description |
+|---|---|
+| `println(s: String)` | writes `s` and a newline to standard output |
+| `print(s: String)` | writes `s` without a newline |
+| `len(x) -> Int` | number of elements of a list, array or vector, or characters of a string |
+| `range(n: Int)` | the sequence `0 .. n-1`, only valid as the iterable of `for` |
+| `fill(n: Int, v: T) -> [T]` | a list of `n` copies of `v` |
+| `min(a: Int, b: Int) -> Int`, `max(a: Int, b: Int) -> Int` | smaller or larger of two integers |
+| `clamp(x: Int, lo: Int, hi: Int) -> Int` | `x` limited to `[lo, hi]` |
+| `abs(x: Int) -> Int` | absolute value |
+| `assert(cond: Bool)`, `assert(cond: Bool, msg: String)` | abort with `msg` (or the source location) when `cond` is false |
+| `read_file(path: String) -> String` | file contents, only inside `comptime` |
+
+`print` and `println` take exactly one `String`; interpolate other values.
+`min`, `max`, `clamp` and `abs` are `Int` only (use `Math` for floats).
+
+```iron
+func main() {
+    println("{min(3, 9)} {max(3, 9)} {clamp(15, 0, 10)} {abs(-4)}")
+    print("no newline, ")
+    println("then one")
+    assert(len("abc") == 3, "len counts characters")
+}
+```
+
+```output
+3 9 10 4
+no newline, then one
+```
+
+### 9.2 `String` methods
+
+All string methods are `readonly`; indexes count characters from 0 and a
+missing substring gives `-1`.
+
+| Method | Description |
+|---|---|
+| `len() -> Int`, `byte_len() -> Int` | characters, bytes |
+| `upper() -> String`, `lower() -> String`, `trim() -> String` | case and whitespace |
+| `contains(sub) -> Bool`, `starts_with(p) -> Bool`, `ends_with(s) -> Bool` | tests |
+| `index_of(sub) -> Int`, `rindex_of(sub) -> Int`, `count(sub) -> Int` | search |
+| `split(sep: String) -> [String]`, `chars() -> [String]` | split into parts or characters |
+| `join(parts: [String]) -> String` | join `parts` with the receiver as separator |
+| `replace(old, new) -> String`, `repeat(n) -> String` | rewriting |
+| `substring(start, end) -> String`, `char_at(i) -> String` | slices (end exclusive) |
+| `pad_left(width, ch) -> String`, `pad_right(width, ch) -> String` | padding |
+| `to_int() -> Int`, `to_float() -> Float` | parsing (0 when not a number) |
+| `byte_at(i) -> Int`, `String.from_byte(b: Int) -> String` | byte access |
+| `release()` | does nothing (kept for source compatibility) |
+
+`Int`, `Int32` and `Float` have a `to_string() -> String` method. `s[i]`
+is `s.char_at(i)` and `s[a..b]` is `s.substring(a, b)`.
+
+```iron
+func main() {
+    val s = "Hello, Wörld"
+    println("{s.len()} {s.byte_len()} {s.upper()} {s.index_of("o")} {s.rindex_of("o")}")
+    println("{s.substring(7, 12)} {s.char_at(8)} {s.count("l")} {s.replace("l", "L")}")
+    val parts = "a,b,,c".split(",")
+    println("{parts.len()} {parts[2].len()} {",".join(["x", "y"])}")
+    println("[{"  x ".trim()}] {"ab".repeat(3)} {"7".pad_left(3, "0")} {"7".pad_right(3, "-")}")
+    println("{s.byte_at(0)} {String.from_byte(65)} {"abc".chars()[1]} {s[0]} {s[0..5]}")
+}
+```
+
+```output
+12 13 HELLO, WÖRLD 4 4
+Wörld ö 3 HeLLo, WörLd
+4 0 x,y
+[x] ababab 007 7--
+72 A b H Hello
+```
+
+### 9.3 List methods
+
+Methods on `[T]` (and, where noted, on fixed arrays, bounded vectors and
+`rc [T]`). Mutating methods need a `var` list.
+
+| Method | Description |
+|---|---|
+| `len() -> Int` | number of elements (also `len(xs)`) |
+| `push(v: T)`, `pop() -> T` | append, remove and return the last element |
+| `insert(i: Int, v: T)`, `remove(i: Int) -> T` | insert before / remove at index |
+| `get(i: Int) -> T`, `set(i: Int, v: T)` | checked element access (same as `xs[i]`) |
+| `get_unchecked(i: Int) -> T`, `set_unchecked(i: Int, v: T)` | access without the bounds check |
+| `clear()`, `reverse()`, `sort()` | in place; `sort` orders `Int`, `Float` and `String` ascending |
+| `contains(v: T) -> Bool` | membership |
+| `copy() -> [T]`, `take() -> [T]` | independent copy; move the contents out |
+| `map(f: func(T) -> U) -> [U]` | transform |
+| `filter(f: func(T) -> Bool) -> [T]` | keep matching elements |
+| `reduce(init: U, f: func(U, T) -> U) -> U` | fold |
+| `forEach(f: func(T))` | call `f` on each element |
+| `sum() -> T` | sum of an `[Int]` or `[Float]` |
+
+The lambdas passed to `map`, `filter`, `reduce` and `forEach` must write
+their parameter types. Chains of `map`/`filter`/`reduce` calls are fused
+into one loop by the optimizer.
+
+```iron
+func main() {
+    val ys = [1, 2, 3, 4, 5]
+    val squares = ys.map(func(x: Int) -> Int { return x * x })
+    val evens = ys.filter(func(x: Int) -> Bool { return x % 2 == 0 })
+    val total = ys.reduce(0, func(acc: Int, x: Int) -> Int { return acc + x })
+    val labels = ys.map(func(x: Int) -> String { return "n{x}" })
+    println("{squares[4]} {evens.len()} {total} {ys.sum()} {labels[0]}")
+    ys.forEach(func(x: Int) { print("{x},") })
+    println("")
+    var xs = [5, 6, 7, 8]
+    xs.set(1, 60)
+    val removed = xs.remove(0)
+    xs.reverse()
+    val popped = xs.pop()
+    println("{removed} {popped} {xs.get(0)} {xs.len()}")
+    var words = ["b", "c", "a"]
+    words.sort()
+    println("{words[0]}{words[1]}{words[2]}")
+}
+```
+
+```output
+25 2 15 15 n1
+1,2,3,4,5,
+5 60 8 2
+abc
+```
+
+### 9.4 `math` (import)
+
+`Math` has the constants `Math.PI`, `Math.TAU` and `Math.E` and the
+functions `sin`, `cos`, `tan`, `asin`, `acos`, `sqrt`, `floor`, `ceil`,
+`round`, `log`, `log2`, `exp` (all `(x: Float) -> Float`), `atan2(y, x)`,
+`pow(base, exp)`, `hypot(a, b)`, `lerp(a, b, t)` (`Float` arguments and
+results), `sign(x: Float) -> Int`, `random() -> Float` in `[0, 1)`,
+`random_float(min, max) -> Float`, `random_int(min: Int, max: Int) -> Int`
+(inclusive) and `seed(n: Int)`.
+
+```iron
+import math
+
+func main() {
+    println("{Math.PI > 3.14} {Math.floor(2.7)} {Math.pow(2.0, 10.0)} {Math.sign(-2.5)}")
+    Math.seed(42)
+    val r = Math.random()
+    println("{r >= 0.0 and r < 1.0} {Math.random_int(3, 3)} {Math.hypot(3.0, 4.0)}")
+}
+```
+
+```output
+true 2 1024 -1
+true 3 5
+```
+
+### 9.5 `io` (import)
+
+Simple functions on `IO`:
+
+| Function | Description |
+|---|---|
+| `read_file(path) -> String`, `write_file(path, content)`, `append_file(path, content)` | whole-file text I/O (an unreadable file reads as `""`) |
+| `read_lines(path) -> [String]` | the lines of a file |
+| `read_line() -> String` | one line from standard input |
+| `file_exists(path) -> Bool`, `is_dir(path) -> Bool` | tests |
+| `create_dir(path)`, `delete_file(path)` | directories and deletion |
+| `list_files(dir) -> String` | the entries of a directory, one per line |
+| `basename(path)`, `dirname(path)`, `extension(path)`, `join_path(a, b)` | path helpers (`extension` has no leading dot) |
+
+Result-returning functions, which report errors in the value instead of
+failing silently:
+
+| Function | Result |
+|---|---|
+| `read_text(path, max_bytes)`, `read_bytes(path, max_bytes)` | `FileReadResult { data: String, error: Int, error_message: String }` |
+| `write_text(path, content)`, `write_bytes(path, content)`, `append_text(path, content)`, `append_bytes(path, content)` | `FileWriteResult { bytes: Int, error: Int, error_message: String }` |
+| `copy_file(src, dst, overwrite: Bool)`, `move_file(src, dst, overwrite: Bool)` | `FileWriteResult` |
+| `file_info(path)` | `FileInfo { exists, is_file, is_dir: Bool, size, modified_unix, error: Int, error_message: String }` |
+
+`error` is 0 on success. `FileHandle.open(path) -> FileHandle` and
+`h.close()` give a `nocopy` handle to an open file descriptor (`h.fd`)
+that closes itself when dropped.
+
+```iron
+import io
+
+func main() {
+    val path = "/tmp/iron_manual_io.txt"
+    val w = IO.write_text(path, "one\ntwo\n")
+    val r = IO.read_text(path, 1024)
+    val lines = IO.read_lines(path)
+    val info = IO.file_info(path)
+    println("{w.error} {w.bytes} {r.error} {r.data.len()} {lines[1]} {info.size}")
+    val missing = IO.read_text("/tmp/iron_manual_missing_file", 16)
+    println("{missing.error != 0} {IO.extension("a/b.iron")} {IO.basename("a/b.iron")} {IO.join_path("a", "b")}")
+    IO.delete_file(path)
+    println("{IO.file_exists(path)}")
+}
+```
+
+```output
+0 8 0 8 two 8
+true iron b.iron a/b
+false
+```
+
+### 9.6 `time` (import)
+
+`Time.now() -> Float` (seconds since the Unix epoch), `Time.now_ms() -> Int`
+and `Time.now_ns() -> Int` (milliseconds and nanoseconds), `Time.sleep(ms:
+Int)`, `Time.since(start: Float) -> Float` (seconds elapsed since a
+`Time.now()` value), and `Time.Timer(seconds: Float) -> Timer` with the
+fields `elapsed_ms` and `duration_ms` and the methods `done() -> Bool`,
+`update(dt: Float)` and `reset()` (the last two need a `var` timer).
+`Duration` is a millisecond value type built with `Duration.millis(n)`,
+`Duration.seconds(n)`, `Duration.minutes(n)` or `Duration.from_ms(n)`,
+read with `d.ms` or `d.to_ms()`.
+
+```iron
+import time
+
+func main() {
+    val started = Time.now_ms()
+    Time.sleep(5)
+    println("{Time.now_ms() - started >= 5} {Duration.seconds(2).to_ms()} {Time.Timer(0.5).done()}")
+}
+```
+
+```output
+true 2000 false
+```
+
+### 9.7 `log` (import)
+
+`Log.debug(msg)`, `Log.info(msg)`, `Log.warn(msg)` and `Log.error(msg)`
+write a timestamped line to standard error; `Log.set_level(level)` with
+`Log.DEBUG`, `Log.INFO`, `Log.WARN` or `Log.ERROR` hides messages below
+the level.
+
+### 9.8 `hint` (import)
+
+`Hint.black_box(x: Int) -> Int` returns its argument while preventing the
+C optimizer from reasoning about it; it exists for benchmarks.
+
+### 9.9 Memory and concurrency types
+
+These are always available and are described in sections 6 and 7:
+
+| Type | API |
+|---|---|
+| `Box[T]` (nocopy) | `Box.new(v) -> Box[T]`, `Box.null() -> Box[T]`, `b.unwrap() -> *var unchecked T`, `b.is_null() -> Bool`, `b.free()` |
+| `Arena` | `Arena.new(bytes)`, `Arena.with_capacity(bytes)`, `Arena.new_threadsafe(bytes)`, `a.save() -> ArenaSave`, `a.restore(p: ArenaSave)`, `a.reset()`, `a.used() -> Int`, `a.capacity() -> Int` |
+| `RawPtr` | `RawPtr.of(x) -> RawPtr`, `Ptr.cast[T](raw) -> *unchecked T` |
+| `Channel[T]` (nocopy) | `Channel.new(capacity: Int)`, `ch.send(v: T)`, `ch.recv() -> T` |
+| `Mutex[T]`, `MutexGuard[T]` (nocopy) | `Mutex.new(v)`, `m.lock() -> MutexGuard[T]`, `g.get() -> T`, `g.set(v: T)` |
+| `RWLock[T]`, `RWReadGuard[T]`, `RWWriteGuard[T]` (nocopy) | `RWLock.new(v)`, `l.read()`, `l.write()`, `g.get() -> T`, `g.set(v: T)` (write guard only) |
+| `FileHandle` (nocopy) | `FileHandle.open(path) -> FileHandle`, `h.close()`, field `fd: Int` |
+
+### 9.10 `Hashable`, `Map` and `Set`
+
+`Hashable` is the interface of section 5.5. `Map[K: Hashable, V]` and
+`Set[T: Hashable]` are declared as generic object types so that the
+constraint is checked, but they have no methods yet (section 12); use lists
+and objects.
+
+### 9.11 `net`, `http`, `websocket` and `url` (import)
+
+The networking modules are documented in [docs/networking.md](networking.md).
+In summary: `net` provides `Net.tcp_dial(host, port, timeout)`,
+`Net.tcp_listen(host, port)`, `TcpListener.accept`, `TcpSocket.read`,
+`TcpSocket.write`, `close`, UDP (`Net.udp_bind`, `Net.udp_sendto_v4`,
+`Net.udp_sendto_v6`, `UdpSocket.recvfrom`), `IPv4Addr` / `IPv6Addr`
+parsing and formatting and `Net.lookup_host`; every fallible call returns a
+tuple whose second element is a `NetError { code: Int }` (0 on success).
+`http` provides a server (`Http.listen`, `HttpServer.accept`,
+`HttpConnection.read_request`, `send_response`, `Http.listen_tls`), a
+client (`Http.get`, `Http.post_json`, `Http.request`, `HttpClient.open`)
+and response builders (`Http.response`, `json_response`, `html_response`,
+`text_response`, `file_response`, `Http.header`); requests and responses
+are objects with `status`, `headers`, `body`, `error` and `error_message`
+fields. `websocket` provides `WebSocket.connect` (and the `_with_ca`,
+`_insecure` and `_with_protocols` variants), `send_text`, `send_bytes`,
+`ping`, `receive`, `close`, `abort`, `is_open` and the server side
+`HttpConnection.upgrade_websocket`. `url` provides `Url.parse(s) ->
+(Url, UrlError)`, `Url.build(u)`, `Url.resolve(base, ref)`,
+`Url.percent_encode`, `Url.percent_decode` and a `Url.builder()`.
+All timeouts are integer milliseconds.
+
+### 9.12 `raylib` (import)
+
+`import raylib` makes the raylib bindings available: the objects
+`Vector2`, `Vector3`, `Color`, `Rectangle`, `Texture`, `Font` and so on,
+the enums `KeyboardKey`, `MouseButton`, `ConfigFlags` and others, and the
+functions as `snake_case` methods on namespace objects (`Window.init`,
+`Window.should_close`, `Draw.begin`, `Draw.text`, `Input.is_key_down`, ...).
+The full binding list is `src/stdlib/raylib.iron`, and the graphics guide at
+[ironlang.dev/raylib](https://ironlang.dev/raylib/) shows complete programs.
+
+---
+
+## 10. Programs, projects and the command line
+
+### 10.1 Single files
+
+`ironc build file.iron` compiles one file to a binary next to it (`-o`
+picks the path), `ironc run file.iron` compiles and runs it, and
+`ironc check file.iron` type-checks it. `iron build file.iron`, `iron run
+file.iron` and `iron check file.iron` do the same. A single file may
+`import` only standard library modules.
+
+### 10.2 Packages
+
+`iron init name` (or `iron init --lib name`) creates a package: a
+directory with an `iron.toml` manifest, `src/main.iron` (or `src/lib.iron`
+for a library) and a `.gitignore`. Inside a package, `iron build` compiles
+every `.iron` file under `src/` and `vendor/` into `target/`, `iron run`
+builds and runs it, `iron check` type-checks the same sources, `iron test`
+compiles and runs every `tests/test_*.iron` file as a program (a test
+passes when it exits with 0) and `iron fmt file.iron` reformats a file
+(`--check` only reports). All files of a package share one namespace: a
+`pub` declaration in one file is visible in every other file, and a
+private one only in its own (`E0320`). `import` of a package file is
+optional and documents the dependency.
+
+```toml
+[package]
+name = "demo"
+version = "0.1.0"
+type = "bin"            # or "lib"
+description = "optional"
+iron = ">= 4.4.0"       # optional compiler version constraint
+```
+
+The `iron` constraint uses full `X.Y.Z` versions with the operators `>=`,
+`>`, `<=`, `<`, `=` (or no operator for an exact version), `^` (same
+major, or same minor before 1.0) and `~` (same minor), and comma-separated
+clauses are combined with AND (`">= 4.0.0, < 5.0.0"`). A pre-release such
+as `4.4.0-alpha` sorts before `4.4.0`. A mismatch stops the build with the
+version to install. There is no `[dependencies]` table: a manifest that
+declares one fails with a vendoring hint.
+
+### 10.3 Third-party code
+
+Iron has no package manager, registry or lockfile. To use third-party
+Iron code, copy its source into `vendor/<name>/` and commit it. `iron
+build`, `iron run` and `iron check` compile every `.iron` file under
+`vendor/` together with `src/`: a vendored directory that has its own
+`iron.toml` and `src/` contributes only its `src/`, other directories
+contribute every `.iron` file recursively, and `tests/`, `examples/`,
+`target/` and hidden directories are skipped. Vendored code shares the
+package namespace, so its `pub` declarations are used directly; two
+vendored libraries that declare the same name are a duplicate declaration
+(`E0201`).
+
+### 10.4 Build flags
+
+`iron build` and `iron run` accept `-o path` / `--output path`,
+`--release` (optimized C compilation), `--no-optimize` (skip Iron's own
+IR optimizations), `--debug-build` (keep the generated C under
+`.iron-build/`), `--dump-ir-passes`, `--report-compression`,
+`--warn-fusion-break`, `--force-comptime` (ignore the comptime cache) and
+`--target=web`. `--no-strict-v3` accepts a few removed syntax forms for
+debugging old code. `--verbose` prints the generated C and the link line
+and `--version` prints the compiler version.
+
+### 10.5 The web target
+
+`iron build --target=web` compiles a package to WebAssembly with the
+Emscripten toolchain pinned in `.emsdk-version`, producing
+`dist/web/index.html` together with its `.js` loader and `.wasm` module.
+The `[web]` table of the manifest configures it:
+
+```toml
+[web]
+title = "My App"                 # page title
+shell = "custom_shell.html"      # optional HTML template
+initial_memory = 67108864        # bytes
+stack_size = 5242880             # bytes
+pthread_pool_size = 4
+assets = ["assets/sprites.png"]  # files preloaded into the virtual FS
+```
+
+A web program cannot `await` (`E0501`) and must drive its frame loop from
+`main` with a single canonical `while` loop (`E0700` to `E0703`).
+
+---
+
+## 11. Diagnostics
+
+The compiler reports errors as `error[E0nnn]` and warnings as
+`warning[W0nnn]`, each with the source location and usually a hint. The
+codes cited in this manual:
+
+| Code | Meaning |
+|---|---|
+| E0001 to E0005 | lexical errors: unterminated string, invalid character, invalid number, string too long |
+| E0101, E0102 | unexpected token, expected expression |
+| E0175, E0176 | keyword used as a binding name; field without `val` or `var` |
+| E0200, E0201 | undefined identifier; duplicate declaration |
+| E0202, E0215, E0216, E0217, E0218 | type mismatch; return type; argument count; argument type; not callable |
+| E0203, E0234, E0235, E0266 | reassigning a `val`; writing a field of a `val`; mutating call on a `val`; writing a parameter |
+| E0204 | using a nullable value without a null check |
+| E0205, E0206 | missing interface method; unsatisfied generic constraint |
+| E0207, E0212, E0213, E0214, E0274, E0275 | heap value escapes; `free`/`leak` of a non-heap value; `leak` of an `rc`; `free`/`leak` of a non-binding |
+| E0208 | write to an outer binding inside `parallel` |
+| E0209 | module not found |
+| E0210 | `self` outside a method |
+| E0219, E0220 | no such field; no such method |
+| E0222 | mixing `Int` and `Float` |
+| E0224, E0225, E0226, E0227, E0228 | non-exhaustive match; pattern arity; unreachable arm; pattern binding shadows a name; unknown variant |
+| E0229 | empty list literal without a type |
+| E0230, E0231, E0232 | comptime step limit; unsupported comptime construct; comptime error |
+| E0233 | bitwise operator on a non-integer |
+| E0237 | method name reserved by a `pub` field accessor |
+| E0238 to E0245 | method tier violations (`readonly` writes, `pure` I/O and calls, modifier placement) |
+| E0246 to E0252 | `init` rules (read before assign, unassigned field, double assign, method on partial `self`, early return, delegation, return value) |
+| E0253, E0254, E0255 | patch adds a field; patch target not found; patch redefines a method |
+| E0256, E0257 | `init` in an interface; tier mismatch with the interface |
+| E0262, E0264 | inline field default; `var` fields without an `init` |
+| E0268, E0270, E0271, E0294, E0295, E0296 | pointer arithmetic; address of a temporary; escaping stack reference; regime errors; `&` on an `rc` |
+| E0273, E0274, E0297, E0298 | `heap`/`rc`/`pool` in an invalid position |
+| E0278 | I/O in a `readonly` method |
+| E0284 to E0288 | duplicate `drop`/`copy`; copy of a `nocopy` value; `readonly drop`; early return in `drop` |
+| E0289 | checked/unchecked pointer mismatch |
+| E0293 | missing return |
+| E0299, E0301 | dereferencing a `weak rc`; `rc` inside an arena block |
+| E0310, E0311, E0312 | invalid cast; constant does not fit; constant index out of range |
+| E0314 | possibly uninitialized `var` |
+| E0320, E0321 | private declaration used from another file; standalone `func Type.method` form |
+| E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
+| E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element |
+| E0501 | `await` on the web target |
+| E0700 to E0703 | web main loop rules |
+| W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |
+| W0611, W0613, W0614 | unused import; `var` never reassigned; `var` parameter never reassigned |
+
+`docs/dev/diagnostic-codes.md` lists every code with its message.
+
+The following programs are accepted by the compiler but do not compile to
+valid C or misbehave at run time in the current release; the manual does not
+document them as features:
+
+- slicing a list (`xs[a..b]`),
+- `s += t` on strings (write `s = s + t`),
+- ordering comparisons of strings (`"a" < "b"`),
+- a named top-level function used as a value (`val f = twice`,
+  `apply(twice, 4)`, `[twice]`; wrap it in a lambda),
+- an object that has both an `init` and a `copy` block,
+- an object with a field of its own nullable type (`var next: Node?`),
+- `-> Self` in an interface method signature,
+- `Ptr.offset` and `Ptr.diff`,
+- nested `match` patterns (`A.X(B.Y(v))`) are not checked at run time,
+- duplicate integer arms in a `match`.
+
+---
+
+## 12. Not yet implemented
+
+Settled design decisions that the compiler does not implement yet, listed
+so that older material is not mistaken for the current language:
+
+- `Map[K, V]` and `Set[T]` methods (`new`, `get`, `set`, `has`, `add`, `remove`, `len`).
+- Thread pools: the `pool` keyword, `spawn("name", pool)` and `for ... parallel(pool)`.
+- Reading and writing a primitive through a pointer (`*p`).
+- Method-level generic inference for the container methods (`ch.recv()` without a written type).
+- Lambda parameter inference outside a function-typed parameter position.
+- `String`, `Bool` and `Float` subjects in `match`.
+- Windows as a host for the web target.
+
+---
+
+## 13. Complete syntax of Iron
+
+This section gives the syntax of Iron in extended BNF, one production per
+construct, as implemented by the parser in `src/parser/parser.c`.
+`{ x }` means zero or more repetitions of `x`, `[ x ]` means optional,
+`( x | y )` groups alternatives and `'x'` is a literal token. `IDENT`,
+`INT`, `FLOAT` and `STRING` are the lexical tokens of section 1; `STRING`
+covers plain, multi-line and interpolated strings. `NAME` is an identifier
+or one of the keywords allowed in name position. Newlines and comments are
+not part of the grammar: the parser skips them between any two tokens (see
+section 1.6). The grammar is checked against the fixture corpus by
+`scripts/grammar_check.py`.
+
+```ebnf
+program        ::= { decl }
+
+decl           ::= import_decl
+                 | val_decl
+                 | var_decl
+                 | [ 'nocopy' ] [ 'pub' ] object_decl
+                 | [ 'pub' ] ( func_decl | extern_decl | patch_decl | interface_decl | enum_decl | array_ext_decl )
+
+import_decl    ::= 'import' IDENT { '.' IDENT }
+func_decl      ::= [ '@' 'fusible' ] 'func' IDENT [ generic_params ] param_list [ '->' type ] block
+extern_decl    ::= 'extern' 'func' IDENT param_list [ '->' type ]
+array_ext_decl ::= 'func' '[' IDENT ']' '.' NAME [ generic_params ] param_list [ '->' type ] block
+generic_params ::= '[' generic_param { ',' generic_param } [ ',' ] ']'
+generic_param  ::= IDENT [ ':' IDENT ]
+param_list     ::= '(' [ param { ',' param } [ ',' ] ] ')'
+param          ::= [ 'val' | 'var' ] NAME [ ':' type ]
+
+object_decl    ::= 'object' IDENT [ generic_params ] [ impl_clause ] '{' { member } '}'
+impl_clause    ::= 'impl' IDENT { ',' IDENT }
+member         ::= [ 'pub' ] [ 'readonly' | 'pure' ] ( field | method | init_decl | 'copy' block | 'drop' block )
+field          ::= ( 'val' | 'var' ) IDENT ':' type
+method         ::= 'func' NAME [ generic_params ] param_list [ '->' type ] block
+init_decl      ::= 'init' [ IDENT ] param_list block
+
+patch_decl     ::= 'patch' 'object' IDENT [ impl_clause ] '{' { patch_member } '}'
+patch_member   ::= [ 'pub' ] [ 'readonly' | 'pure' ] ( method | init_decl | 'copy' block | 'drop' block )
+
+interface_decl ::= 'interface' IDENT '{' { iface_method } '}'
+iface_method   ::= [ 'readonly' | 'pure' ] 'func' IDENT param_list [ '->' type ] [ block ]
+
+enum_decl      ::= 'enum' IDENT [ generic_params ] '{' [ variant { ',' variant } [ ',' ] ] '}'
+variant        ::= IDENT [ '(' type { ',' type } [ ',' ] ')' | '=' INT ]
+
+val_decl       ::= 'val' ( binding [ ':' type ] [ '=' init_expr ]
+                         | '(' binding { ',' binding } [ ',' ] ')' [ ':' type ] '=' expr )
+var_decl       ::= 'var' binding [ ':' type ] [ '=' init_expr ]
+binding        ::= IDENT | '_'
+init_expr      ::= spawn_expr | expr
+
+block          ::= '{' { stmt } '}'
+stmt           ::= val_decl | var_decl | return_stmt | if_stmt | while_stmt | for_stmt
+                 | match_stmt | defer_stmt | free_stmt | leak_stmt | in_arena_stmt
+                 | spawn_expr | block | expr_stmt
+return_stmt    ::= 'return' [ expr ]
+if_stmt        ::= 'if' expr block { 'elif' expr block } [ 'else' block ]
+while_stmt     ::= 'while' expr block
+for_stmt       ::= 'for' IDENT 'in' expr [ 'parallel' [ '(' expr ')' ] ] block
+match_stmt     ::= 'match' expr '{' { match_arm } [ 'else' '->' arm_body ] '}'
+match_arm      ::= pattern '->' arm_body
+arm_body       ::= block | stmt
+pattern        ::= [ IDENT '.' ] IDENT [ '(' [ sub_pattern { ',' sub_pattern } [ ',' ] ] ')' ]
+                 | expr
+sub_pattern    ::= '_' | IDENT '.' IDENT [ '(' [ sub_pattern { ',' sub_pattern } [ ',' ] ] ')' ] | IDENT
+defer_stmt     ::= 'defer' ( 'free' expr | block | stmt )
+free_stmt      ::= 'free' expr
+leak_stmt      ::= 'leak' expr
+in_arena_stmt  ::= 'in' expr block
+spawn_expr     ::= 'spawn' '(' STRING [ ',' expr ] ')' block
+expr_stmt      ::= expr [ assign_op expr ]
+assign_op      ::= '=' | '+=' | '-=' | '*=' | '/=' | '<<=' | '>>=' | '&=' | '|=' | '^='
+
+expr           ::= unary { binary_op unary | 'is' IDENT }
+binary_op      ::= 'or' | 'and' | '|' | '^' | '&' | '==' | '!=' | '<' | '>' | '<=' | '>='
+                 | '<<' | '>>' | '+' | '-' | '*' | '/' | '%'
+unary          ::= '-' unary | 'not' unary | '~' unary | '&' unary
+                 | 'heap' [ heap_opts ] unary | 'rc' unary | 'weak' 'rc' ( 'null' | unary )
+                 | 'comptime' unary | 'await' unary | postfix
+heap_opts      ::= '(' heap_opt { ',' heap_opt } ')'
+heap_opt       ::= 'in' ':' expr | 'allow_drop_skip' ':' ( 'true' | 'false' )
+postfix        ::= primary { '.' NAME [ type_args ] [ call_args ]
+                           | '[' expr [ '..' [ expr ] ] ']'
+                           | call_args }
+call_args      ::= '(' [ expr { ',' expr } [ ',' ] ] ')'
+type_args      ::= '[' type { ',' type } ']'
+primary        ::= INT | FLOAT | STRING | 'true' | 'false' | 'null' | IDENT | 'self'
+                 | '(' expr ')'
+                 | '(' expr ',' expr { ',' expr } [ ',' ] ')'
+                 | '[' type ';' expr ']'
+                 | '[' [ expr { ',' expr } [ ',' ] ] ']'
+                 | lambda
+lambda         ::= 'func' param_list [ '->' type ] block
+
+type           ::= 'weak' 'rc' type
+                 | 'rc' type
+                 | [ '?' ] ptr_type
+                 | tuple_type
+                 | list_type
+                 | func_type
+                 | named_type
+ptr_type       ::= '*' [ 'var' ] [ 'unchecked' ] type
+tuple_type     ::= '(' type ',' type { ',' type } ')'
+list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']'
+elem_type      ::= func_type | 'rc' type | 'weak' 'rc' type | list_type | ptr_type | tuple_type | IDENT
+list_attr      ::= 'layout' ':' ( 'soa' | 'aos' ) | 'unordered'
+func_type      ::= 'func' [ '(' [ type { ',' type } ] ')' ] [ '->' type ]
+named_type     ::= IDENT '?' [ type_args ] | IDENT [ type_args ] [ '?' ]
+
+NAME           ::= IDENT | 'init' | 'copy' | 'drop' | 'null' | 'free'
+```
+
+Operator precedence is given in section 3.1: `expr` is parsed by
+precedence climbing over the flat sequence of `unary` operands and
+operators, with every binary operator left associative and `is` binding
+loosest of all. In `postfix`, `X.Y(args)` and `X.Y` where `X` and `Y` both
+start with an uppercase letter denote an enum variant construction, and
+`x.m[T](args)` is only read as a generic method call when the token after
+`[` is a type name starting with an uppercase letter or `[`. In `pattern`,
+the first alternative is used when the arm starts with `IDENT '.'` or with
+an uppercase identifier followed by `(`, and `expr` otherwise. The
+standalone forms `func Type.method()` and `func (r: T) method()` are
+recognized only to report `E0321` and `E0260`; `array_ext_decl` is used by
+the standard library and cannot be implemented in user code.

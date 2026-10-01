@@ -31,6 +31,18 @@
 /* Process-global allocation-id counter; declaration in iron_runtime.h. */
 iron_atomic_u64 iron_alloc_id_counter;
 
+/* Process-global generation source. Every allocation takes a generation no
+ * earlier allocation ever had, so a pointer into a freed block stays stale
+ * when the allocator hands the same address out again. gen=0 stays the
+ * null / freed sentinel; the first generation issued is 1. */
+iron_atomic_u64 iron_heap_gen_counter = 1;
+
+uint64_t iron_heap_next_gen(void) {
+    uint64_t g = IRON_ATOMIC_U64_FETCH_ADD_RELAXED(iron_heap_gen_counter, 1);
+    if (g == 0) iron_oom_abort("iron_heap_alloc: generation counter overflow");
+    return g;
+}
+
 /* Phase 20 PTR-10: per-thread stack-frame generation counter.
  *
  * Initial value 1 keeps gen=0 reserved as the freed-sentinel value per
@@ -206,8 +218,7 @@ Iron_FatPtr iron_heap_alloc(const char *site_file, int site_line, size_t size) {
     }
     IronAllocHdr *hdr = (IronAllocHdr *)block;
 
-    /* gen=0 reserved for null-sentinel; first valid gen is 1. */
-    IRON_ATOMIC_U64_INIT(hdr->gen, 1);
+    IRON_ATOMIC_U64_INIT(hdr->gen, iron_heap_next_gen());
     hdr->size = (uint64_t)size;
 
 #ifdef IRON_DEBUG_ALLOCATOR

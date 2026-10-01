@@ -23,6 +23,12 @@
 #              (e.g. integration, algorithms, composite, manual)
 #   iron:      Path to iron binary; defaults to ./build/iron relative to
 #              the project root (two levels above this script)
+#
+# Fixtures build and run on a worker pool sized to half the core count
+# (IRON_TEST_JOBS=N overrides it; 1 runs them inline). Each worker is this
+# script re-invoked for one fixture (IRON_TEST_ONE), writing its console
+# lines and verdict under a results directory; the driver replays them in
+# corpus order, so the report is the same as a serial run's.
 
 set -euo pipefail
 
@@ -103,10 +109,12 @@ FAIL=0
 XFAIL=0
 TOTAL=0
 
-echo "=== Iron ${CATEGORY} Tests ==="
-echo "Using: ${IRON_BIN}"
-echo "Dir:   ${TEST_DIR}"
-echo ""
+if [ -z "${IRON_TEST_ONE:-}" ]; then
+    echo "=== Iron ${CATEGORY} Tests ==="
+    echo "Using: ${IRON_BIN}"
+    echo "Dir:   ${TEST_DIR}"
+    echo ""
+fi
 
 # Create a per-run temp directory for compiled binaries
 WORK_DIR=$(mktemp -d /tmp/iron_test_XXXXXX)
@@ -124,7 +132,7 @@ shopt -s nullglob
 # check (E0320) sees real per-file source identity.
 #
 # A fixture directory without an `expected` sibling is treated as compile-only.
-if [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/multi_file" ]; then
+if [ -z "${IRON_TEST_ONE:-}" ] && [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/multi_file" ]; then
     for case_dir in "${TEST_DIR}/multi_file"/*/; do
         [ -d "${case_dir}" ] || continue
         case_name="$(basename "${case_dir}")"
@@ -204,7 +212,7 @@ fi
 # (an unmodified library project and loose .iron files). The runner builds
 # the project with `iron build`, runs the produced binary, and compares
 # stdout to the case's `expected` file.
-if [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/vendor_consume" ]; then
+if [ -z "${IRON_TEST_ONE:-}" ] && [ "${CATEGORY}" = "integration" ] && [ -d "${TEST_DIR}/vendor_consume" ]; then
     IRON_BIN_DIR="$(dirname "${IRON_BIN}")"
     for case_dir in "${TEST_DIR}/vendor_consume"/*/; do
         [ -f "${case_dir}iron.toml" ] || continue
@@ -313,8 +321,14 @@ else
     done
 fi
 
-for test_file in ${_main_loop_files}; do
-    [ -f "${test_file}" ] || continue
+# One fixture: build, run, classify. Prints the fixture's console lines
+# and writes its verdict (PASS / FAIL / XFAIL) to RESULT_FILE, so it can
+# run on its own in a worker process (see the driver below).
+run_one_fixture() {
+    local test_file="$1"
+    local test_name expected_file compile_only expected_pass_after expect_panic_substr
+    local xfail_dir build_rc build_dir build_stderr output_bin run_output run_rc actual expected
+    echo FAIL > "${RESULT_FILE}"   # a worker that dies mid-way counts as a failure
     test_name=$(basename "${test_file}" .iron)
     # v4 fixtures live in §-section subdirs; derive expected_file from the sibling path.
     if [ "${CATEGORY}" = "v4" ] || [ "${CATEGORY}" = "v4-migrated" ]; then
@@ -322,7 +336,6 @@ for test_file in ${_main_loop_files}; do
     else
         expected_file="${TEST_DIR}/${test_name}.expected"
     fi
-    TOTAL=$((TOTAL + 1))
 
     # @compile-only marker: grep the first 10 lines of the .iron source.
     # Files that opt in only need to build successfully — no binary run,
@@ -349,8 +362,8 @@ for test_file in ${_main_loop_files}; do
 
     if [ ! -f "${expected_file}" ] && [ "${compile_only}" -eq 0 ] && [ -z "${expect_panic_substr}" ] && [ -z "${expected_pass_after}" ]; then
         echo "[FAIL] ${test_name} (missing .expected; add an .expected sibling or an '-- @compile-only' marker)"
-        FAIL=$((FAIL + 1))
-        continue
+        echo FAIL > "${RESULT_FILE}"
+        return 0
     fi
 
     echo -n "[RUN ] ${test_name} ... "
@@ -368,8 +381,8 @@ for test_file in ${_main_loop_files}; do
         if [ "${build_rc}" -ne 0 ]; then
             rm -rf "${xfail_dir}"
             echo "[XFAIL] (build failed; expected-pass-after: phase-${expected_pass_after})"
-            XFAIL=$((XFAIL + 1))
-            continue
+            echo XFAIL > "${RESULT_FILE}"
+            return 0
         fi
         # Unexpected success — clean up the XFAIL dir and fall through to normal pipeline classify
         rm -rf "${xfail_dir}"
@@ -385,23 +398,23 @@ for test_file in ${_main_loop_files}; do
     if ! (cd "${build_dir}" && "${IRON_BIN}" build "${test_file}") 2>"${build_stderr}"; then
         echo "[FAIL] (build failed)"
         cat "${build_stderr}" >&2
-        FAIL=$((FAIL + 1))
-        continue
+        echo FAIL > "${RESULT_FILE}"
+        return 0
     fi
 
     output_bin="${build_dir}/${test_name}"
     if [ ! -x "${output_bin}" ]; then
         echo "[FAIL] (binary not found at ${output_bin})"
-        FAIL=$((FAIL + 1))
-        continue
+        echo FAIL > "${RESULT_FILE}"
+        return 0
     fi
 
     # Compile-only tests end here — we've proved the build succeeds and
     # the binary landed on disk. Running would block on a GUI/display.
     if [ "${compile_only}" -eq 1 ]; then
         echo "[PASS] (compile-only)"
-        PASS=$((PASS + 1))
-        continue
+        echo PASS > "${RESULT_FILE}"
+        return 0
     fi
 
     # @expect-panic: build, run, expect non-zero exit + stderr substring.
@@ -413,31 +426,31 @@ for test_file in ${_main_loop_files}; do
         if [ "${run_rc}" -eq 0 ]; then
             if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
                 echo "[XFAIL] (@expect-panic: no panic yet; expected-pass-after: phase-${expected_pass_after})"
-                XFAIL=$((XFAIL + 1))
+                echo XFAIL > "${RESULT_FILE}"
             else
                 echo "[FAIL] (@expect-panic: expected non-zero exit)"
-                FAIL=$((FAIL + 1))
+                echo FAIL > "${RESULT_FILE}"
             fi
         elif ! echo "${run_output}" | grep -qF "${expect_panic_substr}"; then
             if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
                 echo "[XFAIL] (@expect-panic: panic missing substring; expected-pass-after: phase-${expected_pass_after})"
-                XFAIL=$((XFAIL + 1))
+                echo XFAIL > "${RESULT_FILE}"
             else
                 echo "[FAIL] (@expect-panic: stderr missing '${expect_panic_substr}', exit ${run_rc})"
                 printf '%s\n' "${run_output}" | head -20 >&2
-                FAIL=$((FAIL + 1))
+                echo FAIL > "${RESULT_FILE}"
             fi
         else
             if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
                 # A fixed gap must not stay parked behind its marker.
                 echo "[FAIL] (stale XFAIL: panics as expected; remove @expected-pass-after: phase-${expected_pass_after})"
-                FAIL=$((FAIL + 1))
+                echo FAIL > "${RESULT_FILE}"
             else
                 echo "[PASS] (@expect-panic)"
-                PASS=$((PASS + 1))
+                echo PASS > "${RESULT_FILE}"
             fi
         fi
-        continue
+        return 0
     fi
 
     # Run and capture stdout+stderr
@@ -451,26 +464,79 @@ for test_file in ${_main_loop_files}; do
         if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
             # A fixed gap must not stay parked behind its marker.
             echo "[FAIL] (stale XFAIL: build and output are correct; remove @expected-pass-after: phase-${expected_pass_after})"
-            FAIL=$((FAIL + 1))
+            echo FAIL > "${RESULT_FILE}"
         elif ! noopt_parity_check "${test_file}" "${test_name}" "${expected}"; then
-            FAIL=$((FAIL + 1))
+            echo FAIL > "${RESULT_FILE}"
         else
             echo "[PASS]"
-            PASS=$((PASS + 1))
+            echo PASS > "${RESULT_FILE}"
         fi
     else
         if [ -n "${expected_pass_after}" ] && classify_xfail "${expected_pass_after}"; then
             echo "[XFAIL] (output mismatch; expected-pass-after: phase-${expected_pass_after})"
             echo "  Expected: $(echo "${expected}" | head -5)"
             echo "  Actual:   $(echo "${actual}" | head -5)"
-            XFAIL=$((XFAIL + 1))
+            echo XFAIL > "${RESULT_FILE}"
         else
             echo "[FAIL]"
             echo "  Expected: $(echo "${expected}" | head -5)"
             echo "  Actual:   $(echo "${actual}" | head -5)"
-            FAIL=$((FAIL + 1))
+            echo FAIL > "${RESULT_FILE}"
         fi
     fi
+}
+
+# Worker mode: a third argument names the single fixture to run. The
+# verdict goes to IRON_TEST_RESULTS/<key>.status and the console lines to
+# stdout (the driver redirects them to <key>.log and replays them in order).
+if [ -n "${IRON_TEST_ONE:-}" ]; then
+    RESULT_FILE="${IRON_TEST_RESULTS}/$(echo "${IRON_TEST_ONE}" | tr '/' '_').status"
+    run_one_fixture "${IRON_TEST_ONE}"
+    exit 0
+fi
+
+# Driver: the fixture builds are independent, so they run on a worker
+# pool sized to the core count (IRON_TEST_JOBS overrides; 1 runs them
+# inline). Output is replayed in corpus order once every worker is done,
+# so the report reads exactly as the serial one did.
+JOBS="${IRON_TEST_JOBS:-}"
+if [ -z "${JOBS}" ]; then
+    # Half the cores: ctest runs several of these runners side by side
+    # (-j4 in CI) next to the optimizer parity oracle, which starved when
+    # every runner took all of them.
+    JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+    JOBS=$((JOBS / 2))
+    [ "${JOBS}" -lt 2 ] && JOBS=2
+fi
+RESULTS_DIR="${WORK_DIR}/results"
+mkdir -p "${RESULTS_DIR}"
+_ordered_files=""
+for test_file in ${_main_loop_files}; do
+    [ -f "${test_file}" ] || continue
+    _ordered_files="${_ordered_files}${test_file}
+"
+done
+if [ -n "${_ordered_files}" ] && [ "${JOBS}" -gt 1 ]; then
+    printf '%s' "${_ordered_files}" \
+        | IRON_TEST_RESULTS="${RESULTS_DIR}" IRON_TEST_CATEGORY="${CATEGORY}" \
+          IRON_TEST_BIN="${IRON_BIN}" \
+          xargs -P "${JOBS}" -n 1 sh -c 'IRON_TEST_ONE="$1" bash "$0" "${IRON_TEST_CATEGORY}" "${IRON_TEST_BIN}" > "${IRON_TEST_RESULTS}/$(echo "$1" | tr / _).log" 2>&1' "${BASH_SOURCE[0]}"
+fi
+for test_file in ${_ordered_files}; do
+    TOTAL=$((TOTAL + 1))
+    _key="$(echo "${test_file}" | tr '/' '_')"
+    RESULT_FILE="${RESULTS_DIR}/${_key}.status"
+    if [ "${JOBS}" -gt 1 ]; then
+        [ -f "${RESULTS_DIR}/${_key}.log" ] && cat "${RESULTS_DIR}/${_key}.log"
+    else
+        run_one_fixture "${test_file}"
+    fi
+    case "$(cat "${RESULT_FILE}" 2>/dev/null)" in
+        PASS)  PASS=$((PASS + 1)) ;;
+        XFAIL) XFAIL=$((XFAIL + 1)) ;;
+        *)     [ -f "${RESULT_FILE}" ] || echo "[FAIL] $(basename "${test_file}" .iron) (worker produced no verdict)"
+               FAIL=$((FAIL + 1)) ;;
+    esac
 done
 
 # Negative corpora: build MUST fail + stderr MUST contain .expected substring.
