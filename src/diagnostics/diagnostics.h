@@ -559,6 +559,8 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_LIST_IMPLICIT_COPY       328   /* a list place given a second owner without copy() / take() (#174) */
 #define IRON_ERR_UNORDERED_POSITION       329   /* indexing an [T, unordered] list, whose elements have no stable position */
 #define IRON_ERR_PTR_INTO_LIST            330   /* `&list[i]`: a growable list may move its elements */
+#define IRON_ERR_ARRAY_EXT_BODY           331   /* `func [T].m() { ... }` with a body: only the stdlib's intrinsic stubs exist */
+#define IRON_ERR_NESTED_PATTERN           332   /* `A.X(B.Y(v))` where B has several variants: the inner tag is not tested at run time */
 
 /* Lowering error codes (400 range) */
 #define IRON_ERR_LOWER_UNSUPPORTED         400
@@ -577,7 +579,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_HIR_STRUCTURAL            507
 
 /* Warning codes (600 range) */
-#define IRON_WARN_SPAWN_NO_HANDLE     600
+#define IRON_WARN_SPAWN_NO_HANDLE     600   /* RETIRED: a standalone `spawn` is a deliberately detached task; never emitted */
 /* Phase 3 NAV-14 (T-03-01): `///` doc-comment body exceeded the 8 KB per-line
  * cap. Body is truncated; a NOTE-level diagnostic is emitted so the user can
  * see why their `///` text stopped mid-sentence. */

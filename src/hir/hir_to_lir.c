@@ -4517,6 +4517,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 type_needs_drop(ret_type, ctx->program) &&
                 hmgeti(ctx->var_alloca_map, rv->ident.var_id) >= 0) {
                 ctx->moved_slot = hmget(ctx->var_alloca_map, rv->ident.var_id);
+            } else if (ctx->cur_is_init && rv->kind == IRON_HIR_EXPR_IDENT &&
+                       rv->ident.name && strcmp(rv->ident.name, "self") == 0) {
+                /* init hands the object it built to the caller as is: the
+                 * self parameter is the object's own storage, not a copy. */
             } else if (!type_is_rc_like(ret_type)) {
                 ret_val = copy_for_new_owner(ctx, rv, ret_val, ret_type, span);
             }

@@ -1,0 +1,14 @@
+-- A self-referential object goes through `rc T?`; a `T?` field of the
+-- object's own type is a circular by-value type (E0223) (#211).
+object Node {
+    val value: Int
+    val next: rc Node?
+}
+func main() {
+    val tail = rc Node(2, null)
+    val head = rc Node(1, tail)
+    val nx = head.next
+    if nx != null {
+        println("{head.value} -> {nx.value}")
+    }
+}

@@ -1,0 +1,9 @@
+enum Shape { Circle(Float), Rect(Float, Float) }
+enum Wrapper { Some(Shape), None }
+func main() {
+    val w = Wrapper.Some(Shape.Rect(1.0, 2.0))
+    match w {
+        Wrapper.Some(Shape.Circle(r)) -> println("circle {r}")
+        Wrapper.None -> println("none")
+    }
+}

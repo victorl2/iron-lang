@@ -1,0 +1,15 @@
+-- A named function used as a value is a closure over it (#209).
+func twice(x: Int) -> Int { return x * 2 }
+func shout(s: String) {
+    println("{s}!")
+}
+func apply(f: func(Int) -> Int, x: Int) -> Int { return f(x) }
+func main() {
+    println("{apply(twice, 4)}")
+    val f = twice
+    println("{f(5)}")
+    val fs = [twice, f]
+    println("{fs[0](6)} {fs[1](7)}")
+    val s = shout
+    s("hi")
+}
