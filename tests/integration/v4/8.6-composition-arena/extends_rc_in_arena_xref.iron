@@ -12,7 +12,7 @@ object Particle {
 }
 
 func main() {
-    val arena = heap Arena.new(64 * 1024)
+    val arena = heap Arena(64 * 1024)
     defer free arena
 
     -- heap(in: arena) is legal: arena-backed heap allocation

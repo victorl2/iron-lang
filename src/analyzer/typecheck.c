@@ -2922,6 +2922,96 @@ static void check_iface_call_args(TypeCtx *ctx, Iron_MethodCallExpr *mc,
                       iface ? iface->name : NULL, fd->name);
 }
 
+/* ── Runtime-backed container construction ──────────────────────────── */
+
+/* The stdlib containers whose storage lives in the C runtime are
+ * constructed with the ordinary object syntax (`Channel[Int](4)`,
+ * `Mutex[Int](0)`, `RWLock[Int](0)`, `Box(v)`, `Arena(bytes)`). Returns
+ * the internal namespace method such a construct is checked and lowered
+ * as, or NULL for every other type name. */
+static const char *ctor_desugar_method(const char *type_name) {
+    static const char *const containers[] = {
+        "Channel", "Mutex", "RWLock", "Box", "Arena",
+    };
+    for (size_t i = 0; i < sizeof(containers) / sizeof(containers[0]); i++)
+        if (strcmp(type_name, containers[i]) == 0) return "new";
+    return NULL;
+}
+
+static Iron_Node *type_ann_from_expr(TypeCtx *ctx, Iron_Node *n);
+
+/* `Channel[Int](4)`: build the `Channel.new(4)` call the pipeline knows,
+ * type-check it, and apply the explicit type argument to the result. The
+ * synthesized call is returned through *desugared for the lowering. */
+static Iron_Type *check_container_construct(TypeCtx *ctx, const char *type_name,
+                                            Iron_Node **generic_args, int generic_arg_count,
+                                            Iron_Node **args, int arg_count,
+                                            Iron_Span span, Iron_Node **desugared) {
+    Iron_Ident *ns = (Iron_Ident *)iron_arena_alloc(ctx->arena, sizeof(Iron_Ident),
+                                                    _Alignof(Iron_Ident));
+    Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)iron_arena_alloc(
+        ctx->arena, sizeof(Iron_MethodCallExpr), _Alignof(Iron_MethodCallExpr));
+    if (!ns || !mc) iron_oom_abort("typecheck.c:check_container_construct");
+    memset(ns, 0, sizeof *ns);
+    memset(mc, 0, sizeof *mc);
+    ns->kind = IRON_NODE_IDENT;
+    ns->span = span;
+    ns->name = type_name;
+    ns->resolved_sym = iron_scope_lookup(ctx->global_scope, type_name);
+    mc->kind = IRON_NODE_METHOD_CALL;
+    mc->span = span;
+    mc->object = (Iron_Node *)ns;
+    mc->method = ctor_desugar_method(type_name);
+    mc->args = args;
+    mc->arg_count = arg_count;
+    mc->is_ctor_desugar = true;
+    *desugared = (Iron_Node *)mc;
+
+    Iron_Type *t = check_expr(ctx, (Iron_Node *)mc);
+    if (!t || t->kind == IRON_TYPE_ERROR) return iron_type_make_primitive(IRON_TYPE_ERROR);
+
+    bool generic = strcmp(type_name, "Arena") != 0;
+    if (generic_arg_count > 0 && !generic) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "'%s' takes no type arguments", type_name);
+        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, span, msg, NULL);
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    if (generic_arg_count > 1) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "'%s' takes one type argument, got %d",
+                 type_name, generic_arg_count);
+        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, span, msg, NULL);
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    if (generic_arg_count == 1 && t->kind == IRON_TYPE_OBJECT) {
+        Iron_Node *ga = type_ann_from_expr(ctx, generic_args[0]);
+        Iron_Type *elem = ga ? resolve_type_annotation(ctx, ga) : NULL;
+        if (!elem || elem->kind == IRON_TYPE_ERROR)
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (t->object.elem && !iron_type_equals(t->object.elem, elem)) {
+            char msg[256];
+            snprintf(msg, sizeof(msg),
+                     "'%s[%s]' constructed from a value of type '%s'",
+                     type_name, iron_type_to_string(elem, ctx->arena),
+                     iron_type_to_string(t->object.elem, ctx->arena));
+            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, span, msg, NULL);
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
+        t->object.elem = elem;
+    }
+    if (generic && t->kind == IRON_TYPE_OBJECT && !t->object.elem) {
+        /* A channel's element type is not among its arguments. */
+        char msg[128], hint[128];
+        snprintf(msg, sizeof(msg), "cannot infer the element type of '%s'", type_name);
+        snprintf(hint, sizeof(hint), "write it explicitly, e.g. %s[Int](%s)",
+                 type_name, strcmp(type_name, "Channel") == 0 ? "4" : "0");
+        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, span, msg, hint);
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    return t;
+}
+
 /* ── User generics: instantiation at call sites (see generics.h) ──────── */
 
 /* A type written in expression position (`f[Int]`, `C[Int]`) as an
@@ -3009,9 +3099,14 @@ static bool redirect_generic_call(TypeCtx *ctx, Iron_CallExpr *ce) {
     if (!ctx->program || !ce->callee) return false;
     Iron_Node *base = ce->callee;
     Iron_Node *explicit_arg = NULL;
+    Iron_Node **explicit_args = NULL;
+    int explicit_count = 0;
     if (base->kind == IRON_NODE_INDEX) {
-        explicit_arg = ((Iron_IndexExpr *)base)->index;
-        base = ((Iron_IndexExpr *)base)->object;
+        Iron_IndexExpr *ix = (Iron_IndexExpr *)base;
+        explicit_arg = ix->index;
+        explicit_args = ix->type_args;
+        explicit_count = ix->type_arg_count;
+        base = ix->object;
     }
     if (!base || base->kind != IRON_NODE_IDENT) return false;
     Iron_Ident *bid = (Iron_Ident *)base;
@@ -3029,7 +3124,20 @@ static bool redirect_generic_call(TypeCtx *ctx, Iron_CallExpr *ce) {
     if (ngp <= 0 || ngp > 16) return false;
     Iron_Type *bind[16] = {0};
 
-    if (explicit_arg) {
+    if (explicit_args) {
+        /* C[A, B](...): every type argument written out. */
+        if (explicit_count != ngp) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "'%s' takes %d type argument(s), got %d",
+                     bid->name, ngp, explicit_count);
+            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ce->span, msg, NULL);
+            return false;
+        }
+        for (int i = 0; i < ngp; i++) {
+            Iron_Node *ann = type_ann_from_expr(ctx, explicit_args[i]);
+            bind[i] = ann ? resolve_type_annotation(ctx, ann) : NULL;
+        }
+    } else if (explicit_arg) {
         /* f[A](...) / C[A](...): a single explicit type argument. */
         Iron_Node *ann = type_ann_from_expr(ctx, explicit_arg);
         if (ann && ngp == 1) bind[0] = resolve_type_annotation(ctx, ann);
@@ -3522,6 +3630,33 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_CALL: {
             mark_amp_call_args(((Iron_CallExpr *)node)->args, ((Iron_CallExpr *)node)->arg_count);
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
+
+            /* Runtime-backed stdlib containers are constructed like any
+             * object: `Channel[Int](4)`, `Mutex[Int](0)`, `Box(v)`,
+             * `Arena(65536)`. The call is checked as the namespace method
+             * call the pipeline already lowers (`Channel.new(4)`), which
+             * `desugared` carries to the HIR lowering. Runs before the user
+             * generics redirect: these objects are declared generic in the
+             * stdlib but their instances live in the C runtime. */
+            {
+                Iron_Node *cb = ce->callee;
+                Iron_Node **cga = NULL;
+                int cgn = 0;
+                if (cb && cb->kind == IRON_NODE_INDEX) {
+                    Iron_IndexExpr *cix = (Iron_IndexExpr *)cb;
+                    if (cix->type_args) { cga = cix->type_args; cgn = cix->type_arg_count; }
+                    else { cga = &cix->index; cgn = 1; }
+                    cb = cix->object;
+                }
+                if (cb && cb->kind == IRON_NODE_IDENT && ((Iron_Ident *)cb)->name &&
+                    ctor_desugar_method(((Iron_Ident *)cb)->name)) {
+                    result = check_container_construct(ctx, ((Iron_Ident *)cb)->name,
+                                                       cga, cgn, ce->args, ce->arg_count,
+                                                       ce->span, &ce->desugared);
+                    ce->resolved_type = result;
+                    break;
+                }
+            }
 
             /* User generics: redirect to the instance (or, in the round
              * before the instance exists, type the call as unresolved). */
@@ -4487,6 +4622,36 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
              * Option C: NO flag stored on Iron_MethodCallExpr.  hir_to_lir.c
              * re-runs the same by-name predicate to emit IRON_LIR_PTR_OFFSET /
              * IRON_LIR_PTR_DIFF without touching ast.h in Plan 25-02. */
+            /* Containers are constructed, not built with a `.new` method:
+             * `Channel.new(4)` is `Channel[Int](4)`, `Arena.with_capacity(n)`
+             * is `Arena(n)`. Only the call synthesized from such a construct
+             * may carry the internal `new` spelling. */
+            if (mc->object && mc->object->kind == IRON_NODE_IDENT && mc->method &&
+                !mc->is_ctor_desugar && ((Iron_Ident *)mc->object)->name &&
+                ctor_desugar_method(((Iron_Ident *)mc->object)->name) &&
+                (strcmp(mc->method, "new") == 0 ||
+                 strcmp(mc->method, "with_capacity") == 0 ||
+                 strcmp(mc->method, "new_threadsafe") == 0)) {
+                const char *tn = ((Iron_Ident *)mc->object)->name;
+                char msg[256], hint[256];
+                snprintf(msg, sizeof(msg), "'%s' has no method '%s'", tn, mc->method);
+                if (strcmp(mc->method, "new_threadsafe") == 0)
+                    snprintf(hint, sizeof(hint), "write Arena.threadsafe(bytes)");
+                else if (strcmp(tn, "Arena") == 0)
+                    snprintf(hint, sizeof(hint), "construct it: Arena(bytes)");
+                else if (strcmp(tn, "Channel") == 0)
+                    snprintf(hint, sizeof(hint), "construct it: Channel[Int](capacity)");
+                else if (strcmp(tn, "Box") == 0)
+                    snprintf(hint, sizeof(hint), "construct it: Box(value) or Box[T](value)");
+                else
+                    snprintf(hint, sizeof(hint), "construct it: %s[Int](value)", tn);
+                emit_error(ctx, IRON_ERR_CTOR_SPELLING, mc->span, msg, hint);
+                for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                mc->resolved_type = result;
+                break;
+            }
+
             if (mc->object && mc->object->kind == IRON_NODE_IDENT && mc->method) {
                 Iron_Ident *obj_id_ptr = (Iron_Ident *)mc->object;
                 bool is_ptr_ns = obj_id_ptr->name &&
@@ -6104,6 +6269,21 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                            "init cannot delegate to another init of the "
                            "enclosing type",
                            NULL);
+            }
+
+            /* Runtime-backed stdlib containers are constructed like any
+             * object (`Channel[Int](4)`, `Mutex[Int](0)`, `Box(v)`,
+             * `Arena(65536)`). The pipeline already lowers the namespace
+             * method call that used to spell these (`Channel.new(4)`), so
+             * the construct is type-checked as that call and lowered
+             * through it; `desugared` carries the synthetic node. */
+            if (ce->type_name && ctor_desugar_method(ce->type_name)) {
+                result = check_container_construct(ctx, ce->type_name,
+                                                   ce->generic_args, ce->generic_arg_count,
+                                                   ce->args, ce->arg_count, ce->span,
+                                                   &ce->desugared);
+                ce->resolved_type = result;
+                break;
             }
 
             Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, ce->type_name);

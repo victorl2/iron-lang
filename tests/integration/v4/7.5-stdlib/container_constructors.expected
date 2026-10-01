@@ -1,0 +1,7 @@
+channel 7
+mutex 10
+rwlock 5
+box null? false
+empty null? true
+arena cap 4096
+threadsafe cap 4096

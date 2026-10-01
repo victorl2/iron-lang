@@ -4,7 +4,7 @@ object Cell {
     init(v: Int) { self.v = v }
 }
 func main() {
-    val b = Box.new(Cell(1))
+    val b = Box(Cell(1))
     val p: *var unchecked Cell = b.unwrap()
     val one = 1
     val q = Ptr.offset(p, one)

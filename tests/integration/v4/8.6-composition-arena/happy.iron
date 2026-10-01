@@ -44,7 +44,7 @@ func submit_to_gpu(cmds: [DrawCmd]) {
 func main() {
     val renderer = Renderer()
     val audio = AudioSystem()
-    val frame_arena = heap Arena.new(64 * 1024)
+    val frame_arena = heap Arena(64 * 1024)
     defer free frame_arena
 
     var frames = 0

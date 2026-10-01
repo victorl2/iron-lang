@@ -39,7 +39,7 @@ nocopy object ParticleSystem {
     var count: Int
 
     init() {
-        self.storage = Box.new(ParticleArray())
+        self.storage = Box(ParticleArray())
         self.count = 0
     }
 

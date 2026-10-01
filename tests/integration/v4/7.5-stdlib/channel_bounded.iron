@@ -5,7 +5,7 @@
 -- RED until Wave 5 lands Channel[T] nocopy.
 
 func main() {
-    var ch: Channel[Int] = Channel.new(2)
+    var ch = Channel[Int](2)
     ch.send(10)
     ch.send(20)
     println("recv: {ch.recv()}")

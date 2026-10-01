@@ -10,7 +10,7 @@ object Particle {
 }
 
 func main() {
-    val frame_arena = Arena.with_capacity(65536)
+    val frame_arena = Arena(65536)
     in frame_arena {
         val p1 = heap Particle(10, 20)
         val p2 = heap Particle(30, 40)

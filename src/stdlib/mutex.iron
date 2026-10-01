@@ -40,7 +40,7 @@ nocopy object MutexGuard[T] {
     }
 }
 
--- Mutex.new(value: T) -> Mutex[T]
+-- Mutex(value: T) -> Mutex[T]
 -- Constructs a Mutex[T] owning `value`, with the OS primitive initialized.
 func Mutex.new[T](value: T) -> Mutex[T] {}
 

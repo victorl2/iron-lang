@@ -1,0 +1,7 @@
+-- section: 7.5-stdlib
+-- The .new constructor spelling is gone: containers are constructed as
+-- Type(args) / Type[T](args) (E0333).
+
+func main() {
+    val a = Arena.with_capacity(64)
+}

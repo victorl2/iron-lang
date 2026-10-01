@@ -2235,7 +2235,19 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
             Iron_Node *idx = iron_parse_expr(p);
             iron_skip_newlines(p);
 
-            if (iron_match(p, IRON_TOK_DOTDOT)) {
+            /* `X[A, B]`: several type arguments of a generic. */
+            Iron_Node **targs = NULL;
+            if (iron_check(p, IRON_TOK_COMMA)) {
+                arrput(targs, idx);
+                while (iron_match(p, IRON_TOK_COMMA)) {
+                    iron_skip_newlines(p);
+                    Iron_Node *more = iron_parse_expr(p);
+                    arrput(targs, more);
+                    iron_skip_newlines(p);
+                }
+            }
+
+            if (!targs && iron_match(p, IRON_TOK_DOTDOT)) {
                 /* Slice */
                 Iron_Node *end_expr = NULL;
                 if (!iron_check(p, IRON_TOK_RBRACKET)) {
@@ -2260,6 +2272,16 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                                              iron_token_span(p, iron_current(p)));
                 ix->object = left;
                 ix->index  = idx;
+                if (targs) {
+                    int n = (int)arrlen(targs);
+                    Iron_Node **copy = (Iron_Node **)iron_arena_alloc(
+                        p->arena, sizeof(Iron_Node *) * (size_t)n, _Alignof(Iron_Node *));
+                    if (!copy) { p->in_error_recovery = true; arrfree(targs); return iron_make_error(p); }
+                    memcpy(copy, targs, sizeof(Iron_Node *) * (size_t)n);
+                    ix->type_args = copy;
+                    ix->type_arg_count = n;
+                    arrfree(targs);
+                }
                 left = (Iron_Node *)ix;
             }
             continue;

@@ -12,7 +12,7 @@
 -- positional — named args are not a surface form.)
 
 func main() {
-    val arena = Arena.with_capacity(4096)
+    val arena = Arena(4096)
     val fh = heap(in: arena) FileHandle(7)
     println("fd: {fh.fd}")
 }

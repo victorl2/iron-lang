@@ -5,7 +5,7 @@
 -- RED until Wave 5 lands Mutex[T] nocopy + guard.
 
 func main() {
-    var m: Mutex[Int] = Mutex.new(0)
+    var m: Mutex[Int] = Mutex(0)
     {
         var guard = m.lock()
         guard.set(42)

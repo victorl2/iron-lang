@@ -1461,8 +1461,8 @@ void emit_type_decls(EmitCtx *ctx) {
  * generated C declares InitWindow, ClearBackground, and friends regardless of
  * which target the user picked.
  */
-/* Arena stub glue: src/stdlib/arena.iron declares Arena.new /
- * new_threadsafe / with_capacity / save / restore / reset / used / capacity
+/* Arena stub glue: src/stdlib/arena.iron declares Arena.new (the target of
+ * the `Arena(bytes)` construct) / threadsafe / save / restore / reset / used / capacity
  * as EMPTY-BODY stubs, so their calls mangle to Iron_arena_* symbols that no
  * C file implements — the real API is the iron_arena_rt_* runtime substrate
  * (src/runtime/iron_arena_rt.h, included by every generated TU). Emitting a
@@ -1486,12 +1486,11 @@ static bool ir_emit_arena_stub_glue(EmitCtx *ctx, IronLIR_Func *fn,
     const char *m    = mangled + 11;
     const char *arg1 = NULL;   /* canonical name of the non-self param */
     const char *body = NULL;
-    if ((strcmp(m, "new") == 0 || strcmp(m, "with_capacity") == 0) &&
-        fn->param_count == 2) {
+    if (strcmp(m, "new") == 0 && fn->param_count == 2) {
         arg1 = "size";
         body = "    (void)self;\n"
                "    return iron_arena_rt_new((uint64_t)size, false, \"arena\");\n";
-    } else if (strcmp(m, "new_threadsafe") == 0 && fn->param_count == 2) {
+    } else if (strcmp(m, "threadsafe") == 0 && fn->param_count == 2) {
         arg1 = "size";
         body = "    (void)self;\n"
                "    return iron_arena_rt_new((uint64_t)size, true, \"arena\");\n";

@@ -2135,6 +2135,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     /* ── Call expression ─────────────────────────────────────────────────── */
     case IRON_NODE_CALL: {
         Iron_CallExpr *ce = (Iron_CallExpr *)node;
+        /* `Channel[Int](4)` and the other runtime-backed containers: lower
+         * the namespace call the type checker synthesized, typed as the
+         * construct (explicit element type applied). */
+        if (ce->desugared) {
+            if (ce->desugared->kind == IRON_NODE_METHOD_CALL)
+                ((Iron_MethodCallExpr *)ce->desugared)->resolved_type = ce->resolved_type;
+            return lower_expr_hir(ctx, ce->desugared);
+        }
 
         /* Phase 20 OQ-D + Phase 33 STDLIB-10: Ptr.cast[T](p) compiler builtin.
          * Lowers to a no-op HIR CAST node — the C output is a pointer
@@ -2529,6 +2537,16 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_Type          *ty    = ce->resolved_type;
         const char        **names = NULL;
         IronHIR_Expr      **vals  = NULL;
+
+        /* `Channel[Int](4)` and the other runtime-backed containers: the
+         * type checker rewrote the construct into the namespace call the
+         * rest of the pipeline lowers; the construct's type (with the
+         * explicit element type applied) is the call's type. */
+        if (ce->desugared) {
+            if (ce->desugared->kind == IRON_NODE_METHOD_CALL)
+                ((Iron_MethodCallExpr *)ce->desugared)->resolved_type = ty;
+            return lower_expr_hir(ctx, ce->desugared);
+        }
 
         /* 2026-07 remediation (init-body execution): route `T(args)` through
          * the anonymous init when one with a body exists — see

@@ -11,7 +11,7 @@ object Temp {
 }
 
 func main() {
-    val arena = heap Arena.new(1024 * 1024)
+    val arena = heap Arena(1024 * 1024)
     defer free arena
 
     val mark = arena.save()

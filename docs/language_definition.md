@@ -789,7 +789,7 @@ existing name (`E0227`).
 `val name = expr` declares an immutable binding and `var name = expr` a
 mutable one. Either may carry a type (`val speed: Float = 2.5`), which is
 required when the initializer does not determine it (`val xs: [Int] = []`,
-`val h: Channel[Int] = Channel.new(4)`) and lets a literal take another
+`val h = Channel[Int](4)`) and lets a literal take another
 numeric type (`val small: Int8 = 100`). A `var` binding may be declared
 without an initializer and assigned later; reading it before every path has
 assigned it is an error (`E0314`).
@@ -1839,7 +1839,7 @@ func main() {
 
 `*unchecked T` and `*var unchecked T` are plain C pointers with no
 generation check; they exist for the FFI boundary and for `Box`. Iron code
-obtains them from `Box[T]`: `Box.new(value)` moves a value into an owned
+obtains them from `Box[T]`: `Box(value)` moves a value into an owned
 heap cell (`Box` is `nocopy`), `b.unwrap()` returns a
 `*var unchecked T` to the contents, `b.is_null()` tests the cell,
 `b.free()` releases it, and `Box.null()` is an empty cell. Fields are
@@ -1859,7 +1859,7 @@ object Config {
 }
 
 func main() {
-    val boxed = Box.new(Config(640, "Iron App"))
+    val boxed = Box(Config(640, "Iron App"))
     val cfg: *var unchecked Config = boxed.unwrap()
     cfg.width = 800
     println("{cfg.width} {cfg.title} {boxed.is_null()}")
@@ -1881,7 +1881,7 @@ true true
 
 ### 6.6 Arenas
 
-`Arena.with_capacity(bytes)` (or `Arena.new(bytes)`) creates a bump
+`Arena(bytes)` creates a bump
 allocator. `heap(in: a) T(args)` allocates from arena `a`, and inside
 `in a { ... }` every plain `heap T(args)` does. Arena values are never
 freed individually: `a.reset()` releases everything at once, and
@@ -1900,7 +1900,7 @@ object Particle {
 }
 
 func main() {
-    val frame = Arena.with_capacity(65536)
+    val frame = Arena(65536)
     in frame {
         val p1 = heap Particle(10, 20)
         val p2 = heap Particle(30, 40)
@@ -2046,8 +2046,9 @@ func main() {
 
 ### 7.2 `Channel[T]`
 
-`Channel.new(capacity)` creates a bounded queue; the binding must be
-annotated with the element type (`val ch: Channel[Int] = Channel.new(4)`).
+`Channel[T](capacity)` creates a bounded queue of `T`; the element type
+is written as the type argument (`val ch = Channel[Int](4)`), since no
+argument carries it.
 `ch.send(v)` blocks while the channel is full and `ch.recv()` blocks while
 it is empty; the received value must be bound with a written type
 (`val x: Int = ch.recv()`). Channels are `nocopy` and are closed when their
@@ -2056,17 +2057,17 @@ receive.
 
 ### 7.3 `Mutex[T]` and `RWLock[T]`
 
-`Mutex.new(value)` wraps a value in a lock; `m.lock()` returns a
+`Mutex(value)` wraps a value in a lock; `m.lock()` returns a
 `MutexGuard[T]` that holds the lock until the guard's scope ends, with
 `g.get()` and `g.set(v)` to read and write the protected value (the result
-of `get` must be bound with a written type). `RWLock.new(value)` is the
+of `get` must be bound with a written type). `RWLock(value)` is the
 reader-writer variant: `l.read()` returns an `RWReadGuard[T]` with `get()`,
 and `l.write()` an `RWWriteGuard[T]` with `get()` and `set(v)`. All of
 these are `nocopy`.
 
 ```iron
 func main() {
-    val ch: Channel[Int] = Channel.new(4)
+    val ch = Channel[Int](4)
     val producer = spawn("producer") {
         for i in range(3) {
             ch.send(i * 10)
@@ -2081,7 +2082,7 @@ func main() {
     await producer
     println("{got}")
 
-    val counter = Mutex.new(0)
+    val counter = Mutex(0)
     val worker = spawn("worker") {
         for i in range(100) {
             val g = counter.lock()
@@ -2100,7 +2101,7 @@ func main() {
     val total: Int = final_guard.get()
     println("{total}")
 
-    val settings = RWLock.new(5)
+    val settings = RWLock(5)
     val reader = settings.read()
     val seen: Int = reader.get()
     println("{seen}")
@@ -2123,7 +2124,7 @@ not implemented (`E0326`).
 
 ```iron
 func main() {
-    val total = Mutex.new(0)
+    val total = Mutex(0)
     for i in range(8) parallel {
         val g = total.lock()
         val cur: Int = g.get()
@@ -2446,16 +2447,19 @@ C optimizer from reasoning about it; it exists for benchmarks.
 
 ### 9.9 Memory and concurrency types
 
-These are always available and are described in sections 6 and 7:
+These are always available and are described in sections 6 and 7. Each
+one is constructed like any object, `Type(args)` or `Type[T](args)` when
+no argument carries the element type; there is no `.new` method
+(`E0333`):
 
 | Type | API |
 |---|---|
-| `Box[T]` (nocopy) | `Box.new(v) -> Box[T]`, `Box.null() -> Box[T]`, `b.unwrap() -> *var unchecked T`, `b.is_null() -> Bool`, `b.free()` |
-| `Arena` | `Arena.new(bytes)`, `Arena.with_capacity(bytes)`, `Arena.new_threadsafe(bytes)`, `a.save() -> ArenaSave`, `a.restore(p: ArenaSave)`, `a.reset()`, `a.used() -> Int`, `a.capacity() -> Int` |
+| `Box[T]` (nocopy) | `Box(v)` or `Box[T](v) -> Box[T]`, `Box.null() -> Box[T]`, `b.unwrap() -> *var unchecked T`, `b.is_null() -> Bool`, `b.free()` |
+| `Arena` | `Arena(bytes)`, `Arena.threadsafe(bytes)`, `a.save() -> ArenaSave`, `a.restore(p: ArenaSave)`, `a.reset()`, `a.used() -> Int`, `a.capacity() -> Int` |
 | `RawPtr` | `RawPtr.of(x) -> RawPtr`, `Ptr.cast[T](raw) -> *unchecked T` |
-| `Channel[T]` (nocopy) | `Channel.new(capacity: Int)`, `ch.send(v: T)`, `ch.recv() -> T` |
-| `Mutex[T]`, `MutexGuard[T]` (nocopy) | `Mutex.new(v)`, `m.lock() -> MutexGuard[T]`, `g.get() -> T`, `g.set(v: T)` |
-| `RWLock[T]`, `RWReadGuard[T]`, `RWWriteGuard[T]` (nocopy) | `RWLock.new(v)`, `l.read()`, `l.write()`, `g.get() -> T`, `g.set(v: T)` (write guard only) |
+| `Channel[T]` (nocopy) | `Channel[T](capacity: Int)`, `ch.send(v: T)`, `ch.recv() -> T` |
+| `Mutex[T]`, `MutexGuard[T]` (nocopy) | `Mutex(v)` or `Mutex[T](v)`, `m.lock() -> MutexGuard[T]`, `g.get() -> T`, `g.set(v: T)` |
+| `RWLock[T]`, `RWReadGuard[T]`, `RWWriteGuard[T]` (nocopy) | `RWLock(v)` or `RWLock[T](v)`, `l.read()`, `l.write()`, `g.get() -> T`, `g.set(v: T)` (write guard only) |
 | `FileHandle` (nocopy) | `FileHandle.open(path) -> FileHandle`, `h.close()`, field `fd: Int` |
 
 ### 9.10 `Hashable`, `Map` and `Set`
@@ -2631,6 +2635,7 @@ codes cited in this manual:
 | E0320, E0321 | private declaration used from another file; standalone `func Type.method` form |
 | E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
 | E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element |
+| E0331, E0332, E0333 | list extension with a body; refutable nested pattern; `Channel.new(4)` and the other `.new` constructor spellings |
 | E0501 | `await` on the web target |
 | E0700 to E0703 | web main loop rules |
 | W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |

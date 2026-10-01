@@ -15,7 +15,7 @@ object Cmd {
 }
 
 func main() {
-    val arena = Arena.with_capacity(65536)
+    val arena = Arena(65536)
     val c1 = heap(in: arena, allow_drop_skip: true) Cmd(1)
     val c2 = heap(in: arena, allow_drop_skip: true) Cmd(2)
     val c3 = heap(in: arena, allow_drop_skip: true) Cmd(3)

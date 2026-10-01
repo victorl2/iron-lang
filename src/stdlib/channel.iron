@@ -3,7 +3,7 @@
 --
 -- Actual implementations are provided by the C runtime (emit_ensure_channel synthesis
 -- in src/lir/emit_helpers.c) over a bounded ring buffer + mutex + 2 cond vars
--- (IRON_MUTEX_* / IRON_COND_*). The compiler recognizes Channel.new / ch.send /
+-- (IRON_MUTEX_* / IRON_COND_*). The compiler recognizes Channel[T](n) / ch.send /
 -- ch.recv by name and intercepts them in typecheck.c (Box[T] precedent — Plan 33-07).
 --
 -- Channel[T] is nocopy (Phase 24 substrate): copying a Channel[T] binding is a
@@ -21,7 +21,7 @@ nocopy object Channel[T] {
     }
 }
 
--- Channel.new(capacity: Int) -> Channel[T]
+-- Channel[T](capacity: Int) -> Channel[T]   (construct; lowered through this stub)
 -- Constructs a bounded channel holding up to `capacity` queued values.
 func Channel.new[T](capacity: Int) -> Channel[T] {}
 
