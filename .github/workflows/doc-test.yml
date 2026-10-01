@@ -16,6 +16,8 @@ on:
       - 'docs/llms/iron.md'
       - 'docs/examples/native_*.iron'
       - 'scripts/check_branding.py'
+      - 'scripts/build_reference.py'
+      - 'scripts/templates/**'
       - 'scripts/test_doc_examples.sh'
       - 'scripts/grammar_check.py'
       - 'tests/integration/v4/**'
@@ -30,6 +32,8 @@ on:
       - 'docs/llms/iron.md'
       - 'docs/examples/native_*.iron'
       - 'scripts/check_branding.py'
+      - 'scripts/build_reference.py'
+      - 'scripts/templates/**'
       - 'scripts/test_doc_examples.sh'
       - 'scripts/grammar_check.py'
       - 'tests/integration/v4/**'
@@ -84,6 +88,11 @@ jobs:
 
       - name: Check the manual's grammar against the fixture corpus
         run: python3 scripts/grammar_check.py --negative tests/integration/v4-fail
+
+      - name: Render the reference manual as /docs/
+        run: |
+          python3 -m pip install --quiet markdown
+          python3 scripts/build_reference.py --site docs/site
 
       - name: Execute featured native examples and verify output
         run: python3 scripts/check_branding.py --compiler ./build/iron

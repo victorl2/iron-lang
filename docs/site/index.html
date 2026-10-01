@@ -859,7 +859,7 @@
       <p>Iron is a general-purpose native programming language for command-line tools, network services, data processing, simulations, and games. Compile to C, manage memory explicitly, and put concurrency to work.</p>
       <div class="hero-buttons">
         <a href="/docs/" class="btn btn-primary">Get Started</a>
-        <a href="/docs/#full-example" class="btn btn-secondary">See Examples</a>
+        <a href="/docs/#51-the-entry-point" class="btn btn-secondary">See Examples</a>
       </div>
       <div class="hero-version">Alpha &mdash; expect breaking changes &middot; __IRON_VERSION__ &middot; Apache 2.0</div>
     </div>
@@ -905,7 +905,7 @@
         <div class="pillar">
           <div class="pillar-icon concurrent">&#9654;</div>
           <h3>Concurrency</h3>
-          <p>Thread pools, parallel loops, and concurrency primitives are first-class language features, not library afterthoughts.</p>
+          <p>Spawned tasks, parallel loops, channels and mutexes are first-class language features, not library afterthoughts.</p>
         </div>
         <div class="pillar">
           <div class="pillar-icon read">&#9998;</div>
@@ -922,9 +922,9 @@
       <h2 class="section-title">One language, many kinds of software</h2>
       <p class="section-subtitle">Start small, explore the libraries, and help shape an evolving language.</p>
       <div class="pillars-grid">
-        <div class="pillar"><h3>Tools and data</h3><p>Write command-line utilities and data-processing programs with native compilation and explicit resource lifetimes.</p><p><a href="/docs/#full-example">Try a native example</a></p></div>
+        <div class="pillar"><h3>Tools and data</h3><p>Write command-line utilities and data-processing programs with native compilation and explicit resource lifetimes.</p><p><a href="/docs/#51-the-entry-point">Try a native example</a></p></div>
         <div class="pillar"><h3>Network services</h3><p>Explore HTTP/HTTPS, WebSocket, TCP, UDP, and file I/O with explicit deadlines and cleanup.</p><p><a href="/networking/">Build a client or service</a></p></div>
-        <div class="pillar"><h3>Simulations and compute</h3><p>Express numerical work and concurrent tasks with typed values, native code, and first-class concurrency.</p><p><a href="/docs/#concurrency">Explore concurrency</a></p></div>
+        <div class="pillar"><h3>Simulations and compute</h3><p>Express numerical work and concurrent tasks with typed values, native code, and first-class concurrency.</p><p><a href="/docs/#7-concurrency">Explore concurrency</a></p></div>
         <div class="pillar"><h3>Graphics and games</h3><p>Use Raylib for visualization, interactive applications, and games. Graphics are one part of Iron's broader toolkit.</p><p><a href="/raylib/">Explore Raylib</a></p></div>
       </div>
     </div>
@@ -979,9 +979,9 @@
     <div class="feature reverse">
       <div class="feature-text">
         <h3>First-class concurrency</h3>
-        <p>Named thread pools, typed channels, mutexes, and parallel loops are built into the language. No external threading libraries, no callback pyramids.</p>
+        <p>Spawned tasks, typed channels, mutexes, and parallel loops are built into the language. No external threading libraries, no callback pyramids.</p>
         <ul class="feature-list">
-          <li>Named thread pools with CPU pinning</li>
+          <li><code>spawn</code> / <code>await</code> for structured tasks</li>
           <li>Typed channels for safe message passing</li>
           <li><code>parallel</code> loops with automatic work distribution</li>
           <li>Compiler prevents mutable captures in parallel blocks</li>
@@ -1129,12 +1129,12 @@
       <div class="footer-col">
         <h4>Learn</h4>
         <ul>
-          <li><a href="/docs/">Documentation</a></li>
+          <li><a href="/docs/">Reference Manual</a></li>
           <li><a href="/networking/">Networking</a></li>
           <li><a href="/guide/">Projects</a></li>
           <li><a href="/raylib/">Raylib</a></li>
-          <li><a href="/docs/#full-example">Examples</a></li>
-          <li><a href="/docs/#standard-library">Standard Library</a></li>
+          <li><a href="/docs/#51-the-entry-point">Examples</a></li>
+          <li><a href="/docs/#9-the-standard-library">Standard Library</a></li>
         </ul>
       </div>
       <div class="footer-col">
@@ -1144,6 +1144,7 @@
           <li><a href="/lsp/">LSP</a></li>
           <li><a href="https://github.com/victorl2/iron-lang/blob/main/CHANGELOG.md">Changelog</a></li>
           <li><a href="https://github.com/victorl2/iron-lang/blob/main/CONTRIBUTING.md">Contributing</a></li>
+          <li><a href="/llms.txt">llms.txt</a></li>
         </ul>
       </div>
       <div class="footer-col">

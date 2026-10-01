@@ -1,7 +1,7 @@
 # Iron Reference Manual
 
 This manual describes the Iron programming language as implemented by the
-`iron` compiler that ships with this repository (version 4.4). It is a
+`iron` compiler that ships with this repository (version 4.5). It is a
 reference, not a tutorial: each section states what the compiler accepts and
 what the program does, with a small complete example. Every `iron` code block
 in this document is compiled and executed by `scripts/test_doc_examples.sh`,
