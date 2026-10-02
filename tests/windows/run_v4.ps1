@@ -29,3 +29,4 @@ Get-ChildItem -Path $Corpus -Recurse -Filter *.iron | Sort-Object FullName | For
     }
 }
 Write-Output ("PASS=" + $pass + " FAIL=" + $fail + " SKIPPED=" + $skip)
+if ($fail -gt 0) { exit 1 }

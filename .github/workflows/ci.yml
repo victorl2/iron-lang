@@ -62,17 +62,8 @@ jobs:
     needs: changes
     strategy:
       matrix:
-        # Windows is intentionally excluded from the CI matrix until a
-        # dedicated Windows-compat phase fixes pre-existing issues that are
-        # unrelated to Phase 59 networking:
-        #   - src/util/strbuf.h uses GCC __attribute__((format(...)))
-        #   - src/diagnostics/diagnostics.c includes <unistd.h>
-        #   - src/project/* + src/cli/toml.c use POSIX-only strdup/getcwd/strerror
-        #     under MSVC /W3 /WX which promotes C4996 warnings to errors
-        # Phase 59 P01c (iron_net_init.c) + P02..P05 networking/URL code do
-        # build under MSVC after 989ae1b's winsock2 include-order fix, but
-        # the rest of the codebase does not. Re-add `windows-latest` once
-        # that follow-up phase lands.
+        # Windows runs in build-and-test-windows below: a Release build of the
+        # compiler and the v4 corpus through tests/windows/run_v4.ps1.
         os: [ubuntu-latest, macos-latest]
       fail-fast: false
 
@@ -175,6 +166,51 @@ jobs:
         run: |
           chmod +x tests/integration/run_integration.sh
           tests/integration/run_integration.sh build/ironc
+
+  build-and-test-windows:
+    needs: changes
+    runs-on: windows-2025
+    timeout-minutes: 120
+    steps:
+      - name: Skip for docs-only changes
+        if: needs.changes.outputs.ci != 'true'
+        run: echo "No CI-relevant changes detected; skipping build and test steps."
+
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.ci == 'true'
+
+      - uses: ./.github/actions/toolchain
+        if: needs.changes.outputs.ci == 'true'
+
+      # The compiler is built with the runner's clang; the MSVC environment
+      # provides the C library the compiled Iron programs link against.
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: needs.changes.outputs.ci == 'true'
+        with:
+          arch: x64
+
+      - name: Install build tools
+        if: needs.changes.outputs.ci == 'true'
+        run: choco install ninja -y --no-progress
+
+      - name: Configure (Release)
+        if: needs.changes.outputs.ci == 'true'
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DIRON_BUILD_LSP=OFF
+
+      - name: Build
+        if: needs.changes.outputs.ci == 'true'
+        run: cmake --build build --target iron ironc
+
+      - name: Verify version output
+        if: needs.changes.outputs.ci == 'true'
+        run: |
+          .\build\ironc.exe --version
+          .\build\iron.exe --version
+
+      - name: Run the v4 corpus
+        if: needs.changes.outputs.ci == 'true'
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File tests\windows\run_v4.ps1 build\ironc.exe tests\integration\v4
 
   build-and-test-release:
     needs: changes
