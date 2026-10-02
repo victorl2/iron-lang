@@ -2673,6 +2673,7 @@ install(FILES
     src/util/stb_ds_impl.c
     src/util/arena.c
     src/util/arena.h
+    src/util/os.h
     src/util/strbuf.c
     src/util/strbuf.h
     DESTINATION lib/util
