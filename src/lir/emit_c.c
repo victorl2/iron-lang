@@ -1211,7 +1211,7 @@ static bool emit_list_contains_or_sort(Iron_StrBuf *sb, IronLIR_Instr *instr,
     if (is_sort) {
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb,
-            "if (_ls->count > 1) qsort(_ls->items, (size_t)_ls->count, sizeof(%s), "
+            "if (_ls->count > 1) iron_sort(_ls->items, (size_t)_ls->count, sizeof(%s), "
             "iron_sort_cmp_%s);\n", elem_c, elem_c);
     } else {
         emit_indent(sb, ind + 1);
@@ -1334,7 +1334,7 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
             elem_c);
     } else if (strcmp(m, "sort") == 0) {
         iron_strbuf_appendf(sb,
-            "if (_bv->len > 1) qsort(_bv->data, (size_t)_bv->len, sizeof(%s), "
+            "if (_bv->len > 1) iron_sort(_bv->data, (size_t)_bv->len, sizeof(%s), "
             "iron_sort_cmp_%s);\n", elem_c, elem_c);
     } else { /* contains */
         iron_strbuf_appendf(sb, "%s _bx = ", elem_c);

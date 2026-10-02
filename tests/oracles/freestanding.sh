@@ -42,7 +42,7 @@ for dir in "$@"; do
         fi
         cfile="$work/$name/.iron-build/$name.c"
         [ -f "$cfile" ] || continue
-        if clang -std=gnu17 -fsyntax-only -ferror-limit=0 -ffreestanding -nostdinc \
+        if clang -std=gnu17 -fsyntax-only -ferror-limit=0 -Werror=implicit-function-declaration -ffreestanding -nostdinc \
                  -isystem "$RES/include" "${extra[@]}" -I "$SRC" "$cfile" > "$work/$name.log" 2>&1; then
             pass=$((pass+1))
         else

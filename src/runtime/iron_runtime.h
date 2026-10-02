@@ -34,6 +34,8 @@ void  *iron_mem_set(void *dst, int byte, size_t n);
 int    iron_mem_cmp(const void *a, const void *b, size_t n);
 size_t iron_cstr_len(const char *s);
 int    iron_cstr_cmp(const char *a, const char *b);
+void   iron_sort(void *base, size_t count, size_t size,
+                 int (*cmp)(const void *, const void *));
 /* Allocation failure in a runtime container (iron_oom.c): reports `where`
  * and aborts. */
 IRON_NORETURN void iron_oom_abort(const char *where);

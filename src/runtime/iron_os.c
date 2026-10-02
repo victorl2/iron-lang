@@ -38,6 +38,8 @@ void  *iron_mem_set(void *dst, int byte, size_t n)        { return memset(dst, b
 int    iron_mem_cmp(const void *a, const void *b, size_t n) { return memcmp(a, b, n); }
 size_t iron_cstr_len(const char *s)                       { return strlen(s); }
 int    iron_cstr_cmp(const char *a, const char *b)        { return strcmp(a, b); }
+void   iron_sort(void *base, size_t count, size_t size,
+                 int (*cmp)(const void *, const void *))  { qsort(base, count, size, cmp); }
 
 /* ── Standard streams and process exit ──────────────────────────────────── */
 
