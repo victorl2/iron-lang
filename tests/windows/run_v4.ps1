@@ -17,7 +17,10 @@ Get-ChildItem -Path $Corpus -Recurse -Filter *.iron | Sort-Object FullName | For
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exe)) {
         $fail++; Write-Output ("[FAIL] " + $name + " (build)"); Write-Output (($build -split "`n" | Where-Object { $_ -match 'error' } | Select-Object -First 3) -join "`n"); return
     }
-    $out = ([Text.Encoding]::UTF8.GetString([Text.Encoding]::Default.GetBytes((& $exe 2>&1 | Out-String)))) -replace "`r`n", "`n"
+    # Capture through a file: the console pipeline would re-decode UTF-8 as ANSI.
+    $outFile = Join-Path $work ($name + ".out")
+    $p = Start-Process -FilePath $exe -RedirectStandardOutput $outFile -RedirectStandardError (Join-Path $work ($name + ".err")) -NoNewWindow -Wait -PassThru
+    $out = ([IO.File]::ReadAllText($outFile, [Text.Encoding]::UTF8) + [IO.File]::ReadAllText((Join-Path $work ($name + ".err")), [Text.Encoding]::UTF8)) -replace "`r`n", "`n"
     $want = (([IO.File]::ReadAllText($exp, [Text.Encoding]::UTF8)) -replace "`r`n", "`n")
     if ($out.TrimEnd() -eq $want.TrimEnd()) { $pass++ } else {
         $fail++; Write-Output ("[FAIL] " + $name + " (output)")
