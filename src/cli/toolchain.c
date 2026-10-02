@@ -24,9 +24,21 @@
 
 /* ── Small helpers ──────────────────────────────────────────────────────── */
 
+/* Paths are built with '/'; cmd.exe (rmdir) reads a leading '/' as a
+ * switch, so Windows paths handed to it are given backslashes. */
+static void native_separators(char *p) {
+#ifdef _WIN32
+    for (; *p; p++) if (*p == '/') *p = '\\';
+#else
+    (void)p;
+#endif
+}
+
 static int path_join(char *out, size_t cap, const char *a, const char *b) {
     int n = snprintf(out, cap, "%s/%s", a, b);
-    return (n > 0 && (size_t)n < cap) ? 0 : -1;
+    if (!(n > 0 && (size_t)n < cap)) return -1;
+    native_separators(out);
+    return 0;
 }
 
 static bool is_dir(const char *p) {
@@ -218,7 +230,9 @@ static int home_candidate(char *out, size_t cap) {
     const char *home = home_dir();
     if (!home) return -1;
     int n = snprintf(out, cap, "%s/.iron/toolchain/%s", home, IRON_TOOLCHAIN_VERSION);
-    return (n > 0 && (size_t)n < cap) ? 0 : -1;
+    if (!(n > 0 && (size_t)n < cap)) return -1;
+    native_separators(out);
+    return 0;
 }
 
 /* Check one directory. Returns 1 when it holds an acceptable bundle (tc
@@ -308,11 +322,17 @@ static int install(const char *dest) {
     char parent[4096];
     snprintf(parent, sizeof(parent), "%s", dest);
     char *slash = strrchr(parent, '/');
+#ifdef _WIN32
+    char *bslash = strrchr(parent, '\\');
+    if (bslash > slash) slash = bslash;
+#endif
     if (!slash) return 1;
     *slash = '\0';
     char staging[4096], archive[4096];
     snprintf(staging, sizeof(staging), "%s/.staging-%s", parent, IRON_TOOLCHAIN_VERSION);
     snprintf(archive, sizeof(archive), "%s/%s", parent, archive_name);
+    native_separators(staging);
+    native_separators(archive);
     remove_tree(staging);
     if (mkdir_p(staging) != 0) {
         fprintf(stderr, "error: cannot create %s: %s\n", staging, strerror(errno));

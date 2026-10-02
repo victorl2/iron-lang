@@ -1650,6 +1650,10 @@ int iron_build(const char *source_path, const char *output_path,
         binary_name = output_path;
     } else if (opts.run_after) {
         const char *tmpdir = getenv("TMPDIR");
+#ifdef _WIN32
+        if (!tmpdir || tmpdir[0] == '\0') tmpdir = getenv("TEMP");
+        if (!tmpdir || tmpdir[0] == '\0') tmpdir = getenv("TMP");
+#endif
         if (!tmpdir || tmpdir[0] == '\0') tmpdir = "/tmp";
         snprintf(iron_run_tempfile_path, sizeof(iron_run_tempfile_path),
                  "%s/iron-run-XXXXXX", tmpdir);
