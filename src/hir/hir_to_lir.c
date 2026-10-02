@@ -96,10 +96,35 @@ static bool iface_lifecycle(Iron_Type *t, Iron_Program *program,
     return true;
 }
 
+/* A recursive enum keeps its recursive payloads in heap cells (#245 is the
+ * fixed array story; this is the ADT one): dropping the value frees them
+ * through the emitted <Enum>_free. Copies are not supported for them. */
+static bool enum_has_boxed_payload(Iron_Type *t) {
+    if (!t || t->kind != IRON_TYPE_ENUM || !t->enu.decl) return false;
+    Iron_EnumDecl *ed = t->enu.decl;
+    for (int j = 0; j < ed->variant_count; j++) {
+        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+        for (int k = 0; k < ev->payload_count; k++) {
+            /* The type checker's flag (plain enums), or structurally: a
+             * payload naming the enum itself (generic ones carry the flag
+             * only on their monomorphized types). */
+            if (ev->payload_is_boxed && ev->payload_is_boxed[k]) return true;
+            Iron_Node *ann = ev->payload_type_anns ? ev->payload_type_anns[k] : NULL;
+            if (ann && ann->kind == IRON_NODE_TYPE_ANNOTATION) {
+                const char *tn = ((Iron_TypeAnnotation *)ann)->name;
+                if (tn && ed->name && strcmp(tn, ed->name) == 0) return true;
+            }
+        }
+    }
+    return false;
+}
+
 static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
                                bool want_copy, int depth) {
     if (t && t->kind == IRON_TYPE_INTERFACE)
         return iface_lifecycle(t, program, want_copy, depth);
+    if (t && t->kind == IRON_TYPE_ENUM)
+        return !want_copy && enum_has_boxed_payload(t);
     if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || depth > 16)
         return false;
     /* A Map or Set owns its table (#193): freed on drop, cloned on copy. */
@@ -877,6 +902,13 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
         /* An interface binding drops its payload (glue switches on the
          * tag) unless `return` moved it out. */
         if (entry->object_type->kind == IRON_TYPE_INTERFACE) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            if (entry->alloca_id == ctx->moved_slot) continue;
+            emit_drop_glue_call(ctx, entry->alloca_id, span);
+            continue;
+        }
+        /* A recursive enum frees its boxed payloads (#231). */
+        if (entry->object_type->kind == IRON_TYPE_ENUM) {
             if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
             if (entry->alloca_id == ctx->moved_slot) continue;
             emit_drop_glue_call(ctx, entry->alloca_id, span);
@@ -3897,7 +3929,9 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
             }
             /* Phase 24 DROP-01 (Plan 24-02): push drop entry for mutable binding */
-            if (!boxed && !var_is_capture(ctx, vid) &&
+            bool var_enum_borrows = type && type->kind == IRON_TYPE_ENUM &&
+                                    stmt->let.init && hir_expr_is_place(stmt->let.init);
+            if (!boxed && !var_is_capture(ctx, vid) && !var_enum_borrows &&
                 type_needs_drop(type, ctx->program) && ctx->defer_depth > 0 &&
                 ctx->drop_stacks && ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
                 IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, false };
@@ -3946,8 +3980,14 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 (stmt->let.init->kind == IRON_HIR_EXPR_HEAP ||
                  stmt->let.init->kind == IRON_HIR_EXPR_RC ||
                  stmt->let.init->kind == IRON_HIR_EXPR_ARENA_ALLOC);
+            /* An enum binding that copies a place (a pattern's payload, an
+             * alias of another binding) shares the boxes that place owns:
+             * only a fresh value (a construction, a call) owns and frees
+             * them. Other owned types get a copy fixup instead. */
+            bool enum_borrows = type && type->kind == IRON_TYPE_ENUM &&
+                                stmt->let.init && hir_expr_is_place(stmt->let.init);
             bool needs_drop_alloca = stmt->let.init &&
-                                     !init_is_heap_or_rc &&
+                                     !init_is_heap_or_rc && !enum_borrows &&
                                      type_needs_drop(type, ctx->program) &&
                                      ctx->defer_depth > 0 &&
                                      ctx->drop_stacks &&
@@ -3958,6 +3998,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 IronLIR_ValueId alloca_id = emit_alloca_in_entry(ctx, type, vname, span);
                 hmput(ctx->var_alloca_map, vid, alloca_id);
                 IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
+                tag_arena_ctor_binding(ctx, init_val, vid);
                 if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
                     iron_lir_store(ctx->current_func, ctx->current_block,
                                    alloca_id, init_val, span);

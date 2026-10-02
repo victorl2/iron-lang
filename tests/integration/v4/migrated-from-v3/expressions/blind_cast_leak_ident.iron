@@ -1,4 +1,5 @@
 -- Regression: Iron_Ident cast in leak statement without kind check.
+-- @leaks-by-design: the program leaks on purpose (the `leak` keyword)
 --
 -- **Motivating Incident.** Phase 65 AUDIT-01 row 9 (M-severity) flagged
 -- src/analyzer/escape.c (leak-statement RC detection branch) for casting

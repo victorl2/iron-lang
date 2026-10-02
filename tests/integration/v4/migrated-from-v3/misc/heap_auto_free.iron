@@ -21,6 +21,7 @@ object Point {
 
 func make_point(px: Int, py: Int) -> Int {
   val p = heap Point(px, py)
+  defer free p
   return p.x + p.y
 }
 
@@ -29,6 +30,7 @@ func main() {
   for i in range(5) {
     val d = heap Data(i, "item")
     println("data: {d.value}")
+    free d
   }
   println("loop done")
 
@@ -37,6 +39,7 @@ func main() {
     if i > 2 {
       val p = heap Point(i, i * 2)
       println("point: {p.x},{p.y}")
+      free p
     }
   }
   println("cond done")
@@ -53,6 +56,7 @@ func main() {
       if a == b {
         val d = heap Data(a + b, "diag")
         println("diag: {d.value}")
+        free d
       }
     }
   }

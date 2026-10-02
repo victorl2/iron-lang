@@ -48,6 +48,7 @@ object Point {
 
 func main() {
   val p = heap Point(3, 4)
+  defer free p
   println("point.x: {p.x}")
   println("point.y: {p.y}")
 }

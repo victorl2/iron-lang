@@ -10,4 +10,3 @@ enemies 3 1 8 2
 bounded: 2 8 len 2 [3 4] has3 true
 bounded reversed: 4 3
 bounded cleared len 0
-fixed: 5 6 7 has6 true

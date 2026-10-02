@@ -1947,6 +1947,14 @@ static bool run_dead_alloca_elimination(IronLIR_Module *module) {
                 case IRON_LIR_SET_FIELD:
                     hmput(loaded, in->field.object, true);
                     break;
+                /* A slot passed to a call is read by the callee: the
+                 * lifecycle glue ($drop on a scope exit) is such a call,
+                 * and deleting the slot left the glue pointing at nothing
+                 * (an enum's boxed payloads were never freed, #231). */
+                case IRON_LIR_CALL:
+                    for (int ai = 0; ai < in->call.arg_count; ai++)
+                        hmput(loaded, in->call.args[ai], true);
+                    break;
                 /* A captured slot is read by the task / closure body through
                  * its environment. Deleting it left `captures: [%1]`
                  * pointing at nothing (a parallel-for over `var xs` failed

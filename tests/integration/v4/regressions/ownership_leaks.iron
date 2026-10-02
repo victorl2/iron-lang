@@ -1,10 +1,22 @@
 -- Values that used to be leaked by the compiler (issue 231): an object's
 -- Box field was never freed with the object, a list captured by a lambda
--- or an awaited spawn was never freed by its binding, and an rc returned
--- through await was retained once too often. The leak oracle checks this
--- fixture under leaks/valgrind.
+-- or an awaited spawn was never freed by its binding, an rc returned
+-- through await was retained once too often, a recursive enum's boxed
+-- payloads were only freed in unoptimized builds, and an Arena value was
+-- never destroyed. The leak oracle checks this fixture under
+-- leaks/valgrind.
 object Counter {
     val value: Int
+}
+
+enum Tree { Leaf(Int), Node(Tree, Tree) }
+
+func total(t: Tree) -> Int {
+    match t {
+        Tree.Leaf(n) -> return n
+        Tree.Node(l, r) -> return total(l) + total(r)
+    }
+    return 0
 }
 
 nocopy object Holder {
@@ -30,4 +42,11 @@ func main() {
     val shared_task = spawn("shared") { return rc Counter(9) }
     val c = await shared_task
     println("shared {c.value}")
+
+    val tree = Tree.Node(Tree.Node(Tree.Leaf(1), Tree.Leaf(2)), Tree.Leaf(3))
+    println("tree {total(tree)}")
+
+    val scratch = Arena(4096)
+    val block = heap(in: scratch) Counter(5)
+    println("arena {block.value} {scratch.used() > 0}")
 }

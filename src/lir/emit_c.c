@@ -4089,6 +4089,14 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     }
                     break;
                 }
+                /* A recursive enum frees its boxed payloads. */
+                if (is_drop && gt && gt->kind == IRON_TYPE_ENUM) {
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "%s_free(", emit_type_to_c(gt, ctx));
+                    emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
+                    iron_strbuf_appendf(sb, ");\n");
+                    break;
+                }
                 /* An Arena value (an Iron_Arena_RT *) is destroyed with its
                  * binding (#231); a `heap Arena` goes through FREE instead. */
                 if (is_drop && gt && gt->kind == IRON_TYPE_OBJECT && gt->object.decl &&
@@ -5865,35 +5873,8 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * (hir_to_lir), which is correct on every path. (Freeing each list
          * origin at every return freed lists a path never created.) */
 
-        /* Phase 38: Free recursive ADT locals that are NOT the returned value */
-        if (ctx->adt_boxed_allocas) {
-            IronLIR_ValueId ret_alloca = IRON_LIR_VALUE_INVALID;
-            /* Identify which alloca holds the returned value (chase LOAD -> alloca) */
-            if (!instr->ret.is_void) {
-                IronLIR_ValueId rv = instr->ret.value;
-                if (rv != IRON_LIR_VALUE_INVALID &&
-                    rv < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                    fn->value_table[rv] != NULL &&
-                    fn->value_table[rv]->kind == IRON_LIR_LOAD) {
-                    ret_alloca = fn->value_table[rv]->load.ptr;
-                }
-            }
-            for (ptrdiff_t ai = 0; ai < hmlen(ctx->adt_boxed_allocas); ai++) {
-                IronLIR_ValueId alloca_id = ctx->adt_boxed_allocas[ai].key;
-                Iron_Type *atype = ctx->adt_boxed_allocas[ai].value;
-                /* Skip the alloca that holds the returned value */
-                if (alloca_id == ret_alloca) continue;
-                /* A parameter's slot aliases the caller's value, which the
-                 * caller still owns (and frees). It is not even declared as
-                 * a local under --no-optimize. */
-                if (ctx->param_alias_ids &&
-                    hmgeti(ctx->param_alias_ids, alloca_id) >= 0) continue;
-                const char *atype_c = emit_type_to_c(atype, ctx);
-                emit_indent(sb, ind);
-                iron_strbuf_appendf(sb, "%s_free(&_v%u);\n",
-                                    atype_c, (unsigned)alloca_id);
-            }
-        }
+        /* Recursive enum locals are freed through their binding's
+         * scope-exit $drop (hir_to_lir), like every other owned value. */
 
         /* Phase 24 DROP-05 (Plan 24-03): on successful init body exit, reset
          * the partial-init cleanup stack. The fields are now owned by the

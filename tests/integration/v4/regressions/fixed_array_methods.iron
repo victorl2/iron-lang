@@ -1,0 +1,8 @@
+-- @leaks-by-design: fixed arrays are lowered as heap lists and never freed (issue 245)
+-- The fixed-size array methods, split out of list_methods so the leak
+-- oracle can run that fixture.
+func main() {
+    var fixed: [Int; 3] = [7, 5, 6]
+    fixed.sort()
+    println("fixed: {fixed[0]} {fixed[1]} {fixed[2]} has6 {fixed.contains(6)}")
+}
