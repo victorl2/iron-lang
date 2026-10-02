@@ -3,6 +3,27 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v4.6.0-alpha: Maps, Sets and One Way to Construct (2026-10-01)
+
+- **Maps and sets:** `Map[K, V]` and `Set[T]` are open-addressing hash
+  tables with `put`, `get` (panics on a missing key), `get_or`, `has`,
+  `remove`, `len`, `clear`, `keys`, `values`, `copy`, `take`, `add`, and
+  `for (k, v) in m` / `for x in s`; keys are integers, `Bool`, `String` or
+  `Hashable` objects; ownership follows lists (E0328, E0235, `rc Map`).
+- **Constructors:** every stdlib container is constructed like an object
+  (`Channel[Int](4)`, `Mutex(v)`, `RWLock(v)`, `Box(v)`, `Arena(n)`,
+  `Arena.threadsafe(n)`); the `.new` spellings are E0333. Several type
+  arguments parse in a generic construct (`Pair[Int, String](1, "x")`).
+- **Website:** `ironlang.dev/docs/` is generated from the manual at deploy
+  time; the manual is published as `/llms/reference.md` and listed in
+  `llms.txt`; a runnable Map/Set example is featured on the landing page.
+- **Tests:** a leak oracle (`tests/oracles/leak_check.sh`) runs fixtures
+  under leaks/valgrind; the runner's pipefail race that reported a printed
+  panic as missing is fixed (#228).
+- **Fixes:** invalid C name for the drop thunk of a boxed `rc` capture;
+  object-element list typedefs emitted on demand; the macOS signing job
+  falls back to unsigned archives when the Apple secrets are absent.
+
 ## v4.5.0-alpha: Temporaries, Pointers and the Manual (2026-10-01)
 
 - **Temporaries are dropped:** a field or element read off an owned
