@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "runtime/iron_runtime.h"
+#include <stdatomic.h>   /* string / list refcounts are C11 atomics on every platform */
 
 /* ── Equality helpers ────────────────────────────────────────────────────── */
 
