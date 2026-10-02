@@ -1,4 +1,5 @@
 -- Regression: the builtin read_file(path) works outside comptime.
+-- @posix-only: uses /tmp or /dev paths
 -- It used to pass check and then call an undeclared C function.
 func main() {
     val s = read_file("/dev/null")

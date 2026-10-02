@@ -1,4 +1,5 @@
 -- Pure-Iron bounded binary file API acceptance fixture.
+-- @posix-only: uses /tmp or /dev paths
 import io
 
 func main() {

@@ -1,4 +1,5 @@
 import io
+-- @posix-only: uses /tmp or /dev paths
 
 func main() {
   -- Test IO.file_exists with a known path

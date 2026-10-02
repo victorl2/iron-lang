@@ -32,6 +32,11 @@
   /* windows.h defines `interface` as a macro; the compiler's type union
    * has a member of that name (src/analyzer/types.h). */
   #undef interface
+  /* Generated identifiers (the `Log.ERROR` constant) must not meet
+   * windows.h's unprefixed macros. */
+  #undef ERROR
+  #undef min
+  #undef max
   /* Generated code and the string / list refcounts use C11 atomics on
    * every platform; clang provides <stdatomic.h> for the MSVC target. */
   #include <stdatomic.h>
