@@ -15,7 +15,9 @@
 set -u
 IRON=$(cd "$(dirname "$1")" && pwd)/$(basename "$1"); shift
 SRC=$(cd "$(dirname "$0")/../.." && pwd)/src
-RES=$(clang -print-resource-dir)
+# The same clang ironc compiles with (the pinned toolchain bundle).
+CLANG="$("$IRON" toolchain path)/bin/clang" || exit 1
+RES=$("$CLANG" -print-resource-dir)
 work=$(mktemp -d "${TMPDIR:-/tmp}/iron-freestanding.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 pass=0; fail=0; skipped=0
@@ -42,7 +44,7 @@ for dir in "$@"; do
         fi
         cfile="$work/$name/.iron-build/$name.c"
         [ -f "$cfile" ] || continue
-        if clang -std=gnu17 -fsyntax-only -ferror-limit=0 -Werror=implicit-function-declaration -ffreestanding -nostdinc \
+        if "$CLANG" -std=gnu17 -fsyntax-only -ferror-limit=0 -Werror=implicit-function-declaration -ffreestanding -nostdinc \
                  -isystem "$RES/include" "${extra[@]}" -I "$SRC" "$cfile" > "$work/$name.log" 2>&1; then
             pass=$((pass+1))
         else
