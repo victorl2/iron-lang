@@ -20,8 +20,8 @@ Get-ChildItem -Path $Corpus -Recurse -Filter *.iron | Sort-Object FullName | For
     # Capture through a file: the console pipeline would re-decode UTF-8 as ANSI.
     $outFile = Join-Path $work ($name + ".out")
     $p = Start-Process -FilePath $exe -RedirectStandardOutput $outFile -RedirectStandardError (Join-Path $work ($name + ".err")) -NoNewWindow -Wait -PassThru
-    $out = ([IO.File]::ReadAllText($outFile, [Text.Encoding]::UTF8) + [IO.File]::ReadAllText((Join-Path $work ($name + ".err")), [Text.Encoding]::UTF8)) -replace "`r`n", "`n"
-    $want = (([IO.File]::ReadAllText($exp, [Text.Encoding]::UTF8)) -replace "`r`n", "`n")
+    $out = ([IO.File]::ReadAllText($outFile, [Text.Encoding]::UTF8) + [IO.File]::ReadAllText((Join-Path $work ($name + ".err")), [Text.Encoding]::UTF8)) -replace "`r", ""
+    $want = (([IO.File]::ReadAllText($exp, [Text.Encoding]::UTF8)) -replace "`r", "")
     if ($out.TrimEnd() -eq $want.TrimEnd()) { $pass++ } else {
         $fail++; Write-Output ("[FAIL] " + $name + " (output)")
         Write-Output ("  want: " + (($want.TrimEnd() -split "`n" | Select-Object -First 2) -join " | "))
