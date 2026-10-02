@@ -10,6 +10,7 @@
 #include "cli/test_runner.h"
 #include "cli/version.h"
 #include "cli/help_registry.h"
+#include "cli/toolchain.h"
 
 #ifndef IRON_GIT_HASH
 #define IRON_GIT_HASH "unknown"
@@ -23,6 +24,7 @@
 
 static void print_version(void) {
     printf("%s %s (%s %s)\n", IRON_BINARY_NAME, IRON_VERSION_STRING, IRON_GIT_HASH, IRON_BUILD_DATE);
+    iron_toolchain_print_version(stdout);
 }
 
 /*
@@ -68,6 +70,14 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "--help") == 0 || strcmp(cmd, "-h") == 0) {
         iron_help_print_all("ironc", stdout);
         return 0;
+    }
+
+    if (strcmp(cmd, "toolchain") == 0) {
+        if (argv_contains_help(argc, argv, 2)) {
+            iron_help_print_subcommand("ironc", cmd, stdout);
+            return 0;
+        }
+        return iron_toolchain_cmd(argc - 1, argv + 1);
     }
 
     /*

@@ -486,6 +486,8 @@ add_executable(ironc
     src/cli/iron_import_detect.c
     src/cli/semver.c
     src/cli/help_registry.c
+    src/cli/toolchain.c
+    src/lsp/store/sha256.c
 )
 target_include_directories(ironc PRIVATE src)
 if(NOT WIN32)
@@ -928,6 +930,8 @@ add_executable(iron
     src/fmt/options.c
     src/cli/semver.c
     src/cli/help_registry.c
+    src/cli/toolchain.c
+    src/lsp/store/sha256.c
 )
 target_include_directories(iron PRIVATE src)
 target_compile_definitions(iron PRIVATE

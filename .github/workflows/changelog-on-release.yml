@@ -40,6 +40,9 @@ permissions:
 
 jobs:
   sync:
+    # Toolchain bundles (toolchain.yml) are releases too, but not compiler
+    # versions: nothing to sync for them.
+    if: ${{ !startsWith(github.event.release.tag_name || github.event.inputs.tag, 'toolchain-') }}
     runs-on: ubuntu-latest
     steps:
       - name: Resolve release tag

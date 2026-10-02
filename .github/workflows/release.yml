@@ -26,9 +26,14 @@ env:
 
 jobs:
   test:
+    # Toolchain bundle releases (toolchain.yml, tags toolchain-*) carry no
+    # compiler build; every job below depends on this one.
+    if: ${{ !startsWith(github.event.release.tag_name, 'toolchain-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/toolchain
 
       - name: Install dependencies
         run: |
@@ -77,6 +82,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/toolchain
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'

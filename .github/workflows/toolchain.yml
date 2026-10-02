@@ -1,0 +1,165 @@
+name: Toolchain
+
+# Builds the pinned LLVM release Iron compiles with (issue 178) for every
+# host, packs each into an Iron toolchain bundle and publishes the bundles
+# with their checksums as the release `toolchain-<llvm>-<bundle>`. ironc
+# downloads these on first use and verifies them against
+# src/cli/toolchain_pins.h; after a run, copy the SHA256SUMS into that file.
+#
+# One LLVM build from source takes a few hours on a hosted runner; sccache
+# keeps object files in the Actions cache so a rerun after a packaging fix
+# is fast.
+
+on:
+  workflow_dispatch:
+    inputs:
+      llvm:
+        description: 'LLVM release to build (e.g. 23.1.2)'
+        required: true
+        default: '23.1.2'
+      bundle:
+        description: 'Bundle number for this LLVM release'
+        required: true
+        default: '1'
+      hosts:
+        description: 'Hosts to build (comma separated, no spaces), or all'
+        required: false
+        default: 'all'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: toolchain-${{ github.event.inputs.llvm }}-${{ github.event.inputs.bundle }}
+  cancel-in-progress: false
+
+env:
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.hosts.outputs.matrix }}
+    steps:
+      - id: hosts
+        env:
+          HOSTS: ${{ github.event.inputs.hosts }}
+        run: |
+          all='[{"os":"ubuntu-24.04","host":"linux-x86_64"},
+                {"os":"ubuntu-24.04-arm","host":"linux-arm64"},
+                {"os":"macos-26","host":"macos-arm64"},
+                {"os":"macos-26-intel","host":"macos-x86_64"},
+                {"os":"windows-2025","host":"windows-x86_64"}]'
+          if [ "$HOSTS" = all ]; then
+            m=$(echo "$all" | jq -c .)
+          else
+            m=$(echo "$all" | jq -c --arg h ",$HOSTS," '[.[] | select($h | contains("," + .host + ","))]')
+          fi
+          echo "matrix=$m" >> "$GITHUB_OUTPUT"
+          echo "$m"
+
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Install build tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build python3 g++
+
+      - name: Install build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install build tools (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ninja -y --no-progress
+
+      - name: Build LLVM ${{ github.event.inputs.llvm }}
+        shell: bash
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: sccache
+          CMAKE_CXX_COMPILER_LAUNCHER: sccache
+          LLVM_LINK_JOBS: 2
+        run: |
+          scripts/toolchain/build_llvm.sh "${{ github.event.inputs.llvm }}" "${{ matrix.host }}" "$RUNNER_TEMP/llvm"
+          sccache --show-stats
+
+      - name: Pack the bundle
+        shell: bash
+        run: |
+          scripts/toolchain/pack.sh "$RUNNER_TEMP/llvm/prefix" "${{ github.event.inputs.llvm }}" \
+            "${{ github.event.inputs.bundle }}" "${{ matrix.host }}" "$RUNNER_TEMP/bundle" | tee pack.log
+          if grep -q "optional tools not in" pack.log; then
+            echo "the bundle is missing tools; see pack.log" >&2
+            exit 1
+          fi
+
+      - name: Smoke test the bundle
+        shell: bash
+        run: |
+          b="$RUNNER_TEMP/bundle/iron-toolchain-${{ github.event.inputs.llvm }}-${{ github.event.inputs.bundle }}-${{ matrix.host }}"
+          cat "$b/toolchain.txt"
+          "$b/bin/clang" --version
+          "$b/bin/clang" -print-resource-dir
+          echo 'int main(void){return 0;}' > t.c
+          case "${{ matrix.host }}" in
+            windows-*) "$b/bin/clang-cl" /c t.c /Fot.obj && "$b/bin/llvm-ar" rcs t.lib t.obj ;;
+            *)         "$b/bin/clang" -c t.c -o t.o && "$b/bin/llvm-ar" rcs t.a t.o ;;
+          esac
+          ls "$b/lib/clang/"*/lib/* | head -20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iron-toolchain-${{ matrix.host }}
+          path: |
+            ${{ runner.temp }}/bundle/*.tar.gz
+            ${{ runner.temp }}/bundle/*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: ${{ always() && contains(needs.build.result, 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: bundles
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd bundles
+          cat *.tar.gz.sha256 > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish release toolchain-${{ github.event.inputs.llvm }}-${{ github.event.inputs.bundle }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: toolchain-${{ github.event.inputs.llvm }}-${{ github.event.inputs.bundle }}
+        run: |
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "Iron toolchain: LLVM ${{ github.event.inputs.llvm }}, bundle ${{ github.event.inputs.bundle }}" \
+              --notes "The pinned C toolchain ironc compiles with: clang, lld, llvm-ar, llvm-dlltool and compiler-rt from LLVM ${{ github.event.inputs.llvm }}, built for X86, AArch64 and WebAssembly. ironc downloads the bundle for its host on first use and checks it against SHA256SUMS." \
+              --prerelease
+          fi
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber bundles/*.tar.gz bundles/*.tar.gz.sha256 bundles/SHA256SUMS

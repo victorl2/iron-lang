@@ -86,6 +86,9 @@ jobs:
       - uses: actions/checkout@v4
         if: needs.changes.outputs.ci == 'true'
 
+      - uses: ./.github/actions/toolchain
+        if: needs.changes.outputs.ci == 'true'
+
       - name: Install dependencies (Linux)
         if: needs.changes.outputs.ci == 'true' && runner.os == 'Linux'
         run: |
@@ -201,6 +204,9 @@ jobs:
         run: echo "No CI-relevant changes detected; skipping release build steps."
 
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.ci == 'true'
+
+      - uses: ./.github/actions/toolchain
         if: needs.changes.outputs.ci == 'true'
 
       - name: Install dependencies (Linux)

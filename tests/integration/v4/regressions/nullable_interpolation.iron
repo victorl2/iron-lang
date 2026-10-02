@@ -1,0 +1,32 @@
+-- Interpolating a T? prints "null" or the value; before this, the optional
+-- struct was passed where a String was expected (an error with the pinned
+-- clang, garbage output with older ones).
+func find(xs: [Int], target: Int) -> Int? {
+    var i = 0
+    while i < len(xs) {
+        if xs[i] == target {
+            return i
+        }
+        i += 1
+    }
+    return null
+}
+
+func main() {
+    var n: Int? = null
+    println("n = {n}")
+    n = 7
+    println("n = {n}")
+    val b: Bool? = true
+    println("b = {b}")
+    val f: Float? = 1.5
+    println("f = {f}")
+    val u8: UInt8 = 200
+    val u: UInt8? = u8
+    println("u = {u}")
+    var s: String? = null
+    println("s = {s}")
+    s = "now"
+    println("s = {s}")
+    println("found {find([4, 5, 6], 6)} and {find([4, 5, 6], 9)}")
+}
