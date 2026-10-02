@@ -32,6 +32,9 @@
   /* windows.h defines `interface` as a macro; the compiler's type union
    * has a member of that name (src/analyzer/types.h). */
   #undef interface
+  /* Generated code and the string / list refcounts use C11 atomics on
+   * every platform; clang provides <stdatomic.h> for the MSVC target. */
+  #include <stdatomic.h>
   typedef volatile LONG iron_atomic_int;
   #define IRON_ATOMIC_INIT(v, val)          ((v) = (val))
   #define IRON_ATOMIC_LOAD(v)               InterlockedCompareExchange(&(v), 0, 0)
