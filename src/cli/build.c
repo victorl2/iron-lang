@@ -1669,6 +1669,18 @@ int iron_build(const char *source_path, const char *output_path,
         return 1;
     }
 
+    /* --emit-c: the generated C is the product; nothing is compiled. */
+    if (opts.emit_c) {
+        if (opts.verbose) fprintf(stderr, "Emitted: %s\n", c_file_path);
+        free(c_file_path);
+        free(derived_output);
+        iron_diaglist_free(&diags);
+        iron_arena_free(&arena);
+        free(source);
+        free(base_dir);
+        return 0;
+    }
+
     /* 13. Invoke the linker — target-branched.
      *
      * Native: invoke_clang produces a native executable at binary_name.

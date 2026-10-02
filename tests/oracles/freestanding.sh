@@ -2,7 +2,7 @@
 # freestanding.sh - the generated C must compile without platform headers.
 #
 # For every fixture in the given directories, emit its C (iron build
-# --debug-build keeps .iron-build/<name>.c) and compile that file with
+# --emit-c writes .iron-build/<name>.c and skips clang) and compile that file with
 # -ffreestanding -nostdinc, seeing only clang's own resource headers and the
 # Iron source tree. Generated code may include iron_runtime.h and the stdlib
 # headers; those may include only the freestanding headers (stdint.h,
@@ -36,7 +36,7 @@ for dir in "$@"; do
         name=$(basename "$src" .iron)
         abs=$(cd "$(dirname "$src")" && pwd)/$(basename "$src")
         if head -n 10 "$src" | grep -qE '^[[:space:]]*--[[:space:]]*@(compile-only|expected-pass-after)'; then continue; fi
-        if ! mkdir -p "$work/$name" || ! (cd "$work/$name" && "$IRON" build --debug-build "$abs" >/dev/null 2>"$work/$name.build"); then
+        if ! mkdir -p "$work/$name" || ! (cd "$work/$name" && "$IRON" build --emit-c "$abs" >/dev/null 2>"$work/$name.build"); then
             # A fixture that does not build (a @posix-only path, a missing library) is not this oracle's concern.
             skipped=$((skipped+1)); continue
         fi

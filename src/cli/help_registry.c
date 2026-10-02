@@ -45,6 +45,7 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
     /* ── iron build ─────────────────────────────────────────────────────── */
     { "build", "--release",            NULL, "off",    "Optimized release build (native -O2, web -Oz -flto)" },
     { "build", "--debug-build",        NULL, "off",    "Keep .iron-build/ directory after compile for inspection" },
+    { "build", "--emit-c",             NULL, "off",    "Write .iron-build/<name>.c and stop before the C compiler" },
     { "build", "--no-optimize",        NULL, "off",    "Skip optimization passes (for A/B comparison)" },
     { "build", "--target",             NULL, "native", "Build target: native or web (use --target=web)" },
     { "build", "--strict-v3",          NULL, "on",     "Reject legacy pre-v3 syntax (default ON)" },

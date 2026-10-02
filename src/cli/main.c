@@ -95,6 +95,7 @@ int main(int argc, char **argv) {
     /* Parse global flags */
     bool verbose = false;
     bool debug_build = false;
+    bool emit_c = false;
     bool force_comptime = false;
     bool dump_ir_passes = false;
     bool no_optimize = false;
@@ -121,6 +122,9 @@ int main(int argc, char **argv) {
         if (strcmp(argv[i], "--verbose") == 0) {
             verbose = true;
         } else if (strcmp(argv[i], "--debug-build") == 0) {
+            debug_build = true;
+        } else if (strcmp(argv[i], "--emit-c") == 0) {
+            emit_c = true;
             debug_build = true;
         } else if (strcmp(argv[i], "--force-comptime") == 0) {
             force_comptime = true;
@@ -225,6 +229,7 @@ int main(int argc, char **argv) {
         IronBuildOpts opts = {
             .verbose        = verbose,
             .debug_build    = debug_build,
+            .emit_c         = emit_c,
             .run_after      = false,
             .run_args       = NULL,
             .run_arg_count  = 0,
