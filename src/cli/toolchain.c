@@ -343,9 +343,14 @@ static int install(const char *dest) {
             IRON_TOOLCHAIN_LLVM, IRON_TOOLCHAIN_BUNDLE, host, url);
     char *curl[] = { "curl", "-fL", "--retry", "3", "--progress-bar", "-o", archive, url, NULL };
     int rc = run(curl);
+    if (rc < 0) {   /* no curl: wget is the other downloader found on minimal systems */
+        char *wget[] = { "wget", "-q", "--show-progress", "-O", archive, url, NULL };
+        rc = run(wget);
+    }
     if (rc != 0) {
         fprintf(stderr, "error: download failed (%s); install curl or fetch the archive and unpack it into %s\n",
-                rc < 0 ? "curl not found" : "curl exited with an error", dest);
+                rc < 0 ? "neither curl nor wget found" : "the download exited with an error", dest);
+        unlink(archive);
         remove_tree(staging);
         return 1;
     }
