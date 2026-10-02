@@ -22,6 +22,7 @@
   #include <windows.h>
 #else
   #include <pthread.h>
+  #include <sched.h>
   #include <unistd.h>
 #endif
 
@@ -73,6 +74,22 @@ void iron_filehandle_close(int fd) {
 }
 
 /* ── Threads and locks ──────────────────────────────────────────────────── */
+
+void iron_once(iron_once_t *once, void (*fn)(void)) {
+    int expected = 0;
+    if (atomic_compare_exchange_strong(&once->state, &expected, 1)) {
+        fn();
+        atomic_store_explicit(&once->state, 2, memory_order_release);
+        return;
+    }
+    while (atomic_load_explicit(&once->state, memory_order_acquire) != 2) {
+#ifdef _WIN32
+        Sleep(0);
+#else
+        sched_yield();
+#endif
+    }
+}
 
 #ifdef _WIN32
 

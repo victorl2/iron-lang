@@ -20,6 +20,10 @@
 #include <sys/types.h>
 #include <time.h>
 
+/* iron_once_t / iron_once come from the runtime ABI (runtime/iron_runtime.h,
+ * implemented in runtime/iron_os.c), shared by the compiler and programs. */
+#include "runtime/iron_runtime.h"
+
 #ifdef _WIN32
   #ifndef WIN32_LEAN_AND_MEAN
     #define WIN32_LEAN_AND_MEAN
@@ -176,26 +180,12 @@
   }
   #define close _close
 
-  /* One-time initialization: pthread_once on POSIX, InitOnceExecuteOnce here. */
-  typedef INIT_ONCE iron_once_t;
-  #define IRON_ONCE_INIT INIT_ONCE_STATIC_INIT
-  static inline BOOL CALLBACK iron_os_once_tramp(PINIT_ONCE o, PVOID fn, PVOID *ctx) {
-      (void)o; (void)ctx;
-      ((void (*)(void))fn)();
-      return TRUE;
-  }
-  static inline void iron_once(iron_once_t *once, void (*fn)(void)) {
-      InitOnceExecuteOnce(once, iron_os_once_tramp, (PVOID)fn, NULL);
-  }
 #else
   #include <dirent.h>
   #include <libgen.h>
   #include <limits.h>
   #include <pthread.h>
   #include <unistd.h>
-  typedef pthread_once_t iron_once_t;
-  #define IRON_ONCE_INIT PTHREAD_ONCE_INIT
-  static inline void iron_once(iron_once_t *once, void (*fn)(void)) { pthread_once(once, fn); }
 #endif
 
 #endif /* IRON_UTIL_OS_H */

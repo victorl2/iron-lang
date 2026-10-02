@@ -595,6 +595,13 @@ typedef struct { _Alignas(16) unsigned char opaque[64];  } iron_cond_t;
 typedef struct { _Alignas(16) unsigned char opaque[256]; } iron_rwlock_t;
 typedef struct { uintptr_t handle; } iron_thread_t;
 
+/* One-time initialization shared by every thread: a C11 atomic state
+ * machine (0 untouched, 1 running, 2 done), so a zero initializer is
+ * valid on every platform (Apple's PTHREAD_ONCE_INIT is not zero). */
+typedef struct { atomic_int state; } iron_once_t;
+#define IRON_ONCE_INIT { 0 }
+void iron_once(iron_once_t *once, void (*fn)(void));
+
 int  iron_thread_create(iron_thread_t *t, void *(*fn)(void *), void *arg);
 int  iron_thread_join(iron_thread_t t);
 int  iron_thread_detach(iron_thread_t t);

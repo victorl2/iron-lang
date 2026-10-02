@@ -43,26 +43,13 @@ static void iron__str_free(Iron_String *s) {
 static struct { char *key; Iron_String value; } *s_intern_table = NULL;
 
 static iron_mutex_t s_intern_lock;
-#ifdef _WIN32
-  static INIT_ONCE s_intern_once = INIT_ONCE_STATIC_INIT;
-  static BOOL CALLBACK iron__init_intern_lock(PINIT_ONCE once, PVOID param, PVOID *ctx) {
-      (void)once; (void)param; (void)ctx;
-      IRON_MUTEX_INIT(s_intern_lock);
-      return TRUE;
-  }
-  static inline void iron__ensure_intern_lock(void) {
-      InitOnceExecuteOnce(&s_intern_once, iron__init_intern_lock, NULL, NULL);
-  }
-#else
-  #include <pthread.h>
-  static pthread_once_t s_intern_once = PTHREAD_ONCE_INIT;
-  static void iron__init_intern_lock(void) {
-      IRON_MUTEX_INIT(s_intern_lock);
-  }
-  static inline void iron__ensure_intern_lock(void) {
-      pthread_once(&s_intern_once, iron__init_intern_lock);
-  }
-#endif
+static iron_once_t s_intern_once = IRON_ONCE_INIT;
+static void iron__init_intern_lock(void) {
+    IRON_MUTEX_INIT(s_intern_lock);
+}
+static inline void iron__ensure_intern_lock(void) {
+    iron_once(&s_intern_once, iron__init_intern_lock);
+}
 
 /* ── UTF-8 helpers ───────────────────────────────────────────────────────── */
 
