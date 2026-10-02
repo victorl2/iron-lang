@@ -1,6 +1,20 @@
 #ifdef _WIN32
-#error "build_web.c is not supported on Windows in Phase 2 (deferred until Iron gains Windows base support)"
-#endif
+/* The web target drives emcc through fork/exec; it stays POSIX-only until
+ * the Windows host port covers process spawning (#234). */
+#include "cli/build_web.h"
+#include <stdio.h>
+int iron_build_web(const char *source_path, const char *output_path, IronBuildOpts opts) {
+    (void)source_path; (void)output_path; (void)opts;
+    fprintf(stderr, "error: --target=web is not available on Windows yet\n");
+    return 1;
+}
+int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
+                        IronWebConfig *cfg, const char *toml_dir, const char *lib_dir) {
+    (void)c_file_path; (void)opts; (void)cfg; (void)toml_dir; (void)lib_dir;
+    fprintf(stderr, "error: --target=web is not available on Windows yet\n");
+    return 1;
+}
+#else
 
 #include "cli/build_web.h"
 #include "cli/toml.h"
@@ -1035,3 +1049,4 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
     fprintf(stderr, "Built: dist/web/index.html\n");
     return 0;
 }
+#endif /* !_WIN32 */

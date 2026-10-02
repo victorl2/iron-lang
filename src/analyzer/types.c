@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stddef.h>
-#include <pthread.h>
+#include "util/os.h"   /* iron_once */
 
 /* Saturating snprintf-append into a fixed buffer. snprintf returns the
  * WOULD-BE length on truncation, so the naive `pos += snprintf(...)`
@@ -43,7 +43,7 @@ static int iron_sat_appendf(char *buf, int pos, size_t bufsz,
  * Only kinds in the "primitive" range are populated; others are left zeroed.
  */
 static Iron_Type       s_primitives[IRON_TYPE_ERROR + 1];
-static pthread_once_t  s_primitives_once = PTHREAD_ONCE_INIT;
+static iron_once_t     s_primitives_once = IRON_ONCE_INIT;
 
 /* Kinds that have interned singletons (IRON_TYPE_VOID and IRON_TYPE_NULL
  * and IRON_TYPE_ERROR are also interned for convenience). */
@@ -89,7 +89,7 @@ void iron_types_init(Iron_Arena *arena) {
     (void)arena; /* reserved for future use; pthread_once ignores it */
     /* HARD-07: process-wide one-time init. Concurrent callers block until the
      * first caller's types_init_impl() returns, then return immediately. */
-    pthread_once(&s_primitives_once, types_init_impl);
+    iron_once(&s_primitives_once, types_init_impl);
 }
 
 Iron_Type *iron_type_make_primitive(Iron_TypeKind kind) {
