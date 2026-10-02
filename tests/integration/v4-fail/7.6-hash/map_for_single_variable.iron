@@ -1,0 +1,10 @@
+-- section: 7.6-hash (negative)
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- A map is iterated with (key, value).
+func main() {
+    var m = Map[String, Int]()
+    m.put("a", 1)
+    for k in m {
+        println(k)
+    }
+}

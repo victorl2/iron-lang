@@ -1,0 +1,13 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Bool keys, and Int keys of every width.
+func main() {
+    var flags = Map[Bool, String]()
+    flags.put(true, "yes")
+    flags.put(false, "no")
+    println("{flags.get(true)} {flags.get(false)} {flags.len()}")
+    var w = Map[Int32, Int]()
+    w.put(7, 1)
+    w.put(7, 2)
+    println("{w.len()} {w.get(7)}")
+}

@@ -1,0 +1,31 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- rc Map / rc Set: every handle reaches the same table; iteration through the handle.
+object Registry {
+    val names: rc Set[String]
+}
+
+func register(r: Registry, n: String) {
+    r.names.add(n)
+}
+
+func main() {
+    val shared = rc Map[String, Int]()
+    val other = shared
+    shared.put("a", 1)
+    other.put("b", 2)
+    var total = 0
+    for (k, v) in shared {
+        total += v
+    }
+    println("{shared.len()} {other.get("a")} {total}")
+    val reg = Registry(rc Set[String]())
+    register(reg, "x")
+    register(reg, "y")
+    register(reg, "x")
+    var n = 0
+    for name in reg.names {
+        n += 1
+    }
+    println("{reg.names.len()} {n} {reg.names.has("y")}")
+}

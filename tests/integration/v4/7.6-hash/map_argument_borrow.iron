@@ -1,0 +1,18 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Passing a map to a function lends it; the callee may read or mutate a var param.
+func count(m: Map[String, Int]) -> Int {
+    return m.len()
+}
+
+func bump(var m: Map[String, Int], key: String) {
+    m.put(key, m.get_or(key, 0) + 1)
+}
+
+func main() {
+    var m = Map[String, Int]()
+    bump(m, "a")
+    bump(m, "a")
+    bump(m, "b")
+    println("{count(m)} {m.get("a")} {m.get("b")}")
+}

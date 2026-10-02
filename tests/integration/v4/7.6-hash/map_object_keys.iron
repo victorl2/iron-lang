@@ -1,0 +1,30 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Object keys through Hashable: hash() and equals() decide identity.
+object Pt impl Hashable {
+    val x: Int
+    val y: Int
+    pure func hash() -> Int {
+        return self.x * 31 + self.y
+    }
+    pure func equals(other: Hashable) -> Bool {
+        if other is Pt {
+            return self.x == other.x and self.y == other.y
+        }
+        return false
+    }
+}
+
+func main() {
+    var m = Map[Pt, String]()
+    m.put(Pt(1, 2), "a")
+    m.put(Pt(3, 4), "b")
+    m.put(Pt(1, 2), "c")
+    val k = Pt(3, 4)
+    println("{m.len()} {m.get(Pt(1, 2))} {m.get(k)} {m.has(Pt(9, 9))}")
+    println("{m.remove(Pt(1, 2))} {m.remove(Pt(1, 2))} {m.len()}")
+    -- colliding hashes (same x*31+y) are still distinct keys
+    m.put(Pt(0, 31), "p")
+    m.put(Pt(1, 0), "q")
+    println("{m.get(Pt(0, 31))} {m.get(Pt(1, 0))} {m.len()}")
+}

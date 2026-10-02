@@ -1,0 +1,10 @@
+-- section: 7.6-hash (negative)
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- The key type must satisfy Hashable.
+object Plain {
+    val v: Int
+}
+func main() {
+    var m = Map[Plain, Int]()
+    m.put(Plain(1), 1)
+}

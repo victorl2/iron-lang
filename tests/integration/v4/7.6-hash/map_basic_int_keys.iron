@@ -1,0 +1,16 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Map[Int, Int]: put, get, get_or, has, remove, len, clear, overwrite.
+func main() {
+    var m = Map[Int, Int]()
+    println("empty {m.len()} {m.has(1)} {m.get_or(1, -1)} {m.remove(1)}")
+    m.put(1, 10)
+    m.put(2, 20)
+    m.put(1, 11)
+    println("{m.len()} {m.get(1)} {m.get(2)} {m.get_or(3, 30)}")
+    println("{m.remove(2)} {m.remove(2)} {m.len()} {m.has(2)}")
+    m.clear()
+    println("cleared {m.len()} {m.has(1)}")
+    m.put(-5, 5)
+    println("{m.get(-5)}")
+}

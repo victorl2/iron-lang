@@ -65,8 +65,8 @@ CORE_MODULES = {
     "rawptr": "Raw pointers for FFI",
     "hashable": "Hashable interface for map keys",
     "hint": "Hint.black_box to keep values from being optimized away",
-    "map": "Map[K, V] (declared; not usable yet)",
-    "set": "Set[T] (declared; not usable yet)",
+    "map": "Map[K, V]: hash table (put, get, get_or, has, remove, keys, values)",
+    "set": "Set[T]: hash set (add, has, remove, values)",
 }
 # Large or specialised modules: listed under "Optional" and left out of
 # llms-full.txt so it stays focused on the language.

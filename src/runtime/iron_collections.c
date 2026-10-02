@@ -22,14 +22,6 @@
 
 /* ── Equality helpers ────────────────────────────────────────────────────── */
 
-static bool iron_string_eq_ptr(const Iron_String *a, const Iron_String *b) {
-    return iron_string_equals(a, b);
-}
-
-static bool int64_eq_ptr(const int64_t *a, const int64_t *b) {
-    return *a == *b;
-}
-
 /* ── List implementations ─────────────────────────────────────────────────── */
 
 IRON_LIST_IMPL(int64_t,     int64_t)
@@ -158,12 +150,12 @@ IRON_LIST_COLL_IMPL(double,  double,  0.0)
 IRON_LIST_COLL_IMPL(float,   float,   0.0f)
 IRON_LIST_COLL_IMPL(uint8_t, uint8_t, 0)
 
-/* ── Map implementations ──────────────────────────────────────────────────── */
+/* ── Map[K, V] / Set[T] ──────────────────────────────────────────────────────
+ * The hash tables are instantiated per concrete key/value type by the
+ * compiler (IRON_HMAP_DEFINE / IRON_HSET_DEFINE in iron_runtime.h); the
+ * runtime only provides the string hash they share. */
 
-IRON_MAP_IMPL(Iron_String, int64_t,     Iron_String, int64_t,     iron_string_eq_ptr)
-IRON_MAP_IMPL(Iron_String, Iron_String, Iron_String, Iron_String, iron_string_eq_ptr)
-
-/* ── Set implementations ──────────────────────────────────────────────────── */
-
-IRON_SET_IMPL(int64_t,     int64_t,     int64_eq_ptr)
-IRON_SET_IMPL(Iron_String, Iron_String, iron_string_eq_ptr)
+uint64_t iron_string_hash(const Iron_String *s) {
+    if (!s) return iron_hash_u64(0);
+    return iron_hash_bytes(iron_string_cstr(s), iron_string_byte_len(s));
+}

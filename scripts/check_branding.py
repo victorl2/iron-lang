@@ -20,6 +20,7 @@ EXAMPLES = {
     "native_memory": "local=1 owned=2 shared=3\n",
     "native_concurrency": "total=4950\n",
     "native_comptime": "buffer bytes=65536\n",
+    "native_collections": "iron=3\nmap=1\nset=1\ndistinct=3 has2=true has9=false\n",
 }
 FEATURED_PAGES = {
     "index.html": set(EXAMPLES),
@@ -137,7 +138,7 @@ def main() -> int:
     for error in errors:
         print(f"FAIL: {error}")
     if not errors:
-        print("Branding and featured-example checks passed" + (" (4 programs executed)" if args.compiler else ""))
+        print("Branding and featured-example checks passed" + (f" ({len(EXAMPLES)} programs executed)" if args.compiler else ""))
     return bool(errors)
 
 

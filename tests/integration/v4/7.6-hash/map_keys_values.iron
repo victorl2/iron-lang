@@ -1,0 +1,16 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- keys() and values() are fresh lists the caller owns.
+func main() {
+    var m = Map[String, Int]()
+    m.put("x", 10)
+    m.put("y", 20)
+    var ks = m.keys()
+    var vs = m.values()
+    ks.sort()
+    vs.sort()
+    println("{ks.len()} {ks[0]} {ks[1]} {vs[0]} {vs[1]}")
+    ks.push("z")
+    println("{ks.len()} {m.len()} {m.has("z")}")
+    println("{m.keys().len()} {m.values().len()}")
+}

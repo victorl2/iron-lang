@@ -1,0 +1,22 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Map[String, rc T]: the table holds a reference; drop runs once at the end.
+object Node {
+    val id: Int
+    drop {
+        println("drop node {self.id}")
+    }
+}
+
+func main() {
+    var m = Map[String, rc Node]()
+    val a = rc Node(1)
+    m.put("a", a)
+    m.put("b", rc Node(2))
+    val back = m.get("a")
+    println("{back.id} {m.get("b").id} {m.len()}")
+    m.remove("b")
+    println("after remove")
+    m.clear()
+    println("after clear")
+}

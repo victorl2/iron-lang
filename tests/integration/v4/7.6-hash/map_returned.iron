@@ -1,0 +1,29 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- A map returned from a function moves to the caller; a temporary is dropped.
+func build(n: Int) -> Map[Int, String] {
+    var m = Map[Int, String]()
+    for i in range(n) {
+        m.put(i, "v{i}")
+    }
+    return m
+}
+
+func total_len(m: Map[Int, String]) -> Int {
+    var t = 0
+    for (k, v) in m {
+        t += v.len()
+    }
+    return t
+}
+
+func main() {
+    val m = build(4)
+    println("{m.len()} {m.get(3)} {total_len(m)}")
+    println("{build(2).len()} {build(3).get(1)}")
+    var seen = 0
+    for (k, v) in build(5) {
+        seen += 1
+    }
+    println("{seen}")
+}

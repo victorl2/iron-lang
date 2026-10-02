@@ -1,0 +1,15 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- copy() is an independent table; take() moves the contents out.
+func main() {
+    var a = Map[String, Int]()
+    a.put("one", 1)
+    var b = a.copy()
+    b.put("two", 2)
+    a.remove("one")
+    println("{a.len()} {b.len()} {b.get("one")}")
+    val c = b.take()
+    println("{b.len()} {c.len()} {c.get("two")}")
+    b.put("again", 3)
+    println("{b.len()} {c.has("again")}")
+}

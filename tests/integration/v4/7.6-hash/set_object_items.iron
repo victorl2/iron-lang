@@ -1,0 +1,21 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- A Set of Hashable objects.
+object Tag impl Hashable {
+    val name: String
+    pure func hash() -> Int {
+        return self.name.len()
+    }
+    pure func equals(other: Hashable) -> Bool {
+        if other is Tag {
+            return self.name == other.name
+        }
+        return false
+    }
+}
+
+func main() {
+    var s = Set[Tag]()
+    println("{s.add(Tag("ab"))} {s.add(Tag("cd"))} {s.add(Tag("ab"))} {s.len()}")
+    println("{s.has(Tag("cd"))} {s.remove(Tag("cd"))} {s.has(Tag("cd"))} {s.len()}")
+}

@@ -2426,7 +2426,9 @@ static Iron_Node *iron_parse_for_stmt(Iron_Parser *p) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'for' */
 
-    /* var_name */
+    /* var_name, or `(key, value)` for a map */
+    const char *var_name2 = NULL;
+    bool tuple_form = iron_match(p, IRON_TOK_LPAREN);
     if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
@@ -2438,6 +2440,20 @@ static Iron_Node *iron_parse_for_stmt(Iron_Parser *p) {
     const char *var_name = iron_arena_strdup(p->arena, var_tok->value,
                                               strlen(var_tok->value));
     if (!var_name) { /* HARD-09 REPLACE (iron_parse_for_stmt var_name) */ var_name = "?"; }
+    if (tuple_form) {
+        if (!iron_expect(p, IRON_TOK_COMMA)) return iron_make_error(p);
+        if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN,
+                           iron_token_span(p, iron_current(p)),
+                           "expected the value variable name in 'for (key, value) in ...'", NULL);
+            return iron_make_error(p);
+        }
+        Iron_Token *var2_tok = iron_advance(p);
+        var_name2 = iron_arena_strdup(p->arena, var2_tok->value, strlen(var2_tok->value));
+        if (!var_name2) var_name2 = "?";
+        if (!iron_expect(p, IRON_TOK_RPAREN)) return iron_make_error(p);
+    }
 
     /* 'in' */
     if (!iron_expect(p, IRON_TOK_IN)) return iron_make_error(p);
@@ -2466,6 +2482,7 @@ static Iron_Node *iron_parse_for_stmt(Iron_Parser *p) {
     n->kind         = IRON_NODE_FOR;
     n->span         = iron_span_merge(iron_token_span(p, start), body->span);
     n->var_name     = var_name;
+    n->var_name2    = var_name2;
     n->iterable     = iterable;
     n->body         = body;
     n->is_parallel  = is_parallel;

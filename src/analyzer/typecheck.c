@@ -1881,6 +1881,25 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
                                           od->generic_param_count,
                                           concrete, gc, ann_node->span);
 
+                /* Map[K, V] / Set[T] (#193): runtime containers whose
+                 * element types ride on the object type, never cloned. */
+                if (od->name && (strcmp(od->name, "Map") == 0 || strcmp(od->name, "Set") == 0)) {
+                    if (ac != gc) {
+                        char msg[128];
+                        snprintf(msg, sizeof(msg), "'%s' takes %d type argument(s), got %d",
+                                 od->name, gc, ann->generic_arg_count);
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ann_node->span, msg, NULL);
+                        return iron_type_make_primitive(IRON_TYPE_ERROR);
+                    }
+                    for (int gi = 0; gi < gc; gi++)
+                        if (!concrete[gi] || concrete[gi]->kind == IRON_TYPE_ERROR)
+                            return iron_type_make_primitive(IRON_TYPE_ERROR);
+                    Iron_Type *fresh = iron_type_make_object(ctx->arena, od);
+                    if (!fresh) return iron_type_make_primitive(IRON_TYPE_ERROR);
+                    fresh->object.elem = concrete[0];
+                    fresh->object.elem2 = gc > 1 ? concrete[1] : NULL;
+                    base = fresh;
+                } else
                 /* User generic object: `C[Int]` names the instance C__Int,
                  * cloned after this round (generics.c). Until it exists the
                  * annotation is unresolved; the round is redone. */
@@ -3012,6 +3031,155 @@ static Iron_Type *check_container_construct(TypeCtx *ctx, const char *type_name,
     return t;
 }
 
+/* ── Hash containers: Map[K, V] and Set[T] ──────────────────────────── */
+
+/* 'M' for a Map object type, 'S' for a Set, 0 otherwise. */
+static char hash_container_kind(const Iron_Type *t) {
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || !t->object.decl->name) return 0;
+    if (strcmp(t->object.decl->name, "Map") == 0) return 'M';
+    if (strcmp(t->object.decl->name, "Set") == 0) return 'S';
+    return 0;
+}
+
+/* `Map[String, Int]()` / `Set[Int]()`: the type arguments are required
+ * (nothing else carries them) and the key must satisfy Hashable, which the
+ * stdlib declaration states as the generic bound. The construct lowers as
+ * the namespace call `Map.new()` (hir_to_lir.c maps it to the per-type
+ * `_create`), carried through *desugared like the other containers. */
+static Iron_Type *check_hash_construct(TypeCtx *ctx, const char *type_name,
+                                       Iron_Node **generic_args, int generic_arg_count,
+                                       Iron_Node **args, int arg_count,
+                                       Iron_Span span, Iron_Node **desugared) {
+    bool is_map = strcmp(type_name, "Map") == 0;
+    int want = is_map ? 2 : 1;
+    for (int i = 0; i < arg_count; i++) check_expr(ctx, args[i]);
+    if (generic_arg_count != want) {
+        char msg[256], hint[128];
+        snprintf(msg, sizeof(msg), "'%s' takes %d type argument(s), got %d",
+                 type_name, want, generic_arg_count);
+        snprintf(hint, sizeof(hint), "write them explicitly, e.g. %s",
+                 is_map ? "Map[String, Int]()" : "Set[Int]()");
+        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, span, msg, hint);
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    if (arg_count != 0) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "'%s' is constructed empty: it takes no arguments", type_name);
+        emit_error(ctx, IRON_ERR_ARG_COUNT, span, msg, NULL);
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    Iron_Type *targs[2] = { NULL, NULL };
+    for (int i = 0; i < want; i++) {
+        Iron_Node *ann = type_ann_from_expr(ctx, generic_args[i]);
+        if (!ann) {
+            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, generic_args[i]->span,
+                       "expected a type here", NULL);
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
+        targs[i] = resolve_type_annotation(ctx, ann);
+        if (!targs[i] || targs[i]->kind == IRON_TYPE_ERROR)
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    Iron_Symbol *sym = iron_scope_lookup(ctx->global_scope, type_name);
+    if (!sym || !sym->decl_node || sym->decl_node->kind != IRON_NODE_OBJECT_DECL) {
+        emit_error(ctx, IRON_ERR_NOT_CALLABLE, span, "the standard library declaration of this type is missing", NULL);
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    Iron_ObjectDecl *od = (Iron_ObjectDecl *)sym->decl_node;
+    int errs_before = ctx->diags->error_count;
+    check_generic_constraints(ctx, od->generic_params, od->generic_param_count, targs, want, span);
+    if (ctx->diags->error_count != errs_before) return iron_type_make_primitive(IRON_TYPE_ERROR);
+
+    Iron_Type *t = iron_type_make_object(ctx->arena, od);
+    if (!t) return iron_type_make_primitive(IRON_TYPE_ERROR);
+    t->object.elem = targs[0];
+    t->object.elem2 = is_map ? targs[1] : NULL;
+
+    Iron_Ident *ns = (Iron_Ident *)iron_arena_alloc(ctx->arena, sizeof(Iron_Ident), _Alignof(Iron_Ident));
+    Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)iron_arena_alloc(
+        ctx->arena, sizeof(Iron_MethodCallExpr), _Alignof(Iron_MethodCallExpr));
+    if (!ns || !mc) iron_oom_abort("typecheck.c:check_hash_construct");
+    memset(ns, 0, sizeof *ns);
+    memset(mc, 0, sizeof *mc);
+    ns->kind = IRON_NODE_IDENT;
+    ns->span = span;
+    ns->name = type_name;
+    ns->resolved_sym = sym;
+    ns->resolved_type = t;
+    mc->kind = IRON_NODE_METHOD_CALL;
+    mc->span = span;
+    mc->object = (Iron_Node *)ns;
+    mc->method = "new";
+    mc->is_ctor_desugar = true;
+    mc->resolved_type = t;
+    *desugared = (Iron_Node *)mc;
+    return t;
+}
+
+/* The method surface of Map[K, V] and Set[T]. Returns NULL when `m` is
+ * not one of their methods (the caller reports it). Mutators need a
+ * mutable receiver like list mutators do. */
+static Iron_Type *check_hash_method(TypeCtx *ctx, Iron_MethodCallExpr *mc,
+                                    Iron_Type *recv, char kind) {
+    const char *m = mc->method;
+    Iron_Type *K = recv->object.elem;
+    Iron_Type *V = recv->object.elem2;
+    Iron_Type *want[2] = { NULL, NULL };
+    int nwant = 0;
+    Iron_Type *result = NULL;
+    bool mutator = false;
+    Iron_Type *bool_t = iron_type_make_primitive(IRON_TYPE_BOOL);
+    Iron_Type *int_t = iron_type_make_primitive(IRON_TYPE_INT);
+    Iron_Type *void_t = iron_type_make_primitive(IRON_TYPE_VOID);
+    if (kind == 'M') {
+        if (strcmp(m, "put") == 0)         { want[0] = K; want[1] = V; nwant = 2; result = void_t; mutator = true; }
+        else if (strcmp(m, "get") == 0)    { want[0] = K; nwant = 1; result = V; }
+        else if (strcmp(m, "get_or") == 0) { want[0] = K; want[1] = V; nwant = 2; result = V; }
+        else if (strcmp(m, "has") == 0)    { want[0] = K; nwant = 1; result = bool_t; }
+        else if (strcmp(m, "remove") == 0) { want[0] = K; nwant = 1; result = bool_t; mutator = true; }
+        else if (strcmp(m, "len") == 0)    { result = int_t; }
+        else if (strcmp(m, "clear") == 0)  { result = void_t; mutator = true; }
+        else if (strcmp(m, "keys") == 0)   { result = iron_type_make_array(ctx->arena, K, -1, false); }
+        else if (strcmp(m, "values") == 0) { result = iron_type_make_array(ctx->arena, V, -1, false); }
+        else if (strcmp(m, "copy") == 0)   { result = recv; }
+        else if (strcmp(m, "take") == 0)   { result = recv; mutator = true; }
+        else return NULL;
+    } else {
+        if (strcmp(m, "add") == 0)         { want[0] = K; nwant = 1; result = bool_t; mutator = true; }
+        else if (strcmp(m, "has") == 0)    { want[0] = K; nwant = 1; result = bool_t; }
+        else if (strcmp(m, "remove") == 0) { want[0] = K; nwant = 1; result = bool_t; mutator = true; }
+        else if (strcmp(m, "len") == 0)    { result = int_t; }
+        else if (strcmp(m, "clear") == 0)  { result = void_t; mutator = true; }
+        else if (strcmp(m, "values") == 0) { result = iron_type_make_array(ctx->arena, K, -1, false); }
+        else if (strcmp(m, "copy") == 0)   { result = recv; }
+        else if (strcmp(m, "take") == 0)   { result = recv; mutator = true; }
+        else return NULL;
+    }
+    if (mc->arg_count != nwant) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "'%s' expects %d argument(s), got %d", m, nwant, mc->arg_count);
+        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+        return iron_type_make_primitive(IRON_TYPE_ERROR);
+    }
+    for (int i = 0; i < nwant; i++) {
+        Iron_Type *at = check_expr_with_expected(ctx, mc->args[i], want[i]);
+        if (at && at->kind != IRON_TYPE_ERROR && want[i] && !types_assignable(want[i], at) &&
+            !is_int_literal_narrowing(want[i], at, mc->args[i])) {
+            char msg[320];
+            snprintf(msg, sizeof(msg), "'%s' argument %d expects '%s', got '%s'", m, i + 1,
+                     iron_type_to_string(want[i], ctx->arena), iron_type_to_string(at, ctx->arena));
+            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->args[i]->span, msg, NULL);
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
+    }
+    if (mutator) {
+        Iron_Type *rt = mc->object ? ((Iron_ExprNode *)mc->object)->resolved_type : NULL;
+        if (!(rt && rt->kind == IRON_TYPE_RC))
+            check_array_mutable(ctx, mc->object, mc->span, "modify");
+    }
+    return result ? result : iron_type_make_primitive(IRON_TYPE_ERROR);
+}
+
 /* ── User generics: instantiation at call sites (see generics.h) ──────── */
 
 /* A type written in expression position (`f[Int]`, `C[Int]`) as an
@@ -3031,11 +3199,50 @@ static Iron_Node *type_ann_from_expr(TypeCtx *ctx, Iron_Node *n) {
     if (n->kind == IRON_NODE_INDEX) {
         Iron_IndexExpr *ix = (Iron_IndexExpr *)n;
         Iron_TypeAnnotation *base = (Iron_TypeAnnotation *)type_ann_from_expr(ctx, ix->object);
+        if (!base) return NULL;
+        if (ix->type_args) {
+            /* `Map[String, Int]` written as a type argument. */
+            for (int i = 0; i < ix->type_arg_count; i++) {
+                Iron_Node *arg = type_ann_from_expr(ctx, ix->type_args[i]);
+                if (!arg) return NULL;
+                arrput(base->generic_args, arg);
+                base->generic_arg_count++;
+            }
+            return (Iron_Node *)base;
+        }
         Iron_Node *arg = type_ann_from_expr(ctx, ix->index);
-        if (!base || !arg) return NULL;
+        if (!arg) return NULL;
         arrput(base->generic_args, arg);
         base->generic_arg_count++;
         return (Iron_Node *)base;
+    }
+    if (n->kind == IRON_NODE_RC) {
+        /* `rc T` written as a type argument. */
+        Iron_Node *inner = type_ann_from_expr(ctx, ((Iron_RcExpr *)n)->inner);
+        if (!inner) return NULL;
+        Iron_TypeAnnotation *ta = ARENA_ALLOC(ctx->arena, Iron_TypeAnnotation);
+        if (!ta) return NULL;
+        memset(ta, 0, sizeof(*ta));
+        ta->kind = IRON_NODE_TYPE_ANNOTATION;
+        ta->span = n->span;
+        ta->is_rc = true;
+        ta->rc_inner = inner;
+        return (Iron_Node *)ta;
+    }
+    if (n->kind == IRON_NODE_ARRAY_LIT) {
+        /* `[Int]` written as a type argument: a list of the element type. */
+        Iron_ArrayLit *al = (Iron_ArrayLit *)n;
+        if (al->element_count != 1 || al->size) return NULL;
+        Iron_Node *elem = type_ann_from_expr(ctx, al->elements[0]);
+        if (!elem) return NULL;
+        Iron_TypeAnnotation *ta = ARENA_ALLOC(ctx->arena, Iron_TypeAnnotation);
+        if (!ta) return NULL;
+        memset(ta, 0, sizeof(*ta));
+        ta->kind = IRON_NODE_TYPE_ANNOTATION;
+        ta->span = n->span;
+        ta->is_array = true;
+        ta->array_elem_ann = elem;
+        return (Iron_Node *)ta;
     }
     return NULL;
 }
@@ -3647,6 +3854,15 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     if (cix->type_args) { cga = cix->type_args; cgn = cix->type_arg_count; }
                     else { cga = &cix->index; cgn = 1; }
                     cb = cix->object;
+                }
+                if (cb && cb->kind == IRON_NODE_IDENT && ((Iron_Ident *)cb)->name &&
+                    (strcmp(((Iron_Ident *)cb)->name, "Map") == 0 ||
+                     strcmp(((Iron_Ident *)cb)->name, "Set") == 0)) {
+                    result = check_hash_construct(ctx, ((Iron_Ident *)cb)->name,
+                                                  cga, cgn, ce->args, ce->arg_count,
+                                                  ce->span, &ce->desugared);
+                    ce->resolved_type = result;
+                    break;
                 }
                 if (cb && cb->kind == IRON_NODE_IDENT && ((Iron_Ident *)cb)->name &&
                     ctor_desugar_method(((Iron_Ident *)cb)->name)) {
@@ -4576,6 +4792,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                 mc->arg_count == 0 && mc->object) {
                 Iron_Type *ct = check_expr(ctx, mc->object);
                 if (ct && ct->kind == IRON_TYPE_OBJECT && ct->object.decl &&
+                    !hash_container_kind(ct) &&   /* Map/Set copy is their _clone */
                     !object_declares_method(ctx, ct->object.decl->name, "copy")) {
                     if (ct->object.decl->is_nocopy) {
                         char msg[256];
@@ -4628,7 +4845,9 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
              * may carry the internal `new` spelling. */
             if (mc->object && mc->object->kind == IRON_NODE_IDENT && mc->method &&
                 !mc->is_ctor_desugar && ((Iron_Ident *)mc->object)->name &&
-                ctor_desugar_method(((Iron_Ident *)mc->object)->name) &&
+                (ctor_desugar_method(((Iron_Ident *)mc->object)->name) ||
+                 strcmp(((Iron_Ident *)mc->object)->name, "Map") == 0 ||
+                 strcmp(((Iron_Ident *)mc->object)->name, "Set") == 0) &&
                 (strcmp(mc->method, "new") == 0 ||
                  strcmp(mc->method, "with_capacity") == 0 ||
                  strcmp(mc->method, "new_threadsafe") == 0)) {
@@ -4643,6 +4862,10 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     snprintf(hint, sizeof(hint), "construct it: Channel[Int](capacity)");
                 else if (strcmp(tn, "Box") == 0)
                     snprintf(hint, sizeof(hint), "construct it: Box(value) or Box[T](value)");
+                else if (strcmp(tn, "Map") == 0)
+                    snprintf(hint, sizeof(hint), "construct it: Map[String, Int]()");
+                else if (strcmp(tn, "Set") == 0)
+                    snprintf(hint, sizeof(hint), "construct it: Set[Int]()");
                 else
                     snprintf(hint, sizeof(hint), "construct it: %s[Int](value)", tn);
                 emit_error(ctx, IRON_ERR_CTOR_SPELLING, mc->span, msg, hint);
@@ -5125,12 +5348,52 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
              *   ch.send(v)    -> Void
              *   ch.recv()     -> T
              *   fh.close()    -> Void */
+            /* `rc Map[K, V]` / `rc Set[T]` (#193): the shared table's methods
+             * are the table's; a mutator through an rc handle is allowed
+             * from any binding, like other rc payloads. */
+            if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_RC && obj_type_mc->rc.inner &&
+                hash_container_kind(obj_type_mc->rc.inner) && obj_type_mc->rc.inner->object.elem &&
+                mc->method) {
+                Iron_Type *inner = obj_type_mc->rc.inner;
+                char rhk = hash_container_kind(inner);
+                Iron_Type *ht = check_hash_method(ctx, mc, inner, rhk);
+                if (!ht) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "'%s' has no method '%s'",
+                             iron_type_to_string(inner, ctx->arena), mc->method);
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg, NULL);
+                    ht = iron_type_make_primitive(IRON_TYPE_ERROR);
+                }
+                result = ht;
+                mc->resolved_type = result;
+                break;
+            }
+
             if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_OBJECT &&
                 obj_type_mc->object.decl &&
                 obj_type_mc->object.decl->name &&
                 mc->method) {
                 const char *rn = obj_type_mc->object.decl->name;
                 Iron_Type *elem = obj_type_mc->object.elem;
+
+                char hk = hash_container_kind(obj_type_mc);
+                if (hk && elem) {
+                    Iron_Type *ht = check_hash_method(ctx, mc, obj_type_mc, hk);
+                    if (ht) {
+                        result = ht;
+                        mc->resolved_type = result;
+                        break;
+                    }
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "'%s' has no method '%s'",
+                             iron_type_to_string(obj_type_mc, ctx->arena), mc->method);
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                               hk == 'M' ? "Map methods: put, get, get_or, has, remove, len, clear, keys, values, copy, take"
+                                         : "Set methods: add, has, remove, len, clear, values, copy, take");
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    mc->resolved_type = result;
+                    break;
+                }
 
                 if (strcmp(rn, "Mutex") == 0 &&
                     strcmp(mc->method, "lock") == 0) {
@@ -8688,6 +8951,32 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * For array iteration (for x in arr) the loop var has elem type.
              * For integer bound (for i in n) the loop var is Int. */
             Iron_Type *loop_var_type = iron_type_make_primitive(IRON_TYPE_INT);
+            Iron_Type *loop_var2_type = NULL;
+            /* `for (k, v) in shared` through an rc handle iterates the table. */
+            Iron_Type *hash_t = (iter_t && iter_t->kind == IRON_TYPE_RC && iter_t->rc.inner)
+                                ? iter_t->rc.inner : iter_t;
+            char hk = hash_container_kind(hash_t);
+            if (hk == 'M') {
+                /* for (k, v) in m: both are read-only views of an entry. */
+                if (!fs->var_name2) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fs->span,
+                               "a map is iterated with two variables",
+                               "write `for (key, value) in m`, or iterate m.keys() / m.values()");
+                }
+                loop_var_type = hash_t->object.elem;
+                loop_var2_type = hash_t->object.elem2;
+            } else if (hk == 'S') {
+                loop_var_type = hash_t->object.elem;
+            } else if (fs->var_name2) {
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fs->span,
+                           "only a Map is iterated with two variables",
+                           "write `for x in xs`");
+            }
+            if (hk && fs->is_parallel) {
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fs->iterable->span,
+                           "parallel for cannot iterate a Map or Set",
+                           "iterate m.keys() or a range instead");
+            }
             if (iter_t && iter_t->kind == IRON_TYPE_ARRAY) {
                 loop_var_type = iter_t->array.elem;
             } else if (iter_t && iter_t->kind == IRON_TYPE_STRING) {
@@ -8701,6 +8990,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
             tc_define(ctx, fs->var_name, IRON_SYM_VARIABLE, (Iron_Node *)fs, fs->span,
                       true, loop_var_type);
+            if (fs->var_name2)
+                tc_define(ctx, fs->var_name2, IRON_SYM_VARIABLE, (Iron_Node *)fs, fs->span,
+                          true, loop_var2_type ? loop_var2_type
+                                               : iron_type_make_primitive(IRON_TYPE_ERROR));
             /* Phase 85 INIT-04/06: for bodies may execute zero times (empty
              * iterable). Mirror the while-loop snapshot/restore so self.field
              * writes inside the body do not count toward "always assigned". */

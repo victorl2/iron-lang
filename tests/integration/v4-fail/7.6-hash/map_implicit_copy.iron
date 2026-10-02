@@ -1,0 +1,9 @@
+-- section: 7.6-hash (negative)
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- A map binding cannot be duplicated implicitly: copy() or take() it.
+func main() {
+    var a = Map[String, Int]()
+    a.put("x", 1)
+    val b = a
+    println("{b.len()}")
+}

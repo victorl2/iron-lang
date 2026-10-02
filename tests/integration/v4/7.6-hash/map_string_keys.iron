@@ -1,0 +1,14 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Map[String, Int]: keys compare by content, not by allocation.
+func main() {
+    var m = Map[String, Int]()
+    val k = "al" + "pha"
+    m.put("alpha", 1)
+    m.put("beta", 2)
+    m.put("", 0)
+    println("{m.get(k)} {m.has("alp" + "ha")} {m.get("")} {m.has("gamma")}")
+    m.put(k, 100)
+    println("{m.len()} {m.get("alpha")}")
+    println("{m.remove("alpha")} {m.has(k)} {m.len()}")
+}

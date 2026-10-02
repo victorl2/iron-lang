@@ -1,0 +1,19 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Enum values in a map.
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+func main() {
+    var m = Map[String, Color]()
+    m.put("sky", Color.Blue)
+    m.put("grass", Color.Green)
+    match m.get("sky") {
+        Color.Blue -> { println("blue") }
+        else -> { println("other") }
+    }
+    println("{m.len()}")
+}

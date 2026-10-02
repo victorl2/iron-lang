@@ -1,0 +1,13 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Map[String, String]: values are copied out and the table keeps its own.
+func main() {
+    var m = Map[String, String]()
+    m.put("k", "v1")
+    val first = m.get("k")
+    m.put("k", "v2")
+    println("{first} {m.get("k")} {m.get_or("x", "dflt")}")
+    var s = m.get("k")
+    s = s + "!"
+    println("{s} {m.get("k")}")
+}

@@ -1,0 +1,27 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Maps are dropped on every exit path, including early return and defer order.
+object Probe {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+
+func early(flag: Bool) -> Int {
+    var m = Map[Int, Probe]()
+    m.put(1, Probe(1))
+    defer {
+        println("deferred")
+    }
+    if flag {
+        return 1
+    }
+    m.put(2, Probe(2))
+    return 2
+}
+
+func main() {
+    println("{early(true)}")
+    println("{early(false)}")
+}

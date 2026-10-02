@@ -1,0 +1,25 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Object values with drop blocks are dropped by overwrite, remove, clear and scope exit.
+object Res {
+    val name: String
+    drop {
+        println("drop {self.name}")
+    }
+}
+
+func main() {
+    var m = Map[Int, Res]()
+    m.put(1, Res("one"))
+    m.put(2, Res("two"))
+    m.put(1, Res("uno"))
+    println("overwritten")
+    m.remove(2)
+    println("removed")
+    {
+        var inner = Map[Int, Res]()
+        inner.put(7, Res("scoped"))
+        println("scope end")
+    }
+    println("done")
+}

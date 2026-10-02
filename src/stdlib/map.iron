@@ -1,25 +1,33 @@
--- map.iron -- Map[K: Hashable, V]: hash-based key/value container (Phase 33 STDLIB-03)
--- Phase 33 OQ-01 / GA1: this surface declares the generic Hashable BOUND on the
--- key parameter so the constraint enforcement in src/analyzer/typecheck.c
--- (check_generic_constraints, E0206) bites at every `Map[K, V]` instantiation:
--- `Map[String, Int]` / `Map[Int, V]` are well-formed (Int/String satisfy
--- Hashable via the primitive carve-out), while `Map[NonHashable, V]` is a
--- compile error naming the unsatisfied bound.
+-- map.iron -- Map[K: Hashable, V]: a hash table from keys to values.
 --
--- SCOPE (Plan 33-02): this plan declares the TYPE + the Hashable bound only —
--- enough for the OQ-01 constraint check to fire positively and negatively on
--- the check path. The full method surface (Map.new / set / get / has / remove /
--- len + the drop/copy element-lifecycle protocol over the IRON_MAP_IMPL backing
--- in src/runtime/iron_runtime.h) is the Wave-4 container rewrite (STDLIB-03
--- proper) and is intentionally NOT declared here — adding it now would pull in
--- the method-level-generic dispatch gap (OQ-02) tracked separately.
+-- The table lives in the C runtime: the compiler instantiates one
+-- open-addressing table per concrete (K, V) (IRON_HMAP_DEFINE in
+-- src/runtime/iron_runtime.h, emitted by emit_ensure_hash) and resolves
+-- every method below by name (typecheck.c check_hash_method, hir_to_lir.c
+-- `__hash.<method>`). The declaration here carries the Hashable bound on K,
+-- enforced at every `Map[K, V]` (E0206), and the single opaque field keeps
+-- the object well-formed for the parts of the compiler that walk fields.
 --
--- The hash-based backing (Iron_Map_<K>_<V>, name-mangled per
--- src/runtime/iron_runtime.h:982) is preserved and unchanged by this plan; the
--- runtime hashes the built-in Hashable primitives natively.
+-- Construction: `var m = Map[String, Int]()` (both type arguments are
+-- required; a map is constructed empty).
 --
--- `val inner` opaque storage (not `var`) so v3.0 E0264 (mutable-field-needs-init)
--- does not fire on the stdlib surface — mirrors arena.iron / box.iron.
+-- Methods (receiver form):
+--   m.put(key: K, value: V)          insert or overwrite; needs var
+--   m.get(key: K) -> V               panics when the key is absent
+--   m.get_or(key: K, default: V) -> V
+--   m.has(key: K) -> Bool
+--   m.remove(key: K) -> Bool         whether the key was present; needs var
+--   m.len() -> Int
+--   m.clear()                        needs var
+--   m.keys() -> [K]                  fresh list of key copies, any order
+--   m.values() -> [V]                fresh list of value copies, any order
+--   m.copy() -> Map[K, V]            independent table
+--   m.take() -> Map[K, V]            moves the contents out; needs var
+--   for (k, v) in m { ... }          read-only copies of each entry
+--
+-- Ownership follows lists (#174, #193): the table owns its keys and
+-- values, get/get_or hand out copies, and a map binding is never
+-- duplicated implicitly (E0328).
 
 object Map[K: Hashable, V] {
     val inner: Int  -- opaque storage; the C runtime holds the real Iron_Map_<K>_<V>

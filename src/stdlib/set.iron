@@ -1,22 +1,27 @@
--- set.iron -- Set[T: Hashable]: hash-based membership container (Phase 33 STDLIB-04)
--- Phase 33 OQ-01 / GA1: declares the generic Hashable BOUND on the element
--- parameter so the constraint enforcement in src/analyzer/typecheck.c
--- (check_generic_constraints, E0206) bites at every `Set[T]` instantiation:
--- `Set[Int]` / `Set[String]` are well-formed (Int/String satisfy Hashable via
--- the primitive carve-out), while `Set[NonHashable]` is a compile error naming
--- the unsatisfied bound.
+-- set.iron -- Set[T: Hashable]: a hash set.
 --
--- SCOPE (Plan 33-02): TYPE + Hashable bound only — enough for the OQ-01
--- constraint check to fire on the check path. The full method surface
--- (Set.new / add / has / remove / len + the element drop/copy protocol over the
--- IRON_SET_IMPL backing in src/runtime/iron_runtime.h) is the Wave-4 container
--- rewrite (STDLIB-04 proper) and is intentionally NOT declared here.
+-- The table lives in the C runtime: the compiler instantiates one
+-- open-addressing table per concrete T (IRON_HSET_DEFINE in
+-- src/runtime/iron_runtime.h, emitted by emit_ensure_hash) and resolves
+-- every method below by name (typecheck.c check_hash_method). The
+-- declaration carries the Hashable bound on T, enforced at every `Set[T]`
+-- (E0206).
 --
--- The hash-based backing (Iron_Set_<T>, name-mangled per
--- src/runtime/iron_runtime.h:983) is preserved and unchanged by this plan.
+-- Construction: `var s = Set[Int]()` (the type argument is required).
 --
--- `val inner` opaque storage (not `var`) so v3.0 E0264 does not fire on the
--- stdlib surface — mirrors arena.iron / box.iron / map.iron.
+-- Methods (receiver form):
+--   s.add(item: T) -> Bool           whether the item was new; needs var
+--   s.has(item: T) -> Bool
+--   s.remove(item: T) -> Bool        whether the item was present; needs var
+--   s.len() -> Int
+--   s.clear()                        needs var
+--   s.values() -> [T]                fresh list of copies, any order
+--   s.copy() -> Set[T]               independent table
+--   s.take() -> Set[T]               moves the contents out; needs var
+--   for x in s { ... }               read-only copy of each item
+--
+-- Ownership follows lists: the set owns its items and a set binding is
+-- never duplicated implicitly (E0328).
 
 object Set[T: Hashable] {
     val inner: Int  -- opaque storage; the C runtime holds the real Iron_Set_<T>

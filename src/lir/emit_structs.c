@@ -342,13 +342,75 @@ static bool list_struct_predeclared(EmitCtx *ctx, const char *mangled) {
     return false;
 }
 
+/* The Iron_List_<Obj> typedef, prototypes and implementation for a list
+ * of a concrete object type, once per type. Called for every object
+ * ARRAY_LIT in the module and by the Map/Set glue for keys() / values(). */
+void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
+    if (!et || et->kind != IRON_TYPE_OBJECT || !et->object.decl) return;
+    const char *bare_type = et->object.decl->name;
+    if (!bare_type) return;
+
+    /* Mangle "Circle" -> "Iron_Circle".  Arena-allocated,
+     * stable for the lifetime of the stb_ds dedup map. */
+    const char *mangled = emit_mangle_name(bare_type, ctx->arena);
+
+    if (shgeti(ctx->emitted_mono_list_types, mangled) >= 0) return;
+    shput(ctx->emitted_mono_list_types, mangled, true);
+
+    /* Phase 33 STDLIB-09 (Plan 33-04): for the FileHandle nocopy
+     * surface the Iron_FileHandle typedef + Iron_FileHandle_drop are
+     * emit-synthesized lazily — ensure they land in struct_bodies
+     * BEFORE the Iron_List_Iron_FileHandle typedef references them
+     * (Pitfall 5 ordering). */
+    if (strcmp(bare_type, "FileHandle") == 0) {
+        emit_ensure_filehandle(ctx);
+    }
+
+    /* Phase 33 STDLIB-02 (Plan 33-04): determine element drop/copy
+     * so the list _free/_clone can run per-element destructors. */
+    bool elem_has_drop = false, elem_has_copy = false;
+    elem_lifecycle_flags(ctx, (Iron_Type *)et, bare_type,
+                         &elem_has_drop, &elem_has_copy);
+    /* Synthesize the per-object drop/copy helpers the list bodies
+     * call (no-op for FileHandle whose drop is already emitted). */
+    if (elem_has_drop && strcmp(bare_type, "FileHandle") != 0) {
+        emit_ensure_drop(ctx, mangled, et->object.decl);
+    }
+    if (elem_has_copy) {
+        emit_ensure_copy_fixup(ctx, mangled, et->object.decl);
+    }
+
+    /* Emit Iron_List_<mangled> struct typedef.  The
+     * IRON_LIST_DECL and the IMPL bodies assume this struct is
+     * already declared with fields
+     *   { T *items; int64_t count; int64_t capacity; }. */
+    if (!list_struct_predeclared(ctx, mangled))
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "/* Phase 56: Iron_List type for mono-collapsed %s */\n"
+        "typedef struct Iron_List_%s {\n"
+        "    %s    *items;\n"
+        "    int64_t count;\n"
+        "    int64_t capacity;\n"
+        "} Iron_List_%s;\n",
+        mangled, mangled, mangled, mangled);
+
+    /* Emit IRON_LIST_DECL(T, suffix) — function prototypes. */
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "IRON_LIST_DECL(%s, %s)\n",
+        mangled, mangled);
+
+    /* Emit the IMPL — element-destructor-aware when the element
+     * type owns a drop/copy, else the fast free(items)/memcpy path
+     * (Pitfall 5).  Safe at TU level: each mangled name is unique
+     * per compilation unit. */
+    emit_list_impl_lifecycle(ctx, mangled,
+                             elem_has_drop, elem_has_copy);
+}
+
 static void emit_mono_list_decls(EmitCtx *ctx) {
     IronLIR_Module *module = ctx->module;
     if (!module) return;
 
-    /* Dedup set: keyed by mangled concrete type name (e.g. "Iron_Circle").
-     * Per-compilation-unit scope — freed at end of function. */
-    struct { char *key; bool value; } *emitted_mono_list_types = NULL;
 
     /* Helper lambda via loop body: emit decls for a single concrete type. */
     /* We iterate all ARRAY_LIT instructions in every function and collect
@@ -375,64 +437,7 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
                 if (et->kind != IRON_TYPE_OBJECT) continue;
                 if (!et->object.decl) continue;
 
-                const char *bare_type = et->object.decl->name;
-                if (!bare_type) continue;
-
-                /* Mangle "Circle" -> "Iron_Circle".  Arena-allocated,
-                 * stable for the lifetime of the stb_ds dedup map. */
-                const char *mangled = emit_mangle_name(bare_type, ctx->arena);
-
-                if (shgeti(emitted_mono_list_types, mangled) >= 0) continue;
-                shput(emitted_mono_list_types, mangled, true);
-
-                /* Phase 33 STDLIB-09 (Plan 33-04): for the FileHandle nocopy
-                 * surface the Iron_FileHandle typedef + Iron_FileHandle_drop are
-                 * emit-synthesized lazily — ensure they land in struct_bodies
-                 * BEFORE the Iron_List_Iron_FileHandle typedef references them
-                 * (Pitfall 5 ordering). */
-                if (strcmp(bare_type, "FileHandle") == 0) {
-                    emit_ensure_filehandle(ctx);
-                }
-
-                /* Phase 33 STDLIB-02 (Plan 33-04): determine element drop/copy
-                 * so the list _free/_clone can run per-element destructors. */
-                bool elem_has_drop = false, elem_has_copy = false;
-                elem_lifecycle_flags(ctx, et, bare_type,
-                                     &elem_has_drop, &elem_has_copy);
-                /* Synthesize the per-object drop/copy helpers the list bodies
-                 * call (no-op for FileHandle whose drop is already emitted). */
-                if (elem_has_drop && strcmp(bare_type, "FileHandle") != 0) {
-                    emit_ensure_drop(ctx, mangled, et->object.decl);
-                }
-                if (elem_has_copy) {
-                    emit_ensure_copy_fixup(ctx, mangled, et->object.decl);
-                }
-
-                /* Emit Iron_List_<mangled> struct typedef.  The
-                 * IRON_LIST_DECL and the IMPL bodies assume this struct is
-                 * already declared with fields
-                 *   { T *items; int64_t count; int64_t capacity; }. */
-                if (!list_struct_predeclared(ctx, mangled))
-                iron_strbuf_appendf(&ctx->struct_bodies,
-                    "/* Phase 56: Iron_List type for mono-collapsed %s */\n"
-                    "typedef struct Iron_List_%s {\n"
-                    "    %s    *items;\n"
-                    "    int64_t count;\n"
-                    "    int64_t capacity;\n"
-                    "} Iron_List_%s;\n",
-                    mangled, mangled, mangled, mangled);
-
-                /* Emit IRON_LIST_DECL(T, suffix) — function prototypes. */
-                iron_strbuf_appendf(&ctx->struct_bodies,
-                    "IRON_LIST_DECL(%s, %s)\n",
-                    mangled, mangled);
-
-                /* Emit the IMPL — element-destructor-aware when the element
-                 * type owns a drop/copy, else the fast free(items)/memcpy path
-                 * (Pitfall 5).  Safe at TU level: each mangled name is unique
-                 * per compilation unit. */
-                emit_list_impl_lifecycle(ctx, mangled,
-                                         elem_has_drop, elem_has_copy);
+                emit_ensure_object_list(ctx, et);
             }
         }
     }
@@ -488,8 +493,8 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
                 if (!bvec_name)
                     iron_oom_abort("emit_structs.c:emit_mono_list_decls bvec_name");
 
-                if (shgeti(emitted_mono_list_types, bvec_name) >= 0) continue;
-                shput(emitted_mono_list_types, bvec_name, true);
+                if (shgeti(ctx->emitted_mono_list_types, bvec_name) >= 0) continue;
+                shput(ctx->emitted_mono_list_types, bvec_name, true);
 
                 /* Step C: emit Iron_List_Iron_BVec_T_N struct typedef +
                  * IRON_LIST_DECL + IRON_LIST_IMPL.  The list stores bvec
@@ -526,8 +531,8 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
 
             const char *mangled = emit_mangle_name(bare_type, ctx->arena);
 
-            if (shgeti(emitted_mono_list_types, mangled) >= 0) continue;
-            shput(emitted_mono_list_types, mangled, true);
+            if (shgeti(ctx->emitted_mono_list_types, mangled) >= 0) continue;
+            shput(ctx->emitted_mono_list_types, mangled, true);
 
             if (!list_struct_predeclared(ctx, mangled))
             iron_strbuf_appendf(&ctx->struct_bodies,
@@ -565,8 +570,8 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
                 __et->object.decl && __et->object.decl->name) {                  \
                 const char *__mangled = emit_mangle_name(                        \
                     __et->object.decl->name, ctx->arena);                        \
-                if (shgeti(emitted_mono_list_types, __mangled) < 0) {            \
-                    shput(emitted_mono_list_types, __mangled, true);             \
+                if (shgeti(ctx->emitted_mono_list_types, __mangled) < 0) {            \
+                    shput(ctx->emitted_mono_list_types, __mangled, true);             \
                     if (!list_struct_predeclared(ctx, __mangled))                \
                     iron_strbuf_appendf(&ctx->struct_bodies,                     \
                         "/* Phase 56: Iron_List type for mono-collapsed %s ("    \
@@ -651,7 +656,6 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
 
     #undef PLAN_63_04_EMIT_LIST_FOR
 
-    shfree(emitted_mono_list_types);
 }
 
 /* Check if any type_decl's object extends the given name */

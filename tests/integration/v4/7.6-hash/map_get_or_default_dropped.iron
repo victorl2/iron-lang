@@ -1,0 +1,15 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- get_or's default is consumed: a string default is released when unused.
+func main() {
+    var m = Map[String, String]()
+    m.put("k", "present")
+    for i in range(100) {
+        val d = m.get_or("k", "unused default {i}")
+        val e = m.get_or("missing", "used default {i}")
+        if i == 99 {
+            println("{d} {e}")
+        }
+    }
+    println("{m.len()}")
+}

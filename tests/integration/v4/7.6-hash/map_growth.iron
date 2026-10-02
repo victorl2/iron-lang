@@ -1,0 +1,34 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- Growth through several rehashes keeps every key; removals leave the rest.
+func main() {
+    var m = Map[Int, Int]()
+    for i in range(3000) {
+        m.put(i * 7919, i)
+    }
+    var ok = true
+    for i in range(3000) {
+        if m.get(i * 7919) != i {
+            ok = false
+        }
+    }
+    println("{m.len()} {ok}")
+    var removed = 0
+    for i in range(3000) {
+        if i % 3 == 0 {
+            if m.remove(i * 7919) {
+                removed += 1
+            }
+        }
+    }
+    var left = true
+    for i in range(3000) {
+        if i % 3 != 0 and not m.has(i * 7919) {
+            left = false
+        }
+        if i % 3 == 0 and m.has(i * 7919) {
+            left = false
+        }
+    }
+    println("{removed} {m.len()} {left}")
+}

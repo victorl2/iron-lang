@@ -1,0 +1,10 @@
+-- section: 7.6-hash (negative)
+-- @req: STDLIB-03, STDLIB-04 (#193)
+-- A map parameter is read-only unless declared var.
+func f(m: Map[String, Int]) {
+    m.remove("x")
+}
+func main() {
+    var m = Map[String, Int]()
+    f(m)
+}

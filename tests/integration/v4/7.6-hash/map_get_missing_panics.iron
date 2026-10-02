@@ -1,0 +1,11 @@
+-- section: 7.6-hash
+-- @req: STDLIB-03 (#193)
+-- @expect-panic: key not found in map
+-- get() on a missing key panics; check with has() or use get_or().
+func main() {
+    var m = Map[String, Int]()
+    m.put("present", 1)
+    println("before {m.get("present")}")
+    val v = m.get("missing")
+    println("unreachable {v}")
+}

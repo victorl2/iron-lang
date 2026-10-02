@@ -246,6 +246,27 @@ void iron_panic_index_oob(const char *site_file, int site_line,
     abort();
 }
 
+void iron_panic_key_missing(const char *site_file, int site_line) {
+    fflush(stdout);  /* the program's earlier output comes first */
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+        /* noreturn: abort() inside */
+    }
+    const char *sf = site_file ? site_file : "<unknown>";
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"key_missing\",", stderr);
+        fprintf(stderr, "\"site\":{\"file\":\"%s\",\"line\":%d}}\n", sf, site_line);
+    } else {
+        fputs("iron: key not found in map\n", stderr);
+        fprintf(stderr, "  site: %s:%d\n", sf, site_line);
+        fputs("  hint: check with has(key) first or use get_or(key, default)\n", stderr);
+    }
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
 void iron_panic_iface_rebound(const char *site_file, int site_line,
                               const char *iface_name, const char *expected_impl) {
     fflush(stdout);  /* the program's earlier output comes first */
