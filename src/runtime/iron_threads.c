@@ -450,6 +450,7 @@ static void *pool_worker_elastic(void *arg) {
             /* Self-retire: NULL our slot and decrement thread_count so the
              * next submit can spawn a replacement without waiting. */
             iron_thread_t self = iron_thread_self();
+            (void)self;   /* not comparable on Windows, see below */
             for (int i = 0; i < pool->thread_slots_cap; i++) {
 #ifdef _WIN32
                 /* Windows: the stored HANDLE is not comparable with the
