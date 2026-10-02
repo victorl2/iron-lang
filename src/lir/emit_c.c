@@ -2452,6 +2452,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         Iron_Type *nt = instr->type;
         bool untyped = !nt || nt->kind == IRON_TYPE_NULL ||
                        nt->kind == IRON_TYPE_VOID || nt->kind == IRON_TYPE_ERROR;
+        /* `weak rc null` keeps the IRON_TYPE_NULL sentinel as its payload
+         * type when nothing rebinds it; as a C type that is `void**`, which
+         * cannot be assigned to the `T*` it flows into. */
+        if (!untyped && nt->kind == IRON_TYPE_WEAK_RC && nt->weak_rc.inner &&
+            nt->weak_rc.inner->kind == IRON_TYPE_NULL)
+            untyped = true;
         const char *c_type = untyped ? "void*" : emit_type_to_c(nt, ctx);
         const char *zero;
         if (untyped || strchr(c_type, '*')) {
