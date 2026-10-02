@@ -39,6 +39,7 @@
 #include "project/project_build.h"
 #include "project/iron_project.h"
 #include "cli/version.h"
+#include "cli/toolchain.h"
 #include "cli/help_registry.h"
 
 #ifndef IRON_GIT_HASH
@@ -234,6 +235,7 @@ int forward_to_ironc(int argc, char **argv) {
 static void print_version(void) {
     printf("iron %s (%s %s)\n",
            IRON_VERSION_STRING, IRON_GIT_HASH, IRON_BUILD_DATE);
+    iron_toolchain_print_version(stdout);
 }
 
 /*
@@ -309,6 +311,11 @@ int main(int argc, char **argv) {
     /* init subcommand */
     if (strcmp(cmd, "init") == 0) {
         return cmd_init(argc, argv);
+    }
+
+    /* toolchain: ironc owns the lookup; forward as is (including --help). */
+    if (strcmp(cmd, "toolchain") == 0) {
+        return forward_to_ironc(argc, argv);
     }
 
     /* Known subcommands */

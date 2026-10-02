@@ -1,4 +1,5 @@
 #include "cli/build.h"
+#include "cli/toolchain.h"
 #include "cli/toml.h"
 #include "hir/stdlib_origin.h"
 
@@ -471,6 +472,7 @@ static int prepend_marked_file(char **source_io, const char *base_dir,
 static char *s_rt_os = NULL;
 
 static int build_src_list(const char **argv_buf, int *ai_out,
+                           const char *clang_path,
                            const char *c_file, const char *output,
                            char **src_i_flag_out, char **vendor_i_flag_out,
                            char **stdlib_i_flag_out,
@@ -597,7 +599,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
 
     int ai = 0;
 #ifdef _WIN32
-    argv_buf[ai++] = "clang-cl";
+    argv_buf[ai++] = clang_path;
     argv_buf[ai++] = "/std:c11";
     argv_buf[ai++] = "/O2";
     argv_buf[ai++] = c_file;
@@ -665,7 +667,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         argv_buf[ai++] = out_flag;
     }
 #else
-    argv_buf[ai++] = "clang";
+    argv_buf[ai++] = clang_path;
     argv_buf[ai++] = "-std=gnu17";
     /* Emitted arithmetic is raw C on int64_t and the runtime type-puns rc
      * headers/arena handles; without these two flags, signed overflow and
@@ -674,6 +676,10 @@ static int build_src_list(const char **argv_buf, int *ai_out,
      * from strict aliasing. */
     argv_buf[ai++] = "-fwrapv";
     argv_buf[ai++] = "-fno-strict-aliasing";
+    if (iron_toolchain_sysroot()) {
+        argv_buf[ai++] = "-isysroot";
+        argv_buf[ai++] = iron_toolchain_sysroot();
+    }
     argv_buf[ai++] = "-O3";
     if (opts.release) {
         /* Phase 2: --release appends -O2 to native builds; clang's last-wins
@@ -844,6 +850,9 @@ static void free_src_list(char *base_dir,
 #ifndef _WIN32
 static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
                                      IronBuildOpts opts) {
+    const IronToolchain *tc = iron_toolchain_get(true);
+    if (!tc) return 1;
+    const char *clang_path = iron_toolchain_tool(tc, "clang");
     char *base_dir = get_iron_lib_dir();
     if (!base_dir) {
         fprintf(stderr, "error: cannot resolve iron lib directory\n");
@@ -866,14 +875,18 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
     if (!stdlib_i_flag) { free(vendor_i_flag); free(src_i_flag); free(base_dir); return 1; }
     snprintf(stdlib_i_flag, stdlib_i_len, "-I%s/stdlib", base_dir);
 
-    const char *argv_buf[24];
+    const char *argv_buf[32];
     int ai = 0;
-    argv_buf[ai++] = "clang";
+    argv_buf[ai++] = clang_path;
     argv_buf[ai++] = "-std=gnu17";
     /* Mirror invoke_clang: wrap-on-overflow + no strict aliasing for all
      * Iron-emitted C (see the main link path for rationale). */
     argv_buf[ai++] = "-fwrapv";
     argv_buf[ai++] = "-fno-strict-aliasing";
+    if (iron_toolchain_sysroot()) {
+        argv_buf[ai++] = "-isysroot";
+        argv_buf[ai++] = iron_toolchain_sysroot();
+    }
     argv_buf[ai++] = "-c";
     /* Default unoptimized; --release adds -O2 (matches bin path). */
     if (opts.release) {
@@ -908,7 +921,7 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
     }
 
     pid_t pid;
-    int spawn_rc = posix_spawnp(&pid, "clang", NULL, NULL,
+    int spawn_rc = posix_spawnp(&pid, clang_path, NULL, NULL,
                                 (char *const *)argv_buf, environ);
     free(stdlib_i_flag);
     free(vendor_i_flag);
@@ -934,6 +947,14 @@ static int invoke_clang(const char *c_file, const char *output,
                          const char *src_dir, IronBuildOpts opts) {
     (void)src_dir;
 
+    const IronToolchain *tc = iron_toolchain_get(true);
+    if (!tc) return 1;
+#ifdef _WIN32
+    const char *clang_path = iron_toolchain_tool(tc, "clang-cl");
+#else
+    const char *clang_path = iron_toolchain_tool(tc, "clang");
+#endif
+
     char *base_dir = NULL;
     char *src_i_flag = NULL, *vendor_i_flag = NULL, *stdlib_i_flag = NULL;
     char *rt_stb = NULL, *rt_arena = NULL, *rt_strbuf = NULL;
@@ -957,7 +978,7 @@ static int invoke_clang(const char *c_file, const char *output,
                    "argv_buf too small — bump if adding new stdlib modules");
     int ai = 0;
 
-    if (build_src_list(argv_buf, &ai, c_file, output,
+    if (build_src_list(argv_buf, &ai, clang_path, c_file, output,
                        &src_i_flag, &vendor_i_flag, &stdlib_i_flag,
                        &rt_stb, &rt_arena, &rt_strbuf,
                        &rt_string, &rt_rc, &rt_builtin,
@@ -1069,9 +1090,9 @@ static int invoke_clang(const char *c_file, const char *output,
             int ofd = mkstemps(obj_path, 2);
             if (ofd >= 0) close(ofd);
 
-            const char *cc_argv[20];
+            const char *cc_argv[24];
             int ci = 0;
-            cc_argv[ci++] = "clang";
+            cc_argv[ci++] = clang_path;
             cc_argv[ci++] = "-c";
 
             bool is_rglfw = (strstr(raylib_sources[ri], "rglfw") != NULL);
@@ -1084,6 +1105,10 @@ static int invoke_clang(const char *c_file, const char *output,
             cc_argv[ci++] = rl_i_flag;
             cc_argv[ci++] = rl_glfw_i_flag;
             cc_argv[ci++] = "-DPLATFORM_DESKTOP";
+            if (iron_toolchain_sysroot()) {
+                cc_argv[ci++] = "-isysroot";
+                cc_argv[ci++] = iron_toolchain_sysroot();
+            }
 #ifdef __linux__
             /* raylib's rglfw.c requires _GLFW_X11 or _GLFW_WAYLAND on
              * Linux (see comment at the link step above). */
@@ -1096,7 +1121,7 @@ static int invoke_clang(const char *c_file, const char *output,
             cc_argv[ci] = NULL;
 
             pid_t cc_pid;
-            int cc_status = posix_spawnp(&cc_pid, "clang", NULL, NULL,
+            int cc_status = posix_spawnp(&cc_pid, clang_path, NULL, NULL,
                                           (char *const *)cc_argv, environ);
             free(src_path);
             if (cc_status != 0) {
@@ -1124,7 +1149,7 @@ static int invoke_clang(const char *c_file, const char *output,
     }
 
     pid_t pid;
-    int status = posix_spawnp(&pid, "clang", NULL, NULL,
+    int status = posix_spawnp(&pid, clang_path, NULL, NULL,
                                (char *const *)argv_buf, environ);
 
     free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
@@ -1767,44 +1792,29 @@ int iron_build(const char *source_path, const char *output_path,
             return compile_ret;
         }
 
-        /* 2. Wrap: try llvm-ar first; on ENOENT, fall back to system ar */
+        /* 2. Wrap the object with the toolchain's llvm-ar. */
+        const IronToolchain *ar_tc = iron_toolchain_get(true);
+        if (!ar_tc) {
+            free(c_file_path);
+            iron_diaglist_free(&diags);
+            iron_arena_free(&arena);
+            free(source);
+            free(base_dir);
+            free(derived_output);
+            return 1;
+        }
+        const char *ar_path = iron_toolchain_tool(ar_tc, "llvm-ar");
         char *llvm_argv[] = {
-            (char *)"llvm-ar", (char *)"rcs",
+            (char *)ar_path, (char *)"rcs",
             (char *)binary_name, obj_path, NULL
         };
         pid_t ar_pid;
-        int spawn_ret = posix_spawnp(&ar_pid, "llvm-ar", NULL, NULL,
+        int spawn_ret = posix_spawnp(&ar_pid, ar_path, NULL, NULL,
                                      llvm_argv, environ);
         int ar_exit = -1;
         bool used_fallback = false;
         if (spawn_ret == 0) {
             waitpid(ar_pid, &ar_exit, 0);
-        } else if (spawn_ret == ENOENT) {
-            /* Fall back to system ar with same rcs flags. Emit single-line
-             * stderr note (CONTEXT-locked verbatim text). */
-            used_fallback = true;
-            char *sys_argv[] = {
-                (char *)"ar", (char *)"rcs",
-                (char *)binary_name, obj_path, NULL
-            };
-            int sys_spawn = posix_spawnp(&ar_pid, "ar", NULL, NULL,
-                                         sys_argv, environ);
-            if (sys_spawn == 0) {
-                fprintf(stderr,
-                        "note: llvm-ar not found, using system ar (archives may differ across platforms)\n");
-                waitpid(ar_pid, &ar_exit, 0);
-            } else {
-                fprintf(stderr,
-                        "error: neither llvm-ar nor ar found in PATH. Install with: brew install llvm (macOS) or apt install llvm (Linux).\n");
-                /* Intermediate .o kept for debugging on failure. */
-                free(c_file_path);
-                iron_diaglist_free(&diags);
-                iron_arena_free(&arena);
-                free(source);
-                free(base_dir);
-                free(derived_output);
-                return 1;
-            }
         } else {
             fprintf(stderr, "error: failed to spawn llvm-ar: %s\n",
                     strerror(spawn_ret));
