@@ -197,11 +197,7 @@ static char *derive_output_name(const char *source_path) {
     char *path_copy = strdup(source_path);
     if (!path_copy) return NULL;
 
-#ifdef _WIN32
-    const char *base = win_basename(path_copy);
-#else
     char *base = basename(path_copy);
-#endif
 
     /* Strip .iron extension if present */
     size_t len = strlen(base);
