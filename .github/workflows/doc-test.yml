@@ -13,6 +13,9 @@ on:
     branches: [main]
     paths:
       - 'docs/language_definition.md'
+      - 'docs/guide.md'
+      - 'docs/networking.md'
+      - 'docs/raylib.md'
       - 'docs/llms/iron.md'
       - 'docs/examples/native_*.iron'
       - 'scripts/check_branding.py'
@@ -29,6 +32,9 @@ on:
     branches: [main]
     paths:
       - 'docs/language_definition.md'
+      - 'docs/guide.md'
+      - 'docs/networking.md'
+      - 'docs/raylib.md'
       - 'docs/llms/iron.md'
       - 'docs/examples/native_*.iron'
       - 'scripts/check_branding.py'
@@ -87,6 +93,16 @@ jobs:
 
       - name: Run doc-test extractor against docs/llms/iron.md
         run: MD_FILE=docs/llms/iron.md bash scripts/test_doc_examples.sh ./build/iron
+
+      - name: Run doc-test extractor against docs/guide.md
+        run: MD_FILE=docs/guide.md bash scripts/test_doc_examples.sh ./build/iron
+
+      # The networking and raylib programs need a peer or a window: compiled, not run.
+      - name: Compile the examples in docs/networking.md
+        run: DOCTEST_BUILD_ONLY=1 MD_FILE=docs/networking.md bash scripts/test_doc_examples.sh ./build/iron
+
+      - name: Compile the examples in docs/raylib.md
+        run: DOCTEST_BUILD_ONLY=1 MD_FILE=docs/raylib.md bash scripts/test_doc_examples.sh ./build/iron
 
       - name: Check the manual's grammar against the fixture corpus
         run: python3 scripts/grammar_check.py --negative tests/integration/v4-fail

@@ -186,3 +186,6 @@ docs/site/llms/
 
 # Generated at deploy time by scripts/build_reference.py from docs/language_definition.md.
 docs/site/docs/index.html
+docs/site/networking/index.html
+docs/site/guide/index.html
+docs/site/raylib/index.html
