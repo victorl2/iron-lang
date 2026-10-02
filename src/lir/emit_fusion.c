@@ -144,7 +144,7 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
                     iron_strbuf_appendf(sb, "typedef void (*_FuseFn_%d)(void *, %s);\n", ni, in_t);
                 }
                 emit_indent(sb, ind + 1);
-                iron_strbuf_appendf(sb, "_FuseFn_%d _fuse_fn_%d; memcpy(&_fuse_fn_%d, &",
+                iron_strbuf_appendf(sb, "_FuseFn_%d _fuse_fn_%d; iron_mem_copy(&_fuse_fn_%d, &",
                     ni, ni, ni);
                 emit_expr_to_buf(sb, node->lambda_args[0], fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ".fn, sizeof(_fuse_fn_%d));\n", ni);
@@ -307,7 +307,7 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
                     iron_strbuf_appendf(sb, "typedef void (*_FuseFn_%d)(void *, %s);\n", ni, in_t);
                 }
                 emit_indent(sb, ind + 1);
-                iron_strbuf_appendf(sb, "_FuseFn_%d _fuse_fn_%d; memcpy(&_fuse_fn_%d, &",
+                iron_strbuf_appendf(sb, "_FuseFn_%d _fuse_fn_%d; iron_mem_copy(&_fuse_fn_%d, &",
                     ni, ni, ni);
                 emit_expr_to_buf(sb, node->lambda_args[0], fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ".fn, sizeof(_fuse_fn_%d));\n", ni);

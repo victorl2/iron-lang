@@ -239,7 +239,7 @@ static void ew_emit_frame_callback(EmitCtx *ctx, IronLIR_Func *fn, int header_bi
         "    if (WindowShouldClose()) {\n"
         "        CloseWindow();\n"
         "        iron_runtime_shutdown();\n"
-        "        free(state);\n"
+        "        iron_mem_free(state);\n"
         "        emscripten_cancel_main_loop();\n"
         "        return;\n"
         "    }\n");
@@ -282,7 +282,7 @@ static void ew_emit_main_wrapper(EmitCtx *ctx, IronLIR_Func *fn, int header_bi) 
     }
     iron_strbuf_appendf(&ctx->main_wrapper,
         "    FrameState_%s *state ="
-        " (FrameState_%s *)malloc(sizeof(FrameState_%s));\n",
+        " (FrameState_%s *)iron_mem_alloc(sizeof(FrameState_%s));\n",
         fn->name, fn->name, fn->name);
     /* FIX-01 Wasm-W1 (Phase 67-02): web main-loop wrapper malloc guard.
      * Pre-fix the next `memset(state, 0, ...)` dereferenced a possibly-NULL
@@ -291,7 +291,7 @@ static void ew_emit_main_wrapper(EmitCtx *ctx, IronLIR_Func *fn, int header_bi) 
     iron_strbuf_appendf(&ctx->main_wrapper,
         "    if (!state) iron_oom_abort(\"emit_web main-loop FrameState\");\n");
     iron_strbuf_appendf(&ctx->main_wrapper,
-        "    memset(state, 0, sizeof(FrameState_%s));\n", fn->name);
+        "    iron_mem_set(state, 0, sizeof(FrameState_%s));\n", fn->name);
     iron_strbuf_appendf(&ctx->main_wrapper,
         "    FrameState_%s *_e = state;"
         "  /* alias: emit_instr lambda-capture path emits _e-> = state-> */\n",

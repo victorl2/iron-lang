@@ -19,6 +19,7 @@
  *           or "-1.2345678901234567e-308", under 32 chars)
  */
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <math.h>
 #include <stdbool.h>
@@ -118,4 +119,36 @@ Iron_String Iron_float_to_string(double f) {
     char buf[IRON_FMT_FLOAT_BUF];
     iron_fmt_float(f, false, buf);
     return iron_string_from_cstr(buf, strlen(buf));
+}
+
+/* ── printf-style formatting for generated code ─────────────────────────── */
+
+char *iron_cstr_format(const char *fmt, ...) {
+    va_list ap, ap2;
+    va_start(ap, fmt);
+    va_copy(ap2, ap);
+    int n = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    if (n < 0) n = 0;
+    char *buf = (char *)malloc((size_t)n + 1);
+    if (!buf) iron_oom_abort("iron_cstr_format");
+    vsnprintf(buf, (size_t)n + 1, fmt, ap2);
+    va_end(ap2);
+    return buf;
+}
+
+Iron_String iron_string_format(const char *fmt, ...) {
+    va_list ap, ap2;
+    va_start(ap, fmt);
+    va_copy(ap2, ap);
+    int n = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    if (n < 0) n = 0;
+    char *buf = (char *)malloc((size_t)n + 1);
+    if (!buf) iron_oom_abort("iron_string_format");
+    vsnprintf(buf, (size_t)n + 1, fmt, ap2);
+    va_end(ap2);
+    Iron_String s = iron_string_from_cstr(buf, (size_t)n);
+    free(buf);
+    return s;
 }

@@ -2,7 +2,6 @@
 #define IRON_MATH_H
 
 #include <stdint.h>
-#include <math.h>
 
 /* ── Constants ───────────────────────────────────────────────────────────── */
 #define IRON_PI  3.14159265358979323846

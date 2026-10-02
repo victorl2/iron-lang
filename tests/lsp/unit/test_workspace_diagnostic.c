@@ -32,6 +32,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <time.h>   /* nanosleep */
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>

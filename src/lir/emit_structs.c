@@ -226,7 +226,7 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
             "    dst.count = src->count;\n"
             "    dst.capacity = src->count;\n"
             "    if (src->count > 0) {\n"
-            "        dst.items = (%s *)malloc((size_t)src->count * sizeof(%s));\n"
+            "        dst.items = (%s *)iron_mem_alloc((size_t)src->count * sizeof(%s));\n"
             "        if (!dst.items) iron_oom_abort(\"Iron_List_%s_clone\");\n"
             "        for (int64_t _i = 0; _i < src->count; _i++) {\n"
             "            dst.items[_i] = src->items[_i];\n"
@@ -253,9 +253,9 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
             "    dst.count = src->count;\n"
             "    dst.capacity = src->count;\n"
             "    if (src->count > 0) {\n"
-            "        dst.items = (%s *)malloc((size_t)src->count * sizeof(%s));\n"
+            "        dst.items = (%s *)iron_mem_alloc((size_t)src->count * sizeof(%s));\n"
             "        if (!dst.items) iron_oom_abort(\"Iron_List_%s_clone\");\n"
-            "        memcpy(dst.items, src->items, (size_t)src->count * sizeof(%s));\n"
+            "        iron_mem_copy(dst.items, src->items, (size_t)src->count * sizeof(%s));\n"
             "    } else {\n"
             "        dst.items = NULL;\n"
             "    }\n"
@@ -279,7 +279,7 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
             "            %s_drop(&self->items[_i]);\n"
             "        }\n"
             "    }\n"
-            "    free(self->items);\n"
+            "    iron_mem_free(self->items);\n"
             "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
             "}\n"
             "void Iron_List_%s_clear(Iron_List_%s *self) {\n"
@@ -296,7 +296,7 @@ static void emit_list_impl_lifecycle(EmitCtx *ctx, const char *mangled,
     } else {
         iron_strbuf_appendf(&ctx->struct_bodies,
             "void Iron_List_%s_free(Iron_List_%s *self) {\n"
-            "    free(self->items);\n"
+            "    iron_mem_free(self->items);\n"
             "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
             "}\n"
             "void Iron_List_%s_clear(Iron_List_%s *self) {\n"
@@ -1044,7 +1044,7 @@ void emit_type_decls(EmitCtx *ctx) {
                         "static inline %s %s_from_%s(%s val) {\n"
                         "    %s result;\n"
                         "    result.tag = %s_TAG_%s;\n"
-                        "    result.data.%s = (%s *)malloc(sizeof(%s));\n"
+                        "    result.data.%s = (%s *)iron_mem_alloc(sizeof(%s));\n"
                         "    *result.data.%s = val;\n"
                         "    return result;\n"
                         "}\n\n",
@@ -1416,7 +1416,7 @@ void emit_type_decls(EmitCtx *ctx) {
                                     "        %s_free(v->data.%s._%d);\n",
                                     mangled, ev2->name, k2);
                                 iron_strbuf_appendf(&ctx->struct_bodies,
-                                    "        free(v->data.%s._%d);\n",
+                                    "        iron_mem_free(v->data.%s._%d);\n",
                                     ev2->name, k2);
                             }
                         }
@@ -1615,6 +1615,14 @@ void emit_foreign_method_prototypes(EmitCtx *ctx) {
 
 void emit_extern_prototypes(EmitCtx *ctx) {
     IronLIR_Module *module = ctx->module;
+    if (module->extern_decl_count > 0) {
+        /* An extern that names a libc function (`extern func strlen`) is
+         * declared with its Iron signature, which clang compares with the
+         * builtin's; the call site converts the arguments. */
+        iron_strbuf_appendf(&ctx->prototypes,
+            "#if defined(__clang__)\n#pragma clang diagnostic push\n"
+            "#pragma clang diagnostic ignored \"-Wincompatible-library-redeclaration\"\n#endif\n");
+    }
     for (int ei = 0; ei < module->extern_decl_count; ei++) {
         IronLIR_ExternDecl *ed = module->extern_decls[ei];
         bool has_real_types = false;
@@ -1625,7 +1633,9 @@ void emit_extern_prototypes(EmitCtx *ctx) {
             }
         }
         if (!has_real_types && ed->param_count > 0) continue;
-        if (ed->c_name && ed->c_name[0] >= 'a' && ed->c_name[0] <= 'z') continue;
+        /* Lowercase names used to be left to the platform headers; the
+         * generated unit includes none now (#235), so every extern gets
+         * the prototype its Iron signature implies. */
 
         const char *ret_c = "void";
         if (ed->return_type) {
@@ -1656,4 +1666,6 @@ void emit_extern_prototypes(EmitCtx *ctx) {
         }
         iron_strbuf_appendf(&ctx->prototypes, ");\n");
     }
+    if (module->extern_decl_count > 0)
+        iron_strbuf_appendf(&ctx->prototypes, "#if defined(__clang__)\n#pragma clang diagnostic pop\n#endif\n");
 }

@@ -58,34 +58,7 @@ uint64_t Iron_monotonic_now_ms(void) {
 
 /* ── iron_cond_timedwait_ms — bounded condvar wait ────────────────────────── */
 
-#ifdef _WIN32
-int iron_cond_timedwait_ms(iron_cond_t *cv, iron_mutex_t *lock, int timeout_ms) {
-    if (timeout_ms < 0) timeout_ms = 0;
-    BOOL ok = SleepConditionVariableCS(cv, lock, (DWORD)timeout_ms);
-    if (ok) return IRON_TIMEDWAIT_OK;
-    if (GetLastError() == ERROR_TIMEOUT) return IRON_TIMEDWAIT_EXPIRED;
-    return IRON_TIMEDWAIT_ERROR;
-}
-#else
-int iron_cond_timedwait_ms(iron_cond_t *cv, iron_mutex_t *lock, int timeout_ms) {
-    if (timeout_ms < 0) timeout_ms = 0;
-    /* POSIX pthread_cond_timedwait uses CLOCK_REALTIME by default. This may
-     * jump during NTP slew; Phase 59 accepts the caveat (TLS phase can
-     * upgrade to CLOCK_MONOTONIC via pthread_condattr_setclock). */
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_sec  += timeout_ms / 1000;
-    ts.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
-    if (ts.tv_nsec >= 1000000000L) {
-        ts.tv_sec  += 1;
-        ts.tv_nsec -= 1000000000L;
-    }
-    int rc = pthread_cond_timedwait(cv, lock, &ts);
-    if (rc == 0)          return IRON_TIMEDWAIT_OK;
-    if (rc == ETIMEDOUT)  return IRON_TIMEDWAIT_EXPIRED;
-    return IRON_TIMEDWAIT_ERROR;
-}
-#endif
+/* iron_cond_timedwait_ms lives in iron_os.c with the other lock primitives. */
 
 /* ── Global pool instances ───────────────────────────────────────────────── */
 
@@ -355,9 +328,9 @@ void Iron_pool_destroy(Iron_Pool *pool) {
             /* Empty-slot sentinel is (iron_thread_t)0 — works on all
              * three target platforms: HANDLE=NULL (Win32),
              * pthread_t=NULL pointer (macOS), pthread_t=0 (Linux glibc). */
-            if (pool->threads[i] != (iron_thread_t)0) {
+            if (pool->threads[i].handle != 0) {
                 snapshot[snapshot_count++] = pool->threads[i];
-                pool->threads[i] = (iron_thread_t)0;
+                pool->threads[i].handle = 0;
             }
         }
         IRON_MUTEX_UNLOCK(pool->lock);
@@ -418,7 +391,7 @@ static void pool_spawn_elastic_worker_locked(Iron_Pool *pool) {
     /* Empty-slot sentinel: (iron_thread_t)0 on all target platforms
      * (Win32 HANDLE=NULL, macOS pthread_t=NULL pointer, glibc pthread_t=0). */
     for (int i = 0; i < pool->thread_slots_cap; i++) {
-        if (pool->threads[i] == (iron_thread_t)0) {
+        if (pool->threads[i].handle == 0) {
             slot = i;
             break;
         }
@@ -476,29 +449,23 @@ static void *pool_worker_elastic(void *arg) {
         if (expired && pool->queue_count == 0) {
             /* Self-retire: NULL our slot and decrement thread_count so the
              * next submit can spawn a replacement without waiting. */
-#ifndef _WIN32
-            iron_thread_t self = pthread_self();
-#endif
+            iron_thread_t self = iron_thread_self();
             for (int i = 0; i < pool->thread_slots_cap; i++) {
 #ifdef _WIN32
-                /* Windows: compare HANDLE. GetCurrentThread() returns a
-                 * pseudo-handle not equal to the real handle stored in the
-                 * slot, so we match by the first non-zero slot and rely on
-                 * only one worker retiring at a time — acceptable since
-                 * destroy is the only other slot-visitor and it runs with
-                 * shutdown set. */
-                iron_thread_t zero;
-                memset(&zero, 0, sizeof(zero));
-                if (memcmp(&pool->threads[i], &zero, sizeof(zero)) != 0) {
-                    memset(&pool->threads[i], 0, sizeof(iron_thread_t));
+                /* Windows: the stored HANDLE is not comparable with the
+                 * current thread's id, so the first live slot is taken;
+                 * only one worker retires at a time (destroy, the other
+                 * slot visitor, runs with shutdown set). */
+                if (pool->threads[i].handle != 0) {
+                    pool->threads[i].handle = 0;
                     break;
                 }
 #else
-                if (pthread_equal(pool->threads[i], self)) {
-                    memset(&pool->threads[i], 0, sizeof(iron_thread_t));
-                    /* Detach so we don't leak the joinable state — destroy
-                     * will never see this slot again. */
-                    pthread_detach(self);
+                if (iron_thread_equal(pool->threads[i], self)) {
+                    /* Detach so the joinable state is not leaked: destroy
+                     * never sees this slot again. */
+                    iron_thread_detach(pool->threads[i]);
+                    pool->threads[i].handle = 0;
                     break;
                 }
 #endif

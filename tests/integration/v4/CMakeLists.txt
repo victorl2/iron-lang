@@ -58,3 +58,19 @@ if(NOT WIN32)
         LABELS "oracle;v4-acceptance"
         TIMEOUT 900)
 endif()
+
+# Freestanding oracle (#235): the C generated for every fixture compiles with
+# -ffreestanding -nostdinc, seeing only clang's resource headers and the Iron
+# source tree. Generated code may use nothing from the platform directly.
+if(NOT WIN32)
+    file(GLOB _fs_dirs LIST_DIRECTORIES true ${CMAKE_SOURCE_DIR}/tests/integration/v4/*/ ${CMAKE_SOURCE_DIR}/tests/integration/v4/*/*/)
+    add_test(
+        NAME test_freestanding
+        COMMAND ${CMAKE_SOURCE_DIR}/tests/oracles/freestanding.sh
+                ${CMAKE_BINARY_DIR}/iron ${_fs_dirs}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(test_freestanding PROPERTIES
+        LABELS "oracle"
+        TIMEOUT 1800)
+endif()

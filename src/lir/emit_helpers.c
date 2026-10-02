@@ -191,7 +191,7 @@ const char *emit_ensure_nested_list(EmitCtx *ctx, const Iron_Type *elem) {
         "    dst.capacity = src->count;\n"
         "    dst.items = NULL;\n"
         "    if (src->count > 0) {\n"
-        "        dst.items = (%s *)malloc((size_t)src->count * sizeof(%s));\n"
+        "        dst.items = (%s *)iron_mem_alloc((size_t)src->count * sizeof(%s));\n"
         "        if (!dst.items) iron_oom_abort(\"%s_clone\");\n"
         "        for (int64_t _i = 0; _i < src->count; _i++)\n"
         "            dst.items[_i] = %s_clone(&src->items[_i]);\n"
@@ -200,7 +200,7 @@ const char *emit_ensure_nested_list(EmitCtx *ctx, const Iron_Type *elem) {
         "}\n"
         "void %s_free(%s *self) {\n"
         "    for (int64_t _i = 0; _i < self->count; _i++) %s_free(&self->items[_i]);\n"
-        "    free(self->items);\n"
+        "    iron_mem_free(self->items);\n"
         "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
         "}\n"
         "void %s_clear(%s *self) {\n"
@@ -252,7 +252,7 @@ const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem) {
         "    dst.capacity = src->count;\n"
         "    dst.items = NULL;\n"
         "    if (src->count > 0) {\n"
-        "        dst.items = (%s *)malloc((size_t)src->count * sizeof(%s));\n"
+        "        dst.items = (%s *)iron_mem_alloc((size_t)src->count * sizeof(%s));\n"
         "        if (!dst.items) iron_oom_abort(\"%s_clone\");\n"
         "        for (int64_t _i = 0; _i < src->count; _i++) {\n"
         "            dst.items[_i] = src->items[_i];\n"
@@ -263,7 +263,7 @@ const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem) {
         "}\n"
         "void %s_free(%s *self) {\n"
         "    for (int64_t _i = 0; _i < self->count; _i++) %s((void *)self->items[_i]);\n"
-        "    free(self->items);\n"
+        "    iron_mem_free(self->items);\n"
         "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
         "}\n"
         "void %s_clear(%s *self) {\n"
@@ -765,8 +765,7 @@ void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
         "static %s *%s_unwrap(%s *box) {\n"
         "    /* Pitfall 5: returns bare T* (8B), NOT Iron_FatPtr (16B) */\n"
         "    if (!box || !box->inner.addr) {\n"
-        "        fprintf(stderr, \"iron: panic: unwrap() on null Box\\n\");\n"
-        "        abort();\n"
+        "        iron_panic_null_box();\n"
         "    }\n"
         "    return (%s *)box->inner.addr;\n"
         "}\n"
@@ -974,15 +973,15 @@ void emit_ensure_channel(EmitCtx *ctx, const Iron_Type *elem_type) {
     iron_strbuf_appendf(&ctx->lifted_funcs,
         "/* Phase 33 STDLIB-08: Channel[%s] per-T glue */\n"
         "static void Iron_Channel_%s_send(Iron_Channel **ch, %s value) {\n"
-        "    %s *box = (%s *)malloc(sizeof(%s));\n"
+        "    %s *box = (%s *)iron_mem_alloc(sizeof(%s));\n"
         "    if (!box) iron_oom_abort(\"Channel send\");\n"
         "    *box = value;\n"
         "    Iron_channel_send(*ch, box);\n"
         "}\n"
         "static %s Iron_Channel_%s_recv(Iron_Channel **ch) {\n"
         "    %s *box = (%s *)Iron_channel_recv(*ch);\n"
-        "    %s out; memset(&out, 0, sizeof(out));\n"
-        "    if (box) { out = *box; free(box); }\n"
+        "    %s out; iron_mem_set(&out, 0, sizeof(out));\n"
+        "    if (box) { out = *box; iron_mem_free(box); }\n"
         "    return out;\n"
         "}\n",
         /* comment */ elem_c,
@@ -1043,7 +1042,7 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
 
     iron_strbuf_appendf(&ctx->lifted_funcs,
         "static %s *Iron_RWLock_%s_new(%s value) {\n"
-        "    %s *l = (%s *)malloc(sizeof(%s));\n"
+        "    %s *l = (%s *)iron_mem_alloc(sizeof(%s));\n"
         "    if (!l) iron_oom_abort(\"RWLock new\");\n"
         "    IRON_RWLOCK_INIT(l->lk); l->value = value; return l;\n"
         "}\n",
@@ -1054,7 +1053,7 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
             "    /* Phase 37 M5: release the parked rc element before free */\n"
             "    if (l && *l) {\n"
             "        iron_rc_release((void *)(*l)->value);\n"
-            "        IRON_RWLOCK_DESTROY((*l)->lk); free(*l); *l = NULL;\n"
+            "        IRON_RWLOCK_DESTROY((*l)->lk); iron_mem_free(*l); *l = NULL;\n"
             "    }\n"
             "}\n",
             esc, lock_name);
@@ -1064,14 +1063,14 @@ void emit_ensure_rwlock(EmitCtx *ctx, const Iron_Type *elem_type) {
             "    /* Phase 37 M5: run the element drop on the parked value before free */\n"
             "    if (l && *l) {\n"
             "        %s_drop(&(*l)->value);\n"
-            "        IRON_RWLOCK_DESTROY((*l)->lk); free(*l); *l = NULL;\n"
+            "        IRON_RWLOCK_DESTROY((*l)->lk); iron_mem_free(*l); *l = NULL;\n"
             "    }\n"
             "}\n",
             esc, lock_name, elem_c);
     } else {
         iron_strbuf_appendf(&ctx->lifted_funcs,
             "static void Iron_RWLock_%s_destroy(%s **l) {\n"
-            "    if (l && *l) { IRON_RWLOCK_DESTROY((*l)->lk); free(*l); *l = NULL; }\n"
+            "    if (l && *l) { IRON_RWLOCK_DESTROY((*l)->lk); iron_mem_free(*l); *l = NULL; }\n"
             "}\n",
             /* _destroy */  esc, lock_name);
     }
@@ -1128,16 +1127,12 @@ void emit_ensure_filehandle(EmitCtx *ctx) {
      * underlying fd so the drop path matches the surface contract. */
     iron_strbuf_appendf(&ctx->lifted_funcs,
         "static Iron_FileHandle Iron_FileHandle_open(Iron_String path) {\n"
-        "    Iron_FileHandle fh; fh.fd = -1;\n"
-        "    const char *p = iron_string_cstr(&path);\n"
-        "    FILE *f = fopen(p ? p : \"\", \"w\");\n"
-        "    if (f) fh.fd = fileno(f);\n"
+        "    Iron_FileHandle fh; fh.fd = iron_filehandle_open(iron_string_cstr(&path));\n"
         "    return fh;\n"
         "}\n"
         "static void Iron_FileHandle_close(Iron_FileHandle *fh) {\n"
         "    if (fh && fh->fd >= 0) {\n"
-        "        printf(\"closed fd\\n\");\n"
-        "        close(fh->fd);\n"
+        "        iron_filehandle_close(fh->fd);\n"
         "        fh->fd = -1;\n"
         "    }\n"
         "}\n"
@@ -1586,7 +1581,7 @@ void emit_ensure_iface_glue(EmitCtx *ctx, const Iron_Type *it, bool drop) {
                 iron_strbuf_appendf(sb, "        if (self->data.%s) {\n", im->type_name);
                 if (need) iron_strbuf_appendf(sb, "            %s_drop(self->data.%s);\n",
                                               tc, im->type_name);
-                iron_strbuf_appendf(sb, "            free(self->data.%s);\n"
+                iron_strbuf_appendf(sb, "            iron_mem_free(self->data.%s);\n"
                                         "            self->data.%s = NULL;\n        }\n",
                                     im->type_name, im->type_name);
             } else {
@@ -1596,7 +1591,7 @@ void emit_ensure_iface_glue(EmitCtx *ctx, const Iron_Type *it, bool drop) {
             if (ind) {
                 iron_strbuf_appendf(sb,
                     "        if (self->data.%s) {\n"
-                    "            %s *cell = (%s *)malloc(sizeof(%s));\n"
+                    "            %s *cell = (%s *)iron_mem_alloc(sizeof(%s));\n"
                     "            if (!cell) iron_oom_abort(\"%s copy\");\n"
                     "            *cell = *self->data.%s;\n",
                     im->type_name, tc, tc, tc, ic, im->type_name);
@@ -2088,7 +2083,7 @@ static const char *hash_key_eq_expr(EmitCtx *ctx, const Iron_Type *k, Iron_StrBu
     if (indirect)
         iron_strbuf_appendf(&sb,
             "({ Iron_Hashable _hb = Iron_Hashable_from_%s(*b); bool _r = %s_equals(*a, _hb); "
-            "free(_hb.data.%s); _r; })", name, lower, name);
+            "iron_mem_free(_hb.data.%s); _r; })", name, lower, name);
     else
         iron_strbuf_appendf(&sb, "%s_equals(*a, Iron_Hashable_from_%s(*b))", lower, name);
     const char *r = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);

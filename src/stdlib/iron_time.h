@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <time.h>
 
 /* ── Monotonic time ──────────────────────────────────────────────────────── */
 double  Iron_time_now(void);         /* wall-clock seconds as double */
