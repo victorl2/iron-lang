@@ -1670,6 +1670,13 @@ int iron_build(const char *source_path, const char *output_path,
             return 1;
         }
         close(tmp_fd);  /* mkstemp opened it; clang -o overwrites the path */
+#ifdef _WIN32
+        /* An executable needs the .exe suffix to run; keep the unique name
+         * and move it to the suffixed path (also what clang-cl /Fe writes). */
+        unlink(iron_run_tempfile_path);
+        strncat(iron_run_tempfile_path, ".exe",
+                sizeof(iron_run_tempfile_path) - strlen(iron_run_tempfile_path) - 1);
+#endif
         if (!iron_run_tempfile_atexit_registered) {
             atexit(iron_run_tempfile_cleanup);
             iron_run_tempfile_atexit_registered = true;
