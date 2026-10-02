@@ -1,6 +1,18 @@
 #include "cli/test_runner.h"
 #include "cli/build.h"
 
+#ifdef _WIN32
+/* The runner forks a child per fixture and talks to it over pipes; that
+ * is POSIX only for now (#234). */
+#include <stdio.h>
+int iron_test(const char *dir_path) {
+    (void)dir_path;
+    fprintf(stderr, "error: `iron test` is not available on Windows yet; "
+                    "run tests/run_tests.sh from a POSIX shell\n");
+    return 1;
+}
+#else
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -203,3 +215,4 @@ int iron_test(const char *dir_path) {
     strvec_free(&test_files);
     return (fail_count > 0) ? 1 : 0;
 }
+#endif /* !_WIN32 */

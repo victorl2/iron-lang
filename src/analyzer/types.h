@@ -81,6 +81,9 @@ typedef struct Iron_Type {
         } object;
 
         /* IRON_TYPE_INTERFACE */
+#ifdef interface
+#undef interface   /* windows.h defines it as a macro */
+#endif
         struct {
             struct Iron_InterfaceDecl *decl;
         } interface;

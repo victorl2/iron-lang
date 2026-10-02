@@ -476,9 +476,8 @@ static void *pool_worker_elastic(void *arg) {
         if (expired && pool->queue_count == 0) {
             /* Self-retire: NULL our slot and decrement thread_count so the
              * next submit can spawn a replacement without waiting. */
-            iron_thread_t self = {0};
 #ifndef _WIN32
-            self = pthread_self();
+            iron_thread_t self = pthread_self();
 #endif
             for (int i = 0; i < pool->thread_slots_cap; i++) {
 #ifdef _WIN32

@@ -103,6 +103,12 @@ if(IRON_ENABLE_SANITIZERS)
     endif()
 endif()
 
+if(WIN32)
+    # The UCRT marks strcpy/fopen/getenv as deprecated (C4996) for every
+    # compiler, clang included; the call sites are bounded. Keep the warning
+    # level and -Werror of the compiler branch below.
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
+endif()
 if(MSVC)
     add_compile_options(/W3 /WX)
     # Silence POSIX-deprecation warnings (C4996) for getenv, strdup, strerror,
@@ -1201,7 +1207,12 @@ endif()
 #     or invoke the script directly (no ctest involved):
 #         IRONC_BINARY=<build>/ironc tests/benchmarks/run_benchmarks.sh
 option(IRON_BENCH_FULL_ROW "Enable the full-corpus benchmark_full ctest row" OFF)
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
+# The Python rows are Unix-only; a Windows build host may not have Python.
+if(WIN32)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+else()
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+endif()
 if(UNIX)
     add_test(NAME benchmark_process_regressions
         COMMAND ${Python3_EXECUTABLE}
@@ -2662,6 +2673,7 @@ install(FILES
     src/util/stb_ds_impl.c
     src/util/arena.c
     src/util/arena.h
+    src/util/os.h
     src/util/strbuf.c
     src/util/strbuf.h
     DESTINATION lib/util

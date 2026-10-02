@@ -1,4 +1,5 @@
 #include "iron_runtime.h"
+#include <stdatomic.h>   /* string / list refcounts are C11 atomics on every platform */
 #include "runtime/iron_panic.h"  /* Phase 19-02: iron_panic_init_from_env */
 
 #include <string.h>

@@ -9,15 +9,12 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
+#include "util/os.h"
 #ifdef _WIN32
-  #include <windows.h>
   #include <process.h>
-  #include <direct.h>  /* _mkdir */
 #else
-  #include <unistd.h>
   #include <spawn.h>
   #include <sys/wait.h>
-  #include <libgen.h>
 #endif
 #ifdef __APPLE__
   #include <mach-o/dyld.h>
@@ -51,33 +48,7 @@
 extern char **environ;
 #endif
 
-/* ── Windows compatibility shims ─────────────────────────────────────────── */
-#ifdef _WIN32
-/* basename: return pointer to last path component (no allocation) */
-static const char *win_basename(const char *path) {
-    const char *p = path;
-    const char *last = path;
-    while (*p) {
-        if (*p == '/' || *p == '\\') last = p + 1;
-        p++;
-    }
-    return last;
-}
-/* dirname: copy directory part into a static buffer */
-static char *win_dirname(char *path) {
-    char *p = path + strlen(path);
-    while (p > path && *p != '/' && *p != '\\') p--;
-    if (p == path) {
-        path[0] = '.';
-        path[1] = '\0';
-    } else {
-        *p = '\0';
-    }
-    return path;
-}
-#define basename(p)  win_basename(p)
-#define dirname(p)   win_dirname(p)
-#endif
+/* basename / dirname come from util/os.h on every platform. */
 
 /* ── Runtime path resolution ─────────────────────────────────────────────── */
 
@@ -226,11 +197,7 @@ static char *derive_output_name(const char *source_path) {
     char *path_copy = strdup(source_path);
     if (!path_copy) return NULL;
 
-#ifdef _WIN32
-    const char *base = win_basename(path_copy);
-#else
     char *base = basename(path_copy);
-#endif
 
     /* Strip .iron extension if present */
     size_t len = strlen(base);
