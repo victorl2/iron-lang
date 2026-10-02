@@ -240,6 +240,67 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  build-windows:
+    needs: test
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/toolchain
+
+      # Building ironc itself uses the runner's clang; the MSVC environment
+      # supplies the C library headers and import libraries that the
+      # compiled Iron programs (the smoke test below) still link against.
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install build tools
+        run: choco install ninja -y --no-progress
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DIRON_BUILD_LSP=OFF
+
+      - name: Build
+        run: cmake --build build --target iron ironc
+
+      - name: Verify version output
+        run: |
+          .\build\ironc.exe --version
+          .\build\iron.exe --version
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = "${{ env.RELEASE_TAG }}".TrimStart("v")
+          $archive = "iron-$version-windows-x86_64.zip"
+          # The CMake install rules give the same layout as the Unix archives
+          # and as %USERPROFILE%\.iron: bin\ and lib\ at the root.
+          cmake --install build --prefix staging --component iron
+          Copy-Item LICENSE staging\
+          Compress-Archive -Path staging\* -DestinationPath $archive
+          (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() + "  $archive" | Set-Content "$archive.sha256"
+          "ARCHIVE=$archive" | Add-Content $env:GITHUB_ENV
+          "ARCHIVE_SHA256=$archive.sha256" | Add-Content $env:GITHUB_ENV
+
+          # Smoke test the archive as a user receives it: unpack into a
+          # fresh directory and compile and run a program with it.
+          $smoke = Join-Path $env:RUNNER_TEMP "smoke"
+          Expand-Archive -Path $archive -DestinationPath $smoke
+          Set-Content -Path "$smoke\hello.iron" -Value "func main() {`n    println(`"release archive ok`")`n}"
+          $out = & "$smoke\bin\ironc.exe" run "$smoke\hello.iron"
+          if ($out -notcontains "release archive ok") { Write-Error "FAIL: packaged ironc cannot compile hello.iron: $out" }
+          Get-Item $archive | Format-List Name, Length
+
+      - name: Upload release asset (Windows)
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE_SHA256 }}
+
   # Phase 7 Plan 07-06 (HARD-21, CONTEXT D-09): Developer-ID sign +
   # notarize + staple every macOS ironls binary before it reaches a
   # GitHub Release. Closes the Phase 6 Gatekeeper caveat documented in
@@ -361,7 +422,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          files: scripts/install.sh
+          files: |
+            scripts/install.sh
+            scripts/install.ps1
 
   # Phase 6 Plan 06-05 Task 3 (EXT-08 + EXT-09, CONTEXT D-11).
   #
