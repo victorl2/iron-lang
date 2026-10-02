@@ -1,4 +1,5 @@
 -- section 4.12 debug-leak: 'leak' suppresses forgotten-free (DBG-05 / POL-05)
+-- @leaks-by-design: the program leaks on purpose (the `leak` keyword or a forgotten free)
 -- @req: DBG-05
 -- @expected-pass-after: phase-31
 -- A heap binding marked as an intentional leak via the 'leak p' statement

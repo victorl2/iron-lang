@@ -1,4 +1,5 @@
 -- section 3.2 heap policy + leak opt-out
+-- @leaks-by-design: the program leaks on purpose (the `leak` keyword or a forgotten free)
 -- @req: POL-04, POL-05
 -- extends-spec: leak opt-out from destructor; no drop line in output
 

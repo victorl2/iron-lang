@@ -1897,7 +1897,9 @@ in it does not run; the compiler warns about it (`W0605`) unless the
 allocation says `heap(in: a, allow_drop_skip: true) T(args)`. Accessing an
 arena value after `reset` or `restore` is a stale pointer error at run
 time. `rc` allocation inside an `in arena` block is an error (`E0301`).
-`a.used()` and `a.capacity()` report the arena's byte counts.
+`a.used()` and `a.capacity()` report the arena's byte counts. An arena
+value releases its memory when its binding ends; a `heap Arena(bytes)` is
+freed with `free`, like any heap value.
 
 ```iron
 object Particle {

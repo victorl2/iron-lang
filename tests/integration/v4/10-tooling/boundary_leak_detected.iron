@@ -1,4 +1,5 @@
 -- section 10.5: intentional leaks
+-- @leaks-by-design: the program leaks on purpose (the `leak` keyword or a forgotten free)
 -- @req: POL-04
 -- extends-spec: `leak h` marks a heap value as intentionally permanent: no
 -- never-freed warning, and the value stays usable. (The debug allocator's

@@ -33,12 +33,14 @@ for dir in "$@"; do
         [ -e "$src" ] || continue
         name=$(basename "$src" .iron)
         [ -f "$dir/$name.expected" ] || { skipped=$((skipped+1)); continue; }
-        if head -n 10 "$src" | grep -qE '^[[:space:]]*--[[:space:]]*@(expect-panic|compile-only)'; then
+        # A panicking process leaks by design; a few fixtures demonstrate
+        # the `leak` keyword or the forgotten-free lint and say so.
+        if head -n 10 "$src" | grep -qE '^[[:space:]]*--[[:space:]]*@(expect-panic|compile-only|leaks-by-design)'; then
             skipped=$((skipped+1)); continue
         fi
         abs_src=$(cd "$(dirname "$src")" && pwd)/$(basename "$src")
         if ! (cd "$work" && "$IRON" build "$abs_src" >/dev/null 2>"$work/$name.build"); then
-            echo "[FAIL] $name (build failed)"; cat "$work/$name.build" >&2; fail=$((fail+1)); continue
+            echo "[FAIL] ${dir%/}/$name (build failed)"; cat "$work/$name.build" >&2; fail=$((fail+1)); continue
         fi
         bin="$work/$name"
         if [ "$detector" = leaks ]; then
@@ -46,14 +48,14 @@ for dir in "$@"; do
             if echo "$out" | grep -qE 'Process [0-9]+: 0 leaks for 0 total leaked bytes'; then
                 pass=$((pass+1))
             else
-                echo "[FAIL] $name (leaks)"; echo "$out" | grep -E 'leaks for|ROOT LEAK|Iron_' | head -20 >&2; fail=$((fail+1))
+                echo "[FAIL] ${dir%/}/$name (leaks)"; echo "$out" | grep -E 'leaks for|ROOT LEAK|Iron_' | head -20 >&2; fail=$((fail+1))
             fi
         else
             if valgrind --quiet --leak-check=full --errors-for-leak-kinds=definite,indirect \
                         --error-exitcode=9 "$bin" >/dev/null 2>"$work/$name.vg"; then
                 pass=$((pass+1))
             else
-                echo "[FAIL] $name (valgrind)"; head -40 "$work/$name.vg" >&2; fail=$((fail+1))
+                echo "[FAIL] ${dir%/}/$name (valgrind)"; head -40 "$work/$name.vg" >&2; fail=$((fail+1))
             fi
         fi
     done

@@ -1,0 +1,33 @@
+-- Values that used to be leaked by the compiler (issue 231): an object's
+-- Box field was never freed with the object, a list captured by a lambda
+-- or an awaited spawn was never freed by its binding, and an rc returned
+-- through await was retained once too often. The leak oracle checks this
+-- fixture under leaks/valgrind.
+object Counter {
+    val value: Int
+}
+
+nocopy object Holder {
+    var data: Box[Counter]
+    init(start: Int) {
+        self.data = Box(Counter(start))
+    }
+}
+
+func main() {
+    var h = Holder(2)
+    println("box {h.data.unwrap().value}")
+
+    val ys = [2, 3]
+    val xs = [1, 2, 3, 4]
+    val kept = xs.filter(func(x: Int) -> Bool { return ys.contains(x) })
+    println("kept {kept.len()}")
+
+    val zs = [1, 2, 3]
+    val t = spawn("w") { return zs.len() }
+    println("spawned {await t}")
+
+    val shared_task = spawn("shared") { return rc Counter(9) }
+    val c = await shared_task
+    println("shared {c.value}")
+}

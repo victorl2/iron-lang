@@ -4089,6 +4089,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     }
                     break;
                 }
+                /* An Arena value (an Iron_Arena_RT *) is destroyed with its
+                 * binding (#231); a `heap Arena` goes through FREE instead. */
+                if (is_drop && gt && gt->kind == IRON_TYPE_OBJECT && gt->object.decl &&
+                    gt->object.decl->name && strcmp(gt->object.decl->name, "Arena") == 0) {
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "iron_arena_rt_destroy(*");
+                    emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
+                    iron_strbuf_appendf(sb, ");\n");
+                    break;
+                }
                 /* A closure shares its counted env (#190). */
                 if (gt && gt->kind == IRON_TYPE_FUNC) {
                     emit_indent(sb, ind);
