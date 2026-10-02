@@ -2652,7 +2652,8 @@ before the C compiler), `--dump-ir-passes`, `--report-compression`,
 `--warn-fusion-break`, `--force-comptime` (ignore the comptime cache) and
 `--target=web`. `--no-strict-v3` accepts a few removed syntax forms for
 debugging old code. `--verbose` prints the generated C and the link line
-and `--version` prints the compiler version.
+and `--version` prints the compiler version and the toolchain it compiles
+with.
 
 ### 10.5 The web target
 
@@ -2673,6 +2674,38 @@ assets = ["assets/sprites.png"]  # files preloaded into the virtual FS
 
 A web program cannot `await` (`E0501`) and must drive its frame loop from
 `main` with a single canonical `while` loop (`E0700` to `E0703`).
+
+### 10.6 The backend
+
+Iron compiles to C and hands the C to a compiler it ships. The generated
+C is C17 with the GNU extensions clang accepts under `-std=gnu17`
+(statement expressions and `__builtin_*` intrinsics, `__attribute__`
+annotations, `_Static_assert`), compiled with `-fwrapv` (integer overflow
+wraps) and `-fno-strict-aliasing`. It includes only the runtime header,
+which itself depends only on the freestanding C headers (`stdint.h`,
+`stddef.h`, `stdbool.h`, `stdarg.h`, `stdatomic.h`); every fixture in the
+test suite also compiles with `-ffreestanding -nostdinc`.
+
+The C compiler is a pinned toolchain, the same on every machine: clang,
+lld, `llvm-ar`, `llvm-dlltool` and compiler-rt from LLVM 23.1.2, built
+for the X86, AArch64 and WebAssembly targets and published per host
+(macOS arm64 and x86_64, Linux x86_64 and arm64, Windows x86_64) as the
+`toolchain-23.1.2-1` release. `ironc` looks for it at `$IRON_TOOLCHAIN`,
+then next to itself in `<prefix>/lib/iron/toolchain/`, then in
+`~/.iron/toolchain/23.1.2-1/`, where it downloads it on first use and
+verifies its SHA-256. It never uses a compiler from `PATH`, refuses a
+bundle built from another LLVM release and reports the one it uses in
+`iron --version`; `iron toolchain info`, `iron toolchain path` and
+`iron toolchain install` expose the same lookup. `IRON_TOOLCHAIN` is a
+developer override: a mismatched version there only warns.
+
+Native targets today are the host: `aarch64-apple-darwin` and
+`x86_64-apple-darwin` against libSystem, `x86_64-linux-gnu` and
+`aarch64-linux-gnu` against glibc, and `x86_64-pc-windows-msvc` against
+the Universal C Runtime, linked with `clang-cl`. The runtime and standard
+library C sources are compiled together with the program for now; the
+precompiled per-target runtime, redistributable link inputs and
+`iron build --target=<os>-<arch>` are not yet implemented (section 12).
 
 ---
 
@@ -2757,6 +2790,10 @@ so that older material is not mistaken for the current language:
 - Lambda parameter inference outside a function-typed parameter position.
 - `String`, `Bool` and `Float` subjects in `match`.
 - Windows as a host for the web target.
+- Cross compilation: `iron build --target=<os>-<arch>` with a precompiled
+  per-target runtime and link inputs that need no platform SDK (musl on
+  Linux, import libraries and an Iron entry point on Windows, `.tbd` stubs
+  on macOS).
 
 ---
 

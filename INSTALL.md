@@ -16,8 +16,12 @@ After a successful build, `./build/iron --version` and `./build/ironc --version`
 | Tool | Version | Notes |
 |------|---------|-------|
 | CMake | 3.25+ | Build system |
-| C compiler | C17 support | clang |
+| C compiler | C17 support | clang or gcc, to build the compiler itself |
 | Ninja | any | Recommended (faster builds) |
+
+The compiler you build with is not the one Iron programs are compiled
+with: `ironc` uses its own pinned LLVM toolchain, downloaded on first use
+(see "How Iron Compilation Works" below).
 
 On Linux, building/running the raylib manual test suite additionally
 requires the X11/GL development headers:
@@ -219,19 +223,38 @@ your_program.iron
   generated .c file
        |
        v
- [clang / gcc]     ← must be available on the system
+ [Iron toolchain]  ← pinned clang, downloaded on first use
        |
        v
  native binary     ← standalone, no Iron runtime needed
 ```
 
-Iron programs require a C compiler (clang or gcc) on the system at compile time, but the resulting binaries are self-contained and can be distributed without any Iron or C toolchain.
+Iron programs are compiled by a pinned C toolchain that Iron ships: clang,
+lld and compiler-rt from one LLVM release, built by the Toolchain workflow
+and published as release assets. `ironc` looks for it at `$IRON_TOOLCHAIN`,
+then `<prefix>/lib/iron/toolchain/`, then `~/.iron/toolchain/<version>/`,
+downloading the per-user copy on first use and checking its SHA-256
+against the pins in `src/cli/toolchain_pins.h`. It never uses the clang
+on `PATH`. `iron --version` prints the toolchain in use and
+`iron toolchain install` fetches it ahead of time. The resulting binaries
+are self-contained and can be distributed without any Iron or C toolchain.
+
+Until the runtime ships precompiled, macOS still needs the Xcode command
+line tools (for the SDK headers the runtime sources are compiled against),
+Linux the C library headers (`libc6-dev` or equivalent) and Windows the
+MSVC build tools.
 
 ## Troubleshooting
 
 **CMake version too old**: Install a newer version from https://cmake.org/download/ or via your package manager.
 
-**No C compiler found**: Install clang (`brew install llvm` on macOS, `apt install clang` on Ubuntu) or gcc.
+**No C compiler found**: for building `ironc`, install clang (`brew install llvm` on macOS, `apt install clang` on Ubuntu) or gcc.
+
+**The Iron toolchain is not installed**: run `iron toolchain install`, or
+unpack the bundle for your host from the `toolchain-*` release into
+`~/.iron/toolchain/<version>/`. Developers with their own LLVM can run
+`scripts/toolchain/pack.sh` on it and point `IRON_TOOLCHAIN` at the result
+(a version mismatch warns instead of failing).
 
 **Tests fail with sanitizer errors**: This is expected in Debug mode on some platforms. Build with `-DCMAKE_BUILD_TYPE=Release` to disable sanitizers.
 
