@@ -1003,6 +1003,7 @@ static int invoke_clang(const char *c_file, const char *output,
         if (has_space) cmd[pos++] = '"';
     }
     cmd[pos] = '\0';
+    if (opts.verbose) fprintf(stderr, "clang-cl invocation: %s\n", cmd);
 
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
