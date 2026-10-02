@@ -293,6 +293,7 @@ static int sha256_file_hex(const char *path, char out_hex[65]) {
 }
 
 static void remove_tree(const char *dir) {
+    if (!is_dir(dir)) return;
 #ifdef _WIN32
     char *argv[] = { "cmd", "/c", "rmdir", "/s", "/q", (char *)dir, NULL };
 #else
