@@ -252,6 +252,7 @@ add_library(iron_runtime STATIC
     src/runtime/iron_collections.c
     src/runtime/iron_net_init.c
     src/runtime/iron_oom.c
+    src/runtime/iron_os.c
     src/runtime/iron_heap_track.c
     src/runtime/iron_panic.c
     src/runtime/iron_arena_rt.c

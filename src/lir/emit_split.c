@@ -114,13 +114,13 @@ void emit_split_arena_helpers(EmitCtx *ctx) {
         "    if (!ptr) return NULL;\n"
         "    if (*count >= *cap) {\n"
         "        *cap = *cap ? *cap * 2 : 8;\n"
-        "        *tracked_arr = (void **)realloc(*tracked_arr, (size_t)*cap * sizeof(void *));\n"
+        "        *tracked_arr = (void **)iron_mem_realloc(*tracked_arr, (size_t)*cap * sizeof(void *));\n"
         "    }\n"
         "    (*tracked_arr)[(*count)++] = ptr;\n"
         "    return ptr;\n"
         "}\n"
         "static inline void *_iron_sl_realloc_tracked(void ***tracked_arr, int *count, int *cap, void *old, size_t sz) {\n"
-        "    void *p = realloc(old, sz);\n"
+        "    void *p = iron_mem_realloc(old, sz);\n"
         "    if (!p) return NULL;\n"
         "    if (old) {\n"
         "        for (int i = 0; i < *count; i++) {\n"
@@ -130,8 +130,8 @@ void emit_split_arena_helpers(EmitCtx *ctx) {
         "    return _iron_sl_track(tracked_arr, count, cap, p);\n"
         "}\n"
         "static inline void _iron_sl_free_all(void **tracked, int count) {\n"
-        "    for (int i = 0; i < count; i++) free(tracked[i]);\n"
-        "    free(tracked);\n"
+        "    for (int i = 0; i < count; i++) iron_mem_free(tracked[i]);\n"
+        "    iron_mem_free(tracked);\n"
         "}\n\n");
 }
 
@@ -234,9 +234,9 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
         "static inline void Iron_SplitList_%s_reverse(Iron_SplitList_%s *_sl) {\n"
         "    for (int64_t _a = 0, _b = _sl->_order_count - 1; _a < _b; _a++, _b--) {\n"
         "        unsigned char _t[sizeof(*_sl->_order)];\n"
-        "        memcpy(_t, &_sl->_order[_a], sizeof(_t));\n"
-        "        memcpy(&_sl->_order[_a], &_sl->_order[_b], sizeof(_t));\n"
-        "        memcpy(&_sl->_order[_b], _t, sizeof(_t));\n"
+        "        iron_mem_copy(_t, &_sl->_order[_a], sizeof(_t));\n"
+        "        iron_mem_copy(&_sl->_order[_a], &_sl->_order[_b], sizeof(_t));\n"
+        "        iron_mem_copy(&_sl->_order[_b], _t, sizeof(_t));\n"
         "    }\n"
         "}\n\n",
         iface_mangled, iface_mangled);
@@ -252,7 +252,7 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
         if (!impl2->is_alive) continue;
         if (iface_variant_is_boxed(ctx, iface_mangled, impl2->type_name))
             iron_strbuf_appendf(sb,
-                "    case %d: Iron_SplitList_%s_push_%s(_sl, *_val.data.%s); free(_val.data.%s); return true;\n",
+                "    case %d: Iron_SplitList_%s_push_%s(_sl, *_val.data.%s); iron_mem_free(_val.data.%s); return true;\n",
                 impl2->tag, iface_mangled, impl2->type_name, impl2->type_name, impl2->type_name);
         else
             iron_strbuf_appendf(sb,
@@ -267,9 +267,9 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
         "    if (!Iron_SplitList_%s__append(_sl, _val)) return;\n"
         "    int64_t _n = _sl->_order_count;\n"
         "    unsigned char _t[sizeof(*_sl->_order)];\n"
-        "    memcpy(_t, &_sl->_order[_n - 1], sizeof(_t));\n"
-        "    memmove(&_sl->_order[_i + 1], &_sl->_order[_i], (size_t)(_n - 1 - _i) * sizeof(*_sl->_order));\n"
-        "    memcpy(&_sl->_order[_i], _t, sizeof(_t));\n"
+        "    iron_mem_copy(_t, &_sl->_order[_n - 1], sizeof(_t));\n"
+        "    iron_mem_move(&_sl->_order[_i + 1], &_sl->_order[_i], (size_t)(_n - 1 - _i) * sizeof(*_sl->_order));\n"
+        "    iron_mem_copy(&_sl->_order[_i], _t, sizeof(_t));\n"
         "}\n\n",
         iface_mangled, iface_mangled, iface_mangled, iface_mangled);
 
@@ -329,7 +329,7 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
         lower_impl_name(ln, sizeof(ln), impl2->type_name);
         if (iface_variant_is_boxed(ctx, iface_mangled, impl2->type_name))
             iron_strbuf_appendf(sb,
-                "        case %d: _sl->%s_items[_oi] = *_val.data.%s; free(_val.data.%s); break;\n",
+                "        case %d: _sl->%s_items[_oi] = *_val.data.%s; iron_mem_free(_val.data.%s); break;\n",
                 impl2->tag, ln, impl2->type_name, impl2->type_name);
         else
             iron_strbuf_appendf(sb,
@@ -357,7 +357,7 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
         "    uint8_t _ot = _sl->_order[_i].tag;\n"
         "    int64_t _oi = _sl->_order[_i].idx;\n"
         "    %s _out;\n"
-        "    memset(&_out, 0, sizeof(_out));\n"
+        "    iron_mem_set(&_out, 0, sizeof(_out));\n"
         "    switch (_ot) {\n",
         iface_mangled, iface_mangled, iface_mangled, iface_mangled);
     for (int j = 0; j < entry->impl_count; j++) {
@@ -372,7 +372,7 @@ static void emit_split_edit_helpers(EmitCtx *ctx, Iron_StrBuf *sb, const char *i
         "    default: break;\n"
         "    }\n"
         "    Iron_SplitList_%s__detach(_sl, _ot, _oi);\n"
-        "    memmove(&_sl->_order[_i], &_sl->_order[_i + 1], (size_t)(_sl->_order_count - 1 - _i) * sizeof(*_sl->_order));\n"
+        "    iron_mem_move(&_sl->_order[_i], &_sl->_order[_i + 1], (size_t)(_sl->_order_count - 1 - _i) * sizeof(*_sl->_order));\n"
         "    _sl->_order_count--;\n"
         "    _sl->_total_count--;\n"
         "    return _out;\n"
@@ -912,7 +912,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
     iron_strbuf_appendf(sb,
         "static inline Iron_SplitList_%s Iron_SplitList_%s_take(Iron_SplitList_%s *_sl) {\n"
         "    Iron_SplitList_%s out = *_sl;\n"
-        "    memset(_sl, 0, sizeof(*_sl));\n"
+        "    iron_mem_set(_sl, 0, sizeof(*_sl));\n"
         "    return out;\n"
         "}\n\n",
         iface_mangled, iface_mangled, iface_mangled, iface_mangled);
@@ -947,7 +947,7 @@ void emit_split_collection_for_iface(EmitCtx *ctx, const char *iface_mangled,
             "        dst.%s = _iron_sl_realloc_tracked(&dst._tracked, &dst._tracked_count, "
             "&dst._tracked_cap, NULL, _cap ? _cap : 1);\n"
             "        if (!dst.%s) iron_oom_abort(\"split list copy\");\n"
-            "        if (_n) memcpy(dst.%s, _src->%s, _n);\n"
+            "        if (_n) iron_mem_copy(dst.%s, _src->%s, _n);\n"
             "    }\n",
             sl_members[mi].arr, sl_members[mi].cap, sl_members[mi].arr,
             cnt, sl_members[mi].arr,

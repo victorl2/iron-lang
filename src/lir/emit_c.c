@@ -213,7 +213,7 @@ static const char *emit_ensure_iface_view(EmitCtx *ctx, Iron_IfaceEntry *from,
     arrput(ctx->emitted_drops, nm);
     Iron_StrBuf *sb = &ctx->lifted_funcs;
     iron_strbuf_appendf(sb, "static inline %s %s(const %s *p) {\n"
-                            "    %s r;\n    memset(&r, 0, sizeof(r));\n"
+                            "    %s r;\n    iron_mem_set(&r, 0, sizeof(r));\n"
                             "    switch (p->tag) {\n", tc, nm, fc, tc);
     for (int j = 0; j < from->impl_count; j++) {
         Iron_IfaceImpl *im = &from->impls[j];
@@ -310,7 +310,7 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
         else
             iron_strbuf_appendf(sb, "typedef bool (*_HofFn%u)(void *, %s);\n", id, et_c);
         emit_indent(sb, ind + 1);
-        iron_strbuf_appendf(sb, "_HofFn%u _hof_fn%u; memcpy(&_hof_fn%u, &", id, id, id);
+        iron_strbuf_appendf(sb, "_HofFn%u _hof_fn%u; iron_mem_copy(&_hof_fn%u, &", id, id, id);
         emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ".fn, sizeof(_hof_fn%u));\n", id);
         emit_indent(sb, ind + 1);
@@ -359,7 +359,7 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb, "typedef void (*_HofFn%u)(void *, %s);\n", id, et_c);
         emit_indent(sb, ind + 1);
-        iron_strbuf_appendf(sb, "_HofFn%u _hof_fn%u; memcpy(&_hof_fn%u, &", id, id, id);
+        iron_strbuf_appendf(sb, "_HofFn%u _hof_fn%u; iron_mem_copy(&_hof_fn%u, &", id, id, id);
         emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ".fn, sizeof(_hof_fn%u));\n", id);
         emit_indent(sb, ind + 1);
@@ -388,7 +388,7 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
     emit_indent(sb, ind + 1);
     iron_strbuf_appendf(sb, "typedef %s (*_HofFn%u)(void *, %s, %s);\n", at_c, id, at_c, et_c);
     emit_indent(sb, ind + 1);
-    iron_strbuf_appendf(sb, "_HofFn%u _hof_fn%u; memcpy(&_hof_fn%u, &", id, id, id);
+    iron_strbuf_appendf(sb, "_HofFn%u _hof_fn%u; iron_mem_copy(&_hof_fn%u, &", id, id, id);
     emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
     iron_strbuf_appendf(sb, ".fn, sizeof(_hof_fn%u));\n", id);
     emit_indent(sb, ind + 1);
@@ -1211,7 +1211,7 @@ static bool emit_list_contains_or_sort(Iron_StrBuf *sb, IronLIR_Instr *instr,
     if (is_sort) {
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb,
-            "if (_ls->count > 1) qsort(_ls->items, (size_t)_ls->count, sizeof(%s), "
+            "if (_ls->count > 1) iron_sort(_ls->items, (size_t)_ls->count, sizeof(%s), "
             "iron_sort_cmp_%s);\n", elem_c, elem_c);
     } else {
         emit_indent(sb, ind + 1);
@@ -1301,7 +1301,7 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, " = _bv->data[_bi];\n");
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb,
-            "memmove(&_bv->data[_bi], &_bv->data[_bi + 1], "
+            "iron_mem_move(&_bv->data[_bi], &_bv->data[_bi + 1], "
             "(size_t)(_bv->len - _bi - 1) * sizeof(%s));\n", elem_c);
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb, "_bv->len--;\n");
@@ -1323,7 +1323,7 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
             "iron_panic_bvec_oob(__FILE__, __LINE__, _bi, _bv->len + 1);\n");
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb,
-            "memmove(&_bv->data[_bi + 1], &_bv->data[_bi], "
+            "iron_mem_move(&_bv->data[_bi + 1], &_bv->data[_bi], "
             "(size_t)(_bv->len - _bi) * sizeof(%s));\n", elem_c);
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb, "_bv->data[_bi] = _bx; _bv->len++;\n");
@@ -1334,7 +1334,7 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
             elem_c);
     } else if (strcmp(m, "sort") == 0) {
         iron_strbuf_appendf(sb,
-            "if (_bv->len > 1) qsort(_bv->data, (size_t)_bv->len, sizeof(%s), "
+            "if (_bv->len > 1) iron_sort(_bv->data, (size_t)_bv->len, sizeof(%s), "
             "iron_sort_cmp_%s);\n", elem_c, elem_c);
     } else { /* contains */
         iron_strbuf_appendf(sb, "%s _bx = ", elem_c);
@@ -4276,7 +4276,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "%s *", elem_type);
                         emit_val(sb, instr->id);
-                        iron_strbuf_appendf(sb, " = (%s *)alloca(sizeof(%s) * ",
+                        iron_strbuf_appendf(sb, " = (%s *)__builtin_alloca(sizeof(%s) * ",
                                             elem_type, elem_type);
                         emit_expr_to_buf(sb, instr->call.args[0], fn, ctx, ctx->current_block_id, 0);
                         iron_strbuf_appendf(sb, ");\n");
@@ -4401,7 +4401,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             iron_strbuf_appendf(sb, "typedef %s (*_SpMapFn)(void *, %s);\n",
                                 result_elem_type, sp_iface);
                             emit_indent(sb, ind + 1);
-                            iron_strbuf_appendf(sb, "_SpMapFn _sp_map_fn; memcpy(&_sp_map_fn, &");
+                            iron_strbuf_appendf(sb, "_SpMapFn _sp_map_fn; iron_mem_copy(&_sp_map_fn, &");
                             emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
                             iron_strbuf_appendf(sb, ".fn, sizeof(_sp_map_fn));\n");
                             emit_indent(sb, ind + 1);
@@ -4440,7 +4440,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 iron_strbuf_appendf(sb, "; break;\n");
                             }
                             emit_indent(sb, ind + 3);
-                            iron_strbuf_appendf(sb, "default: memset(&_sp_item, 0, sizeof(_sp_item)); break;\n");
+                            iron_strbuf_appendf(sb, "default: iron_mem_set(&_sp_item, 0, sizeof(_sp_item)); break;\n");
                             emit_indent(sb, ind + 2);
                             iron_strbuf_appendf(sb, "}\n");
                             /* Call lambda and push result */
@@ -4469,7 +4469,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             emit_indent(sb, ind + 1);
                             iron_strbuf_appendf(sb, "typedef bool (*_SpFilterFn)(void *, %s);\n", sp_iface);
                             emit_indent(sb, ind + 1);
-                            iron_strbuf_appendf(sb, "_SpFilterFn _sp_filter_fn; memcpy(&_sp_filter_fn, &");
+                            iron_strbuf_appendf(sb, "_SpFilterFn _sp_filter_fn; iron_mem_copy(&_sp_filter_fn, &");
                             emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
                             iron_strbuf_appendf(sb, ".fn, sizeof(_sp_filter_fn));\n");
                             emit_indent(sb, ind + 1);
@@ -4574,7 +4574,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             iron_strbuf_appendf(sb, "typedef %s (*_SpReduceFn)(void *, %s, %s);\n",
                                 acc_type, acc_type, sp_iface);
                             emit_indent(sb, ind + 1);
-                            iron_strbuf_appendf(sb, "_SpReduceFn _sp_reduce_fn; memcpy(&_sp_reduce_fn, &");
+                            iron_strbuf_appendf(sb, "_SpReduceFn _sp_reduce_fn; iron_mem_copy(&_sp_reduce_fn, &");
                             emit_expr_to_buf(sb, instr->call.args[2], fn, ctx, ctx->current_block_id, 0);
                             iron_strbuf_appendf(sb, ".fn, sizeof(_sp_reduce_fn));\n");
                             emit_indent(sb, ind + 1);
@@ -4613,7 +4613,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 iron_strbuf_appendf(sb, "; break;\n");
                             }
                             emit_indent(sb, ind + 3);
-                            iron_strbuf_appendf(sb, "default: memset(&_sp_item, 0, sizeof(_sp_item)); break;\n");
+                            iron_strbuf_appendf(sb, "default: iron_mem_set(&_sp_item, 0, sizeof(_sp_item)); break;\n");
                             emit_indent(sb, ind + 2);
                             iron_strbuf_appendf(sb, "}\n");
                             emit_indent(sb, ind + 2);
@@ -4635,7 +4635,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             emit_indent(sb, ind + 1);
                             iron_strbuf_appendf(sb, "typedef void (*_SpForEachFn)(void *, %s);\n", sp_iface);
                             emit_indent(sb, ind + 1);
-                            iron_strbuf_appendf(sb, "_SpForEachFn _sp_each_fn; memcpy(&_sp_each_fn, &");
+                            iron_strbuf_appendf(sb, "_SpForEachFn _sp_each_fn; iron_mem_copy(&_sp_each_fn, &");
                             emit_expr_to_buf(sb, instr->call.args[1], fn, ctx, ctx->current_block_id, 0);
                             iron_strbuf_appendf(sb, ".fn, sizeof(_sp_each_fn));\n");
                             emit_indent(sb, ind + 1);
@@ -4754,7 +4754,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                      * which is freed. */
                                     if (is_indirect)
                                         iron_strbuf_appendf(sb,
-                                            ", *_sp_push_val.data.%s); free(_sp_push_val.data.%s); break;\n",
+                                            ", *_sp_push_val.data.%s); iron_mem_free(_sp_push_val.data.%s); break;\n",
                                             impl->type_name, impl->type_name);
                                     else
                                         iron_strbuf_appendf(sb,
@@ -4876,7 +4876,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                  * the collection state untouched. */
                                 emit_indent(sb, ind);
                                 iron_strbuf_appendf(sb,
-                                    "memset(&");
+                                    "iron_mem_set(&");
                                 emit_val(sb, instr->id);
                                 iron_strbuf_appendf(sb, ", 0, sizeof(");
                                 emit_val(sb, instr->id);
@@ -4924,7 +4924,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 iron_strbuf_appendf(sb, ".%s_count--; break;\n", lower_name);
                             }
                             emit_indent(sb, ind + 2);
-                            iron_strbuf_appendf(sb, "default: memset(&");
+                            iron_strbuf_appendf(sb, "default: iron_mem_set(&");
                             emit_val(sb, instr->id);
                             iron_strbuf_appendf(sb, ", 0, sizeof(");
                             emit_val(sb, instr->id);
@@ -4993,7 +4993,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                  * collections whose implementors use SoA layout is
                                  * not yet supported. Zero-init the result. */
                                 emit_indent(sb, ind);
-                                iron_strbuf_appendf(sb, "memset(&");
+                                iron_strbuf_appendf(sb, "iron_mem_set(&");
                                 emit_val(sb, instr->id);
                                 iron_strbuf_appendf(sb, ", 0, sizeof(");
                                 emit_val(sb, instr->id);
@@ -5041,7 +5041,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                 iron_strbuf_appendf(sb, "; break;\n");
                             }
                             emit_indent(sb, ind + 2);
-                            iron_strbuf_appendf(sb, "default: memset(&");
+                            iron_strbuf_appendf(sb, "default: iron_mem_set(&");
                             emit_val(sb, instr->id);
                             iron_strbuf_appendf(sb, ", 0, sizeof(");
                             emit_val(sb, instr->id);
@@ -6327,7 +6327,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         const char *field_type = (vpt_box && vpt_box[variant_idx] && vpt_box[variant_idx][pi])
                             ? emit_type_to_c(vpt_box[variant_idx][pi], ctx) : "void";
                         emit_indent(sb, ind);
-                        iron_strbuf_appendf(sb, "%s *__box_%u_%d = (%s *)malloc(sizeof(%s));\n",
+                        iron_strbuf_appendf(sb, "%s *__box_%u_%d = (%s *)iron_mem_alloc(sizeof(%s));\n",
                             field_type, (unsigned)instr->id, pi, field_type, field_type);
                         /* FIX-02 Phase 67-02: OOM guard on boxed ADT field */
                         emit_indent(sb, ind);
@@ -6942,49 +6942,18 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         const char *fmt_str  = iron_strbuf_get(&fmt_sb);
         const char *args_str = iron_strbuf_get(&args_sb);
 
-        /* Pass 1: measure */
+        /* One runtime call formats the parts (iron_fmt.c, vsnprintf
+         * inside the runtime): the generated code stays free of libc. */
         emit_indent(sb, ind);
+        emit_val(sb, instr->id);
         if (instr->interp_string.part_count > 0) {
-            iron_strbuf_appendf(sb,
-                "int _interp_len_%u = snprintf(NULL, 0, \"%s\", %s);\n",
-                instr->id, fmt_str, args_str);
+            iron_strbuf_appendf(sb, " = iron_string_format(\"%s\", %s);\n", fmt_str, args_str);
         } else {
-            iron_strbuf_appendf(sb,
-                "int _interp_len_%u = 0;\n", instr->id);
-        }
-
-        /* Allocate buffer (len + 1 for NUL terminator) */
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb,
-            "char *_interp_buf_%u = (char *)malloc((size_t)(_interp_len_%u + 1));\n",
-            instr->id, instr->id);
-        /* FIX-02 Phase 67-02: OOM guard on interpolation buffer */
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb,
-            "if (!_interp_buf_%u) iron_oom_abort(\"emit_c interp string\");\n",
-            instr->id);
-
-        /* Pass 2: fill */
-        emit_indent(sb, ind);
-        if (instr->interp_string.part_count > 0) {
-            iron_strbuf_appendf(sb,
-                "snprintf(_interp_buf_%u, (size_t)(_interp_len_%u + 1), \"%s\", %s);\n",
-                instr->id, instr->id, fmt_str, args_str);
-        } else {
-            iron_strbuf_appendf(sb, "_interp_buf_%u[0] = '\\0';\n", instr->id);
+            iron_strbuf_appendf(sb, " = iron_string_from_cstr(\"\", 0);\n");
         }
 
         iron_strbuf_free(&fmt_sb);
         iron_strbuf_free(&args_sb);
-
-        /* Assign result to the outer-scoped variable */
-        emit_indent(sb, ind);
-        emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb,
-            " = iron_string_from_cstr(_interp_buf_%u, (size_t)_interp_len_%u);\n",
-            instr->id, instr->id);
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "free(_interp_buf_%u);\n", instr->id);
 
         ind--;
         emit_indent(sb, ind);
@@ -7293,14 +7262,14 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         "    _h->result = (void *)(intptr_t)_result;\n");
                     emit_spawn_env_string_releases(&ctx->lifted_funcs, cap_meta, cap_count);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
-                        "    free(_arg);\n");
+                        "    iron_mem_free(_arg);\n");
                 } else {
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    %s *_e = (%s *)_arg;\n", env_type, env_type);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    %s(_e);\n", c_func_name);
                     emit_spawn_env_string_releases(&ctx->lifted_funcs, cap_meta, cap_count);
-                    iron_strbuf_appendf(&ctx->lifted_funcs, "    free(_arg);\n");
+                    iron_strbuf_appendf(&ctx->lifted_funcs, "    iron_mem_free(_arg);\n");
                 }
             } else {
                 /* Non-capturing spawn: arg is the handle itself (self-ref) */
@@ -7322,7 +7291,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             if (cap_count > 0 && cap_meta && env_type) {
                 /* Capturing handled spawn: allocate env, populate, use Iron_handle_create */
                 emit_indent(sb, ind);
-                iron_strbuf_appendf(sb, "%s *_env_%u = (%s *)malloc(sizeof(%s));\n",
+                iron_strbuf_appendf(sb, "%s *_env_%u = (%s *)iron_mem_alloc(sizeof(%s));\n",
                     env_type, instr->id, env_type, env_type);
                 /* FIX-02 Phase 67-02: OOM guard on closure env (B) */
                 emit_indent(sb, ind);
@@ -7383,7 +7352,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 iron_strbuf_appendf(sb, "{\n");
                 int inner = ind + 1;
                 emit_indent(sb, inner);
-                iron_strbuf_appendf(sb, "%s *_env_%u = (%s *)malloc(sizeof(%s));\n",
+                iron_strbuf_appendf(sb, "%s *_env_%u = (%s *)iron_mem_alloc(sizeof(%s));\n",
                     env_type, instr->id, env_type, env_type);
                 /* FIX-02 Phase 67-02: OOM guard on closure env (C) */
                 emit_indent(sb, inner);
@@ -7431,7 +7400,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    %s(_e);\n", c_func_name);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
-                        "    free(_arg);\n");
+                        "    iron_mem_free(_arg);\n");
                     iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
                 }
 
@@ -7562,7 +7531,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     pfor_cap_meta[ci].name, pfor_cap_meta[ci].name);
             }
             iron_strbuf_appendf(&ctx->lifted_funcs,
-                "    free(_arg);\n");
+                "    iron_mem_free(_arg);\n");
             iron_strbuf_appendf(&ctx->lifted_funcs,
                 "    for (int64_t _i = _start; _i < _end; _i++) {\n");
             iron_strbuf_appendf(&ctx->lifted_funcs,
@@ -7571,7 +7540,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 "    }\n");
         } else {
             iron_strbuf_appendf(&ctx->lifted_funcs,
-                "    free(_arg);\n");
+                "    iron_mem_free(_arg);\n");
             iron_strbuf_appendf(&ctx->lifted_funcs,
                 "    for (int64_t _i = _start; _i < _end; _i++) {\n");
             iron_strbuf_appendf(&ctx->lifted_funcs,
@@ -7614,7 +7583,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             "int64_t _end = (_c + _chunk_size > _total) ? _total : _c + _chunk_size;\n");
         emit_indent(sb, inner2);
         iron_strbuf_appendf(sb,
-            "%s *_pctx = (%s *)malloc(sizeof(%s));\n",
+            "%s *_pctx = (%s *)iron_mem_alloc(sizeof(%s));\n",
             ctx_type, ctx_type, ctx_type);
         /* FIX-02 Phase 67-02: OOM guard on parallel-for ctx */
         emit_indent(sb, inner2);
@@ -10170,15 +10139,12 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
      * resolves at link time. The historical workaround #include of the .c
      * inside the generated TU was removed in the same change (duplicate
      * non-static definitions otherwise). */
+    /* The generated unit is freestanding (#235): no libc or platform
+     * headers. Memory, formatting, output and threads come from the
+     * runtime library through the iron_* functions iron_runtime.h declares;
+     * tests/oracles/freestanding.sh compiles the corpus with -nostdinc. */
     iron_strbuf_appendf(&ctx.includes, "#include <stdint.h>\n");
     iron_strbuf_appendf(&ctx.includes, "#include <stdbool.h>\n");
-    iron_strbuf_appendf(&ctx.includes, "#include <stdlib.h>\n");
-    iron_strbuf_appendf(&ctx.includes, "#include <string.h>\n");
-    iron_strbuf_appendf(&ctx.includes, "#include <stdio.h>\n");
-    /* Phase 33 STDLIB-09 (Plan 33-05): FileHandle glue uses fileno()/close(). */
-    iron_strbuf_appendf(&ctx.includes,
-                        "#ifndef _WIN32\n#include <unistd.h>\n"
-                        "#else\n#include <io.h>\n#define close _close\n#endif\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_math.h\"\n");
     iron_strbuf_appendf(&ctx.includes, "#define IRON_IO_GENERATED_OBJECTS\n");
     iron_strbuf_appendf(&ctx.includes, "#include \"stdlib/iron_io.h\"\n");
@@ -10200,9 +10166,6 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     iron_strbuf_appendf(&ctx.includes,
         "#ifdef __GNUC__\n"
         "  #define IRON_PREFETCH(addr) __builtin_prefetch(addr, 0, 3)\n"
-        "#elif defined(_MSC_VER)\n"
-        "  #include <xmmintrin.h>\n"
-        "  #define IRON_PREFETCH(addr) _mm_prefetch((const char*)(addr), _MM_HINT_T0)\n"
         "#else\n"
         "  #define IRON_PREFETCH(addr) ((void)0)\n"
         "#endif\n\n");
@@ -11264,7 +11227,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                     }
                     if (returns_self) {
                         iron_strbuf_appendf(&ctx.lifted_funcs,
-                            "        default: { %s zero; memset(&zero, 0, sizeof zero); return zero; }\n"
+                            "        default: { %s zero; iron_mem_set(&zero, 0, sizeof zero); return zero; }\n"
                             "    }\n"
                             "}\n\n",
                             iface_mangled);

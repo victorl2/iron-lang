@@ -2647,7 +2647,8 @@ vendored libraries that declare the same name are a duplicate declaration
 `iron build` and `iron run` accept `-o path` / `--output path`,
 `--release` (optimized C compilation), `--no-optimize` (skip Iron's own
 IR optimizations), `--debug-build` (keep the generated C under
-`.iron-build/`), `--dump-ir-passes`, `--report-compression`,
+`.iron-build/`), `--emit-c` (`build` only: write the C file and stop
+before the C compiler), `--dump-ir-passes`, `--report-compression`,
 `--warn-fusion-break`, `--force-comptime` (ignore the comptime cache) and
 `--target=web`. `--no-strict-v3` accepts a few removed syntax forms for
 debugging old code. `--verbose` prints the generated C and the link line

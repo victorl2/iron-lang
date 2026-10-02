@@ -11,6 +11,7 @@ typedef enum {
 typedef struct {
     bool        verbose;
     bool        debug_build;
+    bool        emit_c;           /* --emit-c: stop after writing .iron-build/<name>.c (no clang) */
     bool        run_after;        /* true for "iron run" */
     const char **run_args;        /* args after -- */
     int          run_arg_count;

@@ -466,6 +466,10 @@ static int prepend_marked_file(char **source_io, const char *base_dir,
 /* ── Helper: invoke clang to compile generated C with runtime sources ──────── */
 
 /* Build the source file list shared by both Unix and Windows invoke helpers */
+/* iron_os.c: the platform behind the freestanding runtime header (#235);
+ * passed to clang with the other runtime sources. */
+static char *s_rt_os = NULL;
+
 static int build_src_list(const char **argv_buf, int *ai_out,
                            const char *c_file, const char *output,
                            char **src_i_flag_out, char **vendor_i_flag_out,
@@ -529,6 +533,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     *rt_collect_out = make_path(base_dir, "runtime/iron_collections.c");
     *rt_netinit_out = make_path(base_dir, "runtime/iron_net_init.c");
     *rt_oom_out     = make_path(base_dir, "runtime/iron_oom.c");
+    free(s_rt_os);
+    s_rt_os         = make_path(base_dir, "runtime/iron_os.c");
     *rt_fmt_out     = make_path(base_dir, "runtime/iron_fmt.c");
     *rt_heap_track_out = make_path(base_dir, "runtime/iron_heap_track.c");
     *rt_panic_out   = make_path(base_dir, "runtime/iron_panic.c");
@@ -605,6 +611,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *rt_collect_out;
     argv_buf[ai++] = *rt_netinit_out;
     argv_buf[ai++] = *rt_oom_out;
+    argv_buf[ai++] = s_rt_os;
     argv_buf[ai++] = *rt_fmt_out;
     argv_buf[ai++] = *rt_heap_track_out;
     argv_buf[ai++] = *rt_panic_out;
@@ -694,6 +701,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = *rt_collect_out;
     argv_buf[ai++] = *rt_netinit_out;
     argv_buf[ai++] = *rt_oom_out;
+    argv_buf[ai++] = s_rt_os;
     argv_buf[ai++] = *rt_fmt_out;
     argv_buf[ai++] = *rt_heap_track_out;
     argv_buf[ai++] = *rt_panic_out;
@@ -811,6 +819,7 @@ static void free_src_list(char *base_dir,
     free(rt_string); free(rt_rc); free(rt_builtin);
     free(rt_threads); free(rt_collect);
     free(rt_netinit); free(rt_oom);
+    free(s_rt_os); s_rt_os = NULL;
     free(rt_fmt);
     free(rt_heap_track);
     free(rt_panic);
@@ -994,6 +1003,7 @@ static int invoke_clang(const char *c_file, const char *output,
         if (has_space) cmd[pos++] = '"';
     }
     cmd[pos] = '\0';
+    if (opts.verbose) fprintf(stderr, "clang-cl invocation: %s\n", cmd);
 
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
@@ -1657,6 +1667,18 @@ int iron_build(const char *source_path, const char *output_path,
         free(source);
         free(base_dir);
         return 1;
+    }
+
+    /* --emit-c: the generated C is the product; nothing is compiled. */
+    if (opts.emit_c) {
+        if (opts.verbose) fprintf(stderr, "Emitted: %s\n", c_file_path);
+        free(c_file_path);
+        free(derived_output);
+        iron_diaglist_free(&diags);
+        iron_arena_free(&arena);
+        free(source);
+        free(base_dir);
+        return 0;
     }
 
     /* 13. Invoke the linker — target-branched.

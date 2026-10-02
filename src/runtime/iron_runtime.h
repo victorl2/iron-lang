@@ -1,171 +1,93 @@
 #ifndef IRON_RUNTIME_H
 #define IRON_RUNTIME_H
 
+/* The runtime header is freestanding (#235): it includes only the headers
+ * clang ships with the compiler and declares everything else itself, so
+ * generated C compiles without any platform SDK. Memory, threads and
+ * formatting come from the runtime library behind the iron_* functions
+ * below; the runtime's own .c files include the real platform headers. */
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <string.h>  /* memcpy/memset in the inline hash helpers */
-#include <stdlib.h>  /* malloc/free — required on Windows because
-                      * WIN32_LEAN_AND_MEAN strips transitive includes */
+#include <stdarg.h>
+#include <stdatomic.h>
 
 #include "runtime/iron_errors.h"
-#include "diagnostics/diagnostics.h"  /* iron_oom_abort for IRON_LIST/MAP/SET OOM paths (FIX-01, Phase 67) */
 
-/* ── Platform atomic abstraction ────────────────────────────────────────── */
-#ifdef _WIN32
-  /* Include winsock2.h BEFORE windows.h to avoid the winsock v1 vs v2
-   * struct-redefinition clash (sockaddr, fd_set, WSAData, etc.). windows.h
-   * by default pulls in winsock.h (v1) when WIN32_LEAN_AND_MEAN is not
-   * defined, and then a later winsock2.h include conflicts. Including
-   * winsock2.h first marks those types as defined; the subsequent
-   * windows.h sees them already declared and skips the winsock.h path.
-   * Required by Phase 59 network code that lives in translation units
-   * which transitively include this header. */
-  #ifndef WIN32_LEAN_AND_MEAN
-    #define WIN32_LEAN_AND_MEAN
-  #endif
-  #ifndef NOMINMAX
-    #define NOMINMAX
-  #endif
-  #include <winsock2.h>
-  #include <windows.h>
-  /* windows.h defines `interface` as a macro; the compiler's type union
-   * has a member of that name (src/analyzer/types.h). */
-  #undef interface
-  /* Generated identifiers (the `Log.ERROR` constant) must not meet
-   * windows.h's unprefixed macros. */
-  #undef ERROR
-  #undef min
-  #undef max
-  /* Generated code and the string / list refcounts use C11 atomics on
-   * every platform; clang provides <stdatomic.h> for the MSVC target. */
-  #include <stdatomic.h>
-  typedef volatile LONG iron_atomic_int;
-  #define IRON_ATOMIC_INIT(v, val)          ((v) = (val))
-  #define IRON_ATOMIC_LOAD(v)               InterlockedCompareExchange(&(v), 0, 0)
-  #define IRON_ATOMIC_FETCH_ADD(v, n)       InterlockedExchangeAdd(&(v), (n))
-  #define IRON_ATOMIC_FETCH_SUB(v, n)       InterlockedExchangeAdd(&(v), -(n))
-  #define IRON_ATOMIC_CAS_WEAK(v, exp, des) iron__win_cas(&(v), (exp), (des))
-  static inline bool iron__win_cas(volatile LONG *v, int *expected, int desired) {
-      LONG old = InterlockedCompareExchange(v, desired, *expected);
-      if (old == *expected) return true;
-      *expected = (int)old;
-      return false;
-  }
+#if defined(__GNUC__) || defined(__clang__)
+#define IRON_NORETURN __attribute__((noreturn))
 #else
-  #include <stdatomic.h>
-  typedef atomic_int iron_atomic_int;
-  #define IRON_ATOMIC_INIT(v, val)          atomic_init(&(v), (val))
-  #define IRON_ATOMIC_LOAD(v)               atomic_load(&(v))
-  #define IRON_ATOMIC_FETCH_ADD(v, n)       atomic_fetch_add(&(v), (n))
-  #define IRON_ATOMIC_FETCH_SUB(v, n)       atomic_fetch_sub(&(v), (n))
-  #define IRON_ATOMIC_CAS_WEAK(v, exp, des) atomic_compare_exchange_weak(&(v), (exp), (des))
+#define IRON_NORETURN
 #endif
 
-/* ── Phase 19: 64-bit atomic abstraction with explicit memory ordering ──────
- * Generation counters need explicit relaxed/acquire ordering. The existing
- * IRON_ATOMIC_* macros above use sequentially-consistent ops (the C11 default
- * for *_explicit-less APIs); over-strong for monotonic counters. This parallel
- * family wraps atomic_*_explicit on POSIX and Win64 Interlocked*64 (which are
- * unconditionally seq-cst — acceptable since Iron's parallel-LSP-request
- * model is not bottlenecked on heap-tracker atomics, and Windows is excluded
- * from CI today).
- *
- * CONTEXT-locked: relaxed-fetch-add on free, acquire-load on deref-check.
- * Do NOT replace with the seq-cst IRON_ATOMIC_* macros above. */
-#ifdef _WIN32
-  typedef volatile LONG64 iron_atomic_u64;
-  #define IRON_ATOMIC_U64_INIT(v, val) \
-      ((v) = (LONG64)(val))
-  /* Store on a LIVE atomic (post-init). IRON_ATOMIC_U64_INIT is only legal
-   * before the atomic is shared; use this for reset/restore paths that can
-   * race concurrent fetch_adds (iron_arena_rt_reset/restore). */
-  #define IRON_ATOMIC_U64_STORE_RELEASE(v, val) \
-      ((void)InterlockedExchange64((volatile LONG64 *)&(v), (LONG64)(val)))
-  #define IRON_ATOMIC_U64_LOAD_ACQUIRE(v) \
-      ((uint64_t)InterlockedCompareExchange64((volatile LONG64 *)&(v), 0, 0))
-  #define IRON_ATOMIC_U64_FETCH_ADD_RELAXED(v, n) \
-      ((uint64_t)InterlockedExchangeAdd64((volatile LONG64 *)&(v), (LONG64)(n)))
-  /* Phase 26 POL-06: release-decrement + acquire-fence for rc final-drop.
-   * Interlocked*64 on Win32 are unconditionally seq-cst (stronger than
-   * release/acquire), so the "release" semantics are trivially satisfied
-   * and the acquire-fence is a no-op. The macro family is added for
-   * source-level parity with the POSIX path; codegen and call-site shape
-   * are identical across platforms. */
-  #define IRON_ATOMIC_U64_FETCH_SUB_RELEASE(v, n) \
-      ((uint64_t)InterlockedExchangeAdd64((volatile LONG64 *)&(v), -(LONG64)(n)))
-  /* Phase 27 GA1: relaxed fetch_sub for weak_count (and any future
-   * monotonic-decrement counter that does NOT carry destructor-sync
-   * semantics). Interlocked*64 on Win32 is unconditionally seq-cst,
-   * which trivially satisfies relaxed; source-level parity with the
-   * POSIX path preserved. */
-  #define IRON_ATOMIC_U64_FETCH_SUB_RELAXED(v, n) \
-      ((uint64_t)InterlockedExchangeAdd64((volatile LONG64 *)&(v), -(LONG64)(n)))
-  /* Phase 27 GA2: u64 CAS for the Rust-Arc-canonical upgrade loop. Win32
-   * InterlockedCompareExchange64 is seq-cst (stronger than relaxed/relaxed);
-   * acceptable since Windows is excluded from CI today (CLAUDE.md tech-stack
-   * Windows-excluded policy). */
-  static inline bool iron__win_cas_u64_relaxed(volatile LONG64 *v,
-                                                uint64_t *expected,
-                                                uint64_t desired) {
-      LONG64 old = InterlockedCompareExchange64(v, (LONG64)desired,
-                                                (LONG64)*expected);
-      bool ok = (old == (LONG64)*expected);
-      if (!ok) *expected = (uint64_t)old;
-      return ok;
-  }
-  #define IRON_ATOMIC_U64_CAS_WEAK_RELAXED(v, exp, des) \
-      iron__win_cas_u64_relaxed((volatile LONG64 *)&(v), (exp), (des))
-  #define IRON_ATOMIC_FENCE_ACQUIRE() \
-      ((void)0)  /* Interlocked*64 on Win32 are unconditionally seq-cst */
-#else
-  /* <stdatomic.h> already included on POSIX path above. */
-  typedef _Atomic uint64_t iron_atomic_u64;
-  #define IRON_ATOMIC_U64_INIT(v, val) \
-      atomic_init(&(v), (val))
-  /* Store on a LIVE atomic (post-init). atomic_init on an atomic that other
-   * threads are concurrently operating on is C11 UB; reset/restore paths
-   * (iron_arena_rt_reset/restore) must use a real atomic store. RELEASE
-   * pairs with the ACQUIRE loads in the gen-check / save paths. */
-  #define IRON_ATOMIC_U64_STORE_RELEASE(v, val) \
-      atomic_store_explicit(&(v), (val), memory_order_release)
-  #define IRON_ATOMIC_U64_LOAD_ACQUIRE(v) \
-      atomic_load_explicit(&(v), memory_order_acquire)
-  #define IRON_ATOMIC_U64_FETCH_ADD_RELAXED(v, n) \
-      atomic_fetch_add_explicit(&(v), (n), memory_order_relaxed)
-  /* Phase 26 POL-06: release-decrement + acquire-fence for rc final-drop.
-   *
-   * Atomic discipline (Rust Arc canonical, cross-verified RustBelt-Relaxed +
-   * mara.nl "Building Our Own Arc"):
-   *   retain:      FETCH_ADD_RELAXED on refcount (monotonic increment).
-   *   release:     FETCH_SUB_RELEASE on refcount (callers' prior writes
-   *                synchronize-with the eventual destructor).
-   *   final-drop:  when fetch_sub returns 1, FENCE_ACQUIRE before invoking
-   *                drop_fn so the destructor observes writes from other
-   *                holders.
-   *
-   * References: https://mara.nl/atomics/building-arc.html ;
-   * https://github.com/rust-lang/rust/issues/62230 . */
-  #define IRON_ATOMIC_U64_FETCH_SUB_RELEASE(v, n) \
-      atomic_fetch_sub_explicit(&(v), (n), memory_order_release)
-  /* Phase 27 GA1 (amended): weak_count decs now use FETCH_SUB_RELEASE +
-   * an acquire fence on the freeing 1→0 edge (Rust Weak::drop discipline;
-   * see iron_weak_rc_release). This RELAXED variant remains for
-   * non-synchronizing counters (op tallies, saturating probes). */
-  #define IRON_ATOMIC_U64_FETCH_SUB_RELAXED(v, n) \
-      atomic_fetch_sub_explicit(&(v), (n), memory_order_relaxed)
-  /* Phase 27 GA2: u64 CAS for the Rust-Arc-canonical upgrade loop. Relaxed
-   * on both success and failure paths — the acquire-load preceding the
-   * loop already established the happens-before edge with the prior
-   * release-dec from the strong holder; the CAS itself does not need to
-   * be a synchronizing operation. */
-  #define IRON_ATOMIC_U64_CAS_WEAK_RELAXED(v, exp, des) \
-      atomic_compare_exchange_weak_explicit(&(v), (exp), (des), \
-                                            memory_order_relaxed, \
-                                            memory_order_relaxed)
-  #define IRON_ATOMIC_FENCE_ACQUIRE() \
-      atomic_thread_fence(memory_order_acquire)
-#endif
+/* ── Memory primitives (iron_os.c) ─────────────────────────────────────────
+ * Every allocation and byte operation of the runtime header's inline
+ * helpers and of generated code goes through these; the runtime library
+ * forwards them to the platform's libc. */
+void  *iron_mem_alloc(size_t size);
+void  *iron_mem_calloc(size_t count, size_t size);
+void  *iron_mem_realloc(void *ptr, size_t size);
+void   iron_mem_free(void *ptr);
+void  *iron_mem_copy(void *dst, const void *src, size_t n);
+void  *iron_mem_move(void *dst, const void *src, size_t n);
+void  *iron_mem_set(void *dst, int byte, size_t n);
+int    iron_mem_cmp(const void *a, const void *b, size_t n);
+size_t iron_cstr_len(const char *s);
+int    iron_cstr_cmp(const char *a, const char *b);
+void   iron_sort(void *base, size_t count, size_t size,
+                 int (*cmp)(const void *, const void *));
+/* Allocation failure in a runtime container (iron_oom.c): reports `where`
+ * and aborts. */
+IRON_NORETURN void iron_oom_abort(const char *where);
+/* Standard streams and process exit, for generated code (iron_os.c). */
+void   iron_out_write(const char *bytes, size_t n);
+void   iron_err_write(const char *bytes, size_t n);
+void   iron_out_flush(void);
+IRON_NORETURN void iron_exit(int code);
+IRON_NORETURN void iron_abort(void);
+/* printf-style formatting into a freshly allocated C string (iron_fmt.c);
+ * the caller frees it with iron_mem_free. */
+char  *iron_cstr_format(const char *fmt, ...);
+/* Box.unwrap() on a null box. */
+IRON_NORETURN void iron_panic_null_box(void);
+/* FileHandle.open(path) (write mode) / close: the descriptor, or -1. */
+int    iron_filehandle_open(const char *path);
+void   iron_filehandle_close(int fd);
+
+/* ── Atomics: C11 on every platform ──────────────────────────────────────── */
+typedef atomic_int iron_atomic_int;
+#define IRON_ATOMIC_INIT(v, val)          atomic_init(&(v), (val))
+#define IRON_ATOMIC_LOAD(v)               atomic_load(&(v))
+#define IRON_ATOMIC_FETCH_ADD(v, n)       atomic_fetch_add(&(v), (n))
+#define IRON_ATOMIC_FETCH_SUB(v, n)       atomic_fetch_sub(&(v), (n))
+#define IRON_ATOMIC_CAS_WEAK(v, exp, des) atomic_compare_exchange_weak(&(v), (exp), (des))
+
+/* 64-bit counters with explicit ordering. Generation counters need
+ * relaxed/acquire ordering; refcounts follow the Rust Arc discipline:
+ * retain is a relaxed increment, release a release-decrement, and the
+ * final drop fences for acquire before running the destructor. */
+typedef _Atomic uint64_t iron_atomic_u64;
+#define IRON_ATOMIC_U64_INIT(v, val) \
+    atomic_init(&(v), (val))
+/* Store on a LIVE atomic (post-init); atomic_init on an atomic other
+ * threads use is C11 UB (arena reset/restore paths). RELEASE pairs with
+ * the ACQUIRE loads in the gen-check / save paths. */
+#define IRON_ATOMIC_U64_STORE_RELEASE(v, val) \
+    atomic_store_explicit(&(v), (val), memory_order_release)
+#define IRON_ATOMIC_U64_LOAD_ACQUIRE(v) \
+    atomic_load_explicit(&(v), memory_order_acquire)
+#define IRON_ATOMIC_U64_FETCH_ADD_RELAXED(v, n) \
+    atomic_fetch_add_explicit(&(v), (n), memory_order_relaxed)
+#define IRON_ATOMIC_U64_FETCH_SUB_RELEASE(v, n) \
+    atomic_fetch_sub_explicit(&(v), (n), memory_order_release)
+#define IRON_ATOMIC_U64_FETCH_SUB_RELAXED(v, n) \
+    atomic_fetch_sub_explicit(&(v), (n), memory_order_relaxed)
+#define IRON_ATOMIC_U64_CAS_WEAK_RELAXED(v, exp, des) \
+    atomic_compare_exchange_weak_explicit(&(v), (exp), (des), \
+                                          memory_order_relaxed, \
+                                          memory_order_relaxed)
+#define IRON_ATOMIC_FENCE_ACQUIRE() \
+    atomic_thread_fence(memory_order_acquire)
 
 /* ── Phase 19: Generational pointer infrastructure (heap-only this phase) ──
  * Phase 20 surfaces *T / *var T to Iron source; Phase 19 lands the runtime
@@ -661,97 +583,65 @@ static inline void iron_check_arena_pointer_gen(Iron_FatPtr fp,
     }
 }
 
-/* ── Platform threading abstraction ──────────────────────────────────────── */
-/* Stack size of every runtime thread (spawned tasks, the language
- * server's reader and workers): the main thread's usual 8 MB. Secondary
- * threads otherwise get the platform default (512 KB on macOS), where deep
- * recursion (and the type checker under ASan) overflowed. */
+/* ── Threads, mutexes, condition variables, read-write locks (iron_os.c) ──
+ * The handles are opaque storage large enough for the platform primitive
+ * (pthread or Win32); iron_os.c checks the sizes with static assertions.
+ * Every runtime thread (spawned tasks, the language server's workers) gets
+ * the main thread's usual 8 MB stack: secondary threads otherwise get the
+ * platform default (512 KB on macOS), where deep recursion overflowed. */
 #ifndef IRON_THREAD_STACK_SIZE
 #define IRON_THREAD_STACK_SIZE ((size_t)8 * 1024 * 1024)
 #endif
-#ifdef _WIN32
+typedef struct { _Alignas(16) unsigned char opaque[64];  } iron_mutex_t;
+typedef struct { _Alignas(16) unsigned char opaque[64];  } iron_cond_t;
+typedef struct { _Alignas(16) unsigned char opaque[256]; } iron_rwlock_t;
+typedef struct { uintptr_t handle; } iron_thread_t;
 
-  typedef HANDLE               iron_thread_t;
-  typedef CRITICAL_SECTION     iron_mutex_t;
-  typedef CONDITION_VARIABLE   iron_cond_t;
-  typedef SRWLOCK              iron_rwlock_t;
+/* One-time initialization shared by every thread: a C11 atomic state
+ * machine (0 untouched, 1 running, 2 done), so a zero initializer is
+ * valid on every platform (Apple's PTHREAD_ONCE_INIT is not zero). */
+typedef struct { atomic_int state; } iron_once_t;
+#define IRON_ONCE_INIT { 0 }
+void iron_once(iron_once_t *once, void (*fn)(void));
 
-  /* Thread wrapper: Win32 thread proc signature differs from pthreads */
-  typedef struct { void *(*fn)(void*); void *arg; } iron__win_trampoline_t;
-  static DWORD WINAPI iron__win_thread_proc(void *p) {
-      iron__win_trampoline_t *t = (iron__win_trampoline_t *)p;
-      t->fn(t->arg);
-      free(p);
-      return 0;
-  }
-  /* See IRON_THREAD_STACK_SIZE below. */
-  static inline int iron__win_thread_create(iron_thread_t *t,
-                                            void *(*fn)(void*), void *arg) {
-      iron__win_trampoline_t *tramp = (iron__win_trampoline_t *)malloc(sizeof(*tramp));
-      if (!tramp) return -1;
-      tramp->fn = fn; tramp->arg = arg;
-      *t = CreateThread(NULL, IRON_THREAD_STACK_SIZE, iron__win_thread_proc, tramp,
-                        STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
-      return *t ? 0 : -1;
-  }
+int  iron_thread_create(iron_thread_t *t, void *(*fn)(void *), void *arg);
+int  iron_thread_join(iron_thread_t t);
+int  iron_thread_detach(iron_thread_t t);
+iron_thread_t iron_thread_self(void);
+bool iron_thread_equal(iron_thread_t a, iron_thread_t b);
+void iron_mutex_init(iron_mutex_t *m);
+void iron_mutex_lock(iron_mutex_t *m);
+void iron_mutex_unlock(iron_mutex_t *m);
+void iron_mutex_destroy(iron_mutex_t *m);
+void iron_cond_init(iron_cond_t *c);
+void iron_cond_wait(iron_cond_t *c, iron_mutex_t *m);
+void iron_cond_signal(iron_cond_t *c);
+void iron_cond_broadcast(iron_cond_t *c);
+void iron_cond_destroy(iron_cond_t *c);
+void iron_rwlock_init(iron_rwlock_t *l);
+void iron_rwlock_rdlock(iron_rwlock_t *l);
+void iron_rwlock_wrlock(iron_rwlock_t *l);
+void iron_rwlock_rdunlock(iron_rwlock_t *l);
+void iron_rwlock_wrunlock(iron_rwlock_t *l);
+void iron_rwlock_destroy(iron_rwlock_t *l);
 
-  #define IRON_THREAD_CREATE(t,fn,arg)   iron__win_thread_create(&(t),(fn),(arg))
-  #define IRON_THREAD_JOIN(t)            (WaitForSingleObject((t), INFINITE), CloseHandle((t)))
-  #define IRON_MUTEX_INIT(m)             InitializeCriticalSection(&(m))
-  #define IRON_MUTEX_LOCK(m)             EnterCriticalSection(&(m))
-  #define IRON_MUTEX_UNLOCK(m)           LeaveCriticalSection(&(m))
-  #define IRON_MUTEX_DESTROY(m)          DeleteCriticalSection(&(m))
-  #define IRON_COND_INIT(c)              InitializeConditionVariable(&(c))
-  #define IRON_COND_WAIT(c,m)            SleepConditionVariableCS(&(c), &(m), INFINITE)
-  #define IRON_COND_SIGNAL(c)            WakeConditionVariable(&(c))
-  #define IRON_COND_BROADCAST(c)         WakeAllConditionVariable(&(c))
-  #define IRON_COND_DESTROY(c)           ((void)(c))  /* Win32 CV needs no destroy */
-  /* Phase 33 STDLIB-07 (Plan 33-05): RWLock primitive — Win32 SRWLOCK.
-   * SRWLOCK is initialized statically/by macro and needs no destroy. */
-  #define IRON_RWLOCK_INIT(l)            InitializeSRWLock(&(l))
-  #define IRON_RWLOCK_RDLOCK(l)          AcquireSRWLockShared(&(l))
-  #define IRON_RWLOCK_WRLOCK(l)          AcquireSRWLockExclusive(&(l))
-  #define IRON_RWLOCK_RDUNLOCK(l)        ReleaseSRWLockShared(&(l))
-  #define IRON_RWLOCK_WRUNLOCK(l)        ReleaseSRWLockExclusive(&(l))
-  #define IRON_RWLOCK_DESTROY(l)         ((void)(l))  /* Win32 SRWLOCK needs no destroy */
-#else
-  #include <pthread.h>
-  typedef pthread_t          iron_thread_t;
-  typedef pthread_mutex_t    iron_mutex_t;
-  typedef pthread_cond_t     iron_cond_t;
-  typedef pthread_rwlock_t   iron_rwlock_t;
-
-  static inline int iron__posix_thread_create(iron_thread_t *t,
-                                              void *(*fn)(void*), void *arg) {
-      pthread_attr_t attr;
-      if (pthread_attr_init(&attr) != 0) return -1;
-      pthread_attr_setstacksize(&attr, IRON_THREAD_STACK_SIZE);
-      int rc = pthread_create(t, &attr, fn, arg);
-      pthread_attr_destroy(&attr);
-      return rc;
-  }
-  #define IRON_THREAD_CREATE(t,fn,arg)   iron__posix_thread_create(&(t),(fn),(arg))
-  #define IRON_THREAD_JOIN(t)            pthread_join((t), NULL)
-  #define IRON_MUTEX_INIT(m)             pthread_mutex_init(&(m), NULL)
-  #define IRON_MUTEX_LOCK(m)             pthread_mutex_lock(&(m))
-  #define IRON_MUTEX_UNLOCK(m)           pthread_mutex_unlock(&(m))
-  #define IRON_MUTEX_DESTROY(m)          pthread_mutex_destroy(&(m))
-  #define IRON_COND_INIT(c)              pthread_cond_init(&(c), NULL)
-  #define IRON_COND_WAIT(c,m)            pthread_cond_wait(&(c), &(m))
-  #define IRON_COND_SIGNAL(c)            pthread_cond_signal(&(c))
-  #define IRON_COND_BROADCAST(c)         pthread_cond_broadcast(&(c))
-  #define IRON_COND_DESTROY(c)           pthread_cond_destroy(&(c))
-  /* Phase 33 STDLIB-07 (Plan 33-05): RWLock primitive — POSIX pthread_rwlock_t.
-   * Mirrors the IRON_MUTEX_* block; read/write acquire share one unlock under
-   * pthreads but the macro pair keeps the read/write unlock names symmetric
-   * with the Win32 SRWLOCK shared/exclusive release split. */
-  #define IRON_RWLOCK_INIT(l)            pthread_rwlock_init(&(l), NULL)
-  #define IRON_RWLOCK_RDLOCK(l)          pthread_rwlock_rdlock(&(l))
-  #define IRON_RWLOCK_WRLOCK(l)          pthread_rwlock_wrlock(&(l))
-  #define IRON_RWLOCK_RDUNLOCK(l)        pthread_rwlock_unlock(&(l))
-  #define IRON_RWLOCK_WRUNLOCK(l)        pthread_rwlock_unlock(&(l))
-  #define IRON_RWLOCK_DESTROY(l)         pthread_rwlock_destroy(&(l))
-#endif
+#define IRON_THREAD_CREATE(t,fn,arg)   iron_thread_create(&(t),(fn),(arg))
+#define IRON_THREAD_JOIN(t)            iron_thread_join((t))
+#define IRON_MUTEX_INIT(m)             iron_mutex_init(&(m))
+#define IRON_MUTEX_LOCK(m)             iron_mutex_lock(&(m))
+#define IRON_MUTEX_UNLOCK(m)           iron_mutex_unlock(&(m))
+#define IRON_MUTEX_DESTROY(m)          iron_mutex_destroy(&(m))
+#define IRON_COND_INIT(c)              iron_cond_init(&(c))
+#define IRON_COND_WAIT(c,m)            iron_cond_wait(&(c), &(m))
+#define IRON_COND_SIGNAL(c)            iron_cond_signal(&(c))
+#define IRON_COND_BROADCAST(c)         iron_cond_broadcast(&(c))
+#define IRON_COND_DESTROY(c)           iron_cond_destroy(&(c))
+#define IRON_RWLOCK_INIT(l)            iron_rwlock_init(&(l))
+#define IRON_RWLOCK_RDLOCK(l)          iron_rwlock_rdlock(&(l))
+#define IRON_RWLOCK_WRLOCK(l)          iron_rwlock_wrlock(&(l))
+#define IRON_RWLOCK_RDUNLOCK(l)        iron_rwlock_rdunlock(&(l))
+#define IRON_RWLOCK_WRUNLOCK(l)        iron_rwlock_wrunlock(&(l))
+#define IRON_RWLOCK_DESTROY(l)         iron_rwlock_destroy(&(l))
 
 /* ── Iron_String ────────────────────────────────────────────────────────────
  * 24-byte string type with Small String Optimisation (SSO).
@@ -786,6 +676,8 @@ typedef struct {
 
 /* Iron_String API */
 Iron_String  iron_string_from_cstr(const char *cstr, size_t byte_len);
+/* printf-style formatting of interpolation parts (iron_fmt.c). */
+Iron_String  iron_string_format(const char *fmt, ...);
 Iron_String  iron_string_from_literal(const char *lit, size_t byte_len);
 const char  *iron_string_cstr(const Iron_String *s);
 size_t       iron_string_byte_len(const Iron_String *s);
@@ -816,7 +708,7 @@ void         iron_string_retain(const Iron_String *s);
  *
  * Atomic discipline (mirrors Phase 19 macros + new FETCH_SUB_RELEASE /
  * FENCE_ACQUIRE pair above): retain = relaxed-inc; release = release-dec;
- * on prev == 1, acquire-fence then drop_fn(user_ptr) then free(block).
+ * on prev == 1, acquire-fence then drop_fn(user_ptr) then iron_mem_free(block).
  *
  * Underflow detection: assert prev > 0 in debug builds; silent wrap in
  * release. Overflow detection: saturate at UINT64_MAX-1 (iron_oom_abort
@@ -1260,7 +1152,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
 /* Phase 33 STDLIB-02 (Plan 33-04): IRON_LIST_IMPL is split into
  *   - IRON_LIST_IMPL_CORE  : create / create_with_capacity / push / get / set /
  *                            pop / len  (the lifecycle-agnostic surface)
- *   - the trivial _clone (memcpy) + _free (free(items)) bodies
+ *   - the trivial _clone (memcpy) + _free (iron_mem_free(items)) bodies
  * IRON_LIST_IMPL composes CORE + trivial lifecycle (the fast path, used for
  * primitive / trivial-struct element types — Pitfall 5). For element types
  * whose destructor/copy must run per element, the emitter (emit_structs.c
@@ -1284,7 +1176,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         l.capacity = cap; \
         l.items = NULL; \
         if (cap > 0) { \
-            l.items = (T *)malloc((size_t)cap * sizeof(T)); \
+            l.items = (T *)iron_mem_alloc((size_t)cap * sizeof(T)); \
             if (!l.items) iron_oom_abort("Iron_List_" #suffix "_create_with_capacity"); \
         } \
         return l; \
@@ -1296,7 +1188,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
             if (new_cap < self->capacity) { \
                 iron_oom_abort("Iron_List_" #suffix "_push: capacity overflow"); \
             } \
-            T *new_items = (T *)realloc(self->items, (size_t)new_cap * sizeof(T)); \
+            T *new_items = (T *)iron_mem_realloc(self->items, (size_t)new_cap * sizeof(T)); \
             if (!new_items) iron_oom_abort("Iron_List_" #suffix "_push"); \
             self->items = new_items; \
             self->capacity = new_cap; \
@@ -1325,7 +1217,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
         T removed = self->items[index]; \
-        memmove(&self->items[index], &self->items[index + 1], \
+        iron_mem_move(&self->items[index], &self->items[index + 1], \
                 (size_t)(self->count - index - 1) * sizeof(T)); \
         self->count--; \
         return removed; \
@@ -1335,7 +1227,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         if ((uint64_t)index > (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_insert", 0, index, self->count + 1); \
         Iron_List_##suffix##_push(self, item); \
-        memmove(&self->items[index + 1], &self->items[index], \
+        iron_mem_move(&self->items[index + 1], &self->items[index], \
                 (size_t)(self->count - 1 - index) * sizeof(T)); \
         self->items[index] = item; \
     } \
@@ -1350,7 +1242,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         return self->count; \
     }
 
-/* Trivial (fast-path) _clone + _free: memcpy / free(items). Used for primitive
+/* Trivial (fast-path) _clone + _free: memcpy / iron_mem_free(items). Used for primitive
  * and trivial-struct element types where no per-element destructor/copy runs. */
 #define IRON_LIST_IMPL_TRIVIAL_LIFECYCLE(T, suffix) \
     Iron_List_##suffix Iron_List_##suffix##_clone(const Iron_List_##suffix *src) { \
@@ -1358,9 +1250,9 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         dst.count = src->count; \
         dst.capacity = src->count; \
         if (src->count > 0) { \
-            dst.items = (T *)malloc((size_t)src->count * sizeof(T)); \
+            dst.items = (T *)iron_mem_alloc((size_t)src->count * sizeof(T)); \
             if (!dst.items) iron_oom_abort("Iron_List_" #suffix "_clone"); \
-            memcpy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
+            iron_mem_copy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
         } else { \
             dst.items = NULL; \
         } \
@@ -1370,7 +1262,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
-        free(self->items); \
+        iron_mem_free(self->items); \
         self->items = NULL; self->count = 0; self->capacity = 0; \
     }
 
@@ -1396,7 +1288,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         l.capacity = cap; \
         l.items = NULL; \
         if (cap > 0) { \
-            l.items = (T *)malloc((size_t)cap * sizeof(T)); \
+            l.items = (T *)iron_mem_alloc((size_t)cap * sizeof(T)); \
             if (!l.items) iron_oom_abort("Iron_List_" #suffix "_create_with_capacity"); \
         } \
         return l; \
@@ -1406,9 +1298,9 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         dst.count = src->count; \
         dst.capacity = src->count; \
         if (src->count > 0) { \
-            dst.items = (T *)malloc((size_t)src->count * sizeof(T)); \
+            dst.items = (T *)iron_mem_alloc((size_t)src->count * sizeof(T)); \
             if (!dst.items) iron_oom_abort("Iron_List_" #suffix "_clone"); \
-            memcpy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
+            iron_mem_copy(dst.items, src->items, (size_t)src->count * sizeof(T)); \
         } else { \
             dst.items = NULL; \
         } \
@@ -1420,7 +1312,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
             if (new_cap < self->capacity) { \
                 iron_oom_abort("Iron_List_" #suffix "_push: capacity overflow"); \
             } \
-            T *new_items = (T *)realloc(self->items, (size_t)new_cap * sizeof(T)); \
+            T *new_items = (T *)iron_mem_realloc(self->items, (size_t)new_cap * sizeof(T)); \
             if (!new_items) iron_oom_abort("Iron_List_" #suffix "_push"); \
             self->items = new_items; \
             self->capacity = new_cap; \
@@ -1449,7 +1341,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         if ((uint64_t)index >= (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_remove", 0, index, self->count); \
         T removed = self->items[index]; \
-        memmove(&self->items[index], &self->items[index + 1], \
+        iron_mem_move(&self->items[index], &self->items[index + 1], \
                 (size_t)(self->count - index - 1) * sizeof(T)); \
         self->count--; \
         return removed; \
@@ -1459,7 +1351,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         if ((uint64_t)index > (uint64_t)self->count) \
             iron_panic_index_oob("Iron_List_" #suffix "_insert", 0, index, self->count + 1); \
         Iron_List_##suffix##_push(self, item); \
-        memmove(&self->items[index + 1], &self->items[index], \
+        iron_mem_move(&self->items[index + 1], &self->items[index], \
                 (size_t)(self->count - 1 - index) * sizeof(T)); \
         self->items[index] = item; \
     } \
@@ -1477,7 +1369,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
         self->count = 0; \
     } \
     void Iron_List_##suffix##_free(Iron_List_##suffix *self) { \
-        free(self->items); \
+        iron_mem_free(self->items); \
         self->items = NULL; self->count = 0; self->capacity = 0; \
     }
 
@@ -1499,7 +1391,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
     Iron_List_##suffix Iron_List_##suffix##_map(const Iron_List_##suffix *self, Iron_Closure f) { \
         typedef T (*MapFn)(void *, T); \
         MapFn map_fn; \
-        memcpy(&map_fn, &f.fn, sizeof(map_fn)); \
+        iron_mem_copy(&map_fn, &f.fn, sizeof(map_fn)); \
         Iron_List_##suffix result = Iron_List_##suffix##_create(); \
         for (int64_t i = 0; i < self->count; i++) { \
             T val = map_fn(f.env, self->items[i]); \
@@ -1510,7 +1402,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
     Iron_List_##suffix Iron_List_##suffix##_filter(const Iron_List_##suffix *self, Iron_Closure f) { \
         typedef bool (*FilterFn)(void *, T); \
         FilterFn filter_fn; \
-        memcpy(&filter_fn, &f.fn, sizeof(filter_fn)); \
+        iron_mem_copy(&filter_fn, &f.fn, sizeof(filter_fn)); \
         Iron_List_##suffix result = Iron_List_##suffix##_create(); \
         for (int64_t i = 0; i < self->count; i++) { \
             if (filter_fn(f.env, self->items[i])) { \
@@ -1522,7 +1414,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
     T Iron_List_##suffix##_reduce(const Iron_List_##suffix *self, T init, Iron_Closure f) { \
         typedef T (*ReduceFn)(void *, T, T); \
         ReduceFn reduce_fn; \
-        memcpy(&reduce_fn, &f.fn, sizeof(reduce_fn)); \
+        iron_mem_copy(&reduce_fn, &f.fn, sizeof(reduce_fn)); \
         T acc = init; \
         for (int64_t i = 0; i < self->count; i++) { \
             acc = reduce_fn(f.env, acc, self->items[i]); \
@@ -1532,7 +1424,7 @@ static inline int iron_sort_cmp_Iron_String(const void *pa, const void *pb) {
     void Iron_List_##suffix##_forEach(const Iron_List_##suffix *self, Iron_Closure f) { \
         typedef void (*ForEachFn)(void *, T); \
         ForEachFn each_fn; \
-        memcpy(&each_fn, &f.fn, sizeof(each_fn)); \
+        iron_mem_copy(&each_fn, &f.fn, sizeof(each_fn)); \
         for (int64_t i = 0; i < self->count; i++) { \
             each_fn(f.env, self->items[i]); \
         } \
@@ -1582,7 +1474,7 @@ static inline uint64_t iron_hash_bytes(const void *data, size_t n) {
 }
 static inline uint64_t iron_hash_f64(double d) {
     if (d == 0.0) d = 0.0;              /* -0.0 and 0.0 compare equal */
-    uint64_t bits; memcpy(&bits, &d, sizeof bits);
+    uint64_t bits; iron_mem_copy(&bits, &d, sizeof bits);
     return iron_hash_u64(bits);
 }
 uint64_t iron_string_hash(const Iron_String *s);
@@ -1603,7 +1495,7 @@ void iron_panic_key_missing(const char *site_file, int site_line);
 
 #define IRON_HMAP_DEFINE(NAME, K, V) \
     typedef struct NAME { K *keys; V *vals; uint8_t *st; int64_t count; int64_t used; int64_t cap; } NAME; \
-    IRON_HT_FN NAME NAME##_create(void) { NAME m; memset(&m, 0, sizeof m); return m; } \
+    IRON_HT_FN NAME NAME##_create(void) { NAME m; iron_mem_set(&m, 0, sizeof m); return m; } \
     IRON_HT_FN int64_t NAME##_find(const NAME *m, const K *k) { \
         if (m->cap == 0) return -1; \
         uint64_t mask = (uint64_t)m->cap - 1; \
@@ -1616,9 +1508,9 @@ void iron_panic_key_missing(const char *site_file, int site_line);
         } \
     } \
     IRON_HT_FN void NAME##_rehash(NAME *m, int64_t ncap) { \
-        K *nk = (K *)malloc((size_t)ncap * sizeof(K)); \
-        V *nv = (V *)malloc((size_t)ncap * sizeof(V)); \
-        uint8_t *ns = (uint8_t *)calloc((size_t)ncap, 1); \
+        K *nk = (K *)iron_mem_alloc((size_t)ncap * sizeof(K)); \
+        V *nv = (V *)iron_mem_alloc((size_t)ncap * sizeof(V)); \
+        uint8_t *ns = (uint8_t *)iron_mem_calloc((size_t)ncap, 1); \
         if (!nk || !nv || !ns) iron_oom_abort(#NAME "_rehash"); \
         uint64_t mask = (uint64_t)ncap - 1; \
         for (int64_t i = 0; i < m->cap; i++) { \
@@ -1627,7 +1519,7 @@ void iron_panic_key_missing(const char *site_file, int site_line);
             while (ns[j] == IRON_HSLOT_FULL) j = (j + 1) & mask; \
             nk[j] = m->keys[i]; nv[j] = m->vals[i]; ns[j] = IRON_HSLOT_FULL; \
         } \
-        free(m->keys); free(m->vals); free(m->st); \
+        iron_mem_free(m->keys); iron_mem_free(m->vals); iron_mem_free(m->st); \
         m->keys = nk; m->vals = nv; m->st = ns; m->cap = ncap; m->used = m->count; \
     } \
     IRON_HT_FN void NAME##_put(NAME *m, K key, V val) { \
@@ -1666,16 +1558,16 @@ void iron_panic_key_missing(const char *site_file, int site_line);
             if (m->st[i] != IRON_HSLOT_FULL) continue; \
             NAME##_kdrop(&m->keys[i]); NAME##_vdrop(&m->vals[i]); \
         } \
-        if (m->st) memset(m->st, 0, (size_t)m->cap); \
+        if (m->st) iron_mem_set(m->st, 0, (size_t)m->cap); \
         m->count = 0; m->used = 0; \
     } \
     IRON_HT_FN void NAME##_free(NAME *m) { \
         NAME##_clear(m); \
-        free(m->keys); free(m->vals); free(m->st); \
+        iron_mem_free(m->keys); iron_mem_free(m->vals); iron_mem_free(m->st); \
         m->keys = NULL; m->vals = NULL; m->st = NULL; m->cap = 0; \
     } \
     IRON_HT_FN NAME NAME##_clone(const NAME *src) { \
-        NAME dst; memset(&dst, 0, sizeof dst); \
+        NAME dst; iron_mem_set(&dst, 0, sizeof dst); \
         if (src->count == 0) return dst; \
         int64_t ncap = 8; while (src->count * 10 > ncap * 7) ncap *= 2; \
         NAME##_rehash(&dst, ncap); \
@@ -1687,11 +1579,11 @@ void iron_panic_key_missing(const char *site_file, int site_line);
         } \
         return dst; \
     } \
-    IRON_HT_FN NAME NAME##_take(NAME *src) { NAME out = *src; memset(src, 0, sizeof *src); return out; }
+    IRON_HT_FN NAME NAME##_take(NAME *src) { NAME out = *src; iron_mem_set(src, 0, sizeof *src); return out; }
 
 #define IRON_HSET_DEFINE(NAME, T) \
     typedef struct NAME { T *items; uint8_t *st; int64_t count; int64_t used; int64_t cap; } NAME; \
-    IRON_HT_FN NAME NAME##_create(void) { NAME s; memset(&s, 0, sizeof s); return s; } \
+    IRON_HT_FN NAME NAME##_create(void) { NAME s; iron_mem_set(&s, 0, sizeof s); return s; } \
     IRON_HT_FN int64_t NAME##_find(const NAME *s, const T *k) { \
         if (s->cap == 0) return -1; \
         uint64_t mask = (uint64_t)s->cap - 1; \
@@ -1704,8 +1596,8 @@ void iron_panic_key_missing(const char *site_file, int site_line);
         } \
     } \
     IRON_HT_FN void NAME##_rehash(NAME *s, int64_t ncap) { \
-        T *ni = (T *)malloc((size_t)ncap * sizeof(T)); \
-        uint8_t *ns = (uint8_t *)calloc((size_t)ncap, 1); \
+        T *ni = (T *)iron_mem_alloc((size_t)ncap * sizeof(T)); \
+        uint8_t *ns = (uint8_t *)iron_mem_calloc((size_t)ncap, 1); \
         if (!ni || !ns) iron_oom_abort(#NAME "_rehash"); \
         uint64_t mask = (uint64_t)ncap - 1; \
         for (int64_t i = 0; i < s->cap; i++) { \
@@ -1714,7 +1606,7 @@ void iron_panic_key_missing(const char *site_file, int site_line);
             while (ns[j] == IRON_HSLOT_FULL) j = (j + 1) & mask; \
             ni[j] = s->items[i]; ns[j] = IRON_HSLOT_FULL; \
         } \
-        free(s->items); free(s->st); \
+        iron_mem_free(s->items); iron_mem_free(s->st); \
         s->items = ni; s->st = ns; s->cap = ncap; s->used = s->count; \
     } \
     IRON_HT_FN bool NAME##_add(NAME *s, T item) { \
@@ -1738,15 +1630,15 @@ void iron_panic_key_missing(const char *site_file, int site_line);
     IRON_HT_FN void NAME##_clear(NAME *s) { \
         for (int64_t i = 0; i < s->cap; i++) \
             if (s->st[i] == IRON_HSLOT_FULL) NAME##_kdrop(&s->items[i]); \
-        if (s->st) memset(s->st, 0, (size_t)s->cap); \
+        if (s->st) iron_mem_set(s->st, 0, (size_t)s->cap); \
         s->count = 0; s->used = 0; \
     } \
     IRON_HT_FN void NAME##_free(NAME *s) { \
-        NAME##_clear(s); free(s->items); free(s->st); \
+        NAME##_clear(s); iron_mem_free(s->items); iron_mem_free(s->st); \
         s->items = NULL; s->st = NULL; s->cap = 0; \
     } \
     IRON_HT_FN NAME NAME##_clone(const NAME *src) { \
-        NAME dst; memset(&dst, 0, sizeof dst); \
+        NAME dst; iron_mem_set(&dst, 0, sizeof dst); \
         if (src->count == 0) return dst; \
         int64_t ncap = 8; while (src->count * 10 > ncap * 7) ncap *= 2; \
         NAME##_rehash(&dst, ncap); \
@@ -1756,7 +1648,7 @@ void iron_panic_key_missing(const char *site_file, int site_line);
         } \
         return dst; \
     } \
-    IRON_HT_FN NAME NAME##_take(NAME *src) { NAME out = *src; memset(src, 0, sizeof *src); return out; }
+    IRON_HT_FN NAME NAME##_take(NAME *src) { NAME out = *src; iron_mem_set(src, 0, sizeof *src); return out; }
 
 /* ── Pre-instantiated common collection struct typedefs ──────────────────────
  * The codegen emits its own struct typedefs in the generated C output.

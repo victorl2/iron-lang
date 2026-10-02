@@ -1,4 +1,5 @@
 #include "iron_math.h"
+#include <math.h>
 #include <time.h>
 #include "util/os.h"   /* clock_gettime on Windows */
 
