@@ -23,11 +23,11 @@ typedef struct {
 } IronToolchainPin;
 
 static const IronToolchainPin IRON_TOOLCHAIN_PINS[] = {
-    { "macos-arm64",    "" },
-    { "macos-x86_64",   "" },
-    { "linux-x86_64",   "" },
-    { "linux-arm64",    "" },
-    { "windows-x86_64", "" },
+    { "macos-arm64",    "3fafc1b354efe46e7b2d0186d0ae36d6050916f7ec813765dfd8785ce4aa9ed4" },
+    { "macos-x86_64",   "622a576e29e35ca8e5293d980ba7788247e92a6d690ba0af0dd9d4a6d862d1bc" },
+    { "linux-x86_64",   "c2d046a7d5ce6a1d57aa6b54bba355fc1f073c3bc22b0544bc312e3534832acd" },
+    { "linux-arm64",    "5243292407b6acd16ceac64aede8ae3f75a71950612a0e0933a78acef8fb32bc" },
+    { "windows-x86_64", "6e1e8a4466cd962437ebbe047433c6a52404f6a8d4ddd37da8c8d8f43d66acce" },
 };
 
 #endif /* IRON_CLI_TOOLCHAIN_PINS_H */
