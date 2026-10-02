@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Render docs/language_definition.md as the ironlang.dev reference page.
+"""Render the repository's guides as ironlang.dev pages.
 
-Writes <site>/docs/index.html from the reference manual and the page
-template in scripts/templates/reference.html, so the website can never
-drift from the manual: the manual is the single source, and every ```iron
-block in it is compiled by the Doc Test workflow.
+Writes <site>/docs/index.html from the reference manual and the other
+guide pages (networking, projects, raylib) from their markdown files in
+docs/, through the page template in scripts/templates/reference.html, so
+the website can never drift from the documentation: the markdown is the
+single source, and every ```iron block in it is compiled by the Doc Test
+workflow.
 
 The sidebar is built from the manual's "##" sections and "###" subsections.
 Heading ids follow the GitHub slug rules the manual's own table of contents
@@ -36,12 +38,42 @@ REPO = Path(__file__).resolve().parent.parent
 MANUAL = REPO / "docs" / "language_definition.md"
 TEMPLATE = REPO / "scripts" / "templates" / "reference.html"
 EXAMPLES_DIR = REPO / "docs" / "examples"
-GITHUB_DOCS = "https://github.com/victorl2/iron-lang/blob/main/docs/"
+GITHUB_REPO = "https://github.com/victorl2/iron-lang"
+GITHUB_DOCS = GITHUB_REPO + "/blob/main/docs/"
 
-# Manual files that have a page of their own on the site.
-SITE_PAGES = {
-    "networking.md": "/networking/",
-}
+# The pages: markdown source in docs/, site path, title, description and
+# the plain Markdown copy build_llms.py publishes under /llms/.
+PAGES = [
+    {
+        "source": "language_definition.md", "path": "docs",
+        "title": "Reference Manual",
+        "description": "The Iron reference manual: lexical rules, types, expressions, statements, declarations, memory, concurrency, compile-time evaluation, the standard library and every diagnostic code. Generated from the compiler-verified manual in the repository.",
+        "llms": "/llms/reference.md",
+        "featured": "native_summary",
+    },
+    {
+        "source": "networking.md", "path": "networking",
+        "title": "Networking",
+        "description": "TCP, UDP, DNS, HTTP and HTTPS clients and servers, REST, webpages, WebSocket and WSS, and binary-safe files in Iron, with the ownership and limits that keep them safe.",
+        "llms": "/llms/networking.md",
+    },
+    {
+        "source": "guide.md", "path": "guide",
+        "title": "Projects",
+        "description": "Iron packages: iron.toml, the source layout, build, run and test, vendoring third-party code, and the project commands.",
+        "llms": "/llms/guide.md",
+    },
+    {
+        "source": "raylib.md", "path": "raylib",
+        "title": "Raylib",
+        "description": "Graphics, input, audio and games in Iron with the bundled raylib binding: the frame loop, drawing, textures, text, sound and the examples.",
+        "llms": "/llms/raylib.md",
+    },
+]
+
+# Relative links between repository docs resolve to the site page when
+# one exists, otherwise to the file on GitHub.
+SITE_PAGES = {page["source"]: f"/{page['path']}/" for page in PAGES}
 
 # Keywords from manual section 1.3. Reserved words are included so that the
 # examples showing their rejection highlight them the same way.
@@ -107,8 +139,9 @@ def load_examples() -> dict[str, str]:
 
 
 class Renderer:
-    def __init__(self, source: str) -> None:
+    def __init__(self, source: str, page: dict | None = None) -> None:
         self.source = source
+        self.page = page or PAGES[0]
         self.examples = load_examples()
         self.fences: list[str] = []
         self.headings: list[tuple[int, str, str]] = []
@@ -167,18 +200,26 @@ class Renderer:
         body = self.add_heading_ids(body)
         body = self.restore_fences(body)
         body = body.replace("<table>", '<table class="doc-table">')
-        body = re.sub(r'href="([A-Za-z0-9_./-]+\.md)(#[^"]*)?"', self.doc_link, body)
+        body = re.sub(r'href="(?!https?://|/|#|mailto:)([A-Za-z0-9_./-]+)(#[^"]*)?"', self.doc_link, body)
         return body, self.sidebar()
 
     @staticmethod
     def doc_link(match: re.Match[str]) -> str:
-        """Relative links between repository docs: site page if one exists,
-        otherwise the file on GitHub."""
+        """Relative links from a docs/ file: the site page when the target
+        is a manual with one, otherwise the file or directory on GitHub."""
         target, fragment = match.group(1), match.group(2) or ""
-        page = SITE_PAGES.get(target)
-        if page:
-            return f'href="{page}{fragment}"'
-        return f'href="{GITHUB_DOCS}{target}{fragment}"'
+        parts: list[str] = ["docs"]
+        for piece in target.split("/"):
+            if piece == "..":
+                if len(parts) > 0:
+                    parts.pop()
+            elif piece and piece != ".":
+                parts.append(piece)
+        repo_path = "/".join(parts)
+        if repo_path.startswith("docs/") and repo_path[len("docs/"):] in SITE_PAGES:
+            return f'href="{SITE_PAGES[repo_path[len("docs/"):]]}{fragment}"'
+        kind = "tree" if target.endswith("/") or "." not in parts[-1] else "blob"
+        return f'href="{GITHUB_REPO}/{kind}/main/{repo_path}{fragment}"'
 
     def sidebar(self) -> str:
         parts: list[str] = []
@@ -200,33 +241,55 @@ class Renderer:
         return "\n".join(parts)
 
 
-def build(site: Path) -> Path:
-    source = MANUAL.read_text(encoding="utf-8")
-    renderer = Renderer(source)
+def build_page(site: Path, page: dict) -> Path:
+    source_path = REPO / "docs" / page["source"]
+    source = source_path.read_text(encoding="utf-8")
+    renderer = Renderer(source, page)
     content, sidebar = renderer.render()
     template = TEMPLATE.read_text(encoding="utf-8")
-    page = template.replace("{{SIDEBAR}}", sidebar).replace("{{CONTENT}}", content)
-    out = site / "docs" / "index.html"
+    callout = (
+        f'This page is generated from <a href="{GITHUB_DOCS}{page["source"]}">docs/{page["source"]}</a> '
+        f'on every deploy, and every Iron example in it is compiled and run in CI. A plain Markdown copy '
+        f'for tools and language models is at <a href="{page["llms"]}">{page["llms"]}</a>; see '
+        f'<a href="/llms.txt">/llms.txt</a> for the full index.'
+    )
+    out_html = (template
+                .replace("{{TITLE}}", html.escape(page["title"]))
+                .replace("{{DESCRIPTION}}", html.escape(page["description"], quote=True))
+                .replace("{{LLMS}}", page["llms"])
+                .replace("{{PATH}}", f"/{page['path']}/")
+                .replace("{{CALLOUT}}", callout)
+                .replace("{{SIDEBAR}}", sidebar)
+                .replace("{{CONTENT}}", content))
+    # The current page's nav entry is marked.
+    out_html = out_html.replace(f'<a href="/{page["path"]}/">', f'<a href="/{page["path"]}/" class="active">', 1)
+    out = site / page["path"] / "index.html"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(page, encoding="utf-8")
+    out.write_text(out_html, encoding="utf-8")
     return out
 
 
-def check(out: Path) -> list[str]:
-    """Every in-page link must resolve and the manual's own TOC must survive."""
-    page = out.read_text(encoding="utf-8")
-    ids = set(re.findall(r' id="([^"]+)"', page))
+def build(site: Path) -> list[tuple[dict, Path]]:
+    return [(page, build_page(site, page)) for page in PAGES]
+
+
+def check(page: dict, out: Path) -> list[str]:
+    """Every in-page link must resolve and the source's own TOC must survive."""
+    rendered = out.read_text(encoding="utf-8")
+    ids = set(re.findall(r' id="([^"]+)"', rendered))
     errors = []
-    for target in re.findall(r'href="#([^"]+)"', page):
+    for target in re.findall(r'href="#([^"]+)"', rendered):
         if target not in ids:
             errors.append(f"{out}: broken fragment #{target}")
-    for target in re.findall(r"\]\(#([^)]+)\)", MANUAL.read_text(encoding="utf-8")):
+    source_path = REPO / "docs" / page["source"]
+    for target in re.findall(r"\]\(#([^)]+)\)", source_path.read_text(encoding="utf-8")):
         if target not in ids:
-            errors.append(f"{MANUAL}: anchor #{target} not produced by the renderer")
-    if "@@FENCE" in page:
-        errors.append(f"{out}: unrendered code fence placeholder")
-    if 'data-example="native_summary"' not in page:
-        errors.append(f"{out}: featured native_summary example missing")
+            errors.append(f"{source_path}: anchor #{target} not produced by the renderer")
+    if "@@FENCE" in rendered or "{{" in rendered:
+        errors.append(f"{out}: unrendered placeholder")
+    featured = page.get("featured")
+    if featured and f'data-example="{featured}"' not in rendered:
+        errors.append(f"{out}: featured {featured} example missing")
     return errors
 
 
@@ -236,14 +299,15 @@ def main() -> int:
     parser.add_argument("--check", action="store_true",
                         help="render into a temporary directory and validate")
     args = parser.parse_args()
+    errors: list[str] = []
     if args.check:
         with tempfile.TemporaryDirectory(prefix="iron-reference-") as tmp:
-            out = build(Path(tmp))
-            errors = check(out)
+            for page, out in build(Path(tmp)):
+                errors += check(page, out)
     else:
-        out = build(args.site)
-        errors = check(out)
-        print(f"wrote {out}")
+        for page, out in build(args.site):
+            errors += check(page, out)
+            print(f"wrote {out}")
     for error in errors:
         print(error, file=sys.stderr)
     return 1 if errors else 0

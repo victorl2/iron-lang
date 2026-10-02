@@ -10,6 +10,8 @@ Writes into the site directory (default: docs/site):
   llms/reference.md      the full reference manual (docs/language_definition.md)
   llms/iron.md           language guide for LLMs (docs/llms/iron.md)
   llms/networking.md     networking guide (docs/networking.md)
+  llms/guide.md          project guide (docs/guide.md)
+  llms/raylib.md         raylib guide (docs/raylib.md)
   llms/examples.md       runnable examples (docs/examples/*.iron)
   llms/stdlib/<mod>.md   one page per stdlib module (src/stdlib/<mod>.iron)
 
@@ -36,6 +38,8 @@ SITE_URL = "https://ironlang.dev"
 GUIDE = REPO / "docs" / "llms" / "iron.md"
 MANUAL = REPO / "docs" / "language_definition.md"
 NETWORKING = REPO / "docs" / "networking.md"
+PROJECTS = REPO / "docs" / "guide.md"
+RAYLIB = REPO / "docs" / "raylib.md"
 EXAMPLES_DIR = REPO / "docs" / "examples"
 STDLIB_DIR = REPO / "src" / "stdlib"
 
@@ -150,8 +154,13 @@ def llms_txt() -> str:
         link("llms/networking.md", "Networking guide",
              "TCP, UDP, DNS, HTTP/HTTPS, REST servers, WebSocket"),
         link("llms/examples.md", "Runnable examples", "small complete programs"),
-        link("guide/", "Project guide",
-             "iron init/build/run/check/test, iron.toml, vendoring"),
+        link("llms/guide.md", "Project guide",
+             "iron init/build/run/check/test, iron.toml, vendoring "
+             "(HTML version at /guide/)"),
+        link("llms/raylib.md", "Raylib guide",
+             "windows, 2D and 3D drawing, input, audio, shaders and the "
+             "examples (HTML version at /raylib/, API reference at "
+             "/raylib/reference/)"),
         "",
         "## Standard library",
         "",
@@ -166,12 +175,14 @@ def llms_txt() -> str:
                       "declarations, and examples in one file"))
     for name, desc in OPTIONAL_MODULES.items():
         lines.append(link(f"llms/stdlib/{name}.md", name, desc))
-    lines.append(link("raylib/", "Raylib guide and reference", "HTML docs"))
+    lines.append(link("raylib/reference/types.html", "Raylib API reference",
+                      "fourteen HTML pages, one per category"))
     return "\n".join(lines) + "\n"
 
 
 def llms_full_txt(pages: dict[str, str]) -> str:
-    order = ["llms/reference.md", "llms/iron.md", "llms/networking.md"]
+    order = ["llms/reference.md", "llms/iron.md", "llms/networking.md",
+             "llms/guide.md", "llms/raylib.md"]
     order += [f"llms/stdlib/{n}.md" for n in (*PRIMARY_MODULES, *CORE_MODULES)]
     order += ["llms/examples.md"]
     parts = [f"# Iron\n\n> {SUMMARY}\n\n{KEY_RULES}"]
@@ -185,6 +196,8 @@ def build(site: Path) -> list[str]:
         "llms/reference.md": MANUAL.read_text(),
         "llms/iron.md": GUIDE.read_text(),
         "llms/networking.md": NETWORKING.read_text(),
+        "llms/guide.md": PROJECTS.read_text(),
+        "llms/raylib.md": RAYLIB.read_text(),
         "llms/examples.md": examples_page(),
     }
     for name in (*PRIMARY_MODULES, *CORE_MODULES, *OPTIONAL_MODULES):
@@ -211,7 +224,10 @@ def check_links(site: Path) -> list[str]:
         target = site / rel
         if rel.endswith("/"):
             target = target / "index.html"
-        if not target.exists() and not (REPO / "docs" / "site" / rel / "index.html").exists():
+        committed = REPO / "docs" / "site" / rel
+        if rel.endswith("/"):
+            committed = committed / "index.html"
+        if not target.exists() and not committed.exists():
             errors.append(f"broken link in llms.txt: {url}")
     return errors
 
@@ -223,7 +239,7 @@ def main() -> int:
                         help="build into a temporary directory and verify links")
     args = parser.parse_args()
 
-    missing = [p for p in (MANUAL, GUIDE, NETWORKING, EXAMPLES_DIR)
+    missing = [p for p in (MANUAL, GUIDE, NETWORKING, PROJECTS, RAYLIB, EXAMPLES_DIR)
                if not p.exists()]
     missing += [module_path(n) for n in (*PRIMARY_MODULES, *CORE_MODULES, *OPTIONAL_MODULES)
                 if not module_path(n).exists()]

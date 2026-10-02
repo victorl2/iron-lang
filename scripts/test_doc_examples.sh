@@ -23,10 +23,19 @@
 #   MD_FILE=path/to/other.md overrides the markdown file
 #   (default: docs/language_definition.md).
 #   DOCTEST_TIMEOUT=seconds caps each program run (default: 60).
+#   DOCTEST_BUILD_ONLY=1 compiles every block but runs none: for guides
+#   whose programs need a network peer or a window (networking, raylib).
 #
 # Statement-block wrapping heuristic: a block that declares `func main()`
-# is compiled verbatim; any other block is wrapped in
+# is compiled verbatim; a block with top-level declarations but no main
+# gets an empty `func main() {}` appended; any other block is wrapped in
 # `func main() {\n<body>\n}` so a few bare statements can be shown.
+#
+# A file-level directive anywhere in the markdown,
+#   <!-- doctest-imports: http websocket net io -->
+# names modules every wrapped block imports (blocks that already import a
+# module keep their own line), so a guide can show snippets without
+# repeating its imports.
 #
 # Final marker on success: `test_doc_examples OK`.
 
@@ -42,6 +51,7 @@ MD_FILE="${MD_FILE:-docs/language_definition.md}"
 DOCTEST_TIMEOUT="${DOCTEST_TIMEOUT:-60}"
 
 WORK="$(mktemp -d -t iron-doctest-XXXXXX)"
+DOC_IMPORTS="$(sed -nE 's/^<!--[[:space:]]*doctest-imports:[[:space:]]*(.*)-->[[:space:]]*$/\1/p' "${MD_FILE}" | head -1)"
 trap 'rm -rf "${WORK}"' EXIT
 mkdir -p "${WORK}/blocks"
 
@@ -213,10 +223,18 @@ while [ "$i" -lt "$TOTAL" ]; do
     fi
 
     src_path="${WORK}/blocks/block_${i}.iron"
+    : > "${src_path}"
+    for module in ${DOC_IMPORTS}; do
+        grep -Eq "^import ${module}\b" "${body_path}" || echo "import ${module}" >> "${src_path}"
+    done
     if grep -Eq "${MAIN_RE}" "${body_path}"; then
-        cp "${body_path}" "${src_path}"
+        cat "${body_path}" >> "${src_path}"
+    elif grep -Eq '^(pub )?(func|object|enum|interface|extern) ' "${body_path}"; then
+        { cat "${body_path}"; echo; echo "func main() {}"; } >> "${src_path}"
     else
-        { echo "func main() {"; cat "${body_path}"; echo "}"; } > "${src_path}"
+        # Bare statements: the block's own import lines go above main.
+        grep -E '^import ' "${body_path}" >> "${src_path}" || true
+        { echo "func main() {"; grep -Ev '^import ' "${body_path}"; echo "}"; } >> "${src_path}"
     fi
 
     bin_path="${WORK}/blocks/block_${i}.bin"
@@ -246,6 +264,12 @@ while [ "$i" -lt "$TOTAL" ]; do
         echo "--- iron build output ---"; cat "${build_log}"
         echo "--- end of failure ${where} ---"
         FAIL=$((FAIL + 1))
+        continue
+    fi
+
+    if [ "${DOCTEST_BUILD_ONLY:-0}" = 1 ]; then
+        echo "PASS ${where} (built)"
+        PASS=$((PASS + 1))
         continue
     fi
 

@@ -43,6 +43,33 @@
 /* An env field named after a capture: an Iron identifier that is a C
  * keyword (`short`, `int`, `default`...) gets a suffix. Returns one of a
  * few rotating buffers so several names can sit in one format call. */
+/* A spawn result travels through Iron_Handle.result (a void *). Integers,
+ * booleans, enums and pointers are cast through intptr_t; everything else
+ * (String, objects, floats, nullables, interfaces) is boxed on the heap by
+ * the wrapper and unboxed and freed by await. */
+static bool spawn_result_fits_pointer(Iron_Type *t) {
+    if (!t) return true;
+    switch ((int)t->kind) {
+    case IRON_TYPE_BOOL: case IRON_TYPE_ENUM:
+    case IRON_TYPE_PTR: case IRON_TYPE_RC: case IRON_TYPE_WEAK_RC:
+        return true;
+    default:
+        return iron_type_is_integer(t);
+    }
+}
+
+static void emit_spawn_publish_result(Iron_StrBuf *out, Iron_Type *ret, const char *ret_c) {
+    if (spawn_result_fits_pointer(ret)) {
+        iron_strbuf_appendf(out, "    _h->result = (void *)(intptr_t)_result;\n");
+        return;
+    }
+    iron_strbuf_appendf(out,
+        "    %s *_box = (%s *)iron_mem_alloc(sizeof(%s));\n"
+        "    if (!_box) iron_oom_abort(\"spawn result\");\n"
+        "    *_box = _result;\n"
+        "    _h->result = _box;\n", ret_c, ret_c, ret_c);
+}
+
 static const char *cap_c_name(const char *n) {
     static const char *const kw[] = {
         "auto", "break", "case", "char", "const", "continue", "default", "do",
@@ -7300,8 +7327,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         "    %s *_e = (%s *)_arg;\n", env_type, env_type);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    %s _result = %s(_e);\n", ret_c, c_func_name);
-                    iron_strbuf_appendf(&ctx->lifted_funcs,
-                        "    _h->result = (void *)(intptr_t)_result;\n");
+                    emit_spawn_publish_result(&ctx->lifted_funcs, lifted_fn->return_type, ret_c);
                     emit_spawn_env_string_releases(&ctx->lifted_funcs, cap_meta, cap_count);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    iron_mem_free(_arg);\n");
@@ -7320,8 +7346,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (has_return && ret_c) {
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    %s _result = %s();\n", ret_c, c_func_name);
-                    iron_strbuf_appendf(&ctx->lifted_funcs,
-                        "    _h->result = (void *)(intptr_t)_result;\n");
+                    emit_spawn_publish_result(&ctx->lifted_funcs, lifted_fn->return_type, ret_c);
                 } else {
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    %s();\n", c_func_name);
@@ -7668,6 +7693,21 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
     case IRON_LIR_AWAIT:
         emit_indent(sb, ind);
+        if (instr->type && instr->type->kind != IRON_TYPE_VOID &&
+            !spawn_result_fits_pointer(instr->type)) {
+            /* Boxed result: copy it out of the heap cell the wrapper filled. */
+            const char *tc = emit_type_to_c(instr->type, ctx);
+            iron_strbuf_appendf(sb, "%s *_box_%u = (%s *)iron_future_await(", tc, instr->id, tc);
+            emit_val(sb, instr->await.handle);
+            iron_strbuf_appendf(sb, ");\n");
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "%s ", tc);
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, " = *_box_%u;\n", instr->id);
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "iron_mem_free(_box_%u);\n", instr->id);
+            break;
+        }
         if (instr->type) {
             iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
             emit_val(sb, instr->id);
@@ -8420,12 +8460,25 @@ static int emit_structured_lexical_rank(EmitStructuredLoop *loops, int bi) {
     return rank;
 }
 
+static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb);
+
 void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
+    if (!is_lifted_func(fn->name)) {
+        emit_func_body_into(ctx, fn, &ctx->implementations);
+        return;
+    }
+    /* Lifted functions (closure and spawn bodies) go to lifted_funcs, but
+     * so do the helpers synthesized on first use (drop functions, spawn
+     * wrappers): written straight into that buffer they would land in the
+     * middle of the function being emitted. Collect the body first. */
+    Iron_StrBuf body = iron_strbuf_create(4096);
+    emit_func_body_into(ctx, fn, &body);
+    iron_strbuf_append(&ctx->lifted_funcs, iron_strbuf_get(&body), body.len);
+    iron_strbuf_free(&body);
+}
+
+static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb) {
     emit_build_def_instrs(fn);
-    /* Choose target buffer: lifted functions go to lifted_funcs */
-    Iron_StrBuf *sb = is_lifted_func(fn->name)
-                      ? &ctx->lifted_funcs
-                      : &ctx->implementations;
 
     /* Phase 24 DROP-05 (Plan 24-03): partial-init cleanup tracking.
      * Detect init methods by name suffix "_init" (per hir_lower.c mangling:

@@ -9,6 +9,8 @@ on:
       - 'docs/llms/**'
       - 'docs/language_definition.md'
       - 'docs/networking.md'
+      - 'docs/guide.md'
+      - 'docs/raylib.md'
       - 'docs/examples/**'
       - 'src/stdlib/*.iron'
       - 'scripts/build_llms.py'

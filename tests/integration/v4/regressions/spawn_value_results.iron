@@ -1,0 +1,34 @@
+-- A spawned task may return any value, not only something that fits in a
+-- pointer: objects, strings, floats and nullables come back through await
+-- intact (issue 230).
+object Pair {
+    val a: Int
+    val b: Int
+}
+
+func make(x: Int) -> Pair {
+    return Pair(x, x + 1)
+}
+
+func main() {
+    val pair_task = spawn("pair") { return make(3) }
+    val text_task = spawn("text") { return "hello from a task" }
+    val float_task = spawn("float") { return 2.5 }
+    val maybe_task = spawn("maybe") {
+        var m: Int? = null
+        m = 42
+        return m
+    }
+    val flag_task = spawn("flag") { return true }
+
+    val p = await pair_task
+    val s = await text_task
+    val f = await float_task
+    val m = await maybe_task
+    val b = await flag_task
+    println("{p.a} {p.b}")
+    println(s)
+    println("{f}")
+    println("{m}")
+    println("{b}")
+}
