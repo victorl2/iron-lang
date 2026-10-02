@@ -190,7 +190,6 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p);
 static Iron_Node *iron_parse_var_decl(Iron_Parser *p);
 static Iron_Node **iron_parse_generic_params(Iron_Parser *p, int *out_count, Iron_Arena *arena);
 static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count);
-static Iron_Node **iron_parse_call_args(Iron_Parser *p, int *out_count);
 static Iron_Node *iron_parse_lambda(Iron_Parser *p);
 static Iron_Node *iron_parse_if_stmt(Iron_Parser *p);
 static Iron_Node *iron_parse_while_stmt(Iron_Parser *p);
@@ -1344,13 +1343,6 @@ static Iron_Node **iron_parse_call_args_ex(Iron_Parser *p, int *out_count,
     return arr;
 }
 
-/* Thin wrapper kept for callers that don't need the RPAREN span. */
-#ifdef __GNUC__
-__attribute__((unused))
-#endif
-static Iron_Node **iron_parse_call_args(Iron_Parser *p, int *out_count) {
-    return iron_parse_call_args_ex(p, out_count, NULL);
-}
 
 /* ── Lambda: func(params) [-> Type] { body } ─────────────────────────────── */
 

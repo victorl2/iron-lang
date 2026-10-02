@@ -12,8 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <unistd.h>   /* access(), F_OK */
-#include <libgen.h>   /* dirname() */
+#include "util/os.h"   /* access(), F_OK, dirname() */
 
 #include "lexer/lexer.h"
 #include "parser/parser.h"

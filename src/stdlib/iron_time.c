@@ -1,5 +1,6 @@
 #include "iron_time.h"
 #include <stdlib.h>
+#include "util/os.h"   /* clock_gettime / nanosleep on Windows */
 
 /* ── Wall-clock time (seconds) ───────────────────────────────────────────── */
 

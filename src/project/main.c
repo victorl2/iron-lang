@@ -18,6 +18,7 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include "util/os.h"
 #include <errno.h>
 
 #ifdef __APPLE__

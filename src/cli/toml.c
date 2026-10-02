@@ -1,6 +1,6 @@
 #include "cli/toml.h"
 
-#include <libgen.h>   /* dirname() — POSIX; must operate on a mutable copy */
+#include "util/os.h"   /* dirname(): operates on a mutable copy */
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>

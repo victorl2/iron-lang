@@ -5,14 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <dirent.h>  /* WINDOWS-TODO: no dirent.h on Windows — use FindFirstFile/FindNextFile/FindClose from <windows.h> */
 #include <errno.h>
-#ifdef _WIN32
-#include <windows.h>
-#endif
-#ifndef _WIN32
-#include <unistd.h>
-#endif
+#include "util/os.h"   /* dirent, mkdir, access on every platform */
 
 /* ── File I/O ────────────────────────────────────────────────────────────── */
 

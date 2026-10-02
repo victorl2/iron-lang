@@ -1,7 +1,7 @@
 #include "iron_log.h"
 #include <stdio.h>
 #include <time.h>
-#include <unistd.h>
+#include "util/os.h"
 
 /* ── Internal state ──────────────────────────────────────────────────────── */
 

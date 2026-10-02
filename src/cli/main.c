@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include <unistd.h>
+#include "util/os.h"
 
 #include "cli/build.h"
 #include "cli/check.h"

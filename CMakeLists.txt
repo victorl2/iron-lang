@@ -107,7 +107,7 @@ if(WIN32)
     # The UCRT marks strcpy/fopen/getenv as deprecated (C4996) for every
     # compiler, clang included; the call sites are bounded. Keep the warning
     # level and -Werror of the compiler branch below.
-    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 endif()
 if(MSVC)
     add_compile_options(/W3 /WX)
