@@ -875,6 +875,12 @@ Iron_String Iron_float_to_string(double f);
  * Float32.  out must hold IRON_FMT_FLOAT_BUF bytes; returns out. */
 #define IRON_FMT_FLOAT_BUF 40
 const char *iron_fmt_float(double v, bool is_f32, char *out);
+/* Decimal form of an integer for interpolation of nullable integers (the
+ * plain ones go through the format string). out must hold
+ * IRON_FMT_INT_BUF bytes; returns out. */
+#define IRON_FMT_INT_BUF 24
+const char *iron_fmt_int(int64_t v, char *out);
+const char *iron_fmt_uint(uint64_t v, char *out);
 
 static inline int64_t Iron_range(int64_t n) { return n; }
 

@@ -1015,6 +1015,12 @@ static bool is_stringifiable(TypeCtx *ctx, const Iron_Type *t) {
     if (t->kind == IRON_TYPE_BOOL) return true;
     if (t->kind == IRON_TYPE_STRING) return true;
     if (t->kind == IRON_TYPE_ENUM) return true;
+    /* T? of a primitive or String prints "null" or the value. */
+    if (t->kind == IRON_TYPE_NULLABLE && t->nullable.inner) {
+        const Iron_Type *in = t->nullable.inner;
+        if (iron_type_is_numeric(in) || in->kind == IRON_TYPE_BOOL || in->kind == IRON_TYPE_STRING)
+            return true;
+    }
     /* Phase 33 STDLIB-10 (Plan 33-06): *unchecked T (and the RawPtr alias)
      * with a primitive pointee is stringifiable — emit_c interpolates as the
      * dereferenced value. Matches the new interp-string formatter arm in

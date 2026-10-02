@@ -60,6 +60,16 @@ Iron_String Iron_int32_to_string(int32_t n) {
  * ".0" on whole values, scientific ("1e+21", "1.5e-7") outside that range.
  * NaN -> "NaN", infinities -> "inf" / "-inf", both zeros -> "0".
  * out must hold IRON_FMT_FLOAT_BUF bytes; returns out. */
+const char *iron_fmt_int(int64_t v, char *out) {
+    snprintf(out, IRON_FMT_INT_BUF, "%lld", (long long)v);
+    return out;
+}
+
+const char *iron_fmt_uint(uint64_t v, char *out) {
+    snprintf(out, IRON_FMT_INT_BUF, "%llu", (unsigned long long)v);
+    return out;
+}
+
 const char *iron_fmt_float(double v, bool is_f32, char *out) {
     if (isnan(v))            { strcpy(out, "NaN");  return out; }
     if (isinf(v) && v > 0)   { strcpy(out, "inf");  return out; }

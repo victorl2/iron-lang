@@ -602,7 +602,8 @@ statements (section 4.3).
 
 Inside a string literal, `{e}` evaluates `e` and inserts its text. Any
 value that can be printed may be interpolated: numbers, booleans, strings,
-and the results of calls and field accesses. Floats print the shortest
+their nullable forms (`null` when there is no value), and the results of
+calls and field accesses. Floats print the shortest
 decimal that reads back to the same value, without a trailing `.0`
 (`3.0` prints as `3`). Two strings are joined with `+`; the compound form
 `s += t` is not supported (see section 11).

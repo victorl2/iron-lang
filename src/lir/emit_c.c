@@ -6868,6 +6868,42 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         iron_strbuf_free(&tmp);
                         break;
                     }
+                    /* T?: "null" without a value, else the value formatted
+                     * as a string (the format spec for nullables is %s). The
+                     * optional is an Iron_Optional_<T>{value, has_value}. */
+                    case IRON_TYPE_NULLABLE: {
+                        Iron_StrBuf tmp = iron_strbuf_create(32);
+                        emit_val(&tmp, part_id);
+                        const char *v = iron_strbuf_get(&tmp);
+                        Iron_Type *inner = part_type->nullable.inner;
+                        iron_strbuf_appendf(&args_sb, "(%s.has_value ? ", v);
+                        switch (inner ? (int)inner->kind : (int)IRON_TYPE_ERROR) {
+                            case IRON_TYPE_INT: case IRON_TYPE_INT8: case IRON_TYPE_INT16:
+                            case IRON_TYPE_INT32: case IRON_TYPE_INT64:
+                                iron_strbuf_appendf(&args_sb,
+                                    "iron_fmt_int((int64_t)%s.value, (char[IRON_FMT_INT_BUF]){0})", v);
+                                break;
+                            case IRON_TYPE_UINT: case IRON_TYPE_UINT8: case IRON_TYPE_UINT16:
+                            case IRON_TYPE_UINT32: case IRON_TYPE_UINT64:
+                                iron_strbuf_appendf(&args_sb,
+                                    "iron_fmt_uint((uint64_t)%s.value, (char[IRON_FMT_INT_BUF]){0})", v);
+                                break;
+                            case IRON_TYPE_FLOAT: case IRON_TYPE_FLOAT32: case IRON_TYPE_FLOAT64:
+                                iron_strbuf_appendf(&args_sb,
+                                    "iron_fmt_float((double)%s.value, %s, (char[IRON_FMT_FLOAT_BUF]){0})",
+                                    v, inner->kind == IRON_TYPE_FLOAT32 ? "true" : "false");
+                                break;
+                            case IRON_TYPE_BOOL:
+                                iron_strbuf_appendf(&args_sb, "(%s.value ? \"true\" : \"false\")", v);
+                                break;
+                            default:
+                                iron_strbuf_appendf(&args_sb, "iron_string_cstr(&%s.value)", v);
+                                break;
+                        }
+                        iron_strbuf_appendf(&args_sb, " : \"null\")");
+                        iron_strbuf_free(&tmp);
+                        break;
+                    }
                     /* Phase 33 STDLIB-10 (Plan 33-06): *unchecked T (incl. RawPtr)
                      * interpolates as dereferenced pointee. Bare C `*p` — no
                      * generation check (UNCK-03 contract). UB if p is dangling
