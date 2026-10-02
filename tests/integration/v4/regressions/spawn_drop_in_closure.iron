@@ -1,0 +1,25 @@
+-- A value with a destructor that is first dropped inside a spawn body: the
+-- synthesized drop function used to be written into the middle of the
+-- lifted closure function.
+object Ticket {
+    val id: Int
+    val label: String
+
+    drop {
+        println("drop ticket {self.id}")
+    }
+}
+
+func issue(id: Int) -> Ticket {
+    return Ticket(id, "ticket-{id}")
+}
+
+func main() {
+    val task = spawn("worker") {
+        val t = issue(7)
+        println("got {t.label}")
+        return t.id
+    }
+    val got = await task
+    println("awaited {got}")
+}
