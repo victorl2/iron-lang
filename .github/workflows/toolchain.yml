@@ -22,7 +22,7 @@ on:
         required: true
         default: '1'
       hosts:
-        description: 'Hosts to build, comma separated, or all'
+        description: 'Hosts to build (comma separated, no spaces), or all'
         required: false
         default: 'all'
 
@@ -37,24 +37,36 @@ env:
   SCCACHE_GHA_ENABLED: "true"
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.hosts.outputs.matrix }}
+    steps:
+      - id: hosts
+        env:
+          HOSTS: ${{ github.event.inputs.hosts }}
+        run: |
+          all='[{"os":"ubuntu-24.04","host":"linux-x86_64"},
+                {"os":"ubuntu-24.04-arm","host":"linux-arm64"},
+                {"os":"macos-26","host":"macos-arm64"},
+                {"os":"macos-26-intel","host":"macos-x86_64"},
+                {"os":"windows-2025","host":"windows-x86_64"}]'
+          if [ "$HOSTS" = all ]; then
+            m=$(echo "$all" | jq -c .)
+          else
+            m=$(echo "$all" | jq -c --arg h ",$HOSTS," '[.[] | select($h | contains("," + .host + ","))]')
+          fi
+          echo "matrix=$m" >> "$GITHUB_OUTPUT"
+          echo "$m"
+
   build:
+    needs: plan
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            host: linux-x86_64
-          - os: ubuntu-24.04-arm
-            host: linux-arm64
-          - os: macos-26
-            host: macos-arm64
-          - os: macos-26-intel
-            host: macos-x86_64
-          - os: windows-2025
-            host: windows-x86_64
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
-    if: ${{ github.event.inputs.hosts == 'all' || contains(github.event.inputs.hosts, matrix.host) }}
     steps:
       - uses: actions/checkout@v4
 
