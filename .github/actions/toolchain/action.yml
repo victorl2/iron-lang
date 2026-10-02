@@ -1,0 +1,20 @@
+name: Iron toolchain
+description: >
+  Install the pinned C toolchain bundle ironc compiles with into
+  ~/.iron/toolchain, from the Actions cache when possible. Run it after
+  checkout in every job that builds or runs Iron programs.
+runs:
+  using: composite
+  steps:
+    - id: pins
+      shell: bash
+      run: |
+        llvm=$(sed -n 's/^#define IRON_TOOLCHAIN_LLVM *"\(.*\)".*/\1/p' src/cli/toolchain_pins.h)
+        bundle=$(sed -n 's/^#define IRON_TOOLCHAIN_BUNDLE *"\(.*\)".*/\1/p' src/cli/toolchain_pins.h)
+        echo "version=$llvm-$bundle" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v4
+      with:
+        path: ~/.iron/toolchain/${{ steps.pins.outputs.version }}
+        key: iron-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.version }}
+    - shell: bash
+      run: scripts/toolchain/install.sh

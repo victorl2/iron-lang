@@ -33,6 +33,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/toolchain
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -80,6 +82,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/toolchain
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
