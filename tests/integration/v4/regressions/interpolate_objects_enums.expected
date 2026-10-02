@@ -1,0 +1,7 @@
+p = P(3) shared = P(9)
+c = null
+c = RED
+Circle Dot
+loop P(3) GREEN
+loop P(3) GREEN
+loop P(3) GREEN

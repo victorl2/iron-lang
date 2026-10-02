@@ -1,0 +1,12 @@
+-- @expected-error: E0334
+-- to_string() used by interpolation must be readonly.
+object P {
+    val x: Int
+    func to_string() -> String {
+        return "P({self.x})"
+    }
+}
+func main() {
+    val p = P(1)
+    println("{p}")
+}

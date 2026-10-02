@@ -1,0 +1,28 @@
+-- Interpolation of objects (through readonly to_string), rc objects, enums
+-- (variant name, plain and with payloads) and nullable enums. Objects and
+-- enums used to reach the C as a pointer passed where a String was expected.
+object P {
+    val x: Int
+    readonly func to_string() -> String {
+        return "P({self.x})"
+    }
+}
+enum Color { RED = 0, GREEN = 1 }
+enum Shape { Circle(Int), Dot }
+func main() {
+    val p = P(3)
+    val shared = rc P(9)
+    println("p = {p} shared = {shared}")
+    var c: Color? = null
+    println("c = {c}")
+    c = Color.RED
+    println("c = {c}")
+    val s = Shape.Circle(2)
+    val d = Shape.Dot
+    println("{s} {d}")
+    var i = 0
+    while i < 3 {
+        println("loop {p} {Color.GREEN}")
+        i += 1
+    }
+}

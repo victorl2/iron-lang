@@ -6895,6 +6895,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         iron_strbuf_free(&tmp);
                         break;
                     }
+                    /* An enum prints its variant name. */
+                    case IRON_TYPE_ENUM: {
+                        Iron_StrBuf tmp = iron_strbuf_create(32);
+                        emit_val(&tmp, part_id);
+                        bool adt = part_type->enu.decl && part_type->enu.decl->has_payloads;
+                        iron_strbuf_appendf(&args_sb, "%s_name(%s%s)", emit_type_to_c(part_type, ctx),
+                                            iron_strbuf_get(&tmp), adt ? ".tag" : "");
+                        iron_strbuf_free(&tmp);
+                        break;
+                    }
                     /* T?: "null" without a value, else the value formatted
                      * as a string (the format spec for nullables is %s). The
                      * optional is an Iron_Optional_<T>{value, has_value}. */
@@ -6923,6 +6933,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             case IRON_TYPE_BOOL:
                                 iron_strbuf_appendf(&args_sb, "(%s.value ? \"true\" : \"false\")", v);
                                 break;
+                            case IRON_TYPE_ENUM: {
+                                bool adt = inner->enu.decl && inner->enu.decl->has_payloads;
+                                iron_strbuf_appendf(&args_sb, "%s_name(%s.value%s)", emit_type_to_c(inner, ctx),
+                                                    v, adt ? ".tag" : "");
+                                break;
+                            }
                             default:
                                 iron_strbuf_appendf(&args_sb, "iron_string_cstr(&%s.value)", v);
                                 break;

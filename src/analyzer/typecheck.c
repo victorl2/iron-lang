@@ -1018,7 +1018,8 @@ static bool is_stringifiable(TypeCtx *ctx, const Iron_Type *t) {
     /* T? of a primitive or String prints "null" or the value. */
     if (t->kind == IRON_TYPE_NULLABLE && t->nullable.inner) {
         const Iron_Type *in = t->nullable.inner;
-        if (iron_type_is_numeric(in) || in->kind == IRON_TYPE_BOOL || in->kind == IRON_TYPE_STRING)
+        if (iron_type_is_numeric(in) || in->kind == IRON_TYPE_BOOL || in->kind == IRON_TYPE_STRING ||
+            in->kind == IRON_TYPE_ENUM)
             return true;
     }
     /* Phase 33 STDLIB-10 (Plan 33-06): *unchecked T (and the RawPtr alias)
@@ -3437,18 +3438,57 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             for (int i = 0; i < n->part_count; i++) {
                 Iron_Type *part_type = check_expr(ctx, n->parts[i]);
                 /* Skip string literals -- they are always stringifiable */
-                if (n->parts[i]->kind != IRON_NODE_STRING_LIT && part_type &&
-                    part_type->kind != IRON_TYPE_ERROR) {
-                    if (!is_stringifiable(ctx, part_type)) {
-                        char msg[256];
-                        const char *ts = iron_type_to_string(part_type, ctx->arena);
-                        snprintf(msg, sizeof(msg),
-                                 "type '%s' cannot be interpolated into a string "
-                                 "(will use address printing)", ts);
-                        emit_warning(ctx, IRON_WARN_NOT_STRINGABLE,
-                                     n->parts[i]->span, msg,
-                                     "add a to_string() method to this type");
+                if (n->parts[i]->kind == IRON_NODE_STRING_LIT || !part_type ||
+                    part_type->kind == IRON_TYPE_ERROR)
+                    continue;
+                /* An object (or an rc to one) with to_string() is
+                 * interpolated through that method: the part becomes the
+                 * call, so the rest of the pipeline sees a String. */
+                Iron_Type *obj_t = part_type->kind == IRON_TYPE_RC ? part_type->rc.inner : part_type;
+                if (obj_t && obj_t->kind == IRON_TYPE_OBJECT && is_stringifiable(ctx, obj_t)) {
+                    /* Interpolation reads the value: to_string() has to be
+                     * readonly (or pure), or a `val` could not be printed. */
+                    Iron_MethodDecl *ts_md = NULL;
+                    for (int di = 0; di < ctx->program->decl_count; di++) {
+                        Iron_Node *d = ctx->program->decls[di];
+                        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+                        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+                        if (strcmp(md->type_name, obj_t->object.decl->name) == 0 &&
+                            strcmp(md->method_name, "to_string") == 0) { ts_md = md; break; }
                     }
+                    if (ts_md && !ts_md->is_readonly && !ts_md->is_pure) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "'%s'.to_string() must be readonly to be interpolated",
+                                 obj_t->object.decl->name);
+                        emit_error(ctx, IRON_ERR_NOT_STRINGABLE, n->parts[i]->span, msg,
+                                   "declare it as `readonly func to_string() -> String`");
+                        continue;
+                    }
+                    Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)iron_arena_alloc(
+                        ctx->arena, sizeof(Iron_MethodCallExpr), _Alignof(Iron_MethodCallExpr));
+                    if (!mc) iron_oom_abort("typecheck.c:interp to_string");
+                    memset(mc, 0, sizeof *mc);
+                    mc->kind = IRON_NODE_METHOD_CALL;
+                    mc->span = n->parts[i]->span;
+                    mc->object = n->parts[i];
+                    mc->method = "to_string";
+                    n->parts[i] = (Iron_Node *)mc;
+                    Iron_Type *st = check_expr(ctx, (Iron_Node *)mc);
+                    if (st && st->kind != IRON_TYPE_STRING && st->kind != IRON_TYPE_ERROR) {
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->span,
+                                   "to_string() must return String to be used in interpolation", NULL);
+                    }
+                    continue;
+                }
+                if (!is_stringifiable(ctx, part_type)) {
+                    char msg[256];
+                    const char *ts = iron_type_to_string(part_type, ctx->arena);
+                    snprintf(msg, sizeof(msg), "type '%s' cannot be interpolated into a string", ts);
+                    const char *help = "add a to_string() -> String method to the type";
+                    if (part_type->kind == IRON_TYPE_NULLABLE && part_type->nullable.inner &&
+                        part_type->nullable.inner->kind == IRON_TYPE_OBJECT)
+                        help = "check for null and interpolate the value, or call to_string() on it";
+                    emit_error(ctx, IRON_ERR_NOT_STRINGABLE, n->parts[i]->span, msg, help);
                 }
             }
             result = iron_type_make_primitive(IRON_TYPE_STRING);
@@ -6157,6 +6197,20 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                    msg, NULL);
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     }
+                } else if (!method_found_mc && type_name_mc && mc->method &&
+                           !(obj_id->resolved_sym &&
+                             obj_id->resolved_sym->sym_kind == IRON_SYM_TYPE) &&
+                           (strcmp(type_name_mc, "String") == 0 || strcmp(type_name_mc, "Int") == 0 ||
+                            strcmp(type_name_mc, "Int32") == 0 || strcmp(type_name_mc, "Float") == 0) &&
+                           !(strcmp(mc->method, "to_string") == 0 && mc->arg_count == 0)) {
+                    /* The String, Int, Int32 and Float methods are the
+                     * stdlib wrappers; a name none of them has is an error,
+                     * not a call typed Void that fails later in the C. */
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "no method '%s' on type '%s'",
+                             mc->method, type_name_mc);
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg, NULL);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 }
             } else if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_INTERFACE &&
                        obj_type_mc->interface.decl) {
@@ -6245,6 +6299,7 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             } else if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_STRING) {
                 /* Non-ident receiver with String type (e.g. string literal, interp string,
                  * or chained method call): resolve via string.iron wrapper decls. */
+                bool found_str = false;
                 if (ctx->program) {
                     for (int i = 0; i < ctx->program->decl_count; i++) {
                         Iron_Node *d = ctx->program->decls[i];
@@ -6256,9 +6311,16 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             if (md->resolved_return_type) {
                                 result = md->resolved_return_type;
                             }
+                            found_str = true;
                             break;
                         }
                     }
+                }
+                if (!found_str && ctx->program && mc->method) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "no method '%s' on type 'String'", mc->method);
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg, NULL);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 }
             } else if (obj_type_mc && (obj_type_mc->kind == IRON_TYPE_INT   ||
                                         obj_type_mc->kind == IRON_TYPE_INT32 ||
