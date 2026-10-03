@@ -1,0 +1,40 @@
+-- An enum with payloads is a value like an object (issue 259): it can be
+-- a field of an object (declared after the enum, which is declared after
+-- its payload types) and the element of a list (which drops the payloads
+-- its elements own).
+object Res {
+    val name: String
+    drop { println("drop {self.name}") }
+}
+
+enum Slot {
+    Full(Res),
+    Count(Int),
+    Empty
+}
+
+object Crate {
+    val slot: Slot
+    val label: String
+}
+
+func describe(s: Slot) -> String {
+    match s {
+        Slot.Full(r) -> return "full {r.name}"
+        Slot.Count(n) -> return "count {n}"
+        Slot.Empty -> return "empty"
+    }
+}
+
+func main() {
+    val c = Crate(Slot.Full(Res("boxed")), "crate")
+    println("{describe(c.slot)} {c.label}")
+    var slots: [Slot] = []
+    slots.push(Slot.Count(3))
+    slots.push(Slot.Full(Res("listed")))
+    slots.push(Slot.Empty)
+    for s in slots {
+        println(describe(s))
+    }
+    println("end")
+}
