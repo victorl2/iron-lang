@@ -18,7 +18,13 @@ This repository contains the compiler, standard library, and documentation.
 curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh
 ```
 
-Pre-built binaries are available for **macOS** (arm64, x86_64) and **Linux** (x86_64) on the [releases page](https://github.com/victorl2/iron-lang/releases).
+On Windows, in PowerShell:
+
+```powershell
+irm https://ironlang.dev/install.ps1 | iex
+```
+
+Pre-built binaries are available for **macOS** (arm64, x86_64), **Linux** (x86_64) and **Windows** (x86_64) on the [releases page](https://github.com/victorl2/iron-lang/releases). Iron compiles programs with its own pinned C toolchain, downloaded on first use; Windows additionally needs the Visual Studio Build Tools until the runtime ships precompiled.
 
 ## Why Iron?
 

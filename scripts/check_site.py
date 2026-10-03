@@ -82,7 +82,7 @@ def main() -> int:
 
     # Files staged or generated at deploy time (pages.yml) that are not
     # checked in: install.sh and the llms.txt family from build_llms.py.
-    generated_paths = {"/install.sh", "/llms.txt", "/llms-full.txt"}
+    generated_paths = {"/install.sh", "/install.ps1", "/llms.txt", "/llms-full.txt"}
     for page, result in parsed.items():
         for line, href in result.links:
             parts = urlsplit(href)

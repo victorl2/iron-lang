@@ -17,6 +17,7 @@ on:
       - 'scripts/build_reference.py'
       - 'scripts/templates/**'
       - 'scripts/install.sh'
+      - 'scripts/install.ps1'
       - '.github/workflows/pages.yml'
 
 permissions:
@@ -45,8 +46,10 @@ jobs:
           VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "unreleased")
           sed -i "s/__IRON_VERSION__/${VERSION}/g" docs/site/index.html
 
-      - name: Stage install.sh at site root
-        run: install -m 0755 scripts/install.sh docs/site/install.sh
+      - name: Stage the installers at the site root
+        run: |
+          install -m 0755 scripts/install.sh docs/site/install.sh
+          install -m 0644 scripts/install.ps1 docs/site/install.ps1
 
       - name: Install the Markdown renderer
         run: python3 -m pip install --quiet markdown

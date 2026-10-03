@@ -258,4 +258,4 @@ unpack the bundle for your host from the `toolchain-*` release into
 
 **Tests fail with sanitizer errors**: This is expected in Debug mode on some platforms. Build with `-DCMAKE_BUILD_TYPE=Release` to disable sanitizers.
 
-**Windows build errors**: Windows support is experimental. Use Visual Studio 2022 with the C/C++ workload installed.
+**Windows**: the release archive is `iron-<version>-windows-x86_64.zip` (installed by `irm https://ironlang.dev/install.ps1 | iex`). To build from source, install the Visual Studio Build Tools with the "Desktop development with C++" workload plus clang, open a Developer PowerShell (or run `VsDevCmd.bat -arch=x64`) and configure with `cmake -B build -G Ninja -DCMAKE_C_COMPILER=clang -DIRON_BUILD_LSP=OFF`. The language server does not build on Windows yet.

@@ -741,7 +741,7 @@
     <!-- ── Hero ──────────────────────────────────────── -->
     <section class="install-hero">
       <h1>Install <span class="highlight">Iron</span></h1>
-      <p class="subtitle">Get up and running with a single command. Pre-built binaries are available for macOS and Linux.</p>
+      <p class="subtitle">Get up and running with a single command. Pre-built binaries are available for macOS, Linux and Windows.</p>
     </section>
 
     <!-- ── Platform-specific install ─────────────────── -->
@@ -788,12 +788,8 @@
             <svg viewBox="0 0 24 24"><path d="M3 12V6.75l6-1.32v6.48L3 12zm17-9v8.75l-10 .08V5.21L20 3zm-10 9.34l10-.08V21l-10-1.67V12.34zM3 12.08l6 .09v6.52l-6-1.31V12.08z"/></svg>
           </div>
           <div>
-            It looks like you're running <strong>Windows</strong>. The compiler builds and runs natively on Windows; pre-built Windows binaries are coming.
+            It looks like you're running <strong>Windows</strong>. Run the following in PowerShell to install Iron:
           </div>
-        </div>
-
-        <div class="notice-box">
-          Until the Windows release archive ships, <a href="https://github.com/victorl2/iron-lang/blob/main/INSTALL.md">build from source</a> with clang and the Visual Studio Build Tools, or use <strong>WSL</strong> (Windows Subsystem for Linux) with the command below.
         </div>
 
         <div class="terminal">
@@ -801,11 +797,11 @@
             <div class="terminal-dot red"></div>
             <div class="terminal-dot yellow"></div>
             <div class="terminal-dot green"></div>
-            <div class="terminal-title">WSL Terminal</div>
+            <div class="terminal-title">PowerShell</div>
           </div>
           <div class="terminal-body">
-            <span class="terminal-prompt">$</span>
-            <code class="terminal-cmd">curl --proto '=https' --tlsv1.2 -sSfL https://ironlang.dev/install.sh | sh</code>
+            <span class="terminal-prompt">&gt;</span>
+            <code class="terminal-cmd">irm https://ironlang.dev/install.ps1 | iex</code>
             <button class="copy-btn" aria-label="Copy to clipboard">
               <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
               <span>Copy</span>
@@ -814,7 +810,7 @@
         </div>
 
         <p class="install-detail">
-          Iron programs are compiled with Iron's own pinned C toolchain, downloaded on first use; see the <a href="https://github.com/victorl2/iron-lang/blob/main/INSTALL.md">install notes</a> for what each platform still needs.
+          This downloads and runs <a href="https://github.com/victorl2/iron-lang/blob/main/scripts/install.ps1">install.ps1</a>, which installs <code>iron.exe</code> and <code>ironc.exe</code> to <code>%USERPROFILE%\.iron\bin</code> and adds it to your PATH. Compiling programs also needs the Visual Studio Build Tools (the "Desktop development with C++" workload); the C compiler itself is Iron's own pinned toolchain, downloaded on first use.
         </p>
       </div>
 
@@ -825,7 +821,7 @@
             <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
           </div>
           <div>
-            Could not detect your platform. The installer supports <strong>macOS</strong> and <strong>Linux</strong> (Windows builds from source for now). On one of those, run the following in your terminal:
+            Could not detect your platform. On <strong>macOS</strong> or <strong>Linux</strong>, run the following in your terminal; on <strong>Windows</strong>, run <code>irm https://ironlang.dev/install.ps1 | iex</code> in PowerShell:
           </div>
         </div>
 
@@ -888,7 +884,7 @@
             <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
           </div>
           <h3>Download a release</h3>
-          <p>Pre-built binaries for macOS (arm64, x86_64) and Linux (x86_64) are available on the releases page.</p>
+          <p>Pre-built binaries for macOS (arm64, x86_64), Linux (x86_64) and Windows (x86_64) are available on the releases page.</p>
           <a class="method-link" href="https://github.com/victorl2/iron-lang/releases">
             View releases
             <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
