@@ -297,6 +297,31 @@ void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
     }
 }
 
+/* Destroy `lv` (a C lvalue of type `t`) that its owner is letting go of:
+ * the drop glue its type needs, if any (the mirror of
+ * emit_copy_fixup_lvalue). Emits nothing for types without glue. */
+void emit_drop_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx, Iron_Type *t, const char *lv) {
+    if (!t) return;
+    if (t->kind == IRON_TYPE_OBJECT && t->object.decl && od_needs_drop(ctx, t->object.decl)) {
+        const char *c = emit_type_to_c(t, ctx);
+        emit_ensure_drop(ctx, c, t->object.decl);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s_drop(&%s);\n", c, lv);
+    } else if (t->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, t, false)) {
+        emit_ensure_iface_glue(ctx, t, true);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s_drop(&%s);\n", emit_type_to_c(t, ctx), lv);
+    } else if (t->kind == IRON_TYPE_ARRAY && t->array.is_bounded && bvec_needs_glue(ctx, t, false)) {
+        emit_ensure_bvec_glue(ctx, t, true);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s_drop(&%s);\n", emit_type_to_c(t, ctx), lv);
+    } else if (t->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, t, false)) {
+        emit_ensure_optional_glue(ctx, t, true);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s_drop(&%s);\n", emit_type_to_c(t, ctx), lv);
+    }
+}
+
 /* map / filter / forEach / reduce on a flat list, as an inline loop typed
  * by the lambda (#192). The runtime's Iron_List_<T>_map exists only for
  * numeric lists and can only produce a list of the same T; here the
@@ -7179,6 +7204,29 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (!func_copy) iron_oom_abort("emit_c.c MAKE_CLOSURE env_drop name");
                 arrput(ctx->emitted_env_drops, func_copy);
 
+                /* The drop statements for captured val objects (#257), built
+                 * first: ensuring their glue may emit into lifted_funcs, which
+                 * renders after struct_bodies, so each gets a prototype here. */
+                Iron_StrBuf obj_drops = iron_strbuf_create(64);
+                for (int ci = 0; ci < cap_count; ci++) {
+                    if (cap_meta[ci].is_mutable) continue;
+                    Iron_Type *ct = cap_meta[ci].type;
+                    if (!ct || !(ct->kind == IRON_TYPE_OBJECT || ct->kind == IRON_TYPE_INTERFACE ||
+                                 ct->kind == IRON_TYPE_NULLABLE ||
+                                 (ct->kind == IRON_TYPE_ARRAY && ct->array.is_bounded)))
+                        continue;
+                    char lv[300];
+                    snprintf(lv, sizeof(lv), "_env->%s", cap_c_name(cap_meta[ci].name));
+                    Iron_StrBuf stmt = iron_strbuf_create(64);
+                    emit_drop_lvalue(&stmt, 1, ctx, ct, lv);
+                    if (stmt.len > 0) {
+                        iron_strbuf_appendf(&ctx->struct_bodies, "static void %s_drop(%s *self);\n",
+                                            emit_type_to_c(ct, ctx), emit_type_to_c(ct, ctx));
+                        iron_strbuf_appendf(&obj_drops, "%s", iron_strbuf_get(&stmt));
+                    }
+                    iron_strbuf_free(&stmt);
+                }
+
                 iron_strbuf_appendf(&ctx->struct_bodies,
                     "/* Phase 26 OQ-03 (Plan 26-03) + Phase 27 OQ-04 (Plan 27-03):\n"
                     " * env-drop companion for %s.\n"
@@ -7236,6 +7284,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         any_rc_field = true;
                     }
                 }
+                /* The env's copies of captured val objects (#257). */
+                if (obj_drops.len > 0) {
+                    iron_strbuf_appendf(&ctx->struct_bodies, "%s", iron_strbuf_get(&obj_drops));
+                    any_rc_field = true;
+                }
+                iron_strbuf_free(&obj_drops);
                 if (!any_rc_field) {
                     iron_strbuf_appendf(&ctx->struct_bodies,
                         "    (void)_env;  /* no rc-typed captures */\n");
@@ -7335,6 +7389,17 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_indent(sb, ind);
                     iron_strbuf_appendf(sb, "iron_closure_retain(_env_%u->%s);\n",
                                         instr->id, cap_c_name(cap_meta[ci].name));
+                }
+                /* A captured val object (interface, vector, optional) is a
+                 * copy the env owns: fix it up like any other copy (#257). */
+                if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                    (cap_meta[ci].type->kind == IRON_TYPE_OBJECT ||
+                     cap_meta[ci].type->kind == IRON_TYPE_INTERFACE ||
+                     cap_meta[ci].type->kind == IRON_TYPE_NULLABLE ||
+                     (cap_meta[ci].type->kind == IRON_TYPE_ARRAY && cap_meta[ci].type->array.is_bounded))) {
+                    char lv[300];
+                    snprintf(lv, sizeof(lv), "_env_%u->%s", instr->id, cap_c_name(cap_meta[ci].name));
+                    emit_copy_fixup_lvalue(sb, ind, ctx, cap_meta[ci].type, lv);
                 }
             }
 
