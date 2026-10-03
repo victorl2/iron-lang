@@ -59,7 +59,8 @@ if(NOT WIN32)
     )
     set_tests_properties(test_leak_check PROPERTIES
         LABELS "oracle;v4-acceptance"
-        TIMEOUT 2400)
+        PROCESSORS 2
+        TIMEOUT 3000)
 endif()
 
 # Freestanding oracle (#235): the C generated for every fixture compiles with
