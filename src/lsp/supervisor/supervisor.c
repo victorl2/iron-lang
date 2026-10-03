@@ -30,6 +30,17 @@
 #define _GNU_SOURCE
 #endif
 #include "lsp/supervisor/supervisor.h"
+#ifdef _WIN32
+/* The supervisor forks a worker and proxies its pipes with poll(2); on
+ * Windows ironls runs unsupervised for now (the editors restart it). */
+#include <stdio.h>
+int ilsp_supervisor_run(int argc, char **argv) {
+    (void)argc; (void)argv;
+    fprintf(stderr, "ironls: --supervised is not available on Windows; run ironls directly\n");
+    return 1;
+}
+#else
+#include "lsp/supervisor/supervisor.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -44,7 +55,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
-#include <unistd.h>
+#include "util/os.h"
 
 /* ── Tunables (plan-mandated literals) ──────────────────────────────── */
 
@@ -352,3 +363,5 @@ ssize_t ilsp_supervisor_forward_bytes_for_test(int in_fd, int out_fd,
 }
 
 #endif  /* ILSP_SUPERVISOR_TESTING */
+
+#endif /* !_WIN32 */

@@ -126,7 +126,7 @@ static void *ilsp_ast_worker_main(void *arg) {
 
             /* Debounce expired. Run compile inside the SIGABRT boundary. */
             ilsp_current_doc_tls = doc;
-            if (sigsetjmp(doc->abort_jmp, 1) == 0) {
+            if (ILSP_SETJMP(doc->abort_jmp) == 0) {
                 IronLsp_CompileRequest req = {
                     .version     = msg.version,
                     .cancel_flag = msg.cancel_flag,
@@ -143,7 +143,7 @@ static void *ilsp_ast_worker_main(void *arg) {
             /* Synchronous pull: run the facade pull path inside the same
              * sigsetjmp boundary so a crash during pull also quarantines. */
             ilsp_current_doc_tls = doc;
-            if (sigsetjmp(doc->abort_jmp, 1) == 0) {
+            if (ILSP_SETJMP(doc->abort_jmp) == 0) {
                 ilsp_facade_pull_diagnostic(server, doc, msg.pull_request_id);
             } else {
                 doc->abort_count++;

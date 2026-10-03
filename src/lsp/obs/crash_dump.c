@@ -56,7 +56,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <pthread.h>
+#include "util/pthread_compat.h"
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -67,9 +67,11 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/utsname.h>
+#endif
 #include <time.h>
-#include <unistd.h>
+#include "util/os.h"
 
 #if defined(__linux__) || defined(__APPLE__)
 #include <execinfo.h>
@@ -150,6 +152,14 @@ static size_t   s_os_line_len   = 0;
 static char     s_workspace_line[ILSP_CRASH_PATH_MAX]; /* "WORKSPACE=/...\n" */
 static _Atomic size_t s_workspace_line_len = 0;
 static _Atomic int    s_installed = 0;
+#ifdef _WIN32
+/* Windows: access violations arrive through the unhandled exception
+ * filter, SIGABRT through the CRT's signal(); the previous SIGABRT
+ * handler is chained the way the POSIX path chains sigaction. */
+typedef void (*ilsp_sig_fn)(int);
+static ilsp_sig_fn    s_prev_sigabrt_win = SIG_DFL;
+static void signal_handler(int signo);
+#else
 static stack_t        s_altstack;
 
 /* Phase 2 SIGABRT handler is installed by ilsp_install_abort_handler in
@@ -160,6 +170,7 @@ static struct sigaction s_prev_sigsegv;
 /* ── Forward decls for helpers ────────────────────────────────────────── */
 
 static void signal_handler(int signo, siginfo_t *info, void *ctx);
+#endif
 
 /* ── Async-signal-safe helpers ───────────────────────────────────────── */
 
@@ -285,9 +296,13 @@ static int resolve_crash_dir(char *out, size_t cap) {
 
 /* ── The signal handler itself (ASYNC-SIGNAL-SAFE ONLY) ──────────────── */
 
+#ifdef _WIN32
+static void signal_handler(int signo) {
+#else
 static void signal_handler(int signo, siginfo_t *info, void *ctx) {
     (void)info;
     (void)ctx;
+#endif
 
     /* ── 1. Build dump path: <s_crash_dir>/<iso8601>-<pid>.dmp ─────── */
     char path[ILSP_CRASH_PATH_MAX];
@@ -415,6 +430,18 @@ static void signal_handler(int signo, siginfo_t *info, void *ctx) {
 
 chain:
     /* ── 7. Signal-specific post-dump handoff ─────────────────────── */
+#ifdef _WIN32
+    if (signo == SIGABRT) {
+        if (s_prev_sigabrt_win != SIG_DFL && s_prev_sigabrt_win != SIG_IGN) {
+            s_prev_sigabrt_win(signo);
+            return;
+        }
+        _exit(134);
+    }
+    /* An access violation: the dump is written, the exception filter
+     * lets the default handling terminate the process. */
+    return;
+#else
     if (signo == SIGSEGV || signo == SIGBUS) {
         /* Re-raise with default disposition so the process exits with
          * the correct signal-origin exit code (shell reports 128+signo).
@@ -456,7 +483,16 @@ chain:
     /* Other signals: re-raise as default. */
     signal(signo, SIG_DFL);
     raise(signo);
+#endif
 }
+
+#ifdef _WIN32
+static LONG WINAPI ilsp_crash_exception_filter(EXCEPTION_POINTERS *ep) {
+    (void)ep;
+    signal_handler(SIGSEGV);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+#endif
 
 /* ── Public API ───────────────────────────────────────────────────────── */
 
@@ -484,6 +520,12 @@ void ilsp_crash_install_handlers(void) {
                       "IRON_VERSION_FULL=%s\n", IRON_VERSION_STRING);
     s_version_len = (vn > 0 && (size_t)vn < sizeof(s_version_str))
                       ? (size_t)vn : 0;
+#ifdef _WIN32
+    {
+        int on = snprintf(s_os_line, sizeof(s_os_line), "OS=Windows x86_64\n");
+        s_os_line_len = (on > 0 && (size_t)on < sizeof(s_os_line)) ? (size_t)on : 0;
+    }
+#else
     struct utsname u;
     if (uname(&u) == 0) {
         int on = snprintf(s_os_line, sizeof(s_os_line),
@@ -493,8 +535,14 @@ void ilsp_crash_install_handlers(void) {
     } else {
         s_os_line_len = 0;
     }
+#endif
     atomic_store(&s_workspace_line_len, (size_t)0);
 
+#ifdef _WIN32
+    SetUnhandledExceptionFilter(ilsp_crash_exception_filter);
+    s_prev_sigabrt_win = signal(SIGABRT, signal_handler);
+    if (s_prev_sigabrt_win == SIG_ERR) s_prev_sigabrt_win = SIG_DFL;
+#else
     /* ── Install alternate signal stack ──────────────────────────── */
     static char s_sigstack_storage[ILSP_CRASH_SIGSTACK_BYTES];
     s_altstack.ss_sp    = s_sigstack_storage;
@@ -533,6 +581,7 @@ void ilsp_crash_install_handlers(void) {
         sa.sa_flags = SA_SIGINFO | SA_NODEFER;
         sigaction(SIGABRT, &sa, &s_prev_sigabrt);
     }
+#endif
 }
 
 void ilsp_crash_set_workspace_root(const char *root) {

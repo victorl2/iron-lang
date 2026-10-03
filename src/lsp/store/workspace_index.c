@@ -33,7 +33,7 @@
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
 
-#include <dirent.h>
+#include "util/os.h"
 #include <errno.h>
 #include <limits.h>
 #include <stdatomic.h>
@@ -41,7 +41,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
+#include "util/os.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096

@@ -13,12 +13,12 @@
 #include "lsp/transport/reader.h"
 
 #include <errno.h>
-#include <pthread.h>
+#include "util/pthread_compat.h"
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>  /* read(2) */
+#include "util/os.h"  /* read(2) */
 
 #include "runtime/iron_runtime.h"  /* IRON_THREAD_* */
 #include "lsp/transport/frame.h"
