@@ -1384,7 +1384,11 @@ void emit_type_decls(EmitCtx *ctx) {
                                  "    %s_data_t data;\n", mangled);
             iron_strbuf_appendf(&ctx->struct_bodies, "};\n\n");
 
-            /* Phase 38: Emit a static _free helper if any variant has boxed fields */
+            /* Phase 38 + #258: `<Enum>_free` destroys what a value owns:
+             * boxed payloads (freed with their own free) and payload fields
+             * whose type has drop glue. `<Enum>_drop` is its name for the
+             * glue callers (lists, optionals, object fields), and
+             * `<Enum>_copied` fixes up a fresh copy's payload fields. */
             bool has_any_boxed = false;
             if (td->type->enu.payload_is_boxed) {
                 for (int j2 = 0; j2 < ed->variant_count && !has_any_boxed; j2++) {
@@ -1398,46 +1402,69 @@ void emit_type_decls(EmitCtx *ctx) {
                     }
                 }
             }
-            if (has_any_boxed) {
-                iron_strbuf_appendf(&ctx->struct_bodies,
-                    "static void %s_free(%s *v) {\n", mangled, mangled);
-                iron_strbuf_appendf(&ctx->struct_bodies,
-                    "    if (!v) return;\n");
-                iron_strbuf_appendf(&ctx->struct_bodies,
-                    "    switch (v->tag) {\n");
+            for (int pass = 0; pass < 2; pass++) {
+                bool drop = pass == 0;
+                if (drop ? !(has_any_boxed || enum_needs_glue(ctx, td->type, false))
+                         : !enum_needs_glue(ctx, td->type, true))
+                    continue;
+                /* Field statements first: ensuring a payload type's glue
+                 * lands it in lifted_funcs, which renders after this, so
+                 * each callee gets a prototype here. */
+                Iron_StrBuf body = iron_strbuf_create(256);
+                Iron_StrBuf protos = iron_strbuf_create(64);
                 for (int j2 = 0; j2 < ed->variant_count; j2++) {
                     Iron_EnumVariant *ev2 = (Iron_EnumVariant *)ed->variants[j2];
-                    iron_strbuf_appendf(&ctx->struct_bodies,
-                        "    case %s_TAG_%s:", mangled, ev2->name);
-                    bool variant_has_boxed = false;
-                    if (td->type->enu.payload_is_boxed &&
-                        td->type->enu.payload_is_boxed[j2]) {
-                        for (int k2 = 0; k2 < ev2->payload_count; k2++) {
-                            if (td->type->enu.payload_is_boxed[j2][k2]) {
-                                variant_has_boxed = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!variant_has_boxed) {
-                        iron_strbuf_appendf(&ctx->struct_bodies, " break;\n");
-                    } else {
-                        iron_strbuf_appendf(&ctx->struct_bodies, "\n");
-                        for (int k2 = 0; k2 < ev2->payload_count; k2++) {
-                            if (td->type->enu.payload_is_boxed[j2] &&
-                                td->type->enu.payload_is_boxed[j2][k2]) {
-                                iron_strbuf_appendf(&ctx->struct_bodies,
-                                    "        %s_free(v->data.%s._%d);\n",
-                                    mangled, ev2->name, k2);
-                                iron_strbuf_appendf(&ctx->struct_bodies,
+                    Iron_StrBuf arm = iron_strbuf_create(64);
+                    for (int k2 = 0; k2 < ev2->payload_count; k2++) {
+                        bool boxed = td->type->enu.payload_is_boxed &&
+                                     td->type->enu.payload_is_boxed[j2] &&
+                                     td->type->enu.payload_is_boxed[j2][k2];
+                        if (boxed) {
+                            if (drop) {
+                                iron_strbuf_appendf(&arm,
+                                    "        %s_free(v->data.%s._%d);\n"
                                     "        iron_mem_free(v->data.%s._%d);\n",
-                                    ev2->name, k2);
+                                    mangled, ev2->name, k2, ev2->name, k2);
                             }
+                            continue;
                         }
-                        iron_strbuf_appendf(&ctx->struct_bodies, "        break;\n");
+                        Iron_Type *pt = (vpt && vpt[j2]) ? vpt[j2][k2] : NULL;
+                        if (!pt || pt->kind == IRON_TYPE_VOID) continue;
+                        char lv[200];
+                        snprintf(lv, sizeof(lv), "v->data.%s._%d", ev2->name, k2);
+                        size_t before = arm.len;
+                        emit_elem_lifecycle_stmt(ctx, &arm, pt, lv, drop);
+                        if (arm.len > before &&
+                            (pt->kind == IRON_TYPE_OBJECT || pt->kind == IRON_TYPE_INTERFACE ||
+                             pt->kind == IRON_TYPE_NULLABLE ||
+                             (pt->kind == IRON_TYPE_ARRAY && pt->array.is_bounded))) {
+                            const char *pc = emit_type_to_c(pt, ctx);
+                            iron_strbuf_appendf(&protos, "static void %s_%s(%s *self);\n",
+                                                pc, drop ? "drop" : "copied", pc);
+                        }
                     }
+                    if (arm.len > 0) {
+                        iron_strbuf_appendf(&body, "    case %s_TAG_%s:\n%s        break;\n",
+                                            mangled, ev2->name, iron_strbuf_get(&arm));
+                    }
+                    iron_strbuf_free(&arm);
                 }
-                iron_strbuf_appendf(&ctx->struct_bodies, "    }\n}\n\n");
+                iron_strbuf_appendf(&ctx->struct_bodies, "%s", iron_strbuf_get(&protos));
+                if (drop) {
+                    iron_strbuf_appendf(&ctx->struct_bodies,
+                        "static void %s_free(%s *v) {\n"
+                        "    if (!v) return;\n"
+                        "    switch (v->tag) {\n%s    default: break;\n    }\n}\n"
+                        "static void %s_drop(%s *v) { %s_free(v); }\n\n",
+                        mangled, mangled, iron_strbuf_get(&body), mangled, mangled, mangled);
+                } else {
+                    iron_strbuf_appendf(&ctx->struct_bodies,
+                        "static void %s_copied(%s *v) {\n"
+                        "    switch (v->tag) {\n%s    default: break;\n    }\n}\n\n",
+                        mangled, mangled, iron_strbuf_get(&body));
+                }
+                iron_strbuf_free(&body);
+                iron_strbuf_free(&protos);
             }
         } else {
             /* Plain enum: emit unchanged typedef enum */

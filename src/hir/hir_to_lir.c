@@ -148,8 +148,26 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
     }
     if (t && t->kind == IRON_TYPE_INTERFACE)
         return iface_lifecycle(t, program, want_copy, depth);
-    if (t && t->kind == IRON_TYPE_ENUM)
-        return !want_copy && enum_has_boxed_payload(t);
+    if (t && t->kind == IRON_TYPE_ENUM) {
+        if (!want_copy && enum_has_boxed_payload(t)) return true;
+        /* A payload that owns something (#258). */
+        if (!t->enu.decl || !t->enu.variant_payload_types || depth > 16) return false;
+        Iron_EnumDecl *ed = t->enu.decl;
+        for (int j = 0; j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            if (!t->enu.variant_payload_types[j]) continue;
+            for (int k = 0; k < ev->payload_count; k++) {
+                Iron_Type *pt = t->enu.variant_payload_types[j][k];
+                if (!pt || pt == t || (pt->kind == IRON_TYPE_ENUM && pt->enu.decl == ed)) continue;
+                if (type_is_rc_like(pt) || type_is_counted_string(pt) || pt->kind == IRON_TYPE_FUNC)
+                    return true;
+                if (!want_copy && type_is_owned_list(pt)) return true;
+                if (want_copy && type_is_owned_list(pt)) return true;
+                if (type_lifecycle_rec(pt, program, want_copy, depth + 1)) return true;
+            }
+        }
+        return false;
+    }
     if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl || depth > 16)
         return false;
     /* A Map or Set owns its table (#193): freed on drop, cloned on copy. */
@@ -3675,9 +3693,25 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                                                          int_type, span)->id;
         arrput(field_vals, tag_const);
 
-        /* Payload arguments */
+        /* Payload arguments: the enum owns them (#258), like an object owns
+         * its fields: an rc payload takes its own reference unless the
+         * argument hands one over, a value copied out of a place is fixed
+         * up for its new owner, a temporary moves in. */
+        Iron_Type *et = expr->enum_construct.type;
+        int vi = expr->enum_construct.variant_index;
         for (int i = 0; i < expr->enum_construct.arg_count; i++) {
-            IronLIR_ValueId av = lower_expr(ctx, expr->enum_construct.args[i]);
+            IronHIR_Expr *ae = expr->enum_construct.args[i];
+            IronLIR_ValueId av = lower_expr(ctx, ae);
+            Iron_Type *pt = (et && et->kind == IRON_TYPE_ENUM && et->enu.variant_payload_types &&
+                             vi >= 0 && et->enu.variant_payload_types[vi])
+                            ? et->enu.variant_payload_types[vi][i] : NULL;
+            if (!pt && ae) pt = ae->type;
+            if (pt && type_is_rc_like(pt)) {
+                if (!rc_expr_transfers_ownership(ae))
+                    emit_rc_retain_for_type(ctx, pt, av, span);
+            } else if (pt) {
+                av = copy_for_new_owner(ctx, ae, av, pt, span);
+            }
             arrput(field_vals, av);
         }
 
@@ -3986,7 +4020,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 }
             }
             /* Phase 24 DROP-01 (Plan 24-02): push drop entry for mutable binding */
+            /* (A copy of a recursive enum shares its boxes, which only the
+             * original frees; other enums are copied like objects, #258.) */
             bool var_enum_borrows = type && type->kind == IRON_TYPE_ENUM &&
+                                    enum_has_boxed_payload(type) &&
                                     stmt->let.init && hir_expr_is_place(stmt->let.init);
             if (!boxed && !var_is_capture(ctx, vid) && !var_enum_borrows &&
                 type_needs_drop(type, ctx->program) && ctx->defer_depth > 0 &&
@@ -4042,6 +4079,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
              * only a fresh value (a construction, a call) owns and frees
              * them. Other owned types get a copy fixup instead. */
             bool enum_borrows = type && type->kind == IRON_TYPE_ENUM &&
+                                enum_has_boxed_payload(type) &&
                                 stmt->let.init && hir_expr_is_place(stmt->let.init);
             bool needs_drop_alloca = stmt->let.init &&
                                      !init_is_heap_or_rc && !enum_borrows &&
