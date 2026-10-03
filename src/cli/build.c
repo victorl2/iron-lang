@@ -2113,8 +2113,9 @@ int iron_build(const char *source_path, const char *output_path,
 #endif
     }
 
-    /* 14. Success message */
-    fprintf(stderr, "Built: %s\n", binary_name);
+    /* 14. Success message; the web link already reported its own output. */
+    if (opts.target != IRON_TARGET_WEB)
+        fprintf(stderr, "Built: %s\n", binary_name);
     free(derived_output);
     return 0;
 }

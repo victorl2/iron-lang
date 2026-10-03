@@ -115,14 +115,32 @@ jobs:
     name: emsdk smoke test
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-2025]
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
 
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      # bash on the Windows runner does not resolve emcc.bat from the bare name.
+      EMCC: ${{ matrix.os == 'windows-2025' && 'emcc.bat' || 'emcc' }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up the MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install ninja (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ninja -y --no-progress
 
       - name: Read pinned emsdk version
         id: emsdk_version
@@ -138,12 +156,13 @@ jobs:
         run: |
           PINNED=$(cat .emsdk-version)
           echo "Pinned version: $PINNED"
-          emcc --version
-          emcc --version | grep -F "$PINNED" || { echo "FAIL: emcc version does not match $PINNED"; exit 1; }
+          "$EMCC" --version
+          "$EMCC" --version | grep -F "$PINNED" || { echo "FAIL: emcc version does not match $PINNED"; exit 1; }
           echo "OK: emcc --version contains $PINNED"
 
       - name: Compile hello.c via emcc
-        run: emcc scripts/ci-smoke/hello.c -o /tmp/hello.js
+        run: |
+          "$EMCC" scripts/ci-smoke/hello.c -o /tmp/hello.js
 
       - name: Assert smoke test artifacts exist and are non-empty
         run: |
@@ -158,10 +177,10 @@ jobs:
           echo "these files must build cleanly with zero modifications."
           echo "WEB-RUNTIME-06: also try-compiling iron_time_web.c under emcc --"
           echo "this file provides the web time shim (emscripten_get_now / emscripten_date_now)."
-          emcc -c src/runtime/iron_rc.c          -I src -Wall -Werror -o /tmp/iron_rc.o
-          emcc -c src/runtime/iron_builtins.c    -I src -Wall -Werror -o /tmp/iron_builtins.o
-          emcc -c src/runtime/iron_collections.c -I src -Wall -Werror -o /tmp/iron_collections.o
-          emcc -c src/stdlib/iron_time_web.c     -I src -Wall -Werror -o /tmp/iron_time_web.o
+          "$EMCC" -c src/runtime/iron_rc.c          -I src -Wall -Werror -o /tmp/iron_rc.o
+          "$EMCC" -c src/runtime/iron_builtins.c    -I src -Wall -Werror -o /tmp/iron_builtins.o
+          "$EMCC" -c src/runtime/iron_collections.c -I src -Wall -Werror -o /tmp/iron_collections.o
+          "$EMCC" -c src/stdlib/iron_time_web.c     -I src -Wall -Werror -o /tmp/iron_time_web.o
           test -s /tmp/iron_rc.o          || { echo "FAIL: iron_rc.o empty";          exit 1; }
           test -s /tmp/iron_builtins.o    || { echo "FAIL: iron_builtins.o empty";    exit 1; }
           test -s /tmp/iron_collections.o || { echo "FAIL: iron_collections.o empty"; exit 1; }
@@ -169,9 +188,17 @@ jobs:
           echo "OK: iron_rc.c + iron_builtins.c + iron_collections.c + iron_time_web.c compile clean under emcc"
 
       - name: Configure + build ironc (Phase 7 end-to-end smoke)
+        if: runner.os != 'Windows'
         run: |
           set -e
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang
+          cmake --build build --target ironc --parallel
+
+      - name: Configure + build ironc (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          set -e
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang
           cmake --build build --target ironc --parallel
 
       - name: End-to-end smoke — iron build --target=web (Phase 7, WEB-BUILD-01..08)

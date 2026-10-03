@@ -2667,7 +2667,9 @@ with.
 `iron build --target=web` compiles a package to WebAssembly with the
 Emscripten toolchain pinned in `.emsdk-version`, producing
 `dist/web/index.html` together with its `.js` loader and `.wasm` module.
-The `[web]` table of the manifest configures it:
+It runs on every host Iron supports; `emcc` (or `emcc.bat` on Windows)
+must be on `PATH`, as `emsdk_env` leaves it. The `[web]` table of the
+manifest configures it:
 
 ```toml
 [web]
@@ -2801,7 +2803,6 @@ so that older material is not mistaken for the current language:
 - Method-level generic inference for the container methods (`ch.recv()` without a written type).
 - Lambda parameter inference outside a function-typed parameter position.
 - `String`, `Bool` and `Float` subjects in `match`.
-- Windows as a host for the web target.
 - Cross compilation: `iron build --target=<os>-<arch>` with a precompiled
   per-target runtime and link inputs that need no platform SDK (musl on
   Linux, import libraries and an Iron entry point on Windows, `.tbd` stubs
