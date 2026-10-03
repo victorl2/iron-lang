@@ -1,0 +1,31 @@
+-- A spawn's copy of a captured val object is its own (issue 262): fixed
+-- up when the env is built and dropped by the wrapper after the body, so
+-- a fire-and-forget thread that outlives the function still reads a live
+-- value, and the copy's drop block runs once the thread is done.
+import time
+
+object Res {
+    val name: String
+    drop { println("drop {self.name}") }
+}
+
+func fire() {
+    val res = Res("fire" + "-and-forget")
+    spawn("bg") {
+        Time.sleep(150)
+        println("bg sees {res.name}")
+        return 0
+    }
+    println("fire returns")
+}
+
+func main() {
+    fire()
+    Time.sleep(500)
+    val kept = Res("awaited" + "-copy")
+    val t = spawn("t") {
+        return kept.name.len()
+    }
+    println("len {await t}")
+    println("end")
+}

@@ -7552,6 +7552,22 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 ? emit_type_to_c(lifted_fn->return_type, ctx)
                 : NULL;
 
+            /* The env's copies of captured val objects are dropped with the
+             * env (#262). Built before the wrapper's text starts: ensuring
+             * the glue appends to lifted_funcs too. */
+            Iron_StrBuf spawn_obj_drops = iron_strbuf_create(64);
+            for (int ci = 0; cap_meta && ci < cap_count; ci++) {
+                if (cap_meta[ci].is_mutable) continue;
+                Iron_Type *ct = cap_meta[ci].type;
+                if (!ct || !(ct->kind == IRON_TYPE_OBJECT || ct->kind == IRON_TYPE_INTERFACE ||
+                             ct->kind == IRON_TYPE_NULLABLE || ct->kind == IRON_TYPE_ENUM ||
+                             (ct->kind == IRON_TYPE_ARRAY && ct->array.is_bounded)))
+                    continue;
+                char lv[300];
+                snprintf(lv, sizeof(lv), "_e->%s", cap_c_name(cap_meta[ci].name));
+                emit_drop_lvalue(&spawn_obj_drops, 1, ctx, ct, lv);
+            }
+
             /* Emit wrapper into lifted_funcs section */
             iron_strbuf_appendf(&ctx->lifted_funcs,
                 has_return && cap_count > 0 && cap_meta && env_type
@@ -7570,6 +7586,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         "    %s _result = %s(_e);\n", ret_c, c_func_name);
                     emit_spawn_publish_result(&ctx->lifted_funcs, lifted_fn->return_type, ret_c);
                     emit_spawn_env_string_releases(&ctx->lifted_funcs, cap_meta, cap_count);
+                    iron_strbuf_appendf(&ctx->lifted_funcs, "%s", iron_strbuf_get(&spawn_obj_drops));
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    iron_mem_free(_arg);\n");
                 } else {
@@ -7578,6 +7595,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    %s(_e);\n", c_func_name);
                     emit_spawn_env_string_releases(&ctx->lifted_funcs, cap_meta, cap_count);
+                    iron_strbuf_appendf(&ctx->lifted_funcs, "%s", iron_strbuf_get(&spawn_obj_drops));
                     iron_strbuf_appendf(&ctx->lifted_funcs, "    iron_mem_free(_arg);\n");
                 }
             } else {
@@ -7595,6 +7613,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
 
             iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+            iron_strbuf_free(&spawn_obj_drops);
 
             if (cap_count > 0 && cap_meta && env_type) {
                 /* Capturing handled spawn: allocate env, populate, use Iron_handle_create */
@@ -7628,6 +7647,17 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         emit_indent(sb, ind);
                         iron_strbuf_appendf(sb, "iron_closure_retain(_env_%u->%s);\n",
                                             instr->id, cap_c_name(cap_meta[ci].name));
+                    }
+                    /* A captured val object is the env's own copy (#262). */
+                    if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                        (cap_meta[ci].type->kind == IRON_TYPE_OBJECT ||
+                         cap_meta[ci].type->kind == IRON_TYPE_INTERFACE ||
+                         cap_meta[ci].type->kind == IRON_TYPE_NULLABLE ||
+                         cap_meta[ci].type->kind == IRON_TYPE_ENUM ||
+                         (cap_meta[ci].type->kind == IRON_TYPE_ARRAY && cap_meta[ci].type->array.is_bounded))) {
+                        char lv[300];
+                        snprintf(lv, sizeof(lv), "_env_%u->%s", instr->id, cap_c_name(cap_meta[ci].name));
+                        emit_copy_fixup_lvalue(sb, ind, ctx, cap_meta[ci].type, lv);
                     }
                 }
                 /* Result wrappers receive both env and handle so the value is
@@ -7689,6 +7719,17 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                         iron_strbuf_appendf(sb, "iron_closure_retain(_env_%u->%s);\n",
                                             instr->id, cap_c_name(cap_meta[ci].name));
                     }
+                    /* A captured val object is the env's own copy (#262). */
+                    if (!cap_meta[ci].is_mutable && cap_meta[ci].type &&
+                        (cap_meta[ci].type->kind == IRON_TYPE_OBJECT ||
+                         cap_meta[ci].type->kind == IRON_TYPE_INTERFACE ||
+                         cap_meta[ci].type->kind == IRON_TYPE_NULLABLE ||
+                         cap_meta[ci].type->kind == IRON_TYPE_ENUM ||
+                         (cap_meta[ci].type->kind == IRON_TYPE_ARRAY && cap_meta[ci].type->array.is_bounded))) {
+                        char lv[300];
+                        snprintf(lv, sizeof(lv), "_env_%u->%s", instr->id, cap_c_name(cap_meta[ci].name));
+                        emit_copy_fixup_lvalue(sb, ind, ctx, cap_meta[ci].type, lv);
+                    }
                 }
                 /* Emit a simple wrapper that calls with env and frees */
                 Iron_StrBuf ff_wrapper_sb = iron_strbuf_create(64);
@@ -7701,15 +7742,32 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
                 if (shgeti(ctx->mono_registry, (char *)ff_wrapper) < 0) {
                     shput(ctx->mono_registry, (char *)ff_wrapper, true);
+                    /* The env's shares and copies go with the env (#262):
+                     * built first, since ensuring glue appends to lifted_funcs. */
+                    Iron_StrBuf ff_drops = iron_strbuf_create(64);
+                    emit_spawn_env_string_releases(&ff_drops, cap_meta, cap_count);
+                    for (int ci = 0; ci < cap_count; ci++) {
+                        if (cap_meta[ci].is_mutable) continue;
+                        Iron_Type *ct = cap_meta[ci].type;
+                        if (!ct || !(ct->kind == IRON_TYPE_OBJECT || ct->kind == IRON_TYPE_INTERFACE ||
+                                     ct->kind == IRON_TYPE_NULLABLE || ct->kind == IRON_TYPE_ENUM ||
+                                     (ct->kind == IRON_TYPE_ARRAY && ct->array.is_bounded)))
+                            continue;
+                        char lv[300];
+                        snprintf(lv, sizeof(lv), "_e->%s", cap_c_name(cap_meta[ci].name));
+                        emit_drop_lvalue(&ff_drops, 1, ctx, ct, lv);
+                    }
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "static void %s(void *_arg) {\n", ff_wrapper);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    %s *_e = (%s *)_arg;\n", env_type, env_type);
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    %s(_e);\n", c_func_name);
+                    iron_strbuf_appendf(&ctx->lifted_funcs, "%s", iron_strbuf_get(&ff_drops));
                     iron_strbuf_appendf(&ctx->lifted_funcs,
                         "    iron_mem_free(_arg);\n");
                     iron_strbuf_appendf(&ctx->lifted_funcs, "}\n\n");
+                    iron_strbuf_free(&ff_drops);
                 }
 
                 emit_indent(sb, inner);
