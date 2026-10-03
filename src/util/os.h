@@ -65,6 +65,7 @@
   #define strdup   _strdup
   #define popen    _popen
   #define pclose   _pclose
+  #define fdopen   _fdopen
   typedef int mode_t;
   typedef intptr_t ssize_t;
   /* mkdir(path, mode): the mode is ignored on Windows. */

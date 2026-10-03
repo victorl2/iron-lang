@@ -1,38 +1,33 @@
-#ifdef _WIN32
-/* The web target drives emcc through fork/exec; it stays POSIX-only until
- * the Windows host port covers process spawning (#234). */
-#include "cli/build_web.h"
-#include <stdio.h>
-int iron_build_web(const char *source_path, const char *output_path, IronBuildOpts opts) {
-    (void)source_path; (void)output_path; (void)opts;
-    fprintf(stderr, "error: --target=web is not available on Windows yet\n");
-    return 1;
-}
-int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
-                        IronWebConfig *cfg, const char *toml_dir, const char *lib_dir) {
-    (void)c_file_path; (void)opts; (void)cfg; (void)toml_dir; (void)lib_dir;
-    fprintf(stderr, "error: --target=web is not available on Windows yet\n");
-    return 1;
-}
-#else
-
 #include "cli/build_web.h"
 #include "cli/toml.h"
 #include "cli/web_config.h"
 #include "cli/web_shell_template.h"
 
+#include "util/os.h"      /* access, dirname, mkdir, mkstemp, popen */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>       /* access() */
 #include <sys/stat.h>
+#include <errno.h>
+#include <fcntl.h>
+
+#ifndef _WIN32
 #include <sys/wait.h>
 #include <spawn.h>
-#include <libgen.h>       /* dirname() */
-#include <errno.h>
-#include <fcntl.h>        /* O_WRONLY etc (mkstemp uses it) */
-
 extern char **environ;
+#endif
+
+/* emcc is a Python driver: a shell script on POSIX, emcc.bat on Windows,
+ * and PATH entries are separated by ';' there. */
+#ifdef _WIN32
+#define IRON_PATH_SEP ";"
+static const char *const EMCC_NAMES[] = { "emcc.bat", "emcc" };
+#else
+#define IRON_PATH_SEP ":"
+static const char *const EMCC_NAMES[] = { "emcc" };
+#endif
+#define EMCC_NAME_COUNT ((int)(sizeof(EMCC_NAMES) / sizeof(EMCC_NAMES[0])))
 
 /* ── Section B: iron_read_pinned_emsdk_version ───────────────────────────── */
 
@@ -105,21 +100,19 @@ static char *find_emcc(void) {
     if (!path_dup) return NULL;
 
     char *found = NULL;
-    char *token = strtok(path_dup, ":");
+    char *token = strtok(path_dup, IRON_PATH_SEP);
 
-    while (token) {
+    while (token && !found) {
         const char *dir = (token[0] == '\0') ? "." : token;
-        size_t candidate_len = strlen(dir) + strlen("/emcc") + 1;
-        char *candidate = (char *)malloc(candidate_len);
-        if (candidate) {
-            snprintf(candidate, candidate_len, "%s/emcc", dir);
-            if (access(candidate, X_OK) == 0) {
-                found = candidate;
-                break;
-            }
-            free(candidate);
+        for (int k = 0; k < EMCC_NAME_COUNT && !found; k++) {
+            size_t candidate_len = strlen(dir) + 1 + strlen(EMCC_NAMES[k]) + 1;
+            char *candidate = (char *)malloc(candidate_len);
+            if (!candidate) break;
+            snprintf(candidate, candidate_len, "%s/%s", dir, EMCC_NAMES[k]);
+            if (access(candidate, X_OK) == 0) found = candidate;
+            else free(candidate);
         }
-        token = strtok(NULL, ":");
+        token = strtok(NULL, IRON_PATH_SEP);
     }
 
     free(path_dup);
@@ -140,11 +133,11 @@ static char *find_emcc(void) {
  * We extract the first X.Y.Z version sequence from the first line.
  */
 static char *get_emcc_version(const char *emcc_path) {
-    /* Build the command string: "<emcc_path> --version 2>&1" */
-    size_t cmd_len = strlen(emcc_path) + strlen(" --version 2>&1") + 1;
+    /* Build the command string: "\"<emcc_path>\" --version 2>&1" */
+    size_t cmd_len = strlen(emcc_path) + strlen("\"\" --version 2>&1") + 1;
     char *cmd = (char *)malloc(cmd_len);
     if (!cmd) return NULL;
-    snprintf(cmd, cmd_len, "%s --version 2>&1", emcc_path);
+    snprintf(cmd, cmd_len, "\"%s\" --version 2>&1", emcc_path);
 
     FILE *fp = popen(cmd, "r");
     free(cmd);
@@ -202,9 +195,15 @@ static void print_install_one_liner(const char *pinned_version) {
             "\n"
             "  git clone https://github.com/emscripten-core/emsdk\n"
             "  cd emsdk\n"
+#ifdef _WIN32
+            "  emsdk install %s\n"
+            "  emsdk activate %s\n"
+            "  emsdk_env.bat\n",
+#else
             "  ./emsdk install %s\n"
             "  ./emsdk activate %s\n"
             "  source ./emsdk_env.sh\n",
+#endif
             pinned_version, pinned_version, pinned_version);
 }
 
@@ -346,13 +345,14 @@ static int mkdir_p(const char *path) {
 
     size_t len = strlen(copy);
     /* Strip trailing slash(es) so we don't create a bogus empty component */
-    while (len > 1 && copy[len - 1] == '/') {
+    while (len > 1 && (copy[len - 1] == '/' || copy[len - 1] == '\\')) {
         copy[--len] = '\0';
     }
 
     /* Walk each path component, creating intermediates */
     for (char *p = copy + 1; *p; p++) {
-        if (*p == '/') {
+        if (*p == '/' || *p == '\\') {
+            char sep = *p;
             *p = '\0';
             if (mkdir(copy, 0755) != 0 && errno != EEXIST) {
                 fprintf(stderr, "error: mkdir_p: cannot create '%s': %s\n",
@@ -360,7 +360,7 @@ static int mkdir_p(const char *path) {
                 free(copy);
                 return -1;
             }
-            *p = '/';
+            *p = sep;
         }
     }
 
@@ -441,6 +441,74 @@ static const char *const IRON_WEB_FORBIDDEN_FLAGS[] = {
 static const size_t IRON_WEB_FORBIDDEN_FLAGS_COUNT =
     sizeof(IRON_WEB_FORBIDDEN_FLAGS) / sizeof(IRON_WEB_FORBIDDEN_FLAGS[0]);
 
+/* ── run_emcc ────────────────────────────────────────────────────────────── */
+
+/* Run emcc with the NULL-terminated argv (argv[0] is the emcc path) and
+ * wait for it. Returns 0 when the process ran, with its exit status in
+ * *exit_code, and non-zero when it could not be started. */
+#ifdef _WIN32
+static int run_emcc(const char *const *argv, int *exit_code) {
+    /* emcc.bat needs the command interpreter. cmd /S /C "..." strips the
+     * outer quotes and leaves the quoted arguments inside intact. */
+    size_t need = strlen("cmd.exe /S /C \"\"") + 1;
+    for (int i = 0; argv[i]; i++) need += strlen(argv[i]) + 3;
+    char *cmd = (char *)malloc(need);
+    if (!cmd) {
+        fprintf(stderr, "error: out of memory building the emcc command line\n");
+        return 1;
+    }
+    size_t pos = 0;
+    pos += (size_t)sprintf(cmd + pos, "cmd.exe /S /C \"");
+    for (int i = 0; argv[i]; i++) {
+        if (i > 0) cmd[pos++] = ' ';
+        bool quote = strchr(argv[i], ' ') != NULL;
+        if (quote) cmd[pos++] = '"';
+        size_t len = strlen(argv[i]);
+        memcpy(cmd + pos, argv[i], len);
+        pos += len;
+        if (quote) cmd[pos++] = '"';
+    }
+    cmd[pos++] = '"';
+    cmd[pos] = '\0';
+
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+    memset(&pi, 0, sizeof(pi));
+    if (!CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+        fprintf(stderr, "error: failed to spawn emcc (error %lu)\n", GetLastError());
+        free(cmd);
+        return 1;
+    }
+    free(cmd);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    *exit_code = (int)code;
+    return 0;
+}
+#else
+static int run_emcc(const char *const *argv, int *exit_code) {
+    pid_t pid;
+    int spawn_rc = posix_spawnp(&pid, argv[0], NULL, NULL,
+                                (char *const *)argv, environ);
+    if (spawn_rc != 0) {
+        fprintf(stderr, "error: failed to spawn emcc: %s\n", strerror(spawn_rc));
+        return 1;
+    }
+    int wstatus;
+    if (waitpid(pid, &wstatus, 0) < 0) {
+        fprintf(stderr, "error: waitpid on emcc failed: %s\n", strerror(errno));
+        return 1;
+    }
+    *exit_code = WIFEXITED(wstatus) ? WEXITSTATUS(wstatus) : 1;
+    return 0;
+}
+#endif
+
 /* Test whether `flag` contains any forbidden substring.
  * Returns a pointer to the matching forbidden entry on hit, NULL if clean.
  * NULL-safe: is_forbidden_flag(NULL) returns NULL. */
@@ -492,7 +560,7 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
      *
      * use_temp_shell tracks whether we own the file (must unlink).
      */
-    char shell_path_buf[64];
+    char shell_path_buf[1024];
     shell_path_buf[0] = '\0';
     const char *shell_path = NULL;
     int use_temp_shell = 0;
@@ -554,9 +622,24 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         use_temp_shell = 0;
 
     } else {
-        /* Path B: no custom shell — materialize IRON_WEB_DEFAULT_SHELL to a
-         * temp file via mkstemp so emcc's --shell-file can point at a real path. */
-        /* mkstemp requires a mutable buffer; copy the template in */
+        /* Path B: no custom shell: materialize IRON_WEB_DEFAULT_SHELL to a
+         * temp file so emcc's --shell-file can point at a real path. emcc
+         * does not care about the file's extension, so the POSIX template
+         * keeps the .html suffix (mkstemps) and Windows, where the
+         * template has to end in XXXXXX, drops it. */
+#ifdef _WIN32
+        const char *tmp_dir = getenv("TEMP");
+        if (!tmp_dir || !*tmp_dir) tmp_dir = getenv("TMP");
+        if (!tmp_dir || !*tmp_dir) tmp_dir = ".";
+        int tmpl_n = snprintf(shell_path_buf, sizeof(shell_path_buf),
+                              "%s\\iron_web_shell_XXXXXX", tmp_dir);
+        if (tmpl_n < 0 || (size_t)tmpl_n >= sizeof(shell_path_buf)) {
+            fprintf(stderr, "error: temp shell path template too long\n");
+            free(emcc_path);
+            return 1;
+        }
+        int tmp_fd = mkstemp(shell_path_buf);
+#else
         const char *tmpl = "/tmp/iron_web_shell_XXXXXX.html";
         size_t tmpl_len = strlen(tmpl);
         if (tmpl_len >= sizeof(shell_path_buf)) {
@@ -565,20 +648,11 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
             return 1;
         }
         memcpy(shell_path_buf, tmpl, tmpl_len + 1);
-
-        /* mkstemp replaces the XXXXXX suffix in-place; the .html suffix after
-         * it is preserved (mkstemps would allow a suffix but is non-POSIX on
-         * macOS/Linux; mkstemp on the full template string works fine because
-         * the XXXXXX are the last 6 chars before the .html suffix — which
-         * unfortunately means mkstemp does NOT randomise past the XXXXXX and
-         * the .html remains literal). We use mkstemps when available; fall
-         * back to mkstemp if not. */
 #if defined(__APPLE__) || defined(__linux__)
         int tmp_fd = mkstemps(shell_path_buf, 5 /* ".html" length */);
 #else
-        /* Generic POSIX fallback: mkstemp ignores the suffix but the path
-         * still ends in XXXXXX-replaced chars; caller gets a valid temp fd. */
         int tmp_fd = mkstemp(shell_path_buf);
+#endif
 #endif
         if (tmp_fd < 0) {
             fprintf(stderr, "error: mkstemp for default web shell failed: %s\n",
@@ -587,26 +661,28 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
             return 1;
         }
 
-        /* Write the embedded default shell in one shot, retrying on EINTR. */
+        /* Write the embedded default shell through stdio; fdopen takes
+         * over the descriptor and fclose releases it. */
+        FILE *tf = fdopen(tmp_fd, "wb");
+        if (!tf) {
+            fprintf(stderr, "error: cannot open temp shell file '%s': %s\n",
+                    shell_path_buf, strerror(errno));
+            close(tmp_fd);
+            unlink(shell_path_buf);
+            free(emcc_path);
+            return 1;
+        }
         const char *shell_data = IRON_WEB_DEFAULT_SHELL;
         size_t shell_data_len = strlen(shell_data);
-        size_t written = 0;
-        while (written < shell_data_len) {
-            ssize_t w = write(tmp_fd, shell_data + written, shell_data_len - written);
-            if (w < 0) {
-                if (errno == EINTR) continue;
-                fprintf(stderr,
-                        "error: write to temp shell file '%s' failed: %s\n",
-                        shell_path_buf, strerror(errno));
-                close(tmp_fd);
-                unlink(shell_path_buf);
-                free(emcc_path);
-                return 1;
-            }
-            written += (size_t)w;
+        bool write_ok = fwrite(shell_data, 1, shell_data_len, tf) == shell_data_len;
+        if (fclose(tf) != 0) write_ok = false;
+        if (!write_ok) {
+            fprintf(stderr, "error: write to temp shell file '%s' failed: %s\n",
+                    shell_path_buf, strerror(errno));
+            unlink(shell_path_buf);
+            free(emcc_path);
+            return 1;
         }
-        close(tmp_fd);
-
         shell_path = shell_path_buf;
         use_temp_shell = 1;
     }
@@ -996,12 +1072,9 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         }
     }
 
-    /* 7. Spawn emcc via posix_spawnp. */
-    pid_t pid;
-    int spawn_rc = posix_spawnp(&pid, emcc_path, NULL, NULL,
-                                (char *const *)argv, environ);
-    if (spawn_rc != 0) {
-        fprintf(stderr, "error: failed to spawn emcc: %s\n", strerror(spawn_rc));
+    /* 7. Spawn emcc and wait for it. */
+    int emcc_rc = 1;
+    if (run_emcc(argv, &emcc_rc) != 0) {
         if (use_temp_shell) unlink(shell_path_buf);
         for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
         free(stdlib_i_flag); free(vendor_i_flag);
@@ -1012,22 +1085,6 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
         free(emcc_path);
         return 1;
     }
-
-    int wstatus;
-    if (waitpid(pid, &wstatus, 0) < 0) {
-        fprintf(stderr, "error: waitpid on emcc failed: %s\n", strerror(errno));
-        if (use_temp_shell) unlink(shell_path_buf);
-        for (int pi = 0; pi < preload_count; pi++) free(preload_mappings[pi]);
-        free(stdlib_i_flag); free(vendor_i_flag);
-        free(src_i_flag);
-        free(rl_i_flag);
-        for (int i = 0; i < IRON_WEB_RAYLIB_SRC_COUNT; i++) free(rl_abs_paths[i]);
-        for (int i = 0; i < IRON_WEB_SRC_COUNT; i++) free(abs_paths[i]);
-        free(emcc_path);
-        return 1;
-    }
-
-    int emcc_rc = WIFEXITED(wstatus) ? WEXITSTATUS(wstatus) : 1;
 
     /* 8. Cleanup — unlink temp shell on BOTH success and failure paths so
      * no /tmp/iron_web_shell_*.html stragglers are left behind. */
@@ -1049,4 +1106,3 @@ int iron_build_web_link(const char *c_file_path, IronBuildOpts opts,
     fprintf(stderr, "Built: dist/web/index.html\n");
     return 0;
 }
-#endif /* !_WIN32 */
