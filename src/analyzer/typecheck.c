@@ -3287,8 +3287,27 @@ static void unify_generic(Iron_Node *ann_node, Iron_Type *actual,
     if (ta->is_array) {
         if (t->kind != IRON_TYPE_ARRAY) return;
         t = t->array.elem;
+        if (ta->array_elem_ann) {
+            /* [Pair[T]], [[T]], [rc T]: the element annotation carries T. */
+            unify_generic(ta->array_elem_ann, t, gps, ngp, bind);
+            return;
+        }
     }
-    if (!ta->name || ta->generic_arg_count > 0) return;
+    if (!ta->name) return;
+    if (ta->generic_arg_count > 0) {
+        /* `Pair[T]` against an instance of Pair: unify each written type
+         * argument with the instance's. */
+        if (t->kind != IRON_TYPE_OBJECT || !t->object.decl || !t->object.decl->name) return;
+        Iron_Type **iargs = NULL;
+        int iargc = 0;
+        Iron_Node *tmpl = iron_generics_instance_of(t->object.decl->name, &iargs, &iargc);
+        if (!tmpl || tmpl->kind != IRON_NODE_OBJECT_DECL || !iargs) return;
+        const char *tname = ((Iron_ObjectDecl *)tmpl)->name;
+        if (!tname || strcmp(tname, ta->name) != 0) return;
+        for (int i = 0; i < ta->generic_arg_count && i < iargc; i++)
+            unify_generic(ta->generic_args[i], iargs[i], gps, ngp, bind);
+        return;
+    }
     for (int i = 0; i < ngp; i++) {
         Iron_Ident *gp = (Iron_Ident *)gps[i];
         if (gp && gp->name && strcmp(gp->name, ta->name) == 0) {
