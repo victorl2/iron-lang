@@ -1490,6 +1490,9 @@ int iron_build(const char *source_path, const char *output_path,
      * prepended, stdlib_prepended_lines == 0 and user_source_start_line == 1
      * (every real source line is at line >= 1, so the gate is inert). */
     parser.user_source_start_line = stdlib_prepended_lines + 1;
+    /* Fixed-size arrays are checked as [T; N] and compiled as the bounded
+     * vector [T; <=N] (types.h); record the types the checker creates. */
+    iron_type_track_fixed_arrays();
     Iron_Node *ast = iron_parse(&parser);
     arrfree(tokens);
 
@@ -1536,7 +1539,9 @@ int iron_build(const char *source_path, const char *output_path,
         fprintf(stderr, "=== End Capture Analysis ===\n\n");
     }
 
-    /* 6. Lower AST to HIR (module creates its own internal arena) */
+    /* 6. Lower AST to HIR (module creates its own internal arena). From
+     * here on a fixed-size array is its bounded-vector representation. */
+    iron_type_fixed_arrays_as_bounded();
     IronHIR_Module *hir_module = iron_hir_lower((Iron_Program *)ast,
                                                analysis.global_scope,
                                                NULL, &diags);

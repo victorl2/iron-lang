@@ -155,17 +155,20 @@ void emit_fused_chain(EmitCtx *ctx, Iron_StrBuf *sb, IronLIR_Func *fn,
             }
         }
 
-        /* 3. Emit the loop */
+        /* 3. Emit the loop. A bounded vector / fixed-size array source keeps
+         * its elements inline (data[0 .. len)); a list's live in its buffer. */
+        Iron_Type *src_t = emit_get_value_type(fn, chain->source);
+        bool src_bvec = src_t && src_t->kind == IRON_TYPE_ARRAY && src_t->array.is_bounded;
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb, "for (int64_t _fi = 0; _fi < ");
         emit_expr_to_buf(sb, chain->source, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ".count; _fi++) {\n");
+        iron_strbuf_appendf(sb, ".%s; _fi++) {\n", src_bvec ? "len" : "count");
 
         /* Element extraction */
         emit_indent(sb, ind + 2);
         iron_strbuf_appendf(sb, "%s _fuse_elem = ", source_elem_c);
         emit_expr_to_buf(sb, chain->source, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ".items[_fi];\n");
+        iron_strbuf_appendf(sb, ".%s[_fi];\n", src_bvec ? "data" : "items");
 
         /* Apply each chain operation */
         const char *cur_var = "_fuse_elem";

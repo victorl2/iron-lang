@@ -7,6 +7,18 @@ future debugger formatters) depend on the invariants documented here.
 
 ---
 
+## Fixed-size arrays share the layout (#245)
+
+A fixed-size array `[T; N]` is checked as its own type (exactly N elements,
+no push) and compiled as the bounded vector `[T; <=N]` with `len == N`:
+`iron_type_fixed_arrays_as_bounded()` (types.c) rewrites the checker's
+strict array types before HIR lowering, so everything below applies to
+both. Both are values: copied on assignment, passing and storing. When the
+element type owns something (strings, closures, rc handles, lists, objects
+with drop or copy glue, nested vectors) the emitter synthesizes
+`<BVec>_drop` and `<BVec>_copied`, loops over `data[0 .. len)`, and calls
+them wherever an object's glue would be called.
+
 ## Single-level bounded vector `[T; <=N]`
 
 ### C representation

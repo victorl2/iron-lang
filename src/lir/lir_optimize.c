@@ -486,9 +486,15 @@ static void optimize_array_repr(IronLIR_Module *module, IronLIR_OptimizeInfo *in
                     bool is_split =
                         instr->array_lit.elem_type &&
                         instr->array_lit.elem_type->kind == IRON_TYPE_INTERFACE;
+                    /* A bounded vector (and a fixed-size array, which
+                     * shares its representation) is an inline value struct
+                     * built by the emitter's own literal arm. */
+                    bool is_bvec = instr->type &&
+                                   instr->type->kind == IRON_TYPE_ARRAY &&
+                                   instr->type->array.is_bounded;
                     /* A stack array has no cleanup, so elements that must
                      * be released or dropped stay in a List. */
-                    if (!is_split && !instr->array_lit.elems_need_cleanup &&
+                    if (!is_split && !is_bvec && !instr->array_lit.elems_need_cleanup &&
                         instr->array_lit.element_count > 0 &&
                         instr->array_lit.element_count <= 256) {
                         instr->array_lit.use_stack_repr = true;
@@ -1342,6 +1348,16 @@ static IronLIR_ValueId lir_receiver_root_alloca(IronLIR_Func *fn, IronLIR_ValueI
  * the value-typed alloca it names. Returns that alloca, or INVALID when the
  * chain is rooted elsewhere (a pointer-shaped slot, a call result, a param).
  * *out_load receives the LOAD at the root. */
+/* A bounded vector is a value struct holding its elements inline, so an
+ * element of one in storage is storage too (unlike a dynamic list's
+ * elements, which live in a heap buffer every copy of the header shares). */
+static bool lir_vid_is_bvec(IronLIR_Func *fn, IronLIR_ValueId vid) {
+    if (vid == IRON_LIR_VALUE_INVALID || (ptrdiff_t)vid >= arrlen(fn->value_table)) return false;
+    IronLIR_Instr *in = fn->value_table[vid];
+    Iron_Type *t = in ? (in->kind == IRON_LIR_ALLOCA ? in->alloca.alloc_type : in->type) : NULL;
+    return t && t->kind == IRON_TYPE_ARRAY && t->array.is_bounded;
+}
+
 static IronLIR_ValueId lir_storage_chain_root(IronLIR_Func *fn, IronLIR_ValueId vid,
                                               IronLIR_ValueId *out_load) {
     for (int guard = 0; guard < 64; guard++) {
@@ -1350,6 +1366,10 @@ static IronLIR_ValueId lir_storage_chain_root(IronLIR_Func *fn, IronLIR_ValueId 
         IronLIR_Instr *cur = fn->value_table[vid];
         if (!cur) break;
         if (cur->kind == IRON_LIR_GET_FIELD) { vid = cur->field.object; continue; }
+        if (cur->kind == IRON_LIR_GET_INDEX && lir_vid_is_bvec(fn, cur->index.array)) {
+            vid = cur->index.array;
+            continue;
+        }
         if (cur->kind == IRON_LIR_LOAD) {
             IronLIR_ValueId p = cur->load.ptr;
             IronLIR_Instr *pin = (p != IRON_LIR_VALUE_INVALID &&
@@ -1387,6 +1407,8 @@ static LirRecvLoadEntry *lir_collect_receiver_loads(IronLIR_Func *fn) {
                 chain = in->call.args[0];
             else if (in->kind == IRON_LIR_SET_FIELD)
                 chain = in->field.object;
+            else if (in->kind == IRON_LIR_SET_INDEX && lir_vid_is_bvec(fn, in->index.array))
+                chain = in->index.array;   /* `bv[i] = x` writes inside the slot's vector */
             if (chain == IRON_LIR_VALUE_INVALID) continue;
             IronLIR_ValueId root_load = IRON_LIR_VALUE_INVALID;
             if (lir_storage_chain_root(fn, chain, &root_load) != IRON_LIR_VALUE_INVALID)
@@ -1483,6 +1505,13 @@ static bool run_copy_propagation(IronLIR_Module *module) {
                      * second mutation so copy_prop will not forward the whole-array
                      * STORE value past this instruction. */
                     IronLIR_ValueId arr = in->index.array;
+                    /* A bounded vector's element write lands in the slot at
+                     * the root of the operand chain (`bv[i] = x` through a
+                     * load of bv), like a field write. */
+                    if (lir_vid_is_bvec(fn, arr)) {
+                        IronLIR_ValueId root = lir_storage_chain_root(fn, arr, NULL);
+                        if (root != IRON_LIR_VALUE_INVALID) arr = root;
+                    }
                     if (arr != IRON_LIR_VALUE_INVALID &&
                         (ptrdiff_t)arr < arrlen(fn->value_table) &&
                         fn->value_table[arr] != NULL &&
@@ -2397,8 +2426,16 @@ static bool run_store_load_elim(IronLIR_Module *module) {
                     break;
 
                 case IRON_LIR_SET_INDEX:
-                    /* SET_INDEX mutates the array element — invalidate that alloca */
-                    if (last_store) hmdel(last_store, in->index.array);
+                    /* SET_INDEX mutates the array element — invalidate that alloca;
+                     * for a bounded vector the write lands in the slot at the
+                     * root of the operand chain, as a field write does. */
+                    if (last_store) {
+                        hmdel(last_store, in->index.array);
+                        if (lir_vid_is_bvec(fn, in->index.array)) {
+                            IronLIR_ValueId root = lir_storage_chain_root(fn, in->index.array, NULL);
+                            if (root != IRON_LIR_VALUE_INVALID) hmdel(last_store, root);
+                        }
+                    }
                     break;
 
                 case IRON_LIR_SET_FIELD: {

@@ -1622,6 +1622,14 @@ static bool emit_field_is_box(const Iron_Type *ft) {
 }
 
 static bool emit_type_is_string_like(const Iron_Type *t);
+
+/* A bounded vector [T; <=N] (a fixed-size array [T; N] shares the
+ * representation) stores its elements inline: when the elements own
+ * something, dropping the vector drops data[0 .. len) and a fresh copy of
+ * it fixes each element up, through `<BVec>_drop` / `<BVec>_copied`. */
+static bool emit_type_is_bvec(const Iron_Type *t) {
+    return t && t->kind == IRON_TYPE_ARRAY && t->array.is_bounded && t->array.size >= 0;
+}
 static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
                              bool want_copy, int depth) {
     if (!od || depth > 16) return false;
@@ -1638,11 +1646,106 @@ static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
         if (!want_copy && emit_field_is_box(ft)) return true;
         if (ft->kind == IRON_TYPE_FUNC) return true;
         if (ft->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, ft, want_copy)) return true;
+        if (emit_type_is_bvec(ft) && bvec_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
             od_lifecycle_rec(ctx, ft->object.decl, want_copy, depth + 1))
             return true;
     }
     return false;
+}
+
+bool bvec_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
+    if (!emit_type_is_bvec(t)) return false;
+    const Iron_Type *et = t->array.elem;
+    if (!et) return false;
+    if (emit_type_is_rc_like(et) || emit_field_is_owned_list(et)) return true;
+    if (emit_type_is_string_like(et)) return true;
+    if (!want_copy && emit_field_is_box(et)) return true;
+    if (et->kind == IRON_TYPE_FUNC) return true;
+    if (et->kind == IRON_TYPE_INTERFACE) return iface_needs_glue(ctx, et, want_copy);
+    if (emit_type_is_bvec(et)) return bvec_needs_glue(ctx, et, want_copy);
+    if (et->kind == IRON_TYPE_OBJECT && et->object.decl)
+        return od_lifecycle_rec(ctx, et->object.decl, want_copy, 1);
+    return false;
+}
+
+/* The drop / copy statement for one element `lv` (a C lvalue of type `et`),
+ * the per-kind cases the object glue applies to its fields. */
+static void emit_elem_lifecycle_stmt(EmitCtx *ctx, Iron_StrBuf *sb, const Iron_Type *et,
+                                     const char *lv, bool drop) {
+    if (!et) return;
+    if (et->kind == IRON_TYPE_RC) {
+        iron_strbuf_appendf(sb, "        %s((void *)%s);\n",
+                            drop ? "iron_rc_release" : "iron_rc_retain", lv);
+    } else if (et->kind == IRON_TYPE_WEAK_RC) {
+        iron_strbuf_appendf(sb, "        %s((void *)%s);\n",
+                            drop ? "iron_weak_rc_release" : "iron_weak_rc_retain", lv);
+    } else if (emit_type_is_rc_like(et)) {
+        iron_strbuf_appendf(sb, "        if (%s.has_value) %s((void *)%s.value);\n",
+                            lv, drop ? "iron_rc_release" : "iron_rc_retain", lv);
+    } else if (et->kind == IRON_TYPE_STRING) {
+        iron_strbuf_appendf(sb, "        %s(&%s);\n",
+                            drop ? "iron_string_release" : "iron_string_retain", lv);
+    } else if (emit_type_is_string_like(et)) {
+        iron_strbuf_appendf(sb, "        if (%s.has_value) %s(&%s.value);\n",
+                            lv, drop ? "iron_string_release" : "iron_string_retain", lv);
+    } else if (et->kind == IRON_TYPE_FUNC) {
+        iron_strbuf_appendf(sb, "        %s(%s);\n",
+                            drop ? "iron_closure_release" : "iron_closure_retain", lv);
+    } else if (emit_field_is_owned_list(et)) {
+        const char *lc = emit_type_to_c((Iron_Type *)et, ctx);
+        if (drop) iron_strbuf_appendf(sb, "        %s_free(&%s);\n", lc, lv);
+        else      iron_strbuf_appendf(sb, "        %s = %s_clone(&%s);\n", lv, lc, lv);
+    } else if (emit_field_is_box(et)) {
+        if (!drop) return;
+        emit_ensure_box(ctx, et->object.elem);
+        iron_strbuf_appendf(sb, "        %s_free(&%s);\n", emit_type_to_c((Iron_Type *)et, ctx), lv);
+    } else if (et->kind == IRON_TYPE_INTERFACE) {
+        if (!iface_needs_glue(ctx, et, !drop)) return;
+        emit_ensure_iface_glue(ctx, et, drop);
+        iron_strbuf_appendf(sb, "        %s_%s(&%s);\n", emit_type_to_c((Iron_Type *)et, ctx),
+                            drop ? "drop" : "copied", lv);
+    } else if (emit_type_is_bvec(et)) {
+        if (!bvec_needs_glue(ctx, et, !drop)) return;
+        emit_ensure_bvec_glue(ctx, et, drop);
+        iron_strbuf_appendf(sb, "        %s_%s(&%s);\n", emit_type_to_c((Iron_Type *)et, ctx),
+                            drop ? "drop" : "copied", lv);
+    } else if (et->kind == IRON_TYPE_OBJECT && et->object.decl) {
+        const char *oc = emit_type_to_c((Iron_Type *)et, ctx);
+        if (drop) {
+            if (!od_needs_drop(ctx, et->object.decl)) return;
+            emit_ensure_drop(ctx, oc, et->object.decl);
+        } else {
+            if (!od_needs_copy_fixup(ctx, et->object.decl)) return;
+            emit_ensure_copy_fixup(ctx, oc, et->object.decl);
+        }
+        iron_strbuf_appendf(sb, "        %s_%s(&%s);\n", oc, drop ? "drop" : "copied", lv);
+    }
+}
+
+void emit_ensure_bvec_glue(EmitCtx *ctx, const Iron_Type *t, bool drop) {
+    if (!ctx || !bvec_needs_glue(ctx, t, !drop)) return;
+    const char *bc = emit_type_to_c((Iron_Type *)t, ctx);
+    char **done = drop ? ctx->emitted_drops : ctx->emitted_copy_fixups;
+    for (int i = 0; i < (int)arrlen(done); i++)
+        if (strcmp(done[i], bc) == 0) return;
+    char *name_copy = iron_arena_strdup(ctx->arena, bc, strlen(bc));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_bvec_glue");
+    if (drop) arrput(ctx->emitted_drops, name_copy);
+    else      arrput(ctx->emitted_copy_fixups, name_copy);
+
+    /* The element's glue lands first (lifted_funcs order); the body is
+     * built aside because ensuring it may emit into lifted_funcs. */
+    Iron_StrBuf body = iron_strbuf_create(128);
+    emit_elem_lifecycle_stmt(ctx, &body, t->array.elem, "self->data[_i]", drop);
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static void %s_%s(%s *self) {\n"
+        "    for (int64_t _i = 0; _i < self->len; _i++) {\n"
+        "%s"
+        "    }\n"
+        "}\n\n",
+        bc, drop ? "drop" : "copied", bc, iron_strbuf_get(&body));
+    iron_strbuf_free(&body);
 }
 
 /* A String or String? field: its characters are shared and counted
@@ -1708,6 +1811,7 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
     for (int i = 0; i < od->field_count; i++) {
         Iron_Type *ft = emit_field_type((Iron_Field *)od->fields[i]);
         if (ft && ft->kind == IRON_TYPE_INTERFACE) emit_ensure_iface_glue(ctx, ft, false);
+        if (emit_type_is_bvec(ft)) emit_ensure_bvec_glue(ctx, ft, false);
         if (ft && ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
             od_needs_copy_fixup(ctx, ft->object.decl))
             emit_ensure_copy_fixup(ctx, emit_type_to_c(ft, ctx), ft->object.decl);
@@ -1726,6 +1830,10 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
             iron_strbuf_appendf(sb, "    iron_closure_retain(self->%s);\n", f->name);
         } else if (ft->kind == IRON_TYPE_INTERFACE) {
             if (iface_needs_glue(ctx, ft, true))
+                iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
+                                    emit_type_to_c(ft, ctx), f->name);
+        } else if (emit_type_is_bvec(ft)) {
+            if (bvec_needs_glue(ctx, ft, true))
                 iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
                                     emit_type_to_c(ft, ctx), f->name);
         } else if (emit_field_is_owned_list(ft)) {
@@ -1773,6 +1881,10 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
         Iron_Type *ft = emit_field_type((Iron_Field *)od->fields[i]);
         if (ft && ft->kind == IRON_TYPE_INTERFACE) {
             emit_ensure_iface_glue(ctx, ft, true);
+            continue;
+        }
+        if (emit_type_is_bvec(ft)) {
+            emit_ensure_bvec_glue(ctx, ft, true);
             continue;
         }
         if (!ft || ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
@@ -1844,6 +1956,12 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
         }
         if (ft->kind == IRON_TYPE_INTERFACE) {
             if (iface_needs_glue(ctx, ft, false))
+                iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
+                                    emit_type_to_c(ft, ctx), f->name);
+            continue;
+        }
+        if (emit_type_is_bvec(ft)) {
+            if (bvec_needs_glue(ctx, ft, false))
                 iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
                                     emit_type_to_c(ft, ctx), f->name);
             continue;

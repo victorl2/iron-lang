@@ -1,0 +1,54 @@
+-- Elements of a fixed-size array or bounded vector are owned by the
+-- vector (issue 245): they are dropped when the binding ends (or when the
+-- object or list holding the vector is dropped), a copy of the vector
+-- fixes up each element for its new owner, and push moves its argument in.
+-- They used to be neither dropped nor copied (rc elements leaked, drop
+-- blocks never ran).
+object Tracked {
+    val name: String
+    drop { println("drop {self.name}") }
+}
+
+object Holder {
+    var items: [Tracked; 2]
+    init(i: [Tracked; 2]) { self.items = i }
+}
+
+object Counter {
+    var n: Int
+    init(n: Int) { self.n = n }
+}
+
+func count(v: [Tracked; 2]) -> Int {
+    return len(v)
+}
+
+func main() {
+    val items: [Tracked; 2] = [Tracked("x"), Tracked("y")]
+    println("items {items[1].name} {count(items)}")
+    if true {
+        var bv: [Tracked; <=3] = [Tracked("p")]
+        bv.push(Tracked("q"))
+        val kept = bv
+        println("kept {kept[1].name} {len(kept)}")
+    }
+    println("after block")
+    val shared = rc Counter(1)
+    if true {
+        var refs: [rc Counter; 2] = [shared, shared]
+        refs[0].n = refs[0].n + 10
+        var again = refs
+        again[1].n = again[1].n + 100
+        println("refs {refs[1].n}")
+    }
+    println("shared {shared.n}")
+    var rows: [[Tracked; 2]] = []
+    rows.push([Tracked("r1"), Tracked("r2")])
+    println("rows {rows[0][1].name}")
+    val a = "a" + "b"
+    val names: [String; 2] = [a + "1", a + "2"]
+    var other = names
+    other[0] = a + "3"
+    println("{names[0]} {other[0]} {other[1]}")
+    println("end")
+}

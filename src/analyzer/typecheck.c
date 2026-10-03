@@ -2446,7 +2446,11 @@ static Iron_Type *resolve_array_ext_method(TypeCtx *ctx,
             /* Return type is [SomeType] */
             const char *inner = ret_ann->name;
             if (inner && ext->elem_type_name && strcmp(inner, ext->elem_type_name) == 0) {
-                /* [T] -> same array type as input (filter) */
+                /* [T] -> the input's element type (filter). The result is a
+                 * list: a fixed-size array or bounded vector cannot stand
+                 * for a selection of its own elements. */
+                if (arr_type->array.size >= 0 || arr_type->array.is_bounded)
+                    return iron_type_make_array(ctx->arena, elem_type, -1, false);
                 return arr_type;
             } else {
                 /* [U] -> infer U from lambda return type in first arg (map).
@@ -3237,10 +3241,18 @@ static Iron_Node *type_ann_from_expr(TypeCtx *ctx, Iron_Node *n) {
         return (Iron_Node *)ta;
     }
     if (n->kind == IRON_NODE_ARRAY_LIT) {
-        /* `[Int]` written as a type argument: a list of the element type. */
+        /* `[Int]` written as a type argument: a list of the element type;
+         * `[Int; 2]` a fixed-size array of it. */
         Iron_ArrayLit *al = (Iron_ArrayLit *)n;
-        if (al->element_count != 1 || al->size) return NULL;
-        Iron_Node *elem = type_ann_from_expr(ctx, al->elements[0]);
+        Iron_Node *elem = NULL;
+        if (al->type_ann && al->size && al->element_count == 0) {
+            /* The parser reads `[Int; 2]` as the sized form. */
+            if (al->size->kind != IRON_NODE_INT_LIT) return NULL;
+            elem = al->type_ann;
+        } else {
+            if (al->element_count != 1 || al->size) return NULL;
+            elem = type_ann_from_expr(ctx, al->elements[0]);
+        }
         if (!elem) return NULL;
         Iron_TypeAnnotation *ta = ARENA_ALLOC(ctx->arena, Iron_TypeAnnotation);
         if (!ta) return NULL;
@@ -3249,6 +3261,7 @@ static Iron_Node *type_ann_from_expr(TypeCtx *ctx, Iron_Node *n) {
         ta->span = n->span;
         ta->is_array = true;
         ta->array_elem_ann = elem;
+        ta->array_size = al->size;
         return (Iron_Node *)ta;
     }
     return NULL;
@@ -4317,12 +4330,14 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                             for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
                         } else {
                             for (int i = 0; i < ce->arg_count; i++) {
-                                Iron_Type *arg_t = check_expr(ctx, ce->args[i]);
                                 Iron_Param *pp =
                                     (Iron_Param *)anon_init->params[i + 1];
                                 Iron_Type *param_t = pp
                                     ? resolve_type_annotation(ctx, pp->type_ann)
                                     : NULL;
+                                /* The parameter type shapes a literal argument
+                                 * (`Grid([1, 2])` for a `[Int; <=4]` field). */
+                                Iron_Type *arg_t = check_expr_with_expected(ctx, ce->args[i], param_t);
                                 if (arg_t && param_t &&
                                     arg_t->kind   != IRON_TYPE_ERROR &&
                                     param_t->kind != IRON_TYPE_ERROR &&
@@ -4369,9 +4384,9 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
                     } else {
                         for (int i = 0; i < ce->arg_count; i++) {
-                            Iron_Type *arg_t = check_expr(ctx, ce->args[i]);
                             Iron_Field *fld = (Iron_Field *)od->fields[i];
                             Iron_Type *fld_t = resolve_type_annotation(ctx, fld->type_ann);
+                            Iron_Type *arg_t = check_expr_with_expected(ctx, ce->args[i], fld_t);
                             if (arg_t && fld_t &&
                                 arg_t->kind  != IRON_TYPE_ERROR &&
                                 fld_t->kind  != IRON_TYPE_ERROR &&
@@ -5673,12 +5688,12 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                 /* args were already check_expr'd at the top
                                  * of this case; re-check here is idempotent
                                  * (check_expr sets resolved_type once). */
-                                Iron_Type *at = check_expr(ctx, mc->args[i]);
                                 Iron_Param *pp =
                                     (Iron_Param *)named_init->params[i + 1];
                                 Iron_Type *pt = pp
                                     ? resolve_type_annotation(ctx, pp->type_ann)
                                     : NULL;
+                                Iron_Type *at = check_expr_with_expected(ctx, mc->args[i], pt);
                                 if (at && pt &&
                                     at->kind != IRON_TYPE_ERROR &&
                                     pt->kind != IRON_TYPE_ERROR &&
@@ -6705,9 +6720,9 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                     for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
                 } else {
                     for (int i = 0; i < ce->arg_count; i++) {
-                        Iron_Type *arg_t = check_expr(ctx, ce->args[i]);
                         Iron_Field *fld = (Iron_Field *)od->fields[i];
                         Iron_Type *fld_t = resolve_type_annotation(ctx, fld->type_ann);
+                        Iron_Type *arg_t = check_expr_with_expected(ctx, ce->args[i], fld_t);
                         if (arg_t && fld_t &&
                             arg_t->kind  != IRON_TYPE_ERROR &&
                             fld_t->kind  != IRON_TYPE_ERROR &&
@@ -7707,10 +7722,12 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
             }
         }
         /* A literal with exactly N fitting elements is a `[T; N]` where one
-         * is expected (a fixed-size return or annotation). */
+         * is expected (a fixed-size return or annotation); with at most N it
+         * is a `[T; <=N]` where a bounded vector is expected. */
         if (!al->type_ann && !al->size && expected->array.size >= 0 &&
-            !expected->array.is_bounded && expected->array.elem &&
-            al->element_count == expected->array.size) {
+            expected->array.elem &&
+            (expected->array.is_bounded ? al->element_count <= expected->array.size
+                                        : al->element_count == expected->array.size)) {
             bool fits = true;
             for (int i = 0; i < al->element_count; i++) {
                 Iron_Type *et = check_expr_with_expected(ctx, al->elements[i],

@@ -286,6 +286,10 @@ void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
     } else if (t->kind == IRON_TYPE_ARRAY && t->array.size < 0 && !t->array.is_bounded) {
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "%s = %s_clone(&%s);\n", lv, emit_type_to_c(t, ctx), lv);
+    } else if (t->kind == IRON_TYPE_ARRAY && t->array.is_bounded && bvec_needs_glue(ctx, t, true)) {
+        emit_ensure_bvec_glue(ctx, t, false);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s_copied(&%s);\n", emit_type_to_c(t, ctx), lv);
     }
 }
 
@@ -298,28 +302,52 @@ void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
 static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
                                  EmitCtx *ctx, IronLIR_Instr *instr,
                                  const char *fname, bool is_hoisted) {
-    if (!fname || strncmp(fname, "Iron_List_", 10) != 0 || instr->call.arg_count < 2)
+    if (!fname || strncmp(fname, "Iron_List_", 10) != 0 || instr->call.arg_count < 1)
         return false;
     const char *suffix = strrchr(fname, '_');
     if (!suffix) return false;
-    enum { M_MAP, M_FILTER, M_FOREACH, M_REDUCE } m;
-    if (strcmp(suffix, "_map") == 0) m = M_MAP;
-    else if (strcmp(suffix, "_filter") == 0) m = M_FILTER;
-    else if (strcmp(suffix, "_forEach") == 0) m = M_FOREACH;
-    else if (strcmp(suffix, "_reduce") == 0 && instr->call.arg_count >= 3) m = M_REDUCE;
+    enum { M_MAP, M_FILTER, M_FOREACH, M_REDUCE, M_SUM } m;
+    int nargs = instr->call.arg_count;
+    if (strcmp(suffix, "_map") == 0 && nargs >= 2) m = M_MAP;
+    else if (strcmp(suffix, "_filter") == 0 && nargs >= 2) m = M_FILTER;
+    else if (strcmp(suffix, "_forEach") == 0 && nargs >= 2) m = M_FOREACH;
+    else if (strcmp(suffix, "_reduce") == 0 && nargs >= 3) m = M_REDUCE;
+    else if (strcmp(suffix, "_sum") == 0) m = M_SUM;
     else return false;
     IronLIR_ValueId self_arg = instr->call.args[0];
     Iron_Type *lt = emit_get_value_type(fn, self_arg);
-    if (!lt || lt->kind != IRON_TYPE_ARRAY || !lt->array.elem || lt->array.is_bounded ||
+    if (!lt || lt->kind != IRON_TYPE_ARRAY || !lt->array.elem ||
         lt->array.elem->kind == IRON_TYPE_INTERFACE)
         return false;
+    /* A bounded vector (or fixed-size array) keeps its elements inline in
+     * data[0 .. len); a list's live in its buffer, items[0 .. count). The
+     * runtime's Iron_List_<T>_sum covers lists; only vectors need the loop. */
+    bool is_bvec = lt->array.is_bounded;
+    if (m == M_SUM && !is_bvec) return false;
+    const char *f_items = is_bvec ? "data" : "items";
+    const char *f_count = is_bvec ? "len" : "count";
     if (get_stack_array_origin(ctx, self_arg) != IRON_LIR_VALUE_INVALID) return false;
     if (ctx->split_collection_ids && hmgeti(ctx->split_collection_ids, self_arg) >= 0)
         return false;
     Iron_Type *et = lt->array.elem;
     const char *et_c = emit_type_to_c(et, ctx);
-    IronLIR_ValueId fn_arg = instr->call.args[m == M_REDUCE ? 2 : 1];
     unsigned id = (unsigned)instr->id;
+    if (m == M_SUM) {
+        emit_indent(sb, ind);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", et_c);
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " = 0;\n");
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "for (int64_t _i = 0; _i < ");
+        emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ".%s; _i++) ", f_count);
+        emit_val(sb, instr->id);
+        iron_strbuf_appendf(sb, " += ");
+        emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
+        iron_strbuf_appendf(sb, ".%s[_i];\n", f_items);
+        return true;
+    }
+    IronLIR_ValueId fn_arg = instr->call.args[m == M_REDUCE ? 2 : 1];
     if (m == M_MAP || m == M_FILTER) {
         Iron_Type *rt = instr->type;
         Iron_Type *ret = (rt && rt->kind == IRON_TYPE_ARRAY && rt->array.elem) ? rt->array.elem : et;
@@ -343,14 +371,14 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb, "for (int64_t _i = 0; _i < ");
         emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ".count; _i++) {\n");
+        iron_strbuf_appendf(sb, ".%s; _i++) {\n", f_count);
         if (m == M_MAP) {
             emit_indent(sb, ind + 2);
             iron_strbuf_appendf(sb, "%s _r = _hof_fn%u(", ret_c, id);
             emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".env, ");
             emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, ".items[_i]);\n");
+            iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
             emit_indent(sb, ind + 2);
             iron_strbuf_appendf(sb, "%s_push(&", rt_c);
             emit_val(sb, instr->id);
@@ -361,11 +389,11 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
             emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ".env, ");
             emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, ".items[_i])) {\n");
+            iron_strbuf_appendf(sb, ".%s[_i])) {\n", f_items);
             emit_indent(sb, ind + 3);
             iron_strbuf_appendf(sb, "%s _k = ", et_c);
             emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, ".items[_i];\n");
+            iron_strbuf_appendf(sb, ".%s[_i];\n", f_items);
             emit_copy_fixup_lvalue(sb, ind + 3, ctx, et, "_k");
             emit_indent(sb, ind + 3);
             iron_strbuf_appendf(sb, "%s_push(&", rt_c);
@@ -392,11 +420,11 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb, "for (int64_t _i = 0; _i < ");
         emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ".count; _i++) _hof_fn%u(", id);
+        iron_strbuf_appendf(sb, ".%s; _i++) _hof_fn%u(", f_count, id);
         emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ".env, ");
         emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ".items[_i]);\n");
+        iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "}\n");
         return true;
@@ -421,7 +449,7 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
     emit_indent(sb, ind + 1);
     iron_strbuf_appendf(sb, "for (int64_t _i = 0; _i < ");
     emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-    iron_strbuf_appendf(sb, ".count; _i++) ");
+    iron_strbuf_appendf(sb, ".%s; _i++) ", f_count);
     emit_val(sb, instr->id);
     iron_strbuf_appendf(sb, " = _hof_fn%u(", id);
     emit_expr_to_buf(sb, fn_arg, fn, ctx, ctx->current_block_id, 0);
@@ -429,7 +457,7 @@ static bool emit_inline_list_hof(Iron_StrBuf *sb, int ind, IronLIR_Func *fn,
     emit_val(sb, instr->id);
     iron_strbuf_appendf(sb, ", ");
     emit_expr_to_buf(sb, self_arg, fn, ctx, ctx->current_block_id, 0);
-    iron_strbuf_appendf(sb, ".items[_i]);\n");
+    iron_strbuf_appendf(sb, ".%s[_i]);\n", f_items);
     emit_indent(sb, ind);
     iron_strbuf_appendf(sb, "}\n");
     return true;
@@ -1416,6 +1444,11 @@ const char *emit_cell_drop_fn(EmitCtx *ctx, Iron_Type *t) {
                  "if (((%s *)p)->has_value) iron_rc_release((void *)((%s *)p)->value);", tc, tc);
     } else if (t->kind == IRON_TYPE_ARRAY && t->array.size < 0 && !t->array.is_bounded) {
         snprintf(body, sizeof(body), "%s_free((%s *)p);", tc, tc);
+    } else if (t->kind == IRON_TYPE_ARRAY && t->array.is_bounded &&
+               bvec_needs_glue(ctx, t, false)) {
+        emit_ensure_bvec_glue(ctx, t, true);
+        snprintf(proto, sizeof(proto), "static void %s_drop(%s *self);\n", tc, tc);
+        snprintf(body, sizeof(body), "%s_drop((%s *)p);", tc, tc);
     } else if (t->kind == IRON_TYPE_OBJECT && t->object.decl &&
                od_needs_drop(ctx, t->object.decl)) {
         emit_ensure_drop(ctx, tc, t->object.decl);
@@ -3921,52 +3954,55 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             bool use_direct = (arr_t && arr_t->kind == IRON_TYPE_ARRAY &&
                                !use_bvec);
             if (use_bvec) {
-                /* Phase 23 VEC-01 push-mutation rule applies to element writes
-                 * too: bounded vecs are value types (inline .data storage). If
-                 * the array operand is a LOAD, its SSA result is a COPY — the
-                 * write would vanish. Operate on the LOAD's alloca instead so
-                 * the store sticks (mirrors the _push interception). */
-                IronLIR_ValueId bvset_recv = instr->index.array;
-                if (bvset_recv != IRON_LIR_VALUE_INVALID &&
-                    bvset_recv < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                    fn->value_table[bvset_recv] != NULL &&
-                    fn->value_table[bvset_recv]->kind == IRON_LIR_LOAD) {
-                    bvset_recv = fn->value_table[bvset_recv]->load.ptr;
+                /* A bounded vector is a value struct with inline storage, so
+                 * the write has to land in the vector's own storage: the slot
+                 * it was loaded from, the field of an object in a slot or
+                 * behind a pointer, an element of a list (`g.cells[i] = x`,
+                 * `grids[k][i] = x`). A loaded copy would swallow the write.
+                 * Checked writes guard against .len (the initialized region,
+                 * the bound the checked GET uses) via iron_panic_bvec_oob;
+                 * unchecked ones go through IRON_UNCHECKED_IDX. */
+                const char *bv_c = emit_type_to_c(arr_t, ctx);
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "{\n");
+                emit_indent(sb, ind + 1);
+                iron_strbuf_appendf(sb, "%s *_bv = ", bv_c);
+                if (emit_vid_is_storage_path(fn, instr->index.array)) {
+                    emit_receiver_addr(sb, fn, ctx, instr->index.array, ctx->current_block_id);
+                } else {
+                    /* Not addressable storage (a call result, a parameter
+                     * copy): write into the value itself, through the real
+                     * definition when value_table aliases a promoted slot's
+                     * LOAD to the value it stored (`var c = bv; c[0] = x`). */
+                    IronLIR_ValueId recv = instr->index.array;
+                    IronLIR_Instr *recv_def = emit_def_instr(fn, recv);
+                    if (recv_def && recv_def->kind == IRON_LIR_LOAD) recv = recv_def->load.ptr;
+                    iron_strbuf_appendf(sb, "&");
+                    emit_expr_to_buf(sb, recv, fn, ctx, ctx->current_block_id, 0);
                 }
+                iron_strbuf_appendf(sb, ";\n");
                 if (!instr->index.bounds_elide && !instr->index.bounds_unchecked) {
-                    /* if (i >= (int64_t)bv.len) iron_panic_bvec_oob(...) —
-                     * mirrors the checked GET's bvec guard shape (bound is
-                     * .len, not the N capacity). */
-                    emit_indent(sb, ind);
+                    emit_indent(sb, ind + 1);
                     iron_strbuf_appendf(sb, "if (");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, " >= (int64_t)");
-                    emit_expr_to_buf(sb, bvset_recv, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb,
-                        ".len) iron_panic_bvec_oob(__FILE__, __LINE__, ");
+                    iron_strbuf_appendf(sb, " >= (int64_t)_bv->len) iron_panic_bvec_oob(__FILE__, __LINE__, ");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, ", (int64_t)");
-                    emit_expr_to_buf(sb, bvset_recv, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, ".len);\n");
+                    iron_strbuf_appendf(sb, ", (int64_t)_bv->len);\n");
                 }
-                emit_indent(sb, ind);
-                emit_expr_to_buf(sb, bvset_recv, fn, ctx, ctx->current_block_id, 0);
+                emit_indent(sb, ind + 1);
                 if (instr->index.bounds_unchecked) {
-                    /* bv.data[IRON_UNCHECKED_IDX(i, (int64_t)bv.len, ...)] = v; */
-                    iron_strbuf_appendf(sb, ".data[IRON_UNCHECKED_IDX(");
+                    iron_strbuf_appendf(sb, "_bv->data[IRON_UNCHECKED_IDX(");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, ", (int64_t)");
-                    emit_expr_to_buf(sb, bvset_recv, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, ".len, __FILE__, __LINE__)] = ");
+                    iron_strbuf_appendf(sb, ", (int64_t)_bv->len, __FILE__, __LINE__)] = ");
                 } else {
-                    /* Checked (guard emitted above) or elision-proved: raw
-                     * .data store — mirrors the checked GET's raw .data read. */
-                    iron_strbuf_appendf(sb, ".data[");
+                    iron_strbuf_appendf(sb, "_bv->data[");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, "] = ");
                 }
                 emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ";\n");
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "}\n");
             } else if (use_direct) {
                 /* LIST-01: mirror the GET direct-path bounds check — the
                  * inlined .items[i] = v write skips _set()'s guard, so an OOB
@@ -4131,6 +4167,19 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
                     if (opt) iron_strbuf_appendf(sb, ").value");
                     iron_strbuf_appendf(sb, ");\n");
+                    break;
+                }
+                /* A bounded vector / fixed-size array whose elements own
+                 * something: drop or fix up data[0 .. len) (#245). */
+                if (gt && gt->kind == IRON_TYPE_ARRAY && gt->array.is_bounded) {
+                    if (bvec_needs_glue(ctx, gt, !is_drop)) {
+                        emit_ensure_bvec_glue(ctx, gt, is_drop);
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "%s_%s(", emit_type_to_c(gt, ctx),
+                                            is_drop ? "drop" : "copied");
+                        emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
+                        iron_strbuf_appendf(sb, ");\n");
+                    }
                     break;
                 }
                 if (gt && gt->kind == IRON_TYPE_INTERFACE) {
@@ -6644,6 +6693,9 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         const char *list_c = emit_type_to_c(lt, ctx);
         const char *elem_c = et ? emit_type_to_c(et, ctx) : "int64_t";
         IronLIR_ValueId sa = get_stack_array_origin(ctx, instr->slice.array);
+        /* A bounded vector / fixed-size array source: inline .data[0 .. len). */
+        Iron_Type *src_t = emit_get_value_type(fn, instr->slice.array);
+        bool src_bvec = src_t && src_t->kind == IRON_TYPE_ARRAY && src_t->array.is_bounded;
         Iron_StrBuf src = iron_strbuf_create(64);
         emit_expr_to_buf(&src, instr->slice.array, fn, ctx, ctx->current_block_id, 0);
         const char *src_s = iron_strbuf_get(&src);
@@ -6657,7 +6709,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_val(sb, sa);
             iron_strbuf_appendf(sb, "_len; ");
         } else {
-            iron_strbuf_appendf(sb, "(%s).count; ", src_s);
+            iron_strbuf_appendf(sb, "(%s).%s; ", src_s, src_bvec ? "len" : "count");
         }
         iron_strbuf_appendf(sb, "int64_t _sl_s = ");
         if (instr->slice.start == IRON_LIR_VALUE_INVALID) iron_strbuf_appendf(sb, "0");
@@ -6674,7 +6726,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, "  for (int64_t _sl_i = _sl_s; _sl_i < _sl_e; _sl_i++) {\n");
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "    %s _sl_el = %s%s[_sl_i];\n", elem_c, src_s,
-                            sa != IRON_LIR_VALUE_INVALID ? "" : ".items");
+                            sa != IRON_LIR_VALUE_INVALID ? "" : src_bvec ? ".data" : ".items");
         emit_copy_fixup_lvalue(sb, ind + 2, ctx, et, "_sl_el");
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "    %s_push(&", list_c);

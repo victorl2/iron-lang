@@ -1,0 +1,33 @@
+-- A bounded vector copied into another binding is a separate value: an
+-- element write through the copy used to land in the original (the slot
+-- the copy was loaded from was forwarded to the stored value), and a write
+-- into a vector held in an object field was lost on a loaded copy.
+object Bag {
+    var items: [Int; <=4]
+    init(i: [Int; <=4]) { self.items = i }
+}
+
+func main() {
+    var bv: [Int; <=4] = [1, 2]
+    bv.push(3)
+    var c = bv
+    c[0] = 50
+    c.push(4)
+    println("bv {bv[0]} {len(bv)} c {c[0]} {len(c)} sum {c.sum()}")
+
+    var bag = Bag([7])
+    bag.items[0] = 70
+    bag.items.push(8)
+    val kept = bag.items
+    bag.items[1] = 80
+    println("bag {bag.items[0]} {bag.items[1]} kept {kept[1]} {len(kept)}")
+
+    var nested: [[Int; <=2]; <=2] = [[1], [3, 4]]
+    nested[0].push(2)
+    nested[1][0] = 30
+    println("nested {nested[0][1]} {nested[1][0]} {len(nested[0])}")
+
+    val evens = c.filter(func(x: Int) -> Bool { return x % 2 == 0 })
+    val labels = c.map(func(x: Int) -> String { return "n{x}" })
+    println("evens {len(evens)} {evens[0]} labels {labels[0]} {len(labels)}")
+}

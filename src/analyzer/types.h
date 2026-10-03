@@ -218,6 +218,18 @@ Iron_Type *iron_type_make_func(Iron_Arena *a, Iron_Type **params, int count, Iro
  * Phase 23 VEC-01: is_bounded=true for [T; <=N], false for [T; N] / dynamic. */
 Iron_Type *iron_type_make_array(Iron_Arena *a, Iron_Type *elem, int size, bool is_bounded);
 
+/* The backend represents a fixed-size array [T; N] as the bounded vector
+ * [T; <=N] whose length is always N: an inline value struct that is copied
+ * on assignment and passed by value. The checker keeps the two apart (no
+ * push on [T; N], the literal must have exactly N elements). The compiler
+ * calls iron_type_track_fixed_arrays() before checking and
+ * iron_type_fixed_arrays_as_bounded() once the checker has run: every
+ * [T; N] created in between becomes [T; <=N], and later constructions
+ * produce the bounded form directly. Tools that only check never call
+ * either. */
+void iron_type_track_fixed_arrays(void);
+void iron_type_fixed_arrays_as_bounded(void);
+
 /* Construct an object type backed by a declaration node */
 Iron_Type *iron_type_make_object(Iron_Arena *a, struct Iron_ObjectDecl *decl);
 

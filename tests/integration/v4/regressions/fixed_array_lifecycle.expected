@@ -1,0 +1,16 @@
+items y 2
+kept q 2
+drop p
+drop q
+drop p
+drop q
+after block
+refs 111
+shared 111
+rows r2
+ab1 ab3 ab2
+end
+drop r1
+drop r2
+drop x
+drop y

@@ -1,1 +1,7 @@
 fixed: 5 6 7 has6 true
+reversed: 7 6 1 len 3 sum 14
+doubled 14 3 big 2 7 total 14
+7,6,1,
+tail 2 6 1
+chained 2 70 scaled 28
+map 2 0

@@ -512,9 +512,13 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
                     "IRON_LIST_DECL(%s, %s)\n",
                     bvec_name, bvec_name);
 
-                iron_strbuf_appendf(&ctx->struct_bodies,
-                    "IRON_LIST_IMPL(%s, %s)\n\n",
-                    bvec_name, bvec_name);
+                /* Elements that own something are dropped by _free and
+                 * fixed up by _clone, like object elements (#245). */
+                bool bv_drop = bvec_needs_glue(ctx, et2, false);
+                bool bv_copy = bvec_needs_glue(ctx, et2, true);
+                if (bv_drop) emit_ensure_bvec_glue(ctx, et2, true);
+                if (bv_copy) emit_ensure_bvec_glue(ctx, et2, false);
+                emit_list_impl_lifecycle(ctx, bvec_name, bv_drop, bv_copy);
             }
         }
     }
@@ -697,7 +701,7 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
         if (!f || !f->type_ann || !f->resolved_type ||
             f->resolved_type->kind == IRON_TYPE_ERROR) continue;
         Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
-        if (ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || (ta->is_array && (ta->bounded || ta->array_elem_ann)))
+        if (ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || (ta->is_array && (ta->bounded || ta->array_size || ta->array_elem_ann)))
             (void)emit_type_to_c(f->resolved_type, ctx);
     }
     iron_strbuf_appendf(&ctx->struct_bodies, "struct %s {\n", mangled);
@@ -731,11 +735,12 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
                     f->resolved_type->array.elem &&
                     f->resolved_type->array.elem->kind == IRON_TYPE_INTERFACE;
                 if ((ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || iface_list ||
-                     (ta->is_array && (ta->bounded || ta->array_elem_ann))) &&
+                     (ta->is_array && (ta->bounded || ta->array_size || ta->array_elem_ann))) &&
                     f->resolved_type && f->resolved_type->kind != IRON_TYPE_ERROR) {
-                    /* Box[T], a generic enum, weak rc T, a bounded vector:
-                     * the name alone is not the C type (Box[Counter] was
-                     * emitted as Iron_Box, [T; <=N] as a list). */
+                    /* Box[T], a generic enum, weak rc T, a bounded vector or
+                     * fixed-size array: the name alone is not the C type
+                     * (Box[Counter] was emitted as Iron_Box, [T; <=N] and
+                     * [T; N] as a list). */
                     c_type = emit_type_to_c(f->resolved_type, ctx);
                 } else if (ta->is_func) {
                     /* func() field: emit as Iron_Closure fat pointer */

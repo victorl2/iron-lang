@@ -119,8 +119,23 @@ static bool enum_has_boxed_payload(Iron_Type *t) {
     return false;
 }
 
+static bool type_is_owned_list(const Iron_Type *t);
+static bool type_is_counted_string(const Iron_Type *t);
+
+/* A bounded vector (or fixed-size array, #245) holds its elements inline:
+ * it needs glue when its elements do. */
+static bool bvec_lifecycle(Iron_Type *t, Iron_Program *program, bool want_copy, int depth) {
+    Iron_Type *et = t->array.elem;
+    if (!et || depth > 16) return false;
+    if (type_is_rc_like(et) || type_is_owned_list(et) || type_is_counted_string(et)) return true;
+    if (et->kind == IRON_TYPE_FUNC) return true;
+    return type_lifecycle_rec(et, program, want_copy, depth + 1);
+}
+
 static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
                                bool want_copy, int depth) {
+    if (t && t->kind == IRON_TYPE_ARRAY && t->array.is_bounded && t->array.size >= 0)
+        return bvec_lifecycle(t, program, want_copy, depth);
     if (t && t->kind == IRON_TYPE_INTERFACE)
         return iface_lifecycle(t, program, want_copy, depth);
     if (t && t->kind == IRON_TYPE_ENUM)
@@ -151,7 +166,8 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
              ft->nullable.inner->kind == IRON_TYPE_STRING))
             return true;
         if (ft->kind == IRON_TYPE_FUNC) return true;
-        if ((ft->kind == IRON_TYPE_OBJECT || ft->kind == IRON_TYPE_INTERFACE) &&
+        if ((ft->kind == IRON_TYPE_OBJECT || ft->kind == IRON_TYPE_INTERFACE ||
+             (ft->kind == IRON_TYPE_ARRAY && ft->array.is_bounded)) &&
             type_lifecycle_rec(ft, program, want_copy, depth + 1))
             return true;
     }
@@ -679,6 +695,17 @@ static const char *list_elem_suffix(HIR_to_LIR_Ctx *ctx, Iron_Type *elem) {
         snprintf(s, slen, split ? "Iron_SplitList_Iron_%s" : "Iron_List_%s", inner);
         return s;
     }
+    /* A bounded vector (or fixed-size array) element: Iron_BVec_<elem>_<N>,
+     * the struct name emit_type_to_c builds for it. */
+    if (elem && elem->kind == IRON_TYPE_ARRAY && elem->array.size >= 0 &&
+        elem->array.is_bounded) {
+        const char *inner = list_elem_suffix(ctx, elem->array.elem);
+        size_t slen = strlen(inner) + 32;
+        char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+        if (!s) iron_oom_abort("hir_to_lir.c:list_elem_suffix bvec");
+        snprintf(s, slen, "Iron_BVec_%s_%d", inner, elem->array.size);
+        return s;
+    }
     if (elem) {
         switch ((int)(elem->kind)) {
             case IRON_TYPE_INT:    elem_suffix = "int64_t";     break;
@@ -909,6 +936,14 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
         }
         /* A recursive enum frees its boxed payloads (#231). */
         if (entry->object_type->kind == IRON_TYPE_ENUM) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            if (entry->alloca_id == ctx->moved_slot) continue;
+            emit_drop_glue_call(ctx, entry->alloca_id, span);
+            continue;
+        }
+        /* A bounded vector / fixed-size array drops the elements it holds
+         * inline (#245) unless `return` moved it out. */
+        if (entry->object_type->kind == IRON_TYPE_ARRAY && entry->object_type->array.is_bounded) {
             if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
             if (entry->alloca_id == ctx->moved_slot) continue;
             emit_drop_glue_call(ctx, entry->alloca_id, span);
@@ -2910,9 +2945,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                  * is fixed up; a temporary moves in). Other arguments are
                  * borrowed, and owned temporaries among them are released
                  * after the call. */
-                bool stores_elem = !obj_type->array.is_bounded &&
-                    (strcmp(coll_method, "push") == 0 ||
-                     strcmp(coll_method, "insert") == 0);
+                bool stores_elem = strcmp(coll_method, "push") == 0 ||
+                                   strcmp(coll_method, "insert") == 0;
                 for (int i = 0; i < expr->method_call.arg_count; i++) {
                     IronHIR_Expr *ae = expr->method_call.args[i];
                     IronLIR_ValueId av = lower_expr(ctx, ae);
@@ -5232,6 +5266,18 @@ static IronLIR_ValueId ssa_root_alloca(IronLIR_Func *fn, IronLIR_ValueId vid) {
             return vid;
         case IRON_LIR_LOAD:      vid = in->load.ptr;     break;
         case IRON_LIR_GET_FIELD: vid = in->field.object; break;
+        case IRON_LIR_GET_INDEX: {
+            /* An element of a bounded vector lives inside the vector. */
+            IronLIR_ValueId av = in->index.array;
+            IronLIR_Instr *ain = (av != IRON_LIR_VALUE_INVALID &&
+                                  (ptrdiff_t)av < arrlen(fn->value_table))
+                                 ? fn->value_table[av] : NULL;
+            if (!ain || !ain->type || ain->type->kind != IRON_TYPE_ARRAY ||
+                !ain->type->array.is_bounded)
+                return IRON_LIR_VALUE_INVALID;
+            vid = av;
+            break;
+        }
         default:                 return IRON_LIR_VALUE_INVALID;
         }
     }
@@ -5280,6 +5326,22 @@ static void ssa_collect_addr_taken(IronLIR_Func *fn) {
                  * through it must be seen by later reads of x. */
                 IronLIR_ValueId root = ssa_root_alloca(fn, in->addr_of.target);
                 if (root != IRON_LIR_VALUE_INVALID) hmput(g_ssa_addr_taken, root, true);
+                break;
+            }
+            case IRON_LIR_SET_INDEX: {
+                /* `v[i] = x` on a bounded vector writes inside the vector's
+                 * own storage (a value struct), so the slot it was loaded
+                 * from is mutated in place like a set_field target. A
+                 * dynamic list's elements live in its shared heap buffer,
+                 * so its slot stays promotable. */
+                Iron_Type *at = (in->index.array != IRON_LIR_VALUE_INVALID &&
+                                 (ptrdiff_t)in->index.array < arrlen(fn->value_table) &&
+                                 fn->value_table[in->index.array])
+                                ? fn->value_table[in->index.array]->type : NULL;
+                if (at && at->kind == IRON_TYPE_ARRAY && at->array.is_bounded) {
+                    IronLIR_ValueId root = ssa_root_alloca(fn, in->index.array);
+                    if (root != IRON_LIR_VALUE_INVALID) hmput(g_ssa_addr_taken, root, true);
+                }
                 break;
             }
             case IRON_LIR_SET_FIELD: {

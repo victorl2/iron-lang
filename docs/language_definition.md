@@ -311,6 +311,12 @@ list and writing an element require a `var` binding (`E0235`).
 `rc [T]` is a shared list (section 6.3). The list methods are listed in
 section 9.3.
 
+A fixed array and a bounded vector are values, like objects: their
+elements live inline, and assigning one, passing it, returning it or
+storing it in a field or a list copies the elements, so a write through
+one binding is never seen through another. `filter` on either returns a
+list `[T]`; `copy()` and `take()` exist only on lists.
+
 ```iron
 func main() {
     var xs: [Int] = []
@@ -324,6 +330,9 @@ func main() {
     bounded.push(3)
     val zeros = fill(4, 0)
     println("{fixed[1]} {len(fixed)} {bounded.len()} {zeros.len()}")
+    var other = fixed
+    other[1] = 80
+    println("{fixed[1]} {other[1]}")
     val dup = xs.copy()
     val moved = xs.take()
     println("{dup.len()} {moved.len()} {xs.len()}")
@@ -335,6 +344,7 @@ func main() {
 ```output
 3 9 30 true
 8 3 3 4
+8 80
 3 3 0
 2 2
 ```

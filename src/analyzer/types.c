@@ -2,6 +2,7 @@
 #include "parser/ast.h"
 #include "util/arena.h"
 #include <stdarg.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <stddef.h>
@@ -174,11 +175,51 @@ Iron_Type *iron_type_make_func(Iron_Arena *a, Iron_Type **params, int count, Iro
     return t;
 }
 
+/* Fixed-size array tracking (see types.h): 0 = off, 1 = recording the
+ * [T; N] types the checker creates, 2 = rewritten, new ones are bounded. */
+static int         g_fixed_mode = 0;
+static Iron_Type **g_fixed_types = NULL;
+static size_t      g_fixed_count = 0, g_fixed_cap = 0;
+
+void iron_type_track_fixed_arrays(void) {
+    /* A previous build in this process (iron test) may have stopped before
+     * its rewrite; its types are gone with its arena. */
+    free(g_fixed_types);
+    g_fixed_types = NULL;
+    g_fixed_count = g_fixed_cap = 0;
+    g_fixed_mode = 1;
+}
+
+void iron_type_fixed_arrays_as_bounded(void) {
+    for (size_t i = 0; i < g_fixed_count; i++) {
+        Iron_Type *t = g_fixed_types[i];
+        if (t->kind == IRON_TYPE_ARRAY && t->array.size >= 0) t->array.is_bounded = true;
+    }
+    free(g_fixed_types);
+    g_fixed_types = NULL;
+    g_fixed_count = g_fixed_cap = 0;
+    g_fixed_mode = 2;
+}
+
 Iron_Type *iron_type_make_array(Iron_Arena *a, Iron_Type *elem, int size, bool is_bounded) {
     Iron_Type *t = ARENA_ALLOC(a, Iron_Type);
     /* HARD-09 REPLACE (CR-02, types.c:iron_type_make_array). */
     if (!t) return NULL;
     memset(t, 0, sizeof(*t));
+    if (size >= 0 && !is_bounded) {
+        if (g_fixed_mode == 2) {
+            is_bounded = true;
+        } else if (g_fixed_mode == 1) {
+            if (g_fixed_count == g_fixed_cap) {
+                size_t ncap = g_fixed_cap ? g_fixed_cap * 2 : 64;
+                Iron_Type **nt = (Iron_Type **)realloc(g_fixed_types, ncap * sizeof(*nt));
+                if (!nt) iron_oom_abort("types.c:iron_type_make_array fixed registry");
+                g_fixed_types = nt;
+                g_fixed_cap = ncap;
+            }
+            g_fixed_types[g_fixed_count++] = t;
+        }
+    }
     t->kind              = IRON_TYPE_ARRAY;
     t->array.elem        = elem;
     t->array.size        = size;
