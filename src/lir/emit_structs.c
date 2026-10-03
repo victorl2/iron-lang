@@ -127,8 +127,10 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
             IRON_NODE_ASSERT_KIND(f->type_ann, IRON_NODE_TYPE_ANNOTATION);
             Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
             /* rc / weak rc / pointer fields hold a pointer: no value
-             * dependency (and their wrapper annotation has no name). */
-            if (ta->is_nullable || !ta->name) continue;
+             * dependency (and their wrapper annotation has no name). A
+             * `T?` field holds T inline (Iron_Optional_T), so it depends
+             * on T like a plain field. */
+            if (!ta->name || ta->is_rc || ta->is_weak_rc || ta->is_pointer) continue;
             int dep = find_ir_type_decl_idx(state->module, ta->name);
             if (dep >= 0 && dep != idx) ir_topo_visit(state, dep);
         }
@@ -703,6 +705,12 @@ static void emit_object_struct_body(EmitCtx *ctx, IronLIR_TypeDecl *td,
         Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)f->type_ann;
         if (ta->generic_arg_count > 0 || ta->is_weak_rc || ta->is_rc || (ta->is_array && (ta->bounded || ta->array_size || ta->array_elem_ann)))
             (void)emit_type_to_c(f->resolved_type, ctx);
+        /* A `T?` field of a user type: its Iron_Optional_T typedef wraps
+         * T by value, so it is declared here, after T's struct (the
+         * dependency walk orders T first) and before this one. */
+        if (ta->is_nullable && f->resolved_type->kind == IRON_TYPE_NULLABLE &&
+            f->resolved_type->nullable.inner)
+            emit_ensure_optional(ctx, f->resolved_type->nullable.inner);
     }
     iron_strbuf_appendf(&ctx->struct_bodies, "struct %s {\n", mangled);
 
@@ -908,7 +916,8 @@ void emit_type_decls(EmitCtx *ctx) {
                     if (!fld || !fld->type_ann ||
                         fld->type_ann->kind != IRON_NODE_TYPE_ANNOTATION) continue;
                     Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)fld->type_ann;
-                    if (ta->is_nullable || !ta->name) continue;
+                    /* (A `T?` field holds T by value, like a plain one.) */
+                    if (!ta->name || ta->is_rc || ta->is_weak_rc || ta->is_pointer) continue;
                     for (int j = 0; j < module->type_decl_count; j++) {
                         IronLIR_TypeDecl *dep = module->type_decls[j];
                         if (!dep->name || strcmp(dep->name, ta->name) != 0) continue;

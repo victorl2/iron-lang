@@ -1647,6 +1647,7 @@ static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
         if (ft->kind == IRON_TYPE_FUNC) return true;
         if (ft->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, ft, want_copy)) return true;
         if (emit_type_is_bvec(ft) && bvec_needs_glue(ctx, ft, want_copy)) return true;
+        if (ft->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
             od_lifecycle_rec(ctx, ft->object.decl, want_copy, depth + 1))
             return true;
@@ -1710,6 +1711,11 @@ static void emit_elem_lifecycle_stmt(EmitCtx *ctx, Iron_StrBuf *sb, const Iron_T
         emit_ensure_bvec_glue(ctx, et, drop);
         iron_strbuf_appendf(sb, "        %s_%s(&%s);\n", emit_type_to_c((Iron_Type *)et, ctx),
                             drop ? "drop" : "copied", lv);
+    } else if (et->kind == IRON_TYPE_NULLABLE) {
+        if (!optional_needs_glue(ctx, et, !drop)) return;
+        emit_ensure_optional_glue(ctx, et, drop);
+        iron_strbuf_appendf(sb, "        %s_%s(&%s);\n", emit_type_to_c((Iron_Type *)et, ctx),
+                            drop ? "drop" : "copied", lv);
     } else if (et->kind == IRON_TYPE_OBJECT && et->object.decl) {
         const char *oc = emit_type_to_c((Iron_Type *)et, ctx);
         if (drop) {
@@ -1721,6 +1727,46 @@ static void emit_elem_lifecycle_stmt(EmitCtx *ctx, Iron_StrBuf *sb, const Iron_T
         }
         iron_strbuf_appendf(sb, "        %s_%s(&%s);\n", oc, drop ? "drop" : "copied", lv);
     }
+}
+
+/* `T?` of a T whose values own something (an object with drop or copy
+ * glue, an interface, a vector, a closure, a list): the optional needs
+ * the same glue, applied to .value when has_value. String? and rc T? keep
+ * their own release / retain paths. */
+bool optional_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
+    if (!t || t->kind != IRON_TYPE_NULLABLE || !t->nullable.inner) return false;
+    const Iron_Type *in = t->nullable.inner;
+    switch ((int)in->kind) {
+    case IRON_TYPE_OBJECT:
+        return in->object.decl && od_lifecycle_rec(ctx, in->object.decl, want_copy, 1);
+    case IRON_TYPE_INTERFACE: return iface_needs_glue(ctx, in, want_copy);
+    case IRON_TYPE_FUNC:      return true;
+    case IRON_TYPE_ARRAY:
+        return emit_type_is_bvec(in) ? bvec_needs_glue(ctx, in, want_copy)
+                                     : emit_field_is_owned_list(in);
+    default: return false;
+    }
+}
+
+void emit_ensure_optional_glue(EmitCtx *ctx, const Iron_Type *t, bool drop) {
+    if (!ctx || !optional_needs_glue(ctx, t, !drop)) return;
+    const char *oc = emit_type_to_c((Iron_Type *)t, ctx);
+    char **done = drop ? ctx->emitted_drops : ctx->emitted_copy_fixups;
+    for (int i = 0; i < (int)arrlen(done); i++)
+        if (strcmp(done[i], oc) == 0) return;
+    char *name_copy = iron_arena_strdup(ctx->arena, oc, strlen(oc));
+    if (!name_copy) iron_oom_abort("emit_helpers.c:emit_ensure_optional_glue");
+    if (drop) arrput(ctx->emitted_drops, name_copy);
+    else      arrput(ctx->emitted_copy_fixups, name_copy);
+    Iron_StrBuf body = iron_strbuf_create(128);
+    emit_elem_lifecycle_stmt(ctx, &body, t->nullable.inner, "self->value", drop);
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "static void %s_%s(%s *self) {\n"
+        "    if (!self->has_value) return;\n"
+        "%s"
+        "}\n\n",
+        oc, drop ? "drop" : "copied", oc, iron_strbuf_get(&body));
+    iron_strbuf_free(&body);
 }
 
 void emit_ensure_bvec_glue(EmitCtx *ctx, const Iron_Type *t, bool drop) {
@@ -1812,6 +1858,7 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
         Iron_Type *ft = emit_field_type((Iron_Field *)od->fields[i]);
         if (ft && ft->kind == IRON_TYPE_INTERFACE) emit_ensure_iface_glue(ctx, ft, false);
         if (emit_type_is_bvec(ft)) emit_ensure_bvec_glue(ctx, ft, false);
+        if (ft && ft->kind == IRON_TYPE_NULLABLE) emit_ensure_optional_glue(ctx, ft, false);
         if (ft && ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
             od_needs_copy_fixup(ctx, ft->object.decl))
             emit_ensure_copy_fixup(ctx, emit_type_to_c(ft, ctx), ft->object.decl);
@@ -1834,6 +1881,11 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
                                     emit_type_to_c(ft, ctx), f->name);
         } else if (emit_type_is_bvec(ft)) {
             if (bvec_needs_glue(ctx, ft, true))
+                iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
+                                    emit_type_to_c(ft, ctx), f->name);
+        } else if (ft->kind == IRON_TYPE_NULLABLE && !emit_type_is_string_like(ft) &&
+                   !emit_type_is_rc_like(ft)) {
+            if (optional_needs_glue(ctx, ft, true))
                 iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
                                     emit_type_to_c(ft, ctx), f->name);
         } else if (emit_field_is_owned_list(ft)) {
@@ -1885,6 +1937,10 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
         }
         if (emit_type_is_bvec(ft)) {
             emit_ensure_bvec_glue(ctx, ft, true);
+            continue;
+        }
+        if (ft && ft->kind == IRON_TYPE_NULLABLE) {
+            emit_ensure_optional_glue(ctx, ft, true);
             continue;
         }
         if (!ft || ft->kind != IRON_TYPE_OBJECT || !ft->object.decl) continue;
@@ -1962,6 +2018,12 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
         }
         if (emit_type_is_bvec(ft)) {
             if (bvec_needs_glue(ctx, ft, false))
+                iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
+                                    emit_type_to_c(ft, ctx), f->name);
+            continue;
+        }
+        if (ft->kind == IRON_TYPE_NULLABLE) {
+            if (optional_needs_glue(ctx, ft, false))
                 iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
                                     emit_type_to_c(ft, ctx), f->name);
             continue;

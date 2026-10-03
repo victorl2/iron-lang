@@ -1,0 +1,51 @@
+-- A `T?` holding an object or an interface is destroyed like the value it
+-- holds (issue 255): at scope exit, on reassignment, as a field of a
+-- dropped object and when returned to a caller; a copy is destroyed
+-- independently. `T?` fields of user types and interfaces compile (the
+-- optional wraps its value inline, so it is declared after the type).
+object Named {
+    val name: String
+    drop { println("drop {self.name}") }
+}
+
+interface Speaker {
+    readonly func speak() -> String
+}
+
+object Dog impl Speaker {
+    val name: String
+    readonly func speak() -> String { return "{self.name} woofs" }
+    drop { println("drop dog {self.name}") }
+}
+
+object Holder {
+    val inner: Named?
+}
+
+object Kennel {
+    var guest: Speaker?
+    init() { self.guest = null }
+}
+
+func pick(flag: Bool) -> Named? {
+    if flag { return Named("picked") }
+    return null
+}
+
+func main() {
+    val maybe: Named? = Named("ann")
+    val none: Named? = null
+    if maybe != null { println("has {maybe.name}") }
+    val h = Holder(Named("held"))
+    val empty = Holder(null)
+    val p = pick(true)
+    val q = pick(false)
+    var slot: Named? = null
+    slot = Named("first")
+    slot = Named("second")
+    var k = Kennel()
+    k.guest = Dog("rex")
+    val g = k.guest
+    if g != null { println(g.speak()) }
+    println("end {none == null} {empty.inner == null} {q == null} {h.inner != null}")
+}

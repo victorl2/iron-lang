@@ -136,6 +136,16 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
                                bool want_copy, int depth) {
     if (t && t->kind == IRON_TYPE_ARRAY && t->array.is_bounded && t->array.size >= 0)
         return bvec_lifecycle(t, program, want_copy, depth);
+    /* `T?` of an owning T (object, interface, vector, closure, list) needs
+     * T's glue on its value; String? and rc T? have their own paths. */
+    if (t && t->kind == IRON_TYPE_NULLABLE && t->nullable.inner && depth <= 16) {
+        Iron_Type *in = t->nullable.inner;
+        if (in->kind == IRON_TYPE_FUNC || type_is_owned_list(in)) return true;
+        if (in->kind == IRON_TYPE_OBJECT || in->kind == IRON_TYPE_INTERFACE ||
+            (in->kind == IRON_TYPE_ARRAY && in->array.is_bounded))
+            return type_lifecycle_rec(in, program, want_copy, depth + 1);
+        return false;
+    }
     if (t && t->kind == IRON_TYPE_INTERFACE)
         return iface_lifecycle(t, program, want_copy, depth);
     if (t && t->kind == IRON_TYPE_ENUM)
@@ -167,6 +177,7 @@ static bool type_lifecycle_rec(Iron_Type *t, Iron_Program *program,
             return true;
         if (ft->kind == IRON_TYPE_FUNC) return true;
         if ((ft->kind == IRON_TYPE_OBJECT || ft->kind == IRON_TYPE_INTERFACE ||
+             ft->kind == IRON_TYPE_NULLABLE ||
              (ft->kind == IRON_TYPE_ARRAY && ft->array.is_bounded)) &&
             type_lifecycle_rec(ft, program, want_copy, depth + 1))
             return true;
@@ -939,6 +950,13 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
         }
         /* A recursive enum frees its boxed payloads (#231). */
         if (entry->object_type->kind == IRON_TYPE_ENUM) {
+            if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            if (entry->alloca_id == ctx->moved_slot) continue;
+            emit_drop_glue_call(ctx, entry->alloca_id, span);
+            continue;
+        }
+        /* `T?` of an owning T drops its value, if any. */
+        if (entry->object_type->kind == IRON_TYPE_NULLABLE) {
             if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
             if (entry->alloca_id == ctx->moved_slot) continue;
             emit_drop_glue_call(ctx, entry->alloca_id, span);
