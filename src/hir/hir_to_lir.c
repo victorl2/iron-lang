@@ -275,7 +275,7 @@ typedef struct IronLIR_DropEntry_s {
      * pairing the construct-time capture retains that previously leaked. */
     const char     *env_drop_name;
     /* The slot is a mutable capture cell (#210): scope exit releases the
-     * frame's share instead of dropping the value. object_type is NULL. */
+     * frame's share instead of dropping the value. */
     bool            is_cell;
 } IronLIR_DropEntry;
 
@@ -868,8 +868,11 @@ static void emit_drop_entries_at_depth(HIR_to_LIR_Ctx *ctx, int d, Iron_Span spa
          * arm passes the slot's address to iron_cell_release. */
         if (entry->is_cell) {
             if (!ctx->current_block || block_is_terminated(ctx->current_block)) continue;
+            /* A cell holding a closure may be a self cycle (#246). */
+            bool holds_closure = entry->object_type && entry->object_type->kind == IRON_TYPE_FUNC;
             IronLIR_Instr *cref = iron_lir_func_ref(ctx->current_func,
-                ctx->current_block, "iron_cell_release", NULL, span);
+                ctx->current_block, holds_closure ? "iron_cell_release_closure" : "iron_cell_release",
+                NULL, span);
             if (!cref) continue;
             IronLIR_ValueId cargs[1] = { entry->alloca_id };
             iron_lir_call(ctx->current_func, ctx->current_block,
@@ -3928,7 +3931,9 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                 ctx->current_func->value_table[alloca_id]->alloca.is_boxed = true;
                 if (ctx->defer_depth > 0 && ctx->drop_stacks &&
                     ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
-                    IronLIR_DropEntry de = { alloca_id, NULL, false, false, NULL, true };
+                    /* (The type tells the pump whether the cell holds a
+                     * closure, #246.) */
+                    IronLIR_DropEntry de = { alloca_id, type, false, false, NULL, true };
                     arrput(ctx->drop_stacks[ctx->defer_depth - 1], de);
                 }
             }
@@ -4696,9 +4701,12 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             if (rv->kind == IRON_HIR_EXPR_IDENT &&
                 type_needs_drop(ret_type, ctx->program) &&
                 hmgeti(ctx->var_alloca_map, rv->ident.var_id) >= 0 &&
-                !var_is_capture(ctx, rv->ident.var_id)) {
+                !var_is_capture(ctx, rv->ident.var_id) &&
+                !iron_hir_var_is_boxed(ctx->hir, rv->ident.var_id)) {
                 /* (A captured var belongs to the env, not this frame: it
-                 * is copied for the caller below, never moved.) */
+                 * is copied for the caller below, never moved. A var in
+                 * a capture cell is owned by the cell, which other closures
+                 * may still share: the caller gets a copy, #246.) */
                 ctx->moved_slot = hmget(ctx->var_alloca_map, rv->ident.var_id);
             } else if (ctx->cur_is_init && rv->kind == IRON_HIR_EXPR_IDENT &&
                        rv->ident.name && strcmp(rv->ident.name, "self") == 0) {
