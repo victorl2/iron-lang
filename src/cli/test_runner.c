@@ -1,29 +1,21 @@
 #include "cli/test_runner.h"
 #include "cli/build.h"
 
-#ifdef _WIN32
-/* The runner forks a child per fixture and talks to it over pipes; that
- * is POSIX only for now (#234). */
-#include <stdio.h>
-int iron_test(const char *dir_path) {
-    (void)dir_path;
-    fprintf(stderr, "error: `iron test` is not available on Windows yet; "
-                    "run tests/run_tests.sh from a POSIX shell\n");
-    return 1;
-}
-#else
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <dirent.h>
-#include <sys/wait.h>
-#include <sys/stat.h>
 #include <errno.h>
-#include <spawn.h>
+#include "util/os.h"
+#ifdef _WIN32
+  #include <process.h>
+#else
+  #include <sys/wait.h>
+  #include <spawn.h>
+#endif
 
+#ifndef _WIN32
 extern char **environ;
+#endif
 
 /* ── ANSI color helpers (gated by isatty) ────────────────────────────────── */
 
@@ -83,6 +75,19 @@ static int str_compare(const void *a, const void *b) {
 /* ── Execute a binary and return its exit code ───────────────────────────── */
 
 static int run_binary(const char *path) {
+#ifdef _WIN32
+    char cmd[4096];
+    snprintf(cmd, sizeof cmd, "\"%s\"", path);
+    STARTUPINFOA si; PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof si); memset(&pi, 0, sizeof pi);
+    si.cb = sizeof si;
+    if (!CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) return -1;
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
+    return (int)code;
+#else
     const char *argv[] = { path, NULL };
     pid_t pid;
     int status = posix_spawn(&pid, path, NULL, NULL,
@@ -98,6 +103,7 @@ static int run_binary(const char *path) {
         return WEXITSTATUS(wstatus);
     }
     return -1;
+#endif
 }
 
 /* ── iron_test ───────────────────────────────────────────────────────────── */
@@ -167,8 +173,18 @@ int iron_test(const char *dir_path) {
 
         /* Build a temp binary path */
         char tmp_binary[512];
-        snprintf(tmp_binary, sizeof(tmp_binary), "/tmp/iron_test_%d_%d",
-                 (int)getpid(), i);
+        const char *tmpdir = getenv("TMPDIR");
+#ifdef _WIN32
+        if (!tmpdir || !*tmpdir) tmpdir = getenv("TEMP");
+        if (!tmpdir || !*tmpdir) tmpdir = getenv("TMP");
+        if (!tmpdir || !*tmpdir) tmpdir = ".";
+        snprintf(tmp_binary, sizeof(tmp_binary), "%s\\iron_test_%d_%d.exe",
+                 tmpdir, (int)getpid(), i);
+#else
+        if (!tmpdir || !*tmpdir) tmpdir = "/tmp";
+        snprintf(tmp_binary, sizeof(tmp_binary), "%s/iron_test_%d_%d",
+                 tmpdir, (int)getpid(), i);
+#endif
 
         /* Compile the test file */
         IronBuildOpts opts = {
@@ -215,4 +231,3 @@ int iron_test(const char *dir_path) {
     strvec_free(&test_files);
     return (fail_count > 0) ? 1 : 0;
 }
-#endif /* !_WIN32 */
