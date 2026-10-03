@@ -39,7 +39,7 @@ void test_missing_fmt_section_uses_defaults(void) {
     TEST_ASSERT_NOT_NULL(proj);
     IronFmtOptions o = iron_fmt_options_from_toml(proj);
     TEST_ASSERT_EQUAL_INT(100, o.line_width);
-    TEST_ASSERT_EQUAL_INT(2,   o.indent_width);
+    TEST_ASSERT_EQUAL_INT(4,   o.indent_width);
     TEST_ASSERT_FALSE(o.use_tabs);
     iron_toml_free(proj);
     unlink(p);
@@ -79,7 +79,7 @@ void test_invalid_int_falls_back(void) {
     IronProject *proj = iron_toml_parse(p);
     TEST_ASSERT_NOT_NULL(proj);
     IronFmtOptions o = iron_fmt_options_from_toml(proj);
-    TEST_ASSERT_EQUAL_INT(2, o.indent_width);   /* default preserved */
+    TEST_ASSERT_EQUAL_INT(4, o.indent_width);   /* default preserved */
     iron_toml_free(proj);
     unlink(p);
 }

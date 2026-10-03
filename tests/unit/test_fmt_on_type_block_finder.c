@@ -42,7 +42,7 @@ static IronLsp_Document *make_doc(const char *src) {
 static void test_on_type_top_level_fn_block_emits_indent_edits(void) {
     /* 3 lines, misindented body (1 space, should be 2). Typing `}` at
      * (2,0) (LSP 0-based = on the `}` line) should produce exactly one
-     * TextEdit on line 1 replacing the leading " " with "  ". */
+     * TextEdit on line 1 replacing the leading " " with "    ". */
     const char *src =
         "func alpha() {\n"
         " val x = 1\n"
@@ -65,7 +65,7 @@ static void test_on_type_top_level_fn_block_emits_indent_edits(void) {
     TEST_ASSERT_EQUAL_UINT32(0, list.edits[0].range.start.character);
     TEST_ASSERT_EQUAL_UINT32(1, list.edits[0].range.end.line);
     TEST_ASSERT_EQUAL_UINT32(1, list.edits[0].range.end.character);
-    TEST_ASSERT_EQUAL_STRING("  ", list.edits[0].new_text);
+    TEST_ASSERT_EQUAL_STRING("    ", list.edits[0].new_text);
 
     iron_arena_free(&arena);
     ilsp_document_destroy(d);
@@ -75,7 +75,7 @@ static void test_on_type_top_level_fn_block_emits_indent_edits(void) {
 static void test_on_type_already_correct_indent_returns_empty(void) {
     const char *src =
         "func alpha() {\n"
-        "  val x = 1\n"   /* already correct 2-space indent */
+        "    val x = 1\n"   /* already correct 4-space indent */
         "}\n";
     IronLsp_Document *d = make_doc(src);
     TEST_ASSERT_NOT_NULL(d);
@@ -106,7 +106,7 @@ static void test_on_type_already_correct_indent_returns_empty(void) {
 static void test_on_type_inside_string_literal_returns_empty(void) {
     const char *src =
         "func alpha() {\n"
-        "  val s = \"foo}bar\"\n"
+        "    val s = \"foo}bar\"\n"
         "}\n";
     IronLsp_Document *d = make_doc(src);
     TEST_ASSERT_NOT_NULL(d);
@@ -115,21 +115,21 @@ static void test_on_type_inside_string_literal_returns_empty(void) {
 
     /* Position on a byte INSIDE the string literal.
      * Line layout (0-based char index for line 1):
-     *   0..1 = "  "
-     *   2..4 = "val"
-     *   5    = ' '
-     *   6    = 's'
+     *   0..3 = "    "
+     *   4..6 = "val"
      *   7    = ' '
-     *   8    = '='
+     *   8    = 's'
      *   9    = ' '
-     *   10   = '"'
-     *   11,12,13 = 'f','o','o'
-     *   14   = '}'
-     *   15..17 = 'b','a','r'
-     *   18   = '"'
-     * Position (1, 14) sits on the `}` inside the string. */
+     *   10   = '='
+     *   11   = ' '
+     *   12   = '"'
+     *   13,14,15 = 'f','o','o'
+     *   16   = '}'
+     *   17..19 = 'b','a','r'
+     *   20   = '"'
+     * Position (1, 16) sits on the `}` inside the string. */
     IronLsp_Position pos;
-    pos.line = 1; pos.character = 14;
+    pos.line = 1; pos.character = 16;
 
     IronFmtOptions opts = iron_fmt_options_default();
     IronLsp_TextEditList list = ilsp_facade_format_on_type(

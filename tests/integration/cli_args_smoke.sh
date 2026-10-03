@@ -64,4 +64,14 @@ if "${IRON}" init myapp > /dev/null 2>&1; then fail "iron init over an existing 
     || fail "scaffolded package does not build with its own version pin"
 expect_unknown_flag --bogus bash -c "cd myapp && '${IRON}' run --bogus"
 
+# A freshly scaffolded project is already formatted (issue 241: the
+# formatter's default indentation is the repository's four spaces).
+FMT_DIR="${SANDBOX}/fmt_default"
+mkdir -p "${FMT_DIR}"
+(cd "${FMT_DIR}" && "${IRON}" init >/dev/null 2>&1)
+if ! (cd "${FMT_DIR}" && "${IRON}" fmt --check src/main.iron >/dev/null 2>&1); then
+    echo "FAIL: iron fmt --check reformats the scaffolded src/main.iron" >&2
+    exit 1
+fi
+
 echo "cli_args_smoke OK"

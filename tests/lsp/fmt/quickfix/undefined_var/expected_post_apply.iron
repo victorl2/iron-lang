@@ -1,4 +1,4 @@
 func main() {
-  val count = 1
-  val total = (count + 1)
+    val count = 1
+    val total = (count + 1)
 }

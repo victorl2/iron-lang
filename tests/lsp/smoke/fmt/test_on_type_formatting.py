@@ -79,7 +79,7 @@ async def test_on_type_emits_indent_edit(client, tmp_path):
     replacing the bad leading whitespace with the canonical indent."""
     src = (
         "func alpha() {\n"
-        " val x = 1\n"      # wrong: 1 space (should be 2)
+        " val x = 1\n"      # wrong: 1 space (should be 4)
         "}\n"
     )
     fp: pathlib.Path = tmp_path / "x.iron"
@@ -104,10 +104,10 @@ async def test_on_type_emits_indent_edit(client, tmp_path):
 
     assert isinstance(edits, (list, tuple)), f"expected list, got {type(edits).__name__}"
     assert len(edits) >= 1, f"expected at least 1 edit, got {edits!r}"
-    # The fix should replace line 1's single-space indent with two spaces.
+    # The fix should replace line 1's single-space indent with four spaces.
     matching = [
         e for e in edits
-        if e.range.start.line == 1 and e.new_text == "  "
+        if e.range.start.line == 1 and e.new_text == "    "
     ]
     assert matching, f"expected a line-1 indent fix in {edits!r}"
 
@@ -118,7 +118,7 @@ async def test_on_type_inside_string_returns_empty(client, tmp_path):
     a correctly-indented enclosing block emits zero TextEdits."""
     src = (
         'func alpha() {\n'
-        '  val s = "foo}bar"\n'   # canonical 2-space indent
+        '    val s = "foo}bar"\n'   # canonical 4-space indent
         '}\n'
     )
     fp: pathlib.Path = tmp_path / "y.iron"
@@ -129,16 +129,16 @@ async def test_on_type_inside_string_returns_empty(client, tmp_path):
 
     # Position on the `}` byte INSIDE the string literal.
     # Line 1 layout (0-based char indices):
-    #   0,1 = "  "   2..4 = "val"   5 = ' '   6 = 's'   7 = ' '   8 = '='
-    #   9 = ' '   10 = '"'   11..13 = 'f','o','o'   14 = '}'
+    #   0..3 = "    "   4..6 = "val"   7 = ' '   8 = 's'   9 = ' '   10 = '='
+    #   11 = ' '   12 = '"'   13..15 = 'f','o','o'   16 = '}'
     edits = await asyncio.wait_for(
         client.text_document_on_type_formatting_async(
             types.DocumentOnTypeFormattingParams(
                 text_document=types.TextDocumentIdentifier(uri=uri),
-                position=types.Position(line=1, character=14),
+                position=types.Position(line=1, character=16),
                 ch="}",
                 options=types.FormattingOptions(
-                    tab_size=2, insert_spaces=True,
+                    tab_size=4, insert_spaces=True,
                 ),
             ),
         ),
