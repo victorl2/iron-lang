@@ -2281,6 +2281,8 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             /* assert(cond): the message defaults to the source location. */
             const char *file = node->span.filename ? node->span.filename : "?";
             const char *base = strrchr(file, '/');
+            const char *base_win = strrchr(file, '\\');
+            if (base_win && (!base || base_win > base)) base = base_win;
             base = base ? base + 1 : file;
             char loc[512];
             snprintf(loc, sizeof(loc), "%s:%u", base, (unsigned)node->span.line);

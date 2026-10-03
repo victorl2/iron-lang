@@ -1,3 +1,4 @@
+import io
 -- section: 7.5-stdlib
 -- @req: STDLIB-02, STDLIB-09
 -- @expected-pass-after: phase-33 (Wave 4 container element-destructors + Wave 5 FileHandle)
@@ -6,8 +7,10 @@
 
 func main() {
     var handles: [FileHandle] = []
-    handles.push(FileHandle.open("/tmp/iron_lh_a.txt"))
-    handles.push(FileHandle.open("/tmp/iron_lh_b.txt"))
+    handles.push(FileHandle.open("iron_lh_a.txt"))
+    handles.push(FileHandle.open("iron_lh_b.txt"))
     println("opened: {handles.len()}")
     -- scope exit: List drop iterates and closes each FileHandle
+    IO.delete_file("iron_lh_a.txt")
+    IO.delete_file("iron_lh_b.txt")
 }

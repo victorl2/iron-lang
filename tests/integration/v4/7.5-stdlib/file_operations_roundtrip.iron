@@ -1,11 +1,10 @@
 -- Pure-Iron bounded binary file API acceptance fixture.
--- @posix-only: uses /tmp or /dev paths
 import io
 
 func main() {
-    val source = "/tmp/iron-file-ops-source.bin"
-    val copied_path = "/tmp/iron-file-ops-copy.bin"
-    val moved_path = "/tmp/iron-file-ops-moved.bin"
+    val source = "iron-file-ops-source.bin"
+    val copied_path = "iron-file-ops-copy.bin"
+    val moved_path = "iron-file-ops-moved.bin"
     val payload = "binary\0payload"
     val written = IO.write_bytes(source, payload)
     val read = IO.read_bytes(source, 1024)
