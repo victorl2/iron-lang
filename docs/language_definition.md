@@ -601,9 +601,13 @@ statements (section 4.3).
 ### 3.3 String interpolation and concatenation
 
 Inside a string literal, `{e}` evaluates `e` and inserts its text. Any
-value that can be printed may be interpolated: numbers, booleans, strings,
-their nullable forms (`null` when there is no value), and the results of
-calls and field accesses. Floats print the shortest
+value that has a text form may be interpolated: numbers, booleans,
+strings, enums (the variant name), objects with a
+`readonly func to_string() -> String` method (through that method, also
+behind `rc`), the nullable forms of all of these (`null` when there is no
+value), and the results of calls and field accesses. Interpolating a
+value with no text form, such as an object without `to_string()`, is an
+error (`E0334`). Floats print the shortest
 decimal that reads back to the same value, without a trailing `.0`
 (`3.0` prints as `3`). Two strings are joined with `+`; the compound form
 `s += t` is not supported (see section 11).
@@ -1893,7 +1897,9 @@ in it does not run; the compiler warns about it (`W0605`) unless the
 allocation says `heap(in: a, allow_drop_skip: true) T(args)`. Accessing an
 arena value after `reset` or `restore` is a stale pointer error at run
 time. `rc` allocation inside an `in arena` block is an error (`E0301`).
-`a.used()` and `a.capacity()` report the arena's byte counts.
+`a.used()` and `a.capacity()` report the arena's byte counts. An arena
+value releases its memory when its binding ends; a `heap Arena(bytes)` is
+freed with `free`, like any heap value.
 
 ```iron
 object Particle {
@@ -2754,7 +2760,7 @@ codes cited in this manual:
 | E0320, E0321 | private declaration used from another file; standalone `func Type.method` form |
 | E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
 | E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element |
-| E0331, E0332, E0333 | list extension with a body; refutable nested pattern; `Channel.new(4)` and the other `.new` constructor spellings |
+| E0331, E0332, E0333, E0334 | list extension with a body; refutable nested pattern; `Channel.new(4)` and the other `.new` constructor spellings; interpolating a value with no text form |
 | E0501 | `await` on the web target |
 | E0700 to E0703 | web main loop rules |
 | W0601, W0604, W0605, W0606 | narrowing cast; spawn data race; arena skips `drop`; heap value never freed |

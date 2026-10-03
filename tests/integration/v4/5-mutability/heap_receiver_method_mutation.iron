@@ -15,4 +15,5 @@ func main() {
     h.bump()
     h.bump()
     println("heap: {h.n}")
+    free h
 }

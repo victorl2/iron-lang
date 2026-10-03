@@ -291,7 +291,7 @@ guard automatically applies:
 opaque pointer. The extension lives in `emit_c.c`'s
 `IRON_LIR_INTERP_STRING` formatter and is gated on
 `ptr.is_unchecked && pointee.kind ∈ {Int*, UInt*, Float*, Bool}`.
-Structured pointees still trip W0602 (there is no `to_string`
+Structured pointees are rejected with E0334 (there is no `to_string`
 contract for a bare pointer to a struct).
 
 ---

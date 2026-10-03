@@ -893,7 +893,7 @@ void test_cast_constant_fits_no_warning(void) {
     TEST_ASSERT_FALSE(has_error(IRON_ERR_CAST_OVERFLOW));
 }
 
-/* ── Test 40: string interpolation with primitive => no W0602 ────────────── */
+/* ── Test 40: string interpolation with primitive => no E0334 ────────────── */
 
 void test_interp_primitive_no_warning(void) {
     const char *src =
@@ -902,10 +902,10 @@ void test_interp_primitive_no_warning(void) {
         "  val s = \"value is {n}\"\n"
         "}\n";
     parse_and_resolve(src);
-    TEST_ASSERT_FALSE(has_error(IRON_WARN_NOT_STRINGABLE));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_NOT_STRINGABLE));
 }
 
-/* ── Test 41: string interpolation with Bool => no W0602 ────────────────── */
+/* ── Test 41: string interpolation with Bool => no E0334 ────────────────── */
 
 void test_interp_bool_no_warning(void) {
     const char *src =
@@ -914,10 +914,10 @@ void test_interp_bool_no_warning(void) {
         "  val s = \"value is {b}\"\n"
         "}\n";
     parse_and_resolve(src);
-    TEST_ASSERT_FALSE(has_error(IRON_WARN_NOT_STRINGABLE));
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_NOT_STRINGABLE));
 }
 
-/* ── Test 42: non-stringifiable object in interpolation => W0602 ─────────── */
+/* ── Test 42: non-stringifiable object in interpolation => E0334 ─────────── */
 
 void test_interp_not_stringable(void) {
     const char *src =
@@ -929,15 +929,33 @@ void test_interp_not_stringable(void) {
         "  val s = \"value is {f}\"\n"
         "}\n";
     parse_and_resolve(src);
-    TEST_ASSERT_TRUE(has_error(IRON_WARN_NOT_STRINGABLE));
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_NOT_STRINGABLE));
 }
 
-/* ── Test 43: object with to_string() in interpolation => no W0602 ───────── */
+/* ── Test 43: object with to_string() in interpolation => no E0334 ───────── */
 
 void test_interp_object_with_to_string_ok(void) {
     /* Phase 98 PATCH-03: standalone `func Bar.to_string()` is rejected with
      * E0321. Migrated to in-block form so the interpolation type checker
      * still sees Bar's to_string() implementation. */
+    const char *src =
+        "object Bar {\n"
+        "  val x: Int\n"
+        "  readonly func to_string() -> String {\n"
+        "    return \"Bar\"\n"
+        "  }\n"
+        "}\n"
+        "func main() {\n"
+        "  val b = Bar(1)\n"
+        "  val s = \"value is {b}\"\n"
+        "}\n";
+    parse_and_resolve(src);
+    TEST_ASSERT_FALSE(has_error(IRON_ERR_NOT_STRINGABLE));
+}
+
+/* ── Test 43b: a mutable to_string() cannot serve interpolation => E0334 ── */
+
+void test_interp_object_mutable_to_string_rejected(void) {
     const char *src =
         "object Bar {\n"
         "  val x: Int\n"
@@ -950,7 +968,7 @@ void test_interp_object_with_to_string_ok(void) {
         "  val s = \"value is {b}\"\n"
         "}\n";
     parse_and_resolve(src);
-    TEST_ASSERT_FALSE(has_error(IRON_WARN_NOT_STRINGABLE));
+    TEST_ASSERT_TRUE(has_error(IRON_ERR_NOT_STRINGABLE));
 }
 
 /* ── Test 44: compound assign on narrow Int8, non-constant RHS => W0603 ──── */
@@ -3722,6 +3740,7 @@ int main(void) {
     RUN_TEST(test_interp_bool_no_warning);
     RUN_TEST(test_interp_not_stringable);
     RUN_TEST(test_interp_object_with_to_string_ok);
+    RUN_TEST(test_interp_object_mutable_to_string_rejected);
     RUN_TEST(test_compound_narrow_overflow_warning);
     RUN_TEST(test_compound_narrow_constant_fits_no_warning);
     RUN_TEST(test_compound_narrow_constant_overflows_warning);

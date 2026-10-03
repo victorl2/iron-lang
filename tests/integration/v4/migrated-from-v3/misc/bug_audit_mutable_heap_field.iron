@@ -11,7 +11,9 @@ func main() {
   var p = heap Vec2(3, 4)
   println("{p.x}")
   println("{p.y}")
+  free p
   p = heap Vec2(10, 20)
   println("{p.x}")
   println("{p.y}")
+  free p
 }

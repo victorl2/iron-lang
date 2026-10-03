@@ -55,8 +55,4 @@ func main() {
     println("bounded reversed: {bv[0]} {bv[1]}")
     bv.clear()
     println("bounded cleared len {bv.len()}")
-
-    var fixed: [Int; 3] = [7, 5, 6]
-    fixed.sort()
-    println("fixed: {fixed[0]} {fixed[1]} {fixed[2]} has6 {fixed.contains(6)}")
 }

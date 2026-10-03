@@ -1614,6 +1614,13 @@ static bool emit_field_is_owned_list(const Iron_Type *ft) {
            !ft->array.is_bounded;
 }
 
+/* A Box[T] field owns its heap cell: freed (with the element's drop) when
+ * the holder is dropped. Holders are nocopy, so there is no copy case. */
+static bool emit_field_is_box(const Iron_Type *ft) {
+    return ft && ft->kind == IRON_TYPE_OBJECT && ft->object.decl && ft->object.decl->name &&
+           strcmp(ft->object.decl->name, "Box") == 0 && ft->object.elem;
+}
+
 static bool emit_type_is_string_like(const Iron_Type *t);
 static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
                              bool want_copy, int depth) {
@@ -1628,6 +1635,7 @@ static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
         if (!ft) continue;
         if (emit_type_is_rc_like(ft) || emit_field_is_owned_list(ft)) return true;
         if (emit_type_is_string_like(ft)) return true;
+        if (!want_copy && emit_field_is_box(ft)) return true;
         if (ft->kind == IRON_TYPE_FUNC) return true;
         if (ft->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
@@ -1824,6 +1832,12 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
             continue;
         }
         if (emit_field_is_owned_list(ft)) {
+            iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_free(&self->%s);\n",
+                                emit_type_to_c(ft, ctx), f->name);
+            continue;
+        }
+        if (emit_field_is_box(ft)) {
+            emit_ensure_box(ctx, ft->object.elem);
             iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_free(&self->%s);\n",
                                 emit_type_to_c(ft, ctx), f->name);
             continue;

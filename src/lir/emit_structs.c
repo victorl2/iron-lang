@@ -1444,6 +1444,21 @@ void emit_type_decls(EmitCtx *ctx) {
             }
             iron_strbuf_appendf(&ctx->enum_defs, "} %s;\n\n", mangled);
         }
+
+        /* `{e}` prints an enum value as its variant name. The name function
+         * goes with the definition; interpolation calls it through
+         * <Enum>_name(v) for plain enums and <Enum>_name(v.tag) for ADTs. */
+        {
+            Iron_StrBuf *nsb = ed->has_payloads ? &ctx->struct_bodies : &ctx->enum_defs;
+            iron_strbuf_appendf(nsb, "static const char *%s_name(%s%s v) {\n    switch ((int)v) {\n",
+                                mangled, mangled, ed->has_payloads ? "_Tag" : "");
+            for (int j = 0; j < ed->variant_count; j++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                iron_strbuf_appendf(nsb, "    case %s_%s%s: return \"%s\";\n",
+                                    mangled, ed->has_payloads ? "TAG_" : "", ev->name, ev->name);
+            }
+            iron_strbuf_appendf(nsb, "    default: return \"?\";\n    }\n}\n\n");
+        }
     }
 
     /* ── Phase 56: Mono-collapsed list type decls ──────────────────────────

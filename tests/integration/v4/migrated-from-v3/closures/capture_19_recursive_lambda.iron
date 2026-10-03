@@ -1,4 +1,5 @@
 func main() {
+-- @leaks-by-design: a lambda that captures the var holding it forms a cycle (issue 246)
   var factorial: func(Int) -> Int = func(n: Int) -> Int { return 0 }
   factorial = func(n: Int) -> Int {
     if n <= 1 { return 1 }

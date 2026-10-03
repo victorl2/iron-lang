@@ -1,0 +1,7 @@
+-- @expected-error: E0220
+-- A String method that does not exist is an error at the call, not a
+-- Void that fails later.
+func main() {
+    val s = "hello"
+    println(s.to_upper())
+}

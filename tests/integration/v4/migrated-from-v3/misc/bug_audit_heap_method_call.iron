@@ -20,6 +20,8 @@ patch object Vec {
 func main() {
   val a = heap Vec(3, 4)
   val b = heap Vec(1, 2)
+  defer free a
+  defer free b
   println("{a.mag_sq()}")
   println("{a.dot(b)}")
   println("{b.mag_sq()}")

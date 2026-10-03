@@ -1,0 +1,10 @@
+-- @expected-error: E0334
+-- An object with no to_string() has no text form; interpolating it is
+-- an error (it used to be a warning and invalid C).
+object Q {
+    val y: Int
+}
+func main() {
+    val q = Q(1)
+    println("q = {q}")
+}

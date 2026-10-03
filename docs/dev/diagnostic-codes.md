@@ -534,6 +534,12 @@ parser/typecheck sites land in Plan 27-02.
    field. Codegen invariant test pin:
    `count(weak_release) == count(weak_retain) + count(weak_alloc_via_downgrade)`.
 
+## String interpolation (§3.3)
+
+| Code | Symbol | Message | Notes |
+|------|--------|---------|-------|
+| E0334 | `IRON_ERR_NOT_STRINGABLE` | type 'T' cannot be interpolated into a string | `{x}` where x is not a number, Bool, String, enum, their nullable, or an object with a readonly `to_string() -> String`; also fired when `to_string()` is not readonly. Replaced the W0602 warning, which let invalid C through. |
+
 ## Adding new codes
 
 1. Allocate the next free slot in the appropriate range. Verify uniqueness

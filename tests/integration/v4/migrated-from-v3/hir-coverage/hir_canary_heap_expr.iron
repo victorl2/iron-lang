@@ -44,6 +44,7 @@ object Point {
 
 func main() {
   val p = heap Point(3, 4)
+  defer free p
   println("x: {p.x}")
   println("y: {p.y}")
   println("sum: {p.x + p.y}")

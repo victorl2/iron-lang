@@ -46,17 +46,21 @@ add_subdirectory(migrated-from-v3)
 # valgrind (Linux) and must release everything it allocated. The containers
 # allocate with malloc, which the runtime's own IRON_LEAK_CHECK tracker does
 # not see. Skips itself when no detector is installed.
+# Leak oracle (#231): every runnable fixture of the corpus runs under leaks
+# (macOS) or valgrind (Linux); the few that leak on purpose carry a
+# `-- @leaks-by-design` marker.
 if(NOT WIN32)
+    file(GLOB _leak_dirs LIST_DIRECTORIES true ${CMAKE_SOURCE_DIR}/tests/integration/v4/*/ ${CMAKE_SOURCE_DIR}/tests/integration/v4/*/*/)
     add_test(
-        NAME test_leak_check_hash
+        NAME test_leak_check
         COMMAND ${CMAKE_SOURCE_DIR}/tests/oracles/leak_check.sh
-                ${CMAKE_BINARY_DIR}/iron
-                ${CMAKE_SOURCE_DIR}/tests/integration/v4/7.6-hash
+                ${CMAKE_BINARY_DIR}/iron ${_leak_dirs}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
-    set_tests_properties(test_leak_check_hash PROPERTIES
+    set_tests_properties(test_leak_check PROPERTIES
         LABELS "oracle;v4-acceptance"
-        TIMEOUT 900)
+        PROCESSORS 2
+        TIMEOUT 3000)
 endif()
 
 # Freestanding oracle (#235): the C generated for every fixture compiles with
