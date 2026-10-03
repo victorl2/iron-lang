@@ -290,6 +290,10 @@ void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
         emit_ensure_bvec_glue(ctx, t, false);
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "%s_copied(&%s);\n", emit_type_to_c(t, ctx), lv);
+    } else if (t->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, t, true)) {
+        emit_ensure_optional_glue(ctx, t, false);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s_copied(&%s);\n", emit_type_to_c(t, ctx), lv);
     }
 }
 
@@ -1447,6 +1451,10 @@ const char *emit_cell_drop_fn(EmitCtx *ctx, Iron_Type *t) {
     } else if (t->kind == IRON_TYPE_ARRAY && t->array.is_bounded &&
                bvec_needs_glue(ctx, t, false)) {
         emit_ensure_bvec_glue(ctx, t, true);
+        snprintf(proto, sizeof(proto), "static void %s_drop(%s *self);\n", tc, tc);
+        snprintf(body, sizeof(body), "%s_drop((%s *)p);", tc, tc);
+    } else if (t->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, t, false)) {
+        emit_ensure_optional_glue(ctx, t, true);
         snprintf(proto, sizeof(proto), "static void %s_drop(%s *self);\n", tc, tc);
         snprintf(body, sizeof(body), "%s_drop((%s *)p);", tc, tc);
     } else if (t->kind == IRON_TYPE_OBJECT && t->object.decl &&
@@ -4166,6 +4174,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     if (opt) iron_strbuf_appendf(sb, "&(*");
                     emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
                     if (opt) iron_strbuf_appendf(sb, ").value");
+                    iron_strbuf_appendf(sb, ");\n");
+                    break;
+                }
+                /* `T?` of an owning T: T's glue on .value when has_value. */
+                if (gt && gt->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, gt, !is_drop)) {
+                    emit_ensure_optional_glue(ctx, gt, is_drop);
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "%s_%s(", emit_type_to_c(gt, ctx),
+                                        is_drop ? "drop" : "copied");
+                    emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
                     iron_strbuf_appendf(sb, ");\n");
                     break;
                 }
