@@ -877,10 +877,18 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
             }
             ann->name = "<error>";
         } else {
+            int saved_pos = p->pos;
             Iron_Token *name_tok = iron_advance(p);
-            ann->name = iron_arena_strdup(p->arena, name_tok->value,
-                                          strlen(name_tok->value));
-            if (!ann->name) { /* HARD-09 REPLACE (iron_parse_type_annotation array elem name) */ ann->name = "?"; }
+            if (iron_check(p, IRON_TOK_LBRACKET)) {
+                /* A generic instance element: [Pair[Int]], [Map[String, Int]]. */
+                p->pos = saved_pos;
+                ann->array_elem_ann = iron_parse_type_annotation_impl(p);
+                ann->name = NULL;
+            } else {
+                ann->name = iron_arena_strdup(p->arena, name_tok->value,
+                                              strlen(name_tok->value));
+                if (!ann->name) { /* HARD-09 REPLACE (iron_parse_type_annotation array elem name) */ ann->name = "?"; }
+            }
         }
 
         /* Phase 48: Parse optional layout attributes: [T, layout: soa/aos] [T, unordered] */

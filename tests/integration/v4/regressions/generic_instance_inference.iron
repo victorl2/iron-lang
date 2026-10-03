@@ -1,0 +1,36 @@
+-- Type arguments are inferred from an argument that is an instance of a
+-- generic object (`swap(p)` with `p: Pair[Int]` binds T = Int), not only
+-- from arguments of type T or [T].
+object Pair[T] {
+    val a: T
+    val b: T
+    readonly func first() -> T { return self.a }
+}
+
+object Boxed[T] {
+    val items: [T]
+}
+
+func swap[T](p: Pair[T]) -> Pair[T] {
+    return Pair[T](p.b, p.a)
+}
+
+func count_pairs[T](ps: [Pair[T]]) -> Int {
+    return len(ps)
+}
+
+func head[T](b: Boxed[T]) -> T {
+    return b.items[0]
+}
+
+func main() {
+    val p = Pair[Int](1, 2)
+    val s = swap(p)
+    println("{s.first()} {s.b}")
+    val ps = Pair[String]("x", "y")
+    println("{swap(ps).a}")
+    val many: [Pair[Int]] = [Pair[Int](3, 4), Pair[Int](5, 6)]
+    println("{count_pairs(many)}")
+    val b = Boxed[String](["h", "t"])
+    println("{head(b)}")
+}
