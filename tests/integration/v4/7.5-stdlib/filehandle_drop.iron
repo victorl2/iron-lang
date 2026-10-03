@@ -1,3 +1,4 @@
+import io
 -- section: 7.5-stdlib
 -- @req: STDLIB-09
 -- @expected-pass-after: phase-33 (Wave 5 FileHandle nocopy + drop closes fd)
@@ -6,9 +7,10 @@
 
 func main() {
     {
-        var fh = FileHandle.open("/tmp/iron_fh_drop.txt")
+        var fh = FileHandle.open("iron_fh_drop.txt")
         println("opened")
         -- scope exit: FileHandle drop closes fd
     }
     println("done")
+    IO.delete_file("iron_fh_drop.txt")
 }
