@@ -1,0 +1,7 @@
+a 7 b 1 c 107 5
+g 9 2 h 9 8 before 1
+grid 20 40 snapshot 2 4
+rows 50 6 1 20 grid 10
+ab zz cd
+pts 10 20 snap 1 20
+total 18

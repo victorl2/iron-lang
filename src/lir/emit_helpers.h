@@ -310,6 +310,11 @@ void emit_ensure_iface_glue(EmitCtx *ctx, const Iron_Type *it, bool drop);
  * bitwise copy (retain rc fields, fix up object fields, user copy body). */
 void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
                             struct Iron_ObjectDecl *od);
+/* Bounded vector / fixed-size array element glue (#245): do the elements
+ * own anything (want_copy false: to drop; true: to fix up on a copy), and
+ * emit `<BVec>_drop` / `<BVec>_copied`, loops over data[0 .. len). */
+bool bvec_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy);
+void emit_ensure_bvec_glue(EmitCtx *ctx, const Iron_Type *t, bool drop);
 
 /* Ensure the list type for `[rc T]` / `[weak rc T]` elements; returns its
  * C name. */

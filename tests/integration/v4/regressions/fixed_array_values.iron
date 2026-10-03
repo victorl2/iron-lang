@@ -1,0 +1,57 @@
+-- A fixed-size array [T; N] is a value (issue 245): assigning it, passing
+-- it, storing it in a field or a list copies the elements, so a write
+-- through one binding never shows through another. It used to be a heap
+-- list whose copies shared one buffer (and which was never freed).
+object Grid {
+    var cells: [Int; 4]
+    init(c: [Int; 4]) { self.cells = c }
+}
+
+func bump(a: [Int; 3]) -> [Int; 3] {
+    var b = a
+    b[0] = b[0] + 100
+    return b
+}
+
+func main() {
+    val a: [Int; 3] = [7, 5, 6]
+    var b = a
+    b[0] = 1
+    val c = bump(a)
+    println("a {a[0]} b {b[0]} c {c[0]} {c[1]}")
+
+    var g = Grid([1, 2, 3, 4])
+    val before = g.cells
+    g.cells[0] = 9
+    var h = g
+    h.cells[1] = 8
+    println("g {g.cells[0]} {g.cells[1]} h {h.cells[0]} {h.cells[1]} before {before[0]}")
+
+    var grid: [[Int; 2]; 2] = [[1, 2], [3, 4]]
+    val snapshot = grid
+    grid[0][1] = 20
+    grid[1][1] = 40
+    println("grid {grid[0][1]} {grid[1][1]} snapshot {snapshot[0][1]} {snapshot[1][1]}")
+
+    var rows: [[Int; 2]] = []
+    rows.push([5, 6])
+    rows.push(grid[0])
+    rows[0][0] = 50
+    grid[0][0] = 10
+    println("rows {rows[0][0]} {rows[0][1]} {rows[1][0]} {rows[1][1]} grid {grid[0][0]}")
+
+    val words: [String; 2] = ["ab", "cd"]
+    var dup = words
+    dup[0] = "zz"
+    println("{words[0]} {dup[0]} {dup[1]}")
+    var pts: [Grid; 2] = [Grid([1, 1, 1, 1]), Grid([2, 2, 2, 2])]
+    pts[1].cells[0] = 20
+    val snap = pts
+    pts[0].cells[0] = 10
+    println("pts {pts[0].cells[0]} {pts[1].cells[0]} snap {snap[0].cells[0]} {snap[1].cells[0]}")
+    var total = 0
+    for x in a {
+        total = total + x
+    }
+    println("total {total}")
+}

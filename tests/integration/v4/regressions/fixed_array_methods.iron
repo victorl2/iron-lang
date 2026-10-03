@@ -1,8 +1,26 @@
--- @leaks-by-design: fixed arrays are lowered as heap lists and never freed (issue 245)
--- The fixed-size array methods, split out of list_methods so the leak
--- oracle can run that fixture.
+-- The fixed-size array methods (issue 245): a [T; N] is an inline value,
+-- so the methods the checker allows on it (sort, contains, reverse, get,
+-- set, map, filter, reduce, forEach, sum, slicing) run on that value and
+-- nothing is left on the heap.
 func main() {
     var fixed: [Int; 3] = [7, 5, 6]
     fixed.sort()
     println("fixed: {fixed[0]} {fixed[1]} {fixed[2]} has6 {fixed.contains(6)}")
+    fixed.reverse()
+    fixed.set(2, 1)
+    println("reversed: {fixed[0]} {fixed.get(1)} {fixed[2]} len {len(fixed)} sum {fixed.sum()}")
+    val doubled = fixed.map(func(x: Int) -> Int { return x * 2 })
+    val big = fixed.filter(func(x: Int) -> Bool { return x > 5 })
+    val total = fixed.reduce(0, func(acc: Int, x: Int) -> Int { return acc + x })
+    println("doubled {doubled[0]} {len(doubled)} big {len(big)} {big[0]} total {total}")
+    fixed.forEach(func(x: Int) { print("{x},") })
+    println("")
+    val tail = fixed[1..3]
+    println("tail {len(tail)} {tail[0]} {tail[1]}")
+    val chained = fixed.map(func(x: Int) -> Int { return x * 10 }).filter(func(x: Int) -> Bool { return x > 15 })
+    val scaled = fixed.map(func(x: Int) -> Int { return x * 2 }).sum()
+    println("chained {len(chained)} {chained[0]} scaled {scaled}")
+    var byname: Map[String, [Int; 2]] = Map[String, [Int; 2]]()
+    byname.put("a", [1, 2])
+    println("map {byname.get("a")[1]} {byname.get_or("z", [0, 0])[0]}")
 }
