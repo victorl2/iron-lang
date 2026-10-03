@@ -1,0 +1,45 @@
+-- A lambda stored in the var it captures is a cycle (issue 246): the cell
+-- holds the closure and the closure's env holds the cell. When the frame
+-- lets go of its share and nothing else holds the closure, the pair is
+-- freed. When something else still reaches the closure (a returned copy,
+-- another closure over the same var), nothing is broken and the calls
+-- keep working.
+func make_counter() -> func() -> Int {
+    var n = 0
+    var step: func() -> Int = func() -> Int { return 0 }
+    step = func() -> Int {
+        n = n + 1
+        if n < 3 {
+            return step()
+        }
+        return n
+    }
+    val runner = func() -> Int { return step() }
+    return runner
+}
+
+func escaping() -> func(Int) -> Int {
+    var fact: func(Int) -> Int = func(n: Int) -> Int { return 0 }
+    fact = func(n: Int) -> Int {
+        if n <= 1 { return 1 }
+        return n * fact(n - 1)
+    }
+    return fact
+}
+
+func local_only() -> Int {
+    var fib: func(Int) -> Int = func(n: Int) -> Int { return 0 }
+    fib = func(n: Int) -> Int {
+        if n < 2 { return n }
+        return fib(n - 1) + fib(n - 2)
+    }
+    return fib(10)
+}
+
+func main() {
+    println("local {local_only()}")
+    val f = escaping()
+    println("escaped {f(5)}")
+    val r = make_counter()
+    println("runner {r()}")
+}

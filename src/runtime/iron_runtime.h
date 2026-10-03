@@ -1065,6 +1065,13 @@ typedef struct {
  * drop. A NULL env (no captures) is never counted. */
 void *iron_closure_env_alloc(size_t env_size, void (*drop)(void *env));
 void  iron_closure_env_free(void *env);          /* called by the env drop */
+/* `holds(env, cell)`: does this env own a share of that capture cell? Set
+ * for envs that capture a `var` (see iron_cell_release_closure); NULL
+ * otherwise. */
+void  iron_closure_env_set_holds(void *env, bool (*holds)(void *env, void *cell),
+                                 void (*cycle_break)(void *env));
+/* The number of shares of a capture cell. */
+uint64_t iron_cell_count(void *value);
 
 /* A `var` that a closure writes lives in a counted cell (#210): the frame
  * and every closure env that captured it share the cell, so the closure
@@ -1073,6 +1080,16 @@ void  iron_closure_env_free(void *env);          /* called by the env drop */
 void *iron_cell_alloc(size_t size, void (*drop)(void *value));
 void  iron_cell_retain(void *value);
 void  iron_cell_release(void *value);
+/* Releasing a share of a cell that holds a closure (#246). A lambda stored
+ * in the `var` it captures (`factorial = func(n) { ... factorial(n - 1) }`)
+ * is a cycle: the cell holds the closure and the closure's env holds the
+ * cell. When the share being released is the last one apart from that
+ * env's own, and nothing else holds the env, nothing can reach either any
+ * more: the cell's closure is cleared and released (which releases the
+ * env's share) before this share goes. The env side of the same cycle
+ * (the last outside copy of the closure released while the cell still
+ * holds it) is handled by the env's cycle_break companion. */
+void  iron_cell_release_closure(void *value);
 void  iron_closure_retain(Iron_Closure c);
 void  iron_closure_release(Iron_Closure c);
 

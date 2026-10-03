@@ -5506,7 +5506,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
                 /* The frame's share of a mutable capture cell (#210): the
                  * argument is the boxed slot; pass its storage address. */
-                if (rn_chk && strcmp(rn_chk, "iron_cell_release") == 0) {
+                if (rn_chk && strncmp(rn_chk, "iron_cell_release", 17) == 0) {
                     cell_release_call = true;
                 }
                 if (rn_chk) {
@@ -7179,9 +7179,13 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 for (int ci = 0; ci < cap_count; ci++) {
                     if (cap_meta[ci].is_mutable) {
                         if (cap_meta[ci].is_boxed) {
-                            /* The env's share of the capture cell (#210). */
+                            /* The env's share of the capture cell (#210); a
+                             * cell holding a closure may be a cycle (#246). */
+                            bool cl = cap_meta[ci].type && cap_meta[ci].type->kind == IRON_TYPE_FUNC;
                             iron_strbuf_appendf(&ctx->struct_bodies,
-                                "    iron_cell_release(_env->%s);\n", cap_c_name(cap_meta[ci].name));
+                                "    %s(_env->%s);\n",
+                                cl ? "iron_cell_release_closure" : "iron_cell_release",
+                                cap_c_name(cap_meta[ci].name));
                             any_rc_field = true;
                         }
                         continue;
@@ -7221,6 +7225,46 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 iron_strbuf_appendf(&ctx->struct_bodies,
                     "    iron_closure_env_free(env_void);\n"
                     "}\n\n");
+                /* `holds` companion (#246): does this env own a share of a
+                 * given capture cell? Lets a frame break the cycle of a
+                 * lambda stored in the var it captures. */
+                bool any_cell = false;
+                for (int ci = 0; ci < cap_count; ci++)
+                    if (cap_meta[ci].is_mutable && cap_meta[ci].is_boxed) any_cell = true;
+                if (any_cell) {
+                    iron_strbuf_appendf(&ctx->struct_bodies,
+                        "static bool %s_env_holds(void *env_void, void *cell) {\n"
+                        "    %s *_env = (%s *)env_void;\n"
+                        "    return ", func_name, env_type, env_type);
+                    bool first = true;
+                    for (int ci = 0; ci < cap_count; ci++) {
+                        if (!(cap_meta[ci].is_mutable && cap_meta[ci].is_boxed)) continue;
+                        iron_strbuf_appendf(&ctx->struct_bodies, "%s(void *)_env->%s == cell",
+                                            first ? "" : " || ", cap_c_name(cap_meta[ci].name));
+                        first = false;
+                    }
+                    iron_strbuf_appendf(&ctx->struct_bodies, ";\n}\n");
+                    /* The env side: when the last outside copy of this
+                     * closure goes while a closure-typed cell this env
+                     * alone holds still stores it, clear and release it. */
+                    iron_strbuf_appendf(&ctx->struct_bodies,
+                        "static void %s_env_cycle_break(void *env_void) {\n"
+                        "    %s *_env = (%s *)env_void;\n", func_name, env_type, env_type);
+                    for (int ci = 0; ci < cap_count; ci++) {
+                        if (!(cap_meta[ci].is_mutable && cap_meta[ci].is_boxed)) continue;
+                        if (!cap_meta[ci].type || cap_meta[ci].type->kind != IRON_TYPE_FUNC) continue;
+                        const char *cn = cap_c_name(cap_meta[ci].name);
+                        iron_strbuf_appendf(&ctx->struct_bodies,
+                            "    if (iron_cell_count(_env->%s) == 1 && ((Iron_Closure *)_env->%s)->env == env_void) {\n"
+                            "        Iron_Closure _dead = *(Iron_Closure *)_env->%s;\n"
+                            "        ((Iron_Closure *)_env->%s)->fn = NULL;\n"
+                            "        ((Iron_Closure *)_env->%s)->env = NULL;\n"
+                            "        iron_closure_release(_dead);\n"
+                            "        return;\n"
+                            "    }\n", cn, cn, cn, cn, cn);
+                    }
+                    iron_strbuf_appendf(&ctx->struct_bodies, "    (void)_env;\n}\n\n");
+                }
             }
 
             /* Allocate env struct */
@@ -7229,6 +7273,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * of the closure is released. */
             iron_strbuf_appendf(sb, "%s *_env_%u = (%s *)iron_closure_env_alloc(sizeof(%s), %s_env_drop);\n",
                                 env_type, instr->id, env_type, env_type, func_name);
+            {
+                bool any_cell = false;
+                for (int ci = 0; ci < cap_count; ci++)
+                    if (cap_meta[ci].is_mutable && cap_meta[ci].is_boxed) any_cell = true;
+                if (any_cell) {
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "iron_closure_env_set_holds(_env_%u, %s_env_holds, %s_env_cycle_break);\n",
+                                        instr->id, func_name, func_name);
+                }
+            }
 
             /* Populate env fields */
             for (int ci = 0; ci < cap_count; ci++) {

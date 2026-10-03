@@ -679,7 +679,12 @@ declared the `var` (a counter closure keeps its count). A lambda may
 capture a list only when it is passed directly as a call argument
 (`E0328` otherwise); to share a list with a stored closure use `rc [T]`.
 The environment of a closure is reference counted, so a closure may be
-returned, stored in a field or list, and copied.
+returned, stored in a field or list, and copied. A recursive lambda is
+written by assigning it to the `var` it calls through
+(`fact = func(n: Int) -> Int { ... fact(n - 1) }`); the cell and the
+closure then refer to each other, and the runtime frees the pair once
+nothing else reaches either. Two closures that call each other through
+two such `var`s are not reclaimed.
 
 ```iron
 func make_adder(n: Int) -> func(Int) -> Int {

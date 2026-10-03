@@ -54,15 +54,36 @@ void Iron_List_Iron_String_free(Iron_List_Iron_String *self) {
     free(self->items);
     self->items = NULL; self->count = 0; self->capacity = 0;
 }
-/* Closure envs are counted (#190). */
-typedef struct { _Atomic uint64_t rc; void (*drop)(void *env); } IronClosureEnvHdr;
+/* Closure envs are counted (#190). `holds` answers whether the env owns a
+ * share of a given capture cell (#246); NULL for envs without var captures. */
+typedef struct {
+    _Atomic uint64_t rc;
+    void (*drop)(void *env);
+    bool (*holds)(void *env, void *cell);
+    void (*cycle_break)(void *env);
+} IronClosureEnvHdr;
 
 void *iron_closure_env_alloc(size_t env_size, void (*drop)(void *env)) {
     IronClosureEnvHdr *h = (IronClosureEnvHdr *)malloc(sizeof(IronClosureEnvHdr) + env_size);
     if (!h) iron_oom_abort("iron_closure_env_alloc");
     atomic_init(&h->rc, 1);
     h->drop = drop;
+    h->holds = NULL;
+    h->cycle_break = NULL;
     return (void *)(h + 1);
+}
+
+void iron_closure_env_set_holds(void *env, bool (*holds)(void *env, void *cell),
+                                void (*cycle_break)(void *env)) {
+    if (!env) return;
+    IronClosureEnvHdr *h = ((IronClosureEnvHdr *)env) - 1;
+    h->holds = holds;
+    h->cycle_break = cycle_break;
+}
+
+uint64_t iron_cell_count(void *value) {
+    if (!value) return 0;
+    return atomic_load_explicit(&(((IronClosureEnvHdr *)value) - 1)->rc, memory_order_acquire);
 }
 
 void iron_closure_env_free(void *env) {
@@ -75,7 +96,30 @@ void *iron_cell_alloc(size_t size, void (*drop)(void *value)) {
     if (!h) iron_oom_abort("iron_cell_alloc");
     atomic_init(&h->rc, 1);
     h->drop = drop;
+    h->holds = NULL;
+    h->cycle_break = NULL;
     return (void *)(h + 1);
+}
+
+void iron_cell_release_closure(void *value) {
+    if (!value) return;
+    IronClosureEnvHdr *h = ((IronClosureEnvHdr *)value) - 1;
+    Iron_Closure *c = (Iron_Closure *)value;
+    /* Two shares: this frame's and one more. If that one is the env of
+     * the closure in the cell, and the cell is the env's only holder, the
+     * pair is unreachable once the frame lets go: no other thread or
+     * value can get at the env except through this cell. */
+    if (atomic_load_explicit(&h->rc, memory_order_acquire) == 2 && c->env) {
+        IronClosureEnvHdr *eh = ((IronClosureEnvHdr *)c->env) - 1;
+        if (atomic_load_explicit(&eh->rc, memory_order_acquire) == 1 &&
+            eh->holds && eh->holds(c->env, value)) {
+            Iron_Closure dead = *c;
+            c->fn = NULL;
+            c->env = NULL;
+            iron_closure_release(dead);   /* env drop releases its cell share */
+        }
+    }
+    iron_cell_release(value);
 }
 
 void iron_cell_retain(void *value) {
@@ -106,6 +150,10 @@ void iron_closure_release(Iron_Closure c) {
     if (prev == 1) {
         IRON_ATOMIC_FENCE_ACQUIRE();
         if (h->drop) h->drop(c.env); else iron_closure_env_free(c.env);
+    } else if (prev == 2 && h->cycle_break) {
+        /* One share left: if it is a capture cell this env alone holds,
+         * and that cell holds this closure, the pair is unreachable (#246). */
+        h->cycle_break(c.env);
     }
 }
 
