@@ -17,6 +17,8 @@ typedef struct {
     Iron_Node   *decl;          /* template FuncDecl / ObjectDecl */
     const char  *mangled;
     const char **arg_texts;     /* stb_ds: source spelling per type argument */
+    Iron_Type  **arg_types;     /* arena copy of the type arguments */
+    int          arg_count;
     bool         materialized;
 } GenInst;
 
@@ -151,9 +153,23 @@ const char *iron_generics_request(Iron_Node *decl, Iron_Type **args, int argc,
             return g_insts[i].mangled;
         }
     }
-    GenInst gi = { decl, mangled, texts, false };
+    Iron_Type **copy = (Iron_Type **)iron_arena_alloc(arena, sizeof(Iron_Type *) * (size_t)argc,
+                                                      _Alignof(Iron_Type *));
+    if (copy) memcpy(copy, args, sizeof(Iron_Type *) * (size_t)argc);
+    GenInst gi = { decl, mangled, texts, copy, copy ? argc : 0, false };
     arrput(g_insts, gi);
     return mangled;
+}
+
+Iron_Node *iron_generics_instance_of(const char *mangled, Iron_Type ***out_args, int *out_argc) {
+    if (!mangled) return NULL;
+    for (ptrdiff_t i = 0; i < arrlen(g_insts); i++) {
+        if (strcmp(g_insts[i].mangled, mangled) != 0) continue;
+        if (out_args) *out_args = g_insts[i].arg_types;
+        if (out_argc) *out_argc = g_insts[i].arg_count;
+        return g_insts[i].decl;
+    }
+    return NULL;
 }
 
 /* ── Cloning ────────────────────────────────────────────────────────────── */
