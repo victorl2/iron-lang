@@ -7629,10 +7629,16 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             Iron_Type **ptypes = enum_type->enu.variant_payload_types
                                  ? enum_type->enu.variant_payload_types[vi] : NULL;
             for (int j = 0; j < ec->arg_count; j++) {
-                Iron_Type *arg_t = check_expr(ctx, ec->args[j]);
+                /* The payload type shapes the argument (a literal, a
+                 * lambda) and accepts what a parameter of that type would:
+                 * an implementor for an interface payload (#261). */
+                Iron_Type *arg_t = check_expr_with_expected(ctx, ec->args[j],
+                                                            ptypes ? ptypes[j] : NULL);
                 if (ptypes && ptypes[j] && arg_t &&
                     arg_t->kind != IRON_TYPE_ERROR && ptypes[j]->kind != IRON_TYPE_ERROR) {
-                    if (!iron_type_equals(arg_t, ptypes[j])) {
+                    if (!iron_type_equals(arg_t, ptypes[j]) &&
+                        !types_assignable(ptypes[j], arg_t) &&
+                        !is_int_literal_narrowing(ptypes[j], arg_t, ec->args[j])) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
                                  "argument %d to %s.%s: expected %s but got %s",

@@ -1533,6 +1533,36 @@ static bool emit_string_ordering(Iron_StrBuf *sb, IronLIR_Instr *instr,
     return true;
 }
 
+/* An enum payload value in a construction: a concrete object going into
+ * an interface-typed payload is wrapped in the interface union (#261). */
+static void emit_enum_payload_value(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
+                                    IronLIR_Instr *instr, int pi,
+                                    IronLIR_BlockId use_block_id, int depth) {
+    IronLIR_ValueId vid = instr->construct.field_vals[1 + pi];
+    Iron_Type *et = instr->construct.type;
+    Iron_Type *pt = NULL;
+    if (et && et->kind == IRON_TYPE_ENUM && et->enu.variant_payload_types) {
+        int vi = -1;
+        IronLIR_ValueId tag_vid = instr->construct.field_vals[0];
+        IronLIR_Instr *tag_in = (tag_vid != IRON_LIR_VALUE_INVALID &&
+                                 tag_vid < (IronLIR_ValueId)arrlen(fn->value_table))
+                                ? fn->value_table[tag_vid] : NULL;
+        if (tag_in && tag_in->kind == IRON_LIR_CONST_INT) vi = (int)tag_in->const_int.value;
+        if (vi >= 0 && et->enu.variant_payload_types[vi]) pt = et->enu.variant_payload_types[vi][pi];
+    }
+    Iron_Type *vt = emit_get_value_type(fn, vid);
+    if (pt && pt->kind == IRON_TYPE_INTERFACE && pt->interface.decl &&
+        vt && vt->kind == IRON_TYPE_OBJECT && vt->object.decl && vt->object.decl->name) {
+        iron_strbuf_appendf(sb, "%s_from_%s(",
+                            emit_mangle_name(pt->interface.decl->name, ctx->arena),
+                            vt->object.decl->name);
+        emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, depth);
+        iron_strbuf_appendf(sb, ")");
+        return;
+    }
+    emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, depth);
+}
+
 void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                        IronLIR_Func *fn, EmitCtx *ctx,
                        IronLIR_BlockId use_block_id, int depth) {
@@ -2186,7 +2216,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                     if (pi > 0) iron_strbuf_appendf(sb, ", ");
                     else iron_strbuf_appendf(sb, " ");
                     iron_strbuf_appendf(sb, "._%d = ", pi);
-                    emit_expr_to_buf(sb, instr->construct.field_vals[1 + pi], fn, ctx, use_block_id, depth+1);
+                    emit_enum_payload_value(sb, fn, ctx, instr, pi, use_block_id, depth+1);
                 }
                 iron_strbuf_appendf(sb, " }");
             }
@@ -6494,7 +6524,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     if (pib && pib[pi]) {
                         iron_strbuf_appendf(sb, "__box_%u_%d", (unsigned)instr->id, pi);
                     } else {
-                        emit_expr_to_buf(sb, instr->construct.field_vals[1 + pi], fn, ctx, ctx->current_block_id, 0);
+                        emit_enum_payload_value(sb, fn, ctx, instr, pi, ctx->current_block_id, 0);
                     }
                 }
                 iron_strbuf_appendf(sb, " }");
