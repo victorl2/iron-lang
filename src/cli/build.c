@@ -1,5 +1,6 @@
 #include "cli/build.h"
 #include "cli/toolchain.h"
+#include "cli/prereqs.h"
 #include "cli/toml.h"
 #include "hir/stdlib_origin.h"
 
@@ -1035,6 +1036,16 @@ static int invoke_clang(const char *c_file, const char *output,
     memset(&si, 0, sizeof(si));
     si.cb = sizeof(si);
     memset(&pi, 0, sizeof(pi));
+    /* The compiler's stderr is captured so a missing Build Tools install
+     * can be recognized and explained (prereqs.c). */
+    IronCcCapture cap;
+    bool captured = iron_cc_capture_open(&cap);
+    if (captured) {
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+        si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+        si.hStdError = (HANDLE)cap.handle;
+    }
 
     free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
                   rt_stb, rt_arena, rt_strbuf,
@@ -1050,14 +1061,16 @@ static int invoke_clang(const char *c_file, const char *output,
                   rl_src, rl_i_flag,
                   rl_glfw_src, rl_glfw_i_flag);
 
-    if (!CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+    if (!CreateProcessA(NULL, cmd, NULL, NULL, captured ? TRUE : FALSE, 0, NULL, NULL, &si, &pi)) {
         fprintf(stderr, "error: failed to spawn clang-cl (error %lu)\n",
                 GetLastError());
+        if (captured) iron_cc_capture_finish(&cap, false);
         return 1;
     }
     WaitForSingleObject(pi.hProcess, INFINITE);
     DWORD exit_code = 0;
     GetExitCodeProcess(pi.hProcess, &exit_code);
+    if (captured) iron_cc_capture_finish(&cap, exit_code != 0);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     if (exit_code != 0) {
@@ -1152,9 +1165,17 @@ static int invoke_clang(const char *c_file, const char *output,
         argv_buf[ai] = NULL;
     }
 
+    /* The compiler's stderr is captured so a missing SDK or C library can
+     * be recognized and explained (prereqs.c). */
+    IronCcCapture cap;
+    bool captured = iron_cc_capture_open(&cap);
+    posix_spawn_file_actions_t cap_fa;
+    posix_spawn_file_actions_init(&cap_fa);
+    if (captured) posix_spawn_file_actions_adddup2(&cap_fa, cap.fd, STDERR_FILENO);
     pid_t pid;
-    int status = posix_spawnp(&pid, clang_path, NULL, NULL,
+    int status = posix_spawnp(&pid, clang_path, &cap_fa, NULL,
                                (char *const *)argv_buf, environ);
+    posix_spawn_file_actions_destroy(&cap_fa);
 
     free_src_list(base_dir, src_i_flag, vendor_i_flag, stdlib_i_flag,
                   rt_stb, rt_arena, rt_strbuf,
@@ -1173,13 +1194,17 @@ static int invoke_clang(const char *c_file, const char *output,
     if (status != 0) {
         fprintf(stderr, "error: failed to spawn clang: %s\n",
                 strerror(status));
+        if (captured) iron_cc_capture_finish(&cap, false);
         return 1;
     }
     if (waitpid(pid, &status, 0) < 0) {
         fprintf(stderr, "error: waitpid failed: %s\n", strerror(errno));
+        if (captured) iron_cc_capture_finish(&cap, false);
         return 1;
     }
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    bool cc_failed = !WIFEXITED(status) || WEXITSTATUS(status) != 0;
+    if (captured) iron_cc_capture_finish(&cap, cc_failed);
+    if (cc_failed) {
         int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
         fprintf(stderr, "error: clang exited with code %d\n", code);
         return 1;

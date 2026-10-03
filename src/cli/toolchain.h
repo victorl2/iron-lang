@@ -64,7 +64,11 @@ const char *iron_toolchain_host(void);
  * found or that it is not installed. Never downloads. */
 void iron_toolchain_print_version(FILE *out);
 
-/* `ironc toolchain <path|install|info>`. argv[0] is the subcommand name. */
+/* `ironc toolchain <path|install|info|check>`. argv[0] is the subcommand name. */
 int iron_toolchain_cmd(int argc, char **argv);
+
+/* Run a program found on PATH and return its exit status, or -1 when it
+ * could not be started. */
+int iron_toolchain_run(char *const argv[]);
 
 #endif /* IRON_CLI_TOOLCHAIN_H */

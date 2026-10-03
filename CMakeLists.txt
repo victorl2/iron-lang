@@ -487,6 +487,7 @@ add_executable(ironc
     src/cli/semver.c
     src/cli/help_registry.c
     src/cli/toolchain.c
+    src/cli/prereqs.c
     src/lsp/store/sha256.c
 )
 target_include_directories(ironc PRIVATE src)
@@ -931,6 +932,7 @@ add_executable(iron
     src/cli/semver.c
     src/cli/help_registry.c
     src/cli/toolchain.c
+    src/cli/prereqs.c
     src/lsp/store/sha256.c
 )
 target_include_directories(iron PRIVATE src)

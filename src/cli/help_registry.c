@@ -94,7 +94,7 @@ static const IronSubSummary IRON_SUB_SUMMARIES[] = {
     { "fmt",     "Format source files" },
     { "test",    "Run package tests" },
     { "init",    "Scaffold a new package" },
-    { "toolchain", "Show, locate or install the pinned C toolchain (info, path, install)" },
+    { "toolchain", "Show, locate, install or check the pinned C toolchain (info, path, install, check)" },
 };
 
 static const int IRON_SUB_SUMMARIES_COUNT =
