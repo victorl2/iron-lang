@@ -161,7 +161,8 @@ jobs:
           echo "OK: emcc --version contains $PINNED"
 
       - name: Compile hello.c via emcc
-        run: "$EMCC" scripts/ci-smoke/hello.c -o /tmp/hello.js
+        run: |
+          "$EMCC" scripts/ci-smoke/hello.c -o /tmp/hello.js
 
       - name: Assert smoke test artifacts exist and are non-empty
         run: |
