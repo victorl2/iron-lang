@@ -2933,7 +2933,7 @@ type           ::= 'weak' 'rc' type
 ptr_type       ::= '*' [ 'var' ] [ 'unchecked' ] type
 tuple_type     ::= '(' type ',' type { ',' type } ')'
 list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']'
-elem_type      ::= func_type | 'rc' type | 'weak' 'rc' type | list_type | ptr_type | tuple_type | IDENT
+elem_type      ::= func_type | 'rc' type | 'weak' 'rc' type | list_type | ptr_type | tuple_type | IDENT [ type_args ]
 list_attr      ::= 'layout' ':' ( 'soa' | 'aos' ) | 'unordered'
 func_type      ::= 'func' [ '(' [ type { ',' type } ] ')' ] [ '->' type ]
 named_type     ::= IDENT '?' [ type_args ] | IDENT [ type_args ] [ '?' ]
