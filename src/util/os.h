@@ -171,6 +171,9 @@
   static inline struct tm *localtime_r(const time_t *t, struct tm *out) {
       return localtime_s(out, t) == 0 ? out : NULL;
   }
+  static inline struct tm *gmtime_r(const time_t *t, struct tm *out) {
+      return gmtime_s(out, t) == 0 ? out : NULL;
+  }
   /* mkstemp: the template's XXXXXX is filled in and the file created
    * exclusively, like POSIX. */
   #include <fcntl.h>

@@ -20,6 +20,7 @@
  */
 
 #include "lsp/facade/workspace_diagnostic.h"
+#include "util/os.h"
 
 #include "lsp/facade/compile.h"
 #include "lsp/facade/diagnostics.h"

@@ -32,7 +32,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <pthread.h>
+#include "util/pthread_compat.h"
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -44,7 +44,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
-#include <unistd.h>
+#include "util/os.h"
 
 #if defined(__APPLE__)
 #include <mach/mach.h>

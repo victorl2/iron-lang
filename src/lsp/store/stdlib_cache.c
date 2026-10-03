@@ -27,9 +27,9 @@
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
 
-#include <dirent.h>
+#include "util/os.h"
 #include <limits.h>
-#include <pthread.h>
+#include "util/pthread_compat.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -37,7 +37,7 @@
 #include "lsp/obs/log.h"
 
 #include <errno.h>
-#include <pthread.h>
+#include "util/pthread_compat.h"
 #include <stdarg.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -48,7 +48,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
-#include <unistd.h>
+#include "util/os.h"
 
 /* ── Module-level state ─────────────────────────────────────────────────── */
 

@@ -51,7 +51,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include "util/os.h"
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 #include "util/arena.h"
 #include "lsp/server/server.h"     /* IronLsp_Server body -- DO NOT re-declare. */
@@ -116,6 +120,13 @@ static void on_message(void *ctx, const char *body, size_t len) {
  * so supervisor parent + worker share the same schema. */
 
 int main(int argc, char **argv) {
+#ifdef _WIN32
+    /* The transport is byte exact: Content-Length framing cannot survive
+     * the CRT's text mode, which turns LF into CRLF on the way out and
+     * treats a Ctrl-Z as the end of stdin. */
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
     /* ── 1. argv parse (Phase 7 Plan 07-01 Task 02: centralised) ─────── */
     IlspArgs args = ilsp_args_parse(argc, argv);
     if (args.want_version) {
@@ -155,7 +166,9 @@ int main(int argc, char **argv) {
      * handler state) and the effect is idempotent. MUST happen before
      * ANY I/O call so the first write to a broken pipe returns EPIPE
      * instead of terminating the process. */
+#ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
+#endif
 
     /* ── 3a. Crash-dump handlers (Phase 7 Plan 07-01 Task 01, HARD-14) ──
      * Install BEFORE the Phase 2 SIGABRT boundary so that SIGSEGV/SIGBUS

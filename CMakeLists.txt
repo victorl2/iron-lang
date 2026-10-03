@@ -524,12 +524,6 @@ endif()
 # with a friendly FATAL_ERROR until the compiler's MSVC issues clear.
 # option(IRON_BUILD_LSP) declared above before test subdirs (F1 Phase 8 rebase).
 
-if(IRON_BUILD_LSP AND WIN32)
-    message(FATAL_ERROR
-        "ironls is not supported on Windows in v1 -- re-enable when the "
-        "compiler's Windows build clears the existing MSVC issues. Configure "
-        "with -DIRON_BUILD_LSP=OFF to skip the LSP binary.")
-endif()
 
 # ── Phase 4 Plan 04-02 Task 01 (EDIT-06): keyword mirror header ─────────────
 # Extract the `kw_table` keyword strings from src/lexer/lexer.c at configure
@@ -899,7 +893,11 @@ if(IRON_BUILD_LSP)
         src/vendor
         "${CMAKE_BINARY_DIR}/generated"   # Plan 04-02: keyword_mirror.h
     )
-    target_link_libraries(ironls iron_compiler iron_runtime iron_stdlib m pthread)
+    if(WIN32)
+        target_link_libraries(ironls iron_compiler iron_runtime iron_stdlib ws2_32 iphlpapi)
+    else()
+        target_link_libraries(ironls iron_compiler iron_runtime iron_stdlib m pthread)
+    endif()
     target_compile_definitions(ironls PRIVATE
         IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src"
         IRON_VERSION_STRING="${IRON_VERSION_FULL}"
