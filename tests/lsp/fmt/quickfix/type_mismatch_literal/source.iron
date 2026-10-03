@@ -1,4 +1,4 @@
 func main() {
-  val n: Int = 42.0
-  println("n")
+    val n: Int = 42.0
+    println("n")
 }

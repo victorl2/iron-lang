@@ -1,6 +1,6 @@
 """FMT-05 smoke -- iron.toml [fmt] indent_width is honored by the LSP.
 
-A workspace whose iron.toml sets indent_width=4 should produce a
+A workspace whose iron.toml sets indent_width=2 (the default is 4) should produce a
 4-space indent in the formatted output, overriding the default (2).
 Drives a fresh LanguageClient rooted at the tmp workspace so the
 initialize handshake picks up the iron.toml via workspace_root.
@@ -57,7 +57,7 @@ async def test_formatting_respects_indent_width(
     clean_iron_source,
     init_params_factory,
 ):
-    ws_root: pathlib.Path = iron_toml_workspace("[fmt]\nindent_width = 4\n")
+    ws_root: pathlib.Path = iron_toml_workspace("[fmt]\nindent_width = 2\n")
     iron_file = ws_root / "x.iron"
     iron_file.write_text(clean_iron_source, encoding="utf-8")
 
@@ -111,9 +111,9 @@ async def test_formatting_respects_indent_width(
         assert isinstance(edits, (list, tuple))
         assert len(edits) == 1, f"expected 1 TextEdit, got {edits!r}"
         body = edits[0].new_text
-        # 4-space indent on the body line.
-        assert "    val" in body, (
-            f"expected 4-space indent before val, got newText={body!r}"
+        # 2-space indent on the body line (the override), not the default 4.
+        assert "\n  val" in body and "\n    val" not in body, (
+            f"expected 2-space indent before val, got newText={body!r}"
         )
     finally:
         try:

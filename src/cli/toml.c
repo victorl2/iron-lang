@@ -203,7 +203,7 @@ IronProject *iron_toml_parse(const char *path) {
 
     /* Phase 5 Plan 05-01 (D-02, FMT-05): seed [fmt] defaults so that an
      * iron.toml without a [fmt] section yields the v1-locked defaults
-     * (line_width=100, indent_width=2, use_tabs=false). The section==4
+     * (line_width=100, indent_width=4, use_tabs=false). The section==4
      * branch below overwrites individual fields when keys are present. */
     proj->fmt = iron_fmt_options_default();
 

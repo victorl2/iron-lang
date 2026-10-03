@@ -10,11 +10,8 @@ typedef struct IronFmtOptions {
     int  line_width;    /* default 100. v1 HINT ONLY -- not enforced by
                          * printer. Forward-compat for v1.x soft-wrap.
                          * RESEARCH Pitfall 9 / Section State of the Art. */
-    int  indent_width;  /* default 2. Preserves existing iron_print_ast
-                         * behavior (src/parser/printer.c:20-24 emits
-                         * "  " per level). RESEARCH A1 overrides
-                         * CONTEXT.md D-02 default of 4 to avoid
-                         * churning tests/integration goldens. */
+    int  indent_width;  /* default 4, the repository's convention;
+                         * iron.toml [fmt].indent_width overrides. */
     bool use_tabs;      /* default false */
 } IronFmtOptions;
 

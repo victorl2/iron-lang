@@ -120,7 +120,7 @@ static Iron_Node *find_enclosing_block(Iron_Node *root,
 static size_t expected_indent_bytes(int depth, const IronFmtOptions *opts) {
     if (depth <= 0) return 0;
     if (opts && opts->use_tabs) return (size_t)depth;    /* 1 tab per level */
-    int width = (opts && opts->indent_width > 0) ? opts->indent_width : 2;
+    int width = (opts && opts->indent_width > 0) ? opts->indent_width : 4;
     return (size_t)(depth * width);
 }
 

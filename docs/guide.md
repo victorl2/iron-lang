@@ -90,7 +90,8 @@ iron        = ">= 4.6.0-alpha"  # optional compiler version constraint
 | `iron` | no | A Cargo-style semver constraint on the compiler, checked by `iron build` and `iron run` |
 
 An optional `[fmt]` table configures the formatter (`indent_width`,
-`line_width`, `use_tabs`), and a `[web]` table configures the web target
+default 4, `line_width`, `use_tabs`), and a `[web]` table configures the
+web target
 (see the manual's [web target section](language_definition.md#105-the-web-target)).
 There is no dependency table.
 
