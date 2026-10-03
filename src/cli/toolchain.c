@@ -1,6 +1,7 @@
 /* toolchain.c: locate, verify and install the pinned C toolchain. See
  * toolchain.h for the lookup order and the rules. */
 #include "cli/toolchain.h"
+#include "cli/prereqs.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -101,9 +102,9 @@ static int mkdir_p(const char *path) {
     return 0;
 }
 
-/* Run a program found on PATH (curl, tar) and return its exit status, or
- * -1 when it could not be started. */
-static int run(char *const argv[]) {
+/* Run a program found on PATH (curl, tar, an installer) and return its
+ * exit status, or -1 when it could not be started. */
+int iron_toolchain_run(char *const argv[]) {
 #ifdef _WIN32
     intptr_t rc = _spawnvp(_P_WAIT, argv[0], (const char *const *)argv);
     return rc < 0 ? -1 : (int)rc;
@@ -299,7 +300,7 @@ static void remove_tree(const char *dir) {
 #else
     char *argv[] = { "rm", "-rf", (char *)dir, NULL };
 #endif
-    run(argv);
+    iron_toolchain_run(argv);
 }
 
 /* Fetch, verify and unpack the bundle for this host into `dest`
@@ -343,10 +344,10 @@ static int install(const char *dest) {
     fprintf(stderr, "iron: downloading toolchain llvm %s bundle %s for %s\n  %s\n",
             IRON_TOOLCHAIN_LLVM, IRON_TOOLCHAIN_BUNDLE, host, url);
     char *curl[] = { "curl", "-fL", "--retry", "3", "--progress-bar", "-o", archive, url, NULL };
-    int rc = run(curl);
+    int rc = iron_toolchain_run(curl);
     if (rc < 0) {   /* no curl: wget is the other downloader found on minimal systems */
         char *wget[] = { "wget", "-q", "--show-progress", "-O", archive, url, NULL };
-        rc = run(wget);
+        rc = iron_toolchain_run(wget);
     }
     if (rc != 0) {
         fprintf(stderr, "error: download failed (%s); install curl or fetch the archive and unpack it into %s\n",
@@ -365,7 +366,7 @@ static int install(const char *dest) {
     }
 
     char *tar[] = { "tar", "-xzf", archive, "-C", staging, "--strip-components=1", NULL };
-    rc = run(tar);
+    rc = iron_toolchain_run(tar);
     unlink(archive);
     if (rc != 0) {
         fprintf(stderr, "error: could not unpack %s (%s)\n", archive_name, rc < 0 ? "tar not found" : "tar failed");
@@ -479,6 +480,9 @@ int iron_toolchain_cmd(int argc, char **argv) {
         printf("%s\n", tc->root);
         return 0;
     }
+    if (strcmp(sub, "check") == 0) {
+        return iron_prereqs_check();
+    }
     if (strcmp(sub, "info") == 0) {
         iron_toolchain_print_version(stdout);
         printf("host %s\n", iron_toolchain_host());
@@ -487,6 +491,6 @@ int iron_toolchain_cmd(int argc, char **argv) {
                iron_toolchain_host(), (sha && *sha) ? sha : "(not published)");
         return 0;
     }
-    fprintf(stderr, "usage: iron toolchain [info|path|install]\n");
+    fprintf(stderr, "usage: iron toolchain [info|path|install|check]\n");
     return 1;
 }

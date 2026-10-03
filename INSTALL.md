@@ -242,7 +242,11 @@ are self-contained and can be distributed without any Iron or C toolchain.
 Until the runtime ships precompiled, macOS still needs the Xcode command
 line tools (for the SDK headers the runtime sources are compiled against),
 Linux the C library headers (`libc6-dev` or equivalent) and Windows the
-MSVC build tools.
+Visual Studio Build Tools. When one is missing, `ironc` says so instead of
+failing with a compiler error about `stdio.h`, and from a terminal offers
+to run the installer (`xcode-select --install`, the distribution's package
+manager, `winget install Microsoft.VisualStudio.2022.BuildTools`).
+`iron toolchain check` runs that probe on demand.
 
 ## Troubleshooting
 

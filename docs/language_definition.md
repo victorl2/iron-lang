@@ -2713,6 +2713,11 @@ the Universal C Runtime, linked with `clang-cl`. The runtime and standard
 library C sources are compiled together with the program for now; the
 precompiled per-target runtime, redistributable link inputs and
 `iron build --target=<os>-<arch>` are not yet implemented (section 12).
+Until then a build also needs the platform's C library headers and link
+inputs: the Visual Studio Build Tools on Windows, the Xcode command line
+tools on macOS, the C library development package on Linux. When they are
+missing `ironc` names them and offers to run the installer;
+`iron toolchain check` probes for them explicitly.
 
 ---
 
