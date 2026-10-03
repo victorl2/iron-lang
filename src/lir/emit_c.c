@@ -294,6 +294,9 @@ void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
         emit_ensure_optional_glue(ctx, t, false);
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "%s_copied(&%s);\n", emit_type_to_c(t, ctx), lv);
+    } else if (t->kind == IRON_TYPE_ENUM && enum_needs_glue(ctx, t, true)) {
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s_copied(&%s);\n", emit_type_to_c(t, ctx), lv);
     }
 }
 
@@ -317,6 +320,9 @@ void emit_drop_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx, Iron_Type *t, cons
         iron_strbuf_appendf(sb, "%s_drop(&%s);\n", emit_type_to_c(t, ctx), lv);
     } else if (t->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, t, false)) {
         emit_ensure_optional_glue(ctx, t, true);
+        emit_indent(sb, ind);
+        iron_strbuf_appendf(sb, "%s_drop(&%s);\n", emit_type_to_c(t, ctx), lv);
+    } else if (t->kind == IRON_TYPE_ENUM && enum_needs_glue(ctx, t, false)) {
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "%s_drop(&%s);\n", emit_type_to_c(t, ctx), lv);
     }
@@ -1481,6 +1487,8 @@ const char *emit_cell_drop_fn(EmitCtx *ctx, Iron_Type *t) {
     } else if (t->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, t, false)) {
         emit_ensure_optional_glue(ctx, t, true);
         snprintf(proto, sizeof(proto), "static void %s_drop(%s *self);\n", tc, tc);
+        snprintf(body, sizeof(body), "%s_drop((%s *)p);", tc, tc);
+    } else if (t->kind == IRON_TYPE_ENUM && enum_needs_glue(ctx, t, false)) {
         snprintf(body, sizeof(body), "%s_drop((%s *)p);", tc, tc);
     } else if (t->kind == IRON_TYPE_OBJECT && t->object.decl &&
                od_needs_drop(ctx, t->object.decl)) {
@@ -4158,12 +4166,16 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     }
                     break;
                 }
-                /* A recursive enum frees its boxed payloads. */
-                if (is_drop && gt && gt->kind == IRON_TYPE_ENUM) {
-                    emit_indent(sb, ind);
-                    iron_strbuf_appendf(sb, "%s_free(", emit_type_to_c(gt, ctx));
-                    emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
-                    iron_strbuf_appendf(sb, ");\n");
+                /* An enum frees its boxed payloads and destroys / fixes up
+                 * the payload fields that own something (#231, #258). */
+                if (gt && gt->kind == IRON_TYPE_ENUM) {
+                    if (enum_needs_glue(ctx, gt, !is_drop)) {
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "%s_%s(", emit_type_to_c(gt, ctx),
+                                            is_drop ? "free" : "copied");
+                        emit_receiver_addr(sb, fn, ctx, ga, ctx->current_block_id);
+                        iron_strbuf_appendf(sb, ");\n");
+                    }
                     break;
                 }
                 /* An Arena value (an Iron_Arena_RT *) is destroyed with its
@@ -7212,16 +7224,18 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     if (cap_meta[ci].is_mutable) continue;
                     Iron_Type *ct = cap_meta[ci].type;
                     if (!ct || !(ct->kind == IRON_TYPE_OBJECT || ct->kind == IRON_TYPE_INTERFACE ||
-                                 ct->kind == IRON_TYPE_NULLABLE ||
+                                 ct->kind == IRON_TYPE_NULLABLE || ct->kind == IRON_TYPE_ENUM ||
                                  (ct->kind == IRON_TYPE_ARRAY && ct->array.is_bounded)))
                         continue;
                     char lv[300];
                     snprintf(lv, sizeof(lv), "_env->%s", cap_c_name(cap_meta[ci].name));
                     Iron_StrBuf stmt = iron_strbuf_create(64);
                     emit_drop_lvalue(&stmt, 1, ctx, ct, lv);
-                    if (stmt.len > 0) {
+                    if (stmt.len > 0 && ct->kind != IRON_TYPE_ENUM) {
                         iron_strbuf_appendf(&ctx->struct_bodies, "static void %s_drop(%s *self);\n",
                                             emit_type_to_c(ct, ctx), emit_type_to_c(ct, ctx));
+                    }
+                    if (stmt.len > 0) {
                         iron_strbuf_appendf(&obj_drops, "%s", iron_strbuf_get(&stmt));
                     }
                     iron_strbuf_free(&stmt);
@@ -7396,6 +7410,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     (cap_meta[ci].type->kind == IRON_TYPE_OBJECT ||
                      cap_meta[ci].type->kind == IRON_TYPE_INTERFACE ||
                      cap_meta[ci].type->kind == IRON_TYPE_NULLABLE ||
+                     cap_meta[ci].type->kind == IRON_TYPE_ENUM ||
                      (cap_meta[ci].type->kind == IRON_TYPE_ARRAY && cap_meta[ci].type->array.is_bounded))) {
                     char lv[300];
                     snprintf(lv, sizeof(lv), "_env_%u->%s", instr->id, cap_c_name(cap_meta[ci].name));

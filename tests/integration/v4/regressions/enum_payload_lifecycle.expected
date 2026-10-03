@@ -1,0 +1,13 @@
+drop payload-1
+full payload-1
+drop payload-1
+full payload-1
+drop payload-1
+full payload-1
+shared 6
+counter 6
+label payload-text
+empty
+end
+drop payload-1
+drop payload-1

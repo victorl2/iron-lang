@@ -319,6 +319,14 @@ void emit_ensure_bvec_glue(EmitCtx *ctx, const Iron_Type *t, bool drop);
  * .value when has_value (objects, interfaces, vectors, closures, lists). */
 bool optional_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy);
 void emit_ensure_optional_glue(EmitCtx *ctx, const Iron_Type *t, bool drop);
+/* An enum whose payloads own something (#258): `<Enum>_drop` / `_copied`
+ * are emitted with the enum's struct (emit_structs.c). */
+bool enum_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy);
+/* The drop (drop = true) or copy-fixup statement for one value `lv` of
+ * type `et`, indented for a glue function body; nothing when the type
+ * needs none. */
+void emit_elem_lifecycle_stmt(EmitCtx *ctx, Iron_StrBuf *sb, const Iron_Type *et,
+                              const char *lv, bool drop);
 
 /* Ensure the list type for `[rc T]` / `[weak rc T]` elements; returns its
  * C name. */
