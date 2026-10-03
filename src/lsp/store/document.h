@@ -24,6 +24,18 @@
  * on the buffer in Plan 04. */
 
 #include <setjmp.h>
+
+/* The SIGABRT recovery point. POSIX keeps the signal mask with sigsetjmp;
+ * Windows raises SIGABRT synchronously from abort() and has only setjmp. */
+#ifdef _WIN32
+typedef jmp_buf ilsp_jmp_buf;
+#define ILSP_SETJMP(buf)       setjmp(buf)
+#define ILSP_LONGJMP(buf, val) longjmp((buf), (val))
+#else
+typedef sigjmp_buf ilsp_jmp_buf;
+#define ILSP_SETJMP(buf)       sigsetjmp((buf), 1)
+#define ILSP_LONGJMP(buf, val) siglongjmp((buf), (val))
+#endif
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -65,7 +77,7 @@ typedef struct IronLsp_Document {
     /* SIGABRT boundary: the ASTWorker does sigsetjmp(abort_jmp, 1) before
      * each call into the facade; the SIGABRT handler siglongjmp's here
      * if TLS ilsp_current_doc_tls points at this document. */
-    sigjmp_buf              abort_jmp;
+    ilsp_jmp_buf            abort_jmp;
     uint32_t                abort_count;      /* number of SIGABRT strikes observed */
     _Atomic bool            quarantined;      /* >=2 strikes -> true; worker skips compiles */
     _Atomic bool            shutdown;         /* set by destroy before joining worker */

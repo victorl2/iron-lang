@@ -9,6 +9,7 @@
  * the root so Plan 05+ have a handle. Directory-walk pattern adapted
  * from src/cli/check.c:get_iron_lib_dir. */
 #include "lsp/store/workspace.h"
+#include "util/os.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,6 +62,13 @@ char *ilsp_workspace_path_from_uri(const char *uri) {
     char *out = (char *)malloc(raw_len + 1);
     if (!out) return NULL;
     url_decode(p, out);
+#ifdef _WIN32
+    /* file:///C:/dir decodes to "/C:/dir": drop the leading slash before
+     * a drive letter so the path is usable as is. */
+    if (out[0] == '/' && ((out[1] >= 'A' && out[1] <= 'Z') || (out[1] >= 'a' && out[1] <= 'z')) &&
+        out[2] == ':')
+        memmove(out, out + 1, strlen(out));
+#endif
     return out;
 }
 
@@ -71,6 +79,10 @@ char *ilsp_workspace_find_root(const char *start_path) {
     char *cur = (char *)malloc(n + 1);
     if (!cur) return NULL;
     memcpy(cur, start_path, n + 1);
+#ifdef _WIN32
+    /* Paths arrive with either separator; the walk below uses '/'. */
+    for (char *c = cur; *c; c++) if (*c == '\\') *c = '/';
+#endif
 
     /* If start_path points at a file, start from its parent directory. */
     struct stat st;
@@ -90,9 +102,11 @@ char *ilsp_workspace_find_root(const char *start_path) {
             return cur;   /* caller frees. */
         }
 
-        /* Ascend: strip the trailing component. */
+        /* Ascend: strip the trailing component. A drive root ("C:") is
+         * the end of the walk on Windows. */
         char *slash = strrchr(cur, '/');
         if (!slash) break;
+        if (slash == cur + 2 && cur[1] == ':') break;
         if (slash == cur) {
             /* Reached filesystem root "/" -- check once more then break. */
             cur[1] = '\0';

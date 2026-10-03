@@ -17,7 +17,8 @@
 
 #include "lsp/obs/trace.h"
 
-#include <pthread.h>
+#include "util/pthread_compat.h"
+#include "util/os.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

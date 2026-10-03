@@ -30,12 +30,12 @@
 #include "lsp/obs/log.h"
 
 #include <errno.h>
-#include <pthread.h>
+#include "util/pthread_compat.h"
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include "util/os.h"
 
 #if defined(__linux__)
 #include <sys/prctl.h>
@@ -83,7 +83,34 @@ static void *macos_kqueue_watcher(void *arg) {
 
 #endif  /* __APPLE__ */
 
-#if !defined(__linux__) && !defined(__APPLE__)
+#if defined(_WIN32)
+
+/* Windows: the parent's process id comes from the process snapshot; a
+ * handle on it with SYNCHRONIZE lets a thread wait for its exit. */
+#include <tlhelp32.h>
+static DWORD win_parent_pid(void) {
+    DWORD me = GetCurrentProcessId(), parent = 0;
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) return 0;
+    PROCESSENTRY32 pe; pe.dwSize = sizeof pe;
+    if (Process32First(snap, &pe)) {
+        do {
+            if (pe.th32ProcessID == me) { parent = pe.th32ParentProcessID; break; }
+        } while (Process32Next(snap, &pe));
+    }
+    CloseHandle(snap);
+    return parent;
+}
+static void *win_parent_watcher(void *arg) {
+    HANDLE parent = (HANDLE)arg;
+    WaitForSingleObject(parent, INFINITE);
+    ilsp_log(ILSP_LOG_INFO, "parent-death", "parent process exited; exiting");
+    CloseHandle(parent);
+    _exit(0);
+    return NULL;
+}
+
+#elif !defined(__linux__) && !defined(__APPLE__)
 
 /* Fallback polling thread for exotic BSDs. */
 static void *ppid_polling_watcher(void *unused) {
@@ -167,6 +194,27 @@ int ilsp_parent_watch_init(void) {
     pthread_attr_destroy(&attr);
     return 0;
 
+#elif defined(_WIN32)
+    DWORD ppid = win_parent_pid();
+    HANDLE parent = ppid ? OpenProcess(SYNCHRONIZE, FALSE, ppid) : NULL;
+    if (!parent) {
+        ilsp_log(ILSP_LOG_WARN, "parent-watch", "cannot open the parent process");
+        atomic_store(&s_installed, 0);
+        return -1;
+    }
+    pthread_t th;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    int rc = pthread_create(&th, &attr, win_parent_watcher, parent);
+    pthread_attr_destroy(&attr);
+    if (rc != 0) {
+        CloseHandle(parent);
+        ilsp_log(ILSP_LOG_WARN, "parent-watch", "pthread_create failed for the parent watcher");
+        atomic_store(&s_installed, 0);
+        return -1;
+    }
+    return 0;
 #else
     pthread_t th;
     pthread_attr_t attr;

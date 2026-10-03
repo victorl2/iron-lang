@@ -36,7 +36,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>  /* _exit */
+#include "util/os.h"  /* _exit */
 
 /* ── Exit syscall seam ──────────────────────────────────────────────────── */
 /* Non-static by design: Unity tests extern-override this to capture the
