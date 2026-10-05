@@ -375,8 +375,12 @@ void iron_heap_free(Iron_FatPtr fp) {
      * on a stale fp.gen sees the new value (mismatches -> triggers panic
      * on next deref). */
     (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(hdr->gen, 1);
-    free(hdr);  /* free entire block (header + payload) */
+    /* Record the address before free(): once the block is back with the
+     * allocator another thread can be handed the same address, and a ring
+     * entry added after that would flag its legitimate free as a double
+     * free. */
     freed_ring_put(hdr);
+    free(hdr);  /* free entire block (header + payload) */
 }
 
 /* Release-build iron_heap_free_dbg: thin wrapper. Codegen always emits
