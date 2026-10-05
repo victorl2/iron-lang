@@ -217,7 +217,9 @@ void iron_leak_dump(void) {
  * double free that slipped through tripped the system allocator instead
  * of the Iron panic). A block the allocator hands out again is taken off
  * the ring first. Lock free: the ring is only ever a hint that makes the
- * common case deterministic. */
+ * common case deterministic. The debug allocator quarantines freed blocks
+ * instead of returning them, so it has no use for the ring. */
+#ifndef IRON_DEBUG_ALLOCATOR
 #define IRON_FREED_RING 64
 static _Atomic(uintptr_t) s_freed_ring[IRON_FREED_RING];
 static _Atomic(unsigned)  s_freed_ring_next;
@@ -238,6 +240,7 @@ static void freed_ring_forget(const void *p) {
                                                 memory_order_relaxed, memory_order_relaxed);
     }
 }
+#endif /* !IRON_DEBUG_ALLOCATOR */
 
 Iron_FatPtr iron_heap_alloc(const char *site_file, int site_line, size_t size) {
     /* Allocate header + payload contiguously. */
@@ -245,7 +248,9 @@ Iron_FatPtr iron_heap_alloc(const char *site_file, int site_line, size_t size) {
     if (!block) {
         iron_oom_abort("iron_heap_alloc");
     }
+#ifndef IRON_DEBUG_ALLOCATOR
     freed_ring_forget(block);
+#endif
     IronAllocHdr *hdr = (IronAllocHdr *)block;
 
     IRON_ATOMIC_U64_INIT(hdr->gen, iron_heap_next_gen());
