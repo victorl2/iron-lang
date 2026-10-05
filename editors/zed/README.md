@@ -67,8 +67,8 @@ patch Player {
 - **Zed 0.200+** (the `zed_extension_api` 0.7 surface + `wasm32-wasip2`
   target). Older Zed versions use a different extension API and will not
   load this extension.
-- **macOS** (Apple silicon or Intel) or **Linux** (x86_64). Windows is
-  not supported in v1.
+- **macOS** (Apple silicon or Intel), **Linux** (x86_64) or **Windows**
+  (x86_64; the extension downloads `ironls-<version>-windows-x86_64.zip`).
 - Internet access on first activation (to download the `ironls` binary).
   Users who have already built `ironls` locally can set `iron_lsp_path`
   to bypass the download entirely.
