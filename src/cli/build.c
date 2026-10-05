@@ -666,6 +666,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         argv_buf[ai++] = "libssl.lib";
         argv_buf[ai++] = "libcrypto.lib";
 #endif
+        argv_buf[ai++] = "crypt32.lib";   /* system trust (iron_tls.c) */
     }
     /* Output flag for clang-cl */
     {
