@@ -126,18 +126,23 @@ static int test_target_cross_parses(void) {
         fprintf(stderr, "FAIL: run --target=linux-arm64 was not refused (rc=%d)\n", rc);
         return 1;
     }
-    snprintf(cmd, sizeof(cmd),
-             "OUT=$(%s build --target=windows-x86_64 /tmp/iron_cli_parse_cross.iron 2>&1); "
-             "RC=$?; "
-             "if [ $RC -eq 0 ]; then exit 1; fi; "
-             "echo \"$OUT\" | grep -q 'no runtime bundle is published for windows-x86_64 yet'",
-             ironc_binary());
-    rc = run_cmd(cmd);
-    if (rc != 0) {
-        fprintf(stderr, "FAIL: --target=windows-x86_64 did not report the missing bundle (rc=%d)\n", rc);
-        return 1;
+    /* The macOS and Windows targets take the same bundle lookup. */
+    static const char *const others[] = { "windows-x86_64", "macos-arm64" };
+    for (int i = 0; i < 2; i++) {
+        snprintf(cmd, sizeof(cmd),
+                 "OUT=$(IRON_RT_DIR=/tmp/iron_cli_parse_rtdir %s build --target=%s "
+                 "/tmp/iron_cli_parse_cross.iron 2>&1); "
+                 "RC=$?; "
+                 "if [ $RC -eq 0 ]; then exit 1; fi; "
+                 "echo \"$OUT\" | grep -q 'holds no runtime bundle for %s'",
+                 ironc_binary(), others[i], others[i]);
+        rc = run_cmd(cmd);
+        if (rc != 0) {
+            fprintf(stderr, "FAIL: --target=%s did not reach the runtime bundle lookup (rc=%d)\n", others[i], rc);
+            return 1;
+        }
     }
-    fprintf(stderr, "OK: cross targets parse, run refuses them, unpublished targets are named\n");
+    fprintf(stderr, "OK: cross targets parse, run refuses them, every target looks up its bundle\n");
     return 0;
 }
 
