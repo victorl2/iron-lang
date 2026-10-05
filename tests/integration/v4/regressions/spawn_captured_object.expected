@@ -1,0 +1,8 @@
+fire returns
+drop fire-and-forget
+bg sees fire-and-forget
+drop fire-and-forget
+drop awaited-copy
+len 12
+end
+drop awaited-copy
