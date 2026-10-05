@@ -221,6 +221,16 @@ jobs:
         shell: pwsh
         run: python -m pytest -q tests\lsp\smoke --lsp-binary "$PWD\build\ironls.exe" -p no:cacheprovider
 
+      # Every target, not just the three binaries: the unit and LSP test
+      # programs only stay buildable on Windows if CI builds them.
+      - name: Build the test programs
+        if: needs.changes.outputs.ci == 'true'
+        run: cmake --build build
+
+      - name: Run ctest
+        if: needs.changes.outputs.ci == 'true'
+        run: ctest --test-dir build -j 4 --timeout 600 --output-on-failure
+
   build-and-test-release:
     needs: changes
     # REG-01 (Phase 66): Linux Release CI job — the missing signal that would
