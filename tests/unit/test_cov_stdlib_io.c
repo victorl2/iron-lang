@@ -407,6 +407,11 @@ void test_io_text_append_info_copy_move(void) {
     TEST_ASSERT_EQUAL_INT64(10, copied.bytes);
     Iron_FileWriteResult refused = Iron_io_copy_file(source, copied_path, false);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_ALREADY_EXISTS, refused.error);
+    /* Overwriting a different existing file is not a self-copy (Windows
+     * stat() reports st_ino 0 for every file, so dev/ino cannot tell). */
+    Iron_FileWriteResult replaced = Iron_io_copy_file(source, copied_path, true);
+    TEST_ASSERT_EQUAL_INT64(0, replaced.error);
+    TEST_ASSERT_EQUAL_INT64(10, replaced.bytes);
 
     Iron_FileWriteResult self_copy = Iron_io_copy_file(source, source, true);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_INVALID_ARGUMENT, self_copy.error);
@@ -432,12 +437,23 @@ void test_io_text_append_info_copy_move(void) {
     Iron_FileInfo moved_info = Iron_io_file_info(moved_path);
     TEST_ASSERT_FALSE(copied_after_move.exists);
     TEST_ASSERT_TRUE(moved_info.exists);
+    Iron_String spare_path = mkpath("spare.bin");
+    Iron_FileWriteResult spare = Iron_io_copy_file(source, spare_path, false);
+    TEST_ASSERT_EQUAL_INT64(0, spare.error);
+    Iron_FileWriteResult replaced_move = Iron_io_move_file(spare_path, moved_path, true);
+    TEST_ASSERT_EQUAL_INT64(0, replaced_move.error);
+    Iron_FileInfo spare_after_move = Iron_io_file_info(spare_path);
+    TEST_ASSERT_FALSE(spare_after_move.exists);
     Iron_filewriteresult_release(first);
     Iron_filewriteresult_release(second);
     Iron_filereadresult_release(text);
     Iron_fileinfo_release(info);
     Iron_filewriteresult_release(copied);
     Iron_filewriteresult_release(refused);
+    Iron_filewriteresult_release(replaced);
+    Iron_filewriteresult_release(spare);
+    Iron_filewriteresult_release(replaced_move);
+    Iron_fileinfo_release(spare_after_move);
     Iron_filewriteresult_release(self_copy);
     Iron_filereadresult_release(source_after_self_copy);
     Iron_filewriteresult_release(directory_copy);

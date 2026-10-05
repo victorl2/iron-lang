@@ -501,6 +501,37 @@ Iron_FileInfo Iron_io_file_info(Iron_String path) {
     return out;
 }
 
+/* Whether two paths that both exist name the same file. On Windows stat()
+ * reports st_ino as 0 for every file, so dev/ino would call any two files
+ * on one drive the same; the volume serial and file index are the
+ * identity there. */
+static bool io_same_file(const char *a, const char *b,
+                         const struct stat *a_info, const struct stat *b_info) {
+#ifndef _WIN32
+    (void)a;
+    (void)b;
+    return a_info->st_dev == b_info->st_dev && a_info->st_ino == b_info->st_ino;
+#else
+    (void)a_info;
+    (void)b_info;
+    bool same = false;
+    HANDLE ha = CreateFileA(a, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                            NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    HANDLE hb = CreateFileA(b, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                            NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    BY_HANDLE_FILE_INFORMATION ia, ib;
+    if (ha != INVALID_HANDLE_VALUE && hb != INVALID_HANDLE_VALUE &&
+        GetFileInformationByHandle(ha, &ia) && GetFileInformationByHandle(hb, &ib)) {
+        same = ia.dwVolumeSerialNumber == ib.dwVolumeSerialNumber &&
+               ia.nFileIndexHigh == ib.nFileIndexHigh &&
+               ia.nFileIndexLow == ib.nFileIndexLow;
+    }
+    if (ha != INVALID_HANDLE_VALUE) CloseHandle(ha);
+    if (hb != INVALID_HANDLE_VALUE) CloseHandle(hb);
+    return same;
+#endif
+}
+
 Iron_FileWriteResult Iron_io_copy_file(Iron_String source,
                                         Iron_String destination,
                                         bool overwrite) {
@@ -530,8 +561,8 @@ Iron_FileWriteResult Iron_io_copy_file(Iron_String source,
     }
     struct stat destination_info;
     if (stat(destination_text, &destination_info) == 0) {
-        if (source_info.st_dev == destination_info.st_dev &&
-            source_info.st_ino == destination_info.st_ino) {
+        if (io_same_file(source_text, destination_text,
+                         &source_info, &destination_info)) {
             free(source_text);
             free(destination_text);
             return io_write_result(0, IRON_ERR_IO_INVALID_ARGUMENT);
@@ -612,8 +643,8 @@ Iron_FileWriteResult Iron_io_move_file(Iron_String source,
     }
     struct stat destination_info;
     if (stat(destination_text, &destination_info) == 0) {
-        if (source_info.st_dev == destination_info.st_dev &&
-            source_info.st_ino == destination_info.st_ino) {
+        if (io_same_file(source_text, destination_text,
+                         &source_info, &destination_info)) {
             free(source_text);
             free(destination_text);
             return io_write_result(0, IRON_ERR_IO_INVALID_ARGUMENT);
