@@ -29,7 +29,10 @@ if [ $# -ne 3 ]; then
     sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
 fi
-target=$1 version=$2 out=$3
+target=$1 version=$2
+# Absolute: the paths below are passed to tools that run in other
+# directories (compiler-rt builds from its own build tree).
+out=$(mkdir -p "$3" && cd "$3" && pwd)
 musl=${MUSL_VERSION:-1.2.5}
 jobs=${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}
 here=$(cd "$(dirname "$0")/../.." && pwd)
