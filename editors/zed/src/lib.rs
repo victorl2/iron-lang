@@ -159,18 +159,13 @@ struct IronLspExtension {
 ///   linux / x86_64
 ///   macos / x86_64
 ///   macos / aarch64
+///   windows / x86_64 (a .zip holding ironls.exe)
 fn platform_triple() -> Result<(String, String)> {
     let (os, arch) = zed::current_platform();
     let os_str = match os {
         zed::Os::Mac => "macos",
         zed::Os::Linux => "linux",
-        zed::Os::Windows => {
-            return Err(
-                "Iron LSP: Windows is not supported in v1. Set \"iron_lsp_path\" \
-                 to a local binary if you have one."
-                    .into(),
-            );
-        }
+        zed::Os::Windows => "windows",
     };
     let arch_str = match arch {
         zed::Architecture::Aarch64 => "aarch64",
@@ -328,8 +323,22 @@ impl zed::Extension for IronLspExtension {
         })?;
 
         let (os_str, arch_str) = platform_triple()?;
-        let tarball_name =
-            format!("ironls-{}-{}-{}.tar.gz", release.version, os_str, arch_str);
+        let is_windows = os_str == "windows";
+        if is_windows && arch_str != "x86_64" {
+            return Err(format!(
+                "Iron LSP: no ironls build for windows-{}. Set \"iron_lsp_path\" \
+                 to a local binary.",
+                arch_str
+            ));
+        }
+        // Windows ships a .zip of ironls.exe; the other hosts a tarball.
+        let tarball_name = format!(
+            "ironls-{}-{}-{}.{}",
+            release.version,
+            os_str,
+            arch_str,
+            if is_windows { "zip" } else { "tar.gz" }
+        );
         let sha_name = format!("{}.sha256", tarball_name);
 
         let tarball_asset = release
@@ -476,18 +485,24 @@ impl zed::Extension for IronLspExtension {
         zed::download_file(
             &tarball_asset.download_url,
             &version_dir,
-            DownloadedFileType::GzipTar,
+            if is_windows { DownloadedFileType::Zip } else { DownloadedFileType::GzipTar },
         )
         .map_err(|e| {
             format!("Iron LSP: extract failed: {}", e)
         })?;
 
-        // After extraction the binary lives at <version_dir>/ironls.
-        // Our release.yml layout packs the single `ironls` binary at
-        // the tarball root (see release.yml "tar czf" step).
-        let binary_path = format!("{}/ironls", version_dir);
-        zed::make_file_executable(&binary_path)
-            .map_err(|e| format!("Iron LSP: chmod failed: {}", e))?;
+        // After extraction the binary lives at <version_dir>/ironls
+        // (<version_dir>/ironls.exe on Windows). Our release.yml layout
+        // packs the single binary at the archive root.
+        let binary_path = format!(
+            "{}/ironls{}",
+            version_dir,
+            if is_windows { ".exe" } else { "" }
+        );
+        if !is_windows {
+            zed::make_file_executable(&binary_path)
+                .map_err(|e| format!("Iron LSP: chmod failed: {}", e))?;
+        }
 
         // Phase 7 HARD-22 / D-10: HARD REFUSE if the downloaded
         // binary's --version falls outside COMPATIBLE_IRONLS. Zed
