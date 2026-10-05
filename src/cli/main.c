@@ -5,6 +5,7 @@
 #include "util/os.h"
 
 #include "cli/build.h"
+#include "cli/target.h"
 #include "cli/check.h"
 #include "cli/fmt.h"
 #include "cli/test_runner.h"
@@ -113,6 +114,7 @@ int main(int argc, char **argv) {
     bool report_compression = false;
     bool strict_v3 = true;
     IronBuildTarget target = IRON_TARGET_NATIVE;
+    const IronCrossTarget *cross_target = NULL;
     bool release = false;
     bool emit_archive = false;
     const char *pkg_name_arg = NULL;
@@ -153,28 +155,28 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "%s: --output requires a path argument\n", IRON_BINARY_NAME);
                 return 1;
             }
-        } else if (strncmp(argv[i], "--target=", 9) == 0) {
-            const char *val = argv[i] + 9;
+        } else if (strncmp(argv[i], "--target=", 9) == 0 || strcmp(argv[i], "--target") == 0) {
+            const char *val;
+            if (argv[i][8] == '=') {
+                val = argv[i] + 9;
+            } else {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "error: --target requires a value (native, web, or %s)\n",
+                            iron_target_names());
+                    return 1;
+                }
+                val = argv[++i];
+            }
             if (strcmp(val, "web") == 0) {
                 target = IRON_TARGET_WEB;
-            } else if (strcmp(val, "native") == 0) {
+            } else if (strcmp(val, "native") == 0 || iron_target_is_host(val)) {
+                /* Naming the host is the native build. */
                 target = IRON_TARGET_NATIVE;
+            } else if ((cross_target = iron_target_lookup(val)) != NULL) {
+                target = IRON_TARGET_CROSS;
             } else {
-                fprintf(stderr, "error: unknown target '%s'. valid targets: web, native\n", val);
-                return 1;
-            }
-        } else if (strcmp(argv[i], "--target") == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "error: --target requires a value (web or native)\n");
-                return 1;
-            }
-            const char *val = argv[++i];
-            if (strcmp(val, "web") == 0) {
-                target = IRON_TARGET_WEB;
-            } else if (strcmp(val, "native") == 0) {
-                target = IRON_TARGET_NATIVE;
-            } else {
-                fprintf(stderr, "error: unknown target '%s'. valid targets: web, native\n", val);
+                fprintf(stderr, "error: unknown target '%s'. valid targets: native, web, %s\n",
+                        val, iron_target_names());
                 return 1;
             }
         } else if (strcmp(argv[i], "--release") == 0) {
@@ -250,6 +252,7 @@ int main(int argc, char **argv) {
             .warn_fusion_break = warn_fusion_break,
             .report_compression = report_compression,
             .target         = target,
+            .cross_target   = cross_target,
             .release        = release,
             .strict_v3      = strict_v3,
             .emit_archive   = emit_archive,
@@ -268,6 +271,11 @@ int main(int argc, char **argv) {
             fprintf(stderr, "%s run: missing source file\n", IRON_BINARY_NAME);
             return 1;
         }
+        if (target == IRON_TARGET_CROSS) {
+            fprintf(stderr, "%s run: a %s binary cannot run on this host; use `%s build --target=%s`\n",
+                    IRON_BINARY_NAME, cross_target->name, IRON_BINARY_NAME, cross_target->name);
+            return 1;
+        }
         IronBuildOpts opts = {
             .verbose        = verbose,
             .debug_build    = debug_build,
@@ -281,6 +289,7 @@ int main(int argc, char **argv) {
             .warn_fusion_break = warn_fusion_break,
             .report_compression = report_compression,
             .target         = target,
+            .cross_target   = cross_target,
             .release        = release,
             .strict_v3      = strict_v3,
             .emit_archive   = false,

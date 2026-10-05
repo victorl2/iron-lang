@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -16,6 +17,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <wincrypt.h>
 #ifndef POLLIN
 #define POLLIN 0x0100
 #endif
@@ -27,6 +29,113 @@
 #include <poll.h>
 #include <pthread.h>
 #endif
+
+/* Verification against the system's trust, used unless the caller names a
+ * CA file.
+ *
+ * OpenSSL only knows its own build-time OPENSSLDIR, which is right for a
+ * distribution's OpenSSL but not for the static one in a runtime bundle.
+ * On Linux and macOS the default paths (which honour SSL_CERT_FILE and
+ * SSL_CERT_DIR) are kept and the first CA bundle found at the locations
+ * the common distributions and macOS use is added.
+ *
+ * Windows keeps only part of its trusted roots on disk and fetches the
+ * rest while CryptoAPI builds a chain, so importing the ROOT store into
+ * OpenSSL misses roots a browser would accept. There the server's chain
+ * is handed to CertGetCertificateChain and checked with the SSL policy
+ * (trust, server-auth usage, validity and the host name or IP address),
+ * as Schannel would. Returns 1 when system trust is in place. */
+#ifdef _WIN32
+static int tls_windows_verify(X509_STORE_CTX *store_ctx, void *arg) {
+    (void)arg;
+    SSL *ssl = (SSL *)X509_STORE_CTX_get_ex_data(store_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
+    X509 *leaf = X509_STORE_CTX_get0_cert(store_ctx);
+    STACK_OF(X509) *untrusted = X509_STORE_CTX_get0_untrusted(store_ctx);
+    if (!ssl || !leaf) return 0;
+
+    int ok = 0;
+    HCERTSTORE extra = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, 0, NULL);
+    for (int i = 0; extra && untrusted && i < sk_X509_num(untrusted); i++) {
+        unsigned char *der = NULL;
+        int len = i2d_X509(sk_X509_value(untrusted, i), &der);
+        if (len > 0)
+            CertAddEncodedCertificateToStore(extra, X509_ASN_ENCODING, der, (DWORD)len,
+                                             CERT_STORE_ADD_ALWAYS, NULL);
+        OPENSSL_free(der);
+    }
+    unsigned char *leaf_der = NULL;
+    int leaf_len = i2d_X509(leaf, &leaf_der);
+    PCCERT_CONTEXT leaf_ctx = leaf_len > 0
+        ? CertCreateCertificateContext(X509_ASN_ENCODING, leaf_der, (DWORD)leaf_len) : NULL;
+    OPENSSL_free(leaf_der);
+
+    X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
+    const char *host = X509_VERIFY_PARAM_get0_host(param, 0);
+    char *ip = host ? NULL : X509_VERIFY_PARAM_get1_ip_asc(param);
+    wchar_t name[512];
+    int named = (host || ip) &&
+        MultiByteToWideChar(CP_UTF8, 0, host ? host : ip, -1, name, 512) > 0;
+
+    if (leaf_ctx && named) {
+        LPSTR usage[] = { (LPSTR)szOID_PKIX_KP_SERVER_AUTH };
+        CERT_CHAIN_PARA chain_para;
+        memset(&chain_para, 0, sizeof(chain_para));
+        chain_para.cbSize = sizeof(chain_para);
+        chain_para.RequestedUsage.dwType = USAGE_MATCH_TYPE_AND;
+        chain_para.RequestedUsage.Usage.cUsageIdentifier = 1;
+        chain_para.RequestedUsage.Usage.rgpszUsageIdentifier = usage;
+        PCCERT_CHAIN_CONTEXT chain = NULL;
+        if (CertGetCertificateChain(NULL, leaf_ctx, NULL, extra, &chain_para, 0, NULL, &chain)) {
+            SSL_EXTRA_CERT_CHAIN_POLICY_PARA ssl_para;
+            memset(&ssl_para, 0, sizeof(ssl_para));
+            ssl_para.cbSize = sizeof(ssl_para);
+            ssl_para.dwAuthType = AUTHTYPE_SERVER;
+            ssl_para.pwszServerName = name;
+            CERT_CHAIN_POLICY_PARA policy;
+            memset(&policy, 0, sizeof(policy));
+            policy.cbSize = sizeof(policy);
+            policy.pvExtraPolicyPara = &ssl_para;
+            CERT_CHAIN_POLICY_STATUS status;
+            memset(&status, 0, sizeof(status));
+            status.cbSize = sizeof(status);
+            ok = CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, chain, &policy, &status) &&
+                 status.dwError == 0;
+            CertFreeCertificateChain(chain);
+        }
+    }
+    OPENSSL_free(ip);
+    if (leaf_ctx) CertFreeCertificateContext(leaf_ctx);
+    if (extra) CertCloseStore(extra, 0);
+    X509_STORE_CTX_set_error(store_ctx, ok ? X509_V_OK : X509_V_ERR_CERT_UNTRUSTED);
+    return ok;
+}
+#endif
+
+static int tls_use_system_trust(SSL_CTX *context) {
+#ifdef _WIN32
+    SSL_CTX_set_cert_verify_callback(context, tls_windows_verify, NULL);
+    return 1;
+#else
+    static const char *const bundles[] = {
+        "/etc/ssl/certs/ca-certificates.crt",                /* Debian, Ubuntu, Alpine, Arch */
+        "/etc/pki/tls/certs/ca-bundle.crt",                  /* Fedora, RHEL */
+        "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", /* RHEL, CentOS */
+        "/etc/ssl/ca-bundle.pem",                            /* openSUSE */
+        "/etc/pki/tls/cacert.pem",                           /* OpenELEC */
+        "/etc/ssl/cert.pem",                                 /* macOS, Alpine */
+    };
+    int ok = SSL_CTX_set_default_verify_paths(context) == 1;
+    if (getenv("SSL_CERT_FILE") || getenv("SSL_CERT_DIR")) return ok;
+    for (size_t i = 0; i < sizeof(bundles) / sizeof(bundles[0]); i++) {
+        FILE *probe = fopen(bundles[i], "r");
+        if (!probe) continue;
+        fclose(probe);
+        if (SSL_CTX_load_verify_locations(context, bundles[i], NULL) == 1) return 1;
+    }
+    ERR_clear_error();
+    return ok;
+#endif
+}
 
 struct Iron_TlsStream {
     SSL_CTX *context;
@@ -195,7 +304,7 @@ Iron_TlsStreamResult iron_tls_client_connect(Iron_TcpSocket socket,
                 return out;
             }
             free(ca_text);
-        } else if (SSL_CTX_set_default_verify_paths(context) != 1) {
+        } else if (!tls_use_system_trust(context)) {
             free(host_text);
             SSL_CTX_free(context);
             out.error = tls_error(IRON_ERR_TLS_TRUST_STORE);

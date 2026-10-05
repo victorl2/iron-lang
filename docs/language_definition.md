@@ -2671,8 +2671,9 @@ vendored libraries that declare the same name are a duplicate declaration
 IR optimizations), `--debug-build` (keep the generated C under
 `.iron-build/`), `--emit-c` (`build` only: write the C file and stop
 before the C compiler), `--dump-ir-passes`, `--report-compression`,
-`--warn-fusion-break`, `--force-comptime` (ignore the comptime cache) and
-`--target=web`. `--no-strict-v3` accepts a few removed syntax forms for
+`--warn-fusion-break`, `--force-comptime` (ignore the comptime cache),
+`--target=web` (section 10.5) and `--target=<os>-<arch>` (cross
+compilation, section 10.6). `--no-strict-v3` accepts a few removed syntax forms for
 debugging old code. `--verbose` prints the generated C and the link line
 and `--version` prints the compiler version and the toolchain it compiles
 with.
@@ -2723,18 +2724,63 @@ bundle built from another LLVM release and reports the one it uses in
 `iron toolchain install` expose the same lookup. `IRON_TOOLCHAIN` is a
 developer override: a mismatched version there only warns.
 
-Native targets today are the host: `aarch64-apple-darwin` and
+A native build targets the host: `aarch64-apple-darwin` and
 `x86_64-apple-darwin` against libSystem, `x86_64-linux-gnu` and
 `aarch64-linux-gnu` against glibc, and `x86_64-pc-windows-msvc` against
-the Universal C Runtime, linked with `clang-cl`. The runtime and standard
-library C sources are compiled together with the program for now; the
-precompiled per-target runtime, redistributable link inputs and
-`iron build --target=<os>-<arch>` are not yet implemented (section 12).
-Until then a build also needs the platform's C library headers and link
-inputs: the Visual Studio Build Tools on Windows, the Xcode command line
-tools on macOS, the C library development package on Linux. When they are
-missing `ironc` names them and offers to run the installer;
-`iron toolchain check` probes for them explicitly.
+the Universal C Runtime. On Windows and macOS a native build links
+against the host's runtime bundle (below) when one is installed; the
+Windows release archive ships one next to `ironc`, so no Visual Studio
+Build Tools are needed there. Otherwise, and on Linux, the runtime and
+standard library C sources are compiled together with the program, so a
+native build also needs the platform's C library headers and link inputs:
+the Visual Studio Build Tools on Windows, the Xcode command line tools on
+macOS, the C library development package on Linux.
+When a platform prerequisite is missing `ironc` names it and offers to run
+the installer; `iron toolchain check` probes for them explicitly.
+
+`iron build --target=<os>-<arch>` (and `ironc build --target=...`) cross
+compiles instead. The targets are `linux-x86_64`, `linux-arm64`,
+`macos-arm64`, `macos-x86_64` and `windows-x86_64`. A cross build needs no
+SDK: the generated C
+is freestanding, and the program is linked against a *runtime bundle*,
+the Iron runtime and standard library and the compiler builtins
+precompiled for the target by the pinned toolchain, plus the target's C
+library. On Linux that is a static musl, linked with `ld.lld`, and the
+result is a static executable that runs on any distribution. On macOS
+the program is linked with `ld64.lld` against
+`libSystem` through a `libSystem.tbd` text stub that lists the symbols
+the runtime uses; `dyld` binds them to the real library at run time,
+the minimum system version is macOS 11, and arm64 executables are ad-hoc
+signed by the linker. On Windows
+the program is linked with `lld-link` against the Universal C Runtime
+and the other system DLLs it calls (`ucrtbase`, `kernel32`, `ws2_32`,
+`bcrypt`, all part of Windows 10 and later) through import libraries in
+the bundle, with the bundle's own entry point in place of the MSVC
+startup code; the executable needs neither the Build Tools nor the Visual
+C++ redistributable, and a debug build carries CodeView information in a
+PDB. Each release publishes
+`iron-rt-<version>-<target>.tar.gz` with a `.sha256` sidecar; `ironc`
+looks for the bundle at `$IRON_RT_DIR/<target>`, then in
+`<prefix>/lib/iron/rt/<target>`, then in `~/.iron/rt/<version>/<target>`,
+where it downloads and verifies it on first use. A bundle must come from
+the same compiler version and commit as `ironc`; `IRON_RT_DIR` is the
+developer override that only warns. In a package `iron build --target=`
+writes the binary to `target/<target>/<name>`; `iron run` and `ironc run`
+refuse a cross target because the binary cannot execute on the host, and
+`--target` is not accepted for library packages or together with
+`--target=web`.
+
+Every bundle carries TLS: OpenSSL 3.5, built statically for the target,
+is linked into programs that import `http` or `websocket`. Servers are
+verified against the system's trust: the CA bundle of the Linux
+distribution or macOS (`SSL_CERT_FILE` and `SSL_CERT_DIR` override it),
+and on Windows the chain is checked by the system (CryptoAPI), which also
+fetches roots Windows has not stored yet. The Windows and macOS bundles
+also carry raylib; on macOS it is linked against `.tbd` stubs for the
+frameworks it uses (AppKit, Foundation, CoreFoundation, CoreGraphics,
+IOKit, `libobjc`). A Linux cross build cannot use raylib, because a
+static executable cannot load the system's OpenGL; such a program is
+built on the target, natively.
 
 ---
 
@@ -2818,10 +2864,8 @@ so that older material is not mistaken for the current language:
 - Method-level generic inference for the container methods (`ch.recv()` without a written type).
 - Lambda parameter inference outside a function-typed parameter position.
 - `String`, `Bool` and `Float` subjects in `match`.
-- Cross compilation: `iron build --target=<os>-<arch>` with a precompiled
-  per-target runtime and link inputs that need no platform SDK (musl on
-  Linux, import libraries and an Iron entry point on Windows, `.tbd` stubs
-  on macOS).
+- raylib in Linux cross builds: it needs the system's OpenGL, which a
+  static musl executable cannot load.
 
 ---
 
