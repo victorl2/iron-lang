@@ -37,7 +37,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
+#include "support/posix_test.h"
 
 void setUp(void)    {}
 void tearDown(void) {}
@@ -162,7 +162,7 @@ static int write_file(const char *path, const char *contents) {
 }
 
 static int make_tmpdir(void) {
-    snprintf(g_tmpdir, sizeof(g_tmpdir), "/tmp/ironls_wsdiag_XXXXXX");
+    snprintf(g_tmpdir, sizeof(g_tmpdir), IRON_TEST_TMP "/ironls_wsdiag_XXXXXX");
     if (!mkdtemp(g_tmpdir)) return -1;
     return 0;
 }

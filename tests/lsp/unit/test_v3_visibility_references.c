@@ -36,7 +36,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
+#include "support/posix_test.h"
 
 void setUp(void)    {}
 void tearDown(void) {}
@@ -84,7 +84,7 @@ static const char *find_fixture(char *out, size_t cap, const char *name) {
 }
 
 static int build_tmp_workspace(void) {
-    snprintf(g_tmpdir, sizeof(g_tmpdir), "/tmp/iron_v3vis_refs_XXXXXX");
+    snprintf(g_tmpdir, sizeof(g_tmpdir), IRON_TEST_TMP "/iron_v3vis_refs_XXXXXX");
     if (!mkdtemp(g_tmpdir)) return -1;
 
     char src[PATH_MAX];

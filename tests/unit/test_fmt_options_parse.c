@@ -15,7 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include "support/posix_test.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -23,7 +23,7 @@ void tearDown(void) {}
 /* mkstemp wants a writable XXXXXX-suffixed buffer. */
 static char *write_temp_toml(const char *content) {
     static char path_buf[64];
-    strcpy(path_buf, "/tmp/iron_fmt_toml_XXXXXX");
+    strcpy(path_buf, IRON_TEST_TMP "/iron_fmt_toml_XXXXXX");
     int fd = mkstemp(path_buf);
     TEST_ASSERT_TRUE_MESSAGE(fd >= 0, "mkstemp failed");
     size_t len = strlen(content);

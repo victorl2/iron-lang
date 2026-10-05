@@ -49,7 +49,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
+#include "support/posix_test.h"
 
 void setUp(void)    {}
 void tearDown(void) {}
@@ -101,7 +101,7 @@ static char *build_tmp_workspace(const char *fixture_subdir,
                                    char *out_mod_a, size_t out_mod_a_cap,
                                    char *out_mod_b, size_t out_mod_b_cap) {
     char tmpl[PATH_MAX];
-    snprintf(tmpl, sizeof(tmpl), "/tmp/iron_v3_patch_refs_XXXXXX");
+    snprintf(tmpl, sizeof(tmpl), IRON_TEST_TMP "/iron_v3_patch_refs_XXXXXX");
     char *dir = mkdtemp(tmpl);
     if (!dir) return NULL;
     char *out_dir = strdup(dir);

@@ -17,7 +17,7 @@
 
 #include <errno.h>
 #include <limits.h>
-#include <pthread.h>
+#include "support/posix_test.h"
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,7 +25,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
-#include <unistd.h>
 
 void setUp(void)    {}
 void tearDown(void) {}
@@ -37,7 +36,7 @@ static char g_tmpdir[PATH_MAX] = {0};
 /* Create a fresh temp directory under /tmp; returns 0 on success. */
 static int make_tmpdir(void) {
     snprintf(g_tmpdir, sizeof(g_tmpdir),
-             "/tmp/ironls_wsidx_XXXXXX");
+             IRON_TEST_TMP "/ironls_wsidx_XXXXXX");
     if (!mkdtemp(g_tmpdir)) return -1;
     return 0;
 }

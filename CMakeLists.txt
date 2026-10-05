@@ -108,6 +108,11 @@ if(WIN32)
     # compiler, clang included; the call sites are bounded. Keep the warning
     # level and -Werror of the compiler branch below.
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
+    # libm lives in the UCRT and threads come from util/pthread_compat.h, so
+    # the `m` and `pthread` that test targets link on every platform are
+    # empty here rather than missing m.lib / pthread.lib.
+    add_library(m INTERFACE)
+    add_library(pthread INTERFACE)
 endif()
 if(MSVC)
     add_compile_options(/W3 /WX)
@@ -232,6 +237,17 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(unity)
 # Enable double-precision float assertions for all Unity test targets
 target_compile_definitions(unity PUBLIC UNITY_INCLUDE_DOUBLE)
+# Without this Unity includes <stdnoreturn.h> under clang on Windows, whose
+# `noreturn` macro breaks every later __attribute__((noreturn)) and the
+# UCRT's __declspec(noreturn).
+target_compile_definitions(unity PUBLIC UNITY_NORETURN=_Noreturn)
+# Tests include "support/posix_test.h" for the POSIX surface on Windows.
+include_directories(${CMAKE_SOURCE_DIR}/tests)
+if(WIN32)
+    # IRON_TEST_TMP (tests/support/posix_test.h) replaces /tmp in tests.
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/test-tmp")
+    add_compile_definitions(IRON_TEST_TMP="${CMAKE_BINARY_DIR}/test-tmp")
+endif()
 # Unity is a third-party library — don't apply our /W3 /WX strictness to it.
 # On MSVC, Unity's own source emits C4996 (POSIX deprecation) and C5045
 # (Spectre mitigation hints) which our global /WX would promote to errors.
@@ -404,13 +420,16 @@ enable_testing()
 # row FAILS loudly — this failure class can never be silent again.
 # PASS_REGULAR_EXPRESSION (not exit code) is the oracle so a hijacking binary
 # that exits 0 still fails the row.
-add_test(NAME test_sh_hijack_canary
-    COMMAND sh -c "p=$(readlink /proc/$$/exe 2>/dev/null || echo \"$0\"); case \"$p\" in /bin/*|/usr/bin/*|sh) ;; *) echo \"HIJACKED interpreter: $p\"; exit 1;; esac; r=$(command -v sh); case \"$r\" in /bin/sh|/usr/bin/sh) ;; *) echo \"HIJACKED PATH lookup: $r\"; exit 1;; esac; echo IRON_SH_CANARY_OK"
-    WORKING_DIRECTORY /tmp)
-set_tests_properties(test_sh_hijack_canary PROPERTIES
-    PASS_REGULAR_EXPRESSION "IRON_SH_CANARY_OK"
-    LABELS "unit;hijack-canary"
-    TIMEOUT 15)
+# Runs through /bin/sh; Linux and macOS CI cover it.
+if(NOT WIN32)
+    add_test(NAME test_sh_hijack_canary
+        COMMAND sh -c "p=$(readlink /proc/$$/exe 2>/dev/null || echo \"$0\"); case \"$p\" in /bin/*|/usr/bin/*|sh) ;; *) echo \"HIJACKED interpreter: $p\"; exit 1;; esac; r=$(command -v sh); case \"$r\" in /bin/sh|/usr/bin/sh) ;; *) echo \"HIJACKED PATH lookup: $r\"; exit 1;; esac; echo IRON_SH_CANARY_OK"
+        WORKING_DIRECTORY /tmp)
+    set_tests_properties(test_sh_hijack_canary PROPERTIES
+        PASS_REGULAR_EXPRESSION "IRON_SH_CANARY_OK"
+        LABELS "unit;hijack-canary"
+        TIMEOUT 15)
+endif()
 
 # `ironc build` shells out to clang to compile the C it emits, so every row below
 # that builds and runs a fixture needs a clang on PATH. Hosts that have one (CI,
@@ -626,8 +645,8 @@ if(IRON_BUILD_GRAMMARS)
 
     # configure_file @ONLY — only @VAR@ substitutions expanded; ${...} left
     # verbatim (critical for JS regex patterns containing $ metacharacters).
-    configure_file("${_gr_tm_in_src}" "${_gr_tm_gen}" @ONLY)
-    configure_file("${_gr_ts_in_src}" "${_gr_ts_gen}" @ONLY)
+    configure_file("${_gr_tm_in_src}" "${_gr_tm_gen}" @ONLY NEWLINE_STYLE UNIX)
+    configure_file("${_gr_ts_in_src}" "${_gr_ts_gen}" @ONLY NEWLINE_STYLE UNIX)
     message(STATUS "Phase 6 Plan 06-01: grammar templates generated "
                    "(TextMate + tree-sitter; keyword count varies)")
 
@@ -645,6 +664,7 @@ if(IRON_BUILD_GRAMMARS)
     # Dual-labelled phase-m5-invariant + phase-m1-invariant per CONTEXT D-10:
     # lexer changes (src/lexer/) surface via phase-m1 label; grammar changes
     # (grammars/) surface via phase-m5 label; both trigger the gate.
+    # NEWLINE_STYLE UNIX above keeps the generated files LF on Windows too.
     add_test(NAME test_grammar_keyword_drift_textmate
         COMMAND ${CMAKE_COMMAND} -E compare_files
                 "${_gr_tm_committed}" "${_gr_tm_gen}")
@@ -994,21 +1014,27 @@ endif()
 # src/cli/build_web.c and the new Phase 2 headers MUST NOT hard-code the
 # version string "4.0.23" — the version is read from .emsdk-version at runtime.
 
-add_test(
-    NAME test_emsdk_pin_discipline
-    COMMAND /bin/sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/cli/build_web.c\""
-)
-set_tests_properties(test_emsdk_pin_discipline PROPERTIES
-    LABELS "phase2-invariant"
-)
+# Runs through /bin/sh; Linux and macOS CI cover it.
+if(NOT WIN32)
+    add_test(
+        NAME test_emsdk_pin_discipline
+        COMMAND /bin/sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/cli/build_web.c\""
+    )
+    set_tests_properties(test_emsdk_pin_discipline PROPERTIES
+        LABELS "phase2-invariant"
+    )
+endif()
 
-add_test(
-    NAME test_emsdk_pin_discipline_headers
-    COMMAND /bin/sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/cli/build_web.h\" \"${CMAKE_SOURCE_DIR}/src/cli/web_config.h\""
-)
-set_tests_properties(test_emsdk_pin_discipline_headers PROPERTIES
-    LABELS "phase2-invariant"
-)
+# Runs through /bin/sh; Linux and macOS CI cover it.
+if(NOT WIN32)
+    add_test(
+        NAME test_emsdk_pin_discipline_headers
+        COMMAND /bin/sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/cli/build_web.h\" \"${CMAKE_SOURCE_DIR}/src/cli/web_config.h\""
+    )
+    set_tests_properties(test_emsdk_pin_discipline_headers PROPERTIES
+        LABELS "phase2-invariant"
+    )
+endif()
 
 # ── WEB-RUNTIME-07 portability grep invariant ──────────────────────────────
 # Fails the local build if iron_rc.c / iron_builtins.c / iron_collections.c
@@ -1017,13 +1043,16 @@ set_tests_properties(test_emsdk_pin_discipline_headers PROPERTIES
 # this local grep gives development-time feedback without requiring a local
 # emsdk install. The ERE alternation matches headers + symbols that are
 # currently absent from all three files.
-add_test(
-    NAME test_runtime_files_portability_grep
-    COMMAND /bin/sh -c "! grep -E 'sysconf|pthread_attr|sigaction|sys/wait\\.h|sys/resource\\.h' \"${CMAKE_SOURCE_DIR}/src/runtime/iron_rc.c\" \"${CMAKE_SOURCE_DIR}/src/runtime/iron_builtins.c\" \"${CMAKE_SOURCE_DIR}/src/runtime/iron_collections.c\""
-)
-set_tests_properties(test_runtime_files_portability_grep PROPERTIES
-    LABELS "unit;web-portability"
-)
+# Runs through /bin/sh; Linux and macOS CI cover it.
+if(NOT WIN32)
+    add_test(
+        NAME test_runtime_files_portability_grep
+        COMMAND /bin/sh -c "! grep -E 'sysconf|pthread_attr|sigaction|sys/wait\\.h|sys/resource\\.h' \"${CMAKE_SOURCE_DIR}/src/runtime/iron_rc.c\" \"${CMAKE_SOURCE_DIR}/src/runtime/iron_builtins.c\" \"${CMAKE_SOURCE_DIR}/src/runtime/iron_collections.c\""
+    )
+    set_tests_properties(test_runtime_files_portability_grep PROPERTIES
+        LABELS "unit;web-portability"
+    )
+endif()
 
 # ── Phase 4 plan-02: WEB-RUNTIME-06 iron_time_web.c symbol gate ─────────────
 # Fails the local build if src/stdlib/iron_time_web.c loses any of the 9
@@ -1033,32 +1062,38 @@ set_tests_properties(test_runtime_files_portability_grep PROPERTIES
 # covers type + syntax drift; this grep covers symbol-presence drift.
 # Labels `unit;web-portability` so `ctest -L web-portability` runs this
 # gate alongside the Phase 3 runtime-files portability grep.
-add_test(
-    NAME test_iron_time_web_symbols
-    COMMAND /bin/sh -c "\
-set -e; \
-F=\"${CMAKE_SOURCE_DIR}/src/stdlib/iron_time_web.c\"; \
-test -f \"$F\" || { echo 'FAIL: iron_time_web.c missing'; exit 1; }; \
-for sym in Iron_time_now Iron_time_now_ms Iron_time_now_ns Iron_time_sleep Iron_time_since Iron_time_Timer Iron_timer_done Iron_timer_update Iron_timer_reset; do \
-  grep -q \"$sym\" \"$F\" || { echo \"FAIL: $sym missing from iron_time_web.c\"; exit 1; }; \
-done; \
-echo 'OK: all 9 iron_time.h symbols present in iron_time_web.c'"
-)
-set_tests_properties(test_iron_time_web_symbols PROPERTIES
-    LABELS "unit;web-portability"
-)
+# Runs through /bin/sh; Linux and macOS CI cover it.
+if(NOT WIN32)
+    add_test(
+        NAME test_iron_time_web_symbols
+        COMMAND /bin/sh -c "\
+    set -e; \
+    F=\"${CMAKE_SOURCE_DIR}/src/stdlib/iron_time_web.c\"; \
+    test -f \"$F\" || { echo 'FAIL: iron_time_web.c missing'; exit 1; }; \
+    for sym in Iron_time_now Iron_time_now_ms Iron_time_now_ns Iron_time_sleep Iron_time_since Iron_time_Timer Iron_timer_done Iron_timer_update Iron_timer_reset; do \
+      grep -q \"$sym\" \"$F\" || { echo \"FAIL: $sym missing from iron_time_web.c\"; exit 1; }; \
+    done; \
+    echo 'OK: all 9 iron_time.h symbols present in iron_time_web.c'"
+    )
+    set_tests_properties(test_iron_time_web_symbols PROPERTIES
+        LABELS "unit;web-portability"
+    )
+endif()
 
 # ── Phase 4 plan-02: pin discipline on iron_time_web.c ──────────────────────
 # Extends the Phase 2 pin-discipline invariant to the new web time shim:
 # the emsdk version string 4.0.23 must live in .emsdk-version only, never
 # in a source file. Same inverted-grep pattern as test_emsdk_pin_discipline.
-add_test(
-    NAME test_emsdk_pin_discipline_iron_time_web
-    COMMAND /bin/sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/stdlib/iron_time_web.c\""
-)
-set_tests_properties(test_emsdk_pin_discipline_iron_time_web PROPERTIES
-    LABELS "phase4-invariant"
-)
+# Runs through /bin/sh; Linux and macOS CI cover it.
+if(NOT WIN32)
+    add_test(
+        NAME test_emsdk_pin_discipline_iron_time_web
+        COMMAND /bin/sh -c "! grep -Fq '4.0.23' \"${CMAKE_SOURCE_DIR}/src/stdlib/iron_time_web.c\""
+    )
+    set_tests_properties(test_emsdk_pin_discipline_iron_time_web PROPERTIES
+        LABELS "phase4-invariant"
+    )
+endif()
 
 # ── Phase 7 plan-04: integration test + fixture + pin discipline ─────────────
 #
@@ -1225,6 +1260,8 @@ if(UNIX)
     set_tests_properties(benchmark_process_regressions PROPERTIES
         LABELS "benchmark;harness" TIMEOUT 30)
 endif()
+# run_benchmarks.sh is a POSIX shell script; Windows has no benchmark rows.
+if(UNIX)
 add_test(NAME benchmark_smoke
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmarks/run_benchmarks.sh
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
@@ -1232,6 +1269,7 @@ set_tests_properties(benchmark_smoke PROPERTIES
     TIMEOUT 240
     LABELS "benchmark"
     ENVIRONMENT "IRONC_BINARY=$<TARGET_FILE:ironc>;IRON_BENCH_PROBLEMS=int32_array_sum,binary_tree_inorder,longest_common_subseq,kmp_pattern_match,heap_sort,closure_call_overhead,concurrency_parallel_sum,word_break")
+endif()
 
 if(IRON_BENCH_FULL_ROW)
     set(_bench_full_disabled NO)
@@ -1260,12 +1298,15 @@ if(IRON_BUILD_LSP)
     # Use `-eq` (numeric comparison) and trim whitespace via `tr` so the
     # test works under both GNU `wc -l` (no leading whitespace) and BSD
     # `wc -l` on macOS (leading whitespace).
-    add_test(
-        NAME test_fmt_single_call_site
-        COMMAND /bin/sh -c "count=$(grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/ 2>/dev/null | wc -l | tr -d ' '); if [ \"$count\" -ne 1 ]; then echo \"CORE-22 ANALOG VIOLATED: expected 1 iron_format_source( call site under src/lsp/, found $count\"; grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/; exit 1; fi; exit 0"
-    )
-    set_tests_properties(test_fmt_single_call_site PROPERTIES
-        LABELS "invariant;phase-m4-invariant")
+    # Runs through /bin/sh; Linux and macOS CI cover it.
+    if(NOT WIN32)
+        add_test(
+            NAME test_fmt_single_call_site
+            COMMAND /bin/sh -c "count=$(grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/ 2>/dev/null | wc -l | tr -d ' '); if [ \"$count\" -ne 1 ]; then echo \"CORE-22 ANALOG VIOLATED: expected 1 iron_format_source( call site under src/lsp/, found $count\"; grep -rn 'iron_format_source(' ${CMAKE_SOURCE_DIR}/src/lsp/; exit 1; fi; exit 0"
+        )
+        set_tests_properties(test_fmt_single_call_site PROPERTIES
+            LABELS "invariant;phase-m4-invariant")
+    endif()
 endif()
 
 # Phase 5 Plan 05-05 (D-09) -- test_fmt_idempotent corpus invariant.

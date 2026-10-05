@@ -17,14 +17,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
+#include "support/posix_test.h"
 
 void setUp(void) {}
 void tearDown(void) {}
 
 static const char *write_temp_toml(const char *contents) {
-    static char path[] = "/tmp/iron_test_asset_path_XXXXXX";
-    strcpy(path, "/tmp/iron_test_asset_path_XXXXXX");
+    static char path[] = IRON_TEST_TMP "/iron_test_asset_path_XXXXXX";
+    strcpy(path, IRON_TEST_TMP "/iron_test_asset_path_XXXXXX");
     int fd = mkstemp(path);
     if (fd < 0) return NULL;
     ssize_t n = write(fd, contents, strlen(contents)); (void)n;
@@ -41,7 +41,7 @@ static void test_toml_dir_populated_for_absolute_path(void) {
     IronProject *proj = iron_toml_parse(path);
     TEST_ASSERT_NOT_NULL(proj);
     TEST_ASSERT_NOT_NULL_MESSAGE(proj->toml_dir, "toml_dir must be populated");
-    TEST_ASSERT_EQUAL_STRING("/tmp", proj->toml_dir);
+    TEST_ASSERT_EQUAL_STRING(IRON_TEST_TMP, proj->toml_dir);
 
     iron_toml_free(proj);
     unlink(path);

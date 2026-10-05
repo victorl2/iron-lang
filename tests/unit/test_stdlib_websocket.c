@@ -36,7 +36,7 @@ static int thread_join(WS_THREAD thread) {
     return result == WAIT_OBJECT_0 ? 0 : -1;
 }
 #else
-#include <pthread.h>
+#include "support/posix_test.h"
 typedef pthread_t WS_THREAD;
 static int thread_start(WS_THREAD *thread, void *(*fn)(void *), void *arg) {
     return pthread_create(thread, NULL, fn, arg);
@@ -199,13 +199,13 @@ static void *serve_websocket(void *pointer) {
             Iron_websocketmessage_release(close);
         }
     } else if (test->mode == 5) {
-        Iron_WebSocketMessage small = Iron_websocket_receive(socket, 5000);
-        if (small.error != 0 || small.kind != IRON_WEBSOCKET_BINARY) {
-            test->error = small.error ? small.error : -29;
+        Iron_WebSocketMessage small_msg = Iron_websocket_receive(socket, 5000);
+        if (small_msg.error != 0 || small_msg.kind != IRON_WEBSOCKET_BINARY) {
+            test->error = small_msg.error ? small_msg.error : -29;
         } else {
-            test->error = Iron_websocket_send_bytes(socket, small.data, 5000);
+            test->error = Iron_websocket_send_bytes(socket, small_msg.data, 5000);
         }
-        Iron_websocketmessage_release(small);
+        Iron_websocketmessage_release(small_msg);
         Iron_WebSocketMessage message = Iron_websocket_receive(socket, 5000);
         if (message.error != 0 || message.kind != IRON_WEBSOCKET_BINARY) {
             test->error = message.error ? message.error : -30;

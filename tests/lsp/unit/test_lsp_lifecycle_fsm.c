@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "support/posix_test.h"
 
 /* dyn_register internal constructors (declared in dyn_register.c). */
 extern IronLsp_DynRegister *ilsp_dyn_register_create(void);

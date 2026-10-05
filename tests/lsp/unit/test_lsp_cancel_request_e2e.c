@@ -17,7 +17,7 @@
 #include "util/arena.h"
 #include "vendor/yyjson/yyjson.h"
 
-#include <pthread.h>
+#include "support/posix_test.h"
 #include <errno.h>
 #include <stdatomic.h>
 #include <stdbool.h>

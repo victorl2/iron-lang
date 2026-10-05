@@ -16,13 +16,10 @@ if(IRON_BUILD_LSP AND TARGET ironc)
     # the canonical IRON_ERR_UNDEFINED_VAR name, per the diagnostics module
     # (code 200 in the semantic range 200..299).
     add_test(NAME test_diag_error_fixture_is_one_error
-        COMMAND ${CMAKE_COMMAND} -E env
-                bash -c "set -e; \
-out=$($<TARGET_FILE:ironc> check ${_ed_fixture} 2>&1 || true); \
-echo \"$out\" | grep -qE 'undefined_symbol|undefined|IRON_ERR_UNDEFINED_VAR' || { \
-  echo 'FAIL: expected undefined-variable diagnostic, got:'; echo \"$out\"; exit 1; \
-}; \
-echo 'OK: diag_error.iron reports the expected undefined-variable diagnostic'")
+        COMMAND $<TARGET_FILE:ironc> check ${_ed_fixture})
+    # `ironc check` exits nonzero on the fixture by design; the verdict is
+    # the diagnostic in its output (no shell, so this runs on Windows too).
     set_tests_properties(test_diag_error_fixture_is_one_error PROPERTIES
+        PASS_REGULAR_EXPRESSION "undefined_symbol|undefined|IRON_ERR_UNDEFINED_VAR"
         LABELS "phase-m5-invariant")
 endif()

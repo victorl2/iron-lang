@@ -29,7 +29,7 @@
 #include "lsp/facade/types.h"
 #include "util/arena.h"
 
-#include <dirent.h>
+#include "support/posix_test.h"
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -38,7 +38,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
 
 void setUp(void)    {}
 void tearDown(void) {}
@@ -195,7 +194,7 @@ static void test_subtypes_of_interface(void) {
 /* Helper: create a temp directory + N .iron files each with an
  * object extending "Polygon". Returns newly-allocated dir path. */
 static char *make_extender_fixture(int n_files) {
-    char tmpl[] = "/tmp/ironls_th_XXXXXX";
+    char tmpl[] = IRON_TEST_TMP "/ironls_th_XXXXXX";
     char *dir = mkdtemp(tmpl);
     if (!dir) return NULL;
     char *buf = strdup(dir);
