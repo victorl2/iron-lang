@@ -16,6 +16,8 @@
 #                            the TLS module against a static OpenSSL, for
 #                            programs that import http or websocket
 #   lib/iron_tls_none.lib    the TLS module without OpenSSL, for the rest
+#   lib/raylib.lib           raylib (GLFW on Win32, OpenGL) and Iron's raylib
+#                            shim, for programs that import raylib
 #
 # Every DLL named there ships with Windows 10 and later, so a program links
 # with lld-link and runs without the Visual Studio Build Tools or the
@@ -101,8 +103,8 @@ if [ ! -f "$ossl_prefix/lib/libssl.lib" ]; then
 fi
 
 # 2. The Iron runtime and stdlib. The same list as the Linux bundle and as
-#    build.c compiles into a native program (raylib is not part of a bundle
-#    yet). _DLL selects the UCRT DLL (ucrtbase) declarations.
+#    build.c compiles into a native program (raylib is built below). _DLL
+#    selects the UCRT DLL (ucrtbase) declarations.
 echo "== iron runtime for $triple"
 cflags=(--target="$triple" -std=gnu17 -fwrapv -fno-strict-aliasing -O2
         -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_DEPRECATE -D_DLL -D_MT
@@ -129,6 +131,21 @@ mkdir -p "$work/tls"
 "$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls.lib")" "$work/tls/iron_tls.obj"
 cp "$ossl_prefix/lib/libssl.lib" "$ossl_prefix/lib/libcrypto.lib" "$dest/lib/"
 
+# raylib: each source is its own translation unit (rlgl.h and glad.h have
+# no guards around their implementation sections), as build.c compiles
+# them; GLFW picks its Win32 backend.
+echo "== raylib"
+mkdir -p "$work/raylib"
+rl_flags=(--target="$triple" -std=gnu17 -O2 -w -D_DLL -D_MT -D_CRT_SECURE_NO_WARNINGS -DPLATFORM_DESKTOP
+          -I "$here/src" -I "$here/src/stdlib" -I "$here/src/vendor"
+          -I "$here/src/vendor/raylib" -I "$here/src/vendor/raylib/external/glfw/include")
+for s in src/vendor/raylib/rcore.c src/vendor/raylib/rshapes.c src/vendor/raylib/rtextures.c \
+         src/vendor/raylib/rtext.c src/vendor/raylib/rmodels.c src/vendor/raylib/raudio.c \
+         src/vendor/raylib/rglfw.c src/stdlib/iron_raylib.c src/stdlib/iron_raylib_layout.c; do
+    "$clang" "${rl_flags[@]}" -c "$here/$s" -o "$work/raylib/$(basename "$s" .c).obj"
+done
+"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/raylib.lib")" "$work"/raylib/*.obj
+
 # The entry object is compiled without the SDK: it declares what it uses.
 "$clang" --target="$triple" -O2 -ffreestanding -nostdinc \
     -isystem "$("$clang" -print-resource-dir)/include" \
@@ -138,7 +155,8 @@ cp "$ossl_prefix/lib/libssl.lib" "$ossl_prefix/lib/libcrypto.lib" "$dest/lib/"
 #    undefined, minus what the bundle itself defines, must be exported by
 #    one of the system DLLs; it goes into that DLL's .def file.
 echo "== import libraries"
-inputs=("$work"/objs/*.obj "$work"/tls/*.obj "$dest/lib/iron_crt0.obj" "$dest/lib/libssl.lib" "$dest/lib/libcrypto.lib")
+inputs=("$work"/objs/*.obj "$work"/tls/*.obj "$work"/raylib/*.obj "$dest/lib/iron_crt0.obj"
+        "$dest/lib/libssl.lib" "$dest/lib/libcrypto.lib")
 "$nm" --defined-only -j "${inputs[@]}" 2>/dev/null | tr -d '\r' | sort -u > "$work/defined.txt"
 "$nm" --undefined-only -j "${inputs[@]}" 2>/dev/null | tr -d '\r' \
     | sed 's/^__imp_//' | sort -u > "$work/undefined.txt"
@@ -148,7 +166,7 @@ builtins_src="$("$clang" -print-resource-dir)/lib/windows/clang_rt.builtins-$arc
 comm -23 "$work/undefined.txt" "$work/defined.txt" | comm -23 - "$work/builtins.txt" \
     | grep -vx main > "$work/needed.txt"
 
-dlls="ucrtbase kernel32 ws2_32 bcrypt crypt32 advapi32 user32"
+dlls="ucrtbase kernel32 ws2_32 bcrypt crypt32 advapi32 user32 opengl32 gdi32 winmm shell32"
 sysdir=$(cygpath -u "${SYSTEMROOT:-C:\\Windows}")/System32
 for d in $dlls; do
     # Exported names, forwarded ones included ("name (forwarded to ...)").

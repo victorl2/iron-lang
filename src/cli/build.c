@@ -951,6 +951,14 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
 }
 #endif
 
+/* Whether the bundle carries raylib (Windows and macOS bundles do). */
+static bool bundle_has_raylib(const IronRtBundle *rt) {
+    char path[4200];
+    snprintf(path, sizeof(path), "%s/%s", rt->lib,
+             rt->target->os == IRON_OS_WINDOWS ? "raylib.lib" : "libraylib.a");
+    return access(path, F_OK) == 0;
+}
+
 /* The bundle's TLS module for the link: built against the bundle's static
  * OpenSSL (plus libssl and libcrypto) for a program that imports http or
  * websocket, the stub that reports TLS as unavailable otherwise. Appends to
@@ -978,7 +986,10 @@ static int bundle_tls_inputs(const IronRtBundle *rt, bool wants_tls, char **ld, 
 static int link_windows(const IronToolchain *tc, const IronRtBundle *rt, const char *obj,
                         const char *output, IronBuildOpts opts) {
     static const char *const dlls[] = { "ucrtbase", "kernel32", "ws2_32", "bcrypt",
-                                        "crypt32", "advapi32", "user32" };
+                                        "crypt32", "advapi32", "user32",
+                                        "opengl32", "gdi32", "winmm", "shell32" };
+    char raylib[4200];
+    snprintf(raylib, sizeof(raylib), "%s/raylib.lib", rt->lib);
     char out_flag[4200], crt0[4200], librt[4200], builtins[4200];
     char implibs[sizeof(dlls) / sizeof(dlls[0])][4200];
     size_t olen = strlen(output);
@@ -1001,6 +1012,7 @@ static int link_windows(const IronToolchain *tc, const IronRtBundle *rt, const c
     ld[li++] = (char *)obj;
     for (int i = 0; opts.extra_link_flags && i < opts.extra_link_flag_count && li < 48; i++)
         ld[li++] = (char *)opts.extra_link_flags[i];
+    if (opts.use_raylib) ld[li++] = raylib;
     ld[li++] = librt;
     char tls[3][4200];
     li = bundle_tls_inputs(rt, opts.wants_tls, ld, li, tls);
@@ -1051,6 +1063,23 @@ static int link_macos(const IronToolchain *tc, const IronRtBundle *rt, const cha
     ld[li++] = (char *)obj;
     for (int i = 0; opts.extra_link_flags && i < opts.extra_link_flag_count && li < 56; i++)
         ld[li++] = (char *)opts.extra_link_flags[i];
+    /* raylib: the archive plus a .tbd stub for each framework and library
+     * it uses (AppKit, OpenGL, IOKit, CoreVideo, libobjc, ...), made by the
+     * bundle script from the SDK; frameworks.txt lists them. */
+    char raylib[4200], stubs[16][4200];
+    if (opts.use_raylib) {
+        snprintf(raylib, sizeof(raylib), "%s/libraylib.a", rt->lib);
+        ld[li++] = raylib;
+        char list[4200];
+        snprintf(list, sizeof(list), "%s/frameworks.txt", rt->lib);
+        FILE *f = fopen(list, "r");
+        char name[256];
+        for (int n = 0; f && n < 16 && fscanf(f, "%255s", name) == 1; n++) {
+            snprintf(stubs[n], sizeof(stubs[n]), "%s/%s", rt->lib, name);
+            ld[li++] = stubs[n];
+        }
+        if (f) fclose(f);
+    }
     ld[li++] = librt;
     char tls[3][4200];
     li = bundle_tls_inputs(rt, opts.wants_tls, ld, li, tls);
@@ -1074,16 +1103,17 @@ static int link_macos(const IronToolchain *tc, const IronRtBundle *rt, const cha
  * runtime when a bundle for the host is installed (IRON_RT_DIR, next to
  * ironc or under ~/.iron/rt), so programs build without the Visual Studio
  * Build Tools or the Xcode command line tools; the result is the same
- * program, linked against the same system libraries. Without a bundle, and
- * for programs that use raylib (not in a bundle yet), the runtime is
+ * program, linked against the same system libraries. Without a bundle (or
+ * for a raylib program and a bundle without raylib), the runtime is
  * compiled from source against the platform SDK as before. Linux keeps
  * its glibc build: its bundle is a static musl, a different program.
  * Sets opts->cross_target when the bundle is used. */
 static bool bundle_native(IronBuildOpts *opts) {
 #if defined(_WIN32) || defined(__APPLE__)
-    if (opts->use_raylib) return false;
     const IronCrossTarget *t = iron_target_lookup(iron_toolchain_host());
-    if (!t || !iron_rt_bundle_find(t)) return false;
+    if (!t) return false;
+    const IronRtBundle *rt = iron_rt_bundle_find(t);
+    if (!rt || (opts->use_raylib && !bundle_has_raylib(rt))) return false;
     opts->cross_target = t;
     if (opts->verbose) fprintf(stderr, "note: linking against the precompiled runtime for %s\n", t->name);
     return true;
@@ -1105,9 +1135,13 @@ static int invoke_cross(const char *c_file, const char *output, IronBuildOpts op
     if (!tc) return 1;
     const IronRtBundle *rt = iron_rt_bundle_get(t, true);
     if (!rt) return 1;
-    if (opts.use_raylib) {
-        fprintf(stderr, "error: raylib is not available when building for %s yet (the runtime "
-                        "bundle has no windowing libraries)\n", t->name);
+    if (opts.use_raylib && !bundle_has_raylib(rt)) {
+        if (t->os == IRON_OS_LINUX)
+            fprintf(stderr, "error: raylib is not available when building for %s: a static "
+                            "executable cannot load the system's OpenGL; build on the target "
+                            "instead\n", t->name);
+        else
+            fprintf(stderr, "error: the runtime bundle for %s has no raylib\n", t->name);
         return 1;
     }
     if (opts.debug_build && !opts.release && opts.verbose)
