@@ -343,8 +343,10 @@ jobs:
             ${{ env.RT_ARCHIVE }}.sha256
 
   # Runtime bundles for `ironc build --target=<target>` (issue 237). Each
-  # bundle holds the Iron runtime, a static musl and the compiler builtins
-  # compiled for its target by the pinned toolchain; ironc downloads
+  # bundle holds the Iron runtime and the compiler builtins compiled for its
+  # target by the pinned toolchain, with a static musl on Linux and a
+  # libSystem.tbd stub on macOS (the Windows bundle is built in
+  # build-windows, which has the SDK); ironc downloads
   # iron-rt-<version>-<target>.tar.gz from the release of the same version
   # (src/cli/rtbundle.c). The job runs on the target's own architecture so
   # the cross-built smoke program is executed, not just linked. On pull
@@ -358,6 +360,10 @@ jobs:
             target: linux-x86_64
           - os: ubuntu-24.04-arm
             target: linux-arm64
+          - os: macos-26
+            target: macos-arm64
+          - os: macos-26-intel
+            target: macos-x86_64
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -365,10 +371,15 @@ jobs:
 
       - uses: ./.github/actions/toolchain
 
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build clang
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
 
       - name: Build ironc
         run: |
@@ -389,7 +400,10 @@ jobs:
           llvm=$(sed -n 's/^#define IRON_TOOLCHAIN_LLVM *"\(.*\)".*/\1/p' src/cli/toolchain_pins.h)
           bundle=$(sed -n 's/^#define IRON_TOOLCHAIN_BUNDLE *"\(.*\)".*/\1/p' src/cli/toolchain_pins.h)
           export IRON_TOOLCHAIN="$HOME/.iron/toolchain/$llvm-$bundle"
-          scripts/rt/build_linux_bundle.sh "${{ matrix.target }}" "$VERSION" rt-out
+          case "${{ matrix.target }}" in
+            linux-*) scripts/rt/build_linux_bundle.sh "${{ matrix.target }}" "$VERSION" rt-out;;
+            macos-*) scripts/rt/build_macos_bundle.sh "${{ matrix.target }}" "$VERSION" rt-out;;
+          esac
           echo "RT_ARCHIVE=rt-out/iron-rt-${VERSION}-${{ matrix.target }}.tar.gz" >> $GITHUB_ENV
           echo "RT_VERSION=${VERSION}" >> $GITHUB_ENV
 

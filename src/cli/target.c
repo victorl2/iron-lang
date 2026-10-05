@@ -5,8 +5,8 @@
 static const IronCrossTarget k_targets[] = {
     { "linux-x86_64",   "x86_64-linux-musl",       IRON_OS_LINUX,   "x86_64",  true  },
     { "linux-arm64",    "aarch64-linux-musl",      IRON_OS_LINUX,   "aarch64", true  },
-    { "macos-arm64",    "arm64-apple-macosx11.0",  IRON_OS_MACOS,   "aarch64", false },
-    { "macos-x86_64",   "x86_64-apple-macosx11.0", IRON_OS_MACOS,   "x86_64",  false },
+    { "macos-arm64",    "arm64-apple-macosx11.0",  IRON_OS_MACOS,   "aarch64", true  },
+    { "macos-x86_64",   "x86_64-apple-macosx11.0", IRON_OS_MACOS,   "x86_64",  true  },
     { "windows-x86_64", "x86_64-pc-windows-msvc",  IRON_OS_WINDOWS, "x86_64",  true  },
 };
 
@@ -18,8 +18,7 @@ const IronCrossTarget *iron_target_lookup(const char *name) {
 }
 
 const char *iron_target_names(void) {
-    return "linux-x86_64, linux-arm64, windows-x86_64 (macos-arm64 and macos-x86_64 "
-           "are not available yet)";
+    return "linux-x86_64, linux-arm64, macos-arm64, macos-x86_64, windows-x86_64";
 }
 
 bool iron_target_is_host(const char *name) {

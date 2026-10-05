@@ -1000,16 +1000,64 @@ static int link_windows(const IronToolchain *tc, const IronRtBundle *rt, const c
     return 0;
 }
 
-/* On a Windows host a native build links against the precompiled runtime
- * when a windows-x86_64 bundle is installed (release archives ship one
- * next to ironc), so programs build without the Visual Studio Build Tools.
- * Without a bundle, and for programs that use raylib or TLS (not in the
- * bundle yet), the runtime is compiled from source with the Build Tools as
- * before. Sets opts->cross_target when the bundle is used. */
-static bool windows_bundle_native(IronBuildOpts *opts) {
-#ifdef _WIN32
+/* Link a macOS program with ld64.lld against the runtime bundle: the
+ * runtime archive, a libSystem.tbd text stub naming the symbols it uses
+ * and the compiler builtins. No SDK is read; dyld binds the symbols to the
+ * real libSystem at run time, and arm64 output is ad-hoc signed by the
+ * linker. The minimum OS version matches the target triple. */
+static int link_macos(const IronToolchain *tc, const IronRtBundle *rt, const char *obj,
+                      const char *output, IronBuildOpts opts) {
+    char librt[4200], libsystem[4200], builtins[4200];
+    snprintf(librt, sizeof(librt), "%s/libiron_rt.a", rt->lib);
+    snprintf(libsystem, sizeof(libsystem), "%s/libSystem.tbd", rt->lib);
+    snprintf(builtins, sizeof(builtins), "%s/libclang_rt.builtins.a", rt->lib);
+    const char *arch = strcmp(rt->target->arch, "aarch64") == 0 ? "arm64" : rt->target->arch;
+
+    char *ld[64];
+    int li = 0;
+    ld[li++] = (char *)iron_toolchain_tool(tc, "ld64.lld");
+    ld[li++] = "-arch";
+    ld[li++] = (char *)arch;
+    ld[li++] = "-platform_version";
+    ld[li++] = "macos";
+    ld[li++] = "11.0";
+    ld[li++] = "11.0";
+    ld[li++] = "-dead_strip";
+    ld[li++] = "-o";
+    ld[li++] = (char *)output;
+    ld[li++] = (char *)obj;
+    for (int i = 0; opts.extra_link_flags && i < opts.extra_link_flag_count && li < 56; i++)
+        ld[li++] = (char *)opts.extra_link_flags[i];
+    ld[li++] = librt;
+    ld[li++] = libsystem;
+    ld[li++] = builtins;
+    ld[li] = NULL;
+    if (opts.verbose) {
+        fprintf(stderr, "link (%s):", rt->target->name);
+        for (int i = 0; ld[i]; i++) fprintf(stderr, " %s", ld[i]);
+        fprintf(stderr, "\n");
+    }
+    int rc = iron_toolchain_run(ld);
+    if (rc != 0) {
+        fprintf(stderr, "error: %s\n", rc < 0 ? "failed to start ld64.lld" : "ld64.lld failed to link the program");
+        return 1;
+    }
+    return 0;
+}
+
+/* On Windows and macOS a native build links against the precompiled
+ * runtime when a bundle for the host is installed (IRON_RT_DIR, next to
+ * ironc or under ~/.iron/rt), so programs build without the Visual Studio
+ * Build Tools or the Xcode command line tools; the result is the same
+ * program, linked against the same system libraries. Without a bundle, and
+ * for programs that use raylib or TLS (not in a bundle yet), the runtime
+ * is compiled from source against the platform SDK as before. Linux keeps
+ * its glibc build: its bundle is a static musl, a different program.
+ * Sets opts->cross_target when the bundle is used. */
+static bool bundle_native(IronBuildOpts *opts) {
+#if defined(_WIN32) || defined(__APPLE__)
     if (opts->use_raylib || opts->use_tls) return false;
-    const IronCrossTarget *t = iron_target_lookup("windows-x86_64");
+    const IronCrossTarget *t = iron_target_lookup(iron_toolchain_host());
     if (!t || !iron_rt_bundle_find(t)) return false;
     opts->cross_target = t;
     if (opts->verbose) fprintf(stderr, "note: linking against the precompiled runtime for %s\n", t->name);
@@ -1088,8 +1136,9 @@ static int invoke_cross(const char *c_file, const char *output, IronBuildOpts op
         return 1;
     }
 
-    if (t->os == IRON_OS_WINDOWS) {
-        rc = link_windows(tc, rt, obj, output, opts);
+    if (t->os == IRON_OS_WINDOWS || t->os == IRON_OS_MACOS) {
+        rc = t->os == IRON_OS_WINDOWS ? link_windows(tc, rt, obj, output, opts)
+                                      : link_macos(tc, rt, obj, output, opts);
         if (!opts.debug_build) unlink(obj);
         free(base_dir);
         return rc;
@@ -2131,7 +2180,7 @@ int iron_build(const char *source_path, const char *output_path,
         if (web_proj) iron_toml_free(web_proj);
     } else if (opts.target == IRON_TARGET_CROSS) {
         ret = invoke_cross(c_file_path, binary_name, opts);
-    } else if (windows_bundle_native(&opts)) {
+    } else if (bundle_native(&opts)) {
         ret = invoke_cross(c_file_path, binary_name, opts);
     } else {
         ret = invoke_clang(c_file_path, binary_name, "src", opts);
