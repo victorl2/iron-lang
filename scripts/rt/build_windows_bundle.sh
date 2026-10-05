@@ -12,6 +12,10 @@
 #                            calls (ucrtbase, kernel32, ws2_32, bcrypt), made
 #                            with llvm-dlltool from the .def files beside them
 #   lib/clang_rt.builtins.lib  the compiler builtins
+#   lib/iron_tls.lib, libssl.lib, libcrypto.lib
+#                            the TLS module against a static OpenSSL, for
+#                            programs that import http or websocket
+#   lib/iron_tls_none.lib    the TLS module without OpenSSL, for the rest
 #
 # Every DLL named there ships with Windows 10 and later, so a program links
 # with lld-link and runs without the Visual Studio Build Tools or the
@@ -30,6 +34,9 @@
 #   IRON_TOOLCHAIN   the pinned toolchain bundle to compile with (required)
 #   IRON_COMMIT      the short commit hash recorded in the manifest
 #                    (default: git rev-parse --short HEAD)
+#   OPENSSL_VERSION  OpenSSL release for TLS (default 3.5.9)
+#   PERL             a native Windows perl for OpenSSL's Configure
+#                    (default: Strawberry Perl in C:\Strawberry)
 #
 # Writes <out-dir>/iron-rt-<version>-<target>/ with lib/ and a rt.txt
 # manifest, plus the .tar.gz and its .sha256 line next to it.
@@ -63,9 +70,39 @@ work="$out/work-$target"
 rm -rf "$dest" "$work"
 mkdir -p "$dest/lib" "$work/objs"
 
-# 1. The Iron runtime and stdlib. The same list as the Linux bundle and as
-#    build.c compiles into a native program (raylib and TLS are not part of
-#    a bundle yet). _DLL selects the UCRT DLL (ucrtbase) declarations.
+# 1. OpenSSL, static, built once into a cache next to the output. VC-WIN64A
+#    static libraries are compiled /MT /Zl (no default CRT named); -GS-
+#    drops the stack cookie helpers vcruntime would provide. Its Configure
+#    needs a native Windows perl and nmake (from the Developer prompt).
+openssl=${OPENSSL_VERSION:-3.5.9}
+perl=${PERL:-/c/Strawberry/perl/bin/perl.exe}
+cache="$out/cache-$target"
+ossl_prefix="$cache/openssl-$openssl-install"
+if [ ! -f "$ossl_prefix/lib/libssl.lib" ]; then
+    echo "== openssl $openssl"
+    src="$cache/openssl-$openssl"
+    if [ ! -f "$src/libssl.lib" ]; then
+        mkdir -p "$cache"
+        rm -rf "$src"
+        curl -fsSL "https://github.com/openssl/openssl/releases/download/openssl-$openssl/openssl-$openssl.tar.gz" \
+            | tar -xz -C "$cache"
+        ( cd "$src" &&
+          MSYS2_ARG_CONV_EXCL='*' "$perl" Configure VC-WIN64A no-shared no-asm no-tests no-docs no-apps \
+              no-dso no-engine no-module -GS- "CC=$(w "$tc/bin/clang-cl.exe")" \
+              "--prefix=$(w "$ossl_prefix")" "--openssldir=$(w "$ossl_prefix/ssl")" > "$cache/configure.log" &&
+          MSYS2_ARG_CONV_EXCL='*' nmake -nologo build_libs > "$cache/build.log" ) \
+            || { tail -30 "$cache/configure.log" "$cache/build.log" 2>/dev/null; exit 1; }
+    fi
+    # clang-cl keeps the debug info in the objects, so the ossl_static.pdb
+    # that install_dev copies is never written; an empty one satisfies it.
+    [ -f "$src/ossl_static.pdb" ] || : > "$src/ossl_static.pdb"
+    ( cd "$src" && MSYS2_ARG_CONV_EXCL='*' nmake -nologo install_dev > "$cache/install.log" ) \
+        || { tail -30 "$cache/install.log"; exit 1; }
+fi
+
+# 2. The Iron runtime and stdlib. The same list as the Linux bundle and as
+#    build.c compiles into a native program (raylib is not part of a bundle
+#    yet). _DLL selects the UCRT DLL (ucrtbase) declarations.
 echo "== iron runtime for $triple"
 cflags=(--target="$triple" -std=gnu17 -fwrapv -fno-strict-aliasing -O2
         -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_DEPRECATE -D_DLL -D_MT
@@ -77,25 +114,33 @@ sources=$(cd "$here" && ls src/util/stb_ds_impl.c src/util/arena.c src/util/strb
     src/runtime/iron_panic.c src/runtime/iron_leakcheck.c src/runtime/iron_arena_rt.c \
     src/runtime/iron_os.c \
     src/stdlib/iron_math.c src/stdlib/iron_io.c src/stdlib/iron_time.c src/stdlib/iron_log.c \
-    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_tls.c src/stdlib/iron_websocket.c)
+    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c)
 for s in $sources; do
     o="$work/objs/$(echo "$s" | tr '/' '_' | sed 's/\.c$/.obj/')"
     "$clang" "${cflags[@]}" -c "$here/$s" -o "$o"
 done
 rm -f "$dest/lib/iron_rt.lib"
 "$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_rt.lib")" "$work"/objs/*.obj
+mkdir -p "$work/tls"
+"$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls_none.obj"
+"$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
+    -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls.obj"
+"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls_none.lib")" "$work/tls/iron_tls_none.obj"
+"$tc/bin/llvm-lib.exe" -nologo "-out:$(w "$dest/lib/iron_tls.lib")" "$work/tls/iron_tls.obj"
+cp "$ossl_prefix/lib/libssl.lib" "$ossl_prefix/lib/libcrypto.lib" "$dest/lib/"
 
 # The entry object is compiled without the SDK: it declares what it uses.
 "$clang" --target="$triple" -O2 -ffreestanding -nostdinc \
     -isystem "$("$clang" -print-resource-dir)/include" \
     -c "$here/src/runtime/iron_win_crt0.c" -o "$dest/lib/iron_crt0.obj"
 
-# 2. Import libraries. Every symbol the runtime and the entry point leave
+# 3. Import libraries. Every symbol the runtime, OpenSSL and the entry point leave
 #    undefined, minus what the bundle itself defines, must be exported by
 #    one of the system DLLs; it goes into that DLL's .def file.
 echo "== import libraries"
-"$nm" --defined-only -j "$work"/objs/*.obj "$dest/lib/iron_crt0.obj" | tr -d '\r' | sort -u > "$work/defined.txt"
-"$nm" --undefined-only -j "$work"/objs/*.obj "$dest/lib/iron_crt0.obj" | tr -d '\r' \
+inputs=("$work"/objs/*.obj "$work"/tls/*.obj "$dest/lib/iron_crt0.obj" "$dest/lib/libssl.lib" "$dest/lib/libcrypto.lib")
+"$nm" --defined-only -j "${inputs[@]}" 2>/dev/null | tr -d '\r' | sort -u > "$work/defined.txt"
+"$nm" --undefined-only -j "${inputs[@]}" 2>/dev/null | tr -d '\r' \
     | sed 's/^__imp_//' | sort -u > "$work/undefined.txt"
 builtins_src="$("$clang" -print-resource-dir)/lib/windows/clang_rt.builtins-$arch.lib"
 "$nm" --defined-only -j "$builtins_src" 2>/dev/null | tr -d '\r' | sort -u > "$work/builtins.txt"
@@ -103,7 +148,7 @@ builtins_src="$("$clang" -print-resource-dir)/lib/windows/clang_rt.builtins-$arc
 comm -23 "$work/undefined.txt" "$work/defined.txt" | comm -23 - "$work/builtins.txt" \
     | grep -vx main > "$work/needed.txt"
 
-dlls="ucrtbase kernel32 ws2_32 bcrypt"
+dlls="ucrtbase kernel32 ws2_32 bcrypt crypt32 advapi32 user32"
 sysdir=$(cygpath -u "${SYSTEMROOT:-C:\\Windows}")/System32
 for d in $dlls; do
     # Exported names, forwarded ones included ("name (forwarded to ...)").
@@ -135,7 +180,7 @@ done
 
 cp "$builtins_src" "$dest/lib/clang_rt.builtins.lib"
 
-# 3. Smoke test: link a program that calls into the runtime with only the
+# 4. Smoke test: link a program that calls into the runtime with only the
 #    bundle (no SDK library path, no default libraries) and run it.
 echo "== smoke test"
 cat > "$work/smoke.c" <<'SMOKE'
@@ -167,6 +212,7 @@ commit $commit
 target $target
 triple $triple
 libc ucrt
+tls openssl $openssl
 llvm $llvm
 MANIFEST
 

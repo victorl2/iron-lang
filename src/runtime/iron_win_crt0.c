@@ -11,7 +11,8 @@
  *   mainCRTStartup  sets up the UCRT's argv and environment, calls main and
  *                   exits through the UCRT so atexit handlers and stdio
  *                   flushing run;
- *   atexit          registers with the UCRT's process-wide table;
+ *   atexit          registers with the UCRT's process-wide table (and
+ *                   _onexit, its form in code built against the static CRT);
  *   _tls_used       the TLS directory the loader reads (_Thread_local);
  *   _fltused        referenced by every object that uses floating point;
  *   __chkstk        the stack probe clang emits for frames over a page.
@@ -43,6 +44,14 @@ void mainCRTStartup(void) {
 
 int atexit(void (*fn)(void)) {
     return _crt_atexit(fn) == 0 ? 0 : -1;
+}
+
+/* What atexit compiles to in code built against the static CRT (/MT), as
+ * the bundle's OpenSSL is. The handler's int result is ignored, which the
+ * x64 calling convention allows. */
+typedef int (*iron_onexit_t)(void);
+iron_onexit_t _onexit(iron_onexit_t fn) {
+    return _crt_atexit((void (*)(void))fn) == 0 ? fn : 0;
 }
 
 int _fltused = 0x9875;

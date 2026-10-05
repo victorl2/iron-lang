@@ -9,6 +9,10 @@
 #   lib/libSystem.tbd            a text stub for /usr/lib/libSystem.B.dylib
 #                                listing only the symbols the runtime uses
 #   lib/libclang_rt.builtins.a   the compiler builtins (libclang_rt.osx.a)
+#   lib/libiron_tls.a, libssl.a, libcrypto.a
+#                                the TLS module against a static OpenSSL, for
+#                                programs that import http or websocket
+#   lib/libiron_tls_none.a       the TLS module without OpenSSL, for the rest
 #
 # ld64.lld links a program against the stub instead of the SDK, so any host
 # (Linux, Windows) builds macOS executables; dyld resolves the symbols from
@@ -27,6 +31,7 @@
 #   IRON_TOOLCHAIN   the pinned toolchain bundle to compile with (required)
 #   IRON_COMMIT      the short commit hash recorded in the manifest
 #                    (default: git rev-parse --short HEAD)
+#   OPENSSL_VERSION  OpenSSL release for TLS (default 3.5.9)
 #
 # Writes <out-dir>/iron-rt-<version>-<target>/ with lib/ and a rt.txt
 # manifest, plus the .tar.gz and its .sha256 line next to it.
@@ -59,9 +64,29 @@ work="$out/work-$target"
 rm -rf "$dest" "$work"
 mkdir -p "$dest/lib" "$work/objs"
 
-# 1. The Iron runtime and stdlib. The same list as the other bundles and as
-#    build.c compiles into a native program (raylib and TLS are not part of
-#    a bundle yet).
+# 1. OpenSSL, static, built once into a cache next to the output.
+openssl=${OPENSSL_VERSION:-3.5.9}
+jobs=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+cache="$out/cache-$target"
+ossl_prefix="$cache/openssl-$openssl-install"
+if [ ! -f "$ossl_prefix/lib/libssl.a" ]; then
+    echo "== openssl $openssl"
+    mkdir -p "$cache"
+    rm -rf "$cache/openssl-$openssl"
+    curl -fsSL "https://github.com/openssl/openssl/releases/download/openssl-$openssl/openssl-$openssl.tar.gz" \
+        | tar -xz -C "$cache"
+    case "$arch" in arm64) ossl_target=darwin64-arm64-cc;; x86_64) ossl_target=darwin64-x86_64-cc;; esac
+    ( cd "$cache/openssl-$openssl" &&
+      CC="$clang --target=$triple -isysroot $sdk" AR="$tc/bin/llvm-ar" RANLIB="$tc/bin/llvm-ranlib" \
+      ./Configure "$ossl_target" no-shared no-tests no-docs no-apps no-dso no-engine no-module no-asm \
+          --prefix="$ossl_prefix" --openssldir=/etc/ssl > "$cache/configure.log" &&
+      make -j "$jobs" build_libs > "$cache/build.log" && make install_dev > "$cache/install.log" ) \
+        || { tail -30 "$cache/configure.log" "$cache/build.log" 2>/dev/null; exit 1; }
+fi
+
+# 2. The Iron runtime and stdlib. The same list as the other bundles and as
+#    build.c compiles into a native program (raylib is not part of a bundle
+#    yet).
 echo "== iron runtime for $triple"
 sources=$(cd "$here" && ls src/util/stb_ds_impl.c src/util/arena.c src/util/strbuf.c \
     src/runtime/iron_string.c src/runtime/iron_rc.c src/runtime/iron_builtins.c \
@@ -70,22 +95,31 @@ sources=$(cd "$here" && ls src/util/stb_ds_impl.c src/util/arena.c src/util/strb
     src/runtime/iron_panic.c src/runtime/iron_leakcheck.c src/runtime/iron_arena_rt.c \
     src/runtime/iron_os.c \
     src/stdlib/iron_math.c src/stdlib/iron_io.c src/stdlib/iron_time.c src/stdlib/iron_log.c \
-    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_tls.c src/stdlib/iron_websocket.c)
+    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c)
+cflags=(--target="$triple" -isysroot "$sdk" -std=gnu17 -fwrapv -fno-strict-aliasing -O2
+        -I "$here/src" -I "$here/src/stdlib" -I "$here/src/vendor")
 for s in $sources; do
     o="$work/objs/$(echo "$s" | tr '/' '_' | sed 's/\.c$/.o/')"
-    "$clang" --target="$triple" -isysroot "$sdk" -std=gnu17 -fwrapv -fno-strict-aliasing -O2 \
-        -I "$here/src" -I "$here/src/stdlib" -I "$here/src/vendor" -c "$here/$s" -o "$o"
+    "$clang" "${cflags[@]}" -c "$here/$s" -o "$o"
 done
 rm -f "$dest/lib/libiron_rt.a"
 "$tc/bin/llvm-ar" rcs "$dest/lib/libiron_rt.a" "$work"/objs/*.o
 cp "$builtins_src" "$dest/lib/libclang_rt.builtins.a"
+mkdir -p "$work/tls"
+"$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls_none.o"
+"$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
+    -c "$here/src/stdlib/iron_tls.c" -o "$work/tls/iron_tls.o"
+"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls_none.a" "$work/tls/iron_tls_none.o"
+"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/tls/iron_tls.o"
+cp "$ossl_prefix/lib/libssl.a" "$ossl_prefix/lib/libcrypto.a" "$dest/lib/"
 
-# 2. The libSystem stub: every symbol the runtime leaves undefined, minus
+# 3. The libSystem stub: every symbol the runtime leaves undefined, minus
 #    what it and the builtins define. dyld_stub_binder is what ld64 binds
 #    lazy symbols through; libSystem always exports it.
 echo "== libSystem stub"
-"$nm" --defined-only -j "$work"/objs/*.o | sort -u > "$work/defined.txt"
-"$nm" --undefined-only -j "$work"/objs/*.o | sort -u > "$work/undefined.txt"
+inputs=("$work"/objs/*.o "$work"/tls/*.o "$dest/lib/libssl.a" "$dest/lib/libcrypto.a")
+"$nm" --defined-only -j "${inputs[@]}" 2>/dev/null | sort -u > "$work/defined.txt"
+"$nm" --undefined-only -j "${inputs[@]}" 2>/dev/null | sort -u > "$work/undefined.txt"
 "$nm" --defined-only -j "$builtins_src" 2>/dev/null | sort -u > "$work/builtins.txt"
 { comm -23 "$work/undefined.txt" "$work/defined.txt" | comm -23 - "$work/builtins.txt"
   echo dyld_stub_binder; } | sort -u > "$work/needed.txt"
@@ -110,9 +144,10 @@ cat > "$work/main.c" <<'MAIN'
 int main(void) { return 0; }
 MAIN
 "$clang" --target="$triple" -isysroot "$sdk" -o "$work/sdk-check" "$work/main.c" \
-    -Wl,-force_load,"$dest/lib/libiron_rt.a"
+    -Wl,-force_load,"$dest/lib/libiron_rt.a" -Wl,-force_load,"$dest/lib/libiron_tls.a" \
+    "$dest/lib/libssl.a" "$dest/lib/libcrypto.a"
 
-# 3. Smoke test: link a program that calls into the runtime with only the
+# 4. Smoke test: link a program that calls into the runtime with only the
 #    bundle (no SDK) and run it when the host can.
 echo "== smoke test"
 cat > "$work/smoke.c" <<'SMOKE'
@@ -128,7 +163,7 @@ SMOKE
 "$clang" --target="$triple" -O2 -std=gnu17 -nostdinc -isystem "$resource/include" \
     -I "$here/src" -I "$here/src/stdlib" -c "$work/smoke.c" -o "$work/smoke.o"
 "$tc/bin/ld64.lld" -arch "$arch" -platform_version macos 11.0 11.0 -o "$work/smoke" \
-    "$work/smoke.o" "$dest/lib/libiron_rt.a" "$dest/lib/libSystem.tbd" "$dest/lib/libclang_rt.builtins.a"
+    "$work/smoke.o" "$dest/lib/libiron_rt.a" "$dest/lib/libiron_tls_none.a" "$dest/lib/libSystem.tbd" "$dest/lib/libclang_rt.builtins.a"
 if [ "$(uname -m)" = "$arch" ] || { [ "$arch" = x86_64 ] && arch -x86_64 true 2>/dev/null; }; then
     got=$("$work/smoke")
     [ "$got" = "bundle ok" ] || { echo "build_macos_bundle.sh: smoke test printed '$got'" >&2; exit 1; }
@@ -142,6 +177,7 @@ commit $commit
 target $target
 triple $triple
 libc libSystem
+tls openssl $openssl
 llvm $llvm
 MANIFEST
 

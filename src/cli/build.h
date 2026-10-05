@@ -19,7 +19,10 @@ typedef struct {
     const char **run_args;        /* args after -- */
     int          run_arg_count;
     bool        use_raylib;       /* true when the source imports raylib */
-    bool        use_tls;          /* true when the source imports http/websocket */
+    bool        use_tls;          /* the source imports http/websocket and this
+                                   * ironc was built with OpenSSL (native builds) */
+    bool        wants_tls;        /* the source imports http/websocket (bundle
+                                   * builds link the bundle's OpenSSL) */
     bool        force_comptime;   /* --force-comptime flag: skip comptime cache */
     bool        dump_ir_passes;   /* --dump-ir-passes: print IR after each opt pass */
     bool        no_optimize;      /* --no-optimize: skip copy-prop/const-fold/DCE */

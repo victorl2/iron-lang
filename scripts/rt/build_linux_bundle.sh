@@ -16,9 +16,14 @@
 # environment:
 #   IRON_TOOLCHAIN   the pinned toolchain bundle to compile with (required)
 #   MUSL_VERSION     musl release (default 1.2.5)
+#   OPENSSL_VERSION  OpenSSL release for TLS (default 3.5.9)
 #   LLVM_SRC         llvm-project checkout for compiler-rt (cloned when unset)
 #   JOBS             parallel jobs (default: nproc)
 #   IRON_COMMIT      the short commit hash recorded in the manifest (default: git rev-parse --short HEAD)
+#
+# The TLS module is built twice: libiron_tls.a against a static OpenSSL
+# (libssl.a, libcrypto.a, shipped too) for programs that import http or
+# websocket, and libiron_tls_none.a for the rest.
 #
 # Writes <out-dir>/iron-rt-<version>-<target>/ with lib/ (libiron_rt.a,
 # libc.a, crt1.o, crti.o, crtn.o, libclang_rt.builtins.a) and a rt.txt
@@ -93,10 +98,27 @@ fi
 builtins=$(find "$work/builtins/lib" -name 'libclang_rt.builtins*.a' | head -1)
 [ -n "$builtins" ] || { echo "build_linux_bundle.sh: builtins library missing" >&2; exit 1; }
 
-# 3. The Iron runtime and stdlib, compiled against musl for the target.
-#    Mirrors the source list build.c compiles into every program (raylib and
-#    the TLS module, which need X11 and OpenSSL, are not part of a cross
-#    bundle yet).
+# 3. OpenSSL, static, against the same musl. OPENSSLDIR only seeds the
+#    default trust path; iron_tls.c also probes the distributions' CA
+#    bundles. no-async: it needs ucontext, which musl lacks.
+openssl=${OPENSSL_VERSION:-3.5.9}
+ossl_prefix="$work/openssl"
+if [ ! -f "$ossl_prefix/lib/libssl.a" ] && [ ! -f "$ossl_prefix/lib64/libssl.a" ]; then
+    echo "== openssl $openssl"
+    rm -rf "$work/openssl-$openssl"
+    curl -fsSL "https://github.com/openssl/openssl/releases/download/openssl-$openssl/openssl-$openssl.tar.gz" | tar -xz -C "$work"
+    case "$arch" in x86_64) ossl_target=linux-x86_64;; aarch64) ossl_target=linux-aarch64;; esac
+    ( cd "$work/openssl-$openssl" &&
+      CC="$clang --target=$triple --sysroot=$musl_prefix" AR="$tc/bin/llvm-ar" RANLIB="$tc/bin/llvm-ranlib" \
+      ./Configure "$ossl_target" no-shared no-tests no-docs no-apps no-dso no-engine no-async \
+          no-afalgeng no-ktls no-module no-secure-memory -fPIC --prefix="$ossl_prefix" --openssldir=/etc/ssl >/dev/null &&
+      make -j "$jobs" build_libs >/dev/null && make install_dev >/dev/null )
+fi
+ossl_lib=$(dirname "$(find "$ossl_prefix" -name libssl.a | head -1)")
+
+# 4. The Iron runtime and stdlib, compiled against musl for the target.
+#    Mirrors the source list build.c compiles into every program (raylib,
+#    which needs X11, is not part of a Linux bundle).
 echo "== iron runtime for $triple"
 objs="$work/rt-objs"
 rm -rf "$objs" && mkdir -p "$objs"
@@ -107,15 +129,21 @@ sources=$(cd "$here" && ls src/util/stb_ds_impl.c src/util/arena.c src/util/strb
     src/runtime/iron_panic.c src/runtime/iron_leakcheck.c src/runtime/iron_arena_rt.c \
     src/runtime/iron_os.c \
     src/stdlib/iron_math.c src/stdlib/iron_io.c src/stdlib/iron_time.c src/stdlib/iron_log.c \
-    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_tls.c src/stdlib/iron_websocket.c)
+    src/stdlib/iron_hint.c src/stdlib/iron_net.c src/stdlib/iron_http.c src/stdlib/iron_websocket.c)
+cflags=(--target="$triple" --sysroot="$musl_prefix" -std=gnu17 -fwrapv -fno-strict-aliasing
+        -O2 -fPIC -I "$here/src" -I "$here/src/stdlib" -I "$here/src/vendor" -D_GNU_SOURCE)
 for s in $sources; do
     o="$objs/$(echo "$s" | tr '/' '_' | sed 's/\.c$/.o/')"
-    "$clang" --target="$triple" --sysroot="$musl_prefix" -std=gnu17 -fwrapv -fno-strict-aliasing \
-        -O2 -fPIC -I "$here/src" -I "$here/src/stdlib" -I "$here/src/vendor" \
-        -D_GNU_SOURCE -c "$here/$s" -o "$o"
+    "$clang" "${cflags[@]}" -c "$here/$s" -o "$o"
 done
-rm -f "$dest/lib/libiron_rt.a"
+rm -f "$dest/lib/libiron_rt.a" "$dest/lib/libiron_tls.a" "$dest/lib/libiron_tls_none.a"
 "$tc/bin/llvm-ar" rcs "$dest/lib/libiron_rt.a" "$objs"/*.o
+"$clang" "${cflags[@]}" -c "$here/src/stdlib/iron_tls.c" -o "$work/iron_tls_none.o"
+"$clang" "${cflags[@]}" -DIRON_HAVE_OPENSSL=1 -I "$ossl_prefix/include" \
+    -c "$here/src/stdlib/iron_tls.c" -o "$work/iron_tls.o"
+"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls_none.a" "$work/iron_tls_none.o"
+"$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/iron_tls.o"
+cp "$ossl_lib/libssl.a" "$ossl_lib/libcrypto.a" "$dest/lib/"
 
 cp "$musl_prefix/lib/libc.a" "$musl_prefix/lib/crt1.o" "$musl_prefix/lib/crti.o" "$musl_prefix/lib/crtn.o" "$dest/lib/"
 cp "$builtins" "$dest/lib/libclang_rt.builtins.a"
@@ -131,6 +159,7 @@ commit $commit
 target $target
 triple $triple
 libc musl $musl
+tls openssl $openssl
 llvm $llvm
 MANIFEST
 

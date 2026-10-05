@@ -666,7 +666,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         argv_buf[ai++] = "libssl.lib";
         argv_buf[ai++] = "libcrypto.lib";
 #endif
-        argv_buf[ai++] = "crypt32.lib";   /* system trust (iron_tls.c) */
+        argv_buf[ai++] = "crypt32.lib";   /* trusted roots from the system store */
     }
     /* Output flag for clang-cl */
     {
@@ -951,6 +951,25 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
 }
 #endif
 
+/* The bundle's TLS module for the link: built against the bundle's static
+ * OpenSSL (plus libssl and libcrypto) for a program that imports http or
+ * websocket, the stub that reports TLS as unavailable otherwise. Appends to
+ * ld and returns the new count; paths are kept in `bufs`. */
+static int bundle_tls_inputs(const IronRtBundle *rt, bool wants_tls, char **ld, int li,
+                             char bufs[3][4200]) {
+    bool windows = rt->target->os == IRON_OS_WINDOWS;
+    if (wants_tls) {
+        snprintf(bufs[0], sizeof(bufs[0]), "%s/%s", rt->lib, windows ? "iron_tls.lib" : "libiron_tls.a");
+        snprintf(bufs[1], sizeof(bufs[1]), "%s/%s", rt->lib, windows ? "libssl.lib" : "libssl.a");
+        snprintf(bufs[2], sizeof(bufs[2]), "%s/%s", rt->lib, windows ? "libcrypto.lib" : "libcrypto.a");
+        for (int i = 0; i < 3; i++) ld[li++] = bufs[i];
+    } else {
+        snprintf(bufs[0], sizeof(bufs[0]), "%s/%s", rt->lib, windows ? "iron_tls_none.lib" : "libiron_tls_none.a");
+        ld[li++] = bufs[0];
+    }
+    return li;
+}
+
 /* Link a Windows program with lld-link against the runtime bundle only:
  * the bundle's entry object (src/runtime/iron_win_crt0.c), the runtime,
  * import libraries for the system DLLs it calls and the compiler builtins.
@@ -958,7 +977,8 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
  * neither the Build Tools nor the Visual C++ redistributable is needed. */
 static int link_windows(const IronToolchain *tc, const IronRtBundle *rt, const char *obj,
                         const char *output, IronBuildOpts opts) {
-    static const char *const dlls[] = { "ucrtbase", "kernel32", "ws2_32", "bcrypt" };
+    static const char *const dlls[] = { "ucrtbase", "kernel32", "ws2_32", "bcrypt",
+                                        "crypt32", "advapi32", "user32" };
     char out_flag[4200], crt0[4200], librt[4200], builtins[4200];
     char implibs[sizeof(dlls) / sizeof(dlls[0])][4200];
     size_t olen = strlen(output);
@@ -982,6 +1002,8 @@ static int link_windows(const IronToolchain *tc, const IronRtBundle *rt, const c
     for (int i = 0; opts.extra_link_flags && i < opts.extra_link_flag_count && li < 48; i++)
         ld[li++] = (char *)opts.extra_link_flags[i];
     ld[li++] = librt;
+    char tls[3][4200];
+    li = bundle_tls_inputs(rt, opts.wants_tls, ld, li, tls);
     for (size_t i = 0; i < sizeof(dlls) / sizeof(dlls[0]); i++) {
         snprintf(implibs[i], sizeof(implibs[i]), "%s/%s.lib", rt->lib, dlls[i]);
         if (access(implibs[i], F_OK) == 0) ld[li++] = implibs[i];
@@ -1030,6 +1052,8 @@ static int link_macos(const IronToolchain *tc, const IronRtBundle *rt, const cha
     for (int i = 0; opts.extra_link_flags && i < opts.extra_link_flag_count && li < 56; i++)
         ld[li++] = (char *)opts.extra_link_flags[i];
     ld[li++] = librt;
+    char tls[3][4200];
+    li = bundle_tls_inputs(rt, opts.wants_tls, ld, li, tls);
     ld[li++] = libsystem;
     ld[li++] = builtins;
     ld[li] = NULL;
@@ -1051,13 +1075,13 @@ static int link_macos(const IronToolchain *tc, const IronRtBundle *rt, const cha
  * ironc or under ~/.iron/rt), so programs build without the Visual Studio
  * Build Tools or the Xcode command line tools; the result is the same
  * program, linked against the same system libraries. Without a bundle, and
- * for programs that use raylib or TLS (not in a bundle yet), the runtime
- * is compiled from source against the platform SDK as before. Linux keeps
+ * for programs that use raylib (not in a bundle yet), the runtime is
+ * compiled from source against the platform SDK as before. Linux keeps
  * its glibc build: its bundle is a static musl, a different program.
  * Sets opts->cross_target when the bundle is used. */
 static bool bundle_native(IronBuildOpts *opts) {
 #if defined(_WIN32) || defined(__APPLE__)
-    if (opts->use_raylib || opts->use_tls) return false;
+    if (opts->use_raylib) return false;
     const IronCrossTarget *t = iron_target_lookup(iron_toolchain_host());
     if (!t || !iron_rt_bundle_find(t)) return false;
     opts->cross_target = t;
@@ -1086,8 +1110,6 @@ static int invoke_cross(const char *c_file, const char *output, IronBuildOpts op
                         "bundle has no windowing libraries)\n", t->name);
         return 1;
     }
-    if (opts.use_tls && opts.verbose)
-        fprintf(stderr, "note: TLS is not available in %s builds yet; https connections fail at run time\n", t->name);
     if (opts.debug_build && !opts.release && opts.verbose)
         fprintf(stderr, "note: the debug allocator is not available when building for %s; the runtime bundle is a release build\n", t->name);
 
@@ -1168,6 +1190,8 @@ static int invoke_cross(const char *c_file, const char *output, IronBuildOpts op
     for (int i = 0; opts.extra_link_flags && i < opts.extra_link_flag_count && li < 56; i++)
         ld[li++] = (char *)opts.extra_link_flags[i];
     ld[li++] = librt;
+    char tls[3][4200];
+    li = bundle_tls_inputs(rt, opts.wants_tls, ld, li, tls);
     ld[li++] = libc;
     ld[li++] = builtins;
     ld[li++] = crtn;
@@ -1573,6 +1597,7 @@ int iron_build(const char *source_path, const char *output_path,
     bool imports_websocket = iron_detect_import(
         source, source_path, "websocket", &detect_arena);
     if (imports_http || imports_websocket) {
+        opts.wants_tls = true;
 #ifdef IRON_CLI_HAVE_OPENSSL
         opts.use_tls = true;
 #else
