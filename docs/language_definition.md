@@ -2734,8 +2734,7 @@ Build Tools are needed there. Otherwise, and on Linux, the runtime and
 standard library C sources are compiled together with the program, so a
 native build also needs the platform's C library headers and link inputs:
 the Visual Studio Build Tools on Windows, the Xcode command line tools on
-macOS, the C library development package on Linux. Programs that use
-raylib or TLS (not in a bundle yet) always take this path.
+macOS, the C library development package on Linux.
 When a platform prerequisite is missing `ironc` names it and offers to run
 the installer; `iron toolchain check` probes for them explicitly.
 
@@ -2770,6 +2769,18 @@ writes the binary to `target/<target>/<name>`; `iron run` and `ironc run`
 refuse a cross target because the binary cannot execute on the host, and
 `--target` is not accepted for library packages or together with
 `--target=web`.
+
+Every bundle carries TLS: OpenSSL 3.5, built statically for the target,
+is linked into programs that import `http` or `websocket`. Servers are
+verified against the system's trust: the CA bundle of the Linux
+distribution or macOS (`SSL_CERT_FILE` and `SSL_CERT_DIR` override it),
+and on Windows the chain is checked by the system (CryptoAPI), which also
+fetches roots Windows has not stored yet. The Windows and macOS bundles
+also carry raylib; on macOS it is linked against `.tbd` stubs for the
+frameworks it uses (AppKit, Foundation, CoreFoundation, CoreGraphics,
+IOKit, `libobjc`). A Linux cross build cannot use raylib, because a
+static executable cannot load the system's OpenGL; such a program is
+built on the target, natively.
 
 ---
 
@@ -2853,8 +2864,8 @@ so that older material is not mistaken for the current language:
 - Method-level generic inference for the container methods (`ch.recv()` without a written type).
 - Lambda parameter inference outside a function-typed parameter position.
 - `String`, `Bool` and `Float` subjects in `match`.
-- raylib and TLS in runtime bundles: programs that use them build only
-  natively, against the platform SDK.
+- raylib in Linux cross builds: it needs the system's OpenGL, which a
+  static musl executable cannot load.
 
 ---
 

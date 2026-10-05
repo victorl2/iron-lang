@@ -7,7 +7,13 @@
 #   lib/libiron_rt.a             the Iron runtime and stdlib, compiled for
 #                                the target against the macOS SDK
 #   lib/libSystem.tbd            a text stub for /usr/lib/libSystem.B.dylib
-#                                listing only the symbols the runtime uses
+#                                listing only the symbols the bundle uses
+#   lib/libraylib.a              raylib (GLFW on Cocoa, OpenGL) and Iron's
+#                                raylib shim, for programs that import raylib
+#   lib/<Framework>.tbd, lib/frameworks.txt
+#                                stubs for the frameworks and libraries raylib
+#                                uses (AppKit, OpenGL, IOKit, libobjc, ...),
+#                                and the list ironc links for a raylib program
 #   lib/libclang_rt.builtins.a   the compiler builtins (libclang_rt.osx.a)
 #   lib/libiron_tls.a, libssl.a, libcrypto.a
 #                                the TLS module against a static OpenSSL, for
@@ -21,8 +27,9 @@
 #
 # This script needs a macOS host with the SDK (xcrun --show-sdk-path): the
 # runtime is compiled against it here, once, so programs never are. The
-# stub lists every symbol the runtime leaves undefined, and a link of the
-# whole runtime against the real SDK checks that libSystem exports each.
+# stubs list every symbol the bundle leaves undefined, each attributed to
+# the SDK library that exports it (scripts/rt/macos_stubs.py), and a link of
+# the runtime against the real SDK checks libSystem once more.
 #
 # usage: scripts/rt/build_macos_bundle.sh <target> <iron-version> <out-dir>
 #   target is macos-arm64 or macos-x86_64
@@ -113,30 +120,40 @@ mkdir -p "$work/tls"
 "$tc/bin/llvm-ar" rcs "$dest/lib/libiron_tls.a" "$work/tls/iron_tls.o"
 cp "$ossl_prefix/lib/libssl.a" "$ossl_prefix/lib/libcrypto.a" "$dest/lib/"
 
-# 3. The libSystem stub: every symbol the runtime leaves undefined, minus
-#    what it and the builtins define. dyld_stub_binder is what ld64 binds
-#    lazy symbols through; libSystem always exports it.
-echo "== libSystem stub"
-inputs=("$work"/objs/*.o "$work"/tls/*.o "$dest/lib/libssl.a" "$dest/lib/libcrypto.a")
+# raylib: each source is its own translation unit, as build.c compiles
+# them; GLFW's Cocoa backend is Objective-C. Selector and class stubs
+# (objc_msgSend$sel) are off so the objects call objc_msgSend itself
+# instead of leaving stubs for the linker to synthesize.
+echo "== raylib"
+mkdir -p "$work/raylib"
+rl_flags=(--target="$triple" -isysroot "$sdk" -std=gnu17 -O2 -w -DPLATFORM_DESKTOP
+          -fno-objc-msgsend-selector-stubs -fno-objc-msgsend-class-selector-stubs
+          -I "$here/src" -I "$here/src/stdlib" -I "$here/src/vendor"
+          -I "$here/src/vendor/raylib" -I "$here/src/vendor/raylib/external/glfw/include")
+for s in src/vendor/raylib/rcore.c src/vendor/raylib/rshapes.c src/vendor/raylib/rtextures.c \
+         src/vendor/raylib/rtext.c src/vendor/raylib/rmodels.c src/vendor/raylib/raudio.c \
+         src/vendor/raylib/rglfw.c src/stdlib/iron_raylib.c src/stdlib/iron_raylib_layout.c; do
+    lang=()
+    case "$s" in *rglfw.c) lang=(-xobjective-c);; esac
+    "$clang" "${rl_flags[@]}" ${lang[@]+"${lang[@]}"} -c "$here/$s" -o "$work/raylib/$(basename "$s" .c).o"
+done
+"$tc/bin/llvm-ar" rcs "$dest/lib/libraylib.a" "$work"/raylib/*.o
+
+# 3. Link stubs: every symbol the bundle leaves undefined, minus what it
+#    and the builtins define, attributed to the SDK library that exports
+#    it. libSystem.tbd serves every program; the others are raylib's.
+echo "== link stubs"
+inputs=("$work"/objs/*.o "$work"/tls/*.o "$work"/raylib/*.o "$dest/lib/libssl.a" "$dest/lib/libcrypto.a")
 "$nm" --defined-only -j "${inputs[@]}" 2>/dev/null | sort -u > "$work/defined.txt"
 "$nm" --undefined-only -j "${inputs[@]}" 2>/dev/null | sort -u > "$work/undefined.txt"
 "$nm" --defined-only -j "$builtins_src" 2>/dev/null | sort -u > "$work/builtins.txt"
 { comm -23 "$work/undefined.txt" "$work/defined.txt" | comm -23 - "$work/builtins.txt"
   echo dyld_stub_binder; } | sort -u > "$work/needed.txt"
-{
-    echo '--- !tapi-tbd'
-    echo 'tbd-version: 4'
-    echo "targets: [ $tbd_target ]"
-    echo "install-name: '/usr/lib/libSystem.B.dylib'"
-    echo 'current-version: 1351'
-    echo 'exports:'
-    echo "  - targets: [ $tbd_target ]"
-    echo '    symbols: ['
-    sed 's/^/        /; s/$/,/' "$work/needed.txt" | sed '$ s/,$//'
-    echo '    ]'
-    echo '...'
-} > "$dest/lib/libSystem.tbd"
-echo "   libSystem.B.dylib: $(wc -l < "$work/needed.txt" | tr -d ' ') symbols"
+python3 "$here/scripts/rt/macos_stubs.py" "$sdk" "$arch" "$work/needed.txt" "$work/stubs" > "$work/stubs.txt"
+sed 's/^/   /' "$work/stubs.txt"
+cp "$work"/stubs/*.tbd "$dest/lib/"
+[ -f "$dest/lib/libSystem.tbd" ] || { echo "build_macos_bundle.sh: no libSystem stub" >&2; exit 1; }
+awk '$1 != "libSystem.tbd" {print $1}' "$work/stubs.txt" > "$dest/lib/frameworks.txt"
 
 # Every stub symbol must really be in libSystem: link the whole runtime
 # against the SDK (not the stub) and let the linker report what is missing.
