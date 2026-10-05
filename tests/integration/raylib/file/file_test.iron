@@ -42,11 +42,11 @@ func main() -> Int32 {
     val _k6 = dir
     val _k7 = cwd
     val _k8 = app
-    val _k9 = decompressed
-    val _k10 = decoded
+    val _k9 = decompressed.copy()
+    val _k10 = decoded.copy()
     val _k11 = crc
-    val _k12 = md5
-    val _k13 = sha1
+    val _k12 = md5.copy()
+    val _k13 = sha1.copy()
     val _k14 = rn
 
     return Int32(0)
