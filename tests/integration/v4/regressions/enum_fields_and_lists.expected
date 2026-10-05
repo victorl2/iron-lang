@@ -1,0 +1,9 @@
+drop boxed
+full boxed crate
+count 3
+drop listed
+full listed
+empty
+end
+drop listed
+drop boxed

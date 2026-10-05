@@ -81,11 +81,20 @@ static bool ir_is_runtime_provided_type(const char *name) {
            strcmp(name, "FileHandle")   == 0;
 }
 
-/* Find object type_decl index by type name */
+/* An ADT enum (payloads) is a struct that holds its payloads by value, so
+ * it takes part in the struct ordering like an object (#259). */
+static bool ir_type_decl_is_adt(IronLIR_TypeDecl *td) {
+    return td && td->kind == IRON_LIR_TYPE_ENUM && td->type &&
+           td->type->kind == IRON_TYPE_ENUM && td->type->enu.decl &&
+           td->type->enu.decl->has_payloads;
+}
+
+/* Find the object or ADT enum type_decl index by type name */
 static int find_ir_type_decl_idx(IronLIR_Module *module, const char *name) {
     for (int i = 0; i < module->type_decl_count; i++) {
-        if (module->type_decls[i]->kind == IRON_LIR_TYPE_OBJECT &&
-            strcmp(module->type_decls[i]->name, name) == 0) {
+        IronLIR_TypeDecl *td = module->type_decls[i];
+        if ((td->kind == IRON_LIR_TYPE_OBJECT || ir_type_decl_is_adt(td)) &&
+            td->name && strcmp(td->name, name) == 0) {
             return i;
         }
     }
@@ -102,6 +111,24 @@ static void ir_topo_visit(IrTopoState *state, int idx) {
     state->colors[idx] = IR_TOPO_GRAY;
 
     IronLIR_TypeDecl *td = state->module->type_decls[idx];
+    if (ir_type_decl_is_adt(td)) {
+        /* An ADT enum's payload structs hold their values inline. */
+        Iron_EnumDecl *ed = td->type->enu.decl;
+        for (int j = 0; j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            for (int k = 0; k < ev->payload_count; k++) {
+                Iron_Node *ann = ev->payload_type_anns ? ev->payload_type_anns[k] : NULL;
+                if (!ann || ann->kind != IRON_NODE_TYPE_ANNOTATION) continue;
+                Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)ann;
+                if (!ta->name || ta->is_rc || ta->is_weak_rc || ta->is_pointer || ta->is_array) continue;
+                bool boxed = td->type->enu.payload_is_boxed && td->type->enu.payload_is_boxed[j] &&
+                             td->type->enu.payload_is_boxed[j][k];
+                if (boxed) continue;
+                int dep = find_ir_type_decl_idx(state->module, ta->name);
+                if (dep >= 0 && dep != idx) ir_topo_visit(state, dep);
+            }
+        }
+    }
     if (td->kind == IRON_LIR_TYPE_OBJECT && td->type &&
         td->type->kind == IRON_TYPE_OBJECT && td->type->object.decl) {
         Iron_ObjectDecl *od = td->type->object.decl;
@@ -409,6 +436,29 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
                              elem_has_drop, elem_has_copy);
 }
 
+/* The Iron_List_<Enum> typedef and implementation for a list of an ADT
+ * enum, once per enum (#259). The element glue is the enum's own
+ * <Enum>_drop / <Enum>_copied, emitted with its struct. The stdlib's
+ * Address list is declared by the runtime header. */
+static void emit_ensure_enum_list(EmitCtx *ctx, const Iron_Type *et) {
+    if (!et || et->kind != IRON_TYPE_ENUM || !et->enu.decl || !et->enu.decl->has_payloads) return;
+    const char *mangled = et->enu.mangled_name ? et->enu.mangled_name
+                                               : emit_mangle_name(et->enu.decl->name, ctx->arena);
+    if (shgeti(ctx->emitted_mono_list_types, mangled) >= 0) return;
+    shput(ctx->emitted_mono_list_types, mangled, true);
+    if (et->enu.decl->name && strcmp(et->enu.decl->name, "Address") == 0) return;
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "typedef struct Iron_List_%s {\n"
+        "    %s    *items;\n"
+        "    int64_t count;\n"
+        "    int64_t capacity;\n"
+        "} Iron_List_%s;\n"
+        "IRON_LIST_DECL(%s, %s)\n",
+        mangled, mangled, mangled, mangled, mangled);
+    emit_list_impl_lifecycle(ctx, mangled, enum_needs_glue(ctx, et, false),
+                             enum_needs_glue(ctx, et, true));
+}
+
 static void emit_mono_list_decls(EmitCtx *ctx) {
     IronLIR_Module *module = ctx->module;
     if (!module) return;
@@ -436,6 +486,7 @@ static void emit_mono_list_decls(EmitCtx *ctx) {
                  * which is already emitted by emit_split_collection_for_iface.
                  * Primitive element types use the pre-declared list types
                  * in iron_runtime.h:640-645. */
+                if (et->kind == IRON_TYPE_ENUM) { emit_ensure_enum_list(ctx, et); continue; }
                 if (et->kind != IRON_TYPE_OBJECT) continue;
                 if (!et->object.decl) continue;
 
@@ -827,6 +878,235 @@ int emit_estimate_type_size(Iron_ObjectDecl *od) {
 
 /* ── Type declaration orchestrator ─────────────────────────────────────────── */
 
+/* One enum's C definition: a plain enum goes to enum_defs; an ADT enum
+ * (payloads) gets its tag enum, payload structs, union, struct and glue in
+ * struct_bodies, in the order the dependency walk decides (#259). */
+static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
+    if (td->kind != IRON_LIR_TYPE_ENUM) return;
+    if (!td->type || td->type->kind != IRON_TYPE_ENUM) return;
+    Iron_EnumDecl *ed = td->type->enu.decl;
+    if (!ed) return;
+
+    /* Use mangled_name for monomorphized generics (e.g. "Iron_Option_Int"),
+     * fall back to the standard mangle for non-generic enums. */
+    const char *mangled;
+    if (td->type->enu.mangled_name) {
+        mangled = td->type->enu.mangled_name;
+    } else {
+        mangled = emit_mangle_name(ed->name, ctx->arena);
+    }
+
+    /* Deduplicate: skip if already emitted (relevant for monomorphized enums
+     * that may be registered multiple times from different use sites). */
+    if (shgeti(ctx->mono_registry, mangled) >= 0) return;
+    const char *mangled_copy = iron_arena_strdup(ctx->arena, mangled, strlen(mangled));
+    if (!mangled_copy) iron_oom_abort("emit_structs.c:emit_type_decls mono_registry_key");
+    shput(ctx->mono_registry, mangled_copy, true);
+
+    if (ed->has_payloads) {
+        /* ADT enum: emit tagged-union struct layout into struct_bodies */
+
+        /* Forward declaration for the outer struct */
+        iron_strbuf_appendf(&ctx->forward_decls,
+                             "typedef struct %s %s;\n", mangled, mangled);
+
+        /* Tag enum */
+        iron_strbuf_appendf(&ctx->struct_bodies, "typedef enum {\n");
+        for (int j = 0; j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                                 "    %s_TAG_%s = %d,\n", mangled, ev->name, j);
+        }
+        iron_strbuf_appendf(&ctx->struct_bodies, "} %s_Tag;\n\n", mangled);
+
+        /* Per-variant payload structs (only for variants with payloads) */
+        Iron_Type ***vpt = td->type->enu.variant_payload_types;
+        for (int j = 0; j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            if (ev->payload_count <= 0) continue;
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                                 "typedef struct { ");
+            /* Phase 81: Void payload support.
+             * Skip any field whose resolved type is IRON_TYPE_VOID so
+             * generic ADT instantiations like Result[Void, E] lower to
+             * a zero-field payload. If the ENTIRE variant is all-void
+             * (e.g., Result.Ok(T) with T=Void), emit a single
+             * `char _dummy;` placeholder so the struct body remains a
+             * valid C type (zero-field structs are a GNU extension
+             * clang flags under -pedantic). */
+            int emitted_fields = 0;
+            for (int k = 0; k < ev->payload_count; k++) {
+                const char *pt = "void*";
+                Iron_Type *field_ty = NULL;
+                if (vpt && vpt[j] && vpt[j][k]) {
+                    field_ty = vpt[j][k];
+                    pt = emit_type_to_c(field_ty, ctx);
+                }
+                if (field_ty && field_ty->kind == IRON_TYPE_VOID) {
+                    continue; /* skip Void payload field entirely */
+                }
+                bool is_boxed = false;
+                if (td->type->enu.payload_is_boxed &&
+                    td->type->enu.payload_is_boxed[j] &&
+                    td->type->enu.payload_is_boxed[j][k]) {
+                    is_boxed = true;
+                }
+                if (emitted_fields > 0) iron_strbuf_appendf(&ctx->struct_bodies, " ");
+                if (is_boxed) {
+                    iron_strbuf_appendf(&ctx->struct_bodies, "%s *_%d;", pt, k);
+                } else {
+                    iron_strbuf_appendf(&ctx->struct_bodies, "%s _%d;", pt, k);
+                }
+                emitted_fields++;
+            }
+            if (emitted_fields == 0) {
+                iron_strbuf_appendf(&ctx->struct_bodies, "char _dummy;");
+            }
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                                 " } %s_%s_data;\n", mangled, ev->name);
+        }
+        iron_strbuf_appendf(&ctx->struct_bodies, "\n");
+
+        /* Union of payloads */
+        iron_strbuf_appendf(&ctx->struct_bodies, "typedef union {\n");
+        iron_strbuf_appendf(&ctx->struct_bodies, "    char _dummy;\n");
+        for (int j = 0; j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            if (ev->payload_count <= 0) continue;
+            iron_strbuf_appendf(&ctx->struct_bodies,
+                                 "    %s_%s_data %s;\n",
+                                 mangled, ev->name, ev->name);
+        }
+        iron_strbuf_appendf(&ctx->struct_bodies,
+                             "} %s_data_t;\n\n", mangled);
+
+        /* The ADT struct */
+        iron_strbuf_appendf(&ctx->struct_bodies,
+                             "struct %s {\n", mangled);
+        iron_strbuf_appendf(&ctx->struct_bodies,
+                             "    %s_Tag tag;\n", mangled);
+        iron_strbuf_appendf(&ctx->struct_bodies,
+                             "    %s_data_t data;\n", mangled);
+        iron_strbuf_appendf(&ctx->struct_bodies, "};\n\n");
+
+        /* Phase 38 + #258: `<Enum>_free` destroys what a value owns:
+         * boxed payloads (freed with their own free) and payload fields
+         * whose type has drop glue. `<Enum>_drop` is its name for the
+         * glue callers (lists, optionals, object fields), and
+         * `<Enum>_copied` fixes up a fresh copy's payload fields. */
+        bool has_any_boxed = false;
+        if (td->type->enu.payload_is_boxed) {
+            for (int j2 = 0; j2 < ed->variant_count && !has_any_boxed; j2++) {
+                if (!td->type->enu.payload_is_boxed[j2]) continue;
+                Iron_EnumVariant *ev2 = (Iron_EnumVariant *)ed->variants[j2];
+                for (int k2 = 0; k2 < ev2->payload_count; k2++) {
+                    if (td->type->enu.payload_is_boxed[j2][k2]) {
+                        has_any_boxed = true;
+                        break;
+                    }
+                }
+            }
+        }
+        for (int pass = 0; pass < 2; pass++) {
+            bool drop = pass == 0;
+            if (drop ? !(has_any_boxed || enum_needs_glue(ctx, td->type, false))
+                     : !enum_needs_glue(ctx, td->type, true))
+                continue;
+            /* Field statements first: ensuring a payload type's glue
+             * lands it in lifted_funcs, which renders after this, so
+             * each callee gets a prototype here. */
+            Iron_StrBuf body = iron_strbuf_create(256);
+            Iron_StrBuf protos = iron_strbuf_create(64);
+            for (int j2 = 0; j2 < ed->variant_count; j2++) {
+                Iron_EnumVariant *ev2 = (Iron_EnumVariant *)ed->variants[j2];
+                Iron_StrBuf arm = iron_strbuf_create(64);
+                for (int k2 = 0; k2 < ev2->payload_count; k2++) {
+                    bool boxed = td->type->enu.payload_is_boxed &&
+                                 td->type->enu.payload_is_boxed[j2] &&
+                                 td->type->enu.payload_is_boxed[j2][k2];
+                    if (boxed) {
+                        if (drop) {
+                            iron_strbuf_appendf(&arm,
+                                "        %s_free(v->data.%s._%d);\n"
+                                "        iron_mem_free(v->data.%s._%d);\n",
+                                mangled, ev2->name, k2, ev2->name, k2);
+                        }
+                        continue;
+                    }
+                    Iron_Type *pt = (vpt && vpt[j2]) ? vpt[j2][k2] : NULL;
+                    if (!pt || pt->kind == IRON_TYPE_VOID) continue;
+                    char lv[200];
+                    snprintf(lv, sizeof(lv), "v->data.%s._%d", ev2->name, k2);
+                    size_t before = arm.len;
+                    emit_elem_lifecycle_stmt(ctx, &arm, pt, lv, drop);
+                    if (arm.len > before &&
+                        (pt->kind == IRON_TYPE_OBJECT || pt->kind == IRON_TYPE_INTERFACE ||
+                         pt->kind == IRON_TYPE_NULLABLE ||
+                         (pt->kind == IRON_TYPE_ARRAY && pt->array.is_bounded))) {
+                        const char *pc = emit_type_to_c(pt, ctx);
+                        iron_strbuf_appendf(&protos, "static void %s_%s(%s *self);\n",
+                                            pc, drop ? "drop" : "copied", pc);
+                    }
+                }
+                if (arm.len > 0) {
+                    iron_strbuf_appendf(&body, "    case %s_TAG_%s:\n%s        break;\n",
+                                        mangled, ev2->name, iron_strbuf_get(&arm));
+                }
+                iron_strbuf_free(&arm);
+            }
+            iron_strbuf_appendf(&ctx->struct_bodies, "%s", iron_strbuf_get(&protos));
+            if (drop) {
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "static void %s_free(%s *v) {\n"
+                    "    if (!v) return;\n"
+                    "    switch (v->tag) {\n%s    default: break;\n    }\n}\n"
+                    "static void %s_drop(%s *v) { %s_free(v); }\n\n",
+                    mangled, mangled, iron_strbuf_get(&body), mangled, mangled, mangled);
+            } else {
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "static void %s_copied(%s *v) {\n"
+                    "    switch (v->tag) {\n%s    default: break;\n    }\n}\n\n",
+                    mangled, mangled, iron_strbuf_get(&body));
+            }
+            iron_strbuf_free(&body);
+            iron_strbuf_free(&protos);
+        }
+    } else {
+        /* Plain enum: emit unchanged typedef enum */
+        iron_strbuf_appendf(&ctx->enum_defs, "typedef enum {\n");
+        for (int j = 0; j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            if (ev->has_explicit_value) {
+                iron_strbuf_appendf(&ctx->enum_defs, "    %s_%s = %d",
+                                     mangled, ev->name, ev->explicit_value);
+            } else {
+                iron_strbuf_appendf(&ctx->enum_defs, "    %s_%s",
+                                     mangled, ev->name);
+            }
+            if (j < ed->variant_count - 1) {
+                iron_strbuf_appendf(&ctx->enum_defs, ",");
+            }
+            iron_strbuf_appendf(&ctx->enum_defs, "\n");
+        }
+        iron_strbuf_appendf(&ctx->enum_defs, "} %s;\n\n", mangled);
+    }
+
+    /* `{e}` prints an enum value as its variant name. The name function
+     * goes with the definition; interpolation calls it through
+     * <Enum>_name(v) for plain enums and <Enum>_name(v.tag) for ADTs. */
+    {
+        Iron_StrBuf *nsb = ed->has_payloads ? &ctx->struct_bodies : &ctx->enum_defs;
+        iron_strbuf_appendf(nsb, "static const char *%s_name(%s%s v) {\n    switch ((int)v) {\n",
+                            mangled, mangled, ed->has_payloads ? "_Tag" : "");
+        for (int j = 0; j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            iron_strbuf_appendf(nsb, "    case %s_%s%s: return \"%s\";\n",
+                                mangled, ed->has_payloads ? "TAG_" : "", ev->name, ev->name);
+        }
+        iron_strbuf_appendf(nsb, "    default: return \"?\";\n    }\n}\n\n");
+    }
+}
+
 void emit_type_decls(EmitCtx *ctx) {
     IronLIR_Module *module = ctx->module;
 
@@ -907,7 +1187,34 @@ void emit_type_decls(EmitCtx *ctx) {
             changed = false;
             for (int i = 0; i < module->type_decl_count; i++) {
                 IronLIR_TypeDecl *td = module->type_decls[i];
-                if (needs_iface[i] || td->kind != IRON_LIR_TYPE_OBJECT || !td->type ||
+                if (needs_iface[i]) continue;
+                if (ir_type_decl_is_adt(td)) {
+                    /* An ADT enum holding an interface value (or a type that
+                     * does) waits for the unions too. */
+                    Iron_EnumDecl *ed = td->type->enu.decl;
+                    for (int j = 0; j < ed->variant_count && !needs_iface[i]; j++) {
+                        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                        for (int k = 0; k < ev->payload_count && !needs_iface[i]; k++) {
+                            Iron_Node *ann = ev->payload_type_anns ? ev->payload_type_anns[k] : NULL;
+                            if (!ann || ann->kind != IRON_NODE_TYPE_ANNOTATION) continue;
+                            Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)ann;
+                            if (!ta->name || ta->is_rc || ta->is_weak_rc || ta->is_pointer) continue;
+                            for (int jj = 0; jj < module->type_decl_count; jj++) {
+                                IronLIR_TypeDecl *dep = module->type_decls[jj];
+                                if (!dep->name || strcmp(dep->name, ta->name) != 0) continue;
+                                if (dep->kind == IRON_LIR_TYPE_INTERFACE ||
+                                    ((dep->kind == IRON_LIR_TYPE_OBJECT || ir_type_decl_is_adt(dep)) &&
+                                     needs_iface[jj])) {
+                                    needs_iface[i] = true;
+                                    changed = true;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    continue;
+                }
+                if (td->kind != IRON_LIR_TYPE_OBJECT || !td->type ||
                     td->type->kind != IRON_TYPE_OBJECT || !td->type->object.decl)
                     continue;
                 Iron_ObjectDecl *od = td->type->object.decl;
@@ -922,7 +1229,8 @@ void emit_type_decls(EmitCtx *ctx) {
                         IronLIR_TypeDecl *dep = module->type_decls[j];
                         if (!dep->name || strcmp(dep->name, ta->name) != 0) continue;
                         if (dep->kind == IRON_LIR_TYPE_INTERFACE ||
-                            (dep->kind == IRON_LIR_TYPE_OBJECT && needs_iface[j])) {
+                            ((dep->kind == IRON_LIR_TYPE_OBJECT || ir_type_decl_is_adt(dep)) &&
+                             needs_iface[j])) {
                             needs_iface[i] = true;
                             changed = true;
                         }
@@ -949,7 +1257,8 @@ void emit_type_decls(EmitCtx *ctx) {
         topo.has_cycle = false;
 
         for (int i = 0; i < module->type_decl_count; i++) {
-            if (module->type_decls[i]->kind == IRON_LIR_TYPE_OBJECT &&
+            if ((module->type_decls[i]->kind == IRON_LIR_TYPE_OBJECT ||
+                 ir_type_decl_is_adt(module->type_decls[i])) &&
                 !needs_iface[i] &&
                 colors[i] == IR_TOPO_WHITE) {
                 ir_topo_visit(&topo, i);
@@ -957,7 +1266,8 @@ void emit_type_decls(EmitCtx *ctx) {
         }
 
         for (int i = 0; i < (int)arrlen(topo.sorted); i++) {
-            emit_object_struct_body(ctx, topo.sorted[i], ctx->next_type_tag++);
+            if (ir_type_decl_is_adt(topo.sorted[i])) emit_enum_decl(ctx, topo.sorted[i]);
+            else emit_object_struct_body(ctx, topo.sorted[i], ctx->next_type_tag++);
         }
         if (arrlen(topo.sorted) > 0) {
             iron_strbuf_appendf(&ctx->struct_bodies, "\n");
@@ -1258,14 +1568,16 @@ void emit_type_decls(EmitCtx *ctx) {
         topo2.colors    = topo_colors;
         topo2.has_cycle = false;
         for (int i = 0; i < module->type_decl_count; i++) {
-            if (module->type_decls[i]->kind == IRON_LIR_TYPE_OBJECT &&
+            if ((module->type_decls[i]->kind == IRON_LIR_TYPE_OBJECT ||
+                 ir_type_decl_is_adt(module->type_decls[i])) &&
                 needs_iface[i] &&
                 topo_colors[i] == IR_TOPO_WHITE) {
                 ir_topo_visit(&topo2, i);
             }
         }
         for (int i = 0; i < (int)arrlen(topo2.sorted); i++) {
-            emit_object_struct_body(ctx, topo2.sorted[i], ctx->next_type_tag++);
+            if (ir_type_decl_is_adt(topo2.sorted[i])) emit_enum_decl(ctx, topo2.sorted[i]);
+            else emit_object_struct_body(ctx, topo2.sorted[i], ctx->next_type_tag++);
         }
         if (arrlen(topo2.sorted) > 0) {
             iron_strbuf_appendf(&ctx->struct_bodies, "\n");
@@ -1273,233 +1585,10 @@ void emit_type_decls(EmitCtx *ctx) {
         arrfree(topo2.sorted);
     }
 
-    /* Enum definitions */
+    /* Enum definitions not reached by the dependency walk (plain enums,
+     * ADT enums outside the object order). */
     for (int i = 0; i < module->type_decl_count; i++) {
-        IronLIR_TypeDecl *td = module->type_decls[i];
-        if (td->kind != IRON_LIR_TYPE_ENUM) continue;
-        if (!td->type || td->type->kind != IRON_TYPE_ENUM) continue;
-
-        Iron_EnumDecl *ed = td->type->enu.decl;
-        if (!ed) continue;
-
-        /* Use mangled_name for monomorphized generics (e.g. "Iron_Option_Int"),
-         * fall back to the standard mangle for non-generic enums. */
-        const char *mangled;
-        if (td->type->enu.mangled_name) {
-            mangled = td->type->enu.mangled_name;
-        } else {
-            mangled = emit_mangle_name(ed->name, ctx->arena);
-        }
-
-        /* Deduplicate: skip if already emitted (relevant for monomorphized enums
-         * that may be registered multiple times from different use sites). */
-        if (shgeti(ctx->mono_registry, mangled) >= 0) continue;
-        const char *mangled_copy = iron_arena_strdup(ctx->arena, mangled, strlen(mangled));
-        if (!mangled_copy) iron_oom_abort("emit_structs.c:emit_type_decls mono_registry_key");
-        shput(ctx->mono_registry, mangled_copy, true);
-
-        if (ed->has_payloads) {
-            /* ADT enum: emit tagged-union struct layout into struct_bodies */
-
-            /* Forward declaration for the outer struct */
-            iron_strbuf_appendf(&ctx->forward_decls,
-                                 "typedef struct %s %s;\n", mangled, mangled);
-
-            /* Tag enum */
-            iron_strbuf_appendf(&ctx->struct_bodies, "typedef enum {\n");
-            for (int j = 0; j < ed->variant_count; j++) {
-                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
-                iron_strbuf_appendf(&ctx->struct_bodies,
-                                     "    %s_TAG_%s = %d,\n", mangled, ev->name, j);
-            }
-            iron_strbuf_appendf(&ctx->struct_bodies, "} %s_Tag;\n\n", mangled);
-
-            /* Per-variant payload structs (only for variants with payloads) */
-            Iron_Type ***vpt = td->type->enu.variant_payload_types;
-            for (int j = 0; j < ed->variant_count; j++) {
-                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
-                if (ev->payload_count <= 0) continue;
-                iron_strbuf_appendf(&ctx->struct_bodies,
-                                     "typedef struct { ");
-                /* Phase 81: Void payload support.
-                 * Skip any field whose resolved type is IRON_TYPE_VOID so
-                 * generic ADT instantiations like Result[Void, E] lower to
-                 * a zero-field payload. If the ENTIRE variant is all-void
-                 * (e.g., Result.Ok(T) with T=Void), emit a single
-                 * `char _dummy;` placeholder so the struct body remains a
-                 * valid C type (zero-field structs are a GNU extension
-                 * clang flags under -pedantic). */
-                int emitted_fields = 0;
-                for (int k = 0; k < ev->payload_count; k++) {
-                    const char *pt = "void*";
-                    Iron_Type *field_ty = NULL;
-                    if (vpt && vpt[j] && vpt[j][k]) {
-                        field_ty = vpt[j][k];
-                        pt = emit_type_to_c(field_ty, ctx);
-                    }
-                    if (field_ty && field_ty->kind == IRON_TYPE_VOID) {
-                        continue; /* skip Void payload field entirely */
-                    }
-                    bool is_boxed = false;
-                    if (td->type->enu.payload_is_boxed &&
-                        td->type->enu.payload_is_boxed[j] &&
-                        td->type->enu.payload_is_boxed[j][k]) {
-                        is_boxed = true;
-                    }
-                    if (emitted_fields > 0) iron_strbuf_appendf(&ctx->struct_bodies, " ");
-                    if (is_boxed) {
-                        iron_strbuf_appendf(&ctx->struct_bodies, "%s *_%d;", pt, k);
-                    } else {
-                        iron_strbuf_appendf(&ctx->struct_bodies, "%s _%d;", pt, k);
-                    }
-                    emitted_fields++;
-                }
-                if (emitted_fields == 0) {
-                    iron_strbuf_appendf(&ctx->struct_bodies, "char _dummy;");
-                }
-                iron_strbuf_appendf(&ctx->struct_bodies,
-                                     " } %s_%s_data;\n", mangled, ev->name);
-            }
-            iron_strbuf_appendf(&ctx->struct_bodies, "\n");
-
-            /* Union of payloads */
-            iron_strbuf_appendf(&ctx->struct_bodies, "typedef union {\n");
-            iron_strbuf_appendf(&ctx->struct_bodies, "    char _dummy;\n");
-            for (int j = 0; j < ed->variant_count; j++) {
-                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
-                if (ev->payload_count <= 0) continue;
-                iron_strbuf_appendf(&ctx->struct_bodies,
-                                     "    %s_%s_data %s;\n",
-                                     mangled, ev->name, ev->name);
-            }
-            iron_strbuf_appendf(&ctx->struct_bodies,
-                                 "} %s_data_t;\n\n", mangled);
-
-            /* The ADT struct */
-            iron_strbuf_appendf(&ctx->struct_bodies,
-                                 "struct %s {\n", mangled);
-            iron_strbuf_appendf(&ctx->struct_bodies,
-                                 "    %s_Tag tag;\n", mangled);
-            iron_strbuf_appendf(&ctx->struct_bodies,
-                                 "    %s_data_t data;\n", mangled);
-            iron_strbuf_appendf(&ctx->struct_bodies, "};\n\n");
-
-            /* Phase 38 + #258: `<Enum>_free` destroys what a value owns:
-             * boxed payloads (freed with their own free) and payload fields
-             * whose type has drop glue. `<Enum>_drop` is its name for the
-             * glue callers (lists, optionals, object fields), and
-             * `<Enum>_copied` fixes up a fresh copy's payload fields. */
-            bool has_any_boxed = false;
-            if (td->type->enu.payload_is_boxed) {
-                for (int j2 = 0; j2 < ed->variant_count && !has_any_boxed; j2++) {
-                    if (!td->type->enu.payload_is_boxed[j2]) continue;
-                    Iron_EnumVariant *ev2 = (Iron_EnumVariant *)ed->variants[j2];
-                    for (int k2 = 0; k2 < ev2->payload_count; k2++) {
-                        if (td->type->enu.payload_is_boxed[j2][k2]) {
-                            has_any_boxed = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            for (int pass = 0; pass < 2; pass++) {
-                bool drop = pass == 0;
-                if (drop ? !(has_any_boxed || enum_needs_glue(ctx, td->type, false))
-                         : !enum_needs_glue(ctx, td->type, true))
-                    continue;
-                /* Field statements first: ensuring a payload type's glue
-                 * lands it in lifted_funcs, which renders after this, so
-                 * each callee gets a prototype here. */
-                Iron_StrBuf body = iron_strbuf_create(256);
-                Iron_StrBuf protos = iron_strbuf_create(64);
-                for (int j2 = 0; j2 < ed->variant_count; j2++) {
-                    Iron_EnumVariant *ev2 = (Iron_EnumVariant *)ed->variants[j2];
-                    Iron_StrBuf arm = iron_strbuf_create(64);
-                    for (int k2 = 0; k2 < ev2->payload_count; k2++) {
-                        bool boxed = td->type->enu.payload_is_boxed &&
-                                     td->type->enu.payload_is_boxed[j2] &&
-                                     td->type->enu.payload_is_boxed[j2][k2];
-                        if (boxed) {
-                            if (drop) {
-                                iron_strbuf_appendf(&arm,
-                                    "        %s_free(v->data.%s._%d);\n"
-                                    "        iron_mem_free(v->data.%s._%d);\n",
-                                    mangled, ev2->name, k2, ev2->name, k2);
-                            }
-                            continue;
-                        }
-                        Iron_Type *pt = (vpt && vpt[j2]) ? vpt[j2][k2] : NULL;
-                        if (!pt || pt->kind == IRON_TYPE_VOID) continue;
-                        char lv[200];
-                        snprintf(lv, sizeof(lv), "v->data.%s._%d", ev2->name, k2);
-                        size_t before = arm.len;
-                        emit_elem_lifecycle_stmt(ctx, &arm, pt, lv, drop);
-                        if (arm.len > before &&
-                            (pt->kind == IRON_TYPE_OBJECT || pt->kind == IRON_TYPE_INTERFACE ||
-                             pt->kind == IRON_TYPE_NULLABLE ||
-                             (pt->kind == IRON_TYPE_ARRAY && pt->array.is_bounded))) {
-                            const char *pc = emit_type_to_c(pt, ctx);
-                            iron_strbuf_appendf(&protos, "static void %s_%s(%s *self);\n",
-                                                pc, drop ? "drop" : "copied", pc);
-                        }
-                    }
-                    if (arm.len > 0) {
-                        iron_strbuf_appendf(&body, "    case %s_TAG_%s:\n%s        break;\n",
-                                            mangled, ev2->name, iron_strbuf_get(&arm));
-                    }
-                    iron_strbuf_free(&arm);
-                }
-                iron_strbuf_appendf(&ctx->struct_bodies, "%s", iron_strbuf_get(&protos));
-                if (drop) {
-                    iron_strbuf_appendf(&ctx->struct_bodies,
-                        "static void %s_free(%s *v) {\n"
-                        "    if (!v) return;\n"
-                        "    switch (v->tag) {\n%s    default: break;\n    }\n}\n"
-                        "static void %s_drop(%s *v) { %s_free(v); }\n\n",
-                        mangled, mangled, iron_strbuf_get(&body), mangled, mangled, mangled);
-                } else {
-                    iron_strbuf_appendf(&ctx->struct_bodies,
-                        "static void %s_copied(%s *v) {\n"
-                        "    switch (v->tag) {\n%s    default: break;\n    }\n}\n\n",
-                        mangled, mangled, iron_strbuf_get(&body));
-                }
-                iron_strbuf_free(&body);
-                iron_strbuf_free(&protos);
-            }
-        } else {
-            /* Plain enum: emit unchanged typedef enum */
-            iron_strbuf_appendf(&ctx->enum_defs, "typedef enum {\n");
-            for (int j = 0; j < ed->variant_count; j++) {
-                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
-                if (ev->has_explicit_value) {
-                    iron_strbuf_appendf(&ctx->enum_defs, "    %s_%s = %d",
-                                         mangled, ev->name, ev->explicit_value);
-                } else {
-                    iron_strbuf_appendf(&ctx->enum_defs, "    %s_%s",
-                                         mangled, ev->name);
-                }
-                if (j < ed->variant_count - 1) {
-                    iron_strbuf_appendf(&ctx->enum_defs, ",");
-                }
-                iron_strbuf_appendf(&ctx->enum_defs, "\n");
-            }
-            iron_strbuf_appendf(&ctx->enum_defs, "} %s;\n\n", mangled);
-        }
-
-        /* `{e}` prints an enum value as its variant name. The name function
-         * goes with the definition; interpolation calls it through
-         * <Enum>_name(v) for plain enums and <Enum>_name(v.tag) for ADTs. */
-        {
-            Iron_StrBuf *nsb = ed->has_payloads ? &ctx->struct_bodies : &ctx->enum_defs;
-            iron_strbuf_appendf(nsb, "static const char *%s_name(%s%s v) {\n    switch ((int)v) {\n",
-                                mangled, mangled, ed->has_payloads ? "_Tag" : "");
-            for (int j = 0; j < ed->variant_count; j++) {
-                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
-                iron_strbuf_appendf(nsb, "    case %s_%s%s: return \"%s\";\n",
-                                    mangled, ed->has_payloads ? "TAG_" : "", ev->name, ev->name);
-            }
-            iron_strbuf_appendf(nsb, "    default: return \"?\";\n    }\n}\n\n");
-        }
+        emit_enum_decl(ctx, module->type_decls[i]);
     }
 
     /* ── Phase 56: Mono-collapsed list type decls ──────────────────────────
