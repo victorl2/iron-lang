@@ -308,7 +308,14 @@ static void remove_tree(const char *dir) {
 /* Download an archive, verify it (against a pinned hash, or the hash in a
  * .sha256 sidecar published next to it) and unpack it into `dest` through
  * a staging directory next to dest, so a failed download never leaves a
- * half-installed directory behind. Returns 0 on success. */
+ * half-installed directory behind. Returns 0 on success.
+ *
+ * Several ironc processes can install at once (parallel builds and tests
+ * on a fresh machine, an editor next to a terminal). Each one downloads
+ * into its own staging directory and publishes it with one rename; when
+ * another process got there first the rename fails, the install already in
+ * place is kept and the caller probes it. An install in use is never
+ * deleted: a stale one is renamed aside before the new one moves in. */
 int iron_toolchain_fetch_archive(const char *url, const char *archive_name,
                                  const char *pinned_sha, const char *sidecar_url,
                                  const char *dest, const char *label) {
@@ -322,13 +329,19 @@ int iron_toolchain_fetch_archive(const char *url, const char *archive_name,
 #endif
     if (!slash) return 1;
     *slash = '\0';
-    char staging[4096], archive[4096], sidecar[4096];
-    snprintf(staging, sizeof(staging), "%s/.staging-%s", parent, archive_name);
-    snprintf(archive, sizeof(archive), "%s/%s", parent, archive_name);
-    snprintf(sidecar, sizeof(sidecar), "%s/%s.sha256", parent, archive_name);
+    char staging[4096], archive[4096], sidecar[4096], stale[4096];
+    int pid = (int)getpid();
+    snprintf(staging, sizeof(staging), "%s/.staging-%d-%s", parent, pid, archive_name);
+    snprintf(archive, sizeof(archive), "%s/.download-%d-%s", parent, pid, archive_name);
+    snprintf(sidecar, sizeof(sidecar), "%s/.download-%d-%s.sha256", parent, pid, archive_name);
+    snprintf(stale, sizeof(stale), "%s.stale-%d", dest, pid);
     native_separators(staging);
     native_separators(archive);
     native_separators(sidecar);
+    native_separators(stale);
+    /* Something already at dest when we start is an unusable install the
+     * caller rejected; one that appears later is another process's. */
+    bool replace = is_dir(dest);
     remove_tree(staging);
     if (mkdir_p(staging) != 0) {
         fprintf(stderr, "error: cannot create %s: %s\n", staging, strerror(errno));
@@ -388,12 +401,16 @@ int iron_toolchain_fetch_archive(const char *url, const char *archive_name,
         remove_tree(staging);
         return 1;
     }
-    remove_tree(dest);
+    if (replace && rename(dest, stale) != 0) remove_tree(dest);
     if (rename(staging, dest) != 0) {
-        fprintf(stderr, "error: cannot move %s to %s: %s\n", staging, dest, strerror(errno));
+        int err = errno;
         remove_tree(staging);
+        remove_tree(stale);
+        if (is_dir(dest)) return 0;   /* another process installed it first */
+        fprintf(stderr, "error: cannot move %s to %s: %s\n", staging, dest, strerror(err));
         return 1;
     }
+    remove_tree(stale);
     return 0;
 }
 
