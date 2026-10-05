@@ -2747,8 +2747,8 @@ is freestanding, and the program is linked against a *runtime bundle*,
 the Iron runtime and standard library and the compiler builtins
 precompiled for the target by the pinned toolchain, plus the target's C
 library. On Linux that is a static musl, linked with `ld.lld`, and the
-result is a static executable that runs on any distribution. On Windows
-On macOS the program is linked with `ld64.lld` against
+result is a static executable that runs on any distribution. On macOS
+the program is linked with `ld64.lld` against
 `libSystem` through a `libSystem.tbd` text stub that lists the symbols
 the runtime uses; `dyld` binds them to the real library at run time,
 the minimum system version is macOS 11, and arm64 executables are ad-hoc
