@@ -126,8 +126,14 @@ static int test_target_cross_parses(void) {
         fprintf(stderr, "FAIL: run --target=linux-arm64 was not refused (rc=%d)\n", rc);
         return 1;
     }
-    /* The macOS and Windows targets take the same bundle lookup. */
+    /* The macOS and Windows targets take the same bundle lookup. Naming
+     * the host is a native build, so the macOS target is the one this
+     * machine is not. */
+#if defined(__APPLE__) && defined(__aarch64__)
+    static const char *const others[] = { "windows-x86_64", "macos-x86_64" };
+#else
     static const char *const others[] = { "windows-x86_64", "macos-arm64" };
+#endif
     for (int i = 0; i < 2; i++) {
         snprintf(cmd, sizeof(cmd),
                  "OUT=$(IRON_RT_DIR=/tmp/iron_cli_parse_rtdir %s build --target=%s "
