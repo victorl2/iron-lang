@@ -784,6 +784,30 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         argv_buf[ai++] = "IOKit";
         argv_buf[ai++] = "-framework";
         argv_buf[ai++] = "CoreVideo";
+#elif defined(_WIN32)
+        /* clang-cl compiles every .c on its command line as its own
+         * translation unit, which is all the POSIX pre-compile loop below
+         * is for (rlgl.h and glad.h have no guards around their
+         * implementation sections), so raylib's sources go straight in.
+         * GLFW picks its Win32 backend on its own. */
+        {
+            static const char *const rl_files[] = {
+                "vendor/raylib/rcore.c", "vendor/raylib/rshapes.c",
+                "vendor/raylib/rtextures.c", "vendor/raylib/rtext.c",
+                "vendor/raylib/rmodels.c", "vendor/raylib/raudio.c",
+                "vendor/raylib/rglfw.c",
+            };
+            static char *rl_paths[sizeof(rl_files) / sizeof(rl_files[0])];
+            for (size_t i = 0; i < sizeof(rl_files) / sizeof(rl_files[0]); i++) {
+                if (!rl_paths[i]) rl_paths[i] = make_path(base_dir, rl_files[i]);
+                if (rl_paths[i]) argv_buf[ai++] = rl_paths[i];
+            }
+        }
+        argv_buf[ai++] = "opengl32.lib";
+        argv_buf[ai++] = "gdi32.lib";
+        argv_buf[ai++] = "winmm.lib";
+        argv_buf[ai++] = "user32.lib";
+        argv_buf[ai++] = "shell32.lib";
 #elif defined(__linux__)
         /* Pick X11 as raylib's GLFW backend on Linux. rglfw.c hard-errors
          * if neither _GLFW_X11 nor _GLFW_WAYLAND is defined (see
