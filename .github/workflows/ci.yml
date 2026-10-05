@@ -464,6 +464,30 @@ jobs:
           npm run bundle
           npx tsc -p . --outDir out
 
+      # The VS Code build the harness runs is pinned (VSCODE_TEST_VERSION in
+      # test/runTest.ts), so it is cached, and fetched in its own step that
+      # retries: the download from update.code.visualstudio.com is the
+      # flakiest part of the job. Only the download is retried, never the
+      # tests; runTests then finds the build in .vscode-test.
+      - uses: actions/cache@v4
+        with:
+          path: editors/vscode/.vscode-test
+          key: vscode-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('editors/vscode/test/runTest.ts') }}
+
+      - name: Download the pinned VS Code
+        working-directory: editors/vscode
+        shell: bash
+        run: |
+          version=$(sed -n "s/^const VSCODE_TEST_VERSION = '\(.*\)';/\1/p" test/runTest.ts)
+          for attempt in 1 2 3; do
+            if node -e "require('@vscode/test-electron').downloadAndUnzipVSCode('$version').then(() => process.exit(0), (e) => { console.error(e); process.exit(1); })"; then
+              exit 0
+            fi
+            echo "download attempt $attempt failed; retrying"
+            sleep $((attempt * 15))
+          done
+          exit 1
+
       - name: Run e2e (Linux via xvfb)
         if: runner.os == 'Linux'
         working-directory: editors/vscode
