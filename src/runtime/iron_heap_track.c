@@ -210,12 +210,47 @@ void iron_leak_dump(void) {
 }
 #endif /* IRON_DEBUG_ALLOCATOR */
 
+/* The last few freed headers (#260). A second free of the same handle is
+ * caught here, by address, before the header's memory is read: once the
+ * block is back in the allocator, what its generation word holds depends
+ * on the allocator, so the generation check alone was best effort (and the
+ * double free that slipped through tripped the system allocator instead
+ * of the Iron panic). A block the allocator hands out again is taken off
+ * the ring first. Lock free: the ring is only ever a hint that makes the
+ * common case deterministic. The debug allocator quarantines freed blocks
+ * instead of returning them, so it has no use for the ring. */
+#ifndef IRON_DEBUG_ALLOCATOR
+#define IRON_FREED_RING 64
+static _Atomic(uintptr_t) s_freed_ring[IRON_FREED_RING];
+static _Atomic(unsigned)  s_freed_ring_next;
+
+static bool freed_ring_has(const void *p) {
+    for (int i = 0; i < IRON_FREED_RING; i++)
+        if (atomic_load_explicit(&s_freed_ring[i], memory_order_relaxed) == (uintptr_t)p) return true;
+    return false;
+}
+static void freed_ring_put(const void *p) {
+    unsigned i = atomic_fetch_add_explicit(&s_freed_ring_next, 1u, memory_order_relaxed) % IRON_FREED_RING;
+    atomic_store_explicit(&s_freed_ring[i], (uintptr_t)p, memory_order_relaxed);
+}
+static void freed_ring_forget(const void *p) {
+    for (int i = 0; i < IRON_FREED_RING; i++) {
+        uintptr_t v = (uintptr_t)p;
+        atomic_compare_exchange_strong_explicit(&s_freed_ring[i], &v, (uintptr_t)0,
+                                                memory_order_relaxed, memory_order_relaxed);
+    }
+}
+#endif /* !IRON_DEBUG_ALLOCATOR */
+
 Iron_FatPtr iron_heap_alloc(const char *site_file, int site_line, size_t size) {
     /* Allocate header + payload contiguously. */
     void *block = malloc(sizeof(IronAllocHdr) + size);
     if (!block) {
         iron_oom_abort("iron_heap_alloc");
     }
+#ifndef IRON_DEBUG_ALLOCATOR
+    freed_ring_forget(block);
+#endif
     IronAllocHdr *hdr = (IronAllocHdr *)block;
 
     IRON_ATOMIC_U64_INIT(hdr->gen, iron_heap_next_gen());
@@ -308,6 +343,12 @@ void iron_heap_free(Iron_FatPtr fp) {
     if (!fp.addr) return;
     IronAllocHdr *hdr = ((IronAllocHdr *)fp.addr) - 1;
 
+    /* A block freed moments ago: report the double free without reading
+     * memory the allocator owns again (#260). */
+    if (freed_ring_has(hdr)) {
+        iron_panic_stale_pointer("<iron_heap_free>", 0, NULL);
+    }
+
     /* Double-free / stale-fp validation: caller's gen MUST match current.
      * On mismatch, this is a stale or already-freed pointer — panic via
      * iron_panic_stale_pointer (generic gen-mismatch; release keeps this). */
@@ -334,6 +375,11 @@ void iron_heap_free(Iron_FatPtr fp) {
      * on a stale fp.gen sees the new value (mismatches -> triggers panic
      * on next deref). */
     (void)IRON_ATOMIC_U64_FETCH_ADD_RELAXED(hdr->gen, 1);
+    /* Record the address before free(): once the block is back with the
+     * allocator another thread can be handed the same address, and a ring
+     * entry added after that would flag its legitimate free as a double
+     * free. */
+    freed_ring_put(hdr);
     free(hdr);  /* free entire block (header + payload) */
 }
 
