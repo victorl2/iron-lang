@@ -603,6 +603,9 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     argv_buf[ai++] = clang_path;
     argv_buf[ai++] = "/std:c11";
     argv_buf[ai++] = "/O2";
+    /* Int overflow wraps (section 10.6): the same -fwrapv the other hosts
+     * pass. clang-cl already relaxes strict aliasing, as MSVC does. */
+    argv_buf[ai++] = "/clang:-fwrapv";
     /* The runtime uses the standard C library by name; the UCRT's
      * "unsafe" deprecation notes are noise on every build. */
     argv_buf[ai++] = "/D_CRT_SECURE_NO_WARNINGS";
