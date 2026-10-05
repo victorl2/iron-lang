@@ -351,9 +351,26 @@ ssize_t ilsp_supervisor_forward_bytes_for_test(int in_fd, int out_fd,
  * worker's stdin; a dead worker gets the showMessage frame, the backoff
  * and a respawn, with the same 5-in-60s bailout. */
 
-static CRITICAL_SECTION s_in_lock;        /* guards s_worker_in */
+static CRITICAL_SECTION s_in_lock;        /* guards s_worker_in and the pending buffer */
 static HANDLE s_worker_in = NULL;          /* current worker's stdin (write end) */
 static volatile LONG s_editor_eof = 0;
+/* Bytes the editor sent while no worker was accepting them (before the
+ * first spawn, or between a crash and the respawn): handed to the next
+ * worker first, so a request that arrived in the gap is not lost. */
+static char  *s_pending = NULL;
+static size_t s_pending_len = 0, s_pending_cap = 0;
+
+static void pending_append(const char *buf, size_t n) {
+    if (s_pending_len + n > s_pending_cap) {
+        size_t ncap = s_pending_cap ? s_pending_cap * 2 : 65536;
+        while (ncap < s_pending_len + n) ncap *= 2;
+        char *nb = (char *)realloc(s_pending, ncap);
+        if (!nb) return;   /* out of memory: the bytes are lost, the editor retries */
+        s_pending = nb; s_pending_cap = ncap;
+    }
+    memcpy(s_pending + s_pending_len, buf, n);
+    s_pending_len += n;
+}
 
 static bool write_all(HANDLE h, const char *buf, size_t n) {
     while (n > 0) {
@@ -372,10 +389,12 @@ static DWORD WINAPI editor_pump(LPVOID arg) {
         DWORD r = 0;
         if (!ReadFile(editor_in, buf, sizeof(buf), &r, NULL) || r == 0) break;
         EnterCriticalSection(&s_in_lock);
-        HANDLE w = s_worker_in;
-        bool ok = w ? write_all(w, buf, r) : true;
+        if (s_worker_in) {
+            if (!write_all(s_worker_in, buf, r)) pending_append(buf, r);
+        } else {
+            pending_append(buf, r);
+        }
         LeaveCriticalSection(&s_in_lock);
-        (void)ok;  /* a dead worker loses the bytes it could not take; the editor retries after the restart */
     }
     InterlockedExchange(&s_editor_eof, 1);
     EnterCriticalSection(&s_in_lock);
@@ -464,7 +483,14 @@ int ilsp_supervisor_run(int argc, char **argv) {
         CloseHandle(e2w_r);
         CloseHandle(w2e_w);
 
+        /* Hand the new worker what arrived while there was none, then
+         * let the pump feed it; an editor that already hung up closes
+         * the worker's stdin right after that so it exits on EOF too. */
         EnterCriticalSection(&s_in_lock);
+        if (s_pending_len > 0) {
+            (void)write_all(e2w_w, s_pending, s_pending_len);
+            s_pending_len = 0;
+        }
         if (s_editor_eof) { CloseHandle(e2w_w); e2w_w = NULL; }
         s_worker_in = e2w_w;
         LeaveCriticalSection(&s_in_lock);
