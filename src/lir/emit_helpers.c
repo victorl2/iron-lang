@@ -1648,6 +1648,7 @@ static bool od_lifecycle_rec(EmitCtx *ctx, struct Iron_ObjectDecl *od,
         if (ft->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, ft, want_copy)) return true;
         if (emit_type_is_bvec(ft) && bvec_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, ft, want_copy)) return true;
+        if (ft->kind == IRON_TYPE_ENUM && enum_needs_glue(ctx, ft, want_copy)) return true;
         if (ft->kind == IRON_TYPE_OBJECT && ft->object.decl &&
             od_lifecycle_rec(ctx, ft->object.decl, want_copy, depth + 1))
             return true;
@@ -1665,6 +1666,7 @@ bool bvec_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
     if (et->kind == IRON_TYPE_FUNC) return true;
     if (et->kind == IRON_TYPE_INTERFACE) return iface_needs_glue(ctx, et, want_copy);
     if (emit_type_is_bvec(et)) return bvec_needs_glue(ctx, et, want_copy);
+    if (et->kind == IRON_TYPE_ENUM) return enum_needs_glue(ctx, et, want_copy);
     if (et->kind == IRON_TYPE_OBJECT && et->object.decl)
         return od_lifecycle_rec(ctx, et->object.decl, want_copy, 1);
     return false;
@@ -1672,8 +1674,8 @@ bool bvec_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
 
 /* The drop / copy statement for one element `lv` (a C lvalue of type `et`),
  * the per-kind cases the object glue applies to its fields. */
-static void emit_elem_lifecycle_stmt(EmitCtx *ctx, Iron_StrBuf *sb, const Iron_Type *et,
-                                     const char *lv, bool drop) {
+void emit_elem_lifecycle_stmt(EmitCtx *ctx, Iron_StrBuf *sb, const Iron_Type *et,
+                              const char *lv, bool drop) {
     if (!et) return;
     if (et->kind == IRON_TYPE_RC) {
         iron_strbuf_appendf(sb, "        %s((void *)%s);\n",
@@ -1716,6 +1718,11 @@ static void emit_elem_lifecycle_stmt(EmitCtx *ctx, Iron_StrBuf *sb, const Iron_T
         emit_ensure_optional_glue(ctx, et, drop);
         iron_strbuf_appendf(sb, "        %s_%s(&%s);\n", emit_type_to_c((Iron_Type *)et, ctx),
                             drop ? "drop" : "copied", lv);
+    } else if (et->kind == IRON_TYPE_ENUM) {
+        /* The enum's own glue (emitted with its struct). */
+        if (!enum_needs_glue(ctx, et, !drop)) return;
+        iron_strbuf_appendf(sb, "        %s_%s(&%s);\n", emit_type_to_c((Iron_Type *)et, ctx),
+                            drop ? "drop" : "copied", lv);
     } else if (et->kind == IRON_TYPE_OBJECT && et->object.decl) {
         const char *oc = emit_type_to_c((Iron_Type *)et, ctx);
         if (drop) {
@@ -1740,12 +1747,42 @@ bool optional_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
     case IRON_TYPE_OBJECT:
         return in->object.decl && od_lifecycle_rec(ctx, in->object.decl, want_copy, 1);
     case IRON_TYPE_INTERFACE: return iface_needs_glue(ctx, in, want_copy);
+    case IRON_TYPE_ENUM:      return enum_needs_glue(ctx, in, want_copy);
     case IRON_TYPE_FUNC:      return true;
     case IRON_TYPE_ARRAY:
         return emit_type_is_bvec(in) ? bvec_needs_glue(ctx, in, want_copy)
                                      : emit_field_is_owned_list(in);
     default: return false;
     }
+}
+
+/* An enum with payloads needs glue when a payload is boxed (drop only,
+ * #231) or its type owns something (#258). */
+bool enum_needs_glue(EmitCtx *ctx, const Iron_Type *t, bool want_copy) {
+    if (!t || t->kind != IRON_TYPE_ENUM || !t->enu.decl) return false;
+    Iron_EnumDecl *ed = t->enu.decl;
+    for (int j = 0; j < ed->variant_count; j++) {
+        Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+        for (int k = 0; k < ev->payload_count; k++) {
+            bool boxed = t->enu.payload_is_boxed && t->enu.payload_is_boxed[j] &&
+                         t->enu.payload_is_boxed[j][k];
+            if (boxed) { if (!want_copy) return true; else continue; }
+            Iron_Type *pt = (t->enu.variant_payload_types && t->enu.variant_payload_types[j])
+                            ? t->enu.variant_payload_types[j][k] : NULL;
+            if (!pt) continue;
+            if (emit_type_is_rc_like(pt) || emit_type_is_string_like(pt) ||
+                pt->kind == IRON_TYPE_FUNC || emit_field_is_owned_list(pt)) return true;
+            if (!want_copy && emit_field_is_box(pt)) return true;
+            if (pt->kind == IRON_TYPE_OBJECT && pt->object.decl &&
+                od_lifecycle_rec(ctx, pt->object.decl, want_copy, 1)) return true;
+            if (pt->kind == IRON_TYPE_INTERFACE && iface_needs_glue(ctx, pt, want_copy)) return true;
+            if (emit_type_is_bvec(pt) && bvec_needs_glue(ctx, pt, want_copy)) return true;
+            if (pt->kind == IRON_TYPE_NULLABLE && optional_needs_glue(ctx, pt, want_copy)) return true;
+            if (pt->kind == IRON_TYPE_ENUM && pt->enu.decl != ed &&
+                enum_needs_glue(ctx, pt, want_copy)) return true;
+        }
+    }
+    return false;
 }
 
 void emit_ensure_optional_glue(EmitCtx *ctx, const Iron_Type *t, bool drop) {
@@ -1888,6 +1925,10 @@ void emit_ensure_copy_fixup(EmitCtx *ctx, const char *obj_c_name,
             if (optional_needs_glue(ctx, ft, true))
                 iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
                                     emit_type_to_c(ft, ctx), f->name);
+        } else if (ft->kind == IRON_TYPE_ENUM) {
+            if (enum_needs_glue(ctx, ft, true))
+                iron_strbuf_appendf(sb, "    %s_copied(&self->%s);\n",
+                                    emit_type_to_c(ft, ctx), f->name);
         } else if (emit_field_is_owned_list(ft)) {
             const char *lt = emit_type_to_c(ft, ctx);
             iron_strbuf_appendf(sb, "    self->%s = %s_clone(&self->%s);\n",
@@ -2024,6 +2065,12 @@ void emit_ensure_drop(EmitCtx *ctx, const char *obj_c_name,
         }
         if (ft->kind == IRON_TYPE_NULLABLE) {
             if (optional_needs_glue(ctx, ft, false))
+                iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
+                                    emit_type_to_c(ft, ctx), f->name);
+            continue;
+        }
+        if (ft->kind == IRON_TYPE_ENUM) {
+            if (enum_needs_glue(ctx, ft, false))
                 iron_strbuf_appendf(&ctx->lifted_funcs, "    %s_drop(&self->%s);\n",
                                     emit_type_to_c(ft, ctx), f->name);
             continue;

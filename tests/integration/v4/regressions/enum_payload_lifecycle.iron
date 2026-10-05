@@ -1,0 +1,52 @@
+-- An enum owns its payloads (issue 258): payload objects, strings and rc
+-- handles are destroyed when the enum value dies, a copy of the enum
+-- fixes its payloads up for the new owner, and a pattern binding is a
+-- copy with its own lifecycle. The payload used to be dropped only
+-- through the binding of a match and never with the enum. (Enum fields
+-- and lists of enums are issue 259.)
+object Res {
+    val name: String
+    drop { println("drop {self.name}") }
+}
+
+object Counter {
+    var n: Int
+    init(n: Int) { self.n = n }
+}
+
+enum Slot {
+    Full(Res),
+    Shared(rc Counter),
+    Label(String),
+    Empty
+}
+
+func describe(s: Slot) -> String {
+    match s {
+        Slot.Full(r) -> return "full {r.name}"
+        Slot.Shared(c) -> return "shared {c.n}"
+        Slot.Label(l) -> return "label {l}"
+        Slot.Empty -> return "empty"
+    }
+}
+
+func main() {
+    val prefix = "pay" + "load"
+    val s = Slot.Full(Res(prefix + "-1"))
+    println(describe(s))
+    println(describe(s))
+    val copy_s = s
+    println(describe(copy_s))
+    val counter = rc Counter(5)
+    if true {
+        val shared = Slot.Shared(counter)
+        counter.n = counter.n + 1
+        println(describe(shared))
+    }
+    println("counter {counter.n}")
+    val labelled = Slot.Label(prefix + "-text")
+    println(describe(labelled))
+    val none = Slot.Empty
+    println(describe(none))
+    println("end")
+}
