@@ -305,21 +305,13 @@ static void remove_tree(const char *dir) {
 
 /* Fetch, verify and unpack the bundle for this host into `dest`
  * (~/.iron/toolchain/<version>). */
-static int install(const char *dest) {
-    const char *host = iron_toolchain_host();
-    const char *sha = pin_for_host(host);
-    if (!sha || !*sha) {
-        fprintf(stderr, "error: no toolchain bundle is published for %s (llvm %s bundle %s)\n",
-                host, IRON_TOOLCHAIN_LLVM, IRON_TOOLCHAIN_BUNDLE);
-        return 1;
-    }
-    char archive_name[256];
-    snprintf(archive_name, sizeof(archive_name), "iron-toolchain-%s-%s.tar.gz", IRON_TOOLCHAIN_VERSION, host);
-    const char *base = getenv("IRON_TOOLCHAIN_URL");
-    if (!base || !*base) base = IRON_TOOLCHAIN_URL;
-    char url[1024];
-    snprintf(url, sizeof(url), "%s%s", base, archive_name);
-
+/* Download an archive, verify it (against a pinned hash, or the hash in a
+ * .sha256 sidecar published next to it) and unpack it into `dest` through
+ * a staging directory next to dest, so a failed download never leaves a
+ * half-installed directory behind. Returns 0 on success. */
+int iron_toolchain_fetch_archive(const char *url, const char *archive_name,
+                                 const char *pinned_sha, const char *sidecar_url,
+                                 const char *dest, const char *label) {
     /* Work beside the destination so the final rename stays on one disk. */
     char parent[4096];
     snprintf(parent, sizeof(parent), "%s", dest);
@@ -330,23 +322,25 @@ static int install(const char *dest) {
 #endif
     if (!slash) return 1;
     *slash = '\0';
-    char staging[4096], archive[4096];
-    snprintf(staging, sizeof(staging), "%s/.staging-%s", parent, IRON_TOOLCHAIN_VERSION);
+    char staging[4096], archive[4096], sidecar[4096];
+    snprintf(staging, sizeof(staging), "%s/.staging-%s", parent, archive_name);
     snprintf(archive, sizeof(archive), "%s/%s", parent, archive_name);
+    snprintf(sidecar, sizeof(sidecar), "%s/%s.sha256", parent, archive_name);
     native_separators(staging);
     native_separators(archive);
+    native_separators(sidecar);
     remove_tree(staging);
     if (mkdir_p(staging) != 0) {
         fprintf(stderr, "error: cannot create %s: %s\n", staging, strerror(errno));
         return 1;
     }
 
-    fprintf(stderr, "iron: downloading toolchain llvm %s bundle %s for %s\n  %s\n",
-            IRON_TOOLCHAIN_LLVM, IRON_TOOLCHAIN_BUNDLE, host, url);
-    char *curl[] = { "curl", "-fL", "--retry", "3", "--progress-bar", "-o", archive, url, NULL };
+    fprintf(stderr, "iron: downloading %s\n  %s\n", label, url);
+    char *curl[] = { "curl", "-fL", "--retry", "3", "--progress-bar", "-o", archive, (char *)url, NULL };
     int rc = iron_toolchain_run(curl);
+    bool have_curl = rc >= 0;
     if (rc < 0) {   /* no curl: wget is the other downloader found on minimal systems */
-        char *wget[] = { "wget", "-q", "--show-progress", "-O", archive, url, NULL };
+        char *wget[] = { "wget", "-q", "--show-progress", "-O", archive, (char *)url, NULL };
         rc = iron_toolchain_run(wget);
     }
     if (rc != 0) {
@@ -357,9 +351,30 @@ static int install(const char *dest) {
         return 1;
     }
 
+    char expected[65] = {0};
+    if (pinned_sha && *pinned_sha) {
+        snprintf(expected, sizeof(expected), "%s", pinned_sha);
+    } else if (sidecar_url) {
+        char *scurl[] = { "curl", "-fsL", "--retry", "3", "-o", sidecar, (char *)sidecar_url, NULL };
+        char *swget[] = { "wget", "-q", "-O", sidecar, (char *)sidecar_url, NULL };
+        rc = iron_toolchain_run(have_curl ? scurl : swget);
+        FILE *f = rc == 0 ? fopen(sidecar, "r") : NULL;
+        if (f) {
+            if (fscanf(f, "%64s", expected) != 1) expected[0] = '\0';
+            fclose(f);
+        }
+        unlink(sidecar);
+        if (!expected[0]) {
+            fprintf(stderr, "error: could not fetch the checksum for %s\n  %s\n", archive_name, sidecar_url);
+            unlink(archive);
+            remove_tree(staging);
+            return 1;
+        }
+        for (char *q = expected; *q; q++) if (*q >= 'A' && *q <= 'F') *q = (char)(*q - 'A' + 'a');
+    }
     char hex[65];
-    if (sha256_file_hex(archive, hex) != 0 || strcmp(hex, sha) != 0) {
-        fprintf(stderr, "error: checksum mismatch for %s\n  expected %s\n  got      %s\n", archive_name, sha, hex);
+    if (expected[0] && (sha256_file_hex(archive, hex) != 0 || strcmp(hex, expected) != 0)) {
+        fprintf(stderr, "error: checksum mismatch for %s\n  expected %s\n  got      %s\n", archive_name, expected, hex);
         unlink(archive);
         remove_tree(staging);
         return 1;
@@ -379,6 +394,25 @@ static int install(const char *dest) {
         remove_tree(staging);
         return 1;
     }
+    return 0;
+}
+
+static int install(const char *dest) {
+    const char *host = iron_toolchain_host();
+    const char *sha = pin_for_host(host);
+    if (!sha || !*sha) {
+        fprintf(stderr, "error: no toolchain bundle is published for %s (llvm %s bundle %s)\n",
+                host, IRON_TOOLCHAIN_LLVM, IRON_TOOLCHAIN_BUNDLE);
+        return 1;
+    }
+    char archive_name[256];
+    snprintf(archive_name, sizeof(archive_name), "iron-toolchain-%s-%s.tar.gz", IRON_TOOLCHAIN_VERSION, host);
+    const char *base = getenv("IRON_TOOLCHAIN_URL");
+    if (!base || !*base) base = IRON_TOOLCHAIN_URL;
+    char url[1024], label[256];
+    snprintf(url, sizeof(url), "%s%s", base, archive_name);
+    snprintf(label, sizeof(label), "toolchain llvm %s bundle %s for %s", IRON_TOOLCHAIN_LLVM, IRON_TOOLCHAIN_BUNDLE, host);
+    if (iron_toolchain_fetch_archive(url, archive_name, sha, NULL, dest, label) != 0) return 1;
     fprintf(stderr, "iron: toolchain installed at %s\n", dest);
     return 0;
 }
@@ -493,4 +527,25 @@ int iron_toolchain_cmd(int argc, char **argv) {
     }
     fprintf(stderr, "usage: iron toolchain [info|path|install|check]\n");
     return 1;
+}
+
+/* ── Paths shared with the runtime bundles (rtbundle.c) ─────────────────── */
+
+int iron_toolchain_prefix_dir(char *out, size_t cap) {
+    char dir[4096];
+    if (self_dir(dir, sizeof(dir)) != 0) return -1;
+    /* <prefix>/bin/ironc -> <prefix> */
+    char *last = strrchr(dir, '/');
+#ifdef _WIN32
+    char *lw = strrchr(dir, '\\');
+    if (lw > last) last = lw;
+#endif
+    if (!last) return -1;
+    *last = '\0';
+    int n = snprintf(out, cap, "%s", dir);
+    return (n > 0 && (size_t)n < cap) ? 0 : -1;
+}
+
+const char *iron_toolchain_home_dir(void) {
+    return home_dir();
 }

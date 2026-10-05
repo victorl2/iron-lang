@@ -1,5 +1,7 @@
 #include "cli/build.h"
 #include "cli/toolchain.h"
+#include "cli/target.h"
+#include "cli/rtbundle.h"
 #include "cli/prereqs.h"
 #include "cli/toml.h"
 #include "hir/stdlib_origin.h"
@@ -947,6 +949,115 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
     return 0;
 }
 #endif
+
+/* Build for a cross target (target.h): the generated C is freestanding, so
+ * it is compiled with the pinned clang for the target's triple against the
+ * compiler's own headers only, then linked with lld against the target's
+ * runtime bundle (rtbundle.h): the runtime precompiled for the target, its
+ * static libc and the compiler builtins. No SDK, no system compiler. */
+static int invoke_cross(const char *c_file, const char *output, IronBuildOpts opts) {
+    const IronCrossTarget *t = opts.cross_target;
+    if (!t) return 1;
+    const IronToolchain *tc = iron_toolchain_get(true);
+    if (!tc) return 1;
+    const IronRtBundle *rt = iron_rt_bundle_get(t, true);
+    if (!rt) return 1;
+    if (opts.use_raylib) {
+        fprintf(stderr, "error: raylib is not available when building for %s yet (the runtime "
+                        "bundle has no windowing libraries)\n", t->name);
+        return 1;
+    }
+    if (opts.use_tls && opts.verbose)
+        fprintf(stderr, "note: TLS is not available in %s builds yet; https connections fail at run time\n", t->name);
+    if (opts.debug_build && !opts.release && opts.verbose)
+        fprintf(stderr, "note: the debug allocator is not available when building for %s; the runtime bundle is a release build\n", t->name);
+
+    char *base_dir = get_iron_lib_dir();
+    char src_i[4200], stdlib_i[4200], resource_inc[4200], obj[4200];
+    snprintf(src_i, sizeof(src_i), "-I%s", base_dir);
+    snprintf(stdlib_i, sizeof(stdlib_i), "-I%s/stdlib", base_dir);
+    /* clang's own headers (stdint.h, stddef.h, ...) are the only ones the
+     * generated C includes (#235); they live beside the bundle's compiler-rt. */
+    {
+        int major = atoi(tc->llvm);
+        snprintf(resource_inc, sizeof(resource_inc), "%s/lib/clang/%d/include", tc->root, major);
+    }
+    snprintf(obj, sizeof(obj), "%s.%s.o", c_file, t->arch);
+    char target_flag[128];
+    snprintf(target_flag, sizeof(target_flag), "--target=%s", t->triple);
+
+    const char *clang_path = iron_toolchain_tool(tc, "clang");
+    char *cc[32];
+    int ci = 0;
+    cc[ci++] = (char *)clang_path;
+    cc[ci++] = target_flag;
+    cc[ci++] = "-std=gnu17";
+    cc[ci++] = "-fwrapv";
+    cc[ci++] = "-fno-strict-aliasing";
+    cc[ci++] = opts.release ? "-O2" : "-O3";
+    cc[ci++] = "-nostdinc";
+    cc[ci++] = "-isystem";
+    cc[ci++] = resource_inc;
+    cc[ci++] = src_i;
+    cc[ci++] = stdlib_i;
+    cc[ci++] = "-c";
+    cc[ci++] = (char *)c_file;
+    cc[ci++] = "-o";
+    cc[ci++] = obj;
+    cc[ci] = NULL;
+    if (opts.verbose) {
+        fprintf(stderr, "cross compile (%s):", t->name);
+        for (int i = 0; cc[i]; i++) fprintf(stderr, " %s", cc[i]);
+        fprintf(stderr, "\n");
+    }
+    int rc = iron_toolchain_run(cc);
+    if (rc != 0) {
+        fprintf(stderr, "error: %s\n", rc < 0 ? "failed to start clang" : "clang failed to compile the generated C");
+        free(base_dir);
+        return 1;
+    }
+
+    /* Link. Linux: a static musl executable (crt1.o is the non-PIE start
+     * file, so no -pie). */
+    char crt1[4200], crti[4200], crtn[4200], librt[4200], libc[4200], builtins[4200];
+    snprintf(crt1, sizeof(crt1), "%s/crt1.o", rt->lib);
+    snprintf(crti, sizeof(crti), "%s/crti.o", rt->lib);
+    snprintf(crtn, sizeof(crtn), "%s/crtn.o", rt->lib);
+    snprintf(librt, sizeof(librt), "%s/libiron_rt.a", rt->lib);
+    snprintf(libc, sizeof(libc), "%s/libc.a", rt->lib);
+    snprintf(builtins, sizeof(builtins), "%s/libclang_rt.builtins.a", rt->lib);
+    const char *lld_path = iron_toolchain_tool(tc, "ld.lld");
+    char *ld[64];
+    int li = 0;
+    ld[li++] = (char *)lld_path;
+    ld[li++] = "-static";
+    ld[li++] = "--gc-sections";
+    ld[li++] = "-o";
+    ld[li++] = (char *)output;
+    ld[li++] = crt1;
+    ld[li++] = crti;
+    ld[li++] = obj;
+    for (int i = 0; opts.extra_link_flags && i < opts.extra_link_flag_count && li < 56; i++)
+        ld[li++] = (char *)opts.extra_link_flags[i];
+    ld[li++] = librt;
+    ld[li++] = libc;
+    ld[li++] = builtins;
+    ld[li++] = crtn;
+    ld[li] = NULL;
+    if (opts.verbose) {
+        fprintf(stderr, "cross link (%s):", t->name);
+        for (int i = 0; ld[i]; i++) fprintf(stderr, " %s", ld[i]);
+        fprintf(stderr, "\n");
+    }
+    rc = iron_toolchain_run(ld);
+    if (!opts.debug_build) unlink(obj);
+    free(base_dir);
+    if (rc != 0) {
+        fprintf(stderr, "error: %s\n", rc < 0 ? "failed to start ld.lld" : "ld.lld failed to link the program");
+        return 1;
+    }
+    return 0;
+}
 
 static int invoke_clang(const char *c_file, const char *output,
                          const char *src_dir, IronBuildOpts opts) {
@@ -1940,6 +2051,8 @@ int iron_build(const char *source_path, const char *output_path,
         ret = iron_build_web_link(c_file_path, opts, web_cfg, web_toml_dir, web_lib_dir);
         free(web_lib_dir);
         if (web_proj) iron_toml_free(web_proj);
+    } else if (opts.target == IRON_TARGET_CROSS) {
+        ret = invoke_cross(c_file_path, binary_name, opts);
     } else {
         ret = invoke_clang(c_file_path, binary_name, "src", opts);
     }
