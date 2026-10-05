@@ -246,11 +246,16 @@ int ilsp_supervisor_run(int argc, char **argv) {
 
         bool worker_alive = true;
         bool editor_eof   = false;
+        bool worker_eof   = false;
+        /* A pipe whose writer is gone reports POLLHUP, on Linux without
+         * POLLIN: both count as readable, and the read returning 0 is the
+         * end of file. */
+        const short readable = POLLIN | POLLHUP | POLLERR;
         while (worker_alive) {
             struct pollfd pfd[3];
             pfd[0].fd = editor_eof ? -1 : editor_in;
             pfd[0].events = POLLIN;
-            pfd[1].fd = worker_out;
+            pfd[1].fd = worker_eof ? -1 : worker_out;
             pfd[1].events = POLLIN;
             pfd[2].fd = s_sigchld_pipe[0];
             pfd[2].events = POLLIN;
@@ -261,14 +266,15 @@ int ilsp_supervisor_run(int argc, char **argv) {
                 break;
             }
 
-            if (pfd[1].revents & POLLIN) {
+            if (pfd[1].revents & readable) {
                 ssize_t f = forward_bytes(worker_out, editor_out,
                                           ILSP_SUPERVISOR_PIPE_BUF);
-                if (f <= 0 && !(f == -1 && errno == EAGAIN)) {
+                if (f == 0) {
                     /* Worker stdout closed -- wait for SIGCHLD below. */
+                    worker_eof = true;
                 }
             }
-            if (pfd[0].revents & POLLIN) {
+            if (pfd[0].revents & readable) {
                 ssize_t f = forward_bytes(editor_in, worker_in,
                                           ILSP_SUPERVISOR_PIPE_BUF);
                 if (f == 0) {
