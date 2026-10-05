@@ -1,0 +1,39 @@
+-- An enum payload declared as an interface accepts any implementor
+-- (issue 261), as a parameter or field of that interface would: the value
+-- is wrapped in the interface and dispatches through it, and a payload
+-- that owns something is destroyed with the enum.
+interface Shape {
+    readonly func area() -> Int
+}
+
+object Square impl Shape {
+    val side: Int
+    readonly func area() -> Int { return self.side * self.side }
+}
+
+object Tagged impl Shape {
+    val label: String
+    readonly func area() -> Int { return self.label.len() }
+    drop { println("drop {self.label}") }
+}
+
+enum Drawn {
+    Some(Shape),
+    Pair(Shape, Shape),
+    None
+}
+
+func total(d: Drawn) -> Int {
+    match d {
+        Drawn.Some(sh) -> return sh.area()
+        Drawn.Pair(a, b) -> return a.area() + b.area()
+        Drawn.None -> return 0
+    }
+}
+
+func main() {
+    val d = Drawn.Some(Square(4))
+    val p = Drawn.Pair(Square(2), Tagged("tag" + "ged"))
+    println("{total(d)} {total(p)} {total(Drawn.None)}")
+    println("end")
+}
