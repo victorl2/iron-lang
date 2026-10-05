@@ -151,7 +151,8 @@ tag they correspond to.
 | (public tag, no internal drift) | `v4.3.0-alpha` | Correctness hardening, explicit list ownership (`copy()` / `take()`), interface type tests and type match, and owned interface lists. |
 | (public tag, no internal drift) | `v4.4.0-alpha` | Strings and closure environments freed through reference counts, `rc [T]` shared lists, closures borrow lists only for a call, map / filter / reduce / forEach on any list, func typed fields callable. |
 | (public tag, no internal drift) | `v4.5.0-alpha` | Temporaries dropped, captured vars in shared cells, field narrowing, list slicing, functions as values, string ordering, generation-safe pointer reuse, the rewritten reference manual with a checked grammar, parallel test runner. |
-| (public tag, no internal drift) | `v4.6.0-alpha` | `Map[K, V]` and `Set[T]` hash containers with list-style ownership, one construction syntax for every stdlib container (`Channel[Int](4)`, `Box(v)`, `Arena(n)`; E0333 for `.new`), the website generated from the manual, a leak oracle and the test-runner panic race fixed. **Current release.** |
+| (public tag, no internal drift) | `v4.6.0-alpha` | `Map[K, V]` and `Set[T]` hash containers with list-style ownership, one construction syntax for every stdlib container (`Channel[Int](4)`, `Box(v)`, `Arena(n)`; E0333 for `.new`), the website generated from the manual, a leak oracle and the test-runner panic race fixed. |
+| (public tag, no internal drift) | `v4.7.0-alpha` | Windows as a first-class host with no Visual Studio needed, `--target` cross compilation to Linux, macOS and Windows from any host, precompiled runtime bundles with TLS and raylib, the pinned LLVM toolchain, system trust for HTTPS, and enums, closures, spawns and fixed-size arrays owning what they hold. **Current release.** |
 
 Archived requirements files `.planning/REQUIREMENTS-v0.1.0.md`,
 `.planning/REQUIREMENTS-v0.1.x.md`, and `.planning/REQUIREMENTS-v0.2.0.md`
