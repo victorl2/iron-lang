@@ -67,8 +67,22 @@ void iron_toolchain_print_version(FILE *out);
 /* `ironc toolchain <path|install|info|check>`. argv[0] is the subcommand name. */
 int iron_toolchain_cmd(int argc, char **argv);
 
+/* The install prefix this binary runs from (<prefix>/bin/ironc -> <prefix>),
+ * and the user's home directory (HOME, or USERPROFILE on Windows). */
+int iron_toolchain_prefix_dir(char *out, size_t cap);
+const char *iron_toolchain_home_dir(void);
+
 /* Run a program found on PATH and return its exit status, or -1 when it
  * could not be started. */
 int iron_toolchain_run(char *const argv[]);
+
+/* Download `url` as `archive_name`, verify it against `pinned_sha` (hex) or,
+ * when that is NULL, against the hash in the .sha256 sidecar at
+ * `sidecar_url`, and unpack it into `dest` (a directory, replaced). `label`
+ * names what is being fetched in the progress line. Shared by the
+ * toolchain and the per-target runtime bundles (rtbundle.c). */
+int iron_toolchain_fetch_archive(const char *url, const char *archive_name,
+                                 const char *pinned_sha, const char *sidecar_url,
+                                 const char *dest, const char *label);
 
 #endif /* IRON_CLI_TOOLCHAIN_H */

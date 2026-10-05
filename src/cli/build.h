@@ -5,8 +5,11 @@
 
 typedef enum {
     IRON_TARGET_NATIVE = 0,   /* Default: native clang build (current behavior). */
-    IRON_TARGET_WEB    = 1    /* --target=web: dispatch to build_web.c. */
+    IRON_TARGET_WEB    = 1,   /* --target=web: dispatch to build_web.c. */
+    IRON_TARGET_CROSS  = 2    /* --target=<os>-<arch>: pinned clang + lld + runtime bundle (target.h). */
 } IronBuildTarget;
+
+struct IronCrossTarget;
 
 typedef struct {
     bool        verbose;
@@ -22,7 +25,8 @@ typedef struct {
     bool        no_optimize;      /* --no-optimize: skip copy-prop/const-fold/DCE */
     bool        warn_fusion_break; /* --warn-fusion-break: emit diagnostics at fusion chain break points */
     bool        report_compression; /* --report-compression: show which fields were narrowed */
-    IronBuildTarget target;   /* --target=native|web. Default IRON_TARGET_NATIVE. */
+    IronBuildTarget target;   /* --target=native|web|<os>-<arch>. Default IRON_TARGET_NATIVE. */
+    const struct IronCrossTarget *cross_target; /* when target == IRON_TARGET_CROSS */
     bool            release;  /* --release flag. Native: clang -O2. Web: Phase 7 consumes for -Oz -flto -sASSERTIONS=0. */
     bool            strict_v3; /* --strict-v3: Phase 88 BREAK gate (enables E0260..E0264 rejections) */
     bool            emit_archive;  /* Phase 94 LIB-01: produce target/lib<name>.a, not exe.

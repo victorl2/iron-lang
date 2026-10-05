@@ -278,7 +278,8 @@ noopt_parity_check() {
     fi
     local dir="${WORK_DIR}/${name}_noopt"
     mkdir -p "${dir}"
-    if ! (cd "${dir}" && "${IRON_BIN}" build --no-optimize "${file}") \
+    # shellcheck disable=SC2086
+    if ! (cd "${dir}" && "${IRON_BIN}" build --no-optimize ${IRON_TEST_BUILD_FLAGS:-} "${file}") \
             2>"${WORK_DIR}/${name}_noopt.err" >/dev/null; then
         echo "[FAIL] (--no-optimize build failed)"
         cat "${WORK_DIR}/${name}_noopt.err" >&2
@@ -395,7 +396,22 @@ run_one_fixture() {
 
     # iron build derives the output name from the source file (without .iron)
     # and places it in the current directory, so we cd into build_dir first
-    if ! (cd "${build_dir}" && "${IRON_BIN}" build "${test_file}") 2>"${build_stderr}"; then
+    # IRON_TEST_BUILD_FLAGS: extra flags for every fixture build (the cross
+    # compilation check passes --target=<host> so the corpus runs through
+    # the runtime bundle); IRON_TEST_SKIP_IMPORTS: modules whose importers
+    # are skipped (raylib has no cross bundle).
+    if [ -n "${IRON_TEST_SKIP_IMPORTS:-}" ]; then
+        local skip_mod
+        for skip_mod in ${IRON_TEST_SKIP_IMPORTS}; do
+            if grep -qE "^[[:space:]]*import[[:space:]]+${skip_mod}\b" "${test_file}"; then
+                echo "[SKIP] (imports ${skip_mod})"
+                echo SKIP > "${RESULT_FILE}"
+                return 0
+            fi
+        done
+    fi
+    # shellcheck disable=SC2086
+    if ! (cd "${build_dir}" && "${IRON_BIN}" build ${IRON_TEST_BUILD_FLAGS:-} "${test_file}") 2>"${build_stderr}"; then
         echo "[FAIL] (build failed)"
         cat "${build_stderr}" >&2
         echo FAIL > "${RESULT_FILE}"
@@ -537,6 +553,7 @@ for test_file in ${_ordered_files}; do
     case "$(cat "${RESULT_FILE}" 2>/dev/null)" in
         PASS)  PASS=$((PASS + 1)) ;;
         XFAIL) XFAIL=$((XFAIL + 1)) ;;
+        SKIP)  XFAIL=$((XFAIL + 1)) ;;   # skipped on request (IRON_TEST_SKIP_IMPORTS)
         *)     [ -f "${RESULT_FILE}" ] || echo "[FAIL] $(basename "${test_file}" .iron) (worker produced no verdict)"
                FAIL=$((FAIL + 1)) ;;
     esac

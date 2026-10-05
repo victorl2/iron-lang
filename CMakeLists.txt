@@ -488,6 +488,8 @@ add_executable(ironc
     src/cli/help_registry.c
     src/cli/toolchain.c
     src/cli/prereqs.c
+    src/cli/target.c
+    src/cli/rtbundle.c
     src/lsp/store/sha256.c
 )
 target_include_directories(ironc PRIVATE src)
@@ -931,6 +933,8 @@ add_executable(iron
     src/cli/help_registry.c
     src/cli/toolchain.c
     src/cli/prereqs.c
+    src/cli/target.c
+    src/cli/rtbundle.c
     src/lsp/store/sha256.c
 )
 target_include_directories(iron PRIVATE src)

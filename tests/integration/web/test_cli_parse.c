@@ -84,7 +84,7 @@ static int test_target_unknown_errors(void) {
              "OUT=$(%s build --target=bogus /tmp/iron_cli_parse_unk.iron 2>&1); "
              "RC=$?; "
              "if [ $RC -eq 0 ]; then exit 1; fi; "
-             "echo \"$OUT\" | grep -q 'valid targets: web, native'",
+             "echo \"$OUT\" | grep -q 'valid targets: native, web, linux-x86_64'",
              ironc_binary());
     int rc = run_cmd(cmd);
     if (rc != 0) {
@@ -92,6 +92,52 @@ static int test_target_unknown_errors(void) {
         return 1;
     }
     fprintf(stderr, "OK: --target=bogus error format\n");
+    return 0;
+}
+
+/* A cross target is parsed and reaches the runtime-bundle lookup; `run`
+ * refuses it before that because the binary cannot execute on the host.
+ * Neither needs a bundle installed: IRON_RT_DIR points at an empty
+ * directory so the lookup fails without touching the network. */
+static int test_target_cross_parses(void) {
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd),
+             "echo 'func main() {}' > /tmp/iron_cli_parse_cross.iron && "
+             "rm -rf /tmp/iron_cli_parse_rtdir && mkdir -p /tmp/iron_cli_parse_rtdir && "
+             "OUT=$(IRON_RT_DIR=/tmp/iron_cli_parse_rtdir %s build --target=linux-arm64 "
+             "/tmp/iron_cli_parse_cross.iron 2>&1); "
+             "RC=$?; "
+             "if [ $RC -eq 0 ]; then exit 1; fi; "
+             "echo \"$OUT\" | grep -q 'holds no runtime bundle for linux-arm64'",
+             ironc_binary());
+    int rc = run_cmd(cmd);
+    if (rc != 0) {
+        fprintf(stderr, "FAIL: --target=linux-arm64 did not reach the runtime bundle lookup (rc=%d)\n", rc);
+        return 1;
+    }
+    snprintf(cmd, sizeof(cmd),
+             "OUT=$(%s run --target=linux-arm64 /tmp/iron_cli_parse_cross.iron 2>&1); "
+             "RC=$?; "
+             "if [ $RC -eq 0 ]; then exit 1; fi; "
+             "echo \"$OUT\" | grep -q 'cannot run on this host'",
+             ironc_binary());
+    rc = run_cmd(cmd);
+    if (rc != 0) {
+        fprintf(stderr, "FAIL: run --target=linux-arm64 was not refused (rc=%d)\n", rc);
+        return 1;
+    }
+    snprintf(cmd, sizeof(cmd),
+             "OUT=$(%s build --target=windows-x86_64 /tmp/iron_cli_parse_cross.iron 2>&1); "
+             "RC=$?; "
+             "if [ $RC -eq 0 ]; then exit 1; fi; "
+             "echo \"$OUT\" | grep -q 'no runtime bundle is published for windows-x86_64 yet'",
+             ironc_binary());
+    rc = run_cmd(cmd);
+    if (rc != 0) {
+        fprintf(stderr, "FAIL: --target=windows-x86_64 did not report the missing bundle (rc=%d)\n", rc);
+        return 1;
+    }
+    fprintf(stderr, "OK: cross targets parse, run refuses them, unpublished targets are named\n");
     return 0;
 }
 
@@ -116,12 +162,13 @@ int main(void) {
     failures += test_target_web_parses();
     failures += test_target_native_parses();
     failures += test_target_unknown_errors();
+    failures += test_target_cross_parses();
     failures += test_target_default_is_native();
 
     if (failures > 0) {
         fprintf(stderr, "test_cli_parse: %d test(s) FAILED\n", failures);
         return 1;
     }
-    fprintf(stderr, "test_cli_parse: all 4 tests PASSED\n");
+    fprintf(stderr, "test_cli_parse: all 5 tests PASSED\n");
     return 0;
 }
