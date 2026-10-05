@@ -36,7 +36,8 @@ if [ $# -ne 3 ]; then
     sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
 fi
-target=$1 version=$2 out=$3
+target=$1 version=$2
+out=$(mkdir -p "$3" && cd "$3" && pwd)
 here=$(cd "$(dirname "$0")/../.." && pwd)
 tc=${IRON_TOOLCHAIN:?set IRON_TOOLCHAIN to the pinned toolchain bundle}
 
