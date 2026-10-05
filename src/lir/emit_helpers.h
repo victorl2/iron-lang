@@ -387,6 +387,7 @@ void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et);
 /* Lifecycle statements for any type (emit_c.c): the copy fixup that runs
  * when the value at `lv` was duplicated, and a `void (*)(void *)` thunk
  * that drops a value of type t ("NULL" when nothing needs to run). */
+void emit_drop_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx, Iron_Type *t, const char *lv);
 void emit_copy_fixup_lvalue(Iron_StrBuf *sb, int ind, EmitCtx *ctx,
                             Iron_Type *t, const char *lv);
 const char *emit_cell_drop_fn(EmitCtx *ctx, Iron_Type *t);

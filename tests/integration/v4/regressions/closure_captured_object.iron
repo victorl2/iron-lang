@@ -1,0 +1,43 @@
+-- A closure's copy of a captured val object is its own (issue 257): the
+-- copy is fixed up when the env is built (its strings retained, its rc
+-- fields shared) and dropped when the last copy of the closure goes, so
+-- a closure that outlives the binding still reads a live value and the
+-- object's drop block runs for the env's copy too.
+object Res {
+    val name: String
+    drop { println("drop {self.name}") }
+}
+
+interface Greeter {
+    readonly func greet() -> String
+}
+
+object Polite impl Greeter {
+    val word: String
+    readonly func greet() -> String { return self.word + "!" }
+}
+
+func make() -> func() -> String {
+    val r = Res("captured " + "name")
+    return func() -> String { return r.name }
+}
+
+func make_greeter() -> func() -> String {
+    val g: Greeter = Polite("hello " + "there")
+    return func() -> String { return g.greet() }
+}
+
+func make_pair() -> func() -> Int {
+    val pair: [Res; 2] = [Res("p0"), Res("p1")]
+    return func() -> Int { return len(pair) }
+}
+
+func main() {
+    val f = make()
+    println("{f()}")
+    val h = make_greeter()
+    println("{h()}")
+    val p = make_pair()
+    println("{p()}")
+    println("end")
+}
