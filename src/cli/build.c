@@ -950,6 +950,76 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
 }
 #endif
 
+/* Link a Windows program with lld-link against the runtime bundle only:
+ * the bundle's entry object (src/runtime/iron_win_crt0.c), the runtime,
+ * import libraries for the system DLLs it calls and the compiler builtins.
+ * -nodefaultlib drops the MSVC libraries clang names in every object, so
+ * neither the Build Tools nor the Visual C++ redistributable is needed. */
+static int link_windows(const IronToolchain *tc, const IronRtBundle *rt, const char *obj,
+                        const char *output, IronBuildOpts opts) {
+    static const char *const dlls[] = { "ucrtbase", "kernel32", "ws2_32", "bcrypt" };
+    char out_flag[4200], crt0[4200], librt[4200], builtins[4200];
+    char implibs[sizeof(dlls) / sizeof(dlls[0])][4200];
+    size_t olen = strlen(output);
+    bool has_exe = olen >= 4 && (strcmp(output + olen - 4, ".exe") == 0 || strcmp(output + olen - 4, ".EXE") == 0);
+    snprintf(out_flag, sizeof(out_flag), "-out:%s%s", output, has_exe ? "" : ".exe");
+    snprintf(crt0, sizeof(crt0), "%s/iron_crt0.obj", rt->lib);
+    snprintf(librt, sizeof(librt), "%s/iron_rt.lib", rt->lib);
+    snprintf(builtins, sizeof(builtins), "%s/clang_rt.builtins.lib", rt->lib);
+
+    char *ld[64];
+    int li = 0;
+    ld[li++] = (char *)iron_toolchain_tool(tc, "lld-link");
+    ld[li++] = "-nologo";
+    ld[li++] = "-nodefaultlib";
+    ld[li++] = "-subsystem:console";
+    ld[li++] = "-entry:mainCRTStartup";
+    if (opts.debug_build) ld[li++] = "-debug";
+    ld[li++] = out_flag;
+    ld[li++] = crt0;
+    ld[li++] = (char *)obj;
+    for (int i = 0; opts.extra_link_flags && i < opts.extra_link_flag_count && li < 48; i++)
+        ld[li++] = (char *)opts.extra_link_flags[i];
+    ld[li++] = librt;
+    for (size_t i = 0; i < sizeof(dlls) / sizeof(dlls[0]); i++) {
+        snprintf(implibs[i], sizeof(implibs[i]), "%s/%s.lib", rt->lib, dlls[i]);
+        if (access(implibs[i], F_OK) == 0) ld[li++] = implibs[i];
+    }
+    ld[li++] = builtins;
+    ld[li] = NULL;
+    if (opts.verbose) {
+        fprintf(stderr, "link (%s):", rt->target->name);
+        for (int i = 0; ld[i]; i++) fprintf(stderr, " %s", ld[i]);
+        fprintf(stderr, "\n");
+    }
+    int rc = iron_toolchain_run(ld);
+    if (rc != 0) {
+        fprintf(stderr, "error: %s\n", rc < 0 ? "failed to start lld-link" : "lld-link failed to link the program");
+        return 1;
+    }
+    return 0;
+}
+
+/* On a Windows host a native build links against the precompiled runtime
+ * when a windows-x86_64 bundle is installed (release archives ship one
+ * next to ironc), so programs build without the Visual Studio Build Tools.
+ * Without a bundle, and for programs that use raylib or TLS (not in the
+ * bundle yet), the runtime is compiled from source with the Build Tools as
+ * before. Sets opts->cross_target when the bundle is used. */
+static bool windows_bundle_native(IronBuildOpts *opts) {
+#ifdef _WIN32
+    if (opts->use_raylib || opts->use_tls) return false;
+    const IronCrossTarget *t = iron_target_lookup("windows-x86_64");
+    if (!t || !iron_rt_bundle_find(t)) return false;
+    opts->cross_target = t;
+    if (opts->verbose) fprintf(stderr, "note: linking against the precompiled runtime for %s\n", t->name);
+    return true;
+#else
+    (void)opts;
+    return false;
+#endif
+}
+
 /* Build for a cross target (target.h): the generated C is freestanding, so
  * it is compiled with the pinned clang for the target's triple against the
  * compiler's own headers only, then linked with lld against the target's
@@ -1000,6 +1070,7 @@ static int invoke_cross(const char *c_file, const char *output, IronBuildOpts op
     cc[ci++] = resource_inc;
     cc[ci++] = src_i;
     cc[ci++] = stdlib_i;
+    if (t->os == IRON_OS_WINDOWS && opts.debug_build) cc[ci++] = "-gcodeview";
     cc[ci++] = "-c";
     cc[ci++] = (char *)c_file;
     cc[ci++] = "-o";
@@ -1015,6 +1086,13 @@ static int invoke_cross(const char *c_file, const char *output, IronBuildOpts op
         fprintf(stderr, "error: %s\n", rc < 0 ? "failed to start clang" : "clang failed to compile the generated C");
         free(base_dir);
         return 1;
+    }
+
+    if (t->os == IRON_OS_WINDOWS) {
+        rc = link_windows(tc, rt, obj, output, opts);
+        if (!opts.debug_build) unlink(obj);
+        free(base_dir);
+        return rc;
     }
 
     /* Link. Linux: a static musl executable (crt1.o is the non-PIE start
@@ -2052,6 +2130,8 @@ int iron_build(const char *source_path, const char *output_path,
         free(web_lib_dir);
         if (web_proj) iron_toml_free(web_proj);
     } else if (opts.target == IRON_TARGET_CROSS) {
+        ret = invoke_cross(c_file_path, binary_name, opts);
+    } else if (windows_bundle_native(&opts)) {
         ret = invoke_cross(c_file_path, binary_name, opts);
     } else {
         ret = invoke_clang(c_file_path, binary_name, "src", opts);

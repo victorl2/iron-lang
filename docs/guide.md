@@ -115,7 +115,8 @@ to `ironc`.
 
 `iron build --target=linux-x86_64` (or `linux-arm64`) cross compiles a
 binary package into a static Linux executable under `target/<target>/`,
-from any host and without an SDK: the program is linked against a
+and `--target=windows-x86_64` into a Windows `.exe`, from any host and
+without an SDK: the program is linked against a
 precompiled runtime bundle that `ironc` downloads once per compiler
 version into `~/.iron/rt/` (see the manual's
 [backend section](language_definition.md#106-the-backend)). Apart from

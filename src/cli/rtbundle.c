@@ -94,7 +94,17 @@ static int install(const char *dest, const IronCrossTarget *target) {
 static IronRtBundle s_bundles[MAX_BUNDLES];
 static int s_state[MAX_BUNDLES];   /* 0 unresolved, 1 found, -1 failed */
 
+static const IronRtBundle *lookup(const IronCrossTarget *target, bool download, bool quiet);
+
 const IronRtBundle *iron_rt_bundle_get(const IronCrossTarget *target, bool download) {
+    return lookup(target, download, false);
+}
+
+const IronRtBundle *iron_rt_bundle_find(const IronCrossTarget *target) {
+    return lookup(target, false, true);
+}
+
+static const IronRtBundle *lookup(const IronCrossTarget *target, bool download, bool quiet) {
     if (!target) return NULL;
     int slot = -1;
     for (int i = 0; i < MAX_BUNDLES; i++) {
@@ -145,7 +155,8 @@ const IronRtBundle *iron_rt_bundle_get(const IronCrossTarget *target, bool downl
             r = -1;
         }
     } else if (r == 0) {
-        fprintf(stderr, "error: the runtime bundle for %s (iron %s) is not installed\n", target->name, IRON_VERSION_STRING);
+        if (!quiet)
+            fprintf(stderr, "error: the runtime bundle for %s (iron %s) is not installed\n", target->name, IRON_VERSION_STRING);
         r = -1;
     }
     s_state[slot] = r;

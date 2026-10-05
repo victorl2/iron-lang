@@ -40,4 +40,9 @@ typedef struct {
  * downloaded unless `download` is false. NULL after printing the reason. */
 const IronRtBundle *iron_rt_bundle_get(const IronCrossTarget *target, bool download);
 
+/* The bundle for `target` if one is installed (IRON_RT_DIR, next to the
+ * compiler or per user), without downloading and without a message when
+ * there is none. A bundle that is present but refused is still reported. */
+const IronRtBundle *iron_rt_bundle_find(const IronCrossTarget *target);
+
 #endif /* IRON_CLI_RTBUNDLE_H */
