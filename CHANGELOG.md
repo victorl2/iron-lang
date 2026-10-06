@@ -3,6 +3,28 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v4.7.0-alpha: Windows, Cross Compilation and an SDK-Free Runtime (2026-10-05)
+
+- **Windows:** a release archive and `install.ps1`; programs link against
+  a precompiled runtime with `lld-link` and the UCRT, so neither Visual
+  Studio nor the VC++ redistributable is needed; `ironls`, `iron test`,
+  the web target and the Zed extension work there. Fixes: io copy/move on
+  an existing file, `-fwrapv` in native builds, panic paths, raylib links.
+- **Cross compilation:** `--target=linux-x86_64|linux-arm64|macos-arm64|
+  macos-x86_64|windows-x86_64` from any host through runtime bundles (static
+  musl, `libSystem.tbd` stubs, generated import libraries) that carry TLS
+  (static OpenSSL 3.5) and, on Windows and macOS, raylib.
+- **Toolchain:** the pinned LLVM 23.1.2 compiles every program; the
+  generated C is freestanding; missing prerequisites are named; concurrent
+  first-use installs no longer clobber each other.
+- **TLS:** servers are verified against the system's trust (CA bundles on
+  Linux and macOS, CryptoAPI on Windows).
+- **Language:** enums own their payloads and work as fields and list
+  elements; closures and spawns own captured values; recursive lambdas are
+  freed; `[T; N]` is an inline value; `T?` objects are destroyed; type
+  arguments are inferred through generic instances; `iron fmt` uses four
+  spaces.
+
 ## v4.6.0-alpha: Maps, Sets and One Way to Construct (2026-10-01)
 
 - **Maps and sets:** `Map[K, V]` and `Set[T]` are open-addressing hash
