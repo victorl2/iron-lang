@@ -16,7 +16,10 @@ find_program(IRON_NODE_EXECUTABLE node)
 set(_gr_tm_dir "${CMAKE_SOURCE_DIR}/tests/grammars/textmate")
 set(_gr_tm_committed "${CMAKE_SOURCE_DIR}/grammars/textmate/iron.tmLanguage.json")
 
-if(IRON_BUILD_GRAMMARS AND IRON_NPM_EXECUTABLE AND IRON_NODE_EXECUTABLE)
+# The grammars are the same on every platform and the Linux and macOS jobs
+# check them; on Windows `npm` resolves to the POSIX shell script rather
+# than npm.cmd, and `bash` can be WSL's, so these take the SKIP shims there.
+if(IRON_BUILD_GRAMMARS AND IRON_NPM_EXECUTABLE AND IRON_NODE_EXECUTABLE AND NOT WIN32)
     # Setup fixture: install Node dev deps once per build. Subsequent tests
     # depend on this via FIXTURES_REQUIRED so npm install runs once and is
     # reused. --prefer-offline keeps CI green in cache-hit scenarios.
@@ -84,7 +87,7 @@ endif()
 
 find_program(BASH_EXECUTABLE bash)
 
-if(IRON_BUILD_GRAMMARS AND IRON_NPM_EXECUTABLE AND IRON_NODE_EXECUTABLE AND BASH_EXECUTABLE)
+if(IRON_BUILD_GRAMMARS AND IRON_NPM_EXECUTABLE AND IRON_NODE_EXECUTABLE AND BASH_EXECUTABLE AND NOT WIN32)
     set(_gr_ts_dir "${CMAKE_SOURCE_DIR}/grammars/tree-sitter/iron")
 
     # Setup fixture: install tree-sitter-cli locally via npm once per build.
