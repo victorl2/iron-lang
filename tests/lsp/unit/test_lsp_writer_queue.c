@@ -18,12 +18,11 @@
 #include "lsp/transport/frame.h"
 
 #include <errno.h>
-#include <pthread.h>
+#include "support/posix_test.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 
 void setUp(void)    {}
 void tearDown(void) {}

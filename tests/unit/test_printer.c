@@ -9,6 +9,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include "support/posix_test.h"
 
 /* ── Module-level fixtures ───────────────────────────────────────────────── */
 

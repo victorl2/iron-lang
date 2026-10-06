@@ -74,8 +74,11 @@ add_subdirectory(complete)
 # Publish_diag_820 — depends on IRON_ERR_READONLY_MEMORY=820 (Task 2 of
 # Plan 34-01) AND on the compiler-side emit site landing in a follow-up
 # plan. Registered WILL_FAIL until both pieces ship.
-add_test(NAME lsp_publish_diag_820
-    COMMAND /bin/sh -c "echo 'TODO Phase 34: publishDiagnostics harness for 820-range pending compiler-side emit site'; exit 1")
-set_tests_properties(lsp_publish_diag_820 PROPERTIES
-    LABELS "phase34-invariant"
-    WILL_FAIL TRUE)
+# Runs through /bin/sh; Linux and macOS CI cover it.
+if(NOT WIN32)
+    add_test(NAME lsp_publish_diag_820
+        COMMAND /bin/sh -c "echo 'TODO Phase 34: publishDiagnostics harness for 820-range pending compiler-side emit site'; exit 1")
+    set_tests_properties(lsp_publish_diag_820 PROPERTIES
+        LABELS "phase34-invariant"
+        WILL_FAIL TRUE)
+endif()

@@ -33,7 +33,7 @@
 #include "vendor/stb_ds.h"
 
 #include <ctype.h>
-#include <dirent.h>
+#include "support/posix_test.h"
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>

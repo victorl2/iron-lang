@@ -54,6 +54,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "support/posix_test.h"
 
 void setUp(void)    {}
 void tearDown(void) {}
@@ -93,7 +94,7 @@ static void test_sigabrt_direct_siglongjmp(void) {
     ilsp_current_doc_tls = &doc;
 
     int landed_in_recovery = 0;
-    if (sigsetjmp(doc.abort_jmp, 1) == 0) {
+    if (ILSP_SETJMP(doc.abort_jmp) == 0) {
         raise(SIGABRT);
         /* Unreachable -- siglongjmp transfers control out. */
         TEST_FAIL_MESSAGE("raise(SIGABRT) should have siglongjmp'd out");

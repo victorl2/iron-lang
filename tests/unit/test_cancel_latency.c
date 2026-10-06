@@ -18,7 +18,7 @@
 #include "util/arena.h"
 #include "diagnostics/diagnostics.h"
 
-#include <pthread.h>
+#include "support/posix_test.h"
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>

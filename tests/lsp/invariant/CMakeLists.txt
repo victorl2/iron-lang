@@ -9,6 +9,10 @@
 # Labelled phase-m6-invariant so `ctest -L phase-m6-invariant` exercises
 # the whole Phase 7 surface.
 
+# The Python self-tests below run the interpreter CMake finds: on Windows
+# `python3` is usually the Microsoft Store stub, not Python.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+
 if(IRON_BUILD_LSP)
     # test_crash_dump_written.sh: spawn ironls, kill -SEGV, assert a
     # 3-section .dmp file is produced under $XDG_STATE_HOME/iron-lsp/
@@ -49,12 +53,15 @@ if(IRON_BUILD_LSP)
     # keep stdin open via FIFO holder, wait for the 5s sampler to trip the
     # cap, assert exit code exactly 42 AND that the rss-restart-<iso8601>.log
     # marker file was written under $XDG_STATE_HOME/iron-lsp/.
-    add_test(NAME test_rss_cap_trips_exit_42
-        COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/test_rss_cap_trips_exit_42.sh"
-                $<TARGET_FILE:ironls>)
-    set_tests_properties(test_rss_cap_trips_exit_42 PROPERTIES
-        LABELS "integration;phase-m6-invariant"
-        TIMEOUT 45)
+    # Runs through /bin/sh; Linux and macOS CI cover it.
+    if(NOT WIN32)
+        add_test(NAME test_rss_cap_trips_exit_42
+            COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/test_rss_cap_trips_exit_42.sh"
+                    $<TARGET_FILE:ironls>)
+        set_tests_properties(test_rss_cap_trips_exit_42 PROPERTIES
+            LABELS "integration;phase-m6-invariant"
+            TIMEOUT 45)
+    endif()
 
     # Phase 7 Plan 07-02 Task 02 (HARD-16, D-04) -- Python soak harness
     # self-test. Validates analyze() logic (peak + linear-regression
@@ -62,7 +69,7 @@ if(IRON_BUILD_LSP)
     # full soak. CI-time guard against regressions in the analyzer
     # that would otherwise only surface on a real 30-min/8h run.
     add_test(NAME test_soak_harness_self_test
-        COMMAND python3 "${CMAKE_SOURCE_DIR}/tests/lsp/soak/harness.py"
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/tests/lsp/soak/harness.py"
                 --self-test)
     set_tests_properties(test_soak_harness_self_test PROPERTIES
         LABELS "integration;phase-m6-invariant"
@@ -73,7 +80,7 @@ if(IRON_BUILD_LSP)
     # 28,800 events and short.jsonl has exactly 1,800 events, mitigating
     # T-07-02-02 (workload drift).
     add_test(NAME test_soak_workload_counts
-        COMMAND python3 -c "
+        COMMAND ${Python3_EXECUTABLE} -c "
 import sys
 full = open('${CMAKE_SOURCE_DIR}/tests/lsp/soak/workload.jsonl').readlines()
 short = open('${CMAKE_SOURCE_DIR}/tests/lsp/soak/short.jsonl').readlines()
@@ -91,7 +98,7 @@ print('OK: 28800 + 1800')")
     # T-07-03-01 (detector regression masking real races) cheaply
     # enough (< 1 s) that every normal ctest run exercises it.
     add_test(NAME test_tsan_driver_self_test
-        COMMAND python3 "${CMAKE_SOURCE_DIR}/tests/lsp/tsan/driver.py"
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/tests/lsp/tsan/driver.py"
                 --self-test)
     set_tests_properties(test_tsan_driver_self_test PROPERTIES
         LABELS "integration;phase-m6-invariant"
@@ -102,7 +109,7 @@ print('OK: 28800 + 1800')")
     # drift is caught here so tsan.yml doesn't silently run a shorter
     # soak.
     add_test(NAME test_tsan_workload_count
-        COMMAND python3 -c "
+        COMMAND ${Python3_EXECUTABLE} -c "
 wl = open('${CMAKE_SOURCE_DIR}/tests/lsp/tsan/workload.jsonl').readlines()
 assert len(wl) == 300, f'tsan/workload.jsonl: {len(wl)} != 300'
 print('OK: 300')")
@@ -118,7 +125,7 @@ print('OK: 300')")
     # (percentile regression masking threshold enforcement) cheaply
     # enough that every normal ctest run exercises it pre-build.
     add_test(NAME test_slo_measurement_self_test
-        COMMAND python3 "${CMAKE_SOURCE_DIR}/tests/lsp/slos/measurement.py"
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/tests/lsp/slos/measurement.py"
                 --self-test)
     set_tests_properties(test_slo_measurement_self_test PROPERTIES
         LABELS "integration;phase-m6-invariant"
@@ -128,7 +135,7 @@ print('OK: 300')")
     # LoC guard. Plan done-criterion locks medium_500loc.iron to
     # 495..505 lines; this invariant catches accidental drift.
     add_test(NAME test_slo_medium_fixture_loc
-        COMMAND python3 -c "
+        COMMAND ${Python3_EXECUTABLE} -c "
 with open('${CMAKE_SOURCE_DIR}/tests/lsp/slos/fixtures/medium_500loc.iron') as f:
     n = sum(1 for _ in f)
 assert 495 <= n <= 505, f'medium_500loc.iron: {n} outside 495..505'
@@ -144,7 +151,7 @@ print(f'OK: {n}')")
     # threshold, 20-sample window) in < 1 s. Catches drift in the
     # rolling-baseline logic before any real build is measured.
     add_test(NAME test_build_time_self_test
-        COMMAND python3 "${CMAKE_SOURCE_DIR}/scripts/ci/build_time_check.py"
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/scripts/ci/build_time_check.py"
                 --self-test)
     set_tests_properties(test_build_time_self_test PROPERTIES
         LABELS "integration;phase-m6-invariant"
@@ -157,7 +164,7 @@ print(f'OK: {n}')")
     # T-07-04-03 mitigation: catches accidental corruption of the
     # baseline file in PRs that don't touch the workflow.
     add_test(NAME test_build_time_baseline_shape
-        COMMAND python3 -c "
+        COMMAND ${Python3_EXECUTABLE} -c "
 import json
 b = json.load(open('${CMAKE_SOURCE_DIR}/build-time-baseline.json'))
 assert isinstance(b, list), 'baseline must be a JSON array'
@@ -191,14 +198,17 @@ print(f'OK: {len(b)} total; ' + ', '.join(f'{k}={v}' for k, v in sorted(per_os.i
     #   * a stale build picking up old objects for one binary but not another
     #   * an install-layout regression where IRON_VERSION_STRING isn't
     #     plumbed into a newly-added target
-    add_test(NAME test_version_stamp_coherence
-        COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/test_version_stamp_coherence.sh"
-                $<TARGET_FILE:iron>
-                $<TARGET_FILE:ironc>
-                $<TARGET_FILE:ironls>)
-    set_tests_properties(test_version_stamp_coherence PROPERTIES
-        LABELS "integration;phase-m6-invariant"
-        TIMEOUT 15)
+    # Runs through /bin/sh; Linux and macOS CI cover it.
+    if(NOT WIN32)
+        add_test(NAME test_version_stamp_coherence
+            COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/test_version_stamp_coherence.sh"
+                    $<TARGET_FILE:iron>
+                    $<TARGET_FILE:ironc>
+                    $<TARGET_FILE:ironls>)
+        set_tests_properties(test_version_stamp_coherence PROPERTIES
+            LABELS "integration;phase-m6-invariant"
+            TIMEOUT 15)
+    endif()
 
     # Phase 7 Plan 07-08 Task 01 (HARD-24, D-11) -- test_phase7_audit.sh:
     # meta-gate that verifies every Phase 7 D-14 artifact still exists,
@@ -210,13 +220,16 @@ print(f'OK: {len(b)} total; ' + ', '.join(f'{k}={v}' for k, v in sorted(per_os.i
     #
     # Passes WORKING_DIRECTORY so the script can resolve REPO_ROOT
     # robustly regardless of where ctest invokes it from.
-    add_test(NAME test_phase7_audit
-        COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/test_phase7_audit.sh"
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-    set_tests_properties(test_phase7_audit PROPERTIES
-        LABELS "integration;phase-m6-invariant"
-        ENVIRONMENT "IRON_BUILD_DIR=${CMAKE_BINARY_DIR}"
-        TIMEOUT 30)
+    # Runs through /bin/sh; Linux and macOS CI cover it.
+    if(NOT WIN32)
+        add_test(NAME test_phase7_audit
+            COMMAND /bin/bash "${CMAKE_CURRENT_SOURCE_DIR}/test_phase7_audit.sh"
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+        set_tests_properties(test_phase7_audit PROPERTIES
+            LABELS "integration;phase-m6-invariant"
+            ENVIRONMENT "IRON_BUILD_DIR=${CMAKE_BINARY_DIR}"
+            TIMEOUT 30)
+    endif()
 endif()
 
 # ── Phase 34 LSP-13 / CORE-22: single iron_analyze_buffer call site ──────────
@@ -231,11 +244,14 @@ endif()
 # Pure text-only test (Unity + popen grep), no analyzer runtime invocation.
 # Working directory is CMAKE_SOURCE_DIR so the relative `src/lsp/` path
 # resolves regardless of build-tree layout.
-add_executable(test_core22_single_analyze test_core22_single_analyze.c)
-target_link_libraries(test_core22_single_analyze PRIVATE unity)
-add_test(NAME test_core22_single_analyze
-    COMMAND test_core22_single_analyze
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-set_tests_properties(test_core22_single_analyze PROPERTIES
-    LABELS "phase34-invariant;invariant"
-    TIMEOUT 30)
+# The scan shells out to grep; Linux and macOS CI cover it.
+if(NOT WIN32)
+    add_executable(test_core22_single_analyze test_core22_single_analyze.c)
+    target_link_libraries(test_core22_single_analyze PRIVATE unity)
+    add_test(NAME test_core22_single_analyze
+        COMMAND test_core22_single_analyze
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    set_tests_properties(test_core22_single_analyze PROPERTIES
+        LABELS "phase34-invariant;invariant"
+        TIMEOUT 30)
+endif()
