@@ -29,7 +29,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include <pthread.h>
+#include "support/posix_test.h"
 #include <stdatomic.h>
 
 void setUp(void)    {}

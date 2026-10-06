@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
+#include "support/posix_test.h"
 
 /* ── Unity boilerplate ───────────────────────────────────────────────────── */
 
@@ -112,9 +112,9 @@ void test_math_random(void) {
  * IO tests
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-static const char *s_tmp_file  = "/tmp/iron_test_io_file.txt";
-static const char *s_tmp_file2 = "/tmp/iron_test_io_file2.txt";
-static const char *s_tmp_dir   = "/tmp/iron_test_io_dir";
+static const char *s_tmp_file  = IRON_TEST_TMP "/iron_test_io_file.txt";
+static const char *s_tmp_file2 = IRON_TEST_TMP "/iron_test_io_file2.txt";
+static const char *s_tmp_dir   = IRON_TEST_TMP "/iron_test_io_dir";
 
 static Iron_String make_str(const char *s) {
     return iron_string_from_cstr(s, strlen(s));
@@ -138,7 +138,7 @@ void test_io_write_and_read(void) {
 }
 
 void test_io_read_nonexistent(void) {
-    Iron_String path = make_str("/tmp/iron_test_nonexistent_xyz123.txt");
+    Iron_String path = make_str(IRON_TEST_TMP "/iron_test_nonexistent_xyz123.txt");
     Iron_Result_String_Error result = Iron_io_read_file_result(path);
     TEST_ASSERT_NOT_EQUAL_INT(0, result.v1.code);
 }

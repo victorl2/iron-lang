@@ -79,10 +79,13 @@ void ilsp_supervisor_reset_bailout_for_test(void);
 size_t ilsp_supervisor_build_showmessage_for_test(char *out, size_t cap,
                                                    const char *message);
 
+#ifndef _WIN32
 /* Byte-forward a buffer of `n` bytes from `in_fd` to `out_fd`. Retries
- * on EINTR/EAGAIN. Returns total bytes forwarded, or -1 on EPIPE/EBADF. */
+ * on EINTR/EAGAIN. Returns total bytes forwarded, or -1 on EPIPE/EBADF.
+ * POSIX only: the Windows supervisor forwards over HANDLEs. */
 ssize_t ilsp_supervisor_forward_bytes_for_test(int in_fd, int out_fd,
                                                 size_t n);
+#endif
 
 #endif  /* ILSP_SUPERVISOR_TESTING */
 

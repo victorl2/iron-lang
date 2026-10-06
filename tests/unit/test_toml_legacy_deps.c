@@ -16,12 +16,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include "support/posix_test.h"
 
 static char g_tmp_path[128];
 
 static const char *write_fixture(const char *contents) {
-    snprintf(g_tmp_path, sizeof(g_tmp_path), "/tmp/iron_test_toml_legacy_deps_XXXXXX");
+    snprintf(g_tmp_path, sizeof(g_tmp_path), IRON_TEST_TMP "/iron_test_toml_legacy_deps_XXXXXX");
     int fd = mkstemp(g_tmp_path);
     TEST_ASSERT_NOT_EQUAL_MESSAGE(-1, fd, "mkstemp failed");
     ssize_t written = write(fd, contents, strlen(contents));

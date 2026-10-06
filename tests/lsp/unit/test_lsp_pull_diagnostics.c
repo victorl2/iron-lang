@@ -39,6 +39,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "support/posix_test.h"
 
 void setUp(void)    {}
 void tearDown(void) {}

@@ -28,7 +28,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
+#include "support/posix_test.h"
 
 /* ── Module-level fixtures ───────────────────────────────────────────────── */
 
@@ -265,7 +265,7 @@ static Iron_Program *run_analysis_with_dir(const char *src,
 
 void test_comptime_read_file(void) {
     /* Write a temp file with known contents */
-    char tmp_dir[] = "/tmp/iron_test_XXXXXX";
+    char tmp_dir[] = IRON_TEST_TMP "/iron_test_XXXXXX";
     char *dir = mkdtemp(tmp_dir);
     TEST_ASSERT_NOT_NULL_MESSAGE(dir, "mkdtemp failed");
 

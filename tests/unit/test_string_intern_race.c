@@ -18,7 +18,7 @@
 #include "unity.h"
 #include "runtime/iron_runtime.h"
 
-#include <pthread.h>
+#include "support/posix_test.h"
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
