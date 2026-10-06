@@ -1,0 +1,9 @@
+# Check out text files with LF on every platform. The tests compare output
+# byte for byte against snapshots, baselines and grammars in the tree, and
+# a Windows checkout with core.autocrlf would turn them into CRLF.
+* text=auto eol=lf
+
+# Fixtures whose CRLF line endings are what they test.
+tests/lsp/fixtures/crlf.iron -text
+tests/fuzz/** -text
+src/vendor/** -text

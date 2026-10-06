@@ -8293,7 +8293,14 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "%s(", check_fn);
         emit_val(sb, instr->gencheck.ptr);
-        iron_strbuf_appendf(sb, ", \"%s\", %u);\n", df, (unsigned)instr->span.line);
+        /* The path is a C string literal: Windows paths carry backslashes
+         * ("C:\\work\\tests" would print as "C:work<TAB>ests"). */
+        iron_strbuf_appendf(sb, ", \"");
+        for (const char *c = df; *c; c++) {
+            if (*c == '\\' || *c == '"') iron_strbuf_appendf(sb, "\\%c", *c);
+            else iron_strbuf_appendf(sb, "%c", *c);
+        }
+        iron_strbuf_appendf(sb, "\", %u);\n", (unsigned)instr->span.line);
         break;
     }
 
