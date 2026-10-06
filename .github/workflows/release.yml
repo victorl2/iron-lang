@@ -269,6 +269,28 @@ jobs:
           .\build\ironc.exe --version
           .\build\iron.exe --version
 
+      # The precompiled runtime (scripts/rt/build_windows_bundle.sh): the
+      # runtime compiled here against the Windows SDK once, with import
+      # libraries for the system DLLs and our own entry object, so programs
+      # link with lld-link and never need the Build Tools. It ships inside
+      # the archive (lib\iron\rt\windows-x86_64, where ironc looks first)
+      # and as its own asset for cross builds from Linux and macOS.
+      - name: Build the runtime bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(./build/ironc.exe --version | tr -d '\r' | sed -n '1s/^ironc \([^ ]*\).*/\1/p')
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ "v${VERSION}" != "${RELEASE_TAG}" ]; then
+            echo "release tag ${RELEASE_TAG} does not match the compiler version ${VERSION}" >&2
+            exit 1
+          fi
+          llvm=$(sed -n 's/^#define IRON_TOOLCHAIN_LLVM *"\(.*\)".*/\1/p' src/cli/toolchain_pins.h)
+          bundle=$(sed -n 's/^#define IRON_TOOLCHAIN_BUNDLE *"\(.*\)".*/\1/p' src/cli/toolchain_pins.h)
+          export IRON_TOOLCHAIN="$(cygpath -u "$USERPROFILE")/.iron/toolchain/$llvm-$bundle"
+          scripts/rt/build_windows_bundle.sh windows-x86_64 "$VERSION" rt-out
+          echo "RT_ARCHIVE=rt-out/iron-rt-${VERSION}-windows-x86_64.tar.gz" >> $GITHUB_ENV
+          echo "RT_DIR=rt-out/iron-rt-${VERSION}-windows-x86_64" >> $GITHUB_ENV
+
       - name: Package
         shell: pwsh
         run: |
@@ -278,6 +300,8 @@ jobs:
           # and as %USERPROFILE%\.iron: bin\ and lib\ at the root.
           cmake --install build --prefix staging --component iron
           Copy-Item LICENSE staging\
+          New-Item -ItemType Directory -Force -Path staging\lib\iron\rt | Out-Null
+          Copy-Item -Recurse $env:RT_DIR staging\lib\iron\rt\windows-x86_64
           # ironls ships in its own archive, as on the other platforms.
           Remove-Item staging\bin\ironls.exe -ErrorAction SilentlyContinue
           Compress-Archive -Path staging\* -DestinationPath $archive
@@ -300,6 +324,9 @@ jobs:
           Set-Content -Path "$smoke\hello.iron" -Value "func main() {`n    println(`"release archive ok`")`n}"
           $out = & "$smoke\bin\ironc.exe" run "$smoke\hello.iron"
           if ($out -notcontains "release archive ok") { Write-Error "FAIL: packaged ironc cannot compile hello.iron: $out" }
+          # It must have linked against the bundled runtime, not the Build Tools.
+          $log = & "$smoke\bin\ironc.exe" build --verbose -o "$smoke\hello.exe" "$smoke\hello.iron" 2>&1 | Out-String
+          if ($log -notmatch "precompiled runtime for windows-x86_64") { Write-Error "FAIL: the packaged ironc did not use its runtime bundle:`n$log" }
           Get-Item $archive | Format-List Name, Length
 
       - name: Upload release asset (Windows)
@@ -312,6 +339,93 @@ jobs:
             ${{ env.ARCHIVE_SHA256 }}
             ${{ env.IRONLS_ARCHIVE }}
             ${{ env.IRONLS_SHA256 }}
+            ${{ env.RT_ARCHIVE }}
+            ${{ env.RT_ARCHIVE }}.sha256
+
+  # Runtime bundles for `ironc build --target=<target>` (issue 237). Each
+  # bundle holds the Iron runtime and the compiler builtins compiled for its
+  # target by the pinned toolchain, with a static musl on Linux and a
+  # libSystem.tbd stub on macOS (the Windows bundle is built in
+  # build-windows, which has the SDK); ironc downloads
+  # iron-rt-<version>-<target>.tar.gz from the release of the same version
+  # (src/cli/rtbundle.c). The job runs on the target's own architecture so
+  # the cross-built smoke program is executed, not just linked. On pull
+  # requests it builds and smoke-tests without uploading.
+  runtime-bundles:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-x86_64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: macos-26
+            target: macos-arm64
+          - os: macos-26-intel
+            target: macos-x86_64
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/toolchain
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
+      - name: Build ironc
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -G Ninja
+          cmake --build build --target ironc
+
+      - name: Build the runtime bundle
+        run: |
+          set -euo pipefail
+          # The bundle is named after the compiler's own version, which is
+          # what ironc asks the release for; a release tag that disagrees
+          # with the stamped version would publish a bundle nobody downloads.
+          VERSION=$(./build/ironc --version | sed -n '1s/^ironc \([^ ]*\).*/\1/p')
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ "v${VERSION}" != "${RELEASE_TAG}" ]; then
+            echo "release tag ${RELEASE_TAG} does not match the compiler version ${VERSION}" >&2
+            exit 1
+          fi
+          llvm=$(sed -n 's/^#define IRON_TOOLCHAIN_LLVM *"\(.*\)".*/\1/p' src/cli/toolchain_pins.h)
+          bundle=$(sed -n 's/^#define IRON_TOOLCHAIN_BUNDLE *"\(.*\)".*/\1/p' src/cli/toolchain_pins.h)
+          export IRON_TOOLCHAIN="$HOME/.iron/toolchain/$llvm-$bundle"
+          case "${{ matrix.target }}" in
+            linux-*) scripts/rt/build_linux_bundle.sh "${{ matrix.target }}" "$VERSION" rt-out;;
+            macos-*) scripts/rt/build_macos_bundle.sh "${{ matrix.target }}" "$VERSION" rt-out;;
+          esac
+          echo "RT_ARCHIVE=rt-out/iron-rt-${VERSION}-${{ matrix.target }}.tar.gz" >> $GITHUB_ENV
+          echo "RT_VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Smoke-test a cross-built program against the bundle
+        run: |
+          set -euo pipefail
+          # Unpack the archive exactly as ironc would and point it there.
+          mkdir -p rtdir/${{ matrix.target }}
+          tar -xzf "${RT_ARCHIVE}" -C rtdir/${{ matrix.target }} --strip-components=1
+          printf 'func main() {\n    val xs = [1, 2, 3]\n    println("runtime bundle ok: " + xs.len().to_string())\n}\n' > hello.iron
+          IRON_RT_DIR="$PWD/rtdir" ./build/ironc build --target=${{ matrix.target }} hello.iron -o hello
+          file hello
+          ./hello | grep -q "runtime bundle ok: 3" || { echo "FAIL: the cross-built program did not run"; exit 1; }
+
+      - name: Upload release asset (runtime bundle)
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            ${{ env.RT_ARCHIVE }}
+            ${{ env.RT_ARCHIVE }}.sha256
 
   # Phase 7 Plan 07-06 (HARD-21, CONTEXT D-09): Developer-ID sign +
   # notarize + staple every macOS ironls binary before it reaches a

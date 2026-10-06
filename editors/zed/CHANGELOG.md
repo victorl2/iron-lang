@@ -3,6 +3,12 @@
 All notable changes to the `iron-lsp` Zed extension are documented in
 this file.
 
+## Unreleased
+
+- Windows (x86_64) is supported: the extension downloads
+  `ironls-<version>-windows-x86_64.zip`, verifies its SHA-256 sidecar and
+  runs `ironls.exe` from it.
+
 ## v4.0.0-alpha
 
 - Bumped `compatible_ironls` and `[version_constraints].ironls`

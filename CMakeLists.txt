@@ -360,6 +360,9 @@ find_package(OpenSSL QUIET)
 if(OpenSSL_FOUND)
   target_compile_definitions(iron_stdlib PRIVATE IRON_HAVE_OPENSSL=1)
   target_link_libraries(iron_stdlib OpenSSL::SSL OpenSSL::Crypto)
+  if(WIN32)
+    target_link_libraries(iron_stdlib crypt32)  # trusted roots from the system store
+  endif()
   message(STATUS "Iron: HTTPS/TLS enabled with OpenSSL ${OPENSSL_VERSION}")
 else()
   message(WARNING "Iron: OpenSSL development files not found; HTTPS returns TLS_UNAVAILABLE")
@@ -507,6 +510,8 @@ add_executable(ironc
     src/cli/help_registry.c
     src/cli/toolchain.c
     src/cli/prereqs.c
+    src/cli/target.c
+    src/cli/rtbundle.c
     src/lsp/store/sha256.c
 )
 target_include_directories(ironc PRIVATE src)
@@ -951,6 +956,8 @@ add_executable(iron
     src/cli/help_registry.c
     src/cli/toolchain.c
     src/cli/prereqs.c
+    src/cli/target.c
+    src/cli/rtbundle.c
     src/lsp/store/sha256.c
 )
 target_include_directories(iron PRIVATE src)
@@ -998,7 +1005,7 @@ set_tests_properties(test_ironc_usage_lists_release PROPERTIES
 if(NOT WIN32)
     add_test(
         NAME test_ironc_target_unknown
-        COMMAND /bin/sh -c "echo 'func main() {}' > /tmp/iron_test_target_unk.iron && OUT=$($<TARGET_FILE:ironc> build --target=bogus /tmp/iron_test_target_unk.iron 2>&1); RC=$?; if [ $RC -eq 0 ]; then echo 'FAIL: ironc should have exited non-zero'; exit 1; fi; echo \"$OUT\" | grep -q 'valid targets: web, native' || { echo 'FAIL: error message missing expected substring:'; echo \"$OUT\"; exit 1; }; echo OK; exit 0"
+        COMMAND /bin/sh -c "echo 'func main() {}' > /tmp/iron_test_target_unk.iron && OUT=$($<TARGET_FILE:ironc> build --target=bogus /tmp/iron_test_target_unk.iron 2>&1); RC=$?; if [ $RC -eq 0 ]; then echo 'FAIL: ironc should have exited non-zero'; exit 1; fi; echo \"$OUT\" | grep -q 'valid targets: native, web' || { echo 'FAIL: error message missing expected substring:'; echo \"$OUT\"; exit 1; }; echo OK; exit 0"
     )
 
     add_test(
