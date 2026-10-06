@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "support/posix_test.h"
 
 extern IronLsp_DynRegister *ilsp_dyn_register_create(void);
 extern void                 ilsp_dyn_register_destroy(IronLsp_DynRegister *r);

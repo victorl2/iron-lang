@@ -1,5 +1,7 @@
 #include "cli/build.h"
 #include "cli/toolchain.h"
+#include "cli/target.h"
+#include "cli/rtbundle.h"
 #include "cli/prereqs.h"
 #include "cli/toml.h"
 #include "hir/stdlib_origin.h"
@@ -667,6 +669,7 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         argv_buf[ai++] = "libssl.lib";
         argv_buf[ai++] = "libcrypto.lib";
 #endif
+        argv_buf[ai++] = "crypt32.lib";   /* trusted roots from the system store */
     }
     /* Output flag for clang-cl */
     {
@@ -784,6 +787,30 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         argv_buf[ai++] = "IOKit";
         argv_buf[ai++] = "-framework";
         argv_buf[ai++] = "CoreVideo";
+#elif defined(_WIN32)
+        /* clang-cl compiles every .c on its command line as its own
+         * translation unit, which is all the POSIX pre-compile loop below
+         * is for (rlgl.h and glad.h have no guards around their
+         * implementation sections), so raylib's sources go straight in.
+         * GLFW picks its Win32 backend on its own. */
+        {
+            static const char *const rl_files[] = {
+                "vendor/raylib/rcore.c", "vendor/raylib/rshapes.c",
+                "vendor/raylib/rtextures.c", "vendor/raylib/rtext.c",
+                "vendor/raylib/rmodels.c", "vendor/raylib/raudio.c",
+                "vendor/raylib/rglfw.c",
+            };
+            static char *rl_paths[sizeof(rl_files) / sizeof(rl_files[0])];
+            for (size_t i = 0; i < sizeof(rl_files) / sizeof(rl_files[0]); i++) {
+                if (!rl_paths[i]) rl_paths[i] = make_path(base_dir, rl_files[i]);
+                if (rl_paths[i]) argv_buf[ai++] = rl_paths[i];
+            }
+        }
+        argv_buf[ai++] = "opengl32.lib";
+        argv_buf[ai++] = "gdi32.lib";
+        argv_buf[ai++] = "winmm.lib";
+        argv_buf[ai++] = "user32.lib";
+        argv_buf[ai++] = "shell32.lib";
 #elif defined(__linux__)
         /* Pick X11 as raylib's GLFW backend on Linux. rglfw.c hard-errors
          * if neither _GLFW_X11 nor _GLFW_WAYLAND is defined (see
@@ -950,6 +977,300 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
     return 0;
 }
 #endif
+
+/* Whether the bundle carries raylib (Windows and macOS bundles do). */
+static bool bundle_has_raylib(const IronRtBundle *rt) {
+    char path[4200];
+    snprintf(path, sizeof(path), "%s/%s", rt->lib,
+             rt->target->os == IRON_OS_WINDOWS ? "raylib.lib" : "libraylib.a");
+    return access(path, F_OK) == 0;
+}
+
+/* The bundle's TLS module for the link: built against the bundle's static
+ * OpenSSL (plus libssl and libcrypto) for a program that imports http or
+ * websocket, the stub that reports TLS as unavailable otherwise. Appends to
+ * ld and returns the new count; paths are kept in `bufs`. */
+static int bundle_tls_inputs(const IronRtBundle *rt, bool wants_tls, char **ld, int li,
+                             char bufs[3][4200]) {
+    bool windows = rt->target->os == IRON_OS_WINDOWS;
+    if (wants_tls) {
+        snprintf(bufs[0], sizeof(bufs[0]), "%s/%s", rt->lib, windows ? "iron_tls.lib" : "libiron_tls.a");
+        snprintf(bufs[1], sizeof(bufs[1]), "%s/%s", rt->lib, windows ? "libssl.lib" : "libssl.a");
+        snprintf(bufs[2], sizeof(bufs[2]), "%s/%s", rt->lib, windows ? "libcrypto.lib" : "libcrypto.a");
+        for (int i = 0; i < 3; i++) ld[li++] = bufs[i];
+    } else {
+        snprintf(bufs[0], sizeof(bufs[0]), "%s/%s", rt->lib, windows ? "iron_tls_none.lib" : "libiron_tls_none.a");
+        ld[li++] = bufs[0];
+    }
+    return li;
+}
+
+/* Link a Windows program with lld-link against the runtime bundle only:
+ * the bundle's entry object (src/runtime/iron_win_crt0.c), the runtime,
+ * import libraries for the system DLLs it calls and the compiler builtins.
+ * -nodefaultlib drops the MSVC libraries clang names in every object, so
+ * neither the Build Tools nor the Visual C++ redistributable is needed. */
+static int link_windows(const IronToolchain *tc, const IronRtBundle *rt, const char *obj,
+                        const char *output, IronBuildOpts opts) {
+    static const char *const dlls[] = { "ucrtbase", "kernel32", "ws2_32", "bcrypt",
+                                        "crypt32", "advapi32", "user32",
+                                        "opengl32", "gdi32", "winmm", "shell32" };
+    char raylib[4200];
+    snprintf(raylib, sizeof(raylib), "%s/raylib.lib", rt->lib);
+    char out_flag[4200], crt0[4200], librt[4200], builtins[4200];
+    char implibs[sizeof(dlls) / sizeof(dlls[0])][4200];
+    size_t olen = strlen(output);
+    bool has_exe = olen >= 4 && (strcmp(output + olen - 4, ".exe") == 0 || strcmp(output + olen - 4, ".EXE") == 0);
+    snprintf(out_flag, sizeof(out_flag), "-out:%s%s", output, has_exe ? "" : ".exe");
+    snprintf(crt0, sizeof(crt0), "%s/iron_crt0.obj", rt->lib);
+    snprintf(librt, sizeof(librt), "%s/iron_rt.lib", rt->lib);
+    snprintf(builtins, sizeof(builtins), "%s/clang_rt.builtins.lib", rt->lib);
+
+    char *ld[64];
+    int li = 0;
+    ld[li++] = (char *)iron_toolchain_tool(tc, "lld-link");
+    ld[li++] = "-nologo";
+    ld[li++] = "-nodefaultlib";
+    ld[li++] = "-subsystem:console";
+    ld[li++] = "-entry:mainCRTStartup";
+    if (opts.debug_build) ld[li++] = "-debug";
+    ld[li++] = out_flag;
+    ld[li++] = crt0;
+    ld[li++] = (char *)obj;
+    for (int i = 0; opts.extra_link_flags && i < opts.extra_link_flag_count && li < 48; i++)
+        ld[li++] = (char *)opts.extra_link_flags[i];
+    if (opts.use_raylib) ld[li++] = raylib;
+    ld[li++] = librt;
+    char tls[3][4200];
+    li = bundle_tls_inputs(rt, opts.wants_tls, ld, li, tls);
+    for (size_t i = 0; i < sizeof(dlls) / sizeof(dlls[0]); i++) {
+        snprintf(implibs[i], sizeof(implibs[i]), "%s/%s.lib", rt->lib, dlls[i]);
+        if (access(implibs[i], F_OK) == 0) ld[li++] = implibs[i];
+    }
+    ld[li++] = builtins;
+    ld[li] = NULL;
+    if (opts.verbose) {
+        fprintf(stderr, "link (%s):", rt->target->name);
+        for (int i = 0; ld[i]; i++) fprintf(stderr, " %s", ld[i]);
+        fprintf(stderr, "\n");
+    }
+    int rc = iron_toolchain_run(ld);
+    if (rc != 0) {
+        fprintf(stderr, "error: %s\n", rc < 0 ? "failed to start lld-link" : "lld-link failed to link the program");
+        return 1;
+    }
+    return 0;
+}
+
+/* Link a macOS program with ld64.lld against the runtime bundle: the
+ * runtime archive, a libSystem.tbd text stub naming the symbols it uses
+ * and the compiler builtins. No SDK is read; dyld binds the symbols to the
+ * real libSystem at run time, and arm64 output is ad-hoc signed by the
+ * linker. The minimum OS version matches the target triple. */
+static int link_macos(const IronToolchain *tc, const IronRtBundle *rt, const char *obj,
+                      const char *output, IronBuildOpts opts) {
+    char librt[4200], libsystem[4200], builtins[4200];
+    snprintf(librt, sizeof(librt), "%s/libiron_rt.a", rt->lib);
+    snprintf(libsystem, sizeof(libsystem), "%s/libSystem.tbd", rt->lib);
+    snprintf(builtins, sizeof(builtins), "%s/libclang_rt.builtins.a", rt->lib);
+    const char *arch = strcmp(rt->target->arch, "aarch64") == 0 ? "arm64" : rt->target->arch;
+
+    char *ld[64];
+    int li = 0;
+    ld[li++] = (char *)iron_toolchain_tool(tc, "ld64.lld");
+    ld[li++] = "-arch";
+    ld[li++] = (char *)arch;
+    ld[li++] = "-platform_version";
+    ld[li++] = "macos";
+    ld[li++] = "11.0";
+    ld[li++] = "11.0";
+    ld[li++] = "-dead_strip";
+    ld[li++] = "-o";
+    ld[li++] = (char *)output;
+    ld[li++] = (char *)obj;
+    for (int i = 0; opts.extra_link_flags && i < opts.extra_link_flag_count && li < 56; i++)
+        ld[li++] = (char *)opts.extra_link_flags[i];
+    /* raylib: the archive plus a .tbd stub for each framework and library
+     * it uses (AppKit, OpenGL, IOKit, CoreVideo, libobjc, ...), made by the
+     * bundle script from the SDK; frameworks.txt lists them. */
+    char raylib[4200], stubs[16][4200];
+    if (opts.use_raylib) {
+        snprintf(raylib, sizeof(raylib), "%s/libraylib.a", rt->lib);
+        ld[li++] = raylib;
+        char list[4200];
+        snprintf(list, sizeof(list), "%s/frameworks.txt", rt->lib);
+        FILE *f = fopen(list, "r");
+        char name[256];
+        for (int n = 0; f && n < 16 && fscanf(f, "%255s", name) == 1; n++) {
+            snprintf(stubs[n], sizeof(stubs[n]), "%s/%s", rt->lib, name);
+            ld[li++] = stubs[n];
+        }
+        if (f) fclose(f);
+    }
+    ld[li++] = librt;
+    char tls[3][4200];
+    li = bundle_tls_inputs(rt, opts.wants_tls, ld, li, tls);
+    ld[li++] = libsystem;
+    ld[li++] = builtins;
+    ld[li] = NULL;
+    if (opts.verbose) {
+        fprintf(stderr, "link (%s):", rt->target->name);
+        for (int i = 0; ld[i]; i++) fprintf(stderr, " %s", ld[i]);
+        fprintf(stderr, "\n");
+    }
+    int rc = iron_toolchain_run(ld);
+    if (rc != 0) {
+        fprintf(stderr, "error: %s\n", rc < 0 ? "failed to start ld64.lld" : "ld64.lld failed to link the program");
+        return 1;
+    }
+    return 0;
+}
+
+/* On Windows and macOS a native build links against the precompiled
+ * runtime when a bundle for the host is installed (IRON_RT_DIR, next to
+ * ironc or under ~/.iron/rt), so programs build without the Visual Studio
+ * Build Tools or the Xcode command line tools; the result is the same
+ * program, linked against the same system libraries. Without a bundle (or
+ * for a raylib program and a bundle without raylib), the runtime is
+ * compiled from source against the platform SDK as before. Linux keeps
+ * its glibc build: its bundle is a static musl, a different program.
+ * Sets opts->cross_target when the bundle is used. */
+static bool bundle_native(IronBuildOpts *opts) {
+#if defined(_WIN32) || defined(__APPLE__)
+    const IronCrossTarget *t = iron_target_lookup(iron_toolchain_host());
+    if (!t) return false;
+    const IronRtBundle *rt = iron_rt_bundle_find(t);
+    if (!rt || (opts->use_raylib && !bundle_has_raylib(rt))) return false;
+    opts->cross_target = t;
+    if (opts->verbose) fprintf(stderr, "note: linking against the precompiled runtime for %s\n", t->name);
+    return true;
+#else
+    (void)opts;
+    return false;
+#endif
+}
+
+/* Build for a cross target (target.h): the generated C is freestanding, so
+ * it is compiled with the pinned clang for the target's triple against the
+ * compiler's own headers only, then linked with lld against the target's
+ * runtime bundle (rtbundle.h): the runtime precompiled for the target, its
+ * static libc and the compiler builtins. No SDK, no system compiler. */
+static int invoke_cross(const char *c_file, const char *output, IronBuildOpts opts) {
+    const IronCrossTarget *t = opts.cross_target;
+    if (!t) return 1;
+    const IronToolchain *tc = iron_toolchain_get(true);
+    if (!tc) return 1;
+    const IronRtBundle *rt = iron_rt_bundle_get(t, true);
+    if (!rt) return 1;
+    if (opts.use_raylib && !bundle_has_raylib(rt)) {
+        if (t->os == IRON_OS_LINUX)
+            fprintf(stderr, "error: raylib is not available when building for %s: a static "
+                            "executable cannot load the system's OpenGL; build on the target "
+                            "instead\n", t->name);
+        else
+            fprintf(stderr, "error: the runtime bundle for %s has no raylib\n", t->name);
+        return 1;
+    }
+    if (opts.debug_build && !opts.release && opts.verbose)
+        fprintf(stderr, "note: the debug allocator is not available when building for %s; the runtime bundle is a release build\n", t->name);
+
+    char *base_dir = get_iron_lib_dir();
+    char src_i[4200], stdlib_i[4200], resource_inc[4200], obj[4200];
+    snprintf(src_i, sizeof(src_i), "-I%s", base_dir);
+    snprintf(stdlib_i, sizeof(stdlib_i), "-I%s/stdlib", base_dir);
+    /* clang's own headers (stdint.h, stddef.h, ...) are the only ones the
+     * generated C includes (#235); they live beside the bundle's compiler-rt. */
+    {
+        int major = atoi(tc->llvm);
+        snprintf(resource_inc, sizeof(resource_inc), "%s/lib/clang/%d/include", tc->root, major);
+    }
+    snprintf(obj, sizeof(obj), "%s.%s.o", c_file, t->arch);
+    char target_flag[128];
+    snprintf(target_flag, sizeof(target_flag), "--target=%s", t->triple);
+
+    const char *clang_path = iron_toolchain_tool(tc, "clang");
+    char *cc[32];
+    int ci = 0;
+    cc[ci++] = (char *)clang_path;
+    cc[ci++] = target_flag;
+    cc[ci++] = "-std=gnu17";
+    cc[ci++] = "-fwrapv";
+    cc[ci++] = "-fno-strict-aliasing";
+    cc[ci++] = opts.release ? "-O2" : "-O3";
+    cc[ci++] = "-nostdinc";
+    cc[ci++] = "-isystem";
+    cc[ci++] = resource_inc;
+    cc[ci++] = src_i;
+    cc[ci++] = stdlib_i;
+    if (t->os == IRON_OS_WINDOWS && opts.debug_build) cc[ci++] = "-gcodeview";
+    cc[ci++] = "-c";
+    cc[ci++] = (char *)c_file;
+    cc[ci++] = "-o";
+    cc[ci++] = obj;
+    cc[ci] = NULL;
+    if (opts.verbose) {
+        fprintf(stderr, "cross compile (%s):", t->name);
+        for (int i = 0; cc[i]; i++) fprintf(stderr, " %s", cc[i]);
+        fprintf(stderr, "\n");
+    }
+    int rc = iron_toolchain_run(cc);
+    if (rc != 0) {
+        fprintf(stderr, "error: %s\n", rc < 0 ? "failed to start clang" : "clang failed to compile the generated C");
+        free(base_dir);
+        return 1;
+    }
+
+    if (t->os == IRON_OS_WINDOWS || t->os == IRON_OS_MACOS) {
+        rc = t->os == IRON_OS_WINDOWS ? link_windows(tc, rt, obj, output, opts)
+                                      : link_macos(tc, rt, obj, output, opts);
+        if (!opts.debug_build) unlink(obj);
+        free(base_dir);
+        return rc;
+    }
+
+    /* Link. Linux: a static musl executable (crt1.o is the non-PIE start
+     * file, so no -pie). */
+    char crt1[4200], crti[4200], crtn[4200], librt[4200], libc[4200], builtins[4200];
+    snprintf(crt1, sizeof(crt1), "%s/crt1.o", rt->lib);
+    snprintf(crti, sizeof(crti), "%s/crti.o", rt->lib);
+    snprintf(crtn, sizeof(crtn), "%s/crtn.o", rt->lib);
+    snprintf(librt, sizeof(librt), "%s/libiron_rt.a", rt->lib);
+    snprintf(libc, sizeof(libc), "%s/libc.a", rt->lib);
+    snprintf(builtins, sizeof(builtins), "%s/libclang_rt.builtins.a", rt->lib);
+    const char *lld_path = iron_toolchain_tool(tc, "ld.lld");
+    char *ld[64];
+    int li = 0;
+    ld[li++] = (char *)lld_path;
+    ld[li++] = "-static";
+    ld[li++] = "--gc-sections";
+    ld[li++] = "-o";
+    ld[li++] = (char *)output;
+    ld[li++] = crt1;
+    ld[li++] = crti;
+    ld[li++] = obj;
+    for (int i = 0; opts.extra_link_flags && i < opts.extra_link_flag_count && li < 56; i++)
+        ld[li++] = (char *)opts.extra_link_flags[i];
+    ld[li++] = librt;
+    char tls[3][4200];
+    li = bundle_tls_inputs(rt, opts.wants_tls, ld, li, tls);
+    ld[li++] = libc;
+    ld[li++] = builtins;
+    ld[li++] = crtn;
+    ld[li] = NULL;
+    if (opts.verbose) {
+        fprintf(stderr, "cross link (%s):", t->name);
+        for (int i = 0; ld[i]; i++) fprintf(stderr, " %s", ld[i]);
+        fprintf(stderr, "\n");
+    }
+    rc = iron_toolchain_run(ld);
+    if (!opts.debug_build) unlink(obj);
+    free(base_dir);
+    if (rc != 0) {
+        fprintf(stderr, "error: %s\n", rc < 0 ? "failed to start ld.lld" : "ld.lld failed to link the program");
+        return 1;
+    }
+    return 0;
+}
 
 static int invoke_clang(const char *c_file, const char *output,
                          const char *src_dir, IronBuildOpts opts) {
@@ -1337,6 +1658,7 @@ int iron_build(const char *source_path, const char *output_path,
     bool imports_websocket = iron_detect_import(
         source, source_path, "websocket", &detect_arena);
     if (imports_http || imports_websocket) {
+        opts.wants_tls = true;
 #ifdef IRON_CLI_HAVE_OPENSSL
         opts.use_tls = true;
 #else
@@ -1943,6 +2265,10 @@ int iron_build(const char *source_path, const char *output_path,
         ret = iron_build_web_link(c_file_path, opts, web_cfg, web_toml_dir, web_lib_dir);
         free(web_lib_dir);
         if (web_proj) iron_toml_free(web_proj);
+    } else if (opts.target == IRON_TARGET_CROSS) {
+        ret = invoke_cross(c_file_path, binary_name, opts);
+    } else if (bundle_native(&opts)) {
+        ret = invoke_cross(c_file_path, binary_name, opts);
     } else {
         ret = invoke_clang(c_file_path, binary_name, "src", opts);
     }

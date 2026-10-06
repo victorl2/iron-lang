@@ -25,7 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
+#include "support/posix_test.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -117,7 +117,7 @@ static void test_path_from_uri(void) {
 /* ── Test 3: find_root walks up ────────────────────────────────────── */
 static void test_find_root(void) {
     /* Create a scratch directory tree with iron.toml at the top. */
-    char tmpl[] = "/tmp/ironls_wsXXXXXX";
+    char tmpl[] = IRON_TEST_TMP "/ironls_wsXXXXXX";
     char *root  = mkdtemp(tmpl);
     TEST_ASSERT_NOT_NULL(root);
 
@@ -132,9 +132,10 @@ static void test_find_root(void) {
     /* Nested directory. */
     char nested[1024];
     snprintf(nested, sizeof(nested), "%s/src/deep", root);
-    char mk[1280];
-    snprintf(mk, sizeof(mk), "mkdir -p %s", nested);
-    TEST_ASSERT_EQUAL_INT(0, system(mk));
+    char src_dir[1024];
+    snprintf(src_dir, sizeof(src_dir), "%s/src", root);
+    TEST_ASSERT_EQUAL_INT(0, mkdir(src_dir, 0755));
+    TEST_ASSERT_EQUAL_INT(0, mkdir(nested, 0755));
 
     /* Find root from the deep directory. */
     char *found = ilsp_workspace_find_root(nested);
@@ -153,9 +154,11 @@ static void test_find_root(void) {
     free(found2);
 
     /* Cleanup. */
-    char rm[1280];
-    snprintf(rm, sizeof(rm), "rm -rf %s", root);
-    int rm_rc = system(rm); (void)rm_rc;
+    remove(deepfile);
+    rmdir(nested);
+    rmdir(src_dir);
+    remove(toml);
+    rmdir(root);
 }
 
 /* ── Test 4: didChangeWatchedFiles routes through dispatcher ───────── */

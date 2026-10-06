@@ -248,15 +248,21 @@ set_tests_properties(test_runtime_collections PROPERTIES LABELS "unit")
 # Exercise the iron_oom_abort capacity-overflow paths in IRON_LIST_IMPL _push
 # and IRON_MAP_IMPL _put. Fork-based so the child's abort() does not kill the
 # test binary; parent verifies SIGABRT + stderr diagnostic message.
-add_executable(test_alloc_list_push_oom test_alloc_list_push_oom.c)
-target_link_libraries(test_alloc_list_push_oom iron_runtime unity)
-add_test(NAME test_alloc_list_push_oom COMMAND test_alloc_list_push_oom)
-set_tests_properties(test_alloc_list_push_oom PROPERTIES LABELS "unit")
+# fork() and waitpid() have no Windows equivalent; POSIX hosts only.
+if(NOT WIN32)
+    add_executable(test_alloc_list_push_oom test_alloc_list_push_oom.c)
+    target_link_libraries(test_alloc_list_push_oom iron_runtime unity)
+    add_test(NAME test_alloc_list_push_oom COMMAND test_alloc_list_push_oom)
+    set_tests_properties(test_alloc_list_push_oom PROPERTIES LABELS "unit")
+endif()
 
-add_executable(test_runtime_hash test_runtime_hash.c)
-target_link_libraries(test_runtime_hash iron_runtime unity)
-add_test(NAME test_runtime_hash COMMAND test_runtime_hash)
-set_tests_properties(test_runtime_hash PROPERTIES LABELS "unit")
+# fork() and waitpid() have no Windows equivalent; POSIX hosts only.
+if(NOT WIN32)
+    add_executable(test_runtime_hash test_runtime_hash.c)
+    target_link_libraries(test_runtime_hash iron_runtime unity)
+    add_test(NAME test_runtime_hash COMMAND test_runtime_hash)
+    set_tests_properties(test_runtime_hash PROPERTIES LABELS "unit")
+endif()
 
 # ── Stdlib unit test ─────────────────────────────────────────────────────────
 add_executable(test_stdlib test_stdlib.c)
@@ -515,10 +521,13 @@ set_tests_properties(test_asset_path PROPERTIES LABELS "unit;phase13")
 # the number of test binaries small.
 #
 # Runtime: src/runtime/iron_oom.c (0%) + src/runtime/iron_string.c (36%)
-add_executable(test_cov_runtime_string_oom test_cov_runtime_string_oom.c)
-target_link_libraries(test_cov_runtime_string_oom iron_runtime unity)
-add_test(NAME test_cov_runtime_string_oom COMMAND test_cov_runtime_string_oom)
-set_tests_properties(test_cov_runtime_string_oom PROPERTIES LABELS "unit;cov")
+# fork() and waitpid() have no Windows equivalent; POSIX hosts only.
+if(NOT WIN32)
+    add_executable(test_cov_runtime_string_oom test_cov_runtime_string_oom.c)
+    target_link_libraries(test_cov_runtime_string_oom iron_runtime unity)
+    add_test(NAME test_cov_runtime_string_oom COMMAND test_cov_runtime_string_oom)
+    set_tests_properties(test_cov_runtime_string_oom PROPERTIES LABELS "unit;cov")
+endif()
 
 # Stdlib: src/stdlib/iron_io.h (0%) + src/stdlib/iron_io.c (22%)
 add_executable(test_cov_stdlib_io test_cov_stdlib_io.c)
@@ -1041,22 +1050,25 @@ endif()
 # ── Phase 7 Plan 07-01 Task 01 (HARD-14, D-02): crash-dump pipeline
 #    Unity test. Labelled phase-m6-invariant. ─────────────────────────
 if(IRON_BUILD_LSP)
-    add_executable(test_crash_ring_buffer
-        lsp/obs/test_crash_ring_buffer.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/obs/crash_dump.c)
-    target_include_directories(test_crash_ring_buffer PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor
-        ${CMAKE_BINARY_DIR}/generated)
-    target_compile_definitions(test_crash_ring_buffer PRIVATE
-        _GNU_SOURCE
-        IRON_VERSION_STRING="${IRON_VERSION_FULL}")
-    target_link_libraries(test_crash_ring_buffer
-        iron_compiler iron_runtime unity pthread m)
-    add_test(NAME test_crash_ring_buffer COMMAND test_crash_ring_buffer)
-    set_tests_properties(test_crash_ring_buffer PROPERTIES
-        LABELS "unit;phase-m6-invariant"
-        TIMEOUT 60)
+    # fork() and waitpid() have no Windows equivalent; POSIX hosts only.
+    if(NOT WIN32)
+        add_executable(test_crash_ring_buffer
+            lsp/obs/test_crash_ring_buffer.c
+            ${CMAKE_SOURCE_DIR}/src/lsp/obs/crash_dump.c)
+        target_include_directories(test_crash_ring_buffer PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/src/vendor
+            ${CMAKE_BINARY_DIR}/generated)
+        target_compile_definitions(test_crash_ring_buffer PRIVATE
+            _GNU_SOURCE
+            IRON_VERSION_STRING="${IRON_VERSION_FULL}")
+        target_link_libraries(test_crash_ring_buffer
+            iron_compiler iron_runtime unity pthread m)
+        add_test(NAME test_crash_ring_buffer COMMAND test_crash_ring_buffer)
+        set_tests_properties(test_crash_ring_buffer PROPERTIES
+            LABELS "unit;phase-m6-invariant"
+            TIMEOUT 60)
+    endif()
 endif()
 
 # ── Phase 7 Plan 07-01 Task 02 (HARD-13, HARD-20, D-01, D-08): supervisor
@@ -1103,22 +1115,25 @@ if(IRON_BUILD_LSP)
         TIMEOUT 30)
 
     # Test 4: supervisor proxy (byte-forwarder + synthetic showMessage).
-    add_executable(test_supervisor_proxy
-        lsp/supervisor/test_supervisor_proxy.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/supervisor/supervisor.c)
-    target_include_directories(test_supervisor_proxy PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor
-        ${CMAKE_BINARY_DIR}/generated)
-    target_compile_definitions(test_supervisor_proxy PRIVATE
-        _GNU_SOURCE
-        ILSP_SUPERVISOR_TESTING=1)
-    target_link_libraries(test_supervisor_proxy
-        iron_compiler iron_runtime unity pthread m)
-    add_test(NAME test_supervisor_proxy COMMAND test_supervisor_proxy)
-    set_tests_properties(test_supervisor_proxy PROPERTIES
-        LABELS "unit;phase-m6-invariant"
-        TIMEOUT 30)
+    # POSIX pipes and fork; the Windows supervisor forwards over HANDLEs and has its own stdio smoke test.
+    if(NOT WIN32)
+        add_executable(test_supervisor_proxy
+            lsp/supervisor/test_supervisor_proxy.c
+            ${CMAKE_SOURCE_DIR}/src/lsp/supervisor/supervisor.c)
+        target_include_directories(test_supervisor_proxy PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/src/vendor
+            ${CMAKE_BINARY_DIR}/generated)
+        target_compile_definitions(test_supervisor_proxy PRIVATE
+            _GNU_SOURCE
+            ILSP_SUPERVISOR_TESTING=1)
+        target_link_libraries(test_supervisor_proxy
+            iron_compiler iron_runtime unity pthread m)
+        add_test(NAME test_supervisor_proxy COMMAND test_supervisor_proxy)
+        set_tests_properties(test_supervisor_proxy PROPERTIES
+            LABELS "unit;phase-m6-invariant"
+            TIMEOUT 30)
+    endif()
 endif()
 
 # ── Phase 7 Plan 07-02 Task 01 (HARD-15, D-03): RSS measurement + cap
@@ -1126,20 +1141,23 @@ endif()
 #    hooks exposed from rss.h; exercises cap-trip branch by injecting
 #    a synthetic RSS reading. Labelled phase-m6-invariant. ────────────
 if(IRON_BUILD_LSP)
-    add_executable(test_rss_current_bytes
-        lsp/obs/test_rss_current_bytes.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/obs/rss.c)
-    target_include_directories(test_rss_current_bytes PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor
-        ${CMAKE_BINARY_DIR}/generated)
-    target_compile_definitions(test_rss_current_bytes PRIVATE _GNU_SOURCE)
-    target_link_libraries(test_rss_current_bytes
-        iron_compiler iron_runtime unity pthread m)
-    add_test(NAME test_rss_current_bytes COMMAND test_rss_current_bytes)
-    set_tests_properties(test_rss_current_bytes PROPERTIES
-        LABELS "unit;phase-m6-invariant"
-        TIMEOUT 30)
+    # Mocks /proc/self/status and task_info and _exits a child; POSIX hosts only.
+    if(NOT WIN32)
+        add_executable(test_rss_current_bytes
+            lsp/obs/test_rss_current_bytes.c
+            ${CMAKE_SOURCE_DIR}/src/lsp/obs/rss.c)
+        target_include_directories(test_rss_current_bytes PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/src/vendor
+            ${CMAKE_BINARY_DIR}/generated)
+        target_compile_definitions(test_rss_current_bytes PRIVATE _GNU_SOURCE)
+        target_link_libraries(test_rss_current_bytes
+            iron_compiler iron_runtime unity pthread m)
+        add_test(NAME test_rss_current_bytes COMMAND test_rss_current_bytes)
+        set_tests_properties(test_rss_current_bytes PROPERTIES
+            LABELS "unit;phase-m6-invariant"
+            TIMEOUT 30)
+    endif()
 endif()
 
 # ── Phase 19 plan-01: heap-tracker SAFE-01/02/05 ─────────────────────────────

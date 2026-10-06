@@ -7,7 +7,7 @@
 #include "runtime/iron_runtime.h"
 
 #include <stdatomic.h>
-#include <pthread.h>
+#include "support/posix_test.h"
 #include <stdlib.h>
 #include <string.h>
 

@@ -26,7 +26,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
+#include "support/posix_test.h"
 
 void setUp(void)    {}
 void tearDown(void) {}
@@ -41,7 +41,7 @@ static void write_file(const char *path, const char *content) {
 }
 
 static void make_tmp_workspace(char *out_root, size_t cap) {
-    char tmpl[] = "/tmp/iron-ws-XXXXXX";
+    char tmpl[] = IRON_TEST_TMP "/iron-ws-XXXXXX";
     char *dir = mkdtemp(tmpl);
     TEST_ASSERT_NOT_NULL(dir);
     strncpy(out_root, dir, cap - 1);

@@ -22,7 +22,7 @@
 #include "unity.h"
 #include "runtime/iron_runtime.h"
 
-#include <pthread.h>
+#include "support/posix_test.h"
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>

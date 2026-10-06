@@ -16,7 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include "support/posix_test.h"
 
 /* ── Fixture helpers ─────────────────────────────────────────────────────── */
 
@@ -24,7 +24,7 @@ static char g_tmp_path[128];
 
 /* Write `contents` to a unique temp file, return the path (static buffer). */
 static const char *write_fixture(const char *contents) {
-    snprintf(g_tmp_path, sizeof(g_tmp_path), "/tmp/iron_test_toml_web_XXXXXX");
+    snprintf(g_tmp_path, sizeof(g_tmp_path), IRON_TEST_TMP "/iron_test_toml_web_XXXXXX");
     int fd = mkstemp(g_tmp_path);
     TEST_ASSERT_NOT_EQUAL_MESSAGE(-1, fd, "mkstemp failed");
     ssize_t written = write(fd, contents, strlen(contents));
@@ -246,7 +246,7 @@ void test_toml_dir_is_populated(void) {
     TEST_ASSERT_NOT_NULL(proj->toml_dir);
 
     /* Must point into /tmp (macOS resolves /tmp -> /private/tmp; accept both). */
-    TEST_ASSERT_TRUE(strstr(proj->toml_dir, "/tmp") != NULL);
+    TEST_ASSERT_TRUE(strstr(proj->toml_dir, IRON_TEST_TMP) != NULL);
 
     /* Must NOT contain the filename — it's the directory, not the full path. */
     TEST_ASSERT_TRUE(strstr(proj->toml_dir, "iron_test_toml_web_") == NULL);
@@ -261,9 +261,9 @@ void test_toml_dir_relative_path(void) {
     /* Write a minimal iron.toml directly in /tmp under a predictable name. */
     const char *bare_name = "iron_test_toml_bare_XXXXXX";
     char tmp_path[128];
-    snprintf(tmp_path, sizeof(tmp_path), "/tmp/%s", bare_name);
+    snprintf(tmp_path, sizeof(tmp_path), IRON_TEST_TMP "/%s", bare_name);
     /* Use mkstemp to create the file first. */
-    snprintf(tmp_path, sizeof(tmp_path), "/tmp/iron_test_bare_XXXXXX");
+    snprintf(tmp_path, sizeof(tmp_path), IRON_TEST_TMP "/iron_test_bare_XXXXXX");
     int fd = mkstemp(tmp_path);
     TEST_ASSERT_NOT_EQUAL_MESSAGE(-1, fd, "mkstemp failed for bare test");
     const char *contents = "[package]\nname = \"bare\"\nversion = \"0.1.0\"\n";
@@ -279,7 +279,7 @@ void test_toml_dir_relative_path(void) {
     char saved_cwd[1024];
     char *cwd_result = getcwd(saved_cwd, sizeof(saved_cwd));
     (void)cwd_result;
-    int chdir_rc = chdir("/tmp");
+    int chdir_rc = chdir(IRON_TEST_TMP);
     (void)chdir_rc;
 
     IronProject *proj = iron_toml_parse(filename);

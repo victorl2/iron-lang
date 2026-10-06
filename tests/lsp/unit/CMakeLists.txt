@@ -515,39 +515,45 @@ if(IRON_BUILD_LSP)
     # ── Phase 2 Plan 06 (observability + EPIPE/EOF + smoke wiring) ────────
     # Task 01: XDG log resolution + JSON-line format + level filter +
     # thread-safe writes (6 RUN_TESTs).
-    add_executable(test_lsp_log_path_xdg test_lsp_log_path_xdg.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c)
-    target_include_directories(test_lsp_log_path_xdg PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor
-        ${CMAKE_BINARY_DIR}/generated)
-    target_compile_definitions(test_lsp_log_path_xdg PRIVATE _GNU_SOURCE)
-    target_link_libraries(test_lsp_log_path_xdg
-        iron_compiler iron_runtime iron_stdlib unity pthread m)
-    add_test(NAME test_lsp_log_path_xdg COMMAND test_lsp_log_path_xdg)
-    set_tests_properties(test_lsp_log_path_xdg PROPERTIES
-        LABELS "unit;lsp-unit;phase-m1-invariant"
-        TIMEOUT 30)
+    # XDG paths and dup2 over stderr; POSIX hosts only.
+    if(NOT WIN32)
+        add_executable(test_lsp_log_path_xdg test_lsp_log_path_xdg.c
+            ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c)
+        target_include_directories(test_lsp_log_path_xdg PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/src/vendor
+            ${CMAKE_BINARY_DIR}/generated)
+        target_compile_definitions(test_lsp_log_path_xdg PRIVATE _GNU_SOURCE)
+        target_link_libraries(test_lsp_log_path_xdg
+            iron_compiler iron_runtime iron_stdlib unity pthread m)
+        add_test(NAME test_lsp_log_path_xdg COMMAND test_lsp_log_path_xdg)
+        set_tests_properties(test_lsp_log_path_xdg PROPERTIES
+            LABELS "unit;lsp-unit;phase-m1-invariant"
+            TIMEOUT 30)
+    endif()
 
     # Task 02: SIGPIPE / EOF detection in writer + reader. Uses real
     # pipe(2) FDs wrapped in FILE* via fdopen so the production
     # writer_write_one / reader_thread_main paths are exercised.
-    add_executable(test_lsp_sigpipe_shutdown test_lsp_sigpipe_shutdown.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/transport/reader.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
-        ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c)
-    target_include_directories(test_lsp_sigpipe_shutdown PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor
-        ${CMAKE_BINARY_DIR}/generated)
-    target_compile_definitions(test_lsp_sigpipe_shutdown PRIVATE _GNU_SOURCE)
-    target_link_libraries(test_lsp_sigpipe_shutdown
-        iron_compiler iron_runtime iron_stdlib unity pthread m)
-    add_test(NAME test_lsp_sigpipe_shutdown COMMAND test_lsp_sigpipe_shutdown)
-    set_tests_properties(test_lsp_sigpipe_shutdown PROPERTIES
-        LABELS "unit;lsp-unit;phase-m1-invariant"
-        TIMEOUT 30)
+    # pipe(2) and SIGPIPE; POSIX hosts only.
+    if(NOT WIN32)
+        add_executable(test_lsp_sigpipe_shutdown test_lsp_sigpipe_shutdown.c
+            ${CMAKE_SOURCE_DIR}/src/lsp/transport/writer.c
+            ${CMAKE_SOURCE_DIR}/src/lsp/transport/reader.c
+            ${CMAKE_SOURCE_DIR}/src/lsp/transport/frame.c
+            ${CMAKE_SOURCE_DIR}/src/lsp/obs/log.c)
+        target_include_directories(test_lsp_sigpipe_shutdown PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/src/vendor
+            ${CMAKE_BINARY_DIR}/generated)
+        target_compile_definitions(test_lsp_sigpipe_shutdown PRIVATE _GNU_SOURCE)
+        target_link_libraries(test_lsp_sigpipe_shutdown
+            iron_compiler iron_runtime iron_stdlib unity pthread m)
+        add_test(NAME test_lsp_sigpipe_shutdown COMMAND test_lsp_sigpipe_shutdown)
+        set_tests_properties(test_lsp_sigpipe_shutdown PROPERTIES
+            LABELS "unit;lsp-unit;phase-m1-invariant"
+            TIMEOUT 30)
+    endif()
 
     # The yyjson vendor TU must survive the repo-global -Werror strictness.
     # One set_source_files_properties entry covers every test above that
@@ -620,17 +626,20 @@ if(IRON_BUILD_LSP)
     # fork()+SIGABRT proof that IRON_AST_ASSERT_UNSEALED actually aborts
     # under !NDEBUG. Links iron_stdlib because iron_analyze_buffer ends up
     # pulling stdlib-dependent passes through iron_runtime.
-    add_executable(test_ast_sealed test_ast_sealed.c)
-    target_include_directories(test_ast_sealed PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/vendor
-        ${CMAKE_BINARY_DIR}/generated)
-    target_link_libraries(test_ast_sealed
-        iron_compiler iron_runtime iron_stdlib unity pthread m)
-    add_test(NAME test_ast_sealed COMMAND test_ast_sealed)
-    set_tests_properties(test_ast_sealed PROPERTIES
-        LABELS "unit;phase-m2-invariant"
-        TIMEOUT 30)
+    # fork() and waitpid() have no Windows equivalent; POSIX hosts only.
+    if(NOT WIN32)
+        add_executable(test_ast_sealed test_ast_sealed.c)
+        target_include_directories(test_ast_sealed PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${CMAKE_SOURCE_DIR}/src/vendor
+            ${CMAKE_BINARY_DIR}/generated)
+        target_link_libraries(test_ast_sealed
+            iron_compiler iron_runtime iron_stdlib unity pthread m)
+        add_test(NAME test_ast_sealed COMMAND test_ast_sealed)
+        set_tests_properties(test_ast_sealed PROPERTIES
+            LABELS "unit;phase-m2-invariant"
+            TIMEOUT 30)
+    endif()
 
     # ── Phase 3 Plan 01 Task 04 (NAV-16): symbol_id + node_at ────────────
     # test_symbol_id exercises the (canonical_path, name_path, kind) +

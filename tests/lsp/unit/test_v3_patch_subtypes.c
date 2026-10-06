@@ -32,7 +32,7 @@
 #include "lsp/facade/types.h"
 #include "util/arena.h"
 
-#include <dirent.h>
+#include "support/posix_test.h"
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -41,7 +41,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
 
 void setUp(void)    {}
 void tearDown(void) {}
@@ -79,7 +78,7 @@ static const char *find_fixture(char *out, size_t cap, const char *name) {
 
 static char *make_workspace_with_fixture(const char *fixture_name,
                                            const char *target_filename) {
-    char tmpl[] = "/tmp/iron_v3_patch_subtypes_XXXXXX";
+    char tmpl[] = IRON_TEST_TMP "/iron_v3_patch_subtypes_XXXXXX";
     char *dir = mkdtemp(tmpl);
     if (!dir) return NULL;
     char *out = strdup(dir);
@@ -210,7 +209,7 @@ static void test_native_subtypes_have_null_detail(void) {
     /* Build a workspace with two files: parent + child. Subtypes-of-parent
      * returns the child as a kind=Class entry; that entry's detail field
      * MUST be NULL (no patch contribution). */
-    char tmpl[] = "/tmp/iron_v3_patch_native_detail_XXXXXX";
+    char tmpl[] = IRON_TEST_TMP "/iron_v3_patch_native_detail_XXXXXX";
     char *dir = mkdtemp(tmpl);
     TEST_ASSERT_NOT_NULL(dir);
 

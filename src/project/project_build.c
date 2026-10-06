@@ -480,7 +480,10 @@ static int reject_unknown_flags(const char *cmd, int argc, char **argv,
         if (argv[i][0] != '-') continue;
         bool ok = false;
         for (int k = 0; allowed[k]; k++) {
-            if (strcmp(argv[i], allowed[k]) == 0) { ok = true; break; }
+            size_t al = strlen(allowed[k]);
+            /* "--flag=" entries accept any value. */
+            if (allowed[k][al - 1] == '=' ? strncmp(argv[i], allowed[k], al) == 0
+                                          : strcmp(argv[i], allowed[k]) == 0) { ok = true; break; }
         }
         if (!ok) {
             fprintf(stderr, "error: unknown flag '%s' for 'iron %s'\n", argv[i], cmd);
@@ -499,11 +502,12 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * Phase 94 LIB-04: --release is parsed at the iron build CLI layer and
      * forwarded to ironc below; the Finished status line differentiates
      * "release [optimized]" from "dev [unoptimized]" based on the same flag. */
-    static const char *const allowed[] = { "--verbose", "--release", NULL };
+    static const char *const allowed[] = { "--verbose", "--release", "--target=", NULL };
     if (reject_unknown_flags(run_after ? "run" : "build", argc, argv, allowed) != 0)
         return 1;
     bool verbose = false;
     bool release = false;
+    const char *target = NULL;   /* --target=<name>: web or a cross target, forwarded to ironc */
     char **run_args = NULL;
     int run_arg_count = 0;
     for (int i = 2; i < argc; i++) {
@@ -511,6 +515,9 @@ static int cmd_build(bool run_after, int argc, char **argv) {
             verbose = true;
         } else if (strcmp(argv[i], "--release") == 0) {
             release = true;
+        } else if (strncmp(argv[i], "--target=", 9) == 0) {
+            target = argv[i] + 9;
+            if (strcmp(target, "native") == 0) target = NULL;
         } else if (strcmp(argv[i], "--") == 0) {
             run_args = &argv[i + 1];
             run_arg_count = argc - i - 1;
@@ -621,6 +628,36 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * look for build artifacts there continue to work. */
     bool is_lib = (proj->type && strcmp(proj->type, "lib") == 0);
     bool route_to_run_dir = run_after && !is_lib;
+    /* A cross target's binary cannot run here, and it lands in its own
+     * directory so builds for several targets do not overwrite each other. */
+    bool cross = target && strcmp(target, "web") != 0;
+    if (cross && run_after) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "a %s binary cannot run on this host; use `iron build --target=%s`", target, target);
+        iron_print_error(colors, msg);
+        free(proj_dir); free(toml_path); iron_toml_free(proj);
+        return 1;
+    }
+    if (cross && is_lib) {
+        iron_print_error(colors, "library packages cannot be built for another target yet");
+        free(proj_dir); free(toml_path); iron_toml_free(proj);
+        return 1;
+    }
+    if (cross) {
+        char target_sub[4096];
+        snprintf(target_sub, sizeof(target_sub), "%s/target/%s", proj_dir, target);
+#ifdef _WIN32
+        _mkdir(target_sub);
+#else
+        if (mkdir(target_sub, 0755) != 0 && errno != EEXIST) {
+            char msg[512];
+            snprintf(msg, sizeof(msg), "cannot create target/%s/: %s", target, strerror(errno));
+            iron_print_error(colors, msg);
+            free(proj_dir); free(toml_path); iron_toml_free(proj);
+            return 1;
+        }
+#endif
+    }
     if (route_to_run_dir) {
         char target_run_dir[4096];
         snprintf(target_run_dir, sizeof(target_run_dir),
@@ -662,6 +699,11 @@ static int cmd_build(bool run_after, int argc, char **argv) {
                  "%s/target/%s", proj_dir, proj->name);
     }
 #endif
+    if (cross) {
+        /* target/<target>/<name>, with the target's executable suffix. */
+        snprintf(output_path, sizeof(output_path), "%s/target/%s/%s%s", proj_dir, target, proj->name,
+                 strncmp(target, "windows-", 8) == 0 ? ".exe" : "");
+    }
 
     /* 6. Assemble sources: vendored files + project files, or just the
      * entry point for a single-file project with nothing vendored. */
@@ -686,6 +728,11 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * native -O2 (and web -Oz -flto) optimization tiers reach the underlying
      * clang -c invocation. Applies to both type=bin and type=lib builds. */
     if (release) path_list_add(&args, "--release");
+    if (target) {
+        char tflag[160];
+        snprintf(tflag, sizeof(tflag), "--target=%s", target);
+        path_list_add(&args, tflag);
+    }
     /* Phase 94 LIB-01: lib builds go through ironc's archive emit path. */
     if (is_lib) {
         path_list_add(&args, "--emit-archive");

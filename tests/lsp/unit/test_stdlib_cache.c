@@ -14,7 +14,7 @@
 #include "lsp/store/stdlib_cache.h"
 #include "parser/ast.h"
 
-#include <pthread.h>
+#include "support/posix_test.h"
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>

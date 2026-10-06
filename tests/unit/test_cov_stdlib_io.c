@@ -36,13 +36,12 @@
 
 #include <errno.h>
 #include <stdatomic.h>
-#include <pthread.h>
+#include "support/posix_test.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
 
 /* ── Unity boilerplate + per-test sandbox ────────────────────────────────── */
 
@@ -91,7 +90,7 @@ static void sandbox_nuke(void) {
 void setUp(void) {
     iron_runtime_init(0, NULL);
     snprintf(s_sandbox, sizeof(s_sandbox),
-             "/tmp/iron_cov_io_%d", (int)getpid());
+             IRON_TEST_TMP "/iron_cov_io_%d", (int)getpid());
     s_sandbox_len = strlen(s_sandbox);
     /* Create via the iron_io API — exercises Iron_io_create_dir on the
      * happy path and the already-exists branch in one shot. */
@@ -212,7 +211,7 @@ void test_io_list_files_happy_path(void) {
 
 void test_io_list_files_nonexistent(void) {
     /* Error arm: opendir returns NULL */
-    Iron_String bad = make_str("/tmp/iron_cov_io_totally_nonexistent_dir");
+    Iron_String bad = make_str(IRON_TEST_TMP "/iron_cov_io_totally_nonexistent_dir");
     Iron_Result_String_Error res = Iron_io_list_files_result(bad);
     TEST_ASSERT_NOT_EQUAL_INT(0, res.v1.code);
     iron_string_release(&res.v0);
@@ -407,6 +406,11 @@ void test_io_text_append_info_copy_move(void) {
     TEST_ASSERT_EQUAL_INT64(10, copied.bytes);
     Iron_FileWriteResult refused = Iron_io_copy_file(source, copied_path, false);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_ALREADY_EXISTS, refused.error);
+    /* Overwriting a different existing file is not a self-copy (Windows
+     * stat() reports st_ino 0 for every file, so dev/ino cannot tell). */
+    Iron_FileWriteResult replaced = Iron_io_copy_file(source, copied_path, true);
+    TEST_ASSERT_EQUAL_INT64(0, replaced.error);
+    TEST_ASSERT_EQUAL_INT64(10, replaced.bytes);
 
     Iron_FileWriteResult self_copy = Iron_io_copy_file(source, source, true);
     TEST_ASSERT_EQUAL_INT64(IRON_ERR_IO_INVALID_ARGUMENT, self_copy.error);
@@ -432,12 +436,23 @@ void test_io_text_append_info_copy_move(void) {
     Iron_FileInfo moved_info = Iron_io_file_info(moved_path);
     TEST_ASSERT_FALSE(copied_after_move.exists);
     TEST_ASSERT_TRUE(moved_info.exists);
+    Iron_String spare_path = mkpath("spare.bin");
+    Iron_FileWriteResult spare = Iron_io_copy_file(source, spare_path, false);
+    TEST_ASSERT_EQUAL_INT64(0, spare.error);
+    Iron_FileWriteResult replaced_move = Iron_io_move_file(spare_path, moved_path, true);
+    TEST_ASSERT_EQUAL_INT64(0, replaced_move.error);
+    Iron_FileInfo spare_after_move = Iron_io_file_info(spare_path);
+    TEST_ASSERT_FALSE(spare_after_move.exists);
     Iron_filewriteresult_release(first);
     Iron_filewriteresult_release(second);
     Iron_filereadresult_release(text);
     Iron_fileinfo_release(info);
     Iron_filewriteresult_release(copied);
     Iron_filewriteresult_release(refused);
+    Iron_filewriteresult_release(replaced);
+    Iron_filewriteresult_release(spare);
+    Iron_filewriteresult_release(replaced_move);
+    Iron_fileinfo_release(spare_after_move);
     Iron_filewriteresult_release(self_copy);
     Iron_filereadresult_release(source_after_self_copy);
     Iron_filewriteresult_release(directory_copy);
