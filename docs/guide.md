@@ -134,7 +134,9 @@ Built: /home/you/my-app/target/run/my-app
 Hello, Iron!
 ```
 
-Arguments after `--` go to the program: `iron run -- --port 8080`.
+Arguments after `--` go to the program: `iron run -- --port 8080`. The
+program receives them as its `main` parameter, `func main(args: [String])`,
+and reads environment variables with `OS.env(name)` (`import os`).
 
 ### iron check
 

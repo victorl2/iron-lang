@@ -1719,6 +1719,13 @@ IRON_LIST_DECL(int32_t,     int32_t)
 IRON_LIST_DECL(double,      double)
 IRON_LIST_DECL(bool,        bool)
 IRON_LIST_DECL(Iron_String, Iron_String)
+
+/* `func main(args: [String])`: the command-line arguments after the program
+ * name, as UTF-8 (iron_string.c). */
+Iron_List_Iron_String iron_runtime_args(void);
+/* os.iron (iron_os.c). */
+bool        Iron_os_has_env(Iron_String name);
+Iron_String Iron_os_env_or(Iron_String name, Iron_String fallback);
 IRON_LIST_DECL(Iron_Closure, Iron_Closure)
 /* Phase 68 (Plan 68-01): ABI-FLOAT32 + ABI-UINT8 primitive list types.
  * Suffix matches ironc's emit_type_to_c output (emit_helpers.c:151):

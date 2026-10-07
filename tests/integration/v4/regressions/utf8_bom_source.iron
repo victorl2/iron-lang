@@ -1,0 +1,6 @@
+﻿-- A source file that starts with a UTF-8 byte-order mark compiles.
+import os
+
+func main() {
+    println("bom ok")
+}

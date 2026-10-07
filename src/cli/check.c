@@ -317,6 +317,13 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
                                       line_markers);
     }
 
+    /* Mirrors build.c: `import os` prepends os.iron. */
+    if (iron_detect_import(source, source_path, "os", &detect_arena)) {
+        stdlib_prepended_lines +=
+            check_prepend_marked_file(&source, base_dir, "stdlib/os.iron",
+                                      line_markers);
+    }
+
     /* Mirrors build.c: `import hint` prepends hint.iron. */
     if (iron_detect_import(source, source_path, "hint", &detect_arena)) {
         stdlib_prepended_lines +=

@@ -11888,8 +11888,25 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
             iron_strbuf_appendf(&ctx.main_wrapper,
                                  "    __iron_module_init();\n");
         }
-        iron_strbuf_appendf(&ctx.main_wrapper,
-                             "    Iron_main();\n");
+        /* `func main(args: [String])` receives the command-line arguments
+         * after the program name; main borrows the list, freed here. */
+        bool main_takes_args = false;
+        for (int di = 0; di < module->func_count; di++) {
+            if (module->funcs[di] && module->funcs[di]->name &&
+                strcmp(module->funcs[di]->name, "main") == 0) {
+                main_takes_args = module->funcs[di]->param_count == 1;
+                break;
+            }
+        }
+        if (main_takes_args) {
+            iron_strbuf_appendf(&ctx.main_wrapper,
+                                 "    Iron_List_Iron_String iron_main_args = iron_runtime_args();\n"
+                                 "    Iron_main(iron_main_args);\n"
+                                 "    Iron_List_Iron_String_free(&iron_main_args);\n");
+        } else {
+            iron_strbuf_appendf(&ctx.main_wrapper,
+                                 "    Iron_main();\n");
+        }
         if (has_module_deinit) {
             iron_strbuf_appendf(&ctx.main_wrapper,
                                  "    __iron_module_deinit();\n");

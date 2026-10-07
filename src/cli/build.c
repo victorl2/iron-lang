@@ -1638,6 +1638,13 @@ int iron_build(const char *source_path, const char *output_path,
                                 line_markers);
     }
 
+    /* Detect "import os" and prepend os.iron (OS.env / env_or / has_env). */
+    if (iron_detect_import(source, source_path, "os", &detect_arena)) {
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/os.iron",
+                                line_markers);
+    }
+
     /* 1g. Detect "import log" and prepend log.iron */
     if (iron_detect_import(source, source_path, "log", &detect_arena)) {
         stdlib_prepended_lines +=

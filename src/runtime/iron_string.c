@@ -310,6 +310,28 @@ void iron_threads_shutdown(void);
 static int    s_iron_argc = 0;
 static char **s_iron_argv = NULL;
 
+#ifdef _WIN32
+int  iron_os_utf8_args(char ***out);            /* iron_os.c */
+void iron_os_utf8_args_free(char **v, int n);
+#endif
+
+Iron_List_Iron_String iron_runtime_args(void) {
+    Iron_List_Iron_String args = Iron_List_Iron_String_create();
+#ifdef _WIN32
+    char **v = NULL;
+    int n = iron_os_utf8_args(&v);
+    for (int i = 1; i < n; i++)
+        if (v[i]) Iron_List_Iron_String_push(&args, iron_string_from_cstr(v[i], strlen(v[i])));
+    iron_os_utf8_args_free(v, n);
+#else
+    for (int i = 1; i < s_iron_argc; i++)
+        if (s_iron_argv && s_iron_argv[i])
+            Iron_List_Iron_String_push(&args, iron_string_from_cstr(s_iron_argv[i],
+                                                                   strlen(s_iron_argv[i])));
+#endif
+    return args;
+}
+
 void iron_runtime_init(int argc, char **argv) {
     s_iron_argc = argc;
     s_iron_argv = argv;

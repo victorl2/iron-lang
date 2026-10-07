@@ -1,0 +1,17 @@
+-- os.iron -- Iron wrapper for the OS stdlib module: the process environment.
+-- The command-line arguments are main's parameter: func main(args: [String]).
+object OS {}
+
+-- Whether the environment variable is set (an empty value counts as set).
+func OS.has_env(name: String) -> Bool {}
+
+-- The variable's value, or `fallback` when it is not set.
+func OS.env_or(name: String, fallback: String) -> String {}
+
+-- The variable's value, or null when it is not set.
+func OS.env(name: String) -> String? {
+    if OS.has_env(name) {
+        return OS.env_or(name, "")
+    }
+    return null
+}
