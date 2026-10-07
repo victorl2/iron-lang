@@ -1945,14 +1945,29 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
     case IRON_LIR_CONST_BOOL:
         iron_strbuf_appendf(sb, "%s", instr->const_bool.value ? "true" : "false");
         break;
-    case IRON_LIR_CONST_NULL:
-        /* A null typed as T? is an empty optional, not a pointer. */
-        if (instr->type && instr->type->kind == IRON_TYPE_NULLABLE) {
-            iron_strbuf_appendf(sb, "((%s){0})", emit_type_to_c(instr->type, ctx));
-        } else {
+    case IRON_LIR_CONST_NULL: {
+        /* A null typed as T? is an empty optional, not a pointer. A typed
+         * null also stands for "no value yet" (the incoming value of a loop
+         * phi before the first iteration: the variable of a `for` nested in
+         * another loop), so it takes the zero of its C type, as the
+         * statement form below does: NULL for a pointer, 0 for a scalar,
+         * {0} for a struct such as Iron_String. */
+        Iron_Type *nt = instr->type;
+        bool untyped = !nt || nt->kind == IRON_TYPE_NULL ||
+                       nt->kind == IRON_TYPE_VOID || nt->kind == IRON_TYPE_ERROR ||
+                       (nt->kind == IRON_TYPE_WEAK_RC && nt->weak_rc.inner &&
+                        nt->weak_rc.inner->kind == IRON_TYPE_NULL);
+        const char *c_type = untyped ? "void*" : emit_type_to_c(nt, ctx);
+        if (untyped || strchr(c_type, '*')) {
             iron_strbuf_appendf(sb, "NULL");
+        } else if (iron_type_is_integer(nt) || iron_type_is_float(nt) ||
+                   nt->kind == IRON_TYPE_BOOL) {
+            iron_strbuf_appendf(sb, "0");
+        } else {
+            iron_strbuf_appendf(sb, "((%s){0})", c_type);
         }
         break;
+    }
 
     /* LOAD: pass through to the stored value (alloca variable) */
     case IRON_LIR_LOAD: {
