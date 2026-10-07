@@ -20,6 +20,8 @@ static const char *s_node_kind_names[IRON_NODE_COUNT] = {
     [IRON_NODE_FOR]             = "ForStmt",
     [IRON_NODE_MATCH]           = "MatchStmt",
     [IRON_NODE_DEFER]           = "DeferStmt",
+    [IRON_NODE_BREAK]           = "BreakStmt",
+    [IRON_NODE_CONTINUE]        = "ContinueStmt",
     [IRON_NODE_FREE]            = "FreeStmt",
     [IRON_NODE_LEAK]            = "LeakStmt",
     [IRON_NODE_SPAWN]           = "SpawnStmt",
@@ -93,6 +95,8 @@ void iron_ast_walk(Iron_Node *root, Iron_Visitor *v) {
             break;
         }
         case IRON_NODE_IMPORT_DECL:
+        case IRON_NODE_BREAK:
+        case IRON_NODE_CONTINUE:
             /* leaf — no child nodes */
             break;
         case IRON_NODE_OBJECT_DECL: {

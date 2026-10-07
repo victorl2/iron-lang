@@ -1,0 +1,49 @@
+-- break and continue leave map iteration, an in-arena block and nested
+-- loops over owned lists and strings without leaking (leak oracle).
+object P {
+    val x: Int
+}
+func main() {
+    var m = Map[String, [Int]]()
+    m.put("a", [1, 2])
+    m.put("b", [3])
+    m.put("c", [4, 5, 6])
+    var seen = 0
+    for (k, v) in m {
+        if v.len() == 1 {
+            continue
+        }
+        seen += v.len()
+        if seen > 100 {
+            break
+        }
+    }
+    println("{seen}")
+    val frame = Arena(4096)
+    var total = 0
+    for i in range(5) {
+        in frame {
+            val p = heap P(i)
+            if i == 3 {
+                break
+            }
+            total += p.x
+        }
+    }
+    println("{total}")
+    var names: [String] = []
+    for i in range(4) {
+        val label = "item{i}"
+        var parts = label.split("m")
+        for p in parts {
+            if p.len() == 0 {
+                continue
+            }
+            if i == 2 {
+                break
+            }
+            names.push(p + "!")
+        }
+    }
+    println("{names.len()} {names[0]}")
+}

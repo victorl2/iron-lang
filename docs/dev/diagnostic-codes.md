@@ -539,6 +539,7 @@ parser/typecheck sites land in Plan 27-02.
 | Code | Symbol | Message | Notes |
 |------|--------|---------|-------|
 | E0334 | `IRON_ERR_NOT_STRINGABLE` | type 'T' cannot be interpolated into a string | `{x}` where x is not a number, Bool, String, enum, their nullable, or an object with a readonly `to_string() -> String`; also fired when `to_string()` is not readonly. Replaced the W0602 warning, which let invalid C through. |
+| E0335 | `IRON_ERR_LOOP_JUMP_OUTSIDE` | 'break' outside a loop / 'continue' in a parallel for | `break` or `continue` outside a `while` or `for` of the same function body (including inside a lambda, `defer` or `spawn` body within a loop), or in a `parallel` loop. |
 
 ## Adding new codes
 

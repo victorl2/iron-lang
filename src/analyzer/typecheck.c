@@ -177,6 +177,10 @@ typedef struct {
      * refcounted policies inside an arena. */
     int                in_arena_block_depth;
     const _Atomic bool *cancel_flag;         /* HARD-05: NULL means never cancel */
+    /* Loops enclosing the statement being checked, for break / continue;
+     * 0 inside a lambda, defer or spawn body. */
+    int                loop_depth;
+    bool               loop_is_parallel;  /* the innermost loop is a parallel for */
 } TypeCtx;
 
 /* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
@@ -2278,6 +2282,49 @@ static bool stmt_always_returns(Iron_Node *node) {
                 if (!mc || !stmt_always_returns(mc->body)) return false;
             }
             return !ms->else_body || stmt_always_returns(ms->else_body);
+        }
+        default:
+            return false;
+    }
+}
+
+/* Like stmt_always_returns, but `break` and `continue` leave too: the code
+ * after an `if x == null { continue }` sees x narrowed. (Only for
+ * narrowing; a missing return is still a missing return.) */
+static bool stmt_always_exits(Iron_Node *node) {
+    if (!node) return false;
+    switch ((int)node->kind) {
+        case IRON_NODE_RETURN:
+        case IRON_NODE_BREAK:
+        case IRON_NODE_CONTINUE:
+        case IRON_NODE_ERROR:   /* a statement that failed to parse (already reported) */
+            return true;
+        case IRON_NODE_BLOCK: {
+            Iron_Block *b = (Iron_Block *)node;
+            if (b->stmt_count == 0) return false;
+            return stmt_always_exits(b->stmts[b->stmt_count - 1]);
+        }
+        case IRON_NODE_IF: {
+            Iron_IfStmt *is = (Iron_IfStmt *)node;
+            /* if-else with BOTH arms terminating always returns. */
+            if (!is->else_body) return false;
+            for (int i = 0; i < is->elif_count; i++) {
+                if (!stmt_always_exits(is->elif_bodies[i])) return false;
+            }
+            return stmt_always_exits(is->body) &&
+                   stmt_always_exits(is->else_body);
+        }
+        case IRON_NODE_MATCH: {
+            /* A match without else must be exhaustive (E0224 otherwise), so
+             * it always returns when every arm, and the else arm if any,
+             * does. */
+            Iron_MatchStmt *ms = (Iron_MatchStmt *)node;
+            if (ms->case_count == 0 && !ms->else_body) return false;
+            for (int i = 0; i < ms->case_count; i++) {
+                Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
+                if (!mc || !stmt_always_exits(mc->body)) return false;
+            }
+            return !ms->else_body || stmt_always_exits(ms->else_body);
         }
         default:
             return false;
@@ -7326,7 +7373,12 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 tc_define(ctx, ap->name, IRON_SYM_PARAM, (Iron_Node *)le->params[p],
                           ap->span, false, param_types ? param_types[p] : NULL);
             }
-            if (le->body) check_stmt(ctx, le->body);
+            {
+                int saved_depth = ctx->loop_depth;
+                ctx->loop_depth = 0;
+                if (le->body) check_stmt(ctx, le->body);
+                ctx->loop_depth = saved_depth;
+            }
             check_missing_return_body(ctx, ret_t, le->body, NULL);
             tc_pop_scope(ctx);
             ctx->current_return_type = prev_ret;
@@ -9115,14 +9167,14 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * only the then branch falls through, only when it was true. */
             bool all_exit = true;
             for (int i = 0; i < n_conds; i++) {
-                if (!stmt_always_returns(bodies[i])) { all_exit = false; break; }
+                if (!stmt_always_exits(bodies[i])) { all_exit = false; break; }
             }
             if (all_exit) {
-                if (!is_s->else_body || !stmt_always_returns(is_s->else_body)) {
+                if (!is_s->else_body || !stmt_always_exits(is_s->else_body)) {
                     for (int i = 0; i < n_conds; i++) narrow_for_cond(ctx, conds[i], false);
                 }
             } else if (n_conds == 1 && is_s->else_body &&
-                       stmt_always_returns(is_s->else_body)) {
+                       stmt_always_exits(is_s->else_body)) {
                 narrow_for_cond(ctx, conds[0], true);
             }
             break;
@@ -9141,6 +9193,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * unassigned set. Snapshot the set, traverse the body (so E0246
              * / E0248 / E0249 / E0250 / E0252 still fire inside), then
              * restore the pre-loop snapshot. */
+            bool saved_par = ctx->loop_is_parallel;
+            ctx->loop_depth++;
+            ctx->loop_is_parallel = false;
             if (ctx->in_init_method && ctx->unassigned_fields) {
                 InitUnassignedEntry *pre = NULL;
                 init_unassigned_clone(&pre, ctx->unassigned_fields);
@@ -9149,6 +9204,26 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 ctx->unassigned_fields = pre;
             } else {
                 if (ws->body) check_stmt(ctx, ws->body);
+            }
+            ctx->loop_depth--;
+            ctx->loop_is_parallel = saved_par;
+            break;
+        }
+
+        case IRON_NODE_BREAK:
+        case IRON_NODE_CONTINUE: {
+            const char *word = node->kind == IRON_NODE_BREAK ? "break" : "continue";
+            char msg[160];
+            if (ctx->loop_depth == 0) {
+                snprintf(msg, sizeof(msg), "'%s' outside a loop", word);
+                emit_error(ctx, IRON_ERR_LOOP_JUMP_OUTSIDE, node->span, msg,
+                           "break and continue apply to the innermost while or for "
+                           "of the same function body (not a lambda, defer or spawn inside it)");
+            } else if (ctx->loop_is_parallel) {
+                snprintf(msg, sizeof(msg), "'%s' in a parallel for", word);
+                emit_error(ctx, IRON_ERR_LOOP_JUMP_OUTSIDE, node->span, msg,
+                           "the iterations of a parallel for run independently; "
+                           "use return to end this iteration's work");
             }
             break;
         }
@@ -9301,6 +9376,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             /* Phase 85 INIT-04/06: for bodies may execute zero times (empty
              * iterable). Mirror the while-loop snapshot/restore so self.field
              * writes inside the body do not count toward "always assigned". */
+            bool saved_par = ctx->loop_is_parallel;
+            ctx->loop_depth++;
+            ctx->loop_is_parallel = fs->is_parallel;
             if (ctx->in_init_method && ctx->unassigned_fields) {
                 InitUnassignedEntry *pre = NULL;
                 init_unassigned_clone(&pre, ctx->unassigned_fields);
@@ -9310,6 +9388,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             } else {
                 if (fs->body) check_stmt(ctx, fs->body);
             }
+            ctx->loop_depth--;
+            ctx->loop_is_parallel = saved_par;
             tc_pop_scope(ctx);
             break;
         }
@@ -9759,7 +9839,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
              * handling. The Phase-21 E0276 gate is GONE — this is the
              * LSP-parity-relevant change (`ironc check` stops after analyze,
              * so removal here is what makes general defer pass `check`). */
-            if (ds->expr) check_stmt(ctx, ds->expr);
+            {
+                int saved_depth = ctx->loop_depth;
+                ctx->loop_depth = 0;   /* a deferred body runs at scope exit */
+                if (ds->expr) check_stmt(ctx, ds->expr);
+                ctx->loop_depth = saved_depth;
+            }
             break;
         }
 
@@ -9800,7 +9885,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                            "on its own thread",
                            "remove the pool argument: spawn(\"name\") { ... }");
             }
-            if (ss->body) check_stmt(ctx, ss->body);
+            {
+                int saved_depth = ctx->loop_depth;
+                ctx->loop_depth = 0;
+                if (ss->body) check_stmt(ctx, ss->body);
+                ctx->loop_depth = saved_depth;
+            }
 
             /* Store spawn body return type for downstream await lookup */
             if (ss->handle_name) {

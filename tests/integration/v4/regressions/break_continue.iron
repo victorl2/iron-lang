@@ -1,0 +1,98 @@
+-- break and continue in while, range for and list for loops, nested loops,
+-- a match arm, with defer and drop running on the way out, and null
+-- narrowing after `if v == null { continue }`.
+object R {
+    val id: Int
+    drop {
+        println("drop {self.id}")
+    }
+}
+
+func first_neg(xs: [Int]) -> Int {
+    var found = -1
+    for x in xs {
+        if x < 0 {
+            found = x
+            break
+        }
+    }
+    return found
+}
+
+func main() {
+    var i = 0
+    while true {
+        i += 1
+        if i % 2 == 0 {
+            continue
+        }
+        if i > 7 {
+            break
+        }
+        print("{i} ")
+    }
+    println("")
+    var s = 0
+    for k in range(10) {
+        if k == 3 {
+            continue
+        }
+        if k == 6 {
+            break
+        }
+        s += k
+    }
+    println("{s} {first_neg([3, -2, -5])} {first_neg([1])}")
+    for a in range(3) {
+        for b in range(3) {
+            if b > a {
+                break
+            }
+            print("{a}{b} ")
+        }
+    }
+    println("")
+    for n in range(3) {
+        val r = R(n)
+        defer println("defer {n}")
+        if n == 0 {
+            continue
+        }
+        if n == 1 {
+            break
+        }
+        println("unreached {n}")
+    }
+    var words: [String] = ["a", "", "b", "stop", "c"]
+    var out = ""
+    for w in words {
+        match w.len() {
+            0 -> continue
+            else -> {
+                if w == "stop" {
+                    break
+                }
+            }
+        }
+        out = out + w
+    }
+    println(out)
+    var cnt = 0
+    var j = 0
+    while j < 5 {
+        j += 1
+        val v: Int? = if_even(j)
+        if v == null {
+            continue
+        }
+        cnt += v
+    }
+    println("{cnt}")
+}
+
+func if_even(n: Int) -> Int? {
+    if n % 2 == 0 {
+        return n
+    }
+    return null
+}

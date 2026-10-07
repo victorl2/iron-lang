@@ -28,7 +28,9 @@ typedef struct {
 static const KeywordEntry kw_table[] = {
     { "and",        IRON_TOK_AND        },
     { "await",      IRON_TOK_AWAIT      },
+    { "break",      IRON_TOK_BREAK      },
     { "comptime",   IRON_TOK_COMPTIME   },
+    { "continue",   IRON_TOK_CONTINUE   },
     { "copy",       IRON_TOK_COPY       },  /* Phase 16: v4 copy hook keyword */
     { "defer",      IRON_TOK_DEFER      },
     { "drop",       IRON_TOK_DROP       },  /* Phase 16: v4 destructor keyword */
@@ -98,7 +100,9 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_INTERP_STRING] = "IRON_TOK_INTERP_STRING",
     [IRON_TOK_AND]           = "IRON_TOK_AND",
     [IRON_TOK_AWAIT]         = "IRON_TOK_AWAIT",
+    [IRON_TOK_BREAK]         = "IRON_TOK_BREAK",
     [IRON_TOK_COMPTIME]      = "IRON_TOK_COMPTIME",
+    [IRON_TOK_CONTINUE]      = "IRON_TOK_CONTINUE",
     [IRON_TOK_COPY]          = "IRON_TOK_COPY",
     [IRON_TOK_DEFER]         = "IRON_TOK_DEFER",
     [IRON_TOK_DROP]          = "IRON_TOK_DROP",

@@ -389,6 +389,9 @@ typedef struct {
      * parallel-for body); NULL for ordinary functions. */
     Iron_CaptureEntry *cur_captures;
     int                cur_capture_count;
+    /* Enclosing loops, innermost last (stb_ds): where `break` and
+     * `continue` jump, and the defer depth of the loop body they unwind. */
+    struct HIR_LoopTarget { IronLIR_BlockId exit_id, next_id; int base_depth; } *loops;
 } HIR_to_LIR_Ctx;
 
 static bool var_is_capture(HIR_to_LIR_Ctx *ctx, IronHIR_VarId vid);
@@ -4430,19 +4433,51 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                             body_block->id, exit_block->id, span);
         }
 
+        /* A range for's increment runs after the body and on `continue`. */
+        IronLIR_Block *step_block = stmt->while_loop.step
+            ? new_block(ctx, make_label(ctx, "while_step")) : NULL;
+        IronLIR_BlockId next_id = step_block ? step_block->id : header_block->id;
+
         /* Body (push defer scope for loop body) */
         switch_block(ctx, body_block);
         push_defer_scope(ctx);
         int while_base_depth = ctx->defer_depth;
+        struct HIR_LoopTarget lt = { exit_block->id, next_id, while_base_depth };
+        arrput(ctx->loops, lt);
         lower_block_stmts(ctx, stmt->while_loop.body);
+        arrpop(ctx->loops);
         if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
             emit_scope_defers(ctx, while_base_depth - 1, span);
             if (!block_is_terminated(ctx->current_block))
-                iron_lir_jump(ctx->current_func, ctx->current_block, header_block->id, span); /* back-edge */
+                iron_lir_jump(ctx->current_func, ctx->current_block, next_id, span); /* back-edge */
         }
         pop_defer_scope(ctx);
 
+        if (step_block) {
+            switch_block(ctx, step_block);
+            lower_block_stmts(ctx, stmt->while_loop.step);
+            if (ctx->current_block && !block_is_terminated(ctx->current_block))
+                iron_lir_jump(ctx->current_func, ctx->current_block, header_block->id, span);
+        }
+
         switch_block(ctx, exit_block);
+        break;
+    }
+
+    case IRON_HIR_STMT_BREAK:
+    case IRON_HIR_STMT_CONTINUE: {
+        /* Run the defers and drops of every scope inside the loop body,
+         * then leave it or go to its next iteration. (The checker rejects
+         * a jump outside a loop; a lambda, defer or spawn body is its own
+         * function or runs outside the loop's scopes.) */
+        if (arrlen(ctx->loops) == 0 || !ctx->current_block ||
+            block_is_terminated(ctx->current_block))
+            break;
+        struct HIR_LoopTarget lt = ctx->loops[arrlen(ctx->loops) - 1];
+        emit_scope_defers(ctx, lt.base_depth - 1, span);
+        if (!block_is_terminated(ctx->current_block))
+            iron_lir_jump(ctx->current_func, ctx->current_block,
+                          stmt->kind == IRON_HIR_STMT_BREAK ? lt.exit_id : lt.next_id, span);
         break;
     }
 
@@ -4513,7 +4548,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         iron_lir_store(ctx->current_func, body_blk, var_alloca, elem_val, span);
         push_defer_scope(ctx);
         int for_base_depth = ctx->defer_depth;
+        struct HIR_LoopTarget flt = { exit_blk->id, inc_blk->id, for_base_depth };
+        arrput(ctx->loops, flt);
         lower_block_stmts(ctx, stmt->for_loop.body);
+        arrpop(ctx->loops);
         if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
             emit_scope_defers(ctx, for_base_depth - 1, span);
             if (!block_is_terminated(ctx->current_block))
@@ -5179,6 +5217,8 @@ static void flatten_func(HIR_to_LIR_Ctx *ctx, IronHIR_Func *hir_func) {
     ctx->wb_alloca_ids = NULL;
     ctx->wb_types      = NULL;
 
+    arrfree(ctx->loops);
+    ctx->loops = NULL;
     /* Reset defer stacks */
     if (ctx->defer_stacks) {
         for (int d = 0; d < ctx->defer_depth; d++) {
@@ -5951,6 +5991,7 @@ IronLIR_Module *iron_hir_to_lir(IronHIR_Module *hir, Iron_Program *program,
         }
         arrfree(ctx.defer_stacks);
     }
+    arrfree(ctx.loops);
 
     /* ── Verify output ── */
     /* Use lir_arena for verification so diagnostic message strings remain

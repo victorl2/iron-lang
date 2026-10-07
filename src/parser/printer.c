@@ -802,6 +802,16 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        case IRON_NODE_BREAK: {
+            iron_strbuf_appendf(ctx->sb, "break");
+            break;
+        }
+
+        case IRON_NODE_CONTINUE: {
+            iron_strbuf_appendf(ctx->sb, "continue");
+            break;
+        }
+
         case IRON_NODE_FREE: {
             Iron_FreeStmt *n = (Iron_FreeStmt *)node;
             iron_strbuf_appendf(ctx->sb, "free ");
