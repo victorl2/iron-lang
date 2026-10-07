@@ -171,8 +171,12 @@ $ iron fmt --check src/main.iron
 would reformat src/main.iron
 ```
 
-Formats a file in place. `--check` rewrites nothing and exits 0 when the
-file is already formatted, 1 when it would change, 2 on a syntax error.
+Formats a file in place: it re-indents each line from the nesting of the
+brackets around it (four spaces per level, or `[fmt] indent_width` and
+`use_tabs` in `iron.toml`), removes trailing whitespace and runs of blank
+lines, and changes nothing else, so comments and the line breaks you chose
+stay as written. `--check` rewrites nothing and exits 0 when the file is
+already formatted, 1 when it would change, 2 on a syntax error.
 
 ## Third-party code
 

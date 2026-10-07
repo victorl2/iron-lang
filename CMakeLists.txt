@@ -335,6 +335,7 @@ add_library(iron_compiler STATIC
     # Phase 5 Plan 05-01 (FMT-01, FMT-05, D-01, D-02): src/fmt/ module.
     # Single library entry point for both `iron fmt` CLI and `ironls` LSP.
     src/fmt/format.c
+    src/fmt/layout.c
     src/fmt/options.c
     src/fmt/config_load.c
 )
@@ -1329,11 +1330,8 @@ target_include_directories(test_fmt_idempotent PRIVATE
     ${CMAKE_SOURCE_DIR}/src/vendor)
 target_compile_definitions(test_fmt_idempotent PRIVATE
     _GNU_SOURCE
-    # Phase 35 MIG-08: v3 root fixtures moved to v3-archive/; idempotency
-    # corpus follows the rename. (Test currently TEST_IGNORE'd per a v3-era
-    # printer oscillation bug; this keeps the path correct for the eventual
-    # re-enable.)
-    "TESTS_INTEGRATION_DIR=\"${CMAKE_SOURCE_DIR}/tests/integration/v3-archive\"")
+    # Every fixture under tests/integration, recursively.
+    "TESTS_INTEGRATION_DIR=\"${CMAKE_SOURCE_DIR}/tests/integration\"")
 target_link_libraries(test_fmt_idempotent
     iron_compiler iron_runtime iron_stdlib unity m pthread)
 add_test(NAME test_fmt_idempotent
