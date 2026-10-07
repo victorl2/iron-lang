@@ -7704,6 +7704,33 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
         expected->kind == IRON_TYPE_FUNC) {
         ctx->lambda_expected_type = expected;
     }
+    /* A generic enum construct whose payload leaves type arguments open
+     * (`Maybe.Nothing`, `Result.Ok(1)`) takes them from the expected type
+     * of a return, an argument or an assignment, as an annotated `val`
+     * initializer does. Arguments the payload did fix must agree. */
+    if (node && node->kind == IRON_NODE_ENUM_CONSTRUCT && expected &&
+        expected->kind == IRON_TYPE_ENUM && expected->enu.mangled_name) {
+        Iron_Type *t = check_expr(ctx, node);
+        if (t && t->kind == IRON_TYPE_ENUM && t->enu.decl == expected->enu.decl &&
+            t != expected) {
+            bool open = !t->enu.type_args ||
+                        t->enu.type_arg_count != expected->enu.type_arg_count;
+            bool agree = true;
+            int n = t->enu.type_arg_count < expected->enu.type_arg_count
+                        ? t->enu.type_arg_count : expected->enu.type_arg_count;
+            for (int i = 0; t->enu.type_args && i < n; i++) {
+                Iron_Type *a = t->enu.type_args[i];
+                Iron_Type *e = expected->enu.type_args ? expected->enu.type_args[i] : NULL;
+                if (!a) open = true;
+                else if (!e || !iron_type_equals(a, e)) agree = false;
+            }
+            if (open && agree) {
+                ((Iron_EnumConstruct *)node)->resolved_type = expected;
+                return expected;
+            }
+        }
+        return t;
+    }
     /* `rc [..]` against an `rc [T]` annotation: the literal inside takes
      * the annotated list type, as a plain literal would (#201). */
     if (node && node->kind == IRON_NODE_RC && expected && type_is_rc_list(expected)) {

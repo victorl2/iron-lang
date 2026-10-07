@@ -1,0 +1,14 @@
+-- An argument the payload fixes must agree with the expected type: the
+-- open-argument completion does not paper over Maybe[String] vs Maybe[Int].
+enum Maybe[T] {
+    Some(T),
+    Nothing,
+}
+
+func f() -> Maybe[Int] {
+    return Maybe.Some("s")
+}
+
+func main() {
+    val m = f()
+}

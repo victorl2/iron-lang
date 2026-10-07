@@ -1,0 +1,59 @@
+-- A generic enum value whose payload fixes no type argument (or not all of
+-- them) takes them from the return type, the parameter or the assigned
+-- binding, as it already did from an annotated val.
+enum Maybe[T] {
+    Some(T),
+    Nothing,
+}
+
+enum Either[A, B] {
+    Left(A),
+    Right(B),
+}
+
+func none_int() -> Maybe[Int] {
+    return Maybe.Nothing
+}
+
+func pick[T](x: T, ok: Bool) -> Maybe[T] {
+    if ok {
+        return Maybe.Some(x)
+    }
+    return Maybe.Nothing
+}
+
+func parse(s: String) -> Either[Int, String] {
+    if s == "1" {
+        return Either.Left(1)
+    }
+    return Either.Right("bad " + s)
+}
+
+func show(m: Maybe[Int]) -> String {
+    match m {
+        Maybe.Some(v) -> return "some {v}"
+        Maybe.Nothing -> return "nothing"
+    }
+    return ""
+}
+
+func either(e: Either[Int, String]) -> String {
+    match e {
+        Either.Left(n) -> return "int {n}"
+        Either.Right(m) -> return "err {m}"
+    }
+    return ""
+}
+
+func main() {
+    println(show(none_int()))
+    println(show(pick(3, true)))
+    println(show(pick(3, false)))
+    println(show(Maybe.Nothing))
+    var b: Maybe[Int] = Maybe.Some(1)
+    b = Maybe.Nothing
+    println(show(b))
+    println(either(parse("1")))
+    println(either(parse("x")))
+    println(either(Either.Right("direct")))
+}
