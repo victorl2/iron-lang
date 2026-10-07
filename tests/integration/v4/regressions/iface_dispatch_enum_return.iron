@@ -1,0 +1,50 @@
+-- A method returning an enum through an interface: the dispatch wrapper's
+-- unreachable default returned 0, which does not compile for a struct.
+enum State {
+    Idle,
+    Running(Int),
+    Done(String),
+}
+interface Handler {
+    func step(s: State) -> State
+}
+object Machine impl Handler {
+    var log: [String]
+    init() {
+        self.log = []
+    }
+    func step(s: State) -> State {
+        match s {
+            State.Idle -> {
+                self.log.push("start")
+                return State.Running(0)
+            }
+            State.Running(n) -> {
+                if n >= 3 {
+                    self.log.push("finish")
+                    return State.Done("after {n}")
+                }
+                return State.Running(n + 1)
+            }
+            State.Done(msg) -> return State.Done(msg)
+        }
+    }
+}
+func run(var h: Handler) -> String {
+    var s = State.Idle
+    var steps = 0
+    while steps < 10 {
+        s = h.step(s)
+        steps += 1
+        match s {
+            State.Done(m) -> return "{m} in {steps}"
+            else -> {}
+        }
+    }
+    return "stuck"
+}
+func main() {
+    var m = Machine()
+    println(run(m))
+    println("{m.log.len()}")
+}

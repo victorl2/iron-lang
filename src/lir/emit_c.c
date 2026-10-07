@@ -11702,7 +11702,16 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                                    strcmp(ret_type_c, "float") == 0) {
                             default_ret = "return 0.0;";
                         } else {
-                            default_ret = "return 0;";
+                            /* Unreachable, but it must type-check: a zeroed
+                             * value of the return type (an enum, object or
+                             * list returned through the interface is a
+                             * struct, where `return 0` does not compile). */
+                            size_t dl = strlen(ret_type_c) * 2 + 64;
+                            char *z = (char *)iron_arena_alloc(ctx.arena, dl, 1);
+                            if (!z) iron_oom_abort("emit_c.c:iface dispatch default return");
+                            snprintf(z, dl, "{ %s zero; iron_mem_set(&zero, 0, sizeof zero); return zero; }",
+                                     ret_type_c);
+                            default_ret = z;
                         }
                     }
                     if (returns_self) {
