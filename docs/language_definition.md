@@ -248,7 +248,8 @@ Iterating a string with `for` yields one-character strings.
 
 `T?` is a type whose values are either a `T` or `null`. A nullable type can
 be written for any non-pointer type (`Int?`, `String?`, `Node?`,
-`Result[Int, String]?`). A plain `T` converts to `T?` implicitly, so a
+`Result[Int, String]?`), except as the element type of a collection
+(section 12). A plain `T` converts to `T?` implicitly, so a
 function declared `-> Int?` may `return i` or `return null`. Reading a
 field or calling a method through a nullable value without checking it
 first is an error (`E0204`); compare with `null` first.
@@ -435,8 +436,8 @@ func main() {
 `T2` and returning `R`; omit `-> R` for a function that returns nothing.
 Function values are created from lambda expressions (section 3.7); they
 can be stored in bindings, fields and lists and passed as arguments. The
-name of a top-level function is not usable as a value today (section 11):
-wrap it in a lambda.
+name of a top-level function is a function value too (`val f = twice`,
+`apply(twice, 4)`, `xs.map(twice)`).
 
 ### 2.6 Objects, enums and interfaces
 
@@ -520,13 +521,9 @@ func main() {
 9 1 one 2 1
 ```
 
-Two limits apply to generics today. A value of a generic enum must be bound
-to a binding with a written type before it is returned or matched, and a
-payload bound by a `match` on a generic enum must be copied into an
-annotated local before it is interpolated (section 5.6). The result of a
-generic method of the standard library containers (`Channel[T].recv`,
-`MutexGuard[T].get`, ...) must likewise be bound with a written type
-(section 7.2).
+A generic enum value takes the type arguments its payload does not fix from
+where it is used: `return Maybe.Nothing` in a function returning
+`Maybe[Int]`, an argument, an assignment or an annotated binding.
 
 ### 2.9 Type conversions
 
@@ -603,7 +600,11 @@ true false true
 
 `+ - * / %` apply to two operands of the same numeric type. `+` also
 concatenates two strings. `== !=` compare numbers, booleans, strings (by
-content), enum values and `null`. `< > <= >=` compare numbers. `and`,
+content), enum values and `null`. Two enum values are equal when they are
+the same variant with equal payloads; an enum with an object or list in a
+payload compares only against a unit variant (`shape == Shape.Empty`).
+Objects and lists have no `==`: compare their fields or elements.
+`< > <= >=` compare numbers, and strings in code point order. `and`,
 `or`, `not` take `Bool` operands. `& | ^ ~ << >>` take integer operands
 (`E0233`). Compound assignments `+= -= *= /= &= |= ^= <<= >>=` are
 statements (section 4.3).
@@ -619,8 +620,8 @@ value), and the results of calls and field accesses. Interpolating a
 value with no text form, such as an object without `to_string()`, is an
 error (`E0334`). Floats print the shortest
 decimal that reads back to the same value, without a trailing `.0`
-(`3.0` prints as `3`). Two strings are joined with `+`; the compound form
-`s += t` is not supported (see section 11).
+(`3.0` prints as `3`). Two strings are joined with `+`, and `s += t`
+appends to a `var` string.
 
 ```iron
 func main() {
@@ -644,8 +645,8 @@ allowed. `x.field` reads a field, `x.method(args)` calls a method,
 `Type(args)` constructs an object (section 5.3). `xs[i]` indexes a list,
 array or string (a string index yields a one-character string), and
 `xs[a..b]` takes the characters `a` (inclusive) to `b` (exclusive) of a
-string; `xs[a..]` runs to the end. Slicing a list compiles but fails to
-generate C today (section 11); use `copy()` and the list methods instead.
+string; `xs[a..]` runs to the end. On a list, `xs[a..b]` and `xs[a..]`
+return a new list of those elements.
 
 A pointer, `rc` handle, `heap` value or `Box` cell is accessed with the
 same `.` syntax as the value it refers to (auto-dereference); there is no
@@ -924,9 +925,10 @@ Patterns:
 
 A match on an enum or interface must cover every variant or implementor,
 or have an `else` arm (`E0224`); an arm that can never match is an error
-(`E0226`). Nested payload patterns such as `Outer.Some(Inner.Circle(r))`
-parse, but the inner pattern is not checked at run time (section 11), so
-match the inner value in a second `match`.
+(`E0226`). A nested payload pattern such as `Outer.Some(Inner.Circle(r))` is
+rejected (`E0332`) when the inner enum has more than one variant, since the
+inner pattern is not tested at run time: bind the payload and match it in a
+second `match`.
 
 ```iron
 enum Shape {
@@ -1185,9 +1187,8 @@ func main() {
 100 7 4
 ```
 
-A top-level function name cannot be used as a value (`val f = twice`,
-`apply(twice, 4)`); wrap it in a lambda (`func(x: Int) -> Int { return
-twice(x) }`). See section 11.
+A top-level function name is a function value: `val f = twice`,
+`apply(twice, 4)` and `[twice]` work like the equivalent lambdas.
 
 `@fusible` before a `func` marks it as eligible for loop fusion of chained
 list operations; it changes nothing else about the function.
@@ -2073,8 +2074,7 @@ func main() {
 is written as the type argument (`val ch = Channel[Int](4)`), since no
 argument carries it.
 `ch.send(v)` blocks while the channel is full and `ch.recv()` blocks while
-it is empty; the received value must be bound with a written type
-(`val x: Int = ch.recv()`). Channels are `nocopy` and are closed when their
+it is empty. Channels are `nocopy` and are closed when their
 owner goes out of scope; there is no explicit close and no non-blocking
 receive.
 
@@ -2082,8 +2082,7 @@ receive.
 
 `Mutex(value)` wraps a value in a lock; `m.lock()` returns a
 `MutexGuard[T]` that holds the lock until the guard's scope ends, with
-`g.get()` and `g.set(v)` to read and write the protected value (the result
-of `get` must be bound with a written type). `RWLock(value)` is the
+`g.get()` and `g.set(v)` to read and write the protected value. `RWLock(value)` is the
 reader-writer variant: `l.read()` returns an `RWReadGuard[T]` with `get()`,
 and `l.write()` an `RWWriteGuard[T]` with `get()` and `set(v)`. All of
 these are `nocopy`.
@@ -2142,7 +2141,8 @@ func main() {
 `for x in xs parallel { ... }` runs the iterations of the loop on several
 threads and waits for all of them. The body must not write bindings of the
 enclosing scope (`E0208`); use a `Mutex` to accumulate. `range(n)` and lists
-may be iterated in parallel. The `parallel(pool)` form parses but pools are
+may be iterated in parallel; a list is iterated through a binding
+(`for x in xs parallel`), not a list expression. The `parallel(pool)` form parses but pools are
 not implemented (`E0326`).
 
 ```iron
@@ -2805,6 +2805,7 @@ codes cited in this manual:
 | E0209 | module not found |
 | E0210 | `self` outside a method |
 | E0219, E0220 | no such field; no such method |
+| E0223 | circular by-value type (an object that contains itself, also through `T?`) |
 | E0222 | mixing `Int` and `Float` |
 | E0224, E0225, E0226, E0227, E0228 | non-exhaustive match; pattern arity; unreachable arm; pattern binding shadows a name; unknown variant |
 | E0229 | empty list literal without a type |
@@ -2836,22 +2837,6 @@ codes cited in this manual:
 
 `docs/dev/diagnostic-codes.md` lists every code with its message.
 
-The following programs are accepted by the compiler but do not compile to
-valid C or misbehave at run time in the current release; the manual does not
-document them as features:
-
-- slicing a list (`xs[a..b]`),
-- `s += t` on strings (write `s = s + t`),
-- ordering comparisons of strings (`"a" < "b"`),
-- a named top-level function used as a value (`val f = twice`,
-  `apply(twice, 4)`, `[twice]`; wrap it in a lambda),
-- an object that has both an `init` and a `copy` block,
-- an object with a field of its own nullable type (`var next: Node?`),
-- `-> Self` in an interface method signature,
-- `Ptr.offset` and `Ptr.diff`,
-- nested `match` patterns (`A.X(B.Y(v))`) are not checked at run time,
-- duplicate integer arms in a `match`.
-
 ---
 
 ## 12. Not yet implemented
@@ -2861,9 +2846,9 @@ so that older material is not mistaken for the current language:
 
 - Thread pools: the `pool` keyword, `spawn("name", pool)` and `for ... parallel(pool)`.
 - Reading and writing a primitive through a pointer (`*p`).
-- Method-level generic inference for the container methods (`ch.recv()` without a written type).
 - Lambda parameter inference outside a function-typed parameter position.
 - `String`, `Bool` and `Float` subjects in `match`.
+- Collections of nullable elements (`[T?]`, `Map[K, V?]`, `Channel[T?]`).
 - raylib in Linux cross builds: it needs the system's OpenGL, which a
   static musl executable cannot load.
 

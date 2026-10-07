@@ -1606,6 +1606,50 @@ static bool rc_list_unwrap_expr(TypeCtx *ctx, Iron_Node **slot) {
     return true;
 }
 
+/* `Shape.Empty`: testing against a unit variant compares tags only, so it
+ * works whatever the other variants carry. */
+static bool is_unit_variant(const Iron_Node *n) {
+    return n && n->kind == IRON_NODE_ENUM_CONSTRUCT &&
+           ((const Iron_EnumConstruct *)n)->arg_count == 0;
+}
+
+/* Whether `==` is defined on values of type t: numbers, booleans,
+ * strings, and enums whose payloads all are (the emitter generates
+ * <Enum>_eq for those). Other types, including what `==` accepted before
+ * without emitting valid C (objects, lists), are rejected; pointers, rc
+ * handles, interfaces, nullables and function values keep their old
+ * behaviour. */
+static bool type_is_equatable(const Iron_Type *t, int depth) {
+    if (!t || depth > 16) return true;
+    switch ((int)t->kind) {
+        case IRON_TYPE_OBJECT:
+            return false;
+        case IRON_TYPE_ARRAY:
+            return false;
+        case IRON_TYPE_ENUM: {
+            const Iron_EnumDecl *ed = t->enu.decl;
+            if (!ed || !t->enu.variant_payload_types) return true;
+            for (int j = 0; j < ed->variant_count; j++) {
+                const Iron_EnumVariant *ev = (const Iron_EnumVariant *)ed->variants[j];
+                if (!ev || !t->enu.variant_payload_types[j]) continue;
+                for (int k = 0; k < ev->payload_count; k++) {
+                    const Iron_Type *pt = t->enu.variant_payload_types[j][k];
+                    if (!pt || pt == t || pt->kind == IRON_TYPE_VOID) continue;
+                    if (pt->kind != IRON_TYPE_ENUM && pt->kind != IRON_TYPE_STRING &&
+                        pt->kind != IRON_TYPE_BOOL && !iron_type_is_numeric(pt))
+                        return false;
+                    if (pt->kind == IRON_TYPE_ENUM && pt->enu.decl != ed &&
+                        !type_is_equatable(pt, depth + 1))
+                        return false;
+                }
+            }
+            return true;
+        }
+        default:
+            return true;
+    }
+}
+
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     if (!ann_node) return iron_type_make_primitive(IRON_TYPE_VOID);
     /* HARD-05: cancel poll at type-annotation walker entry. */
@@ -2896,6 +2940,9 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
         if (!pn || pn->kind != IRON_NODE_PARAM || !mc->args[i]) continue;
         Iron_Param *mp = (Iron_Param *)pn;
         Iron_Type *pt = resolve_type_annotation(ctx, mp->type_ann);
+        if (!((Iron_ExprNode *)mc->args[i])->resolved_type && pt &&
+            pt->kind != IRON_TYPE_ERROR && !type_mentions_generic(pt))
+            check_expr_with_expected(ctx, mc->args[i], pt);
         Iron_Type *at = ((Iron_ExprNode *)mc->args[i])->resolved_type;
         if (!pt || !at || pt->kind == IRON_TYPE_ERROR || at->kind == IRON_TYPE_ERROR)
             continue;
@@ -3427,7 +3474,27 @@ static bool redirect_generic_call(TypeCtx *ctx, Iron_CallExpr *ce) {
     return true;
 }
 
+static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node);
+
+/* A method call defers its empty list literal arguments to the check
+ * against the parameter type; one that no path typed is checked here and
+ * reports E0229. */
 static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
+    Iron_Type *t = check_expr_impl(ctx, node);
+    if (node && node->kind == IRON_NODE_METHOD_CALL) {
+        Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+        for (int i = 0; i < mc->arg_count; i++) {
+            Iron_Node *a = mc->args[i];
+            if (a && a->kind == IRON_NODE_ARRAY_LIT &&
+                ((Iron_ArrayLit *)a)->element_count == 0 &&
+                !((Iron_ArrayLit *)a)->type_ann && !((Iron_ArrayLit *)a)->resolved_type)
+                check_expr_impl(ctx, a);
+        }
+    }
+    return t;
+}
+
+static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return iron_type_make_primitive(IRON_TYPE_VOID);
     /* HARD-05: cancel poll at recursive expression walker entry. */
     if (iron_cancel_requested(ctx->cancel_flag)) {
@@ -3710,6 +3777,24 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                  iron_type_to_string(rt, ctx->arena));
                         emit_error(ctx, IRON_ERR_TYPE_MISMATCH, be->span, msg,
                                    "comparison operands must have compatible types");
+                    } else if ((op == IRON_TOK_EQUALS || op == IRON_TOK_NOT_EQUALS) &&
+                               lt->kind != IRON_TYPE_NULL && rt->kind != IRON_TYPE_NULL &&
+                               !type_is_equatable(lt, 0) &&
+                               !is_unit_variant(be->left) && !is_unit_variant(be->right)) {
+                        /* `==` compares numbers, booleans, strings and enum
+                         * values; an object or a list has no equality, and
+                         * comparing one emitted C that does not compile. */
+                        char msg[512];
+                        snprintf(msg, sizeof(msg),
+                                 "values of type '%s' cannot be compared with '%s'",
+                                 iron_type_to_string(lt, ctx->arena),
+                                 op == IRON_TOK_EQUALS ? "==" : "!=");
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, be->span, msg,
+                                   lt->kind == IRON_TYPE_ARRAY
+                                       ? "compare the elements"
+                                       : lt->kind == IRON_TYPE_ENUM
+                                           ? "an enum compares with == only when its payloads do"
+                                           : "compare their fields");
                     }
                     result = iron_type_make_primitive(IRON_TYPE_BOOL);
                 } else if (is_logic) {
@@ -5222,7 +5307,18 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             }
 
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
-            for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+            /* An empty list literal argument waits for the parameter type
+             * (`m.get_or(k, [])` against V, `",".join([])` against [String]):
+             * checked here first, it failed E0229 with no type to infer
+             * from. check_expr checks any that no path typed. */
+            for (int i = 0; i < mc->arg_count; i++) {
+                if (mc->args[i] &&
+                    mc->args[i]->kind == IRON_NODE_ARRAY_LIT &&
+                    ((Iron_ArrayLit *)mc->args[i])->element_count == 0 &&
+                    !((Iron_ArrayLit *)mc->args[i])->type_ann)
+                    continue;
+                check_expr(ctx, mc->args[i]);
+            }
 
             /* The receiver already failed to type-check: propagate the
              * error instead of typing the call Void (which cascaded into
@@ -5829,7 +5925,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         mc->arg_count == 1 && arr_type->array.elem) {
                         /* check_expr is idempotent — args were already checked at
                          * line 1407 above, so this just fetches the resolved type. */
-                        Iron_Type *arg_type = check_expr(ctx, mc->args[0]);
+                        Iron_Type *arg_type = check_expr_with_expected(
+                            ctx, mc->args[0], arr_type->array.elem);
                         if (arg_type &&
                             !push_type_compatible(arr_type->array.elem, arg_type)) {
                             /* iron_type_to_string returns "<object>" / "<interface>"
@@ -7704,6 +7801,33 @@ static Iron_Type *check_expr_with_expected(TypeCtx *ctx, Iron_Node *node,
         expected->kind == IRON_TYPE_FUNC) {
         ctx->lambda_expected_type = expected;
     }
+    /* A generic enum construct whose payload leaves type arguments open
+     * (`Maybe.Nothing`, `Result.Ok(1)`) takes them from the expected type
+     * of a return, an argument or an assignment, as an annotated `val`
+     * initializer does. Arguments the payload did fix must agree. */
+    if (node && node->kind == IRON_NODE_ENUM_CONSTRUCT && expected &&
+        expected->kind == IRON_TYPE_ENUM && expected->enu.mangled_name) {
+        Iron_Type *t = check_expr(ctx, node);
+        if (t && t->kind == IRON_TYPE_ENUM && t->enu.decl == expected->enu.decl &&
+            t != expected) {
+            bool open = !t->enu.type_args ||
+                        t->enu.type_arg_count != expected->enu.type_arg_count;
+            bool agree = true;
+            int n = t->enu.type_arg_count < expected->enu.type_arg_count
+                        ? t->enu.type_arg_count : expected->enu.type_arg_count;
+            for (int i = 0; t->enu.type_args && i < n; i++) {
+                Iron_Type *a = t->enu.type_args[i];
+                Iron_Type *e = expected->enu.type_args ? expected->enu.type_args[i] : NULL;
+                if (!a) open = true;
+                else if (!e || !iron_type_equals(a, e)) agree = false;
+            }
+            if (open && agree) {
+                ((Iron_EnumConstruct *)node)->resolved_type = expected;
+                return expected;
+            }
+        }
+        return t;
+    }
     /* `rc [..]` against an `rc [T]` annotation: the literal inside takes
      * the annotated list type, as a plain literal would (#201). */
     if (node && node->kind == IRON_NODE_RC && expected && type_is_rc_list(expected)) {
@@ -9055,6 +9179,76 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 emit_error(ctx, IRON_ERR_POOL_UNSUPPORTED, fs->pool_expr->span,
                            "thread pools are not supported for parallel for",
                            "write `for i in range(n) parallel { ... }`");
+            }
+            /* The chunked parallel loop runs over indices, so a list is
+             * iterated as `for i in range(len(xs)) parallel { val x = xs[i]
+             * ... }`; the list is then captured like any other binding the
+             * body reads. Lowering it as a range used the list as the
+             * iteration count and the index as the element. */
+            if (fs->is_parallel && iter_t && iter_t->kind == IRON_TYPE_ARRAY &&
+                !fs->var_name2 && fs->body && fs->body->kind == IRON_NODE_BLOCK) {
+                if (fs->iterable->kind != IRON_NODE_IDENT) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fs->iterable->span,
+                               "parallel for over a list needs the list in a binding",
+                               "bind it first: `val xs = ...`, then `for x in xs parallel`");
+                } else {
+                    static int pfor_index_counter = 0;
+                    Iron_Ident *src = (Iron_Ident *)fs->iterable;
+                    Iron_Span sp = fs->iterable->span;
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "__pfor_i%d", pfor_index_counter++);
+                    const char *idx_name = iron_arena_strdup(ctx->arena, buf, strlen(buf));
+                    Iron_Ident *idx = ARENA_ALLOC(ctx->arena, Iron_Ident);
+                    Iron_Ident *idx2 = ARENA_ALLOC(ctx->arena, Iron_Ident);
+                    Iron_Ident *src2 = ARENA_ALLOC(ctx->arena, Iron_Ident);
+                    Iron_Ident *len_id = ARENA_ALLOC(ctx->arena, Iron_Ident);
+                    Iron_Ident *range_id = ARENA_ALLOC(ctx->arena, Iron_Ident);
+                    Iron_CallExpr *len_call = ARENA_ALLOC(ctx->arena, Iron_CallExpr);
+                    Iron_CallExpr *range_call = ARENA_ALLOC(ctx->arena, Iron_CallExpr);
+                    Iron_IndexExpr *elem = ARENA_ALLOC(ctx->arena, Iron_IndexExpr);
+                    Iron_ValDecl *bind = ARENA_ALLOC(ctx->arena, Iron_ValDecl);
+                    Iron_Node **len_args = iron_arena_alloc(ctx->arena, sizeof(Iron_Node *),
+                                                            _Alignof(Iron_Node *));
+                    Iron_Node **range_args = iron_arena_alloc(ctx->arena, sizeof(Iron_Node *),
+                                                              _Alignof(Iron_Node *));
+                    Iron_Block *body = (Iron_Block *)fs->body;
+                    Iron_Node **stmts = iron_arena_alloc(
+                        ctx->arena, sizeof(Iron_Node *) * (size_t)(body->stmt_count + 1),
+                        _Alignof(Iron_Node *));
+                    if (!idx_name || !idx || !idx2 || !src2 || !len_id || !range_id ||
+                        !len_call || !range_call || !elem || !bind || !len_args ||
+                        !range_args || !stmts)
+                        iron_oom_abort("typecheck.c:parallel for over a list");
+                    memset(idx, 0, sizeof *idx);
+                    idx->kind = IRON_NODE_IDENT; idx->span = sp; idx->name = idx_name;
+                    *idx2 = *idx;
+                    *src2 = *src;
+                    memset(len_id, 0, sizeof *len_id);
+                    len_id->kind = IRON_NODE_IDENT; len_id->span = sp; len_id->name = "len";
+                    *range_id = *len_id; range_id->name = "range";
+                    len_args[0] = (Iron_Node *)src2;
+                    memset(len_call, 0, sizeof *len_call);
+                    len_call->kind = IRON_NODE_CALL; len_call->span = sp;
+                    len_call->callee = (Iron_Node *)len_id;
+                    len_call->args = len_args; len_call->arg_count = 1;
+                    range_args[0] = (Iron_Node *)len_call;
+                    *range_call = *len_call;
+                    range_call->callee = (Iron_Node *)range_id;
+                    range_call->args = range_args;
+                    memset(elem, 0, sizeof *elem);
+                    elem->kind = IRON_NODE_INDEX; elem->span = sp;
+                    elem->object = (Iron_Node *)src; elem->index = (Iron_Node *)idx2;
+                    memset(bind, 0, sizeof *bind);
+                    bind->kind = IRON_NODE_VAL_DECL; bind->span = fs->span;
+                    bind->name = fs->var_name; bind->init = (Iron_Node *)elem;
+                    stmts[0] = (Iron_Node *)bind;
+                    for (int si = 0; si < body->stmt_count; si++) stmts[si + 1] = body->stmts[si];
+                    body->stmts = stmts;
+                    body->stmt_count++;
+                    fs->var_name = idx_name;
+                    fs->iterable = (Iron_Node *)range_call;
+                    iter_t = check_expr(ctx, fs->iterable);
+                }
             }
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
             /* Define loop variable with appropriate type.

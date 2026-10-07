@@ -2948,6 +2948,15 @@ static void lower_module_decls_hir(IronHIR_LowerCtx *ctx) {
                 break;
             }
 
+            /* list.iron's `func [T].map[U](...)` and the other list
+             * extensions are stubs too: calls dispatch to the runtime's
+             * Iron_List_<T>_* functions. Lowered, their `T` resolved to a
+             * user type of that name (`object T`), and the stubs failed LIR
+             * verification for every program declaring one. */
+            if (md->is_array_extension) {
+                break;
+            }
+
             /* Build mangled name: typeName_methodName (lowercase type name
              * to match Iron's C convention: Iron_io_read_file, not Iron_IO_read_file) */
             char mangled[256];

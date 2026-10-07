@@ -41,4 +41,7 @@ void emit_foreign_method_prototypes(EmitCtx *ctx);
 /* Estimate size of a concrete type in bytes (for variant split decisions). */
 int emit_estimate_type_size(Iron_ObjectDecl *od);
 
+/* Whether `==` is defined on an enum type (an <Enum>_eq is emitted). */
+bool emit_enum_is_equatable(const Iron_Type *t, int depth);
+
 #endif /* IRON_EMIT_STRUCTS_H */

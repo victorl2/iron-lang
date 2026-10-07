@@ -1,0 +1,8 @@
+-- @expect-panic: panic_site_line.iron:7
+-- A runtime panic names the Iron source line, not the generated C.
+func main() {
+    val xs = [1, 2, 3]
+    println("{xs[0]}")
+    val i = 5
+    println("{xs[i]}")
+}
