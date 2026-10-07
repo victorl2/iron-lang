@@ -1,0 +1,32 @@
+-- The variable of a `for` nested in another loop started as an untyped
+-- NULL, which does not compile for a struct element (String, objects,
+-- lists): assigning to 'Iron_String' from incompatible type 'void *'.
+object P {
+    val x: Int
+}
+
+func main() {
+    val docs = ["a b", "c"]
+    for i in range(docs.len()) {
+        for w in docs[i].split(" ") {
+            print("{w},")
+        }
+    }
+    println("")
+    val ps = [P(1), P(2)]
+    var sum = 0
+    for k in range(3) {
+        for p in ps {
+            sum += p.x * k
+        }
+    }
+    println("{sum}")
+    val grid = [[1, 2], [3]]
+    var n = 0
+    for r in range(2) {
+        for row in grid {
+            n += row.len() + r
+        }
+    }
+    println("{n}")
+}
