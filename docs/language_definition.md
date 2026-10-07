@@ -2898,9 +2898,11 @@ decl           ::= import_decl
                  | var_decl
                  | [ 'nocopy' ] [ 'pub' ] object_decl
                  | [ 'pub' ] ( func_decl | extern_decl | patch_decl | interface_decl | enum_decl | array_ext_decl )
+                 | test_decl
 
 import_decl    ::= 'import' IDENT { '.' IDENT }
 func_decl      ::= [ '@' 'fusible' ] 'func' IDENT [ generic_params ] param_list [ '->' type ] block
+test_decl      ::= 'test' STRING block
 extern_decl    ::= 'extern' 'func' IDENT param_list [ '->' type ]
 array_ext_decl ::= 'func' '[' IDENT ']' '.' NAME [ generic_params ] param_list [ '->' type ] block
 generic_params ::= '[' generic_param { ',' generic_param } [ ',' ] ']'
