@@ -2160,8 +2160,14 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             if (arg_type && arg_type->kind == IRON_TYPE_ARRAY) {
                 IronLIR_ValueId arr_val = lower_expr(ctx, expr->call.args[0]);
                 Iron_Type *int_type = iron_type_make_primitive(IRON_TYPE_INT);
-                return iron_lir_get_field(ctx->current_func, ctx->current_block,
-                                          arr_val, "count", int_type, span)->id;
+                /* A fresh list (`len(xs.filter(f))`) is freed once its
+                 * count is read. */
+                TempOwned *len_temps = NULL;
+                note_owned_temp(ctx, &len_temps, expr->call.args[0], arr_val, span);
+                IronLIR_ValueId n = iron_lir_get_field(ctx->current_func, ctx->current_block,
+                                                       arr_val, "count", int_type, span)->id;
+                release_owned_temps(ctx, &len_temps, span);
+                return n;
             }
         }
 
@@ -2970,10 +2976,21 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                         strcmp(coll_method, "sort") != 0 && strcmp(coll_method, "reverse") != 0 &&
                         strcmp(coll_method, "take") != 0 && strcmp(coll_method, "set_unchecked") != 0;
                     /* (Chained collection calls such as xs.map(f).sum() are
-                     * fused and never materialise the intermediate list.) */
+                     * fused and never materialise the intermediate list. Only
+                     * map/filter feeding map, filter, reduce, forEach or sum
+                     * fuse: the result of xs.map(f).len() or xs.copy().len()
+                     * is an ordinary temporary, and was leaked.) */
                     IronHIR_Expr *ro = expr->method_call.object;
-                    bool list_chain = ro && ro->kind == IRON_HIR_EXPR_METHOD_CALL &&
-                                      ro->method_call.object && ro->method_call.object->type &&
+                    const char *rm = (ro && ro->kind == IRON_HIR_EXPR_METHOD_CALL)
+                                     ? ro->method_call.method : NULL;
+                    bool fuses = rm && (strcmp(rm, "map") == 0 || strcmp(rm, "filter") == 0) &&
+                                 (strcmp(coll_method, "map") == 0 ||
+                                  strcmp(coll_method, "filter") == 0 ||
+                                  strcmp(coll_method, "reduce") == 0 ||
+                                  strcmp(coll_method, "forEach") == 0 ||
+                                  strcmp(coll_method, "sum") == 0);
+                    bool list_chain = fuses && ro->method_call.object &&
+                                      ro->method_call.object->type &&
                                       ro->method_call.object->type->kind == IRON_TYPE_ARRAY;
                     if (reads_only && ro && !list_chain)
                         note_owned_temp(ctx, &coll_temps, ro, self_val, span);
