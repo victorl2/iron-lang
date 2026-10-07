@@ -1,0 +1,25 @@
+-- An empty list literal passed to a Map method takes the value type.
+func main() {
+    val docs = ["the cat sat", "the dog sat down", "a cat and a dog"]
+    var index = Map[String, [Int]]()
+    for i in range(docs.len()) {
+        for w in docs[i].split(" ") {
+            var ids = index.get_or(w, [])
+            if not ids.contains(i) {
+                ids.push(i)
+            }
+            index.put(w, ids.take())
+        }
+    }
+    var keys = index.keys()
+    keys.sort()
+    for k in keys {
+        val ids = index.get(k)
+        var parts: [String] = []
+        for id in ids {
+            parts.push("{id}")
+        }
+        print("{k}:{",".join(parts)} ")
+    }
+    println("")
+}

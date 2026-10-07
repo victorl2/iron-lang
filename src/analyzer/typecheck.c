@@ -5222,7 +5222,22 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             }
 
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
-            for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+            /* A Map or Set method checks its arguments against K and V
+             * (check_hash_method), so an empty list literal there takes the
+             * value type (`m.get_or(k, [])`); checked here first, it failed
+             * E0229 with no type to infer from. */
+            Iron_Type *hash_recv = (obj_type_mc && obj_type_mc->kind == IRON_TYPE_RC)
+                                   ? obj_type_mc->rc.inner : obj_type_mc;
+            bool hash_args_later = hash_recv && hash_container_kind(hash_recv) &&
+                                   hash_recv->object.elem;
+            for (int i = 0; i < mc->arg_count; i++) {
+                if (hash_args_later && mc->args[i] &&
+                    mc->args[i]->kind == IRON_NODE_ARRAY_LIT &&
+                    ((Iron_ArrayLit *)mc->args[i])->element_count == 0 &&
+                    !((Iron_ArrayLit *)mc->args[i])->type_ann)
+                    continue;
+                check_expr(ctx, mc->args[i]);
+            }
 
             /* The receiver already failed to type-check: propagate the
              * error instead of typing the call Void (which cascaded into
