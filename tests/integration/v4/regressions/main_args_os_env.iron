@@ -1,0 +1,11 @@
+-- func main(args: [String]) receives the command-line arguments after the
+-- program name (none here); OS.env reads the environment.
+import os
+
+func main(args: [String]) {
+    println("{args.len()}")
+    println("{OS.env("IRON_TEST_SURELY_UNSET_VAR") == null} {OS.has_env("IRON_TEST_SURELY_UNSET_VAR")}")
+    println(OS.env_or("IRON_TEST_SURELY_UNSET_VAR", "fallback"))
+    val path = OS.env("PATH")
+    println("{path != null}")
+}

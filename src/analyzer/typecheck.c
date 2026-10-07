@@ -10168,6 +10168,22 @@ static bool is_readonly_compatible_type(const Iron_Type *t, TypeCtx *ctx) {
 /* ── Check function / method declarations ────────────────────────────────── */
 
 static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
+    /* The entry point takes nothing or the command-line arguments,
+     * `func main(args: [String])`. */
+    if (fd->name && strcmp(fd->name, "main") == 0 && !fd->generic_param_count) {
+        bool ok = fd->param_count <= 1;
+        if (ok && fd->param_count == 1) {
+            Iron_Param *p0 = (Iron_Param *)fd->params[0];
+            Iron_Type *pt = p0 ? resolve_type_annotation(ctx, p0->type_ann) : NULL;
+            ok = pt && pt->kind == IRON_TYPE_ARRAY && pt->array.size < 0 &&
+                 !pt->array.is_bounded && pt->array.elem &&
+                 pt->array.elem->kind == IRON_TYPE_STRING && !p0->is_var;
+        }
+        if (!ok)
+            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fd->span,
+                       "main takes no parameters or the command-line arguments",
+                       "write `func main()` or `func main(args: [String])`");
+    }
     /* Phase 33 OQ-02 unblock: register method-/func-level generic params
      * (`func Box.new[T]() -> Box[T]`, `func Box.unwrap[T]() -> *unchecked T`)
      * as in-scope IRON_TYPE_GENERIC_PARAM type symbols BEFORE resolving the

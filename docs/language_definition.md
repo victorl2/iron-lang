@@ -1103,9 +1103,13 @@ throughout the package, section 10.3).
 
 ### 5.1 The entry point
 
-A binary program has exactly one `func main()` with no parameters and no
-result type. Execution starts there and the process exits with status 0
-when `main` returns. A run-time failure (index out of range, division by
+A binary program has exactly one `main`, with no result type, written
+either `func main()` or `func main(args: [String])` to receive the
+command-line arguments after the program name (UTF-8, `iron run file.iron
+-- a b` passes `a` and `b`); any other parameter list is an error
+(`E0202`).
+Execution starts there and the process exits with status 0 when `main`
+returns. A run-time failure (index out of range, division by
 zero, failed `assert`, stale pointer) prints a message to standard error and
 aborts.
 
@@ -2454,6 +2458,30 @@ func main() {
 
 ```output
 true 2000 false
+```
+
+### 9.6.1 `os` (import)
+
+`OS.env(name) -> String?` reads an environment variable (`null` when it is
+not set), `OS.env_or(name, fallback) -> String` returns `fallback` instead,
+and `OS.has_env(name) -> Bool` tests for it (an empty value counts as set).
+Names and values are UTF-8 on every platform.
+
+```iron
+import os
+
+func main(args: [String]) {
+    val home = OS.env("IRON_MANUAL_UNSET_VAR")
+    if home == null {
+        println("unset")
+    }
+    println("{OS.env_or("IRON_MANUAL_UNSET_VAR", "default")} {args.len()}")
+}
+```
+
+```output
+unset
+default 0
 ```
 
 ### 9.7 `log` (import)
