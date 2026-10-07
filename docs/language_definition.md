@@ -2237,6 +2237,7 @@ These are available everywhere without an import.
 | `clamp(x: Int, lo: Int, hi: Int) -> Int` | `x` limited to `[lo, hi]` |
 | `abs(x: Int) -> Int` | absolute value |
 | `assert(cond: Bool)`, `assert(cond: Bool, msg: String)` | abort with `msg` (or the source location) when `cond` is false |
+| `assert_eq(actual, expected)`, `assert_ne(a, b)` | abort, naming the source line and both values, unless `actual == expected` (`a != b`); a statement, for values that compare with `==` and have a text form |
 | `read_file(path: String) -> String` | file contents, only inside `comptime` |
 
 `print` and `println` take exactly one `String`; interpolate other values.
@@ -2627,8 +2628,8 @@ directory with an `iron.toml` manifest, `src/main.iron` (or `src/lib.iron`
 for a library) and a `.gitignore`. Inside a package, `iron build` compiles
 every `.iron` file under `src/` and `vendor/` into `target/`, `iron run`
 builds and runs it, `iron check` type-checks the same sources, `iron test`
-compiles and runs every `tests/test_*.iron` file as a program (a test
-passes when it exits with 0) and `iron fmt file.iron` reformats a file
+runs the package's `test "name" { ... }` blocks (section 10.2.1) and every
+`tests/test_*.iron` program, and `iron fmt file.iron` reformats a file
 (`--check` only reports). All files of a package share one namespace: a
 `pub` declaration in one file is visible in every other file, and a
 private one only in its own (`E0320`). `import` of a package file is
@@ -2650,6 +2651,28 @@ clauses are combined with AND (`">= 4.0.0, < 5.0.0"`). A pre-release such
 as `4.4.0-alpha` sorts before `4.4.0`. A mismatch stops the build with the
 version to install. There is no `[dependencies]` table: a manifest that
 declares one fails with a vendoring hint.
+
+#### 10.2.1 Test blocks
+
+A `test "name" { ... }` declaration, at the top level of any file, is a
+test: a body checked like a function's, run by `iron test` (or `ironc test
+file.iron`) and left out of every other build. `test` is a keyword only in
+this position. The tests of a package are compiled with its sources, so a
+test in `src/` can call that file's private functions; each runs in its own
+process, and a failed `assert`, `assert_eq`, `assert_ne` or a panic fails
+it.
+
+<!-- doctest-skip: a test block needs `iron test` to run -->
+```iron
+func parse_digit(c: String) -> Int {
+    return "0123456789".index_of(c)
+}
+
+test "digits parse" {
+    assert_eq(parse_digit("7"), 7)
+    assert_eq(parse_digit("x"), -1)
+}
+```
 
 ### 10.3 Third-party code
 

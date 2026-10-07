@@ -11801,8 +11801,63 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         emit_func_body(&ctx, fn);
     }
 
+    /* ── Test build: a main that lists and runs the `test` functions ──── */
+    if (module->test_mode) {
+        bool has_module_deinit = false;
+        for (int di = 0; di < module->func_count; di++)
+            if (module->funcs[di] && module->funcs[di]->name &&
+                strcmp(module->funcs[di]->name, "__iron_module_deinit") == 0)
+                has_module_deinit = true;
+        Iron_StrBuf *mw = &ctx.main_wrapper;
+        iron_strbuf_appendf(mw, "static const char *const iron_test_names[] = {\n");
+        for (int t = 0; t < module->test_count; t++) {
+            /* One name per line on --iron-list: a newline becomes a space. */
+            iron_strbuf_appendf(mw, "    \"");
+            for (const unsigned char *c = (const unsigned char *)module->test_names[t]; *c; c++) {
+                if (*c == '\\' || *c == '"') iron_strbuf_appendf(mw, "\\%c", *c);
+                else if (*c == '\n' || *c == '\r') iron_strbuf_appendf(mw, " ");
+                else if (*c < 0x20) iron_strbuf_appendf(mw, "\\%03o", *c);
+                else iron_strbuf_appendf(mw, "%c", *c);
+            }
+            iron_strbuf_appendf(mw, "\",\n");
+        }
+        iron_strbuf_appendf(mw, "    0\n};\n\n");
+        iron_strbuf_appendf(mw,
+            "/* --iron-list prints the test names, one per line; --iron-test <n>\n"
+            " * runs test n; no argument runs them all in order. */\n"
+            "int main(int argc, char** argv) {\n"
+            "    iron_runtime_init(argc, argv);\n");
+        if (module->global_count > 0)
+            iron_strbuf_appendf(mw, "    __iron_module_init();\n");
+        iron_strbuf_appendf(mw,
+            "    if (argc >= 2 && iron_cstr_cmp(argv[1], \"--iron-list\") == 0) {\n"
+            "        for (int i = 0; iron_test_names[i]; i++)\n"
+            "            Iron_println(iron_string_from_cstr(iron_test_names[i], iron_cstr_len(iron_test_names[i])));\n"
+            "        iron_runtime_shutdown();\n"
+            "        return 0;\n"
+            "    }\n"
+            "    int which = -1;\n"
+            "    if (argc >= 3 && iron_cstr_cmp(argv[1], \"--iron-test\") == 0) {\n"
+            "        which = 0;\n"
+            "        for (const char *c = argv[2]; *c >= '0' && *c <= '9'; c++) which = which * 10 + (*c - '0');\n"
+            "    }\n"
+            "    for (int i = 0; iron_test_names[i]; i++) {\n"
+            "        if (which >= 0 && i != which) continue;\n"
+            "        switch (i) {\n");
+        for (int t = 0; t < module->test_count; t++)
+            iron_strbuf_appendf(mw, "        case %d: %s(); break;\n", t,
+                                emit_mangle_func_name(module->test_funcs[t], ctx.arena));
+        iron_strbuf_appendf(mw, "        default: break;\n        }\n    }\n");
+        if (has_module_deinit)
+            iron_strbuf_appendf(mw, "    __iron_module_deinit();\n");
+        iron_strbuf_appendf(mw,
+            "    iron_runtime_shutdown();\n"
+            "    return 0;\n"
+            "}\n");
+    }
+
     /* ── Phase 5: main() wrapper ──────────────────────────────────────────── */
-    if (has_main) {
+    if (has_main && !module->test_mode) {
         /* Module-global lifecycle (2026-07 remediation):
          *   __iron_module_init   — runs every referenced top-level binding's
          *                          initializer in DECLARATION order, after

@@ -100,6 +100,16 @@ module.exports = grammar({
       $.extern_func_declaration,
       $.val_declaration,
       $.var_declaration,
+      $.test_declaration,
+    ),
+
+    // `test "name" { ... }`: run by `iron test`, dropped from other builds.
+    // `test` is a keyword only here; elsewhere (`val test = 1`) the word
+    // token keeps it an identifier.
+    test_declaration: $ => seq(
+      'test',
+      field('name', $.string_literal),
+      field('body', $.block),
     ),
 
     // Keywords generated from src/lexer/lexer.c kw_table at configure time.

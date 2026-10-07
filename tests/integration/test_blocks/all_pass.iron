@@ -1,0 +1,35 @@
+-- Test blocks that all pass: `ironc test all_pass.iron` exits 0.
+enum Shape {
+    Circle(Int),
+    Empty,
+}
+
+func area(s: Shape) -> Int {
+    match s {
+        Shape.Circle(r) -> return 3 * r * r
+        Shape.Empty -> return 0
+    }
+}
+
+func label(n: Int) -> String {
+    return "n{n}"
+}
+
+test "integers" {
+    assert_eq(area(Shape.Circle(2)), 12)
+    assert_ne(area(Shape.Empty), 1)
+}
+
+test "strings" {
+    assert_eq(label(3), "n3")
+}
+
+test "enums" {
+    assert_eq(Shape.Circle(1), Shape.Circle(1))
+    assert_ne(Shape.Circle(1), Shape.Empty)
+}
+
+test "plain assert and output" {
+    println("output of a passing test is not shown")
+    assert(label(1).len() == 2, "label length")
+}

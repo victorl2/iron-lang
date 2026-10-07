@@ -985,6 +985,39 @@ set_tests_properties(test_ironc_version PROPERTIES
     PASS_REGULAR_EXPRESSION "^ironc [0-9]"
 )
 
+# `test "name" { ... }` blocks: ironc test builds them into one binary and
+# runs each in its own process; iron test does the same for a project.
+set(_tb "${CMAKE_SOURCE_DIR}/tests/integration/test_blocks")
+add_test(NAME test_blocks_all_pass
+         COMMAND ironc test "${_tb}/all_pass.iron")
+set_tests_properties(test_blocks_all_pass PROPERTIES
+    LABELS "integration;test-blocks" TIMEOUT 300)
+add_test(NAME test_blocks_all_pass_counts
+         COMMAND ironc test "${_tb}/all_pass.iron")
+set_tests_properties(test_blocks_all_pass_counts PROPERTIES
+    LABELS "integration;test-blocks" TIMEOUT 300
+    PASS_REGULAR_EXPRESSION "4 passed, 0 failed")
+add_test(NAME test_blocks_mixed_reports
+         COMMAND ironc test "${_tb}/mixed.iron")
+set_tests_properties(test_blocks_mixed_reports PROPERTIES
+    LABELS "integration;test-blocks" TIMEOUT 300
+    PASS_REGULAR_EXPRESSION "test add works \\.\\.\\. ok.*test add is wrong on purpose \\.\\.\\. FAILED.*assert_eq at [^\n]*mixed\\.iron:16: expected 5, got 4.*test index out of range \\.\\.\\. FAILED.*printed before the panic.*site: [^\n]*mixed\\.iron:23.*1 passed, 2 failed")
+add_test(NAME test_blocks_mixed_fails
+         COMMAND ironc test "${_tb}/mixed.iron")
+set_tests_properties(test_blocks_mixed_fails PROPERTIES
+    LABELS "integration;test-blocks" TIMEOUT 300 WILL_FAIL TRUE)
+add_test(NAME test_blocks_filter
+         COMMAND ironc test "${_tb}/mixed.iron" works)
+set_tests_properties(test_blocks_filter PROPERTIES
+    LABELS "integration;test-blocks" TIMEOUT 300
+    PASS_REGULAR_EXPRESSION "1 passed, 0 failed, 2 filtered out")
+add_test(NAME test_blocks_project
+         COMMAND ${CMAKE_COMMAND} -DIRON=$<TARGET_FILE:iron>
+                 -DWORK=${CMAKE_BINARY_DIR}/test_blocks_project
+                 -P "${_tb}/project_test.cmake")
+set_tests_properties(test_blocks_project PROPERTIES
+    LABELS "integration;test-blocks" TIMEOUT 600)
+
 # Phase 2 — CLI flag surface smoke tests
 
 add_test(

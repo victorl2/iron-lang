@@ -2358,6 +2358,104 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
     return left;
 }
 
+
+/* ── assert_eq / assert_ne ─────────────────────────────────────────────── */
+
+static Iron_Node *ae_ident(Iron_Parser *p, const char *name, Iron_Span sp) {
+    Iron_Ident *id = ARENA_ALLOC(p->arena, Iron_Ident);
+    if (!id) return NULL;
+    memset(id, 0, sizeof(*id));
+    id->kind = IRON_NODE_IDENT;
+    id->span = sp;
+    id->name = name;
+    return (Iron_Node *)id;
+}
+
+static Iron_Node *ae_text(Iron_Parser *p, const char *text, Iron_Span sp) {
+    Iron_StringLit *sl = ARENA_ALLOC(p->arena, Iron_StringLit);
+    if (!sl) return NULL;
+    memset(sl, 0, sizeof(*sl));
+    sl->kind = IRON_NODE_STRING_LIT;
+    sl->span = sp;
+    sl->value = iron_arena_strdup(p->arena, text, strlen(text));
+    return (Iron_Node *)sl;
+}
+
+/* `assert_eq(actual, expected)` / `assert_ne(a, b)` as a statement becomes
+ *     { val a = actual; val b = expected
+ *       assert(a == b, "assert_eq failed at file:line: expected {b}, got {a}") }
+ * so each operand is evaluated once and the checker applies the usual
+ * rules: the values must compare with == (E0202) and have a text form
+ * (E0334). */
+static Iron_Node *desugar_assert_eq(Iron_Parser *p, Iron_Node *expr) {
+    if (!expr || expr->kind != IRON_NODE_CALL) return expr;
+    Iron_CallExpr *ce = (Iron_CallExpr *)expr;
+    if (!ce->callee || ce->callee->kind != IRON_NODE_IDENT || ce->arg_count != 2) return expr;
+    const char *fn = ((Iron_Ident *)ce->callee)->name;
+    bool eq = fn && strcmp(fn, "assert_eq") == 0;
+    bool ne = fn && strcmp(fn, "assert_ne") == 0;
+    if (!eq && !ne) return expr;
+    Iron_Span sp = expr->span;
+    char an[48], bn[48], where[1024];
+    snprintf(an, sizeof(an), "iron__ae_%d_a", p->pos);
+    snprintf(bn, sizeof(bn), "iron__ae_%d_b", p->pos);
+    snprintf(where, sizeof(where), "%s at %s:%u: ", fn,
+             sp.filename ? sp.filename : "?", (unsigned)sp.line);
+    const char *a_name = iron_arena_strdup(p->arena, an, strlen(an));
+    const char *b_name = iron_arena_strdup(p->arena, bn, strlen(bn));
+
+    Iron_ValDecl *va = ARENA_ALLOC(p->arena, Iron_ValDecl);
+    Iron_ValDecl *vb = ARENA_ALLOC(p->arena, Iron_ValDecl);
+    Iron_BinaryExpr *cmp = ARENA_ALLOC(p->arena, Iron_BinaryExpr);
+    Iron_InterpString *msg = ARENA_ALLOC(p->arena, Iron_InterpString);
+    Iron_CallExpr *call = ARENA_ALLOC(p->arena, Iron_CallExpr);
+    Iron_Block *blk = ARENA_ALLOC(p->arena, Iron_Block);
+    Iron_Node **parts = iron_arena_alloc(p->arena, sizeof(Iron_Node *) * 4, _Alignof(Iron_Node *));
+    Iron_Node **args = iron_arena_alloc(p->arena, sizeof(Iron_Node *) * 2, _Alignof(Iron_Node *));
+    Iron_Node **stmts = iron_arena_alloc(p->arena, sizeof(Iron_Node *) * 3, _Alignof(Iron_Node *));
+    if (!a_name || !b_name || !va || !vb || !cmp || !msg || !call || !blk || !parts || !args || !stmts)
+        return expr;
+
+    memset(va, 0, sizeof(*va));
+    va->kind = IRON_NODE_VAL_DECL; va->span = sp; va->name = a_name; va->init = ce->args[0];
+    memset(vb, 0, sizeof(*vb));
+    vb->kind = IRON_NODE_VAL_DECL; vb->span = sp; vb->name = b_name; vb->init = ce->args[1];
+
+    memset(cmp, 0, sizeof(*cmp));
+    cmp->kind = IRON_NODE_BINARY; cmp->span = sp;
+    cmp->op = (Iron_OpKind)(eq ? IRON_TOK_EQUALS : IRON_TOK_NOT_EQUALS);
+    cmp->left = ae_ident(p, a_name, sp);
+    cmp->right = ae_ident(p, b_name, sp);
+
+    char head[1100];
+    snprintf(head, sizeof(head), "%s%s", where, eq ? "expected " : "both are ");
+    int np = 0;
+    parts[np++] = ae_text(p, head, sp);
+    if (eq) {
+        parts[np++] = ae_ident(p, b_name, sp);
+        parts[np++] = ae_text(p, ", got ", sp);
+    }
+    parts[np++] = ae_ident(p, a_name, sp);
+    for (int i = 0; i < np; i++) if (!parts[i]) return expr;
+    memset(msg, 0, sizeof(*msg));
+    msg->kind = IRON_NODE_INTERP_STRING; msg->span = sp; msg->parts = parts; msg->part_count = np;
+
+    args[0] = (Iron_Node *)cmp;
+    args[1] = (Iron_Node *)msg;
+    memset(call, 0, sizeof(*call));
+    call->kind = IRON_NODE_CALL; call->span = sp;
+    call->callee = ae_ident(p, "assert", sp);
+    call->args = args; call->arg_count = 2;
+    if (!cmp->left || !cmp->right || !call->callee) return expr;
+
+    stmts[0] = (Iron_Node *)va;
+    stmts[1] = (Iron_Node *)vb;
+    stmts[2] = (Iron_Node *)call;
+    memset(blk, 0, sizeof(*blk));
+    blk->kind = IRON_NODE_BLOCK; blk->span = sp; blk->stmts = stmts; blk->stmt_count = 3;
+    return (Iron_Node *)blk;
+}
+
 static Iron_Node *iron_parse_expr(Iron_Parser *p) {
     return iron_parse_expr_prec(p, PREC_ASSIGN);
 }
@@ -3382,7 +3480,7 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
                 return (Iron_Node *)a;
             }
 
-            return expr;
+            return desugar_assert_eq(p, expr);
         }
     }
 }
@@ -6104,6 +6202,31 @@ static Iron_Node *iron_parse_decl_impl(Iron_Parser *p, bool is_private, bool is_
         iron_advance(p);
         iron_parser_sync_toplevel(p);
         return iron_make_error(p);
+    }
+
+    /* `test "name" { ... }`: `test` is a keyword only here, before a string. */
+    if (iron_check(p, IRON_TOK_IDENTIFIER) && iron_current(p)->value &&
+        strcmp(iron_current(p)->value, "test") == 0 &&
+        p->pos + 1 < p->token_count && p->tokens[p->pos + 1].kind == IRON_TOK_STRING) {
+        Iron_Token *kw = iron_advance(p);
+        Iron_Token *name_tok = iron_advance(p);
+        iron_skip_newlines(p);
+        Iron_Node *body = iron_parse_block(p);
+        Iron_FuncDecl *fd = ARENA_ALLOC(p->arena, Iron_FuncDecl);
+        if (!fd) { p->in_error_recovery = true; return iron_make_error(p); }
+        memset(fd, 0, sizeof(*fd));
+        char fname[48];
+        snprintf(fname, sizeof(fname), "iron__test_%d", p->pos);
+        fd->kind = IRON_NODE_FUNC_DECL;
+        fd->span = iron_span_merge(iron_token_span(p, kw),
+                                   body ? body->span : iron_token_span(p, name_tok));
+        fd->name = iron_arena_strdup(p->arena, fname, strlen(fname));
+        fd->body = body;
+        fd->is_test = true;
+        fd->test_name = name_tok->value ? name_tok->value : "";
+        p->in_error_recovery = false;
+        p->stmt_errored = false;
+        return (Iron_Node *)fd;
     }
 
     switch ((int)iron_peek(p)) {

@@ -1,0 +1,7 @@
+-- Test blocks are type-checked by every build, not only by `iron test`.
+func main() {
+}
+
+test "uses an undefined name" {
+    assert_eq(missing_function(1), 2)
+}

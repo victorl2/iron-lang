@@ -1,0 +1,57 @@
+==========
+test block
+==========
+
+test "adds" {
+    assert_eq(add(1, 2), 3)
+}
+
+---
+
+(source_file
+  (test_declaration
+    name: (string_literal)
+    body: (block
+      (expression_statement
+        (call_expression
+          function: (identifier)
+          (call_expression
+            function: (identifier)
+            (integer_literal)
+            (integer_literal))
+          (integer_literal))))))
+
+==========
+test is an identifier elsewhere; break and continue
+==========
+
+func main() {
+    val test = 1
+    while true {
+        if test > 0 {
+            break
+        }
+        continue
+    }
+}
+
+---
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (val_declaration
+        binding: (identifier)
+        value: (integer_literal))
+      (while_statement
+        condition: (boolean_literal)
+        body: (block
+          (if_statement
+            condition: (binary_expression
+              (identifier)
+              (integer_literal))
+            consequence: (block
+              (break_statement)))
+          (continue_statement))))))

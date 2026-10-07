@@ -1,0 +1,24 @@
+-- One passing test, a failing assert_eq and a panic: each runs in its own
+-- process, so the failures do not stop the others.
+func add(a: Int, b: Int) -> Int {
+    return a + b
+}
+
+func main() {
+    println("the program's main is not run by the tests")
+}
+
+test "add works" {
+    assert_eq(add(2, 3), 5)
+}
+
+test "add is wrong on purpose" {
+    assert_eq(add(2, 2), 5)
+}
+
+test "index out of range" {
+    val xs = [1]
+    val i = 3
+    println("printed before the panic")
+    println("{xs[i]}")
+}

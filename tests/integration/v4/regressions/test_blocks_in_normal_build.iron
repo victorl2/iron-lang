@@ -1,0 +1,15 @@
+-- A normal build checks `test` blocks but drops them: main runs, the tests
+-- do not, and `test` stays usable as an identifier.
+func twice(x: Int) -> Int {
+    return x * 2
+}
+
+func main() {
+    val test = twice(4)
+    println("{test}")
+}
+
+test "twice doubles" {
+    assert_eq(twice(2), 4)
+    println("this test is not part of the program")
+}

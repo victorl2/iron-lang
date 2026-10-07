@@ -317,6 +317,10 @@ typedef struct {
      * (per-function-decl pessimistic detection per CONTEXT.md OQ-E lock;
      * pure syntactic walk per RESEARCH Pitfall 6). Default false. */
     bool               takes_local_addr;
+    /* `test "name" { ... }`: a parameterless function the test build runs
+     * (`ironc build --test`); other builds drop it after checking. */
+    bool               is_test;
+    const char        *test_name;
 } Iron_FuncDecl;
 
 typedef struct {

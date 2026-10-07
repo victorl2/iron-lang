@@ -149,19 +149,50 @@ binary.
 
 ### iron test
 
+A test is a `test "name" { ... }` block, in any file of `src/` (next to the
+code it tests, with access to its private functions) or `tests/` (with the
+project's `pub` declarations):
+
+<!-- doctest-skip: a test block needs `iron test` to run -->
+```iron
+func double(x: Int) -> Int {
+    return x * 2
+}
+
+test "double doubles" {
+    assert_eq(double(21), 42)
+}
+
+test "double of a negative" {
+    assert_eq(double(-3), -6)
+    assert_ne(double(1), 1)
+}
+```
+
 ```sh
 $ iron test
      Testing my-app v0.1.0
-[RUN ] test_math.iron
-ok
-[PASS] test_math.iron
+test double doubles ... ok
+test double of a negative ... ok
 
-Results: 1 passed, 0 failed, 1 total
+2 passed, 0 failed
     Finished all tests passed
 ```
 
-Builds and runs every `.iron` file under `tests/`; a test passes when its
-program exits with status 0.
+`iron test` compiles `vendor/`, `src/` and `tests/` into one test program
+and runs each test in its own process, several at a time: a failed
+`assert`, `assert_eq` or a panic fails that test, with its output and the
+source line, and the others still run. `iron test <filter>` runs the tests
+whose name contains `<filter>`. The exit status is 1 when a test fails.
+`iron build` and `iron run` type-check test blocks but leave them out of the
+program, and the program's `main` is not run by the tests.
+
+A `tests/test_*.iron` file with its own `func main` is a standalone test
+program, run as a whole: it passes when it exits with status 0.
+
+`ironc test file.iron [filter]` runs the test blocks of a single file, and
+`ironc build --test` builds the test program itself (`--iron-list` prints
+the test names, `--iron-test <n>` runs one).
 
 ### iron fmt
 
