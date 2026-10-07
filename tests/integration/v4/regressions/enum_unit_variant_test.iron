@@ -1,0 +1,18 @@
+-- An enum whose payloads include an object compares against a unit variant.
+object Q {
+    val x: Int
+}
+enum H {
+    Has(Q),
+    No,
+}
+func pick(n: Int) -> H {
+    if n > 0 {
+        return H.Has(Q(n))
+    }
+    return H.No
+}
+func main() {
+    val h = pick(1)
+    println("{H.No == H.No} {h == H.No} {pick(0) == H.No} {h != H.No}")
+}

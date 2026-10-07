@@ -1,0 +1,9 @@
+-- Objects have no ==; comparing two emitted C that did not compile.
+object Q {
+    val x: Int
+}
+func main() {
+    val a = Q(1)
+    val b = Q(1)
+    println("{a == b}")
+}

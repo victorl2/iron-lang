@@ -1,0 +1,39 @@
+-- == on enums with payloads compared the C structs and did not compile.
+enum E {
+    A(Int),
+    B(String),
+    C,
+}
+enum Tree {
+    Leaf,
+    Node(Tree, Int, Tree),
+}
+enum Maybe[T] {
+    Some(T),
+    Nothing,
+}
+enum Wrap {
+    W(E, Float),
+    Z,
+}
+func main() {
+    val x = E.A(1)
+    val y = E.A(1)
+    val z = E.A(2)
+    println("{x == y} {x == z} {E.C == E.C} {E.B("s") == E.B("s")} {x != E.C} {E.B("s") != E.B("t")}")
+    val t1 = Tree.Node(Tree.Leaf, 1, Tree.Node(Tree.Leaf, 2, Tree.Leaf))
+    val t2 = Tree.Node(Tree.Leaf, 1, Tree.Node(Tree.Leaf, 2, Tree.Leaf))
+    val t3 = Tree.Node(Tree.Leaf, 1, Tree.Leaf)
+    println("{t1 == t2} {t1 == t3} {Tree.Leaf == Tree.Leaf}")
+    val m: Maybe[Int] = Maybe.Some(3)
+    val n: Maybe[Int] = Maybe.Some(3)
+    println("{m == n}")
+    println("{Wrap.W(E.A(1), 2.5) == Wrap.W(E.A(1), 2.5)} {Wrap.W(E.A(1), 2.5) == Wrap.W(E.B("q"), 2.5)}")
+    var hits = 0
+    for e in [E.A(1), E.C, E.A(1)] {
+        if e == E.A(1) {
+            hits += 1
+        }
+    }
+    println("{hits}")
+}

@@ -1606,6 +1606,50 @@ static bool rc_list_unwrap_expr(TypeCtx *ctx, Iron_Node **slot) {
     return true;
 }
 
+/* `Shape.Empty`: testing against a unit variant compares tags only, so it
+ * works whatever the other variants carry. */
+static bool is_unit_variant(const Iron_Node *n) {
+    return n && n->kind == IRON_NODE_ENUM_CONSTRUCT &&
+           ((const Iron_EnumConstruct *)n)->arg_count == 0;
+}
+
+/* Whether `==` is defined on values of type t: numbers, booleans,
+ * strings, and enums whose payloads all are (the emitter generates
+ * <Enum>_eq for those). Other types, including what `==` accepted before
+ * without emitting valid C (objects, lists), are rejected; pointers, rc
+ * handles, interfaces, nullables and function values keep their old
+ * behaviour. */
+static bool type_is_equatable(const Iron_Type *t, int depth) {
+    if (!t || depth > 16) return true;
+    switch ((int)t->kind) {
+        case IRON_TYPE_OBJECT:
+            return false;
+        case IRON_TYPE_ARRAY:
+            return false;
+        case IRON_TYPE_ENUM: {
+            const Iron_EnumDecl *ed = t->enu.decl;
+            if (!ed || !t->enu.variant_payload_types) return true;
+            for (int j = 0; j < ed->variant_count; j++) {
+                const Iron_EnumVariant *ev = (const Iron_EnumVariant *)ed->variants[j];
+                if (!ev || !t->enu.variant_payload_types[j]) continue;
+                for (int k = 0; k < ev->payload_count; k++) {
+                    const Iron_Type *pt = t->enu.variant_payload_types[j][k];
+                    if (!pt || pt == t || pt->kind == IRON_TYPE_VOID) continue;
+                    if (pt->kind != IRON_TYPE_ENUM && pt->kind != IRON_TYPE_STRING &&
+                        pt->kind != IRON_TYPE_BOOL && !iron_type_is_numeric(pt))
+                        return false;
+                    if (pt->kind == IRON_TYPE_ENUM && pt->enu.decl != ed &&
+                        !type_is_equatable(pt, depth + 1))
+                        return false;
+                }
+            }
+            return true;
+        }
+        default:
+            return true;
+    }
+}
+
 static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
     if (!ann_node) return iron_type_make_primitive(IRON_TYPE_VOID);
     /* HARD-05: cancel poll at type-annotation walker entry. */
@@ -3710,6 +3754,24 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                                  iron_type_to_string(rt, ctx->arena));
                         emit_error(ctx, IRON_ERR_TYPE_MISMATCH, be->span, msg,
                                    "comparison operands must have compatible types");
+                    } else if ((op == IRON_TOK_EQUALS || op == IRON_TOK_NOT_EQUALS) &&
+                               lt->kind != IRON_TYPE_NULL && rt->kind != IRON_TYPE_NULL &&
+                               !type_is_equatable(lt, 0) &&
+                               !is_unit_variant(be->left) && !is_unit_variant(be->right)) {
+                        /* `==` compares numbers, booleans, strings and enum
+                         * values; an object or a list has no equality, and
+                         * comparing one emitted C that does not compile. */
+                        char msg[512];
+                        snprintf(msg, sizeof(msg),
+                                 "values of type '%s' cannot be compared with '%s'",
+                                 iron_type_to_string(lt, ctx->arena),
+                                 op == IRON_TOK_EQUALS ? "==" : "!=");
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH, be->span, msg,
+                                   lt->kind == IRON_TYPE_ARRAY
+                                       ? "compare the elements"
+                                       : lt->kind == IRON_TYPE_ENUM
+                                           ? "an enum compares with == only when its payloads do"
+                                           : "compare their fields");
                     }
                     result = iron_type_make_primitive(IRON_TYPE_BOOL);
                 } else if (is_logic) {

@@ -1771,6 +1771,19 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             if (depth > 0) iron_strbuf_appendf(sb, ")");
             break;
         }
+        if (lty && lty->kind == IRON_TYPE_ENUM && lty->enu.decl &&
+            lty->enu.decl->has_payloads) {
+            /* A tagged union: <Enum>_eq compares tag and payload; against a
+             * unit variant of an enum without one, the tags decide. */
+            bool full = emit_enum_is_equatable(lty, 0);
+            if (full) iron_strbuf_appendf(sb, "%s_eq(", emit_type_to_c(lty, ctx));
+            else iron_strbuf_appendf(sb, "((");
+            emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, full ? ", " : ").tag == (");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, full ? ")" : ").tag)");
+            break;
+        }
         if (lty && lty->kind == IRON_TYPE_STRING) {
             iron_strbuf_appendf(sb, "iron_string_equals(&(");
             emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
@@ -1814,6 +1827,17 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             }
             iron_strbuf_appendf(sb, ")");
             if (depth > 0) iron_strbuf_appendf(sb, ")");
+            break;
+        }
+        if (lty && lty->kind == IRON_TYPE_ENUM && lty->enu.decl &&
+            lty->enu.decl->has_payloads) {
+            bool full = emit_enum_is_equatable(lty, 0);
+            if (full) iron_strbuf_appendf(sb, "(!%s_eq(", emit_type_to_c(lty, ctx));
+            else iron_strbuf_appendf(sb, "(((");
+            emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, full ? ", " : ").tag != (");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, full ? "))" : ").tag))");
             break;
         }
         if (lty && lty->kind == IRON_TYPE_STRING) {
@@ -2785,6 +2809,15 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
             iron_strbuf_appendf(sb, ")");
+        } else if (lty && lty->kind == IRON_TYPE_ENUM && lty->enu.decl &&
+                   lty->enu.decl->has_payloads) {
+            bool full = emit_enum_is_equatable(lty, 0);
+            if (full) iron_strbuf_appendf(sb, "%s_eq(", emit_type_to_c(lty, ctx));
+            else iron_strbuf_appendf(sb, "((");
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, full ? ", " : ").tag == (");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, full ? ")" : ").tag)");
         } else if (lty && lty->kind == IRON_TYPE_STRING) {
             iron_strbuf_appendf(sb, "iron_string_equals(&(");
             emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
@@ -2828,6 +2861,15 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 }
             }
             iron_strbuf_appendf(sb, ")");
+        } else if (lty && lty->kind == IRON_TYPE_ENUM && lty->enu.decl &&
+                   lty->enu.decl->has_payloads) {
+            bool full = emit_enum_is_equatable(lty, 0);
+            if (full) iron_strbuf_appendf(sb, "(!%s_eq(", emit_type_to_c(lty, ctx));
+            else iron_strbuf_appendf(sb, "(((");
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, full ? ", " : ").tag != (");
+            emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, full ? "))" : ").tag))");
         } else if (lty && lty->kind == IRON_TYPE_STRING) {
             iron_strbuf_appendf(sb, "(!iron_string_equals(&(");
             emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);

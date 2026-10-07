@@ -1,0 +1,13 @@
+-- An enum carrying an object compares with == only against a unit variant.
+object Q {
+    val x: Int
+}
+enum H {
+    Has(Q),
+    No,
+}
+func main() {
+    val a = H.Has(Q(1))
+    val b = H.Has(Q(1))
+    println("{a == b}")
+}
