@@ -120,8 +120,8 @@ void test_heap_alloc_emits_fat_ptr_and_iron_heap_alloc(void) {
         "Expected Iron_FatPtr in emitted C (heap local type)");
 
     /* Post-migration: iron_heap_alloc must be called */
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, "iron_heap_alloc(__FILE__, __LINE__, sizeof("),
-        "Expected iron_heap_alloc(__FILE__, __LINE__, sizeof( in emitted C");
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c_src, "iron_heap_alloc(IRON_SITE, sizeof("),
+        "Expected iron_heap_alloc(IRON_SITE, sizeof( in emitted C");
 
     /* Post-migration: malloc must NOT appear for the heap alloc */
     /* NOTE: malloc may appear elsewhere in runtime headers; check the function body.

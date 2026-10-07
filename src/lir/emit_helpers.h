@@ -252,6 +252,12 @@ typedef struct {
     struct { char *key; const char *value; } *specialization_registry;
         /* maps "func_name:concrete_type" -> emitted C function name */
         /* prevents duplicate function body emission for same specialization */
+    /* The last `IRON_SITE` definition emitted (see emit_instr): the buffer,
+     * function and source line it named. */
+    const void      *site_sb;
+    const void      *site_fn;
+    const char      *site_file;
+    uint32_t         site_line;
 } EmitCtx;
 
 /* ── Name mangling ───────────────────────────────────────────────────────── */
