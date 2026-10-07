@@ -1,0 +1,26 @@
+-- A fused map/filter/sum chain on a temporary list read the list after
+-- its scope-exit drop freed it.
+object P {
+    val x: Int
+}
+
+func twice(x: Int) -> Int {
+    return x * 2
+}
+
+func main() {
+    println("{[1, 2, 3].map(twice).sum()}")
+    println("{[1, 2, 3].map(func(x: Int) -> Int { return x * 2 }).sum()}")
+    println("{[4, 5, 6].filter(func(x: Int) -> Bool { return x > 4 }).sum()}")
+    val words = ["a", "bb", "ccc"].map(func(s: String) -> Int { return s.len() })
+    println("{words.len()} {words[2]}")
+    println("{["x", "yy"].filter(func(s: String) -> Bool { return s.len() > 1 }).len()}")
+    println("{[P(1), P(2), P(3)].map(func(p: P) -> Int { return p.x }).sum()}")
+    var total = 0
+    for i in range(3) {
+        total += [i, i, i].map(twice).sum()
+    }
+    println("{total}")
+    val kept = [1, 2, 3, 4].filter(func(x: Int) -> Bool { return x % 2 == 0 }).map(twice)
+    println("{kept.len()} {kept[0]} {kept[1]}")
+}
