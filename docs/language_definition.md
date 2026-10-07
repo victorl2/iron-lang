@@ -603,7 +603,10 @@ true false true
 
 `+ - * / %` apply to two operands of the same numeric type. `+` also
 concatenates two strings. `== !=` compare numbers, booleans, strings (by
-content), enum values and `null`. `< > <= >=` compare numbers. `and`,
+content), enum values and `null`. Two enum values are equal when they are
+the same variant with equal payloads; an enum with an object or list in a
+payload compares only against a unit variant (`shape == Shape.Empty`).
+Objects and lists have no `==`: compare their fields or elements. `< > <= >=` compare numbers. `and`,
 `or`, `not` take `Bool` operands. `& | ^ ~ << >>` take integer operands
 (`E0233`). Compound assignments `+= -= *= /= &= |= ^= <<= >>=` are
 statements (section 4.3).

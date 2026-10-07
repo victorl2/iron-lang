@@ -20,6 +20,30 @@
 #include <stdio.h>
 #include <string.h>
 
+/* Whether `==` is defined on an enum type: every payload is a number,
+ * Bool, String or an enum for which it is (the same rule as the checker's
+ * type_is_equatable). Such an enum gets an <Enum>_eq. */
+bool emit_enum_is_equatable(const Iron_Type *t, int depth) {
+    if (!t || t->kind != IRON_TYPE_ENUM || depth > 16) return true;
+    const Iron_EnumDecl *ed = t->enu.decl;
+    if (!ed || !t->enu.variant_payload_types) return true;
+    for (int j = 0; j < ed->variant_count; j++) {
+        const Iron_EnumVariant *ev = (const Iron_EnumVariant *)ed->variants[j];
+        if (!ev || !t->enu.variant_payload_types[j]) continue;
+        for (int k = 0; k < ev->payload_count; k++) {
+            const Iron_Type *pt = t->enu.variant_payload_types[j][k];
+            if (!pt || pt == t || pt->kind == IRON_TYPE_VOID) continue;
+            if (pt->kind == IRON_TYPE_ENUM) {
+                if (pt->enu.decl != ed && !emit_enum_is_equatable(pt, depth + 1)) return false;
+            } else if (pt->kind != IRON_TYPE_STRING && pt->kind != IRON_TYPE_BOOL &&
+                       !iron_type_is_numeric(pt)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 /* PROT-03 layout guard (Phase 66 Plan 05, AUDIT-01 row 27): emit_structs.c
  * casts entries from `Iron_ObjectDecl::fields` (a `void**`) to `Iron_Field *`
  * and from `Iron_Field::type_ann` (a `Iron_Node *`) to `Iron_TypeAnnotation *`.
@@ -988,6 +1012,53 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
         iron_strbuf_appendf(&ctx->struct_bodies,
                              "    %s_data_t data;\n", mangled);
         iron_strbuf_appendf(&ctx->struct_bodies, "};\n\n");
+
+        /* `==` on the enum: equal tags, then equal payload fields of the
+         * active variant. Emitted when every payload type has an equality
+         * (numbers, Bool, String, enums); the checker rejects `==` on the
+         * others. A boxed payload is the same enum behind a pointer. */
+        {
+            if (emit_enum_is_equatable(td->type, 0)) {
+                Iron_StrBuf eq = iron_strbuf_create(256);
+                iron_strbuf_appendf(&eq, "static inline bool %s_eq(%s a, %s b);\n",
+                                    mangled, mangled, mangled);
+                iron_strbuf_appendf(&eq,
+                    "static inline bool %s_eq(%s a, %s b) {\n"
+                    "    if (a.tag != b.tag) return false;\n"
+                    "    switch (a.tag) {\n", mangled, mangled, mangled);
+                for (int j = 0; j < ed->variant_count; j++) {
+                    Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                    if (ev->payload_count <= 0) continue;
+                    iron_strbuf_appendf(&eq, "    case %s_TAG_%s:\n        return true",
+                                        mangled, ev->name);
+                    for (int k = 0; k < ev->payload_count; k++) {
+                        Iron_Type *pt = (vpt && vpt[j]) ? vpt[j][k] : NULL;
+                        if (!pt || pt->kind == IRON_TYPE_VOID) continue;
+                        bool boxed = td->type->enu.payload_is_boxed &&
+                                     td->type->enu.payload_is_boxed[j] &&
+                                     td->type->enu.payload_is_boxed[j][k];
+                        const char *pc = emit_type_to_c(pt, ctx);
+                        const char *star = boxed ? "*" : "";
+                        if (pt->kind == IRON_TYPE_STRING) {
+                            iron_strbuf_appendf(&eq,
+                                " && iron_string_equals(&a.data.%s._%d, &b.data.%s._%d)",
+                                ev->name, k, ev->name, k);
+                        } else if (pt->kind == IRON_TYPE_ENUM && pt->enu.decl &&
+                                   pt->enu.decl->has_payloads) {
+                            iron_strbuf_appendf(&eq, " && %s_eq(%sa.data.%s._%d, %sb.data.%s._%d)",
+                                                pc, star, ev->name, k, star, ev->name, k);
+                        } else {
+                            iron_strbuf_appendf(&eq, " && %sa.data.%s._%d == %sb.data.%s._%d",
+                                                star, ev->name, k, star, ev->name, k);
+                        }
+                    }
+                    iron_strbuf_appendf(&eq, ";\n");
+                }
+                iron_strbuf_appendf(&eq, "    default:\n        return true;\n    }\n}\n\n");
+                iron_strbuf_appendf(&ctx->struct_bodies, "%s", iron_strbuf_get(&eq));
+                iron_strbuf_free(&eq);
+            }
+        }
 
         /* Phase 38 + #258: `<Enum>_free` destroys what a value owns:
          * boxed payloads (freed with their own free) and payload fields
