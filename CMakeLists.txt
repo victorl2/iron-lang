@@ -996,7 +996,7 @@ add_test(NAME test_blocks_all_pass_counts
          COMMAND ironc test "${_tb}/all_pass.iron")
 set_tests_properties(test_blocks_all_pass_counts PROPERTIES
     LABELS "integration;test-blocks" TIMEOUT 300
-    PASS_REGULAR_EXPRESSION "4 passed, 0 failed")
+    PASS_REGULAR_EXPRESSION "6 passed, 0 failed")
 add_test(NAME test_blocks_mixed_reports
          COMMAND ironc test "${_tb}/mixed.iron")
 set_tests_properties(test_blocks_mixed_reports PROPERTIES

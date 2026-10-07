@@ -1,4 +1,5 @@
 -- Test blocks that all pass: `ironc test all_pass.iron` exits 0.
+import os
 enum Shape {
     Circle(Int),
     Empty,
@@ -32,4 +33,23 @@ test "enums" {
 test "plain assert and output" {
     println("output of a passing test is not shown")
     assert(label(1).len() == 2, "label length")
+}
+
+test "loops with break and continue" {
+    var odd_sum = 0
+    for i in range(100) {
+        if i == 10 {
+            break
+        }
+        if i % 2 == 0 {
+            continue
+        }
+        odd_sum += i
+    }
+    assert_eq(odd_sum, 25)
+}
+
+test "environment" {
+    assert(OS.env("IRON_TEST_SURELY_UNSET_VAR") == null, "unset variable")
+    assert(OS.env_or("IRON_TEST_SURELY_UNSET_VAR", "d") == "d", "fallback")
 }
