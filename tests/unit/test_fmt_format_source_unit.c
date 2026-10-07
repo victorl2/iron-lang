@@ -12,6 +12,7 @@
 #include "util/arena.h"
 #include "diagnostics/diagnostics.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 static Iron_Arena    arena;
@@ -90,6 +91,85 @@ void test_null_opts_equivalent_to_defaults(void) {
     TEST_ASSERT_EQUAL_STRING(r1.formatted, r2.formatted);
 }
 
+/* The formatter only changes whitespace: comments, escapes, tuples and
+ * every other token stay as written (the AST printer it replaced dropped
+ * comments and lost escapes, tuples and patch members). */
+static const char *fmt_ok(const char *src) {
+    IronFmtResult r = iron_format_source(src, "<test>", NULL, &arena, &diags);
+    TEST_ASSERT_TRUE_MESSAGE(r.ok, src);
+    return r.formatted;
+}
+
+void test_comments_are_kept(void) {
+    TEST_ASSERT_EQUAL_STRING(
+        "-- header\n"
+        "func main() {\n"
+        "    -- inside\n"
+        "    val x = 1   -- trailing\n"
+        "    println(\"{x}\")\n"
+        "}\n",
+        fmt_ok("-- header\nfunc main() {\n  -- inside\n  val x = 1   -- trailing\n"
+               "  println(\"{x}\")\n}\n"));
+}
+
+void test_tokens_are_kept(void) {
+    const char *src =
+        "func divmod(a: Int, b: Int) -> (Int, Int) {\n"
+        "    return (a / b, a % b)\n"
+        "}\n"
+        "\n"
+        "func main() {\n"
+        "    val (q, _) = divmod(7, 2)\n"
+        "    val s = \"a \\\"q\\\" \\t \\{x\\} {q}\"\n"
+        "    if not (s is String) or q == 3 {\n"
+        "        println(s)\n"
+        "    }\n"
+        "}\n";
+    TEST_ASSERT_EQUAL_STRING(src, fmt_ok(src));
+}
+
+void test_reindents_and_collapses_blank_lines(void) {
+    TEST_ASSERT_EQUAL_STRING(
+        "func f(a: Int,\n"
+        "    b: Int) -> Int {\n"
+        "    return a +\n"
+        "    b\n"
+        "}\n"
+        "\n"
+        "func main() {\n"
+        "    val xs = [\n"
+        "        1,\n"
+        "    ]\n"
+        "    if xs.len() > 0 {\n"
+        "        println(\"{f(1, 2)}\")\n"
+        "    } else {\n"
+        "        println(\"none\")\n"
+        "    }\n"
+        "}\n",
+        fmt_ok("\n\nfunc f(a: Int,\n           b: Int) -> Int {\n  return a +\n b\n}\n\n\n\n"
+               "func main() {\n  val xs = [\n1,\n  ]\n  if xs.len() > 0 {   \n"
+               "println(\"{f(1, 2)}\")\n  } else {\nprintln(\"none\")\n}\n}\n\n\n"));
+}
+
+void test_multiline_string_is_verbatim(void) {
+    const char *src =
+        "func main() {\n"
+        "    val s = \"\"\"keep   \n"
+        "  this    \n"
+        "   exactly\"\"\"\n"
+        "    println(s)\n"
+        "}\n";
+    TEST_ASSERT_EQUAL_STRING(src, fmt_ok(src));
+}
+
+void test_formatting_is_idempotent(void) {
+    const char *once = fmt_ok("object P {\n  val x: Int\n}\npatch object P {\n"
+                              "  readonly func get() -> Int {\n return self.x\n  }\n}\n");
+    char *copy = strdup(once);
+    TEST_ASSERT_EQUAL_STRING(copy, fmt_ok(copy));
+    free(copy);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_empty_source_returns_ok_with_zero_length);
@@ -97,5 +177,10 @@ int main(void) {
     RUN_TEST(test_parse_error_returns_not_ok);
     RUN_TEST(test_lex_error_returns_not_ok);
     RUN_TEST(test_null_opts_equivalent_to_defaults);
+    RUN_TEST(test_comments_are_kept);
+    RUN_TEST(test_tokens_are_kept);
+    RUN_TEST(test_reindents_and_collapses_blank_lines);
+    RUN_TEST(test_multiline_string_is_verbatim);
+    RUN_TEST(test_formatting_is_idempotent);
     return UNITY_END();
 }

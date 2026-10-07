@@ -1,11 +1,12 @@
 /* Phase 5 Plan 05-03 (FMT-03, D-04, D-06, D-10, D-12, D-17) -- range formatting.
  *
  * Walks Iron_Program.decls[] once, intersects each top-level decl's
- * 1-based inclusive line-span with the 0-based LSP Range, and emits
- * one TextEdit per intersecting decl replacing the full line span of
- * that decl with iron_print_ast(decl, opts, arena) output. Emitted
- * edits are sorted descending by offset (D-06) so the client applies
- * later edits first and avoids offset invalidation.
+ * 1-based inclusive line-span with the 0-based LSP Range, merges the
+ * overlapping spans, and emits one TextEdit per merged span replacing
+ * its lines with the whitespace layout of a whole-document format
+ * (iron_fmt_layout). Emitted edits are sorted descending by offset
+ * (D-06) so the client applies later edits first and avoids offset
+ * invalidation.
  *
  * Single-call-site preservation (D-10): this TU does NOT call
  * iron_format_source. It consumes the lex+parse-only helper
@@ -35,6 +36,7 @@
 
 #include "diagnostics/diagnostics.h"
 #include "fmt/options.h"
+#include "fmt/layout.h"
 #include "lsp/facade/types.h"
 #include "lsp/store/document.h"
 #include "lsp/store/workspace_index.h"
@@ -174,15 +176,14 @@ IronLsp_TextEditList ilsp_facade_format_range(
     }
     Iron_Program *program = (Iron_Program *)parse.program;
 
-    /* Collect intersecting edits into a stb_ds heap-header / arena-body
-     * array. The stb_ds header is heap-owned and arrfree'd below once
-     * the final arena-owned array has been built. */
-    IronLsp_TextEdit *edits = NULL;
-
+    /* Collect the line spans of the intersecting decls, then merge the
+     * overlapping ones: a method's span lies inside its object's. */
+    typedef struct { uint32_t first, last; } LineSpan;
+    LineSpan *spans = NULL;
     for (int i = 0; i < program->decl_count; i++) {
         /* Per-decl cancel poll (D-17 = D-16 iteration-boundary). */
         if (cancel && atomic_load(cancel)) {
-            arrfree(edits);
+            arrfree(spans);
             iron_diaglist_free(&diags);
             return empty;
         }
@@ -192,36 +193,35 @@ IronLsp_TextEditList ilsp_facade_format_range(
         if (decl->kind == IRON_NODE_ERROR) continue;
         if (!is_top_level_decl(decl->kind)) continue;
         if (!decl_intersects_range(decl->span, range)) continue;
-
-        /* Re-render this decl in isolation. iron_print_ast never
-         * returns NULL per its contract but defend against that here
-         * anyway to stay graceful. */
-        char *rendered = iron_print_ast(decl, &opts, arena);
-        if (!rendered) continue;
-
-        /* Ensure rendered ends with '\n' so the replacement keeps
-         * whole-line alignment with the surrounding source. If the
-         * printer already emitted a terminator this is a no-op. */
-        size_t rlen = strlen(rendered);
-        if (rlen == 0 || rendered[rlen - 1] != '\n') {
-            char *with_nl = (char *)iron_arena_alloc(arena, rlen + 2, 1);
-            if (!with_nl) continue;
-            memcpy(with_nl, rendered, rlen);
-            with_nl[rlen]     = '\n';
-            with_nl[rlen + 1] = '\0';
-            rendered = with_nl;
+        if (decl->span.line == 0) continue;
+        LineSpan ls = { decl->span.line,
+                        decl->span.end_line >= decl->span.line ? decl->span.end_line
+                                                               : decl->span.line };
+        arrput(spans, ls);
+    }
+    for (int a = 1; a < (int)arrlen(spans); a++)
+        for (int b = a; b > 0 && spans[b - 1].first > spans[b].first; b--) {
+            LineSpan t = spans[b]; spans[b] = spans[b - 1]; spans[b - 1] = t;
         }
 
-        /* Build the replacement Range:
-         *   start: col 0 of decl's first line   (1-based -> 0-based)
-         *   end:   col 0 of line AFTER decl     (LSP exclusive end)
-         * Iron_Span.end_line is the inclusive last line of the decl.
-         * LSP's exclusive end is col 0 of (end_line + 1) in 1-based,
-         * which after -1 for 0-based is simply end_line. */
+    IronLsp_TextEdit *edits = NULL;
+    for (int a = 0; a < (int)arrlen(spans); a++) {
+        LineSpan m = spans[a];
+        while (a + 1 < (int)arrlen(spans) && spans[a + 1].first <= m.last) {
+            if (spans[a + 1].last > m.last) m.last = spans[a + 1].last;
+            a++;
+        }
+        /* The same whitespace layout as a whole-document format, cut to
+         * these lines: indentation comes from the whole file. */
+        char *rendered = iron_fmt_layout(doc->text, &opts, arena, m.first, m.last);
+        if (!rendered) continue;
+
+        /* Replace whole lines: col 0 of the first line to col 0 of the
+         * line after the last (LSP exclusive end, 0-based). */
         IronLsp_Range er;
-        er.start.line      = decl->span.line > 0 ? decl->span.line - 1 : 0;
+        er.start.line      = m.first - 1;
         er.start.character = 0;
-        er.end.line        = decl->span.end_line;    /* 0-based via col 0 of next line */
+        er.end.line        = m.last;
         er.end.character   = 0;
 
         IronLsp_TextEdit edit;
@@ -229,6 +229,7 @@ IronLsp_TextEditList ilsp_facade_format_range(
         edit.new_text = rendered;
         arrpush(edits, edit);
     }
+    arrfree(spans);
 
     /* Cancel poll 4: pre-emit. */
     if (cancel && atomic_load(cancel)) {

@@ -181,6 +181,30 @@ static const char *op_str(Iron_OpKind op) {
 /* Forward-declare so print_node can be called recursively */
 static void print_node(PrintCtx *ctx, Iron_Node *node);
 
+/* The parser stores string literals with their escapes decoded: write the
+ * text back so it lexes to the same value. Braces are escaped too, since an
+ * unescaped `{` would start an interpolation; the lexer's escaped-brace
+ * marker bytes count as braces. */
+static void print_string_text(PrintCtx *ctx, const char *s) {
+    for (const unsigned char *c = (const unsigned char *)s; c && *c; c++) {
+        switch (*c) {
+            case '\\': iron_strbuf_appendf(ctx->sb, "\\\\"); break;
+            case '"':  iron_strbuf_appendf(ctx->sb, "\\\""); break;
+            case '\n': iron_strbuf_appendf(ctx->sb, "\\n"); break;
+            case '\t': iron_strbuf_appendf(ctx->sb, "\\t"); break;
+            case '{':  case IRON_LEX_LITERAL_LBRACE:
+                iron_strbuf_appendf(ctx->sb, "\\{"); break;
+            case '}':  case IRON_LEX_LITERAL_RBRACE:
+                iron_strbuf_appendf(ctx->sb, "\\}"); break;
+            default:
+                if (*c < 0x20 || *c == 0x7f)
+                    iron_strbuf_appendf(ctx->sb, "\\u{%X}", (unsigned)*c);
+                else
+                    iron_strbuf_appendf(ctx->sb, "%c", *c);
+        }
+    }
+}
+
 /* Print a type annotation */
 static void print_type_ann(PrintCtx *ctx, Iron_Node *node) {
     if (!node) return;
@@ -821,7 +845,9 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
         }
 
         case IRON_NODE_STRING_LIT: {
-            iron_strbuf_appendf(ctx->sb, "\"%s\"", ((Iron_StringLit *)node)->value);
+            iron_strbuf_appendf(ctx->sb, "\"");
+            print_string_text(ctx, ((Iron_StringLit *)node)->value);
+            iron_strbuf_appendf(ctx->sb, "\"");
             break;
         }
 
@@ -832,8 +858,7 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
                 Iron_Node *part = n->parts[i];
                 if (part->kind == IRON_NODE_STRING_LIT) {
                     /* Literal segment: print without quotes */
-                    iron_strbuf_appendf(ctx->sb, "%s",
-                                        ((Iron_StringLit *)part)->value);
+                    print_string_text(ctx, ((Iron_StringLit *)part)->value);
                 } else {
                     /* Expression segment: wrap in {} */
                     iron_strbuf_appendf(ctx->sb, "{");
@@ -878,7 +903,12 @@ static void print_node(PrintCtx *ctx, Iron_Node *node) {
             } else {
                 iron_strbuf_appendf(ctx->sb, "%s", op_str(n->op));
             }
+            /* `is` binds looser than any unary operator: `not (s is T)`
+             * keeps its parentheses, or it would read `(not s) is T`. */
+            bool paren = n->operand && n->operand->kind == IRON_NODE_IS;
+            if (paren) iron_strbuf_appendf(ctx->sb, "(");
             print_node(ctx, n->operand);
+            if (paren) iron_strbuf_appendf(ctx->sb, ")");
             break;
         }
 
