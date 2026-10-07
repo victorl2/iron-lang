@@ -1,0 +1,13 @@
+-- An empty list literal passed to a Map method takes the value type.
+func main() {
+    var index = Map[String, [Int]]()
+    index.put("a", [])
+    val ids = index.get_or("a", [])
+    println("{ids.len()}")
+    for w in ["x", "y", "x"] {
+        var got = index.get_or(w, [])
+        got.push(1)
+        index.put(w, got.take())
+    }
+    println("{index.len()} {index.get("x").len()} {index.get("y").len()}")
+}

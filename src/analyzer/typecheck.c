@@ -2940,6 +2940,9 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
         if (!pn || pn->kind != IRON_NODE_PARAM || !mc->args[i]) continue;
         Iron_Param *mp = (Iron_Param *)pn;
         Iron_Type *pt = resolve_type_annotation(ctx, mp->type_ann);
+        if (!((Iron_ExprNode *)mc->args[i])->resolved_type && pt &&
+            pt->kind != IRON_TYPE_ERROR && !type_mentions_generic(pt))
+            check_expr_with_expected(ctx, mc->args[i], pt);
         Iron_Type *at = ((Iron_ExprNode *)mc->args[i])->resolved_type;
         if (!pt || !at || pt->kind == IRON_TYPE_ERROR || at->kind == IRON_TYPE_ERROR)
             continue;
@@ -3471,7 +3474,27 @@ static bool redirect_generic_call(TypeCtx *ctx, Iron_CallExpr *ce) {
     return true;
 }
 
+static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node);
+
+/* A method call defers its empty list literal arguments to the check
+ * against the parameter type; one that no path typed is checked here and
+ * reports E0229. */
 static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
+    Iron_Type *t = check_expr_impl(ctx, node);
+    if (node && node->kind == IRON_NODE_METHOD_CALL) {
+        Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+        for (int i = 0; i < mc->arg_count; i++) {
+            Iron_Node *a = mc->args[i];
+            if (a && a->kind == IRON_NODE_ARRAY_LIT &&
+                ((Iron_ArrayLit *)a)->element_count == 0 &&
+                !((Iron_ArrayLit *)a)->type_ann && !((Iron_ArrayLit *)a)->resolved_type)
+                check_expr_impl(ctx, a);
+        }
+    }
+    return t;
+}
+
+static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
     if (!node) return iron_type_make_primitive(IRON_TYPE_VOID);
     /* HARD-05: cancel poll at recursive expression walker entry. */
     if (iron_cancel_requested(ctx->cancel_flag)) {
@@ -5284,7 +5307,18 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
             }
 
             Iron_Type *obj_type_mc = check_expr(ctx, mc->object);
-            for (int i = 0; i < mc->arg_count; i++) check_expr(ctx, mc->args[i]);
+            /* An empty list literal argument waits for the parameter type
+             * (`m.get_or(k, [])` against V, `",".join([])` against [String]):
+             * checked here first, it failed E0229 with no type to infer
+             * from. check_expr checks any that no path typed. */
+            for (int i = 0; i < mc->arg_count; i++) {
+                if (mc->args[i] &&
+                    mc->args[i]->kind == IRON_NODE_ARRAY_LIT &&
+                    ((Iron_ArrayLit *)mc->args[i])->element_count == 0 &&
+                    !((Iron_ArrayLit *)mc->args[i])->type_ann)
+                    continue;
+                check_expr(ctx, mc->args[i]);
+            }
 
             /* The receiver already failed to type-check: propagate the
              * error instead of typing the call Void (which cascaded into
@@ -5891,7 +5925,8 @@ static Iron_Type *check_expr(TypeCtx *ctx, Iron_Node *node) {
                         mc->arg_count == 1 && arr_type->array.elem) {
                         /* check_expr is idempotent — args were already checked at
                          * line 1407 above, so this just fetches the resolved type. */
-                        Iron_Type *arg_type = check_expr(ctx, mc->args[0]);
+                        Iron_Type *arg_type = check_expr_with_expected(
+                            ctx, mc->args[0], arr_type->array.elem);
                         if (arg_type &&
                             !push_type_compatible(arr_type->array.elem, arg_type)) {
                             /* iron_type_to_string returns "<object>" / "<interface>"

@@ -1,0 +1,24 @@
+-- An empty list literal argument takes the parameter type: String.join,
+-- List.push of a list of lists, a user method, Map.put / get_or.
+object Box2 {
+    var items: [Int]
+    init() {
+        self.items = []
+    }
+    func set(xs: [Int]) {
+        self.items = xs.copy()
+    }
+}
+func main() {
+    println("[{",".join([])}] [{"-".join(["a", "b"])}]")
+    var grid: [[Int]] = []
+    grid.push([])
+    grid.push([1])
+    println("{grid.len()} {grid[0].len()}")
+    var b = Box2()
+    b.set([])
+    println("{b.items.len()}")
+    var m = Map[String, [String]]()
+    m.put("k", [])
+    println("{m.get_or("z", []).len()}")
+}
