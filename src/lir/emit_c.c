@@ -9645,6 +9645,40 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                         }
                     }
                 }
+                /* A temporary source list (`[1, 2, 3].map(f).sum()`) is
+                 * dropped right after the first call, but the fused loop
+                 * reads it at the terminal: its $drop moves after the loop
+                 * too. Only a drop that precedes the terminal in its block
+                 * moves; a binding's scope-exit drop stays where it is. */
+                {
+                    IronLIR_ValueId term_vid = chain.nodes[chain.node_count - 1].call_vid;
+                    for (int bi = 0; bi < fn->block_count; bi++) {
+                        IronLIR_Block *block = fn->blocks[bi];
+                        int term_at = -1;
+                        for (int ii = 0; ii < block->instr_count; ii++)
+                            if (block->instrs[ii]->id == term_vid) { term_at = ii; break; }
+                        if (term_at < 0) continue;
+                        for (int ii = 0; ii < term_at; ii++) {
+                            IronLIR_Instr *dr = block->instrs[ii];
+                            bool is_glue = false;
+                            for (int gi = 0; gi < (int)arrlen(glue_drops); gi++)
+                                if (glue_drops[gi] == dr) { is_glue = true; break; }
+                            if (!is_glue || hmgeti(ctx->fusion_dead, (const void *)dr) >= 0)
+                                continue;
+                            IronLIR_ValueId slot = dr->call.args[0];
+                            bool holds = false;
+                            for (int ij = 0; ij < ii && !holds; ij++) {
+                                IronLIR_Instr *st = block->instrs[ij];
+                                if (st->kind == IRON_LIR_STORE && st->store.ptr == slot &&
+                                    st->store.value == chain.source) holds = true;
+                            }
+                            if (!holds) continue;
+                            hmput(ctx->fusion_dead, (const void *)dr, true);
+                            arrput(ctx->fusion_chains[chain_idx].post_drops, dr);
+                        }
+                        break;
+                    }
+                }
                 /* A slot all of whose stores vanished is never written, so
                  * its loads (read only by the fused chain) vanish too. */
                 for (int bi = 0; bi < fn->block_count; bi++) {
