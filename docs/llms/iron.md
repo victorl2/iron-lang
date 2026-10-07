@@ -266,10 +266,9 @@ func main() {
 
 ## Enums and generics
 
-Enums may carry payloads and type parameters. Generic enum values take their
-type arguments from an annotated binding: bind a constructed value before
-returning it, and rebind a generic payload to an annotated local before using
-it in string interpolation.
+Enums may carry payloads and type parameters. A generic enum value takes the
+type arguments its payload does not fix from where it is used: the return
+type, the parameter, or an annotated binding.
 
 ```iron
 enum Result[T, E] {
@@ -279,24 +278,15 @@ enum Result[T, E] {
 
 func parse_positive(n: Int) -> Result[Int, String] {
     if n > 0 {
-        val ok: Result[Int, String] = Result.Ok(n)
-        return ok
+        return Result.Ok(n)
     }
-    val err: Result[Int, String] = Result.Err("not positive")
-    return err
+    return Result.Err("not positive")
 }
 
 func main() {
-    val r: Result[Int, String] = parse_positive(-1)
-    match r {
-        Result.Ok(v) -> {
-            val n: Int = v
-            println("ok {n}")
-        }
-        Result.Err(e) -> {
-            val msg: String = e
-            println("error: {msg}")
-        }
+    match parse_positive(-1) {
+        Result.Ok(v) -> println("ok {v}")
+        Result.Err(e) -> println("error: {e}")
     }
 }
 ```
@@ -416,9 +406,6 @@ func main() {
 - There are no `break` and `continue` statements; return from the function
   or make the loop condition false.
 - `println` takes exactly one `String`; interpolate other values.
-- A payload bound from a generic enum in a `match` arm (`Result.Ok(v)`) has no
-  resolved type for string interpolation; assign it to an annotated local
-  (`val n: Int = v`) first.
 - Aliased imports of project or vendored modules (`import x as y`) do not
   work; call vendored `pub` functions directly.
 - `extern func` can only call C functions whose declarations the compiler
