@@ -1,0 +1,30 @@
+-- User types named like the standard library's generic parameters (T, U,
+-- K, V, E) made the list extension stubs concrete, and every program
+-- declaring one failed LIR verification.
+object T {
+    val x: Int
+}
+object U {
+    val s: String
+}
+enum K {
+    A,
+    B,
+}
+object V {
+    val n: Int
+}
+object E {
+    val m: Int
+}
+func main() {
+    val t = T(1)
+    val u = U("u")
+    val xs = [T(1), T(2), T(3)]
+    val ys = xs.map(func(a: T) -> Int { return a.x * 2 })
+    val zs = xs.filter(func(a: T) -> Bool { return a.x > 1 })
+    println("{t.x} {u.s} {ys.sum()} {zs.len()} {K.A == K.B} {V(4).n} {E(5).m}")
+    var m = Map[String, T]()
+    m.put("k", T(9))
+    println("{m.get("k").x}")
+}
