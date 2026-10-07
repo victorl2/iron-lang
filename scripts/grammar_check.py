@@ -402,7 +402,7 @@ def iter_iron_files(root: str):
 
 
 def check_file(rec: Recognizer, path: str) -> Tuple[Optional[bool], str]:
-    src = open(path, encoding="utf-8", errors="replace").read()
+    src = open(path, encoding="utf-8-sig", errors="replace").read()
     try:
         toks = lex(src)
     except LexError as e:
@@ -436,7 +436,7 @@ def main() -> int:
 
     files = args.files or list(iter_iron_files(args.corpus))
     for path in files:
-        src = open(path, encoding="utf-8", errors="replace").read()
+        src = open(path, encoding="utf-8-sig", errors="replace").read()
         if "@expected-pass-after" in src:
             skipped += 1
             continue
@@ -457,7 +457,7 @@ def main() -> int:
                 continue
             if not PARSE_ERROR_CODES.search(open(expected, encoding="utf-8").read()):
                 continue
-            src = open(path, encoding="utf-8", errors="replace").read()
+            src = open(path, encoding="utf-8-sig", errors="replace").read()
             if "@expected-pass-after" in src:
                 continue
             ok, why = check_file(rec, path)
