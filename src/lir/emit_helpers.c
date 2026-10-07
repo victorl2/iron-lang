@@ -2404,7 +2404,7 @@ const char *emit_ensure_hash(EmitCtx *ctx, const Iron_Type *t) {
                             strcmp(v_drop, "NULL") == 0 ? "" : "(v);");
         iron_strbuf_appendf(&body, "IRON_HMAP_DEFINE(%s, %s, %s)\n", name, k_c, v_c);
         iron_strbuf_appendf(&body,
-            "#define %s_get(m, ...) %s_get_at((m), (__VA_ARGS__), __FILE__, __LINE__)\n", name, name);
+            "#define %s_get(m, ...) %s_get_at((m), (__VA_ARGS__), IRON_SITE)\n", name, name);
     } else {
         iron_strbuf_appendf(&body, "IRON_HSET_DEFINE(%s, %s)\n", name, k_c);
     }

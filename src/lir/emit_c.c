@@ -1371,7 +1371,7 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
     emit_indent(sb, ind + 1);
     if (strcmp(m, "pop") == 0) {
         iron_strbuf_appendf(sb,
-            "if (_bv->len <= 0) iron_panic_bvec_oob(__FILE__, __LINE__, -1, _bv->len);\n");
+            "if (_bv->len <= 0) iron_panic_bvec_oob(IRON_SITE, -1, _bv->len);\n");
         emit_indent(sb, ind + 1);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = _bv->data[--_bv->len];\n");
@@ -1385,7 +1385,7 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb,
             "if ((uint64_t)_bi >= (uint64_t)_bv->len) "
-            "iron_panic_bvec_oob(__FILE__, __LINE__, _bi, _bv->len);\n");
+            "iron_panic_bvec_oob(IRON_SITE, _bi, _bv->len);\n");
         emit_indent(sb, ind + 1);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = _bv->data[_bi];\n");
@@ -1405,12 +1405,12 @@ static bool emit_bvec_method(Iron_StrBuf *sb, IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, ";\n");
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb,
-            "if (_bv->len >= %d) iron_panic_bvec_oob(__FILE__, __LINE__, _bv->len, %d);\n",
+            "if (_bv->len >= %d) iron_panic_bvec_oob(IRON_SITE, _bv->len, %d);\n",
             N, N);
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb,
             "if ((uint64_t)_bi > (uint64_t)_bv->len) "
-            "iron_panic_bvec_oob(__FILE__, __LINE__, _bi, _bv->len + 1);\n");
+            "iron_panic_bvec_oob(IRON_SITE, _bi, _bv->len + 1);\n");
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb,
             "iron_mem_move(&_bv->data[_bi + 1], &_bv->data[_bi], "
@@ -1700,7 +1700,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
             iron_strbuf_appendf(sb, ", ");
             emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-            iron_strbuf_appendf(sb, ", __FILE__, __LINE__)");
+            iron_strbuf_appendf(sb, ", IRON_SITE)");
         }
         break;
     }
@@ -1733,7 +1733,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
             iron_strbuf_appendf(sb, ", ");
             emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-            iron_strbuf_appendf(sb, ", __FILE__, __LINE__)");
+            iron_strbuf_appendf(sb, ", IRON_SITE)");
         }
         break;
     }
@@ -2099,7 +2099,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
                 iron_strbuf_appendf(sb, ", ");
                 emit_val(sb, instr->index.array);
-                iron_strbuf_appendf(sb, "_len, __FILE__, __LINE__)]");
+                iron_strbuf_appendf(sb, "_len, IRON_SITE)]");
             } else if (instr->index.bounds_elide) {
                 iron_strbuf_appendf(sb, "[");
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
@@ -2109,7 +2109,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
                 iron_strbuf_appendf(sb, ", ");
                 emit_val(sb, instr->index.array);
-                iron_strbuf_appendf(sb, "_len, __FILE__, __LINE__)]");
+                iron_strbuf_appendf(sb, "_len, IRON_SITE)]");
             }
         } else {
             /* Check direct array type — also handles parameter values (NULL in value_table) */
@@ -2128,7 +2128,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
                     iron_strbuf_appendf(sb, ", (int64_t)");
                     emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth+1);
-                    iron_strbuf_appendf(sb, ".len, __FILE__, __LINE__)]");
+                    iron_strbuf_appendf(sb, ".len, IRON_SITE)]");
                 } else if (instr->index.bounds_elide) {
                     iron_strbuf_appendf(sb, ".data[");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
@@ -2138,7 +2138,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
                     iron_strbuf_appendf(sb, ", (int64_t)");
                     emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth+1);
-                    iron_strbuf_appendf(sb, ".len, __FILE__, __LINE__)]");
+                    iron_strbuf_appendf(sb, ".len, IRON_SITE)]");
                 }
             } else if (use_direct) {
                 /* LIST-01: dynamic List direct .items path — guard against count. */
@@ -2149,7 +2149,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
                     iron_strbuf_appendf(sb, ", (int64_t)");
                     emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth+1);
-                    iron_strbuf_appendf(sb, ".count, __FILE__, __LINE__)]");
+                    iron_strbuf_appendf(sb, ".count, IRON_SITE)]");
                 } else if (instr->index.bounds_elide) {
                     iron_strbuf_appendf(sb, ".items[");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
@@ -2159,7 +2159,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, use_block_id, depth+1);
                     iron_strbuf_appendf(sb, ", (int64_t)");
                     emit_expr_to_buf(sb, instr->index.array, fn, ctx, use_block_id, depth+1);
-                    iron_strbuf_appendf(sb, ".count, __FILE__, __LINE__)]");
+                    iron_strbuf_appendf(sb, ".count, IRON_SITE)]");
                 }
             } else {
                 /* Fall back — too complex to inline */
@@ -2452,6 +2452,27 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         return;  /* deferred to use site */
     }
 
+    /* Runtime panics (index out of bounds, division by zero, a missing map
+     * key) report `IRON_SITE`, which names the Iron source line of the
+     * instruction rather than the generated C. Redefined whenever the line,
+     * the function or the output buffer changes. */
+    if (instr->span.filename && instr->span.line > 0 && sb->len > 0 &&
+        iron_strbuf_get(sb)[sb->len - 1] == '\n' &&
+        (ctx->site_sb != (const void *)sb || ctx->site_fn != (const void *)fn ||
+         ctx->site_line != instr->span.line ||
+         !ctx->site_file || strcmp(ctx->site_file, instr->span.filename) != 0)) {
+        iron_strbuf_appendf(sb, "#undef IRON_SITE\n#define IRON_SITE \"");
+        for (const char *c = instr->span.filename; *c; c++) {
+            if (*c == '\\' || *c == '"') iron_strbuf_appendf(sb, "\\%c", *c);
+            else iron_strbuf_appendf(sb, "%c", *c);
+        }
+        iron_strbuf_appendf(sb, "\", %u\n", (unsigned)instr->span.line);
+        ctx->site_sb = sb;
+        ctx->site_fn = fn;
+        ctx->site_file = instr->span.filename;
+        ctx->site_line = instr->span.line;
+    }
+
     /* For backward-referenced values (hoisted to entry), emit as assignment
      * without the type prefix to avoid C redefinition errors. */
     bool is_hoisted = (ctx->phi_hoisted &&
@@ -2688,7 +2709,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ", ");
             emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, ", __FILE__, __LINE__);\n");
+            iron_strbuf_appendf(sb, ", IRON_SITE);\n");
         }
         break;
     }
@@ -2726,7 +2747,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ", ");
             emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, ", __FILE__, __LINE__);\n");
+            iron_strbuf_appendf(sb, ", IRON_SITE);\n");
         }
         break;
     }
@@ -3844,7 +3865,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ", ");
                 emit_val(sb, instr->index.array);
-                iron_strbuf_appendf(sb, "_len, __FILE__, __LINE__)];\n");
+                iron_strbuf_appendf(sb, "_len, IRON_SITE)];\n");
             } else if (instr->index.bounds_elide) {
                 iron_strbuf_appendf(sb, "[");
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
@@ -3854,7 +3875,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ", ");
                 emit_val(sb, instr->index.array);
-                iron_strbuf_appendf(sb, "_len, __FILE__, __LINE__)];\n");
+                iron_strbuf_appendf(sb, "_len, IRON_SITE)];\n");
             }
         } else {
             /* Check if the array has an array type — if so, inline .items[idx]
@@ -3878,7 +3899,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 iron_strbuf_appendf(sb, " >= (int64_t)");
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb,
-                    ".len) iron_panic_bvec_oob(__FILE__, __LINE__, ");
+                    ".len) iron_panic_bvec_oob(IRON_SITE, ");
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ", (int64_t)");
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
@@ -3895,7 +3916,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ", (int64_t)");
                     emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, ".len, __FILE__, __LINE__)];\n");
+                    iron_strbuf_appendf(sb, ".len, IRON_SITE)];\n");
                 } else {
                     iron_strbuf_appendf(sb, ".data[");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
@@ -3915,7 +3936,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, " >= (uint64_t)");
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
-                iron_strbuf_appendf(sb, ".count) iron_panic_index_oob(__FILE__, __LINE__, ");
+                iron_strbuf_appendf(sb, ".count) iron_panic_index_oob(IRON_SITE, ");
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ", ");
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
@@ -3932,7 +3953,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ", (int64_t)");
                     emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, ".count, __FILE__, __LINE__)];\n");
+                    iron_strbuf_appendf(sb, ".count, IRON_SITE)];\n");
                 } else {
                     iron_strbuf_appendf(sb, ".items[");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
@@ -3971,7 +3992,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ", ");
                 emit_val(sb, instr->index.array);
-                iron_strbuf_appendf(sb, "_len, __FILE__, __LINE__)] = ");
+                iron_strbuf_appendf(sb, "_len, IRON_SITE)] = ");
             } else if (instr->index.bounds_elide) {
                 iron_strbuf_appendf(sb, "[");
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
@@ -3981,7 +4002,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ", ");
                 emit_val(sb, instr->index.array);
-                iron_strbuf_appendf(sb, "_len, __FILE__, __LINE__)] = ");
+                iron_strbuf_appendf(sb, "_len, IRON_SITE)] = ");
             }
             emit_expr_to_buf(sb, instr->index.value, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ";\n");
@@ -4056,7 +4077,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_indent(sb, ind + 1);
                     iron_strbuf_appendf(sb, "if (");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, " >= (int64_t)_bv->len) iron_panic_bvec_oob(__FILE__, __LINE__, ");
+                    iron_strbuf_appendf(sb, " >= (int64_t)_bv->len) iron_panic_bvec_oob(IRON_SITE, ");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ", (int64_t)_bv->len);\n");
                 }
@@ -4064,7 +4085,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 if (instr->index.bounds_unchecked) {
                     iron_strbuf_appendf(sb, "_bv->data[IRON_UNCHECKED_IDX(");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, ", (int64_t)_bv->len, __FILE__, __LINE__)] = ");
+                    iron_strbuf_appendf(sb, ", (int64_t)_bv->len, IRON_SITE)] = ");
                 } else {
                     iron_strbuf_appendf(sb, "_bv->data[");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
@@ -4087,7 +4108,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, " >= (uint64_t)");
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
-                iron_strbuf_appendf(sb, ".count) iron_panic_index_oob(__FILE__, __LINE__, ");
+                iron_strbuf_appendf(sb, ".count) iron_panic_index_oob(IRON_SITE, ");
                 emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                 iron_strbuf_appendf(sb, ", ");
                 emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
@@ -4101,7 +4122,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
                     iron_strbuf_appendf(sb, ", (int64_t)");
                     emit_expr_to_buf(sb, instr->index.array, fn, ctx, ctx->current_block_id, 0);
-                    iron_strbuf_appendf(sb, ".count, __FILE__, __LINE__)] = ");
+                    iron_strbuf_appendf(sb, ".count, IRON_SITE)] = ");
                 } else {
                     iron_strbuf_appendf(sb, ".items[");
                     emit_expr_to_buf(sb, instr->index.index, fn, ctx, ctx->current_block_id, 0);
@@ -5294,7 +5315,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                             iron_strbuf_appendf(sb, ";\n");
                             emit_indent(sb, ind + 1);
                             iron_strbuf_appendf(sb,
-                                "if (_bv->len >= %d) iron_panic_bvec_oob(__FILE__, __LINE__,"
+                                "if (_bv->len >= %d) iron_panic_bvec_oob(IRON_SITE,"
                                 " (int64_t)_bv->len, (int64_t)%d);\n", N, N);
                             emit_indent(sb, ind + 1);
                             iron_strbuf_appendf(sb, "_bv->data[_bv->len] = ");
@@ -5926,7 +5947,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         for (int k = 0; k < ifw_count; k++) {
             emit_indent(sb, ind);
             iron_strbuf_appendf(sb,
-                "if (_ifw%d_%d.tag != %s_TAG_%s) iron_panic_iface_rebound(__FILE__, __LINE__, \"%s\", \"%s\");\n",
+                "if (_ifw%d_%d.tag != %s_TAG_%s) iron_panic_iface_rebound(IRON_SITE, \"%s\", \"%s\");\n",
                 (int)instr->id, ifw[k].arg_index, ifw[k].iface_c, ifw[k].impl,
                 ifw[k].iface_name, ifw[k].impl);
             emit_indent(sb, ind);
@@ -6111,7 +6132,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         iron_strbuf_appendf(sb, "Iron_FatPtr ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb,
-            " = iron_heap_alloc(__FILE__, __LINE__, sizeof(%s));\n",
+            " = iron_heap_alloc(IRON_SITE, sizeof(%s));\n",
             val_type);
         /* OOM guard: iron_heap_alloc returns fp.addr=NULL on OOM */
         emit_indent(sb, ind);
@@ -6404,7 +6425,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * report it on a double-free, release builds ignore it. */
             iron_strbuf_appendf(sb, "iron_heap_free_dbg(");
             emit_expr_to_buf(sb, instr->free_instr.value, fn, ctx, ctx->current_block_id, 0);
-            iron_strbuf_appendf(sb, ", __FILE__, __LINE__);\n");
+            iron_strbuf_appendf(sb, ", IRON_SITE);\n");
             (void)arena_c;
             break;
         }
@@ -6431,7 +6452,7 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * report BOTH sites on a double-free, release builds ignore the site. */
         iron_strbuf_appendf(sb, "iron_heap_free_dbg(");
         emit_expr_to_buf(sb, instr->free_instr.value, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ", __FILE__, __LINE__);\n");
+        iron_strbuf_appendf(sb, ", IRON_SITE);\n");
         break;
     }
 
@@ -6804,9 +6825,9 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         else emit_expr_to_buf(sb, instr->slice.end, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "  if (_sl_s < 0 || _sl_s > _sl_n) iron_panic_index_oob(__FILE__, __LINE__, _sl_s, _sl_n);\n");
+        iron_strbuf_appendf(sb, "  if (_sl_s < 0 || _sl_s > _sl_n) iron_panic_index_oob(IRON_SITE, _sl_s, _sl_n);\n");
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "  if (_sl_e < _sl_s || _sl_e > _sl_n) iron_panic_index_oob(__FILE__, __LINE__, _sl_e, _sl_n);\n");
+        iron_strbuf_appendf(sb, "  if (_sl_e < _sl_s || _sl_e > _sl_n) iron_panic_index_oob(IRON_SITE, _sl_e, _sl_n);\n");
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "  for (int64_t _sl_i = _sl_s; _sl_i < _sl_e; _sl_i++) {\n");
         emit_indent(sb, ind);
@@ -10529,6 +10550,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     /* ── Phase 1: Includes ───────────────────────────────────────────────── */
     iron_strbuf_appendf(&ctx.includes,
                          "#include \"runtime/iron_runtime.h\"\n");
+
     /* Phase 28 ARENA (Plan 28-04): arena runtime API + Iron_Arena_RT type used
      * by IRON_LIR_ARENA_ALLOC/PUSH/POP and the Arena drop -> iron_arena_rt_destroy. */
     iron_strbuf_appendf(&ctx.includes,

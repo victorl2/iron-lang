@@ -1,6 +1,13 @@
 #ifndef IRON_RUNTIME_H
 #define IRON_RUNTIME_H
 
+/* The source site a runtime panic reports. Generated code redefines it to
+ * the Iron file and line of each instruction (emit_instr); elsewhere it is
+ * the C location. */
+#ifndef IRON_SITE
+#define IRON_SITE __FILE__, __LINE__
+#endif
+
 /* The runtime header is freestanding (#235): it includes only the headers
  * clang ships with the compiler and declares everything else itself, so
  * generated C compiles without any platform SDK. Memory, threads and
@@ -464,10 +471,11 @@ static inline int64_t iron_bounds_idx_unchecked(int64_t i, int64_t n,
         iron_panic_index_oob_unchecked(site_file, site_line, i, n);
     return i;
 }
-#define IRON_UNCHECKED_IDX(i, n, site_file, site_line) \
-    iron_bounds_idx_unchecked((i), (n), (site_file), (site_line))
+/* The site arrives as one argument (`IRON_SITE`, which expands to two). */
+#define IRON_UNCHECKED_IDX(i, n, ...) \
+    iron_bounds_idx_unchecked((i), (n), __VA_ARGS__)
 #else
-#define IRON_UNCHECKED_IDX(i, n, site_file, site_line) (i)
+#define IRON_UNCHECKED_IDX(i, n, ...) (i)
 #endif
 
 /* Phase 24 DROP-04/05 (Plan 24-03): partial-init cleanup + panic-trap TLS state.
