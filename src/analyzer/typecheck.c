@@ -9056,6 +9056,76 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                            "thread pools are not supported for parallel for",
                            "write `for i in range(n) parallel { ... }`");
             }
+            /* The chunked parallel loop runs over indices, so a list is
+             * iterated as `for i in range(len(xs)) parallel { val x = xs[i]
+             * ... }`; the list is then captured like any other binding the
+             * body reads. Lowering it as a range used the list as the
+             * iteration count and the index as the element. */
+            if (fs->is_parallel && iter_t && iter_t->kind == IRON_TYPE_ARRAY &&
+                !fs->var_name2 && fs->body && fs->body->kind == IRON_NODE_BLOCK) {
+                if (fs->iterable->kind != IRON_NODE_IDENT) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fs->iterable->span,
+                               "parallel for over a list needs the list in a binding",
+                               "bind it first: `val xs = ...`, then `for x in xs parallel`");
+                } else {
+                    static int pfor_index_counter = 0;
+                    Iron_Ident *src = (Iron_Ident *)fs->iterable;
+                    Iron_Span sp = fs->iterable->span;
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "__pfor_i%d", pfor_index_counter++);
+                    const char *idx_name = iron_arena_strdup(ctx->arena, buf, strlen(buf));
+                    Iron_Ident *idx = ARENA_ALLOC(ctx->arena, Iron_Ident);
+                    Iron_Ident *idx2 = ARENA_ALLOC(ctx->arena, Iron_Ident);
+                    Iron_Ident *src2 = ARENA_ALLOC(ctx->arena, Iron_Ident);
+                    Iron_Ident *len_id = ARENA_ALLOC(ctx->arena, Iron_Ident);
+                    Iron_Ident *range_id = ARENA_ALLOC(ctx->arena, Iron_Ident);
+                    Iron_CallExpr *len_call = ARENA_ALLOC(ctx->arena, Iron_CallExpr);
+                    Iron_CallExpr *range_call = ARENA_ALLOC(ctx->arena, Iron_CallExpr);
+                    Iron_IndexExpr *elem = ARENA_ALLOC(ctx->arena, Iron_IndexExpr);
+                    Iron_ValDecl *bind = ARENA_ALLOC(ctx->arena, Iron_ValDecl);
+                    Iron_Node **len_args = iron_arena_alloc(ctx->arena, sizeof(Iron_Node *),
+                                                            _Alignof(Iron_Node *));
+                    Iron_Node **range_args = iron_arena_alloc(ctx->arena, sizeof(Iron_Node *),
+                                                              _Alignof(Iron_Node *));
+                    Iron_Block *body = (Iron_Block *)fs->body;
+                    Iron_Node **stmts = iron_arena_alloc(
+                        ctx->arena, sizeof(Iron_Node *) * (size_t)(body->stmt_count + 1),
+                        _Alignof(Iron_Node *));
+                    if (!idx_name || !idx || !idx2 || !src2 || !len_id || !range_id ||
+                        !len_call || !range_call || !elem || !bind || !len_args ||
+                        !range_args || !stmts)
+                        iron_oom_abort("typecheck.c:parallel for over a list");
+                    memset(idx, 0, sizeof *idx);
+                    idx->kind = IRON_NODE_IDENT; idx->span = sp; idx->name = idx_name;
+                    *idx2 = *idx;
+                    *src2 = *src;
+                    memset(len_id, 0, sizeof *len_id);
+                    len_id->kind = IRON_NODE_IDENT; len_id->span = sp; len_id->name = "len";
+                    *range_id = *len_id; range_id->name = "range";
+                    len_args[0] = (Iron_Node *)src2;
+                    memset(len_call, 0, sizeof *len_call);
+                    len_call->kind = IRON_NODE_CALL; len_call->span = sp;
+                    len_call->callee = (Iron_Node *)len_id;
+                    len_call->args = len_args; len_call->arg_count = 1;
+                    range_args[0] = (Iron_Node *)len_call;
+                    *range_call = *len_call;
+                    range_call->callee = (Iron_Node *)range_id;
+                    range_call->args = range_args;
+                    memset(elem, 0, sizeof *elem);
+                    elem->kind = IRON_NODE_INDEX; elem->span = sp;
+                    elem->object = (Iron_Node *)src; elem->index = (Iron_Node *)idx2;
+                    memset(bind, 0, sizeof *bind);
+                    bind->kind = IRON_NODE_VAL_DECL; bind->span = fs->span;
+                    bind->name = fs->var_name; bind->init = (Iron_Node *)elem;
+                    stmts[0] = (Iron_Node *)bind;
+                    for (int si = 0; si < body->stmt_count; si++) stmts[si + 1] = body->stmts[si];
+                    body->stmts = stmts;
+                    body->stmt_count++;
+                    fs->var_name = idx_name;
+                    fs->iterable = (Iron_Node *)range_call;
+                    iter_t = check_expr(ctx, fs->iterable);
+                }
+            }
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
             /* Define loop variable with appropriate type.
              * For array iteration (for x in arr) the loop var has elem type.

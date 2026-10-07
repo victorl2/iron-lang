@@ -1,0 +1,48 @@
+-- `for x in xs parallel` over a list generated C that used the list as the
+-- iteration count and gave the body the index instead of the element.
+object P {
+    val v: Int
+}
+func total(ps: [P]) -> Int {
+    val m = Mutex(0)
+    for p in ps parallel {
+        val g = m.lock()
+        g.set(g.get() + p.v)
+    }
+    val g = m.lock()
+    return g.get()
+}
+func main() {
+    val xs = [1, 2, 3, 4, 5, 6, 7, 8]
+    val m = Mutex(0)
+    for x in xs parallel {
+        val g = m.lock()
+        g.set(g.get() + x)
+    }
+    val g = m.lock()
+    println("{g.get()}")
+    val ws = ["a", "bb", "ccc"]
+    val n = Mutex(0)
+    for w in ws parallel {
+        val h = n.lock()
+        h.set(h.get() + w.len())
+    }
+    val h = n.lock()
+    println("{h.get()}")
+    println("{total([P(1), P(10), P(100)])}")
+    var big: [Int] = []
+    for i in range(1000) {
+        big.push(i)
+    }
+    val s = Mutex(0)
+    for x in big parallel {
+        val k = s.lock()
+        k.set(k.get() + x)
+    }
+    val k = s.lock()
+    println("{k.get()}")
+    val empty: [Int] = []
+    for x in empty parallel {
+        println("never")
+    }
+}

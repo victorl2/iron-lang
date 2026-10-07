@@ -1,0 +1,8 @@
+-- A parallel for over a list expression: the list must be in a binding.
+func main() {
+    val m = Mutex(0)
+    for x in [1, 2, 3] parallel {
+        val g = m.lock()
+        g.set(g.get() + x)
+    }
+}

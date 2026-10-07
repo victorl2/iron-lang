@@ -2142,7 +2142,8 @@ func main() {
 `for x in xs parallel { ... }` runs the iterations of the loop on several
 threads and waits for all of them. The body must not write bindings of the
 enclosing scope (`E0208`); use a `Mutex` to accumulate. `range(n)` and lists
-may be iterated in parallel. The `parallel(pool)` form parses but pools are
+may be iterated in parallel; a list is iterated through a binding
+(`for x in xs parallel`), not a list expression. The `parallel(pool)` form parses but pools are
 not implemented (`E0326`).
 
 ```iron
