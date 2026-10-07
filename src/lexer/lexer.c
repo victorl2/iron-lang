@@ -263,6 +263,13 @@ static void iron_skip_whitespace(Iron_Lexer *l) {
         if (c == ' ' || c == '\t' || c == '\r') {
             l->pos++;
             l->col++;
+        } else if ((unsigned char)c == 0xEF && l->pos + 2 < l->src_len &&
+                   (unsigned char)l->src[l->pos + 1] == 0xBB &&
+                   (unsigned char)l->src[l->pos + 2] == 0xBF) {
+            /* A UTF-8 byte-order mark, which Notepad and PowerShell's
+             * `Set-Content -Encoding UTF8` write at the start of a file
+             * (in a build, after the prepended standard library). */
+            l->pos += 3;
         } else {
             break;
         }
