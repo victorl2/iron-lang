@@ -564,6 +564,8 @@ static void iron_parser_sync_stmt(Iron_Parser *p) {
             k == IRON_TOK_FOR    ||
             k == IRON_TOK_MATCH  ||
             k == IRON_TOK_RETURN ||
+            k == IRON_TOK_BREAK  ||
+            k == IRON_TOK_CONTINUE ||
             k == IRON_TOK_DEFER  ||
             k == IRON_TOK_FREE   ||
             k == IRON_TOK_LEAK   ||
@@ -3238,6 +3240,15 @@ static Iron_Node *iron_parse_stmt_impl(Iron_Parser *p) {
             n->span  = iron_span_merge(iron_token_span(p, t),
                                         val ? val->span : iron_token_span(p, t));
             n->value = val;
+            return (Iron_Node *)n;
+        }
+        case IRON_TOK_BREAK:
+        case IRON_TOK_CONTINUE: {
+            iron_advance(p);
+            Iron_LoopJumpStmt *n = ARENA_ALLOC(p->arena, Iron_LoopJumpStmt);
+            if (!n) { p->in_error_recovery = true; return iron_make_error(p); }
+            n->kind = t->kind == IRON_TOK_BREAK ? IRON_NODE_BREAK : IRON_NODE_CONTINUE;
+            n->span = iron_token_span(p, t);
             return (Iron_Node *)n;
         }
         case IRON_TOK_IF:

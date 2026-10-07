@@ -403,8 +403,6 @@ func main() {
 
 ## Known gaps (current alpha)
 
-- There are no `break` and `continue` statements; return from the function
-  or make the loop condition false.
 - `println` takes exactly one `String`; interpolate other values.
 - Aliased imports of project or vendored modules (`import x as y`) do not
   work; call vendored `pub` functions directly.

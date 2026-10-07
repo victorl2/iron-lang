@@ -1222,6 +1222,14 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         return NULL;
     }
 
+    case IRON_NODE_BREAK:
+    case IRON_NODE_CONTINUE: {
+        iron_hir_block_add_stmt(blk, iron_hir_stmt_loop_jump(
+            mod, node->kind == IRON_NODE_BREAK ? IRON_HIR_STMT_BREAK : IRON_HIR_STMT_CONTINUE,
+            span));
+        return NULL;
+    }
+
     /* ── While loop ────────────────────────────────────────────────────────── */
     case IRON_NODE_WHILE: {
         Iron_WhileStmt *ws = (Iron_WhileStmt *)node;
@@ -1368,9 +1376,11 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
              * scope, before the loop increment below. */
             IronHIR_Stmt *block_stmt = iron_hir_stmt_block(mod, inner_blk, s0);
 
-            /* Build the outer body: [block_stmt, inc_stmt] */
+            /* The body is the user's block; the increment is the loop's
+             * step, which `continue` also runs. */
             IronHIR_Block *body_blk = iron_hir_block_create(mod);
             iron_hir_block_add_stmt(body_blk, block_stmt);
+            IronHIR_Block *step_blk = iron_hir_block_create(mod);
 
             /* Append increment: i = i + 1 (runs after defer scope exits) */
             IronHIR_Expr *i_ref2  = iron_hir_expr_ident(mod, loop_var,
@@ -1381,9 +1391,10 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             IronHIR_Expr *i_tgt   = iron_hir_expr_ident(mod, loop_var,
                                                           fs->var_name, int_ty, s0);
             IronHIR_Stmt *inc_stmt = iron_hir_stmt_assign(mod, i_tgt, inc, s0);
-            iron_hir_block_add_stmt(body_blk, inc_stmt);
+            iron_hir_block_add_stmt(step_blk, inc_stmt);
 
             IronHIR_Stmt *ws = iron_hir_stmt_while(mod, cond, body_blk, s0);
+            ws->while_loop.step = step_blk;
             iron_hir_block_add_stmt(blk, ws);
         } else {
             /* Array/collection for: STMT_FOR */

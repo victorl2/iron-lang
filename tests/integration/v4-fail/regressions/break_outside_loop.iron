@@ -1,0 +1,4 @@
+-- break outside any loop is E0335.
+func main() {
+    break
+}

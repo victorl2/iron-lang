@@ -86,13 +86,13 @@ field access (section 3.6).
 The following words are keywords and cannot be used as identifiers:
 
 ```text
-and       await     comptime  copy      defer     drop      elif      else
-enum      extends   extern    false     for       free      func      heap
-if        impl      import    in        init      interface is        leak
-match     mut       nocopy    not       null      object    or        parallel
-patch     pool      private   pub       pure      rc        readonly  return
-self      spawn     super     true      unchecked val       var       weak
-while
+and       await     break     comptime  continue  copy      defer     drop
+elif      else      enum      extends   extern    false     for       free
+func      heap      if        impl      import    in        init      interface
+is        leak      match     mut       nocopy    not       null      object
+or        parallel  patch     pool      private   pub       pure      rc
+readonly  return    self      spawn     super     true      unchecked val
+var       weak      while
 ```
 
 `extends`, `super`, `mut`, `private` and `pool` are reserved but have no
@@ -848,9 +848,40 @@ are optional. `if x is T` narrows `x` inside the block (section 3.9).
 
 ### 4.5 `while`
 
-`while cond { ... }` repeats its block while the condition holds. There
-are no `break` and `continue` statements: leave a loop by returning from the
-function or by making the condition false.
+`while cond { ... }` repeats its block while the condition holds.
+
+`break` leaves the innermost `while` or `for`, and `continue` starts its next
+iteration (for a `for` over `range(n)`, with the next number). Both first run
+the `defer`s and drop the values of every scope they leave inside the loop
+body. They apply to the loop of the same function body: one inside a
+lambda, a `defer` or a `spawn` block within the loop, or outside any loop, is
+an error, and so is one in a `parallel` loop, whose iterations run
+independently (`E0335`). A `match` arm may be a `break` or `continue`.
+
+```iron
+func main() {
+    var found = -1
+    for x in [4, 7, -2, 9, -5] {
+        if x > 0 {
+            continue
+        }
+        found = x
+        break
+    }
+    var n = 0
+    while true {
+        n += 1
+        if n == 3 {
+            break
+        }
+    }
+    println("{found} {n}")
+}
+```
+
+```output
+-2 3
+```
 
 ### 4.6 `for`
 
@@ -2829,6 +2860,7 @@ codes cited in this manual:
 | E0320, E0321 | private declaration used from another file; standalone `func Type.method` form |
 | E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
 | E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element |
+| E0335 | `break` / `continue` outside a loop, in a lambda, `defer` or `spawn` body inside one, or in a `parallel` loop |
 | E0331, E0332, E0333, E0334 | list extension with a body; refutable nested pattern; `Channel.new(4)` and the other `.new` constructor spellings; interpolating a value with no text form |
 | E0501 | `await` on the web target |
 | E0700 to E0703 | web main loop rules |

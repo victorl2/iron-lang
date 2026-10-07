@@ -883,6 +883,11 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        case IRON_NODE_BREAK:
+        case IRON_NODE_CONTINUE:
+            /* No names to resolve. */
+            break;
+
         case IRON_NODE_DEFER: {
             Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
             /* Phase 32 DEFER-01: the defer body is a general statement
