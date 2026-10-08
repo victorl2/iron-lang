@@ -994,6 +994,14 @@ if(NOT IRON_ENABLE_FUZZING AND NOT MSVC)
     target_include_directories(iron_fuzz_gen_check PRIVATE src tests/fuzz)
 endif()
 
+# A diagnostic is reported once even when two passes find it.
+add_test(NAME diag_reported_once
+    COMMAND $<TARGET_FILE:ironc> check
+        ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/unknown_variant_once.iron)
+set_tests_properties(diag_reported_once PROPERTIES
+    PASS_REGULAR_EXPRESSION "E0228"
+    FAIL_REGULAR_EXPRESSION "E0228.*E0228")
+
 # An unknown command prints a short error and where to look, not the help.
 add_test(NAME iron_unknown_command COMMAND $<TARGET_FILE:iron> bogus)
 set_tests_properties(iron_unknown_command PROPERTIES

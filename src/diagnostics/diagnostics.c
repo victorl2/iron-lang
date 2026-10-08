@@ -50,6 +50,20 @@ void iron_diag_emit(Iron_DiagList *list,
                     Iron_Span      span,
                     const char    *message,
                     const char    *suggestion) {
+    /* The same error at the same place once is enough: the resolver and the
+     * checker both report some errors (an unknown enum variant was printed
+     * twice). Only the last 1024 entries are compared, so a runaway error
+     * stream stays linear. */
+    for (int i = list->count - 1; i >= 0 && i >= list->count - 1024; i--) {
+        const Iron_Diagnostic *o = &list->items[i];
+        if (o->code == code && o->level == level &&
+            o->span.line == span.line && o->span.col == span.col &&
+            o->span.end_line == span.end_line && o->span.end_col == span.end_col &&
+            ((o->span.filename == span.filename) ||
+             (o->span.filename && span.filename && strcmp(o->span.filename, span.filename) == 0)) &&
+            o->message && message && strcmp(o->message, message) == 0)
+            return;
+    }
     Iron_Diagnostic d;
     d.level      = level;
     d.code       = code;
