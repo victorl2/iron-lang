@@ -105,17 +105,13 @@ static Iron_Program *facade_analyze(struct IronLsp_Document      *doc,
         }
     }
 
-    Iron_AnalyzeResult r;
-    if (source && prepended > 0) {
-        r = iron_analyze_buffer(source, strlen(source), doc_file,
-                                IRON_ANALYSIS_MODE_LSP, arena, diags, cancel,
-                                prepended + 1);
-    } else {
-        /* No stdlib found: analyze the buffer alone. */
-        r = iron_analyze_buffer(doc->text ? doc->text : "", doc->text_len,
-                                doc_file, IRON_ANALYSIS_MODE_LSP, arena, diags,
-                                cancel, 0);
-    }
+    /* With no stdlib found, the buffer is analyzed alone. */
+    bool with_prelude = source && prepended > 0;
+    const char *text = with_prelude ? source : (doc->text ? doc->text : "");
+    size_t      text_len = with_prelude ? strlen(source) : doc->text_len;
+    Iron_AnalyzeResult r = iron_analyze_buffer(
+        text, text_len, doc_file, IRON_ANALYSIS_MODE_LSP, arena, diags, cancel,
+        with_prelude ? prepended + 1 : 0);
     /* The arena keeps no pointers into the source text (tokens and the AST
      * copy what they keep), so the prelude buffer can go now. */
     free(source);
