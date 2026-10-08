@@ -562,6 +562,7 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_ARRAY_EXT_BODY           331   /* `func [T].m() { ... }` with a body: only the stdlib's intrinsic stubs exist */
 #define IRON_ERR_NESTED_PATTERN           332   /* `A.X(B.Y(v))` where B has several variants: the inner tag is not tested at run time */
 #define IRON_ERR_CTOR_SPELLING            333   /* `Channel.new(4)` / `Arena.with_capacity(n)`: containers are constructed as `Channel[Int](4)` / `Arena(n)` */
+#define IRON_ERR_LOOP_JUMP_OUTSIDE        335   /* `break` / `continue` outside a loop, in a lambda, defer or spawn body inside one, or in a parallel for */
 #define IRON_ERR_NOT_STRINGABLE           334   /* `{x}` where x has no text form: not a number, Bool, String, enum, their nullable, or an object with to_string() */
 
 /* Lowering error codes (400 range) */

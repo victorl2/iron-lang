@@ -1,0 +1,7 @@
+-- A lambda body is not inside the loop that declares it.
+func main() {
+    for i in range(3) {
+        val f = func() { continue }
+        f()
+    }
+}

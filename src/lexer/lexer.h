@@ -21,7 +21,9 @@ typedef enum {
     /* Keywords (49 total, alphabetical) */
     IRON_TOK_AND,
     IRON_TOK_AWAIT,
+    IRON_TOK_BREAK,
     IRON_TOK_COMPTIME,
+    IRON_TOK_CONTINUE,
     IRON_TOK_COPY,       /* Phase 16: v4 copy hook keyword (semantics: Phase 24) */
     IRON_TOK_DEFER,
     IRON_TOK_DROP,       /* Phase 16: v4 destructor keyword (semantics: Phase 24) */

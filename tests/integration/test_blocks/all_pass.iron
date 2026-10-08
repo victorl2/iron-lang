@@ -1,0 +1,55 @@
+-- Test blocks that all pass: `ironc test all_pass.iron` exits 0.
+import os
+enum Shape {
+    Circle(Int),
+    Empty,
+}
+
+func area(s: Shape) -> Int {
+    match s {
+        Shape.Circle(r) -> return 3 * r * r
+        Shape.Empty -> return 0
+    }
+}
+
+func label(n: Int) -> String {
+    return "n{n}"
+}
+
+test "integers" {
+    assert_eq(area(Shape.Circle(2)), 12)
+    assert_ne(area(Shape.Empty), 1)
+}
+
+test "strings" {
+    assert_eq(label(3), "n3")
+}
+
+test "enums" {
+    assert_eq(Shape.Circle(1), Shape.Circle(1))
+    assert_ne(Shape.Circle(1), Shape.Empty)
+}
+
+test "plain assert and output" {
+    println("output of a passing test is not shown")
+    assert(label(1).len() == 2, "label length")
+}
+
+test "loops with break and continue" {
+    var odd_sum = 0
+    for i in range(100) {
+        if i == 10 {
+            break
+        }
+        if i % 2 == 0 {
+            continue
+        }
+        odd_sum += i
+    }
+    assert_eq(odd_sum, 25)
+}
+
+test "environment" {
+    assert(OS.env("IRON_TEST_SURELY_UNSET_VAR") == null, "unset variable")
+    assert(OS.env_or("IRON_TEST_SURELY_UNSET_VAR", "d") == "d", "fallback")
+}

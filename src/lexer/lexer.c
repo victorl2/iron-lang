@@ -28,7 +28,9 @@ typedef struct {
 static const KeywordEntry kw_table[] = {
     { "and",        IRON_TOK_AND        },
     { "await",      IRON_TOK_AWAIT      },
+    { "break",      IRON_TOK_BREAK      },
     { "comptime",   IRON_TOK_COMPTIME   },
+    { "continue",   IRON_TOK_CONTINUE   },
     { "copy",       IRON_TOK_COPY       },  /* Phase 16: v4 copy hook keyword */
     { "defer",      IRON_TOK_DEFER      },
     { "drop",       IRON_TOK_DROP       },  /* Phase 16: v4 destructor keyword */
@@ -98,7 +100,9 @@ static const char *kw_kind_names[IRON_TOK_COUNT] = {
     [IRON_TOK_INTERP_STRING] = "IRON_TOK_INTERP_STRING",
     [IRON_TOK_AND]           = "IRON_TOK_AND",
     [IRON_TOK_AWAIT]         = "IRON_TOK_AWAIT",
+    [IRON_TOK_BREAK]         = "IRON_TOK_BREAK",
     [IRON_TOK_COMPTIME]      = "IRON_TOK_COMPTIME",
+    [IRON_TOK_CONTINUE]      = "IRON_TOK_CONTINUE",
     [IRON_TOK_COPY]          = "IRON_TOK_COPY",
     [IRON_TOK_DEFER]         = "IRON_TOK_DEFER",
     [IRON_TOK_DROP]          = "IRON_TOK_DROP",
@@ -263,6 +267,13 @@ static void iron_skip_whitespace(Iron_Lexer *l) {
         if (c == ' ' || c == '\t' || c == '\r') {
             l->pos++;
             l->col++;
+        } else if ((unsigned char)c == 0xEF && l->pos + 2 < l->src_len &&
+                   (unsigned char)l->src[l->pos + 1] == 0xBB &&
+                   (unsigned char)l->src[l->pos + 2] == 0xBF) {
+            /* A UTF-8 byte-order mark, which Notepad and PowerShell's
+             * `Set-Content -Encoding UTF8` write at the start of a file
+             * (in a build, after the prepended standard library). */
+            l->pos += 3;
         } else {
             break;
         }

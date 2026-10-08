@@ -232,3 +232,103 @@ int iron_cond_timedwait_ms(iron_cond_t *cv, iron_mutex_t *lock, int timeout_ms) 
 }
 
 #endif
+
+/* ── Environment and command line ───────────────────────────────────────── */
+
+#ifdef _WIN32
+#include <shellapi.h>
+#pragma comment(lib, "shell32.lib")
+
+/* UTF-8 <-> UTF-16 for the wide Windows APIs; the result is malloc'd. */
+static wchar_t *os_utf8_to_wide(const char *s, size_t len) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, s, (int)len, NULL, 0);
+    wchar_t *w = (wchar_t *)malloc(((size_t)n + 1) * sizeof(wchar_t));
+    if (!w) return NULL;
+    MultiByteToWideChar(CP_UTF8, 0, s, (int)len, w, n);
+    w[n] = 0;
+    return w;
+}
+
+static char *os_wide_to_utf8(const wchar_t *w, int *out_len) {
+    int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, NULL, 0, NULL, NULL);
+    char *s = (char *)malloc(n > 0 ? (size_t)n : 1);
+    if (!s) return NULL;
+    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w, -1, s, n, NULL, NULL);
+    else s[0] = 0;
+    if (out_len) *out_len = n > 0 ? n - 1 : 0;
+    return s;
+}
+
+/* The command line as UTF-8: the C runtime's argv is in the ANSI code
+ * page, so non-ASCII arguments would not round-trip. */
+int iron_os_utf8_args(char ***out) {
+    int n = 0;
+    LPWSTR *w = CommandLineToArgvW(GetCommandLineW(), &n);
+    *out = NULL;
+    if (!w) return 0;
+    char **v = (char **)calloc(n > 0 ? (size_t)n : 1, sizeof(char *));
+    if (v) for (int i = 0; i < n; i++) v[i] = os_wide_to_utf8(w[i], NULL);
+    LocalFree(w);
+    *out = v;
+    return v ? n : 0;
+}
+
+void iron_os_utf8_args_free(char **v, int n) {
+    if (!v) return;
+    for (int i = 0; i < n; i++) free(v[i]);
+    free(v);
+}
+
+/* The variable's value as UTF-8 (malloc'd), or NULL when it is not set. */
+static char *os_getenv(const Iron_String *name, int *out_len) {
+    wchar_t *wn = os_utf8_to_wide(iron_string_cstr(name), iron_string_byte_len(name));
+    if (!wn) return NULL;
+    DWORD need = GetEnvironmentVariableW(wn, NULL, 0);
+    if (need == 0) {
+        bool unset = GetLastError() == ERROR_ENVVAR_NOT_FOUND;
+        free(wn);
+        if (unset) return NULL;
+        char *empty = (char *)malloc(1);
+        if (empty) empty[0] = 0;
+        if (out_len) *out_len = 0;
+        return empty;
+    }
+    wchar_t *wv = (wchar_t *)malloc((size_t)need * sizeof(wchar_t));
+    if (!wv) { free(wn); return NULL; }
+    GetEnvironmentVariableW(wn, wv, need);
+    free(wn);
+    char *v = os_wide_to_utf8(wv, out_len);
+    free(wv);
+    return v;
+}
+#else
+static char *os_getenv(const Iron_String *name, int *out_len) {
+    const char *v = getenv(iron_string_cstr(name));
+    if (!v) return NULL;
+    size_t n = strlen(v);
+    char *copy = (char *)malloc(n + 1);
+    if (!copy) return NULL;
+    memcpy(copy, v, n + 1);
+    if (out_len) *out_len = (int)n;
+    return copy;
+}
+#endif
+
+/* os.iron: OS.has_env(name) and OS.env_or(name, fallback); OS.env(name)
+ * is written in Iron on top of them. */
+bool Iron_os_has_env(Iron_String name) {
+    char *v = os_getenv(&name, NULL);
+    bool set = v != NULL;
+    free(v);
+    return set;
+}
+
+Iron_String Iron_os_env_or(Iron_String name, Iron_String fallback) {
+    int len = 0;
+    char *v = os_getenv(&name, &len);
+    if (!v) return iron_string_from_cstr(iron_string_cstr(&fallback),
+                                         iron_string_byte_len(&fallback));
+    Iron_String s = iron_string_from_cstr(v, (size_t)len);
+    free(v);
+    return s;
+}

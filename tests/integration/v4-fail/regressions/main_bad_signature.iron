@@ -1,0 +1,4 @@
+-- main takes nothing or the command-line arguments.
+func main(n: Int) {
+    println("{n}")
+}

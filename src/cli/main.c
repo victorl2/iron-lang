@@ -107,6 +107,8 @@ int main(int argc, char **argv) {
     bool verbose = false;
     bool debug_build = false;
     bool emit_c = false;
+    bool test_build = false;
+    const char *test_filter = NULL;
     bool force_comptime = false;
     bool dump_ir_passes = false;
     bool no_optimize = false;
@@ -135,6 +137,8 @@ int main(int argc, char **argv) {
             verbose = true;
         } else if (strcmp(argv[i], "--debug-build") == 0) {
             debug_build = true;
+        } else if (strcmp(argv[i], "--test") == 0) {
+            test_build = true;
         } else if (strcmp(argv[i], "--emit-c") == 0) {
             emit_c = true;
             debug_build = true;
@@ -230,6 +234,9 @@ int main(int argc, char **argv) {
             return 1;
         } else if (!source_file && argv[i][0] != '-') {
             source_file = argv[i];
+        } else if (strcmp(cmd, "test") == 0 && !test_filter && argv[i][0] != '-') {
+            /* `test <file> <filter>`: run the tests whose name contains it. */
+            test_filter = argv[i];
         }
     }
 
@@ -259,7 +266,8 @@ int main(int argc, char **argv) {
             .pkg_name       = pkg_name_arg,
             .pkg_version    = pkg_version_arg,
             .extra_link_flags = extra_link_flag_count > 0 ? extra_link_flags_buf : NULL,
-            .extra_link_flag_count = extra_link_flag_count
+            .extra_link_flag_count = extra_link_flag_count,
+            .test_mode      = test_build
         };
         return iron_build(source_file, output_file, opts);
     }
@@ -337,7 +345,13 @@ int main(int argc, char **argv) {
     }
 
     if (strcmp(cmd, "test") == 0) {
-        return iron_test(source_file ? source_file : ".");
+        /* A .iron file: build its `test` blocks and run them. A directory:
+         * run every test_*.iron program in it (a file with its own main). */
+        const char *path = source_file ? source_file : ".";
+        size_t pl = strlen(path);
+        if (pl > 5 && strcmp(path + pl - 5, ".iron") == 0)
+            return iron_test_file(path, test_filter);
+        return iron_test(path);
     }
 
     fprintf(stderr, "%s: unknown command '%s'\n", IRON_BINARY_NAME, cmd);

@@ -46,6 +46,11 @@ typedef struct {
      * "-L" or "-l" into this array. */
     const char    **extra_link_flags;
     int             extra_link_flag_count;
+    /* --test: keep the `test "name" { ... }` functions and emit a main that
+     * lists them (`--iron-list`) and runs one (`--iron-test <n>`) instead
+     * of the program's main. Other builds drop them after checking. */
+    bool            test_mode;
+    bool            quiet;         /* no "Built: <path>" line (iron test) */
 } IronBuildOpts;
 
 /* Build a .iron source file to a native binary.

@@ -234,6 +234,16 @@ IronHIR_Stmt *iron_hir_stmt_return(IronHIR_Module *mod, IronHIR_Expr *value,
     return s;
 }
 
+IronHIR_Stmt *iron_hir_stmt_loop_jump(IronHIR_Module *mod, IronHIR_StmtKind kind,
+                                       Iron_Span span) {
+    IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);
+    if (!s) iron_oom_abort("hir.c:iron_hir_stmt_loop_jump");
+    memset(s, 0, sizeof(*s));
+    s->kind = kind;
+    s->span = span;
+    return s;
+}
+
 IronHIR_Stmt *iron_hir_stmt_defer(IronHIR_Module *mod, IronHIR_Block *body,
                                     Iron_Span span) {
     IronHIR_Stmt *s = ARENA_ALLOC(mod->arena, IronHIR_Stmt);

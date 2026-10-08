@@ -309,6 +309,12 @@ static void check_stmt_init(InitCheckCtx *ctx, Iron_Node *node) {
         ctx->has_return = true;
         break;
     }
+    case IRON_NODE_BREAK:
+    case IRON_NODE_CONTINUE:
+        /* Leaves the branch like a return: its assignments do not reach the
+         * code after an `if`. The enclosing loop discards them anyway. */
+        ctx->has_return = true;
+        break;
     case IRON_NODE_BLOCK: {
         Iron_Block *blk = (Iron_Block *)node;
         for (int i = 0; i < blk->stmt_count; i++) {

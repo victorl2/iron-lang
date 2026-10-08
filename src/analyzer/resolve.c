@@ -883,6 +883,11 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
             break;
         }
 
+        case IRON_NODE_BREAK:
+        case IRON_NODE_CONTINUE:
+            /* No names to resolve. */
+            break;
+
         case IRON_NODE_DEFER: {
             Iron_DeferStmt *ds = (Iron_DeferStmt *)node;
             /* Phase 32 DEFER-01: the defer body is a general statement
@@ -1520,7 +1525,7 @@ void iron_type_patch_registry_free(Iron_TypePatchRegistry *reg) {
 /* Stdlib modules an `import` may name (src/stdlib/<name>.iron). */
 static const char *const k_stdlib_modules[] = {
     "arena", "box", "channel", "filehandle", "float", "hashable", "hint",
-    "http", "int", "io", "list", "log", "map", "math", "mutex", "net",
+    "http", "int", "io", "list", "log", "map", "math", "mutex", "net", "os",
     "rawptr", "raylib", "rwlock", "set", "string", "time", "url",
     "websocket", NULL
 };

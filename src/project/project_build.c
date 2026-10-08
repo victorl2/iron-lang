@@ -875,17 +875,44 @@ static int cmd_check(int argc, char **argv) {
 
 /* ── cmd_test ───────────────────────────────────────────────────────────── */
 
+/* Whether the file declares `func main(` at the start of a line: a
+ * standalone test program, rather than a file of `test` blocks. */
+static bool defines_main(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    char line[4096];
+    bool found = false;
+    while (!found && fgets(line, sizeof(line), f)) {
+        const char *c = line;
+        while (*c == ' ' || *c == '\t' || (unsigned char)*c == 0xEF ||
+               (unsigned char)*c == 0xBB || (unsigned char)*c == 0xBF) c++;
+        if (strncmp(c, "pub ", 4) == 0) c += 4;
+        if (strncmp(c, "func main(", 10) == 0) found = true;
+    }
+    fclose(f);
+    return found;
+}
+
+/*
+ * `iron test [filter]`: the `test "name" { ... }` blocks of vendor/, src/
+ * and tests/ are compiled together, as one program with the project's own
+ * code (target/tests.iron), and run by `ironc test`, one process per test;
+ * the filter keeps the tests whose name contains it. A tests/test_*.iron
+ * file with its own main is a standalone test program, run as before.
+ */
 static int cmd_test(int argc, char **argv) {
     static const char *const allowed[] = { NULL };
     if (reject_unknown_flags("test", argc, argv, allowed) != 0) return 1;
     bool colors = iron_color_init();
+    const char *filter = NULL;
+    for (int i = 2; i < argc; i++)
+        if (argv[i][0] != '-') { filter = argv[i]; break; }
 
     char *toml_path = find_iron_toml();
     if (!toml_path) {
         iron_print_error(colors, "no iron.toml found");
         return 1;
     }
-
     IronProject *proj = iron_toml_parse(toml_path);
     if (!proj || !proj->name) {
         iron_print_error(colors, "invalid iron.toml");
@@ -893,48 +920,80 @@ static int cmd_test(int argc, char **argv) {
         if (proj) iron_toml_free(proj);
         return 1;
     }
-
     char *proj_dir = get_project_dir(toml_path);
-    char tests_dir[4096];
-    snprintf(tests_dir, sizeof(tests_dir), "%s/tests", proj_dir);
-
-    /* Check if tests/ directory exists */
-#ifdef _WIN32
-    struct stat tst;
-    if (stat(tests_dir, &tst) != 0 || !S_ISDIR(tst.st_mode)) {
-        iron_print_status(colors, "Testing", "no tests/ directory found");
-        free(proj_dir); free(toml_path); iron_toml_free(proj);
-        return 0;
-    }
-#else
-    DIR *d = opendir(tests_dir);
-    if (!d) {
-        iron_print_status(colors, "Testing", "no tests/ directory found");
-        free(proj_dir); free(toml_path); iron_toml_free(proj);
-        return 0; /* not an error — just no tests */
-    }
-#endif
 
     char detail[512];
     snprintf(detail, sizeof(detail), "%s v%s", proj->name, proj->version ? proj->version : "?");
     iron_print_status(colors, "Testing", detail);
 
-    char *ironc = find_ironc();
-
-#ifndef _WIN32
-    closedir(d);
-#endif
-
-    /* Delegate to ironc test with the tests/ directory.
-     * ironc test expects a directory path and discovers .iron files itself. */
-    char *spawn_argv[] = { ironc, "test", tests_dir, NULL };
-    int ret = spawn_and_wait(ironc, spawn_argv);
-
-    if (ret == 0) {
-        iron_print_status(colors, "Finished", "all tests passed");
+    PathList vendor_files = {0}, project_files = {0}, test_files = {0};
+    char dir[4096];
+    snprintf(dir, sizeof(dir), "%s/vendor", proj_dir);
+    if (is_dir(dir)) collect_vendor_dir(dir, &vendor_files);
+    collect_project_sources(proj_dir, &project_files);
+    snprintf(dir, sizeof(dir), "%s/tests", proj_dir);
+    bool has_tests_dir = is_dir(dir);
+    bool has_standalone = false;
+    if (has_tests_dir) {
+        PathList names = {0};
+        if (list_dir_sorted(dir, &names) == 0) {
+            for (int i = 0; i < names.count; i++) {
+                if (!has_iron_ext(names.items[i])) continue;
+                char path[4096];
+                snprintf(path, sizeof(path), "%s/%s", dir, names.items[i]);
+                if (!is_file(path)) continue;
+                if (defines_main(path)) {
+                    if (strncmp(names.items[i], "test_", 5) == 0) has_standalone = true;
+                } else {
+                    path_list_add(&test_files, path);
+                }
+            }
+        }
+        path_list_free(&names);
     }
 
-    free(ironc);
+    /* target/tests.iron: the project with its test files. */
+    char target_dir[4096], combined_path[4096];
+    snprintf(target_dir, sizeof(target_dir), "%s/target", proj_dir);
+#ifdef _WIN32
+    _mkdir(target_dir);
+#else
+    mkdir(target_dir, 0755);
+#endif
+    snprintf(combined_path, sizeof(combined_path), "%s/target/tests.iron", proj_dir);
+    FILE *combined = fopen(combined_path, "w");
+    int ret = 0;
+    if (!combined) {
+        iron_print_error(colors, "cannot create target/tests.iron");
+        ret = 1;
+    } else {
+        size_t proj_prefix = strlen(proj_dir) + 1;
+        PathList *groups[3] = { &vendor_files, &project_files, &test_files };
+        for (int g = 0; g < 3; g++) {
+            for (int i = 0; i < groups[g]->count; i++) {
+                write_file_marker(combined, groups[g]->items[i] + proj_prefix);
+                append_file(combined, groups[g]->items[i]);
+            }
+        }
+        fclose(combined);
+
+        char *ironc = find_ironc();
+        char *spawn_argv[] = { ironc, "test", combined_path, (char *)filter, NULL };
+        ret = spawn_and_wait(ironc, spawn_argv);
+        if (has_standalone) {
+            /* Standalone programs run whole; the filter does not apply. */
+            char *legacy_argv[] = { ironc, "test", dir, NULL };
+            int lret = spawn_and_wait(ironc, legacy_argv);
+            if (ret == 0) ret = lret;
+        }
+        free(ironc);
+    }
+
+    if (ret == 0) iron_print_status(colors, "Finished", "all tests passed");
+
+    path_list_free(&vendor_files);
+    path_list_free(&project_files);
+    path_list_free(&test_files);
     free(proj_dir);
     free(toml_path);
     iron_toml_free(proj);

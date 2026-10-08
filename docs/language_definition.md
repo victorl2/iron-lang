@@ -86,13 +86,13 @@ field access (section 3.6).
 The following words are keywords and cannot be used as identifiers:
 
 ```text
-and       await     comptime  copy      defer     drop      elif      else
-enum      extends   extern    false     for       free      func      heap
-if        impl      import    in        init      interface is        leak
-match     mut       nocopy    not       null      object    or        parallel
-patch     pool      private   pub       pure      rc        readonly  return
-self      spawn     super     true      unchecked val       var       weak
-while
+and       await     break     comptime  continue  copy      defer     drop
+elif      else      enum      extends   extern    false     for       free
+func      heap      if        impl      import    in        init      interface
+is        leak      match     mut       nocopy    not       null      object
+or        parallel  patch     pool      private   pub       pure      rc
+readonly  return    self      spawn     super     true      unchecked val
+var       weak      while
 ```
 
 `extends`, `super`, `mut`, `private` and `pool` are reserved but have no
@@ -848,9 +848,40 @@ are optional. `if x is T` narrows `x` inside the block (section 3.9).
 
 ### 4.5 `while`
 
-`while cond { ... }` repeats its block while the condition holds. There
-are no `break` and `continue` statements: leave a loop by returning from the
-function or by making the condition false.
+`while cond { ... }` repeats its block while the condition holds.
+
+`break` leaves the innermost `while` or `for`, and `continue` starts its next
+iteration (for a `for` over `range(n)`, with the next number). Both first run
+the `defer`s and drop the values of every scope they leave inside the loop
+body. They apply to the loop of the same function body: one inside a
+lambda, a `defer` or a `spawn` block within the loop, or outside any loop, is
+an error, and so is one in a `parallel` loop, whose iterations run
+independently (`E0335`). A `match` arm may be a `break` or `continue`.
+
+```iron
+func main() {
+    var found = -1
+    for x in [4, 7, -2, 9, -5] {
+        if x > 0 {
+            continue
+        }
+        found = x
+        break
+    }
+    var n = 0
+    while true {
+        n += 1
+        if n == 3 {
+            break
+        }
+    }
+    println("{found} {n}")
+}
+```
+
+```output
+-2 3
+```
 
 ### 4.6 `for`
 
@@ -1103,9 +1134,13 @@ throughout the package, section 10.3).
 
 ### 5.1 The entry point
 
-A binary program has exactly one `func main()` with no parameters and no
-result type. Execution starts there and the process exits with status 0
-when `main` returns. A run-time failure (index out of range, division by
+A binary program has exactly one `main`, with no result type, written
+either `func main()` or `func main(args: [String])` to receive the
+command-line arguments after the program name (UTF-8, `iron run file.iron
+-- a b` passes `a` and `b`); any other parameter list is an error
+(`E0202`).
+Execution starts there and the process exits with status 0 when `main`
+returns. A run-time failure (index out of range, division by
 zero, failed `assert`, stale pointer) prints a message to standard error and
 aborts.
 
@@ -2237,6 +2272,7 @@ These are available everywhere without an import.
 | `clamp(x: Int, lo: Int, hi: Int) -> Int` | `x` limited to `[lo, hi]` |
 | `abs(x: Int) -> Int` | absolute value |
 | `assert(cond: Bool)`, `assert(cond: Bool, msg: String)` | abort with `msg` (or the source location) when `cond` is false |
+| `assert_eq(actual, expected)`, `assert_ne(a, b)` | abort, naming the source line and both values, unless `actual == expected` (`a != b`); a statement, for values that compare with `==` and have a text form |
 | `read_file(path: String) -> String` | file contents, only inside `comptime` |
 
 `print` and `println` take exactly one `String`; interpolate other values.
@@ -2456,6 +2492,30 @@ func main() {
 true 2000 false
 ```
 
+### 9.6.1 `os` (import)
+
+`OS.env(name) -> String?` reads an environment variable (`null` when it is
+not set), `OS.env_or(name, fallback) -> String` returns `fallback` instead,
+and `OS.has_env(name) -> Bool` tests for it (an empty value counts as set).
+Names and values are UTF-8 on every platform.
+
+```iron
+import os
+
+func main(args: [String]) {
+    val home = OS.env("IRON_MANUAL_UNSET_VAR")
+    if home == null {
+        println("unset")
+    }
+    println("{OS.env_or("IRON_MANUAL_UNSET_VAR", "default")} {args.len()}")
+}
+```
+
+```output
+unset
+default 0
+```
+
 ### 9.7 `log` (import)
 
 `Log.debug(msg)`, `Log.info(msg)`, `Log.warn(msg)` and `Log.error(msg)`
@@ -2627,8 +2687,8 @@ directory with an `iron.toml` manifest, `src/main.iron` (or `src/lib.iron`
 for a library) and a `.gitignore`. Inside a package, `iron build` compiles
 every `.iron` file under `src/` and `vendor/` into `target/`, `iron run`
 builds and runs it, `iron check` type-checks the same sources, `iron test`
-compiles and runs every `tests/test_*.iron` file as a program (a test
-passes when it exits with 0) and `iron fmt file.iron` reformats a file
+runs the package's `test "name" { ... }` blocks (section 10.2.1) and every
+`tests/test_*.iron` program, and `iron fmt file.iron` reformats a file
 (`--check` only reports). All files of a package share one namespace: a
 `pub` declaration in one file is visible in every other file, and a
 private one only in its own (`E0320`). `import` of a package file is
@@ -2650,6 +2710,28 @@ clauses are combined with AND (`">= 4.0.0, < 5.0.0"`). A pre-release such
 as `4.4.0-alpha` sorts before `4.4.0`. A mismatch stops the build with the
 version to install. There is no `[dependencies]` table: a manifest that
 declares one fails with a vendoring hint.
+
+#### 10.2.1 Test blocks
+
+A `test "name" { ... }` declaration, at the top level of any file, is a
+test: a body checked like a function's, run by `iron test` (or `ironc test
+file.iron`) and left out of every other build. `test` is a keyword only in
+this position. The tests of a package are compiled with its sources, so a
+test in `src/` can call that file's private functions; each runs in its own
+process, and a failed `assert`, `assert_eq`, `assert_ne` or a panic fails
+it.
+
+<!-- doctest-skip: a test block needs `iron test` to run -->
+```iron
+func parse_digit(c: String) -> Int {
+    return "0123456789".index_of(c)
+}
+
+test "digits parse" {
+    assert_eq(parse_digit("7"), 7)
+    assert_eq(parse_digit("x"), -1)
+}
+```
 
 ### 10.3 Third-party code
 
@@ -2829,6 +2911,7 @@ codes cited in this manual:
 | E0320, E0321 | private declaration used from another file; standalone `func Type.method` form |
 | E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
 | E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element |
+| E0335 | `break` / `continue` outside a loop, in a lambda, `defer` or `spawn` body inside one, or in a `parallel` loop |
 | E0331, E0332, E0333, E0334 | list extension with a body; refutable nested pattern; `Channel.new(4)` and the other `.new` constructor spellings; interpolating a value with no text form |
 | E0501 | `await` on the web target |
 | E0700 to E0703 | web main loop rules |
@@ -2875,9 +2958,11 @@ decl           ::= import_decl
                  | var_decl
                  | [ 'nocopy' ] [ 'pub' ] object_decl
                  | [ 'pub' ] ( func_decl | extern_decl | patch_decl | interface_decl | enum_decl | array_ext_decl )
+                 | test_decl
 
 import_decl    ::= 'import' IDENT { '.' IDENT }
 func_decl      ::= [ '@' 'fusible' ] 'func' IDENT [ generic_params ] param_list [ '->' type ] block
+test_decl      ::= 'test' STRING block
 extern_decl    ::= 'extern' 'func' IDENT param_list [ '->' type ]
 array_ext_decl ::= 'func' '[' IDENT ']' '.' NAME [ generic_params ] param_list [ '->' type ] block
 generic_params ::= '[' generic_param { ',' generic_param } [ ',' ] ']'

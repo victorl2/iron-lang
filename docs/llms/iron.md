@@ -401,10 +401,26 @@ func main() {
 }
 ```
 
+## Tests
+
+Write tests as `test "name" { ... }` blocks next to the code (in `src/`) or in
+`tests/`, and run them with `iron test` (or `ironc test file.iron`). Each test
+runs in its own process; `assert_eq(actual, expected)` and `assert_ne(a, b)`
+report both values and the line on failure. Other builds leave tests out.
+
+<!-- doctest-skip: a test block needs `iron test` to run -->
+```iron
+func add(a: Int, b: Int) -> Int {
+    return a + b
+}
+
+test "add" {
+    assert_eq(add(2, 3), 5)
+}
+```
+
 ## Known gaps (current alpha)
 
-- There are no `break` and `continue` statements; return from the function
-  or make the loop condition false.
 - `println` takes exactly one `String`; interpolate other values.
 - Aliased imports of project or vendored modules (`import x as y`) do not
   work; call vendored `pub` functions directly.

@@ -1,0 +1,11 @@
+-- assert_eq needs values that compare with ==: objects do not.
+object P {
+    val x: Int
+}
+
+func main() {
+}
+
+test "objects" {
+    assert_eq(P(1), P(1))
+}

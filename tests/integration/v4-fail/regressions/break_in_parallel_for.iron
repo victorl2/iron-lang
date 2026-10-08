@@ -1,0 +1,6 @@
+-- The iterations of a parallel for run independently.
+func main() {
+    for i in range(3) parallel {
+        break
+    }
+}

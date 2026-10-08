@@ -748,6 +748,13 @@ struct IronLIR_Module {
     int spawn_counter;
     int parallel_counter;
 
+    /* Test build (`ironc build --test`): the test names and their functions,
+     * in declaration order; the emitted main dispatches to them. */
+    bool          test_mode;
+    const char  **test_names;
+    const char  **test_funcs;
+    int           test_count;
+
     Iron_Arena *arena; /* dedicated ir_arena, separate from ast_arena */
 };
 

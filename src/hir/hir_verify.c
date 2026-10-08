@@ -197,6 +197,9 @@ static void verify_stmt(const IronHIR_Stmt *stmt, const IronHIR_Module *mod,
                            "while statement has NULL condition",
                            "provide a loop condition");
         }
+        if (stmt->while_loop.step) {
+            verify_block(stmt->while_loop.step, mod, stack, diags, arena);
+        }
         if (stmt->while_loop.body) {
             verify_block(stmt->while_loop.body, mod, stack, diags, arena);
         }
@@ -275,6 +278,11 @@ static void verify_stmt(const IronHIR_Stmt *stmt, const IronHIR_Module *mod,
         if (stmt->spawn.body) {
             verify_block(stmt->spawn.body, mod, stack, diags, arena);
         }
+        break;
+
+    case IRON_HIR_STMT_BREAK:
+    case IRON_HIR_STMT_CONTINUE:
+        /* No operands. */
         break;
 
     case IRON_HIR_STMT_LEAK:

@@ -1,0 +1,6 @@
+-- A deferred body runs at scope exit, outside the loop.
+func main() {
+    while true {
+        defer break
+    }
+}

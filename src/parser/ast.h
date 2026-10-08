@@ -54,6 +54,8 @@ typedef enum {
     IRON_NODE_LEAK,
     IRON_NODE_SPAWN,
     IRON_NODE_BLOCK,
+    IRON_NODE_BREAK,     /* `break`: leave the innermost loop */
+    IRON_NODE_CONTINUE,  /* `continue`: start its next iteration */
     IRON_NODE_IN_ARENA,  /* Phase 28 ARENA-02 (Plan 28-03): `in <arena> { ... }` default-arena block; reuses IRON_TOK_IN */
 
     /* Expressions */
@@ -317,6 +319,10 @@ typedef struct {
      * (per-function-decl pessimistic detection per CONTEXT.md OQ-E lock;
      * pure syntactic walk per RESEARCH Pitfall 6). Default false. */
     bool               takes_local_addr;
+    /* `test "name" { ... }`: a parameterless function the test build runs
+     * (`ironc build --test`); other builds drop it after checking. */
+    bool               is_test;
+    const char        *test_name;
 } Iron_FuncDecl;
 
 typedef struct {
@@ -679,6 +685,12 @@ typedef struct {
     Iron_NodeKind kind;  /* IRON_NODE_DEFER */
     Iron_Node    *expr;
 } Iron_DeferStmt;
+
+/* `break` / `continue`: kind is IRON_NODE_BREAK or IRON_NODE_CONTINUE. */
+typedef struct {
+    Iron_Span     span;
+    Iron_NodeKind kind;
+} Iron_LoopJumpStmt;
 
 typedef struct {
     Iron_Span     span;

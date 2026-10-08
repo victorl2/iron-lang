@@ -1638,6 +1638,13 @@ int iron_build(const char *source_path, const char *output_path,
                                 line_markers);
     }
 
+    /* Detect "import os" and prepend os.iron (OS.env / env_or / has_env). */
+    if (iron_detect_import(source, source_path, "os", &detect_arena)) {
+        stdlib_prepended_lines +=
+            prepend_marked_file(&source, base_dir, "stdlib/os.iron",
+                                line_markers);
+    }
+
     /* 1g. Detect "import log" and prepend log.iron */
     if (iron_detect_import(source, source_path, "log", &detect_arena)) {
         stdlib_prepended_lines +=
@@ -1857,6 +1864,24 @@ int iron_build(const char *source_path, const char *output_path,
         return 1;
     }
 
+    /* 5b. `test "name" { ... }` functions were checked with the rest; a test
+     * build keeps them (in order, for the test main), any other drops them. */
+    const char **test_names = NULL, **test_funcs = NULL;
+    {
+        Iron_Program *prog = (Iron_Program *)ast;
+        int w = 0;
+        for (int i = 0; i < prog->decl_count; i++) {
+            Iron_Node *d = prog->decls[i];
+            if (d && d->kind == IRON_NODE_FUNC_DECL && ((Iron_FuncDecl *)d)->is_test) {
+                if (!opts.test_mode) continue;
+                arrput(test_names, ((Iron_FuncDecl *)d)->test_name);
+                arrput(test_funcs, ((Iron_FuncDecl *)d)->name);
+            }
+            prog->decls[w++] = d;
+        }
+        prog->decl_count = w;
+    }
+
     /* 5a. Verbose: print capture analysis summary */
     if (opts.verbose) {
         fprintf(stderr, "=== Capture Analysis ===\n");
@@ -1893,6 +1918,13 @@ int iron_build(const char *source_path, const char *output_path,
     IronLIR_Module *ir_module = iron_hir_to_lir(hir_module, (Iron_Program *)ast,
                                                analysis.global_scope,
                                                &ir_arena, &diags);
+
+    if (ir_module) {
+        ir_module->test_mode  = opts.test_mode;
+        ir_module->test_names = test_names;
+        ir_module->test_funcs = test_funcs;
+        ir_module->test_count = (int)arrlen(test_names);
+    }
 
     if (!ir_module || diags.error_count > 0) {
         iron_diag_print_all(&diags, source);
@@ -1969,6 +2001,8 @@ int iron_build(const char *source_path, const char *output_path,
 
     iron_lir_module_destroy(ir_module);
     iron_arena_free(&ir_arena);
+    arrfree(test_names);
+    arrfree(test_funcs);
 
     /* Free HIR — types referenced by LIR are now fully emitted */
     iron_hir_module_destroy(hir_module);
@@ -2448,7 +2482,7 @@ int iron_build(const char *source_path, const char *output_path,
     }
 
     /* 14. Success message; the web link already reported its own output. */
-    if (opts.target != IRON_TARGET_WEB)
+    if (opts.target != IRON_TARGET_WEB && !opts.quiet)
         fprintf(stderr, "Built: %s\n", binary_name);
     free(derived_output);
     return 0;

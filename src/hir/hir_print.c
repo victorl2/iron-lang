@@ -166,6 +166,21 @@ static void print_stmt(Iron_StrBuf *sb, const IronHIR_Stmt *stmt,
         if (stmt->while_loop.body) {
             print_block(sb, stmt->while_loop.body, mod, depth + 1, tmp);
         }
+        if (stmt->while_loop.step) {
+            do_indent(sb, depth + 1);
+            iron_strbuf_appendf(sb, "Step\n");
+            print_block(sb, stmt->while_loop.step, mod, depth + 2, tmp);
+        }
+        break;
+
+    case IRON_HIR_STMT_BREAK:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "BreakStmt\n");
+        break;
+
+    case IRON_HIR_STMT_CONTINUE:
+        do_indent(sb, depth);
+        iron_strbuf_appendf(sb, "ContinueStmt\n");
         break;
 
     case IRON_HIR_STMT_FOR: {

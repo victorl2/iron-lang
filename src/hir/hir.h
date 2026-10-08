@@ -43,7 +43,9 @@ typedef enum {
      * block. Lowers to IRON_LIR_ARENA_PUSH(arena) ... body ... ARENA_POP,
      * with the POP emitted on EVERY exit edge via the scope-exit drop-stack
      * pump (survives early return / break / panic). */
-    IRON_HIR_STMT_IN_ARENA
+    IRON_HIR_STMT_IN_ARENA,
+    IRON_HIR_STMT_BREAK,      /* leave the innermost loop              */
+    IRON_HIR_STMT_CONTINUE    /* start the innermost loop's next pass  */
 } IronHIR_StmtKind;
 
 /* ── Expression kind enum ────────────────────────────────────────────────── */
@@ -269,6 +271,9 @@ struct IronHIR_Stmt {
         struct {
             IronHIR_Expr  *condition;
             IronHIR_Block *body;
+            /* Run after the body and on `continue`, before the condition
+             * (a range for's increment); NULL for a plain while. */
+            IronHIR_Block *step;
         } while_loop;
 
         /* IRON_HIR_STMT_FOR */
@@ -672,6 +677,9 @@ IronHIR_Stmt *iron_hir_stmt_match(IronHIR_Module *mod, IronHIR_Expr *scrutinee,
                                    Iron_Span span);
 IronHIR_Stmt *iron_hir_stmt_return(IronHIR_Module *mod, IronHIR_Expr *value,
                                     Iron_Span span);
+/* kind is IRON_HIR_STMT_BREAK or IRON_HIR_STMT_CONTINUE. */
+IronHIR_Stmt *iron_hir_stmt_loop_jump(IronHIR_Module *mod, IronHIR_StmtKind kind,
+                                       Iron_Span span);
 IronHIR_Stmt *iron_hir_stmt_defer(IronHIR_Module *mod, IronHIR_Block *body,
                                    Iron_Span span);
 IronHIR_Stmt *iron_hir_stmt_block(IronHIR_Module *mod, IronHIR_Block *block,
