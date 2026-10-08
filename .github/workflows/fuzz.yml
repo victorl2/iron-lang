@@ -21,9 +21,13 @@ name: Fuzz
 #     other cells' 10-minute budgets.
 #   - `timeout-minutes: 20` gives each cell slack for build + fuzz + minimize
 #     + issue post on top of the 10-minute (-max_total_time=600) fuzz budget.
-#   - `-seed=1` is deterministic per CONTEXT.md; a crash tonight reproduces
-#     tomorrow with the same seed. Corpus growth across runs still provides
-#     coverage progression independent of the seed.
+#   - The seed is the run number, so each night explores new paths (a fixed
+#     seed re-walked the same ones; every new seed tried found new bugs).
+#     The seed is printed in the log, and a crash reproduces from its
+#     uploaded input file with any seed. The corpus is cached across runs
+#     (fuzz-corpus/<target>), so coverage accumulates. A crash fails the
+#     job after the artifacts and issue are posted. docs/dev/fuzzing.md
+#     describes the whole process, including local runs and triage.
 #   - `-max_len=8192` matches the input-size cap defense-in-depth from the
 #     fuzz targets themselves (which enforce their own per-target caps).
 #   - `-timeout=10` is the FUZZ-01 hang-detection spec. Do NOT raise it.
@@ -120,6 +124,13 @@ jobs:
       - name: Build fuzz target
         run: cmake --build build --target ${{ matrix.build_target }}
 
+      - name: Restore the accumulated corpus
+        uses: actions/cache@v4
+        with:
+          path: fuzz-corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+
       - name: Run libFuzzer (10 min wall-clock)
         id: fuzz_run
         env:
@@ -128,8 +139,12 @@ jobs:
           BINARY:  ${{ matrix.binary }}
           CORPUS:  ${{ matrix.corpus }}
           DICT:    ${{ matrix.dict }}
+          SEED:    ${{ github.run_number }}
+          TARGET:  ${{ matrix.target }}
         run: |
-          mkdir -p crashes
+          mkdir -p crashes "fuzz-corpus/$TARGET"
+          echo "seed=$SEED"
+          echo "corpus entries restored: $(ls "fuzz-corpus/$TARGET" | wc -l)"
           # Build dict arg only if a dict path was supplied (compiler-side
           # targets carry tests/fuzz/iron.dict; LSP-side targets have none).
           dict_arg=""
@@ -141,8 +156,10 @@ jobs:
           # bytes per input (see the note at the top of src/parser/parser.c),
           # which adds up over a 10 minute run; RSS may reach 4 GB, while a
           # single allocation over 2 GB still fails as out-of-memory.
+          # New coverage is written to the first corpus directory (the cached
+          # one); the seed corpus is read as well.
           "$BINARY" \
-            -seed=1 \
+            -seed="$SEED" \
             -max_total_time=600 \
             -timeout=10 \
             -max_len=8192 \
@@ -150,7 +167,7 @@ jobs:
             -malloc_limit_mb=2048 \
             $dict_arg \
             -artifact_prefix=crashes/ \
-            "$CORPUS"
+            "fuzz-corpus/$TARGET" "$CORPUS"
           echo "fuzz_exit=$?" >> $GITHUB_OUTPUT
 
       - name: Upload crash artifacts
@@ -176,4 +193,11 @@ jobs:
             --target "$TARGET" \
             --run-id "$RUN_ID" \
             --sha "$SHA" \
+            --seed "${{ github.run_number }}" \
             --open-issue
+
+      - name: Fail on a crash
+        if: steps.fuzz_run.outputs.fuzz_exit != '0'
+        run: |
+          echo "fuzz target ${{ matrix.target }} exited ${{ steps.fuzz_run.outputs.fuzz_exit }} (seed ${{ github.run_number }}); see the crash artifact and docs/dev/fuzzing.md"
+          exit 1
