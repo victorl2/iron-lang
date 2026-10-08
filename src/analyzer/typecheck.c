@@ -181,6 +181,9 @@ typedef struct {
      * 0 inside a lambda, defer or spawn body. */
     int                loop_depth;
     bool               loop_is_parallel;  /* the innermost loop is a parallel for */
+    /* defer bodies enclosing the statement, for return; 0 inside a lambda
+     * or spawn body. */
+    int                defer_depth;
 } TypeCtx;
 
 /* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
@@ -7375,9 +7378,12 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             }
             {
                 int saved_depth = ctx->loop_depth;
+                int saved_defer = ctx->defer_depth;
                 ctx->loop_depth = 0;
+                ctx->defer_depth = 0;
                 if (le->body) check_stmt(ctx, le->body);
                 ctx->loop_depth = saved_depth;
+                ctx->defer_depth = saved_defer;
             }
             check_missing_return_body(ctx, ret_t, le->body, NULL);
             tc_pop_scope(ctx);
@@ -8946,6 +8952,16 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             Iron_ReturnStmt *rs = (Iron_ReturnStmt *)node;
             Iron_Type *ret_type = NULL;
 
+            /* A deferred body runs while its scope exits, possibly on a
+             * return already under way; returning from it would leave the
+             * scope again, and lowering it recursed without end. */
+            if (ctx->defer_depth > 0) {
+                emit_error(ctx, IRON_ERR_RETURN_IN_DEFER, node->span,
+                           "'return' inside a defer body",
+                           "a defer body runs while its scope exits and cannot "
+                           "leave it; move the return out of the defer");
+            }
+
             /* Phase 20 PTR-10 (Plan 20-02a): compile-time stack-escape
              * detection. `return &local` where `local` is a stack-resident
              * binding (val/var inside a function body) emits E0271 — the
@@ -9842,7 +9858,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             {
                 int saved_depth = ctx->loop_depth;
                 ctx->loop_depth = 0;   /* a deferred body runs at scope exit */
+                ctx->defer_depth++;
                 if (ds->expr) check_stmt(ctx, ds->expr);
+                ctx->defer_depth--;
                 ctx->loop_depth = saved_depth;
             }
             break;
@@ -9887,9 +9905,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
             {
                 int saved_depth = ctx->loop_depth;
+                int saved_defer = ctx->defer_depth;
                 ctx->loop_depth = 0;
+                ctx->defer_depth = 0;
                 if (ss->body) check_stmt(ctx, ss->body);
                 ctx->loop_depth = saved_depth;
+                ctx->defer_depth = saved_defer;
             }
 
             /* Store spawn body return type for downstream await lookup */

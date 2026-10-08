@@ -47,6 +47,7 @@
 #include "hir/hir.h"
 #include "hir/hir_lower.h"
 #include "hir/hir_to_lir.h"
+#include "lir/lir.h"
 #include "util/arena.h"
 #include "diagnostics/diagnostics.h"
 
@@ -130,9 +131,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
      * a libFuzzer crash-NNN file. Return value intentionally discarded —
      * we fuzz for crashes, not diagnostics. A NULL return is a valid
      * error path we want to exercise, not a filter. */
-    (void)iron_hir_to_lir(hir, prog, ar.global_scope, &arena, &diags);
+    IronLIR_Module *lir = iron_hir_to_lir(hir, prog, ar.global_scope, &arena, &diags);
 
-    /* Teardown — strict order (diaglist first, arena second). */
+    /* Teardown in the compiler's order (src/cli/build.c): LIR, HIR, then
+     * the diagnostics and the arena. The modules own heap arenas of their
+     * own; leaving them leaked ~64 KB per iteration and ran the target out
+     * of memory within minutes. */
+    iron_lir_module_destroy(lir);
+    iron_hir_module_destroy(hir);
     iron_diaglist_free(&diags);
     iron_arena_free(&arena);
     return 0;

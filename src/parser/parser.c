@@ -129,12 +129,12 @@ static bool iron_parser_depth_exceeded(Iron_Parser *p) {
  *      HIR lower, LIR lower, emit — see src/cli/ironc.c for the teardown
  *      order). When `iron_arena_free(p->arena)` is called, the AST nodes
  *      are reclaimed but the stb_ds backing buffers leak to process exit.
- *      This is a deliberate, batch-compiler tradeoff: stb_ds leak per
- *      compilation unit is bounded by AST size (a few MB per translation
- *      unit worst-case) and process lifetime is short. A full fix would
- *      require migrating every such transferred array into arena storage,
- *      which is out of Phase 67 scope — see REQUIREMENTS.md "out of scope:
- *      rewriting arena allocator to a tracked/ref-counted model".
+ *      The exception is Iron_Program.decls, which iron_parse hands to the
+ *      arena with iron_arena_own_arr. The other node arrays still leak
+ *      when the arena is freed, about 1.4 KB per analysis of a typical
+ *      file, which matters only to the LSP (one analysis per edit). They
+ *      cannot simply be owned the same way: the analyzer moves `args`
+ *      arrays between nodes and replaces some `stmts` with arena arrays.
  *
  * The inline `FIX-03` markers below tag 5 representative transfer sites
  * (function params, function-call args, object fields, enum variants, block
@@ -968,13 +968,18 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         if (iron_match(p, IRON_TOK_LPAREN)) {
             Iron_Node **params = NULL;
             int param_count = 0;
+            /* Stop at the first parameter not followed by a comma, as the
+             * tuple and generic argument lists do: a token that is not a
+             * type (`func(1`) is reported by the type parse without being
+             * consumed, and looping until `)` spun on it forever. */
+            iron_skip_newlines(p);
             while (!iron_check(p, IRON_TOK_RPAREN) && !iron_check(p, IRON_TOK_EOF)) {
-                if (param_count > 0) {
-                    iron_expect(p, IRON_TOK_COMMA);
-                }
                 Iron_Node *param_type = iron_parse_type_annotation(p);
                 arrput(params, param_type);
                 param_count++;
+                iron_skip_newlines(p);
+                if (!iron_match(p, IRON_TOK_COMMA)) break;
+                iron_skip_newlines(p);
             }
             iron_expect(p, IRON_TOK_RPAREN);
             /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `params` array ownership
@@ -2699,9 +2704,15 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
     int case_count    = 0;
     Iron_Node *else_body = NULL;
 
+    int arm_start = -1;
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
+        /* No-progress guard: an arm that consumed nothing (an expression
+         * past the nesting limit returns an error node in place) would be
+         * parsed again forever, reporting the same error each time. */
+        if (p->pos == arm_start) break;
+        arm_start = p->pos;
 
         /* else -> body */
         if (iron_check(p, IRON_TOK_ELSE)) {
@@ -2992,6 +3003,7 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                                                       expr_buf, interp_fname,
                                                       p->arena, p->diags);
                 Iron_Node *expr_node = iron_parse_expr_prec(&sub, PREC_NONE);
+                arrfree(expr_toks);
                 iron_diaglist_free(&expr_diags);
                 free(expr_buf);
 
@@ -5791,7 +5803,10 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
                        iron_token_span(p, iron_current(p)),
                        "expected method or init declaration in patch body",
                        NULL);
-        iron_parser_sync_stmt(p);
+        /* sync_member always moves forward; sync_stmt stops on a statement
+         * keyword such as `if` without consuming it, and the loop then
+         * reported this error forever. */
+        iron_parser_sync_member(p);
         iron_skip_newlines(p);
     }
 
@@ -5864,7 +5879,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
                            "Self-returning methods for factory patterns",
                            NULL);
             iron_advance(p);  /* consume 'init' */
-            iron_parser_sync_stmt(p);
+            iron_parser_sync_member(p);
             continue;
         }
 
@@ -5905,7 +5920,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
                            IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
                            "expected method signature in interface", NULL);
-            iron_parser_sync_stmt(p);
+            iron_parser_sync_member(p);
             continue;
         }
         Iron_Token *fsig_start = iron_current(p);
@@ -5913,7 +5928,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
 
         /* Method name: must be a regular identifier */
         if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
-            iron_parser_sync_stmt(p);
+            iron_parser_sync_member(p);
             continue;
         }
         Iron_Token *sig_name = iron_advance(p);
@@ -6577,6 +6592,10 @@ Iron_Node *iron_parse(Iron_Parser *p) {
     prog->span          = iron_span_merge(iron_token_span(p, start),
                                            iron_token_span(p, iron_current(p)));
     prog->decls         = decls;
+    /* decls is an stb_ds array; passes may still append to it (generic
+     * instantiations, interface defaults), so the arena frees whatever the
+     * field holds when it is freed. */
+    iron_arena_own_arr(p->arena, (void **)&prog->decls);
     prog->decl_count    = decl_count;
     /* Phase 93 VIS-03 stdlib carve-out: ferry the parser's
      * user_source_start_line into Iron_Program so the resolver can pick it

@@ -71,11 +71,13 @@ iron_lsp_fuzz_common_flags(fuzz_lsp_frame)
 # ── fuzz_lsp_json ─────────────────────────────────────────────────────
 # yyjson + Iron_Arena binding (src/lsp/transport/json.c). Pulls in yyjson
 # as a compiled TU so the arena allocator's realloc path is fully
-# instrumented, plus the Iron_Arena TU + stb_ds impl from iron_runtime.
+# instrumented, plus the Iron_Arena TU (src/util/arena.c, which lives in
+# iron_compiler, not iron_runtime) and the stb_ds impl from iron_runtime.
 add_executable(fuzz_lsp_json
     ${CMAKE_CURRENT_SOURCE_DIR}/json/fuzz_target.c
     ${_LSP_SRC}/transport/json.c
-    ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
+    ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c
+    ${CMAKE_SOURCE_DIR}/src/util/arena.c)
 iron_lsp_fuzz_common_includes(fuzz_lsp_json)
 iron_lsp_fuzz_common_flags(fuzz_lsp_json)
 target_link_libraries(fuzz_lsp_json PRIVATE iron_runtime)
@@ -95,7 +97,8 @@ add_executable(fuzz_lsp_dispatch
     ${_LSP_SRC}/server/dispatch.c
     ${_LSP_SRC}/server/lifecycle.c
     ${_LSP_SRC}/transport/json.c
-    ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c)
+    ${CMAKE_SOURCE_DIR}/src/vendor/yyjson/yyjson.c
+    ${CMAKE_SOURCE_DIR}/src/util/arena.c)
 iron_lsp_fuzz_common_includes(fuzz_lsp_dispatch)
 iron_lsp_fuzz_common_flags(fuzz_lsp_dispatch)
 target_link_libraries(fuzz_lsp_dispatch PRIVATE iron_runtime)

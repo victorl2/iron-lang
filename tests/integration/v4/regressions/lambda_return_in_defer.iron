@@ -1,0 +1,11 @@
+-- A lambda inside a defer body returns from itself; only a return of the
+-- deferred body is rejected (E0336).
+func main() {
+    defer {
+        val twice = func(n: Int) -> Int {
+            return n * 2
+        }
+        println("{twice(21)}")
+    }
+    println("body")
+}

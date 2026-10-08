@@ -1,0 +1,22 @@
+-- A statement keyword inside an interface or patch body is an error, and the
+-- parser recovers past it. It used to stop on the keyword without consuming
+-- it and report the same error forever until memory ran out.
+interface A { = val x =
+}
+
+interface B {
+    readonly return 1
+}
+
+interface C {
+    func 1
+    init(x: Int)
+}
+
+func main() {}
+
+object P {}
+
+patch object P {
+    if
+}

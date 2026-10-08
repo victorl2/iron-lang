@@ -1,0 +1,6 @@
+-- A function type whose parameter is not a type is an error. The parser
+-- used to loop forever on the `1`, which the type parse reports without
+-- consuming, waiting for a `)` it never reached.
+func main() {
+    val d: func(1
+}

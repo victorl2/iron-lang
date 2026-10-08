@@ -1096,10 +1096,17 @@ static void emit_scope_defers(HIR_to_LIR_Ctx *ctx, int target_depth, Iron_Span s
             /* Inline-emit the defer body statements */
             IronHIR_Block *defer_body = defer_list[i];
             if (defer_body) {
+                /* The body is a scope of its own: a defer inside it runs
+                 * when the body ends, and registering it here must not
+                 * append to the list being walked. */
+                push_defer_scope(ctx);
+                int body_depth = ctx->defer_depth;
                 for (int s = 0; s < defer_body->stmt_count; s++) {
                     lower_stmt(ctx, defer_body->stmts[s]);
                     if (!ctx->current_block || block_is_terminated(ctx->current_block)) break;
                 }
+                emit_scope_defers(ctx, body_depth - 1, span);
+                pop_defer_scope(ctx);
             }
         }
         /* Phase 24 DROP-01 (Plan 24-02): emit drop calls for this scope depth
@@ -3838,7 +3845,14 @@ static void emit_defer_cleanup(HIR_to_LIR_Ctx *ctx, IronLIR_Block *after_block,
             }
 
             switch_block(ctx, cleanup_blk);
+            /* Lower the body in a scope of its own, as emit_scope_defers
+             * does: a defer inside it otherwise appended to defer_list,
+             * reallocating it under this loop (heap use after free). */
+            push_defer_scope(ctx);
+            int body_depth = ctx->defer_depth;
             lower_block_stmts(ctx, defer_body);
+            emit_scope_defers(ctx, body_depth - 1, span);
+            pop_defer_scope(ctx);
             prev_cleanup = ctx->current_block;
         }
         /* Phase 24 DROP-01 (Plan 24-02): emit drop calls for this scope depth

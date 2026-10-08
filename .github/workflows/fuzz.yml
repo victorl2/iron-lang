@@ -137,11 +137,17 @@ jobs:
             dict_arg="-dict=$DICT"
           fi
           set +e
+          # The AST's node arrays still outlive their arena by a few hundred
+          # bytes per input (see the note at the top of src/parser/parser.c),
+          # which adds up over a 10 minute run; RSS may reach 4 GB, while a
+          # single allocation over 2 GB still fails as out-of-memory.
           "$BINARY" \
             -seed=1 \
             -max_total_time=600 \
             -timeout=10 \
             -max_len=8192 \
+            -rss_limit_mb=4096 \
+            -malloc_limit_mb=2048 \
             $dict_arg \
             -artifact_prefix=crashes/ \
             "$CORPUS"

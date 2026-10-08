@@ -1,0 +1,5 @@
+-- A match nested past the parser limit, whose arm consumes nothing, ends
+-- with errors. The match loop used to parse that arm again forever and ran
+-- the compiler out of memory with diagnostics. (Reduced fuzz input; its
+-- first error is the malformed spawn, E0101.)
+val x=spawn{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{func x{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{match{{

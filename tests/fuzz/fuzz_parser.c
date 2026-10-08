@@ -29,6 +29,7 @@
 #include "diagnostics/diagnostics.h"
 
 #include "iron_gen.h"
+#include "vendor/stb_ds.h"
 
 /* Input-size cap matches 68-RESEARCH.md Pitfall 5 and the -max_len=8192
  * flag in .github/workflows/fuzz.yml (lands in Plan 06). Oversized inputs
@@ -64,13 +65,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
         return 0;
     }
 
-    /* Stage 1: lex. iron_lex_all returns an stb_ds dynamic array; the
-     * per-token value strings are arena-owned, so iron_arena_free reclaims
-     * them. The Iron_Token array header itself leaks ~24 bytes per
-     * iteration which is acceptable for a fuzz target — ~24 MB/hour at
-     * 1k iter/s, well under the 2 GB per-runner budget. (If this becomes
-     * a problem, follow Pitfall 4's alternative and call arrfree(tokens)
-     * explicitly.) */
+    /* Stage 1: lex. iron_lex_all returns an stb_ds array on the heap (the
+     * token values are arena-owned); it is freed after the parse, since a
+     * leak per iteration grows with the input and exhausts the 2 GB RSS
+     * limit within minutes. */
     Iron_Lexer lex = iron_lexer_create(src, "<fuzz>", &arena, &diags);
     Iron_Token *tokens = iron_lex_all(&lex);
     int n = 0;
@@ -81,6 +79,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     Iron_Parser p = iron_parser_create(tokens, n, src, "<fuzz>",
                                         &arena, &diags);
     (void)iron_parse(&p);
+    arrfree(tokens);
 
     /* Teardown — strict order (diaglist first, arena second). */
     iron_diaglist_free(&diags);

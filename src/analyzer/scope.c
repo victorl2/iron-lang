@@ -5,6 +5,11 @@
 
 /* ── Scope creation ──────────────────────────────────────────────────────── */
 
+static void scope_free_symbols(void *ctx) {
+    Iron_Scope *s = (Iron_Scope *)ctx;
+    shfree(s->symbols);
+}
+
 Iron_Scope *iron_scope_create(Iron_Arena *a, Iron_Scope *parent, Iron_ScopeKind kind) {
     Iron_Scope *s = ARENA_ALLOC(a, Iron_Scope);
     /* HARD-09 REPLACE (CR-03, scope.c:iron_scope_create): return NULL on
@@ -17,27 +22,15 @@ Iron_Scope *iron_scope_create(Iron_Arena *a, Iron_Scope *parent, Iron_ScopeKind 
     s->kind       = kind;
     s->owner_name = NULL;
     s->symbols    = NULL;
-    /* FIX-03 / AUDIT-04 §3: SAFETY — initialize stb_ds string-keyed hash map
-     * with strdup key management. The map's backing buffer is heap-managed
-     * and is NEVER explicitly freed; it leaks to process exit when the
-     * analyzer arena is freed. This is a deliberate, bounded tradeoff:
-     *   (a) there is no iron_scope_free entry point in the entire codebase
-     *       (grep `iron_scope_free` src/ → 0 hits); scopes are only ever
-     *       allocated via iron_scope_create above, never destroyed
-     *       individually.
-     *   (b) the scope's containing arena (`a`) is the compilation-unit
-     *       arena, and the scope's lifetime is coupled to that arena by
-     *       construction — when the arena is freed (at batch-compile exit
-     *       via iron_arena_free), the stb_ds shmap leaks along with every
-     *       other non-arena-tracked heap block in the compiler. Total
-     *       leak per compile is O(symbol_count * key_length) — bounded by
-     *       source size.
-     *   (c) migrating the stb_ds map to arena storage would require every
-     *       shput/shgeti call (grep `s->symbols` src/analyzer → ~12 sites)
-     *       to switch to a hand-rolled arena-keyed hashmap. Out of Phase 67
-     *       scope per REQUIREMENTS.md (see "rewriting arena allocator to a
-     *       tracked/ref-counted model" out-of-scope item). */
+    /* The symbol map is an stb_ds string map with strdup'd keys, on the
+     * heap; the arena frees it with the scope. Without that every analysis
+     * leaked its scopes' maps, which the LSP (one analysis per edit, in one
+     * long-lived process) accumulated without bound. */
     sh_new_strdup(s->symbols);
+    if (!iron_arena_on_free(a, scope_free_symbols, s)) {
+        shfree(s->symbols);
+        return NULL;
+    }
     return s;
 }
 

@@ -3,27 +3,20 @@
 #include <string.h>
 #include <stdlib.h>
 
-/* FIX-03 / AUDIT-04 §9: SAFETY — the interface registry (Iron_IfaceRegistry)
- * is built once per compilation in iron_iface_collect (analyzer.c line 72)
- * and held in Iron_AnalyzeResult.iface_registry for the lifetime of the
- * analyzer result, which itself lives for the entire compilation pipeline
- * (parse -> analyze -> HIR lower -> LIR emit -> write output -> exit).
- *
- * The registry's stb_ds shmap uses `sh_new_arena(reg.map)` below, so the
- * KEYS are allocated in the compilation arena and reclaimed at arena free.
- * The VALUES' `impls` stb_ds arrays (heap-managed via `arrput` at line ~55)
- * are NEVER explicitly freed — they leak to process exit along with the
- * shmap backing buffer itself. Total leak per compile is O(iface_count *
- * impl_count), typically a few KB for an Iron program with a dozen
- * interfaces and hundreds of impls.
- *
- * Program-lifetime leak, bounded by source-code size, reclaimed by the OS
- * at process exit. The batch-compiler process is single-shot; there is no
- * `iron_compile_shutdown` that runs between compiles. Same tradeoff
- * justification as parser.c §1 and scope.c §3 — full cleanup would
- * require either migrating `impls` to arena storage OR adding a registry
- * shutdown hook invoked after LIR emit, both of which are out of Phase 67
- * scope per REQUIREMENTS.md. */
+/* The interface registry (Iron_IfaceRegistry) is built once per analysis
+ * and held in Iron_AnalyzeResult.iface_registry. Its stb_ds map and each
+ * entry's `impls` array live on the heap; nothing changes them after
+ * iron_iface_collect returns, so the arena frees them, with the map pointer
+ * as the hook's context. The LSP analyzes once per edit in one process,
+ * where leaving them to process exit grew memory without bound. */
+
+static void iface_registry_free(void *ctx) {
+    Iron_IfaceRegistry reg = { .map = ctx, .arena = NULL };
+    for (int i = 0; i < shlen(reg.map); i++) {
+        arrfree(reg.map[i].value.impls);
+    }
+    shfree(reg.map);
+}
 
 /* ── Comparator for sorting implementors alphabetically ─────────────────── */
 
@@ -92,6 +85,7 @@ Iron_IfaceRegistry iron_iface_collect(Iron_Program *program, Iron_Arena *arena) 
         entry->alive_count = entry->impl_count;
     }
 
+    (void)iron_arena_on_free(arena, iface_registry_free, reg.map);
     return reg;
 }
 
