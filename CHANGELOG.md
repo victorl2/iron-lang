@@ -3,6 +3,27 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v4.8.0-alpha: Test Blocks, Program Arguments and Loop Control (2026-10-08)
+
+- **Tests:** `test "name" { ... }` blocks with `assert_eq` and `assert_ne`;
+  `ironc test file.iron [filter]` and `iron test [filter]` run each test in
+  its own process, in parallel, and report every failure with its output.
+- **Programs:** `func main(args: [String])` receives the command-line
+  arguments; `import os` gives `OS.env`, `OS.env_or` and `OS.has_env`
+  (UTF-16 on Windows); a leading UTF-8 BOM is accepted.
+- **Loops:** `break` and `continue` (E0335 where they cannot apply), with
+  defers and destructors run on the way out; `return` in a `defer` body is
+  E0336.
+- **Fuzzing:** the nightly fuzz targets build and run again, and their
+  findings are fixed: parser hangs in interface, patch and match bodies and
+  function types, a use after free with nested `defer`, and analysis
+  leaking about 11 KB per language-server edit (88% removed).
+- **Fixes:** panics name the Iron source line; generic enum arguments,
+  enum `==`, `parallel for` over lists, nested loops over strings, empty
+  list arguments, interface methods returning enums and objects, user types
+  named `T`; fused chains on temporary lists; concurrent compiles on Windows;
+  `iron fmt` keeps every token and comment.
+
 ## v4.7.0-alpha: Windows, Cross Compilation and an SDK-Free Runtime (2026-10-05)
 
 - **Windows:** a release archive and `install.ps1`; programs link against

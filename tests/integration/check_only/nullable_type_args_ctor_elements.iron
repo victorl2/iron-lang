@@ -1,0 +1,11 @@
+-- Checked, not built: a constructed container whose type arguments hold a
+-- nullable type, as a list element or an index, is an expression. The
+-- parser used to read the whole element as a type because of the `?`.
+-- (Lists of maps and channels do not compile to C yet, so this file is
+-- only type-checked.)
+func main() {
+    val ms = [Map[String, Int?]()]
+    println("{ms.len()}")
+    val cs = [Channel[Int?](2), Channel[Int?](3)]
+    println("{cs.len()}")
+}

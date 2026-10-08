@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
-project(iron VERSION 4.7.0 LANGUAGES C)
+project(iron VERSION 4.8.0 LANGUAGES C)
 
 # Full release version, including any pre-release suffix (e.g. "1.0.0-alpha").
 # CMake's project(VERSION ...) only accepts numeric MAJOR.MINOR.PATCH[.TWEAK],
 # so the suffixed form lives in its own variable and is baked into the binaries
 # as IRON_VERSION_STRING below. Both this line and the project() line above are
 # kept in sync with the latest GitHub release by .github/workflows/changelog-on-release.yml.
-set(IRON_VERSION_FULL "4.7.0-alpha")
+set(IRON_VERSION_FULL "4.8.0-alpha")
 
 # ── Version info baked at compile time ─────────────────────────────────────
 execute_process(
@@ -993,6 +993,11 @@ if(NOT IRON_ENABLE_FUZZING AND NOT MSVC)
     add_library(iron_fuzz_gen_check OBJECT tests/fuzz/iron_gen.c)
     target_include_directories(iron_fuzz_gen_check PRIVATE src tests/fuzz)
 endif()
+
+# Programs that must type-check (`ironc check` exit 0) but do not build yet.
+add_test(NAME check_only_nullable_type_args_ctor_elements
+    COMMAND $<TARGET_FILE:ironc> check
+        ${CMAKE_SOURCE_DIR}/tests/integration/check_only/nullable_type_args_ctor_elements.iron)
 
 # `test "name" { ... }` blocks: ironc test builds them into one binary and
 # runs each in its own process; iron test does the same for a project.

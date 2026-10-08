@@ -55,12 +55,14 @@ TARGET=""
 RUN_ID=""
 SHA=""
 OPEN_ISSUE=0
+SEED="${SEED:-unknown}"
 
 usage() {
     cat >&2 <<EOF
 usage: $0 --crash-dir DIR --target NAME --run-id ID --sha SHA [--open-issue]
-  --crash-dir DIR   directory containing libFuzzer crash-* files
-  --target NAME     one of: parser | typecheck | hir_to_lir
+  --crash-dir DIR   directory containing libFuzzer crash-*, timeout-*, oom-* or leak-* files
+  --target NAME     parser | typecheck | hir_to_lir | lsp_frame | lsp_json | lsp_dispatch | lsp_didChange
+  --seed N          the libFuzzer seed of the run (default: $SEED or "unknown")
   --run-id ID       github.run_id or 'local' for manual runs
   --sha SHA         github.sha or local HEAD
   --open-issue      also open/dedup a fuzz-crash gh issue
@@ -74,6 +76,7 @@ while [[ $# -gt 0 ]]; do
         --target)     TARGET="${2:-}";    shift 2;;
         --run-id)     RUN_ID="${2:-}";    shift 2;;
         --sha)        SHA="${2:-}";       shift 2;;
+        --seed)       SEED="${2:-}";      shift 2;;
         --open-issue) OPEN_ISSUE=1;       shift;;
         -h|--help)    usage;;
         *) echo "unknown arg: $1" >&2; usage;;
@@ -82,20 +85,27 @@ done
 
 [[ -n "$CRASH_DIR" && -n "$TARGET" && -n "$RUN_ID" && -n "$SHA" ]] || usage
 case "$TARGET" in
-    parser|typecheck|hir_to_lir) ;;
-    *) echo "invalid --target: $TARGET (must be parser|typecheck|hir_to_lir)" >&2; exit 2;;
+    parser|typecheck|hir_to_lir|lsp_frame|lsp_json|lsp_dispatch|lsp_didChange) ;;
+    *) echo "invalid --target: $TARGET" >&2; exit 2;;
 esac
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INTEG_DIR="${REPO_ROOT}/tests/integration"
 LOCK_FILE="${INTEG_DIR}/.fuzz_crash_lock"
-FUZZ_BIN="${REPO_ROOT}/build/tests/fuzz/fuzz_${TARGET}"
+if [[ "${TARGET}" == lsp_* ]]; then
+    FUZZ_BIN="${REPO_ROOT}/build/tests/fuzz/lsp/fuzz_${TARGET}"
+else
+    FUZZ_BIN="${REPO_ROOT}/build/tests/fuzz/fuzz_${TARGET}"
+fi
 
 # Empty crash-dir is the common clean-nightly-run case; short-circuit before
 # we need the fuzz binary so the harness is also safe to dry-run locally
 # without an IRON_ENABLE_FUZZING build present.
 shopt -s nullglob
-crashes=("${CRASH_DIR}"/crash-*)
+# libFuzzer names its artifacts by kind: crash- (sanitizer report, abort),
+# timeout- (a hang past -timeout), oom- (over -rss_limit_mb or
+# -malloc_limit_mb) and leak-.
+crashes=("${CRASH_DIR}"/crash-* "${CRASH_DIR}"/timeout-* "${CRASH_DIR}"/oom-* "${CRASH_DIR}"/leak-*)
 if [[ ${#crashes[@]} -eq 0 ]]; then
     echo "no crashes to process"
     exit 0
@@ -135,11 +145,32 @@ flock 9
 
 for crash in "${crashes[@]}"; do
     echo "processing ${crash}"
+    kind="$(basename "${crash}")"; kind="${kind%%-*}"
+    # An oom- artifact with an empty input is memory that grew across many
+    # inputs (a leak per input), not one input that allocates too much;
+    # there is nothing to minimize or turn into a fixture.
+    if [[ "${kind}" == "oom" && ! -s "${crash}" ]]; then
+        echo "  memory grew across inputs (empty oom input): a per-input leak, see docs/dev/fuzzing.md"
+        if [[ "${OPEN_ISSUE}" -eq 1 ]]; then
+            existing_count="$(gh issue list --label fuzz-crash --state open \
+                                --search "fuzz memory growth in fuzz_${TARGET} in:title" \
+                                --json number --jq 'length' 2>/dev/null || echo 0)"
+            if [[ "${existing_count}" -eq 0 ]]; then
+                gh issue create --label fuzz-crash \
+                    --title "Fuzz memory growth in fuzz_${TARGET}" \
+                    --body "Run ${RUN_ID} at ${SHA} (seed ${SEED}): RSS passed the limit with no single input to blame, so something leaks per input. Find it with a LeakSanitizer run as described in docs/dev/fuzzing.md." \
+                    || echo "  warn: gh issue create failed" >&2
+            fi
+        fi
+        continue
+    fi
 
     # Step 1: minimize. libFuzzer writes min-* next to crash-*.
     "${FUZZ_BIN}" \
         -minimize_crash=1 \
         -runs=10000 \
+        -timeout=10 \
+        -malloc_limit_mb=2048 \
         -artifact_prefix="${CRASH_DIR}/min-" \
         "${crash}" \
         2>"${CRASH_DIR}/$(basename "${crash}").min.stderr" \
@@ -151,7 +182,7 @@ for crash in "${crashes[@]}"; do
 
     # Step 2: replay minimized input once to capture crashing stderr.
     replay_stderr="${CRASH_DIR}/$(basename "${crash}").replay.stderr"
-    "${FUZZ_BIN}" -runs=1 "${minimized}" 2>"${replay_stderr}" || true
+    "${FUZZ_BIN}" -runs=1 -timeout=10 -malloc_limit_mb=2048 "${minimized}" 2>"${replay_stderr}" || true
 
     # Step 3: compute signature.
     sig="$(extract_signature "${replay_stderr}")"
@@ -168,8 +199,8 @@ for crash in "${crashes[@]}"; do
         if [[ "${existing_count}" -eq 0 ]]; then
             top3="$(awk '/^[[:space:]]*#[0-9]+/ {print; n++} n>=3 {exit}' "${replay_stderr}")"
             input_hash="$(sha1sum "${minimized}" | cut -c1-12)"
-            body=$(printf 'libFuzzer nightly run at %s produced a crash in fuzz_%s.\n\n- **Seed:** 1\n- **Input hash:** %s\n- **Run ID:** %s\n- **Signature:** %s\n\n## Top 3 stack frames\n\n```\n%s\n```\n\nSee artifact `fuzz-crashes-%s-%s` on the workflow run for the full reproducer.\n' \
-                "${SHA}" "${TARGET}" "${input_hash}" "${RUN_ID}" "${sig}" "${top3}" "${TARGET}" "${RUN_ID}")
+            body=$(printf 'libFuzzer nightly run at %s produced a %s in fuzz_%s.\n\n- **Seed:** %s\n- **Input hash:** %s\n- **Run ID:** %s\n- **Signature:** %s\n\n## Top 3 stack frames\n\n```\n%s\n```\n\nSee artifact `fuzz-crashes-%s-%s` on the workflow run for the full reproducer.\n' \
+                "${SHA}" "${kind}" "${TARGET}" "${SEED}" "${input_hash}" "${RUN_ID}" "${sig}" "${top3}" "${TARGET}" "${RUN_ID}")
             gh issue create \
                 --label fuzz-crash \
                 --title "Fuzz crash: ${sig} in fuzz_${TARGET}" \
@@ -200,7 +231,7 @@ for crash in "${crashes[@]}"; do
             echo "-- Regression: libFuzzer nightly run discovered a crash in iron_${TARGET}."
             echo "--"
             echo "-- **Motivating Incident.** libFuzzer nightly run at commit ${SHA}"
-            echo "-- produced this crash (target=${TARGET}, seed=1, signature=${sig},"
+            echo "-- produced this crash (target=${TARGET}, seed=${SEED}, kind=${kind}, signature=${sig},"
             echo "-- input-hash=${input_hash}, run=${RUN_ID})."
             echo "--"
             echo "-- **Symptom.** Top frames from the crash stack trace:"
