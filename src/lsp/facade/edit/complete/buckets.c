@@ -462,9 +462,228 @@ static bool emit_patch_member_field(Iron_MethodDecl *m,
     return true;
 }
 
-/* Find the object type for a `x.|` cursor by walking back one ident in
- * the document buffer and looking it up in program->decls (val/var).
- * If the resolved type is an object, emit its fields + methods. */
+/* ── Members of the expression before the dot ──────────────────────
+ *
+ * The facade analyzed the buffer without the `.` and the member being
+ * typed (complete.c), so the receiver expression is in the AST with its
+ * type: a local, a parameter, a field chain (`p.q.`), a call result
+ * (`f().`), a literal (`"abc".`), or a type name for statics (`Math.`,
+ * `Color.`). */
+
+typedef struct {
+    uint32_t   line, col;  /* the receiver's last character */
+    Iron_Node *best;
+    /* `a.b.field.`: a field access's span stops before its field name, so
+     * it is matched by its field name: the closest one starting before
+     * the object's end (oline, ocol). */
+    const char *field;
+    size_t      field_len;
+    uint32_t    oline, ocol;
+    Iron_Node  *by_field;
+} ReceiverFind;
+
+static bool is_expr_node(const Iron_Node *n) {
+    return (n->kind >= IRON_NODE_INT_LIT && n->kind <= IRON_NODE_AWAIT) ||
+           n->kind == IRON_NODE_ENUM_CONSTRUCT;
+}
+
+static bool span_has(const Iron_Span *sp, uint32_t line, uint32_t col) {
+    if (line < sp->line || line > sp->end_line) return false;
+    if (line == sp->line && col < sp->col) return false;
+    if (line == sp->end_line && col > sp->end_col) return false;
+    return true;
+}
+
+/* The smallest expression covering the receiver's last character that
+ * ends there (`p.q` for `p.q.`, not `p`). */
+static bool receiver_visit(Iron_Visitor *v, Iron_Node *n) {
+    ReceiverFind *f = (ReceiverFind *)v->ctx;
+    if (n->kind == IRON_NODE_ERROR) return false;
+    if (n->kind == IRON_NODE_FIELD_ACCESS && f->field) {
+        Iron_FieldAccess *fa = (Iron_FieldAccess *)n;
+        bool starts_before = n->span.line < f->oline ||
+                             (n->span.line == f->oline && n->span.col <= f->ocol);
+        bool closer = !f->by_field ||
+                      n->span.line > f->by_field->span.line ||
+                      (n->span.line == f->by_field->span.line &&
+                       n->span.col >= f->by_field->span.col);
+        if (fa->field && strlen(fa->field) == f->field_len &&
+            memcmp(fa->field, f->field, f->field_len) == 0 && starts_before && closer &&
+            n->span.line + 8 >= f->oline) {
+            f->by_field = n;
+        }
+    }
+    if (!is_expr_node(n) || !span_has(&n->span, f->line, f->col)) return true;
+    if (n->span.end_line != f->line || n->span.end_col != f->col) return true;
+    if (!f->best || (span_has(&f->best->span, n->span.line, n->span.col) &&
+                     span_has(&f->best->span, n->span.end_line, n->span.end_col))) {
+        f->best = n;
+    }
+    return true;
+}
+
+static int all_decls(const Iron_Program *p) {
+    return p->decl_count + p->prelude_decl_count;
+}
+
+static const char *type_str(const Iron_Type *t, Iron_Arena *arena) {
+    const char *s = t ? iron_type_to_string(t, arena) : NULL;
+    return s ? s : "?";
+}
+
+/* `readonly func upper() -> String`, `func put(key: K, value: V)`. */
+static const char *method_detail(Iron_MethodDecl *md, Iron_Arena *arena) {
+    char buf[512];
+    size_t n = (size_t)snprintf(buf, sizeof(buf), "%sfunc %s(",
+                                md->is_readonly ? "readonly " : md->is_pure ? "pure " : "",
+                                md->method_name ? md->method_name : "?");
+    bool first = true;
+    for (int i = 0; i < md->param_count && n < sizeof(buf); i++) {
+        Iron_Param *pm = (Iron_Param *)md->params[i];
+        if (!pm || !pm->name || strcmp(pm->name, "self") == 0) continue;
+        n += (size_t)snprintf(buf + n, sizeof(buf) - n, "%s%s: %s", first ? "" : ", ",
+                              pm->name, type_str(pm->resolved_type, arena));
+        first = false;
+    }
+    if (n < sizeof(buf)) n += (size_t)snprintf(buf + n, sizeof(buf) - n, ")");
+    if (n < sizeof(buf) && md->resolved_return_type &&
+        md->resolved_return_type->kind != IRON_TYPE_VOID) {
+        snprintf(buf + n, sizeof(buf) - n, " -> %s", type_str(md->resolved_return_type, arena));
+    }
+    return iron_arena_strdup(arena, buf, strlen(buf));
+}
+
+/* Methods the compiler provides by name, with no declaration to read. */
+typedef struct { const char *name, *detail; } BuiltinMember;
+
+static const BuiltinMember k_list_builtins[] = {
+    { "len", "func len() -> Int" },          { "push", "func push(item: T)" },
+    { "pop", "func pop() -> T" },            { "get", "func get(i: Int) -> T" },
+    { "set", "func set(i: Int, item: T)" },  { "insert", "func insert(i: Int, item: T)" },
+    { "remove", "func remove(i: Int) -> T" },{ "clear", "func clear()" },
+    { "reverse", "func reverse()" },         { "contains", "func contains(item: T) -> Bool" },
+    { "sort", "func sort()" },               { "copy", "func copy() -> [T]" },
+    { "take", "func take() -> [T]" },        { NULL, NULL },
+};
+static const BuiltinMember k_map_builtins[] = {
+    { "put", "func put(key: K, value: V)" }, { "get", "func get(key: K) -> V" },
+    { "get_or", "func get_or(key: K, default: V) -> V" },
+    { "has", "func has(key: K) -> Bool" },   { "remove", "func remove(key: K) -> Bool" },
+    { "len", "func len() -> Int" },          { "clear", "func clear()" },
+    { "keys", "func keys() -> [K]" },        { "values", "func values() -> [V]" },
+    { "copy", "func copy() -> Map[K, V]" },  { "take", "func take() -> Map[K, V]" },
+    { NULL, NULL },
+};
+static const BuiltinMember k_set_builtins[] = {
+    { "add", "func add(item: T) -> Bool" },  { "has", "func has(item: T) -> Bool" },
+    { "remove", "func remove(item: T) -> Bool" }, { "len", "func len() -> Int" },
+    { "clear", "func clear()" },             { "values", "func values() -> [T]" },
+    { "copy", "func copy() -> Set[T]" },     { "take", "func take() -> Set[T]" },
+    { NULL, NULL },
+};
+
+static void push_builtins(IronLsp_CompletionCandidate **out, Iron_Arena *arena,
+                          const BuiltinMember *table, const char *prefix) {
+    for (int i = 0; table[i].name; i++) {
+        maybe_push(out, arena, table[i].name, LSP_CK_METHOD, ILSP_COMPLETION_BUCKET_LOCAL,
+                   table[i].detail, "", table[i].name, false, false, prefix);
+    }
+}
+
+/* Methods declared for `type_name` (the file's and the stdlib's), or the
+ * list extensions (`func [T].map`) when `list`. */
+static void push_declared_methods(IronLsp_CompletionCandidate **out, Iron_Arena *arena,
+                                  const Iron_Program *program, const char *type_name,
+                                  bool list, const char *prefix) {
+    for (int i = 0; i < all_decls(program); i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!md->method_name || md->is_init || md->is_synth_accessor) continue;
+        if (list ? !md->is_array_extension
+                 : (md->is_array_extension || !md->type_name || !type_name ||
+                    strcmp(md->type_name, type_name) != 0)) continue;
+        maybe_push(out, arena, md->method_name, LSP_CK_METHOD, ILSP_COMPLETION_BUCKET_LOCAL,
+                   method_detail(md, arena), "", md->method_name, false, false, prefix);
+    }
+}
+
+static void push_fields(IronLsp_CompletionCandidate **out, Iron_Arena *arena,
+                        Iron_ObjectDecl *od, const char *prefix) {
+    for (int j = 0; j < od->field_count; j++) {
+        Iron_Field *f = (Iron_Field *)od->fields[j];
+        if (!f || !f->name) continue;
+        char detail[256];
+        snprintf(detail, sizeof(detail), "%s %s", f->is_var ? "var" : "val", f->name);
+        maybe_push(out, arena, f->name, LSP_CK_FIELD, ILSP_COMPLETION_BUCKET_LOCAL,
+                   detail, "", f->name, false, false, prefix);
+    }
+}
+
+static const Iron_Type *strip_handle(const Iron_Type *t) {
+    for (int g = 0; t && g < 8; g++) {
+        if (t->kind == IRON_TYPE_NULLABLE) t = t->nullable.inner;
+        else if (t->kind == IRON_TYPE_RC) t = t->rc.inner;
+        else if (t->kind == IRON_TYPE_PTR) t = t->ptr.pointee;
+        else break;
+    }
+    return t;
+}
+
+/* The fields and methods of the object named `type_name`: its own and
+ * the stdlib's methods and those patched in by other workspace files. */
+static void emit_object_members_by_name(IronLsp_CompletionCandidate **out_arr,
+                                        Iron_Arena *arena, struct IronLsp_Server *server,
+                                        struct IronLsp_Document *doc,
+                                        const Iron_Program *program,
+                                        const char *type_name, const char *query_prefix) {
+    for (int i = 0; i < all_decls(program); i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+        if (od->is_patch || !od->name || strcmp(od->name, type_name) != 0) continue;
+        push_fields(out_arr, arena, od, query_prefix);
+        break;
+    }
+    push_declared_methods(out_arr, arena, program, type_name, false, query_prefix);
+    struct patch_member_emit_ctx ctx_pms = {
+        .out = out_arr, .arena = arena, .prefix = query_prefix,
+    };
+    IronLsp_WorkspaceIndex *wi = server ? server->workspace_index : NULL;
+    ilsp_patch_for_each_method((Iron_Program *)program, wi, type_name,
+                               doc->uri ? doc->uri : "", emit_patch_member_field,
+                               &ctx_pms, NULL);
+}
+
+/* The type written on the top-level `val` / `var` named by the identifier
+ * ending at byte `last`, or NULL. */
+static const char *annotated_type_of(const Iron_Program *program, const char *text,
+                                     size_t last) {
+    size_t end = last + 1, start = end;
+    while (start > 0) {
+        unsigned char c = (unsigned char)text[start - 1];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9') || c == '_') { start--; continue; }
+        break;
+    }
+    size_t len = end - start;
+    if (len == 0) return NULL;
+    for (int i = 0; i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        const char *name = NULL;
+        Iron_Node *ann = NULL;
+        if (d && d->kind == IRON_NODE_VAL_DECL) {
+            name = ((Iron_ValDecl *)d)->name; ann = ((Iron_ValDecl *)d)->type_ann;
+        } else if (d && d->kind == IRON_NODE_VAR_DECL) {
+            name = ((Iron_VarDecl *)d)->name; ann = ((Iron_VarDecl *)d)->type_ann;
+        }
+        if (!name || strlen(name) != len || memcmp(name, text + start, len) != 0) continue;
+        if (ann && ann->kind == IRON_NODE_TYPE_ANNOTATION) return ((Iron_TypeAnnotation *)ann)->name;
+        return NULL;
+    }
+    return NULL;
+}
+
 static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
                                  Iron_Arena              *arena,
                                  struct IronLsp_Server          *server,
@@ -472,12 +691,8 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
                                  Iron_Program            *program,
                                  size_t                          cursor_byte,
                                  const char                     *query_prefix) {
-    /* Phase 11 PATCH-03 (Plan 11-02): server is now consumed via
-     * server->workspace_index by the patch-method walk below; the
-     * pre-Phase-11 `(void)server;` is therefore dropped. */
-    if (!doc || !doc->text || !program) return;
-    if (cursor_byte == 0) return;
-    /* Back up over `.` plus any identifier the user is typing. */
+    if (!doc || !doc->text || !program || cursor_byte == 0) return;
+    /* Back up over the member being typed and the dot. */
     size_t cur = cursor_byte;
     while (cur > 0) {
         unsigned char c = (unsigned char)doc->text[cur - 1];
@@ -485,106 +700,116 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
             (c >= '0' && c <= '9') || c == '_') { cur--; continue; }
         break;
     }
-    if (cur == 0 || doc->text[cur - 1] != '.') return;
-    size_t dot = cur - 1;
-    /* Walk back over the receiver ident. */
-    size_t end = dot;
-    size_t start = end;
-    while (start > 0) {
-        unsigned char c = (unsigned char)doc->text[start - 1];
+    if (cur < 2 || doc->text[cur - 1] != '.') return;
+    size_t last = cur - 2;  /* the receiver's last byte */
+    while (last > 0 && (doc->text[last] == ' ' || doc->text[last] == '\t')) last--;
+
+    uint32_t line0 = ilsp_line_of_byte(&doc->line_idx, last);
+    size_t line_start = ilsp_byte_of_line(&doc->line_idx, line0);
+    ReceiverFind f = { line0 + 1, (uint32_t)(last - line_start) + 1, NULL,
+                       NULL, 0, 0, 0, NULL };
+    /* The trailing identifier, and the object before its dot. */
+    size_t id_start = last + 1;
+    while (id_start > 0) {
+        unsigned char c = (unsigned char)doc->text[id_start - 1];
         if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-            (c >= '0' && c <= '9') || c == '_') { start--; continue; }
+            (c >= '0' && c <= '9') || c == '_') { id_start--; continue; }
         break;
     }
-    if (start == end) return;
-    size_t recv_len = end - start;
-    /* Find the receiver's declared type by searching program's top-level
-     * val/var decls. */
-    const char *type_name = NULL;
-    for (int i = 0; i < program->decl_count; i++) {
-        Iron_Node *d = program->decls[i];
-        if (!d) continue;
-        if (d->kind == IRON_NODE_VAL_DECL) {
-            Iron_ValDecl *vd = (Iron_ValDecl *)d;
-            if (vd->name &&
-                strlen(vd->name) == recv_len &&
-                memcmp(vd->name, doc->text + start, recv_len) == 0) {
-                if (vd->type_ann && vd->type_ann->kind == IRON_NODE_TYPE_ANNOTATION) {
-                    type_name = ((Iron_TypeAnnotation *)vd->type_ann)->name;
-                }
-                break;
-            }
-        } else if (d->kind == IRON_NODE_VAR_DECL) {
-            Iron_VarDecl *vd = (Iron_VarDecl *)d;
-            if (vd->name &&
-                strlen(vd->name) == recv_len &&
-                memcmp(vd->name, doc->text + start, recv_len) == 0) {
-                if (vd->type_ann && vd->type_ann->kind == IRON_NODE_TYPE_ANNOTATION) {
-                    type_name = ((Iron_TypeAnnotation *)vd->type_ann)->name;
-                }
-                break;
-            }
-        }
+    if (id_start <= last && id_start >= 2 && doc->text[id_start - 1] == '.') {
+        size_t obj_last = id_start - 2;
+        uint32_t ol = ilsp_line_of_byte(&doc->line_idx, obj_last);
+        f.field     = doc->text + id_start;
+        f.field_len = last + 1 - id_start;
+        f.oline     = ol + 1;
+        f.ocol      = (uint32_t)(obj_last - ilsp_byte_of_line(&doc->line_idx, ol)) + 1;
     }
-    if (!type_name) return;
-    /* Find the object decl by name + emit fields + methods. */
+    Iron_Visitor v = { .ctx = &f, .visit_node = receiver_visit, .post_visit = NULL };
     for (int i = 0; i < program->decl_count; i++) {
-        Iron_Node *d = program->decls[i];
-        if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
-        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
-        if (!od->name || strcmp(od->name, type_name) != 0) continue;
-        for (int j = 0; j < od->field_count; j++) {
-            Iron_Node *f = od->fields[j];
-            if (!f) continue;
-            const char *nm = decl_name(f);
-            if (!nm) continue;
-            maybe_push(out_arr, arena, nm, LSP_CK_FIELD,
-                        ILSP_COMPLETION_BUCKET_LOCAL,  /* bucket irrelevant in member mode */
-                        "field", "", nm,
-                        false, false, query_prefix);
-        }
-        break;
+        if (program->decls[i]) iron_ast_walk(program->decls[i], &v);
     }
-    /* Methods: walk program-level method decls with matching type_name.
-     * Phase 11 PATCH-03 (Plan 11-02 D-09..D-11): tier prefix computed via
-     * the same Phase 10 TIER-03 D-10 idiom used in emit_top_level so the
-     * member-after-dot detail rendering matches: `func` / `readonly func`
-     * / `pure func`. Patches inherit the same machinery via the patch
-     * walk below. */
-    for (int i = 0; i < program->decl_count; i++) {
-        Iron_Node *d = program->decls[i];
-        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
-        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
-        if (!md->type_name || strcmp(md->type_name, type_name) != 0) continue;
-        if (!md->method_name) continue;
-        const char *tier_prefix = "func";
-        if      (md->is_readonly) tier_prefix = "readonly func";
-        else if (md->is_pure)     tier_prefix = "pure func";
-        maybe_push(out_arr, arena, md->method_name, LSP_CK_METHOD,
-                    ILSP_COMPLETION_BUCKET_LOCAL,
-                    tier_prefix, "", md->method_name,
-                    false, false, query_prefix);
+    if (!f.best) f.best = f.by_field;
+    /* No analyzed type (the program was only parsed, or the receiver
+     * did not type): a binding written with its type still names it. */
+    const Iron_Type *rt = f.best ? ((Iron_ExprNode *)f.best)->resolved_type : NULL;
+    if (!rt && !(f.best && f.best->kind == IRON_NODE_IDENT &&
+                 ((Iron_Ident *)f.best)->resolved_sym)) {
+        const char *type_name = annotated_type_of(program, doc->text, last);
+        if (type_name) emit_object_members_by_name(out_arr, arena, server, doc, program,
+                                                   type_name, query_prefix);
+        return;
     }
 
-    /* PATCH-03 (Plan 11-02): walk patch registry + workspace_index entries
-     * for patched methods on the same target type. Patches route through
-     * the SAME maybe_push helper so TIER-03 detail-field tier prefix
-     * (Phase 10 D-10) flows through automatically. Visibility filter is
-     * applied INSIDE ilsp_patch_for_each_method per Plan 11-01 helper
-     * internals (forward-compat shape per RESEARCH Conflict 3). */
-    {
-        struct patch_member_emit_ctx ctx_pms = {
-            .out    = out_arr,
-            .arena  = arena,
-            .prefix = query_prefix,
-        };
-        IronLsp_WorkspaceIndex *wi_pms = (server) ? server->workspace_index : NULL;
-        const char *requester_pms = (doc && doc->uri) ? doc->uri : "";
-        ilsp_patch_for_each_method(program, wi_pms, type_name,
-                                   requester_pms, emit_patch_member_field,
-                                   &ctx_pms, NULL);
+    /* A type name: its statics (`Math.sqrt`, `Math.PI`) or variants. */
+    if (f.best->kind == IRON_NODE_IDENT) {
+        const Iron_Symbol *sym = ((Iron_Ident *)f.best)->resolved_sym;
+        Iron_Node *td = sym ? sym->decl_node : NULL;
+        if (td && td->kind == IRON_NODE_OBJECT_DECL) {
+            Iron_ObjectDecl *od = (Iron_ObjectDecl *)td;
+            push_fields(out_arr, arena, od, query_prefix);
+            push_declared_methods(out_arr, arena, program, od->name, false, query_prefix);
+            return;
+        }
+        if (td && td->kind == IRON_NODE_ENUM_DECL) {
+            Iron_EnumDecl *ed = (Iron_EnumDecl *)td;
+            for (int j = 0; j < ed->variant_count; j++) {
+                Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+                if (!ev || !ev->name) continue;
+                maybe_push(out_arr, arena, ev->name, LSP_CK_ENUMMEMBER,
+                           ILSP_COMPLETION_BUCKET_LOCAL, ed->name ? ed->name : "",
+                           "", ev->name, false, false, query_prefix);
+            }
+            push_declared_methods(out_arr, arena, program, ed->name, false, query_prefix);
+            return;
+        }
     }
-    (void)dot;
+
+    const Iron_Type *t = strip_handle(rt);
+    if (!t || t->kind == IRON_TYPE_ERROR) return;
+    switch ((int)t->kind) {
+        case IRON_TYPE_ARRAY:
+            push_builtins(out_arr, arena, k_list_builtins, query_prefix);
+            push_declared_methods(out_arr, arena, program, NULL, true, query_prefix);
+            return;
+        case IRON_TYPE_OBJECT: {
+            Iron_ObjectDecl *od = t->object.decl;
+            if (!od || !od->name) return;
+            if (strcmp(od->name, "Map") == 0) {
+                push_builtins(out_arr, arena, k_map_builtins, query_prefix);
+                return;
+            }
+            if (strcmp(od->name, "Set") == 0) {
+                push_builtins(out_arr, arena, k_set_builtins, query_prefix);
+                return;
+            }
+            emit_object_members_by_name(out_arr, arena, server, doc, program, od->name,
+                                        query_prefix);
+            return;
+        }
+        case IRON_TYPE_INTERFACE: {
+            Iron_InterfaceDecl *id = t->interface.decl;
+            for (int j = 0; id && j < id->method_count; j++) {
+                Iron_FuncDecl *sig = (Iron_FuncDecl *)id->method_sigs[j];
+                if (!sig || sig->kind != IRON_NODE_FUNC_DECL || !sig->name) continue;
+                maybe_push(out_arr, arena, sig->name, LSP_CK_METHOD,
+                           ILSP_COMPLETION_BUCKET_LOCAL, id->name ? id->name : "",
+                           "", sig->name, false, false, query_prefix);
+            }
+            return;
+        }
+        case IRON_TYPE_ENUM:
+            if (t->enu.decl) {
+                push_declared_methods(out_arr, arena, program, t->enu.decl->name, false,
+                                      query_prefix);
+            }
+            return;
+        default: {
+            /* String, Int, Float...: the stdlib's `patch object String`. */
+            const char *name = type_str(t, arena);
+            push_declared_methods(out_arr, arena, program, name, false, query_prefix);
+            return;
+        }
+    }
 }
 
 /* ── Public API ───────────────────────────────────────────────────── */
