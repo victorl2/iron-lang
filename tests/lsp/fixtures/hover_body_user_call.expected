@@ -1,0 +1,3 @@
+```iron
+func area(w: Int, h: Int) -> Int
+```

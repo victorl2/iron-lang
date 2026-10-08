@@ -1,5 +1,5 @@
 ```iron
-readonly func Reader.describe(self: Reader) -> Int
+readonly func Reader.describe() -> Int
 ```
 
 readonly: yes

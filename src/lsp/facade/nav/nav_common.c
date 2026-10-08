@@ -7,6 +7,10 @@
 
 #include "lsp/store/utf.h"
 #include "lsp/transport/json.h"
+#include "parser/ast.h"
+#include "analyzer/types.h"
+#include "analyzer/scope.h"
+#include "hir/stdlib_origin.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -179,7 +183,161 @@ const char *ilsp_nav_uri_to_path(const char *uri, Iron_Arena *arena) {
  * original src/lsp/facade/edit/rename/apply.c:96-98 implementation
  * (lifted verbatim with the new public name). */
 bool ilsp_nav_path_is_stdlib(const char *p) {
-    return p && strncmp(p, "stdlib://", 9) == 0;
+    if (!p) return false;
+    if (strncmp(p, "stdlib://", 9) == 0) return true;
+    /* A file of the stdlib prelude this thread's last analysis prepended
+     * (the facade analyzes and then answers on the same thread). */
+    return iron_stdlib_origin_classify(p) == 1;
+}
+
+/* ── Member and type references ──────────────────────────────────── */
+
+static const Iron_Type *strip_wrappers(const Iron_Type *t) {
+    for (int guard = 0; t && guard < 8; guard++) {
+        switch ((int)t->kind) {
+            case IRON_TYPE_NULLABLE: t = t->nullable.inner; continue;
+            case IRON_TYPE_RC:       t = t->rc.inner;       continue;
+            case IRON_TYPE_WEAK_RC:  t = t->weak_rc.inner;  continue;
+            case IRON_TYPE_PTR:      t = t->ptr.pointee;    continue;
+            default: return t;
+        }
+    }
+    return t;
+}
+
+/* Every declaration the analysis saw: the buffer's, then the prelude's. */
+static int all_decl_count(const Iron_Program *program) {
+    return program->decl_count + program->prelude_decl_count;
+}
+
+static Iron_Node *find_type_decl(const Iron_Program *program, const char *name) {
+    if (!name) return NULL;
+    for (int i = 0; i < all_decl_count(program); i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d) continue;
+        const char *dn = NULL;
+        if (d->kind == IRON_NODE_OBJECT_DECL) {
+            Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+            if (od->is_patch) continue;
+            dn = od->name;
+        } else if (d->kind == IRON_NODE_ENUM_DECL) {
+            dn = ((Iron_EnumDecl *)d)->name;
+        } else if (d->kind == IRON_NODE_INTERFACE_DECL) {
+            dn = ((Iron_InterfaceDecl *)d)->name;
+        }
+        if (dn && strcmp(dn, name) == 0) return d;
+    }
+    return NULL;
+}
+
+/* The name methods are declared under for a receiver type: `Point`,
+ * `String`, `Int`, `Map` (generic arguments dropped). */
+static const char *receiver_type_name(const Iron_Type *t, Iron_Arena *arena) {
+    if (!t) return NULL;
+    if (t->kind == IRON_TYPE_OBJECT && t->object.decl) return t->object.decl->name;
+    if (t->kind == IRON_TYPE_ENUM && t->enu.decl) return t->enu.decl->name;
+    if (t->kind == IRON_TYPE_INTERFACE && t->interface.decl) return t->interface.decl->name;
+    const char *s = iron_type_to_string(t, arena);
+    if (!s) return NULL;
+    const char *br = strchr(s, '[');
+    if (!br || br == s) return s;
+    return iron_arena_strdup(arena, s, (size_t)(br - s));
+}
+
+/* The type a static member reference names (`Math.sqrt`, `Color.Red`). */
+static Iron_Node *static_receiver_decl(Iron_Node *object) {
+    if (!object || object->kind != IRON_NODE_IDENT) return NULL;
+    const Iron_Symbol *sym = ((Iron_Ident *)object)->resolved_sym;
+    if (!sym || !sym->decl_node) return NULL;
+    Iron_NodeKind k = sym->decl_node->kind;
+    if (k == IRON_NODE_OBJECT_DECL || k == IRON_NODE_ENUM_DECL ||
+        k == IRON_NODE_INTERFACE_DECL) {
+        return sym->decl_node;
+    }
+    return NULL;
+}
+
+static const char *decl_type_name(Iron_Node *d) {
+    switch ((int)d->kind) {
+        case IRON_NODE_OBJECT_DECL:    return ((Iron_ObjectDecl *)d)->name;
+        case IRON_NODE_ENUM_DECL:      return ((Iron_EnumDecl *)d)->name;
+        case IRON_NODE_INTERFACE_DECL: return ((Iron_InterfaceDecl *)d)->name;
+        default: return NULL;
+    }
+}
+
+static Iron_Node *find_method(const Iron_Program *program, const Iron_Type *recv,
+                              const char *type_name, const char *method) {
+    if (recv && recv->kind == IRON_TYPE_INTERFACE && recv->interface.decl) {
+        Iron_InterfaceDecl *id = recv->interface.decl;
+        for (int i = 0; i < id->method_count; i++) {
+            Iron_Node *sig = id->method_sigs[i];
+            if (sig && sig->kind == IRON_NODE_FUNC_DECL &&
+                ((Iron_FuncDecl *)sig)->name &&
+                strcmp(((Iron_FuncDecl *)sig)->name, method) == 0) {
+                return sig;
+            }
+        }
+    }
+    bool is_list = recv && recv->kind == IRON_TYPE_ARRAY;
+    for (int i = 0; i < all_decl_count(program); i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!md->method_name || strcmp(md->method_name, method) != 0) continue;
+        if (is_list ? md->is_array_extension
+                    : (!md->is_array_extension && md->type_name && type_name &&
+                       strcmp(md->type_name, type_name) == 0)) {
+            return d;
+        }
+    }
+    return NULL;
+}
+
+Iron_Node *ilsp_nav_member_decl(const Iron_Program *program, Iron_Node *n,
+                                Iron_Arena *arena) {
+    if (!program || !n) return NULL;
+    switch ((int)n->kind) {
+        case IRON_NODE_METHOD_CALL: {
+            Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)n;
+            if (!mc->method) return NULL;
+            Iron_Node *st = static_receiver_decl(mc->object);
+            if (st) return find_method(program, NULL, decl_type_name(st), mc->method);
+            const Iron_Type *t = strip_wrappers(
+                mc->object ? ((Iron_ExprNode *)mc->object)->resolved_type : NULL);
+            if (!t) return NULL;
+            return find_method(program, t, receiver_type_name(t, arena), mc->method);
+        }
+        case IRON_NODE_FIELD_ACCESS: {
+            Iron_FieldAccess *fa = (Iron_FieldAccess *)n;
+            if (!fa->field) return NULL;
+            Iron_Node *owner = static_receiver_decl(fa->object);
+            if (!owner) {
+                const Iron_Type *t = strip_wrappers(
+                    fa->object ? ((Iron_ExprNode *)fa->object)->resolved_type : NULL);
+                if (t && t->kind == IRON_TYPE_OBJECT) owner = (Iron_Node *)t->object.decl;
+            }
+            if (!owner) return NULL;
+            if (owner->kind == IRON_NODE_OBJECT_DECL) {
+                Iron_ObjectDecl *od = (Iron_ObjectDecl *)owner;
+                for (int i = 0; i < od->field_count; i++) {
+                    Iron_Field *f = (Iron_Field *)od->fields[i];
+                    if (f && f->name && strcmp(f->name, fa->field) == 0) return (Iron_Node *)f;
+                }
+            } else if (owner->kind == IRON_NODE_ENUM_DECL) {
+                Iron_EnumDecl *ed = (Iron_EnumDecl *)owner;
+                for (int i = 0; i < ed->variant_count; i++) {
+                    Iron_EnumVariant *v = (Iron_EnumVariant *)ed->variants[i];
+                    if (v && v->name && strcmp(v->name, fa->field) == 0) return (Iron_Node *)v;
+                }
+            }
+            return NULL;
+        }
+        case IRON_NODE_TYPE_ANNOTATION:
+            return find_type_decl(program, ((Iron_TypeAnnotation *)n)->name);
+        default:
+            return NULL;
+    }
 }
 
 /* ── LocationLink -> JSON ────────────────────────────────────────── */

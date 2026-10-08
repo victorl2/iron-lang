@@ -1,0 +1,9 @@
+-- Hover on a compiler-builtin method (no declaration) shows the receiver,
+-- the method and the result type.
+--
+-- HOVER@7:7
+func main() {
+    var m = Map[String, Int]()
+    m.put("a", 1)
+    println("{m.len()}")
+}

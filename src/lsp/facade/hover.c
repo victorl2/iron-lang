@@ -11,6 +11,7 @@
 
 #include "lsp/facade/nav/nav_core.h"
 #include "lsp/facade/nav/node_at.h"
+#include "lsp/facade/nav/nav_common.h"
 #include "lsp/facade/nav/visibility.h"
 #include "lsp/facade/nav/patch_lookup.h"
 #include "lsp/facade/compile.h"
@@ -190,7 +191,17 @@ static const char *signature_method(Iron_MethodDecl *md, Iron_Arena *arena) {
     sb_append(&sb, ".");
     sb_append(&sb, md->method_name ? md->method_name : "_");
     sb_append(&sb, "(");
-    render_params(&sb, md->params, md->param_count, arena);
+    /* The receiver is implicit in Iron source: `s.upper()`, not
+     * `upper(self: String)`. */
+    Iron_Node **params = md->params;
+    int param_count = md->param_count;
+    if (param_count > 0 && params[0] && params[0]->kind == IRON_NODE_PARAM &&
+        ((Iron_Param *)params[0])->name &&
+        strcmp(((Iron_Param *)params[0])->name, "self") == 0) {
+        params++;
+        param_count--;
+    }
+    render_params(&sb, params, param_count, arena);
     sb_append(&sb, ")");
     if (md->return_type) {
         sb_append(&sb, " -> ");
@@ -781,6 +792,32 @@ static bool is_primitive_decl_like(const Iron_Symbol *sym) {
 }
 
 /* Entry point: populate *out with a hover result for the cursor. */
+/* Hover for an expression with no declaration behind it: its type, and for
+ * a builtin method (Map.put, String.len...) the receiver and the method. */
+static const char *expression_type_markdown(Iron_Node *node, Iron_Arena *arena) {
+    const Iron_Type *t = ((Iron_ExprNode *)node)->resolved_type;
+    if (!t || t->kind == IRON_TYPE_ERROR) return NULL;
+    const char *ts = iron_type_to_string(t, arena);
+    if (!ts) return NULL;
+    SB sb; sb_init(&sb, arena);
+    sb_append(&sb, "```iron\n");
+    if (node->kind == IRON_NODE_METHOD_CALL) {
+        Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)node;
+        const Iron_Type *rt = mc->object
+            ? ((Iron_ExprNode *)mc->object)->resolved_type : NULL;
+        const char *rs = rt ? iron_type_to_string(rt, arena) : NULL;
+        if (rs) {
+            sb_append(&sb, rs);
+            sb_append(&sb, ".");
+        }
+        sb_append(&sb, mc->method ? mc->method : "?");
+        sb_append(&sb, "(...) -> ");
+    }
+    sb_append(&sb, ts);
+    sb_append(&sb, "\n```");
+    return sb.buf;
+}
+
 void ilsp_facade_hover(struct IronLsp_Server   *server,
                         struct IronLsp_Document *doc,
                         IronLsp_Position         pos,
@@ -826,6 +863,20 @@ void ilsp_facade_hover(struct IronLsp_Server   *server,
         Iron_Ident *id = (Iron_Ident *)node;
         sym = id->resolved_sym;
         if (sym) decl = sym->decl_node;
+    } else if (node->kind == IRON_NODE_TYPE_ANNOTATION) {
+        /* A type name: the type's declaration (nothing for builtins). */
+        decl = ilsp_nav_member_decl(program, node, arena);
+        if (!decl) goto done;
+    } else if (node->kind >= IRON_NODE_INT_LIT && node->kind <= IRON_NODE_AWAIT) {
+        /* An expression: the method or field it names, else its type. */
+        decl = ilsp_nav_member_decl(program, node, arena);
+        if (!decl) {
+            out->markdown = expression_type_markdown(node, arena);
+            if (!out->markdown) goto done;
+            out->range = ilsp_span_to_lsp_range(target_span, doc, enc);
+            out->has_range = true;
+            goto done;
+        }
     } else {
         /* Cursor on a decl itself -- hover shows its own signature. */
         decl = node;
@@ -901,6 +952,18 @@ void ilsp_facade_hover(struct IronLsp_Server   *server,
             const char *owner = find_field_owner(program, decl);
             sig = signature_enum_variant(ev, owner, arena);
             dc  = ev->doc_comment;
+            break;
+        }
+        case IRON_NODE_PARAM: {
+            Iron_Param *pd = (Iron_Param *)decl;
+            SB sb; sb_init(&sb, arena);
+            sb_append(&sb, pd->is_var ? "var " : "");
+            sb_append(&sb, pd->name ? pd->name : "_");
+            sb_append(&sb, ": ");
+            const char *ts = pd->resolved_type
+                ? iron_type_to_string(pd->resolved_type, arena) : NULL;
+            sb_append(&sb, ts ? ts : "?");
+            sig = sb.buf;
             break;
         }
         case IRON_NODE_IMPORT_DECL: {

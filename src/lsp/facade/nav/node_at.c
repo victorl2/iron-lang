@@ -2,11 +2,8 @@
  *
  * Walks the top-level decls of a sealed Iron_Program, finds the first
  * span covering the (line, col) position derived from the LSP Position,
- * then descends into struct-embedded child lists (object fields,
- * interface method_sigs, enum variants) to find the innermost node.
- * Expression-body walking is intentionally simple at this phase -- the
- * primitive returns the decl node whose span covers the cursor, which
- * is what every NAV endpoint in Plans 02..06 actually needs. */
+ * then walks it (iron_ast_walk: fields, signatures, bodies, expressions,
+ * type annotations) for the innermost node under the cursor. */
 
 #include "lsp/facade/nav/node_at.h"
 
@@ -93,9 +90,9 @@ static bool span_covers(const Iron_Span *sp, uint32_t line, uint32_t col) {
     return true;
 }
 
-/* Find the innermost child node of `parent` whose span covers (line, col).
- * If no child covers, returns `parent`. Silently skips IRON_NODE_ERROR. */
-static Iron_Node *descend_into(Iron_Node *parent,
+/* The member of `parent` (object field, interface signature, enum variant)
+ * whose span covers (line, col), else `parent`. Skips IRON_NODE_ERROR. */
+static Iron_Node *descend_members(Iron_Node *parent,
                                 uint32_t line, uint32_t col) {
     if (!parent) return NULL;
     switch ((int)parent->kind) {
@@ -127,21 +124,61 @@ static Iron_Node *descend_into(Iron_Node *parent,
             break;
         }
         default:
-            /* Func / method / import / value / other -- we do not
-             * descend into expression bodies in Phase 3 Plan 01; the
-             * enclosing decl is the answer the NAV endpoints need. */
+            /* Func / method / import / value / other: the decl. */
             break;
     }
     return parent;
 }
 
-Iron_Node *ilsp_nav_node_at(const IronLsp_Document   *doc,
-                             const Iron_Program       *program,
-                             IronLsp_Position          pos,
-                             IronLsp_PositionEncoding  enc) {
+/* True when span `in` lies within span `out` (equal spans included). */
+static bool span_within(const Iron_Span *in, const Iron_Span *out) {
+    return span_covers(out, in->line, in->col) &&
+           span_covers(out, in->end_line, in->end_col);
+}
+
+typedef struct {
+    uint32_t   line, col;
+    Iron_Node *best;
+} InnermostCtx;
+
+/* Pre-order: a child is visited after its parent, so `within` (which
+ * admits equal spans) lets the deeper node win a tie. Children are walked
+ * even when the parent does not cover the cursor: a few parents' spans
+ * stop short of their last child (a call's span may end at its callee). */
+static bool innermost_visit(Iron_Visitor *v, Iron_Node *n) {
+    InnermostCtx *c = (InnermostCtx *)v->ctx;
+    if (n->kind == IRON_NODE_ERROR) return false;
+    if (n->span.line == 0) return true;  /* synthesized, no position */
+    if (span_covers(&n->span, c->line, c->col) &&
+        (!c->best || span_within(&n->span, &c->best->span))) {
+        c->best = n;
+    }
+    return true;
+}
+
+/* The innermost node under (line, col) inside `decl`: an identifier,
+ * a method call or field access (cursor on the member name), a type
+ * annotation, a literal, a binding... or `decl` itself when the cursor is
+ * on its name or keywords. */
+static Iron_Node *descend_into(Iron_Node *decl, uint32_t line, uint32_t col) {
+    InnermostCtx c = { line, col, NULL };
+    Iron_Visitor v = { .ctx = &c, .visit_node = innermost_visit, .post_visit = NULL };
+    iron_ast_walk(decl, &v);
+    return c.best;
+}
+
+/* The smallest top-level decl covering the cursor; sets *line / *col. */
+static Iron_Node *covering_decl(const IronLsp_Document   *doc,
+                                const Iron_Program       *program,
+                                IronLsp_Position          pos,
+                                IronLsp_PositionEncoding  enc,
+                                uint32_t                 *out_line,
+                                uint32_t                 *out_col) {
     if (!doc || !program) return NULL;
     uint32_t line = 0, col = 0;
     if (!position_to_iron_line_col(doc, pos, enc, &line, &col)) return NULL;
+    *out_line = line;
+    *out_col = col;
 
     /* Scan top-level decls for the one whose span covers (line, col).
      *
@@ -173,9 +210,26 @@ Iron_Node *ilsp_nav_node_at(const IronLsp_Document   *doc,
             covering = d;
         }
     }
-    if (!covering) return NULL;  /* cursor is in whitespace */
+    return covering;  /* NULL: the cursor is in whitespace */
+}
 
-    /* Descend once into decl-level children. */
+Iron_Node *ilsp_nav_node_at(const IronLsp_Document   *doc,
+                             const Iron_Program       *program,
+                             IronLsp_Position          pos,
+                             IronLsp_PositionEncoding  enc) {
+    uint32_t line = 0, col = 0;
+    Iron_Node *covering = covering_decl(doc, program, pos, enc, &line, &col);
+    if (!covering) return NULL;
     Iron_Node *inner = descend_into(covering, line, col);
     return inner ? inner : covering;
+}
+
+Iron_Node *ilsp_nav_decl_at(const IronLsp_Document   *doc,
+                             const Iron_Program       *program,
+                             IronLsp_Position          pos,
+                             IronLsp_PositionEncoding  enc) {
+    uint32_t line = 0, col = 0;
+    Iron_Node *covering = covering_decl(doc, program, pos, enc, &line, &col);
+    if (!covering) return NULL;
+    return descend_members(covering, line, col);
 }
