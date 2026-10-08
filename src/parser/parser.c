@@ -881,8 +881,9 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         } else {
             int saved_pos = p->pos;
             Iron_Token *name_tok = iron_advance(p);
-            if (iron_check(p, IRON_TOK_LBRACKET)) {
-                /* A generic instance element: [Pair[Int]], [Map[String, Int]]. */
+            if (iron_check(p, IRON_TOK_LBRACKET) || iron_check(p, IRON_TOK_QUESTION)) {
+                /* A generic instance element: [Pair[Int]], [Map[String, Int]],
+                 * or a nullable one: [Int?], [Pair[Int]?]. */
                 p->pos = saved_pos;
                 ann->array_elem_ann = iron_parse_type_annotation_impl(p);
                 ann->name = NULL;
@@ -1428,6 +1429,38 @@ static int iron_infix_prec(Iron_TokenKind k) {
 }
 
 /* Parse a primary (prefix) expression */
+/* `?` never appears in an expression, so an element of a bracketed list
+ * that contains one at its own nesting level is a nullable type written in
+ * expression position: `Map[String, Int?]()`, `[String?]()`,
+ * `Channel[Pair?](4)`. Such an element is parsed as a type annotation;
+ * everything else as an expression. */
+static bool iron_elem_is_nullable_type(Iron_Parser *p) {
+    int depth = 0, parens = 0;
+    for (int j = p->pos; j < p->token_count; j++) {
+        Iron_TokenKind k = p->tokens[j].kind;
+        if (k == IRON_TOK_EOF || k == IRON_TOK_NEWLINE || k == IRON_TOK_LBRACE)
+            return false;
+        if (k == IRON_TOK_LPAREN) { depth++; parens++; }
+        else if (k == IRON_TOK_LBRACKET) depth++;
+        else if (k == IRON_TOK_RBRACKET || k == IRON_TOK_RPAREN) {
+            if (depth == 0) return false;
+            depth--;
+            if (k == IRON_TOK_RPAREN && parens > 0) parens--;
+        } else if (depth == 0 && (k == IRON_TOK_COMMA || k == IRON_TOK_SEMICOLON))
+            return false;
+        else if (k == IRON_TOK_QUESTION && parens == 0)
+            return j > p->pos;
+    }
+    return false;
+}
+
+static Iron_Node *iron_parse_expr_or_nullable_type(Iron_Parser *p) {
+    if ((iron_check(p, IRON_TOK_IDENTIFIER) || iron_check(p, IRON_TOK_LBRACKET)) &&
+        iron_elem_is_nullable_type(p))
+        return iron_parse_type_annotation(p);
+    return iron_parse_expr(p);
+}
+
 static Iron_Node *iron_parse_primary(Iron_Parser *p) {
     iron_skip_newlines(p);
     Iron_Token *t = iron_current(p);
@@ -1870,9 +1903,11 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
 
             /* Check for [Type; Size] form */
             if (iron_check(p, IRON_TOK_IDENTIFIER)) {
-                /* Peek: if identifier followed by semicolon, it's [Type; Size] */
+                /* Peek: if identifier followed by semicolon, it's [Type; Size]
+                 * (or [Type?; Size]) */
                 int saved_pos = p->pos;
                 iron_advance(p);  /* consume identifier */
+                iron_match(p, IRON_TOK_QUESTION);
                 if (iron_check(p, IRON_TOK_SEMICOLON)) {
                     /* restore and parse as [TypeAnnotation; Size] */
                     p->pos = saved_pos;
@@ -1896,7 +1931,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             while (!iron_check(p, IRON_TOK_RBRACKET) && !iron_check(p, IRON_TOK_EOF)) {
                 iron_skip_newlines(p);
                 if (iron_check(p, IRON_TOK_RBRACKET)) break;
-                Iron_Node *elem = iron_parse_expr(p);
+                Iron_Node *elem = iron_parse_expr_or_nullable_type(p);
                 arrput(elems, elem);
                 elem_count++;
                 iron_skip_newlines(p);
@@ -2239,7 +2274,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
         if (cur == IRON_TOK_LBRACKET) {
             iron_advance(p);
             iron_skip_newlines(p);
-            Iron_Node *idx = iron_parse_expr(p);
+            Iron_Node *idx = iron_parse_expr_or_nullable_type(p);
             iron_skip_newlines(p);
 
             /* `X[A, B]`: several type arguments of a generic. */
@@ -2248,7 +2283,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                 arrput(targs, idx);
                 while (iron_match(p, IRON_TOK_COMMA)) {
                     iron_skip_newlines(p);
-                    Iron_Node *more = iron_parse_expr(p);
+                    Iron_Node *more = iron_parse_expr_or_nullable_type(p);
                     arrput(targs, more);
                     iron_skip_newlines(p);
                 }
