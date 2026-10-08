@@ -2704,9 +2704,15 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
     int case_count    = 0;
     Iron_Node *else_body = NULL;
 
+    int arm_start = -1;
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
+        /* No-progress guard: an arm that consumed nothing (an expression
+         * past the nesting limit returns an error node in place) would be
+         * parsed again forever, reporting the same error each time. */
+        if (p->pos == arm_start) break;
+        arm_start = p->pos;
 
         /* else -> body */
         if (iron_check(p, IRON_TOK_ELSE)) {
