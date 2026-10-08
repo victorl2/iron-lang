@@ -400,6 +400,8 @@ static bool list_struct_predeclared(EmitCtx *ctx, const char *mangled) {
  * ARRAY_LIT in the module and by the Map/Set glue for keys() / values(). */
 void emit_ensure_object_list(EmitCtx *ctx, const Iron_Type *et) {
     if (!et || et->kind != IRON_TYPE_OBJECT || !et->object.decl) return;
+    /* Maps, sets and channels have their own C value type (#307). */
+    if (emit_type_is_container_elem(et)) { (void)emit_ensure_container_list(ctx, et); return; }
     const char *bare_type = et->object.decl->name;
     if (!bare_type) return;
 

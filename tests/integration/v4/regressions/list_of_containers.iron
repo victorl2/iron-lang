@@ -1,0 +1,44 @@
+-- Lists whose elements are maps, sets or channels (#307): the list type is
+-- instantiated for the table or channel handle, elements are cloned and
+-- freed through their own glue, and channels are destroyed with the list.
+func total(ms: [Map[String, Int]]) -> Int {
+    var sum = 0
+    for m in ms {
+        sum += m.len()
+    }
+    return sum
+}
+
+func main() {
+    var ms = [Map[String, Int](), Map[String, Int]()]
+    ms[0].put("a", 1)
+    ms[0].put("b", 2)
+    ms[1].put("c", 3)
+    var extra = Map[String, Int]()
+    extra.put("d", 4)
+    ms.push(extra.take())
+    println("maps: {ms.len()} entries: {total(ms)} a={ms[0].get("a")} d={ms[2].get("d")}")
+
+    val copied = ms.copy()
+    ms[0].put("z", 26)
+    println("copy keeps its own tables: {copied[0].len()} vs {ms[0].len()}")
+
+    var names = [Set[String]()]
+    names[0].add("x")
+    names[0].add("x")
+    names[0].add("y")
+    println("set: {names[0].len()} has x {names[0].has("x")}")
+
+    var labels = Map[String, String]()
+    labels.put("k", "v")
+    val nested = [labels.take()]
+    println("string table: {nested[0].get("k")}")
+
+    var cs: [Channel[Int]] = []
+    cs.push(Channel[Int](2))
+    cs.push(Channel[Int](1))
+    cs[0].send(5)
+    cs[0].send(6)
+    cs[1].send(7)
+    println("channels: {cs[0].recv()} {cs[0].recv()} {cs[1].recv()}")
+}
