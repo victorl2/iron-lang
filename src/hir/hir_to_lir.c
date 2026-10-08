@@ -5344,6 +5344,7 @@ typedef struct { IronLIR_BlockId key; IronLIR_BlockId *value; } DomChildrenEntry
 
 /* Helper: get current top of var_stack for alloca_id, or INVALID if empty */
 static IronLIR_ValueId ssa_stack_top(VarStackEntry *var_stacks, IronLIR_ValueId alloca_id) {
+    if (!var_stacks) return IRON_LIR_VALUE_INVALID;  /* hmgeti would allocate */
     ptrdiff_t si = hmgeti(var_stacks, alloca_id);
     if (si < 0 || arrlen(var_stacks[si].value) == 0) return IRON_LIR_VALUE_INVALID;
     return var_stacks[si].value[arrlen(var_stacks[si].value) - 1];
@@ -5516,7 +5517,7 @@ static void ssa_rename_recursive(
         IronLIR_Instr *instr = block->instrs[ii];
         if (!instr || instr->kind != IRON_LIR_PHI) break; /* phis are always first */
 
-        ptrdiff_t ai = hmgeti(phi_alloca_map, instr->id);
+        ptrdiff_t ai = phi_alloca_map ? hmgeti(phi_alloca_map, instr->id) : -1;
         if (ai >= 0) {
             IronLIR_ValueId alloca_id = phi_alloca_map[ai].value;
             ssa_stack_push(var_stacks_ptr, alloca_id, instr->id);
@@ -5583,7 +5584,7 @@ static void ssa_rename_recursive(
             if (!phi || phi->kind != IRON_LIR_PHI) break;
 
             /* Find which alloca this phi belongs to */
-            ptrdiff_t ai = hmgeti(phi_alloca_map, phi->id);
+            ptrdiff_t ai = phi_alloca_map ? hmgeti(phi_alloca_map, phi->id) : -1;
             if (ai < 0) continue;
             IronLIR_ValueId alloca_id = phi_alloca_map[ai].value;
 
