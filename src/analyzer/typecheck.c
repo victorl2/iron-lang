@@ -8110,9 +8110,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 /* Context-directed generic enum completion: if the construct has
                  * unresolved type args, fill them in from the declared type. */
                 maybe_fill_missing_generic_args(vd->init, decl_type);
-                init_type = vd->init ? (vd->init->kind == IRON_NODE_ENUM_CONSTRUCT
-                    ? ((Iron_EnumConstruct *)vd->init)->resolved_type : init_type)
-                    : init_type;
+                /* A construct that failed to check (an unknown variant, a
+                 * wrong payload count) has no resolved_type: keep the error
+                 * type it returned instead of a NULL type. */
+                if (vd->init && vd->init->kind == IRON_NODE_ENUM_CONSTRUCT &&
+                    ((Iron_EnumConstruct *)vd->init)->resolved_type)
+                    init_type = ((Iron_EnumConstruct *)vd->init)->resolved_type;
 
                 /* Phase 37 (4.3 Box completion): `Box.null()` carries no
                  * call-site element; the binding annotation is the elem
@@ -8314,9 +8317,12 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 /* Context-directed generic enum completion: if the construct has
                  * unresolved type args, fill them in from the declared type. */
                 maybe_fill_missing_generic_args(vd->init, decl_type);
-                init_type = vd->init ? (vd->init->kind == IRON_NODE_ENUM_CONSTRUCT
-                    ? ((Iron_EnumConstruct *)vd->init)->resolved_type : init_type)
-                    : init_type;
+                /* A construct that failed to check (an unknown variant, a
+                 * wrong payload count) has no resolved_type: keep the error
+                 * type it returned instead of a NULL type. */
+                if (vd->init && vd->init->kind == IRON_NODE_ENUM_CONSTRUCT &&
+                    ((Iron_EnumConstruct *)vd->init)->resolved_type)
+                    init_type = ((Iron_EnumConstruct *)vd->init)->resolved_type;
 
                 /* Phase 37 (4.3 Box completion): Box.null() elem backfill
                  * from the binding annotation — mirrors the VAL_DECL site. */
