@@ -406,6 +406,17 @@ __attribute__((noreturn))
 #endif
 void iron_panic_negative_shift(const char *site_file, int site_line, int64_t count);
 
+/* The Iron source line of the list method call in progress. The emitter
+ * sets it around xs.pop() / remove / insert / set / get, whose runtime
+ * bodies have no source span of their own, so their panics can name the
+ * caller's line instead of the runtime function. Line 0: no call recorded. */
+extern _Thread_local const char *iron_list_call_file;
+extern _Thread_local int         iron_list_call_line;
+static inline void iron_list_call_site(const char *file, int line) {
+    iron_list_call_file = file;
+    iron_list_call_line = line;
+}
+
 /* Generic index out of bounds (LIST-01). Definition in iron_panic.c. */
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((noreturn))

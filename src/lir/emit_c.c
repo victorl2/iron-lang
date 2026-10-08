@@ -2515,7 +2515,40 @@ static const char *emit_local_decl_type(IronLIR_Func *fn,
     return narrowed ? narrowed : emit_type_to_c(declared_type, ctx);
 }
 
+/* Is `instr` a call of a list method whose runtime body bounds-checks
+ * (pop, remove, insert, set, get)? Such a body has no source span, so the
+ * call records the Iron line for its panic (iron_list_call_line). */
+static bool emit_call_is_checked_list_method(IronLIR_Func *fn, EmitCtx *ctx,
+                                             IronLIR_Instr *instr) {
+    if (instr->kind != IRON_LIR_CALL) return false;
+    IronLIR_ValueId fp = instr->call.func_ptr;
+    if (fp == IRON_LIR_VALUE_INVALID || fp >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+        !fn->value_table[fp] || fn->value_table[fp]->kind != IRON_LIR_FUNC_REF)
+        return false;
+    const char *name = emit_resolve_func_c_name(ctx, fn->value_table[fp]->func_ref.func_name);
+    if (!name || (strncmp(name, "Iron_List_", 10) != 0 &&
+                  strncmp(name, "Iron_SplitList_", 15) != 0))
+        return false;
+    const char *u = strrchr(name, '_');
+    return u && (strcmp(u, "_pop") == 0 || strcmp(u, "_remove") == 0 ||
+                 strcmp(u, "_insert") == 0 || strcmp(u, "_set") == 0 ||
+                 strcmp(u, "_get") == 0);
+}
+
+static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                IronLIR_Func *fn, EmitCtx *ctx);
+
 void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                IronLIR_Func *fn, EmitCtx *ctx) {
+    bool list_site = emit_call_is_checked_list_method(fn, ctx, instr);
+    emit_instr_inner(sb, instr, fn, ctx);  /* records the site after IRON_SITE */
+    if (list_site) {
+        emit_indent(sb, ctx->indent);
+        iron_strbuf_appendf(sb, "iron_list_call_line = 0;\n");
+    }
+}
+
+static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx) {
     int ind = ctx->indent;
 
@@ -2549,6 +2582,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         ctx->site_fn = fn;
         ctx->site_file = instr->span.filename;
         ctx->site_line = instr->span.line;
+    }
+    if (emit_call_is_checked_list_method(fn, ctx, instr)) {
+        emit_indent(sb, ctx->indent);
+        iron_strbuf_appendf(sb, "iron_list_call_site(IRON_SITE);\n");
     }
 
     /* For backward-referenced values (hoisted to entry), emit as assignment
