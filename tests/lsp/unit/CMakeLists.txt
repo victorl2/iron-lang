@@ -79,6 +79,8 @@ if(IRON_BUILD_LSP)
     # link the store/ TUs.
     set(_LSP_PLAN03_SERVER_SRC
         ${CMAKE_SOURCE_DIR}/src/lsp/server/dispatch.c
+        # #311: dispatch.c routes semanticTokens/full and inlayHint here.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/semantic.c
         # Phase 7 Plan 07-01 (HARD-14, D-02): dispatch.c calls
         # ilsp_crash_ring_push/pop around handler invocation. Every test
         # linking dispatch.c must resolve these symbols. Rule 3: blocking
@@ -1399,6 +1401,8 @@ if(IRON_BUILD_LSP)
         ${_LSP_PHASE3_NAV_FACADE_SRC}
         ${CMAKE_SOURCE_DIR}/src/lsp/server/capabilities.c
         ${CMAKE_SOURCE_DIR}/src/lsp/server/dispatch.c
+        # #311: dispatch.c routes semanticTokens/full and inlayHint here.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/semantic.c
         # Phase 7 Plan 07-01: dispatch.c now calls crash_ring_push/pop.
         ${CMAKE_SOURCE_DIR}/src/lsp/obs/crash_dump.c
         ${CMAKE_SOURCE_DIR}/src/lsp/server/lifecycle.c

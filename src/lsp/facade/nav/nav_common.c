@@ -333,6 +333,20 @@ Iron_Node *ilsp_nav_member_decl(const Iron_Program *program, Iron_Node *n,
             }
             return NULL;
         }
+        case IRON_NODE_ENUM_CONSTRUCT: {
+            Iron_EnumConstruct *ec = (Iron_EnumConstruct *)n;
+            Iron_Node *ed = find_type_decl(program, ec->enum_name);
+            if (!ed && ec->resolved_type && ec->resolved_type->kind == IRON_TYPE_ENUM) {
+                ed = (Iron_Node *)ec->resolved_type->enu.decl;  /* `.Circle` */
+            }
+            if (!ed || ed->kind != IRON_NODE_ENUM_DECL || !ec->variant_name) return NULL;
+            Iron_EnumDecl *e = (Iron_EnumDecl *)ed;
+            for (int i = 0; i < e->variant_count; i++) {
+                Iron_EnumVariant *v = (Iron_EnumVariant *)e->variants[i];
+                if (v && v->name && strcmp(v->name, ec->variant_name) == 0) return (Iron_Node *)v;
+            }
+            return NULL;
+        }
         case IRON_NODE_TYPE_ANNOTATION:
             return find_type_decl(program, ((Iron_TypeAnnotation *)n)->name);
         default:

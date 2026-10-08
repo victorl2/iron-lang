@@ -1,9 +1,9 @@
 """Smoke: 5 rapid didChange collapse into ~1 publishDiagnostics (CORE-16).
 
 The mailbox coalesces COMPILE messages and the worker debounces with a
-~250 ms idle window. If we fire 5 didChange notifications inside 50 ms,
+~150 ms idle window. If we fire 5 didChange notifications inside 50 ms,
 the server must publish diagnostics for the *newest* version at least
-250 ms after the last edit -- and should NOT publish 5 separate bursts.
+150 ms after the last edit -- and should NOT publish 5 separate bursts.
 
 We accept 1 or 2 publishes (the server may have already picked up the
 first change before the burst landed; coalescing elides the middle).

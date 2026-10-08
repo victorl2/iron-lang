@@ -875,6 +875,8 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/edit/folding_range.c
         src/lsp/facade/edit/selection_range.c
         src/lsp/server/handlers_edit.c
+        # #311: semantic tokens + inlay hints (facade and handlers).
+        src/lsp/facade/semantic.c
         # Phase 5 Plan 05-02 (FMT-02, D-10, D-11, D-12): formatting
         # facade + dispatch handlers. format.c is the SINGLE
         # iron_format_source( call site under src/lsp/ -- enforced by

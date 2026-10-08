@@ -867,7 +867,8 @@ void ilsp_facade_hover(struct IronLsp_Server   *server,
         /* A type name: the type's declaration (nothing for builtins). */
         decl = ilsp_nav_member_decl(program, node, arena);
         if (!decl) goto done;
-    } else if (node->kind >= IRON_NODE_INT_LIT && node->kind <= IRON_NODE_AWAIT) {
+    } else if ((node->kind >= IRON_NODE_INT_LIT && node->kind <= IRON_NODE_AWAIT) ||
+               node->kind == IRON_NODE_ENUM_CONSTRUCT) {
         /* An expression: the method or field it names, else its type. */
         decl = ilsp_nav_member_decl(program, node, arena);
         if (!decl) {

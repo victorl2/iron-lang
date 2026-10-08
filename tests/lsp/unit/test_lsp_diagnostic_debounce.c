@@ -1,7 +1,7 @@
 /* test_lsp_diagnostic_debounce -- Phase 2 Plan 05 Task 01 (CORE-16).
  *
  * Drives a full ASTWorker thread against the coalescing mailbox and
- * asserts the 250ms debounce timing invariant:
+ * asserts the 150ms debounce timing invariant:
  *
  *   1. Rapid COMPILE posts (< 50ms apart) trigger exactly one call into
  *      the facade (coalescing + debounce).
@@ -111,7 +111,7 @@ static void test_rapid_compiles_coalesce_to_one_call(void) {
     TEST_ASSERT_TRUE(ilsp_ast_worker_start(&server, doc));
 
     /* Post 5 COMPILEs in rapid succession (all < 50ms apart, well within
-     * the 250ms debounce window). */
+     * the 150ms debounce window). */
     for (int32_t v = 1; v <= 5; v++) {
         ilsp_mailbox_post_compile(doc->mailbox, v, NULL);
         sleep_ms(10);  /* 10ms gap between posts */
@@ -162,9 +162,9 @@ static void test_spaced_compiles_trigger_two_calls(void) {
     destroy_doc(doc);
 }
 
-/* ── Test 3: debounce timing is roughly 250ms (observable jitter tol.)
+/* ── Test 3: debounce timing is roughly 150ms (observable jitter tol.)
  * Post one compile; measure how long it takes to see the facade call. */
-static void test_debounce_observes_250ms(void) {
+static void test_debounce_observes_150ms(void) {
     atomic_store(&g_facade_compile_calls, 0);
 
     IronLsp_Server server;
@@ -186,10 +186,10 @@ static void test_debounce_observes_250ms(void) {
     uint64_t observed = now_ms() - t0;
 
     /* Scheduling can delay a worker on a shared CI host, but it cannot
-     * legitimately make the 250ms debounce expire early. Keep a strict
+     * legitimately make the 150ms debounce expire early. Keep a strict
      * lower bound to catch a missing debounce and a generous upper bound
      * that matches the explicit test deadline. */
-    TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(200, (int)observed,
+    TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(120, (int)observed,
         "observed debounce expired too early");
     TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(2000, (int)observed,
         "observed debounce exceeded the test deadline");
@@ -203,6 +203,6 @@ int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_rapid_compiles_coalesce_to_one_call);
     RUN_TEST(test_spaced_compiles_trigger_two_calls);
-    RUN_TEST(test_debounce_observes_250ms);
+    RUN_TEST(test_debounce_observes_150ms);
     return UNITY_END();
 }

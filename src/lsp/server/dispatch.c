@@ -20,6 +20,7 @@
 #include "lsp/server/dispatch.h"
 #include "lsp/server/server.h"
 #include "lsp/server/lifecycle.h"
+#include "lsp/facade/semantic.h"
 #include "lsp/obs/crash_dump.h"   /* Phase 7 Plan 07-01: in-flight ring buffer */
 #include "lsp/transport/json.h"
 #include "lsp/transport/writer.h"
@@ -172,6 +173,10 @@ const IronLsp_HandlerEntry ilsp_handler_table[] = {
     { "textDocument/hover",                ilsp_handle_text_document_hover,            true,  "hoverProvider"         },
     /* Plan 05 Task 01 (NAV-05): implementation. 'h' < 'i' < 'r' sort. */
     { "textDocument/implementation",       ilsp_handle_text_document_implementation,   true,  "implementationProvider"},
+    /* #311: inlay hints (types of bindings written without one). Sort:
+     * "implementation" < "inlayHint" ('m' 0x6D < 'n' 0x6E) <
+     * "onTypeFormatting". */
+    { "textDocument/inlayHint",            ilsp_handle_text_document_inlay_hint,       true,  "inlayHintProvider"     },
     /* Phase 5 Plan 05-02 (FMT-04 STUB; Plan 05-04 fills body):
      * textDocument/onTypeFormatting. Sort: 'i'(0x69) < 'o'(0x6F) <
      * 'p'(0x70). */
@@ -200,6 +205,9 @@ const IronLsp_HandlerEntry ilsp_handler_table[] = {
      * (0x65) < 'i' (0x69), so selectionRange precedes signatureHelp.
      * "rename" vs "selectionRange" — 'r' (0x72) < 's' (0x73). */
     { "textDocument/selectionRange",       ilsp_handle_text_document_selection_range,  true,  "selectionRangeProvider"},
+    /* #311: semantic tokens. Sort: "selectionRange" < "semanticTokens/full"
+     * ('l' 0x6C < 'm' 0x6D) < "signatureHelp" ('e' 0x65 < 'i' 0x69). */
+    { "textDocument/semanticTokens/full",  ilsp_handle_text_document_semantic_tokens_full, true, "semanticTokensProvider" },
     /* Plan 04 Task 03 (NAV-10): signatureHelp. */
     { "textDocument/signatureHelp",        ilsp_handle_text_document_signature_help,   true,  "signatureHelpProvider" },
     /* Plan 03 Task 02 (NAV-04): typeDefinition. */

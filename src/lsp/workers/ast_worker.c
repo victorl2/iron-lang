@@ -7,8 +7,8 @@
  *     if (msg.kind == SHUTDOWN) break;
  *     if (quarantined) drain-and-continue;
  *     if (msg.kind == COMPILE) {
- *       // Debounce: timedwait 250ms; OK -> coalesce + re-dequeue
- *       while (timedwait_ms(250) == OK) {
+ *       // Debounce: timedwait 150ms; OK -> coalesce + re-dequeue
+ *       while (timedwait_ms(150) == OK) {
  *         next = dequeue();
  *         if (next.kind == SHUTDOWN) return;
  *         if (next.kind == COMPILE && next.version > msg.version)
@@ -45,10 +45,11 @@
 #include <string.h>
 
 /* Debounce window: after a COMPILE arrives, wait this long for follow-up
- * posts to coalesce before actually running the analyzer. 250 ms is the
- * CORE-16 target -- tight enough that users feel responsive, loose
- * enough that a fast typist doesn't trigger per-keystroke compiles. */
-#define ILSP_DEBOUNCE_MS 250
+ * posts to coalesce before actually running the analyzer. An analysis
+ * with the stdlib prelude takes a few milliseconds, so the window only
+ * needs to absorb a burst of keystrokes; 150 ms keeps diagnostics close
+ * behind the cursor (it was 250 ms). */
+#define ILSP_DEBOUNCE_MS 150
 
 /* TLS slot read by the SIGABRT handler. Definition here; declaration is
  * extern in ast_worker.h. */
@@ -98,7 +99,7 @@ static void *ilsp_ast_worker_main(void *arg) {
         }
 
         if (msg.kind == ILSP_MSG_COMPILE) {
-            /* Debounce: give the client a 250 ms window to send more
+            /* Debounce: give the client a short window to send more
              * edits. Every new post wakes us; we re-dequeue and pick up
              * the newest (coalesced) version. */
             for (;;) {

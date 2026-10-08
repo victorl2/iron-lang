@@ -99,6 +99,7 @@ bool ilsp_nav_path_is_stdlib(const char *canonical_path);
  *     signature); NULL for a compiler builtin such as Map.put.
  *   - IRON_NODE_FIELD_ACCESS: the object's FIELD, or an ENUM_VARIANT for
  *     `Color.Red`.
+ *   - IRON_NODE_ENUM_CONSTRUCT: the ENUM_VARIANT (`Shape.Circle(r)`).
  *   - IRON_NODE_TYPE_ANNOTATION: the OBJECT / ENUM / INTERFACE decl.
  * NULL for any other node or when nothing matches. */
 Iron_Node *ilsp_nav_member_decl(const Iron_Program *program, Iron_Node *n,
