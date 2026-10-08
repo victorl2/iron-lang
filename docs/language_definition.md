@@ -2637,6 +2637,10 @@ the value; `for x in s` visits every item. Iteration order is unspecified,
 and the loop body must not add or remove entries of the map it iterates.
 `get` on a missing key is a panic ("key not found in map"), so test with
 `has` or use `get_or` when the key may be absent.
+Maps and sets can be elements of a list (`[Map[String, Int]]`,
+`[Set[String]]`): the list owns its tables, `copy()` clones each one, and
+`ms[i].put(k, v)` changes the table in place. A list of channels
+(`[Channel[T]]`) owns its channels and destroys them with the list.
 
 ```iron
 object Pt impl Hashable {

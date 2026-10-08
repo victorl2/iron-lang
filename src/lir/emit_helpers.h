@@ -341,6 +341,10 @@ const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem);
 /* `[T?]`: Iron_List_Iron_Optional_<T>, whose elements are released /
  * retained through the optional's own lifecycle; returns its C name. */
 const char *emit_ensure_nullable_list(EmitCtx *ctx, const Iron_Type *elem);
+/* `[Map[K, V]]`, `[Set[T]]`, `[Channel[T]]`: a list of tables or channel
+ * handles; returns its C name. */
+bool emit_type_is_container_elem(const Iron_Type *t);
+const char *emit_ensure_container_list(EmitCtx *ctx, const Iron_Type *elem);
 
 /* Phase 26 POL-06 (Plan 26-03): synthesize <TypeName>_rc_drop trampoline.
  *
