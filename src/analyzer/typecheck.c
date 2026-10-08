@@ -2657,6 +2657,10 @@ static bool push_type_compatible(const Iron_Type *elem_type,
         return elem_type->interface.decl == arg_type->interface.decl;
     }
 
+    /* A `T?` element takes `null`, a `T` (wrapped on the way in) or a `T?`. */
+    if (elem_type->kind == IRON_TYPE_NULLABLE)
+        return types_assignable(elem_type, arg_type);
+
     /* Anything else: reject, surface as diagnostic. */
     return false;
 }
@@ -2807,9 +2811,13 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
     }
     bool is_sort = strcmp(m, "sort") == 0;
     if ((is_sort || strcmp(m, "contains") == 0) && elem) {
-        bool ok = iron_type_is_integer(elem) || iron_type_is_float(elem) ||
-                  elem->kind == IRON_TYPE_STRING ||
-                  (!is_sort && elem->kind == IRON_TYPE_BOOL);
+        /* contains on a `T?` list compares like on a [T] list, and a null
+         * probe matches the null elements. */
+        Iron_Type *ce = (!is_sort && elem->kind == IRON_TYPE_NULLABLE && elem->nullable.inner)
+                        ? elem->nullable.inner : elem;
+        bool ok = iron_type_is_integer(ce) || iron_type_is_float(ce) ||
+                  ce->kind == IRON_TYPE_STRING ||
+                  (!is_sort && ce->kind == IRON_TYPE_BOOL);
         if (!ok) {
             char msg[256];
             snprintf(msg, sizeof(msg), "'%s' is not available on '%s'", m,
@@ -7454,10 +7462,18 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             if (al->type_ann && al->element_count == 0) {
                 elem_type = resolve_type_annotation(ctx, al->type_ann);
             }
+            bool lit_has_null = false;
             for (int i = 0; i < al->element_count; i++) {
                 Iron_Type *et = check_expr(ctx, al->elements[i]);
+                if (et && et->kind == IRON_TYPE_NULL) { lit_has_null = true; continue; }
                 if (!elem_type && et) elem_type = et;
                 if (et) arrput(elem_types, et);
+            }
+            /* `[1, null, 3]`: null elements make the literal a `[T?]`. */
+            if (lit_has_null && elem_type && elem_type->kind != IRON_TYPE_ERROR &&
+                elem_type->kind != IRON_TYPE_NULLABLE) {
+                Iron_Type *nt = iron_type_make_nullable(ctx->arena, elem_type);
+                if (nt) elem_type = nt;
             }
             /* Check for mixed-type array: if elements have different object types
              * that all implement a common interface, infer the interface as elem_type */
@@ -7517,6 +7533,11 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     emit_error(ctx, IRON_ERR_EMPTY_LITERAL_NO_TYPE, al->span,
                                "cannot infer element type of empty array literal; "
                                "add a type annotation like `var x: [T] = []`",
+                               NULL);
+                } else if (lit_has_null) {
+                    emit_error(ctx, IRON_ERR_EMPTY_LITERAL_NO_TYPE, al->span,
+                               "cannot infer element type of a list literal of nulls; "
+                               "add a type annotation like `var x: [T?] = [null]`",
                                NULL);
                 }
                 elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
@@ -7814,6 +7835,14 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
         /* HARD-04: graceful poison return on parser ErrorNode — downstream
          * passes see IRON_TYPE_ERROR and propagate it silently. */
         case IRON_NODE_ERROR:
+            result = iron_type_make_primitive(IRON_TYPE_ERROR);
+            break;
+
+        /* A nullable type written where a value goes (`val x = [Int?]`):
+         * the parser reads `T?` between brackets as a type (#289). */
+        case IRON_NODE_TYPE_ANNOTATION:
+            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, node->span,
+                       "a type is not a value", NULL);
             result = iron_type_make_primitive(IRON_TYPE_ERROR);
             break;
 

@@ -1,0 +1,5 @@
+-- (#289) A nullable type written between brackets is a type, not a value.
+func main() {
+    val x = [Int?]
+    println("{x.len()}")
+}

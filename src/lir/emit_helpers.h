@@ -338,6 +338,9 @@ void emit_elem_lifecycle_stmt(EmitCtx *ctx, Iron_StrBuf *sb, const Iron_Type *et
  * C name. */
 const char *emit_ensure_nested_list(EmitCtx *ctx, const Iron_Type *elem);
 const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem);
+/* `[T?]`: Iron_List_Iron_Optional_<T>, whose elements are released /
+ * retained through the optional's own lifecycle; returns its C name. */
+const char *emit_ensure_nullable_list(EmitCtx *ctx, const Iron_Type *elem);
 
 /* Phase 26 POL-06 (Plan 26-03): synthesize <TypeName>_rc_drop trampoline.
  *

@@ -1,0 +1,86 @@
+-- Regression (#289): a list of nullable Strings, [String?].
+--
+-- `val names: [String?] = ["x", null, "y"]` was a parse error. The list
+-- owns its String? elements like a [String] owns its strings: a copy out
+-- of the list is retained, a removed or overwritten element is released,
+-- and freeing the list releases the present ones (checked by the leak
+-- oracle).
+
+func join(xs: [String?]) -> String {
+    var out = ""
+    for s in xs {
+        if s != null {
+            out += s.upper()
+        } else {
+            out += "-"
+        }
+    }
+    return out
+}
+
+func longest(xs: [String?]) -> String? {
+    var best: String? = null
+    var best_len = -1
+    for s in xs {
+        if s != null {
+            if s.len() > best_len {
+                best = s
+                best_len = s.len()
+            }
+        }
+    }
+    return best
+}
+
+func names(n: Int) -> [String?] {
+    var out: [String?] = []
+    for i in range(n) {
+        if i == 1 {
+            out.push(null)
+        } else {
+            out.push("n{i}")
+        }
+    }
+    return out
+}
+
+func main() {
+    var names_list: [String?] = ["x", null, "yy"]
+    names_list.push(null)
+    names_list.push("zzz")
+    println("len {names_list.len()} joined {join(names_list)}")
+    for n in names_list {
+        if n != null {
+            println("name {n} has {n.len()} chars")
+        } else {
+            println("no name")
+        }
+    }
+    println("{names_list[0]} {names_list[1]} {names_list[4]}")
+
+    -- a copy out of the list outlives the list's own element
+    val kept = names_list[2]
+    names_list[2] = "replaced"
+    names_list.set(0, null)
+    println("kept {kept}, now {names_list[2]} and {names_list[0]}")
+
+    val popped = names_list.pop()
+    if popped != null {
+        println("popped {popped}")
+    }
+    names_list.insert(1, "inserted")
+    val removed = names_list.remove(2)
+    println("removed {removed}, longest {longest(names_list)}")
+    println("contains replaced {names_list.contains("replaced")} contains null {names_list.contains(null)} contains x {names_list.contains("x")}")
+
+    val built = names(4)
+    println("built {join(built)} {built.len()}")
+    var c = built.copy()
+    c[0] = null
+    println("copy {join(c)} original {join(built)}")
+
+    val empty: [String?] = []
+    println("empty longest {longest(empty)} len {empty.len()}")
+    names_list.clear()
+    println("cleared {names_list.len()}")
+}
