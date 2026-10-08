@@ -1,0 +1,75 @@
+-- Regression (#289): maps with nullable values, Map[K, V?].
+--
+-- `Map[String, Int?]()` was a parse error, and `put(k, null)` passed a
+-- NULL pointer where the table stores an Iron_Optional_<V>. A key mapped
+-- to null is present: `has` is true and `get` returns null, while `get`
+-- on an absent key still panics. String? values are owned by the table.
+
+object Box2 {
+    val label: String
+}
+
+func lookup(m: Map[String, Int?], k: String) -> String {
+    if not m.has(k) {
+        return "absent"
+    }
+    val v = m.get(k)
+    if v == null {
+        return "null"
+    }
+    return "{v}"
+}
+
+func main() {
+    var m = Map[String, Int?]()
+    m.put("a", 1)
+    m.put("b", null)
+    m.put("c", 3)
+    println("len {m.len()} has b {m.has("b")} has z {m.has("z")}")
+    println("a={lookup(m, "a")} b={lookup(m, "b")} z={lookup(m, "z")}")
+    println("get_or b {m.get_or("b", 7)} get_or z {m.get_or("z", 7)} get_or z null {m.get_or("z", null)}")
+    m.put("a", null)
+    m.put("b", 2)
+    println("after overwrite a={lookup(m, "a")} b={lookup(m, "b")}")
+    println("remove a {m.remove("a")} remove a again {m.remove("a")} len {m.len()}")
+
+    var nulls = 0
+    var sum = 0
+    for (k, v) in m {
+        if v != null {
+            sum += v
+        } else {
+            nulls += 1
+        }
+    }
+    println("sum {sum} nulls {nulls}")
+    val vals = m.values()
+    println("values {vals.len()} contains 3 {vals.contains(3)}")
+
+    var names = Map[Int, String?]()
+    names.put(1, "one")
+    names.put(2, null)
+    names.put(3, "three")
+    names.put(1, "uno")
+    val n1 = names.get(1)
+    val n2 = names.get(2)
+    if n1 != null {
+        println("1 -> {n1} ({n1.len()})")
+    }
+    println("2 -> {n2}")
+    var dup = names.copy()
+    dup.put(2, "two")
+    println("dup 2 -> {dup.get(2)}, original 2 -> {names.get(2)}")
+    names.remove(3)
+    println("names {names.len()} dup {dup.len()}")
+
+    var boxes = Map[String, Box2?]()
+    boxes.put("x", Box2("first"))
+    boxes.put("y", null)
+    boxes.put("x", Box2("second"))
+    val bx = boxes.get("x")
+    if bx != null {
+        println("x holds {bx.label}")
+    }
+    println("y is null {boxes.get("y") == null}")
+}

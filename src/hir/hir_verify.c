@@ -75,6 +75,7 @@ static bool lookup_var(ScopeStack *stack, IronHIR_VarId var_id) {
     int n = (int)arrlen(*stack);
     for (int i = n - 1; i >= 0; i--) {
         ScopeEntry *frame = (*stack)[i];
+        if (!frame) continue;  /* hmgeti would allocate a map, then leak it */
         int idx = hmgeti(frame, (int)var_id);
         if (idx >= 0) return true;
     }

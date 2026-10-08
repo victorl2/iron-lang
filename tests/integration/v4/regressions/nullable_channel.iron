@@ -1,0 +1,57 @@
+-- Regression (#289): channels of nullable values, Channel[T?].
+--
+-- `Channel[Int?](4)` was a parse error, and send(null) had no optional to
+-- wrap into. A producer task sends values and nulls, the consumer narrows
+-- each received T? with a null check; a null String? marks the end of a
+-- stream.
+
+func main() {
+    val ch = Channel[Int?](4)
+    val p = spawn("producer") {
+        for i in range(6) {
+            if i % 3 == 0 {
+                ch.send(null)
+            } else {
+                ch.send(i)
+            }
+        }
+        return 0
+    }
+    var sum = 0
+    var nulls = 0
+    for i in range(6) {
+        val x = ch.recv()
+        if x != null {
+            sum += x
+        } else {
+            nulls += 1
+        }
+    }
+    val done = await p
+    println("sum {sum} nulls {nulls} ({done})")
+
+    val words = Channel[String?](8)
+    val q = spawn("words") {
+        words.send("alpha")
+        words.send("beta")
+        words.send(null)
+        return 0
+    }
+    var got = ""
+    var running = true
+    while running {
+        val w = words.recv()
+        if w != null {
+            got += w.upper() + " "
+        } else {
+            running = false
+        }
+    }
+    val wd = await q
+    println("got {got.trim()} ({wd})")
+
+    val local = Channel[String?](2)
+    local.send(null)
+    local.send("x")
+    println("{local.recv()} {local.recv()}")
+}

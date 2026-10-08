@@ -132,6 +132,9 @@ IronHIR_Block *iron_hir_block_create(IronHIR_Module *mod) {
     memset(block, 0, sizeof(*block));
     block->stmts      = NULL;
     block->stmt_count = 0;
+    /* The statement list grows with arrput while lowering; the module's
+     * arena frees it with the module. */
+    iron_arena_own_arr(mod->arena, (void **)&block->stmts);
     return block;
 }
 

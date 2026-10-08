@@ -135,7 +135,7 @@ static inline bool iron_cancel_requested(const _Atomic bool *flag) {
  * early with partial annotations intact. Between-pass safepoint polls in
  * this dispatcher give O(1)-bounded cancel observation across passes. */
 
-static void merge_patch_conformance(Iron_Program *program) {
+static void merge_patch_conformance(Iron_Program *program, Iron_Arena *arena) {
     for (int i = 0; i < program->decl_count; i++) {
         Iron_Node *pd = program->decls[i];
         if (!pd || pd->kind != IRON_NODE_OBJECT_DECL) continue;
@@ -160,7 +160,8 @@ static void merge_patch_conformance(Iron_Program *program) {
             for (int t = 0; t < target->implements_count; t++)
                 if (strcmp(target->implements_names[t], nm) == 0) { have = true; break; }
             if (!have) {
-                arrput(target->implements_names, nm);
+                IRON_ARENA_ARR_PUSH(arena, target->implements_names,
+                                    target->implements_count, nm);
                 target->implements_count++;
             }
         }
@@ -191,7 +192,7 @@ Iron_AnalyzeResult iron_analyze_with_mode(Iron_Program *program,
      * implements (assignability, the interface registry, default bodies)
      * sees it; it used to be parsed and then ignored. Patches of builtin
      * types have no object declaration and keep theirs. */
-    merge_patch_conformance(program);
+    merge_patch_conformance(program, arena);
 
     /* Step 1b: interface default bodies — monomorphise each defaulted
      * interface method into every implementor that does not define it, so

@@ -1311,7 +1311,19 @@ static bool emit_list_contains_or_sort(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind + 1);
         iron_strbuf_appendf(sb, "for (int64_t _li = 0; _li < _ls->count; _li++) {\n");
         emit_indent(sb, ind + 2);
-        if (is_str)
+        /* A `T?` element equals the probe when both are null or both hold
+         * equal values. */
+        bool is_opt = et->kind == IRON_TYPE_NULLABLE && et->nullable.inner;
+        bool opt_str = is_opt && et->nullable.inner->kind == IRON_TYPE_STRING;
+        if (opt_str)
+            iron_strbuf_appendf(sb,
+                "if (_ls->items[_li].has_value == _lv.has_value && (!_lv.has_value || "
+                "iron_string_equals(&_ls->items[_li].value, &_lv.value))) { ");
+        else if (is_opt)
+            iron_strbuf_appendf(sb,
+                "if (_ls->items[_li].has_value == _lv.has_value && (!_lv.has_value || "
+                "_ls->items[_li].value == _lv.value)) { ");
+        else if (is_str)
             iron_strbuf_appendf(sb, "if (iron_string_equals(&_ls->items[_li], &_lv)) { ");
         else
             iron_strbuf_appendf(sb, "if (_ls->items[_li] == _lv) { ");

@@ -1004,6 +1004,11 @@ add_test(NAME iron_new_hint COMMAND $<TARGET_FILE:iron> new demo)
 set_tests_properties(iron_new_hint PROPERTIES
     PASS_REGULAR_EXPRESSION "iron init <name>")
 
+# Programs that must type-check (`ironc check` exit 0) but do not build yet.
+add_test(NAME check_only_nullable_type_args_ctor_elements
+    COMMAND $<TARGET_FILE:ironc> check
+        ${CMAKE_SOURCE_DIR}/tests/integration/check_only/nullable_type_args_ctor_elements.iron)
+
 # `test "name" { ... }` blocks: ironc test builds them into one binary and
 # runs each in its own process; iron test does the same for a project.
 set(_tb "${CMAKE_SOURCE_DIR}/tests/integration/test_blocks")

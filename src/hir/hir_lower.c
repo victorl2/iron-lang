@@ -2054,6 +2054,14 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                                                          iface_decl_t, span);
                 return iron_hir_expr_cast(mod, slot, id->resolved_type, span);
             }
+            /* A loop variable over a `[T?]` (its HIR type is the list's)
+             * narrowed the same way: its slot holds the T? element. */
+            if (decl_t && decl_t->kind == IRON_TYPE_ARRAY && decl_t->array.elem &&
+                decl_t->array.elem->kind == IRON_TYPE_NULLABLE &&
+                decl_t->array.elem->nullable.inner && id->resolved_type &&
+                id->resolved_type->kind != IRON_TYPE_ARRAY &&
+                iron_type_equals(id->resolved_type, decl_t->array.elem->nullable.inner))
+                decl_t = decl_t->array.elem;
             if (!ctx->lowering_assign_target &&
                 decl_t && decl_t->kind == IRON_TYPE_NULLABLE &&
                 id->resolved_type &&

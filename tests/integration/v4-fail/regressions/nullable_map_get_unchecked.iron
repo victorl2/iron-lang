@@ -1,0 +1,7 @@
+-- (#289) get on a Map[K, V?] returns a V?, which does not bind to a V.
+func main() {
+    var m = Map[String, Int?]()
+    m.put("a", 1)
+    val v: Int = m.get("a")
+    println("{v}")
+}
