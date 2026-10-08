@@ -1,0 +1,5 @@
+maps: 3 entries: 4 a=1 d=4
+copy keeps its own tables: 2 vs 3
+set: 2 has x true
+string table: v
+channels: 5 6 7

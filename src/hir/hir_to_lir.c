@@ -761,6 +761,29 @@ static const char *list_elem_suffix(HIR_to_LIR_Ctx *ctx, Iron_Type *elem) {
             case IRON_TYPE_FLOAT32: elem_suffix = "float";      break;
             case IRON_TYPE_FLOAT64: elem_suffix = "double";     break;
             case IRON_TYPE_OBJECT:
+                /* Maps, sets and channels (#307): their C value is the
+                 * table (Iron_Map_<K>_<V>, Iron_Set_<T>, as emit_ensure_hash
+                 * names it) or the `Iron_Channel *` handle. */
+                if (elem->object.decl && elem->object.decl->name && elem->object.elem &&
+                    (strcmp(elem->object.decl->name, "Map") == 0 ||
+                     strcmp(elem->object.decl->name, "Set") == 0) &&
+                    (strcmp(elem->object.decl->name, "Set") == 0 || elem->object.elem2)) {
+                    bool is_map = strcmp(elem->object.decl->name, "Map") == 0;
+                    const char *k = list_elem_suffix(ctx, elem->object.elem);
+                    const char *v = is_map ? list_elem_suffix(ctx, elem->object.elem2) : "";
+                    size_t slen = 10 + strlen(k) + 1 + strlen(v) + 1;
+                    char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                    if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix table");
+                    if (is_map) snprintf(s, slen, "Iron_Map_%s_%s", k, v);
+                    else        snprintf(s, slen, "Iron_Set_%s", k);
+                    elem_suffix = s;
+                    break;
+                }
+                if (elem->object.decl && elem->object.decl->name && elem->object.elem &&
+                    strcmp(elem->object.decl->name, "Channel") == 0) {
+                    elem_suffix = "Iron_Channel__";
+                    break;
+                }
                 if (elem->object.decl) {
                     size_t slen = 5 + strlen(elem->object.decl->name) + 1;
                     char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
