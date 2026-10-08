@@ -1,0 +1,11 @@
+f body
+f outer
+f inner
+block body
+block outer
+block inner
+iteration 1 outer
+iteration 1 inner
+iteration 2 outer
+iteration 2 inner
+r = 1

@@ -5797,7 +5797,10 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
                        iron_token_span(p, iron_current(p)),
                        "expected method or init declaration in patch body",
                        NULL);
-        iron_parser_sync_stmt(p);
+        /* sync_member always moves forward; sync_stmt stops on a statement
+         * keyword such as `if` without consuming it, and the loop then
+         * reported this error forever. */
+        iron_parser_sync_member(p);
         iron_skip_newlines(p);
     }
 

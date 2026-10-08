@@ -1,0 +1,34 @@
+-- A defer inside a deferred body runs when that body ends, on a return and
+-- on a plain block exit. Registering it used to append to the list of
+-- defers being emitted, reallocating it under the loop (use after free).
+func f() -> Int {
+    defer {
+        defer println("f inner")
+        println("f outer")
+    }
+    println("f body")
+    return 1
+}
+
+func main() {
+    val r = f()
+    {
+        defer {
+            defer println("block inner")
+            println("block outer")
+        }
+        println("block body")
+    }
+    var i = 0
+    while i < 2 {
+        defer {
+            defer println("iteration {i} inner")
+            println("iteration {i} outer")
+        }
+        i += 1
+        if i == 2 {
+            continue
+        }
+    }
+    println("r = {r}")
+}
