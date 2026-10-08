@@ -280,6 +280,75 @@ const char *emit_ensure_rc_list(EmitCtx *ctx, const Iron_Type *elem) {
     return result;
 }
 
+/* `[T?]`: a list of Iron_Optional_<T> values named Iron_List_<optional>.
+ * The typedef, prototypes and lifecycle-agnostic core go with the other
+ * types; _clone / _free / _clear go with the lifted functions, after the
+ * glue of the element they call (an object's drop, String retain / release
+ * on .value when has_value). Returns the list's C type name. */
+const char *emit_ensure_nullable_list(EmitCtx *ctx, const Iron_Type *elem) {
+    const char *elem_c = emit_type_to_c((Iron_Type *)elem, ctx);
+    char list_name[512];
+    snprintf(list_name, sizeof(list_name), "Iron_List_%s", elem_c);
+    const char *result = iron_arena_strdup(ctx->arena, list_name, strlen(list_name));
+    if (!result) iron_oom_abort("emit_helpers.c:emit_ensure_nullable_list");
+    for (int i = 0; i < (int)arrlen(ctx->emitted_rc_lists); i++)
+        if (strcmp(ctx->emitted_rc_lists[i], result) == 0) return result;
+    arrput(ctx->emitted_rc_lists, (char *)result);
+
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "typedef struct %s {\n"
+        "    %s *items;\n"
+        "    int64_t count;\n"
+        "    int64_t capacity;\n"
+        "} %s;\n"
+        "IRON_LIST_DECL(%s, %s)\n"
+        "IRON_LIST_IMPL_CORE(%s, %s)\n",
+        result, elem_c, result, elem_c, elem_c, elem_c, elem_c);
+
+    Iron_StrBuf drop_sb = iron_strbuf_create(64);
+    Iron_StrBuf copy_sb = iron_strbuf_create(64);
+    emit_elem_lifecycle_stmt(ctx, &drop_sb, elem, "self->items[_i]", true);
+    emit_elem_lifecycle_stmt(ctx, &copy_sb, elem, "dst.items[_i]", false);
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "%s %s_clone(const %s *src) {\n"
+        "    %s dst;\n"
+        "    dst.count = src->count;\n"
+        "    dst.capacity = src->count;\n"
+        "    dst.items = NULL;\n"
+        "    if (src->count > 0) {\n"
+        "        dst.items = (%s *)iron_mem_alloc((size_t)src->count * sizeof(%s));\n"
+        "        if (!dst.items) iron_oom_abort(\"%s_clone\");\n"
+        "        for (int64_t _i = 0; _i < src->count; _i++) {\n"
+        "            dst.items[_i] = src->items[_i];\n"
+        "%s"
+        "        }\n"
+        "    }\n"
+        "    return dst;\n"
+        "}\n"
+        "void %s_clear(%s *self) {\n"
+        "    for (int64_t _i = 0; _i < self->count; _i++) {\n"
+        "%s"
+        "    }\n"
+        "    self->count = 0;\n"
+        "}\n"
+        "void %s_free(%s *self) {\n"
+        "    %s_clear(self);\n"
+        "    iron_mem_free(self->items);\n"
+        "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
+        "}\n\n",
+        result, result, result,
+        result,
+        elem_c, elem_c,
+        result,
+        iron_strbuf_get(&copy_sb),
+        result, result,
+        iron_strbuf_get(&drop_sb),
+        result, result, result);
+    iron_strbuf_free(&drop_sb);
+    iron_strbuf_free(&copy_sb);
+    return result;
+}
+
 const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
     if (!t) return "void";
 
@@ -508,6 +577,11 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
             if (t->array.elem && (t->array.elem->kind == IRON_TYPE_RC ||
                                   t->array.elem->kind == IRON_TYPE_WEAK_RC)) {
                 return emit_ensure_rc_list(ctx, t->array.elem);
+            }
+            /* A list of T? values (#289). */
+            if (t->array.elem && t->array.elem->kind == IRON_TYPE_NULLABLE &&
+                t->array.elem->nullable.inner) {
+                return emit_ensure_nullable_list(ctx, t->array.elem);
             }
             /* A list of lists owns its inner lists (#176). */
             if (t->array.elem && t->array.elem->kind == IRON_TYPE_ARRAY &&
