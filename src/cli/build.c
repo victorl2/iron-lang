@@ -684,6 +684,12 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         snprintf(out_flag, sizeof(out_flag), "/Fe%s", output);
         argv_buf[ai++] = out_flag;
     }
+    /* --debug (#312): CodeView at /Od, the Windows form of the -g -O0
+     * below; the PDB is requested at the end of the command line. */
+    if (opts.debug_info && !opts.release) {
+        argv_buf[ai++] = "/Od";
+        argv_buf[ai++] = "/Z7";
+    }
 #else
     argv_buf[ai++] = clang_path;
     argv_buf[ai++] = "-std=gnu17";
@@ -703,6 +709,14 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         /* Phase 2: --release appends -O2 to native builds; clang's last-wins
          * argv parsing means this overrides the -O3 above. */
         argv_buf[ai++] = "-O2";
+    }
+    /* --debug (#312): debug info at -O0, so variables stay inspectable and
+     * the #line directives in the generated C map stepping to Iron lines.
+     * Last wins over the -O3 above. */
+    if (opts.debug_info && !opts.release) {
+        argv_buf[ai++] = "-O0";
+        argv_buf[ai++] = "-g";
+        argv_buf[ai++] = "-fno-omit-frame-pointer";
     }
     /* Phase 31 GA3 (Plan 31-01): debug builds get the full debug allocator —
      * 64B IronAllocHdr + poison-on-free + leak registry + atexit dump +
@@ -838,6 +852,13 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         argv_buf[ai++] = "-lXi";
 #endif
     }
+#ifdef _WIN32
+    /* /link hands everything after it to the linker, so it comes last. */
+    if (opts.debug_info && !opts.release) {
+        argv_buf[ai++] = "/link";
+        argv_buf[ai++] = "/DEBUG";
+    }
+#endif
     argv_buf[ai] = NULL;
     *ai_out = ai;
     return 0;
@@ -1955,9 +1976,12 @@ int iron_build(const char *source_path, const char *output_path,
 
     /* 7a. IR optimization passes */
     IronLIR_OptimizeInfo optimize_info;
+    /* --debug keeps every function and binding where the source has it. */
+    bool no_optimize = opts.no_optimize || opts.debug_info;
+    iron_lir_set_function_inlining(!(opts.debug_info && !opts.release));
     iron_lir_optimize(ir_module, &optimize_info, &arena,
-                     opts.dump_ir_passes, opts.no_optimize,
-                     /*elision_enabled=*/ !opts.no_optimize && !opts.debug_build);
+                     opts.dump_ir_passes, no_optimize,
+                     /*elision_enabled=*/ !no_optimize && !opts.debug_build);
 
     /* 7b. Phase 5: LIR main-loop split pass (WEB-EMIT-01..04).
      *
@@ -2000,6 +2024,7 @@ int iron_build(const char *source_path, const char *output_path,
                                 opts.warn_fusion_break,
                                 opts.report_compression);
     } else {
+        iron_lir_emit_set_line_directives(opts.debug_info && !opts.release);
         c_src = iron_lir_emit_c(ir_module, &arena, &diags, &optimize_info,
                                 &analysis.iface_registry,
                                 opts.warn_fusion_break,

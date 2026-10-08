@@ -14,6 +14,9 @@ struct IronCrossTarget;
 typedef struct {
     bool        verbose;
     bool        debug_build;
+    /* --debug: debug info that maps to the .iron source (#line), -g -O0 and
+     * no LIR optimization, so a debugger stops on Iron lines. */
+    bool        debug_info;
     bool        emit_c;           /* --emit-c: stop after writing .iron-build/<name>.c (no clang) */
     bool        run_after;        /* true for "iron run" */
     const char **run_args;        /* args after -- */

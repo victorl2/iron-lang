@@ -44,6 +44,7 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
 
     /* ── iron build ─────────────────────────────────────────────────────── */
     { "build", "--release",            NULL, "off",    "Optimized release build (native -O2, web -Oz -flto)" },
+    { "build", "--debug",              NULL, "off",    "Debug info on Iron lines: breakpoints and stepping in gdb, lldb, VS Code" },
     { "build", "--debug-build",        NULL, "off",    "Keep .iron-build/ directory after compile for inspection" },
     { "build", "--emit-c",             NULL, "off",    "Write .iron-build/<name>.c and stop before the C compiler" },
     { "build", "--test",               NULL, "off",    "Build the test blocks into a test binary (--iron-list, --iron-test <n>)" },
@@ -59,6 +60,7 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
 
     /* ── iron run (mirrors most of build's surface) ── */
     { "run", "--release",            NULL, "off",    "Optimized release build (native -O2, web -Oz -flto)" },
+    { "run", "--debug",              NULL, "off",    "Debug info on Iron lines: breakpoints and stepping in gdb, lldb, VS Code" },
     { "run", "--debug-build",        NULL, "off",    "Keep .iron-build/ directory after compile for inspection" },
     { "run", "--no-optimize",        NULL, "off",    "Skip optimization passes (for A/B comparison)" },
     { "run", "--target",             NULL, "native", "Build target: native or web (a cross target cannot run here)" },

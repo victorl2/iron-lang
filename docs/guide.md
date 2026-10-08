@@ -123,6 +123,51 @@ version into `~/.iron/rt/` (see the manual's
 [backend section](language_definition.md#106-the-backend)). Apart from
 that first download `iron build` never touches the network.
 
+### Debugging
+
+`iron build --debug` (or `ironc build file.iron --debug`, and the same for
+`run`) builds a binary whose debug information points at the `.iron`
+source: a breakpoint on `main.iron:12` stops on that line, stepping moves
+from Iron line to Iron line and the call stack lists Iron functions. The
+build skips optimization and function inlining so every function keeps
+its frame. Any C debugger reads it: gdb and lldb on Linux and macOS, the
+Visual Studio debugger (a PDB is written next to the `.exe`) on Windows.
+
+```sh
+$ iron build --debug
+$ gdb target/my-app
+(gdb) break main.iron:12
+(gdb) run
+```
+
+In VS Code the Iron extension lets you set breakpoints in `.iron` files;
+pair it with a C debugger extension (C/C++ from Microsoft, or CodeLLDB)
+and a build task:
+
+```jsonc
+// .vscode/tasks.json
+{ "version": "2.0.0",
+  "tasks": [{ "label": "iron: build --debug", "type": "shell",
+              "command": "iron build --debug", "problemMatcher": [] }] }
+
+// .vscode/launch.json
+{ "version": "0.2.0",
+  "configurations": [{
+    "name": "Iron: debug",
+    "type": "cppdbg",            // "cppvsdbg" on Windows, "lldb" with CodeLLDB
+    "request": "launch",
+    "program": "${workspaceFolder}/target/my-app",
+    "cwd": "${workspaceFolder}",
+    "MIMode": "gdb",             // "lldb" on macOS
+    "preLaunchTask": "iron: build --debug"
+  }]
+}
+```
+
+Locals and parameters show under their C names (`_v3`) for now, and
+values are shown as their C structures; Iron names and value formatting
+are tracked in [#312](https://github.com/victorl2/iron-lang/issues/312).
+
 ### iron run
 
 ```sh

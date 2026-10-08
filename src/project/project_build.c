@@ -502,11 +502,12 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * Phase 94 LIB-04: --release is parsed at the iron build CLI layer and
      * forwarded to ironc below; the Finished status line differentiates
      * "release [optimized]" from "dev [unoptimized]" based on the same flag. */
-    static const char *const allowed[] = { "--verbose", "--release", "--target=", NULL };
+    static const char *const allowed[] = { "--verbose", "--release", "--debug", "--target=", NULL };
     if (reject_unknown_flags(run_after ? "run" : "build", argc, argv, allowed) != 0)
         return 1;
     bool verbose = false;
     bool release = false;
+    bool debug = false;          /* --debug: debug info on Iron lines (#312) */
     const char *target = NULL;   /* --target=<name>: web or a cross target, forwarded to ironc */
     char **run_args = NULL;
     int run_arg_count = 0;
@@ -515,6 +516,8 @@ static int cmd_build(bool run_after, int argc, char **argv) {
             verbose = true;
         } else if (strcmp(argv[i], "--release") == 0) {
             release = true;
+        } else if (strcmp(argv[i], "--debug") == 0) {
+            debug = true;
         } else if (strncmp(argv[i], "--target=", 9) == 0) {
             target = argv[i] + 9;
             if (strcmp(target, "native") == 0) target = NULL;
@@ -728,6 +731,7 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * native -O2 (and web -Oz -flto) optimization tiers reach the underlying
      * clang -c invocation. Applies to both type=bin and type=lib builds. */
     if (release) path_list_add(&args, "--release");
+    if (debug) path_list_add(&args, "--debug");
     if (target) {
         char tflag[160];
         snprintf(tflag, sizeof(tflag), "--target=%s", target);

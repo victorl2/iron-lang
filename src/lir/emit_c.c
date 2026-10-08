@@ -2535,6 +2535,9 @@ static bool emit_call_is_checked_list_method(IronLIR_Func *fn, EmitCtx *ctx,
                  strcmp(u, "_get") == 0);
 }
 
+static bool g_emit_line_directives;
+static const IronLIR_Func *g_line_fn;   /* function the next two describe */
+static unsigned g_line_fn_first;        /* its first line (entry block) */
 static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx);
 
@@ -2582,6 +2585,33 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         ctx->site_fn = fn;
         ctx->site_file = instr->span.filename;
         ctx->site_line = instr->span.line;
+    }
+    /* --debug: every instruction restates its Iron line (a `#line` also
+     * numbers the C lines after it, which belong to the same instruction
+     * only until the next one). */
+    if (g_emit_line_directives && instr->span.filename && instr->span.line > 0 &&
+        sb->len > 0 && iron_strbuf_get(sb)[sb->len - 1] == '\n') {
+        /* Locals are declared up front, in the entry block, with the line
+         * of the statement that introduces them; an initialized one would
+         * make the debugger visit that later line before the function
+         * starts. They take the function's first line. */
+        unsigned line = (unsigned)instr->span.line;
+        if (g_line_fn != fn) {
+            g_line_fn = fn;
+            g_line_fn_first = line;
+            IronLIR_Block *entry = fn->block_count > 0 ? fn->blocks[0] : NULL;
+            for (int i = 0; entry && i < entry->instr_count; i++) {
+                unsigned l = (unsigned)entry->instrs[i]->span.line;
+                if (l > 0 && l < g_line_fn_first) g_line_fn_first = l;
+            }
+        }
+        if (instr->kind == IRON_LIR_ALLOCA) line = g_line_fn_first;
+        iron_strbuf_appendf(sb, "#line %u \"", line);
+        for (const char *c = instr->span.filename; *c; c++) {
+            if (*c == '\\' || *c == '"') iron_strbuf_appendf(sb, "\\%c", *c);
+            else iron_strbuf_appendf(sb, "%c", *c);
+        }
+        iron_strbuf_appendf(sb, "\"\n");
     }
     if (emit_call_is_checked_list_method(fn, ctx, instr)) {
         emit_indent(sb, ctx->indent);
@@ -8914,9 +8944,67 @@ static int emit_structured_lexical_rank(EmitStructuredLoop *loops, int bi) {
 
 static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb);
 
+/* --debug (#312): `#line` directives map each instruction to its Iron
+ * source line, so the C compiler's debug info (-g) puts breakpoints and
+ * stepping on .iron lines. */
+static bool g_emit_line_directives = false;
+
+void iron_lir_emit_set_line_directives(bool on) {
+    g_emit_line_directives = on;
+}
+
+/* After a function body: code that follows (helpers, the next declarations)
+ * is generated, not Iron source; a debugger steps over it. */
+static void emit_line_reset(Iron_StrBuf *sb) {
+    if (g_emit_line_directives) iron_strbuf_appendf(sb, "#line 1 \"<iron-generated>\"\n");
+}
+
+/* Copy a function body to `out`, restating the current `#line` before every
+ * C line that does not follow one. A `#line N` also numbers the lines after
+ * it N+1, N+2...; lines emitted outside an instruction (phi copies, loop
+ * scaffolding) or after a directive such as `#undef` would land on whatever
+ * Iron line that count reaches. Lines continuing a macro (`\`) are left
+ * alone. */
+static void emit_restate_lines(Iron_StrBuf *out, const char *body, size_t len) {
+    char cur[4224] = "";
+    bool prev_directive = false, prev_continues = false;
+    size_t i = 0;
+    while (i < len) {
+        size_t e = i;
+        while (e < len && body[e] != '\n') e++;
+        size_t ll = e - i;
+        const char *ln = body + i;
+        size_t k = 0;
+        while (k < ll && (ln[k] == ' ' || ln[k] == '\t')) k++;
+        bool directive = k < ll && ln[k] == '#';
+        if (directive && ll - k > 6 && strncmp(ln + k, "#line ", 6) == 0 &&
+            ll - k < sizeof(cur)) {
+            memcpy(cur, ln + k, ll - k);
+            cur[ll - k] = '\0';
+        }
+        if (!directive && !prev_directive && !prev_continues && cur[0]) {
+            iron_strbuf_appendf(out, "%s\n", cur);
+        }
+        iron_strbuf_append(out, ln, ll);
+        if (e < len) iron_strbuf_append(out, "\n", 1);
+        /* A directive other than #line shifts the numbering too. */
+        prev_directive = directive && strncmp(ln + k, "#line ", 6) == 0;
+        prev_continues = ll > 0 && ln[ll - 1] == '\\';
+        i = e + 1;
+    }
+}
+
 void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     if (!is_lifted_func(fn->name)) {
-        emit_func_body_into(ctx, fn, &ctx->implementations);
+        if (g_emit_line_directives) {
+            Iron_StrBuf body = iron_strbuf_create(4096);
+            emit_func_body_into(ctx, fn, &body);
+            emit_restate_lines(&ctx->implementations, iron_strbuf_get(&body), body.len);
+            iron_strbuf_free(&body);
+        } else {
+            emit_func_body_into(ctx, fn, &ctx->implementations);
+        }
+        emit_line_reset(&ctx->implementations);
         return;
     }
     /* Lifted functions (closure and spawn bodies) go to lifted_funcs, but
@@ -8925,7 +9013,11 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
      * middle of the function being emitted. Collect the body first. */
     Iron_StrBuf body = iron_strbuf_create(4096);
     emit_func_body_into(ctx, fn, &body);
-    iron_strbuf_append(&ctx->lifted_funcs, iron_strbuf_get(&body), body.len);
+    if (g_emit_line_directives)
+        emit_restate_lines(&ctx->lifted_funcs, iron_strbuf_get(&body), body.len);
+    else
+        iron_strbuf_append(&ctx->lifted_funcs, iron_strbuf_get(&body), body.len);
+    emit_line_reset(&ctx->lifted_funcs);
     iron_strbuf_free(&body);
 }
 
