@@ -185,3 +185,34 @@ async def test_inlay_hints(client, tmp_path):
         assert want in got, f"missing inlay hint {want}; got {sorted(got)}"
     # A binding with a written type gets no hint.
     assert not any(line in (4, 5) for line, _, _ in got)
+
+
+@pytest.mark.asyncio
+async def test_opened_stdlib_file_reports_nothing(client, tmp_path):
+    """Go to definition into the stdlib opens that file in the editor; it is
+    analyzed with a prelude that already holds it and must not light up with
+    duplicate-declaration errors."""
+    import pathlib
+    from urllib.parse import unquote, urlparse
+
+    uri = await _open(client, tmp_path)
+    target, _ = _first_link(await client.text_document_definition_async(
+        types.DefinitionParams(text_document=types.TextDocumentIdentifier(uri=uri),
+                               position=_pos(20, "upper"))))
+    text = pathlib.Path(unquote(urlparse(target).path)).read_text(encoding="utf-8")
+    client.text_document_did_open(
+        types.DidOpenTextDocumentParams(
+            text_document=types.TextDocumentItem(
+                uri=target, language_id="iron", version=1, text=text,
+            ),
+        ),
+    )
+    for _ in range(10):
+        await asyncio.wait_for(
+            client.wait_for_notification(types.TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS),
+            timeout=5.0,
+        )
+        if target in client.diagnostics:
+            break
+    assert not client.diagnostics.get(target), (
+        f"stdlib file reported: {[d.message for d in client.diagnostics[target]][:5]}")

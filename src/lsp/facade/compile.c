@@ -65,6 +65,30 @@ static void keep_document_diags(Iron_DiagList *diags, const char *doc_file) {
     diags->warning_count = warnings;
 }
 
+/* True when `uri` (file:// URI or path) names a file under <lib_dir>/stdlib/. */
+static bool is_stdlib_file(const char *uri, const char *lib_dir) {
+    const char *path = uri;
+    if (strncmp(path, "file://", 7) == 0) {
+        path += 7;
+        /* file:///C:/... on Windows: drop the slash before the drive. */
+        if (path[0] == '/' && path[1] && path[2] == ':') path++;
+    }
+    size_t n = strlen(lib_dir);
+    if (strncmp(path, lib_dir, n) != 0) {
+        /* Windows URIs spell the drive letter in lower case and use '/'. */
+        size_t i = 0;
+        for (; i < n && path[i]; i++) {
+            char a = lib_dir[i], b = path[i];
+            if (a == '\\') a = '/';
+            if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
+            if (b >= 'A' && b <= 'Z') b = (char)(b - 'A' + 'a');
+            if (a != b) break;
+        }
+        if (i != n) return false;
+    }
+    return strncmp(path + n, "/stdlib/", 8) == 0 || strncmp(path + n, "\\stdlib\\", 8) == 0;
+}
+
 /* Where the stdlib is, resolved once per process: every document worker
  * analyzes with it, and a failed lookup should be reported once, not on
  * every keystroke. NULL when there is none; the buffer is then analyzed
@@ -116,6 +140,13 @@ static Iron_Program *facade_analyze(struct IronLsp_Document      *doc,
      * copy what they keep), so the prelude buffer can go now. */
     free(source);
     keep_document_diags(diags, doc_file);
+    /* A stdlib file opened in the editor (go to definition lands there) is
+     * analyzed with a prelude that already contains it, so every
+     * declaration in it reports as a duplicate. It is not the user's
+     * code: report nothing for it. */
+    if (g_lib_dir && is_stdlib_file(doc_file, g_lib_dir)) {
+        keep_document_diags(diags, "");
+    }
     return r.program;
 }
 
