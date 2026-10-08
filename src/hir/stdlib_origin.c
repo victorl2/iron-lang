@@ -5,9 +5,11 @@
 
 #define IRON_STDLIB_ORIGIN_MAX 64
 
-static char *g_paths[IRON_STDLIB_ORIGIN_MAX];
-static int   g_count;
-static bool  g_unknown;
+/* Per thread: the language server analyzes each document on its own worker
+ * thread, each with its own prelude. */
+static _Thread_local char *g_paths[IRON_STDLIB_ORIGIN_MAX];
+static _Thread_local int   g_count;
+static _Thread_local bool  g_unknown;
 
 void iron_stdlib_origin_reset(void) {
     for (int i = 0; i < g_count; i++) free(g_paths[i]);

@@ -55,10 +55,16 @@ _READ_04_SOURCE = (
 # check_method_decl (declaration-site check) when is_readonly_compatible_type
 # returns false for Map[K,V] (not in the closed whitelist: primitives,
 # fixed structs, [T; N], [T; <=N], tuples thereof, T?).
+# `rc Node` is outside the readonly return whitelist. (A Map return was used
+# here while the language server analyzed buffers without the stdlib and
+# Map was unresolved; the compiler accepts it.)
 _READ_06_SOURCE = (
+    "object Node {\n"
+    "    val v: Int\n"
+    "}\n"
     "object Y {\n"
-    "    readonly func make_map() -> Map[String, Int] {\n"
-    "        return Map.new()\n"
+    "    readonly func make() -> rc Node {\n"
+    "        return rc Node(1)\n"
     "    }\n"
     "}\n"
     "func main() {}\n"

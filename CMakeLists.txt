@@ -298,6 +298,8 @@ add_library(iron_compiler STATIC
     src/analyzer/resolve.c
     src/analyzer/typecheck.c
     src/analyzer/typo_candidate.c
+    src/analyzer/stdlib_prepend.c
+    src/cli/iron_import_detect.c
     src/analyzer/escape.c
     src/analyzer/capture.c
     src/analyzer/concurrency.c
@@ -340,6 +342,9 @@ add_library(iron_compiler STATIC
     src/fmt/config_load.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
+# stdlib_prepend.c falls back to the source tree's stdlib in dev builds
+set_source_files_properties(src/analyzer/stdlib_prepend.c PROPERTIES
+    COMPILE_DEFINITIONS IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(iron_compiler iron_runtime)
 
 # ── iron_stdlib static library ─────────────────────────────────────────────
@@ -506,7 +511,6 @@ add_executable(ironc
     src/cli/fmt.c
     src/cli/test_runner.c
     src/cli/toml.c
-    src/cli/iron_import_detect.c
     src/cli/semver.c
     src/cli/help_registry.c
     src/cli/toolchain.c

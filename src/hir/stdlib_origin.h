@@ -18,8 +18,9 @@
  * unknown and every empty body is treated as a stub, as before.
  *
  * `.iron-stub` companion files of library packages are always stub files.
- * Pipelines that prepend no stdlib (the LSP's buffer mode) register
- * nothing, so every empty body they see is user code. */
+ * Pipelines that prepend no stdlib register nothing, so every empty body
+ * they see is user code. The registry is per thread; iron_stdlib_prepend
+ * resets it before registering a new prelude. */
 
 void iron_stdlib_origin_reset(void);
 void iron_stdlib_origin_add(const char *path);

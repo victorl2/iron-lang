@@ -24,10 +24,13 @@
 #include "lsp/transport/types.h"
 #include "lsp/transport/json.h"
 #include "analyzer/analyzer.h"
+#include "analyzer/stdlib_prepend.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 #include "vendor/yyjson/yyjson.h"
+#include "vendor/stb_ds.h"
 
+#include <pthread.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -44,25 +47,79 @@ static void enqueue_body(IronLsp_Writer *w, IronLsp_Priority prio,
     /* Ownership transferred; do not touch `heap` after this. */
 }
 
+/* Keep only the diagnostics of the edited document: the stdlib prelude's
+ * carry their own file names. (The analyzer orders the program's decls the
+ * same way; see Iron_Program.prelude_decl_count.) */
+static void keep_document_diags(Iron_DiagList *diags, const char *doc_file) {
+    int n = 0, errors = 0, warnings = 0;
+    for (int i = 0; i < diags->count; i++) {
+        Iron_Diagnostic *dg = &diags->items[i];
+        if (dg->span.filename && strcmp(dg->span.filename, doc_file) != 0) continue;
+        if (dg->level == IRON_DIAG_ERROR) errors++;
+        else if (dg->level == IRON_DIAG_WARNING) warnings++;
+        diags->items[n++] = *dg;
+    }
+    if (diags->items) arrsetlen(diags->items, n);
+    diags->count = n;
+    diags->error_count = errors;
+    diags->warning_count = warnings;
+}
+
+/* Where the stdlib is, resolved once per process: every document worker
+ * analyzes with it, and a failed lookup should be reported once, not on
+ * every keystroke. NULL when there is none; the buffer is then analyzed
+ * alone. */
+static pthread_once_t g_lib_dir_once = PTHREAD_ONCE_INIT;
+static char          *g_lib_dir;
+
+static void resolve_lib_dir(void) {
+    g_lib_dir = iron_stdlib_lib_dir();
+}
+
 /* Shared analyze primitive -- the SINGLE iron_analyze_buffer call site
  * for the entire src/lsp tree. Both ilsp_facade_compile_pure (discards
  * the program pointer) and ilsp_facade_compile_for_nav (returns it)
- * route through this helper so the CORE-22 grep check stays at 1 hit. */
+ * route through this helper so the CORE-22 grep check stays at 1 hit.
+ *
+ * The buffer is analyzed with the same stdlib prelude `ironc check` uses
+ * (iron_stdlib_prepend), so Map, String methods and imported modules
+ * resolve in the editor as they do in the compiler. */
 static Iron_Program *facade_analyze(struct IronLsp_Document      *doc,
                                       const IronLsp_CompileRequest *req,
                                       Iron_Arena                   *arena,
                                       Iron_DiagList                *diags) {
     if (!doc || !arena || !diags) return NULL;
     const _Atomic bool *cancel = req ? req->cancel_flag : NULL;
-    Iron_AnalyzeResult r = iron_analyze_buffer(
-        doc->text ? doc->text : "",
-        doc->text_len,
-        doc->uri ? doc->uri : "<buffer>",
-        IRON_ANALYSIS_MODE_LSP,
-        arena,
-        diags,
-        cancel,
-        0  /* LSP buffer mode: no stdlib prepended, all source is user code */);
+    const char *doc_file = doc->uri ? doc->uri : "<buffer>";
+
+    char *source = NULL;
+    int prepended = 0;
+    pthread_once(&g_lib_dir_once, resolve_lib_dir);
+    if (g_lib_dir) {
+        size_t len = doc->text ? doc->text_len : 0;
+        source = (char *)malloc(len + 1);
+        if (source) {
+            if (len) memcpy(source, doc->text, len);
+            source[len] = '\0';
+            prepended = iron_stdlib_prepend(&source, doc_file, g_lib_dir);
+        }
+    }
+
+    Iron_AnalyzeResult r;
+    if (source && prepended > 0) {
+        r = iron_analyze_buffer(source, strlen(source), doc_file,
+                                IRON_ANALYSIS_MODE_LSP, arena, diags, cancel,
+                                prepended + 1);
+    } else {
+        /* No stdlib found: analyze the buffer alone. */
+        r = iron_analyze_buffer(doc->text ? doc->text : "", doc->text_len,
+                                doc_file, IRON_ANALYSIS_MODE_LSP, arena, diags,
+                                cancel, 0);
+    }
+    /* The arena keeps no pointers into the source text (tokens and the AST
+     * copy what they keep), so the prelude buffer can go now. */
+    free(source);
+    keep_document_diags(diags, doc_file);
     return r.program;
 }
 

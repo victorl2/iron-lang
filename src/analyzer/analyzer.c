@@ -1,4 +1,5 @@
 #include "analyzer/analyzer.h"
+#include <string.h>
 #include "analyzer/resolve.h"
 #include "analyzer/typecheck.h"
 #include "analyzer/capture.h"
@@ -338,6 +339,29 @@ Iron_AnalyzeResult iron_analyze(Iron_Program *program, Iron_Arena *arena,
  * Plan 02 removes analyzer short-circuits; Plan 03 wires cancellation;
  * Plan 04 adds pthread_once init + parser recursion guard; Plan 05 gates
  * comptime FS I/O on `mode`. */
+/* LSP mode with a stdlib prelude: move the buffer's own declarations (those
+ * whose span names `filename`) to the front, in order, and the prelude's
+ * after them, so editor features that walk decls by position see only the
+ * buffer. See Iron_Program.prelude_decl_count. */
+static void split_prelude_decls(Iron_Program *program, const char *filename,
+                                Iron_Arena *arena) {
+    if (!program || !filename || program->decl_count == 0) return;
+    int total = program->decl_count;
+    Iron_Node **prelude = (Iron_Node **)iron_arena_alloc(
+        arena, sizeof(Iron_Node *) * (size_t)total, _Alignof(Iron_Node *));
+    if (!prelude) return;
+    int own = 0, rest = 0;
+    for (int i = 0; i < total; i++) {
+        Iron_Node *d = program->decls[i];
+        const char *fn = d ? d->span.filename : NULL;
+        if (!fn || strcmp(fn, filename) == 0) program->decls[own++] = d;
+        else prelude[rest++] = d;
+    }
+    memcpy(program->decls + own, prelude, sizeof(Iron_Node *) * (size_t)rest);
+    program->decl_count = own;
+    program->prelude_decl_count = rest;
+}
+
 Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
                                         size_t              len,
                                         const char         *filename,
@@ -405,6 +429,9 @@ Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
     result = iron_analyze_with_mode((Iron_Program *)ast, mode, arena, diags,
                                     NULL, NULL, 0, false, IRON_TARGET_NATIVE,
                                     cancel_flag);
+    if (mode == IRON_ANALYSIS_MODE_LSP && user_source_start_line > 0) {
+        split_prelude_decls((Iron_Program *)ast, filename, arena);
+    }
     (void)len;
     return result;
 }

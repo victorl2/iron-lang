@@ -42,6 +42,8 @@
 /* Plan 05 (CORE-22): 4th pass drives the LSP facade call site. */
 #include "lsp/facade/compile.h"
 #include "lsp/store/document.h"
+#include "analyzer/stdlib_prepend.h"
+#include "vendor/stb_ds.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -108,6 +110,39 @@ static char *run_once(const char *src, size_t len, const char *name,
     char *out = diag_serialize(&d);
     iron_diaglist_free(&d);
     iron_arena_free(&a);
+    return out;
+}
+
+/* The facade analyzes a buffer with the stdlib prelude `ironc check` uses
+ * (#310) and keeps the diagnostics of the buffer's own file. This is the
+ * same analysis done directly, the reference pass 4 compares against. */
+static char *run_with_prelude(const char *src, size_t len, const char *name,
+                              IronAnalysisMode mode) {
+    char *lib_dir = iron_stdlib_lib_dir();
+    TEST_ASSERT_NOT_NULL_MESSAGE(lib_dir, "cannot locate the Iron stdlib");
+    char *buf = (char *)malloc(len + 1);
+    TEST_ASSERT_NOT_NULL(buf);
+    memcpy(buf, src, len);
+    buf[len] = '\0';
+    int prepended = iron_stdlib_prepend(&buf, name, lib_dir);
+    free(lib_dir);
+
+    Iron_Arena    a = iron_arena_create(131072);
+    Iron_DiagList d = iron_diaglist_create();
+    (void)iron_analyze_buffer(buf, strlen(buf), name, mode, &a, &d, NULL,
+                              prepended + 1);
+    Iron_DiagList own = iron_diaglist_create();
+    for (int i = 0; i < d.count; i++) {
+        const char *fn = d.items[i].span.filename;
+        if (fn && strcmp(fn, name) != 0) continue;
+        arrput(own.items, d.items[i]);
+        own.count++;
+    }
+    char *out = diag_serialize(&own);
+    iron_diaglist_free(&own);
+    iron_diaglist_free(&d);
+    iron_arena_free(&a);
+    free(buf);
     return out;
 }
 
@@ -236,23 +271,23 @@ void test_parity_all_integration_fixtures(void) {
         }
 
         /* Plan 05 CORE-22: pass 4 -- drive the LSP facade directly and
-         * assert byte-for-byte match against CLI pass 1. The facade is
-         * the ONE iron_analyze_buffer call site in src/lsp, so if this
-         * output matches CLI, then every LSP feature that reads from
-         * the facade (push diagnostics, pull diagnostics, hover, etc.)
-         * matches ironc by construction. */
+         * assert byte-for-byte match against the same LSP-mode analysis
+         * with the stdlib prelude done directly. The facade is the ONE
+         * iron_analyze_buffer call site in src/lsp, so every LSP feature
+         * that reads from it (push diagnostics, pull diagnostics, hover,
+         * etc.) sees what ironc check sees. */
         char *out4 = run_via_facade(src, slen, name);
-        if (!is_baseline && strcmp(out3, out4) != 0) {
-            /* The facade runs with IRON_ANALYSIS_MODE_LSP, same as pass
-             * 3. If the outputs diverge, the facade is adding or
-             * dropping diagnostics vs. direct-LSP-mode -- that's a
-             * facade bug. */
+        char *ref4 = run_with_prelude(src, slen, name, IRON_ANALYSIS_MODE_LSP);
+        if (!is_baseline && strcmp(ref4, out4) != 0) {
+            /* If the outputs diverge, the facade is adding or dropping
+             * diagnostics vs. direct-LSP-mode -- that's a facade bug. */
             facade_cli_mismatches++;
             fprintf(stderr,
                 "[parity] facade/LSP divergence on fixture %s\n"
                 "---direct-LSP---\n%s---facade-LSP---\n%s\n",
-                name, out3, out4);
+                name, ref4, out4);
         }
+        free(ref4);
 
         if (is_baseline) fixtures_skipped_baseline++;
 
@@ -303,8 +338,70 @@ void test_parity_all_integration_fixtures(void) {
            lsp_cli_diffs_unexplained, facade_cli_mismatches);
 }
 
+/* #310: every program the v4 suite compiles and runs must analyze with no
+ * error in the editor. Before the facade prepended the stdlib, the language
+ * server reported Map, Set, String and list methods and every imported
+ * module as undefined in programs `ironc check` accepts. */
+static int g_valid_checked;
+static int g_valid_false_errors;
+
+static void sweep_valid(const char *dir_path) {
+    DIR *dir = opendir(dir_path);
+    if (!dir) return;
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        const char *name = ent->d_name;
+        if (name[0] == '.') continue;
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/%s", dir_path, name);
+        struct stat st;
+        if (stat(path, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) { sweep_valid(path); continue; }
+        size_t nl = strlen(name);
+        if (nl < 5 || strcmp(name + nl - 5, ".iron") != 0) continue;
+
+        size_t slen = 0;
+        char *src = slurp(path, &slen);
+        if (!src) continue;
+        Iron_Arena    a = iron_arena_create(131072);
+        Iron_DiagList d = iron_diaglist_create();
+        IronLsp_Document doc;
+        memset(&doc, 0, sizeof(doc));
+        doc.text     = src;
+        doc.text_len = slen;
+        doc.uri      = path;
+        IronLsp_CompileRequest req = { .version = 1, .cancel_flag = NULL };
+        ilsp_facade_compile_pure(&doc, &req, &a, &d);
+        if (d.error_count > 0) {
+            g_valid_false_errors++;
+            char *out = diag_serialize(&d);
+            fprintf(stderr, "[parity] false errors on valid program %s\n%s\n",
+                    path, out);
+            free(out);
+        }
+        g_valid_checked++;
+        iron_diaglist_free(&d);
+        iron_arena_free(&a);
+        free(src);
+    }
+    closedir(dir);
+}
+
+void test_lsp_no_errors_on_valid_programs(void) {
+    g_valid_checked = 0;
+    g_valid_false_errors = 0;
+    sweep_valid("tests/integration/v4");
+    printf("[parity] valid programs=%d with editor errors=%d\n",
+           g_valid_checked, g_valid_false_errors);
+    TEST_ASSERT_GREATER_OR_EQUAL_MESSAGE(500, g_valid_checked,
+        "tests/integration/v4 fixture count dropped below 500 -- intentional?");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, g_valid_false_errors,
+        "the language server reports errors in valid programs -- see stderr");
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_parity_all_integration_fixtures);
+    RUN_TEST(test_lsp_no_errors_on_valid_programs);
     return UNITY_END();
 }
