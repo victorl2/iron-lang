@@ -994,6 +994,16 @@ if(NOT IRON_ENABLE_FUZZING AND NOT MSVC)
     target_include_directories(iron_fuzz_gen_check PRIVATE src tests/fuzz)
 endif()
 
+# An unknown command prints a short error and where to look, not the help.
+add_test(NAME iron_unknown_command COMMAND $<TARGET_FILE:iron> bogus)
+set_tests_properties(iron_unknown_command PROPERTIES
+    WILL_FAIL FALSE
+    PASS_REGULAR_EXPRESSION "unknown command 'bogus'.*Run 'iron --help'"
+    FAIL_REGULAR_EXPRESSION "Subcommands")
+add_test(NAME iron_new_hint COMMAND $<TARGET_FILE:iron> new demo)
+set_tests_properties(iron_new_hint PROPERTIES
+    PASS_REGULAR_EXPRESSION "iron init <name>")
+
 # `test "name" { ... }` blocks: ironc test builds them into one binary and
 # runs each in its own process; iron test does the same for a project.
 set(_tb "${CMAKE_SOURCE_DIR}/tests/integration/test_blocks")

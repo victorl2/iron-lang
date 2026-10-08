@@ -181,6 +181,9 @@ typedef struct {
      * 0 inside a lambda, defer or spawn body. */
     int                loop_depth;
     bool               loop_is_parallel;  /* the innermost loop is a parallel for */
+    /* The next INT_LIT checked is the operand of a unary minus, where
+     * 9223372036854775808 is the magnitude of the smallest Int. */
+    bool               int_lit_negated;
     /* defer bodies enclosing the statement, for return; 0 inside a lambda
      * or spawn body. */
     int                defer_depth;
@@ -3556,8 +3559,27 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
     switch ((int)(node->kind)) {
         case IRON_NODE_INT_LIT: {
             Iron_IntLit *n = (Iron_IntLit *)node;
+            bool negated = ctx->int_lit_negated;
+            ctx->int_lit_negated = false;
             result = iron_type_make_primitive(IRON_TYPE_INT);
             n->resolved_type = result;
+            /* An Int literal past 64 bits used to saturate silently to the
+             * largest Int. `-9223372036854775808` is the smallest Int. */
+            if (n->value) {
+                errno = 0;
+                (void)strtoll(n->value, NULL, 10);
+                if (errno == ERANGE) {
+                    const char *d = n->value;
+                    while (*d == '0' && d[1]) d++;
+                    if (!(negated && strcmp(d, "9223372036854775808") == 0)) {
+                        char msg[160];
+                        snprintf(msg, sizeof(msg),
+                                 "literal %s does not fit in Int "
+                                 "(-9223372036854775808..9223372036854775807)", n->value);
+                        emit_error(ctx, IRON_ERR_TYPE_MISMATCH_LITERAL, n->span, msg, NULL);
+                    }
+                }
+            }
             break;
         }
 
@@ -3931,6 +3953,9 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_UNARY: {
             Iron_UnaryExpr *ue = (Iron_UnaryExpr *)node;
+            if ((int)ue->op == IRON_TOK_MINUS && ue->operand &&
+                ue->operand->kind == IRON_NODE_INT_LIT)
+                ctx->int_lit_negated = true;
             /* Phase 20 PTR-04 / PTR-07 (Plan 20-02a): `&` resolves to *T at
              * the analyzer level. The operand must be an lvalue (named
              * binding, field, element); any rvalue (literal, function-call

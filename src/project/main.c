@@ -332,8 +332,12 @@ int main(int argc, char **argv) {
         return cmd_project(cmd, argc, argv);
     }
 
-    /* Unknown command */
-    fprintf(stderr, "iron: unknown command '%s'\n\n", cmd);
-    print_help(colors);
+    /* Unknown command: a short error and where to look, not the whole help
+     * (which scrolled the error itself off the screen). */
+    fprintf(stderr, "iron: unknown command '%s'\n", cmd);
+    if (strcmp(cmd, "new") == 0)
+        fprintf(stderr, "  to create a package, run: iron init <name>\n");
+    fprintf(stderr, "Run 'iron --help' to see the commands.\n");
+    (void)colors;
     return 1;
 }

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <errno.h>
 
 /* stb_ds hash map — STB_DS_IMPLEMENTATION is in src/util/stb_ds_impl.c */
 #include "vendor/stb_ds.h"
@@ -796,11 +797,20 @@ Iron_String Iron_string_substring(Iron_String self, int64_t start, int64_t end_i
     return iron_string_from_cstr(s + bs, be - bs);
 }
 
+/* Only surrounding whitespace may follow a number: "42 " and " 42\n" are
+ * 42, while "3x", "4 5" and "" are not numbers (the manual: 0 when not a
+ * number). An Int that does not fit in 64 bits is not a number either. */
+static bool iron_rest_is_space(const char *p) {
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || *p == '\v' || *p == '\f') p++;
+    return *p == '\0';
+}
+
 int64_t Iron_string_to_int(Iron_String self) {
     const char *s = iron_string_cstr(&self);
     char *end;
+    errno = 0;
     int64_t v = (int64_t)strtoll(s, &end, 10);
-    if (end == s) return 0;  /* nothing consumed */
+    if (end == s || errno == ERANGE || !iron_rest_is_space(end)) return 0;
     return v;
 }
 
@@ -808,7 +818,7 @@ double Iron_string_to_float(Iron_String self) {
     const char *s = iron_string_cstr(&self);
     char *end;
     double v = strtod(s, &end);
-    if (end == s) return 0.0;
+    if (end == s || !iron_rest_is_space(end)) return 0.0;
     return v;
 }
 
@@ -880,14 +890,16 @@ Iron_String Iron_string_pad_right(Iron_String self, int64_t width, Iron_String c
 
 /* ── Phase 59 P01c: rindex_of / byte_at / from_byte ─────────────────────── */
 
-/* Character position of the rightmost occurrence of `sub` in `self`.
- * Returns -1 if not found or if `sub` is empty. */
+/* Character position of the rightmost occurrence of `sub` in `self`, or -1.
+ * An empty `sub` occurs at every position, the last being the end of the
+ * string, as index_of("") finds it at 0. */
 int64_t Iron_string_rindex_of(Iron_String self, Iron_String sub) {
     const char *s    = iron_string_cstr(&self);
     const char *d    = iron_string_cstr(&sub);
     size_t      slen = iron_string_byte_len(&self);
     size_t      dlen = iron_string_byte_len(&sub);
-    if (dlen == 0 || dlen > slen) return -1;
+    if (dlen == 0) return utf8_byte_to_cp(s, slen);
+    if (dlen > slen) return -1;
     /* Scan right-to-left, returning the first (rightmost) hit. */
     for (size_t i = slen - dlen + 1; i-- > 0; ) {
         if (memcmp(s + i, d, dlen) == 0) return utf8_byte_to_cp(s, i);

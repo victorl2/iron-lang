@@ -180,7 +180,7 @@ void iron_help_print_subcommand(const char *prog, const char *sub, FILE *out) {
         }
     }
 
-    fprintf(out, "\nFor more information, see https://ironlang.org/docs/cli\n");
+    fprintf(out, "\nFor more information, see https://ironlang.dev/guide/#commands\n");
 }
 
 /* ── iron_help_print_all ─────────────────────────────────────────────── */
@@ -228,5 +228,5 @@ void iron_help_print_all(const char *prog, FILE *out) {
         }
     }
 
-    fprintf(out, "\nFor more information, see https://ironlang.org/docs/cli\n");
+    fprintf(out, "\nFor more information, see https://ironlang.dev/guide/#commands\n");
 }

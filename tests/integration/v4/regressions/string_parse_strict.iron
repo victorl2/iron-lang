@@ -1,0 +1,11 @@
+-- to_int and to_float return 0 when the text is not a number (manual 9.2):
+-- surrounding whitespace is allowed, anything else after the number is
+-- not, and an Int that does not fit in 64 bits is not a number. An empty
+-- substring is found at the start by index_of and at the end by rindex_of.
+func main() {
+    println("{"42".to_int()} {" -7\n".to_int()} {"3x".to_int()} {"4 5".to_int()} {"".to_int()}")
+    println("{"99999999999999999999".to_int()} {"9223372036854775807".to_int()}")
+    println("{"2.5".to_float()} {" 1e3 ".to_float()} {"2.5kg".to_float()}")
+    println("{"abc".index_of("")} {"abc".rindex_of("")} {"héllo".rindex_of("")} {"".rindex_of("")}")
+    println("{"abcabc".rindex_of("bc")} {"abc".rindex_of("x")}")
+}

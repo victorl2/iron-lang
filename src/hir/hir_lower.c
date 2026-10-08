@@ -2175,6 +2175,20 @@ static IronHIR_Expr *lower_expr_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
     case IRON_NODE_UNARY: {
         Iron_UnaryExpr *un = (Iron_UnaryExpr *)node;
 
+        /* `-9223372036854775808`: the literal alone does not fit in Int
+         * (strtoll saturates it), so negating it gave -9223372036854775807.
+         * The checker accepts exactly this spelling; it is INT64_MIN. */
+        if ((int)un->op == IRON_TOK_MINUS && un->operand &&
+            un->operand->kind == IRON_NODE_INT_LIT &&
+            ((Iron_IntLit *)un->operand)->value) {
+            const char *d = ((Iron_IntLit *)un->operand)->value;
+            while (*d == '0' && d[1]) d++;
+            if (strcmp(d, "9223372036854775808") == 0)
+                return iron_hir_expr_int_lit(mod, INT64_MIN,
+                                             ((Iron_IntLit *)un->operand)->resolved_type,
+                                             span);
+        }
+
         /* Phase 20 PTR-04 (Plan 20-02b): &lvalue lowers to IRON_HIR_EXPR_ADDR_OF
          * carrying a gen_source tag. As of Phase 20, all local bindings
          * (val/var) are stack-allocated — Phase 21's heap T(...) syntax is
