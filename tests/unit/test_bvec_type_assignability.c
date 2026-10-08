@@ -81,8 +81,8 @@ void test_bvec_bounded_to_fixed_emits_e0283(void) {
         "    return 0\n"
         "}\n");
     TEST_ASSERT_GREATER_THAN_INT(0, count_code(IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN, "§3.3:"));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN, "disjoint"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN, "different types"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN, "declare the binding"));
 }
 
 int main(void) {

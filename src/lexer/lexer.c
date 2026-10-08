@@ -1309,3 +1309,57 @@ Iron_Token *iron_lex_all(Iron_Lexer *l) {
 
     return tokens;
 }
+
+/* How a token is written in source, for messages ("unexpected ')'"): the
+ * keyword or punctuation text, else the kind's name. */
+const char *iron_token_spelling(Iron_TokenKind kind) {
+    static const struct { Iron_TokenKind kind; const char *text; } punct[] = {
+        { IRON_TOK_PLUS, "+" },
+        { IRON_TOK_MINUS, "-" },
+        { IRON_TOK_STAR, "*" },
+        { IRON_TOK_SLASH, "/" },
+        { IRON_TOK_PERCENT, "%" },
+        { IRON_TOK_ASSIGN, "=" },
+        { IRON_TOK_EQUALS, "==" },
+        { IRON_TOK_NOT_EQUALS, "!=" },
+        { IRON_TOK_LESS, "<" },
+        { IRON_TOK_GREATER, ">" },
+        { IRON_TOK_LESS_EQ, "<=" },
+        { IRON_TOK_GREATER_EQ, ">=" },
+        { IRON_TOK_DOT, "." },
+        { IRON_TOK_DOTDOT, ".." },
+        { IRON_TOK_COMMA, "," },
+        { IRON_TOK_COLON, ":" },
+        { IRON_TOK_ARROW, "->" },
+        { IRON_TOK_QUESTION, "?" },
+        { IRON_TOK_PLUS_ASSIGN, "+=" },
+        { IRON_TOK_MINUS_ASSIGN, "-=" },
+        { IRON_TOK_STAR_ASSIGN, "*=" },
+        { IRON_TOK_SLASH_ASSIGN, "/=" },
+        { IRON_TOK_SHL, "<<" },
+        { IRON_TOK_SHR, ">>" },
+        { IRON_TOK_AMP, "&" },
+        { IRON_TOK_PIPE, "|" },
+        { IRON_TOK_CARET, "^" },
+        { IRON_TOK_TILDE, "~" },
+        { IRON_TOK_SHL_ASSIGN, "<<=" },
+        { IRON_TOK_SHR_ASSIGN, ">>=" },
+        { IRON_TOK_AMP_ASSIGN, "&=" },
+        { IRON_TOK_PIPE_ASSIGN, "|=" },
+        { IRON_TOK_CARET_ASSIGN, "^=" },
+        { IRON_TOK_LPAREN, "(" },
+        { IRON_TOK_RPAREN, ")" },
+        { IRON_TOK_LBRACKET, "[" },
+        { IRON_TOK_RBRACKET, "]" },
+        { IRON_TOK_LBRACE, "{" },
+        { IRON_TOK_RBRACE, "}" },
+        { IRON_TOK_SEMICOLON, ";" },
+        { IRON_TOK_AT, "@" },
+        { IRON_TOK_NEWLINE, "\n" },
+    };
+    for (int i = 0; i < KW_TABLE_SIZE; i++)
+        if (kw_table[i].kind == kind) return kw_table[i].name;
+    for (size_t i = 0; i < sizeof(punct) / sizeof(punct[0]); i++)
+        if (punct[i].kind == kind) return punct[i].text;
+    return iron_token_kind_str(kind);
+}

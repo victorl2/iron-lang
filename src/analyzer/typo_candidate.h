@@ -79,4 +79,14 @@ const char *iron_best_typo_candidate(struct Iron_Scope *scope,
                                       Iron_Arena        *arena,
                                       const char        *name);
 
+/* Help text "did you mean 'candidate'?" (arena-owned), or NULL when
+ * candidate is NULL. */
+const char *iron_did_you_mean(Iron_Arena *arena, const char *candidate);
+
+/* Help for an unknown variant name of an enum: the closest variant, else
+ * the list of its variants. */
+struct Iron_EnumDecl;
+const char *iron_enum_variant_help(Iron_Arena *arena, const struct Iron_EnumDecl *ed,
+                                   const char *name);
+
 #endif /* IRON_TYPO_CANDIDATE_H */

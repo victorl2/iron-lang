@@ -57,10 +57,23 @@ static void synthesize_one(Iron_Program *program, Iron_Arena *arena,
     if (!fname) return;
     snprintf(fname, fname_len, "<default %s.%s for %s>", iface_name, sig->name, type_name);
 
-    Iron_Lexer lexer = iron_lexer_create(snippet, fname, arena, diags);
+    /* Diagnostics in the copied body point at the interface's default
+     * method in its own file (the body starts on the snippet's second
+     * line, so the first is placed just above it). A synthetic name such
+     * as "<default Counter.bump for C>" named no real file, showed lines
+     * of some other source, and made the body look like code from another
+     * file to the privacy check. */
+    const char *src_name = sig->span.filename ? sig->span.filename : fname;
+    Iron_Lexer lexer = iron_lexer_create(snippet, src_name, arena, diags);
+    /* The method text may begin with blank lines (a doc comment, layout):
+     * its first token must land on the declaration's line. */
+    uint32_t lead = 0;
+    for (const char *c = method_src; *c == '\n' || *c == ' ' || *c == '\t' || *c == '\r'; c++)
+        if (*c == '\n') lead++;
+    if (sig->span.line > 1 + lead) iron_lexer_set_origin(&lexer, sig->span.line - 1 - lead, 1);
     Iron_Token *tokens = iron_lex_all(&lexer);
     int token_count = (int)arrlen(tokens);
-    Iron_Parser parser = iron_parser_create(tokens, token_count, snippet, fname,
+    Iron_Parser parser = iron_parser_create(tokens, token_count, snippet, src_name,
                                             arena, diags);
     Iron_Node *ast = iron_parse(&parser);
     arrfree(tokens);
@@ -70,6 +83,7 @@ static void synthesize_one(Iron_Program *program, Iron_Arena *arena,
     for (int i = 0; i < sub->decl_count; i++) {
         Iron_Node *d = sub->decls[i];
         if (!d) continue;
+        if (d->kind == IRON_NODE_METHOD_DECL) ((Iron_MethodDecl *)d)->is_iface_default = true;
         arrput(program->decls, d);
         program->decl_count++;
     }

@@ -449,14 +449,19 @@ static Iron_Span iron_token_span(Iron_Parser *p, Iron_Token *t) {
 /* Emit a diagnostic. In CLI mode we suppress cascading errors while in
  * error-recovery so the user sees a clean error list (HARD-11 parity). In
  * LSP mode (HARD-02) suppression is disabled: LSP clients dedupe. */
-static void iron_emit_diag(Iron_Parser *p, int code, Iron_Span sp, const char *msg) {
+static void iron_emit_diag_help(Iron_Parser *p, int code, Iron_Span sp, const char *msg,
+                                const char *help) {
     /* Only the first error of a statement is reported: the rest of a
      * broken statement produces follow-on errors about the same mistake. */
     if ((p->in_error_recovery || p->stmt_errored) && p->mode != IRON_ANALYSIS_MODE_LSP) {
         return;
     }
     p->stmt_errored = true;
-    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, code, sp, msg, NULL);
+    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, code, sp, msg, help);
+}
+
+static void iron_emit_diag(Iron_Parser *p, int code, Iron_Span sp, const char *msg) {
+    iron_emit_diag_help(p, code, sp, msg, NULL);
 }
 
 /* Skip what is left of a statement that reported an error, up to the end of
@@ -485,7 +490,20 @@ static Iron_Token *iron_expect(Iron_Parser *p, Iron_TokenKind kind) {
     if (kind == IRON_TOK_RPAREN) code = IRON_ERR_EXPECTED_RPAREN;
     if (kind == IRON_TOK_COLON)  code = IRON_ERR_EXPECTED_COLON;
     if (kind == IRON_TOK_ARROW)  code = IRON_ERR_EXPECTED_ARROW;
-    iron_emit_diag(p, code, sp, "unexpected token");
+    /* Say what was found and what was expected: "unexpected token" alone
+     * left the reader to guess both. */
+    const char *found = cur->kind == IRON_TOK_NEWLINE ? "end of line"
+                      : cur->kind == IRON_TOK_EOF     ? "end of file"
+                      : (cur->value && cur->value[0]) ? cur->value
+                      : iron_token_spelling(cur->kind);
+    char msg[200];
+    snprintf(msg, sizeof(msg), "unexpected %s%s%s, expected '%s'",
+             (cur->kind == IRON_TOK_NEWLINE || cur->kind == IRON_TOK_EOF) ? "" : "token '",
+             found,
+             (cur->kind == IRON_TOK_NEWLINE || cur->kind == IRON_TOK_EOF) ? "" : "'",
+             iron_token_spelling(kind));
+    const char *msg_copy = iron_arena_strdup(p->arena, msg, strlen(msg));
+    iron_emit_diag(p, code, sp, msg_copy ? msg_copy : "unexpected token");
     return NULL;
 }
 
@@ -1266,8 +1284,16 @@ static Iron_Node *iron_parse_block_impl(Iron_Parser *p) {
     }
 
     Iron_Token *end = iron_current(p);
+    bool block_at_eof = iron_check(p, IRON_TOK_EOF);
+    int errors_before = p->diags->error_count;
     if (!iron_expect(p, IRON_TOK_RBRACE)) {
-        /* incomplete block, return what we have */
+        /* incomplete block, return what we have. At the end of the file,
+         * point at the '{' that was never closed: the error alone names
+         * only the last line. */
+        if (block_at_eof && p->diags->error_count > errors_before && start)
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_NOTE, IRON_ERR_EXPECTED_RBRACE,
+                           iron_token_span(p, start),
+                           "this '{' is never closed; add the '}' that ends it", NULL);
     }
 
     stmts = AST_ARR(stmts);
@@ -2033,9 +2059,17 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
     }
 
     /* Unexpected token in expression position */
-    iron_emit_diag(p, IRON_ERR_EXPECTED_EXPR,
-                   iron_token_span(p, t),
-                   "expected expression");
+    if (t->kind == IRON_TOK_ARROW) {
+        iron_emit_diag_help(p, IRON_ERR_EXPECTED_EXPR,
+                       iron_token_span(p, t),
+                       "expected expression, found '->'",
+                       "fields and methods are reached with '.', as in p.x; "
+                       "'->' only introduces a return type or a match arm body");
+    } else {
+        iron_emit_diag(p, IRON_ERR_EXPECTED_EXPR,
+                       iron_token_span(p, t),
+                       "expected expression");
+    }
     /* 2026-04-10 Phase 59 01d: advance past the offending token so callers
      * don't spin. Previous comment "let the caller handle recovery" was wrong —
      * no caller recovers, and the 01c hang on tuple_return_smoke.iron traced
@@ -3021,6 +3055,30 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                                                       expr_buf, interp_fname,
                                                       p->arena, p->diags);
                 Iron_Node *expr_node = iron_parse_expr_prec(&sub, PREC_NONE);
+                bool interp_extra_reported = false;
+                /* One expression fills the braces: anything after it (`{x y}`,
+                 * `{p->x}`) was dropped without a word. */
+                while (sub.pos < sub.token_count &&
+                       sub.tokens[sub.pos].kind == IRON_TOK_NEWLINE) sub.pos++;
+                if (expr_node && expr_node->kind != IRON_NODE_ERROR &&
+                    sub.pos < sub.token_count &&
+                    sub.tokens[sub.pos].kind != IRON_TOK_EOF) {
+                    Iron_Token *extra = &sub.tokens[sub.pos];
+                    char emsg[160];
+                    snprintf(emsg, sizeof(emsg),
+                             "unexpected '%s' after the interpolated expression",
+                             extra->value ? extra->value
+                                          : iron_token_spelling(extra->kind));
+                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                   IRON_ERR_UNEXPECTED_TOKEN, iron_token_span(&sub, extra),
+                                   emsg,
+                                   extra->kind == IRON_TOK_ARROW
+                                       ? "fields are reached with '.', as in {p.x}"
+                                       : "one expression goes between { and }; to show "
+                                         "two values write \"{x} {y}\"");
+                    expr_node = iron_make_error(p);
+                    interp_extra_reported = true;
+                }
                 arrfree(expr_toks);
                 iron_diaglist_free(&expr_diags);
                 free(expr_buf);
@@ -3030,9 +3088,10 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                     n->part_count++;
                 } else {
                     /* Failed to parse expression: emit diagnostic and insert ErrorNode */
-                    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                                   IRON_ERR_EXPECTED_EXPR, span,
-                                   "failed to parse interpolated expression", NULL);
+                    if (!interp_extra_reported)
+                        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                                       IRON_ERR_EXPECTED_EXPR, span,
+                                       "failed to parse interpolated expression", NULL);
                     arrput(n->parts, iron_make_error(p));
                     n->part_count++;
                 }
@@ -4750,6 +4809,21 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
         Iron_Token *fname = iron_advance(p);
         Iron_Node  *ftype = NULL;
         if (iron_match(p, IRON_TOK_COLON)) {
+            ftype = iron_parse_type_annotation(p);
+        } else if ((iron_check(p, IRON_TOK_IDENTIFIER) || iron_check(p, IRON_TOK_LBRACKET)) &&
+                   iron_current(p)->line == fname->line) {
+            /* `val x Int`: the colon is missing. It was reported as a second
+             * field without val or var, pointing at the type. */
+            char cmsg[200], chelp[200];
+            snprintf(cmsg, sizeof(cmsg), "expected ':' between field '%s' and its type",
+                     fname->value ? fname->value : "?");
+            snprintf(chelp, sizeof(chelp), "write '%s %s: %s'", is_var ? "var" : "val",
+                     fname->value ? fname->value : "x",
+                     iron_current(p)->value ? iron_current(p)->value : "Type");
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, IRON_ERR_EXPECTED_COLON,
+                           iron_token_span(p, iron_current(p)),
+                           iron_arena_strdup(p->arena, cmsg, strlen(cmsg)),
+                           iron_arena_strdup(p->arena, chelp, strlen(chelp)));
             ftype = iron_parse_type_annotation(p);
         }
 

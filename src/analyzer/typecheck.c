@@ -30,6 +30,7 @@
 #include "analyzer/resolve.h"
 #include "lexer/lexer.h"
 #include "util/strbuf.h"
+#include "analyzer/typo_candidate.h"
 #include "vendor/stb_ds.h"
 
 #include <stdarg.h>
@@ -184,10 +185,77 @@ typedef struct {
     /* The next INT_LIT checked is the operand of a unary minus, where
      * 9223372036854775808 is the magnitude of the smallest Int. */
     bool               int_lit_negated;
+    /* Checking an interface default body copied into an implementor: it
+     * is that type's own method, so its private members are in reach. */
+    bool               in_iface_default;
     /* defer bodies enclosing the statement, for return; 0 inside a lambda
      * or spawn body. */
     int                defer_depth;
 } TypeCtx;
+
+/* Help for a method name that does not exist on `type_name`: the closest
+ * declared method ("did you mean 'upper'?"), else a list of the type's
+ * methods, else NULL. Methods are the program's METHOD_DECLs for that type,
+ * which include the stdlib's String / Int / Float wrappers. */
+static int help_name_cmp(const void *a, const void *b) {
+    return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+static const char *names_help(TypeCtx *ctx, const char *owner, const char **names,
+                              int n, const char *method) {
+    if (n == 0) return NULL;
+    int max_dist = strlen(method) <= 4 ? 1 : 2;
+    const char *best = NULL; int best_d = max_dist + 1;
+    for (int k = 0; k < n; k++) {
+        int dd = iron_levenshtein(method, names[k], max_dist);
+        if (dd < best_d) { best_d = dd; best = names[k]; }
+    }
+    /* `to_upper` for `upper`: one name containing the other is a match too. */
+    if (!best) {
+        for (int k = 0; k < n; k++)
+            if (strlen(names[k]) >= 3 && (strstr(method, names[k]) || strstr(names[k], method))) {
+                best = names[k]; break;
+            }
+    }
+    if (best) return iron_did_you_mean(ctx->arena, best);
+    qsort(names, (size_t)n, sizeof(names[0]), help_name_cmp);
+    Iron_StrBuf sb = iron_strbuf_create(128);
+    iron_strbuf_appendf(&sb, "methods of '%s': ", owner);
+    int shown = n < 10 ? n : 10;
+    for (int k = 0; k < shown; k++) iron_strbuf_appendf(&sb, "%s%s", k ? ", " : "", names[k]);
+    if (n > shown) iron_strbuf_appendf(&sb, ", ... (%d in all)", n);
+    const char *r = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    return r;
+}
+
+static const char *method_help(TypeCtx *ctx, const char *type_name, const char *method) {
+    if (!ctx || !ctx->program || !type_name || !method) return NULL;
+    const char *names[256]; int n = 0;
+    for (int i = 0; i < ctx->program->decl_count && n < 256; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!md->type_name || !md->method_name || strcmp(md->type_name, type_name) != 0) continue;
+        if (md->is_init || md->is_drop || md->is_copy || md->method_name[0] == '_' ||
+            md->method_name[0] == '$' || strcmp(md->method_name, "init") == 0) continue;
+        bool dup = false;
+        for (int k = 0; k < n; k++) if (strcmp(names[k], md->method_name) == 0) { dup = true; break; }
+        if (!dup) names[n++] = md->method_name;
+    }
+    return names_help(ctx, type_name, names, n, method);
+}
+
+/* As method_help, for the methods an interface declares. */
+static const char *iface_method_help(TypeCtx *ctx, Iron_InterfaceDecl *iface, const char *method) {
+    if (!iface || !method) return NULL;
+    const char *names[256]; int n = 0;
+    for (int i = 0; i < iface->method_count && n < 256; i++) {
+        Iron_Node *m = iface->method_sigs[i];
+        if (m && m->kind == IRON_NODE_FUNC_DECL && ((Iron_FuncDecl *)m)->name)
+            names[n++] = ((Iron_FuncDecl *)m)->name;
+    }
+    return names_help(ctx, iface->name ? iface->name : "?", names, n, method);
+}
 
 /* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
 static inline bool iron_cancel_requested(const _Atomic bool *flag) {
@@ -844,7 +912,7 @@ static Iron_Type *type_bounded_vector_literal(TypeCtx *ctx, Iron_Type *decl_type
  * nothing is enforced when the declaring file's origin is unknown. */
 static bool report_private_member(TypeCtx *ctx, bool is_pub, Iron_Span decl_span,
                                   Iron_Span use_span, const char *what) {
-    if (is_pub) return false;
+    if (is_pub || ctx->in_iface_default) return false;
     if (!decl_span.filename || !use_span.filename) return false;
     if (strcmp(decl_span.filename, use_span.filename) == 0) return false;
     if (iron_stdlib_origin_classify(decl_span.filename) != 0) return false;
@@ -1059,6 +1127,41 @@ static bool is_stringifiable(TypeCtx *ctx, const Iron_Type *t) {
     return false;
 }
 
+/* How to turn a value of type `got` into the `expected` one, when there is a
+ * usual way: a null check, a numeric conversion, interpolation, parsing,
+ * upgrading a weak reference. NULL when there is nothing specific to say. */
+static const char *conversion_hint(TypeCtx *ctx, Iron_Type *expected, Iron_Type *got) {
+    if (!expected || !got || expected->kind == IRON_TYPE_ERROR || got->kind == IRON_TYPE_ERROR)
+        return NULL;
+    char buf[320];
+    const char *es = iron_type_to_string(expected, ctx->arena);
+    if (got->kind == IRON_TYPE_NULLABLE && got->nullable.inner &&
+        expected->kind != IRON_TYPE_NULLABLE && types_assignable(expected, got->nullable.inner)) {
+        snprintf(buf, sizeof(buf),
+                 "the value may be null: check it first (`if x != null { ... }` makes it '%s' "
+                 "inside), or use get_or(key, default) for a map", es);
+    } else if (got->kind == IRON_TYPE_VOID) {
+        snprintf(buf, sizeof(buf), "the expression produces no value (Void)");
+    } else if (iron_type_is_numeric(expected) && iron_type_is_numeric(got)) {
+        snprintf(buf, sizeof(buf), "convert it explicitly: %s(x)%s", es,
+                 iron_type_is_integer(expected) && !iron_type_is_integer(got)
+                     ? " (truncates toward zero)" : "");
+    } else if (expected->kind == IRON_TYPE_STRING &&
+               (iron_type_is_numeric(got) || got->kind == IRON_TYPE_BOOL)) {
+        snprintf(buf, sizeof(buf), "make text of it with interpolation, \"{x}\", or x.to_string()");
+    } else if (got->kind == IRON_TYPE_STRING && iron_type_is_integer(expected)) {
+        snprintf(buf, sizeof(buf), "parse the text with s.to_int() (0 when it is not a number)");
+    } else if (got->kind == IRON_TYPE_STRING && iron_type_is_numeric(expected)) {
+        snprintf(buf, sizeof(buf), "parse the text with s.to_float() (0 when it is not a number)");
+    } else if (got->kind == IRON_TYPE_WEAK_RC && expected->kind == IRON_TYPE_RC) {
+        snprintf(buf, sizeof(buf),
+                 "a weak reference must be upgraded first: w.upgrade() gives an 'rc' or null");
+    } else {
+        return NULL;
+    }
+    return iron_arena_strdup(ctx->arena, buf, strlen(buf));
+}
+
 static void emit_type_mismatch(TypeCtx *ctx, Iron_Span span,
                                 Iron_Type *expected, Iron_Type *got) {
     char msg[512];
@@ -1066,7 +1169,8 @@ static void emit_type_mismatch(TypeCtx *ctx, Iron_Span span,
     const char *got_s = got      ? iron_type_to_string(got, ctx->arena)      : "unknown";
     snprintf(msg, sizeof(msg),
              "type mismatch: expected '%s', got '%s'", exp_s, got_s);
-    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, span, msg, NULL);
+    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, span, msg,
+               conversion_hint(ctx, expected, got));
 }
 
 /* Phase 4 Plan 04-01 (EDIT-07): narrow emit_type_mismatch for a literal RHS.
@@ -1123,6 +1227,30 @@ static void emit_type_mismatch_maybe_literal(TypeCtx *ctx, Iron_Span span,
                    init_node->kind == IRON_NODE_STRING_LIT) {
             is_literal_rhs = true;
         }
+        /* A number or Bool where a String is expected: the quoted literal.
+         * A numeric string where a number is expected: the bare number. */
+        if (is_literal_rhs && !suggestion && expected->kind == IRON_TYPE_STRING) {
+            const char *v = NULL;
+            if (init_node->kind == IRON_NODE_INT_LIT) v = ((Iron_IntLit *)init_node)->value;
+            else if (init_node->kind == IRON_NODE_FLOAT_LIT) v = ((Iron_FloatLit *)init_node)->value;
+            else if (init_node->kind == IRON_NODE_BOOL_LIT)
+                v = ((Iron_BoolLit *)init_node)->value ? "true" : "false";
+            if (v) {
+                size_t n = strlen(v) + 3;
+                char *buf = (char *)iron_arena_alloc(ctx->arena, n, 1);
+                if (buf) { snprintf(buf, n, "\"%s\"", v); suggestion = buf; }
+            }
+        } else if (is_literal_rhs && !suggestion && init_node->kind == IRON_NODE_STRING_LIT &&
+                   iron_type_is_numeric(expected)) {
+            const char *v = ((Iron_StringLit *)init_node)->value;
+            bool numeric = v && v[0];
+            bool dot = false;
+            for (const char *c = v; numeric && *c; c++) {
+                if (*c == '.' && !dot && !iron_type_is_integer(expected)) dot = true;
+                else if (!(*c >= '0' && *c <= '9') && !(c == v && *c == '-')) numeric = false;
+            }
+            if (numeric) suggestion = iron_arena_strdup(ctx->arena, v, strlen(v));
+        }
     }
 
     if (!is_literal_rhs) {
@@ -1141,9 +1269,10 @@ static void emit_type_mismatch_maybe_literal(TypeCtx *ctx, Iron_Span span,
     snprintf(msg, sizeof(msg),
              "type mismatch: expected '%s', got '%s'", exp_s, got_s);
     if (!suggestion) {
-        /* Synthetic fallback suggestion: expected-type name. Keeps
-         * .suggestion non-NULL without inventing arbitrary literal text. */
-        suggestion = iron_arena_strdup(ctx->arena, exp_s, strlen(exp_s));
+        /* No literal to offer: say how to convert. (A bare type name used
+         * to stand here, and the LSP offered to replace the literal with
+         * it; the quickfix now only takes a literal.) */
+        suggestion = conversion_hint(ctx, expected, got);
     }
     emit_error(ctx, IRON_ERR_TYPE_MISMATCH_LITERAL, span, msg, suggestion);
 }
@@ -2809,7 +2938,8 @@ static Iron_Type *check_array_builtin_call(TypeCtx *ctx, Iron_MethodCallExpr *mc
                      "argument %d type mismatch: expected '%s', got '%s'", i + 1,
                      iron_type_to_string(want[i], ctx->arena),
                      iron_type_to_string(at, ctx->arena));
-            emit_error(ctx, IRON_ERR_ARG_TYPE, mc->args[i]->span, msg, NULL);
+            emit_error(ctx, IRON_ERR_ARG_TYPE, mc->args[i]->span, msg,
+                       conversion_hint(ctx, want[i], at));
         }
     }
     bool is_sort = strcmp(m, "sort") == 0;
@@ -2936,9 +3066,12 @@ static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
     if (!sym || sym->sym_kind == IRON_SYM_TYPE) return;
     mark_requires_mutable(ctx, receiver);
     if (!sym->is_mutable) {
-        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, mc->span,
-                   "cannot call mutable method on immutable binding",
-                   sym_is_loop_var(sym) ? LOOP_VAR_MUT_HELP : NULL);
+        char mmsg[256], mhelp[256];
+        snprintf(mmsg, sizeof(mmsg), "cannot call mutable method '%s' on immutable binding '%s'",
+                 mc->method ? mc->method : "?", id->name ? id->name : "?");
+        snprintf(mhelp, sizeof(mhelp), "declare '%s' with var instead of val", id->name ? id->name : "?");
+        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, mc->span, mmsg,
+                   sym_is_loop_var(sym) ? LOOP_VAR_MUT_HELP : mhelp);
     }
 }
 
@@ -2979,6 +3112,27 @@ static bool iface_call_may_mutate(TypeCtx *ctx, Iron_InterfaceDecl *iface,
     return !any_impl;
 }
 
+/* Help for a call with the wrong number of arguments: the callee's
+ * parameter list, `name(a: Int, b: String)`, from params[first..count). */
+static const char *params_signature(TypeCtx *ctx, const char *name, Iron_Node **params,
+                                    int count, int first, Iron_Type **types) {
+    Iron_StrBuf sb = iron_strbuf_create(96);
+    iron_strbuf_appendf(&sb, "it is declared as %s(", name ? name : "?");
+    for (int i = first; i < count; i++) {
+        Iron_Param *pp = (params && params[i] && params[i]->kind == IRON_NODE_PARAM)
+                             ? (Iron_Param *)params[i] : NULL;
+        Iron_Type *t = types ? types[i - first] : (pp ? pp->resolved_type : NULL);
+        iron_strbuf_appendf(&sb, "%s", i > first ? ", " : "");
+        if (pp && pp->name) iron_strbuf_appendf(&sb, "%s", pp->name);
+        if (t) iron_strbuf_appendf(&sb, "%s%s", (pp && pp->name) ? ": " : "",
+                                   iron_type_to_string(t, ctx->arena));
+    }
+    iron_strbuf_appendf(&sb, ")");
+    const char *r = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    return r;
+}
+
 /* Check a method call's arguments against the declared parameters
  * params[first..count). Method calls used to skip this entirely:
  * `c.add("x")`, `c.add(1, 2)` and `Math.sqrt("hello")` all type-checked
@@ -2993,7 +3147,8 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
         char msg[256];
         snprintf(msg, sizeof(msg), "method '%s.%s' expects %d argument(s), got %d",
                  owner ? owner : "?", name ? name : "?", expected, mc->arg_count);
-        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg, NULL);
+        emit_error(ctx, IRON_ERR_ARG_COUNT, mc->span, msg,
+                   params_signature(ctx, name, params, count, first, NULL));
         return;
     }
     for (int i = 0; i < mc->arg_count; i++) {
@@ -3024,7 +3179,8 @@ static void check_call_params(TypeCtx *ctx, Iron_MethodCallExpr *mc,
                      "argument %d type mismatch: expected '%s', got '%s'", i + 1,
                      iron_type_to_string(pt, ctx->arena),
                      iron_type_to_string(at, ctx->arena));
-            emit_error(ctx, IRON_ERR_ARG_TYPE, mc->args[i]->span, msg, NULL);
+            emit_error(ctx, IRON_ERR_ARG_TYPE, mc->args[i]->span, msg,
+                       conversion_hint(ctx, pt, at));
         }
     }
 }
@@ -3914,7 +4070,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                         (lt->kind == IRON_TYPE_STRING) != (rt->kind == IRON_TYPE_STRING)) {
                         emit_error(ctx, IRON_ERR_TYPE_MISMATCH, be->span,
                                    "operator `+` requires numeric operands or two `String` values",
-                                   NULL);
+                                   "to put a value into text, use interpolation: \"total: {n}\"");
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     } else if (op == IRON_TOK_PLUS &&
                                lt->kind == IRON_TYPE_STRING &&
@@ -3940,11 +4096,17 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     bool is_shift = op == IRON_TOK_SHL || op == IRON_TOK_SHR;
                     if (!iron_type_is_integer(lt) || !iron_type_is_integer(rt)) {
                         char msg[256];
+                        Iron_Type *bad_t = iron_type_is_integer(lt) ? rt : lt;
                         snprintf(msg, sizeof(msg),
                                  "bitwise operator requires integer operands, got '%s'",
-                                 iron_type_to_string(iron_type_is_integer(lt) ? rt : lt,
-                                                     ctx->arena));
-                        emit_error(ctx, IRON_ERR_BITWISE_NON_INT, be->span, msg, NULL);
+                                 iron_type_to_string(bad_t, ctx->arena));
+                        emit_error(ctx, IRON_ERR_BITWISE_NON_INT, be->span, msg,
+                                   bad_t->kind == IRON_TYPE_BOOL
+                                       ? "for Bool use and / or / not; note that `==` binds tighter "
+                                         "than `& | ^`, so `a & b == c` is `a & (b == c)`: "
+                                         "write `(a & b) == c`"
+                                       : bad_t->kind == IRON_TYPE_FLOAT
+                                           ? "convert to an integer first: Int(x)" : NULL);
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     } else if (!is_shift && !iron_type_equals(lt, rt)) {
                         emit_type_mismatch(ctx, be->span, lt, rt);
@@ -4704,7 +4866,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                      "cannot call I/O function '%s' in readonly method",
                                      fn_id_ro->name);
                             emit_error(ctx, IRON_ERR_READONLY_IO, ce->span, msg,
-                                       "§6: readonly methods may not perform I/O");
+                                       "a readonly method cannot do I/O: drop `readonly` from it, or do the I/O in the caller");
                             break;
                         }
                     }
@@ -4792,7 +4954,13 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 snprintf(msg, sizeof(msg),
                          "expected %d argument(s), got %d",
                          expected_count, ce->arg_count);
-                emit_error(ctx, IRON_ERR_ARG_COUNT, ce->span, msg, NULL);
+                const char *callee_name = (ce->callee && ce->callee->kind == IRON_NODE_IDENT)
+                    ? ((Iron_Ident *)ce->callee)->name : "the function";
+                emit_error(ctx, IRON_ERR_ARG_COUNT, ce->span, msg,
+                           params_signature(ctx, callee_name,
+                                            fd_for_parm ? fd_for_parm->params : NULL,
+                                            expected_count, 0,
+                                            callee_type->func.param_types));
                 for (int i = 0; i < ce->arg_count; i++) check_expr(ctx, ce->args[i]);
             } else {
                 /* Check arg types */
@@ -4838,8 +5006,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                      iron_type_to_string(arg_type, ctx->arena));
                             emit_error(ctx, IRON_ERR_PTR_REGIME_MISMATCH,
                                        ce->args[i]->span, msg,
-                                       "§4.3-§4.4: checked and unchecked pointer regimes are disjoint; "
-                                       "use Box.unwrap() to escape from Box[T] to *unchecked T");
+                                       "checked (*T) and unchecked (*unchecked T) pointers do not convert into each other; get an *unchecked T from Box.unwrap()");
                         } else {
                             char msg[256];
                             snprintf(msg, sizeof(msg),
@@ -4847,7 +5014,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                      i + 1,
                                      iron_type_to_string(param_type, ctx->arena),
                                      iron_type_to_string(arg_type, ctx->arena));
-                            emit_error(ctx, IRON_ERR_ARG_TYPE, ce->args[i]->span, msg, NULL);
+                            emit_error(ctx, IRON_ERR_ARG_TYPE, ce->args[i]->span, msg,
+                                       conversion_hint(ctx, param_type, arg_type));
                         }
                     }
                     /* Narrow literal args to match parameter type */
@@ -4863,7 +5031,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                         ce->args[i] && ce->args[i]->kind == IRON_NODE_IDENT) {
                         emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, ce->args[i]->span,
                                    "cannot pass nocopy type by value — parameter requires copy",
-                                   "§7: nocopy types cannot be copied; pass `*T` or `*var T` to avoid copy");
+                                   "this type is nocopy: pass a pointer instead of a copy, `*T` to read it or `*var T` to change it");
                     }
                     /* Phase 18 PARM-03: read-only argument passed to a
                      * 'var' parameter slot. arg_source_is_mutable returns
@@ -6218,11 +6386,16 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                         !recv_ident->resolved_sym->is_mutable) {
                                         char msg[256];
                                         snprintf(msg, sizeof(msg),
-                                                 "cannot call mutable method on immutable binding");
+                                                 "cannot call mutable method '%s' on immutable binding '%s'",
+                                                 mc->method ? mc->method : "?",
+                                                 recv_ident->name ? recv_ident->name : "?");
+                                        char mhelp2[256];
+                                        snprintf(mhelp2, sizeof(mhelp2), "declare '%s' with var instead of val",
+                                                 recv_ident->name ? recv_ident->name : "?");
                                         emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL,
                                                    mc->span, msg,
                                                    sym_is_loop_var(recv_ident->resolved_sym)
-                                                       ? LOOP_VAR_MUT_HELP : NULL);
+                                                       ? LOOP_VAR_MUT_HELP : mhelp2);
                                     }
                                     /* Phase 84 MUTTIER-02 E0239: readonly caller
                                      * calling a mutating callee (is_mut_receiver
@@ -6241,7 +6414,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                         emit_error(ctx,
                                                    IRON_ERR_READONLY_CALLS_MUTATING,
                                                    mc->span, msg,
-                                                   "§6: readonly methods may not call non-readonly functions");
+                                                   "a readonly method calls only readonly or pure methods: mark the callee readonly, or drop `readonly` here");
                                     }
                                 }
                             }
@@ -6412,7 +6585,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                  "no method '%s' on type '%s'",
                                  mc->method, eff_recv_t->object.decl->name);
                         emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span,
-                                   msg, NULL);
+                                   msg, method_help(ctx, eff_recv_t->object.decl->name,
+                                                    mc->method));
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     }
                 } else if (!method_found_mc && type_name_mc && mc->method &&
@@ -6427,7 +6601,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     char msg[256];
                     snprintf(msg, sizeof(msg), "no method '%s' on type '%s'",
                              mc->method, type_name_mc);
-                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg, NULL);
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                               method_help(ctx, type_name_mc, mc->method));
                     result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 }
             } else if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_INTERFACE &&
@@ -6466,7 +6641,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     char msg[256];
                     snprintf(msg, sizeof(msg), "no method '%s' on interface '%s'",
                              mc->method, iface_ni->name ? iface_ni->name : "?");
-                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg, NULL);
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                               iface_method_help(ctx, iface_ni, mc->method));
                     result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 }
             } else if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_OBJECT &&
@@ -6537,7 +6713,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 if (!found_str && ctx->program && mc->method) {
                     char msg[256];
                     snprintf(msg, sizeof(msg), "no method '%s' on type 'String'", mc->method);
-                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg, NULL);
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                               method_help(ctx, "String", mc->method));
                     result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 }
             } else if (obj_type_mc && (obj_type_mc->kind == IRON_TYPE_INT   ||
@@ -6637,7 +6814,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                      recv_id_ro->name,
                                      mc->method ? mc->method : "?");
                             emit_error(ctx, IRON_ERR_READONLY_IO, mc->span, msg,
-                                       "§6: readonly methods may not perform I/O");
+                                       "a readonly method cannot do I/O: drop `readonly` from it, or do the I/O in the caller");
                             break;
                         }
                     }
@@ -7187,7 +7364,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                          "cannot allocate 'heap %s(...)' in readonly method",
                          type_nm);
                 emit_error(ctx, IRON_ERR_READONLY_HEAP_ESCAPE, he->span, msg,
-                           "§6: readonly methods may not allocate heap T(...) or rc T(...)");
+                           "a readonly method cannot allocate: drop `readonly` from it, or allocate in the caller");
             }
             /* Phase 28 ARENA-09 (Plan 28-03): arena-allocated type with a
              * transitive non-trivial destructor. Fires when this `heap` targets
@@ -7280,7 +7457,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                          "cannot allocate 'rc %s(...)' in readonly method",
                          type_nm);
                 emit_error(ctx, IRON_ERR_READONLY_HEAP_ESCAPE, re->span, msg,
-                           "§6: readonly methods may not allocate heap T(...) or rc T(...)");
+                           "a readonly method cannot allocate: drop `readonly` from it, or allocate in the caller");
             }
             break;
         }
@@ -7592,7 +7769,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     char msg[256];
                     snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
                              ec->enum_name, ec->variant_name);
-                    emit_error(ctx, IRON_ERR_UNKNOWN_VARIANT, ec->span, msg, NULL);
+                    emit_error(ctx, IRON_ERR_UNKNOWN_VARIANT, ec->span, msg, iron_enum_variant_help(ctx->arena, ed, ec->variant_name));
                     result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     break;
                 }
@@ -7815,7 +7992,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 char msg[256];
                 snprintf(msg, sizeof(msg), "enum '%s' has no variant '%s'",
                          ec->enum_name, ec->variant_name);
-                emit_error(ctx, IRON_ERR_UNKNOWN_VARIANT, ec->span, msg, NULL);
+                emit_error(ctx, IRON_ERR_UNKNOWN_VARIANT, ec->span, msg, iron_enum_variant_help(ctx->arena, ed, ec->variant_name));
                 result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 break;
             }
@@ -8182,9 +8359,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     emit_error(ctx, IRON_ERR_PTR_AMP_NOT_UNCHECKED, vd->init->span,
                                "cannot produce '*unchecked T' via '&'; "
                                "'&' always yields a checked pointer",
-                               "§4.3: '&' cannot produce unchecked pointers; "
-                               "use Box.unwrap() or RawPtr (Phase 33) "
-                               "for explicit unchecked pointer construction");
+                               "`&` always gives a checked pointer; get an *unchecked T from Box.unwrap() or RawPtr.of(x)");
                 }
 
                 init_type = type_bounded_vector_literal(ctx, decl_type, init_type, vd->init);
@@ -8216,8 +8391,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                  iron_type_to_string(decl_type, ctx->arena));
                         emit_error(ctx, IRON_ERR_PTR_REGIME_MISMATCH, lit_span,
                                    msg,
-                                   "§4.3-§4.4: checked and unchecked pointer regimes are disjoint; "
-                                   "use Box.unwrap() to escape from Box[T] to *unchecked T");
+                                   "checked (*T) and unchecked (*unchecked T) pointers do not convert into each other; get an *unchecked T from Box.unwrap()");
                     } else if (decl_type->kind == IRON_TYPE_PTR &&
                         init_type->kind == IRON_TYPE_NULL) {
                         const char *pt_str = iron_type_to_string(decl_type, ctx->arena);
@@ -8235,8 +8409,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                          * §3.3: [T; <=N] and [T; N] are disjoint types. */
                         emit_error(ctx, IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN, lit_span,
                                    "cannot assign bounded vector to strict array or vice versa",
-                                   "§3.3: [T; <=N] and [T; N] are disjoint types; "
-                                   "Phase 33 ships to_fixed()/to_bounded() conversion helpers");
+                                   "a bounded vector [T; <=N] and a fixed array [T; N] are different types: declare the binding with the kind of the value");
                     } else if (decl_type->kind == IRON_TYPE_ARRAY &&
                                decl_type->array.size >= 0 && !decl_type->array.is_bounded &&
                                vd->init && vd->init->kind == IRON_NODE_ARRAY_LIT) {
@@ -8259,7 +8432,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                             if (!msg_copy) msg_copy = "array literal element count mismatch";
                             emit_error(ctx, IRON_ERR_VEC_STRICT_LENGTH_MISMATCH,
                                        vd->init->span, msg_copy,
-                                       "§3.3: [T; N] requires exactly N elements in the initializer literal");
+                                       "give exactly N elements, or use a bounded vector [T; <=N] to hold fewer");
                         } else {
                             /* The literal is this [T; N] value: give it the
                              * declared type. Left as dynamic [T], the binding
@@ -8301,7 +8474,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 vd->init && vd->init->kind == IRON_NODE_IDENT) {
                 emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, vd->span,
                            "cannot copy nocopy type — assignment requires a copy operation",
-                           "§7: nocopy types cannot be copied; pass `*T` or `*var T` to avoid copy");
+                           "this type is nocopy: pass a pointer instead of a copy, `*T` to read it or `*var T` to change it");
             }
 
             vd->declared_type = decl_type;
@@ -8381,9 +8554,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     emit_error(ctx, IRON_ERR_PTR_AMP_NOT_UNCHECKED, vd->init->span,
                                "cannot produce '*unchecked T' via '&'; "
                                "'&' always yields a checked pointer",
-                               "§4.3: '&' cannot produce unchecked pointers; "
-                               "use Box.unwrap() or RawPtr (Phase 33) "
-                               "for explicit unchecked pointer construction");
+                               "`&` always gives a checked pointer; get an *unchecked T from Box.unwrap() or RawPtr.of(x)");
                 }
 
                 init_type = type_bounded_vector_literal(ctx, decl_type, init_type, vd->init);
@@ -8413,8 +8584,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                  iron_type_to_string(decl_type, ctx->arena));
                         emit_error(ctx, IRON_ERR_PTR_REGIME_MISMATCH, lit_span,
                                    msg,
-                                   "§4.3-§4.4: checked and unchecked pointer regimes are disjoint; "
-                                   "use Box.unwrap() to escape from Box[T] to *unchecked T");
+                                   "checked (*T) and unchecked (*unchecked T) pointers do not convert into each other; get an *unchecked T from Box.unwrap()");
                     } else if (decl_type->kind == IRON_TYPE_ARRAY && init_type->kind == IRON_TYPE_ARRAY &&
                         decl_type->array.size >= 0 && init_type->array.size >= 0 &&
                         decl_type->array.is_bounded != init_type->array.is_bounded) {
@@ -8422,8 +8592,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                          * §3.3: [T; <=N] and [T; N] are disjoint types. */
                         emit_error(ctx, IRON_ERR_VEC_BOUNDED_TO_FIXED_FORBIDDEN, lit_span,
                                    "cannot assign bounded vector to strict array or vice versa",
-                                   "§3.3: [T; <=N] and [T; N] are disjoint types; "
-                                   "Phase 33 ships to_fixed()/to_bounded() conversion helpers");
+                                   "a bounded vector [T; <=N] and a fixed array [T; N] are different types: declare the binding with the kind of the value");
                     } else if (decl_type->kind == IRON_TYPE_ARRAY &&
                                decl_type->array.size >= 0 && !decl_type->array.is_bounded &&
                                vd->init && vd->init->kind == IRON_NODE_ARRAY_LIT) {
@@ -8446,7 +8615,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                             if (!msg_copy) msg_copy = "array literal element count mismatch";
                             emit_error(ctx, IRON_ERR_VEC_STRICT_LENGTH_MISMATCH,
                                        vd->init->span, msg_copy,
-                                       "§3.3: [T; N] requires exactly N elements in the initializer literal");
+                                       "give exactly N elements, or use a bounded vector [T; <=N] to hold fewer");
                         } else {
                             /* The literal is this [T; N] value: give it the
                              * declared type. Left as dynamic [T], the binding
@@ -8496,7 +8665,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 vd->init && vd->init->kind == IRON_NODE_IDENT) {
                 emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, vd->span,
                            "cannot copy nocopy type — assignment requires a copy operation",
-                           "§7: nocopy types cannot be copied; pass `*T` or `*var T` to avoid copy");
+                           "this type is nocopy: pass a pointer instead of a copy, `*T` to read it or `*var T` to change it");
             }
 
             vd->declared_type = decl_type;
@@ -8594,7 +8763,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                              target_name);
                     emit_error(ctx, IRON_ERR_READONLY_PARAM_MUTATION,
                                as->span, msg,
-                               "§6: readonly methods may not assign to any parameter");
+                               "a readonly method cannot assign to its parameters: work on a local copy, or drop `readonly`");
                 }
             }
 
@@ -8701,14 +8870,21 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     snprintf(msg, sizeof(msg),
                              "cannot mutate read-only parameter '%s'",
                              target_name ? target_name : "");
-                    emit_error(ctx, IRON_ERR_PARM_READ_ONLY, as->span, msg,
-                               "add 'var' modifier to grant in-body mutation: 'var <name>: T'");
+                    char phelp[256];
+                    snprintf(phelp, sizeof(phelp),
+                             "parameters are read-only; declare it 'var %s: %s' to change it in the body",
+                             target_name ? target_name : "x",
+                             target_sym->type ? iron_type_to_string(target_sym->type, ctx->arena) : "T");
+                    emit_error(ctx, IRON_ERR_PARM_READ_ONLY, as->span, msg, phelp);
                 } else {
                     char msg[256];
                     snprintf(msg, sizeof(msg),
-                             "cannot assign to val '%s' — val is immutable",
+                             "cannot assign to val '%s': a val cannot be reassigned",
                              target_name ? target_name : "");
-                    emit_error(ctx, IRON_ERR_VAL_REASSIGN, as->span, msg, NULL);
+                    char rhelp[200];
+                    snprintf(rhelp, sizeof(rhelp), "declare '%s' with var instead of val",
+                             target_name ? target_name : "x");
+                    emit_error(ctx, IRON_ERR_VAL_REASSIGN, as->span, msg, rhelp);
                 }
             }
 
@@ -8719,19 +8895,33 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                  * the pre-Phase-18 generic immutable-receiver path
                  * (E0234) for val-local field writes. Mutually exclusive
                  * emit. */
-                if (field_root_sym && field_root_sym->sym_kind == IRON_SYM_PARAM) {
+                if (field_root_sym && field_root_sym->sym_kind == IRON_SYM_PARAM &&
+                    field_root_name && strcmp(field_root_name, "self") == 0 &&
+                    ctx->in_readonly_method) {
+                    /* A readonly / pure method writing self: its own tier
+                     * error says so (E0238); "add var to the parameter"
+                     * does not apply to self. */
+                } else if (field_root_sym && field_root_sym->sym_kind == IRON_SYM_PARAM) {
                     char msg[256];
                     snprintf(msg, sizeof(msg),
                              "cannot mutate read-only parameter '%s'",
                              field_root_name ? field_root_name : "");
-                    emit_error(ctx, IRON_ERR_PARM_READ_ONLY, as->span, msg,
-                               "add 'var' modifier to grant in-body mutation: 'var <name>: T'");
+                    char phelp[256];
+                    snprintf(phelp, sizeof(phelp),
+                             "parameters are read-only; declare it 'var %s: %s' to change it in the body",
+                             field_root_name ? field_root_name : "x",
+                             field_root_sym->type ? iron_type_to_string(field_root_sym->type, ctx->arena) : "T");
+                    emit_error(ctx, IRON_ERR_PARM_READ_ONLY, as->span, msg, phelp);
                 } else {
                     char msg[256];
                     snprintf(msg, sizeof(msg),
-                             "cannot mutate field on immutable receiver");
+                             "cannot mutate a field of immutable binding '%s'",
+                             field_root_name ? field_root_name : "?");
+                    char fhelp[256];
+                    snprintf(fhelp, sizeof(fhelp), "declare '%s' with var instead of val",
+                             field_root_name ? field_root_name : "?");
                     emit_error(ctx, IRON_ERR_MUT_FIELD_IMMUT_RECV, as->span, msg,
-                               sym_is_loop_var(field_root_sym) ? LOOP_VAR_MUT_HELP : NULL);
+                               sym_is_loop_var(field_root_sym) ? LOOP_VAR_MUT_HELP : fhelp);
                     (void)field_root_name;  /* reserved for future hint; silence unused warn */
                 }
             }
@@ -8773,7 +8963,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                  "cannot write self.field in %s method", tier);
                         const char *hint_str = ctx->in_pure_method
                             ? NULL
-                            : "§6: readonly methods may not assign to self or its fields";
+                            : "a readonly method cannot change self: drop `readonly` to let it change fields";
                         emit_error(ctx, code, as->span, msg, hint_str);
                     }
                 }
@@ -9065,7 +9255,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             if (ctx->in_drop_method) {
                 emit_error(ctx, IRON_ERR_DROP_NO_EARLY_RETURN, rs->span,
                            "drop body must not return early; let scope exit flow naturally",
-                           "§6: drop body must not return early");
+                           "a drop body always runs to its end: wrap the rest of it in an if instead of returning");
             }
 
             /* Phase 85 INIT-10/11: inside an init body,
@@ -9100,7 +9290,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 rs->value && rs->value->kind == IRON_NODE_IDENT) {
                 emit_error(ctx, IRON_ERR_COPY_OF_NOCOPY_TYPE, rs->span,
                            "cannot return nocopy type by value — return requires copy",
-                           "§7: nocopy types cannot be copied; pass `*T` or `*var T` to avoid copy");
+                           "this type is nocopy: pass a pointer instead of a copy, `*T` to read it or `*var T` to change it");
             }
 
             if (ctx->current_return_type && ret_type) {
@@ -9132,8 +9322,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                      iron_type_to_string(ctx->current_return_type, ctx->arena),
                                      iron_type_to_string(ret_type, ctx->arena));
                             emit_error(ctx, IRON_ERR_PTR_REGIME_MISMATCH, rs->span, msg,
-                                       "§4.3-§4.4: checked and unchecked pointer regimes are disjoint; "
-                                       "use Box.unwrap() to escape from Box[T] to *unchecked T");
+                                       "checked (*T) and unchecked (*unchecked T) pointers do not convert into each other; get an *unchecked T from Box.unwrap()");
                         } else {
                             char msg[256];
                             snprintf(msg, sizeof(msg),
@@ -9528,7 +9717,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     if (dup) {
                         char msg[256];
                         snprintf(msg, sizeof(msg), "unreachable match arm: '%s' already covered", tn);
-                        emit_error(ctx, IRON_ERR_UNREACHABLE_ARM, mc->pattern->span, msg, NULL);
+                        emit_error(ctx, IRON_ERR_UNREACHABLE_ARM, mc->pattern->span, msg,
+                                   "an earlier arm already matches this; remove this arm or merge their bodies");
                     } else {
                         arrput(seen, tn);
                     }
@@ -9592,7 +9782,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         snprintf(msg, sizeof(msg),
                                  "unreachable match arm: value %lld already covered",
                                  (long long)v);
-                        emit_error(ctx, IRON_ERR_UNREACHABLE_ARM, mc->pattern->span, msg, NULL);
+                        emit_error(ctx, IRON_ERR_UNREACHABLE_ARM, mc->pattern->span, msg,
+                                   "an earlier arm already matches this; remove this arm or merge their bodies");
                     } else {
                         arrput(seen_vals, v);
                     }
@@ -9625,7 +9816,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                      "unreachable match arm: variant '%s' already covered",
                                      vname);
                             emit_error(ctx, IRON_ERR_UNREACHABLE_ARM, mc->pattern->span,
-                                       msg, NULL);
+                                       msg, "an earlier arm already matches this; remove this arm or merge their bodies");
                         } else {
                             covered[vi] = true;
                         }
@@ -10411,8 +10602,7 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
                  ts ? ts : "?");
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_READONLY_RETURN_TYPE, fd->span, msg,
-                       "§6: readonly return types: primitives, enums, fixed structs,"
-                       " [T; N], [T; <=N], tuples, T?");
+                       "a readonly method returns only numbers, Bool, enums, fixed structs, [T; N], [T; <=N], tuples and T?: drop `readonly` to return other types");
     }
 
     /* Resolve param types */
@@ -10469,7 +10659,16 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
     ctx->current_return_type = prev_ret;
 }
 
+static void check_method_decl_inner(TypeCtx *ctx, Iron_MethodDecl *md);
+
 static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
+    bool saved = ctx->in_iface_default;
+    ctx->in_iface_default = md && md->is_iface_default;
+    check_method_decl_inner(ctx, md);
+    ctx->in_iface_default = saved;
+}
+
+static void check_method_decl_inner(TypeCtx *ctx, Iron_MethodDecl *md) {
     /* Array extension method stubs: generic type params (T, U) are not real
      * types in scope.  Return type resolution for call sites is handled by
      * resolve_array_ext_method().  Skip full type checking of stubs. */
@@ -10564,8 +10763,7 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
                  ts ? ts : "?");
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_READONLY_RETURN_TYPE, md->span, msg,
-                       "§6: readonly return types: primitives, enums, fixed structs,"
-                       " [T; N], [T; <=N], tuples, T?");
+                       "a readonly method returns only numbers, Bool, enums, fixed structs, [T; N], [T; <=N], tuples and T?: drop `readonly` to return other types");
     }
 
     /* Resolve param types */
@@ -10625,8 +10823,8 @@ static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
     /* Phase 24 DROP-01: drop body cannot be marked readonly — drop mutates self */
     if (md->is_drop && md->is_readonly) {
         emit_error(ctx, IRON_ERR_DROP_NOT_READONLY, md->span,
-                   "drop body cannot be marked 'readonly' — drop mutates self",
-                   "§7: drop modifies the object before deallocation");
+                   "drop body cannot be marked 'readonly': drop changes self",
+                   "remove `readonly`: a drop body releases what self owns");
     }
     if (md->is_init) {
         ctx->unassigned_fields = NULL;
@@ -10872,7 +11070,7 @@ static void check_iface_tier_strengthening(TypeCtx *ctx, Iron_Program *program) 
                         : IRON_ERR_READONLY_IFACE_CONFORMANCE;  /* Phase 22 READ-07; readonly-sig case */
                     const char *hint = sig->is_pure
                         ? NULL   /* pure-tier hint conventions out of scope */
-                        : "§6: interface readonly method requires readonly or pure implementation";
+                        : "mark the implementing method readonly (or pure) to match the interface";
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    diag_code, impl->span, msg_copy, hint);
                 }
@@ -11298,7 +11496,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 if (drop_count > 0) {
                     emit_error(&ctx, IRON_ERR_DROP_DUPLICATE, m->span,
                                "duplicate drop block — at most one drop per object",
-                               "§7: at most one drop block per object");
+                               "merge the drop blocks into one");
                 }
                 drop_count++;
             }
@@ -11306,7 +11504,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 if (copy_count > 0) {
                     emit_error(&ctx, IRON_ERR_COPY_DUPLICATE, m->span,
                                "duplicate copy block — at most one copy per object",
-                               "§7: at most one copy block per object");
+                               "merge the copy blocks into one");
                 }
                 copy_count++;
             }

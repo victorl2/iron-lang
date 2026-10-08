@@ -37,13 +37,33 @@ void ilsp_quickfix_undefined_var(const Iron_Diagnostic           *diag,
     /* No typo candidate (suggestion NULL or empty) — skip. */
     if (!diag->suggestion || !diag->suggestion[0]) return;
 
-    /* Title: "Replace with '<suggestion>'". Budget a few bytes beyond the
-     * suggestion for the constant fragments. */
-    size_t slen = strlen(diag->suggestion);
+    /* The compiler's help reads "did you mean 'name'?"; the replacement is
+     * the quoted name. Any other help (a prose hint such as "declare 'x'
+     * before using it") is not a replacement, so no quickfix. A bare
+     * identifier is still accepted. */
+    const char *name = diag->suggestion;
+    size_t slen = strlen(name);
+    static const char prefix[] = "did you mean '";
+    if (strncmp(name, prefix, sizeof(prefix) - 1) == 0) {
+        name += sizeof(prefix) - 1;
+        const char *q = strchr(name, '\'');
+        if (!q || q == name) return;
+        slen = (size_t)(q - name);
+    } else {
+        for (size_t i = 0; i < slen; i++) {
+            char c = name[i];
+            if (!(c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                  (c >= '0' && c <= '9'))) return;
+        }
+    }
+    char *replacement = iron_arena_strdup(arena, name, slen);
+    if (!replacement) return;
+
+    /* Title: "Replace with '<name>'". */
     size_t need = slen + 32;  /* "Replace with '" + "'" + NUL */
     char *title = (char *)iron_arena_alloc(arena, need, 1);
     if (!title) return;
-    snprintf(title, need, "Replace with '%s'", diag->suggestion);
+    snprintf(title, need, "Replace with '%s'", replacement);
 
     IronLsp_Range r = ilsp_span_to_lsp_range(diag->span, doc,
         /* encoding resolved upstream by the facade; default to UTF-8 here
@@ -60,6 +80,6 @@ void ilsp_quickfix_undefined_var(const Iron_Diagnostic           *diag,
     out_arr[0].edit_start_char  = r.start.character;
     out_arr[0].edit_end_line    = r.end.line;
     out_arr[0].edit_end_char    = r.end.character;
-    out_arr[0].edit_new_text    = iron_arena_strdup(arena, diag->suggestion, slen);
+    out_arr[0].edit_new_text    = replacement;
     *out_n = 1;
 }

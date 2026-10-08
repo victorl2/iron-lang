@@ -396,6 +396,9 @@ typedef struct {
      * when a non-patch `pub object T` exists in the same source file
      * (regular object's methods survive, patch's don't). */
     bool               is_patch_member;
+    /* An interface default body copied into an implementor
+     * (iface_defaults.c): it acts as the implementor's own method. */
+    bool               is_iface_default;
     /* Phase 24 DROP-01/06 (Plan 24-01): flag drop/copy blocks.
      * is_drop  true when the source token was `drop { ... }`.
      * is_copy  true when the source token was `copy { ... }`.

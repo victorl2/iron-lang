@@ -215,7 +215,7 @@ void test_resolve_undefined_var_has_suggestion(void) {
     TEST_ASSERT_EQUAL_INT(1, g_diags.error_count);
     TEST_ASSERT_EQUAL_INT(IRON_ERR_UNDEFINED_VAR, g_diags.items[0].code);
     TEST_ASSERT_NOT_NULL(g_diags.items[0].suggestion);
-    TEST_ASSERT_EQUAL_STRING("println_local", g_diags.items[0].suggestion);
+    TEST_ASSERT_EQUAL_STRING("did you mean 'println_local'?", g_diags.items[0].suggestion);
 }
 
 /* Test 4: duplicate declaration => IRON_ERR_DUPLICATE_DECL (E0201) */

@@ -66,9 +66,9 @@ void test_readonly_val_param_assignment_rejected(void) {
         "    }\n"
         "}\n");
     TEST_ASSERT_EQUAL_INT(1, count_code(IRON_ERR_READONLY_PARAM_MUTATION));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_PARAM_MUTATION, "6:"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_PARAM_MUTATION, "readonly"));
     TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_PARAM_MUTATION,
-                                   "may not assign to any parameter"));
+                                   "cannot assign to its parameters"));
 }
 
 /* READ-02 case 3: NON-readonly method with same param-assign body emits

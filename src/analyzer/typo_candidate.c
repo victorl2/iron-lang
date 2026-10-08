@@ -19,9 +19,11 @@
 
 #include "analyzer/typo_candidate.h"
 #include "analyzer/scope.h"
+#include "parser/ast.h"
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
@@ -166,4 +168,45 @@ const char *iron_best_typo_candidate(struct Iron_Scope *scope,
     size_t len = strlen(best_name);
     char *copy = iron_arena_strdup(arena, best_name, len);
     return copy; /* NULL on arena OOM, which the caller treats as "no suggestion" */
+}
+
+/* "did you mean 'X'?" for a candidate name, or NULL. The LSP quickfix
+ * (quickfix_undefined_var.c) takes the replacement from between the quotes. */
+const char *iron_did_you_mean(Iron_Arena *arena, const char *candidate) {
+    if (!arena || !candidate || !candidate[0]) return NULL;
+    size_t need = strlen(candidate) + 20;
+    char *buf = (char *)iron_arena_alloc(arena, need, 1);
+    if (!buf) return NULL;
+    snprintf(buf, need, "did you mean '%s'?", candidate);
+    return buf;
+}
+
+/* Help for an unknown variant of `ed`: the closest variant name, else the
+ * list of its variants. */
+const char *iron_enum_variant_help(Iron_Arena *arena, const struct Iron_EnumDecl *ed,
+                                   const char *name) {
+    if (!arena || !ed || !name || ed->variant_count == 0) return NULL;
+    int max_dist = strlen(name) <= 4 ? 1 : 2;
+    const char *best = NULL; int best_d = max_dist + 1;
+    for (int i = 0; i < ed->variant_count; i++) {
+        const Iron_EnumVariant *ev = (const Iron_EnumVariant *)ed->variants[i];
+        if (!ev || !ev->name) continue;
+        int d = iron_levenshtein(name, ev->name, max_dist);
+        if (d < best_d) { best_d = d; best = ev->name; }
+    }
+    if (best) return iron_did_you_mean(arena, best);
+    size_t need = 64 + strlen(ed->name ? ed->name : "");
+    for (int i = 0; i < ed->variant_count; i++) {
+        const Iron_EnumVariant *ev = (const Iron_EnumVariant *)ed->variants[i];
+        if (ev && ev->name) need += strlen(ev->name) + 2;
+    }
+    char *buf = (char *)iron_arena_alloc(arena, need, 1);
+    if (!buf) return NULL;
+    size_t off = (size_t)snprintf(buf, need, "the variants of '%s' are ", ed->name ? ed->name : "?");
+    for (int i = 0; i < ed->variant_count && off < need; i++) {
+        const Iron_EnumVariant *ev = (const Iron_EnumVariant *)ed->variants[i];
+        if (!ev || !ev->name) continue;
+        off += (size_t)snprintf(buf + off, need - off, "%s%s", i ? ", " : "", ev->name);
+    }
+    return buf;
 }

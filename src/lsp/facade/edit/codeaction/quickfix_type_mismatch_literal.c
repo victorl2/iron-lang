@@ -14,6 +14,7 @@
 #include "lsp/facade/span.h"
 #include "lsp/store/document.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -31,6 +32,26 @@ void ilsp_quickfix_type_mismatch_literal(const Iron_Diagnostic           *diag,
     memset(&out_arr[0], 0, sizeof(out_arr[0]));
     if (!diag || !doc || !arena) return;
     if (!diag->suggestion || !diag->suggestion[0]) return;
+    /* Only a literal replaces a literal: a number, a quoted string, true or
+     * false. The compiler's help may instead be a sentence on how to
+     * convert, which must not be inserted. */
+    {
+        const char *t = diag->suggestion;
+        size_t tl = strlen(t);
+        bool lit = (tl >= 2 && t[0] == '"' && t[tl - 1] == '"') ||
+                   strcmp(t, "true") == 0 || strcmp(t, "false") == 0;
+        if (!lit) {
+            lit = true;
+            for (size_t i = 0; i < tl; i++) {
+                char c = t[i];
+                if (!((c >= '0' && c <= '9') || c == '.' || c == '_' || (i == 0 && c == '-'))) {
+                    lit = false;
+                    break;
+                }
+            }
+        }
+        if (!lit) return;
+    }
 
     size_t slen = strlen(diag->suggestion);
     size_t need = slen + 32;

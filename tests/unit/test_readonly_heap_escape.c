@@ -69,9 +69,9 @@ void test_readonly_heap_allocation_rejected(void) {
         "    }\n"
         "}\n");
     TEST_ASSERT_EQUAL_INT(1, count_code(IRON_ERR_READONLY_HEAP_ESCAPE));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_HEAP_ESCAPE, "6:"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_HEAP_ESCAPE, "readonly"));
     TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_HEAP_ESCAPE,
-                                   "may not allocate heap"));
+                                   "cannot allocate"));
 }
 
 /* READ-05 case 2: NON-readonly method allocating heap emits ZERO E0279. */

@@ -1,0 +1,9 @@
+did you mean 'total'?
+did you mean 'upper'?
+did you mean 'dist'?
+did you mean 'Green'?
+it is declared as area(w: Int, h: Int)
+convert it explicitly: Int(x)
+use interpolation
+write `(a & b) == c`
+one expression goes between { and }

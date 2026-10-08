@@ -65,8 +65,8 @@ void test_readonly_println_rejected(void) {
         "    }\n"
         "}\n");
     TEST_ASSERT_GREATER_THAN_INT(0, count_code(IRON_ERR_READONLY_IO));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_IO, "6:"));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_IO, "may not perform I/O"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_IO, "readonly"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_IO, "cannot do I/O"));
 }
 
 /* READ-04 case 2: readonly method calling print emits E0278. */
@@ -79,7 +79,7 @@ void test_readonly_print_rejected(void) {
         "    }\n"
         "}\n");
     TEST_ASSERT_GREATER_THAN_INT(0, count_code(IRON_ERR_READONLY_IO));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_IO, "6:"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_IO, "readonly"));
 }
 
 /* READ-04 case 3: readonly method calling print emits E0278 with hint text.
@@ -94,7 +94,7 @@ void test_readonly_print_hint_text(void) {
         "    }\n"
         "}\n");
     TEST_ASSERT_GREATER_THAN_INT(0, count_code(IRON_ERR_READONLY_IO));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_IO, "may not perform I/O"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_IO, "cannot do I/O"));
 }
 
 /* READ-04 case 4: readonly method calling Log.info emits E0278.
@@ -108,7 +108,7 @@ void test_readonly_log_method_call_rejected(void) {
         "    }\n"
         "}\n");
     TEST_ASSERT_GREATER_THAN_INT(0, count_code(IRON_ERR_READONLY_IO));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_IO, "6:"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_IO, "readonly"));
 }
 
 /* READ-04 case 5: readonly method with no I/O emits ZERO E0278. */

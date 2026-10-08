@@ -994,6 +994,14 @@ if(NOT IRON_ENABLE_FUZZING AND NOT MSVC)
     target_include_directories(iron_fuzz_gen_check PRIVATE src tests/fuzz)
 endif()
 
+# Diagnostics propose a fix: every expected help line must appear.
+add_test(NAME diag_help_quality
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_quality.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_quality.expected_help
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
 # A diagnostic is reported once even when two passes find it.
 add_test(NAME diag_reported_once
     COMMAND $<TARGET_FILE:ironc> check
