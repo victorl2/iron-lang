@@ -3313,14 +3313,16 @@ static Iron_Node *type_ann_from_expr(TypeCtx *ctx, Iron_Node *n) {
             for (int i = 0; i < ix->type_arg_count; i++) {
                 Iron_Node *arg = type_ann_from_expr(ctx, ix->type_args[i]);
                 if (!arg) return NULL;
-                arrput(base->generic_args, arg);
+                IRON_ARENA_ARR_PUSH(ctx->arena, base->generic_args,
+                                    base->generic_arg_count, arg);
                 base->generic_arg_count++;
             }
             return (Iron_Node *)base;
         }
         Iron_Node *arg = type_ann_from_expr(ctx, ix->index);
         if (!arg) return NULL;
-        arrput(base->generic_args, arg);
+        IRON_ARENA_ARR_PUSH(ctx->arena, base->generic_args,
+                            base->generic_arg_count, arg);
         base->generic_arg_count++;
         return (Iron_Node *)base;
     }
@@ -7194,8 +7196,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 Iron_Type *rt = rc_list_type(ctx, inner->array.elem);
                 if (rt->kind == IRON_TYPE_RC) {
                     Iron_ConstructExpr *ce = ARENA_ALLOC(ctx->arena, Iron_ConstructExpr);
-                    Iron_Node **cargs = (Iron_Node **)iron_arena_alloc(
-                        ctx->arena, sizeof(Iron_Node *), _Alignof(Iron_Node *));
+                    Iron_Node **cargs = (Iron_Node **)iron_arena_arr_new(
+                        ctx->arena, 1, sizeof(Iron_Node *));
                     if (!ce || !cargs) iron_oom_abort("typecheck.c:rc list wrap");
                     memset(ce, 0, sizeof(*ce));
                     cargs[0] = re->inner;
@@ -9298,14 +9300,13 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     Iron_CallExpr *range_call = ARENA_ALLOC(ctx->arena, Iron_CallExpr);
                     Iron_IndexExpr *elem = ARENA_ALLOC(ctx->arena, Iron_IndexExpr);
                     Iron_ValDecl *bind = ARENA_ALLOC(ctx->arena, Iron_ValDecl);
-                    Iron_Node **len_args = iron_arena_alloc(ctx->arena, sizeof(Iron_Node *),
-                                                            _Alignof(Iron_Node *));
-                    Iron_Node **range_args = iron_arena_alloc(ctx->arena, sizeof(Iron_Node *),
-                                                              _Alignof(Iron_Node *));
+                    Iron_Node **len_args = iron_arena_arr_new(ctx->arena, 1,
+                                                              sizeof(Iron_Node *));
+                    Iron_Node **range_args = iron_arena_arr_new(ctx->arena, 1,
+                                                                sizeof(Iron_Node *));
                     Iron_Block *body = (Iron_Block *)fs->body;
-                    Iron_Node **stmts = iron_arena_alloc(
-                        ctx->arena, sizeof(Iron_Node *) * (size_t)(body->stmt_count + 1),
-                        _Alignof(Iron_Node *));
+                    Iron_Node **stmts = iron_arena_arr_new(
+                        ctx->arena, (size_t)(body->stmt_count + 1), sizeof(Iron_Node *));
                     if (!idx_name || !idx || !idx2 || !src2 || !len_id || !range_id ||
                         !len_call || !range_call || !elem || !bind || !len_args ||
                         !range_args || !stmts)

@@ -1069,9 +1069,8 @@ Iron_Node *iron_comptime_val_to_ast(Iron_ComptimeVal *val, Iron_Arena *arena,
             al->type_ann      = NULL;
             al->size          = NULL;
             al->element_count = val->as_array.count;
-            al->elements = iron_arena_alloc(arena,
-                (size_t)val->as_array.count * sizeof(Iron_Node *),
-                _Alignof(Iron_Node *));
+            al->elements = iron_arena_arr_new(arena,
+                (size_t)val->as_array.count, sizeof(Iron_Node *));
             if (!al->elements) { /* HARD-09 REPLACE (comptime.c:iron_comptime_val_to_ast ArrayLit elements) */ return NULL; }
             /* Elements carry the array's element type: with NULL the
              * lowered literal had void elements and emitted invalid C. */

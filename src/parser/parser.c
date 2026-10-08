@@ -105,41 +105,24 @@ static bool iron_parser_depth_exceeded(Iron_Parser *p) {
     return true;
 }
 
-/* FIX-03 / AUDIT-04 §1: SAFETY — this file contains 17 cross-arena storage
- * sites where stb_ds heap-managed arrays (built via `arrput`) are transferred
- * into arena-allocated AST nodes (assigned to `n->fields`, `n->variants`,
- * `n->params`, `n->args`, `n->stmts`, `n->cases`, `n->parts`, etc.). The
- * concern in the Phase 65 audit was: when the arena is freed, the stb_ds
- * backing buffers leak; if the stb_ds buffers are freed while the AST is
- * still live, the arena-allocated nodes hold dangling pointers.
+/* AST node arrays (block statements, call arguments, parameters, match
+ * cases, interpolation parts, ...) are arena arrays: the parser builds each
+ * one with stb_ds `arrput` in a local, then hands it to AST_ARR, which
+ * copies it into the parser arena (behind an stb_ds-shaped header, see
+ * iron_arena_arr_new) and frees the stb_ds buffer. Freeing the arena
+ * therefore releases every node array, which the LSP (one analysis per
+ * edit) and the fuzzers rely on.
  *
- * Invariant upheld by the parser lifecycle:
+ * Arena arrays may be shared and moved between nodes freely (the analyzer
+ * moves `args` between nodes and `[func(T)]` shares its element's
+ * func_params), but never grown with stb_ds: code that appends to a node
+ * array after parsing uses IRON_ARENA_ARR_PUSH. arrlen() on them is
+ * correct; the node's count field remains the source of truth.
  *
- *   1. Every stb_ds array in this file is either (a) function-scoped and
- *      `arrfree`'d on every exit path (see arrfree sites at 223, 234, 833,
- *      860, 1804, 1813), or (b) ownership-transferred to an arena-allocated
- *      AST node (e.g., `n->fields = fields;`) whose lifetime is coupled to
- *      the compilation unit's parser arena (`p->arena`).
- *
- *   2. Callers NEVER call `arrfree` on the transferred stb_ds array after
- *      ownership transfer — by convention, ownership is irrevocable once
- *      assigned into an arena AST node.
- *
- *   3. The parser arena lives for the entire compilation unit (typecheck,
- *      HIR lower, LIR lower, emit — see src/cli/ironc.c for the teardown
- *      order). When `iron_arena_free(p->arena)` is called, the AST nodes
- *      are reclaimed but the stb_ds backing buffers leak to process exit.
- *      The exception is Iron_Program.decls, which iron_parse hands to the
- *      arena with iron_arena_own_arr. The other node arrays still leak
- *      when the arena is freed, about 1.4 KB per analysis of a typical
- *      file, which matters only to the LSP (one analysis per edit). They
- *      cannot simply be owned the same way: the analyzer moves `args`
- *      arrays between nodes and replaces some `stmts` with arena arrays.
- *
- * The inline `FIX-03` markers below tag 5 representative transfer sites
- * (function params, function-call args, object fields, enum variants, block
- * statements) for grep discoverability. All 17 sites in this file follow the
- * same pattern; tagging every one would be noise. */
+ * The exception is Iron_Program.decls, which the generics and interface
+ * default passes append to with arrput: it stays an stb_ds array, owned by
+ * the arena through iron_arena_own_arr. */
+#define AST_ARR(arr) iron_arena_arr_adopt(p->arena, (void *)(arr), sizeof *(arr))
 
 /* ── Precedence levels (Pratt) ────────────────────────────────────────────── */
 
@@ -804,15 +787,8 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
             arrfree(elems);
             return iron_make_error(p);
         }
-        /* Transfer the stb_ds element pointer array into the arena so the
-         * AST owns it independently of the stb_ds lifetime. Mirrors the
-         * func_params ownership transfer pattern below. */
-        Iron_Node **arena_elems = (Iron_Node **)iron_arena_alloc(
-            p->arena, sizeof(Iron_Node *) * (size_t)count,
-            _Alignof(Iron_Node *));
+        Iron_Node **arena_elems = AST_ARR(elems);
         if (!arena_elems) { /* HARD-09 REPLACE (iron_parse_type_annotation tuple elems) */ p->in_error_recovery = true; return iron_make_error(p); }
-        memcpy(arena_elems, elems, sizeof(Iron_Node *) * (size_t)count);
-        arrfree(elems);
 
         Iron_TypeAnnotation *ann = ARENA_ALLOC(p->arena, Iron_TypeAnnotation);
         if (!ann) { /* HARD-09 REPLACE (iron_parse_type_annotation tuple) */ p->in_error_recovery = true; return iron_make_error(p); }
@@ -982,10 +958,7 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
                 iron_skip_newlines(p);
             }
             iron_expect(p, IRON_TOK_RPAREN);
-            /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `params` array ownership
-             * transfers to the arena-allocated TypeAnnotation node. Parser
-             * arena lifetime governs both (file-header comment). */
-            ann->func_params      = params;
+            ann->func_params      = AST_ARR(params);
             ann->func_param_count = param_count;
         }
 
@@ -1042,6 +1015,7 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
             if (!iron_match(p, IRON_TOK_COMMA)) break;
             iron_skip_newlines(p);
         }
+        IRON_ARENA_ARR_ADOPT(p->arena, ann->generic_args);
         iron_expect(p, IRON_TOK_RBRACKET);
         /* `Name[T]?`: the `?` after the type arguments (the printer's form;
          * `Name?[T]` is still accepted above). */
@@ -1112,7 +1086,7 @@ static Iron_Node **iron_parse_generic_params(Iron_Parser *p, int *out_count,
         iron_skip_newlines(p);
     }
     iron_expect(p, IRON_TOK_RBRACKET);
-    return arr;
+    return AST_ARR(arr);
 }
 
 /* ── Parameter list: (param, ...) ────────────────────────────────────────── */
@@ -1217,7 +1191,7 @@ static Iron_Node **iron_parse_param_list(Iron_Parser *p, int *out_count) {
     }
 
     iron_expect(p, IRON_TOK_RPAREN);
-    return arr;
+    return AST_ARR(arr);
 }
 
 /* ── Block: { stmt* } ────────────────────────────────────────────────────── */
@@ -1295,13 +1269,12 @@ static Iron_Node *iron_parse_block_impl(Iron_Parser *p) {
         /* incomplete block, return what we have */
     }
 
+    stmts = AST_ARR(stmts);
     Iron_Block *blk  = ARENA_ALLOC(p->arena, Iron_Block);
     if (!blk) { /* HARD-09 REPLACE (iron_parse_block) */ p->in_error_recovery = true; return iron_make_error(p); }
     blk->kind        = IRON_NODE_BLOCK;
     blk->span        = iron_span_merge(iron_token_span(p, start),
                                        iron_token_span(p, end));
-    /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `stmts` array ownership-
-     * transferred to arena-allocated Block; file-header comment. */
     blk->stmts       = stmts;
     blk->stmt_count  = stmt_count;
     return (Iron_Node *)blk;
@@ -1309,10 +1282,6 @@ static Iron_Node *iron_parse_block_impl(Iron_Parser *p) {
 
 /* ── Call argument list: (expr, ...) ─────────────────────────────────────── */
 
-/* FIX-03 / AUDIT-04 §1: SAFETY — the stb_ds `arr` built here is returned to
- * the caller, which in every case assigns it into an arena-allocated call-
- * expression node (e.g., `call->args = arr;`). Ownership transfers to the
- * arena AST node; stb_ds backing buffer lives for the compilation unit. */
 /* Phase 5 Plan 05-05: `out_rparen_span` (optional) receives the span
  * of the closing `)` token. Callers that build CallExpr / MethodCallExpr
  * / EnumConstruct spans should pass a non-NULL pointer and merge with
@@ -1355,7 +1324,7 @@ static Iron_Node **iron_parse_call_args_ex(Iron_Parser *p, int *out_count,
         }
     }
     iron_expect(p, IRON_TOK_RPAREN);
-    return arr;
+    return AST_ARR(arr);
 }
 
 
@@ -1379,8 +1348,6 @@ static Iron_Node *iron_parse_lambda(Iron_Parser *p) {
     if (!lam) { /* HARD-09 REPLACE (iron_parse_lambda) */ p->in_error_recovery = true; return iron_make_error(p); }
     lam->kind            = IRON_NODE_LAMBDA;
     lam->span            = iron_span_merge(iron_token_span(p, start), body->span);
-    /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `params` array transferred to
-     * arena-allocated LambdaExpr; see file-header comment. */
     lam->params          = params;
     lam->param_count     = param_count;
     lam->return_type     = ret;
@@ -1604,9 +1571,8 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                 al->span          = iron_span_merge(
                     lparen_span, iron_token_span(p, iron_current(p)));
                 /* Transfer element ownership into arena. */
-                Iron_Node **arena_elems = (Iron_Node **)iron_arena_alloc(
-                    p->arena, sizeof(Iron_Node *) * (size_t)count,
-                    _Alignof(Iron_Node *));
+                Iron_Node **arena_elems = (Iron_Node **)iron_arena_arr_new(
+                    p->arena, (size_t)count, sizeof(Iron_Node *));
                 if (!arena_elems) { /* HARD-09 REPLACE (iron_parse_primary tuple elems) */ p->in_error_recovery = true; return iron_make_error(p); }
                 memcpy(arena_elems, elems, sizeof(Iron_Node *) * (size_t)count);
                 arrfree(elems);
@@ -1904,7 +1870,7 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
                 iron_skip_newlines(p);
             }
             iron_expect(p, IRON_TOK_RBRACKET);
-            arr->elements      = elems;
+            arr->elements      = AST_ARR(elems);
             arr->element_count = elem_count;
             arr->span          = iron_span_merge(iron_token_span(p, lb),
                                                  iron_token_span(p, iron_current(p)));
@@ -2131,6 +2097,7 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                         if (!iron_match(p, IRON_TOK_COMMA)) break;
                     }
                     iron_expect(p, IRON_TOK_RBRACKET);
+                    m_type_args = AST_ARR(m_type_args);
                 }
             }
 
@@ -2281,8 +2248,8 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                 ix->index  = idx;
                 if (targs) {
                     int n = (int)arrlen(targs);
-                    Iron_Node **copy = (Iron_Node **)iron_arena_alloc(
-                        p->arena, sizeof(Iron_Node *) * (size_t)n, _Alignof(Iron_Node *));
+                    Iron_Node **copy = (Iron_Node **)iron_arena_arr_new(
+                        p->arena, (size_t)n, sizeof(Iron_Node *));
                     if (!copy) { p->in_error_recovery = true; arrfree(targs); return iron_make_error(p); }
                     memcpy(copy, targs, sizeof(Iron_Node *) * (size_t)n);
                     ix->type_args = copy;
@@ -2417,9 +2384,9 @@ static Iron_Node *desugar_assert_eq(Iron_Parser *p, Iron_Node *expr) {
     Iron_InterpString *msg = ARENA_ALLOC(p->arena, Iron_InterpString);
     Iron_CallExpr *call = ARENA_ALLOC(p->arena, Iron_CallExpr);
     Iron_Block *blk = ARENA_ALLOC(p->arena, Iron_Block);
-    Iron_Node **parts = iron_arena_alloc(p->arena, sizeof(Iron_Node *) * 4, _Alignof(Iron_Node *));
-    Iron_Node **args = iron_arena_alloc(p->arena, sizeof(Iron_Node *) * 2, _Alignof(Iron_Node *));
-    Iron_Node **stmts = iron_arena_alloc(p->arena, sizeof(Iron_Node *) * 3, _Alignof(Iron_Node *));
+    Iron_Node **parts = iron_arena_arr_new(p->arena, 4, sizeof(Iron_Node *));
+    Iron_Node **args = iron_arena_arr_new(p->arena, 2, sizeof(Iron_Node *));
+    Iron_Node **stmts = iron_arena_arr_new(p->arena, 3, sizeof(Iron_Node *));
     if (!a_name || !b_name || !va || !vb || !cmp || !msg || !call || !blk || !parts || !args || !stmts)
         return expr;
 
@@ -2504,8 +2471,8 @@ static Iron_Node *iron_parse_if_stmt(Iron_Parser *p) {
                                        else_body ? else_body->span : body->span);
     n->condition    = cond;
     n->body         = body;
-    n->elif_conds   = elif_conds;
-    n->elif_bodies  = elif_bodies;
+    n->elif_conds   = AST_ARR(elif_conds);
+    n->elif_bodies  = AST_ARR(elif_bodies);
     n->elif_count   = elif_count;
     n->else_body    = else_body;
     return (Iron_Node *)n;
@@ -2685,8 +2652,8 @@ static Iron_Node *iron_parse_pattern(Iron_Parser *p) {
     pat->variant_name   = iron_arena_strdup(p->arena, variant_tok->value,
                                              strlen(variant_tok->value));
     if (!pat->variant_name) { /* HARD-09 REPLACE (iron_parse_pattern variant_name) */ pat->variant_name = "?"; }
-    pat->binding_names  = binding_names;
-    pat->nested_patterns = nested_patterns;
+    pat->binding_names  = AST_ARR(binding_names);
+    pat->nested_patterns = AST_ARR(nested_patterns);
     pat->binding_count  = binding_count;
     return (Iron_Node *)pat;
 }
@@ -2740,7 +2707,7 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
                     blk->kind       = IRON_NODE_BLOCK;
                     blk->span       = single->span;
                     blk->stmts      = NULL;
-                    arrput(blk->stmts, single);
+                    IRON_ARENA_ARR_PUSH(p->arena, blk->stmts, 0, single);
                     blk->stmt_count = 1;
                     else_body = (Iron_Node *)blk;
                 }
@@ -2805,7 +2772,7 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
             blk->kind       = IRON_NODE_BLOCK;
             blk->span       = single->span;
             blk->stmts      = NULL;
-            arrput(blk->stmts, single);
+            IRON_ARENA_ARR_PUSH(p->arena, blk->stmts, 0, single);
             blk->stmt_count = 1;
             cbody = (Iron_Node *)blk;
         }
@@ -2830,7 +2797,7 @@ static Iron_Node *iron_parse_match_stmt(Iron_Parser *p) {
     n->span           = iron_span_merge(iron_token_span(p, start),
                                          iron_token_span(p, end));
     n->subject        = subject;
-    n->cases          = cases;
+    n->cases          = AST_ARR(cases);
     n->case_count     = case_count;
     n->else_body      = else_body;
     return (Iron_Node *)n;
@@ -3044,6 +3011,7 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
     (void)lit_len;
 
     free(lit_buf);
+    IRON_ARENA_ARR_ADOPT(p->arena, n->parts);
     return (Iron_Node *)n;
 }
 
@@ -3090,9 +3058,8 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
             return iron_make_error(p);
         }
         /* Transfer binding names into arena. */
-        const char **arena_names = (const char **)iron_arena_alloc(
-            p->arena, sizeof(const char *) * (size_t)count,
-            _Alignof(const char *));
+        const char **arena_names = (const char **)iron_arena_arr_new(
+            p->arena, (size_t)count, sizeof(const char *));
         if (!arena_names) { /* HARD-09 REPLACE (iron_parse_val_decl tuple arena_names) */ p->in_error_recovery = true; arrfree(names); return iron_make_error(p); }
         memcpy(arena_names, names, sizeof(const char *) * (size_t)count);
         arrfree(names);
@@ -3841,9 +3808,8 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
         synth_recv->type_ann = recv_type_ann;
 
         int recv_total = recv_explicit_count + 1;
-        Iron_Node **recv_all_params = (Iron_Node **)iron_arena_alloc(
-            p->arena, sizeof(Iron_Node *) * (size_t)recv_total,
-            _Alignof(Iron_Node *));
+        Iron_Node **recv_all_params = (Iron_Node **)iron_arena_arr_new(
+            p->arena, (size_t)recv_total, sizeof(Iron_Node *));
         if (!recv_all_params) iron_oom_abort("parser.c:iron_parse_func_or_method receiver params");
         recv_all_params[0] = (Iron_Node *)synth_recv;
         for (int i = 0; i < recv_explicit_count; i++) {
@@ -4320,8 +4286,8 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             if (!self_type->name) iron_oom_abort("parser.c:iron_parse_object_decl copy/drop self type name");
             synth_self->type_ann = (Iron_Node *)self_type;
 
-            Iron_Node **all_params = (Iron_Node **)iron_arena_alloc(
-                p->arena, sizeof(Iron_Node *), _Alignof(Iron_Node *));
+            Iron_Node **all_params = (Iron_Node **)iron_arena_arr_new(
+                p->arena, 1, sizeof(Iron_Node *));
             if (!all_params) iron_oom_abort("parser.c:iron_parse_object_decl copy/drop params array");
             all_params[0] = (Iron_Node *)synth_self;
 
@@ -4488,9 +4454,8 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             synth_self->type_ann = (Iron_Node *)self_type;
 
             int total = explicit_count + 1;
-            Iron_Node **all_params = (Iron_Node **)iron_arena_alloc(
-                p->arena, sizeof(Iron_Node *) * (size_t)total,
-                _Alignof(Iron_Node *));
+            Iron_Node **all_params = (Iron_Node **)iron_arena_arr_new(
+                p->arena, (size_t)total, sizeof(Iron_Node *));
             if (!all_params) iron_oom_abort("parser.c:iron_parse_object_decl init params array");
             all_params[0] = (Iron_Node *)synth_self;
             for (int i = 0; i < explicit_count; i++) {
@@ -4618,9 +4583,8 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
 
             /* Prepend synth_self to explicit params. */
             int total = explicit_count + 1;
-            Iron_Node **all_params = (Iron_Node **)iron_arena_alloc(
-                p->arena, sizeof(Iron_Node *) * (size_t)total,
-                _Alignof(Iron_Node *));
+            Iron_Node **all_params = (Iron_Node **)iron_arena_arr_new(
+                p->arena, (size_t)total, sizeof(Iron_Node *));
             if (!all_params) iron_oom_abort("parser.c:iron_parse_object_decl in-block params array");
             all_params[0] = (Iron_Node *)synth_self;
             for (int i = 0; i < explicit_count; i++) {
@@ -4858,13 +4822,12 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             g_body->span       = field_span;
             g_body->stmts      = NULL;
             g_body->stmt_count = 0;
-            arrput(g_body->stmts, (Iron_Node *)g_ret);
+            IRON_ARENA_ARR_PUSH(p->arena, g_body->stmts, 0, (Iron_Node *)g_ret);
             g_body->stmt_count = 1;
 
             /* Getter params array: [self] */
-            Iron_Node **g_params = (Iron_Node **)iron_arena_alloc(
-                p->arena, sizeof(Iron_Node *),
-                _Alignof(Iron_Node *));
+            Iron_Node **g_params = (Iron_Node **)iron_arena_arr_new(
+                p->arena, 1, sizeof(Iron_Node *));
             if (!g_params) iron_oom_abort("parser.c:iron_parse_object_decl synth getter params");
             g_params[0] = (Iron_Node *)g_self;
 
@@ -4995,12 +4958,11 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             s_body->span       = field_span;
             s_body->stmts      = NULL;
             s_body->stmt_count = 0;
-            arrput(s_body->stmts, (Iron_Node *)s_as);
+            IRON_ARENA_ARR_PUSH(p->arena, s_body->stmts, 0, (Iron_Node *)s_as);
             s_body->stmt_count = 1;
 
-            Iron_Node **s_params = (Iron_Node **)iron_arena_alloc(
-                p->arena, sizeof(Iron_Node *) * 2,
-                _Alignof(Iron_Node *));
+            Iron_Node **s_params = (Iron_Node **)iron_arena_arr_new(
+                p->arena, 2, sizeof(Iron_Node *));
             if (!s_params) iron_oom_abort("parser.c:iron_parse_object_decl synth setter params array");
             s_params[0] = (Iron_Node *)s_self;
             s_params[1] = (Iron_Node *)s_v;
@@ -5198,8 +5160,8 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
                 if (!sty->name) iron_oom_abort("parser.c:iron_parse_object_decl fieldless self ty name");
                 ss->type_ann = (Iron_Node *)sty;
 
-                Iron_Node **sparams = (Iron_Node **)iron_arena_alloc(
-                    p->arena, sizeof(Iron_Node *), _Alignof(Iron_Node *));
+                Iron_Node **sparams = (Iron_Node **)iron_arena_arr_new(
+                    p->arena, 1, sizeof(Iron_Node *));
                 if (!sparams) iron_oom_abort("parser.c:iron_parse_object_decl fieldless params");
                 sparams[0] = (Iron_Node *)ss;
 
@@ -5284,12 +5246,10 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
     n->name                    = iron_arena_strdup(p->arena, name_tok->value,
                                                     strlen(name_tok->value));
     if (!n->name) { /* HARD-09 REPLACE (iron_parse_object_decl ObjectDecl name) */ n->name = "?"; }
-    /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `fields` and `impl_names` arrays
-     * ownership-transferred to arena-allocated ObjectDecl; file-header. */
-    n->fields                  = fields;
+    n->fields                  = AST_ARR(fields);
     n->field_count             = field_count;
     n->extends_name            = extends_name;
-    n->implements_names        = impl_names;
+    n->implements_names        = AST_ARR(impl_names);
     n->implements_count        = impl_count;
     n->generic_params          = generic_params;
     n->generic_param_count     = generic_count;
@@ -5468,8 +5428,8 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             if (!self_type->name) iron_oom_abort("parser.c:iron_parse_patch_decl copy/drop self type name");
             synth_self->type_ann = (Iron_Node *)self_type;
 
-            Iron_Node **all_params = (Iron_Node **)iron_arena_alloc(
-                p->arena, sizeof(Iron_Node *), _Alignof(Iron_Node *));
+            Iron_Node **all_params = (Iron_Node **)iron_arena_arr_new(
+                p->arena, 1, sizeof(Iron_Node *));
             if (!all_params) iron_oom_abort("parser.c:iron_parse_patch_decl copy/drop params array");
             all_params[0] = (Iron_Node *)synth_self;
 
@@ -5601,9 +5561,8 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             synth_self->type_ann = (Iron_Node *)self_type;
 
             int total = explicit_count + 1;
-            Iron_Node **all_params = (Iron_Node **)iron_arena_alloc(
-                p->arena, sizeof(Iron_Node *) * (size_t)total,
-                _Alignof(Iron_Node *));
+            Iron_Node **all_params = (Iron_Node **)iron_arena_arr_new(
+                p->arena, (size_t)total, sizeof(Iron_Node *));
             if (!all_params) iron_oom_abort("parser.c:iron_parse_patch_decl init params array");
             all_params[0] = (Iron_Node *)synth_self;
             for (int i = 0; i < explicit_count; i++) {
@@ -5726,9 +5685,8 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             synth_self->type_ann = (Iron_Node *)self_type;
 
             int total = explicit_count + 1;
-            Iron_Node **all_params = (Iron_Node **)iron_arena_alloc(
-                p->arena, sizeof(Iron_Node *) * (size_t)total,
-                _Alignof(Iron_Node *));
+            Iron_Node **all_params = (Iron_Node **)iron_arena_arr_new(
+                p->arena, (size_t)total, sizeof(Iron_Node *));
             if (!all_params) iron_oom_abort("parser.c:iron_parse_patch_decl method params array");
             all_params[0] = (Iron_Node *)synth_self;
             for (int i = 0; i < explicit_count; i++) {
@@ -5823,7 +5781,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
     n->field_count         = 0;
     n->extends_name        = NULL;
     /* Phase 87-02 PATCH-08: populate implements clause if present. */
-    n->implements_names    = impl_names;
+    n->implements_names    = AST_ARR(impl_names);
     n->implements_count    = impl_count;
     n->generic_params      = NULL;
     n->generic_param_count = 0;
@@ -5994,7 +5952,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
     n->name               = iron_arena_strdup(p->arena, name_tok->value,
                                                strlen(name_tok->value));
     if (!n->name) { /* HARD-09 REPLACE (iron_parse_interface_decl InterfaceDecl name) */ n->name = "?"; }
-    n->method_sigs        = method_sigs;
+    n->method_sigs        = AST_ARR(method_sigs);
     n->method_count       = method_count;
     (void)is_private;
     return (Iron_Node *)n;
@@ -6064,6 +6022,7 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub) {
                 iron_skip_newlines(p);
             }
             iron_expect(p, IRON_TOK_RPAREN);
+            IRON_ARENA_ARR_ADOPT(p->arena, v->payload_type_anns);
             v->span = iron_span_merge(iron_token_span(p, vt),
                                       iron_token_span(p, iron_current(p)));
         } else if (iron_check(p, IRON_TOK_ASSIGN)) {
@@ -6120,9 +6079,7 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub) {
     n->name            = iron_arena_strdup(p->arena, name_tok->value,
                                             strlen(name_tok->value));
     if (!n->name) { /* HARD-09 REPLACE (iron_parse_enum_decl EnumDecl name) */ n->name = "?"; }
-    /* FIX-03 / AUDIT-04 §1: SAFETY — stb_ds `variants` array ownership-
-     * transferred to arena-allocated EnumDecl; file-header comment. */
-    n->variants             = variants;
+    n->variants             = AST_ARR(variants);
     n->variant_count        = variant_count;
     n->has_payloads         = has_payloads;
     n->generic_params       = generic_params;
