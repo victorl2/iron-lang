@@ -3923,22 +3923,24 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                         result = lt;
                     }
                 } else if (is_bitwise) {
-                    if (lt->kind != IRON_TYPE_INT) {
+                    /* `& | ^ << >>` take integer operands of any width
+                     * (manual 3.2); `& | ^` need both of one type, and a
+                     * shift has its left operand's type whatever the
+                     * count's integer type is. */
+                    bool is_shift = op == IRON_TOK_SHL || op == IRON_TOK_SHR;
+                    if (!iron_type_is_integer(lt) || !iron_type_is_integer(rt)) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
-                                 "bitwise operator requires Int operands, got '%s'",
-                                 iron_type_to_string(lt, ctx->arena));
+                                 "bitwise operator requires integer operands, got '%s'",
+                                 iron_type_to_string(iron_type_is_integer(lt) ? rt : lt,
+                                                     ctx->arena));
                         emit_error(ctx, IRON_ERR_BITWISE_NON_INT, be->span, msg, NULL);
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
-                    } else if (rt->kind != IRON_TYPE_INT) {
-                        char msg[256];
-                        snprintf(msg, sizeof(msg),
-                                 "bitwise operator requires Int operands, got '%s'",
-                                 iron_type_to_string(rt, ctx->arena));
-                        emit_error(ctx, IRON_ERR_BITWISE_NON_INT, be->span, msg, NULL);
+                    } else if (!is_shift && !iron_type_equals(lt, rt)) {
+                        emit_type_mismatch(ctx, be->span, lt, rt);
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     } else {
-                        result = lt;  /* Int */
+                        result = lt;
                     }
                 } else {
                     result = lt;
@@ -4055,10 +4057,10 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 }
                 result = ot ? ot : iron_type_make_primitive(IRON_TYPE_ERROR);
             } else if (ue->op == IRON_TOK_TILDE) {
-                if (ot && ot->kind != IRON_TYPE_INT && ot->kind != IRON_TYPE_ERROR) {
+                if (ot && !iron_type_is_integer(ot) && ot->kind != IRON_TYPE_ERROR) {
                     char msg[256];
                     snprintf(msg, sizeof(msg),
-                             "bitwise operator '~' requires Int operand, got '%s'",
+                             "bitwise operator '~' requires an integer operand, got '%s'",
                              iron_type_to_string(ot, ctx->arena));
                     emit_error(ctx, IRON_ERR_BITWISE_NON_INT, ue->span, msg, NULL);
                     result = iron_type_make_primitive(IRON_TYPE_ERROR);

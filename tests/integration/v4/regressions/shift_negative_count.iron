@@ -1,0 +1,9 @@
+-- @expect-panic: shift by a negative count
+-- A shift by a negative count panics, naming the source line.
+func shl(a: Int, n: Int) -> Int {
+    return a << n
+}
+
+func main() {
+    println("{shl(1, -1)}")
+}

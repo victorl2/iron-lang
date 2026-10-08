@@ -322,6 +322,32 @@ void iron_panic_div_by_zero(const char *site_file, int site_line) {
     abort();
 }
 
+/* A shift by a negative count. Counts of the operand's width or more are
+ * defined (<< gives 0, >> the sign fill); a negative count is a bug.
+ * JSON channel:  {"panic":"negative_shift","site":{...},"count":N}
+ * Text channel:  iron: shift by a negative count
+ *                  site: <file>:<line>
+ *                  count: <N> */
+void iron_panic_negative_shift(const char *site_file, int site_line, int64_t count) {
+    fflush(stdout);  /* the program's earlier output comes first */
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+    }
+    const char *sf = site_file ? site_file : "<unknown>";
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"negative_shift\",", stderr);
+        fprintf(stderr, "\"site\":{\"file\":\"%s\",\"line\":%d},\"count\":%lld}\n",
+                sf, site_line, (long long)count);
+    } else {
+        fputs("iron: shift by a negative count\n", stderr);
+        fprintf(stderr, "  site: %s:%d\n  count: %lld\n", sf, site_line, (long long)count);
+    }
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
 /* Phase 24 DROP-04 (Plan 24-03): partial-init cleanup helpers.
  *
  * iron_init_cleanup_register: push a cleanup entry (stack-allocated by caller)

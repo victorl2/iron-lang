@@ -400,6 +400,12 @@ __attribute__((noreturn))
 #endif
 void iron_panic_div_by_zero(const char *site_file, int site_line);
 
+/* A shift by a negative count. Definition in iron_panic.c. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noreturn))
+#endif
+void iron_panic_negative_shift(const char *site_file, int site_line, int64_t count);
+
 /* Generic index out of bounds (LIST-01). Definition in iron_panic.c. */
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((noreturn))
@@ -433,6 +439,40 @@ static inline uint64_t iron_umod64(uint64_t a, uint64_t b,
                                    const char *site_file, int site_line) {
     if (b == 0) iron_panic_div_by_zero(site_file, site_line);
     return a % b;
+}
+
+/* Shifts. In C a count outside 0..width-1, or a left shift of a negative
+ * value, is undefined (it gave garbage, e.g. 1 << 65). Iron defines them:
+ * a count of the width or more gives 0 for <<, and for >> the sign fill
+ * (0 or -1); a negative count panics. Left shifts work on the unsigned
+ * bits, so -1 << 3 is -8. */
+static inline int64_t iron_shl_i64(int64_t a, int64_t n, const char *site_file, int site_line) {
+    if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
+    if (n >= 64) return 0;
+    return (int64_t)((uint64_t)a << n);
+}
+static inline int64_t iron_shr_i64(int64_t a, int64_t n, const char *site_file, int site_line) {
+    if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
+    if (n >= 64) return a < 0 ? -1 : 0;
+    return a >> n;
+}
+static inline int32_t iron_shl_i32(int32_t a, int64_t n, const char *site_file, int site_line) {
+    if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
+    if (n >= 32) return 0;
+    return (int32_t)((uint32_t)a << n);
+}
+static inline int32_t iron_shr_i32(int32_t a, int64_t n, const char *site_file, int site_line) {
+    if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
+    if (n >= 32) return a < 0 ? -1 : 0;
+    return a >> n;
+}
+static inline uint64_t iron_shl_u64(uint64_t a, int64_t n, const char *site_file, int site_line) {
+    if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
+    return n >= 64 ? 0 : a << n;
+}
+static inline uint64_t iron_shr_u64(uint64_t a, int64_t n, const char *site_file, int site_line) {
+    if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
+    return n >= 64 ? 0 : a >> n;
 }
 
 /* LIST-01: expression-form bounds check. Panics on i < 0 || i >= n (unsigned
