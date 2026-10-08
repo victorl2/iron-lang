@@ -10258,6 +10258,13 @@ static bool compute_has_user_copy_rec(Iron_Type *t, TypeCtx *ctx,
                                       Iron_ObjectDecl **reported,
                                       int *reported_count) {
     if (!t) return false;
+    /* Only these kinds can hold a user copy. The rest are answered without
+     * touching the memo: primitive types are process-wide singletons, and
+     * the language server analyzes documents on several threads. */
+    if (t->kind != IRON_TYPE_OBJECT && t->kind != IRON_TYPE_NULLABLE &&
+        !(t->kind == IRON_TYPE_ARRAY && t->array.size >= 0)) {
+        return false;
+    }
     if (t->has_user_copy_cached) return t->has_user_copy_transitive;
     bool result = false;
     /* `T?` and `[T; N]` hold their T by value: walk through them, so a
