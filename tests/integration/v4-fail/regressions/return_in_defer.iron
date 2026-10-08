@@ -1,0 +1,13 @@
+-- A defer body runs while its scope exits; a return inside it would leave
+-- the scope again. This used to crash the compiler (endless recursion
+-- while lowering the deferred return).
+func f() {
+    defer {
+        return
+    }
+    println("x")
+}
+
+func main() {
+    f()
+}

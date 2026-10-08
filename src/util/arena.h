@@ -35,7 +35,18 @@ typedef struct {
     void   **tracked_ptrs;     /* dynamic array of tracked pointers */
     int      tracked_count;    /* number of tracked pointers */
     int      tracked_cap;      /* capacity of tracked_ptrs array */
+
+    /* Cleanup hooks run by iron_arena_free before the chunks go away, for
+     * heap structures (stb_ds arrays and maps) stored in arena objects. */
+    struct Iron_ArenaHook *hooks;
+    int      hook_count;
+    int      hook_cap;
 } Iron_Arena;
+
+typedef struct Iron_ArenaHook {
+    void (*fn)(void *ctx);
+    void *ctx;
+} Iron_ArenaHook;
 
 /* Create a new arena with the given initial capacity in bytes. */
 Iron_Arena iron_arena_create(size_t capacity);
@@ -64,6 +75,18 @@ void *iron_arena_track(Iron_Arena *a, void *ptr);
  * If old_ptr is NULL, equivalent to malloc + track.
  * Returns the new pointer (or NULL on failure). */
 void *iron_arena_realloc_tracked(Iron_Arena *a, void *old_ptr, size_t new_size);
+
+/* Run fn(ctx) when the arena is freed, before its memory is released, so
+ * ctx may point into the arena. Hooks run in reverse registration order.
+ * Returns false (and the hook is not registered) on allocation failure. */
+bool iron_arena_on_free(Iron_Arena *a, void (*fn)(void *ctx), void *ctx);
+
+/* Free the stb_ds array held in *slot when the arena is freed. The slot,
+ * not the array, is recorded: the array may grow (and move) afterwards,
+ * and whatever *slot holds at free time is released. *slot must hold an
+ * stb_ds array or NULL for the arena's whole lifetime, and no other slot
+ * may own the same array. */
+void iron_arena_own_arr(Iron_Arena *a, void **slot);
 
 /* Typed allocation helper — allocates sizeof(T) aligned to _Alignof(T). */
 #define ARENA_ALLOC(arena, T) ((T*)iron_arena_alloc((arena), sizeof(T), _Alignof(T)))

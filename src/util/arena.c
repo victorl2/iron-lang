@@ -1,4 +1,5 @@
 #include "arena.h"
+#include "vendor/stb_ds.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -33,6 +34,9 @@ Iron_Arena iron_arena_create(size_t capacity) {
     a.tracked_ptrs  = NULL;
     a.tracked_count = 0;
     a.tracked_cap   = 0;
+    a.hooks      = NULL;
+    a.hook_count = 0;
+    a.hook_cap   = 0;
     return a;
 }
 
@@ -82,6 +86,15 @@ char *iron_arena_strdup(Iron_Arena *a, const char *src, size_t len) {
 }
 
 void iron_arena_free(Iron_Arena *a) {
+    /* Cleanup hooks first: their ctx may live in the chunks freed below. */
+    for (int i = a->hook_count - 1; i >= 0; i--) {
+        a->hooks[i].fn(a->hooks[i].ctx);
+    }
+    free(a->hooks);
+    a->hooks      = NULL;
+    a->hook_count = 0;
+    a->hook_cap   = 0;
+
     /* Phase 50: Free all tracked pointers (collection sub-arrays) */
     for (int i = 0; i < a->tracked_count; i++) {
         free(a->tracked_ptrs[i]);
@@ -167,4 +180,29 @@ void *iron_arena_realloc_tracked(Iron_Arena *a, void *old_ptr, size_t new_size) 
     }
     /* Not found (or old_ptr was NULL) -- track as new */
     return iron_arena_track(a, new_ptr);
+}
+
+bool iron_arena_on_free(Iron_Arena *a, void (*fn)(void *ctx), void *ctx) {
+    if (!a || !fn) return false;
+    if (a->hook_count >= a->hook_cap) {
+        int cap = a->hook_cap ? a->hook_cap * 2 : 16;
+        Iron_ArenaHook *h = (Iron_ArenaHook *)realloc(
+            a->hooks, (size_t)cap * sizeof(Iron_ArenaHook));
+        if (!h) return false;
+        a->hooks    = h;
+        a->hook_cap = cap;
+    }
+    a->hooks[a->hook_count].fn  = fn;
+    a->hooks[a->hook_count].ctx = ctx;
+    a->hook_count++;
+    return true;
+}
+
+static void free_owned_arr(void *ctx) {
+    void **slot = (void **)ctx;
+    arrfree(*slot);
+}
+
+void iron_arena_own_arr(Iron_Arena *a, void **slot) {
+    if (slot) (void)iron_arena_on_free(a, free_owned_arr, slot);
 }

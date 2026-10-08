@@ -158,6 +158,19 @@ target_link_libraries(test_comptime iron_compiler unity)
 add_test(NAME test_comptime COMMAND test_comptime)
 set_tests_properties(test_comptime PROPERTIES LABELS "unit")
 
+# Arena cleanup hooks: scopes and the interface registry release their
+# heap maps with the arena. Leak detection is on for this test in Linux
+# sanitizer builds (LeakSanitizer is unsupported on macOS), although the
+# suite as a whole runs with detect_leaks=0.
+add_executable(test_arena_hooks test_arena_hooks.c)
+target_link_libraries(test_arena_hooks iron_compiler unity)
+add_test(NAME test_arena_hooks COMMAND test_arena_hooks)
+set_tests_properties(test_arena_hooks PROPERTIES LABELS "unit")
+if(IRON_ENABLE_SANITIZERS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set_tests_properties(test_arena_hooks PROPERTIES
+        ENVIRONMENT "ASAN_OPTIONS=detect_leaks=1:abort_on_error=1")
+endif()
+
 # ── Phase 01 M0 Plan 01 (HARD-01): iron_analyze_buffer API smoke test ──────
 add_executable(test_analyze_buffer_basic test_analyze_buffer_basic.c)
 target_link_libraries(test_analyze_buffer_basic iron_compiler unity)

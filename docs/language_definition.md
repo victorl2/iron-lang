@@ -1079,7 +1079,10 @@ the enclosing block exits, whether by falling off its end or by `return`.
 Deferred statements run in reverse order of registration, after the
 block's own statements and before its stack values are destroyed. Inside a
 loop body, deferred statements run at the end of each iteration. The most
-common form is `defer free x` for a heap value (section 6.2).
+common form is `defer free x` for a heap value (section 6.2). A deferred
+body runs while its block exits and cannot leave it: `return` inside it is
+an error (`E0336`), as are `break` and `continue` (`E0335`). A lambda
+inside a deferred body may return from itself.
 
 ```iron
 func main() {
@@ -2912,6 +2915,7 @@ codes cited in this manual:
 | E0322, E0323, E0324, E0325, E0326 | unsupported `is`; unsupported match subject; lambda parameter type; awaited twice; thread pools |
 | E0328, E0329, E0330 | implicit list copy or capture; indexing an unordered list; address of a growable list element |
 | E0335 | `break` / `continue` outside a loop, in a lambda, `defer` or `spawn` body inside one, or in a `parallel` loop |
+| E0336 | `return` inside a `defer` body |
 | E0331, E0332, E0333, E0334 | list extension with a body; refutable nested pattern; `Channel.new(4)` and the other `.new` constructor spellings; interpolating a value with no text form |
 | E0501 | `await` on the web target |
 | E0700 to E0703 | web main loop rules |
