@@ -6005,6 +6005,18 @@ IronLIR_Module *iron_hir_to_lir(IronHIR_Module *hir, Iron_Program *program,
         }
         arrfree(ctx.defer_stacks);
     }
+    if (ctx.drop_stacks) {
+        for (int d = 0; d < (int)arrlen(ctx.drop_stacks); d++) {
+            arrfree(ctx.drop_stacks[d]);
+        }
+        arrfree(ctx.drop_stacks);
+    }
+    /* The last function's var-param state (earlier ones are reset when the
+     * next function starts). */
+    hmfree(ctx.var_param_ids);
+    arrfree(ctx.wb_param_vids);
+    arrfree(ctx.wb_alloca_ids);
+    arrfree(ctx.wb_types);
     arrfree(ctx.loops);
 
     /* ── Verify output ── */
