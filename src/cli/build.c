@@ -282,31 +282,38 @@ static char *write_temp_c(const char *c_src, bool debug_build,
     }
 
 #ifdef _WIN32
-    /* Windows: use GetTempPath + GetTempFileName */
+    /* Windows: a unique file under GetTempPath */
     char tmp_dir[MAX_PATH];
     DWORD dir_len = GetTempPathA(MAX_PATH, tmp_dir);
     if (dir_len == 0) {
         fprintf(stderr, "error: cannot get temp dir\n");
         return NULL;
     }
-    char tmp_file[MAX_PATH];
-    if (GetTempFileNameA(tmp_dir, "iron", 0, tmp_file) == 0) {
-        fprintf(stderr, "error: cannot create temp file\n");
+    /* A name unique to this process, created with CREATE_NEW so it is
+     * never shared. GetTempFileName's ironXXXX.tmp reserved a name only
+     * while the .tmp existed: deleting it to write ironXXXX.c let a
+     * concurrent compile get the same name and overwrite this C file. */
+    static unsigned temp_seq = 0;
+    path = (char *)malloc(MAX_PATH + 64);
+    if (!path) return NULL;
+    bool created = false;
+    for (int attempt = 0; attempt < 100 && !created; attempt++) {
+        snprintf(path, MAX_PATH + 64, "%siron_%lu_%u.c", tmp_dir,
+                 (unsigned long)GetCurrentProcessId(), temp_seq++);
+        HANDLE h = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_NEW,
+                               FILE_ATTRIBUTE_NORMAL, NULL);
+        if (h != INVALID_HANDLE_VALUE) {
+            CloseHandle(h);
+            created = true;
+        } else if (GetLastError() != ERROR_FILE_EXISTS) {
+            break;
+        }
+    }
+    if (!created) {
+        fprintf(stderr, "error: cannot create temp file in %s\n", tmp_dir);
+        free(path);
         return NULL;
     }
-    /* GetTempFileName creates a .tmp file; rename to .c */
-    size_t base_len = strlen(tmp_file);
-    path = (char *)malloc(base_len + 3); /* +2 for ".c" + nul */
-    if (!path) return NULL;
-    /* Replace last 4 chars (.tmp) with .c */
-    if (base_len > 4) {
-        memcpy(path, tmp_file, base_len - 4);
-        memcpy(path + base_len - 4, ".c", 3);
-    } else {
-        memcpy(path, tmp_file, base_len);
-        memcpy(path + base_len, ".c", 3);
-    }
-    DeleteFileA(tmp_file); /* remove the .tmp placeholder */
 
     FILE *f = fopen(path, "w");
     if (!f) {
