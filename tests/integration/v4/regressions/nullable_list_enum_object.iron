@@ -1,0 +1,118 @@
+-- Regression (#289): lists of nullable enums and nullable objects.
+--
+-- [Color?] holds a plain enum, [Shape?] an enum with payloads, and [Item?]
+-- an object that owns a String: a present element is dropped once (when
+-- removed, overwritten or freed with the list) and copied with its
+-- String retained, so the leak oracle sees no leak and no double free.
+
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+enum Shape {
+    Circle(Int),
+    Label(String)
+}
+
+object Item {
+    val name: String
+    val qty: Int
+
+    readonly func to_string() -> String {
+        return "{self.name}x{self.qty}"
+    }
+}
+
+func describe(s: Shape?) -> String {
+    if s == null {
+        return "none"
+    }
+    match s {
+        Shape.Circle(r) -> { return "circle {r}" }
+        Shape.Label(t) -> { return "label {t}" }
+    }
+}
+
+func total_qty(items: [Item?]) -> Int {
+    var n = 0
+    for it in items {
+        if it != null {
+            n += it.qty
+        }
+    }
+    return n
+}
+
+func first_named(items: [Item?], name: String) -> Item? {
+    for it in items {
+        if it != null {
+            if it.name == name {
+                return it
+            }
+        }
+    }
+    return null
+}
+
+func main() {
+    var colors: [Color?] = [Color.Red, null, Color.Blue]
+    colors.push(null)
+    colors.push(Color.Green)
+    var shown = ""
+    for c in colors {
+        shown += "{c} "
+    }
+    println("{colors.len()}: {shown.trim()}")
+    for c in colors {
+        if c != null {
+            match c {
+                Color.Red -> { println("red") }
+                Color.Green -> { println("green") }
+                Color.Blue -> { println("blue") }
+            }
+        }
+    }
+    colors[1] = Color.Green
+    val lastc = colors.pop()
+    println("colors[1] {colors[1]} popped {lastc} len {colors.len()}")
+
+    var shapes: [Shape?] = [Shape.Circle(2), null, Shape.Label("tag")]
+    shapes.push(Shape.Label("more"))
+    for s in shapes {
+        println(describe(s))
+    }
+    shapes[2] = null
+    val sp = shapes.pop()
+    println("popped {describe(sp)}, third {describe(shapes[2])}")
+
+    var items: [Item?] = [Item("bolt", 3), null, Item("nut", 5)]
+    items.push(null)
+    items.push(Item("gear", 2))
+    println("items {items.len()} total {total_qty(items)}")
+    for it in items {
+        if it != null {
+            println("item {it.name} qty {it.qty} as {it}")
+        } else {
+            println("empty slot")
+        }
+    }
+    println("first {items[0]} second {items[1]}")
+    val found = first_named(items, "nut")
+    if found != null {
+        println("found {found.name}")
+    }
+    println("missing {first_named(items, "axle")}")
+    items[0] = Item("washer", 9)
+    items.set(2, null)
+    val popped = items.pop()
+    if popped != null {
+        println("popped {popped.name}")
+    }
+    val removed = items.remove(1)
+    println("removed {removed}, total {total_qty(items)}, len {items.len()}")
+    var dup = items.copy()
+    dup.push(Item("spring", 1))
+    println("dup total {total_qty(dup)} original total {total_qty(items)}")
+}

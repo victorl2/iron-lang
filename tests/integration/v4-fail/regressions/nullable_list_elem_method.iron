@@ -1,0 +1,6 @@
+-- (#289) An element of a [String?] is a String?: calling a method on it
+-- without a null check is rejected.
+func main() {
+    val names: [String?] = ["a", null]
+    println("{names[0].len()}")
+}

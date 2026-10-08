@@ -1,0 +1,5 @@
+-- (#289) A nullable type is not Hashable, so it cannot be a map key.
+func main() {
+    var m = Map[Int?, String]()
+    println("{m.len()}")
+}
