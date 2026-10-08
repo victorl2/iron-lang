@@ -187,6 +187,27 @@ static void test_type_definition_whitespace_empty(void) {
     fx_destroy(&f);
 }
 
+/* File URIs for definition targets: a Windows drive path must become
+ * file:///C:/... (file://C:/... makes `C:` the host and the editor cannot
+ * open it), and a space is percent-encoded. The inverse undoes both. */
+static void test_path_uri_round_trip(void) {
+    Iron_Arena a = iron_arena_create(4096);
+    TEST_ASSERT_EQUAL_STRING("file:///home/u/lib/stdlib/math.iron",
+        ilsp_nav_path_to_uri("/home/u/lib/stdlib/math.iron", &a));
+    TEST_ASSERT_EQUAL_STRING("file:///C:/work/iron/src/stdlib/math.iron",
+        ilsp_nav_path_to_uri("C:/work/iron/src/stdlib/math.iron", &a));
+    TEST_ASSERT_EQUAL_STRING("file:///C:/Program%20Files/Iron/lib/stdlib/math.iron",
+        ilsp_nav_path_to_uri("C:\\Program Files\\Iron\\lib\\stdlib\\math.iron", &a));
+
+    TEST_ASSERT_EQUAL_STRING("/home/u/my dir/a.iron",
+        ilsp_nav_uri_to_path("file:///home/u/my%20dir/a.iron", &a));
+    TEST_ASSERT_EQUAL_STRING("C:/work/a.iron",
+        ilsp_nav_uri_to_path("file:///C:/work/a.iron", &a));
+    TEST_ASSERT_EQUAL_STRING("c:/work/a.iron",
+        ilsp_nav_uri_to_path("file:///c%3A/work/a.iron", &a));
+    iron_arena_free(&a);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_same_file_definition);
@@ -194,5 +215,6 @@ int main(void) {
     RUN_TEST(test_type_definition_object);
     RUN_TEST(test_type_definition_primitive_empty);
     RUN_TEST(test_type_definition_whitespace_empty);
+    RUN_TEST(test_path_uri_round_trip);
     return UNITY_END();
 }

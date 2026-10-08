@@ -159,21 +159,65 @@ const char *ilsp_nav_path_to_uri(const char *canonical_path, Iron_Arena *arena) 
         strncmp(canonical_path, "file://",   7) == 0) {
         return iron_arena_strdup(arena, canonical_path, strlen(canonical_path));
     }
+    /* RFC 8089: `file:///abs/path`, and on Windows `file:///C:/dir/f.iron`
+     * (`file://C:/...` would make `C:` the host, and the editor cannot
+     * open it). Backslashes become '/'; bytes a URI cannot hold raw are
+     * percent-encoded (a space in `Program Files`, '%', '#', '?'). */
     size_t path_len = strlen(canonical_path);
-    size_t total    = path_len + 8;  /* "file://" + NUL */
-    char *buf = (char *)iron_arena_alloc(arena, total, 1);
+    char *buf = (char *)iron_arena_alloc(arena, 8 + 1 + path_len * 3 + 1, 1);
     if (!buf) return NULL;
+    size_t n = 0;
     memcpy(buf, "file://", 7);
-    memcpy(buf + 7, canonical_path, path_len);
-    buf[7 + path_len] = '\0';
+    n = 7;
+    if (canonical_path[0] != '/') buf[n++] = '/';
+    static const char hex[] = "0123456789ABCDEF";
+    for (size_t i = 0; i < path_len; i++) {
+        unsigned char c = (unsigned char)canonical_path[i];
+        if (c == '\\') {
+            buf[n++] = '/';
+        } else if (c == ' ' || c == '%' || c == '#' || c == '?' || c < 0x20) {
+            buf[n++] = '%';
+            buf[n++] = hex[c >> 4];
+            buf[n++] = hex[c & 15];
+        } else {
+            buf[n++] = (char)c;
+        }
+    }
+    buf[n] = '\0';
     return buf;
+}
+
+static int uri_hex(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
 }
 
 const char *ilsp_nav_uri_to_path(const char *uri, Iron_Arena *arena) {
     if (!uri) return NULL;
     if (strncmp(uri, "file://", 7) == 0) {
         const char *p = uri + 7;
-        return iron_arena_strdup(arena, p, strlen(p));
+        /* file:///C:/... -> C:/... ; file:///home/... -> /home/... */
+        if (p[0] == '/' && p[1] && p[2] == ':') p++;
+        else if (p[0] == '/' && p[1] && p[2] == '%' && p[3] == '3' &&
+                 (p[4] == 'A' || p[4] == 'a')) p++;
+        size_t len = strlen(p);
+        char *out = (char *)iron_arena_alloc(arena, len + 1, 1);
+        if (!out) return NULL;
+        size_t n = 0;
+        for (size_t i = 0; i < len; i++) {
+            int hi, lo;
+            if (p[i] == '%' && i + 2 < len && (hi = uri_hex(p[i + 1])) >= 0 &&
+                (lo = uri_hex(p[i + 2])) >= 0) {
+                out[n++] = (char)(hi * 16 + lo);
+                i += 2;
+            } else {
+                out[n++] = p[i];
+            }
+        }
+        out[n] = '\0';
+        return out;
     }
     /* stdlib:// / dep:// / relative: passthrough. */
     return iron_arena_strdup(arena, uri, strlen(uri));

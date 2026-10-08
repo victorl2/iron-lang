@@ -30,7 +30,7 @@
 #include "vendor/yyjson/yyjson.h"
 #include "vendor/stb_ds.h"
 
-#include <pthread.h>
+#include "util/pthread_compat.h"
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -65,28 +65,50 @@ static void keep_document_diags(Iron_DiagList *diags, const char *doc_file) {
     diags->warning_count = warnings;
 }
 
-/* True when `uri` (file:// URI or path) names a file under <lib_dir>/stdlib/. */
+static int hex_val(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/* Lower case, '/' separators: Windows URIs spell the drive letter in lower
+ * case (`file:///c%3A/...`) while the lib dir has `C:\...`. */
+static char norm_path_char(char c) {
+    if (c == '\\') return '/';
+    if (c >= 'A' && c <= 'Z') return (char)(c - 'A' + 'a');
+    return c;
+}
+
+/* True when `uri` (a file:// URI or a path) names a file under
+ * <lib_dir>/stdlib/. */
 static bool is_stdlib_file(const char *uri, const char *lib_dir) {
-    const char *path = uri;
-    if (strncmp(path, "file://", 7) == 0) {
-        path += 7;
-        /* file:///C:/... on Windows: drop the slash before the drive. */
-        if (path[0] == '/' && path[1] && path[2] == ':') path++;
-    }
-    size_t n = strlen(lib_dir);
-    if (strncmp(path, lib_dir, n) != 0) {
-        /* Windows URIs spell the drive letter in lower case and use '/'. */
-        size_t i = 0;
-        for (; i < n && path[i]; i++) {
-            char a = lib_dir[i], b = path[i];
-            if (a == '\\') a = '/';
-            if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
-            if (b >= 'A' && b <= 'Z') b = (char)(b - 'A' + 'a');
-            if (a != b) break;
+    char path[4096];
+    const char *src = uri;
+    bool is_uri = strncmp(src, "file://", 7) == 0;
+    if (is_uri) src += 7;
+    size_t n = 0;
+    for (; *src && n + 1 < sizeof(path); src++) {
+        int hi, lo;
+        if (is_uri && src[0] == '%' && (hi = hex_val(src[1])) >= 0 &&
+            (lo = hex_val(src[2])) >= 0) {
+            path[n++] = (char)(hi * 16 + lo);
+            src += 2;
+        } else {
+            path[n++] = *src;
         }
-        if (i != n) return false;
     }
-    return strncmp(path + n, "/stdlib/", 8) == 0 || strncmp(path + n, "\\stdlib\\", 8) == 0;
+    path[n] = '\0';
+    const char *p = path;
+    if (p[0] == '/' && p[1] && p[2] == ':') p++;  /* /c:/... */
+
+    size_t i = 0;
+    for (; lib_dir[i]; i++) {
+        if (!p[i] || norm_path_char(p[i]) != norm_path_char(lib_dir[i])) return false;
+    }
+    const char *rest = p + i;
+    if (*rest == '/' || *rest == '\\') rest++;
+    return strncmp(rest, "stdlib/", 7) == 0 || strncmp(rest, "stdlib\\", 7) == 0;
 }
 
 /* Where the stdlib is, resolved once per process: every document worker
