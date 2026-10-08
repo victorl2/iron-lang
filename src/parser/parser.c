@@ -4173,6 +4173,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             if (!iron_match(p, IRON_TOK_COMMA)) break;
         }
     }
+    impl_names = AST_ARR(impl_names);
 
     /* Body: { field* } */
     if (!iron_expect(p, IRON_TOK_LBRACE)) return iron_make_error(p);
@@ -4735,6 +4736,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
         if (is_var) var_field_count++;
         iron_skip_newlines(p);
     }
+    fields = AST_ARR(fields);
 
     /* Phase 83-02 ACCESS-03/04/06: synthesize accessor methods for every
      * `pub val` and `pub var` field, then scan for user-declared methods that
@@ -5246,10 +5248,10 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
     n->name                    = iron_arena_strdup(p->arena, name_tok->value,
                                                     strlen(name_tok->value));
     if (!n->name) { /* HARD-09 REPLACE (iron_parse_object_decl ObjectDecl name) */ n->name = "?"; }
-    n->fields                  = AST_ARR(fields);
+    n->fields                  = fields;
     n->field_count             = field_count;
     n->extends_name            = extends_name;
-    n->implements_names        = AST_ARR(impl_names);
+    n->implements_names        = impl_names;
     n->implements_count        = impl_count;
     n->generic_params          = generic_params;
     n->generic_param_count     = generic_count;
@@ -5358,6 +5360,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             iron_skip_newlines(p);
         }
     }
+    impl_names = AST_ARR(impl_names);
 
     /* Body. Patches do NOT accept `extends`. */
     if (!iron_expect(p, IRON_TOK_LBRACE)) return iron_make_error(p);
@@ -5781,7 +5784,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
     n->field_count         = 0;
     n->extends_name        = NULL;
     /* Phase 87-02 PATCH-08: populate implements clause if present. */
-    n->implements_names    = AST_ARR(impl_names);
+    n->implements_names    = impl_names;
     n->implements_count    = impl_count;
     n->generic_params      = NULL;
     n->generic_param_count = 0;
