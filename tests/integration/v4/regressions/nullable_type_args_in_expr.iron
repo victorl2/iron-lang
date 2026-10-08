@@ -1,0 +1,10 @@
+-- Nullable types inside bracketed expressions: nested `[[Int?]]` literals and
+-- type arguments of a constructor. (A constructed container as a list element,
+-- `[Map[String, Int?]()]`, parses as an expression too, but lists of maps and
+-- channels do not compile yet: see the issue on container elements.)
+func main() {
+    var grid: [[Int?]] = [[1, null], [null]]
+    println("{grid[0].len()} {grid[1].len()}")
+    val m = Map[String, [Int?]]()
+    println("{m.len()}")
+}

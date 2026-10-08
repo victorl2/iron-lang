@@ -1448,8 +1448,24 @@ static bool iron_elem_is_nullable_type(Iron_Parser *p) {
             if (k == IRON_TOK_RPAREN && parens > 0) parens--;
         } else if (depth == 0 && (k == IRON_TOK_COMMA || k == IRON_TOK_SEMICOLON))
             return false;
-        else if (k == IRON_TOK_QUESTION && parens == 0)
-            return j > p->pos;
+        else if (k == IRON_TOK_QUESTION && parens == 0) {
+            if (j == p->pos) return false;
+            /* The type ends the element unless it is constructed or
+             * called: `[Map[String, Int?]()]` and `[Box[Int?](x)]` are
+             * expressions whose type arguments hold the `?`. */
+            for (int m = j + 1; m < p->token_count; m++) {
+                Iron_TokenKind km = p->tokens[m].kind;
+                if (km == IRON_TOK_LBRACKET) depth++;
+                else if (km == IRON_TOK_RBRACKET || km == IRON_TOK_RPAREN) {
+                    if (depth == 0) return true;
+                    depth--;
+                } else if (depth == 0 && (km == IRON_TOK_LPAREN || km == IRON_TOK_DOT))
+                    return false;
+                else if (depth == 0 && km != IRON_TOK_QUESTION)
+                    return true;
+            }
+            return true;
+        }
     }
     return false;
 }
