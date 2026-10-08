@@ -1431,7 +1431,7 @@ static int iron_infix_prec(Iron_TokenKind k) {
 /* Parse a primary (prefix) expression */
 /* `?` never appears in an expression, so an element of a bracketed list
  * that contains one at its own nesting level is a nullable type written in
- * expression position: `Map[String, Int?]()`, `[String?]()`,
+ * expression position: `Map[String, Int?]()`, `Map[String, [Int?]]()`,
  * `Channel[Pair?](4)`. Such an element is parsed as a type annotation;
  * everything else as an expression. */
 static bool iron_elem_is_nullable_type(Iron_Parser *p) {

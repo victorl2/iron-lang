@@ -1,0 +1,15 @@
+len 5 joined X-YY-ZZZ
+name x has 1 chars
+no name
+name yy has 2 chars
+no name
+name zzz has 3 chars
+x null zzz
+kept yy, now replaced and null
+popped zzz
+removed null, longest inserted
+contains replaced true contains null true contains x false
+built N0-N2N3 4
+copy --N2N3 original N0-N2N3
+empty longest null len 0
+cleared 0

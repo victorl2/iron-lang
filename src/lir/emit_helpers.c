@@ -2417,6 +2417,15 @@ static void hash_elem_protos(EmitCtx *ctx, const Iron_Type *t, Iron_StrBuf *prot
         if (od_needs_drop(ctx, t->object.decl))
             iron_strbuf_appendf(protos, "static void %s_drop(%s *self);\n", tc, tc);
     }
+    /* A `T?` value (#289): its optional glue is emitted with the lifted
+     * functions too. */
+    if (t->kind == IRON_TYPE_NULLABLE) {
+        const char *tc = emit_type_to_c(t, ctx);
+        if (optional_needs_glue(ctx, t, true))
+            iron_strbuf_appendf(protos, "static void %s_copied(%s *self);\n", tc, tc);
+        if (optional_needs_glue(ctx, t, false))
+            iron_strbuf_appendf(protos, "static void %s_drop(%s *self);\n", tc, tc);
+    }
 }
 
 const char *emit_ensure_hash(EmitCtx *ctx, const Iron_Type *t) {

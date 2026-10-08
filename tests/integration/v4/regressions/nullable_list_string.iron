@@ -33,7 +33,7 @@ func longest(xs: [String?]) -> String? {
 }
 
 func names(n: Int) -> [String?] {
-    var out = [String?]()
+    var out: [String?] = []
     for i in range(n) {
         if i == 1 {
             out.push(null)
@@ -79,7 +79,7 @@ func main() {
     c[0] = null
     println("copy {join(c)} original {join(built)}")
 
-    val empty = [String?]()
+    val empty: [String?] = []
     println("empty longest {longest(empty)} len {empty.len()}")
     names_list.clear()
     println("cleared {names_list.len()}")

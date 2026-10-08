@@ -43,7 +43,7 @@ func main() {
         }
     }
     println("sum {sum} nulls {nulls}")
-    var vals = m.values()
+    val vals = m.values()
     println("values {vals.len()} contains 3 {vals.contains(3)}")
 
     var names = Map[Int, String?]()

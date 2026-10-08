@@ -1,0 +1,22 @@
+5: Red null Blue null Green
+red
+blue
+green
+colors[1] Green popped Green len 4
+circle 2
+none
+label tag
+label more
+popped label more, third none
+items 5 total 10
+item bolt qty 3 as boltx3
+empty slot
+item nut qty 5 as nutx5
+empty slot
+item gear qty 2 as gearx2
+first boltx3 second none
+found nut
+missing none
+popped gear
+removed none, total 9, len 3
+dup total 10 original total 9

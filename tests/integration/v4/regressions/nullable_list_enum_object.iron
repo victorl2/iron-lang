@@ -35,6 +35,13 @@ func describe(s: Shape?) -> String {
     }
 }
 
+func show(it: Item?) -> String {
+    if it != null {
+        return "{it}"
+    }
+    return "none"
+}
+
 func total_qty(items: [Item?]) -> Int {
     var n = 0
     for it in items {
@@ -98,12 +105,12 @@ func main() {
             println("empty slot")
         }
     }
-    println("first {items[0]} second {items[1]}")
+    println("first {show(items[0])} second {show(items[1])}")
     val found = first_named(items, "nut")
     if found != null {
         println("found {found.name}")
     }
-    println("missing {first_named(items, "axle")}")
+    println("missing {show(first_named(items, "axle"))}")
     items[0] = Item("washer", 9)
     items.set(2, null)
     val popped = items.pop()
@@ -111,7 +118,7 @@ func main() {
         println("popped {popped.name}")
     }
     val removed = items.remove(1)
-    println("removed {removed}, total {total_qty(items)}, len {items.len()}")
+    println("removed {show(removed)}, total {total_qty(items)}, len {items.len()}")
     var dup = items.copy()
     dup.push(Item("spring", 1))
     println("dup total {total_qty(dup)} original total {total_qty(items)}")

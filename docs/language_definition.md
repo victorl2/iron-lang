@@ -297,7 +297,7 @@ null element. A map key mapped to `null` is present: `m.has(k)` is
 `true` and `m.get(k)` returns `null`, while `get` on an absent key still
 panics. Map keys and set items must be `Hashable`, which a nullable type
 is not (`E0206`). In expression position the type argument is written
-the same way: `Map[String, Int?]()`, `[String?]()`.
+the same way: `Map[String, Int?]()`, `Map[String, [Int?]]()`.
 
 ```iron
 func first_present(xs: [Int?]) -> Int? {
@@ -3116,7 +3116,7 @@ start with an uppercase letter denote an enum variant construction, and
 `[` is a type name starting with an uppercase letter or `[`. Between the
 brackets of `postfix` and of a list `primary`, an element containing `?`
 (outside parentheses) is read as a `type` (`Map[String, Int?]()`,
-`[String?]()`), every other element as an `expr`. In `pattern`,
+`Map[String, [Int?]]()`), every other element as an `expr`. In `pattern`,
 the first alternative is used when the arm starts with `IDENT '.'` or with
 an uppercase identifier followed by `(`, and `expr` otherwise. The
 standalone forms `func Type.method()` and `func (r: T) method()` are

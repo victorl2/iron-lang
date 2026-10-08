@@ -4846,8 +4846,9 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         bool            has_value = (stmt->return_stmt.value != NULL);
         Iron_Type      *ret_type  = has_value ? stmt->return_stmt.value->type : NULL;
         if (has_value) {
-            ret_val = lower_expr_as(ctx, stmt->return_stmt.value,
-                                    ctx->current_func->return_type);
+            /* (Wrapped into a T? return type after the copy below: the
+             * copy is of the expression's own type.) */
+            ret_val = lower_expr(ctx, stmt->return_stmt.value);
             /* Phase 26 POL-06 (Plan 26-02) + Phase 37 rc-balance: returning an
              * rc-like value (rc T / weak rc T / rc T?) bumps the count so the
              * caller's received reference is independently lifetime-tracked.
@@ -4883,6 +4884,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             } else if (!type_is_rc_like(ret_type)) {
                 ret_val = copy_for_new_owner(ctx, rv, ret_val, ret_type, span);
             }
+            ret_val = coerce_to_optional(ctx, ret_val, ctx->current_func->return_type, span);
         }
 
         if (!ctx->current_block || block_is_terminated(ctx->current_block)) {

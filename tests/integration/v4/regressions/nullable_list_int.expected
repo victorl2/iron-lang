@@ -1,0 +1,19 @@
+len 5 nulls 2
+value 101
+null
+value 103
+null
+value 104
+xs[1] is null
+xs[1] now 14
+xs[0] = null, get(2) = 3
+popped 4
+popped null
+removed 42, len 4
+contains 7 true contains null true contains 9 false
+null null 7 3 
+first present 7
+first present of nulls null
+made 5 nulls 2 first 0 second null
+copy 5 original 4
+fixed sum 11 last null

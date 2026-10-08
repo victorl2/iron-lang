@@ -7836,6 +7836,14 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             result = iron_type_make_primitive(IRON_TYPE_ERROR);
             break;
 
+        /* A nullable type written where a value goes (`val x = [Int?]`):
+         * the parser reads `T?` between brackets as a type (#289). */
+        case IRON_NODE_TYPE_ANNOTATION:
+            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, node->span,
+                       "a type is not a value", NULL);
+            result = iron_type_make_primitive(IRON_TYPE_ERROR);
+            break;
+
         /* -Wswitch-enum opt-out: check_expr only handles expression node kinds;
          * statement/declaration kinds reach this arm if an upstream caller
          * passes them in by mistake and get an IRON_TYPE_ERROR result that
