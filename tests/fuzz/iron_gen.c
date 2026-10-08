@@ -303,7 +303,7 @@ static const char *iron_gen_keyword_lit(Iron_TokenKind kind) {
         case IRON_TOK_FALSE:     return "false";
         case IRON_TOK_NULL_KW:   return "null";
         case IRON_TOK_SPAWN:     return "spawn";
-        case IRON_TOK_PARALLEL:  return "parallel_for";
+        case IRON_TOK_PARALLEL:  return "parallel";
         case IRON_TOK_DEFER:     return "defer";
         case IRON_TOK_HEAP:      return "heap";
         case IRON_TOK_RC:        return "rc";
@@ -321,6 +321,19 @@ static const char *iron_gen_keyword_lit(Iron_TokenKind kind) {
         case IRON_TOK_POOL:      return "pool";
         case IRON_TOK_PRIVATE:   return "private";
         case IRON_TOK_EXTERN:    return "extern";
+        case IRON_TOK_BREAK:     return "break";
+        case IRON_TOK_CONTINUE:  return "continue";
+        case IRON_TOK_COPY:      return "copy";
+        case IRON_TOK_DROP:      return "drop";
+        case IRON_TOK_INIT:      return "init";
+        case IRON_TOK_MUT:       return "mut";
+        case IRON_TOK_NOCOPY:    return "nocopy";
+        case IRON_TOK_PATCH:     return "patch";
+        case IRON_TOK_PUB:       return "pub";
+        case IRON_TOK_PURE:      return "pure";
+        case IRON_TOK_READONLY:  return "readonly";
+        case IRON_TOK_UNCHECKED: return "unchecked";
+        case IRON_TOK_WEAK:      return "weak";
 
         case IRON_TOK_PLUS:         return "+";
         case IRON_TOK_MINUS:        return "-";
@@ -374,6 +387,7 @@ static const char *iron_gen_keyword_lit(Iron_TokenKind kind) {
         case IRON_TOK_STRING:        return NULL;
         case IRON_TOK_INTERP_STRING: return NULL;
         case IRON_TOK_IDENTIFIER:    return NULL;
+        case IRON_TOK_DOC_COMMENT:   return NULL;
         case IRON_TOK_EOF:           return NULL;
         case IRON_TOK_ERROR:         return NULL;
         case IRON_TOK_COUNT:         return NULL;

@@ -985,6 +985,15 @@ set_tests_properties(test_ironc_version PROPERTIES
     PASS_REGULAR_EXPRESSION "^ironc [0-9]"
 )
 
+# The fuzz token generator switches over every token kind. The fuzz
+# targets only build in the nightly fuzz job, so compile the generator in
+# every build too: a new keyword or token then fails here, under
+# -Werror=switch-enum, instead of breaking the nightly run.
+if(NOT IRON_ENABLE_FUZZING AND NOT MSVC)
+    add_library(iron_fuzz_gen_check OBJECT tests/fuzz/iron_gen.c)
+    target_include_directories(iron_fuzz_gen_check PRIVATE src tests/fuzz)
+endif()
+
 # `test "name" { ... }` blocks: ironc test builds them into one binary and
 # runs each in its own process; iron test does the same for a project.
 set(_tb "${CMAKE_SOURCE_DIR}/tests/integration/test_blocks")

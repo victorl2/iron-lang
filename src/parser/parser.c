@@ -5864,7 +5864,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
                            "Self-returning methods for factory patterns",
                            NULL);
             iron_advance(p);  /* consume 'init' */
-            iron_parser_sync_stmt(p);
+            iron_parser_sync_member(p);
             continue;
         }
 
@@ -5905,7 +5905,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
                            IRON_ERR_UNEXPECTED_TOKEN,
                            iron_token_span(p, iron_current(p)),
                            "expected method signature in interface", NULL);
-            iron_parser_sync_stmt(p);
+            iron_parser_sync_member(p);
             continue;
         }
         Iron_Token *fsig_start = iron_current(p);
@@ -5913,7 +5913,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
 
         /* Method name: must be a regular identifier */
         if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
-            iron_parser_sync_stmt(p);
+            iron_parser_sync_member(p);
             continue;
         }
         Iron_Token *sig_name = iron_advance(p);
