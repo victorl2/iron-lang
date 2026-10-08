@@ -30,7 +30,7 @@
 #include "vendor/yyjson/yyjson.h"
 #include "vendor/stb_ds.h"
 
-#include <pthread.h>
+#include "util/pthread_compat.h"
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
