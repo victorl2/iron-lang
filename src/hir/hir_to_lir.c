@@ -5640,7 +5640,9 @@ static void ssa_rename_recursive(
     }
 
     /* Recurse for dominator tree children */
-    ptrdiff_t ci = hmgeti(dom_children, block->id);
+    /* hmgeti on a NULL map allocates one, which this by-value copy would
+     * leak. */
+    ptrdiff_t ci = dom_children ? hmgeti(dom_children, block->id) : -1;
     IronLIR_BlockId *children = (ci >= 0) ? dom_children[ci].value : NULL;
     for (int k = 0; k < (int)arrlen(children); k++) {
         IronLIR_Block *child_blk = hirlir_find_block(fn, children[k]);
