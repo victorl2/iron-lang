@@ -349,6 +349,101 @@ const char *emit_ensure_nullable_list(EmitCtx *ctx, const Iron_Type *elem) {
     return result;
 }
 
+/* Is `t` a stdlib container whose C value is a table or a runtime handle
+ * (Map, Set, Channel) rather than an Iron_<Name> struct? A list of them
+ * needs its own instantiation (#307). */
+bool emit_type_is_container_elem(const Iron_Type *t) {
+    if (!t || t->kind != IRON_TYPE_OBJECT || !t->object.decl ||
+        !t->object.decl->name || !t->object.elem) return false;
+    const char *on = t->object.decl->name;
+    return strcmp(on, "Map") == 0 || strcmp(on, "Set") == 0 ||
+           strcmp(on, "Channel") == 0;
+}
+
+/* `[Map[K, V]]`, `[Set[T]]`, `[Channel[T]]`: a list of tables or channel
+ * handles, named as emit_type_to_c names any list (Iron_List_ + the
+ * element's C type with spaces and `*` turned into `_`). A table element is
+ * cloned and freed through the table's own _copied / _drop (emitted with it
+ * by emit_ensure_hash); a channel element is destroyed with the list, and
+ * never cloned, since a Channel is nocopy and the checker rejects copying
+ * one. Returns the list's C type name. */
+const char *emit_ensure_container_list(EmitCtx *ctx, const Iron_Type *elem) {
+    const char *elem_c = emit_type_to_c((Iron_Type *)elem, ctx);
+    Iron_StrBuf nb = iron_strbuf_create(64);
+    iron_strbuf_appendf(&nb, "Iron_List_");
+    for (const char *c = elem_c; *c; c++) {
+        char ch[2] = { (*c == ' ' || *c == '*') ? '_' : *c, '\0' };
+        iron_strbuf_appendf(&nb, "%s", ch);
+    }
+    const char *result = iron_arena_strdup(ctx->arena, iron_strbuf_get(&nb), nb.len);
+    iron_strbuf_free(&nb);
+    if (!result) iron_oom_abort("emit_helpers.c:emit_ensure_container_list");
+    for (int i = 0; i < (int)arrlen(ctx->emitted_rc_lists); i++)
+        if (strcmp(ctx->emitted_rc_lists[i], result) == 0) return result;
+    arrput(ctx->emitted_rc_lists, (char *)result);
+    const char *suffix = result + strlen("Iron_List_");
+
+    iron_strbuf_appendf(&ctx->struct_bodies,
+        "typedef struct %s {\n"
+        "    %s *items;\n"
+        "    int64_t count;\n"
+        "    int64_t capacity;\n"
+        "} %s;\n"
+        "IRON_LIST_DECL(%s, %s)\n"
+        "IRON_LIST_IMPL_CORE(%s, %s)\n",
+        result, elem_c, result, elem_c, suffix, elem_c, suffix);
+
+    bool is_channel = strcmp(elem->object.decl->name, "Channel") == 0;
+    Iron_StrBuf drop_sb = iron_strbuf_create(64);
+    Iron_StrBuf copy_sb = iron_strbuf_create(64);
+    if (is_channel) {
+        const char *esc = emit_elem_c_escaped(ctx, elem->object.elem);
+        iron_strbuf_appendf(&drop_sb, "        Iron_Channel_%s_destroy(&self->items[_i]);\n",
+                            esc ? esc : "");
+    } else {
+        emit_elem_lifecycle_stmt(ctx, &drop_sb, elem, "self->items[_i]", true);
+        emit_elem_lifecycle_stmt(ctx, &copy_sb, elem, "dst.items[_i]", false);
+    }
+    iron_strbuf_appendf(&ctx->lifted_funcs,
+        "%s %s_clone(const %s *src) {\n"
+        "    %s dst;\n"
+        "    dst.count = src->count;\n"
+        "    dst.capacity = src->count;\n"
+        "    dst.items = NULL;\n"
+        "    if (src->count > 0) {\n"
+        "        dst.items = (%s *)iron_mem_alloc((size_t)src->count * sizeof(%s));\n"
+        "        if (!dst.items) iron_oom_abort(\"%s_clone\");\n"
+        "        for (int64_t _i = 0; _i < src->count; _i++) {\n"
+        "            dst.items[_i] = src->items[_i];\n"
+        "%s"
+        "        }\n"
+        "    }\n"
+        "    return dst;\n"
+        "}\n"
+        "void %s_clear(%s *self) {\n"
+        "    for (int64_t _i = 0; _i < self->count; _i++) {\n"
+        "%s"
+        "    }\n"
+        "    self->count = 0;\n"
+        "}\n"
+        "void %s_free(%s *self) {\n"
+        "    %s_clear(self);\n"
+        "    iron_mem_free(self->items);\n"
+        "    self->items = NULL; self->count = 0; self->capacity = 0;\n"
+        "}\n\n",
+        result, result, result,
+        result,
+        elem_c, elem_c,
+        result,
+        iron_strbuf_get(&copy_sb),
+        result, result,
+        iron_strbuf_get(&drop_sb),
+        result, result, result);
+    iron_strbuf_free(&drop_sb);
+    iron_strbuf_free(&copy_sb);
+    return result;
+}
+
 const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
     if (!t) return "void";
 
@@ -577,6 +672,10 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
             if (t->array.elem && (t->array.elem->kind == IRON_TYPE_RC ||
                                   t->array.elem->kind == IRON_TYPE_WEAK_RC)) {
                 return emit_ensure_rc_list(ctx, t->array.elem);
+            }
+            /* A list of maps, sets or channels (#307). */
+            if (emit_type_is_container_elem(t->array.elem)) {
+                return emit_ensure_container_list(ctx, t->array.elem);
             }
             /* A list of T? values (#289). */
             if (t->array.elem && t->array.elem->kind == IRON_TYPE_NULLABLE &&
