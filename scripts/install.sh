@@ -104,6 +104,25 @@ main() {
 
     echo "Downloading ${URL}..."
     curl -sSfL "$URL" -o "${TMPDIR}/${ARCHIVE}"
+    # Verify against the release's SHA-256 sidecar when it has one (releases
+    # from v4.8.0-alpha on; older ones only had HTTPS to go on).
+    if curl -sSfL "${URL}.sha256" -o "${TMPDIR}/${ARCHIVE}.sha256" 2>/dev/null; then
+        EXPECTED="$(tr -d ' \r\n' < "${TMPDIR}/${ARCHIVE}.sha256" | cut -c1-64)"
+        if command -v sha256sum > /dev/null 2>&1; then
+            ACTUAL="$(sha256sum "${TMPDIR}/${ARCHIVE}" | awk '{print $1}')"
+        else
+            ACTUAL="$(shasum -a 256 "${TMPDIR}/${ARCHIVE}" | awk '{print $1}')"
+        fi
+        if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "Error: checksum mismatch for ${ARCHIVE}" >&2
+            echo "  expected ${EXPECTED}" >&2
+            echo "  got      ${ACTUAL}" >&2
+            exit 1
+        fi
+        echo "Checksum verified."
+    else
+        echo "Note: no checksum published for ${ARCHIVE}; skipping verification."
+    fi
     LC_ALL=C tar -xzf "${TMPDIR}/${ARCHIVE}" -C "$IRON_HOME"
     chmod +x "${IRON_HOME}/bin/iron" "${IRON_HOME}/bin/ironc"
 
