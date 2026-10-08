@@ -88,6 +88,43 @@ bool iron_arena_on_free(Iron_Arena *a, void (*fn)(void *ctx), void *ctx);
  * may own the same array. */
 void iron_arena_own_arr(Iron_Arena *a, void **slot);
 
+/* Arena arrays: the storage for every AST node array (block statements,
+ * call arguments, parameters, ...). The elements live in the arena behind a
+ * header laid out like stb_ds's, with length == capacity == count, so
+ * arrlen() on one reads the right length. They must never be passed to an
+ * stb_ds mutator: with the capacity always full, arrput reallocs and
+ * arrfree frees arena memory, and both abort. Grow one with
+ * IRON_ARENA_ARR_PUSH, which copies it into a new arena block; the old
+ * block goes with the arena. */
+
+/* A zeroed arena array of `count` elements; NULL when count is 0 or the
+ * allocation fails. */
+void *iron_arena_arr_new(Iron_Arena *a, size_t count, size_t elem_size);
+
+/* Copy the stb_ds array `stb_arr` into a new arena array and arrfree it.
+ * Returns NULL for a NULL or empty array (and on allocation failure, after
+ * freeing it all the same). */
+void *iron_arena_arr_adopt(Iron_Arena *a, void *stb_arr, size_t elem_size);
+
+/* A new arena array holding the first `count` elements of `arr` (an arena
+ * array, plain arena memory or NULL) followed by `*elem`. */
+void *iron_arena_arr_append(Iron_Arena *a, const void *arr, size_t count,
+                            const void *elem, size_t elem_size);
+
+/* Replace the stb_ds array in `arr` with an arena copy of it. */
+#define IRON_ARENA_ARR_ADOPT(arena, arr) \
+    ((arr) = iron_arena_arr_adopt((arena), (void *)(arr), sizeof *(arr)))
+
+/* Append the pointer `v` to the arena array of pointers `arr`, which holds
+ * `count` elements. The caller updates its count field. */
+#define IRON_ARENA_ARR_PUSH(arena, arr, count, v) do {                       \
+        _Static_assert(sizeof *(arr) == sizeof(void *),                      \
+                       "IRON_ARENA_ARR_PUSH appends pointers");             \
+        const void *iron_arr_push_v_ = (v);                                  \
+        (arr) = iron_arena_arr_append((arena), (arr), (size_t)(count),       \
+                                      &iron_arr_push_v_, sizeof(void *));    \
+    } while (0)
+
 /* Typed allocation helper — allocates sizeof(T) aligned to _Alignof(T). */
 #define ARENA_ALLOC(arena, T) ((T*)iron_arena_alloc((arena), sizeof(T), _Alignof(T)))
 

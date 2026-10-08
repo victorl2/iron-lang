@@ -248,8 +248,7 @@ Iterating a string with `for` yields one-character strings.
 
 `T?` is a type whose values are either a `T` or `null`. A nullable type can
 be written for any non-pointer type (`Int?`, `String?`, `Node?`,
-`Result[Int, String]?`), except as the element type of a collection
-(section 12). A plain `T` converts to `T?` implicitly, so a
+`Result[Int, String]?`). A plain `T` converts to `T?` implicitly, so a
 function declared `-> Int?` may `return i` or `return null`. Reading a
 field or calling a method through a nullable value without checking it
 first is an error (`E0204`); compare with `null` first.
@@ -285,6 +284,55 @@ func main() {
 found at 2
 missing
 now
+```
+
+A nullable type may also be the element type of a list, fixed array or
+bounded vector (`[String?]`, `[Int?; 3]`), the value type of a map
+(`Map[String, Int?]`) and the element type of a channel
+(`Channel[Int?]`). `null` and plain `T` values are stored as elements
+(`[1, null, 3]`, `xs.push(null)`, `m.put(k, null)`, `ch.send(null)`), an
+element read out of the collection is a `T?` that is checked with
+`!= null` before use like any other, and `xs.contains(null)` finds a
+null element. A map key mapped to `null` is present: `m.has(k)` is
+`true` and `m.get(k)` returns `null`, while `get` on an absent key still
+panics. Map keys and set items must be `Hashable`, which a nullable type
+is not (`E0206`). In expression position the type argument is written
+the same way: `Map[String, Int?]()`, `Map[String, [Int?]]()`.
+
+```iron
+func first_present(xs: [Int?]) -> Int? {
+    for x in xs {
+        if x != null {
+            return x
+        }
+    }
+    return null
+}
+
+func main() {
+    var xs: [Int?] = [null, 2, null]
+    xs.push(4)
+    println("{xs.len()} {xs[0]} {first_present(xs)} {xs.contains(null)}")
+    val names: [String?] = ["ann", null]
+    for n in names {
+        if n != null {
+            println("{n.upper()}")
+        } else {
+            println("nobody")
+        }
+    }
+    var ages = Map[String, Int?]()
+    ages.put("ann", 30)
+    ages.put("bob", null)
+    println("{ages.has("bob")} {ages.get("bob")} {ages.has("cy")}")
+}
+```
+
+```output
+4 null 2 true
+ANN
+nobody
+true null false
 ```
 
 Nullable pointers are written `?*T` (section 6.4), and a nullable weak
@@ -2935,7 +2983,6 @@ so that older material is not mistaken for the current language:
 - Reading and writing a primitive through a pointer (`*p`).
 - Lambda parameter inference outside a function-typed parameter position.
 - `String`, `Bool` and `Float` subjects in `match`.
-- Collections of nullable elements (`[T?]`, `Map[K, V?]`, `Channel[T?]`).
 - raylib in Linux cross builds: it needs the system's OpenGL, which a
   static musl executable cannot load.
 
@@ -3029,7 +3076,7 @@ heap_opts      ::= '(' heap_opt { ',' heap_opt } ')'
 heap_opt       ::= 'in' ':' expr | 'allow_drop_skip' ':' ( 'true' | 'false' )
 postfix        ::= primary { '.' NAME [ type_args ] [ call_args ]
                            | '[' expr [ '..' [ expr ] ] ']'
-                           | '[' type ',' type { ',' type } ']'
+                           | '[' type { ',' type } ']'
                            | call_args }
 call_args      ::= '(' [ expr { ',' expr } [ ',' ] ] ')'
 type_args      ::= '[' type { ',' type } ']'
@@ -3038,6 +3085,7 @@ primary        ::= INT | FLOAT | STRING | 'true' | 'false' | 'null' | IDENT | 's
                  | '(' expr ',' expr { ',' expr } [ ',' ] ')'
                  | '[' type ';' expr ']'
                  | '[' [ expr { ',' expr } [ ',' ] ] ']'
+                 | '[' type ']'
                  | lambda
 lambda         ::= 'func' param_list [ '->' type ] block
 
@@ -3051,7 +3099,7 @@ type           ::= 'weak' 'rc' type
 ptr_type       ::= '*' [ 'var' ] [ 'unchecked' ] type
 tuple_type     ::= '(' type ',' type { ',' type } ')'
 list_type      ::= '[' elem_type { ',' list_attr } [ ';' [ '<=' ] expr ] ']'
-elem_type      ::= func_type | 'rc' type | 'weak' 'rc' type | list_type | ptr_type | tuple_type | IDENT [ type_args ]
+elem_type      ::= func_type | 'rc' type | 'weak' 'rc' type | list_type | ptr_type | tuple_type | named_type
 list_attr      ::= 'layout' ':' ( 'soa' | 'aos' ) | 'unordered'
 func_type      ::= 'func' [ '(' [ type { ',' type } ] ')' ] [ '->' type ]
 named_type     ::= IDENT '?' [ type_args ] | IDENT [ type_args ] [ '?' ]
@@ -3065,7 +3113,10 @@ operators, with every binary operator left associative and `is` binding
 loosest of all. In `postfix`, `X.Y(args)` and `X.Y` where `X` and `Y` both
 start with an uppercase letter denote an enum variant construction, and
 `x.m[T](args)` is only read as a generic method call when the token after
-`[` is a type name starting with an uppercase letter or `[`. In `pattern`,
+`[` is a type name starting with an uppercase letter or `[`. Between the
+brackets of `postfix` and of a list `primary`, an element containing `?`
+(outside parentheses) is read as a `type` (`Map[String, Int?]()`,
+`Map[String, [Int?]]()`), every other element as an `expr`. In `pattern`,
 the first alternative is used when the arm starts with `IDENT '.'` or with
 an uppercase identifier followed by `(`, and `expr` otherwise. The
 standalone forms `func Type.method()` and `func (r: T) method()` are

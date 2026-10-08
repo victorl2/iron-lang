@@ -1,0 +1,12 @@
+-- (#289) A loop variable over [Int?] is an Int?: passing it where an Int is
+-- required without a null check is rejected.
+func double(n: Int) -> Int {
+    return n * 2
+}
+
+func main() {
+    val xs: [Int?] = [1, null]
+    for x in xs {
+        println("{double(x)}")
+    }
+}

@@ -206,3 +206,39 @@ static void free_owned_arr(void *ctx) {
 void iron_arena_own_arr(Iron_Arena *a, void **slot) {
     if (slot) (void)iron_arena_on_free(a, free_owned_arr, slot);
 }
+
+/* Arena arrays carry an stb_ds-shaped header so arrlen() reads them
+ * correctly. Header and elements share one arena block; the header is a
+ * whole number of pointer-sized words, so the elements stay pointer aligned. */
+void *iron_arena_arr_new(Iron_Arena *a, size_t count, size_t elem_size) {
+    if (count == 0 || elem_size == 0) return NULL;
+    if (count > (SIZE_MAX - sizeof(stbds_array_header)) / elem_size) return NULL;
+    stbds_array_header *h = (stbds_array_header *)iron_arena_alloc(
+        a, sizeof(stbds_array_header) + count * elem_size,
+        _Alignof(stbds_array_header));
+    if (!h) return NULL;
+    h->length     = count;
+    h->capacity   = count;
+    h->hash_table = NULL;
+    h->temp       = 0;
+    return h + 1;
+}
+
+void *iron_arena_arr_adopt(Iron_Arena *a, void *stb_arr, size_t elem_size) {
+    if (!stb_arr) return NULL;
+    size_t n = stbds_arrlenu(stb_arr);
+    void *out = iron_arena_arr_new(a, n, elem_size);
+    if (out) memcpy(out, stb_arr, n * elem_size);
+    stbds_arrfree(stb_arr);
+    return out;
+}
+
+void *iron_arena_arr_append(Iron_Arena *a, const void *arr, size_t count,
+                            const void *elem, size_t elem_size) {
+    if (!arr) count = 0;
+    char *out = (char *)iron_arena_arr_new(a, count + 1, elem_size);
+    if (!out) return NULL;
+    if (count) memcpy(out, arr, count * elem_size);
+    memcpy(out + count * elem_size, elem, elem_size);
+    return out;
+}

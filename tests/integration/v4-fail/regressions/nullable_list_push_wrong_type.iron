@@ -1,0 +1,6 @@
+-- (#289) A [Int?] takes null and Int values, not a String.
+func main() {
+    var xs: [Int?] = []
+    xs.push(null)
+    xs.push("three")
+}

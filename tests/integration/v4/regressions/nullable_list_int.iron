@@ -1,0 +1,109 @@
+-- Regression (#289): a list of nullable Ints, [Int?].
+--
+-- The element type of a list could not be nullable: `[Int?]` was a parse
+-- error, the Iron_List_Iron_Optional_int64_t instance was never emitted,
+-- push(null) / push(4) were rejected, and a for loop narrowing its
+-- variable with `!= null` failed LIR verification. Every list operation
+-- now works on T? elements, with null and plain T values wrapped as the
+-- element optional on the way in.
+
+func first_present(xs: [Int?]) -> Int? {
+    for x in xs {
+        if x != null {
+            return x
+        }
+    }
+    return null
+}
+
+func count_nulls(xs: [Int?]) -> Int {
+    var n = 0
+    for x in xs {
+        if x == null {
+            n += 1
+        }
+    }
+    return n
+}
+
+func make(n: Int) -> [Int?] {
+    var out: [Int?] = []
+    for i in range(n) {
+        if i % 2 == 0 {
+            out.push(i * 10)
+        } else {
+            out.push(null)
+        }
+    }
+    return out
+}
+
+func main() {
+    var xs: [Int?] = [1, null, 3]
+    xs.push(null)
+    xs.push(4)
+    println("len {xs.len()} nulls {count_nulls(xs)}")
+    for x in xs {
+        if x != null {
+            println("value {x + 100}")
+        } else {
+            println("null")
+        }
+    }
+
+    -- index, assignment through an index, set, get
+    val a = xs[1]
+    if a == null {
+        println("xs[1] is null")
+    }
+    xs[1] = 7
+    val b = xs[1]
+    if b != null {
+        println("xs[1] now {b * 2}")
+    }
+    xs.set(0, null)
+    println("xs[0] = {xs[0]}, get(2) = {xs.get(2)}")
+
+    -- pop, insert, remove
+    val p = xs.pop()
+    if p != null {
+        println("popped {p}")
+    }
+    val q = xs.pop()
+    println("popped {q}")
+    xs.insert(0, 42)
+    xs.insert(1, null)
+    val r = xs.remove(0)
+    println("removed {r}, len {xs.len()}")
+
+    -- contains
+    println("contains 7 {xs.contains(7)} contains null {xs.contains(null)} contains 9 {xs.contains(9)}")
+
+    -- interpolation of every element, functions taking and returning [Int?]
+    var line = ""
+    for x in xs {
+        line += "{x} "
+    }
+    println(line)
+    println("first present {first_present(xs)}")
+    val none: [Int?] = [null, null]
+    println("first present of nulls {first_present(none)}")
+    val made = make(5)
+    println("made {made.len()} nulls {count_nulls(made)} first {made[0]} second {made[1]}")
+
+    -- copies are independent
+    var c = xs.copy()
+    c.push(5)
+    println("copy {c.len()} original {xs.len()}")
+
+    -- fixed-size array of nullables
+    var fixed: [Int?; 3] = [null, 2, null]
+    fixed[0] = 9
+    var sum = 0
+    for f in fixed {
+        if f != null {
+            sum += f
+        }
+    }
+    println("fixed sum {sum} last {fixed[2]}")
+}

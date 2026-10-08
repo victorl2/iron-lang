@@ -1,0 +1,13 @@
+len 3 has b true has z false
+a=1 b=null z=absent
+get_or b null get_or z 7 get_or z null null
+after overwrite a=null b=2
+remove a true remove a again false len 2
+sum 5 nulls 0
+values 2 contains 3 true
+1 -> uno (3)
+2 -> null
+dup 2 -> two, original 2 -> null
+names 2 dup 3
+x holds second
+y is null true

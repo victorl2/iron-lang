@@ -778,6 +778,18 @@ static const char *list_elem_suffix(HIR_to_LIR_Ctx *ctx, Iron_Type *elem) {
                     elem_suffix = s;
                 }
                 break;
+            case IRON_TYPE_NULLABLE:
+                /* `[T?]`: Iron_List_Iron_Optional_<T>, matching
+                 * emit_optional_struct_name. */
+                if (elem->nullable.inner) {
+                    const char *inner = list_elem_suffix(ctx, elem->nullable.inner);
+                    size_t slen = 15 + strlen(inner) + 1;
+                    char *s = (char *)iron_arena_alloc(ctx->lir_arena, slen, 1);
+                    if (!s) iron_oom_abort("hir_to_lir.c:lower_expr list_elem_suffix nullable");
+                    snprintf(s, slen, "Iron_Optional_%s", inner);
+                    elem_suffix = s;
+                }
+                break;
             case IRON_TYPE_RC:
             case IRON_TYPE_WEAK_RC: {
                 /* Matches emit_ensure_rc_list's list name. */
@@ -1921,6 +1933,16 @@ static const char *emit_type_to_c_name_for_box(HIR_to_LIR_Ctx *ctx,
                 elem_c = obj_buf;
             }
             break;
+        case IRON_TYPE_NULLABLE: {
+            /* `T?`: Iron_Optional_<T>, as emit_optional_struct_name spells it. */
+            const char *inner_box = elem->nullable.inner
+                ? emit_type_to_c_name_for_box(ctx, elem->nullable.inner) : NULL;
+            if (inner_box && strncmp(inner_box, "Iron_Box_", 9) == 0) {
+                snprintf(obj_buf, sizeof(obj_buf), "Iron_Optional_%s", inner_box + 9);
+                elem_c = obj_buf;
+            }
+            break;
+        }
         /* -Wswitch-enum opt-out: composite/meta element kinds are not
          * supported as Box elements yet; return NULL so the caller falls
          * back to the generic method path. */
@@ -2748,6 +2770,20 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                             av = copy_for_new_owner(ctx, ae, av, ae->type, span);
                         }
                     }
+                    /* A `T?` key, value or channel element: a T value or a
+                     * null literal becomes an Iron_Optional_<T>. */
+                    {
+                        Iron_Type *slot_t = NULL;
+                        Iron_Type *e2 = expr->method_call.object->type->object.elem2;
+                        if (is_hash && strcmp(rn, "Map") == 0)
+                            slot_t = i == 0 ? elem : e2;
+                        else if (is_hash)
+                            slot_t = elem;
+                        else if (strcmp(rn, "Channel") == 0 || strcmp(rn, "MutexGuard") == 0 ||
+                                 strcmp(rn, "RWWriteGuard") == 0)
+                            slot_t = elem;
+                        av = coerce_to_optional(ctx, av, slot_t, span);
+                    }
                     arrput(cargs, av);
                 }
                 int cargc = (int)arrlen(cargs);
@@ -3026,6 +3062,12 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                     } else {
                         note_owned_temp(ctx, &coll_temps, ae, av, span);
                     }
+                    /* A `T?` list's element argument: a T value or a null
+                     * literal becomes an Iron_Optional_<T>. */
+                    if ((stores_elem || strcmp(coll_method, "set") == 0 ||
+                         strcmp(coll_method, "contains") == 0) &&
+                        i == expr->method_call.arg_count - 1)
+                        av = coerce_to_optional(ctx, av, obj_type->array.elem, span);
                     arrput(coll_args, av);
                 }
                 int coll_argc = (int)arrlen(coll_args);
@@ -3643,6 +3685,7 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             } else if (lit_et) {
                 ev = copy_for_new_owner(ctx, ee, ev, lit_et, span);
             }
+            ev = coerce_to_optional(ctx, ev, lit_et, span);
             arrput(elements, ev);
         }
         IronLIR_Instr *instr = iron_lir_array_lit(ctx->current_func, ctx->current_block,
@@ -4803,8 +4846,9 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         bool            has_value = (stmt->return_stmt.value != NULL);
         Iron_Type      *ret_type  = has_value ? stmt->return_stmt.value->type : NULL;
         if (has_value) {
-            ret_val = lower_expr_as(ctx, stmt->return_stmt.value,
-                                    ctx->current_func->return_type);
+            /* (Wrapped into a T? return type after the copy below: the
+             * copy is of the expression's own type.) */
+            ret_val = lower_expr(ctx, stmt->return_stmt.value);
             /* Phase 26 POL-06 (Plan 26-02) + Phase 37 rc-balance: returning an
              * rc-like value (rc T / weak rc T / rc T?) bumps the count so the
              * caller's received reference is independently lifetime-tracked.
@@ -4840,6 +4884,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             } else if (!type_is_rc_like(ret_type)) {
                 ret_val = copy_for_new_owner(ctx, rv, ret_val, ret_type, span);
             }
+            ret_val = coerce_to_optional(ctx, ret_val, ctx->current_func->return_type, span);
         }
 
         if (!ctx->current_block || block_is_terminated(ctx->current_block)) {
@@ -5344,6 +5389,7 @@ typedef struct { IronLIR_BlockId key; IronLIR_BlockId *value; } DomChildrenEntry
 
 /* Helper: get current top of var_stack for alloca_id, or INVALID if empty */
 static IronLIR_ValueId ssa_stack_top(VarStackEntry *var_stacks, IronLIR_ValueId alloca_id) {
+    if (!var_stacks) return IRON_LIR_VALUE_INVALID;  /* hmgeti would allocate */
     ptrdiff_t si = hmgeti(var_stacks, alloca_id);
     if (si < 0 || arrlen(var_stacks[si].value) == 0) return IRON_LIR_VALUE_INVALID;
     return var_stacks[si].value[arrlen(var_stacks[si].value) - 1];
@@ -5516,7 +5562,7 @@ static void ssa_rename_recursive(
         IronLIR_Instr *instr = block->instrs[ii];
         if (!instr || instr->kind != IRON_LIR_PHI) break; /* phis are always first */
 
-        ptrdiff_t ai = hmgeti(phi_alloca_map, instr->id);
+        ptrdiff_t ai = phi_alloca_map ? hmgeti(phi_alloca_map, instr->id) : -1;
         if (ai >= 0) {
             IronLIR_ValueId alloca_id = phi_alloca_map[ai].value;
             ssa_stack_push(var_stacks_ptr, alloca_id, instr->id);
@@ -5583,7 +5629,7 @@ static void ssa_rename_recursive(
             if (!phi || phi->kind != IRON_LIR_PHI) break;
 
             /* Find which alloca this phi belongs to */
-            ptrdiff_t ai = hmgeti(phi_alloca_map, phi->id);
+            ptrdiff_t ai = phi_alloca_map ? hmgeti(phi_alloca_map, phi->id) : -1;
             if (ai < 0) continue;
             IronLIR_ValueId alloca_id = phi_alloca_map[ai].value;
 
@@ -5640,7 +5686,9 @@ static void ssa_rename_recursive(
     }
 
     /* Recurse for dominator tree children */
-    ptrdiff_t ci = hmgeti(dom_children, block->id);
+    /* hmgeti on a NULL map allocates one, which this by-value copy would
+     * leak. */
+    ptrdiff_t ci = dom_children ? hmgeti(dom_children, block->id) : -1;
     IronLIR_BlockId *children = (ci >= 0) ? dom_children[ci].value : NULL;
     for (int k = 0; k < (int)arrlen(children); k++) {
         IronLIR_Block *child_blk = hirlir_find_block(fn, children[k]);
@@ -6005,6 +6053,18 @@ IronLIR_Module *iron_hir_to_lir(IronHIR_Module *hir, Iron_Program *program,
         }
         arrfree(ctx.defer_stacks);
     }
+    if (ctx.drop_stacks) {
+        for (int d = 0; d < (int)arrlen(ctx.drop_stacks); d++) {
+            arrfree(ctx.drop_stacks[d]);
+        }
+        arrfree(ctx.drop_stacks);
+    }
+    /* The last function's var-param state (earlier ones are reset when the
+     * next function starts). */
+    hmfree(ctx.var_param_ids);
+    arrfree(ctx.wb_param_vids);
+    arrfree(ctx.wb_alloca_ids);
+    arrfree(ctx.wb_types);
     arrfree(ctx.loops);
 
     /* ── Verify output ── */
