@@ -3,6 +3,25 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v4.10.0-alpha: Correctness and Spec Coverage (2026-10-09)
+
+- **Language:** a for loop walks a list, String, Map, Set or `range(n)`
+  (`for i in 10` is an error); `x != null` narrowing survives assignments
+  of non-null values and `while` narrows, so linked lists can be walked;
+  mutating calls through list elements and fields follow the field rules.
+- **Fixes:** a pattern binding no longer frees its list payload; an
+  `upgrade()` compared with null no longer leaks; an address-taken local
+  is never narrowed; `T` arguments to `T?` method parameters, enum
+  payloads of lists and maps, and lists of pointers compile.
+- **Diagnostics:** errors say what to write instead (`1e20`, `0..n`,
+  `a ** b`, `val s = match`, missing `:`, keywords as names), name the
+  closest field or method, suggest `readonly`, write out a missing init,
+  and no longer cascade; W0616 for comparing a non-nullable value with
+  null.
+- **Tooling:** `scripts/spec_coverage.py` measures the manual covered by
+  tests (582 of 583 units); the standard library parses with the
+  manual's grammar; hover shows doc comments of methods.
+
 ## v4.9.0-alpha: Editor Support and Source-Level Debugging (2026-10-09)
 
 - **Editor:** the language server analyzes a buffer exactly as `ironc
