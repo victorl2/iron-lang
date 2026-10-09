@@ -1035,6 +1035,16 @@ add_test(NAME diag_error_receiver
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/error_receiver.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 
+# A mutating call on a val suggests `readonly` when the method never
+# changes self.
+add_test(NAME diag_readonly_hint
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/readonly_hint.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/readonly_hint.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/readonly_hint.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
 # A diagnostic is reported once even when two passes find it.
 add_test(NAME diag_reported_once
     COMMAND $<TARGET_FILE:ironc> check

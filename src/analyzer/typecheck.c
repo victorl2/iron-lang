@@ -522,6 +522,8 @@ static bool reject_narrowed_view_write(TypeCtx *ctx, Iron_Node *root, Iron_Span 
     Iron_Type *st = sym->type->kind == IRON_TYPE_NULLABLE ? sym->type->nullable.inner
                                                          : sym->type;
     if (!st || st->kind != IRON_TYPE_INTERFACE) return false;
+    /* `x != null` on an `I?` narrows to I itself: no copy, no type test. */
+    if (iron_type_equals(view, st)) return false;
     char msg[256];
     snprintf(msg, sizeof(msg),
              "cannot modify '%s' through an interface type test: it is a read-only view here",
@@ -3130,6 +3132,103 @@ static bool node_is_value_expression(const Iron_Node *n) {
            n->kind == IRON_NODE_ENUM_CONSTRUCT;
 }
 
+/* Whether a method body may change self: an assignment rooted at `self`,
+ * a method call on `self` or a part of it, or `self` passed along. Field
+ * reads do not count. Conservative: used only to suggest `readonly`. */
+static Iron_Node *expr_root(Iron_Node *n) {
+    while (n && (n->kind == IRON_NODE_FIELD_ACCESS || n->kind == IRON_NODE_INDEX))
+        n = n->kind == IRON_NODE_FIELD_ACCESS ? ((Iron_FieldAccess *)n)->object
+                                              : ((Iron_IndexExpr *)n)->object;
+    return n;
+}
+static bool is_self_ident(Iron_Node *n) {
+    return n && n->kind == IRON_NODE_IDENT && ((Iron_Ident *)n)->name &&
+           strcmp(((Iron_Ident *)n)->name, "self") == 0;
+}
+static bool touches_self_visit(Iron_Visitor *v, Iron_Node *n) {
+    bool *hit = (bool *)v->ctx;
+    if (*hit) return false;
+    if (n->kind == IRON_NODE_ASSIGN &&
+        is_self_ident(expr_root(((Iron_AssignStmt *)n)->target))) *hit = true;
+    else if (n->kind == IRON_NODE_METHOD_CALL) {
+        Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)n;
+        if (is_self_ident(expr_root(mc->object))) *hit = true;
+        for (int i = 0; i < mc->arg_count; i++)
+            if (is_self_ident(expr_root(mc->args[i]))) *hit = true;
+    } else if (n->kind == IRON_NODE_CALL) {
+        Iron_CallExpr *ce = (Iron_CallExpr *)n;
+        for (int i = 0; i < ce->arg_count; i++)
+            if (is_self_ident(expr_root(ce->args[i]))) *hit = true;
+    }
+    return !*hit;
+}
+static bool method_may_change_self(Iron_MethodDecl *md) {
+    /* A stub (stdlib declaration) or a synthesized accessor says nothing. */
+    if (!md->body || md->is_synth_accessor || md->is_iface_default) return true;
+    if (md->body->kind == IRON_NODE_BLOCK && ((Iron_Block *)md->body)->stmt_count == 0)
+        return true;
+    bool hit = false;
+    Iron_Visitor v = { .ctx = &hit, .visit_node = touches_self_visit, .post_visit = NULL };
+    iron_ast_walk(md->body, &v);
+    return hit;
+}
+
+/* Help for a mutating call on an immutable receiver when the method only
+ * looks mutating: declared without `readonly` but no implementation changes
+ * self (`func area() -> Float { return self.s * self.s }`). Declaring it
+ * readonly is then the fix, not `var`. NULL when that is not known. */
+static const char *readonly_hint(TypeCtx *ctx, Iron_Type *t, const char *method) {
+    if (!ctx->program || !t || !method) return NULL;
+    if (t->kind == IRON_TYPE_NULLABLE) t = t->nullable.inner;
+    if (!t) return NULL;
+    const char *iface_name = NULL;
+    const char *type_name = NULL;
+    if (t->kind == IRON_TYPE_INTERFACE && t->interface.decl)
+        iface_name = t->interface.decl->name;
+    else if (t->kind == IRON_TYPE_OBJECT && t->object.decl)
+        type_name = t->object.decl->name;
+    if (!iface_name && !type_name) return NULL;
+    int seen = 0;
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+        const char *tn = od->is_patch ? od->target_type_name : od->name;
+        if (!tn) continue;
+        if (type_name) {
+            if (strcmp(tn, type_name) != 0) continue;
+        } else {
+            bool implements = false;
+            for (int k = 0; k < od->implements_count; k++)
+                if (od->implements_names[k] &&
+                    strcmp(od->implements_names[k], iface_name) == 0) implements = true;
+            if (!implements) continue;
+        }
+        for (int j = 0; j < ctx->program->decl_count; j++) {
+            Iron_Node *m = ctx->program->decls[j];
+            if (!m || m->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *md = (Iron_MethodDecl *)m;
+            if (!md->type_name || !md->method_name || strcmp(md->type_name, tn) != 0 ||
+                strcmp(md->method_name, method) != 0) continue;
+            if (md->is_readonly || md->is_pure) continue;
+            if (method_may_change_self(md)) return NULL;
+            seen++;
+        }
+    }
+    if (seen == 0) return NULL;
+    char buf[320];
+    if (iface_name)
+        snprintf(buf, sizeof(buf),
+                 "'%s' does not change self in any implementation: declare it "
+                 "`readonly func %s(...)` in '%s' and its implementations",
+                 method, method, iface_name);
+    else
+        snprintf(buf, sizeof(buf),
+                 "'%s' does not change self: declare it `readonly func %s(...)`",
+                 method, method);
+    return iron_arena_strdup(ctx->arena, buf, strlen(buf));
+}
+
 /* A call that mutates its receiver: the receiver's root binding must be
  * mutable. Marks it for the unused-var lint (so `var` is not reported as
  * removable) and reports E0235 when it is immutable, as concrete-object
@@ -3184,8 +3283,9 @@ static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
             snprintf(mmsg, sizeof(mmsg), "cannot call mutable method '%s' on immutable binding '%s'",
                      mc->method ? mc->method : "?", id->name ? id->name : "?");
         snprintf(mhelp, sizeof(mhelp), "declare '%s' with var instead of val", id->name ? id->name : "?");
+        const char *ro = readonly_hint(ctx, ((Iron_ExprNode *)receiver)->resolved_type, mc->method);
         emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, mc->span, mmsg,
-                   sym_is_loop_var(sym) ? LOOP_VAR_MUT_HELP : mhelp);
+                   ro ? ro : sym_is_loop_var(sym) ? LOOP_VAR_MUT_HELP : mhelp);
     }
 }
 
@@ -6541,9 +6641,12 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                         char mhelp2[256];
                                         snprintf(mhelp2, sizeof(mhelp2), "declare '%s' with var instead of val",
                                                  recv_ident->name ? recv_ident->name : "?");
+                                        const char *ro = readonly_hint(
+                                            ctx, recv_ident->resolved_type, mc->method);
                                         emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL,
                                                    mc->span, msg,
-                                                   sym_is_loop_var(recv_ident->resolved_sym)
+                                                   ro ? ro
+                                                   : sym_is_loop_var(recv_ident->resolved_sym)
                                                        ? LOOP_VAR_MUT_HELP : mhelp2);
                                     }
                                     /* Phase 84 MUTTIER-02 E0239: readonly caller
