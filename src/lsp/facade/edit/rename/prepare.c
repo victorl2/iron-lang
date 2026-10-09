@@ -43,6 +43,19 @@
  * Returns the resolved Iron_Symbol if cursor is on IRON_NODE_IDENT with
  * a resolved_sym; otherwise NULL. *out_ident is populated with the
  * innermost AST node (possibly NULL) regardless of outcome. */
+/* True when the cursor at `pos` is on `decl`'s own name. */
+static bool ident_on_decl_name(const IronLsp_Document *doc, const Iron_Node *decl,
+                               IronLsp_Position pos, IronLsp_PositionEncoding enc) {
+    Iron_Span ns = ilsp_nav_decl_name_span(decl, doc->text, doc->text_len);
+    if (ns.line == decl->span.line && ns.col == decl->span.col &&
+        ns.end_line == decl->span.end_line && ns.end_col == decl->span.end_col) {
+        return false;  /* name not found: not a named declaration */
+    }
+    IronLsp_Range r = ilsp_span_to_lsp_range(ns, (IronLsp_Document *)doc, enc);
+    return pos.line == r.start.line && pos.character >= r.start.character &&
+           pos.character <= r.end.character;
+}
+
 static const Iron_Symbol *ident_at_cursor(const IronLsp_Document   *doc,
                                             const Iron_Program       *program,
                                             IronLsp_Position          pos,
@@ -56,6 +69,8 @@ static const Iron_Symbol *ident_at_cursor(const IronLsp_Document   *doc,
         const Iron_Ident *id = (const Iron_Ident *)n;
         return id->resolved_sym;
     }
+    /* The cursor on a declaration's own name. */
+    if (ident_on_decl_name(doc, n, pos, enc)) return ilsp_nav_symbol_of_decl(program, n);
     return NULL;
 }
 
@@ -147,7 +162,7 @@ void ilsp_facade_prepare_rename(IronLsp_Server              *server,
     /* Category 1: not an ident node (keyword / literal / whitespace /
      * comment / operator).  ident_at_cursor returns NULL for sym AND
      * ident is either NULL or a non-IDENT kind -- both funnel here. */
-    if (!ident || ident->kind != IRON_NODE_IDENT) {
+    if (!ident || (ident->kind != IRON_NODE_IDENT && !sym)) {
         out->kind = ILSP_PREPARE_RENAME_REJECT_SILENT;
         goto done;
     }
@@ -200,7 +215,11 @@ void ilsp_facade_prepare_rename(IronLsp_Server              *server,
      * ident->span is 1-based byte-column; convert to LSP encoding-aware
      * 0-based Range via the standard span helper. */
     out->kind  = ILSP_PREPARE_RENAME_ACCEPT;
-    out->range = ilsp_span_to_lsp_range(ident->span, doc, enc);
+    out->range = ilsp_span_to_lsp_range(
+        ident->kind == IRON_NODE_IDENT
+            ? ident->span
+            : ilsp_nav_decl_name_span(ident, doc->text, doc->text_len),
+        doc, enc);
     const char *nm = sym->name ? sym->name : "";
     out->placeholder = iron_arena_strdup(arena, nm, strlen(nm));
     if (!out->placeholder) out->placeholder = "";

@@ -62,12 +62,15 @@ static void build_decl_site(const Iron_Symbol              *sym,
     Iron_Span dspan = sym->decl_node->span;
     const char *fn = dspan.filename;
     if (span_file_is_doc(fn, doc)) {
+        dspan = ilsp_nav_decl_name_span(sym->decl_node, doc->text, doc->text_len);
         out->range = ilsp_span_to_lsp_range(dspan, doc, enc);
         out->uri = doc->uri
             ? iron_arena_strdup(arena, doc->uri, strlen(doc->uri)) : "";
     } else if (wi && fn) {
         IronLsp_IndexEntry *entry = ilsp_workspace_index_lookup(wi, fn);
         if (entry) {
+            dspan = ilsp_nav_decl_name_span(sym->decl_node, entry->source_bytes,
+                                            entry->source_len);
             out->range = ilsp_nav_entry_span_to_range(entry, dspan, enc);
             out->uri = ilsp_nav_path_to_uri(fn, arena);
         } else {
@@ -81,6 +84,44 @@ static void build_decl_site(const Iron_Symbol              *sym,
         out->uri = fn ? ilsp_nav_path_to_uri(fn, arena) : "";
     }
     if (!out->uri) out->uri = "";
+}
+
+/* Every identifier in the open document resolving to `decl`. */
+typedef struct {
+    const Iron_Node          *decl;
+    IronLsp_Document         *doc;
+    IronLsp_PositionEncoding  enc;
+    Iron_Arena               *arena;
+    IronLsp_RefSite          *sites;
+    size_t                    cap, n;
+} RefCollect;
+
+static bool ref_collect_visit(Iron_Visitor *v, Iron_Node *n) {
+    RefCollect *rc = (RefCollect *)v->ctx;
+    if (n->kind == IRON_NODE_ERROR) return false;
+    if (n->kind != IRON_NODE_IDENT) return true;
+    Iron_Ident *id = (Iron_Ident *)n;
+    if (!id->resolved_sym || id->resolved_sym->decl_node != rc->decl) return true;
+    if (id->span.filename && rc->doc->uri && strcmp(id->span.filename, rc->doc->uri) != 0)
+        return true;
+    for (size_t i = 0; i < rc->n; i++) {  /* generic instances repeat spans */
+        if (rc->sites[i].range.start.line == id->span.line - 1 &&
+            rc->sites[i].range.start.character + 1 == id->span.col) return true;
+    }
+    if (rc->n == rc->cap) {
+        size_t ncap = rc->cap * 2;
+        IronLsp_RefSite *ns = (IronLsp_RefSite *)iron_arena_alloc(
+            rc->arena, ncap * sizeof(*ns), _Alignof(IronLsp_RefSite));
+        if (!ns) return false;
+        memcpy(ns, rc->sites, rc->n * sizeof(*ns));
+        rc->sites = ns;
+        rc->cap = ncap;
+    }
+    rc->sites[rc->n].uri = rc->doc->uri
+        ? iron_arena_strdup(rc->arena, rc->doc->uri, strlen(rc->doc->uri)) : "";
+    rc->sites[rc->n].range = ilsp_span_to_lsp_range(id->span, rc->doc, rc->enc);
+    rc->n++;
+    return true;
 }
 
 void ilsp_facade_nav_references(struct IronLsp_Server         *server,
@@ -114,6 +155,10 @@ void ilsp_facade_nav_references(struct IronLsp_Server         *server,
     if (node && node->kind == IRON_NODE_IDENT) {
         Iron_Ident *id = (Iron_Ident *)node;
         sym = id->resolved_sym;
+    } else if (node) {
+        /* The cursor on a declaration's name: its symbol is the one any
+         * use of it resolves to. */
+        sym = ilsp_nav_symbol_of_decl(program, node);
     }
     /* If cursor is directly on a decl itself, synthesize a
      * "self-reference" by using the decl_node's triple and treating
@@ -217,95 +262,13 @@ void ilsp_facade_nav_references(struct IronLsp_Server         *server,
         fallback = (IronLsp_RefSite *)iron_arena_alloc(
             arena, cap * sizeof(*fallback), _Alignof(IronLsp_RefSite));
         if (!fallback) goto assemble;
-        /* Walk top-level decls and bodies (minimal walker -- mirror
-         * of references_index walker, simplified for self-scope). */
-        /* Iterative stack-based walk avoiding a second visitor TU. */
-        Iron_Node **stack = NULL;
-        size_t sp = 0, sc = 64;
-        stack = (Iron_Node **)malloc(sc * sizeof(*stack));
-        if (!stack) goto assemble;
+        RefCollect rc = { sym->decl_node, doc, enc, arena, fallback, cap, 0 };
+        Iron_Visitor v = { .ctx = &rc, .visit_node = ref_collect_visit, .post_visit = NULL };
         for (int i = 0; i < program->decl_count; i++) {
-            if (program->decls[i]) {
-                if (sp >= sc) {
-                    sc *= 2;
-                    Iron_Node **ns = (Iron_Node **)realloc(stack, sc * sizeof(*stack));
-                    if (!ns) { free(stack); goto assemble; }
-                    stack = ns;
-                }
-                stack[sp++] = program->decls[i];
-            }
+            if (program->decls[i]) iron_ast_walk(program->decls[i], &v);
         }
-#define PUSH(n) do { if ((n)) { if (sp >= sc) { sc *= 2; Iron_Node **ns = (Iron_Node **)realloc(stack, sc*sizeof(*stack)); if (!ns) goto stack_done; stack = ns; } stack[sp++] = (n); } } while (0)
-        while (sp > 0) {
-            Iron_Node *cur = stack[--sp];
-            if (!cur || cur->kind == IRON_NODE_ERROR) continue;
-            switch ((int)cur->kind) {
-                case IRON_NODE_IDENT: {
-                    Iron_Ident *id = (Iron_Ident *)cur;
-                    if (id->resolved_sym && id->resolved_sym->decl_node == sym->decl_node) {
-                        if (fallback_n == cap) {
-                            size_t ncap = cap * 2;
-                            IronLsp_RefSite *nf = (IronLsp_RefSite *)iron_arena_alloc(
-                                arena, ncap * sizeof(*fallback), _Alignof(IronLsp_RefSite));
-                            if (!nf) break;
-                            memcpy(nf, fallback, fallback_n * sizeof(*fallback));
-                            fallback = nf; cap = ncap;
-                        }
-                        fallback[fallback_n].uri = doc->uri
-                            ? iron_arena_strdup(arena, doc->uri, strlen(doc->uri)) : "";
-                        fallback[fallback_n].range = ilsp_span_to_lsp_range(
-                            id->span, doc, enc);
-                        fallback_n++;
-                    }
-                    break;
-                }
-                case IRON_NODE_FUNC_DECL: { Iron_FuncDecl *fd = (Iron_FuncDecl *)cur;   PUSH(fd->body); break; }
-                case IRON_NODE_METHOD_DECL:{ Iron_MethodDecl *md = (Iron_MethodDecl *)cur; PUSH(md->body); break; }
-                case IRON_NODE_BLOCK: { Iron_Block *b = (Iron_Block *)cur;
-                    for (int i = 0; i < b->stmt_count; i++) PUSH(b->stmts[i]); break; }
-                case IRON_NODE_BINARY: { Iron_BinaryExpr *e = (Iron_BinaryExpr *)cur;
-                    PUSH(e->left); PUSH(e->right); break; }
-                case IRON_NODE_UNARY: { Iron_UnaryExpr *e = (Iron_UnaryExpr *)cur;
-                    PUSH(e->operand); break; }
-                case IRON_NODE_CALL: { Iron_CallExpr *c = (Iron_CallExpr *)cur;
-                    PUSH(c->callee); for (int i = 0; i < c->arg_count; i++) PUSH(c->args[i]); break; }
-                case IRON_NODE_METHOD_CALL: { Iron_MethodCallExpr *m = (Iron_MethodCallExpr *)cur;
-                    PUSH(m->object); for (int i = 0; i < m->arg_count; i++) PUSH(m->args[i]); break; }
-                case IRON_NODE_FIELD_ACCESS: { Iron_FieldAccess *fa = (Iron_FieldAccess *)cur;
-                    PUSH(fa->object); break; }
-                case IRON_NODE_INDEX: { Iron_IndexExpr *ix = (Iron_IndexExpr *)cur;
-                    PUSH(ix->object); PUSH(ix->index); break; }
-                case IRON_NODE_SLICE: { Iron_SliceExpr *sl = (Iron_SliceExpr *)cur;
-                    PUSH(sl->object); PUSH(sl->start); PUSH(sl->end); break; }
-                case IRON_NODE_ASSIGN: { Iron_AssignStmt *a = (Iron_AssignStmt *)cur;
-                    PUSH(a->target); PUSH(a->value); break; }
-                case IRON_NODE_RETURN: { Iron_ReturnStmt *r = (Iron_ReturnStmt *)cur; PUSH(r->value); break; }
-                case IRON_NODE_IF: { Iron_IfStmt *s = (Iron_IfStmt *)cur;
-                    PUSH(s->condition); PUSH(s->body);
-                    for (int i = 0; i < s->elif_count; i++) { PUSH(s->elif_conds[i]); PUSH(s->elif_bodies[i]); }
-                    PUSH(s->else_body); break; }
-                case IRON_NODE_WHILE: { Iron_WhileStmt *w = (Iron_WhileStmt *)cur;
-                    PUSH(w->condition); PUSH(w->body); break; }
-                case IRON_NODE_FOR: { Iron_ForStmt *f = (Iron_ForStmt *)cur;
-                    PUSH(f->iterable); PUSH(f->body); break; }
-                case IRON_NODE_VAL_DECL: { Iron_ValDecl *v = (Iron_ValDecl *)cur; PUSH(v->init); break; }
-                case IRON_NODE_VAR_DECL: { Iron_VarDecl *v = (Iron_VarDecl *)cur; PUSH(v->init); break; }
-                case IRON_NODE_MATCH: { Iron_MatchStmt *m = (Iron_MatchStmt *)cur;
-                    PUSH(m->subject); for (int i = 0; i < m->case_count; i++) PUSH(m->cases[i]);
-                    PUSH(m->else_body); break; }
-                case IRON_NODE_MATCH_CASE: { Iron_MatchCase *mc = (Iron_MatchCase *)cur; PUSH(mc->body); break; }
-                case IRON_NODE_DEFER: { Iron_DeferStmt *d = (Iron_DeferStmt *)cur; PUSH(d->expr); break; }
-                case IRON_NODE_FREE:  { Iron_FreeStmt  *d = (Iron_FreeStmt  *)cur; PUSH(d->expr); break; }
-                case IRON_NODE_LEAK:  { Iron_LeakStmt  *d = (Iron_LeakStmt  *)cur; PUSH(d->expr); break; }
-                case IRON_NODE_SPAWN: { Iron_SpawnStmt *d = (Iron_SpawnStmt *)cur; PUSH(d->pool_expr); PUSH(d->body); break; }
-                case IRON_NODE_INTERP_STRING: { Iron_InterpString *i_s = (Iron_InterpString *)cur;
-                    for (int i = 0; i < i_s->part_count; i++) PUSH(i_s->parts[i]); break; }
-                default: break;
-            }
-        }
-#undef PUSH
-stack_done:
-        free(stack);
+        fallback = rc.sites;
+        fallback_n = rc.n;
     }
 
 assemble:
