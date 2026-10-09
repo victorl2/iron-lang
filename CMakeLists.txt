@@ -1053,6 +1053,15 @@ add_test(NAME diag_init_help
         -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/init_help.expected_help
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 
+# A program without main is reported by build, not by the linker.
+add_test(NAME build_no_main
+    COMMAND $<TARGET_FILE:ironc> build
+        ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/no_main.iron
+        --output ${CMAKE_BINARY_DIR}/no_main_bin)
+set_tests_properties(build_no_main PROPERTIES
+    PASS_REGULAR_EXPRESSION "has no `func main\\(\\)`"
+    FAIL_REGULAR_EXPRESSION "Undefined symbols|undefined reference")
+
 # A diagnostic is reported once even when two passes find it.
 add_test(NAME diag_reported_once
     COMMAND $<TARGET_FILE:ironc> check
