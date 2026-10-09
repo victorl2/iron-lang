@@ -2360,7 +2360,13 @@ no newline, then one
 ### 9.2 `String` methods
 
 All string methods are `readonly`; indexes count characters from 0 and a
-missing substring gives `-1`.
+missing substring gives `-1`. Unlike list indexing, string positions never
+panic: `substring(start, end)` clamps both ends to the string
+(`"hello".substring(3, 10)` is `"lo"`, an empty range gives `""`),
+`char_at(i)` out of range is `""` and `byte_at(i)` out of range is `-1`.
+`to_int()` and `to_float()` accept whitespace around the number
+(`" 42\n".to_int()` is `42`) and give `0` for anything else that is not
+entirely a number (`"4 2"`, `"3x"`, `""`).
 
 | Method | Description |
 |---|---|
