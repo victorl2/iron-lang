@@ -197,13 +197,15 @@ async def test_opened_stdlib_file_reports_nothing(client, tmp_path):
     analyzed with a prelude that already holds it and must not light up with
     duplicate-declaration errors."""
     import pathlib
-    from urllib.parse import unquote, urlparse
+    from urllib.parse import urlparse
+    from urllib.request import url2pathname
 
     uri = await _open(client, tmp_path)
     target, _ = _first_link(await client.text_document_definition_async(
         types.DefinitionParams(text_document=types.TextDocumentIdentifier(uri=uri),
                                position=_pos(20, "upper"))))
-    text = pathlib.Path(unquote(urlparse(target).path)).read_text(encoding="utf-8")
+    # url2pathname turns /C:/... into C:\... on Windows.
+    text = pathlib.Path(url2pathname(urlparse(target).path)).read_text(encoding="utf-8")
     client.text_document_did_open(
         types.DidOpenTextDocumentParams(
             text_document=types.TextDocumentItem(
