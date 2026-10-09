@@ -251,7 +251,13 @@ be written for any non-pointer type (`Int?`, `String?`, `Node?`,
 `Result[Int, String]?`). A plain `T` converts to `T?` implicitly, so a
 function declared `-> Int?` may `return i` or `return null`. Reading a
 field or calling a method through a nullable value without checking it
-first is an error (`E0204`); compare with `null` first.
+first is an error (`E0204`); compare with `null` first. `x != null`
+narrows `x` to `T` inside an `if` or `while` body (and after an early
+return in the other branch) until `x` is assigned a value that may be
+null: `while cur != null { total += cur.value; cur = cur.next }` walks a
+linked list. A binding assigned inside a loop or a closure is not
+narrowed there by an outer check, since the assignment may already have
+run.
 
 ```iron
 func find(xs: [Int], target: Int) -> Int? {

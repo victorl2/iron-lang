@@ -160,6 +160,11 @@ typedef struct {
      * Freed and the previous pointer restored at init body exit. */
     InitUnassignedEntry *unassigned_fields;
     NarrowEntry       *narrowed;             /* stb_ds map: sym name -> narrowed type */
+    /* Bindings whose null-check narrowing an assignment ended (stb_ds
+     * array, in order). A block, branch or loop restores the narrowing map
+     * it started with, then ends again every narrowing killed since its
+     * start: `if c { x = null }` leaves x un-narrowed after the if. */
+    const char       **narrow_kills;
     Iron_Program      *program;              /* for method return type lookup */
     SpawnResultEntry  *spawn_result_types;   /* stb_ds map: handle_name -> body return type */
     MonoRegistryEntry *mono_registry;        /* stb_ds map: mangled_name -> mono Iron_Type* (cycle detection + caching) */
@@ -1134,8 +1139,21 @@ static const char *conversion_hint(TypeCtx *ctx, Iron_Type *expected, Iron_Type 
     if (!expected || !got || expected->kind == IRON_TYPE_ERROR || got->kind == IRON_TYPE_ERROR)
         return NULL;
     char buf[320];
+    /* [Named] vs [Dog]: the hint is about the elements. */
+    while (expected->kind == IRON_TYPE_ARRAY && got->kind == IRON_TYPE_ARRAY &&
+           expected->array.elem && got->array.elem) {
+        expected = expected->array.elem;
+        got = got->array.elem;
+    }
     const char *es = iron_type_to_string(expected, ctx->arena);
-    if (got->kind == IRON_TYPE_NULLABLE && got->nullable.inner &&
+    if (expected->kind == IRON_TYPE_INTERFACE && expected->interface.decl &&
+        got->kind == IRON_TYPE_OBJECT && got->object.decl && got->object.decl->name) {
+        const char *in = expected->interface.decl->name ? expected->interface.decl->name : es;
+        snprintf(buf, sizeof(buf),
+                 "object '%s' does not declare `impl %s`: write `object %s impl %s { ... }` "
+                 "and define its methods",
+                 got->object.decl->name, in, got->object.decl->name, in);
+    } else if (got->kind == IRON_TYPE_NULLABLE && got->nullable.inner &&
         expected->kind != IRON_TYPE_NULLABLE && types_assignable(expected, got->nullable.inner)) {
         snprintf(buf, sizeof(buf),
                  "the value may be null: check it first (`if x != null { ... }` makes it '%s' "
@@ -1684,6 +1702,52 @@ static Iron_Type *narrowing_get(TypeCtx *ctx, const char *name) {
 
 static void narrowing_set(TypeCtx *ctx, const char *name, Iron_Type *ty) {
     shput(ctx->narrowed, name, ty);
+}
+
+static int narrowing_mark(TypeCtx *ctx) {
+    return (int)arrlen(ctx->narrow_kills);
+}
+
+/* An assignment may have made `name` null: it is no longer narrowed, here
+ * or after the enclosing blocks and branches (see narrow_kills). */
+static void narrowing_kill(TypeCtx *ctx, const char *name) {
+    if (!name) return;
+    (void)shdel(ctx->narrowed, name);
+    arrput(ctx->narrow_kills, iron_arena_strdup(ctx->arena, name, strlen(name)));
+}
+
+/* After restoring a saved map: end again what was killed since `mark`. */
+static void narrowing_reapply_kills(TypeCtx *ctx, int mark) {
+    for (ptrdiff_t i = mark; i < arrlen(ctx->narrow_kills); i++)
+        (void)shdel(ctx->narrowed, ctx->narrow_kills[i]);
+}
+
+/* Names a statement subtree assigns (`x = ...`, including inside lambdas
+ * and spawn bodies). A loop body that assigns a narrowed binding may run
+ * again after the assignment, so the binding is not narrowed anywhere in
+ * the body unless the loop condition narrows it afresh. */
+typedef struct { const char **names; } AssignedNames;
+
+static bool collect_assigned_visit(Iron_Visitor *v, Iron_Node *n) {
+    AssignedNames *a = (AssignedNames *)v->ctx;
+    if (n->kind == IRON_NODE_ASSIGN) {
+        Iron_AssignStmt *as = (Iron_AssignStmt *)n;
+        if (as->target && as->target->kind == IRON_NODE_IDENT &&
+            ((Iron_Ident *)as->target)->name)
+            arrput(a->names, ((Iron_Ident *)as->target)->name);
+    }
+    return true;
+}
+
+static void narrowing_kill_assigned_in(TypeCtx *ctx, Iron_Node *body) {
+    if (!body || shlen(ctx->narrowed) == 0) return;
+    AssignedNames a = { NULL };
+    Iron_Visitor v = { .ctx = &a, .visit_node = collect_assigned_visit, .post_visit = NULL };
+    iron_ast_walk(body, &v);
+    for (ptrdiff_t i = 0; i < arrlen(a.names); i++) {
+        if (shgeti(ctx->narrowed, a.names[i]) >= 0) narrowing_kill(ctx, a.names[i]);
+    }
+    arrfree(a.names);
 }
 
 /* Deep-copy the current narrowing map for branch analysis */
@@ -3044,6 +3108,7 @@ static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
                                     Iron_Node *receiver) {
     if (reject_narrowed_view_write(ctx, receiver, mc->span)) return;
     Iron_Node *cur = receiver;
+    bool via_element = false;
     for (;;) {
         /* Past a pointer, the pointer's `var` decides, not the binding
          * holding it: `p.items.push(x)` with p: *var T is a mutation of
@@ -3056,8 +3121,19 @@ static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
                            "use a *var pointer");
             return;
         }
-        if (!cur || cur->kind != IRON_NODE_FIELD_ACCESS) break;
-        cur = ((Iron_FieldAccess *)cur)->object;
+        /* An rc handle refers to a shared object: the object's own fields
+         * decide, as for field assignment, not the binding holding it. */
+        if (ct && (ct->kind == IRON_TYPE_RC || ct->kind == IRON_TYPE_WEAK_RC)) return;
+        if (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
+            cur = ((Iron_FieldAccess *)cur)->object;
+        } else if (cur && cur->kind == IRON_NODE_INDEX) {
+            /* `cs[0].bump()` changes an element: the list must be mutable,
+             * as for `cs[0].n = 1`. */
+            via_element = true;
+            cur = ((Iron_IndexExpr *)cur)->object;
+        } else {
+            break;
+        }
     }
     if (!cur || cur->kind != IRON_NODE_IDENT) return;
     Iron_Ident *id = (Iron_Ident *)cur;
@@ -3067,8 +3143,13 @@ static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
     mark_requires_mutable(ctx, receiver);
     if (!sym->is_mutable) {
         char mmsg[256], mhelp[256];
-        snprintf(mmsg, sizeof(mmsg), "cannot call mutable method '%s' on immutable binding '%s'",
-                 mc->method ? mc->method : "?", id->name ? id->name : "?");
+        if (via_element)
+            snprintf(mmsg, sizeof(mmsg),
+                     "cannot call mutable method '%s' on an element of immutable list '%s'",
+                     mc->method ? mc->method : "?", id->name ? id->name : "?");
+        else
+            snprintf(mmsg, sizeof(mmsg), "cannot call mutable method '%s' on immutable binding '%s'",
+                     mc->method ? mc->method : "?", id->name ? id->name : "?");
         snprintf(mhelp, sizeof(mhelp), "declare '%s' with var instead of val", id->name ? id->name : "?");
         emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, mc->span, mmsg,
                    sym_is_loop_var(sym) ? LOOP_VAR_MUT_HELP : mhelp);
@@ -6680,6 +6761,13 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     if (strcmp(md->type_name, type_name_ni) != 0 ||
                         strcmp(md->method_name, mc->method) != 0) continue;
                     check_method_call_args(ctx, mc, md, false);
+                    /* `cs[0].bump()`, `p.inner.bump()`: a method that writes
+                     * self needs a mutable path to the receiver, as the
+                     * identifier receiver above does. */
+                    if (md->is_receiver_form && md->param_count > 0 && !md->is_readonly &&
+                        !md->is_pure && md->params[0] &&
+                        ((Iron_Param *)md->params[0])->is_mut_receiver)
+                        check_mutating_receiver(ctx, mc, mc->object);
                     if (md->resolved_return_type) {
                         result = md->resolved_return_type;
                     } else if (md->return_type &&
@@ -8782,11 +8870,39 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             /* Phase 85 INIT-05: mark the assign target while it's being
              * checked so the FIELD_ACCESS handler can suppress the E0246
              * read-before-assign check on the immediate target node. */
+            /* `x = v` on a binding narrowed by a null check: v is checked
+             * against the declared T?, and x stays narrowed only when v
+             * cannot be null (`cur = cur.next` ends it). `x += v` keeps it. */
+            const char *narrowed_name =
+                (as->target && as->target->kind == IRON_NODE_IDENT &&
+                 (int)as->op == (int)IRON_TOK_ASSIGN)
+                    ? ((Iron_Ident *)as->target)->name : NULL;
+            Iron_Type *narrowed_to = narrowed_name ? narrowing_get(ctx, narrowed_name) : NULL;
+            Iron_Type *declared_t = NULL;
+            if (narrowed_to) {
+                Iron_Symbol *ds = tc_lookup(ctx, narrowed_name);
+                if (!ds) ds = ((Iron_Ident *)as->target)->resolved_sym;
+                declared_t = ds ? ds->type : NULL;
+                if (declared_t && declared_t->kind == IRON_TYPE_NULLABLE)
+                    (void)shdel(ctx->narrowed, narrowed_name);
+                else
+                    narrowed_to = NULL;   /* an `is T` view: not a null check */
+            }
             Iron_Node *prev_assign_target = ctx->cur_assign_target;
             ctx->cur_assign_target = as->target;
             Iron_Type *target_type = check_expr(ctx, as->target);
             ctx->cur_assign_target = prev_assign_target;
+            /* The value is read before the assignment: still narrowed. */
+            if (narrowed_to) narrowing_set(ctx, narrowed_name, narrowed_to);
             Iron_Type *value_type  = check_expr_with_expected(ctx, as->value, target_type);
+            if (narrowed_to) {
+                if (value_type && value_type->kind != IRON_TYPE_NULLABLE &&
+                    value_type->kind != IRON_TYPE_NULL && value_type->kind != IRON_TYPE_ERROR &&
+                    types_assignable(narrowed_to, value_type))
+                    narrowing_set(ctx, narrowed_name, narrowed_to);
+                else
+                    narrowing_kill(ctx, narrowed_name);
+            }
 
             bool is_field_target_immut = false;
             const char *field_root_name = NULL;
@@ -9387,6 +9503,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
 
             NarrowEntry *chain_saved = narrowing_copy(ctx);
+            int if_kill_mark = narrowing_mark(ctx);
             for (int i = 0; i < n_conds; i++) {
                 check_expr(ctx, conds[i]);
                 if (track_init) {
@@ -9398,6 +9515,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 if (bodies[i]) check_stmt(ctx, bodies[i]);
                 shfree(ctx->narrowed);
                 ctx->narrowed = saved;
+                narrowing_reapply_kills(ctx, if_kill_mark);
                 if (track_init) {
                     post[branch_idx++] = ctx->unassigned_fields;
                     ctx->unassigned_fields = NULL;
@@ -9430,6 +9548,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
             shfree(ctx->narrowed);
             ctx->narrowed = chain_saved;
+            narrowing_reapply_kills(ctx, if_kill_mark);
 
             /* Early exits: when every branch but the else always returns, the
              * code after the if runs only when every condition was false; when
@@ -9446,6 +9565,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                        stmt_always_exits(is_s->else_body)) {
                 narrow_for_cond(ctx, conds[0], true);
             }
+            /* A branch that assigned a binding may have nulled it. */
+            narrowing_reapply_kills(ctx, if_kill_mark);
             break;
         }
 
@@ -9465,6 +9586,14 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             bool saved_par = ctx->loop_is_parallel;
             ctx->loop_depth++;
             ctx->loop_is_parallel = false;
+            /* `while cur != null { ... cur = cur.next }`: the body runs with
+             * the condition true, so it narrows; a binding the body assigns
+             * is narrowed only through the condition (it may be null from
+             * the previous iteration otherwise). */
+            NarrowEntry *loop_saved = narrowing_copy(ctx);
+            int loop_kill_mark = narrowing_mark(ctx);
+            narrowing_kill_assigned_in(ctx, ws->body);
+            narrow_for_cond(ctx, ws->condition, true);
             if (ctx->in_init_method && ctx->unassigned_fields) {
                 InitUnassignedEntry *pre = NULL;
                 init_unassigned_clone(&pre, ctx->unassigned_fields);
@@ -9474,6 +9603,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             } else {
                 if (ws->body) check_stmt(ctx, ws->body);
             }
+            shfree(ctx->narrowed);
+            ctx->narrowed = loop_saved;
+            narrowing_reapply_kills(ctx, loop_kill_mark);
             ctx->loop_depth--;
             ctx->loop_is_parallel = saved_par;
             break;
@@ -9647,6 +9779,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             bool saved_par = ctx->loop_is_parallel;
             ctx->loop_depth++;
             ctx->loop_is_parallel = fs->is_parallel;
+            /* A binding the body assigns may be null on the next pass. */
+            narrowing_kill_assigned_in(ctx, fs->body);
             if (ctx->in_init_method && ctx->unassigned_fields) {
                 InitUnassignedEntry *pre = NULL;
                 init_unassigned_clone(&pre, ctx->unassigned_fields);
@@ -10230,6 +10364,7 @@ static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count) {
      * block: restore the map on the way out so it never reaches the code
      * after the block (or another function with a same-named binding). */
     NarrowEntry *saved = narrowing_copy(ctx);
+    int kill_mark = narrowing_mark(ctx);
     for (int i = 0; i < count; i++) {
         /* HARD-05: cancel poll at top of block-statement bulk walker. */
         if (iron_cancel_requested(ctx->cancel_flag)) break;
@@ -10237,6 +10372,7 @@ static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count) {
     }
     shfree(ctx->narrowed);
     ctx->narrowed = saved;
+    narrowing_reapply_kills(ctx, kill_mark);
 }
 
 /* ── Phase 24 DROP-06: compute_has_user_copy_transitive cache-populator ──── */
@@ -11573,6 +11709,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     check_iface_tier_strengthening(&ctx, program);
 
     shfree(ctx.narrowed);
+    arrfree(ctx.narrow_kills);
     shfree(ctx.spawn_result_types);
     /* FIX-03 / AUDIT-04 §2: explicit shfree of the mono_registry stb_ds
      * string-keyed hashmap. Pre-Phase-67 the registry was shput-filled in

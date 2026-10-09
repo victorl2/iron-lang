@@ -1,0 +1,16 @@
+-- A method that writes self, called through a field of a `val` binding.
+object Counter {
+    var n: Int
+    init(n: Int) { self.n = n }
+    func bump() { self.n = self.n + 1 }
+}
+
+object Holder {
+    var inner: Counter
+    init(c: Counter) { self.inner = c }
+}
+
+func main() {
+    val h = Holder(Counter(7))
+    h.inner.bump()
+}

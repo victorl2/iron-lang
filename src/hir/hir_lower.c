@@ -803,7 +803,13 @@ static IronHIR_Expr *lower_ca_target_dual(IronHIR_LowerCtx *ctx,
     /* IDENT and anything else: two fresh trees (previous behavior — an
      * identifier read has no side effects to deduplicate). */
     if (read_out) *read_out = lower_expr_hir(ctx, node);
-    return lower_expr_hir(ctx, node);
+    /* The write target is the binding's slot, not the unwrapped payload a
+     * null-checked `n` reads as (`n += 1` stored into a temporary). */
+    bool saved_at = ctx->lowering_assign_target;
+    ctx->lowering_assign_target = node && node->kind == IRON_NODE_IDENT;
+    IronHIR_Expr *target = lower_expr_hir(ctx, node);
+    ctx->lowering_assign_target = saved_at;
+    return target;
 }
 
 /* ── ADT pattern binding injection ────────────────────────────────────────── */

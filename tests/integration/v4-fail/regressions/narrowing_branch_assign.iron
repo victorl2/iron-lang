@@ -1,0 +1,14 @@
+-- One branch may have nulled the binding.
+object Node {
+    val value: Int
+}
+
+func flag() -> Bool { return true }
+
+func main() {
+    var y: Node? = Node(2)
+    if y != null {
+        if flag() { y = null }
+        println("{y.value}")
+    }
+}

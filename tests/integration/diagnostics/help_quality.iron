@@ -10,11 +10,21 @@ object P {
     func dist() -> Int { return self.x }
 }
 
+interface Named {
+    readonly func name() -> String
+}
+
+object Dog {
+    val n: String
+    readonly func name() -> String { return self.n }
+}
+
 func area(w: Int, h: Int) -> Int {
     return w * h
 }
 
 func main() {
+    val pets: [Named] = [Dog("rex")]
     val total = 1
     println("{totl}")
     val s = "abc"

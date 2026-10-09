@@ -1,0 +1,43 @@
+-- A null check narrows a binding until it is assigned a value that may be
+-- null: `while cur != null { ... cur = cur.next }` walks a list, a
+-- non-null assignment keeps the narrowing, `n += 1` updates the binding.
+object Node {
+    val value: Int
+    var next: rc Node?
+    init(value: Int) {
+        self.value = value
+        self.next = null
+    }
+}
+
+func main() {
+    val a = rc Node(1)
+    val b = rc Node(2)
+    b.next = rc Node(3)
+    a.next = b
+    var cur: rc Node? = a
+    var sum = 0
+    while cur != null {
+        sum = sum + cur.value
+        cur = cur.next
+    }
+    println("{sum}")
+
+    var x: rc Node? = rc Node(4)
+    if x != null {
+        x = rc Node(5)
+        println("{x.value}")
+    }
+
+    var n: Int? = 1
+    if n != null {
+        n += 1
+        println("{n}")
+    }
+
+    var s: String? = "a"
+    if s != null {
+        s = s + "b"
+        println("{s.len()} {s}")
+    }
+}

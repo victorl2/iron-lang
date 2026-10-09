@@ -4057,6 +4057,13 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                      * type as-is when it is already pointer-shaped. */
                     if (type->kind == IRON_TYPE_RC) {
                         alloca_type = type;
+                    } else if (type->kind == IRON_TYPE_NULLABLE && type->nullable.inner &&
+                               type_is_rc_like(type->nullable.inner)) {
+                        /* `var x: rc T? = rc T(...)`: the slot is the
+                         * optional itself; wrapping it in rc again hid the
+                         * optional, so `x = rc T(...)` was stored unwrapped
+                         * and the branches of an if disagreed on its type. */
+                        alloca_type = type;
                     } else if (ik == IRON_HIR_EXPR_RC) {
                         alloca_type = iron_type_make_rc(ctx->lir_arena, type);
                     } else {

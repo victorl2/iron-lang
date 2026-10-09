@@ -1,0 +1,13 @@
+-- A closure may null the binding before the read.
+object Node {
+    val value: Int
+}
+
+func main() {
+    var cur: Node? = Node(1)
+    if cur != null {
+        val f = func() { cur = null }
+        f()
+        println("{cur.value}")
+    }
+}
