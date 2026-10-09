@@ -31,4 +31,10 @@ func main() {
     println("{word} {size}")
     val count Int = 3
     println("{count}")
+    var handles = [
+        spawn("w") {
+            println("x")
+        },
+    ]
+    println("{count}")
 }

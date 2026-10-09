@@ -161,6 +161,45 @@ const char *iron_generics_request(Iron_Node *decl, Iron_Type **args, int argc,
     return mangled;
 }
 
+/* `text` with each instance's mangled name (`Bag__Int`) spelled as written
+ * (`Bag[Int]`), for diagnostics; NULL when nothing changed. Longer names
+ * first, so `Bag__Bag__Int` is not rewritten piecewise. */
+const char *iron_generics_prettify(const char *text, Iron_Arena *arena) {
+    if (!text || !strstr(text, "__")) return NULL;
+    Iron_StrBuf cur = iron_strbuf_create(strlen(text) + 16);
+    iron_strbuf_appendf(&cur, "%s", text);
+    bool changed = false;
+    for (;;) {
+        ptrdiff_t pick = -1; size_t plen = 0;
+        const char *hay = iron_strbuf_get(&cur);
+        for (ptrdiff_t i = 0; i < arrlen(g_insts); i++) {
+            size_t l = strlen(g_insts[i].mangled);
+            if (l > plen && strstr(hay, g_insts[i].mangled)) { pick = i; plen = l; }
+        }
+        if (pick < 0) break;
+        GenInst *gi = &g_insts[pick];
+        Iron_StrBuf disp = iron_strbuf_create(64);
+        iron_strbuf_appendf(&disp, "%s[", decl_name(gi->decl));
+        for (ptrdiff_t k = 0; k < arrlen(gi->arg_texts); k++)
+            iron_strbuf_appendf(&disp, "%s%s", k ? ", " : "", gi->arg_texts[k]);
+        iron_strbuf_appendf(&disp, "]");
+        Iron_StrBuf next = iron_strbuf_create(cur.len + 16);
+        const char *p = hay, *hit;
+        while ((hit = strstr(p, gi->mangled)) != NULL) {
+            iron_strbuf_appendf(&next, "%.*s%s", (int)(hit - p), p, iron_strbuf_get(&disp));
+            p = hit + plen;
+        }
+        iron_strbuf_appendf(&next, "%s", p);
+        iron_strbuf_free(&disp);
+        iron_strbuf_free(&cur);
+        cur = next;
+        changed = true;
+    }
+    const char *r = changed ? iron_arena_strdup(arena, iron_strbuf_get(&cur), cur.len) : NULL;
+    iron_strbuf_free(&cur);
+    return r;
+}
+
 Iron_Node *iron_generics_instance_of(const char *mangled, Iron_Type ***out_args, int *out_argc) {
     if (!mangled) return NULL;
     for (ptrdiff_t i = 0; i < arrlen(g_insts); i++) {

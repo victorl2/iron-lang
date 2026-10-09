@@ -1,0 +1,16 @@
+-- An object holding a list given to an interface binding is still an
+-- implicit duplication (E0328); only primitive declared types skip it.
+interface Sz {
+    readonly func n() -> Int
+}
+
+object B impl Sz {
+    val xs: [Int]
+    readonly func n() -> Int { return self.xs.len() }
+}
+
+func main() {
+    val b = B([1])
+    val s: Sz = b
+    println("{s.n()}")
+}

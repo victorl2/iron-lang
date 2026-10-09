@@ -905,6 +905,12 @@ static bool type_mentions_generic(const Iron_Type *t) {
 
 static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
                        const char *msg, const char *suggestion) {
+    /* A generic instance is named as written (`Bag[Int]`), not by its
+     * mangled name (`Bag__Int`), in every message and help. */
+    const char *pm = iron_generics_prettify(msg, ctx->arena);
+    if (pm) msg = pm;
+    const char *ps = suggestion ? iron_generics_prettify(suggestion, ctx->arena) : NULL;
+    if (ps) suggestion = ps;
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
     if (!msg_copy) { /* HARD-09 REPLACE (typecheck.c:emit_error msg) */ msg_copy = "analyzer error"; }
     const char *sug_copy = NULL;
@@ -1037,6 +1043,10 @@ static void report_private_field_construction(TypeCtx *ctx, Iron_ObjectDecl *od,
 
 static void emit_warning(TypeCtx *ctx, int code, Iron_Span span,
                          const char *msg, const char *suggestion) {
+    const char *pm = iron_generics_prettify(msg, ctx->arena);
+    if (pm) msg = pm;
+    const char *ps = suggestion ? iron_generics_prettify(suggestion, ctx->arena) : NULL;
+    if (ps) suggestion = ps;
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
     if (!msg_copy) { /* HARD-09 REPLACE (typecheck.c:emit_warning msg) */ msg_copy = "analyzer error"; }
     const char *sug_copy = NULL;

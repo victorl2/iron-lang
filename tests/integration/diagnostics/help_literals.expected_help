@@ -8,3 +8,4 @@ use Math.pow(a, b) for Float values
 'match' is a statement, not an expression
 'if' is a statement, not an expression
 write 'val count: Int'
+bind it first: `val h = spawn("name") { ... }`

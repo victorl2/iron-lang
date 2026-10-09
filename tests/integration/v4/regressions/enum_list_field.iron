@@ -1,0 +1,110 @@
+-- An object with a field of type [Enum] (an ADT enum) used the list type
+-- before its definition; the C did not compile. A tokenizer and a
+-- recursive descent parser over [Tok].
+enum Tok {
+    Num(Int),
+    Op(String),
+    LParen,
+    RParen,
+}
+
+func tokenize(s: String) -> [Tok] {
+    var out: [Tok] = []
+    var i = 0
+    val cs = s.chars()
+    while i < cs.len() {
+        val c = cs[i]
+        if c == " " {
+            i += 1
+            continue
+        }
+        if "0123456789".contains(c) {
+            var n = 0
+            while i < cs.len() and "0123456789".contains(cs[i]) {
+                n = n * 10 + cs[i].to_int()
+                i += 1
+            }
+            out.push(Tok.Num(n))
+            continue
+        }
+        if c == "(" {
+            out.push(Tok.LParen)
+        } elif c == ")" {
+            out.push(Tok.RParen)
+        } else {
+            out.push(Tok.Op(c))
+        }
+        i += 1
+    }
+    return out
+}
+
+object Parser {
+    var toks: [Tok]
+    var pos: Int
+
+    init(toks: [Tok]) {
+        self.toks = toks.copy()
+        self.pos = 0
+    }
+
+    func expr() -> Int {
+        var v = self.term()
+        while self.pos < self.toks.len() {
+            match self.toks[self.pos] {
+                Tok.Op(o) -> {
+                    if o == "+" {
+                        self.pos += 1
+                        v += self.term()
+                    } elif o == "-" {
+                        self.pos += 1
+                        v -= self.term()
+                    } else {
+                        return v
+                    }
+                }
+                else -> return v
+            }
+        }
+        return v
+    }
+
+    func term() -> Int {
+        var v = self.atom()
+        while self.pos < self.toks.len() {
+            match self.toks[self.pos] {
+                Tok.Op(o) -> {
+                    if o == "*" {
+                        self.pos += 1
+                        v *= self.atom()
+                    } else {
+                        return v
+                    }
+                }
+                else -> return v
+            }
+        }
+        return v
+    }
+
+    func atom() -> Int {
+        val t = self.toks[self.pos]
+        self.pos += 1
+        match t {
+            Tok.Num(n) -> return n
+            Tok.LParen -> {
+                val v = self.expr()
+                self.pos += 1
+                return v
+            }
+            else -> return 0
+        }
+    }
+}
+
+func main() {
+    for src in ["1 + 2 * 3", "(1 + 2) * 3", "10 - 4 - 3", "2 * (3 + 4) * 5"] {
+        var p = Parser(tokenize(src))
+        println("{src} = {p.expr()}")
+    }
+}
