@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 #include <ctype.h>
 #include <errno.h>
 #include <stdatomic.h>
@@ -766,9 +765,14 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
                 lit[n] = '\0';
                 char *end = NULL;
                 double v = strtod(lit, &end);
-                if (end && *end == '\0' && v != 0.0 && fabs(v) < 1e21 && fabs(v) >= 1e-9) {
+                /* No libm: the unit tests link the lexer without -lm. Every
+                 * double at or above 2^52 is integral; below it the cast
+                 * round-trips exactly. */
+                double a = v < 0 ? -v : v;
+                if (end && *end == '\0' && v != 0.0 && a < 1e21 && a >= 1e-9) {
                     char num[64];
-                    if (v == floor(v)) snprintf(num, sizeof(num), "%.1f", v);
+                    bool integral = a >= 4503599627370496.0 || v == (double)(long long)v;
+                    if (integral) snprintf(num, sizeof(num), "%.1f", v);
                     else {
                         snprintf(num, sizeof(num), "%.12f", v);
                         size_t k = strlen(num);
