@@ -3,7 +3,8 @@
 Usage: semantic_sweep.py <ironls> <source root>
 
 Every token must decode to an identifier spelled at its position, tokens
-must be strictly ordered, every inlay hint label must be a type (": T"),
+must be strictly ordered, every inlay hint must be a type (": T") or a
+parameter name ("w:"),
 and no request may fail. Runs on a plain Python 3 (no pytest-lsp).
 """
 import glob
@@ -85,7 +86,9 @@ for k, path in enumerate(files):
     for h in request("textDocument/inlayHint", {"textDocument": {"uri": uri}, "range": {
             "start": {"line": 0, "character": 0}, "end": {"line": len(lines), "character": 0}}}):
         hints += 1
-        if not h["label"].startswith(": "):
+        ok = (h["label"].startswith(": ") if h.get("kind") == 1
+              else re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*:", h["label"]) is not None)
+        if not ok:
             bad += 1
             print(f"bad hint {path}: {h}")
     send({"jsonrpc": "2.0", "method": "textDocument/didClose",

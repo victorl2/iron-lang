@@ -27,10 +27,12 @@ typedef struct {
     size_t      off;        /* byte offset the hint follows */
     uint32_t    line;       /* LSP position (client encoding) */
     uint32_t    character;
-    const char *label;      /* ": Int" */
+    const char *label;      /* ": Int", or "w:" before an argument */
+    int         kind;       /* LSP InlayHintKind: 1 type, 2 parameter */
 } IronLsp_InlayHint;
 
-/* Type hints for bindings without a written type on 0-based lines
+/* Type hints for bindings without a written type, and parameter names
+ * before the arguments of a call, on 0-based lines
  * first_line0 ..= last_line0, allocated in `arena`. */
 IronLsp_InlayHint *ilsp_facade_inlay_hints(struct IronLsp_Server *server,
                                            struct IronLsp_Document *doc,

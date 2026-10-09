@@ -25,6 +25,7 @@
 
 #include "lsp/facade/compile.h"
 #include "lsp/facade/nav/node_at.h"
+#include "lsp/facade/nav/nav_common.h"
 #include "lsp/facade/span.h"
 #include "lsp/store/document.h"
 #include "lsp/server/server.h"
@@ -356,17 +357,9 @@ void ilsp_facade_document_highlight(struct IronLsp_Server      *server,
             same_doc = (ul >= fl && strcmp(doc->uri + (ul - fl), fn) == 0);
         }
         if (same_doc) {
-            /* Narrow the decl span to just the name where we can. */
-            Iron_Span name_span = dspan;
-            switch ((int)target_decl_node->kind) {
-                case IRON_NODE_FUNC_DECL: {
-                    Iron_FuncDecl *fd = (Iron_FuncDecl *)target_decl_node;
-                    (void)fd; /* name span reconstruction would need token
-                               * tracking; keep full span as seed. */
-                    break;
-                }
-                default: break;
-            }
+            /* The declaration's name, not the whole declaration. */
+            Iron_Span name_span = ilsp_nav_decl_name_span(target_decl_node, doc->text,
+                                                          doc->text_len);
             (void)emit_highlight(&arr, &arr_n, &arr_cap, arena,
                                    name_span, doc, enc, HIGHLIGHT_WRITE);
         }

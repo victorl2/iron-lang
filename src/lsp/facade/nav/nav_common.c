@@ -398,6 +398,78 @@ Iron_Node *ilsp_nav_member_decl(const Iron_Program *program, Iron_Node *n,
     }
 }
 
+typedef struct { const Iron_Node *decl; Iron_Symbol *sym; } SymFind;
+
+static bool sym_find_visit(Iron_Visitor *v, Iron_Node *n) {
+    SymFind *f = (SymFind *)v->ctx;
+    if (f->sym || n->kind == IRON_NODE_ERROR) return false;
+    if (n->kind == IRON_NODE_IDENT && ((Iron_Ident *)n)->resolved_sym &&
+        ((Iron_Ident *)n)->resolved_sym->decl_node == f->decl) {
+        f->sym = ((Iron_Ident *)n)->resolved_sym;
+        return false;
+    }
+    return true;
+}
+
+Iron_Symbol *ilsp_nav_symbol_of_decl(const Iron_Program *program, const Iron_Node *decl) {
+    if (!program || !decl) return NULL;
+    SymFind f = { decl, NULL };
+    Iron_Visitor v = { .ctx = &f, .visit_node = sym_find_visit, .post_visit = NULL };
+    for (int i = 0; i < program->decl_count && !f.sym; i++) {
+        if (program->decls[i]) iron_ast_walk(program->decls[i], &v);
+    }
+    return f.sym;
+}
+
+static const char *decl_own_name(const Iron_Node *d) {
+    switch ((int)d->kind) {
+        case IRON_NODE_FUNC_DECL:      return ((const Iron_FuncDecl *)d)->name;
+        case IRON_NODE_METHOD_DECL:    return ((const Iron_MethodDecl *)d)->method_name;
+        case IRON_NODE_OBJECT_DECL:    return ((const Iron_ObjectDecl *)d)->name;
+        case IRON_NODE_ENUM_DECL:      return ((const Iron_EnumDecl *)d)->name;
+        case IRON_NODE_INTERFACE_DECL: return ((const Iron_InterfaceDecl *)d)->name;
+        case IRON_NODE_ENUM_VARIANT:   return ((const Iron_EnumVariant *)d)->name;
+        case IRON_NODE_FIELD:          return ((const Iron_Field *)d)->name;
+        case IRON_NODE_PARAM:          return ((const Iron_Param *)d)->name;
+        case IRON_NODE_VAL_DECL:       return ((const Iron_ValDecl *)d)->name;
+        case IRON_NODE_VAR_DECL:       return ((const Iron_VarDecl *)d)->name;
+        default:                       return NULL;
+    }
+}
+
+static bool name_byte(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+           (c >= '0' && c <= '9') || c == '_';
+}
+
+Iron_Span ilsp_nav_decl_name_span(const Iron_Node *decl, const char *text,
+                                  size_t text_len) {
+    Iron_Span sp = decl ? decl->span : (Iron_Span){0};
+    const char *name = decl ? decl_own_name(decl) : NULL;
+    if (!name || !*name || !text || sp.line == 0 || sp.col == 0) return sp;
+    /* Byte offset of the span's start: walk to its line. */
+    size_t off = 0;
+    for (uint32_t l = 1; l < sp.line && off < text_len; off++) {
+        if (text[off] == '\n') l++;
+    }
+    off += sp.col - 1;
+    size_t n = strlen(name);
+    /* `func Type.name`: the method name follows the type and the dot. */
+    for (size_t i = off; i + n <= text_len && text[i] != '\n'; i++) {
+        if (memcmp(text + i, name, n) != 0) continue;
+        if (i > 0 && name_byte(text[i - 1])) continue;
+        if (i + n < text_len && name_byte(text[i + n])) continue;
+        if (decl->kind == IRON_NODE_METHOD_DECL && i > 0 && text[i - 1] != '.' &&
+            text[i - 1] != ' ' && text[i - 1] != '\t') continue;
+        Iron_Span r = sp;
+        r.col = sp.col + (uint32_t)(i - off);
+        r.end_line = sp.line;
+        r.end_col = r.col + (uint32_t)n - 1;
+        return r;
+    }
+    return sp;
+}
+
 /* ── LocationLink -> JSON ────────────────────────────────────────── */
 
 yyjson_mut_val *ilsp_nav_build_location_link_json(
