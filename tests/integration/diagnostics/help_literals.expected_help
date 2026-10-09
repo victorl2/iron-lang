@@ -9,3 +9,4 @@ use Math.pow(a, b) for Float values
 'if' is a statement, not an expression
 write 'val count: Int'
 bind it first: `val h = spawn("name") { ... }`
+write 1000000

@@ -31,6 +31,7 @@
 #include <stddef.h>
 #include "support/posix_test.h"
 #include <stdatomic.h>
+#include <sched.h>
 
 void setUp(void)    {}
 void tearDown(void) {}
@@ -139,7 +140,10 @@ typedef struct {
 static void *race_thread_drop_strong(void *arg) {
     race_ctx_t *ctx = (race_ctx_t *)arg;
     while (atomic_load_explicit(&ctx->signal, memory_order_acquire) == 0) {
-        /* busy-wait */
+        /* Yield while waiting: two pure spinners per round could starve the
+         * thread that sets the signal on a loaded machine, and 10000 rounds
+         * then passed the 60 s timeout (1 s when idle). */
+        sched_yield();
     }
     iron_rc_release(ctx->strong);
     return NULL;
@@ -148,7 +152,10 @@ static void *race_thread_drop_strong(void *arg) {
 static void *race_thread_attempt_upgrade(void *arg) {
     race_ctx_t *ctx = (race_ctx_t *)arg;
     while (atomic_load_explicit(&ctx->signal, memory_order_acquire) == 0) {
-        /* busy-wait */
+        /* Yield while waiting: two pure spinners per round could starve the
+         * thread that sets the signal on a loaded machine, and 10000 rounds
+         * then passed the 60 s timeout (1 s when idle). */
+        sched_yield();
     }
     void *up = iron_rc_upgrade(ctx->weak);
     if (up == NULL) {

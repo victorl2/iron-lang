@@ -739,6 +739,31 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
 
     uint32_t tok_len = (uint32_t)(l->pos - start_pos);
 
+    /* `1_000_000`: Iron has no digit separators (manual 1.4). The `_000_000`
+     * lexed as an identifier and the error named it as stray text. */
+    if (l->pos + 1 < l->src_len && l->src[l->pos] == '_' &&
+        isdigit((unsigned char)l->src[l->pos + 1])) {
+        Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                         l->line, l->col);
+        while (l->pos < l->src_len &&
+               (isalnum((unsigned char)l->src[l->pos]) || l->src[l->pos] == '_' ||
+                (l->src[l->pos] == '.' && l->pos + 1 < l->src_len &&
+                 isdigit((unsigned char)l->src[l->pos + 1]))))
+            iron_advance_char(l);
+        char num[96]; size_t n = 0;
+        for (size_t k = start_pos; k < l->pos && n + 1 < sizeof(num); k++)
+            if (l->src[k] != '_') num[n++] = l->src[k];
+        num[n] = '\0';
+        char help[160];
+        snprintf(help, sizeof(help), "write %s", num);
+        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_INVALID_NUMBER, span,
+                       "invalid numeric literal: digit separators ('_') are not supported",
+                       iron_arena_strdup(l->arena, help, strlen(help)));
+        tok_len = (uint32_t)(l->pos - start_pos);
+        return iron_make_token(l, IRON_TOK_ERROR, NULL, start_line, start_col, tok_len);
+    }
+
     /* Invalid suffix: letter immediately after number. */
     if (l->pos < l->src_len && isalpha((unsigned char)l->src[l->pos])) {
         Iron_Span span = iron_span_make(l->filename, start_line, start_col,
