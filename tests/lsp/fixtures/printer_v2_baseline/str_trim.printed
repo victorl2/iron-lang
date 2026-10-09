@@ -1,6 +1,0 @@
-func main() {
-  val s = "  hello  "
-  println(s.trim())
-  val s2 = "no spaces"
-  println(s2.trim())
-}

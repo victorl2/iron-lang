@@ -1,0 +1,13 @@
+-- The standalone method form is the standard library's; a program uses
+-- patch object (E0321), with or without @fusible.
+object T {
+    val v: Int
+}
+
+@fusible
+func T.twice() -> Int {
+    return 2
+}
+
+func main() {
+}

@@ -1,7 +1,0 @@
-func main() {
-  defer println("D4")
-  defer println("D3")
-  defer println("D2")
-  defer println("D1")
-  println("body")
-}

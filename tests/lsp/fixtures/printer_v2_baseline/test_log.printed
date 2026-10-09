@@ -1,5 +1,0 @@
-import log
-
-func main() {
-  println("log works")
-}

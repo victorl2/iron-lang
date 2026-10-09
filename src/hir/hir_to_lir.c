@@ -765,6 +765,20 @@ static const char *list_elem_suffix(HIR_to_LIR_Ctx *ctx, Iron_Type *elem) {
             case IRON_TYPE_BOOL:   elem_suffix = "bool";        break;
             case IRON_TYPE_STRING: elem_suffix = "Iron_String"; break;
             case IRON_TYPE_FUNC:   elem_suffix = "Iron_Closure"; break;
+            /* `[*T]`: a checked pointer is an Iron_FatPtr (#324). */
+            case IRON_TYPE_PTR:
+                if (!elem->ptr.is_unchecked) {
+                    elem_suffix = "Iron_FatPtr";
+                } else if (elem->ptr.pointee) {
+                    /* `T *`, spelled as the emitter does: "T__". */
+                    const char *ps = list_elem_suffix(ctx, elem->ptr.pointee);
+                    size_t n = strlen(ps) + 3;
+                    char *buf = (char *)iron_arena_alloc(ctx->lir_arena, n, 1);
+                    if (!buf) iron_oom_abort("hir_to_lir.c:list_elem_suffix ptr");
+                    snprintf(buf, n, "%s__", ps);
+                    elem_suffix = buf;
+                }
+                break;
             /* AUDIT-02 #6 fix: narrow/wide int and float kinds
              * previously fell through to the silent default,
              * mis-dispatching [Int8].method() etc. to
@@ -2206,8 +2220,22 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         IronLIR_ValueId right = lower_expr(ctx, expr->binop.right);
         if (!ctx->current_block) return IRON_LIR_VALUE_INVALID;
         IronLIR_InstrKind kind = hir_binop_to_lir(op);
-        return iron_lir_binop(ctx->current_func, ctx->current_block,
-                               kind, left, right, type, span)->id;
+        IronLIR_ValueId res = iron_lir_binop(ctx->current_func, ctx->current_block,
+                                             kind, left, right, type, span)->id;
+        /* `w.upgrade() != null`: an rc operand that hands over a reference
+         * (an upgrade, a call result) has no owner once compared; it was
+         * never released, so the object leaked and its drop never ran. */
+        {
+            TempOwned *temps = NULL;
+            IronHIR_Expr *ops[2] = { expr->binop.left, expr->binop.right };
+            IronLIR_ValueId vals[2] = { left, right };
+            for (int i = 0; i < 2; i++)
+                if (ops[i] && ops[i]->type && type_is_rc_like(ops[i]->type) &&
+                    rc_expr_transfers_ownership(ops[i]))
+                    note_owned_temp(ctx, &temps, ops[i], vals[i], span);
+            release_owned_temps(ctx, &temps, span);
+        }
+        return res;
     }
 
     case IRON_HIR_EXPR_UNOP: {
@@ -3771,14 +3799,22 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                               val, expr->cast.target_type, span)->id;
     }
 
-    case IRON_HIR_EXPR_IS_NULL: {
-        IronLIR_ValueId val = lower_expr(ctx, expr->null_check.value);
-        return iron_lir_is_null(ctx->current_func, ctx->current_block, val, span)->id;
-    }
-
+    case IRON_HIR_EXPR_IS_NULL:
     case IRON_HIR_EXPR_IS_NOT_NULL: {
-        IronLIR_ValueId val = lower_expr(ctx, expr->null_check.value);
-        return iron_lir_is_not_null(ctx->current_func, ctx->current_block, val, span)->id;
+        IronHIR_Expr *v = expr->null_check.value;
+        IronLIR_ValueId val = lower_expr(ctx, v);
+        IronLIR_ValueId res = expr->kind == IRON_HIR_EXPR_IS_NULL
+            ? iron_lir_is_null(ctx->current_func, ctx->current_block, val, span)->id
+            : iron_lir_is_not_null(ctx->current_func, ctx->current_block, val, span)->id;
+        /* `w.upgrade() != null` tested a handle nothing owned afterwards:
+         * the reference upgrade() handed over was never released, so the
+         * object leaked and its drop never ran. */
+        if (v && v->type && type_is_rc_like(v->type) && rc_expr_transfers_ownership(v)) {
+            TempOwned *temps = NULL;
+            note_owned_temp(ctx, &temps, v, val, span);
+            release_owned_temps(ctx, &temps, span);
+        }
+        return res;
     }
 
     case IRON_HIR_EXPR_FUNC_REF: {

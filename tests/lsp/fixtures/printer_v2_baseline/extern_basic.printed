@@ -1,5 +1,0 @@
-func puts(s: String) -> Int
-
-func main() {
-  puts("hello from extern")
-}

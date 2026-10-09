@@ -2924,6 +2924,14 @@ static bool push_type_compatible(const Iron_Type *elem_type,
     /* Exact structural match (primitive singletons, func types, arrays, etc.) */
     if (iron_type_equals(elem_type, arg_type)) return true;
 
+    /* A `*var T` is a `*T` that may also write: `ps.push(&m)` with m a var
+     * into a [*T] was rejected while `[&m]` was accepted (#324). */
+    if (elem_type->kind == IRON_TYPE_PTR && arg_type->kind == IRON_TYPE_PTR &&
+        !elem_type->ptr.is_var && elem_type->ptr.is_unchecked == arg_type->ptr.is_unchecked &&
+        elem_type->ptr.pointee && arg_type->ptr.pointee &&
+        iron_type_equals(elem_type->ptr.pointee, arg_type->ptr.pointee))
+        return true;
+
     /* Object == Object: same decl required. iron_type_equals should cover
      * this, but we double-check in case two Iron_Type values reference the
      * same decl via different allocations. */
@@ -11188,6 +11196,16 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
 static void check_method_decl_inner(TypeCtx *ctx, Iron_MethodDecl *md);
 
 static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
+    /* `func drop()` is the destructor's C name (<Type>_drop): the drop glue
+     * called it at scope exit as well, so an explicit `j.drop()` ran it twice
+     * (#324). The destructor is written `drop { ... }`. (`copy()` is free:
+     * the copy glue is <Type>_copied.) */
+    if (md && md->method_name && !md->is_drop && !md->is_copy && !md->is_synth_accessor &&
+        strcmp(md->method_name, "drop") == 0) {
+        emit_error(ctx, IRON_ERR_ACCESSOR_NAME_RESERVED, md->span,
+                   "a method cannot be named 'drop': it is the destructor",
+                   "write `drop { ... }` for the destructor, or give the method another name");
+    }
     bool saved = ctx->in_iface_default;
     ctx->in_iface_default = md && md->is_iface_default;
     check_method_decl_inner(ctx, md);
