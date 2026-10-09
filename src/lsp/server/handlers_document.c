@@ -257,7 +257,7 @@ void ilsp_handle_didChange(IronLsp_Server *s, struct yyjson_doc *doc,
     }
 
     /* Plan 05 CORE-14/CORE-15: post a COMPILE to the ASTWorker. Worker
-     * debounces 250ms + coalesces rapid didChange floods into a single
+     * debounces 150ms + coalesces rapid didChange floods into a single
      * compile of the newest version. Register a per-version cancel flag
      * so a subsequent edit can race-cancel the in-flight analyze. The
      * cancel-flag key is "<uri>#v<version>" -- unique per edit, so

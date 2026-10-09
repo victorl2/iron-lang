@@ -18,6 +18,7 @@
 #include "lsp/facade/nav/node_at.h"
 
 #include "analyzer/analyzer.h"
+#include "analyzer/scope.h"
 #include "diagnostics/diagnostics.h"
 #include "lsp/facade/types.h"
 #include "lsp/store/document.h"
@@ -119,7 +120,7 @@ static void test_init_body_resolves(void) {
      * of the anonymous init(v: Int) { ... }. LSP Position is 0-based,
      * so line 12, column 14 lands inside "count". */
     IronLsp_Position pos = { .line = 12, .character = 14 };
-    Iron_Node *n = ilsp_nav_node_at(h.doc, h.program, pos, ILSP_ENC_UTF16);
+    Iron_Node *n = ilsp_nav_decl_at(h.doc, h.program, pos, ILSP_ENC_UTF16);
     TEST_ASSERT_NOT_NULL_MESSAGE(n, "node_at returned NULL inside init body");
     TEST_ASSERT_EQUAL_INT_MESSAGE(IRON_NODE_METHOD_DECL, n->kind,
         "cursor inside init body should resolve to METHOD_DECL");
@@ -148,7 +149,7 @@ static void test_named_init_resolves(void) {
     /* Source line 17 (1-based) "        self.count = 0" — body of
      * `init zero() { ... }`. Position is 0-based: line 16 col 14. */
     IronLsp_Position pos = { .line = 16, .character = 14 };
-    Iron_Node *n = ilsp_nav_node_at(h.doc, h.program, pos, ILSP_ENC_UTF16);
+    Iron_Node *n = ilsp_nav_decl_at(h.doc, h.program, pos, ILSP_ENC_UTF16);
     TEST_ASSERT_NOT_NULL_MESSAGE(n, "node_at returned NULL inside named-init body");
     TEST_ASSERT_EQUAL_INT_MESSAGE(IRON_NODE_METHOD_DECL, n->kind,
         "cursor inside named-init body should resolve to METHOD_DECL");
@@ -179,7 +180,7 @@ static void test_patch_method_body_resolves(void) {
      * `pub readonly func double() -> Int`. Position is 0-based: line 2
      * col 14. */
     IronLsp_Position pos = { .line = 2, .character = 14 };
-    Iron_Node *n = ilsp_nav_node_at(h.doc, h.program, pos, ILSP_ENC_UTF16);
+    Iron_Node *n = ilsp_nav_decl_at(h.doc, h.program, pos, ILSP_ENC_UTF16);
     TEST_ASSERT_NOT_NULL_MESSAGE(n, "node_at returned NULL inside patch-method body");
     TEST_ASSERT_EQUAL_INT_MESSAGE(IRON_NODE_METHOD_DECL, n->kind,
         "cursor inside patch-method body should resolve to METHOD_DECL");
@@ -207,10 +208,44 @@ static void test_patch_method_body_resolves(void) {
     harness_free(&h);
 }
 
+/* ── Test 04: node_at returns the innermost node in a body ─────────── */
+static void test_body_innermost_nodes(void) {
+    char buf[1024];
+    const char *path = fixture_path(buf, sizeof(buf),
+                                     "v3_init_anonymous_and_named.iron");
+    TEST_ASSERT_NOT_NULL_MESSAGE(path, "fixture v3_init_anonymous_and_named.iron not found");
+    V3NavHarness h;
+    bool ok = harness_init_from_file(&h, path, path);
+    TEST_ASSERT_TRUE_MESSAGE(ok, "analyze of init fixture failed");
+
+    /* Line 13 "        self.count = v": the cursor on `count` is on the
+     * field access, the cursor on `v` on the identifier, which resolves
+     * to the init's parameter. */
+    IronLsp_Position on_field = { .line = 12, .character = 14 };
+    Iron_Node *n = ilsp_nav_node_at(h.doc, h.program, on_field, ILSP_ENC_UTF16);
+    TEST_ASSERT_NOT_NULL(n);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(IRON_NODE_FIELD_ACCESS, n->kind,
+        "cursor on `count` in `self.count` should be the field access");
+    TEST_ASSERT_EQUAL_STRING("count", ((Iron_FieldAccess *)n)->field);
+
+    IronLsp_Position on_ident = { .line = 12, .character = 21 };
+    n = ilsp_nav_node_at(h.doc, h.program, on_ident, ILSP_ENC_UTF16);
+    TEST_ASSERT_NOT_NULL(n);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(IRON_NODE_IDENT, n->kind,
+        "cursor on `v` should be the identifier");
+    Iron_Ident *id = (Iron_Ident *)n;
+    TEST_ASSERT_EQUAL_STRING("v", id->name);
+    TEST_ASSERT_NOT_NULL_MESSAGE(id->resolved_sym, "`v` should resolve");
+    TEST_ASSERT_EQUAL_INT(IRON_NODE_PARAM, id->resolved_sym->decl_node->kind);
+
+    harness_free(&h);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_init_body_resolves);
     RUN_TEST(test_named_init_resolves);
     RUN_TEST(test_patch_method_body_resolves);
+    RUN_TEST(test_body_innermost_nodes);
     return UNITY_END();
 }

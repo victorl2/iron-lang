@@ -23,6 +23,7 @@
 #include "lsp/store/line_index.h"      /* IronLsp_LineIndex */
 #include "lsp/store/workspace_index.h" /* IronLsp_IndexEntry */
 #include "diagnostics/diagnostics.h"   /* Iron_Span */
+#include "parser/ast.h"                /* Iron_Program, Iron_Node */
 #include "util/arena.h"
 #include "vendor/yyjson/yyjson.h"
 
@@ -91,6 +92,18 @@ const char *ilsp_nav_uri_to_path(const char *uri, Iron_Arena *arena);
  * `canonical_path` begins with the "stdlib://" sentinel scheme used
  * by stdlib_cache. NULL/empty -> false. */
 bool ilsp_nav_path_is_stdlib(const char *canonical_path);
+
+/* The declaration a member or type reference names, looked up in the
+ * program's own and prelude declarations:
+ *   - IRON_NODE_METHOD_CALL: the method (METHOD_DECL, or an interface's
+ *     signature); NULL for a compiler builtin such as Map.put.
+ *   - IRON_NODE_FIELD_ACCESS: the object's FIELD, or an ENUM_VARIANT for
+ *     `Color.Red`.
+ *   - IRON_NODE_ENUM_CONSTRUCT: the ENUM_VARIANT (`Shape.Circle(r)`).
+ *   - IRON_NODE_TYPE_ANNOTATION: the OBJECT / ENUM / INTERFACE decl.
+ * NULL for any other node or when nothing matches. */
+Iron_Node *ilsp_nav_member_decl(const Iron_Program *program, Iron_Node *n,
+                                Iron_Arena *arena);
 
 /* ── LocationLink -> JSON ────────────────────────────────────────── */
 

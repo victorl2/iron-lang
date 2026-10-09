@@ -1,0 +1,34 @@
+-- Each error below must come with a help line that proposes a fix; the
+-- expected help texts are in help_quality.expected_help (one per line).
+enum Color {
+    Red,
+    Green,
+}
+
+object P {
+    val x: Int
+    func dist() -> Int { return self.x }
+}
+
+func area(w: Int, h: Int) -> Int {
+    return w * h
+}
+
+func main() {
+    val total = 1
+    println("{totl}")
+    val s = "abc"
+    println(s.to_upper())
+    val p = P(1)
+    println("{p.distance()}")
+    val c = Color.Gren
+    println("{area(3)}")
+    val f: Float = 2.5
+    println("{area(f, 2)}")
+    val t = "n=" + 3
+    val a = 1
+    val r = a & a == 1
+    val v = P(2)
+    v.x = 5
+    println("{total total}")
+}

@@ -1,0 +1,9 @@
+-- One unknown variant is one error: the resolver and the checker both
+-- reported it, so it was printed twice.
+enum E {
+    X(Int),
+}
+
+func main() {
+    val p = E.Bogus(3)
+}

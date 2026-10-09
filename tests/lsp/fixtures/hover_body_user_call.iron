@@ -1,0 +1,11 @@
+-- Hover on a call inside a function body shows the callee's signature.
+--
+-- HOVER@9:13
+func area(w: Int, h: Int) -> Int {
+    return w * h
+}
+
+func main() {
+    val a = area(2, 3)
+    println("{a}")
+}

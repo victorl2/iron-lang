@@ -155,6 +155,12 @@ static void test_hover_regime_unchecked(void)   { test_hover_fixture("hover_regi
 static void test_hover_readonly_func(void)      { test_hover_fixture("hover_readonly_func"); }
 static void test_hover_nocopy_object(void)      { test_hover_fixture("hover_nocopy_object"); }
 
+/* Inside function bodies: calls, parameters, stdlib and builtin methods. */
+static void test_hover_body_user_call(void)       { test_hover_fixture("hover_body_user_call"); }
+static void test_hover_body_param(void)           { test_hover_fixture("hover_body_param"); }
+static void test_hover_body_stdlib_method(void)   { test_hover_fixture("hover_body_stdlib_method"); }
+static void test_hover_body_builtin_method(void)  { test_hover_fixture("hover_body_builtin_method"); }
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_hover_policy_heap);
@@ -164,5 +170,9 @@ int main(void) {
     RUN_TEST(test_hover_regime_unchecked);
     RUN_TEST(test_hover_readonly_func);
     RUN_TEST(test_hover_nocopy_object);
+    RUN_TEST(test_hover_body_user_call);
+    RUN_TEST(test_hover_body_param);
+    RUN_TEST(test_hover_body_stdlib_method);
+    RUN_TEST(test_hover_body_builtin_method);
     return UNITY_END();
 }

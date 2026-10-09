@@ -178,6 +178,13 @@ typedef struct {
      * carve-out is active (single-file user code with no prepended
      * stdlib). */
     int           user_source_start_line;
+    /* LSP mode with a stdlib prelude (iron_analyze_buffer): decls[0 ..
+     * decl_count) are the analyzed buffer's own declarations, and the
+     * prelude's follow at decls[decl_count .. decl_count +
+     * prelude_decl_count). Editor features walk the buffer's declarations by
+     * position; a stdlib method or type they resolve to is still reachable
+     * here. 0 everywhere else. */
+    int           prelude_decl_count;
 } Iron_Program;
 
 /* ── Phase 3 NAV-15: sealed-AST contract debug enforcement ───────────────────
@@ -396,6 +403,9 @@ typedef struct {
      * when a non-patch `pub object T` exists in the same source file
      * (regular object's methods survive, patch's don't). */
     bool               is_patch_member;
+    /* An interface default body copied into an implementor
+     * (iface_defaults.c): it acts as the implementor's own method. */
+    bool               is_iface_default;
     /* Phase 24 DROP-01/06 (Plan 24-01): flag drop/copy blocks.
      * is_drop  true when the source token was `drop { ... }`.
      * is_copy  true when the source token was `copy { ... }`.

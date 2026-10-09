@@ -1,0 +1,6 @@
+-- An Int literal that does not fit in 64 bits is an error; it used to
+-- become the largest Int silently.
+func main() {
+    val a = 99999999999999999999
+    println("{a}")
+}

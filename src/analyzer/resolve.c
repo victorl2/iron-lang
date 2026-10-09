@@ -159,8 +159,15 @@ static void emit_undefined(ResolveCtx *ctx, const char *name, Iron_Span span) {
     snprintf(msg, sizeof(msg), "undefined identifier '%s'", name);
     const char *msg_copy = iron_arena_strdup(ctx->arena, msg, strlen(msg));
     if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:emit_undefined msg) */ msg_copy = "analyzer error"; }
-    const char *suggestion = iron_best_typo_candidate(ctx->current_scope,
-                                                       ctx->arena, name);
+    const char *suggestion = iron_did_you_mean(ctx->arena,
+        iron_best_typo_candidate(ctx->current_scope, ctx->arena, name));
+    if (!suggestion) {
+        char help[320];
+        snprintf(help, sizeof(help),
+                 "declare '%s' before using it, or import the module that defines it",
+                 name);
+        suggestion = iron_arena_strdup(ctx->arena, help, strlen(help));
+    }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                    IRON_ERR_UNDEFINED_VAR, span, msg_copy, suggestion);
 }
@@ -265,9 +272,29 @@ static void collect_decl(ResolveCtx *ctx, Iron_Node *node) {
             /* Phase 93 VIS-02/03: propagate the AST is_pub bit. */
             sym->is_pub = od->is_pub;
             if (!iron_scope_define(ctx->global_scope, ctx->arena, sym)) {
+                Iron_Symbol *prev = iron_scope_lookup(ctx->global_scope, sym->name);
+                bool prev_in_stdlib = prev && is_stdlib_decl(ctx, prev);
+                char dmsg[256], dhelp[256];
+                snprintf(dmsg, sizeof(dmsg), "duplicate type declaration '%s'",
+                         sym->name ? sym->name : "?");
+                if (prev_in_stdlib)
+                    snprintf(dhelp, sizeof(dhelp),
+                             "the standard library already declares '%s'; rename this one",
+                             sym->name ? sym->name : "?");
+                else
+                    snprintf(dhelp, sizeof(dhelp), "rename one of the two declarations");
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_DUPLICATE_DECL, od->span,
-                               "duplicate type declaration", NULL);
+                               iron_arena_strdup(ctx->arena, dmsg, strlen(dmsg)),
+                               iron_arena_strdup(ctx->arena, dhelp, strlen(dhelp)));
+                if (prev && !prev_in_stdlib && prev->span.line > 0) {
+                    char nmsg[256];
+                    snprintf(nmsg, sizeof(nmsg), "'%s' is first declared here",
+                             sym->name ? sym->name : "?");
+                    iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_NOTE,
+                                   IRON_ERR_DUPLICATE_DECL, prev->span,
+                                   iron_arena_strdup(ctx->arena, nmsg, strlen(nmsg)), NULL);
+                }
             }
             break;
         }
@@ -400,8 +427,8 @@ static void attach_method(ResolveCtx *ctx, Iron_Node *node) {
     Iron_Symbol *owner = iron_scope_lookup(ctx->global_scope, md->type_name);
     if (!owner) {
         /* Phase 4 Plan 04-01 (EDIT-07): seed .suggestion with typo candidate. */
-        const char *sug = iron_best_typo_candidate(ctx->global_scope,
-                                                    ctx->arena, md->type_name);
+        const char *sug = iron_did_you_mean(ctx->arena,
+            iron_best_typo_candidate(ctx->global_scope, ctx->arena, md->type_name));
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNDEFINED_VAR, md->span,
                        "method declared on undeclared type", sug);
@@ -409,8 +436,8 @@ static void attach_method(ResolveCtx *ctx, Iron_Node *node) {
     }
     if (owner->sym_kind != IRON_SYM_TYPE && owner->sym_kind != IRON_SYM_ENUM) {
         /* Phase 4 Plan 04-01 (EDIT-07): seed .suggestion with typo candidate. */
-        const char *sug = iron_best_typo_candidate(ctx->global_scope,
-                                                    ctx->arena, md->type_name);
+        const char *sug = iron_did_you_mean(ctx->arena,
+            iron_best_typo_candidate(ctx->global_scope, ctx->arena, md->type_name));
         iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNDEFINED_VAR, md->span,
                        "method declared on non-object type", sug);
@@ -1103,7 +1130,9 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:resolve_expr PATTERN unknown-enum msg) */ msg_copy = "analyzer error"; }
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_UNKNOWN_VARIANT, pat->span,
-                                   msg_copy, NULL);
+                                   msg_copy, iron_did_you_mean(ctx->arena,
+                                       iron_best_typo_candidate(ctx->current_scope, ctx->arena,
+                                                                pat->enum_name)));
                     break;
                 }
                 /* Validate variant exists in the enum */
@@ -1141,7 +1170,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                     if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:resolve_expr PATTERN no-variant msg) */ msg_copy = "analyzer error"; }
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_UNKNOWN_VARIANT, pat->span,
-                                   msg_copy, NULL);
+                                   msg_copy, iron_enum_variant_help(ctx->arena, ed,
+                                                                    pat->variant_name));
                     break;
                 }
             }
@@ -1280,7 +1310,8 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                 if (!msg_copy) { /* HARD-09 REPLACE (resolve.c:resolve_expr ENUM_CONSTRUCT no-variant msg) */ msg_copy = "analyzer error"; }
                 iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNKNOWN_VARIANT, ec->span,
-                               msg_copy, NULL);
+                               msg_copy, iron_enum_variant_help(ctx->arena, ed,
+                                                                ec->variant_name));
                 break;
             }
             /* Resolve arg expressions */

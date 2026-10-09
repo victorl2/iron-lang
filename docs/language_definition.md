@@ -654,7 +654,10 @@ payload compares only against a unit variant (`shape == Shape.Empty`).
 Objects and lists have no `==`: compare their fields or elements.
 `< > <= >=` compare numbers, and strings in code point order. `and`,
 `or`, `not` take `Bool` operands. `& | ^ ~ << >>` take integer operands
-(`E0233`). Compound assignments `+= -= *= /= &= |= ^= <<= >>=` are
+(`E0233`) of any width; `& | ^` need both of one type, and a shift has the
+type of its left operand. A shift by the operand's width or more gives 0
+for `<<` and the sign (0 or -1) for `>>`; a shift by a negative count is a
+panic. Compound assignments `+= -= *= /= &= |= ^= <<= >>=` are
 statements (section 4.3).
 
 ### 3.3 String interpolation and concatenation

@@ -7,6 +7,10 @@
 
 #include "lsp/store/utf.h"
 #include "lsp/transport/json.h"
+#include "parser/ast.h"
+#include "analyzer/types.h"
+#include "analyzer/scope.h"
+#include "hir/stdlib_origin.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -155,21 +159,65 @@ const char *ilsp_nav_path_to_uri(const char *canonical_path, Iron_Arena *arena) 
         strncmp(canonical_path, "file://",   7) == 0) {
         return iron_arena_strdup(arena, canonical_path, strlen(canonical_path));
     }
+    /* RFC 8089: `file:///abs/path`, and on Windows `file:///C:/dir/f.iron`
+     * (`file://C:/...` would make `C:` the host, and the editor cannot
+     * open it). Backslashes become '/'; bytes a URI cannot hold raw are
+     * percent-encoded (a space in `Program Files`, '%', '#', '?'). */
     size_t path_len = strlen(canonical_path);
-    size_t total    = path_len + 8;  /* "file://" + NUL */
-    char *buf = (char *)iron_arena_alloc(arena, total, 1);
+    char *buf = (char *)iron_arena_alloc(arena, 8 + 1 + path_len * 3 + 1, 1);
     if (!buf) return NULL;
+    size_t n = 0;
     memcpy(buf, "file://", 7);
-    memcpy(buf + 7, canonical_path, path_len);
-    buf[7 + path_len] = '\0';
+    n = 7;
+    if (canonical_path[0] != '/') buf[n++] = '/';
+    static const char hex[] = "0123456789ABCDEF";
+    for (size_t i = 0; i < path_len; i++) {
+        unsigned char c = (unsigned char)canonical_path[i];
+        if (c == '\\') {
+            buf[n++] = '/';
+        } else if (c == ' ' || c == '%' || c == '#' || c == '?' || c < 0x20) {
+            buf[n++] = '%';
+            buf[n++] = hex[c >> 4];
+            buf[n++] = hex[c & 15];
+        } else {
+            buf[n++] = (char)c;
+        }
+    }
+    buf[n] = '\0';
     return buf;
+}
+
+static int uri_hex(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
 }
 
 const char *ilsp_nav_uri_to_path(const char *uri, Iron_Arena *arena) {
     if (!uri) return NULL;
     if (strncmp(uri, "file://", 7) == 0) {
         const char *p = uri + 7;
-        return iron_arena_strdup(arena, p, strlen(p));
+        /* file:///C:/... -> C:/... ; file:///home/... -> /home/... */
+        if (p[0] == '/' && p[1] && p[2] == ':') p++;
+        else if (p[0] == '/' && p[1] && p[2] == '%' && p[3] == '3' &&
+                 (p[4] == 'A' || p[4] == 'a')) p++;
+        size_t len = strlen(p);
+        char *out = (char *)iron_arena_alloc(arena, len + 1, 1);
+        if (!out) return NULL;
+        size_t n = 0;
+        for (size_t i = 0; i < len; i++) {
+            int hi, lo;
+            if (p[i] == '%' && i + 2 < len && (hi = uri_hex(p[i + 1])) >= 0 &&
+                (lo = uri_hex(p[i + 2])) >= 0) {
+                out[n++] = (char)(hi * 16 + lo);
+                i += 2;
+            } else {
+                out[n++] = p[i];
+            }
+        }
+        out[n] = '\0';
+        return out;
     }
     /* stdlib:// / dep:// / relative: passthrough. */
     return iron_arena_strdup(arena, uri, strlen(uri));
@@ -179,7 +227,175 @@ const char *ilsp_nav_uri_to_path(const char *uri, Iron_Arena *arena) {
  * original src/lsp/facade/edit/rename/apply.c:96-98 implementation
  * (lifted verbatim with the new public name). */
 bool ilsp_nav_path_is_stdlib(const char *p) {
-    return p && strncmp(p, "stdlib://", 9) == 0;
+    if (!p) return false;
+    if (strncmp(p, "stdlib://", 9) == 0) return true;
+    /* A file of the stdlib prelude this thread's last analysis prepended
+     * (the facade analyzes and then answers on the same thread). */
+    return iron_stdlib_origin_classify(p) == 1;
+}
+
+/* ── Member and type references ──────────────────────────────────── */
+
+static const Iron_Type *strip_wrappers(const Iron_Type *t) {
+    for (int guard = 0; t && guard < 8; guard++) {
+        switch ((int)t->kind) {
+            case IRON_TYPE_NULLABLE: t = t->nullable.inner; continue;
+            case IRON_TYPE_RC:       t = t->rc.inner;       continue;
+            case IRON_TYPE_WEAK_RC:  t = t->weak_rc.inner;  continue;
+            case IRON_TYPE_PTR:      t = t->ptr.pointee;    continue;
+            default: return t;
+        }
+    }
+    return t;
+}
+
+/* Every declaration the analysis saw: the buffer's, then the prelude's. */
+static int all_decl_count(const Iron_Program *program) {
+    return program->decl_count + program->prelude_decl_count;
+}
+
+static Iron_Node *find_type_decl(const Iron_Program *program, const char *name) {
+    if (!name) return NULL;
+    for (int i = 0; i < all_decl_count(program); i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d) continue;
+        const char *dn = NULL;
+        if (d->kind == IRON_NODE_OBJECT_DECL) {
+            Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+            if (od->is_patch) continue;
+            dn = od->name;
+        } else if (d->kind == IRON_NODE_ENUM_DECL) {
+            dn = ((Iron_EnumDecl *)d)->name;
+        } else if (d->kind == IRON_NODE_INTERFACE_DECL) {
+            dn = ((Iron_InterfaceDecl *)d)->name;
+        }
+        if (dn && strcmp(dn, name) == 0) return d;
+    }
+    return NULL;
+}
+
+/* The name methods are declared under for a receiver type: `Point`,
+ * `String`, `Int`, `Map` (generic arguments dropped). */
+static const char *receiver_type_name(const Iron_Type *t, Iron_Arena *arena) {
+    if (!t) return NULL;
+    if (t->kind == IRON_TYPE_OBJECT && t->object.decl) return t->object.decl->name;
+    if (t->kind == IRON_TYPE_ENUM && t->enu.decl) return t->enu.decl->name;
+    if (t->kind == IRON_TYPE_INTERFACE && t->interface.decl) return t->interface.decl->name;
+    const char *s = iron_type_to_string(t, arena);
+    if (!s) return NULL;
+    const char *br = strchr(s, '[');
+    if (!br || br == s) return s;
+    return iron_arena_strdup(arena, s, (size_t)(br - s));
+}
+
+/* The type a static member reference names (`Math.sqrt`, `Color.Red`). */
+static Iron_Node *static_receiver_decl(Iron_Node *object) {
+    if (!object || object->kind != IRON_NODE_IDENT) return NULL;
+    const Iron_Symbol *sym = ((Iron_Ident *)object)->resolved_sym;
+    if (!sym || !sym->decl_node) return NULL;
+    Iron_NodeKind k = sym->decl_node->kind;
+    if (k == IRON_NODE_OBJECT_DECL || k == IRON_NODE_ENUM_DECL ||
+        k == IRON_NODE_INTERFACE_DECL) {
+        return sym->decl_node;
+    }
+    return NULL;
+}
+
+static const char *decl_type_name(Iron_Node *d) {
+    switch ((int)d->kind) {
+        case IRON_NODE_OBJECT_DECL:    return ((Iron_ObjectDecl *)d)->name;
+        case IRON_NODE_ENUM_DECL:      return ((Iron_EnumDecl *)d)->name;
+        case IRON_NODE_INTERFACE_DECL: return ((Iron_InterfaceDecl *)d)->name;
+        default: return NULL;
+    }
+}
+
+static Iron_Node *find_method(const Iron_Program *program, const Iron_Type *recv,
+                              const char *type_name, const char *method) {
+    if (recv && recv->kind == IRON_TYPE_INTERFACE && recv->interface.decl) {
+        Iron_InterfaceDecl *id = recv->interface.decl;
+        for (int i = 0; i < id->method_count; i++) {
+            Iron_Node *sig = id->method_sigs[i];
+            if (sig && sig->kind == IRON_NODE_FUNC_DECL &&
+                ((Iron_FuncDecl *)sig)->name &&
+                strcmp(((Iron_FuncDecl *)sig)->name, method) == 0) {
+                return sig;
+            }
+        }
+    }
+    bool is_list = recv && recv->kind == IRON_TYPE_ARRAY;
+    for (int i = 0; i < all_decl_count(program); i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!md->method_name || strcmp(md->method_name, method) != 0) continue;
+        if (is_list ? md->is_array_extension
+                    : (!md->is_array_extension && md->type_name && type_name &&
+                       strcmp(md->type_name, type_name) == 0)) {
+            return d;
+        }
+    }
+    return NULL;
+}
+
+Iron_Node *ilsp_nav_member_decl(const Iron_Program *program, Iron_Node *n,
+                                Iron_Arena *arena) {
+    if (!program || !n) return NULL;
+    switch ((int)n->kind) {
+        case IRON_NODE_METHOD_CALL: {
+            Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)n;
+            if (!mc->method) return NULL;
+            Iron_Node *st = static_receiver_decl(mc->object);
+            if (st) return find_method(program, NULL, decl_type_name(st), mc->method);
+            const Iron_Type *t = strip_wrappers(
+                mc->object ? ((Iron_ExprNode *)mc->object)->resolved_type : NULL);
+            if (!t) return NULL;
+            return find_method(program, t, receiver_type_name(t, arena), mc->method);
+        }
+        case IRON_NODE_FIELD_ACCESS: {
+            Iron_FieldAccess *fa = (Iron_FieldAccess *)n;
+            if (!fa->field) return NULL;
+            Iron_Node *owner = static_receiver_decl(fa->object);
+            if (!owner) {
+                const Iron_Type *t = strip_wrappers(
+                    fa->object ? ((Iron_ExprNode *)fa->object)->resolved_type : NULL);
+                if (t && t->kind == IRON_TYPE_OBJECT) owner = (Iron_Node *)t->object.decl;
+            }
+            if (!owner) return NULL;
+            if (owner->kind == IRON_NODE_OBJECT_DECL) {
+                Iron_ObjectDecl *od = (Iron_ObjectDecl *)owner;
+                for (int i = 0; i < od->field_count; i++) {
+                    Iron_Field *f = (Iron_Field *)od->fields[i];
+                    if (f && f->name && strcmp(f->name, fa->field) == 0) return (Iron_Node *)f;
+                }
+            } else if (owner->kind == IRON_NODE_ENUM_DECL) {
+                Iron_EnumDecl *ed = (Iron_EnumDecl *)owner;
+                for (int i = 0; i < ed->variant_count; i++) {
+                    Iron_EnumVariant *v = (Iron_EnumVariant *)ed->variants[i];
+                    if (v && v->name && strcmp(v->name, fa->field) == 0) return (Iron_Node *)v;
+                }
+            }
+            return NULL;
+        }
+        case IRON_NODE_ENUM_CONSTRUCT: {
+            Iron_EnumConstruct *ec = (Iron_EnumConstruct *)n;
+            Iron_Node *ed = find_type_decl(program, ec->enum_name);
+            if (!ed && ec->resolved_type && ec->resolved_type->kind == IRON_TYPE_ENUM) {
+                ed = (Iron_Node *)ec->resolved_type->enu.decl;  /* `.Circle` */
+            }
+            if (!ed || ed->kind != IRON_NODE_ENUM_DECL || !ec->variant_name) return NULL;
+            Iron_EnumDecl *e = (Iron_EnumDecl *)ed;
+            for (int i = 0; i < e->variant_count; i++) {
+                Iron_EnumVariant *v = (Iron_EnumVariant *)e->variants[i];
+                if (v && v->name && strcmp(v->name, ec->variant_name) == 0) return (Iron_Node *)v;
+            }
+            return NULL;
+        }
+        case IRON_NODE_TYPE_ANNOTATION:
+            return find_type_decl(program, ((Iron_TypeAnnotation *)n)->name);
+        default:
+            return NULL;
+    }
 }
 
 /* ── LocationLink -> JSON ────────────────────────────────────────── */

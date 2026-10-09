@@ -1,0 +1,10 @@
+-- Hover on a parameter used in the body shows its name and type.
+--
+-- HOVER@5:12
+func area(w: Int, h: Int) -> Int {
+    return w * h
+}
+
+func main() {
+    println("{area(2, 3)}")
+}

@@ -1,0 +1,7 @@
+-- @expect-panic: list_pop_empty_site.iron:6
+-- A list method's panic names the Iron line of the call (it named the
+-- runtime function, Iron_List_int64_t_pop:0), and an empty pop says so.
+func main() {
+    var xs: [Int] = []
+    println("{xs.pop()}")
+}

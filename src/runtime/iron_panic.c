@@ -216,6 +216,9 @@ void iron_panic_index_oob_unchecked(const char *site_file, int site_line,
  * Text channel:  iron: index out of bounds
  *                  site: <file>:<line>
  *                  index: <I> bound: <B> */
+_Thread_local const char *iron_list_call_file = NULL;
+_Thread_local int         iron_list_call_line = 0;
+
 void iron_panic_index_oob(const char *site_file, int site_line,
                           int64_t index, int64_t bound) {
     fflush(stdout);  /* the program's earlier output comes first */
@@ -224,7 +227,28 @@ void iron_panic_index_oob(const char *site_file, int site_line,
         iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
         /* noreturn — abort() inside */
     }
+    /* A list method's runtime body passes its own name with line 0; the
+     * emitter recorded the Iron line of the call, which is what to show.
+     * An empty-list pop is not an index the program wrote. */
+    bool empty_pop = site_line == 0 && site_file && strstr(site_file, "_pop") && index == -1;
+    if (site_line == 0 && iron_list_call_line > 0 && iron_list_call_file) {
+        site_file = iron_list_call_file;
+        site_line = iron_list_call_line;
+    }
     const char *sf = site_file ? site_file : "<unknown>";
+
+    if (empty_pop) {
+        if (s_iron_panic_format == 1) {
+            fputs("{\"panic\":\"pop_empty\",", stderr);
+            fprintf(stderr, "\"site\":{\"file\":\"%s\",\"line\":%d}}\n", sf, site_line);
+        } else {
+            fputs("iron: pop from an empty list\n", stderr);
+            fprintf(stderr, "  site: %s:%d\n", sf, site_line);
+        }
+        fflush(stdout);
+        fflush(stderr);
+        abort();
+    }
 
     if (s_iron_panic_format == 1) {
         fputs("{\"panic\":\"index_oob\",", stderr);
@@ -317,6 +341,32 @@ void iron_panic_div_by_zero(const char *site_file, int site_line) {
     }
     /* Buffered stdout dies with abort(); flush it so a panicking program
      * keeps every line it printed before the panic. */
+    fflush(stdout);
+    fflush(stderr);
+    abort();
+}
+
+/* A shift by a negative count. Counts of the operand's width or more are
+ * defined (<< gives 0, >> the sign fill); a negative count is a bug.
+ * JSON channel:  {"panic":"negative_shift","site":{...},"count":N}
+ * Text channel:  iron: shift by a negative count
+ *                  site: <file>:<line>
+ *                  count: <N> */
+void iron_panic_negative_shift(const char *site_file, int site_line, int64_t count) {
+    fflush(stdout);  /* the program's earlier output comes first */
+    if (iron_init_cleanup_top) iron_init_cleanup_run_and_clear();
+    if (iron_in_destructor) {
+        iron_panic_destructor_aborted(iron_current_dropping_type, __FILE__, __LINE__);
+    }
+    const char *sf = site_file ? site_file : "<unknown>";
+    if (s_iron_panic_format == 1) {
+        fputs("{\"panic\":\"negative_shift\",", stderr);
+        fprintf(stderr, "\"site\":{\"file\":\"%s\",\"line\":%d},\"count\":%lld}\n",
+                sf, site_line, (long long)count);
+    } else {
+        fputs("iron: shift by a negative count\n", stderr);
+        fprintf(stderr, "  site: %s:%d\n  count: %lld\n", sf, site_line, (long long)count);
+    }
     fflush(stdout);
     fflush(stderr);
     abort();

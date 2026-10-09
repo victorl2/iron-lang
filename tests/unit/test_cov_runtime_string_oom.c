@@ -253,9 +253,10 @@ void test_iron_string_index_of_rindex_of_char_at(void) {
     TEST_ASSERT_EQUAL_INT64(-1, Iron_string_index_of(s, miss));
     TEST_ASSERT_EQUAL_INT64(-1, Iron_string_rindex_of(s, miss));
 
-    /* rindex_of guards: empty needle and needle longer than haystack both -1 */
+    /* rindex_of: an empty needle is found at the end (as index_of finds it
+     * at 0); a needle longer than the haystack is -1 */
     Iron_String empty_sub = make_str("");
-    TEST_ASSERT_EQUAL_INT64(-1, Iron_string_rindex_of(s, empty_sub));
+    TEST_ASSERT_EQUAL_INT64(Iron_string_len(s), Iron_string_rindex_of(s, empty_sub));
     Iron_String long_sub = make_str("this is much longer than the haystack");
     TEST_ASSERT_EQUAL_INT64(-1, Iron_string_rindex_of(s, long_sub));
 
@@ -334,6 +335,11 @@ void test_iron_string_to_int_to_float(void) {
     TEST_ASSERT_EQUAL_INT64(42,  Iron_string_to_int(make_str("42")));
     TEST_ASSERT_EQUAL_INT64(-7,  Iron_string_to_int(make_str("-7")));
     TEST_ASSERT_EQUAL_INT64(0,   Iron_string_to_int(make_str("notanumber")));
+    /* 0 when not a number: trailing text or an overflowing value */
+    TEST_ASSERT_EQUAL_INT64(0,   Iron_string_to_int(make_str("3x")));
+    TEST_ASSERT_EQUAL_INT64(0,   Iron_string_to_int(make_str("99999999999999999999")));
+    TEST_ASSERT_EQUAL_INT64(12,  Iron_string_to_int(make_str(" 12\n")));
+    TEST_ASSERT_EQUAL_DOUBLE(0.0, Iron_string_to_float(make_str("2.5kg")));
 
     TEST_ASSERT_EQUAL_DOUBLE(3.14, Iron_string_to_float(make_str("3.14")));
     TEST_ASSERT_EQUAL_DOUBLE(0.0,  Iron_string_to_float(make_str("zilch")));

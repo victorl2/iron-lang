@@ -2,6 +2,7 @@
  * negotiation. Capability matrix is derived from ilsp_handler_table to
  * guarantee every advertised capability has a registered handler
  * (PITFALLS.md #15 mitigation; CORE-06). */
+#include "lsp/facade/semantic.h"
 #include "lsp/server/capabilities.h"
 #include "lsp/server/dispatch.h"
 
@@ -166,6 +167,14 @@ static void caps_add(yyjson_mut_doc *d, yyjson_mut_val *caps,
         yyjson_mut_arr_add_strcpy(d, retr, ",");
         yyjson_mut_obj_add_val(d, shp, "retriggerCharacters", retr);
         yyjson_mut_obj_add_val(d, caps, name, shp);
+        return;
+    }
+
+    /* #311: semanticTokensProvider carries its legend. */
+    if (strcmp(name, "semanticTokensProvider") == 0) {
+        yyjson_mut_val *stp = yyjson_mut_obj(d);
+        ilsp_semantic_tokens_legend(d, stp);
+        yyjson_mut_obj_add_val(d, caps, name, stp);
         return;
     }
 

@@ -1,6 +1,6 @@
 /* Phase 22 Plan 01 Wave 0 RED -> GREEN: READ-09 §6 hint-string regression anchor.
  * Verifies that every readonly diagnostic (238/239/277/278/279) carries the
- * "6:" substring in its suggestion/hint field.
+ * "readonly" in its suggestion: each one says how to fix the method.
  * Also tests Pitfall 1 (double-emit prevention): a pure method I/O violation
  * must produce ONLY E0240 (IRON_ERR_PURE_IO) and ZERO E0278 (IRON_ERR_READONLY_IO).
  *
@@ -73,7 +73,7 @@ void test_readonly_write_self_has_section_six_hint(void) {
         "    }\n"
         "}\n");
     TEST_ASSERT_EQUAL_INT(1, count_code(IRON_ERR_READONLY_WRITE_SELF));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_WRITE_SELF, "6:"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_WRITE_SELF, "readonly"));
 }
 
 /* Case 2 (READ-09 for READ-03): readonly method calling non-readonly method
@@ -91,7 +91,7 @@ void test_readonly_calls_mutating_has_section_six_hint(void) {
         "    }\n"
         "}\n");
     TEST_ASSERT_GREATER_THAN_INT(0, count_code(IRON_ERR_READONLY_CALLS_MUTATING));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_CALLS_MUTATING, "6:"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_CALLS_MUTATING, "readonly"));
 }
 
 /* Case 3 (READ-09 for READ-02): readonly method writing a param produces
@@ -105,7 +105,7 @@ void test_readonly_param_mutation_has_section_six_hint(void) {
         "    }\n"
         "}\n");
     TEST_ASSERT_EQUAL_INT(1, count_code(IRON_ERR_READONLY_PARAM_MUTATION));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_PARAM_MUTATION, "6:"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_PARAM_MUTATION, "readonly"));
 }
 
 /* Case 4 (READ-09 for READ-04): readonly method calling println produces
@@ -119,7 +119,7 @@ void test_readonly_io_has_section_six_hint(void) {
         "    }\n"
         "}\n");
     TEST_ASSERT_GREATER_THAN_INT(0, count_code(IRON_ERR_READONLY_IO));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_IO, "6:"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_IO, "readonly"));
 }
 
 /* Case 5 (READ-09 for READ-05): readonly method allocating heap produces
@@ -137,7 +137,7 @@ void test_readonly_heap_escape_has_section_six_hint(void) {
         "    }\n"
         "}\n");
     TEST_ASSERT_EQUAL_INT(1, count_code(IRON_ERR_READONLY_HEAP_ESCAPE));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_HEAP_ESCAPE, "6:"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_HEAP_ESCAPE, "readonly"));
 }
 
 /* Case 6 (Pitfall 1 — double-emit prevention): PURE method calling println

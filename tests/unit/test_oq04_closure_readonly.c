@@ -103,7 +103,7 @@ void test_readonly_method_var_capture_rejected(void) {
         "}\n");
     TEST_ASSERT_EQUAL_INT(1, count_code(IRON_ERR_READONLY_PARAM_MUTATION));
     TEST_ASSERT_TRUE(hint_contains(IRON_ERR_READONLY_PARAM_MUTATION,
-                                   "closures in readonly"));
+                                   "a closure in a readonly method"));
 }
 
 /* OQ-04 case 4: readonly method with a lambda that captures a val binding

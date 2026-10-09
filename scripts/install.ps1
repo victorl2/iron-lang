@@ -50,6 +50,24 @@ try {
     $ZipPath = Join-Path $Tmp $Archive
     Write-Host "Downloading $Url..."
     Invoke-WebRequest -Uri $Url -OutFile $ZipPath -UseBasicParsing
+    # Verify against the release's SHA-256 sidecar ("<hash>  <file>").
+    $ShaPath = "$ZipPath.sha256"
+    $HaveSha = $true
+    try {
+        Invoke-WebRequest -Uri "$Url.sha256" -OutFile $ShaPath -UseBasicParsing
+    } catch {
+        $HaveSha = $false
+    }
+    if ($HaveSha) {
+        $Expected = (Get-Content $ShaPath -Raw).Trim().Substring(0, 64).ToLower()
+        $Actual = (Get-FileHash $ZipPath -Algorithm SHA256).Hash.ToLower()
+        if ($Expected -ne $Actual) {
+            throw "checksum mismatch for ${Archive}: expected $Expected, got $Actual"
+        }
+        Write-Host "Checksum verified."
+    } else {
+        Write-Host "Note: no checksum published for $Archive; skipping verification."
+    }
     # The archive holds bin\ and lib\ at its root, the same layout as ~/.iron.
     Expand-Archive -Path $ZipPath -DestinationPath $IronHome -Force
 } finally {

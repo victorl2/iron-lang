@@ -1,0 +1,8 @@
+-- Hover on a stdlib method call shows the stdlib declaration (the buffer
+-- is analyzed with the same stdlib prelude as ironc check).
+--
+-- HOVER@6:20
+func main() {
+    val s = "abc".upper()
+    println(s)
+}

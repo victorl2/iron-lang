@@ -1,0 +1,34 @@
+-- An unknown variant where a type is expected (an annotated val or var, a
+-- return, an argument, a list element, a field) is E0228. The annotated
+-- val crashed the compiler and the language server: the failed construct
+-- had no type and the declaration read it anyway.
+enum E {
+    X(Int),
+    Y,
+}
+
+enum G[T] {
+    Some(T),
+    None,
+}
+
+object Holder {
+    val e: E
+}
+
+func take(e: E) -> Int {
+    return 0
+}
+
+func make() -> E {
+    return E.Bogus(1)
+}
+
+func main() {
+    val a: E = E.Bogus(3)
+    var b: G[Int] = G.Nope(3)
+    val c = take(E.Missing)
+    val d: [E] = [E.X(1), E.Gone(2)]
+    val h = Holder(E.Absent)
+    b = G.Also(4)
+}

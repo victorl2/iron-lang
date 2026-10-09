@@ -298,6 +298,8 @@ add_library(iron_compiler STATIC
     src/analyzer/resolve.c
     src/analyzer/typecheck.c
     src/analyzer/typo_candidate.c
+    src/analyzer/stdlib_prepend.c
+    src/cli/iron_import_detect.c
     src/analyzer/escape.c
     src/analyzer/capture.c
     src/analyzer/concurrency.c
@@ -340,6 +342,9 @@ add_library(iron_compiler STATIC
     src/fmt/config_load.c
 )
 target_include_directories(iron_compiler PUBLIC src src/vendor)
+# stdlib_prepend.c falls back to the source tree's stdlib in dev builds
+set_source_files_properties(src/analyzer/stdlib_prepend.c PROPERTIES
+    COMPILE_DEFINITIONS IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(iron_compiler iron_runtime)
 
 # ── iron_stdlib static library ─────────────────────────────────────────────
@@ -506,7 +511,6 @@ add_executable(ironc
     src/cli/fmt.c
     src/cli/test_runner.c
     src/cli/toml.c
-    src/cli/iron_import_detect.c
     src/cli/semver.c
     src/cli/help_registry.c
     src/cli/toolchain.c
@@ -871,6 +875,8 @@ if(IRON_BUILD_LSP)
         src/lsp/facade/edit/folding_range.c
         src/lsp/facade/edit/selection_range.c
         src/lsp/server/handlers_edit.c
+        # #311: semantic tokens + inlay hints (facade and handlers).
+        src/lsp/facade/semantic.c
         # Phase 5 Plan 05-02 (FMT-02, D-10, D-11, D-12): formatting
         # facade + dispatch handlers. format.c is the SINGLE
         # iron_format_source( call site under src/lsp/ -- enforced by
@@ -993,6 +999,32 @@ if(NOT IRON_ENABLE_FUZZING AND NOT MSVC)
     add_library(iron_fuzz_gen_check OBJECT tests/fuzz/iron_gen.c)
     target_include_directories(iron_fuzz_gen_check PRIVATE src tests/fuzz)
 endif()
+
+# Diagnostics propose a fix: every expected help line must appear.
+add_test(NAME diag_help_quality
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_quality.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_quality.expected_help
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
+# A diagnostic is reported once even when two passes find it.
+add_test(NAME diag_reported_once
+    COMMAND $<TARGET_FILE:ironc> check
+        ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/unknown_variant_once.iron)
+set_tests_properties(diag_reported_once PROPERTIES
+    PASS_REGULAR_EXPRESSION "E0228"
+    FAIL_REGULAR_EXPRESSION "E0228.*E0228")
+
+# An unknown command prints a short error and where to look, not the help.
+add_test(NAME iron_unknown_command COMMAND $<TARGET_FILE:iron> bogus)
+set_tests_properties(iron_unknown_command PROPERTIES
+    WILL_FAIL FALSE
+    PASS_REGULAR_EXPRESSION "unknown command 'bogus'.*Run 'iron --help'"
+    FAIL_REGULAR_EXPRESSION "Subcommands")
+add_test(NAME iron_new_hint COMMAND $<TARGET_FILE:iron> new demo)
+set_tests_properties(iron_new_hint PROPERTIES
+    PASS_REGULAR_EXPRESSION "iron init <name>")
 
 # Programs that must type-check (`ironc check` exit 0) but do not build yet.
 add_test(NAME check_only_nullable_type_args_ctor_elements

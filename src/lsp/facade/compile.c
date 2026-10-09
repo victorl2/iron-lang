@@ -24,10 +24,13 @@
 #include "lsp/transport/types.h"
 #include "lsp/transport/json.h"
 #include "analyzer/analyzer.h"
+#include "analyzer/stdlib_prepend.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 #include "vendor/yyjson/yyjson.h"
+#include "vendor/stb_ds.h"
 
+#include "util/pthread_compat.h"
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -44,25 +47,128 @@ static void enqueue_body(IronLsp_Writer *w, IronLsp_Priority prio,
     /* Ownership transferred; do not touch `heap` after this. */
 }
 
+/* Keep only the diagnostics of the edited document: the stdlib prelude's
+ * carry their own file names. (The analyzer orders the program's decls the
+ * same way; see Iron_Program.prelude_decl_count.) */
+static void keep_document_diags(Iron_DiagList *diags, const char *doc_file) {
+    int n = 0, errors = 0, warnings = 0;
+    for (int i = 0; i < diags->count; i++) {
+        Iron_Diagnostic *dg = &diags->items[i];
+        if (dg->span.filename && strcmp(dg->span.filename, doc_file) != 0) continue;
+        if (dg->level == IRON_DIAG_ERROR) errors++;
+        else if (dg->level == IRON_DIAG_WARNING) warnings++;
+        diags->items[n++] = *dg;
+    }
+    if (diags->items) arrsetlen(diags->items, n);
+    diags->count = n;
+    diags->error_count = errors;
+    diags->warning_count = warnings;
+}
+
+static int hex_val(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/* Lower case, '/' separators: Windows URIs spell the drive letter in lower
+ * case (`file:///c%3A/...`) while the lib dir has `C:\...`. */
+static char norm_path_char(char c) {
+    if (c == '\\') return '/';
+    if (c >= 'A' && c <= 'Z') return (char)(c - 'A' + 'a');
+    return c;
+}
+
+/* True when `uri` (a file:// URI or a path) names a file under
+ * <lib_dir>/stdlib/. */
+static bool is_stdlib_file(const char *uri, const char *lib_dir) {
+    char path[4096];
+    const char *src = uri;
+    bool is_uri = strncmp(src, "file://", 7) == 0;
+    if (is_uri) src += 7;
+    size_t n = 0;
+    for (; *src && n + 1 < sizeof(path); src++) {
+        int hi, lo;
+        if (is_uri && src[0] == '%' && (hi = hex_val(src[1])) >= 0 &&
+            (lo = hex_val(src[2])) >= 0) {
+            path[n++] = (char)(hi * 16 + lo);
+            src += 2;
+        } else {
+            path[n++] = *src;
+        }
+    }
+    path[n] = '\0';
+    const char *p = path;
+    if (p[0] == '/' && p[1] && p[2] == ':') p++;  /* /c:/... */
+
+    size_t i = 0;
+    for (; lib_dir[i]; i++) {
+        if (!p[i] || norm_path_char(p[i]) != norm_path_char(lib_dir[i])) return false;
+    }
+    const char *rest = p + i;
+    if (*rest == '/' || *rest == '\\') rest++;
+    return strncmp(rest, "stdlib/", 7) == 0 || strncmp(rest, "stdlib\\", 7) == 0;
+}
+
+/* Where the stdlib is, resolved once per process: every document worker
+ * analyzes with it, and a failed lookup should be reported once, not on
+ * every keystroke. NULL when there is none; the buffer is then analyzed
+ * alone. */
+static pthread_once_t g_lib_dir_once = PTHREAD_ONCE_INIT;
+static char          *g_lib_dir;
+
+static void resolve_lib_dir(void) {
+    g_lib_dir = iron_stdlib_lib_dir();
+}
+
 /* Shared analyze primitive -- the SINGLE iron_analyze_buffer call site
  * for the entire src/lsp tree. Both ilsp_facade_compile_pure (discards
  * the program pointer) and ilsp_facade_compile_for_nav (returns it)
- * route through this helper so the CORE-22 grep check stays at 1 hit. */
+ * route through this helper so the CORE-22 grep check stays at 1 hit.
+ *
+ * The buffer is analyzed with the same stdlib prelude `ironc check` uses
+ * (iron_stdlib_prepend), so Map, String methods and imported modules
+ * resolve in the editor as they do in the compiler. */
 static Iron_Program *facade_analyze(struct IronLsp_Document      *doc,
                                       const IronLsp_CompileRequest *req,
                                       Iron_Arena                   *arena,
                                       Iron_DiagList                *diags) {
     if (!doc || !arena || !diags) return NULL;
     const _Atomic bool *cancel = req ? req->cancel_flag : NULL;
+    const char *doc_file = doc->uri ? doc->uri : "<buffer>";
+
+    char *source = NULL;
+    int prepended = 0;
+    pthread_once(&g_lib_dir_once, resolve_lib_dir);
+    if (g_lib_dir) {
+        size_t len = doc->text ? doc->text_len : 0;
+        source = (char *)malloc(len + 1);
+        if (source) {
+            if (len) memcpy(source, doc->text, len);
+            source[len] = '\0';
+            prepended = iron_stdlib_prepend(&source, doc_file, g_lib_dir);
+        }
+    }
+
+    /* With no stdlib found, the buffer is analyzed alone. */
+    bool with_prelude = source && prepended > 0;
+    const char *text = with_prelude ? source : (doc->text ? doc->text : "");
+    size_t      text_len = with_prelude ? strlen(source) : doc->text_len;
     Iron_AnalyzeResult r = iron_analyze_buffer(
-        doc->text ? doc->text : "",
-        doc->text_len,
-        doc->uri ? doc->uri : "<buffer>",
-        IRON_ANALYSIS_MODE_LSP,
-        arena,
-        diags,
-        cancel,
-        0  /* LSP buffer mode: no stdlib prepended, all source is user code */);
+        text, text_len, doc_file, IRON_ANALYSIS_MODE_LSP, arena, diags, cancel,
+        with_prelude ? prepended + 1 : 0);
+    /* The arena keeps no pointers into the source text (tokens and the AST
+     * copy what they keep), so the prelude buffer can go now. */
+    free(source);
+    keep_document_diags(diags, doc_file);
+    /* A stdlib file opened in the editor (go to definition lands there) is
+     * analyzed with a prelude that already contains it, so every
+     * declaration in it reports as a duplicate. It is not the user's
+     * code: report nothing for it. */
+    if (g_lib_dir && is_stdlib_file(doc_file, g_lib_dir)) {
+        keep_document_diags(diags, "");
+    }
     return r.program;
 }
 

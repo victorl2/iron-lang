@@ -143,6 +143,12 @@ jobs:
           cp .emsdk-version staging/lib/ 2>/dev/null || true
           tar -czf "${ARCHIVE}" -C staging .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
+          # SHA-256 sidecar, checked by install.sh (as the Windows zip's is).
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${ARCHIVE}" | awk '{print $1}' > "${ARCHIVE}.sha256"
+          else
+            shasum -a 256 "${ARCHIVE}" | awk '{print $1}' > "${ARCHIVE}.sha256"
+          fi
 
           # Smoke-test the archive exactly as a user receives it: extract it
           # into a fresh directory and compile + run a program with it.
@@ -214,6 +220,7 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG }}
           files: |
             ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE }}.sha256
             ${{ env.IRONLS_ARCHIVE }}
             ${{ env.IRONLS_SHA256 }}
 
@@ -227,6 +234,7 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG }}
           files: |
             ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE }}.sha256
 
       # Hand off the unsigned macOS ironls tarball + .sha256 to the
       # sign-and-notarize-macos job via a workflow artifact.

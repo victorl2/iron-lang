@@ -105,7 +105,13 @@ static IronLsp_LocationLink link_fallback_fname(IronLsp_Document        *doc,
     IronLsp_LocationLink L;
     memset(&L, 0, sizeof(L));
     L.origin_selection_range = ilsp_span_to_lsp_range(ident->span, doc, enc);
-    L.target_range           = ilsp_span_to_lsp_range(decl->span, doc, enc);
+    /* The target is in another file (a stdlib declaration, say), so this
+     * document's line index cannot convert its span; Iron spans are 1-based
+     * lines and byte columns, and stdlib sources are ASCII. */
+    L.target_range.start.line      = decl->span.line ? decl->span.line - 1 : 0;
+    L.target_range.start.character = decl->span.col ? decl->span.col - 1 : 0;
+    L.target_range.end.line        = decl->span.end_line ? decl->span.end_line - 1 : 0;
+    L.target_range.end.character   = decl->span.end_col;
     L.target_selection_range = L.target_range;
     const char *fn = decl->span.filename;
     L.target_uri = fn ? ilsp_nav_path_to_uri(fn, arena) : "";
@@ -165,10 +171,14 @@ static void resolve(IronLsp_Server          *server,
     Iron_Node         *ident = NULL;
     const Iron_Symbol *sym   = ident_at_cursor(doc, program, pos, enc, &ident);
 
+    /* A method call, field access or type name: its declaration. */
+    Iron_Node *target = sym ? sym->decl_node : NULL;
+    if (!sym && ident) target = ilsp_nav_member_decl(program, ident, arena);
+
     /* Cursor on the decl itself (e.g. clicking on the function name in
      * the declaration). Treat as a self-definition -- return the decl
      * span as the link target. */
-    if (!sym && ident) {
+    if (!target && ident) {
         switch ((int)ident->kind) {
             case IRON_NODE_FUNC_DECL:
             case IRON_NODE_METHOD_DECL:
@@ -191,7 +201,7 @@ static void resolve(IronLsp_Server          *server,
         }
     }
 
-    if (!sym || !sym->decl_node || !ident) goto done;
+    if (!target || !ident) goto done;
 
     /* NEW Phase 10 VIS-03 (REQUIREMENTS.md:164): gate definition target
      * on cross-module visibility. When requester != decl module AND
@@ -199,11 +209,9 @@ static void resolve(IronLsp_Server          *server,
      * returns null per LSP contract). Stdlib carve-out (D-08) flows
      * through ilsp_vis_can_see automatically. */
     {
-        const char *decl_path =
-            (sym->decl_node && sym->decl_node->span.filename)
-                ? sym->decl_node->span.filename : "";
+        const char *decl_path = target->span.filename ? target->span.filename : "";
         const char *requester = (doc && doc->uri) ? doc->uri : "";
-        if (!ilsp_vis_can_see(decl_path, requester, sym->decl_node)) {
+        if (!ilsp_vis_can_see(decl_path, requester, target)) {
             goto done;  /* leaves *out_n == 0 */
         }
     }
@@ -213,17 +221,17 @@ static void resolve(IronLsp_Server          *server,
         arena, sizeof(*arr), _Alignof(IronLsp_LocationLink));
     if (!arr) goto done;
 
-    if (decl_is_in_doc(sym->decl_node, doc)) {
-        arr[0] = link_same_file(doc, ident, sym->decl_node, enc, arena);
+    if (decl_is_in_doc(target, doc)) {
+        arr[0] = link_same_file(doc, ident, target, enc, arena);
     } else {
         IronLsp_IndexEntry *entry = NULL;
-        if (server->workspace_index && sym->decl_node->span.filename) {
+        if (server->workspace_index && target->span.filename) {
             entry = ilsp_workspace_index_lookup(
-                server->workspace_index, sym->decl_node->span.filename);
+                server->workspace_index, target->span.filename);
         }
         arr[0] = entry
-            ? link_cross_file(doc, ident, entry, sym->decl_node, enc, arena)
-            : link_fallback_fname(doc, ident, sym->decl_node, enc, arena);
+            ? link_cross_file(doc, ident, entry, target, enc, arena)
+            : link_fallback_fname(doc, ident, target, enc, arena);
     }
     *out_links = arr;
     *out_n = 1;

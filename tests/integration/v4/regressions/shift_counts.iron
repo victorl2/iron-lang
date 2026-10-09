@@ -1,0 +1,25 @@
+-- Shifts are defined for every count: the operand's width or more gives 0
+-- for << and the sign fill for >>, and a left shift of a negative value
+-- works on its bits. In the generated C these were undefined (1 << 65 gave
+-- garbage). A negative count panics (shift_negative_count in v4-fail).
+func shl(a: Int, n: Int) -> Int {
+    return a << n
+}
+
+func shr(a: Int, n: Int) -> Int {
+    return a >> n
+}
+
+func main() {
+    println("{shl(1, 3)} {shl(1, 63)} {shl(1, 64)} {shl(1, 65)} {shl(-1, 3)}")
+    println("{shr(-16, 2)} {shr(-16, 64)} {shr(16, 64)} {shr(16, 100)}")
+    val small: Int32 = 1
+    val n = 40
+    println("{small << 31} {small << n} {-8 >> 1} {1 << 62}")
+    var x = 3
+    x <<= 70
+    println("{x}")
+    -- Bitwise operators take any integer type (they accepted only Int).
+    val m: Int32 = 255
+    println("{m & 15} {m | 256} {m ^ 1} {~m}")
+}

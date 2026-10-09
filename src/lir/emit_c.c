@@ -1575,6 +1575,36 @@ static void emit_enum_payload_value(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *
     emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, depth);
 }
 
+/* `<<` / `>>` through the defined-shift helpers of iron_runtime.h. A
+ * constant count inside the width keeps the plain operator (on unsigned
+ * bits for <<). */
+static void emit_shift_expr(Iron_StrBuf *sb, IronLIR_Instr *instr, IronLIR_Func *fn,
+                            EmitCtx *ctx, IronLIR_BlockId use_block_id, int depth) {
+    bool shl = instr->kind == IRON_LIR_SHL;
+    const char *cty = emit_type_to_c(instr->type, ctx);
+    const char *sfx = "i64"; int width = 64; const char *ucty = "uint64_t";
+    if (strcmp(cty, "int32_t") == 0) { sfx = "i32"; width = 32; ucty = "uint32_t"; }
+    else if (strcmp(cty, "uint64_t") == 0) { sfx = "u64"; }
+    int64_t k = 0;
+    if (emit_divisor_const_int(fn, instr->binop.right, &k) && k >= 0 && k < width) {
+        if (shl) {
+            iron_strbuf_appendf(sb, "((%s)((%s)", cty, ucty);
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, " << %lld))", (long long)k);
+        } else {
+            iron_strbuf_appendf(sb, "(");
+            emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
+            iron_strbuf_appendf(sb, " >> %lld)", (long long)k);
+        }
+        return;
+    }
+    iron_strbuf_appendf(sb, "iron_%s_%s(", shl ? "shl" : "shr", sfx);
+    emit_expr_to_buf(sb, instr->binop.left, fn, ctx, use_block_id, depth+1);
+    iron_strbuf_appendf(sb, ", ");
+    emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
+    iron_strbuf_appendf(sb, ", IRON_SITE)");
+}
+
 void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                        IronLIR_Func *fn, EmitCtx *ctx,
                        IronLIR_BlockId use_block_id, int depth) {
@@ -1916,18 +1946,8 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 
     /* Bitwise binary ops */
     case IRON_LIR_SHL:
-        iron_strbuf_appendf(sb, "(");
-        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, " << ");
-        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, ")");
-        break;
     case IRON_LIR_SHR:
-        iron_strbuf_appendf(sb, "(");
-        emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, " >> ");
-        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, ")");
+        emit_shift_expr(sb, instr, fn, ctx, use_block_id, depth);
         break;
     case IRON_LIR_BAND:
         iron_strbuf_appendf(sb, "(");
@@ -1970,9 +1990,16 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 
     /* Constants */
     case IRON_LIR_CONST_INT:
-        iron_strbuf_appendf(sb, "((%s)%lldLL)",
-                            emit_type_to_c(instr->type, ctx),
-                            (long long)instr->const_int.value);
+        /* INT64_MIN as -9223372036854775807LL - 1: the token
+         * 9223372036854775808LL does not fit in long long (clang warns and
+         * reads it as unsigned). */
+        if (instr->const_int.value == INT64_MIN)
+            iron_strbuf_appendf(sb, "((%s)(-9223372036854775807LL - 1))",
+                                emit_type_to_c(instr->type, ctx));
+        else
+            iron_strbuf_appendf(sb, "((%s)%lldLL)",
+                                emit_type_to_c(instr->type, ctx),
+                                (long long)instr->const_int.value);
         break;
     case IRON_LIR_CONST_FLOAT:
         emit_float_literal(sb, instr->const_float.value,
@@ -2488,7 +2515,40 @@ static const char *emit_local_decl_type(IronLIR_Func *fn,
     return narrowed ? narrowed : emit_type_to_c(declared_type, ctx);
 }
 
+/* Is `instr` a call of a list method whose runtime body bounds-checks
+ * (pop, remove, insert, set, get)? Such a body has no source span, so the
+ * call records the Iron line for its panic (iron_list_call_line). */
+static bool emit_call_is_checked_list_method(IronLIR_Func *fn, EmitCtx *ctx,
+                                             IronLIR_Instr *instr) {
+    if (instr->kind != IRON_LIR_CALL) return false;
+    IronLIR_ValueId fp = instr->call.func_ptr;
+    if (fp == IRON_LIR_VALUE_INVALID || fp >= (IronLIR_ValueId)arrlen(fn->value_table) ||
+        !fn->value_table[fp] || fn->value_table[fp]->kind != IRON_LIR_FUNC_REF)
+        return false;
+    const char *name = emit_resolve_func_c_name(ctx, fn->value_table[fp]->func_ref.func_name);
+    if (!name || (strncmp(name, "Iron_List_", 10) != 0 &&
+                  strncmp(name, "Iron_SplitList_", 15) != 0))
+        return false;
+    const char *u = strrchr(name, '_');
+    return u && (strcmp(u, "_pop") == 0 || strcmp(u, "_remove") == 0 ||
+                 strcmp(u, "_insert") == 0 || strcmp(u, "_set") == 0 ||
+                 strcmp(u, "_get") == 0);
+}
+
+static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                IronLIR_Func *fn, EmitCtx *ctx);
+
 void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
+                IronLIR_Func *fn, EmitCtx *ctx) {
+    bool list_site = emit_call_is_checked_list_method(fn, ctx, instr);
+    emit_instr_inner(sb, instr, fn, ctx);  /* records the site after IRON_SITE */
+    if (list_site) {
+        emit_indent(sb, ctx->indent);
+        iron_strbuf_appendf(sb, "iron_list_call_line = 0;\n");
+    }
+}
+
+static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx) {
     int ind = ctx->indent;
 
@@ -2523,6 +2583,10 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         ctx->site_file = instr->span.filename;
         ctx->site_line = instr->span.line;
     }
+    if (emit_call_is_checked_list_method(fn, ctx, instr)) {
+        emit_indent(sb, ctx->indent);
+        iron_strbuf_appendf(sb, "iron_list_call_site(IRON_SITE);\n");
+    }
 
     /* For backward-referenced values (hoisted to entry), emit as assignment
      * without the type prefix to avoid C redefinition errors. */
@@ -2538,9 +2602,13 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ",
             emit_local_decl_type(fn, instr, instr->type, ctx));
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = (%s)%lldLL;\n",
-                            emit_type_to_c(instr->type, ctx),
-                            (long long)instr->const_int.value);
+        if (instr->const_int.value == INT64_MIN)
+            iron_strbuf_appendf(sb, " = (%s)(-9223372036854775807LL - 1);\n",
+                                emit_type_to_c(instr->type, ctx));
+        else
+            iron_strbuf_appendf(sb, " = (%s)%lldLL;\n",
+                                emit_type_to_c(instr->type, ctx),
+                                (long long)instr->const_int.value);
         break;
 
     case IRON_LIR_CONST_FLOAT:
@@ -2999,24 +3067,12 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
     /* ── Bitwise ────────────────────────────────────────────────────────── */
 
     case IRON_LIR_SHL:
-        emit_indent(sb, ind);
-        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
-        emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = ");
-        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, " << ");
-        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ";\n");
-        break;
-
     case IRON_LIR_SHR:
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = ");
-        emit_expr_to_buf(sb, instr->binop.left, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, " >> ");
-        emit_expr_to_buf(sb, instr->binop.right, fn, ctx, ctx->current_block_id, 0);
+        emit_shift_expr(sb, instr, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ";\n");
         break;
 

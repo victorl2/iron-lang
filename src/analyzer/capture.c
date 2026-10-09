@@ -517,8 +517,7 @@ static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
                     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR,
                                    IRON_ERR_READONLY_PARAM_MUTATION,
                                    le->span, cap_msg,
-                                   "§6: closures in readonly context may not capture"
-                                   " var bindings or *var T pointers");
+                                   "a closure in a readonly method cannot capture a var binding or a *var T pointer: capture a val copy instead");
                 }
             }
         }

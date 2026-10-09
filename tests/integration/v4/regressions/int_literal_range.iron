@@ -1,0 +1,9 @@
+-- The smallest Int is written -9223372036854775808: the literal alone does
+-- not fit in Int, and negating its saturated value used to give
+-- -9223372036854775807. Leading zeros do not change the value.
+func main() {
+    val lo = -9223372036854775808
+    val hi = 9223372036854775807
+    println("{lo} {hi} {lo + hi} {-00009223372036854775808 == lo}")
+    println("{lo + 1} {-hi - 1 == lo}")
+}

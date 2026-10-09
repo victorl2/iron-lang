@@ -58,6 +58,7 @@ void iron_panic_bvec_oob(const char *deref_file,
 __attribute__((noreturn))
 #endif
 void iron_panic_div_by_zero(const char *site_file, int site_line);
+void iron_panic_negative_shift(const char *site_file, int site_line, int64_t count);
 
 /* Interface `var` parameter boundary: a concrete `var` binding was passed
  * to a `var <Interface>` parameter (the call site wrapped it into a

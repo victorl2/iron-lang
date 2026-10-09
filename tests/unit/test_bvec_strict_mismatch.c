@@ -4,7 +4,7 @@
  *   1. Analyzing `val v: [Int; 3] = [1, 2]` emits exactly one E0282
  *      IRON_ERR_VEC_STRICT_LENGTH_MISMATCH diagnostic.
  *   2. The diagnostic message contains "exactly" substring.
- *   3. The hint contains "§3.3:" spec quote.
+ *   3. The hint says how to fix it (exactly N elements, or a bounded vector).
  *
  * RED until Task 3 lands diagnostics code 282 + VEC-04 emit path in
  * VAL_DECL/VAR_DECL typecheck.c arms.
@@ -79,7 +79,7 @@ void test_strict_array_literal_count_mismatch_emits_e0282(void) {
         "}\n");
     TEST_ASSERT_EQUAL_INT(1, count_code(IRON_ERR_VEC_STRICT_LENGTH_MISMATCH));
     TEST_ASSERT_TRUE(msg_contains(IRON_ERR_VEC_STRICT_LENGTH_MISMATCH, "exactly"));
-    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_VEC_STRICT_LENGTH_MISMATCH, "§3.3:"));
+    TEST_ASSERT_TRUE(hint_contains(IRON_ERR_VEC_STRICT_LENGTH_MISMATCH, "exactly N elements"));
 }
 
 /* Case 2: val v: [Int; 3] = [1, 2, 3, 4] — 4 elements for strict [Int; 3].

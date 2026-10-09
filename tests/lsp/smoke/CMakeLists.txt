@@ -15,6 +15,16 @@
 find_package(Python3 COMPONENTS Interpreter QUIET)
 
 if(Python3_FOUND AND IRON_BUILD_LSP)
+    # #311: semantic tokens + inlay hints over every v4 program. Plain
+    # Python (no pytest-lsp), so it runs on every builder with Python 3.
+    add_test(
+        NAME lsp_semantic_sweep
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/semantic_sweep.py
+            $<TARGET_FILE:ironls> ${CMAKE_SOURCE_DIR})
+    set_tests_properties(lsp_semantic_sweep PROPERTIES
+        LABELS "smoke;lsp_smoke"
+        TIMEOUT 300)
+
     # Probe whether pytest-lsp is importable. If not, register a SKIP
     # test that documents the missing dependency.
     execute_process(
