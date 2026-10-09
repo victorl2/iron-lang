@@ -135,7 +135,7 @@ int main(int argc, char **argv) {
      * each thread its own malloc arena; each grows to the peak of an
      * analysis with the stdlib prelude, so RSS climbed with the number of
      * documents ever edited (the 30-minute soak: 46 MiB/hr). Two shared
-     * arenas keep it flat (5 MiB/hr) at no measurable latency cost. */
+     * arenas keep it flat (5 MiB/hr in the same soak). */
     mallopt(M_ARENA_MAX, 2);
 #endif
     /* ── 1. argv parse (Phase 7 Plan 07-01 Task 02: centralised) ─────── */
