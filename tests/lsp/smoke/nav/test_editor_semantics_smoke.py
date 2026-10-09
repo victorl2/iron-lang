@@ -178,7 +178,11 @@ async def test_inlay_hints(client, tmp_path):
                               end=types.Position(line=len(LINES), character=0)),
         ))
     got = {(h.position.line + 1, LINES[h.position.line][:h.position.character].split()[-1],
-            h.label) for h in hints}
+            h.label) for h in hints if h.kind == types.InlayHintKind.Type}
+    params = {(h.position.line + 1, h.label) for h in hints
+              if h.kind == types.InlayHintKind.Parameter}
+    # `dist(pt, pt)`: arguments that are not the parameter's own name.
+    assert (21, "p:") in params and (21, "q:") in params, sorted(params)
     for want in [(11, "dx", ": Float"), (12, "total", ": Float"),
                  (18, "pt", ": Point"), (19, "s", ": Shape"),
                  (20, "names", ": [String]")]:
