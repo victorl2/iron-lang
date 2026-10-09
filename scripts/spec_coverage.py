@@ -6,14 +6,19 @@ denominator is fixed by the manual, not chosen by the tests:
 
   syntax       each alternative, optional part and repetition of each
                production in section 13, used by the derivation of some
-               program of the positive corpus (one derivation per file,
-               rebuilt from the recognizer of scripts/grammar_check.py)
+               program of the positive corpus, or of a negative fixture the
+               grammar accepts (it fails in analysis, after parsing; one
+               derivation per file, rebuilt from the recognizer of
+               scripts/grammar_check.py)
   diagnostics  each error and warning code of the section 11 table, expected
                by a negative fixture (.expected), a help check
                (.expected_help), a ctest regex or a unit test (by its
                IRON_ERR_ / IRON_WARN_ name)
   library      each function and method named in the section 9 tables,
                called by a program of the positive corpus
+
+The positive corpus includes the manual's own examples that the
+doc-example test builds and runs.
   examples     each ```iron example of the manual not marked doctest-skip
                (scripts/test_doc_examples.sh builds and runs it, compares
                its ```output block, or checks its doctest-expect-error code,
@@ -47,7 +52,7 @@ ROOT = os.path.dirname(HERE)
 
 
 def rel(p: str) -> str:
-    return os.path.relpath(p, ROOT)
+    return p if p.startswith("docs/") else os.path.relpath(p, ROOT)
 
 
 def read(p: str) -> str:
@@ -63,6 +68,22 @@ def iter_files(roots: List[str], suffixes: Tuple[str, ...]):
             for f in sorted(files):
                 if f.endswith(suffixes):
                     yield os.path.join(dirpath, f)
+
+
+def manual_example_sources(manual: str, index) -> List[Tuple[str, str]]:
+    """The manual's examples the doc-example test builds and runs (not
+    doctest-skip, not doctest-expect-error): tests like any fixture."""
+    out = []
+    count: Dict[str, int] = {}
+    for m in re.finditer(r"^```iron\n(.*?)^```\n", manual, re.S | re.M):
+        num = section_at(index, m.start()).split(" ", 1)[0]
+        count[num] = count.get(num, 0) + 1
+        before = manual[max(0, m.start() - 300):m.start()].rstrip().splitlines()
+        last = before[-1] if before else ""
+        if "doctest-skip" in last or "doctest-expect-error" in last:
+            continue
+        out.append((f"docs/language_definition.md example {num}#{count[num]}", m.group(1)))
+    return out
 
 
 def positive_sources(roots: List[str]) -> List[Tuple[str, str]]:
@@ -386,8 +407,14 @@ def main() -> int:
     manual = read(args.manual)
     index = section_index(manual)
     sources = positive_sources([r for r in pos_roots if os.path.exists(r)])
+    sources += manual_example_sources(manual, index)
 
-    syn_units, syn_cov = syntax_coverage(args.manual, sources)
+    # A negative fixture the grammar accepts fails in analysis, after its
+    # syntax was parsed: it tests that syntax too. Some forms are only ever
+    # rejected (a list extension with a body, `parallel(pool)`), so only a
+    # negative fixture can exercise them.
+    negative = positive_sources([r for r in neg_roots if os.path.exists(r)])
+    syn_units, syn_cov = syntax_coverage(args.manual, sources + negative)
     diag_units = diagnostic_units(manual, index)
     diag_cov = diagnostic_coverage(diag_units, [r for r in neg_roots if os.path.exists(r)])
     lib_units = library_units(manual, index)
