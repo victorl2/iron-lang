@@ -77,6 +77,19 @@ static int siteraw_cmp_desc(const void *a, const void *b) {
 
 /* Lift the ident-at-cursor helper locally to avoid an extra TU
  * dependency on prepare.c (the symbol isn't exported). */
+/* True when the cursor at `pos` is on `decl`'s own name. */
+static bool ident_on_decl_name(const IronLsp_Document *doc, const Iron_Node *decl,
+                               IronLsp_Position pos, IronLsp_PositionEncoding enc) {
+    Iron_Span ns = ilsp_nav_decl_name_span(decl, doc->text, doc->text_len);
+    if (ns.line == decl->span.line && ns.col == decl->span.col &&
+        ns.end_line == decl->span.end_line && ns.end_col == decl->span.end_col) {
+        return false;  /* name not found: not a named declaration */
+    }
+    IronLsp_Range r = ilsp_span_to_lsp_range(ns, (IronLsp_Document *)doc, enc);
+    return pos.line == r.start.line && pos.character >= r.start.character &&
+           pos.character <= r.end.character;
+}
+
 static const Iron_Symbol *ident_at_cursor(const IronLsp_Document   *doc,
                                             const Iron_Program       *program,
                                             IronLsp_Position          pos,
@@ -90,6 +103,8 @@ static const Iron_Symbol *ident_at_cursor(const IronLsp_Document   *doc,
         const Iron_Ident *id = (const Iron_Ident *)n;
         return id->resolved_sym;
     }
+    /* The cursor on a declaration's own name. */
+    if (ident_on_decl_name(doc, n, pos, enc)) return ilsp_nav_symbol_of_decl(program, n);
     return NULL;
 }
 
@@ -148,12 +163,16 @@ static bool build_decl_site(const Iron_Symbol              *sym,
     }
 
     if (same && doc) {
+        /* The declaration's name, not the whole declaration. */
+        dspan = ilsp_nav_decl_name_span(sym->decl_node, doc->text, doc->text_len);
         out->range = ilsp_span_to_lsp_range(dspan, doc, enc);
         out->uri   = doc->uri
             ? iron_arena_strdup(arena, doc->uri, strlen(doc->uri)) : "";
     } else if (wi && fn) {
         IronLsp_IndexEntry *entry = ilsp_workspace_index_lookup(wi, fn);
         if (entry) {
+            dspan = ilsp_nav_decl_name_span(sym->decl_node, entry->source_bytes,
+                                            entry->source_len);
             out->range = ilsp_nav_entry_span_to_range(entry, dspan, enc);
             out->uri   = ilsp_nav_path_to_uri(fn, arena);
         } else {
@@ -177,6 +196,48 @@ static bool build_decl_site(const Iron_Symbol              *sym,
  *
  * Results appended to raw[] stb_ds-free simple growable array; caller
  * passes cap pointer for growth. */
+typedef struct {
+    const Iron_Node          *decl;
+    IronLsp_Document         *doc;
+    IronLsp_PositionEncoding  enc;
+    Iron_Arena               *arena;
+    SiteRaw                 **raw;
+    size_t                   *n, *cap;
+} GatherCtx;
+
+/* Every identifier in the open document naming the declaration, once
+ * (instances of a generic repeat their template's spans). */
+static bool gather_visit(Iron_Visitor *v, Iron_Node *node) {
+    GatherCtx *g = (GatherCtx *)v->ctx;
+    if (node->kind == IRON_NODE_ERROR) return false;
+    if (node->kind != IRON_NODE_IDENT) return true;
+    Iron_Ident *id = (Iron_Ident *)node;
+    if (!id->resolved_sym || id->resolved_sym->decl_node != g->decl) return true;
+    if (id->span.filename && g->doc->uri && strcmp(id->span.filename, g->doc->uri) != 0)
+        return true;
+    IronLsp_Range r = ilsp_span_to_lsp_range(id->span, g->doc, g->enc);
+    for (size_t i = 0; i < *g->n; i++) {
+        if ((*g->raw)[i].range.start.line == r.start.line &&
+            (*g->raw)[i].range.start.character == r.start.character) return true;
+    }
+    if (*g->n == *g->cap) {
+        size_t ncap = (*g->cap) * 2;
+        if (ncap < 8) ncap = 8;
+        SiteRaw *nr = (SiteRaw *)iron_arena_alloc(g->arena, ncap * sizeof(**g->raw),
+                                                  _Alignof(SiteRaw));
+        if (!nr) return false;
+        if (*g->n) memcpy(nr, *g->raw, *g->n * sizeof(**g->raw));
+        *g->raw = nr;
+        *g->cap = ncap;
+    }
+    SiteRaw *sr = &(*g->raw)[(*g->n)++];
+    memset(sr, 0, sizeof(*sr));
+    sr->uri = g->doc->uri ? iron_arena_strdup(g->arena, g->doc->uri, strlen(g->doc->uri)) : "";
+    sr->range = r;
+    sr->sort_key = range_sort_key(r);
+    return true;
+}
+
 static void gather_open_doc_sites(const Iron_Program *program,
                                     const Iron_Node     *target_decl,
                                     IronLsp_Document    *doc,
@@ -186,131 +247,11 @@ static void gather_open_doc_sites(const Iron_Program *program,
                                     size_t              *n,
                                     size_t              *cap) {
     if (!program || !target_decl || !doc) return;
-    Iron_Node **stack = NULL;
-    size_t sp = 0, sc = 64;
-    stack = (Iron_Node **)malloc(sc * sizeof(*stack));
-    if (!stack) return;
-#define PUSH(ptr) do { \
-        Iron_Node *_n_ = (Iron_Node *)(ptr); \
-        if (_n_) { \
-            if (sp >= sc) { sc *= 2; \
-                Iron_Node **ns = (Iron_Node **)realloc(stack, sc * sizeof(*stack)); \
-                if (!ns) goto gather_done; stack = ns; } \
-            stack[sp++] = _n_; \
-        } \
-    } while (0)
-
-    for (int i = 0; i < program->decl_count; i++) PUSH(program->decls[i]);
-    while (sp > 0) {
-        Iron_Node *cur = stack[--sp];
-        if (!cur || cur->kind == IRON_NODE_ERROR) continue;
-        switch ((int)cur->kind) {
-            case IRON_NODE_IDENT: {
-                Iron_Ident *id = (Iron_Ident *)cur;
-                if (id->resolved_sym &&
-                    id->resolved_sym->decl_node == target_decl) {
-                    /* Grow + append. */
-                    if (*n == *cap) {
-                        size_t ncap = (*cap) * 2;
-                        if (ncap < 8) ncap = 8;
-                        SiteRaw *nr = (SiteRaw *)iron_arena_alloc(
-                            arena, ncap * sizeof(**raw), _Alignof(SiteRaw));
-                        if (!nr) break;
-                        if (*raw && *n > 0) memcpy(nr, *raw, (*n) * sizeof(**raw));
-                        *raw = nr; *cap = ncap;
-                    }
-                    SiteRaw s;
-                    memset(&s, 0, sizeof(s));
-                    s.range = ilsp_span_to_lsp_range(id->span, doc, enc);
-                    s.uri   = doc->uri
-                        ? iron_arena_strdup(arena, doc->uri, strlen(doc->uri)) : "";
-                    s.sort_key = range_sort_key(s.range);
-                    (*raw)[*n] = s;
-                    (*n)++;
-                }
-                break;
-            }
-            case IRON_NODE_FUNC_DECL:   PUSH(((Iron_FuncDecl   *)cur)->body); break;
-            case IRON_NODE_METHOD_DECL: PUSH(((Iron_MethodDecl *)cur)->body); break;
-            case IRON_NODE_BLOCK: {
-                Iron_Block *b = (Iron_Block *)cur;
-                for (int i = 0; i < b->stmt_count; i++) PUSH(b->stmts[i]);
-                break;
-            }
-            case IRON_NODE_BINARY: {
-                Iron_BinaryExpr *e = (Iron_BinaryExpr *)cur;
-                PUSH(e->left); PUSH(e->right); break;
-            }
-            case IRON_NODE_UNARY: PUSH(((Iron_UnaryExpr *)cur)->operand); break;
-            case IRON_NODE_CALL: {
-                Iron_CallExpr *c = (Iron_CallExpr *)cur;
-                PUSH(c->callee);
-                for (int i = 0; i < c->arg_count; i++) PUSH(c->args[i]);
-                break;
-            }
-            case IRON_NODE_METHOD_CALL: {
-                Iron_MethodCallExpr *m = (Iron_MethodCallExpr *)cur;
-                PUSH(m->object);
-                for (int i = 0; i < m->arg_count; i++) PUSH(m->args[i]);
-                break;
-            }
-            case IRON_NODE_FIELD_ACCESS: PUSH(((Iron_FieldAccess *)cur)->object); break;
-            case IRON_NODE_INDEX: {
-                Iron_IndexExpr *ix = (Iron_IndexExpr *)cur;
-                PUSH(ix->object); PUSH(ix->index); break;
-            }
-            case IRON_NODE_SLICE: {
-                Iron_SliceExpr *sl = (Iron_SliceExpr *)cur;
-                PUSH(sl->object); PUSH(sl->start); PUSH(sl->end); break;
-            }
-            case IRON_NODE_ASSIGN: {
-                Iron_AssignStmt *a = (Iron_AssignStmt *)cur;
-                PUSH(a->target); PUSH(a->value); break;
-            }
-            case IRON_NODE_RETURN: PUSH(((Iron_ReturnStmt *)cur)->value); break;
-            case IRON_NODE_IF: {
-                Iron_IfStmt *s = (Iron_IfStmt *)cur;
-                PUSH(s->condition); PUSH(s->body);
-                for (int i = 0; i < s->elif_count; i++) {
-                    PUSH(s->elif_conds[i]); PUSH(s->elif_bodies[i]);
-                }
-                PUSH(s->else_body); break;
-            }
-            case IRON_NODE_WHILE: {
-                Iron_WhileStmt *w = (Iron_WhileStmt *)cur;
-                PUSH(w->condition); PUSH(w->body); break;
-            }
-            case IRON_NODE_FOR: {
-                Iron_ForStmt *f = (Iron_ForStmt *)cur;
-                PUSH(f->iterable); PUSH(f->body); break;
-            }
-            case IRON_NODE_VAL_DECL: PUSH(((Iron_ValDecl *)cur)->init); break;
-            case IRON_NODE_VAR_DECL: PUSH(((Iron_VarDecl *)cur)->init); break;
-            case IRON_NODE_MATCH: {
-                Iron_MatchStmt *m = (Iron_MatchStmt *)cur;
-                PUSH(m->subject);
-                for (int i = 0; i < m->case_count; i++) PUSH(m->cases[i]);
-                PUSH(m->else_body); break;
-            }
-            case IRON_NODE_MATCH_CASE: PUSH(((Iron_MatchCase *)cur)->body); break;
-            case IRON_NODE_DEFER: PUSH(((Iron_DeferStmt *)cur)->expr); break;
-            case IRON_NODE_FREE:  PUSH(((Iron_FreeStmt  *)cur)->expr); break;
-            case IRON_NODE_LEAK:  PUSH(((Iron_LeakStmt  *)cur)->expr); break;
-            case IRON_NODE_SPAWN: {
-                Iron_SpawnStmt *d = (Iron_SpawnStmt *)cur;
-                PUSH(d->pool_expr); PUSH(d->body); break;
-            }
-            case IRON_NODE_INTERP_STRING: {
-                Iron_InterpString *is = (Iron_InterpString *)cur;
-                for (int i = 0; i < is->part_count; i++) PUSH(is->parts[i]);
-                break;
-            }
-            default: break;
-        }
+    GatherCtx g = { target_decl, doc, enc, arena, raw, n, cap };
+    Iron_Visitor v = { .ctx = &g, .visit_node = gather_visit, .post_visit = NULL };
+    for (int i = 0; i < program->decl_count; i++) {
+        if (program->decls[i]) iron_ast_walk(program->decls[i], &v);
     }
-#undef PUSH
-gather_done:
-    free(stack);
 }
 
 /* Compare files ASC by URI string. */

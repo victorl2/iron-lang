@@ -14,4 +14,8 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                             bool warn_fusion_break,
                             bool report_compression);
 
+/* Emit `#line N "file.iron"` with each Iron source line change, so the
+ * C compiler's debug info (-g) points at the Iron source. Off by default. */
+void iron_lir_emit_set_line_directives(bool on);
+
 #endif /* IRON_LIR_EMIT_C_H */

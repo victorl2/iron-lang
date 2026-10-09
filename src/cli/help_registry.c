@@ -44,6 +44,7 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
 
     /* ── iron build ─────────────────────────────────────────────────────── */
     { "build", "--release",            NULL, "off",    "Optimized release build (native -O2, web -Oz -flto)" },
+    { "build", "--debug",              NULL, "off",    "Debug info on Iron lines: breakpoints and stepping in gdb, lldb, VS Code" },
     { "build", "--debug-build",        NULL, "off",    "Keep .iron-build/ directory after compile for inspection" },
     { "build", "--emit-c",             NULL, "off",    "Write .iron-build/<name>.c and stop before the C compiler" },
     { "build", "--test",               NULL, "off",    "Build the test blocks into a test binary (--iron-list, --iron-test <n>)" },
@@ -57,8 +58,13 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
     { "build", "--warn-fusion-break",  NULL, "off",    "Show where fusion chains are broken by non-fusible calls" },
     { "build", "--output",             "-o", NULL,     "Output binary path" },
 
+    /* ── iron debug ── */
+    { "debug", "--gdb",  NULL, "off", "Debug with gdb (the default except on macOS)" },
+    { "debug", "--lldb", NULL, "off", "Debug with lldb (the default on macOS)" },
+
     /* ── iron run (mirrors most of build's surface) ── */
     { "run", "--release",            NULL, "off",    "Optimized release build (native -O2, web -Oz -flto)" },
+    { "run", "--debug",              NULL, "off",    "Debug info on Iron lines: breakpoints and stepping in gdb, lldb, VS Code" },
     { "run", "--debug-build",        NULL, "off",    "Keep .iron-build/ directory after compile for inspection" },
     { "run", "--no-optimize",        NULL, "off",    "Skip optimization passes (for A/B comparison)" },
     { "run", "--target",             NULL, "native", "Build target: native or web (a cross target cannot run here)" },
@@ -94,6 +100,7 @@ static const IronSubSummary IRON_SUB_SUMMARIES[] = {
     { "check",   "Type-check without emitting code" },
     { "fmt",     "Format source files" },
     { "test",    "Run package tests" },
+    { "debug",   "Build with --debug and start gdb or lldb on the program" },
     { "init",    "Scaffold a new package" },
     { "toolchain", "Show, locate, install or check the pinned C toolchain (info, path, install, check)" },
 };

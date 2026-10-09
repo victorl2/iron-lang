@@ -3,6 +3,27 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v4.9.0-alpha: Editor Support and Source-Level Debugging (2026-10-09)
+
+- **Editor:** the language server analyzes a buffer exactly as `ironc
+  check` does, with the standard library, so valid programs show no false
+  errors. Hover and go to definition work inside function bodies and into
+  the standard library; completion after `.` lists the members of any
+  receiver; signature help on method calls; semantic highlighting; inlay
+  hints for inferred types and parameter names; rename and references from
+  a declaration.
+- **Debugging:** `iron build --debug` and `iron debug` map breakpoints,
+  stepping, locals and the call stack to Iron lines and names in gdb,
+  LLDB, the Visual Studio debugger and VS Code, with formatters that show
+  strings, lists, maps and `T?` as Iron values.
+- **Diagnostics:** errors propose a fix: the closest name, the declared
+  signature, how to convert, the literal to write, `var` for a mutated
+  binding.
+- **Language and runtime:** `[T?]`, `Map[K, V?]` and `Channel[T?]`; lists
+  of maps, sets and channels; Int literal range checks; shifts defined for
+  every count; strict `to_int` / `to_float`; analysis frees all of its
+  memory. The installers verify the archive's SHA-256.
+
 ## v4.8.0-alpha: Test Blocks, Program Arguments and Loop Control (2026-10-08)
 
 - **Tests:** `test "name" { ... }` blocks with `assert_eq` and `assert_ne`;

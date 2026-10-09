@@ -161,4 +161,7 @@ ArrayParamMode iron_lir_get_array_param_mode(IronLIR_OptimizeInfo *info,
                                              int param_index,
                                              Iron_Arena *arena);
 
+/* Function inlining is on by default; `ironc build --debug` turns it off. */
+void iron_lir_set_function_inlining(bool on);
+
 #endif /* IRON_LIR_OPTIMIZE_H */

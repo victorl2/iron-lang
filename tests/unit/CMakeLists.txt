@@ -890,6 +890,8 @@ if(IRON_BUILD_LSP)
     add_executable(test_document_highlight
         test_document_highlight.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/edit/highlight.c
+        # highlight.c names the declaration through ilsp_nav_decl_name_span.
+        ${CMAKE_SOURCE_DIR}/src/lsp/facade/nav/nav_common.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/compile.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/span.c
         ${CMAKE_SOURCE_DIR}/src/lsp/facade/diagnostics.c

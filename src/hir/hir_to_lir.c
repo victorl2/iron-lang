@@ -4235,6 +4235,10 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                         init_val = copy_for_new_owner(ctx, stmt->let.init,
                                                       init_val, type, span);
                     hmput(ctx->val_binding_map, vid, init_val);
+                    if (hmgeti(ctx->current_func->value_names, init_val) < 0) {
+                        hmput(ctx->current_func->value_names, init_val,
+                              iron_hir_var_name(ctx->hir, vid));
+                    }
                     tag_arena_ctor_binding(ctx, init_val, vid);
                     /* Phase 26 POL-06 / Phase 27 POL-08 / Phase 37 rc-balance:
                      * rc-like val bindings (rc T, weak rc T, rc T?).
