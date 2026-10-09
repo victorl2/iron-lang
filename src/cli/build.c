@@ -615,6 +615,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     /* Int overflow wraps (section 10.6): the same -fwrapv the other hosts
      * pass. clang-cl already relaxes strict aliasing, as MSVC does. */
     argv_buf[ai++] = "/clang:-fwrapv";
+    /* ...so clang's overflow warnings on the generated C are noise. */
+    argv_buf[ai++] = "/clang:-Wno-integer-overflow";
     /* The runtime uses the standard C library by name; the UCRT's
      * "unsafe" deprecation notes are noise on every build. */
     argv_buf[ai++] = "/D_CRT_SECURE_NO_WARNINGS";
@@ -693,6 +695,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
      * Iron semantics: Int overflow wraps; pointer-heavy runtime is exempt
      * from strict aliasing. */
     argv_buf[ai++] = "-fwrapv";
+    /* Overflow wraps by definition: clang's warning on the C is noise. */
+    argv_buf[ai++] = "-Wno-integer-overflow";
     argv_buf[ai++] = "-fno-strict-aliasing";
     if (iron_toolchain_sysroot()) {
         argv_buf[ai++] = "-isysroot";
@@ -924,6 +928,8 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
     /* Mirror invoke_clang: wrap-on-overflow + no strict aliasing for all
      * Iron-emitted C (see the main link path for rationale). */
     argv_buf[ai++] = "-fwrapv";
+    /* Overflow wraps by definition: clang's warning on the C is noise. */
+    argv_buf[ai++] = "-Wno-integer-overflow";
     argv_buf[ai++] = "-fno-strict-aliasing";
     if (iron_toolchain_sysroot()) {
         argv_buf[ai++] = "-isysroot";
@@ -1202,6 +1208,7 @@ static int invoke_cross(const char *c_file, const char *output, IronBuildOpts op
     cc[ci++] = target_flag;
     cc[ci++] = "-std=gnu17";
     cc[ci++] = "-fwrapv";
+    cc[ci++] = "-Wno-integer-overflow";
     cc[ci++] = "-fno-strict-aliasing";
     cc[ci++] = opts.release ? "-O2" : "-O3";
     cc[ci++] = "-nostdinc";

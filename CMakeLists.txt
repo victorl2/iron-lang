@@ -1007,6 +1007,14 @@ add_test(NAME diag_help_quality
         -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_quality.iron
         -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_quality.expected_help
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+# Exponent literals and tuple positions: a help line, and no cascade.
+add_test(NAME diag_literal_help
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_literals.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_literals.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_literals.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 
 # A diagnostic is reported once even when two passes find it.
 add_test(NAME diag_reported_once

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <ctype.h>
 #include <errno.h>
 #include <stdatomic.h>
@@ -743,14 +744,49 @@ static Iron_Token iron_lex_number(Iron_Lexer *l) {
     if (l->pos < l->src_len && isalpha((unsigned char)l->src[l->pos])) {
         Iron_Span span = iron_span_make(l->filename, start_line, start_col,
                                          l->line, l->col);
-        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
-                       IRON_ERR_INVALID_NUMBER, span,
-                       "invalid numeric literal: unexpected character after number",
-                       NULL);
-        /* Consume the bad suffix to aid recovery. */
+        /* Consume the bad suffix to aid recovery (`1e-5` takes its sign). */
+        bool exponent = (l->src[l->pos] == 'e' || l->src[l->pos] == 'E');
+        iron_advance_char(l);
+        if (exponent && l->pos < l->src_len &&
+            (l->src[l->pos] == '+' || l->src[l->pos] == '-') &&
+            l->pos + 1 < l->src_len && isdigit((unsigned char)l->src[l->pos + 1])) {
+            iron_advance_char(l);
+        }
         while (l->pos < l->src_len && isalnum((unsigned char)l->src[l->pos])) {
             iron_advance_char(l);
         }
+        /* `1e20`, `2.5E-3`: Iron has no exponent form (manual 1.4); say
+         * what to write instead. */
+        char help[160] = "";
+        if (exponent) {
+            char lit[64];
+            size_t n = l->pos - start_pos;
+            if (n < sizeof(lit)) {
+                memcpy(lit, l->src + start_pos, n);
+                lit[n] = '\0';
+                char *end = NULL;
+                double v = strtod(lit, &end);
+                if (end && *end == '\0' && v != 0.0 && fabs(v) < 1e21 && fabs(v) >= 1e-9) {
+                    char num[64];
+                    if (v == floor(v)) snprintf(num, sizeof(num), "%.1f", v);
+                    else {
+                        snprintf(num, sizeof(num), "%.12f", v);
+                        size_t k = strlen(num);
+                        while (k > 0 && num[k - 1] == '0' && num[k - 2] != '.') num[--k] = '\0';
+                    }
+                    snprintf(help, sizeof(help),
+                             "Iron float literals have no exponent form; write %s", num);
+                } else {
+                    snprintf(help, sizeof(help),
+                             "Iron float literals have no exponent form; write the digits out");
+                }
+            }
+        }
+        iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_INVALID_NUMBER, span,
+                       exponent ? "invalid numeric literal: exponent notation is not supported"
+                                : "invalid numeric literal: unexpected character after number",
+                       help[0] ? iron_arena_strdup(l->arena, help, strlen(help)) : NULL);
         tok_len = (uint32_t)(l->pos - start_pos);
         return iron_make_token(l, IRON_TOK_ERROR, NULL,
                                start_line, start_col, tok_len);

@@ -2059,7 +2059,9 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
     }
 
     /* Unexpected token in expression position */
-    if (t->kind == IRON_TOK_ARROW) {
+    if (t->kind == IRON_TOK_ERROR) {
+        /* The lexer already reported this token (`1e20`, a stray byte). */
+    } else if (t->kind == IRON_TOK_ARROW) {
         iron_emit_diag_help(p, IRON_ERR_EXPECTED_EXPR,
                        iron_token_span(p, t),
                        "expected expression, found '->'",
@@ -2135,10 +2137,19 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
              * (expression `.`-postfix only) so `Box.null()` / `b.free()`
              * parse — see iron_check_method_name_expr. */
             if (!iron_check_method_name_expr(p)) {
+                /* `t.0`: positional access is not part of Iron (tuples are
+                 * taken apart by destructuring, manual 2.4). */
+                Iron_TokenKind after = iron_current(p)->kind;
+                bool positional = after == IRON_TOK_INTEGER || after == IRON_TOK_FLOAT;
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNEXPECTED_TOKEN,
                                iron_token_span(p, iron_current(p)),
-                               "expected field or method name after '.'", NULL);
+                               positional
+                                   ? "a tuple has no positional access ('.0', '.1')"
+                                   : "expected field or method name after '.'",
+                               positional
+                                   ? "take the tuple apart with `val (a, b) = t`"
+                                   : NULL);
                 left = iron_make_error(p);
                 continue;
             }
@@ -3054,7 +3065,10 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                 Iron_Parser sub = iron_parser_create(expr_toks, tok_count,
                                                       expr_buf, interp_fname,
                                                       p->arena, p->diags);
+                int errors_before = p->diags->error_count;
                 Iron_Node *expr_node = iron_parse_expr_prec(&sub, PREC_NONE);
+                /* The sub-parser reported why (`{t.0}`): no generic error. */
+                bool interp_parse_reported = p->diags->error_count > errors_before;
                 bool interp_extra_reported = false;
                 /* One expression fills the braces: anything after it (`{x y}`,
                  * `{p->x}`) was dropped without a word. */
@@ -3079,6 +3093,15 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                     expr_node = iron_make_error(p);
                     interp_extra_reported = true;
                 }
+                /* What the sub-lexer reported (`{1e20}`) belongs to the
+                 * program; its positions are already the source's. */
+                bool interp_lex_failed = false;
+                for (int di = 0; di < expr_diags.count; di++) {
+                    Iron_Diagnostic *d = &expr_diags.items[di];
+                    iron_diag_emit(p->diags, p->arena, d->level, d->code, d->span,
+                                   d->message, d->suggestion);
+                    if (d->level == IRON_DIAG_ERROR) interp_lex_failed = true;
+                }
                 arrfree(expr_toks);
                 iron_diaglist_free(&expr_diags);
                 free(expr_buf);
@@ -3088,7 +3111,7 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                     n->part_count++;
                 } else {
                     /* Failed to parse expression: emit diagnostic and insert ErrorNode */
-                    if (!interp_extra_reported)
+                    if (!interp_extra_reported && !interp_lex_failed && !interp_parse_reported)
                         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                        IRON_ERR_EXPECTED_EXPR, span,
                                        "failed to parse interpolated expression", NULL);

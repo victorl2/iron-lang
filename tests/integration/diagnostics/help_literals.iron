@@ -1,0 +1,12 @@
+-- Literal and tuple mistakes: each is reported once, with what to write.
+func pair() -> (Int, Int) {
+    return (1, 2)
+}
+
+func main() {
+    val big = 1e20
+    val small = 2.5E-3
+    val t = pair()
+    println("{t.0}")
+    println("{3e2}")
+}
