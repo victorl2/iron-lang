@@ -6841,6 +6841,29 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                                     mc->method));
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     }
+                } else if (!method_found_mc && mc->method &&
+                           obj_id->resolved_sym &&
+                           obj_id->resolved_sym->sym_kind == IRON_SYM_TYPE &&
+                           obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_OBJECT &&
+                           obj_id->resolved_type->object.decl &&
+                           obj_id->resolved_type->object.decl->name &&
+                           obj_id->resolved_type->object.decl->generic_param_count == 0 &&
+                           obj_id->resolved_type->object.decl->field_count > 0 &&
+                           (!result || result->kind == IRON_TYPE_VOID)) {
+                    /* `Q.nothing(1)` on a user object: a static call to a
+                     * method the type does not declare was typed Void and
+                     * failed later ("'Void' cannot be interpolated"). Only
+                     * objects with fields: the stdlib namespaces (Math,
+                     * Time, ...) are fieldless and some of their calls are
+                     * dispatched by name. */
+                    const char *tn = obj_id->resolved_type->object.decl->name;
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "no method '%s' on type '%s'", mc->method, tn);
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                               method_help(ctx, tn, mc->method));
+                    for (int ai = 0; ai < mc->arg_count; ai++) check_expr(ctx, mc->args[ai]);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 } else if (!method_found_mc && mc->method && obj_id->resolved_type &&
                            obj_id->resolved_type->kind == IRON_TYPE_ENUM &&
                            obj_id->resolved_type->enu.decl &&
@@ -11658,6 +11681,26 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 sym->type = iron_type_make_func(ctx.arena, param_types, pc, ret_type);
             }
             ctx.global_scope = pp_md_saved;  /* Phase 33 OQ-02: restore */
+        } else if (decl->kind == IRON_NODE_INTERFACE_DECL) {
+            /* An interface method's parameter types, for the dispatcher the
+             * C emitter writes: from the annotation's bare name it typed a
+             * `String?` parameter Iron_String. `Self` is left to the
+             * annotation path. */
+            Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)decl;
+            for (int k = 0; k < iface->method_count; k++) {
+                Iron_Node *sn = iface->method_sigs[k];
+                if (!sn || sn->kind != IRON_NODE_FUNC_DECL) continue;
+                Iron_FuncDecl *sig = (Iron_FuncDecl *)sn;
+                for (int j = 0; j < sig->param_count; j++) {
+                    Iron_Param *p = (Iron_Param *)sig->params[j];
+                    if (!p || p->resolved_type || !p->type_ann ||
+                        p->type_ann->kind != IRON_NODE_TYPE_ANNOTATION) continue;
+                    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)p->type_ann;
+                    if (ta->is_self_type || (ta->name && strcmp(ta->name, "Self") == 0)) continue;
+                    Iron_Type *pt = resolve_type_annotation(&ctx, p->type_ann);
+                    if (pt && pt->kind != IRON_TYPE_ERROR) p->resolved_type = pt;
+                }
+            }
         }
     }
 

@@ -3245,11 +3245,13 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * remediation) so a module-global receiver can be routed through its
          * slot when the callee takes the receiver by pointer. */
         bool callee_is_mut_receiver = false;
+        IronHIR_Func *callee_tf = NULL;
         if (ctx->hir) {
             for (int fi = 0; fi < ctx->hir->func_count; fi++) {
                 IronHIR_Func *tf = ctx->hir->funcs[fi];
                 if (!tf || !tf->name) continue;
                 if (strcmp(tf->name, mangled) != 0) continue;
+                callee_tf = tf;
                 if (tf->is_mut_receiver_method) {
                     callee_is_mut_receiver = true;
                 }
@@ -3261,7 +3263,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * signature is mutating (not readonly/pure) — see the dispatcher
          * emitter in emit_c.c — so the receiver must be passed by address
          * exactly like a concrete pointer-receiver method. */
-        if (!callee_is_mut_receiver && !is_static_call &&
+        Iron_FuncDecl *iface_sig = NULL;
+        if (!is_static_call &&
             expr->method_call.object && expr->method_call.object->type &&
             expr->method_call.object->type->kind == IRON_TYPE_INTERFACE &&
             expr->method_call.object->type->interface.decl &&
@@ -3272,7 +3275,9 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 if (!msig || msig->kind != IRON_NODE_FUNC_DECL) continue;
                 Iron_FuncDecl *fd = (Iron_FuncDecl *)msig;
                 if (!fd->name || strcmp(fd->name, expr->method_call.method) != 0) continue;
-                callee_is_mut_receiver = !(fd->is_readonly || fd->is_pure);
+                iface_sig = fd;
+                if (!callee_is_mut_receiver)
+                    callee_is_mut_receiver = !(fd->is_readonly || fd->is_pure);
                 break;
             }
         }
@@ -3365,6 +3370,20 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             IronHIR_Expr *ae = expr->method_call.args[i];
             IronLIR_ValueId av = lower_expr(ctx, ae);
             note_owned_temp(ctx, &temps, ae, av, span);
+            /* A `T?` parameter takes a T argument (or null) wrapped, as a
+             * function call does: `w.show("x")` and `T("t")` through an
+             * init passed the bare String to an Iron_Optional_Iron_String.
+             * The callee's params include self when args do, so the
+             * argument's position is its parameter's index. */
+            int pi = (int)arrlen(args);
+            if (callee_tf && pi < callee_tf->param_count && callee_tf->params[pi].type)
+                av = coerce_to_optional(ctx, av, callee_tf->params[pi].type, span);
+            else if (!callee_tf && iface_sig && pi >= 1 && pi - 1 < iface_sig->param_count &&
+                     iface_sig->params[pi - 1])
+                /* The interface dispatcher: self, then the signature's. */
+                av = coerce_to_optional(ctx, av,
+                                        ((Iron_Param *)iface_sig->params[pi - 1])->resolved_type,
+                                        span);
             arrput(args, av);
         }
         int arg_count = (int)arrlen(args);

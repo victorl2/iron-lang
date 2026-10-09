@@ -1045,6 +1045,14 @@ add_test(NAME diag_readonly_hint
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/readonly_hint.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 
+# E0264 writes out the init the object needs.
+add_test(NAME diag_init_help
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/init_help.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/init_help.expected_help
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
 # A diagnostic is reported once even when two passes find it.
 add_test(NAME diag_reported_once
     COMMAND $<TARGET_FILE:ironc> check

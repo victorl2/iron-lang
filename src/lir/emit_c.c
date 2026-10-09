@@ -11687,7 +11687,13 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                 for (int pi = 0; pi < sig->param_count; pi++) {
                     Iron_Param *p = (Iron_Param *)sig->params[pi];
                     const char *pt = "void*";
-                    if (p->type_ann) {
+                    /* The resolved type spells `String?` and `[Int]`; the
+                     * annotation's bare name gave Iron_String for a String?
+                     * parameter, which the implementor takes as an
+                     * Iron_Optional_Iron_String. */
+                    if (p->resolved_type) {
+                        pt = emit_type_to_c(p->resolved_type, &ctx);
+                    } else if (p->type_ann) {
                         Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)p->type_ann;
                         pt = emit_annotation_to_c(ta->name, &ctx);
                     }

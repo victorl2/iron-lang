@@ -1,0 +1,1 @@
+add `init(value: Int, children: [Node], tags: Map[String, Int], label: String?)` whose body assigns each field (`self.value = value`, `self.children = children.copy()`, `self.tags = tags.copy()`, `self.label = label`)

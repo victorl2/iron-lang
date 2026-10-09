@@ -3,6 +3,7 @@
 #include "lexer/lexer.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
+#include "util/strbuf.h"
 #include "stb_ds.h"
 
 #include <errno.h>
@@ -4303,6 +4304,28 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
     return (Iron_Node *)f;
 }
 
+/* Source spelling of tokens [from, to): a field's type for the E0264 help
+ * (`[Node]`, `Map[String, Int]`, `rc Node?`). Arena-allocated. */
+typedef struct FieldTypeText { const char *name; const char *text; struct FieldTypeText *next; } FieldTypeText;
+static const char *tokens_text(Iron_Parser *p, int from, int to) {
+    Iron_StrBuf sb = iron_strbuf_create(32);
+    bool prev_word = false;
+    for (int i = from; i < to; i++) {
+        Iron_Token *t = &p->tokens[i];
+        if (t->kind == IRON_TOK_NEWLINE) continue;
+        const char *w = t->value ? t->value : iron_token_spelling(t->kind);
+        if (!w) continue;
+        bool word = isalnum((unsigned char)w[0]) || w[0] == '_';
+        if (word && prev_word) iron_strbuf_appendf(&sb, " ");
+        iron_strbuf_appendf(&sb, "%s", w);
+        if (t->kind == IRON_TOK_COMMA) iron_strbuf_appendf(&sb, " ");
+        prev_word = word;
+    }
+    const char *r = iron_arena_strdup(p->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    return r;
+}
+
 static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool is_pub,
                                          bool is_nocopy, Iron_Node ***extra_decls_out) {
     Iron_Token *start = iron_current(p);
@@ -4364,6 +4387,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
     Iron_Node **fields = NULL;
     int field_count    = 0;
     int var_field_count = 0;  /* mutable (var) fields only — used for E0264 */
+    FieldTypeText *ftt_head = NULL, *ftt_tail = NULL;  /* for the E0264 help */
 
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
@@ -4880,8 +4904,18 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
         }
         Iron_Token *fname = iron_advance(p);
         Iron_Node  *ftype = NULL;
+        int ftype_from = -1;
         if (iron_match(p, IRON_TOK_COLON)) {
+            ftype_from = p->pos;
             ftype = iron_parse_type_annotation(p);
+            FieldTypeText *ft = ARENA_ALLOC(p->arena, FieldTypeText);
+            if (ft) {
+                ft->name = fname->value;
+                ft->text = tokens_text(p, ftype_from, p->pos);
+                ft->next = NULL;
+                if (ftt_tail) ftt_tail->next = ft; else ftt_head = ft;
+                ftt_tail = ft;
+            }
         } else if ((iron_check(p, IRON_TOK_IDENTIFIER) || iron_check(p, IRON_TOK_LBRACKET)) &&
                    iron_current(p)->line == fname->line) {
             /* `val x Int`: the colon is missing. It was reported as a second
@@ -5425,11 +5459,37 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
                          "object '%s' has %d mutable field(s) but no init; "
                          "an object with mutable fields needs an explicit init",
                          enclosing, var_field_count);
+                /* Write the init out: init(value: Int, children: [Node]) {
+                 * self.value = value ... } (a template before). */
+                Iron_StrBuf hb = iron_strbuf_create(128);
+                iron_strbuf_appendf(&hb, "add `init(");
+                int nf = 0;
+                for (FieldTypeText *ft = ftt_head; ft; ft = ft->next)
+                    iron_strbuf_appendf(&hb, "%s%s: %s", nf++ ? ", " : "",
+                                        ft->name ? ft->name : "?", ft->text ? ft->text : "?");
+                iron_strbuf_appendf(&hb, ")` whose body assigns each field (");
+                int na = 0;
+                for (FieldTypeText *ft = ftt_head; ft; ft = ft->next) {
+                    /* A list, map or set is not duplicated implicitly
+                     * (E0328): the field takes a copy of the argument. */
+                    const char *tx = ft->text ? ft->text : "";
+                    size_t tl = strlen(tx);
+                    bool coll = tl > 0 && tx[tl - 1] != '?' &&
+                                (tx[0] == '[' || strncmp(tx, "Map[", 4) == 0 ||
+                                 strncmp(tx, "Set[", 4) == 0);
+                    iron_strbuf_appendf(&hb, "%s`self.%s = %s%s`", na++ ? ", " : "",
+                                        ft->name ? ft->name : "?", ft->name ? ft->name : "?",
+                                        coll ? ".copy()" : "");
+                }
+                iron_strbuf_appendf(&hb, ")");
+                const char *help = nf > 0 && nf <= 6
+                    ? iron_arena_strdup(p->arena, iron_strbuf_get(&hb), hb.len)
+                    : "add an init that assigns every field: init(...) { self.field = ... }";
+                iron_strbuf_free(&hb);
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_V3_NO_INIT,
                                iron_token_span(p, name_tok),
-                               msg,
-                               "add an init that assigns every field: init(...) { self.field = ... }");
+                               msg, help);
             }
         }
     }

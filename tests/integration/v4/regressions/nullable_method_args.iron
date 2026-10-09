@@ -1,0 +1,64 @@
+-- A T value passed to a `T?` parameter of a method, an init, a static
+-- method or an interface method is wrapped like a function argument. The
+-- bare value reached C as an Iron_String where an
+-- Iron_Optional_Iron_String was expected, and the build failed.
+interface Greeter {
+    readonly func greet(name: String?, scores: [Int]) -> String
+}
+
+object En impl Greeter {
+    val k: Int
+    readonly func greet(name: String?, scores: [Int]) -> String {
+        if name != null {
+            return "hi {name} {scores.len()}"
+        }
+        return "hi {scores.len()}"
+    }
+}
+
+object Tag {
+    var label: String?
+    var hits: Int
+
+    init(label: String?) {
+        self.label = label
+        self.hits = 0
+    }
+
+    func relabel(l: String?, by: Int?) {
+        self.label = l
+        if by != null {
+            self.hits += by
+        }
+    }
+
+    readonly func show(prefix: String?) -> String {
+        val l = self.label
+        if prefix != null and l != null {
+            return "{prefix}{l}"
+        }
+        if l != null {
+            return l
+        }
+        return "-"
+    }
+
+    func blank(l: String?) -> Tag {
+        return Tag(l)
+    }
+}
+
+func main() {
+    var t = Tag("a")
+    println(t.show(">"))
+    println(t.show(null))
+    t.relabel("b", 2)
+    t.relabel(null, null)
+    println("{t.show("<")} {t.hits}")
+    t.relabel("c", null)
+    println("{t.show(null)} {t.hits}")
+    println(Tag.blank("z").show(null))
+    val g: Greeter = En(1)
+    println(g.greet("bo", [1, 2]))
+    println(g.greet(null, []))
+}

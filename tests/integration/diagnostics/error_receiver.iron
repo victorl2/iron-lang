@@ -6,7 +6,13 @@ func parse(s: String) -> Outcome {
     return Outcome.Done(s)
 }
 
+object Pt2 {
+    val x: Int
+}
+
 func main() {
+    val q = Pt2.nothing(1)
+    println("{q}")
     match parse("x") {
         Outcome.Done(v) -> println(v)
         Outcome.Failed(e) -> println(e)
