@@ -2,3 +2,5 @@ expected expression
 failed to parse interpolated expression
 undefined identifier 'word'
 undefined identifier 'size'
+cannot assign to val 'Int'
+undefined identifier 'count'

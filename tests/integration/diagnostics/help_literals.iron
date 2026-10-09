@@ -29,4 +29,6 @@ func main() {
         "none"
     }
     println("{word} {size}")
+    val count Int = 3
+    println("{count}")
 }

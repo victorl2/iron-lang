@@ -11,6 +11,9 @@ object Pt2 {
 }
 
 func main() {
+    println("a").println("b")
+    println("c")
+    .println("d")
     val q = Pt2.nothing(1)
     println("{q}")
     match parse("x") {

@@ -40,7 +40,7 @@ func main() {
 
     -- Parallel computation (exercises the parallel-for dispatch)
     val start_ns = Time.now_ns()
-    for i in n parallel {
+    for i in range(n) parallel {
         var len = collatz_length(i + 1)
     }
     val elapsed_ns = Time.now_ns() - start_ns

@@ -2700,7 +2700,10 @@ static Iron_Node *iron_parse_for_stmt(Iron_Parser *p) {
                        from_zero
                            ? "write `for i in range(n)`, which counts from 0 to n - 1"
                            : "write `for i in range(end - start)` and add start, or count with a while loop");
-        if (from_zero && end_expr) {
+        /* Either way the loop counts with range(end): the error above
+         * already says what to write, and an Int iterable would add a
+         * second one. */
+        if (end_expr) {
             Iron_Ident  *callee = ARENA_ALLOC(p->arena, Iron_Ident);
             Iron_CallExpr *call = ARENA_ALLOC(p->arena, Iron_CallExpr);
             Iron_Node  **args   = NULL;
@@ -3239,6 +3242,30 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
     return (Iron_Node *)n;
 }
 
+/* The `: T` of a binding. `val b S = ...` (the colon missing) parsed as
+ * `val b` and then the statement `S = ...`: "cannot assign to val 'S'", or
+ * nothing at all for `val b Box[T] = ...`, an index assignment. Report the
+ * colon once and read the type, so the binding is declared as meant. */
+static Iron_Node *iron_parse_binding_type(Iron_Parser *p, Iron_Token *name_tok,
+                                          const char *kw) {
+    if (iron_match(p, IRON_TOK_COLON)) return iron_parse_type_annotation(p);
+    if ((iron_check(p, IRON_TOK_IDENTIFIER) || iron_check(p, IRON_TOK_LBRACKET)) &&
+        iron_current(p)->line == name_tok->line) {
+        char msg[200], help[200];
+        snprintf(msg, sizeof(msg), "expected ':' between '%s' and its type",
+                 name_tok->value ? name_tok->value : "?");
+        snprintf(help, sizeof(help), "write '%s %s: %s'", kw,
+                 name_tok->value ? name_tok->value : "x",
+                 iron_current(p)->value ? iron_current(p)->value : "Type");
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, IRON_ERR_EXPECTED_COLON,
+                       iron_token_span(p, iron_current(p)),
+                       iron_arena_strdup(p->arena, msg, strlen(msg)),
+                       iron_arena_strdup(p->arena, help, strlen(help)));
+        return iron_parse_type_annotation(p);
+    }
+    return NULL;
+}
+
 static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
     Iron_Token *start = iron_current(p);
     iron_advance(p);  /* consume 'val' */
@@ -3349,10 +3376,7 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
     }
     Iron_Token *name_tok = iron_advance(p);
 
-    Iron_Node *type_ann = NULL;
-    if (iron_match(p, IRON_TOK_COLON)) {
-        type_ann = iron_parse_type_annotation(p);
-    }
+    Iron_Node *type_ann = iron_parse_binding_type(p, name_tok, "val");
 
     Iron_Node *init = NULL;
     if (iron_match(p, IRON_TOK_ASSIGN)) {
@@ -3412,10 +3436,7 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
     }
     Iron_Token *name_tok = iron_advance(p);
 
-    Iron_Node *type_ann = NULL;
-    if (iron_match(p, IRON_TOK_COLON)) {
-        type_ann = iron_parse_type_annotation(p);
-    }
+    Iron_Node *type_ann = iron_parse_binding_type(p, name_tok, "var");
 
     Iron_Node *init = NULL;
     if (iron_match(p, IRON_TOK_ASSIGN)) {

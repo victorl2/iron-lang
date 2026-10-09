@@ -172,7 +172,7 @@ func main() {
     val iterations = 3
     val start_ns = Time.now_ns()
     for iter in range(iterations) {
-        for pixel in TOTAL_PIXELS parallel {
+        for pixel in range(TOTAL_PIXELS) parallel {
             val c = trace_pixel(pixel)
         }
     }

@@ -65,7 +65,7 @@ func main() {
   }
 
   -- Stage 3: Parallel-for to simulate parallel dispatch
-  for wi in 4 parallel {
+  for wi in range(4) parallel {
     -- Each parallel slot claims a work unit
     var unit = wi + 1
     unit = unit * unit

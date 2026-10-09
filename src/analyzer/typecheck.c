@@ -193,6 +193,9 @@ typedef struct {
     /* Checking an interface default body copied into an implementor: it
      * is that type's own method, so its private members are in reach. */
     bool               in_iface_default;
+    /* The iterable of the for loop being checked: the one place a
+     * `range(n)` call is allowed. */
+    Iron_Node         *for_iterable;
     /* defer bodies enclosing the statement, for return; 0 inside a lambda
      * or spawn body. */
     int                defer_depth;
@@ -4497,6 +4500,27 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             mark_amp_call_args(((Iron_CallExpr *)node)->args, ((Iron_CallExpr *)node)->arg_count);
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
 
+            /* range(n) is what a for loop walks; it has no value of its own
+             * yet (`val r = range(3)` was the Int 3), and keeping it to for
+             * loops leaves room for it to become an iterator. A user
+             * function named range is unaffected. */
+            if (ce->callee && ce->callee->kind == IRON_NODE_IDENT &&
+                ((Iron_Ident *)ce->callee)->name &&
+                strcmp(((Iron_Ident *)ce->callee)->name, "range") == 0 &&
+                node != ctx->for_iterable) {
+                Iron_Symbol *rs = ((Iron_Ident *)ce->callee)->resolved_sym;
+                if (!rs) rs = tc_lookup(ctx, "range");
+                if (rs && !rs->decl_node && rs->sym_kind == IRON_SYM_FUNCTION) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ce->span,
+                               "range(n) is used only as the iterable of a for loop",
+                               "write `for i in range(n) { ... }`");
+                    for (int ai = 0; ai < ce->arg_count; ai++) check_expr(ctx, ce->args[ai]);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ce->resolved_type = result;
+                    break;
+                }
+            }
+
             /* Runtime-backed stdlib containers are constructed like any
              * object: `Channel[Int](4)`, `Mutex[Int](0)`, `Box(v)`,
              * `Arena(65536)`. The call is checked as the namespace method
@@ -5833,6 +5857,25 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             /* The receiver already failed to type-check: propagate the
              * error instead of typing the call Void (which cascaded into
              * spurious mismatches). */
+            /* `println("a").println("b")`: a call that produces no value
+             * has no methods; the call was typed Void and the C named an
+             * undeclared Iron_unknown_<method>. */
+            if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_VOID) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "no method '%s': the expression before '.' produces no value",
+                         mc->method ? mc->method : "?");
+                bool next_line = mc->object && mc->span.end_line > mc->object->span.end_line;
+                emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                           next_line
+                               ? "a '.' at the start of a line continues the previous line; "
+                                 "remove it, or call the method on a value"
+                               : "the call before '.' returns nothing (Void); call the method "
+                                 "on a value");
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                mc->resolved_type = result;
+                break;
+            }
             if ((mc->object && mc->object->kind == IRON_NODE_ERROR) ||
                 (obj_type_mc && obj_type_mc->kind == IRON_TYPE_ERROR)) {
                 check_readonly_io_call(ctx, mc);
@@ -9868,7 +9911,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            Iron_Node *saved_for_iterable = ctx->for_iterable;
+            ctx->for_iterable = fs->iterable;  /* the unwrap checks it too */
             rc_list_unwrap_expr(ctx, &fs->iterable);
+            ctx->for_iterable = fs->iterable;
             Iron_Type *iter_t = check_expr(ctx, fs->iterable);
             if (fs->is_parallel && fs->pool_expr) {
                 /* The pool expression was never resolved or type-checked:
@@ -9943,9 +9989,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     body->stmt_count++;
                     fs->var_name = idx_name;
                     fs->iterable = (Iron_Node *)range_call;
+                    ctx->for_iterable = fs->iterable;
                     iter_t = check_expr(ctx, fs->iterable);
                 }
             }
+            ctx->for_iterable = saved_for_iterable;
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
             /* Define loop variable with appropriate type.
              * For array iteration (for x in arr) the loop var has elem type.
@@ -9987,6 +10035,33 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                "parallel for cannot iterate a String",
                                "iterate s.chars() or a range instead");
                 }
+            }
+            /* A list, string, Map or Set, or range(n). Anything else was
+             * accepted, the loop variable typed Int, and the C failed
+             * (`for a in f` over a function read f.count). A bare integer
+             * (`for i in 10`, the v3 form) counted like range(10); it is
+             * written range(10) now, so that a for loop only ever walks an
+             * iterable. */
+            bool is_range_call = fs->iterable && fs->iterable->kind == IRON_NODE_CALL &&
+                ((Iron_CallExpr *)fs->iterable)->callee &&
+                ((Iron_CallExpr *)fs->iterable)->callee->kind == IRON_NODE_IDENT &&
+                ((Iron_Ident *)((Iron_CallExpr *)fs->iterable)->callee)->name &&
+                strcmp(((Iron_Ident *)((Iron_CallExpr *)fs->iterable)->callee)->name, "range") == 0;
+            if (iter_t && iron_type_is_integer(iter_t) && !is_range_call) {
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fs->iterable->span,
+                           "a for loop does not iterate over an integer",
+                           "count with range: `for i in range(n)` goes from 0 to n - 1");
+            } else if (iter_t && iter_t->kind != IRON_TYPE_ERROR && !hk &&
+                iter_t->kind != IRON_TYPE_ARRAY && iter_t->kind != IRON_TYPE_STRING &&
+                !iron_type_is_integer(iter_t)) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "cannot iterate over a value of type '%s'",
+                         iron_type_to_string(iter_t, ctx->arena));
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fs->iterable->span, msg,
+                           iter_t->kind == IRON_TYPE_NULLABLE
+                               ? "check it for null first: `if xs != null { for x in xs { ... } }`"
+                               : "a for loop iterates a list, a String, a Map or Set, or range(n)");
+                loop_var_type = iron_type_make_primitive(IRON_TYPE_ERROR);
             }
             tc_define(ctx, fs->var_name, IRON_SYM_VARIABLE, (Iron_Node *)fs, fs->span,
                       true, loop_var_type);

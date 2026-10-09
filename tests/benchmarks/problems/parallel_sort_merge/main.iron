@@ -77,7 +77,7 @@ func main() {
     val iterations = 3
     val start_ns = Time.now_ns()
     for iter in range(iterations) {
-        for chunk_id in NUM_CHUNKS parallel {
+        for chunk_id in range(NUM_CHUNKS) parallel {
             val h = verify_chunk(chunk_id)
         }
     }

@@ -948,7 +948,10 @@ iterable may be a list, fixed array, bounded vector or `rc [T]` (elements),
 a string (one-character strings), a `Set[T]` (items) or `range(n)` (the
 integers `0` to `n - 1`); a `Map[K, V]` is iterated with two names, `for
 (key, value) in m` (section 9.10). The loop variable is immutable inside
-the body. `range` takes exactly one argument. Appending `parallel` after the iterable runs the
+the body. `range` takes exactly one argument and is written only as the
+iterable of a `for` loop; a loop does not iterate over an integer (`for i
+in 10` is an error: write `for i in range(10)`), nor over any other value
+(`E0202`). Appending `parallel` after the iterable runs the
 iterations on several threads (section 7.4).
 
 ```iron

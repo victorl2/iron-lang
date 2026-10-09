@@ -7,3 +7,4 @@ write `for i in range(end - start)` and add start
 use Math.pow(a, b) for Float values
 'match' is a statement, not an expression
 'if' is a statement, not an expression
+write 'val count: Int'

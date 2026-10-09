@@ -37,7 +37,7 @@ func main() {
     val start_ns = Time.now_ns()
     val iters = 3
     for iter in range(iters) {
-        for i in n parallel {
+        for i in range(n) parallel {
             val elem = compute_elem(i)
         }
     }

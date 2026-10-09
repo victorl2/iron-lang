@@ -83,7 +83,7 @@ func main() {
 
   -- Test 3: Parallel for work distribution
   println("parallel tasks:")
-  for wi in 4 parallel {
+  for wi in range(4) parallel {
     -- Each parallel iteration simulates a worker draining its queue
     -- Body is empty; demonstrates parallel-for dispatch mechanism
   }

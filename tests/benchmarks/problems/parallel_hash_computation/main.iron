@@ -49,7 +49,7 @@ func main() {
   val iterations = 4
   val start_time_ns = Time.now_ns()
   for it in range(iterations) {
-    for i in N parallel {
+    for i in range(N) parallel {
       var h = complex_hash(i)
     }
   }

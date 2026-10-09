@@ -74,7 +74,7 @@ func main() {
   -- Benchmark: parallel
   val start_par_ns = Time.now_ns()
   for iter in range(iterations) {
-    for i in n_segments parallel {
+    for i in range(n_segments) parallel {
       val x = count_primes_in_segment(i)
     }
   }
