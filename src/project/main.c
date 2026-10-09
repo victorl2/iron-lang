@@ -296,7 +296,7 @@ int main(int argc, char **argv) {
      */
     {
         static const char *KNOWN_SUBS[] = {
-            "init", "build", "run", "check", "fmt", "test", NULL
+            "init", "build", "run", "check", "fmt", "test", "debug", NULL
         };
         int is_known_sub = 0;
         for (int i = 0; KNOWN_SUBS[i]; i++) {
@@ -316,6 +316,12 @@ int main(int argc, char **argv) {
     /* toolchain: ironc owns the lookup; forward as is (including --help). */
     if (strcmp(cmd, "toolchain") == 0) {
         return forward_to_ironc(argc, argv);
+    }
+
+    /* debug: build with --debug and start a debugger (#312). */
+    if (strcmp(cmd, "debug") == 0) {
+        if (has_iron_file_arg(argc, argv)) return iron_debug_file(argc, argv);
+        return cmd_project(cmd, argc, argv);
     }
 
     /* Known subcommands */

@@ -44,6 +44,11 @@
         "path": "./snippets/iron.code-snippets"
       }
     ],
+    "breakpoints": [
+      {
+        "language": "iron"
+      }
+    ],
     "configuration": {
       "title": "Iron LSP",
       "properties": {

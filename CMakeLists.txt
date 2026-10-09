@@ -969,6 +969,8 @@ add_executable(iron
 )
 target_include_directories(iron PRIVATE src)
 target_compile_definitions(iron PRIVATE
+    # `iron debug` finds the source tree's debugger formatters in dev builds.
+    IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src"
     IRON_VERSION_STRING="${IRON_VERSION_FULL}"
     IRON_GIT_HASH="${IRON_GIT_HASH}"
     IRON_BUILD_DATE="${IRON_BUILD_DATE}"
@@ -1022,6 +1024,14 @@ set_tests_properties(iron_unknown_command PROPERTIES
     WILL_FAIL FALSE
     PASS_REGULAR_EXPRESSION "unknown command 'bogus'.*Run 'iron --help'"
     FAIL_REGULAR_EXPRESSION "Subcommands")
+# #312: `ironc build --debug` maps debug info to the .iron source.
+if(NOT WIN32)
+  add_test(NAME debug_info_smoke
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_info_smoke.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_info_smoke PROPERTIES TIMEOUT 120)
+endif()
+
 add_test(NAME iron_new_hint COMMAND $<TARGET_FILE:iron> new demo)
 set_tests_properties(iron_new_hint PROPERTIES
     PASS_REGULAR_EXPRESSION "iron init <name>")
@@ -2815,6 +2825,10 @@ install(DIRECTORY src/vendor/ DESTINATION lib/vendor COMPONENT iron)
 install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib COMPONENT iron FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
 # Install stdlib .iron files
 install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib COMPONENT iron FILES_MATCHING PATTERN "*.iron")
+# #312: gdb, LLDB and Visual Studio (natvis) views of Iron values in
+# `--debug` programs.
+install(FILES src/debug/iron_gdb.py src/debug/iron_lldb.py src/debug/iron.natvis
+        DESTINATION lib/debug COMPONENT iron)
 # Install diagnostics module: header is referenced by lib/runtime/iron_runtime.h
 # at user-build time, so it must be present in the install prefix. Without
 # this rule, every fresh install fails to compile any program with

@@ -2808,7 +2808,9 @@ vendored libraries that declare the same name are a duplicate declaration
 
 `iron build` and `iron run` accept `-o path` / `--output path`,
 `--release` (optimized C compilation), `--no-optimize` (skip Iron's own
-IR optimizations), `--debug-build` (keep the generated C under
+IR optimizations), `--debug` (debug information on the `.iron` lines,
+without optimization or inlining, for gdb, lldb or the Visual Studio
+debugger), `--debug-build` (keep the generated C under
 `.iron-build/`), `--emit-c` (`build` only: write the C file and stop
 before the C compiler), `--dump-ir-passes`, `--report-compression`,
 `--warn-fusion-break`, `--force-comptime` (ignore the comptime cache),
