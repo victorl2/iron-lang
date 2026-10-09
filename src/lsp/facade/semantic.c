@@ -414,15 +414,74 @@ uint32_t *ilsp_facade_semantic_tokens(IronLsp_Server *server, IronLsp_Document *
 
 typedef struct {
     const IronLsp_Document *doc;
+    const Iron_Program     *program;
+    Iron_Arena             *walk_arena;
     Iron_Arena             *out_arena;
     uint32_t                first_line, last_line;  /* 1-based, inclusive */
     IronLsp_InlayHint      *hints;                  /* stb_ds */
 } HintCtx;
 
+static bool is_literal(const Iron_Node *n) {
+    return n->kind == IRON_NODE_INT_LIT || n->kind == IRON_NODE_FLOAT_LIT ||
+           n->kind == IRON_NODE_STRING_LIT || n->kind == IRON_NODE_BOOL_LIT ||
+           n->kind == IRON_NODE_NULL_LIT;
+}
+
+/* `area(w: 2, h: 3)`: each argument's parameter name, except where the
+ * argument already says it (`area(w, h)`, `area(p.w, ...)`) and for a
+ * single parameter unless the argument is a literal. */
+static void param_hints(HintCtx *c, Iron_Node **params, int param_count,
+                        Iron_Node **args, int arg_count) {
+    int first = 0;
+    if (param_count > 0 && params[0] && ((Iron_Param *)params[0])->name &&
+        strcmp(((Iron_Param *)params[0])->name, "self") == 0) first = 1;
+    int named = param_count - first;
+    for (int i = 0; i < arg_count && i < named; i++) {
+        Iron_Node *a = args[i];
+        Iron_Param *pm = (Iron_Param *)params[first + i];
+        if (!a || !pm || !pm->name || a->span.line == 0) continue;
+        if (a->span.line < c->first_line || a->span.line > c->last_line) continue;
+        if (named == 1 && !is_literal(a)) continue;
+        if (a->kind == IRON_NODE_IDENT && ((Iron_Ident *)a)->name &&
+            strcmp(((Iron_Ident *)a)->name, pm->name) == 0) continue;
+        if (a->kind == IRON_NODE_FIELD_ACCESS && ((Iron_FieldAccess *)a)->field &&
+            strcmp(((Iron_FieldAccess *)a)->field, pm->name) == 0) continue;
+        size_t off = offset_of(c->doc, a->span.line, a->span.col);
+        if (off == SIZE_MAX) continue;
+        size_t len = strlen(pm->name) + 2;
+        char *label = (char *)iron_arena_alloc(c->out_arena, len, 1);
+        if (!label) continue;
+        snprintf(label, len, "%s:", pm->name);
+        IronLsp_InlayHint h = { .off = off, .label = label, .kind = 2 };
+        arrput(c->hints, h);
+    }
+}
+
 static bool hint_visit(Iron_Visitor *v, Iron_Node *n) {
     HintCtx *c = (HintCtx *)v->ctx;
     if (n->kind == IRON_NODE_ERROR) return false;
     if (n->span.filename && c->doc->uri && strcmp(n->span.filename, c->doc->uri) != 0) {
+        return true;
+    }
+    if (n->kind == IRON_NODE_CALL) {
+        Iron_CallExpr *call = (Iron_CallExpr *)n;
+        if (call->callee && call->callee->kind == IRON_NODE_IDENT) {
+            const Iron_Symbol *sym = ((Iron_Ident *)call->callee)->resolved_sym;
+            Iron_Node *d = sym ? sym->decl_node : NULL;
+            if (d && d->kind == IRON_NODE_FUNC_DECL) {
+                Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+                param_hints(c, fd->params, fd->param_count, call->args, call->arg_count);
+            }
+        }
+        return true;
+    }
+    if (n->kind == IRON_NODE_METHOD_CALL) {
+        Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)n;
+        Iron_Node *d = ilsp_nav_member_decl(c->program, n, c->walk_arena);
+        if (d && d->kind == IRON_NODE_METHOD_DECL) {
+            Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+            param_hints(c, md->params, md->param_count, mc->args, mc->arg_count);
+        }
         return true;
     }
     const char *name = NULL;
@@ -450,7 +509,7 @@ static bool hint_visit(Iron_Visitor *v, Iron_Node *n) {
     char *label = (char *)iron_arena_alloc(c->out_arena, len, 1);
     if (!label) return true;
     snprintf(label, len, ": %s", ts);
-    IronLsp_InlayHint h = { .off = off + strlen(name), .label = label };
+    IronLsp_InlayHint h = { .off = off + strlen(name), .label = label, .kind = 1 };
     arrput(c->hints, h);
     return true;
 }
@@ -476,7 +535,7 @@ IronLsp_InlayHint *ilsp_facade_inlay_hints(IronLsp_Server *server, IronLsp_Docum
     IronLsp_InlayHint *out = NULL;
 
     if (program && !(cancel && atomic_load(cancel))) {
-        HintCtx c = { doc, arena, first_line0 + 1, last_line0 + 1, NULL };
+        HintCtx c = { doc, program, &walk_arena, arena, first_line0 + 1, last_line0 + 1, NULL };
         Iron_Visitor v = { .ctx = &c, .visit_node = hint_visit, .post_visit = NULL };
         for (int i = 0; i < program->decl_count; i++) {
             if (program->decls[i]) iron_ast_walk(program->decls[i], &v);
@@ -607,7 +666,8 @@ void ilsp_handle_text_document_inlay_hint(IronLsp_Server    *s,
         yyjson_mut_obj_add_uint(rd, pos, "character", hints[i].character);
         yyjson_mut_obj_add_val(rd, h, "position", pos);
         yyjson_mut_obj_add_strcpy(rd, h, "label", hints[i].label);
-        yyjson_mut_obj_add_uint(rd, h, "kind", 1);  /* InlayHintKind.Type */
+        yyjson_mut_obj_add_uint(rd, h, "kind", (uint64_t)hints[i].kind);
+        if (hints[i].kind == 2) yyjson_mut_obj_add_bool(rd, h, "paddingRight", true);
         yyjson_mut_arr_append(arr, h);
     }
     respond(s, &body_arena, id_v, rd, arr);

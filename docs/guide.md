@@ -123,6 +123,77 @@ version into `~/.iron/rt/` (see the manual's
 [backend section](language_definition.md#106-the-backend)). Apart from
 that first download `iron build` never touches the network.
 
+### Debugging
+
+`iron build --debug` (or `ironc build file.iron --debug`, and the same for
+`run`) builds a binary whose debug information points at the `.iron`
+source: a breakpoint on `main.iron:12` stops on that line, stepping moves
+from Iron line to Iron line and the call stack lists Iron functions. The
+build skips optimization and function inlining so every function keeps
+its frame. Any C debugger reads it: gdb and lldb on Linux and macOS, the
+Visual Studio debugger (a PDB is written next to the `.exe`) on Windows.
+
+```sh
+$ iron debug                       # in a package; or: iron debug main.iron
+(gdb) break main.iron:12
+(gdb) run
+```
+
+A panic (an index out of bounds, a failed `assert`, a missing map key) stops
+the debugger: the call stack shows the Iron function and line that
+failed, a few frames above the runtime's `abort`.
+
+`iron debug` builds with `--debug` and starts the debugger on the
+program with the value formatters below already loaded: LLDB on macOS,
+gdb elsewhere (`--gdb` / `--lldb` choose). Arguments after `--` go to
+the program. Building with `iron build --debug` and starting a debugger
+yourself works the same way.
+
+In VS Code the Iron extension lets you set breakpoints in `.iron` files;
+pair it with a C debugger extension (C/C++ from Microsoft, or CodeLLDB)
+and a build task:
+
+```jsonc
+// .vscode/tasks.json
+{ "version": "2.0.0",
+  "tasks": [{ "label": "iron: build --debug", "type": "shell",
+              "command": "iron build --debug", "problemMatcher": [] }] }
+
+// .vscode/launch.json
+{ "version": "0.2.0",
+  "configurations": [{
+    "name": "Iron: debug",
+    "type": "cppdbg",            // "cppvsdbg" on Windows, "lldb" with CodeLLDB
+    "request": "launch",
+    "program": "${workspaceFolder}/target/my-app",
+    "cwd": "${workspaceFolder}",
+    "MIMode": "gdb",             // "lldb" on macOS
+    "preLaunchTask": "iron: build --debug"
+  }]
+}
+```
+
+Parameters and local bindings show under their Iron names (`w`, `total`);
+a name used twice in one function, or one that is also a C keyword,
+carries a suffix (`total_14`). The compiler's own temporaries appear as
+`_v12`.
+
+`lib/debug/` in the Iron installation holds formatters that show values
+as Iron values: a `String` as its text, a list or set as its elements,
+a map as its entries and a `T?` as its value or `null`. Load
+`iron_gdb.py` in gdb and `iron_lldb.py` in LLDB:
+
+```sh
+(gdb) source ~/.iron/lib/debug/iron_gdb.py
+(lldb) command script import ~/.iron/lib/debug/iron_lldb.py
+```
+
+In the VS Code configuration above, add
+`"setupCommands": [{ "text": "source ~/.iron/lib/debug/iron_gdb.py" }]`
+(cppdbg with gdb) or
+`"initCommands": ["command script import ~/.iron/lib/debug/iron_lldb.py"]`
+(CodeLLDB). Adjust the path to where Iron is installed.
+
 ### iron run
 
 ```sh

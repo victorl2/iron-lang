@@ -55,6 +55,12 @@ static size_t pos_to_byte(const struct IronLsp_Document *doc,
     return line_start + byte;
 }
 
+static bool is_ident_char(char ch) {
+    unsigned char c = (unsigned char)ch;
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+           (c >= '0' && c <= '9') || c == '_';
+}
+
 /* Walk backward over identifier characters to extract the query prefix
  * the user is actively typing. Returns an arena-owned NUL-terminated
  * string (empty string if cursor is not inside an ident). */
@@ -463,21 +469,50 @@ void ilsp_facade_complete(struct IronLsp_Server          *server,
 
     IronLsp_PositionEncoding enc = server->position_encoding;
 
+    size_t cursor_byte = pos_to_byte(doc, pos, enc);
+    const char *qp = extract_query_prefix(doc, cursor_byte, arena);
+    IronLsp_CompletionContext ctx =
+        ilsp_completion_context_classify(doc, cursor_byte);
+
+    /* After `recv.` the buffer does not parse, and the expression whose
+     * members we want has no type. Analyze it without the `.` and the
+     * member name being typed: `recv` alone parses and keeps every
+     * position before it. */
+    IronLsp_Document member_doc;
+    char *member_text = NULL;
+    const struct IronLsp_Document *analyzed = doc;
+    if (ctx == ILSP_CCTX_MEMBER_AFTER_DOT && doc->text) {
+        size_t dot = cursor_byte;
+        while (dot > 0 && is_ident_char(doc->text[dot - 1])) dot--;
+        size_t name_end = cursor_byte;
+        while (name_end < doc->text_len && is_ident_char(doc->text[name_end])) name_end++;
+        if (dot > 0 && doc->text[dot - 1] == '.') {
+            dot--;
+            member_text = (char *)malloc(doc->text_len + 1);
+            if (member_text) {
+                memcpy(member_text, doc->text, dot);
+                memcpy(member_text + dot, doc->text + name_end, doc->text_len - name_end);
+                member_text[doc->text_len - (name_end - dot)] = '\0';
+                memset(&member_doc, 0, sizeof(member_doc));
+                member_doc.uri      = doc->uri;
+                member_doc.version  = doc->version;
+                member_doc.text     = member_text;
+                member_doc.text_len = doc->text_len - (name_end - dot);
+                analyzed = &member_doc;
+            }
+        }
+    }
+
     Iron_Arena    walk_arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags      = iron_diaglist_create();
     IronLsp_CompileRequest req = { .version = doc->version,
                                     .cancel_flag = cancel };
     Iron_Program *program = ilsp_facade_compile_for_nav(
-        doc, &req, &walk_arena, &diags);
+        (struct IronLsp_Document *)analyzed, &req, &walk_arena, &diags);
     /* program may be NULL on cold-start / parse-fatal; the bucket
      * builder accepts NULL program and simply emits empty top-level
      * + empty local + keyword bucket (for EXPR_HEAD / STATEMENT_HEAD). */
     if (cancel && atomic_load(cancel)) goto done;
-
-    size_t cursor_byte = pos_to_byte(doc, pos, enc);
-    const char *qp = extract_query_prefix(doc, cursor_byte, arena);
-    IronLsp_CompletionContext ctx =
-        ilsp_completion_context_classify(doc, cursor_byte);
 
     IronLsp_CompletionCandidate *cands = NULL;
     size_t n = 0;
@@ -518,4 +553,5 @@ void ilsp_facade_complete(struct IronLsp_Server          *server,
 done:
     iron_diaglist_free(&diags);
     iron_arena_free(&walk_arena);
+    free(member_text);
 }

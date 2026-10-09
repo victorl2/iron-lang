@@ -1,0 +1,13 @@
+func area(w: Int, h: Int) -> Int {
+    val product = w * h
+    return product
+}
+
+func main() {
+    var total = 0
+    for i in range(3) {
+        total = total + area(i, 2)
+    }
+    val names = ["a", "b"]
+    println("{total} {names.len()}")
+}

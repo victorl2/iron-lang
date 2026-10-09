@@ -109,6 +109,7 @@ void iron_lir_module_destroy(IronLIR_Module *mod) {
 
         arrfree(fn->blocks);
         arrfree(fn->value_table);
+        hmfree(fn->value_names);
     }
 
     arrfree(mod->funcs);

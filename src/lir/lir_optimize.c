@@ -6230,13 +6230,21 @@ static void inline_call_site(IronLIR_Func *fn,
  * Inlines small (<= 20 instructions), non-recursive, pure functions.
  * Runs between optimize_array_repr and the copy-prop/DCE fixpoint loop.
  */
+/* `ironc build --debug` (#312): every function keeps its own frame, so a
+ * breakpoint in it is hit and the stack shows the Iron call chain. */
+static bool g_function_inlining = true;
+
+void iron_lir_set_function_inlining(bool on) {
+    g_function_inlining = on;
+}
+
 static void run_function_inlining(IronLIR_Module *module,
                                    IronLIR_OptimizeInfo *info,
                                    Iron_Arena *arena) {
     (void)info;   /* local purity map used instead of info->func_purity */
     (void)arena;  /* reserved for future use */
 
-    if (!module || module->func_count == 0) return;
+    if (!module || module->func_count == 0 || !g_function_inlining) return;
 
     /* Step 1: Local purity scan (Phase-1 logic; leaf-only; no info mutation). */
     struct { char *key; bool value; } *local_purity = NULL;

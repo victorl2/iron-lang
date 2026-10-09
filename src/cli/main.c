@@ -106,6 +106,7 @@ int main(int argc, char **argv) {
     /* Parse global flags */
     bool verbose = false;
     bool debug_build = false;
+    bool debug_info = false;
     bool emit_c = false;
     bool test_build = false;
     const char *test_filter = NULL;
@@ -137,6 +138,9 @@ int main(int argc, char **argv) {
             verbose = true;
         } else if (strcmp(argv[i], "--debug-build") == 0) {
             debug_build = true;
+        } else if (strcmp(argv[i], "--debug") == 0) {
+            /* Source-level debugging: breakpoints on .iron lines (#312). */
+            debug_info = true;
         } else if (strcmp(argv[i], "--test") == 0) {
             test_build = true;
         } else if (strcmp(argv[i], "--emit-c") == 0) {
@@ -248,6 +252,7 @@ int main(int argc, char **argv) {
         IronBuildOpts opts = {
             .verbose        = verbose,
             .debug_build    = debug_build,
+            .debug_info     = debug_info,
             .emit_c         = emit_c,
             .run_after      = false,
             .run_args       = NULL,
@@ -287,6 +292,7 @@ int main(int argc, char **argv) {
         IronBuildOpts opts = {
             .verbose        = verbose,
             .debug_build    = debug_build,
+            .debug_info     = debug_info,
             .run_after      = true,
             .run_args       = run_args,
             .run_arg_count  = run_arg_count,

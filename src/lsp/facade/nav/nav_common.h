@@ -105,6 +105,20 @@ bool ilsp_nav_path_is_stdlib(const char *canonical_path);
 Iron_Node *ilsp_nav_member_decl(const Iron_Program *program, Iron_Node *n,
                                 Iron_Arena *arena);
 
+/* The span of a declaration's own name (`area` in `func area(...)`, `x`
+ * in `val x: Int`), found in `text`, the source of the declaration's
+ * file, on the line its span starts; the whole declaration span when
+ * the name is not there. Rename edits and reference results point at
+ * this, not at the whole declaration. */
+/* The symbol identifiers resolve to when they name `decl` (a function,
+ * type, field, parameter, binding...), found through any use of it in
+ * the program's declarations; NULL when nothing uses it. */
+struct Iron_Symbol *ilsp_nav_symbol_of_decl(const Iron_Program *program,
+                                            const Iron_Node *decl);
+
+Iron_Span ilsp_nav_decl_name_span(const Iron_Node *decl, const char *text,
+                                  size_t text_len);
+
 /* ── LocationLink -> JSON ────────────────────────────────────────── */
 
 /* Build a JSON object for a single LocationLink. When

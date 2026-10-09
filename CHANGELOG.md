@@ -3,6 +3,46 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v4.10.0-alpha: Correctness and Spec Coverage (2026-10-09)
+
+- **Language:** a for loop walks a list, String, Map, Set or `range(n)`
+  (`for i in 10` is an error); `x != null` narrowing survives assignments
+  of non-null values and `while` narrows, so linked lists can be walked;
+  mutating calls through list elements and fields follow the field rules.
+- **Fixes:** a pattern binding no longer frees its list payload; an
+  `upgrade()` compared with null no longer leaks; an address-taken local
+  is never narrowed; `T` arguments to `T?` method parameters, enum
+  payloads of lists and maps, and lists of pointers compile.
+- **Diagnostics:** errors say what to write instead (`1e20`, `0..n`,
+  `a ** b`, `val s = match`, missing `:`, keywords as names), name the
+  closest field or method, suggest `readonly`, write out a missing init,
+  and no longer cascade; W0616 for comparing a non-nullable value with
+  null.
+- **Tooling:** `scripts/spec_coverage.py` measures the manual covered by
+  tests (582 of 583 units); the standard library parses with the
+  manual's grammar; hover shows doc comments of methods.
+
+## v4.9.0-alpha: Editor Support and Source-Level Debugging (2026-10-09)
+
+- **Editor:** the language server analyzes a buffer exactly as `ironc
+  check` does, with the standard library, so valid programs show no false
+  errors. Hover and go to definition work inside function bodies and into
+  the standard library; completion after `.` lists the members of any
+  receiver; signature help on method calls; semantic highlighting; inlay
+  hints for inferred types and parameter names; rename and references from
+  a declaration.
+- **Debugging:** `iron build --debug` and `iron debug` map breakpoints,
+  stepping, locals and the call stack to Iron lines and names in gdb,
+  LLDB, the Visual Studio debugger and VS Code, with formatters that show
+  strings, lists, maps and `T?` as Iron values.
+- **Diagnostics:** errors propose a fix: the closest name, the declared
+  signature, how to convert, the literal to write, `var` for a mutated
+  binding.
+- **Language and runtime:** `[T?]`, `Map[K, V?]` and `Channel[T?]`; lists
+  of maps, sets and channels; Int literal range checks; shifts defined for
+  every count; strict `to_int` / `to_float`; analysis frees all of its
+  memory. The installers verify the archive's SHA-256.
+
 ## v4.8.0-alpha: Test Blocks, Program Arguments and Loop Control (2026-10-08)
 
 - **Tests:** `test "name" { ... }` blocks with `assert_eq` and `assert_ne`;

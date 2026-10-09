@@ -1466,9 +1466,27 @@ void emit_indent(Iron_StrBuf *sb, int level) {
     }
 }
 
-/* Emit the C name for a value: _v{id} */
+static EmitValueName *g_value_names;  /* --debug: the current function's */
+
+void emit_set_value_names(EmitValueName *names) {
+    g_value_names = names;
+}
+
+const char *emit_vname(IronLIR_ValueId id) {
+    if (g_value_names) {
+        ptrdiff_t i = hmgeti(g_value_names, id);
+        if (i >= 0) return g_value_names[i].value;
+    }
+    static char bufs[8][24];
+    static unsigned next;
+    char *b = bufs[next++ & 7];
+    snprintf(b, sizeof(bufs[0]), "_v%u", id);
+    return b;
+}
+
+/* Emit the C name for a value: _v{id}, or its Iron name (--debug). */
 void emit_val(Iron_StrBuf *sb, IronLIR_ValueId id) {
-    iron_strbuf_appendf(sb, "_v%u", id);
+    iron_strbuf_appendf(sb, "%s", emit_vname(id));
 }
 
 /* ── Value helpers ───────────────────────────────────────────────────────── */
