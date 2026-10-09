@@ -33,7 +33,7 @@
 -- silently-wrong output under normal execution.
 
 func main() {
-  for i in 50 parallel {
+  for i in range(50) parallel {
     var work = i * i
     work = work + 1
   }

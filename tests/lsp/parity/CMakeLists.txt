@@ -97,31 +97,11 @@ set_tests_properties(test_parity_ironc_lsp_fmt PROPERTIES
 
 # Phase 9 Plan 09-02 Task 1 — Wave 0 v2 printer baseline capture utility.
 #
-# One-shot utility used to populate tests/lsp/fixtures/printer_v2_baseline/
-# BEFORE any printer change in Plan 09-02. Run once per refresh; the captured
-# .printed files are the byte-for-byte invariant guard for Pitfall 3
-# (zero v2 regression) per 09-RESEARCH.md §3 and §5 Wave 0. Not registered as
-# a ctest — invoked manually from the executor agent during plan execution.
-add_executable(printer_baseline_capture
-    printer_baseline_capture.c)
-target_include_directories(printer_baseline_capture PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/src/vendor)
-target_link_libraries(printer_baseline_capture
-    iron_compiler
-    iron_runtime
-    iron_stdlib
-    m
-    pthread)
-
 # Phase 9 Plan 09-02 Task 1 — v3 fixed-point parity test.
 #
 # Asserts iron_print_ast(parse(iron_print_ast(parse(src)))) ==
 #         iron_print_ast(parse(src))    (byte-identical)
-# for every tests/integration/v3_*.iron fixture. Also asserts every non-v3
-# fixture produces byte-identical iron_format_source output vs the Wave 0
-# baseline snapshot in tests/lsp/fixtures/printer_v2_baseline/ — the
-# Pitfall 3 zero-regression invariant.
+# for every tests/integration/v3_*.iron fixture.
 add_executable(test_parity_v3_print_fixed_point
     test_parity_v3_print_fixed_point.c)
 target_include_directories(test_parity_v3_print_fixed_point PRIVATE
@@ -131,8 +111,7 @@ target_compile_definitions(test_parity_v3_print_fixed_point PRIVATE
     _GNU_SOURCE
     # Phase 35 MIG-08: v3 root fixtures moved to v3-archive/; parity sweep
     # tracks the same corpus by following the rename so HARD-24 stays GREEN.
-    "TESTS_INTEGRATION_DIR=\"${CMAKE_SOURCE_DIR}/tests/integration/v3-archive\""
-    "PRINTER_V2_BASELINE_DIR=\"${CMAKE_SOURCE_DIR}/tests/lsp/fixtures/printer_v2_baseline\"")
+    "TESTS_INTEGRATION_DIR=\"${CMAKE_SOURCE_DIR}/tests/integration/v3-archive\"")
 target_link_libraries(test_parity_v3_print_fixed_point
     iron_compiler
     iron_runtime

@@ -14,7 +14,7 @@ func main() {
   println("sqrt(16) = {root}")
 
   -- Parallel for (basic, Iron syntax: for VAR in N parallel { BODY })
-  for i in 10 parallel {
+  for i in range(10) parallel {
     -- runs without crash
   }
   println("all features work")
