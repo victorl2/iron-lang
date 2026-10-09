@@ -1061,6 +1061,14 @@ add_test(NAME check_web_await
 set_tests_properties(check_web_await PROPERTIES
     PASS_REGULAR_EXPRESSION "error\\[E0501\\]")
 
+# IO.read_line reads standard input (manual 9.5).
+if(UNIX)
+    add_test(NAME read_line_stdin
+        COMMAND sh -c "printf 'hello\\nworld\\n' | \"$<TARGET_FILE:ironc>\" run \"${CMAKE_SOURCE_DIR}/tests/integration/stdin/read_line.iron\"")
+    set_tests_properties(read_line_stdin PROPERTIES
+        PASS_REGULAR_EXPRESSION "\\[hello\\] \\[world\\]")
+endif()
+
 # A program without main is reported by build, not by the linker.
 add_test(NAME build_no_main
     COMMAND $<TARGET_FILE:ironc> build
@@ -1429,13 +1437,25 @@ if(Python3_EXECUTABLE)
             --check ${CMAKE_SOURCE_DIR}/tests/spec_coverage_baseline.json)
     set_tests_properties(spec_coverage PROPERTIES LABELS "spec" TIMEOUT 300)
 endif()
+# The standard library prelude, parsed by every compile, stays within the
+# section 13 grammar of the manual (#324).
+if(Python3_EXECUTABLE)
+    file(GLOB _stdlib_iron ${CMAKE_SOURCE_DIR}/src/stdlib/*.iron)
+    add_test(NAME grammar_stdlib
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/grammar_check.py
+            --manual ${CMAKE_SOURCE_DIR}/docs/language_definition.md ${_stdlib_iron})
+    set_tests_properties(grammar_stdlib PROPERTIES LABELS "spec" TIMEOUT 300)
+endif()
 # run_benchmarks.sh is a POSIX shell script; Windows has no benchmark rows.
 if(UNIX)
 add_test(NAME benchmark_smoke
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmarks/run_benchmarks.sh
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# Runs alone (#325): it takes about 105 s on an idle machine and passed its
+# 240 s limit next to a parallel ctest, whose load also skews its timings.
 set_tests_properties(benchmark_smoke PROPERTIES
     TIMEOUT 240
+    RUN_SERIAL TRUE
     LABELS "benchmark"
     ENVIRONMENT "IRONC_BINARY=$<TARGET_FILE:ironc>;IRON_BENCH_PROBLEMS=int32_array_sum,binary_tree_inorder,longest_common_subseq,kmp_pattern_match,heap_sort,closure_call_overhead,concurrency_parallel_sum,word_break")
 endif()

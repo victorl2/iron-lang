@@ -2796,7 +2796,7 @@ test in `src/` can call that file's private functions; each runs in its own
 process, and a failed `assert`, `assert_eq`, `assert_ne` or a panic fails
 it.
 
-<!-- doctest-skip: a test block needs `iron test` to run -->
+<!-- doctest-test -->
 ```iron
 func parse_digit(c: String) -> Int {
     return "0123456789".index_of(c)
@@ -2968,7 +2968,7 @@ codes cited in this manual:
 | E0229 | empty list literal without a type |
 | E0230, E0231, E0232 | comptime step limit; unsupported comptime construct; comptime error |
 | E0233 | bitwise operator on a non-integer |
-| E0237 | method name reserved by a `pub` field accessor |
+| E0237 | method name reserved by a `pub` field accessor, or a method named `drop` (the destructor is `drop { ... }`) |
 | E0238 to E0245 | method tier violations (`readonly` writes, `pure` I/O and calls, modifier placement) |
 | E0246 to E0252 | `init` rules (read before assign, unassigned field, double assign, method on partial `self`, early return, delegation, return value) |
 | E0253, E0254, E0255 | patch adds a field; patch target not found; patch redefines a method |
@@ -3032,14 +3032,16 @@ decl           ::= import_decl
                  | val_decl
                  | var_decl
                  | [ 'nocopy' ] [ 'pub' ] object_decl
-                 | [ 'pub' ] ( func_decl | extern_decl | patch_decl | interface_decl | enum_decl | array_ext_decl )
+                 | [ 'pub' ] ( func_decl | extern_decl | patch_decl | interface_decl | enum_decl | array_ext_decl
+                             | type_method_decl )
                  | test_decl
 
 import_decl    ::= 'import' IDENT { '.' IDENT }
 func_decl      ::= [ '@' 'fusible' ] 'func' IDENT [ generic_params ] param_list [ '->' type ] block
 test_decl      ::= 'test' STRING block
 extern_decl    ::= 'extern' 'func' IDENT param_list [ '->' type ]
-array_ext_decl ::= 'func' '[' IDENT ']' '.' NAME [ generic_params ] param_list [ '->' type ] block
+array_ext_decl ::= [ '@' 'fusible' ] 'func' '[' IDENT ']' '.' NAME [ generic_params ] param_list [ '->' type ] block
+type_method_decl ::= [ '@' 'fusible' ] 'func' IDENT '.' NAME [ generic_params ] param_list [ '->' type ] block
 generic_params ::= '[' generic_param { ',' generic_param } [ ',' ] ']'
 generic_param  ::= IDENT [ ':' IDENT ]
 param_list     ::= '(' [ param { ',' param } [ ',' ] ] ')'
@@ -3143,6 +3145,8 @@ brackets of `postfix` and of a list `primary`, an element containing `?`
 `Map[String, [Int?]]()`), every other element as an `expr`. In `pattern`,
 the first alternative is used when the arm starts with `IDENT '.'` or with
 an uppercase identifier followed by `(`, and `expr` otherwise. The
-standalone forms `func Type.method()` and `func (r: T) method()` are
-recognized only to report `E0321` and `E0260`; `array_ext_decl` is used by
-the standard library and cannot be implemented in user code.
+standalone form `func (r: T) method()` is recognized only to report
+`E0260`. `type_method_decl` (`func Type.method()`) and `array_ext_decl`
+(`func [T].method()`) declare the standard library's methods; in a program
+they are errors (`E0321`, and `E0331` for a list extension with a body),
+and `patch object` is how a program adds methods to a type.

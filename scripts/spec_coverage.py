@@ -6,8 +6,9 @@ denominator is fixed by the manual, not chosen by the tests:
 
   syntax       each alternative, optional part and repetition of each
                production in section 13, used by the derivation of some
-               program of the positive corpus, or of a negative fixture the
-               grammar accepts (it fails in analysis, after parsing; one
+               program of the positive corpus, of the standard library
+               prelude, or of a negative fixture the grammar accepts (it
+               fails in analysis, after parsing; one
                derivation per file, rebuilt from the recognizer of
                scripts/grammar_check.py)
   diagnostics  each error and warning code of the section 11 table, expected
@@ -392,7 +393,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--manual", default=os.path.join(ROOT, "docs", "language_definition.md"))
     ap.add_argument("--corpus", action="append",
-                    help="positive corpus (default: tests/integration/v4, multi_file, test_blocks)")
+                    help="positive corpus (default: tests/integration/v4, multi_file, test_blocks, stdin)")
     ap.add_argument("--negative", action="append",
                     help="negative corpus (default: tests/integration/v4-fail, diagnostics)")
     ap.add_argument("--missing", action="store_true", help="list every uncovered unit")
@@ -402,7 +403,7 @@ def main() -> int:
     args = ap.parse_args()
 
     it = os.path.join(ROOT, "tests", "integration")
-    pos_roots = args.corpus or [os.path.join(it, d) for d in ("v4", "multi_file", "test_blocks")]
+    pos_roots = args.corpus or [os.path.join(it, d) for d in ("v4", "multi_file", "test_blocks", "stdin")]
     neg_roots = args.negative or [os.path.join(it, "v4-fail"), os.path.join(it, "diagnostics")]
     manual = read(args.manual)
     index = section_index(manual)
@@ -414,7 +415,12 @@ def main() -> int:
     # rejected (a list extension with a body, `parallel(pool)`), so only a
     # negative fixture can exercise them.
     negative = positive_sources([r for r in neg_roots if os.path.exists(r)])
-    syn_units, syn_cov = syntax_coverage(args.manual, sources + negative)
+    # The standard library is the prelude every compile parses (and the
+    # grammar_stdlib ctest keeps it within the grammar): its declarations
+    # are the only uses of type_method_decl and array_ext_decl. Syntax only;
+    # its calls are not library coverage.
+    stdlib = positive_sources([os.path.join(ROOT, "src", "stdlib")])
+    syn_units, syn_cov = syntax_coverage(args.manual, sources + negative + stdlib)
     diag_units = diagnostic_units(manual, index)
     diag_cov = diagnostic_coverage(diag_units, [r for r in neg_roots if os.path.exists(r)])
     lib_units = library_units(manual, index)
