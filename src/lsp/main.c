@@ -52,6 +52,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "util/os.h"
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
@@ -126,6 +129,14 @@ int main(int argc, char **argv) {
      * treats a Ctrl-Z as the end of stdin. */
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
+#endif
+#if defined(__GLIBC__)
+    /* Every open document has its own analysis thread, and glibc gives
+     * each thread its own malloc arena; each grows to the peak of an
+     * analysis with the stdlib prelude, so RSS climbed with the number of
+     * documents ever edited (the 30-minute soak: 46 MiB/hr). Two shared
+     * arenas keep it flat (5 MiB/hr in the same soak). */
+    mallopt(M_ARENA_MAX, 2);
 #endif
     /* ── 1. argv parse (Phase 7 Plan 07-01 Task 02: centralised) ─────── */
     IlspArgs args = ilsp_args_parse(argc, argv);
