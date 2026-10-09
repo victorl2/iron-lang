@@ -446,6 +446,16 @@ void emit_ensure_copy(EmitCtx *ctx, const char *obj_c_name,
 void emit_indent(Iron_StrBuf *sb, int level);
 void emit_val(Iron_StrBuf *sb, IronLIR_ValueId id);
 
+/* The C name of a value: `_v12`, or while a function body is emitted for
+ * `ironc build --debug`, the Iron name of the binding it holds (so a
+ * debugger shows `total`, not `_v12`). Valid until eight more calls. */
+const char *emit_vname(IronLIR_ValueId id);
+
+/* Names for the values of the function being emitted (stb_ds hashmap,
+ * value id -> C identifier); NULL restores `_vN` everywhere. */
+typedef struct { IronLIR_ValueId key; const char *value; } EmitValueName;
+void emit_set_value_names(EmitValueName *names);
+
 /* ── Value helpers ───────────────────────────────────────────────────────── */
 
 bool emit_type_is_pointer(const Iron_Type *t);

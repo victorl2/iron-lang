@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Visual Studio / VS Code (cppvsdbg) views of Iron values in programs built
+     with the debug build of `iron build`. Point the launch configuration's
+     "visualizerFile" at this file. -->
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+  <Type Name="Iron_String">
+    <DisplayString Condition="(heap.flags &amp; 1) != 0">{heap.data,[heap.byte_length]s8}</DisplayString>
+    <DisplayString>{sso.data,[sso.len]s8}</DisplayString>
+    <StringView Condition="(heap.flags &amp; 1) != 0">heap.data,[heap.byte_length]s8</StringView>
+    <StringView>sso.data,[sso.len]s8</StringView>
+  </Type>
+  <Type Name="Iron_List_*">
+    <DisplayString>{{ size={count} }}</DisplayString>
+    <Expand>
+      <ArrayItems>
+        <Size>count</Size>
+        <ValuePointer>items</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+  <Type Name="Iron_Map_*">
+    <DisplayString>{{ size={count} }}</DisplayString>
+    <Expand>
+      <CustomListItems>
+        <Variable Name="i" InitialValue="0"/>
+        <Loop Condition="i &lt; cap">
+          <If Condition="st[i] == 1">
+            <Item Name="[{keys[i]}]">vals[i]</Item>
+          </If>
+          <Exec>++i</Exec>
+        </Loop>
+      </CustomListItems>
+    </Expand>
+  </Type>
+  <Type Name="Iron_Set_*">
+    <DisplayString>{{ size={count} }}</DisplayString>
+    <Expand>
+      <CustomListItems>
+        <Variable Name="i" InitialValue="0"/>
+        <Loop Condition="i &lt; cap">
+          <If Condition="st[i] == 1">
+            <Item>items[i]</Item>
+          </If>
+          <Exec>++i</Exec>
+        </Loop>
+      </CustomListItems>
+    </Expand>
+  </Type>
+  <Type Name="Iron_Optional_*">
+    <DisplayString Condition="!has_value">null</DisplayString>
+    <DisplayString>{value}</DisplayString>
+  </Type>
+</AutoVisualizer>

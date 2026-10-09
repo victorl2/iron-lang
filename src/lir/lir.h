@@ -707,6 +707,11 @@ struct IronLIR_Func {
      * readonly functions ([T; N] and [T; <=N] return by caller-provided slot).
      * Default false via iron_lir_func_create memset. */
     bool               is_readonly;
+    /* Iron names of the SSA values `val` bindings are bound to (stb_ds
+     * hashmap, value id -> name). `var` bindings and parameters carry
+     * their names on the alloca / IronLIR_Param. `ironc build --debug`
+     * names the C locals after them so a debugger shows Iron names. */
+    struct { IronLIR_ValueId key; const char *value; } *value_names;
 };
 
 /* ── Module-level global binding (2026-07 remediation) ────────────────────
