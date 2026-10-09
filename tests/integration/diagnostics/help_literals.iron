@@ -17,4 +17,16 @@ func main() {
         c += j
     }
     println("{2 ** 3}")
+    val word = match c {
+        0 -> "zero"
+        else -> "more"
+    }
+    val size = if c > 1 {
+        "big"
+    } elif c > 0 {
+        "small"
+    } else {
+        "none"
+    }
+    println("{word} {size}")
 }

@@ -5,3 +5,5 @@ take the tuple apart with `val (a, b) = t`
 write `for i in range(n)`, which counts from 0 to n - 1
 write `for i in range(end - start)` and add start
 use Math.pow(a, b) for Float values
+'match' is a statement, not an expression
+'if' is a statement, not an expression

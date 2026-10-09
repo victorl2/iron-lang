@@ -2061,6 +2061,42 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
     }
 
     /* Unexpected token in expression position */
+    if (t->kind == IRON_TOK_MATCH || t->kind == IRON_TOK_IF) {
+        /* `val s = match x { ... }` / `val s = if c { a } else { b }`: both
+         * are statements (manual 4.7). Say so once and skip the whole
+         * construct; parsing its arms as statements reported more errors
+         * and left the binding undeclared. */
+        bool is_match = t->kind == IRON_TOK_MATCH;
+        iron_emit_diag_help(p, IRON_ERR_EXPECTED_EXPR, iron_token_span(p, t),
+                            is_match ? "'match' is a statement, not an expression"
+                                     : "'if' is a statement, not an expression",
+                            is_match ? "declare the binding with `var` first and assign it in "
+                                       "each arm, or move the match into a function that returns "
+                                       "the value"
+                                     : "declare the binding with `var` first and assign it in "
+                                       "each branch");
+        for (;;) {
+            while (!iron_check(p, IRON_TOK_LBRACE) && !iron_check(p, IRON_TOK_EOF))
+                iron_advance(p);
+            if (iron_check(p, IRON_TOK_EOF)) break;
+            int depth = 0;
+            do {
+                if (iron_check(p, IRON_TOK_LBRACE)) depth++;
+                else if (iron_check(p, IRON_TOK_RBRACE)) depth--;
+                iron_advance(p);
+            } while (depth > 0 && !iron_check(p, IRON_TOK_EOF));
+            /* `} else {` / `} elif c {` continue an if chain. */
+            int save = p->pos;
+            iron_skip_newlines(p);
+            if (!is_match && (iron_check(p, IRON_TOK_ELSE) || iron_check(p, IRON_TOK_ELIF))) {
+                iron_advance(p);
+                continue;
+            }
+            p->pos = save;
+            break;
+        }
+        return iron_make_error(p);
+    }
     if (t->kind == IRON_TOK_ERROR) {
         /* The lexer already reported this token (`1e20`, a stray byte). */
     } else if (t->kind == IRON_TOK_ARROW) {

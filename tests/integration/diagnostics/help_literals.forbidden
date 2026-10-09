@@ -1,2 +1,4 @@
 expected expression
 failed to parse interpolated expression
+undefined identifier 'word'
+undefined identifier 'size'
