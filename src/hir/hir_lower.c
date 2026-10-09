@@ -881,6 +881,7 @@ static void inject_pattern_let_stmts(IronHIR_LowerCtx *ctx,
             declare_var(ctx, bname, vid);
             IronHIR_Stmt *let_s = iron_hir_stmt_let(mod, vid, ptype, field_expr,
                                                       false, span);
+            let_s->let.borrows = true;
             iron_hir_block_add_stmt(out, let_s);
         } else if (nested && nested->kind == IRON_NODE_PATTERN) {
             /* Nested pattern: recurse with the sub-enum type */

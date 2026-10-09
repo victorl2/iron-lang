@@ -252,6 +252,9 @@ struct IronHIR_Stmt {
             Iron_Type     *type;       /* declared type; NULL if inferred */
             IronHIR_Expr  *init;       /* initializer; NULL if uninitialized */
             bool           is_mutable; /* var vs val */
+            /* A match pattern's payload binding: a view of the subject's
+             * payload, which the subject keeps owning. */
+            bool           borrows;
         } let;
 
         /* IRON_HIR_STMT_ASSIGN */

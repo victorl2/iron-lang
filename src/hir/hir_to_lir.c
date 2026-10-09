@@ -627,6 +627,25 @@ static bool hir_expr_is_place(IronHIR_Expr *e) {
     return e && (e->kind == IRON_HIR_EXPR_IDENT || hir_expr_is_borrowed_elem(e));
 }
 
+/* A type that owns a list buffer or a hash table, directly or through
+ * object fields (the analyzer's E0328 rule, list_ownership.c): copying its
+ * bytes shares the storage, so a second owner would free it twice. */
+static bool hir_type_owns_list(const Iron_Type *t, int depth) {
+    if (!t || depth > 16) return false;
+    if (t->kind == IRON_TYPE_ARRAY) return t->array.size < 0 && !t->array.is_bounded;
+    if (t->kind != IRON_TYPE_OBJECT || !t->object.decl) return false;
+    if (t->object.elem && t->object.decl->name &&
+        (strcmp(t->object.decl->name, "Map") == 0 || strcmp(t->object.decl->name, "Set") == 0))
+        return true;
+    Iron_ObjectDecl *od = t->object.decl;
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        Iron_Type *ft = f ? (f->resolved_type ? f->resolved_type : f->field_type_cached) : NULL;
+        if (hir_type_owns_list(ft, depth + 1)) return true;
+    }
+    return false;
+}
+
 /* Fix up the copy stored at `slot` when it was copied out of a place. */
 static void emit_copy_fixup_at(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src,
                                Iron_Type *t, IronLIR_ValueId slot,
@@ -4207,8 +4226,13 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             bool enum_borrows = type && type->kind == IRON_TYPE_ENUM &&
                                 enum_has_boxed_payload(type) &&
                                 stmt->let.init && hir_expr_is_place(stmt->let.init);
+            /* `Bag.Items(xs) -> ...`: xs views the subject's list, which
+             * the subject frees. It was copied bytewise and freed at the
+             * arm's end, so the next match on the subject, or its own drop,
+             * freed the buffer again. */
+            bool pattern_borrows = stmt->let.borrows && hir_type_owns_list(type, 0);
             bool needs_drop_alloca = stmt->let.init &&
-                                     !init_is_heap_or_rc && !enum_borrows &&
+                                     !init_is_heap_or_rc && !enum_borrows && !pattern_borrows &&
                                      type_needs_drop(type, ctx->program) &&
                                      ctx->defer_depth > 0 &&
                                      ctx->drop_stacks &&
@@ -4231,7 +4255,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             } else {
                 if (stmt->let.init) {
                     IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
-                    if (!init_is_heap_or_rc)
+                    if (!init_is_heap_or_rc && !pattern_borrows)
                         init_val = copy_for_new_owner(ctx, stmt->let.init,
                                                       init_val, type, span);
                     hmput(ctx->val_binding_map, vid, init_val);

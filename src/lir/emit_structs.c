@@ -473,6 +473,10 @@ static void emit_ensure_enum_list(EmitCtx *ctx, const Iron_Type *et) {
     if (shgeti(ctx->emitted_mono_list_types, mangled) >= 0) return;
     shput(ctx->emitted_mono_list_types, mangled, true);
     if (et->enu.decl->name && strcmp(et->enu.decl->name, "Address") == 0) return;
+    /* An enum payload may have declared the struct already (emit_enum_decl). */
+    char early[256];
+    snprintf(early, sizeof(early), "early:%s", mangled);
+    if (shgeti(ctx->emitted_mono_list_types, early) < 0)
     iron_strbuf_appendf(&ctx->struct_bodies,
         "typedef struct Iron_List_%s {\n"
         "    %s    *items;\n"
@@ -947,9 +951,52 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
 
         /* Per-variant payload structs (only for variants with payloads) */
         Iron_Type ***vpt = td->type->enu.variant_payload_types;
+
+        /* A payload that is a list of an ADT enum (`Node([Tree])`, the enum
+         * itself included) holds only a pointer to its elements: define the
+         * list struct and its prototypes here, before the payload structs
+         * and the <Enum>_free / _copied glue that use them. They were
+         * emitted with the other lists, after every struct, and the C did
+         * not compile. */
+        bool self_list = false;
+        for (int j = 0; vpt && j < ed->variant_count; j++) {
+            Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
+            for (int k = 0; vpt[j] && k < ev->payload_count; k++) {
+                Iron_Type *ft = vpt[j][k];
+                if (!ft || ft->kind != IRON_TYPE_ARRAY || ft->array.size >= 0 ||
+                    ft->array.is_bounded || !ft->array.elem) continue;
+                Iron_Type *el = ft->array.elem;
+                if (el->kind != IRON_TYPE_ENUM || !el->enu.decl || !el->enu.decl->has_payloads ||
+                    (el->enu.decl->name && strcmp(el->enu.decl->name, "Address") == 0))
+                    continue;
+                const char *em = el->enu.mangled_name ? el->enu.mangled_name
+                                                      : emit_mangle_name(el->enu.decl->name, ctx->arena);
+                if (strcmp(em, mangled) == 0) self_list = true;
+                if (shgeti(ctx->emitted_mono_list_types, em) >= 0) continue;
+                size_t kl = strlen(em) + 7;
+                char *key = (char *)iron_arena_alloc(ctx->arena, kl, 1);
+                if (!key) iron_oom_abort("emit_structs.c:emit_enum_decl early list key");
+                snprintf(key, kl, "early:%s", em);
+                if (shgeti(ctx->emitted_mono_list_types, key) >= 0) continue;
+                shput(ctx->emitted_mono_list_types, key, true);
+                iron_strbuf_appendf(&ctx->struct_bodies,
+                    "typedef struct Iron_List_%s {\n"
+                    "    %s    *items;\n"
+                    "    int64_t count;\n"
+                    "    int64_t capacity;\n"
+                    "} Iron_List_%s;\n"
+                    "IRON_LIST_DECL(%s, %s)\n",
+                    em, em, em, em, em);
+            }
+        }
         for (int j = 0; j < ed->variant_count; j++) {
             Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[j];
             if (ev->payload_count <= 0) continue;
+            /* Spelling a payload type may emit its definition (a Map's
+             * table, a cell's glue) into struct_bodies: do it before the
+             * struct is opened, or it lands inside `typedef struct { `. */
+            for (int k = 0; vpt && vpt[j] && k < ev->payload_count; k++)
+                if (vpt[j][k]) (void)emit_type_to_c(vpt[j][k], ctx);
             iron_strbuf_appendf(&ctx->struct_bodies,
                                  "typedef struct { ");
             /* Phase 81: Void payload support.
@@ -1144,6 +1191,9 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
             iron_strbuf_free(&body);
             iron_strbuf_free(&protos);
         }
+        /* The enum is complete and its glue emitted: the list of itself
+         * can be implemented now (also when no list literal asks for it). */
+        if (self_list) emit_ensure_enum_list(ctx, td->type);
     } else {
         /* Plain enum: emit unchanged typedef enum */
         iron_strbuf_appendf(&ctx->enum_defs, "typedef enum {\n");
