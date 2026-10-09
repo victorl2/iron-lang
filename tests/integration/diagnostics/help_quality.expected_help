@@ -8,3 +8,6 @@ use interpolation
 write `(a & b) == c`
 one expression goes between { and }
 object 'Dog' does not declare `impl Named`: write `object Dog impl Named { ... }`
+did you mean 'x'?
+fields of 'P': x
+a list has no text form

@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
+#include <ctype.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2407,6 +2408,18 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
 
         /* Binary operators */
         Iron_Token *op_tok = iron_advance(p);
+        /* `a ** b`: one error instead of "expected expression" at the
+         * second `*` and another at b. */
+        if (op_tok->kind == IRON_TOK_STAR && iron_check(p, IRON_TOK_STAR) &&
+            iron_current(p)->line == op_tok->line &&
+            iron_current(p)->col == op_tok->col + 1) {
+            Iron_Span pw = iron_token_span(p, op_tok);
+            iron_advance(p);
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN, pw,
+                           "Iron has no power operator ('**')",
+                           "use Math.pow(a, b) for Float values, or multiply");
+        }
         iron_skip_newlines(p);
         Iron_Node *right = iron_parse_expr_prec(p, prec);
 
@@ -2627,6 +2640,42 @@ static Iron_Node *iron_parse_for_stmt(Iron_Parser *p) {
     if (!iron_expect(p, IRON_TOK_IN)) return iron_make_error(p);
 
     Iron_Node *iterable = iron_parse_expr(p);
+
+    /* `for i in 0..n`: Iron has no range literal. Report it once and, for a
+     * start of 0, read it as `range(n)` so the body is still checked;
+     * before, the block failed to parse and every use of the loop variable
+     * reported again. */
+    if (iron_check(p, IRON_TOK_DOTDOT)) {
+        Iron_Span dd_span = iron_token_span(p, iron_current(p));
+        iron_advance(p);
+        Iron_Node *end_expr = iron_check(p, IRON_TOK_LBRACE) ? NULL : iron_parse_expr(p);
+        bool from_zero = iterable && iterable->kind == IRON_NODE_INT_LIT &&
+                         ((Iron_IntLit *)iterable)->value &&
+                         strcmp(((Iron_IntLit *)iterable)->value, "0") == 0;
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN, dd_span,
+                       "Iron has no range literal ('..')",
+                       from_zero
+                           ? "write `for i in range(n)`, which counts from 0 to n - 1"
+                           : "write `for i in range(end - start)` and add start, or count with a while loop");
+        if (from_zero && end_expr) {
+            Iron_Ident  *callee = ARENA_ALLOC(p->arena, Iron_Ident);
+            Iron_CallExpr *call = ARENA_ALLOC(p->arena, Iron_CallExpr);
+            Iron_Node  **args   = NULL;
+            if (callee && call) {
+                callee->kind = IRON_NODE_IDENT;
+                callee->span = iterable->span;
+                callee->name = "range";
+                arrput(args, end_expr);
+                call->kind      = IRON_NODE_CALL;
+                call->span      = iron_span_merge(iterable->span, end_expr->span);
+                call->callee    = (Iron_Node *)callee;
+                call->args      = AST_ARR(args);
+                call->arg_count = 1;
+                iterable = (Iron_Node *)call;
+            }
+        }
+    }
 
     /* optional: parallel [( pool )] */
     bool       is_parallel = false;
@@ -6141,6 +6190,37 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub) {
         /* Phase 3 NAV-14: capture doc-comment run for this variant BEFORE
          * consuming its identifier. */
         const char *variant_doc = iron_collect_doc_run(p, p->arena);
+        /* `func flip() -> Dir { ... }` in an enum body: enums have no
+         * methods (manual 5.6). Say so, then skip the whole method so the
+         * rest of the enum and the file parse normally. */
+        if (iron_check(p, IRON_TOK_FUNC) || iron_check(p, IRON_TOK_READONLY) ||
+            iron_check(p, IRON_TOK_PURE) || iron_check(p, IRON_TOK_PUB)) {
+            Iron_Token *at = iron_current(p);
+            const char *mname = NULL;
+            int depth = 0;
+            while (!iron_check(p, IRON_TOK_EOF)) {
+                if (!mname && iron_check(p, IRON_TOK_IDENTIFIER)) mname = iron_current(p)->value;
+                if (iron_check(p, IRON_TOK_LBRACE)) depth++;
+                if (iron_check(p, IRON_TOK_RBRACE)) {
+                    if (depth == 0) break;        /* the enum's own `}` */
+                    if (--depth == 0) { iron_advance(p); break; }
+                }
+                iron_advance(p);
+            }
+            const char *ename = name_tok && name_tok->value ? name_tok->value : "E";
+            char help[256];
+            char lower[64];
+            snprintf(lower, sizeof(lower), "%c", (char)tolower((unsigned char)ename[0]));
+            snprintf(help, sizeof(help),
+                     "put the behavior in a function that takes the enum: "
+                     "`func %s(%s: %s) ...`",
+                     mname ? mname : "f", lower, ename);
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN, iron_token_span(p, at),
+                           "enums have no methods",
+                           iron_arena_strdup(p->arena, help, strlen(help)));
+            continue;
+        }
         if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,

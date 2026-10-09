@@ -1133,7 +1133,9 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                                    msg_copy, iron_did_you_mean(ctx->arena,
                                        iron_best_typo_candidate(ctx->current_scope, ctx->arena,
                                                                 pat->enum_name)));
-                    break;
+                    /* Still declare the bindings: each use of them was
+                     * reported again as an undefined identifier. */
+                    goto define_bindings;
                 }
                 /* Validate variant exists in the enum */
                 /* PROT-03 row 22 (AUDIT-01 M-severity): IRON_SYM_ENUM's
@@ -1172,9 +1174,10 @@ static void resolve_node(ResolveCtx *ctx, Iron_Node *node) {
                                    IRON_ERR_UNKNOWN_VARIANT, pat->span,
                                    msg_copy, iron_enum_variant_help(ctx->arena, ed,
                                                                     pat->variant_name));
-                    break;
+                    goto define_bindings;
                 }
             }
+        define_bindings:
             /* Introduce binding variables into current (arm) scope */
             for (int i = 0; i < pat->binding_count; i++) {
                 const char *bname = pat->binding_names ? pat->binding_names[i] : NULL;

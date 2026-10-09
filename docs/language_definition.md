@@ -257,7 +257,8 @@ return in the other branch) until `x` is assigned a value that may be
 null: `while cur != null { total += cur.value; cur = cur.next }` walks a
 linked list. A binding assigned inside a loop or a closure is not
 narrowed there by an outer check, since the assignment may already have
-run.
+run. Comparing a value whose type is not nullable with `null` warns
+(`W0616`): the answer is known before the program runs.
 
 ```iron
 func find(xs: [Int], target: Int) -> Int? {

@@ -41,4 +41,6 @@ func main() {
     val v = P(2)
     v.x = 5
     println("{total total}")
+    println("{p.xx} {p.nope}")
+    println("{[1, 2]}")
 }

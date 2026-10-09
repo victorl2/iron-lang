@@ -9,4 +9,12 @@ func main() {
     val t = pair()
     println("{t.0}")
     println("{3e2}")
+    var c = 0
+    for i in 0..3 {
+        c += i
+    }
+    for j in 1..4 {
+        c += j
+    }
+    println("{2 ** 3}")
 }

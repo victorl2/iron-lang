@@ -1,0 +1,13 @@
+-- Enums have no methods (manual 5.6): one error, then the file parses on.
+enum Dir {
+    North,
+    func flip() -> Dir {
+        return Dir.North
+    }
+    South,
+}
+
+func main() {
+    val d = Dir.South
+    println("{d == Dir.North}")
+}

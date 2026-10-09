@@ -1,0 +1,3 @@
+comparison with null is always false: 'Int' is never null
+comparison with null is always true: 'String' is never null
+only a 'T?' value can be null

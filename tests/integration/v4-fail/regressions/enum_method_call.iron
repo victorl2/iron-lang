@@ -1,0 +1,10 @@
+-- A method call on an enum value was typed Void and compiled.
+enum Dir {
+    North,
+    South,
+}
+
+func main() {
+    val d = Dir.North
+    d.flip()
+}
