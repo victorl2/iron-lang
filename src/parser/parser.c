@@ -2095,6 +2095,11 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
             p->pos = save;
             break;
         }
+        /* The construct is consumed and the statement goes on: the binding
+         * keeps an error initializer (typed as an error, so its uses add
+         * nothing) instead of the statement being dropped, which left the
+         * name undeclared and let recovery swallow the next statement. */
+        p->stmt_errored = false;
         return iron_make_error(p);
     }
     if (t->kind == IRON_TOK_ERROR) {
