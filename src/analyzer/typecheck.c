@@ -4761,7 +4761,15 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                     snprintf(msg, sizeof(msg),
                                              "cannot cast '%s' to '%s': source must be numeric or Bool",
                                              src_s, tgt_s);
-                                    emit_error(ctx, IRON_ERR_INVALID_CAST, ce->span, msg, NULL);
+                                    /* `Int("42")`: text is parsed, not cast. */
+                                    const char *chelp = NULL;
+                                    if (src_type->kind == IRON_TYPE_STRING)
+                                        chelp = iron_type_is_float(target_t)
+                                            ? "parse the text with s.to_float() (0 when it is not a number)"
+                                            : iron_type_is_integer(target_t)
+                                                ? "parse the text with s.to_int() (0 when it is not a number)"
+                                                : NULL;
+                                    emit_error(ctx, IRON_ERR_INVALID_CAST, ce->span, msg, chelp);
                                 }
                                 /* Int->Bool is disallowed (must use explicit comparison) */
                                 else if (iron_type_is_integer(src_type) &&

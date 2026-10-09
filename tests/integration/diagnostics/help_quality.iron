@@ -43,4 +43,5 @@ func main() {
     println("{total total}")
     println("{p.xx} {p.nope}")
     println("{[1, 2]}")
+    println("{Int("42")} {Float("2.5")}")
 }

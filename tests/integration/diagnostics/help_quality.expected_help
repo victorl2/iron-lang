@@ -11,3 +11,5 @@ object 'Dog' does not declare `impl Named`: write `object Dog impl Named { ... }
 did you mean 'x'?
 fields of 'P': x
 a list has no text form
+parse the text with s.to_int()
+parse the text with s.to_float()
