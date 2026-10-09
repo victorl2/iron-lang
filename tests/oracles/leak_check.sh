@@ -88,7 +88,10 @@ done
 # tests, and a build plus a detector per worker is heavy (a hosted macOS
 # runner lost contact with GitHub when every core was taken).
 cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
-jobs=${LEAK_CHECK_JOBS:-$(( cores > 1 ? cores / 2 : 1 ))}
+# A 3-core hosted macOS runner got one worker and took 2000 to 3000+ s;
+# two still leave a core free.
+half=$(( cores / 2 )); [ "$cores" -ge 3 ] && [ "$half" -lt 2 ] && half=2; [ "$half" -lt 1 ] && half=1
+jobs=${LEAK_CHECK_JOBS:-$half}
 self=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 tr '\n' '\0' < "$work/list" | xargs -0 -n 8 -P "$jobs" bash "$self" --one "$detector" "$IRON" "$work" > "$work/results" 2>&1
 grep -v '^\[PASS\]' "$work/results" >&2
