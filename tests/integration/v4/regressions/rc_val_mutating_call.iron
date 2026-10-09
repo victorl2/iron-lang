@@ -1,0 +1,33 @@
+-- A method that writes self, called through a `val` rc handle: the handle
+-- reaches a shared object whose fields may be written through any handle
+-- (manual 6.3), so the call is accepted like `a.total = 1` is. It was
+-- E0235, reported twice.
+object Acc {
+    var total: Int
+    init() {
+        self.total = 0
+    }
+    func add(n: Int) {
+        self.total += n
+    }
+}
+
+object Holder {
+    val acc: rc Acc
+}
+
+func main() {
+    val a = rc Acc()
+    val b = a
+    b.add(5)
+    a.add(2)
+    println("{a.total} {b.total}")
+    val weak_a = a.downgrade()
+    val up = weak_a.upgrade()
+    if up != null {
+        up.add(3)
+    }
+    val h = Holder(a)
+    h.acc.add(10)
+    println("{a.total}")
+}

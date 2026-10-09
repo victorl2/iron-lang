@@ -1,0 +1,3 @@
+declare it `readonly func area(...)` in 'Shape' and its implementations
+'peek' does not change self: declare it `readonly func peek(...)`
+declare 'c' with var instead of val

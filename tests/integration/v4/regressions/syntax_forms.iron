@@ -1,0 +1,80 @@
+-- Syntax forms of section 13 that no other test used: generic constraints
+-- and trailing commas, val parameters, pub / readonly / pure members of a
+-- patch, pure interface methods, enum values, typed tuple destructuring,
+-- every compound assignment, irrefutable nested patterns, function types
+-- in lists, ~ and not.
+interface Named {
+    pure func tag() -> Int
+    readonly func name() -> String {
+        return "anon"
+    }
+}
+
+object P impl Named {
+    val n: Int
+    pure func tag() -> Int {
+        return 7
+    }
+}
+
+patch object P {
+    pub readonly func doubled() -> Int {
+        return self.n * 2
+    }
+    pure func zero() -> Int {
+        return 0
+    }
+}
+
+enum Code {
+    Ok = 0,
+    Bad = 5,
+}
+
+enum Opt {
+    Some(Int),
+    None,
+}
+
+enum Pair {
+    Two(Cell, Opt),
+}
+
+enum Cell {
+    C(Int),
+}
+
+func pick[T: Named, U,](a: T, b: U,) -> Int {
+    return a.tag()
+}
+
+func add(val x: Int, y: Int,) -> Int {
+    return x + y
+}
+
+func main() {
+    val p = P(3)
+    println("{p.doubled()} {p.name()} {pick(p, 1)} {add(1, 2,)}")
+    var q = 20
+    q /= 4
+    q <<= 1
+    q >>= 1
+    q &= 7
+    q |= 8
+    q ^= 1
+    println("{q}")
+    val (a, b): (Int, String) = (1, "x")
+    println("{a}{b}")
+    val pr = Pair.Two(Cell.C(4), Opt.None)
+    match pr {
+        Pair.Two(Cell.C(v), _) -> println("{v}")
+        else -> println("none")
+    }
+    val f: func(Int) -> Int = func(x: Int) -> Int { return x + 1 }
+    val fs: [func(Int) -> Int] = [f]
+    println("{fs[0](1)}")
+    val nn: Int? = null
+    println("{nn == null} {Code.Bad == Code.Bad}")
+    val r = ~5
+    println("{r} {not true}")
+}

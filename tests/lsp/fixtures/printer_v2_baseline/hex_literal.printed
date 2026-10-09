@@ -1,8 +1,0 @@
-func main() {
-  println("{255}")
-  println("{255}")
-  println("{16}")
-  println("{3735928559}")
-  println("{0}")
-  println("{(1 << 8)}")
-}

@@ -1,0 +1,27 @@
+-- W0616: comparing a value that is never null with null. A map's get()
+-- returns V, so `m.get(k) == null` used to pass silently.
+func pick(a: Float?) -> Float {
+    if a != null {
+        -- narrowed by the outer check: no warning
+        if a == null {
+            return -1.0
+        }
+        return a
+    }
+    return 0.0
+}
+
+func main() {
+    var m = Map[String, Int]()
+    m.put("a", 1)
+    val v = m.get("a")
+    if v == null {
+        println("never")
+    }
+    val s = "x"
+    println("{s != null} {pick(2.0)}")
+    val flags: [Bool?] = [true, null]
+    for f in flags {
+        println("{f == null}")
+    }
+}

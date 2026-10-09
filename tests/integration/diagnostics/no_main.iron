@@ -1,0 +1,5 @@
+-- A program without main: build says so instead of failing to link
+-- ("Undefined symbols: _main").
+func helper() -> Int {
+    return 1
+}

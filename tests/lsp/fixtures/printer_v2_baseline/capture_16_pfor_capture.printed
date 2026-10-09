@@ -1,7 +1,0 @@
-func main() {
-  val factors = [2, 4, 8]
-  for i in 3 parallel {
-    val v = (factors[i] * (i + 1))
-  }
-  println("pfor captured")
-}

@@ -71,7 +71,7 @@ func main() {
   -- Benchmark: parallel
   val start_par_ns = Time.now_ns()
   for iter in range(iterations) {
-    for i in height parallel {
+    for i in range(height) parallel {
       val x = mandelbrot_row_checksum(i)
     }
   }

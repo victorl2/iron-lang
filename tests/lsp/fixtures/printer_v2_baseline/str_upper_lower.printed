@@ -1,5 +1,0 @@
-func main() {
-  val s = "Hello World"
-  println(s.upper())
-  println(s.lower())
-}

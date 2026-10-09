@@ -1,0 +1,59 @@
+-- A pattern binding of a list (or map, or object holding a list) payload
+-- is a view of the subject's payload. It was copied bytewise and freed at
+-- the arm's end, so matching the same value twice, or matching a
+-- parameter, freed the list again (a crash in the allocator). A payload
+-- that is a list of the enum itself also failed to compile.
+enum Bag {
+    Items([Int]),
+    Named(Map[String, Int]),
+    Boxed(Holder),
+    Empty,
+}
+
+object Holder {
+    val xs: [Int]
+}
+
+enum Tree {
+    Leaf(Int),
+    Node([Tree]),
+}
+
+func size(b: Bag) -> Int {
+    match b {
+        Bag.Items(xs) -> return xs.len()
+        Bag.Named(m) -> return m.len()
+        Bag.Boxed(h) -> return h.xs.len()
+        Bag.Empty -> return 0
+    }
+}
+
+func total(t: Tree) -> Int {
+    match t {
+        Tree.Leaf(v) -> return v
+        Tree.Node(kids) -> {
+            var s = 0
+            for k in kids {
+                s += total(k)
+            }
+            return s
+        }
+    }
+}
+
+func main() {
+    val b = Bag.Items([1, 2, 3])
+    println("{size(b)} {size(b)}")
+    match b {
+        Bag.Items(xs) -> println("{xs.len()}")
+        else -> println("other")
+    }
+    var m = Map[String, Int]()
+    m.put("a", 1)
+    val n = Bag.Named(m.copy())
+    println("{size(n)} {size(n)}")
+    val h = Bag.Boxed(Holder([4, 5]))
+    println("{size(h)} {size(h)}")
+    val t = Tree.Node([Tree.Leaf(1), Tree.Node([Tree.Leaf(2), Tree.Leaf(3)])])
+    println("{total(t)} {total(t)}")
+}

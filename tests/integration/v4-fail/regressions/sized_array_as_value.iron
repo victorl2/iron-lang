@@ -1,0 +1,6 @@
+-- `val xs = [Int; 3]` built an empty growable list (the size was
+-- dropped): [T; N] is a type, not a value.
+func main() {
+    val fixed = [Int; 3]
+    println("{fixed.len()}")
+}

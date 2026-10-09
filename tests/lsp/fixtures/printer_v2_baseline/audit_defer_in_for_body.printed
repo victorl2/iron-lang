@@ -1,7 +1,0 @@
-func main() {
-  for i in 3 {
-    defer println("defer {i}")
-    println("start {i}")
-  }
-  println("done")
-}

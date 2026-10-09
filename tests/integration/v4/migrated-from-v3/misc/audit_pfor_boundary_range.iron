@@ -1,15 +1,15 @@
 func main() {
-  for i in 1 parallel {
+  for i in range(1) parallel {
     var x = i + 1
   }
   println("range 1 done")
 
-  for i in 2 parallel {
+  for i in range(2) parallel {
     var x = i + 1
   }
   println("range 2 done")
 
-  for i in 3 parallel {
+  for i in range(3) parallel {
     var x = i + 1
   }
   println("range 3 done")

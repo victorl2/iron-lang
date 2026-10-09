@@ -30,7 +30,7 @@ func main() {
     val start_ns = Time.now_ns()
     val iters = 3
     for iter in range(iters) {
-        for r in rows parallel {
+        for r in range(rows) parallel {
             val rs = row_sum_50(r)
         }
     }

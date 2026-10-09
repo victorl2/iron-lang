@@ -1,0 +1,7 @@
+undefined identifier 'nope'
+no method 'sorted' on '[Int]'
+undefined identifier 'Point'
+unknown enum 'Outcome'
+no method 'nothing' on type 'Pt2'
+the call before '.' returns nothing (Void)
+a '.' at the start of a line continues the previous line

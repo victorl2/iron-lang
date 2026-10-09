@@ -1,0 +1,14 @@
+-- After the if, z is the then branch's value: null.
+object Node {
+    val value: Int
+}
+
+func main() {
+    var z: Node? = Node(3)
+    if z != null {
+        z = null
+    } else {
+        return
+    }
+    println("{z.value}")
+}

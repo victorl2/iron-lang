@@ -1,0 +1,16 @@
+-- The loop assigns null after the read: the next pass reads null.
+object Node {
+    val value: Int
+}
+
+func main() {
+    var x: Node? = Node(1)
+    if x != null {
+        var i = 0
+        while i < 2 {
+            println("{x.value}")
+            x = null
+            i += 1
+        }
+    }
+}

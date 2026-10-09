@@ -1,0 +1,42 @@
+-- Syntax forms of section 13 no other test used: a drop block in a patch,
+-- trailing commas in a payload list, a destructuring and nested patterns,
+-- layout: aos, and allow_drop_skip: false.
+object Res {
+    val id: Int
+}
+
+patch object Res {
+    drop {
+        println("drop {self.id}")
+    }
+}
+
+enum Pt {
+    Two(Int, Int,),
+}
+
+enum Wrap {
+    W(Pt),
+}
+
+func pair() -> (Int, String) {
+    return (1, "b")
+}
+
+func main() {
+    val (a, b,) = pair()
+    println("{a}{b}")
+    val w = Wrap.W(Pt.Two(3, 4))
+    match w {
+        Wrap.W(Pt.Two(x, y,),) -> println("{x + y}")
+    }
+    val r = rc Res(7)
+    val wr: weak rc Res = r.downgrade()
+    println("{wr.upgrade() != null}")
+    val xs: [Int, layout: aos] = [1, 2]
+    println("{xs.len()}")
+    {
+        val h = heap(allow_drop_skip: false) Res(9)
+        free h
+    }
+}

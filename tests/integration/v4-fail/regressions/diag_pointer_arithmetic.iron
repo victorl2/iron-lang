@@ -1,0 +1,6 @@
+-- E0268, as section 11 of the manual lists it.
+func main() {
+    var n = 3
+    val p = &n
+    val q = p + 1
+}

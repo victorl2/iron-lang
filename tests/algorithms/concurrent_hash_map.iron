@@ -118,7 +118,7 @@ func main() {
 
   -- Test 2: Parallel for simulation of concurrent reads
   println("parallel reads:")
-  for ci in 4 parallel {
+  for ci in range(4) parallel {
     -- Each iteration would read from the map concurrently
     -- Body is empty for determinism; main thread prints results
   }

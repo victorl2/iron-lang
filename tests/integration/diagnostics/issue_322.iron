@@ -1,0 +1,18 @@
+-- #322: misleading help and cascades.
+-- A user type named like a standard library type is reported once (E0201),
+-- not again at each use of its fields and methods; a missing String method
+-- does not suggest the no-op `release`; changing a map's get() result
+-- explains that get() returns a copy.
+object Box {
+    val n: Int
+}
+
+func main() {
+    val b = Box(1)
+    println("{b.n}")
+    b.show()
+    println("abc".reverse())
+    var m = Map[String, [Int]]()
+    m.put("a", [1])
+    m.get("a").push(3)
+}

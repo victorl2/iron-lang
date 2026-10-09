@@ -1,0 +1,7 @@
+drop 1
+drop 2
+true
+drop 3
+true
+drop 4
+end

@@ -10,11 +10,25 @@ object P {
     func dist() -> Int { return self.x }
 }
 
+interface Named {
+    readonly func name() -> String
+}
+
+object Dog {
+    val n: String
+    readonly func name() -> String { return self.n }
+}
+
 func area(w: Int, h: Int) -> Int {
     return w * h
 }
 
+func label_of(n: Int) -> String {
+    return n
+}
+
 func main() {
+    val pets: [Named] = [Dog("rex")]
     val total = 1
     println("{totl}")
     val s = "abc"
@@ -31,4 +45,7 @@ func main() {
     val v = P(2)
     v.x = 5
     println("{total total}")
+    println("{p.xx} {p.nope}")
+    println("{[1, 2]}")
+    println("{Int("42")} {Float("2.5")}")
 }

@@ -251,7 +251,14 @@ be written for any non-pointer type (`Int?`, `String?`, `Node?`,
 `Result[Int, String]?`). A plain `T` converts to `T?` implicitly, so a
 function declared `-> Int?` may `return i` or `return null`. Reading a
 field or calling a method through a nullable value without checking it
-first is an error (`E0204`); compare with `null` first.
+first is an error (`E0204`); compare with `null` first. `x != null`
+narrows `x` to `T` inside an `if` or `while` body (and after an early
+return in the other branch) until `x` is assigned a value that may be
+null: `while cur != null { total += cur.value; cur = cur.next }` walks a
+linked list. A binding assigned inside a loop or a closure is not
+narrowed there by an outer check, since the assignment may already have
+run. Comparing a value whose type is not nullable with `null` warns
+(`W0616`): the answer is known before the program runs.
 
 ```iron
 func find(xs: [Int], target: Int) -> Int? {
@@ -941,7 +948,10 @@ iterable may be a list, fixed array, bounded vector or `rc [T]` (elements),
 a string (one-character strings), a `Set[T]` (items) or `range(n)` (the
 integers `0` to `n - 1`); a `Map[K, V]` is iterated with two names, `for
 (key, value) in m` (section 9.10). The loop variable is immutable inside
-the body. `range` takes exactly one argument. Appending `parallel` after the iterable runs the
+the body. `range` takes exactly one argument and is written only as the
+iterable of a `for` loop; a loop does not iterate over an integer (`for i
+in 10` is an error: write `for i in range(10)`), nor over any other value
+(`E0202`). Appending `parallel` after the iterable runs the
 iterations on several threads (section 7.4).
 
 ```iron
@@ -1804,7 +1814,8 @@ handle of type `rc T`. Copying the handle (assignment, passing, storing in
 a field or list, capturing in a closure) increments the count; destroying a
 copy decrements it, and when the last handle goes away the object's `drop`
 runs and the memory is released. All handles see the same object, and a
-field may be written through any handle, including a `val` one. Handles
+field may be written, or a method that changes the object called, through
+any handle, including a `val` one. Handles
 are not nullable (`?rc T` is rejected, `E0297`) and cannot be `leak`ed
 (`E0214`). The type `rc T` may be used for fields, parameters and results.
 
@@ -2349,7 +2360,13 @@ no newline, then one
 ### 9.2 `String` methods
 
 All string methods are `readonly`; indexes count characters from 0 and a
-missing substring gives `-1`.
+missing substring gives `-1`. Unlike list indexing, string positions never
+panic: `substring(start, end)` clamps both ends to the string
+(`"hello".substring(3, 10)` is `"lo"`, an empty range gives `""`),
+`char_at(i)` out of range is `""` and `byte_at(i)` out of range is `-1`.
+`to_int()` and `to_float()` accept whitespace around the number
+(`" 42\n".to_int()` is `42`) and give `0` for anything else that is not
+entirely a number (`"4 2"`, `"3x"`, `""`).
 
 | Method | Description |
 |---|---|
@@ -2779,7 +2796,7 @@ test in `src/` can call that file's private functions; each runs in its own
 process, and a failed `assert`, `assert_eq`, `assert_ne` or a panic fails
 it.
 
-<!-- doctest-skip: a test block needs `iron test` to run -->
+<!-- doctest-test -->
 ```iron
 func parse_digit(c: String) -> Int {
     return "0123456789".index_of(c)
@@ -2934,7 +2951,7 @@ codes cited in this manual:
 
 | Code | Meaning |
 |---|---|
-| E0001 to E0005 | lexical errors: unterminated string, invalid character, invalid number, string too long |
+| E0001 to E0005 | lexical errors: unterminated string, invalid character, invalid number, out of memory, string too long |
 | E0101, E0102 | unexpected token, expected expression |
 | E0175, E0176 | keyword used as a binding name; field without `val` or `var` |
 | E0200, E0201 | undefined identifier; duplicate declaration |
@@ -2953,7 +2970,7 @@ codes cited in this manual:
 | E0229 | empty list literal without a type |
 | E0230, E0231, E0232 | comptime step limit; unsupported comptime construct; comptime error |
 | E0233 | bitwise operator on a non-integer |
-| E0237 | method name reserved by a `pub` field accessor |
+| E0237 | method name reserved by a `pub` field accessor, or a method named `drop` (the destructor is `drop { ... }`) |
 | E0238 to E0245 | method tier violations (`readonly` writes, `pure` I/O and calls, modifier placement) |
 | E0246 to E0252 | `init` rules (read before assign, unassigned field, double assign, method on partial `self`, early return, delegation, return value) |
 | E0253, E0254, E0255 | patch adds a field; patch target not found; patch redefines a method |
@@ -3017,14 +3034,16 @@ decl           ::= import_decl
                  | val_decl
                  | var_decl
                  | [ 'nocopy' ] [ 'pub' ] object_decl
-                 | [ 'pub' ] ( func_decl | extern_decl | patch_decl | interface_decl | enum_decl | array_ext_decl )
+                 | [ 'pub' ] ( func_decl | extern_decl | patch_decl | interface_decl | enum_decl | array_ext_decl
+                             | type_method_decl )
                  | test_decl
 
 import_decl    ::= 'import' IDENT { '.' IDENT }
 func_decl      ::= [ '@' 'fusible' ] 'func' IDENT [ generic_params ] param_list [ '->' type ] block
 test_decl      ::= 'test' STRING block
 extern_decl    ::= 'extern' 'func' IDENT param_list [ '->' type ]
-array_ext_decl ::= 'func' '[' IDENT ']' '.' NAME [ generic_params ] param_list [ '->' type ] block
+array_ext_decl ::= [ '@' 'fusible' ] 'func' '[' IDENT ']' '.' NAME [ generic_params ] param_list [ '->' type ] block
+type_method_decl ::= [ '@' 'fusible' ] 'func' IDENT '.' NAME [ generic_params ] param_list [ '->' type ] block
 generic_params ::= '[' generic_param { ',' generic_param } [ ',' ] ']'
 generic_param  ::= IDENT [ ':' IDENT ]
 param_list     ::= '(' [ param { ',' param } [ ',' ] ] ')'
@@ -3128,6 +3147,8 @@ brackets of `postfix` and of a list `primary`, an element containing `?`
 `Map[String, [Int?]]()`), every other element as an `expr`. In `pattern`,
 the first alternative is used when the arm starts with `IDENT '.'` or with
 an uppercase identifier followed by `(`, and `expr` otherwise. The
-standalone forms `func Type.method()` and `func (r: T) method()` are
-recognized only to report `E0321` and `E0260`; `array_ext_decl` is used by
-the standard library and cannot be implemented in user code.
+standalone form `func (r: T) method()` is recognized only to report
+`E0260`. `type_method_decl` (`func Type.method()`) and `array_ext_decl`
+(`func [T].method()`) declare the standard library's methods; in a program
+they are errors (`E0321`, and `E0331` for a list extension with a body),
+and `patch object` is how a program adds methods to a type.

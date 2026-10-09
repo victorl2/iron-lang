@@ -42,7 +42,7 @@ func main() {
   -- Benchmark: parallel (each iteration computes fib independently)
   val start_par_ns = Time.now_ns()
   for iter in range(iterations) {
-    for i in n parallel {
+    for i in range(n) parallel {
       val x = compute_fib_for_index(i)
     }
   }

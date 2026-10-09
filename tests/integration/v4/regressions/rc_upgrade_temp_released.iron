@@ -1,0 +1,41 @@
+-- An rc handle that upgrade() hands over and only a null check uses was
+-- never released: the object leaked and its drop never ran.
+object Res {
+    val id: Int
+}
+
+patch object Res {
+    drop {
+        println("drop {self.id}")
+    }
+}
+
+func a() {
+    val r = rc Res(1)
+}
+
+func b() {
+    val r = rc Res(2)
+    val w = r.downgrade()
+}
+
+func c() {
+    val r = rc Res(3)
+    val w = r.downgrade()
+    println("{w.upgrade() != null}")
+}
+
+func d() {
+    val r = rc Res(4)
+    val w = r.downgrade()
+    val u = w.upgrade()
+    println("{u != null}")
+}
+
+func main() {
+    a()
+    b()
+    c()
+    d()
+    println("end")
+}

@@ -1,0 +1,12 @@
+-- A method that writes self, called on an element of a `val` list,
+-- changes the list like `cs[0].n = 1` does.
+object Counter {
+    var n: Int
+    init(n: Int) { self.n = n }
+    func bump() { self.n = self.n + 1 }
+}
+
+func main() {
+    val cs = [Counter(1)]
+    cs[0].bump()
+}

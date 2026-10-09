@@ -1,6 +1,0 @@
-func main() {
-  val arr = [1, 2, 3]
-  println("{arr[0]}")
-  println("{arr[1]}")
-  println("{arr[2]}")
-}

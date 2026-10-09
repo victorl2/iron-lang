@@ -52,7 +52,7 @@ func main() {
   val iterations = 35
   val start_time_ns = Time.now_ns()
   for it in range(iterations) {
-    for i in N parallel {
+    for i in range(N) parallel {
       val num = i + 2
       var r = is_prime(num)
     }

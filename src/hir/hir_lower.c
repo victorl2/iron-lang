@@ -106,7 +106,7 @@ typedef struct {
     /* ── Module-level globals (2026-07 remediation: true module storage) ──
      * Replaces the old per-function materialization scheme (immutable
      * pure-init globals re-LET per referencing function; everything else
-     * E0501). Pass 1 records EVERY top-level val/var here; references are
+     * E0951). Pass 1 records EVERY top-level val/var here; references are
      * lowered as marker idents (var_id == IRON_HIR_VAR_INVALID + name, see
      * IronHIR_Global in hir.h) and the set of ACTUALLY REFERENCED globals is
      * accumulated in global_active_set. synthesize_module_init_hir() then
@@ -803,7 +803,13 @@ static IronHIR_Expr *lower_ca_target_dual(IronHIR_LowerCtx *ctx,
     /* IDENT and anything else: two fresh trees (previous behavior — an
      * identifier read has no side effects to deduplicate). */
     if (read_out) *read_out = lower_expr_hir(ctx, node);
-    return lower_expr_hir(ctx, node);
+    /* The write target is the binding's slot, not the unwrapped payload a
+     * null-checked `n` reads as (`n += 1` stored into a temporary). */
+    bool saved_at = ctx->lowering_assign_target;
+    ctx->lowering_assign_target = node && node->kind == IRON_NODE_IDENT;
+    IronHIR_Expr *target = lower_expr_hir(ctx, node);
+    ctx->lowering_assign_target = saved_at;
+    return target;
 }
 
 /* ── ADT pattern binding injection ────────────────────────────────────────── */
@@ -875,6 +881,7 @@ static void inject_pattern_let_stmts(IronHIR_LowerCtx *ctx,
             declare_var(ctx, bname, vid);
             IronHIR_Stmt *let_s = iron_hir_stmt_let(mod, vid, ptype, field_expr,
                                                       false, span);
+            let_s->let.borrows = true;
             iron_hir_block_add_stmt(out, let_s);
         } else if (nested && nested->kind == IRON_NODE_PATTERN) {
             /* Nested pattern: recurse with the sub-enum type */
@@ -2856,7 +2863,7 @@ static void lower_block_hir(IronHIR_LowerCtx *ctx, Iron_Block *block,
      * declare_var into the ENCLOSING frame, clobbering the outer `x`'s VarId;
      * references to the outer `x` after the block then pointed at the inner
      * LET (declared in a nested HIR block) and the HIR verifier rejected the
-     * valid shadowing program with E0501. The verifier (hir_verify.c
+     * valid shadowing program with E0951. The verifier (hir_verify.c
      * verify_block) already scopes per-block; this makes lowering match. */
     push_scope(ctx);
     push_defer_scope_hir(ctx);

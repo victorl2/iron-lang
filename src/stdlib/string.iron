@@ -27,8 +27,8 @@ patch object String {
     readonly func rindex_of(sub: String) -> Int {}
     readonly func byte_at(i: Int) -> Int {}
     readonly func from_byte(b: Int) -> String {}
-    -- Kept for source compatibility: a string is freed with its owners,
-    -- so this does nothing.
+    /// Kept for source compatibility: a string is freed with its owners,
+    /// so this does nothing.
     readonly func release() {}
 }
 

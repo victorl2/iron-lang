@@ -1,0 +1,48 @@
+-- A method declared without `readonly` that never changes self: calling it
+-- on a `val` suggests `readonly`, not `var`. One that does change self
+-- still suggests `var`. A null check on an interface value is not an
+-- interface type test (E0322 was reported for `b.area()`).
+interface Shape {
+    func area() -> Float
+}
+
+object Sq impl Shape {
+    val s: Float
+    func area() -> Float {
+        return self.s * self.s
+    }
+}
+
+object C {
+    var n: Int
+    init() {
+        self.n = 0
+    }
+    func bump() {
+        self.n += 1
+    }
+    func peek() -> Int {
+        return self.n
+    }
+}
+
+func first(xs: [Shape]) -> Shape? {
+    if xs.len() == 0 {
+        return null
+    }
+    return xs[0]
+}
+
+func main() {
+    val shapes: [Shape] = [Sq(2.0)]
+    for s in shapes {
+        println("{s.area()}")
+    }
+    val b = first(shapes)
+    if b != null {
+        println("{b.area()}")
+    }
+    val c = C()
+    c.bump()
+    println("{c.peek()}")
+}

@@ -1,0 +1,11 @@
+-- E0223, as section 11 of the manual lists it.
+object A {
+    val b: B
+}
+
+object B {
+    val a: A?
+}
+
+func main() {
+}

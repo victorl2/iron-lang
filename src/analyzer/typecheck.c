@@ -51,6 +51,12 @@
 
 /* A `for x in xs` loop variable is a copy of the element, so mutating it is
  * rejected; point the user at indexing instead. */
+/* A tuple returns several values and is taken apart at once (manual 2.4);
+ * a list of them compiled into C that used an undeclared list type. */
+#define TUPLE_LIST_MSG  "a list cannot hold tuples"
+#define TUPLE_LIST_HELP "tuples return several values and are taken apart at once; " \
+                        "for a list of records, declare an object with named fields"
+
 #define LOOP_VAR_MUT_HELP \
     "the loop variable is a copy of the element; index the collection " \
     "to mutate it in place: 'for i in range(len(xs)) { xs[i].m() }'"
@@ -160,6 +166,11 @@ typedef struct {
      * Freed and the previous pointer restored at init body exit. */
     InitUnassignedEntry *unassigned_fields;
     NarrowEntry       *narrowed;             /* stb_ds map: sym name -> narrowed type */
+    /* Bindings whose null-check narrowing an assignment ended (stb_ds
+     * array, in order). A block, branch or loop restores the narrowing map
+     * it started with, then ends again every narrowing killed since its
+     * start: `if c { x = null }` leaves x un-narrowed after the if. */
+    const char       **narrow_kills;
     Iron_Program      *program;              /* for method return type lookup */
     SpawnResultEntry  *spawn_result_types;   /* stb_ds map: handle_name -> body return type */
     MonoRegistryEntry *mono_registry;        /* stb_ds map: mangled_name -> mono Iron_Type* (cycle detection + caching) */
@@ -188,10 +199,32 @@ typedef struct {
     /* Checking an interface default body copied into an implementor: it
      * is that type's own method, so its private members are in reach. */
     bool               in_iface_default;
+    /* The iterable of the for loop being checked: the one place a
+     * `range(n)` call is allowed. */
+    Iron_Node         *for_iterable;
+    /* The operand of the heap expression being checked: `heap [UInt8; 100]`
+     * allocates a sized buffer, the one place `[T; N]` is a value. */
+    Iron_Node         *heap_operand;
+    /* Where "a list cannot hold tuples" was last reported: an annotated
+     * binding has the tuple list in its type and in its literal (#322). */
+    const char        *tuple_list_file;
+    uint32_t           tuple_list_line;
     /* defer bodies enclosing the statement, for return; 0 inside a lambda
      * or spawn body. */
     int                defer_depth;
 } TypeCtx;
+
+static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
+                       const char *msg, const char *suggestion);
+static void report_tuple_list(TypeCtx *ctx, Iron_Span sp) {
+    if (ctx->tuple_list_file && sp.filename && sp.line == ctx->tuple_list_line &&
+        strcmp(ctx->tuple_list_file, sp.filename) == 0)
+        return;
+    ctx->tuple_list_file = sp.filename;
+    ctx->tuple_list_line = sp.line;
+    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, sp, TUPLE_LIST_MSG, TUPLE_LIST_HELP);
+}
+
 
 /* Help for a method name that does not exist on `type_name`: the closest
  * declared method ("did you mean 'upper'?"), else a list of the type's
@@ -200,8 +233,8 @@ typedef struct {
 static int help_name_cmp(const void *a, const void *b) {
     return strcmp(*(const char *const *)a, *(const char *const *)b);
 }
-static const char *names_help(TypeCtx *ctx, const char *owner, const char **names,
-                              int n, const char *method) {
+static const char *names_help(TypeCtx *ctx, const char *what, const char *owner,
+                              const char **names, int n, const char *method) {
     if (n == 0) return NULL;
     int max_dist = strlen(method) <= 4 ? 1 : 2;
     const char *best = NULL; int best_d = max_dist + 1;
@@ -219,13 +252,33 @@ static const char *names_help(TypeCtx *ctx, const char *owner, const char **name
     if (best) return iron_did_you_mean(ctx->arena, best);
     qsort(names, (size_t)n, sizeof(names[0]), help_name_cmp);
     Iron_StrBuf sb = iron_strbuf_create(128);
-    iron_strbuf_appendf(&sb, "methods of '%s': ", owner);
+    iron_strbuf_appendf(&sb, "%s of '%s': ", what, owner);
     int shown = n < 10 ? n : 10;
     for (int k = 0; k < shown; k++) iron_strbuf_appendf(&sb, "%s%s", k ? ", " : "", names[k]);
     if (n > shown) iron_strbuf_appendf(&sb, ", ... (%d in all)", n);
     const char *r = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
     iron_strbuf_free(&sb);
     return r;
+}
+
+/* A type name declared twice, typically a user type named like a standard
+ * library one (`object Box`): E0201 already reports it, and every use then
+ * resolved to the other declaration, so "no field 'n' on type 'Box'"
+ * followed at each use (#322). */
+static bool type_name_declared_twice(TypeCtx *ctx, const char *name) {
+    if (!ctx->program || !name) return false;
+    int n = 0;
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        const char *dn = NULL;
+        if (!d) continue;
+        if (d->kind == IRON_NODE_OBJECT_DECL && !((Iron_ObjectDecl *)d)->is_patch)
+            dn = ((Iron_ObjectDecl *)d)->name;
+        else if (d->kind == IRON_NODE_ENUM_DECL) dn = ((Iron_EnumDecl *)d)->name;
+        else if (d->kind == IRON_NODE_INTERFACE_DECL) dn = ((Iron_InterfaceDecl *)d)->name;
+        if (dn && strcmp(dn, name) == 0 && ++n > 1) return true;
+    }
+    return false;
 }
 
 static const char *method_help(TypeCtx *ctx, const char *type_name, const char *method) {
@@ -238,11 +291,14 @@ static const char *method_help(TypeCtx *ctx, const char *type_name, const char *
         if (!md->type_name || !md->method_name || strcmp(md->type_name, type_name) != 0) continue;
         if (md->is_init || md->is_drop || md->is_copy || md->method_name[0] == '_' ||
             md->method_name[0] == '$' || strcmp(md->method_name, "init") == 0) continue;
+        /* A no-op kept for source compatibility (String.release) is not a
+         * suggestion: `reverse` was answered with "did you mean 'release'?". */
+        if (md->doc_comment && strstr(md->doc_comment, "source compatibility")) continue;
         bool dup = false;
         for (int k = 0; k < n; k++) if (strcmp(names[k], md->method_name) == 0) { dup = true; break; }
         if (!dup) names[n++] = md->method_name;
     }
-    return names_help(ctx, type_name, names, n, method);
+    return names_help(ctx, "methods", type_name, names, n, method);
 }
 
 /* As method_help, for the methods an interface declares. */
@@ -254,7 +310,7 @@ static const char *iface_method_help(TypeCtx *ctx, Iron_InterfaceDecl *iface, co
         if (m && m->kind == IRON_NODE_FUNC_DECL && ((Iron_FuncDecl *)m)->name)
             names[n++] = ((Iron_FuncDecl *)m)->name;
     }
-    return names_help(ctx, iface->name ? iface->name : "?", names, n, method);
+    return names_help(ctx, "methods", iface->name ? iface->name : "?", names, n, method);
 }
 
 /* ── Cancellation helper (HARD-05) ─────────────────────────────────────────── */
@@ -517,6 +573,8 @@ static bool reject_narrowed_view_write(TypeCtx *ctx, Iron_Node *root, Iron_Span 
     Iron_Type *st = sym->type->kind == IRON_TYPE_NULLABLE ? sym->type->nullable.inner
                                                          : sym->type;
     if (!st || st->kind != IRON_TYPE_INTERFACE) return false;
+    /* `x != null` on an `I?` narrows to I itself: no copy, no type test. */
+    if (iron_type_equals(view, st)) return false;
     char msg[256];
     snprintf(msg, sizeof(msg),
              "cannot modify '%s' through an interface type test: it is a read-only view here",
@@ -572,9 +630,20 @@ static void check_array_mutable(TypeCtx *ctx, Iron_Node *place, Iron_Span span,
                    "add 'var' modifier to grant in-body mutation: 'var <name>: T'");
     } else {
         snprintf(msg, sizeof(msg), "cannot %s an immutable list", what);
-        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, span, msg,
-                   root && sym_is_loop_var(root) ? LOOP_VAR_MUT_HELP
-                                                 : "declare it with 'var'");
+        /* No binding to declare `var` (#322): the list is the result of a
+         * call. A map's get() hands out a copy (manual 9.10), so a change
+         * to it would be lost. */
+        const char *help = root && sym_is_loop_var(root) ? LOOP_VAR_MUT_HELP
+                                                         : "declare it with 'var'";
+        if (!root) {
+            const char *mname = place->kind == IRON_NODE_METHOD_CALL
+                                    ? ((Iron_MethodCallExpr *)place)->method : NULL;
+            help = mname && (strcmp(mname, "get") == 0 || strcmp(mname, "get_or") == 0)
+                ? "get() returns a copy, so the change would be lost: write "
+                  "`var v = m.get(k)`, change v, then `m.put(k, v)`"
+                : "it is the result of a call, a temporary: bind it first, `var v = ...`";
+        }
+        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, span, msg, help);
     }
 }
 
@@ -979,6 +1048,39 @@ static void emit_warning(TypeCtx *ctx, int code, Iron_Span span,
                    msg_copy, sug_copy);
 }
 
+/* Phase 22 READ-04: a readonly method calling an I/O stdlib module method
+ * (Log.info, IO.write_file, Net.connect, Raylib.draw_text, ...). Fires when
+ * the enclosing method is readonly (not pure: Pitfall 1 guard) and the
+ * receiver is a known I/O module identifier. Depends only on the receiver's
+ * name, so it also runs when the receiver did not type-check (no stdlib
+ * loaded). */
+static void check_readonly_io_call(TypeCtx *ctx, Iron_MethodCallExpr *mc) {
+    if (ctx->in_readonly_method && !ctx->in_pure_method &&
+        mc->object && mc->object->kind == IRON_NODE_IDENT) {
+        Iron_Ident *recv_id_ro = (Iron_Ident *)mc->object;
+        if (recv_id_ro->name) {
+            static const char *const IRON_RO_IO_MODULES[] = {
+                "IO", "Log", "Net", "Raylib",
+            };
+            for (size_t i = 0;
+                 i < sizeof(IRON_RO_IO_MODULES) /
+                     sizeof(IRON_RO_IO_MODULES[0]);
+                 i++) {
+                if (strcmp(recv_id_ro->name, IRON_RO_IO_MODULES[i]) == 0) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                             "cannot call I/O method '%s.%s' in readonly method",
+                             recv_id_ro->name,
+                             mc->method ? mc->method : "?");
+                    emit_error(ctx, IRON_ERR_READONLY_IO, mc->span, msg,
+                               "a readonly method cannot do I/O: drop `readonly` from it, or do the I/O in the caller");
+                    break;
+                }
+            }
+        }
+    }
+}
+
 /* ── Phase 85 INIT helpers ──────────────────────────────────────────────────
  *
  * iron_find_init_by_name walks program->decls looking for a MethodDecl that
@@ -1134,8 +1236,21 @@ static const char *conversion_hint(TypeCtx *ctx, Iron_Type *expected, Iron_Type 
     if (!expected || !got || expected->kind == IRON_TYPE_ERROR || got->kind == IRON_TYPE_ERROR)
         return NULL;
     char buf[320];
+    /* [Named] vs [Dog]: the hint is about the elements. */
+    while (expected->kind == IRON_TYPE_ARRAY && got->kind == IRON_TYPE_ARRAY &&
+           expected->array.elem && got->array.elem) {
+        expected = expected->array.elem;
+        got = got->array.elem;
+    }
     const char *es = iron_type_to_string(expected, ctx->arena);
-    if (got->kind == IRON_TYPE_NULLABLE && got->nullable.inner &&
+    if (expected->kind == IRON_TYPE_INTERFACE && expected->interface.decl &&
+        got->kind == IRON_TYPE_OBJECT && got->object.decl && got->object.decl->name) {
+        const char *in = expected->interface.decl->name ? expected->interface.decl->name : es;
+        snprintf(buf, sizeof(buf),
+                 "object '%s' does not declare `impl %s`: write `object %s impl %s { ... }` "
+                 "and define its methods",
+                 got->object.decl->name, in, got->object.decl->name, in);
+    } else if (got->kind == IRON_TYPE_NULLABLE && got->nullable.inner &&
         expected->kind != IRON_TYPE_NULLABLE && types_assignable(expected, got->nullable.inner)) {
         snprintf(buf, sizeof(buf),
                  "the value may be null: check it first (`if x != null { ... }` makes it '%s' "
@@ -1686,6 +1801,52 @@ static void narrowing_set(TypeCtx *ctx, const char *name, Iron_Type *ty) {
     shput(ctx->narrowed, name, ty);
 }
 
+static int narrowing_mark(TypeCtx *ctx) {
+    return (int)arrlen(ctx->narrow_kills);
+}
+
+/* An assignment may have made `name` null: it is no longer narrowed, here
+ * or after the enclosing blocks and branches (see narrow_kills). */
+static void narrowing_kill(TypeCtx *ctx, const char *name) {
+    if (!name) return;
+    (void)shdel(ctx->narrowed, name);
+    arrput(ctx->narrow_kills, iron_arena_strdup(ctx->arena, name, strlen(name)));
+}
+
+/* After restoring a saved map: end again what was killed since `mark`. */
+static void narrowing_reapply_kills(TypeCtx *ctx, int mark) {
+    for (ptrdiff_t i = mark; i < arrlen(ctx->narrow_kills); i++)
+        (void)shdel(ctx->narrowed, ctx->narrow_kills[i]);
+}
+
+/* Names a statement subtree assigns (`x = ...`, including inside lambdas
+ * and spawn bodies). A loop body that assigns a narrowed binding may run
+ * again after the assignment, so the binding is not narrowed anywhere in
+ * the body unless the loop condition narrows it afresh. */
+typedef struct { const char **names; } AssignedNames;
+
+static bool collect_assigned_visit(Iron_Visitor *v, Iron_Node *n) {
+    AssignedNames *a = (AssignedNames *)v->ctx;
+    if (n->kind == IRON_NODE_ASSIGN) {
+        Iron_AssignStmt *as = (Iron_AssignStmt *)n;
+        if (as->target && as->target->kind == IRON_NODE_IDENT &&
+            ((Iron_Ident *)as->target)->name)
+            arrput(a->names, ((Iron_Ident *)as->target)->name);
+    }
+    return true;
+}
+
+static void narrowing_kill_assigned_in(TypeCtx *ctx, Iron_Node *body) {
+    if (!body || shlen(ctx->narrowed) == 0) return;
+    AssignedNames a = { NULL };
+    Iron_Visitor v = { .ctx = &a, .visit_node = collect_assigned_visit, .post_visit = NULL };
+    iron_ast_walk(body, &v);
+    for (ptrdiff_t i = 0; i < arrlen(a.names); i++) {
+        if (shgeti(ctx->narrowed, a.names[i]) >= 0) narrowing_kill(ctx, a.names[i]);
+    }
+    arrfree(a.names);
+}
+
 /* Deep-copy the current narrowing map for branch analysis */
 static NarrowEntry *narrowing_copy(TypeCtx *ctx) {
     NarrowEntry *copy = NULL;
@@ -1818,6 +1979,10 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         Iron_Type *elem = resolve_type_annotation(ctx, ann->array_elem_ann);
         if (!elem || elem->kind == IRON_TYPE_ERROR)
             return iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (elem->kind == IRON_TYPE_TUPLE) {
+            report_tuple_list(ctx, ann->span);
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
         int size = -1;
         if (ann->array_size && ann->array_size->kind == IRON_NODE_INT_LIT) {
             Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
@@ -2759,6 +2924,14 @@ static bool push_type_compatible(const Iron_Type *elem_type,
     /* Exact structural match (primitive singletons, func types, arrays, etc.) */
     if (iron_type_equals(elem_type, arg_type)) return true;
 
+    /* A `*var T` is a `*T` that may also write: `ps.push(&m)` with m a var
+     * into a [*T] was rejected while `[&m]` was accepted (#324). */
+    if (elem_type->kind == IRON_TYPE_PTR && arg_type->kind == IRON_TYPE_PTR &&
+        !elem_type->ptr.is_var && elem_type->ptr.is_unchecked == arg_type->ptr.is_unchecked &&
+        elem_type->ptr.pointee && arg_type->ptr.pointee &&
+        iron_type_equals(elem_type->ptr.pointee, arg_type->ptr.pointee))
+        return true;
+
     /* Object == Object: same decl required. iron_type_equals should cover
      * this, but we double-check in case two Iron_Type values reference the
      * same decl via different allocations. */
@@ -3033,6 +3206,103 @@ static bool node_is_value_expression(const Iron_Node *n) {
            n->kind == IRON_NODE_ENUM_CONSTRUCT;
 }
 
+/* Whether a method body may change self: an assignment rooted at `self`,
+ * a method call on `self` or a part of it, or `self` passed along. Field
+ * reads do not count. Conservative: used only to suggest `readonly`. */
+static Iron_Node *expr_root(Iron_Node *n) {
+    while (n && (n->kind == IRON_NODE_FIELD_ACCESS || n->kind == IRON_NODE_INDEX))
+        n = n->kind == IRON_NODE_FIELD_ACCESS ? ((Iron_FieldAccess *)n)->object
+                                              : ((Iron_IndexExpr *)n)->object;
+    return n;
+}
+static bool is_self_ident(Iron_Node *n) {
+    return n && n->kind == IRON_NODE_IDENT && ((Iron_Ident *)n)->name &&
+           strcmp(((Iron_Ident *)n)->name, "self") == 0;
+}
+static bool touches_self_visit(Iron_Visitor *v, Iron_Node *n) {
+    bool *hit = (bool *)v->ctx;
+    if (*hit) return false;
+    if (n->kind == IRON_NODE_ASSIGN &&
+        is_self_ident(expr_root(((Iron_AssignStmt *)n)->target))) *hit = true;
+    else if (n->kind == IRON_NODE_METHOD_CALL) {
+        Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)n;
+        if (is_self_ident(expr_root(mc->object))) *hit = true;
+        for (int i = 0; i < mc->arg_count; i++)
+            if (is_self_ident(expr_root(mc->args[i]))) *hit = true;
+    } else if (n->kind == IRON_NODE_CALL) {
+        Iron_CallExpr *ce = (Iron_CallExpr *)n;
+        for (int i = 0; i < ce->arg_count; i++)
+            if (is_self_ident(expr_root(ce->args[i]))) *hit = true;
+    }
+    return !*hit;
+}
+static bool method_may_change_self(Iron_MethodDecl *md) {
+    /* A stub (stdlib declaration) or a synthesized accessor says nothing. */
+    if (!md->body || md->is_synth_accessor || md->is_iface_default) return true;
+    if (md->body->kind == IRON_NODE_BLOCK && ((Iron_Block *)md->body)->stmt_count == 0)
+        return true;
+    bool hit = false;
+    Iron_Visitor v = { .ctx = &hit, .visit_node = touches_self_visit, .post_visit = NULL };
+    iron_ast_walk(md->body, &v);
+    return hit;
+}
+
+/* Help for a mutating call on an immutable receiver when the method only
+ * looks mutating: declared without `readonly` but no implementation changes
+ * self (`func area() -> Float { return self.s * self.s }`). Declaring it
+ * readonly is then the fix, not `var`. NULL when that is not known. */
+static const char *readonly_hint(TypeCtx *ctx, Iron_Type *t, const char *method) {
+    if (!ctx->program || !t || !method) return NULL;
+    if (t->kind == IRON_TYPE_NULLABLE) t = t->nullable.inner;
+    if (!t) return NULL;
+    const char *iface_name = NULL;
+    const char *type_name = NULL;
+    if (t->kind == IRON_TYPE_INTERFACE && t->interface.decl)
+        iface_name = t->interface.decl->name;
+    else if (t->kind == IRON_TYPE_OBJECT && t->object.decl)
+        type_name = t->object.decl->name;
+    if (!iface_name && !type_name) return NULL;
+    int seen = 0;
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        if (!d || d->kind != IRON_NODE_OBJECT_DECL) continue;
+        Iron_ObjectDecl *od = (Iron_ObjectDecl *)d;
+        const char *tn = od->is_patch ? od->target_type_name : od->name;
+        if (!tn) continue;
+        if (type_name) {
+            if (strcmp(tn, type_name) != 0) continue;
+        } else {
+            bool implements = false;
+            for (int k = 0; k < od->implements_count; k++)
+                if (od->implements_names[k] &&
+                    strcmp(od->implements_names[k], iface_name) == 0) implements = true;
+            if (!implements) continue;
+        }
+        for (int j = 0; j < ctx->program->decl_count; j++) {
+            Iron_Node *m = ctx->program->decls[j];
+            if (!m || m->kind != IRON_NODE_METHOD_DECL) continue;
+            Iron_MethodDecl *md = (Iron_MethodDecl *)m;
+            if (!md->type_name || !md->method_name || strcmp(md->type_name, tn) != 0 ||
+                strcmp(md->method_name, method) != 0) continue;
+            if (md->is_readonly || md->is_pure) continue;
+            if (method_may_change_self(md)) return NULL;
+            seen++;
+        }
+    }
+    if (seen == 0) return NULL;
+    char buf[320];
+    if (iface_name)
+        snprintf(buf, sizeof(buf),
+                 "'%s' does not change self in any implementation: declare it "
+                 "`readonly func %s(...)` in '%s' and its implementations",
+                 method, method, iface_name);
+    else
+        snprintf(buf, sizeof(buf),
+                 "'%s' does not change self: declare it `readonly func %s(...)`",
+                 method, method);
+    return iron_arena_strdup(ctx->arena, buf, strlen(buf));
+}
+
 /* A call that mutates its receiver: the receiver's root binding must be
  * mutable. Marks it for the unused-var lint (so `var` is not reported as
  * removable) and reports E0235 when it is immutable, as concrete-object
@@ -3044,6 +3314,7 @@ static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
                                     Iron_Node *receiver) {
     if (reject_narrowed_view_write(ctx, receiver, mc->span)) return;
     Iron_Node *cur = receiver;
+    bool via_element = false;
     for (;;) {
         /* Past a pointer, the pointer's `var` decides, not the binding
          * holding it: `p.items.push(x)` with p: *var T is a mutation of
@@ -3056,8 +3327,19 @@ static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
                            "use a *var pointer");
             return;
         }
-        if (!cur || cur->kind != IRON_NODE_FIELD_ACCESS) break;
-        cur = ((Iron_FieldAccess *)cur)->object;
+        /* An rc handle refers to a shared object: the object's own fields
+         * decide, as for field assignment, not the binding holding it. */
+        if (ct && (ct->kind == IRON_TYPE_RC || ct->kind == IRON_TYPE_WEAK_RC)) return;
+        if (cur && cur->kind == IRON_NODE_FIELD_ACCESS) {
+            cur = ((Iron_FieldAccess *)cur)->object;
+        } else if (cur && cur->kind == IRON_NODE_INDEX) {
+            /* `cs[0].bump()` changes an element: the list must be mutable,
+             * as for `cs[0].n = 1`. */
+            via_element = true;
+            cur = ((Iron_IndexExpr *)cur)->object;
+        } else {
+            break;
+        }
     }
     if (!cur || cur->kind != IRON_NODE_IDENT) return;
     Iron_Ident *id = (Iron_Ident *)cur;
@@ -3067,11 +3349,17 @@ static void check_mutating_receiver(TypeCtx *ctx, Iron_MethodCallExpr *mc,
     mark_requires_mutable(ctx, receiver);
     if (!sym->is_mutable) {
         char mmsg[256], mhelp[256];
-        snprintf(mmsg, sizeof(mmsg), "cannot call mutable method '%s' on immutable binding '%s'",
-                 mc->method ? mc->method : "?", id->name ? id->name : "?");
+        if (via_element)
+            snprintf(mmsg, sizeof(mmsg),
+                     "cannot call mutable method '%s' on an element of immutable list '%s'",
+                     mc->method ? mc->method : "?", id->name ? id->name : "?");
+        else
+            snprintf(mmsg, sizeof(mmsg), "cannot call mutable method '%s' on immutable binding '%s'",
+                     mc->method ? mc->method : "?", id->name ? id->name : "?");
         snprintf(mhelp, sizeof(mhelp), "declare '%s' with var instead of val", id->name ? id->name : "?");
+        const char *ro = readonly_hint(ctx, ((Iron_ExprNode *)receiver)->resolved_type, mc->method);
         emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, mc->span, mmsg,
-                   sym_is_loop_var(sym) ? LOOP_VAR_MUT_HELP : mhelp);
+                   ro ? ro : sym_is_loop_var(sym) ? LOOP_VAR_MUT_HELP : mhelp);
     }
 }
 
@@ -3825,6 +4113,15 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     if (part_type->kind == IRON_TYPE_NULLABLE && part_type->nullable.inner &&
                         part_type->nullable.inner->kind == IRON_TYPE_OBJECT)
                         help = "check for null and interpolate the value, or call to_string() on it";
+                    /* A list, tuple or function cannot be given a method:
+                     * the to_string() advice could not be followed. */
+                    else if (part_type->kind == IRON_TYPE_ARRAY)
+                        help = "a list has no text form: interpolate its elements in a loop, "
+                               "or join a [String] with `\", \".join(names)`";
+                    else if (part_type->kind == IRON_TYPE_TUPLE)
+                        help = "take the tuple apart with `val (a, b) = t` and interpolate a and b";
+                    else if (part_type->kind == IRON_TYPE_FUNC)
+                        help = "a function has no text form; call it to interpolate its result";
                     emit_error(ctx, IRON_ERR_NOT_STRINGABLE, n->parts[i]->span, msg, help);
                 }
             }
@@ -4033,6 +4330,30 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                        : lt->kind == IRON_TYPE_ENUM
                                            ? "an enum compares with == only when its payloads do"
                                            : "compare their fields");
+                    }
+                    if ((op == IRON_TOK_EQUALS || op == IRON_TOK_NOT_EQUALS) &&
+                        (lt->kind == IRON_TYPE_NULL) != (rt->kind == IRON_TYPE_NULL)) {
+                        /* `v == null` where v can never be null: a map's
+                         * get() returns V, not V?, and this test passed
+                         * silently. A binding narrowed by an outer check is
+                         * left alone. */
+                        Iron_Node *side = lt->kind == IRON_TYPE_NULL ? be->right : be->left;
+                        Iron_Type *st = lt->kind == IRON_TYPE_NULL ? rt : lt;
+                        const char *nkey = narrowing_key(ctx, side);
+                        bool narrowed = nkey && narrowing_get(ctx, nkey);
+                        if (!narrowed &&
+                            (iron_type_is_integer(st) || iron_type_is_float(st) ||
+                             st->kind == IRON_TYPE_BOOL || st->kind == IRON_TYPE_STRING ||
+                             st->kind == IRON_TYPE_ENUM || st->kind == IRON_TYPE_OBJECT ||
+                             st->kind == IRON_TYPE_ARRAY)) {
+                            char msg[512];
+                            snprintf(msg, sizeof(msg),
+                                     "comparison with null is always %s: '%s' is never null",
+                                     op == IRON_TOK_EQUALS ? "false" : "true",
+                                     iron_type_to_string(st, ctx->arena));
+                            emit_warning(ctx, IRON_WARN_NULL_COMPARE_NEVER, be->span, msg,
+                                         "only a 'T?' value can be null");
+                        }
                     }
                     result = iron_type_make_primitive(IRON_TYPE_BOOL);
                 } else if (is_logic) {
@@ -4249,6 +4570,27 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
         case IRON_NODE_CALL: {
             mark_amp_call_args(((Iron_CallExpr *)node)->args, ((Iron_CallExpr *)node)->arg_count);
             Iron_CallExpr *ce = (Iron_CallExpr *)node;
+
+            /* range(n) is what a for loop walks; it has no value of its own
+             * yet (`val r = range(3)` was the Int 3), and keeping it to for
+             * loops leaves room for it to become an iterator. A user
+             * function named range is unaffected. */
+            if (ce->callee && ce->callee->kind == IRON_NODE_IDENT &&
+                ((Iron_Ident *)ce->callee)->name &&
+                strcmp(((Iron_Ident *)ce->callee)->name, "range") == 0 &&
+                node != ctx->for_iterable) {
+                Iron_Symbol *rs = ((Iron_Ident *)ce->callee)->resolved_sym;
+                if (!rs) rs = tc_lookup(ctx, "range");
+                if (rs && !rs->decl_node && rs->sym_kind == IRON_SYM_FUNCTION) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ce->span,
+                               "range(n) is used only as the iterable of a for loop",
+                               "write `for i in range(n) { ... }`");
+                    for (int ai = 0; ai < ce->arg_count; ai++) check_expr(ctx, ce->args[ai]);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    ce->resolved_type = result;
+                    break;
+                }
+            }
 
             /* Runtime-backed stdlib containers are constructed like any
              * object: `Channel[Int](4)`, `Mutex[Int](0)`, `Box(v)`,
@@ -4514,7 +4856,15 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                     snprintf(msg, sizeof(msg),
                                              "cannot cast '%s' to '%s': source must be numeric or Bool",
                                              src_s, tgt_s);
-                                    emit_error(ctx, IRON_ERR_INVALID_CAST, ce->span, msg, NULL);
+                                    /* `Int("42")`: text is parsed, not cast. */
+                                    const char *chelp = NULL;
+                                    if (src_type->kind == IRON_TYPE_STRING)
+                                        chelp = iron_type_is_float(target_t)
+                                            ? "parse the text with s.to_float() (0 when it is not a number)"
+                                            : iron_type_is_integer(target_t)
+                                                ? "parse the text with s.to_int() (0 when it is not a number)"
+                                                : NULL;
+                                    emit_error(ctx, IRON_ERR_INVALID_CAST, ce->span, msg, chelp);
                                 }
                                 /* Int->Bool is disallowed (must use explicit comparison) */
                                 else if (iron_type_is_integer(src_type) &&
@@ -5578,7 +5928,28 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             /* The receiver already failed to type-check: propagate the
              * error instead of typing the call Void (which cascaded into
              * spurious mismatches). */
-            if (mc->object && mc->object->kind == IRON_NODE_ERROR) {
+            /* `println("a").println("b")`: a call that produces no value
+             * has no methods; the call was typed Void and the C named an
+             * undeclared Iron_unknown_<method>. */
+            if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_VOID) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "no method '%s': the expression before '.' produces no value",
+                         mc->method ? mc->method : "?");
+                bool next_line = mc->object && mc->span.end_line > mc->object->span.end_line;
+                emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                           next_line
+                               ? "a '.' at the start of a line continues the previous line; "
+                                 "remove it, or call the method on a value"
+                               : "the call before '.' returns nothing (Void); call the method "
+                                 "on a value");
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                mc->resolved_type = result;
+                break;
+            }
+            if ((mc->object && mc->object->kind == IRON_NODE_ERROR) ||
+                (obj_type_mc && obj_type_mc->kind == IRON_TYPE_ERROR)) {
+                check_readonly_io_call(ctx, mc);
                 result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 mc->resolved_type = result;
                 break;
@@ -6375,12 +6746,18 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                      * (d.bump() with d: *var T mutates the pointee). */
                                     Iron_Type *rit = recv_ident ? recv_ident->resolved_type : NULL;
                                     bool via_ptr = rit && rit->kind == IRON_TYPE_PTR;
+                                    /* An rc handle reaches a shared object
+                                     * whose fields may be written through any
+                                     * handle, a `val` one included (manual
+                                     * 6.3), so its methods may be called too. */
+                                    bool via_rc = rit && (rit->kind == IRON_TYPE_RC ||
+                                                          rit->kind == IRON_TYPE_WEAK_RC);
                                     if (via_ptr && !rit->ptr.is_var) {
                                         emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, mc->span,
                                                    "cannot call mutable method through a read-only pointer",
                                                    "use a *var pointer");
                                     }
-                                    if (!via_ptr &&
+                                    if (!via_ptr && !via_rc &&
                                         recv_ident && recv_ident->resolved_sym &&
                                         recv_ident->resolved_sym->sym_kind != IRON_SYM_TYPE &&
                                         !recv_ident->resolved_sym->is_mutable) {
@@ -6392,9 +6769,12 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                         char mhelp2[256];
                                         snprintf(mhelp2, sizeof(mhelp2), "declare '%s' with var instead of val",
                                                  recv_ident->name ? recv_ident->name : "?");
+                                        const char *ro = readonly_hint(
+                                            ctx, recv_ident->resolved_type, mc->method);
                                         emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL,
                                                    mc->span, msg,
-                                                   sym_is_loop_var(recv_ident->resolved_sym)
+                                                   ro ? ro
+                                                   : sym_is_loop_var(recv_ident->resolved_sym)
                                                        ? LOOP_VAR_MUT_HELP : mhelp2);
                                     }
                                     /* Phase 84 MUTTIER-02 E0239: readonly caller
@@ -6579,7 +6959,10 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                             }
                         }
                     }
-                    if (!is_builtin_ns && !is_field_call) {
+                    if (!is_builtin_ns && !is_field_call &&
+                        type_name_declared_twice(ctx, eff_recv_t->object.decl->name)) {
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    } else if (!is_builtin_ns && !is_field_call) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
                                  "no method '%s' on type '%s'",
@@ -6589,6 +6972,46 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                                     mc->method));
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     }
+                } else if (!method_found_mc && mc->method &&
+                           obj_id->resolved_sym &&
+                           obj_id->resolved_sym->sym_kind == IRON_SYM_TYPE &&
+                           obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_OBJECT &&
+                           obj_id->resolved_type->object.decl &&
+                           obj_id->resolved_type->object.decl->name &&
+                           obj_id->resolved_type->object.decl->generic_param_count == 0 &&
+                           obj_id->resolved_type->object.decl->field_count > 0 &&
+                           (!result || result->kind == IRON_TYPE_VOID)) {
+                    /* `Q.nothing(1)` on a user object: a static call to a
+                     * method the type does not declare was typed Void and
+                     * failed later ("'Void' cannot be interpolated"). Only
+                     * objects with fields: the stdlib namespaces (Math,
+                     * Time, ...) are fieldless and some of their calls are
+                     * dispatched by name. */
+                    const char *tn = obj_id->resolved_type->object.decl->name;
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "no method '%s' on type '%s'", mc->method, tn);
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                               method_help(ctx, tn, mc->method));
+                    for (int ai = 0; ai < mc->arg_count; ai++) check_expr(ctx, mc->args[ai]);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                } else if (!method_found_mc && mc->method && obj_id->resolved_type &&
+                           obj_id->resolved_type->kind == IRON_TYPE_ENUM &&
+                           obj_id->resolved_type->enu.decl &&
+                           !(obj_id->resolved_sym &&
+                             obj_id->resolved_sym->sym_kind == IRON_SYM_TYPE)) {
+                    /* `d.flip()` on an enum value was typed Void and
+                     * accepted: enums have no methods (manual 5.6). */
+                    const char *en = obj_id->resolved_type->enu.decl->name
+                                     ? obj_id->resolved_type->enu.decl->name : "?";
+                    char msg[256], help[256];
+                    snprintf(msg, sizeof(msg), "no method '%s' on enum '%s'", mc->method, en);
+                    snprintf(help, sizeof(help),
+                             "enums have no methods: call a function that takes the enum, "
+                             "`%s(%s)`", mc->method, obj_id->name ? obj_id->name : "value");
+                    emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg, help);
+                    for (int ai = 0; ai < mc->arg_count; ai++) check_expr(ctx, mc->args[ai]);
+                    result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 } else if (!method_found_mc && type_name_mc && mc->method &&
                            !(obj_id->resolved_sym &&
                              obj_id->resolved_sym->sym_kind == IRON_SYM_TYPE) &&
@@ -6680,6 +7103,13 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     if (strcmp(md->type_name, type_name_ni) != 0 ||
                         strcmp(md->method_name, mc->method) != 0) continue;
                     check_method_call_args(ctx, mc, md, false);
+                    /* `cs[0].bump()`, `p.inner.bump()`: a method that writes
+                     * self needs a mutable path to the receiver, as the
+                     * identifier receiver above does. */
+                    if (md->is_receiver_form && md->param_count > 0 && !md->is_readonly &&
+                        !md->is_pure && md->params[0] &&
+                        ((Iron_Param *)md->params[0])->is_mut_receiver)
+                        check_mutating_receiver(ctx, mc, mc->object);
                     if (md->resolved_return_type) {
                         result = md->resolved_return_type;
                     } else if (md->return_type &&
@@ -6773,6 +7203,16 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                         emit_error(ctx, IRON_ERR_TYPE_MISMATCH, mc->span, msg, NULL);
                     }
                 }
+            } else if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_ENUM &&
+                       obj_type_mc->enu.decl && mc->method) {
+                /* `ds[0].flip()`, `Dir.North.flip()`: enums have no methods
+                 * (manual 5.6); the call was typed Void and accepted. */
+                char msg[256];
+                snprintf(msg, sizeof(msg), "no method '%s' on enum '%s'", mc->method,
+                         obj_type_mc->enu.decl->name ? obj_type_mc->enu.decl->name : "?");
+                emit_error(ctx, IRON_ERR_NO_SUCH_METHOD, mc->span, msg,
+                           "enums have no methods: call a function that takes the enum");
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
             }
             /* `x.to_string()` for every numeric type and Bool. Only Int,
              * Int32 and Float declare it (stdlib/int.iron, float.iron); on
@@ -6791,36 +7231,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             }
             mc->resolved_type = result;
 
-            /* Phase 22 READ-04: readonly method calling I/O stdlib module method.
-             * Covers Log.info, IO.write_file, Net.connect, Raylib.draw_text, etc.
-             * The check fires when (1) the enclosing method is readonly (not pure —
-             * Pitfall 1 guard) AND (2) the call receiver is a known I/O module
-             * identifier. */
-            if (ctx->in_readonly_method && !ctx->in_pure_method &&
-                mc->object && mc->object->kind == IRON_NODE_IDENT) {
-                Iron_Ident *recv_id_ro = (Iron_Ident *)mc->object;
-                if (recv_id_ro->name) {
-                    static const char *const IRON_RO_IO_MODULES[] = {
-                        "IO", "Log", "Net", "Raylib",
-                    };
-                    for (size_t i = 0;
-                         i < sizeof(IRON_RO_IO_MODULES) /
-                             sizeof(IRON_RO_IO_MODULES[0]);
-                         i++) {
-                        if (strcmp(recv_id_ro->name, IRON_RO_IO_MODULES[i]) == 0) {
-                            char msg[256];
-                            snprintf(msg, sizeof(msg),
-                                     "cannot call I/O method '%s.%s' in readonly method",
-                                     recv_id_ro->name,
-                                     mc->method ? mc->method : "?");
-                            emit_error(ctx, IRON_ERR_READONLY_IO, mc->span, msg,
-                                       "a readonly method cannot do I/O: drop `readonly` from it, or do the I/O in the caller");
-                            break;
-                        }
-                    }
-                }
-            }
-
+            check_readonly_io_call(ctx, mc);
             break;
         }
 
@@ -6947,10 +7358,24 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 report_private_member(ctx, matched_field->is_pub,
                                       matched_field->span, fa->span, what_f);
             }
-            if (!field_type) {
+            if (!field_type && od && type_name_declared_twice(ctx, od->name)) {
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+            } else if (!field_type) {
+                /* Name the type and offer the closest field; the message
+                 * used to end in "on type" with no name. */
+                const char *tname = od && od->name ? od->name
+                                  : iron_type_to_string(obj_type, ctx->arena);
+                const char *fnames[256]; int fn = 0;
+                for (int i = 0; od && i < od->field_count && fn < 256; i++) {
+                    Iron_Field *f = (Iron_Field *)od->fields[i];
+                    if (f && f->name) fnames[fn++] = f->name;
+                }
                 char msg[256];
-                snprintf(msg, sizeof(msg), "no field '%s' on type", fa->field);
-                emit_error(ctx, IRON_ERR_NO_SUCH_FIELD, fa->span, msg, NULL);
+                snprintf(msg, sizeof(msg), "no field '%s' on type '%s'",
+                         fa->field ? fa->field : "?", tname);
+                emit_error(ctx, IRON_ERR_NO_SUCH_FIELD, fa->span, msg,
+                           fa->field ? names_help(ctx, "fields", tname, fnames, fn, fa->field)
+                                     : NULL);
                 result = iron_type_make_primitive(IRON_TYPE_ERROR);
             } else {
                 result = field_type;
@@ -7348,7 +7773,10 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_HEAP: {
             Iron_HeapExpr *he = (Iron_HeapExpr *)node;
+            Iron_Node *saved_heap_operand = ctx->heap_operand;
+            ctx->heap_operand = he->inner;
             result = check_expr(ctx, he->inner);
+            ctx->heap_operand = saved_heap_operand;
             he->resolved_type = result;
             /* Phase 22 READ-05: readonly method allocating heap memory.
              * Guard: Pitfall 1 — !ctx->in_pure_method prevents double-emit.
@@ -7665,6 +8093,17 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
              * sized-array syntax (e.g. `heap [UInt8; 100]`). */
             if (al->type_ann && al->element_count == 0) {
                 elem_type = resolve_type_annotation(ctx, al->type_ann);
+                /* `val xs = [Int; 3]` built an empty growable list: the
+                 * size was dropped. `[T; N]` is a type (manual 2.3); only
+                 * `heap [T; N]` allocates a buffer of that size. */
+                if (al->size && elem_type && elem_type->kind != IRON_TYPE_ERROR &&
+                    node != ctx->heap_operand) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, al->span,
+                               "'[T; N]' is a type, not a value",
+                               "write the elements: `val xs: [Int; 3] = [0, 0, 0]`, "
+                               "or `fill(3, 0)` for a list of 3 zeros");
+                    elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
+                }
             }
             bool lit_has_null = false;
             for (int i = 0; i < al->element_count; i++) {
@@ -7744,6 +8183,10 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                "add a type annotation like `var x: [T?] = [null]`",
                                NULL);
                 }
+                elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
+            }
+            if (elem_type && elem_type->kind == IRON_TYPE_TUPLE) {
+                report_tuple_list(ctx, al->span);
                 elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
             }
             result = iron_type_make_array(ctx->arena, elem_type, -1, false);
@@ -8782,11 +9225,39 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             /* Phase 85 INIT-05: mark the assign target while it's being
              * checked so the FIELD_ACCESS handler can suppress the E0246
              * read-before-assign check on the immediate target node. */
+            /* `x = v` on a binding narrowed by a null check: v is checked
+             * against the declared T?, and x stays narrowed only when v
+             * cannot be null (`cur = cur.next` ends it). `x += v` keeps it. */
+            const char *narrowed_name =
+                (as->target && as->target->kind == IRON_NODE_IDENT &&
+                 (int)as->op == (int)IRON_TOK_ASSIGN)
+                    ? ((Iron_Ident *)as->target)->name : NULL;
+            Iron_Type *narrowed_to = narrowed_name ? narrowing_get(ctx, narrowed_name) : NULL;
+            Iron_Type *declared_t = NULL;
+            if (narrowed_to) {
+                Iron_Symbol *ds = tc_lookup(ctx, narrowed_name);
+                if (!ds) ds = ((Iron_Ident *)as->target)->resolved_sym;
+                declared_t = ds ? ds->type : NULL;
+                if (declared_t && declared_t->kind == IRON_TYPE_NULLABLE)
+                    (void)shdel(ctx->narrowed, narrowed_name);
+                else
+                    narrowed_to = NULL;   /* an `is T` view: not a null check */
+            }
             Iron_Node *prev_assign_target = ctx->cur_assign_target;
             ctx->cur_assign_target = as->target;
             Iron_Type *target_type = check_expr(ctx, as->target);
             ctx->cur_assign_target = prev_assign_target;
+            /* The value is read before the assignment: still narrowed. */
+            if (narrowed_to) narrowing_set(ctx, narrowed_name, narrowed_to);
             Iron_Type *value_type  = check_expr_with_expected(ctx, as->value, target_type);
+            if (narrowed_to) {
+                if (value_type && value_type->kind != IRON_TYPE_NULLABLE &&
+                    value_type->kind != IRON_TYPE_NULL && value_type->kind != IRON_TYPE_ERROR &&
+                    types_assignable(narrowed_to, value_type))
+                    narrowing_set(ctx, narrowed_name, narrowed_to);
+                else
+                    narrowing_kill(ctx, narrowed_name);
+            }
 
             bool is_field_target_immut = false;
             const char *field_root_name = NULL;
@@ -9329,7 +9800,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                      "return type mismatch: function returns '%s', got '%s'",
                                      iron_type_to_string(ctx->current_return_type, ctx->arena),
                                      iron_type_to_string(ret_type, ctx->arena));
-                            emit_error(ctx, IRON_ERR_RETURN_TYPE, rs->span, msg, NULL);
+                            /* The same conversion help as an argument or a
+                             * binding (`return n` from `-> String`). */
+                            emit_error(ctx, IRON_ERR_RETURN_TYPE, rs->span, msg,
+                                       conversion_hint(ctx, ctx->current_return_type, ret_type));
                         }
                     }
                     /* Narrow literal in return (e.g., return 42 in Int32 func) */
@@ -9387,6 +9861,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
 
             NarrowEntry *chain_saved = narrowing_copy(ctx);
+            int if_kill_mark = narrowing_mark(ctx);
             for (int i = 0; i < n_conds; i++) {
                 check_expr(ctx, conds[i]);
                 if (track_init) {
@@ -9398,6 +9873,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 if (bodies[i]) check_stmt(ctx, bodies[i]);
                 shfree(ctx->narrowed);
                 ctx->narrowed = saved;
+                narrowing_reapply_kills(ctx, if_kill_mark);
                 if (track_init) {
                     post[branch_idx++] = ctx->unassigned_fields;
                     ctx->unassigned_fields = NULL;
@@ -9430,6 +9906,7 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             }
             shfree(ctx->narrowed);
             ctx->narrowed = chain_saved;
+            narrowing_reapply_kills(ctx, if_kill_mark);
 
             /* Early exits: when every branch but the else always returns, the
              * code after the if runs only when every condition was false; when
@@ -9446,6 +9923,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                        stmt_always_exits(is_s->else_body)) {
                 narrow_for_cond(ctx, conds[0], true);
             }
+            /* A branch that assigned a binding may have nulled it. */
+            narrowing_reapply_kills(ctx, if_kill_mark);
             break;
         }
 
@@ -9465,6 +9944,14 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             bool saved_par = ctx->loop_is_parallel;
             ctx->loop_depth++;
             ctx->loop_is_parallel = false;
+            /* `while cur != null { ... cur = cur.next }`: the body runs with
+             * the condition true, so it narrows; a binding the body assigns
+             * is narrowed only through the condition (it may be null from
+             * the previous iteration otherwise). */
+            NarrowEntry *loop_saved = narrowing_copy(ctx);
+            int loop_kill_mark = narrowing_mark(ctx);
+            narrowing_kill_assigned_in(ctx, ws->body);
+            narrow_for_cond(ctx, ws->condition, true);
             if (ctx->in_init_method && ctx->unassigned_fields) {
                 InitUnassignedEntry *pre = NULL;
                 init_unassigned_clone(&pre, ctx->unassigned_fields);
@@ -9474,6 +9961,9 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             } else {
                 if (ws->body) check_stmt(ctx, ws->body);
             }
+            shfree(ctx->narrowed);
+            ctx->narrowed = loop_saved;
+            narrowing_reapply_kills(ctx, loop_kill_mark);
             ctx->loop_depth--;
             ctx->loop_is_parallel = saved_par;
             break;
@@ -9515,7 +10005,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
+            Iron_Node *saved_for_iterable = ctx->for_iterable;
+            ctx->for_iterable = fs->iterable;  /* the unwrap checks it too */
             rc_list_unwrap_expr(ctx, &fs->iterable);
+            ctx->for_iterable = fs->iterable;
             Iron_Type *iter_t = check_expr(ctx, fs->iterable);
             if (fs->is_parallel && fs->pool_expr) {
                 /* The pool expression was never resolved or type-checked:
@@ -9590,9 +10083,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     body->stmt_count++;
                     fs->var_name = idx_name;
                     fs->iterable = (Iron_Node *)range_call;
+                    ctx->for_iterable = fs->iterable;
                     iter_t = check_expr(ctx, fs->iterable);
                 }
             }
+            ctx->for_iterable = saved_for_iterable;
             tc_push_scope(ctx, IRON_SCOPE_BLOCK);
             /* Define loop variable with appropriate type.
              * For array iteration (for x in arr) the loop var has elem type.
@@ -9635,6 +10130,33 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                "iterate s.chars() or a range instead");
                 }
             }
+            /* A list, string, Map or Set, or range(n). Anything else was
+             * accepted, the loop variable typed Int, and the C failed
+             * (`for a in f` over a function read f.count). A bare integer
+             * (`for i in 10`, the v3 form) counted like range(10); it is
+             * written range(10) now, so that a for loop only ever walks an
+             * iterable. */
+            bool is_range_call = fs->iterable && fs->iterable->kind == IRON_NODE_CALL &&
+                ((Iron_CallExpr *)fs->iterable)->callee &&
+                ((Iron_CallExpr *)fs->iterable)->callee->kind == IRON_NODE_IDENT &&
+                ((Iron_Ident *)((Iron_CallExpr *)fs->iterable)->callee)->name &&
+                strcmp(((Iron_Ident *)((Iron_CallExpr *)fs->iterable)->callee)->name, "range") == 0;
+            if (iter_t && iron_type_is_integer(iter_t) && !is_range_call) {
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fs->iterable->span,
+                           "a for loop does not iterate over an integer",
+                           "count with range: `for i in range(n)` goes from 0 to n - 1");
+            } else if (iter_t && iter_t->kind != IRON_TYPE_ERROR && !hk &&
+                iter_t->kind != IRON_TYPE_ARRAY && iter_t->kind != IRON_TYPE_STRING &&
+                !iron_type_is_integer(iter_t)) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "cannot iterate over a value of type '%s'",
+                         iron_type_to_string(iter_t, ctx->arena));
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, fs->iterable->span, msg,
+                           iter_t->kind == IRON_TYPE_NULLABLE
+                               ? "check it for null first: `if xs != null { for x in xs { ... } }`"
+                               : "a for loop iterates a list, a String, a Map or Set, or range(n)");
+                loop_var_type = iron_type_make_primitive(IRON_TYPE_ERROR);
+            }
             tc_define(ctx, fs->var_name, IRON_SYM_VARIABLE, (Iron_Node *)fs, fs->span,
                       true, loop_var_type);
             if (fs->var_name2)
@@ -9647,6 +10169,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
             bool saved_par = ctx->loop_is_parallel;
             ctx->loop_depth++;
             ctx->loop_is_parallel = fs->is_parallel;
+            /* A binding the body assigns may be null on the next pass. */
+            narrowing_kill_assigned_in(ctx, fs->body);
             if (ctx->in_init_method && ctx->unassigned_fields) {
                 InitUnassignedEntry *pre = NULL;
                 init_unassigned_clone(&pre, ctx->unassigned_fields);
@@ -9979,7 +10503,8 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     /* FIX-04 row 13 — release the dynamic covered[] buffer. */
                     free(covered);
                 }
-            } else if (!ms->else_body && !type_match) {
+            } else if (!ms->else_body && !type_match &&
+                       !(subject_type && subject_type->kind == IRON_TYPE_ERROR)) {
                 /* Non-enum subject without else clause (a type match checks
                  * its implementors above) */
                 emit_error(ctx, IRON_ERR_NONEXHAUSTIVE_MATCH,
@@ -10230,6 +10755,7 @@ static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count) {
      * block: restore the map on the way out so it never reaches the code
      * after the block (or another function with a same-named binding). */
     NarrowEntry *saved = narrowing_copy(ctx);
+    int kill_mark = narrowing_mark(ctx);
     for (int i = 0; i < count; i++) {
         /* HARD-05: cancel poll at top of block-statement bulk walker. */
         if (iron_cancel_requested(ctx->cancel_flag)) break;
@@ -10237,6 +10763,7 @@ static void check_block_stmts(TypeCtx *ctx, Iron_Node **stmts, int count) {
     }
     shfree(ctx->narrowed);
     ctx->narrowed = saved;
+    narrowing_reapply_kills(ctx, kill_mark);
 }
 
 /* ── Phase 24 DROP-06: compute_has_user_copy_transitive cache-populator ──── */
@@ -10669,6 +11196,16 @@ static void check_func_decl(TypeCtx *ctx, Iron_FuncDecl *fd) {
 static void check_method_decl_inner(TypeCtx *ctx, Iron_MethodDecl *md);
 
 static void check_method_decl(TypeCtx *ctx, Iron_MethodDecl *md) {
+    /* `func drop()` is the destructor's C name (<Type>_drop): the drop glue
+     * called it at scope exit as well, so an explicit `j.drop()` ran it twice
+     * (#324). The destructor is written `drop { ... }`. (`copy()` is free:
+     * the copy glue is <Type>_copied.) */
+    if (md && md->method_name && !md->is_drop && !md->is_copy && !md->is_synth_accessor &&
+        strcmp(md->method_name, "drop") == 0) {
+        emit_error(ctx, IRON_ERR_ACCESSOR_NAME_RESERVED, md->span,
+                   "a method cannot be named 'drop': it is the destructor",
+                   "write `drop { ... }` for the destructor, or give the method another name");
+    }
     bool saved = ctx->in_iface_default;
     ctx->in_iface_default = md && md->is_iface_default;
     check_method_decl_inner(ctx, md);
@@ -11340,6 +11877,26 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
                 sym->type = iron_type_make_func(ctx.arena, param_types, pc, ret_type);
             }
             ctx.global_scope = pp_md_saved;  /* Phase 33 OQ-02: restore */
+        } else if (decl->kind == IRON_NODE_INTERFACE_DECL) {
+            /* An interface method's parameter types, for the dispatcher the
+             * C emitter writes: from the annotation's bare name it typed a
+             * `String?` parameter Iron_String. `Self` is left to the
+             * annotation path. */
+            Iron_InterfaceDecl *iface = (Iron_InterfaceDecl *)decl;
+            for (int k = 0; k < iface->method_count; k++) {
+                Iron_Node *sn = iface->method_sigs[k];
+                if (!sn || sn->kind != IRON_NODE_FUNC_DECL) continue;
+                Iron_FuncDecl *sig = (Iron_FuncDecl *)sn;
+                for (int j = 0; j < sig->param_count; j++) {
+                    Iron_Param *p = (Iron_Param *)sig->params[j];
+                    if (!p || p->resolved_type || !p->type_ann ||
+                        p->type_ann->kind != IRON_NODE_TYPE_ANNOTATION) continue;
+                    Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)p->type_ann;
+                    if (ta->is_self_type || (ta->name && strcmp(ta->name, "Self") == 0)) continue;
+                    Iron_Type *pt = resolve_type_annotation(&ctx, p->type_ann);
+                    if (pt && pt->kind != IRON_TYPE_ERROR) p->resolved_type = pt;
+                }
+            }
         }
     }
 
@@ -11573,6 +12130,7 @@ void iron_typecheck(Iron_Program *program, Iron_Scope *global_scope,
     check_iface_tier_strengthening(&ctx, program);
 
     shfree(ctx.narrowed);
+    arrfree(ctx.narrow_kills);
     shfree(ctx.spawn_result_types);
     /* FIX-03 / AUDIT-04 §2: explicit shfree of the mono_registry stb_ds
      * string-keyed hashmap. Pre-Phase-67 the registry was shput-filled in

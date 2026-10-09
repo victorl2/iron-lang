@@ -673,6 +673,32 @@ const char *emit_type_to_c(const Iron_Type *t, EmitCtx *ctx) {
                                   t->array.elem->kind == IRON_TYPE_WEAK_RC)) {
                 return emit_ensure_rc_list(ctx, t->array.elem);
             }
+            /* A list of pointers (`[*Int]`, #324): plain values with no
+             * glue, so the trivial list implementation fits. The type was
+             * named but never declared, and the C did not compile. */
+            if (t->array.elem && t->array.elem->kind == IRON_TYPE_PTR) {
+                const char *pe = emit_type_to_c(t->array.elem, ctx);
+                char suffix[256];
+                snprintf(suffix, sizeof(suffix), "%s", pe);
+                for (char *c = suffix; *c; c++) if (*c == ' ' || *c == '*') *c = '_';
+                char list_name[300];
+                snprintf(list_name, sizeof(list_name), "Iron_List_%s", suffix);
+                const char *res = iron_arena_strdup(ctx->arena, list_name, strlen(list_name));
+                if (!res) iron_oom_abort("emit_helpers.c:emit_type_to_c ptr list");
+                if (shgeti(ctx->emitted_mono_list_types, res) < 0) {
+                    shput(ctx->emitted_mono_list_types, res, true);
+                    iron_strbuf_appendf(&ctx->struct_bodies,
+                        "typedef struct %s {\n"
+                        "    %s *items;\n"
+                        "    int64_t count;\n"
+                        "    int64_t capacity;\n"
+                        "} %s;\n"
+                        "IRON_LIST_DECL(%s, %s)\n"
+                        "IRON_LIST_IMPL(%s, %s)\n",
+                        res, pe, res, pe, suffix, pe, suffix);
+                }
+                return res;
+            }
             /* A list of maps, sets or channels (#307). */
             if (emit_type_is_container_elem(t->array.elem)) {
                 return emit_ensure_container_list(ctx, t->array.elem);

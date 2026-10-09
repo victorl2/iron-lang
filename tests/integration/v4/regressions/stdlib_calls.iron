@@ -1,0 +1,32 @@
+-- Standard library calls the manual lists (9.1, 9.2, 9.3, 9.5) that no
+-- test called: min / max / clamp / abs, chars / byte_at / from_byte,
+-- get_unchecked / set_unchecked, and the io directory and result-returning
+-- text functions.
+import io
+import time
+
+func main() {
+    println("{min(3, 9)} {max(-2, -7)} {clamp(15, 0, 10)} {clamp(-5, 0, 10)} {abs(-4)} {abs(0)}")
+    val s = "héllo"
+    val cs = s.chars()
+    println("{cs.len()} {cs[1]} {s.byte_at(0)} {s.byte_at(1)} {String.from_byte(65)}")
+    var xs = [10, 20, 30]
+    println("{xs.get_unchecked(1)}")
+    xs.set_unchecked(2, 99)
+    println("{xs[2]}")
+    -- unique per run: the acceptance suite and the leak oracle may run
+    -- this fixture at the same time
+    val dir = "/tmp/iron_stdlib_calls_{Time.now_ms()}"
+    IO.create_dir(dir)
+    val p = IO.join_path(dir, "a.txt")
+    val w = IO.write_text(p, "one\n")
+    val a = IO.append_text(p, "two\n")
+    val b = IO.append_bytes(p, "3\n")
+    val r = IO.read_text(p, 100)
+    println("{w.error} {w.bytes} {a.error} {b.bytes} {r.data.len()} {r.error}")
+    val listing = IO.list_files(dir)
+    println("{listing.contains("a.txt")}")
+    IO.delete_file(p)
+    println("{IO.file_exists(p)}")
+    IO.delete_file(dir)
+}

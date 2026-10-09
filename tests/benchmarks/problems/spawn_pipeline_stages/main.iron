@@ -60,7 +60,7 @@ func main() {
     }
 
     -- Stage 2: Parallel transform using parallel-for
-    for j in data_size parallel {
+    for j in range(data_size) parallel {
         var r = transform_for_index(j)
     }
 

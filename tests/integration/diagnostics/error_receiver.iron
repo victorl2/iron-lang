@@ -1,0 +1,31 @@
+-- A call on a receiver that already failed is not typed Void: each line
+-- below used to add a second error ("got 'Void'") after the first. A match
+-- on an undeclared enum reported each pattern binding as undefined and
+-- asked for an else clause.
+func parse(s: String) -> Outcome {
+    return Outcome.Done(s)
+}
+
+object Pt2 {
+    val x: Int
+}
+
+func main() {
+    println("a").println("b")
+    println("c")
+    .println("d")
+    val q = Pt2.nothing(1)
+    println("{q}")
+    match parse("x") {
+        Outcome.Done(v) -> println(v)
+        Outcome.Failed(e) -> println(e)
+    }
+    val a = nope()
+    val b = a.foo()
+    println(b)
+    val c = [1].sorted()
+    println(c.first())
+    println("{c.len() + 1}")
+    val p = Point(1, 2)
+    println("{p.x}")
+}

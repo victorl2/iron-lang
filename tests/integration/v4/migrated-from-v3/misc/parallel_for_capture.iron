@@ -6,7 +6,7 @@
 
 func main() {
   -- Pattern 1: parallel for over integer range (body uses only loop variable)
-  for i in 100 parallel {
+  for i in range(100) parallel {
     -- Each iteration does work without capturing outer state
     var work = i * i
     work = work + 1
@@ -14,7 +14,7 @@ func main() {
   println("parallel 100 done")
 
   -- Pattern 2: parallel for with known iteration count
-  for i in 50 parallel {
+  for i in range(50) parallel {
     var x = i + 1
     x = x * 2
   }
@@ -28,7 +28,7 @@ func main() {
   println("seq sum 1-10: {seq_sum}")
 
   -- Pattern 4: parallel for immediately followed by sequential work
-  for i in 20 parallel {
+  for i in range(20) parallel {
     var t = i * 3
     t = t + i
   }

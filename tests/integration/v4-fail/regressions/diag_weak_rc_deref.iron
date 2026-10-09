@@ -1,0 +1,10 @@
+-- E0299, as section 11 of the manual lists it.
+object N {
+    val v: Int
+}
+
+func main() {
+    val a = rc N(1)
+    val w = a.downgrade()
+    println("{w.v}")
+}

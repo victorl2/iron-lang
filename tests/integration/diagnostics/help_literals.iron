@@ -1,0 +1,34 @@
+-- Literal and tuple mistakes: each is reported once, with what to write.
+func pair() -> (Int, Int) {
+    return (1, 2)
+}
+
+func main() {
+    val big = 1e20
+    val small = 2.5E-3
+    val t = pair()
+    println("{t.0}")
+    println("{3e2}")
+    var c = 0
+    for i in 0..3 {
+        c += i
+    }
+    for j in 1..4 {
+        c += j
+    }
+    println("{2 ** 3}")
+    val word = match c {
+        0 -> "zero"
+        else -> "more"
+    }
+    val size = if c > 1 {
+        "big"
+    } elif c > 0 {
+        "small"
+    } else {
+        "none"
+    }
+    println("{word} {size}")
+    val count Int = 3
+    println("{count}")
+}

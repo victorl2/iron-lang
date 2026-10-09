@@ -3,11 +3,13 @@
 #include "lexer/lexer.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
+#include "util/strbuf.h"
 #include "stb_ds.h"
 
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
+#include <ctype.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -424,15 +426,6 @@ static bool iron_check_method_name_expr(Iron_Parser *p) {
 static bool iron_match(Iron_Parser *p, Iron_TokenKind kind) {
     if (iron_check(p, kind)) { iron_advance(p); return true; }
     return false;
-}
-
-/* Phase 16: detect v4 reserved keywords that are not valid as binding names.
- * Emits IRON_ERR_KEYWORD_NOT_BINDING_NAME (code 175) for sharp diagnostics
- * when one of these appears where the parser expects a binding name. */
-static bool iron_is_v4_reserved_kw(Iron_TokenKind k) {
-    return k == IRON_TOK_COPY || k == IRON_TOK_DROP
-        || k == IRON_TOK_NOCOPY || k == IRON_TOK_UNCHECKED
-        || k == IRON_TOK_WEAK;
 }
 
 /* Build an Iron_Span from a single token.
@@ -2059,7 +2052,50 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
     }
 
     /* Unexpected token in expression position */
-    if (t->kind == IRON_TOK_ARROW) {
+    if (t->kind == IRON_TOK_MATCH || t->kind == IRON_TOK_IF) {
+        /* `val s = match x { ... }` / `val s = if c { a } else { b }`: both
+         * are statements (manual 4.7). Say so once and skip the whole
+         * construct; parsing its arms as statements reported more errors
+         * and left the binding undeclared. */
+        bool is_match = t->kind == IRON_TOK_MATCH;
+        iron_emit_diag_help(p, IRON_ERR_EXPECTED_EXPR, iron_token_span(p, t),
+                            is_match ? "'match' is a statement, not an expression"
+                                     : "'if' is a statement, not an expression",
+                            is_match ? "declare the binding with `var` first and assign it in "
+                                       "each arm, or move the match into a function that returns "
+                                       "the value"
+                                     : "declare the binding with `var` first and assign it in "
+                                       "each branch");
+        for (;;) {
+            while (!iron_check(p, IRON_TOK_LBRACE) && !iron_check(p, IRON_TOK_EOF))
+                iron_advance(p);
+            if (iron_check(p, IRON_TOK_EOF)) break;
+            int depth = 0;
+            do {
+                if (iron_check(p, IRON_TOK_LBRACE)) depth++;
+                else if (iron_check(p, IRON_TOK_RBRACE)) depth--;
+                iron_advance(p);
+            } while (depth > 0 && !iron_check(p, IRON_TOK_EOF));
+            /* `} else {` / `} elif c {` continue an if chain. */
+            int save = p->pos;
+            iron_skip_newlines(p);
+            if (!is_match && (iron_check(p, IRON_TOK_ELSE) || iron_check(p, IRON_TOK_ELIF))) {
+                iron_advance(p);
+                continue;
+            }
+            p->pos = save;
+            break;
+        }
+        /* The construct is consumed and the statement goes on: the binding
+         * keeps an error initializer (typed as an error, so its uses add
+         * nothing) instead of the statement being dropped, which left the
+         * name undeclared and let recovery swallow the next statement. */
+        p->stmt_errored = false;
+        return iron_make_error(p);
+    }
+    if (t->kind == IRON_TOK_ERROR) {
+        /* The lexer already reported this token (`1e20`, a stray byte). */
+    } else if (t->kind == IRON_TOK_ARROW) {
         iron_emit_diag_help(p, IRON_ERR_EXPECTED_EXPR,
                        iron_token_span(p, t),
                        "expected expression, found '->'",
@@ -2135,10 +2171,19 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
              * (expression `.`-postfix only) so `Box.null()` / `b.free()`
              * parse — see iron_check_method_name_expr. */
             if (!iron_check_method_name_expr(p)) {
+                /* `t.0`: positional access is not part of Iron (tuples are
+                 * taken apart by destructuring, manual 2.4). */
+                Iron_TokenKind after = iron_current(p)->kind;
+                bool positional = after == IRON_TOK_INTEGER || after == IRON_TOK_FLOAT;
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_UNEXPECTED_TOKEN,
                                iron_token_span(p, iron_current(p)),
-                               "expected field or method name after '.'", NULL);
+                               positional
+                                   ? "a tuple has no positional access ('.0', '.1')"
+                                   : "expected field or method name after '.'",
+                               positional
+                                   ? "take the tuple apart with `val (a, b) = t`"
+                                   : NULL);
                 left = iron_make_error(p);
                 continue;
             }
@@ -2396,6 +2441,18 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
 
         /* Binary operators */
         Iron_Token *op_tok = iron_advance(p);
+        /* `a ** b`: one error instead of "expected expression" at the
+         * second `*` and another at b. */
+        if (op_tok->kind == IRON_TOK_STAR && iron_check(p, IRON_TOK_STAR) &&
+            iron_current(p)->line == op_tok->line &&
+            iron_current(p)->col == op_tok->col + 1) {
+            Iron_Span pw = iron_token_span(p, op_tok);
+            iron_advance(p);
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN, pw,
+                           "Iron has no power operator ('**')",
+                           "use Math.pow(a, b) for Float values, or multiply");
+        }
         iron_skip_newlines(p);
         Iron_Node *right = iron_parse_expr_prec(p, prec);
 
@@ -2616,6 +2673,45 @@ static Iron_Node *iron_parse_for_stmt(Iron_Parser *p) {
     if (!iron_expect(p, IRON_TOK_IN)) return iron_make_error(p);
 
     Iron_Node *iterable = iron_parse_expr(p);
+
+    /* `for i in 0..n`: Iron has no range literal. Report it once and, for a
+     * start of 0, read it as `range(n)` so the body is still checked;
+     * before, the block failed to parse and every use of the loop variable
+     * reported again. */
+    if (iron_check(p, IRON_TOK_DOTDOT)) {
+        Iron_Span dd_span = iron_token_span(p, iron_current(p));
+        iron_advance(p);
+        Iron_Node *end_expr = iron_check(p, IRON_TOK_LBRACE) ? NULL : iron_parse_expr(p);
+        bool from_zero = iterable && iterable->kind == IRON_NODE_INT_LIT &&
+                         ((Iron_IntLit *)iterable)->value &&
+                         strcmp(((Iron_IntLit *)iterable)->value, "0") == 0;
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                       IRON_ERR_UNEXPECTED_TOKEN, dd_span,
+                       "Iron has no range literal ('..')",
+                       from_zero
+                           ? "write `for i in range(n)`, which counts from 0 to n - 1"
+                           : "write `for i in range(end - start)` and add start, or count with a while loop");
+        /* Either way the loop counts with range(end): the error above
+         * already says what to write, and an Int iterable would add a
+         * second one. */
+        if (end_expr) {
+            Iron_Ident  *callee = ARENA_ALLOC(p->arena, Iron_Ident);
+            Iron_CallExpr *call = ARENA_ALLOC(p->arena, Iron_CallExpr);
+            Iron_Node  **args   = NULL;
+            if (callee && call) {
+                callee->kind = IRON_NODE_IDENT;
+                callee->span = iterable->span;
+                callee->name = "range";
+                arrput(args, end_expr);
+                call->kind      = IRON_NODE_CALL;
+                call->span      = iron_span_merge(iterable->span, end_expr->span);
+                call->callee    = (Iron_Node *)callee;
+                call->args      = AST_ARR(args);
+                call->arg_count = 1;
+                iterable = (Iron_Node *)call;
+            }
+        }
+    }
 
     /* optional: parallel [( pool )] */
     bool       is_parallel = false;
@@ -3054,7 +3150,10 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                 Iron_Parser sub = iron_parser_create(expr_toks, tok_count,
                                                       expr_buf, interp_fname,
                                                       p->arena, p->diags);
+                int errors_before = p->diags->error_count;
                 Iron_Node *expr_node = iron_parse_expr_prec(&sub, PREC_NONE);
+                /* The sub-parser reported why (`{t.0}`): no generic error. */
+                bool interp_parse_reported = p->diags->error_count > errors_before;
                 bool interp_extra_reported = false;
                 /* One expression fills the braces: anything after it (`{x y}`,
                  * `{p->x}`) was dropped without a word. */
@@ -3079,6 +3178,15 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                     expr_node = iron_make_error(p);
                     interp_extra_reported = true;
                 }
+                /* What the sub-lexer reported (`{1e20}`) belongs to the
+                 * program; its positions are already the source's. */
+                bool interp_lex_failed = false;
+                for (int di = 0; di < expr_diags.count; di++) {
+                    Iron_Diagnostic *d = &expr_diags.items[di];
+                    iron_diag_emit(p->diags, p->arena, d->level, d->code, d->span,
+                                   d->message, d->suggestion);
+                    if (d->level == IRON_DIAG_ERROR) interp_lex_failed = true;
+                }
                 arrfree(expr_toks);
                 iron_diaglist_free(&expr_diags);
                 free(expr_buf);
@@ -3088,7 +3196,7 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                     n->part_count++;
                 } else {
                     /* Failed to parse expression: emit diagnostic and insert ErrorNode */
-                    if (!interp_extra_reported)
+                    if (!interp_extra_reported && !interp_lex_failed && !interp_parse_reported)
                         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                        IRON_ERR_EXPECTED_EXPR, span,
                                        "failed to parse interpolated expression", NULL);
@@ -3123,6 +3231,50 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
     free(lit_buf);
     IRON_ARENA_ARR_ADOPT(p->arena, n->parts);
     return (Iron_Node *)n;
+}
+
+/* `val match = 3`: any keyword where a binding name goes is E0175 (only
+ * copy / drop / nocopy / unchecked / weak were; `match`, `type`, `in` and
+ * the rest gave "expected variable name" and "expected expression"). The
+ * keyword is then read as the name so the declaration parses on. */
+static void iron_keyword_as_binding_name(Iron_Parser *p) {
+    Iron_Token *t = iron_current(p);
+    if (t->kind == IRON_TOK_IDENTIFIER || t->kind == IRON_TOK_WILDCARD) return;
+    const char *sp = iron_token_spelling(t->kind);
+    if (!sp || !(isalpha((unsigned char)sp[0]) || sp[0] == '_')) return;
+    char msg[160], help[160];
+    snprintf(msg, sizeof(msg), "'%s' is a keyword and cannot name a binding", sp);
+    snprintf(help, sizeof(help), "rename it, for example '%s_' or a more specific name", sp);
+    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, IRON_ERR_KEYWORD_NOT_BINDING_NAME,
+                   iron_token_span(p, t),
+                   iron_arena_strdup(p->arena, msg, strlen(msg)),
+                   iron_arena_strdup(p->arena, help, strlen(help)));
+    t->kind  = IRON_TOK_IDENTIFIER;
+    t->value = sp;
+}
+
+/* The `: T` of a binding. `val b S = ...` (the colon missing) parsed as
+ * `val b` and then the statement `S = ...`: "cannot assign to val 'S'", or
+ * nothing at all for `val b Box[T] = ...`, an index assignment. Report the
+ * colon once and read the type, so the binding is declared as meant. */
+static Iron_Node *iron_parse_binding_type(Iron_Parser *p, Iron_Token *name_tok,
+                                          const char *kw) {
+    if (iron_match(p, IRON_TOK_COLON)) return iron_parse_type_annotation(p);
+    if ((iron_check(p, IRON_TOK_IDENTIFIER) || iron_check(p, IRON_TOK_LBRACKET)) &&
+        iron_current(p)->line == name_tok->line) {
+        char msg[200], help[200];
+        snprintf(msg, sizeof(msg), "expected ':' between '%s' and its type",
+                 name_tok->value ? name_tok->value : "?");
+        snprintf(help, sizeof(help), "write '%s %s: %s'", kw,
+                 name_tok->value ? name_tok->value : "x",
+                 iron_current(p)->value ? iron_current(p)->value : "Type");
+        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, IRON_ERR_EXPECTED_COLON,
+                       iron_token_span(p, iron_current(p)),
+                       iron_arena_strdup(p->arena, msg, strlen(msg)),
+                       iron_arena_strdup(p->arena, help, strlen(help)));
+        return iron_parse_type_annotation(p);
+    }
+    return NULL;
 }
 
 static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
@@ -3213,14 +3365,7 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
      * error code IRON_ERR_KEYWORD_NOT_BINDING_NAME (175) gives users a
      * clearer message than the generic IRON_ERR_UNEXPECTED_TOKEN.
      * Fall through to the existing IDENTIFIER check for recovery. */
-    if (iron_is_v4_reserved_kw(iron_peek(p))) {
-        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                       IRON_ERR_KEYWORD_NOT_BINDING_NAME,
-                       iron_token_span(p, iron_current(p)),
-                       "reserved v4 keyword cannot be used as a binding name",
-                       NULL);
-        /* fall through to the IDENTIFIER check below for recovery */
-    }
+    iron_keyword_as_binding_name(p);
     if (!iron_check(p, IRON_TOK_IDENTIFIER) && !iron_check(p, IRON_TOK_WILDCARD)) {
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
@@ -3235,10 +3380,7 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
     }
     Iron_Token *name_tok = iron_advance(p);
 
-    Iron_Node *type_ann = NULL;
-    if (iron_match(p, IRON_TOK_COLON)) {
-        type_ann = iron_parse_type_annotation(p);
-    }
+    Iron_Node *type_ann = iron_parse_binding_type(p, name_tok, "val");
 
     Iron_Node *init = NULL;
     if (iron_match(p, IRON_TOK_ASSIGN)) {
@@ -3281,14 +3423,7 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
 
     /* Phase 16: emit a sharp diagnostic when a v4 reserved keyword appears
      * as a var binding name (e.g., `var drop = 1`). Same pattern as val. */
-    if (iron_is_v4_reserved_kw(iron_peek(p))) {
-        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                       IRON_ERR_KEYWORD_NOT_BINDING_NAME,
-                       iron_token_span(p, iron_current(p)),
-                       "reserved v4 keyword cannot be used as a binding name",
-                       NULL);
-        /* fall through to the IDENTIFIER check below for recovery */
-    }
+    iron_keyword_as_binding_name(p);
     if (!iron_check(p, IRON_TOK_IDENTIFIER) && !iron_check(p, IRON_TOK_WILDCARD)) {
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
@@ -3298,10 +3433,7 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
     }
     Iron_Token *name_tok = iron_advance(p);
 
-    Iron_Node *type_ann = NULL;
-    if (iron_match(p, IRON_TOK_COLON)) {
-        type_ann = iron_parse_type_annotation(p);
-    }
+    Iron_Node *type_ann = iron_parse_binding_type(p, name_tok, "var");
 
     Iron_Node *init = NULL;
     if (iron_match(p, IRON_TOK_ASSIGN)) {
@@ -4231,6 +4363,28 @@ static Iron_Node *iron_parse_func_or_method(Iron_Parser *p, bool is_private, boo
     return (Iron_Node *)f;
 }
 
+/* Source spelling of tokens [from, to): a field's type for the E0264 help
+ * (`[Node]`, `Map[String, Int]`, `rc Node?`). Arena-allocated. */
+typedef struct FieldTypeText { const char *name; const char *text; struct FieldTypeText *next; } FieldTypeText;
+static const char *tokens_text(Iron_Parser *p, int from, int to) {
+    Iron_StrBuf sb = iron_strbuf_create(32);
+    bool prev_word = false;
+    for (int i = from; i < to; i++) {
+        Iron_Token *t = &p->tokens[i];
+        if (t->kind == IRON_TOK_NEWLINE) continue;
+        const char *w = t->value ? t->value : iron_token_spelling(t->kind);
+        if (!w) continue;
+        bool word = isalnum((unsigned char)w[0]) || w[0] == '_';
+        if (word && prev_word) iron_strbuf_appendf(&sb, " ");
+        iron_strbuf_appendf(&sb, "%s", w);
+        if (t->kind == IRON_TOK_COMMA) iron_strbuf_appendf(&sb, " ");
+        prev_word = word;
+    }
+    const char *r = iron_arena_strdup(p->arena, iron_strbuf_get(&sb), sb.len);
+    iron_strbuf_free(&sb);
+    return r;
+}
+
 static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool is_pub,
                                          bool is_nocopy, Iron_Node ***extra_decls_out) {
     Iron_Token *start = iron_current(p);
@@ -4292,10 +4446,15 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
     Iron_Node **fields = NULL;
     int field_count    = 0;
     int var_field_count = 0;  /* mutable (var) fields only — used for E0264 */
+    FieldTypeText *ftt_head = NULL, *ftt_tail = NULL;  /* for the E0264 help */
 
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
+        /* The `///` run above a member documents it: methods dropped it, so
+         * hover showed nothing and a deprecated no-op could not be told
+         * apart (#322). */
+        const char *member_doc = iron_collect_doc_run(p, p->arena);
 
         /* Phase 83 ACCESS-02: optional `pub` modifier on fields and methods.
          * At method level in Plan 83-01 the bit is silently accepted but has
@@ -4440,6 +4599,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->is_drop              = (strcmp(kw_name, "drop") == 0);
             m->is_copy              = (strcmp(kw_name, "copy") == 0);
 
+            if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -4608,6 +4768,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->init_name            = init_name;  /* NULL for anonymous */
             m->is_patch_member      = false;  /* Phase 94 LIB-02: in-block init on regular object */
 
+            if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -4748,6 +4909,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->init_name            = NULL;
             m->is_patch_member      = false;  /* Phase 94 LIB-02: in-block func on regular object */
 
+            if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -4808,8 +4970,18 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
         }
         Iron_Token *fname = iron_advance(p);
         Iron_Node  *ftype = NULL;
+        int ftype_from = -1;
         if (iron_match(p, IRON_TOK_COLON)) {
+            ftype_from = p->pos;
             ftype = iron_parse_type_annotation(p);
+            FieldTypeText *ft = ARENA_ALLOC(p->arena, FieldTypeText);
+            if (ft) {
+                ft->name = fname->value;
+                ft->text = tokens_text(p, ftype_from, p->pos);
+                ft->next = NULL;
+                if (ftt_tail) ftt_tail->next = ft; else ftt_head = ft;
+                ftt_tail = ft;
+            }
         } else if ((iron_check(p, IRON_TOK_IDENTIFIER) || iron_check(p, IRON_TOK_LBRACKET)) &&
                    iron_current(p)->line == fname->line) {
             /* `val x Int`: the colon is missing. It was reported as a second
@@ -5353,11 +5525,37 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
                          "object '%s' has %d mutable field(s) but no init; "
                          "an object with mutable fields needs an explicit init",
                          enclosing, var_field_count);
+                /* Write the init out: init(value: Int, children: [Node]) {
+                 * self.value = value ... } (a template before). */
+                Iron_StrBuf hb = iron_strbuf_create(128);
+                iron_strbuf_appendf(&hb, "add `init(");
+                int nf = 0;
+                for (FieldTypeText *ft = ftt_head; ft; ft = ft->next)
+                    iron_strbuf_appendf(&hb, "%s%s: %s", nf++ ? ", " : "",
+                                        ft->name ? ft->name : "?", ft->text ? ft->text : "?");
+                iron_strbuf_appendf(&hb, ")` whose body assigns each field (");
+                int na = 0;
+                for (FieldTypeText *ft = ftt_head; ft; ft = ft->next) {
+                    /* A list, map or set is not duplicated implicitly
+                     * (E0328): the field takes a copy of the argument. */
+                    const char *tx = ft->text ? ft->text : "";
+                    size_t tl = strlen(tx);
+                    bool coll = tl > 0 && tx[tl - 1] != '?' &&
+                                (tx[0] == '[' || strncmp(tx, "Map[", 4) == 0 ||
+                                 strncmp(tx, "Set[", 4) == 0);
+                    iron_strbuf_appendf(&hb, "%s`self.%s = %s%s`", na++ ? ", " : "",
+                                        ft->name ? ft->name : "?", ft->name ? ft->name : "?",
+                                        coll ? ".copy()" : "");
+                }
+                iron_strbuf_appendf(&hb, ")");
+                const char *help = nf > 0 && nf <= 6
+                    ? iron_arena_strdup(p->arena, iron_strbuf_get(&hb), hb.len)
+                    : "add an init that assigns every field: init(...) { self.field = ... }";
+                iron_strbuf_free(&hb);
                 iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                                IRON_ERR_V3_NO_INIT,
                                iron_token_span(p, name_tok),
-                               msg,
-                               "add an init that assigns every field: init(...) { self.field = ... }");
+                               msg, help);
             }
         }
     }
@@ -5494,6 +5692,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
+        const char *member_doc = iron_collect_doc_run(p, p->arena);  /* #322 */
 
         /* Optional pub modifier (Phase 83). */
         bool member_is_pub = false;
@@ -5595,6 +5794,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->is_drop              = (strcmp(kw_name, "drop") == 0);
             m->is_copy              = (strcmp(kw_name, "copy") == 0);
 
+            if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -5734,6 +5934,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->init_name            = init_name;
             m->is_patch_member      = true;  /* Phase 94 LIB-02: stub generator suppresses */
 
+            if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -5858,6 +6059,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->init_name            = NULL;
             m->is_patch_member      = true;  /* Phase 94 LIB-02: stub generator suppresses */
 
+            if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -6118,6 +6320,37 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub) {
         /* Phase 3 NAV-14: capture doc-comment run for this variant BEFORE
          * consuming its identifier. */
         const char *variant_doc = iron_collect_doc_run(p, p->arena);
+        /* `func flip() -> Dir { ... }` in an enum body: enums have no
+         * methods (manual 5.6). Say so, then skip the whole method so the
+         * rest of the enum and the file parse normally. */
+        if (iron_check(p, IRON_TOK_FUNC) || iron_check(p, IRON_TOK_READONLY) ||
+            iron_check(p, IRON_TOK_PURE) || iron_check(p, IRON_TOK_PUB)) {
+            Iron_Token *at = iron_current(p);
+            const char *mname = NULL;
+            int depth = 0;
+            while (!iron_check(p, IRON_TOK_EOF)) {
+                if (!mname && iron_check(p, IRON_TOK_IDENTIFIER)) mname = iron_current(p)->value;
+                if (iron_check(p, IRON_TOK_LBRACE)) depth++;
+                if (iron_check(p, IRON_TOK_RBRACE)) {
+                    if (depth == 0) break;        /* the enum's own `}` */
+                    if (--depth == 0) { iron_advance(p); break; }
+                }
+                iron_advance(p);
+            }
+            const char *ename = name_tok && name_tok->value ? name_tok->value : "E";
+            char help[256];
+            char lower[64];
+            snprintf(lower, sizeof(lower), "%c", (char)tolower((unsigned char)ename[0]));
+            snprintf(help, sizeof(help),
+                     "put the behavior in a function that takes the enum: "
+                     "`func %s(%s: %s) ...`",
+                     mname ? mname : "f", lower, ename);
+            iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_UNEXPECTED_TOKEN, iron_token_span(p, at),
+                           "enums have no methods",
+                           iron_arena_strdup(p->arena, help, strlen(help)));
+            continue;
+        }
         if (!iron_check(p, IRON_TOK_IDENTIFIER)) {
             iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                            IRON_ERR_UNEXPECTED_TOKEN,

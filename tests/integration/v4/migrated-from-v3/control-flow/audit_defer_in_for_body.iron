@@ -1,5 +1,5 @@
 func main() {
-  for i in 3 {
+  for i in range(3) {
     defer println("defer {i}")
     println("start {i}")
   }

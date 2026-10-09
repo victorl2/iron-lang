@@ -1,0 +1,7 @@
+-- A for loop over an integer counted like range(n); the iterable of a
+-- for loop is a list, a String, a Map or Set, or range(n).
+func main() {
+    for i in 10 {
+        println("{i}")
+    }
+}

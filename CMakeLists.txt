@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
-project(iron VERSION 4.9.0 LANGUAGES C)
+project(iron VERSION 4.10.0 LANGUAGES C)
 
 # Full release version, including any pre-release suffix (e.g. "1.0.0-alpha").
 # CMake's project(VERSION ...) only accepts numeric MAJOR.MINOR.PATCH[.TWEAK],
 # so the suffixed form lives in its own variable and is baked into the binaries
 # as IRON_VERSION_STRING below. Both this line and the project() line above are
 # kept in sync with the latest GitHub release by .github/workflows/changelog-on-release.yml.
-set(IRON_VERSION_FULL "4.9.0-alpha")
+set(IRON_VERSION_FULL "4.10.0-alpha")
 
 # ── Version info baked at compile time ─────────────────────────────────────
 execute_process(
@@ -1009,6 +1009,86 @@ add_test(NAME diag_help_quality
         -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_quality.iron
         -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_quality.expected_help
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+# Exponent literals and tuple positions: a help line, and no cascade.
+add_test(NAME diag_literal_help
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_literals.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_literals.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/help_literals.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
+# W0616: a value that is never null compared with null warns; a binding
+# narrowed by an outer check and a nullable element do not.
+add_test(NAME diag_null_compare
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/null_compare.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/null_compare.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/null_compare.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
+# A call or field read on a receiver that already failed adds no error.
+add_test(NAME diag_error_receiver
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/error_receiver.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/error_receiver.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/error_receiver.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
+# A mutating call on a val suggests `readonly` when the method never
+# changes self.
+add_test(NAME diag_readonly_hint
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/readonly_hint.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/readonly_hint.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/readonly_hint.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
+# E0264 writes out the init the object needs.
+add_test(NAME diag_init_help
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/init_help.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/init_help.expected_help
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
+# `ironc check --target web` runs the web-only passes (it analyzed every
+# file as native): await on the web target is E0501.
+add_test(NAME check_web_await
+    COMMAND $<TARGET_FILE:ironc> check --target web
+        ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/web_await.iron)
+set_tests_properties(check_web_await PROPERTIES
+    PASS_REGULAR_EXPRESSION "error\\[E0501\\]")
+
+# IO.read_line reads standard input (manual 9.5).
+if(UNIX)
+    add_test(NAME read_line_stdin
+        COMMAND sh -c "printf 'hello\\nworld\\n' | \"$<TARGET_FILE:ironc>\" run \"${CMAKE_SOURCE_DIR}/tests/integration/stdin/read_line.iron\"")
+    set_tests_properties(read_line_stdin PROPERTIES
+        PASS_REGULAR_EXPRESSION "\\[hello\\] \\[world\\]")
+endif()
+
+# A program without main is reported by build, not by the linker.
+add_test(NAME build_no_main
+    COMMAND $<TARGET_FILE:ironc> build
+        ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/no_main.iron
+        --output ${CMAKE_BINARY_DIR}/no_main_bin)
+set_tests_properties(build_no_main PROPERTIES
+    PASS_REGULAR_EXPRESSION "has no `func main\\(\\)`"
+    FAIL_REGULAR_EXPRESSION "Undefined symbols|undefined reference")
+
+# #322: no cascade from a type named like a stdlib type, no suggestion of a
+# compatibility no-op, and the help for changing a map's get() copy.
+add_test(NAME diag_issue_322
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/issue_322.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/issue_322.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/issue_322.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 
 # A diagnostic is reported once even when two passes find it.
 add_test(NAME diag_reported_once
@@ -1357,13 +1437,35 @@ if(UNIX)
     set_tests_properties(benchmark_process_regressions PROPERTIES
         LABELS "benchmark;harness" TIMEOUT 30)
 endif()
+# How much of the manual the suite exercises (scripts/spec_coverage.py):
+# fails when a syntax form, diagnostic code, library call or example the
+# baseline covers is no longer covered. Raise the baseline with
+# `scripts/spec_coverage.py --update tests/spec_coverage_baseline.json`.
+if(Python3_EXECUTABLE)
+    add_test(NAME spec_coverage
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/spec_coverage.py
+            --check ${CMAKE_SOURCE_DIR}/tests/spec_coverage_baseline.json)
+    set_tests_properties(spec_coverage PROPERTIES LABELS "spec" TIMEOUT 300)
+endif()
+# The standard library prelude, parsed by every compile, stays within the
+# section 13 grammar of the manual (#324).
+if(Python3_EXECUTABLE)
+    file(GLOB _stdlib_iron ${CMAKE_SOURCE_DIR}/src/stdlib/*.iron)
+    add_test(NAME grammar_stdlib
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/grammar_check.py
+            --manual ${CMAKE_SOURCE_DIR}/docs/language_definition.md ${_stdlib_iron})
+    set_tests_properties(grammar_stdlib PROPERTIES LABELS "spec" TIMEOUT 300)
+endif()
 # run_benchmarks.sh is a POSIX shell script; Windows has no benchmark rows.
 if(UNIX)
 add_test(NAME benchmark_smoke
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmarks/run_benchmarks.sh
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+# Runs alone (#325): it takes about 105 s on an idle machine and passed its
+# 240 s limit next to a parallel ctest, whose load also skews its timings.
 set_tests_properties(benchmark_smoke PROPERTIES
     TIMEOUT 240
+    RUN_SERIAL TRUE
     LABELS "benchmark"
     ENVIRONMENT "IRONC_BINARY=$<TARGET_FILE:ironc>;IRON_BENCH_PROBLEMS=int32_array_sum,binary_tree_inorder,longest_common_subseq,kmp_pattern_match,heap_sort,closure_call_overhead,concurrency_parallel_sum,word_break")
 endif()

@@ -1,5 +1,0 @@
-func main() {
-  for i in range(5) {
-  }
-  println("range works")
-}

@@ -129,4 +129,14 @@ Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
                                         const _Atomic bool *cancel_flag,
                                         int                 user_source_start_line);
 
+Iron_AnalyzeResult iron_analyze_buffer_for_target(const char         *source,
+                                                  size_t              len,
+                                                  const char         *filename,
+                                                  IronAnalysisMode    mode,
+                                                  Iron_Arena         *arena,
+                                                  Iron_DiagList      *diags,
+                                                  const _Atomic bool *cancel_flag,
+                                                  int                 user_source_start_line,
+                                                  IronBuildTarget     target);
+
 #endif /* IRON_ANALYZER_H */

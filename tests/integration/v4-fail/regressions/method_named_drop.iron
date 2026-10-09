@@ -1,0 +1,14 @@
+-- A method named drop shared the destructor's C name, so the drop glue
+-- called it at scope exit too and an explicit call ran it twice. The
+-- destructor is written `drop { ... }`.
+object Job {
+    val name: String
+    func drop() {
+        println("drop called on {self.name}")
+    }
+}
+
+func main() {
+    var j = Job("j")
+    j.drop()
+}

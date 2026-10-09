@@ -31,7 +31,7 @@ func main() {
   val iterations = 1
   val start_time_ns = Time.now_ns()
   for it in range(iterations) {
-    for i in 16 parallel {
+    for i in range(16) parallel {
       val idx = i - (i / 4) * 4
       var r = fib(30 + idx)
     }

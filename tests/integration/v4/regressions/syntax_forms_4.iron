@@ -1,0 +1,34 @@
+-- The last syntax forms of section 13 no test used: a copy block in a
+-- patch, two heap options, a list of checked pointers (its list type was
+-- never declared, and an elided pointer check left the element read
+-- undeclared), a list of unchecked pointers and the `Map?[K, V]` spelling.
+-- Also: a var whose address is taken is not narrowed to a smaller integer
+-- (it was int8_t, read through the pointer as int64_t).
+object Res {
+    val id: Int
+}
+
+patch object Res {
+    copy {
+        println("copy {self.id}")
+    }
+}
+
+func main() {
+    val a = Res(1)
+    val b = a
+    println("{b.id}")
+    val ar = Arena(4096)
+    val h = heap(in: ar, allow_drop_skip: true) Res(2)
+    println("{h.id}")
+    var n = 5
+    var m = 6
+    var ps: [*Int] = [&n]
+    ps.push(&m)
+    println("{ps[0]} {ps[1]} {ps.len()}")
+    val bx = Box(7)
+    val us: [*unchecked Int] = [bx.unwrap()]
+    println("{us.len()}")
+    val mp: Map?[String, Int] = null
+    println("{mp == null}")
+}

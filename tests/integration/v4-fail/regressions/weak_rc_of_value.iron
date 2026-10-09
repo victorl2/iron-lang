@@ -1,0 +1,9 @@
+-- weak rc is created with weak rc null or downgrade(), not weak rc <expr>.
+object R {
+    val v: Int
+}
+
+func main() {
+    val r = rc R(1)
+    val w: weak rc R = weak rc r
+}

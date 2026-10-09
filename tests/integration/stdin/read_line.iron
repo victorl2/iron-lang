@@ -1,0 +1,9 @@
+-- IO.read_line reads one line of standard input (manual 9.5); the ctest
+-- read_line_stdin pipes two lines in.
+import io
+
+func main() {
+    val first = IO.read_line()
+    val second = IO.read_line()
+    println("[{first}] [{second}]")
+}

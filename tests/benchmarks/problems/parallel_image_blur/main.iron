@@ -54,7 +54,7 @@ func main() {
   val iterations = 37
   val start_time_ns = Time.now_ns()
   for it in range(iterations) {
-    for r in 500 parallel {
+    for r in range(500) parallel {
       var s = compute_blur_row(r, 500, 500)
     }
   }

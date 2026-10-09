@@ -705,6 +705,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
     /* Int overflow wraps (section 10.6): the same -fwrapv the other hosts
      * pass. clang-cl already relaxes strict aliasing, as MSVC does. */
     argv_buf[ai++] = "/clang:-fwrapv";
+    /* ...so clang's overflow warnings on the generated C are noise. */
+    argv_buf[ai++] = "/clang:-Wno-integer-overflow";
     /* The runtime uses the standard C library by name; the UCRT's
      * "unsafe" deprecation notes are noise on every build. */
     argv_buf[ai++] = "/D_CRT_SECURE_NO_WARNINGS";
@@ -789,6 +791,8 @@ static int build_src_list(const char **argv_buf, int *ai_out,
      * Iron semantics: Int overflow wraps; pointer-heavy runtime is exempt
      * from strict aliasing. */
     argv_buf[ai++] = "-fwrapv";
+    /* Overflow wraps by definition: clang's warning on the C is noise. */
+    argv_buf[ai++] = "-Wno-integer-overflow";
     argv_buf[ai++] = "-fno-strict-aliasing";
     if (iron_toolchain_sysroot()) {
         argv_buf[ai++] = "-isysroot";
@@ -1041,6 +1045,8 @@ static int invoke_clang_compile_only(const char *c_file, const char *obj_path,
     /* Mirror invoke_clang: wrap-on-overflow + no strict aliasing for all
      * Iron-emitted C (see the main link path for rationale). */
     argv_buf[ai++] = "-fwrapv";
+    /* Overflow wraps by definition: clang's warning on the C is noise. */
+    argv_buf[ai++] = "-Wno-integer-overflow";
     argv_buf[ai++] = "-fno-strict-aliasing";
     if (iron_toolchain_sysroot()) {
         argv_buf[ai++] = "-isysroot";
@@ -1319,6 +1325,7 @@ static int invoke_cross(const char *c_file, const char *output, IronBuildOpts op
     cc[ci++] = target_flag;
     cc[ci++] = "-std=gnu17";
     cc[ci++] = "-fwrapv";
+    cc[ci++] = "-Wno-integer-overflow";
     cc[ci++] = "-fno-strict-aliasing";
     cc[ci++] = opts.release ? "-O2" : "-O3";
     cc[ci++] = "-nostdinc";
@@ -1986,6 +1993,31 @@ int iron_build(const char *source_path, const char *output_path,
         free(source);
         free(base_dir);
         return 1;
+    }
+
+    /* A program starts at `main` (manual 5.1). Without one the C has no
+     * entry point and the link failed with "Undefined symbols: _main". A
+     * library archive and a test build bring their own. */
+    if (!opts.emit_archive && !opts.test_mode && !opts.emit_c) {
+        Iron_Program *prog = (Iron_Program *)ast;
+        bool has_main = false;
+        for (int i = 0; i < prog->decl_count && !has_main; i++) {
+            Iron_Node *d = prog->decls[i];
+            has_main = d && d->kind == IRON_NODE_FUNC_DECL &&
+                       ((Iron_FuncDecl *)d)->name &&
+                       strcmp(((Iron_FuncDecl *)d)->name, "main") == 0 &&
+                       !((Iron_FuncDecl *)d)->is_test;
+        }
+        if (!has_main) {
+            fprintf(stderr, "error: %s has no `func main()`: a program starts at main\n"
+                            "  = help: add `func main() { ... }`, or build a library package\n",
+                    source_path ? source_path : "the program");
+            iron_diaglist_free(&diags);
+            iron_arena_free(&arena);
+            free(source);
+            free(base_dir);
+            return 1;
+        }
     }
 
     /* 5b. `test "name" { ... }` functions were checked with the rest; a test

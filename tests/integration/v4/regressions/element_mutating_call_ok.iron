@@ -1,0 +1,28 @@
+-- Methods that write self on list elements: through a `var` list, and on
+-- rc elements of a `val` list (the objects are shared, not the list's).
+object Counter {
+    var n: Int
+    init(n: Int) { self.n = n }
+    func bump() { self.n = self.n + 1 }
+    readonly func get() -> Int { return self.n }
+}
+
+object Holder {
+    var inner: Counter
+    init(c: Counter) { self.inner = c }
+}
+
+func main() {
+    var cs = [Counter(1), Counter(5)]
+    cs[0].bump()
+    cs[1].bump()
+    println("{cs[0].get()} {cs[1].get()}")
+    val rs = [rc Counter(10)]
+    rs[0].bump()
+    println("{rs[0].n}")
+    var h = Holder(Counter(7))
+    h.inner.bump()
+    println("{h.inner.get()}")
+    val cs2 = [Counter(3)]
+    println("{cs2[0].get()}")
+}

@@ -1,0 +1,11 @@
+-- E0264: the help writes out the init for this object's fields, with
+-- copy() for a collection (assigning a list parameter is E0328).
+object Node {
+    val value: Int
+    var children: [Node]
+    var tags: Map[String, Int]
+    val label: String?
+}
+
+func main() {
+}

@@ -43,7 +43,7 @@ func main() {
   val iterations = 19
   val start_time_ns = Time.now_ns()
   for it in range(iterations) {
-    for i in 64 parallel {
+    for i in range(64) parallel {
       var r = monte_carlo_chunk(i, 10000)
     }
   }

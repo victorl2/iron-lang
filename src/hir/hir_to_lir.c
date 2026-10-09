@@ -627,6 +627,25 @@ static bool hir_expr_is_place(IronHIR_Expr *e) {
     return e && (e->kind == IRON_HIR_EXPR_IDENT || hir_expr_is_borrowed_elem(e));
 }
 
+/* A type that owns a list buffer or a hash table, directly or through
+ * object fields (the analyzer's E0328 rule, list_ownership.c): copying its
+ * bytes shares the storage, so a second owner would free it twice. */
+static bool hir_type_owns_list(const Iron_Type *t, int depth) {
+    if (!t || depth > 16) return false;
+    if (t->kind == IRON_TYPE_ARRAY) return t->array.size < 0 && !t->array.is_bounded;
+    if (t->kind != IRON_TYPE_OBJECT || !t->object.decl) return false;
+    if (t->object.elem && t->object.decl->name &&
+        (strcmp(t->object.decl->name, "Map") == 0 || strcmp(t->object.decl->name, "Set") == 0))
+        return true;
+    Iron_ObjectDecl *od = t->object.decl;
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        Iron_Type *ft = f ? (f->resolved_type ? f->resolved_type : f->field_type_cached) : NULL;
+        if (hir_type_owns_list(ft, depth + 1)) return true;
+    }
+    return false;
+}
+
 /* Fix up the copy stored at `slot` when it was copied out of a place. */
 static void emit_copy_fixup_at(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *src,
                                Iron_Type *t, IronLIR_ValueId slot,
@@ -746,6 +765,20 @@ static const char *list_elem_suffix(HIR_to_LIR_Ctx *ctx, Iron_Type *elem) {
             case IRON_TYPE_BOOL:   elem_suffix = "bool";        break;
             case IRON_TYPE_STRING: elem_suffix = "Iron_String"; break;
             case IRON_TYPE_FUNC:   elem_suffix = "Iron_Closure"; break;
+            /* `[*T]`: a checked pointer is an Iron_FatPtr (#324). */
+            case IRON_TYPE_PTR:
+                if (!elem->ptr.is_unchecked) {
+                    elem_suffix = "Iron_FatPtr";
+                } else if (elem->ptr.pointee) {
+                    /* `T *`, spelled as the emitter does: "T__". */
+                    const char *ps = list_elem_suffix(ctx, elem->ptr.pointee);
+                    size_t n = strlen(ps) + 3;
+                    char *buf = (char *)iron_arena_alloc(ctx->lir_arena, n, 1);
+                    if (!buf) iron_oom_abort("hir_to_lir.c:list_elem_suffix ptr");
+                    snprintf(buf, n, "%s__", ps);
+                    elem_suffix = buf;
+                }
+                break;
             /* AUDIT-02 #6 fix: narrow/wide int and float kinds
              * previously fell through to the silent default,
              * mis-dispatching [Int8].method() etc. to
@@ -2187,8 +2220,22 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         IronLIR_ValueId right = lower_expr(ctx, expr->binop.right);
         if (!ctx->current_block) return IRON_LIR_VALUE_INVALID;
         IronLIR_InstrKind kind = hir_binop_to_lir(op);
-        return iron_lir_binop(ctx->current_func, ctx->current_block,
-                               kind, left, right, type, span)->id;
+        IronLIR_ValueId res = iron_lir_binop(ctx->current_func, ctx->current_block,
+                                             kind, left, right, type, span)->id;
+        /* `w.upgrade() != null`: an rc operand that hands over a reference
+         * (an upgrade, a call result) has no owner once compared; it was
+         * never released, so the object leaked and its drop never ran. */
+        {
+            TempOwned *temps = NULL;
+            IronHIR_Expr *ops[2] = { expr->binop.left, expr->binop.right };
+            IronLIR_ValueId vals[2] = { left, right };
+            for (int i = 0; i < 2; i++)
+                if (ops[i] && ops[i]->type && type_is_rc_like(ops[i]->type) &&
+                    rc_expr_transfers_ownership(ops[i]))
+                    note_owned_temp(ctx, &temps, ops[i], vals[i], span);
+            release_owned_temps(ctx, &temps, span);
+        }
+        return res;
     }
 
     case IRON_HIR_EXPR_UNOP: {
@@ -3245,11 +3292,13 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * remediation) so a module-global receiver can be routed through its
          * slot when the callee takes the receiver by pointer. */
         bool callee_is_mut_receiver = false;
+        IronHIR_Func *callee_tf = NULL;
         if (ctx->hir) {
             for (int fi = 0; fi < ctx->hir->func_count; fi++) {
                 IronHIR_Func *tf = ctx->hir->funcs[fi];
                 if (!tf || !tf->name) continue;
                 if (strcmp(tf->name, mangled) != 0) continue;
+                callee_tf = tf;
                 if (tf->is_mut_receiver_method) {
                     callee_is_mut_receiver = true;
                 }
@@ -3261,7 +3310,8 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
          * signature is mutating (not readonly/pure) — see the dispatcher
          * emitter in emit_c.c — so the receiver must be passed by address
          * exactly like a concrete pointer-receiver method. */
-        if (!callee_is_mut_receiver && !is_static_call &&
+        Iron_FuncDecl *iface_sig = NULL;
+        if (!is_static_call &&
             expr->method_call.object && expr->method_call.object->type &&
             expr->method_call.object->type->kind == IRON_TYPE_INTERFACE &&
             expr->method_call.object->type->interface.decl &&
@@ -3272,7 +3322,9 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                 if (!msig || msig->kind != IRON_NODE_FUNC_DECL) continue;
                 Iron_FuncDecl *fd = (Iron_FuncDecl *)msig;
                 if (!fd->name || strcmp(fd->name, expr->method_call.method) != 0) continue;
-                callee_is_mut_receiver = !(fd->is_readonly || fd->is_pure);
+                iface_sig = fd;
+                if (!callee_is_mut_receiver)
+                    callee_is_mut_receiver = !(fd->is_readonly || fd->is_pure);
                 break;
             }
         }
@@ -3365,6 +3417,20 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             IronHIR_Expr *ae = expr->method_call.args[i];
             IronLIR_ValueId av = lower_expr(ctx, ae);
             note_owned_temp(ctx, &temps, ae, av, span);
+            /* A `T?` parameter takes a T argument (or null) wrapped, as a
+             * function call does: `w.show("x")` and `T("t")` through an
+             * init passed the bare String to an Iron_Optional_Iron_String.
+             * The callee's params include self when args do, so the
+             * argument's position is its parameter's index. */
+            int pi = (int)arrlen(args);
+            if (callee_tf && pi < callee_tf->param_count && callee_tf->params[pi].type)
+                av = coerce_to_optional(ctx, av, callee_tf->params[pi].type, span);
+            else if (!callee_tf && iface_sig && pi >= 1 && pi - 1 < iface_sig->param_count &&
+                     iface_sig->params[pi - 1])
+                /* The interface dispatcher: self, then the signature's. */
+                av = coerce_to_optional(ctx, av,
+                                        ((Iron_Param *)iface_sig->params[pi - 1])->resolved_type,
+                                        span);
             arrput(args, av);
         }
         int arg_count = (int)arrlen(args);
@@ -3733,14 +3799,22 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                               val, expr->cast.target_type, span)->id;
     }
 
-    case IRON_HIR_EXPR_IS_NULL: {
-        IronLIR_ValueId val = lower_expr(ctx, expr->null_check.value);
-        return iron_lir_is_null(ctx->current_func, ctx->current_block, val, span)->id;
-    }
-
+    case IRON_HIR_EXPR_IS_NULL:
     case IRON_HIR_EXPR_IS_NOT_NULL: {
-        IronLIR_ValueId val = lower_expr(ctx, expr->null_check.value);
-        return iron_lir_is_not_null(ctx->current_func, ctx->current_block, val, span)->id;
+        IronHIR_Expr *v = expr->null_check.value;
+        IronLIR_ValueId val = lower_expr(ctx, v);
+        IronLIR_ValueId res = expr->kind == IRON_HIR_EXPR_IS_NULL
+            ? iron_lir_is_null(ctx->current_func, ctx->current_block, val, span)->id
+            : iron_lir_is_not_null(ctx->current_func, ctx->current_block, val, span)->id;
+        /* `w.upgrade() != null` tested a handle nothing owned afterwards:
+         * the reference upgrade() handed over was never released, so the
+         * object leaked and its drop never ran. */
+        if (v && v->type && type_is_rc_like(v->type) && rc_expr_transfers_ownership(v)) {
+            TempOwned *temps = NULL;
+            note_owned_temp(ctx, &temps, v, val, span);
+            release_owned_temps(ctx, &temps, span);
+        }
+        return res;
     }
 
     case IRON_HIR_EXPR_FUNC_REF: {
@@ -4057,6 +4131,13 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                      * type as-is when it is already pointer-shaped. */
                     if (type->kind == IRON_TYPE_RC) {
                         alloca_type = type;
+                    } else if (type->kind == IRON_TYPE_NULLABLE && type->nullable.inner &&
+                               type_is_rc_like(type->nullable.inner)) {
+                        /* `var x: rc T? = rc T(...)`: the slot is the
+                         * optional itself; wrapping it in rc again hid the
+                         * optional, so `x = rc T(...)` was stored unwrapped
+                         * and the branches of an if disagreed on its type. */
+                        alloca_type = type;
                     } else if (ik == IRON_HIR_EXPR_RC) {
                         alloca_type = iron_type_make_rc(ctx->lir_arena, type);
                     } else {
@@ -4181,8 +4262,13 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             bool enum_borrows = type && type->kind == IRON_TYPE_ENUM &&
                                 enum_has_boxed_payload(type) &&
                                 stmt->let.init && hir_expr_is_place(stmt->let.init);
+            /* `Bag.Items(xs) -> ...`: xs views the subject's list, which
+             * the subject frees. It was copied bytewise and freed at the
+             * arm's end, so the next match on the subject, or its own drop,
+             * freed the buffer again. */
+            bool pattern_borrows = stmt->let.borrows && hir_type_owns_list(type, 0);
             bool needs_drop_alloca = stmt->let.init &&
-                                     !init_is_heap_or_rc && !enum_borrows &&
+                                     !init_is_heap_or_rc && !enum_borrows && !pattern_borrows &&
                                      type_needs_drop(type, ctx->program) &&
                                      ctx->defer_depth > 0 &&
                                      ctx->drop_stacks &&
@@ -4205,7 +4291,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             } else {
                 if (stmt->let.init) {
                     IronLIR_ValueId init_val = lower_expr_as(ctx, stmt->let.init, type);
-                    if (!init_is_heap_or_rc)
+                    if (!init_is_heap_or_rc && !pattern_borrows)
                         init_val = copy_for_new_owner(ctx, stmt->let.init,
                                                       init_val, type, span);
                     hmput(ctx->val_binding_map, vid, init_val);

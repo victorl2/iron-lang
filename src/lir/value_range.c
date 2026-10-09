@@ -196,9 +196,28 @@ static void local_mark_observable_allocas(struct IronVR_LocalFuncAnalysis *lf) {
     } \
 } while (0)
             switch ((int)in->kind) {
-            case IRON_LIR_ADDR_OF:
-                REJECT_ALLOCA(in->addr_of.target);
+            case IRON_LIR_ADDR_OF: {
+                /* `&x` usually targets a LOAD of x's slot, and the emitter
+                 * takes the address of the slot itself (the storage path:
+                 * through loads, casts, fields and bounded-vector indexes).
+                 * Only the load was rejected, so the slot could be narrowed
+                 * to int8_t and then read through the pointer as int64_t
+                 * (#324). Reject every step back to the slot. */
+                IronLIR_ValueId cur = in->addr_of.target;
+                for (int depth = 0; depth < 32 && cur != IRON_LIR_VALUE_INVALID &&
+                                    cur < lf->value_count; depth++) {
+                    REJECT_ALLOCA(cur);
+                    IronLIR_Instr *d = ((ptrdiff_t)cur < arrlen(fn->value_table))
+                                           ? fn->value_table[cur] : NULL;
+                    if (!d) break;
+                    if (d->kind == IRON_LIR_LOAD) cur = d->load.ptr;
+                    else if (d->kind == IRON_LIR_CAST) cur = d->cast.value;
+                    else if (d->kind == IRON_LIR_GET_FIELD) cur = d->field.object;
+                    else if (d->kind == IRON_LIR_GET_INDEX) cur = d->index.array;
+                    else break;
+                }
                 break;
+            }
             case IRON_LIR_CALL:
                 if (in->call.self_by_addr && in->call.arg_count > 0)
                     REJECT_ALLOCA(in->call.args[0]);

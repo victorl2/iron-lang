@@ -14,6 +14,9 @@
 #   <!-- doctest-expect-error: E0123 -->     the block must FAIL to compile
 #                                            and the compiler output must
 #                                            mention the given code
+#   <!-- doctest-test -->                    the block holds `test` blocks:
+#                                            run them with `IRON_BIN test`,
+#                                            which must pass
 #
 # Every fenced code block in the file must carry a language tag; an
 # untagged ``` fence fails the test so new examples cannot bypass it.
@@ -126,6 +129,8 @@ awk -v workdir="${WORK}/blocks" '
                 sub(/^<!--[[:space:]]*doctest-expect-error:[[:space:]]*/, "", code)
                 sub(/[[:space:]]*-->[[:space:]]*$/, "", code)
                 pending_mode = "error"; pending_arg = code
+            } else if (match(trimmed, /^<!--[[:space:]]*doctest-test[[:space:]]*-->[[:space:]]*$/)) {
+                pending_mode = "test"; pending_arg = ""
             } else {
                 flush_directive()
             }
@@ -235,6 +240,25 @@ while [ "$i" -lt "$TOTAL" ]; do
         # Bare statements: the block's own import lines go above main.
         grep -E '^import ' "${body_path}" >> "${src_path}" || true
         { echo "func main() {"; grep -Ev '^import ' "${body_path}"; echo "}"; } >> "${src_path}"
+    fi
+
+    if [ "${mode}" = "test" ]; then
+        test_log="${WORK}/blocks/block_${i}.test"
+        set +e
+        (cd "${WORK}/blocks" && "${IRON_BIN}" test "${src_path}") > "${test_log}" 2>&1
+        rc=$?
+        set -e
+        if [ "${rc}" -eq 0 ]; then
+            echo "PASS ${where} (tests pass)"
+            PASS=$((PASS + 1))
+        else
+            echo "FAIL ${where}: its test blocks failed (exit ${rc})"
+            echo "--- source ---"; cat "${src_path}"
+            echo "--- test output ---"; cat "${test_log}"
+            echo "--- end of failure ${where} ---"
+            FAIL=$((FAIL + 1))
+        fi
+        continue
     fi
 
     bin_path="${WORK}/blocks/block_${i}.bin"

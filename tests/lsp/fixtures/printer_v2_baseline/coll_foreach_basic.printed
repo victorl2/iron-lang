@@ -1,8 +1,0 @@
-func main() {
-  val arr = [10, 20, 30]
-  var total = 0
-  arr.forEach(func(x: Int) {
-    total = (total + x)
-  })
-  println("{total}")
-}

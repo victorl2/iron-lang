@@ -1,0 +1,8 @@
+-- A for loop over a value that is not iterable was accepted: the loop
+-- variable was typed Int and the C read f.count on a closure.
+func main() {
+    val f = func(x: Int) -> Int { return x }
+    for a in f {
+        println("{a}")
+    }
+}

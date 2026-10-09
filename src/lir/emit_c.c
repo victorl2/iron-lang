@@ -8345,9 +8345,12 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_indent(sb, ind);
             if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
             emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = *");
-            emit_val(sb, instr->ptr_load.fp);
-            iron_strbuf_appendf(sb, ";\n");
+            /* The pointer may be an inlined expression (an element read
+             * whose only other use, the generation check, was elided):
+             * emit_val named a value that was never declared (#324). */
+            iron_strbuf_appendf(sb, " = *(");
+            emit_expr_to_buf(sb, instr->ptr_load.fp, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ");\n");
         } else {
             /* Existing Phase 20 checked path — load through .addr.
              * Phase 30 OPT-03 (Plan 30-02): the generation check is NO LONGER
@@ -8358,9 +8361,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             emit_indent(sb, ind);
             if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
             emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb, " = *((%s *)", emit_type_to_c(instr->type, ctx));
-            emit_val(sb, instr->ptr_load.fp);
-            iron_strbuf_appendf(sb, ".addr);\n");
+            iron_strbuf_appendf(sb, " = *((%s *)(", emit_type_to_c(instr->type, ctx));
+            emit_expr_to_buf(sb, instr->ptr_load.fp, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ").addr);\n");
         }
         break;
     }
@@ -8383,10 +8386,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             /* Phase 25 UNCK-03: bare C store — no gen check.
              * Symmetric to PTR_LOAD unchecked branch. */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "*");
-            emit_val(sb, instr->ptr_store.fp);
-            iron_strbuf_appendf(sb, " = ");
-            emit_val(sb, instr->ptr_store.value);
+            iron_strbuf_appendf(sb, "*(");
+            emit_expr_to_buf(sb, instr->ptr_store.fp, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ") = ");
+            emit_expr_to_buf(sb, instr->ptr_store.value, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ";\n");
         } else {
             /* Existing Phase 20 checked path — store through .addr.
@@ -8404,10 +8407,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 (vinstr && vinstr->type) ? emit_type_to_c(vinstr->type, ctx)
                                          : "void *";
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "*((%s *)", value_c);
-            emit_val(sb, instr->ptr_store.fp);
-            iron_strbuf_appendf(sb, ".addr) = ");
-            emit_val(sb, instr->ptr_store.value);
+            iron_strbuf_appendf(sb, "*((%s *)(", value_c);
+            emit_expr_to_buf(sb, instr->ptr_store.fp, fn, ctx, ctx->current_block_id, 0);
+            iron_strbuf_appendf(sb, ").addr) = ");
+            emit_expr_to_buf(sb, instr->ptr_store.value, fn, ctx, ctx->current_block_id, 0);
             iron_strbuf_appendf(sb, ";\n");
         }
         break;
@@ -11873,7 +11876,13 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
                 for (int pi = 0; pi < sig->param_count; pi++) {
                     Iron_Param *p = (Iron_Param *)sig->params[pi];
                     const char *pt = "void*";
-                    if (p->type_ann) {
+                    /* The resolved type spells `String?` and `[Int]`; the
+                     * annotation's bare name gave Iron_String for a String?
+                     * parameter, which the implementor takes as an
+                     * Iron_Optional_Iron_String. */
+                    if (p->resolved_type) {
+                        pt = emit_type_to_c(p->resolved_type, &ctx);
+                    } else if (p->type_ann) {
                         Iron_TypeAnnotation *ta = (Iron_TypeAnnotation *)p->type_ann;
                         pt = emit_annotation_to_c(ta->name, &ctx);
                     }

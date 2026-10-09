@@ -38,7 +38,8 @@ static char *check_read_file(const char *path) {
 
 /* ── Check: lex + parse + analyze, no codegen ────────────────────────────── */
 
-int iron_check(const char *source_path, bool verbose, bool strict_v3) {
+int iron_check(const char *source_path, bool verbose, bool strict_v3,
+               IronBuildTarget target) {
     /* Phase 9 D-11 (Option A): the strict_v3 flag is now threaded into
      * iron_analyze_buffer via the IronAnalysisMode enum. CLI mode keeps
      * the legacy strict-v3 grammar enforcement; CLI_LENIENT honors
@@ -64,12 +65,13 @@ int iron_check(const char *source_path, bool verbose, bool strict_v3) {
     /* 3. Analyze — single call, no bypass paths (HARD-01).
      * Phase 9 D-11: analysis_mode encodes strict_v3 via the
      * IronAnalysisMode enum (CLI for strict, CLI_LENIENT for lenient). */
-    Iron_AnalyzeResult result = iron_analyze_buffer(
+    Iron_AnalyzeResult result = iron_analyze_buffer_for_target(
         source, strlen(source), source_path,
         analysis_mode,
         &arena, &diags,
         NULL,
-        stdlib_prepended_lines + 1);
+        stdlib_prepended_lines + 1,
+        target);
 
     /* 4. Print all diagnostics */
     iron_diag_print_all(&diags, source);

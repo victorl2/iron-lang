@@ -1,0 +1,5 @@
+-- range(n) outside a for loop was the integer n.
+func main() {
+    val r = range(3)
+    println("{r}")
+}

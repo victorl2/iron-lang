@@ -73,7 +73,7 @@ func main() {
     val iterations = 3
     val start_ns = Time.now_ns()
     for iter in range(iterations) {
-        for idx in NUM_BLOCKS parallel {
+        for idx in range(NUM_BLOCKS) parallel {
             val h = search_block(idx)
         }
     }
