@@ -1070,6 +1070,16 @@ set_tests_properties(build_no_main PROPERTIES
     PASS_REGULAR_EXPRESSION "has no `func main\\(\\)`"
     FAIL_REGULAR_EXPRESSION "Undefined symbols|undefined reference")
 
+# #322: no cascade from a type named like a stdlib type, no suggestion of a
+# compatibility no-op, and the help for changing a map's get() copy.
+add_test(NAME diag_issue_322
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/issue_322.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/issue_322.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/issue_322.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
 # A diagnostic is reported once even when two passes find it.
 add_test(NAME diag_reported_once
     COMMAND $<TARGET_FILE:ironc> check

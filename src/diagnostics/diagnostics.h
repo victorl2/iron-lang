@@ -573,14 +573,17 @@ void iron_diaglist_free(Iron_DiagList *list);
 #define IRON_ERR_LOWER_INVALID_MATCH       403
 
 /* HIR verifier errors (500 range) */
-#define IRON_ERR_HIR_NULL_POINTER          500
-#define IRON_ERR_HIR_USE_BEFORE_DEF        501
-#define IRON_ERR_HIR_DUPLICATE_BINDING     502
-#define IRON_ERR_HIR_TYPE_MISMATCH         503
-#define IRON_ERR_HIR_ARG_COUNT_MISMATCH    504
-#define IRON_ERR_HIR_INVALID_SCOPE         505
-#define IRON_ERR_HIR_MISSING_RETURN_VALUE  506
-#define IRON_ERR_HIR_STRUCTURAL            507
+/* HIR verifier errors are compiler bugs, like the LIR verifier's 900s. They
+ * were 500..507, sharing 501 and 502 with the web target's E0501 (await)
+ * and E0502 (top-level loader) (#322). */
+#define IRON_ERR_HIR_NULL_POINTER          950
+#define IRON_ERR_HIR_USE_BEFORE_DEF        951
+#define IRON_ERR_HIR_DUPLICATE_BINDING     952
+#define IRON_ERR_HIR_TYPE_MISMATCH         953
+#define IRON_ERR_HIR_ARG_COUNT_MISMATCH    954
+#define IRON_ERR_HIR_INVALID_SCOPE         955
+#define IRON_ERR_HIR_MISSING_RETURN_VALUE  956
+#define IRON_ERR_HIR_STRUCTURAL            957
 
 /* Warning codes (600 range) */
 #define IRON_WARN_SPAWN_NO_HANDLE     600   /* RETIRED: a standalone `spawn` is a deliberately detached task; never emitted */

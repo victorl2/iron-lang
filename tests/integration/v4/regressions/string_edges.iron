@@ -1,0 +1,8 @@
+-- String positions clamp instead of panicking, and to_int / to_float accept
+-- surrounding whitespace (manual 9.2, #323).
+func main() {
+    val s = "hello"
+    println("[{s.substring(3, 10)}] [{s.substring(-2, 2)}] [{s.substring(4, 1)}] [{s.char_at(9)}] [{s.char_at(-1)}]")
+    println("{" 42 ".to_int()} {"4 2".to_int()} {"\t7\n".to_int()} {" 2.5 ".to_float()}")
+    println("{s.byte_at(99)}")
+}

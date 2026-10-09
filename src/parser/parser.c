@@ -4451,6 +4451,10 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
+        /* The `///` run above a member documents it: methods dropped it, so
+         * hover showed nothing and a deprecated no-op could not be told
+         * apart (#322). */
+        const char *member_doc = iron_collect_doc_run(p, p->arena);
 
         /* Phase 83 ACCESS-02: optional `pub` modifier on fields and methods.
          * At method level in Plan 83-01 the bit is silently accepted but has
@@ -4595,6 +4599,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->is_drop              = (strcmp(kw_name, "drop") == 0);
             m->is_copy              = (strcmp(kw_name, "copy") == 0);
 
+            if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -4763,6 +4768,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->init_name            = init_name;  /* NULL for anonymous */
             m->is_patch_member      = false;  /* Phase 94 LIB-02: in-block init on regular object */
 
+            if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -4903,6 +4909,7 @@ static Iron_Node *iron_parse_object_decl(Iron_Parser *p, bool is_private, bool i
             m->init_name            = NULL;
             m->is_patch_member      = false;  /* Phase 94 LIB-02: in-block func on regular object */
 
+            if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -5685,6 +5692,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
     while (!iron_check(p, IRON_TOK_RBRACE) && !iron_check(p, IRON_TOK_EOF)) {
         iron_skip_newlines(p);
         if (iron_check(p, IRON_TOK_RBRACE)) break;
+        const char *member_doc = iron_collect_doc_run(p, p->arena);  /* #322 */
 
         /* Optional pub modifier (Phase 83). */
         bool member_is_pub = false;
@@ -5786,6 +5794,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->is_drop              = (strcmp(kw_name, "drop") == 0);
             m->is_copy              = (strcmp(kw_name, "copy") == 0);
 
+            if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -5925,6 +5934,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->init_name            = init_name;
             m->is_patch_member      = true;  /* Phase 94 LIB-02: stub generator suppresses */
 
+            if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }
@@ -6049,6 +6059,7 @@ static Iron_Node *iron_parse_patch_decl(Iron_Parser *p, bool is_pub,
             m->init_name            = NULL;
             m->is_patch_member      = true;  /* Phase 94 LIB-02: stub generator suppresses */
 
+            if (!m->doc_comment) m->doc_comment = member_doc;
             if (extra_decls_out) {
                 arrput(*extra_decls_out, (Iron_Node *)m);
             }

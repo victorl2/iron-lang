@@ -106,7 +106,7 @@ typedef struct {
     /* ── Module-level globals (2026-07 remediation: true module storage) ──
      * Replaces the old per-function materialization scheme (immutable
      * pure-init globals re-LET per referencing function; everything else
-     * E0501). Pass 1 records EVERY top-level val/var here; references are
+     * E0951). Pass 1 records EVERY top-level val/var here; references are
      * lowered as marker idents (var_id == IRON_HIR_VAR_INVALID + name, see
      * IronHIR_Global in hir.h) and the set of ACTUALLY REFERENCED globals is
      * accumulated in global_active_set. synthesize_module_init_hir() then
@@ -2863,7 +2863,7 @@ static void lower_block_hir(IronHIR_LowerCtx *ctx, Iron_Block *block,
      * declare_var into the ENCLOSING frame, clobbering the outer `x`'s VarId;
      * references to the outer `x` after the block then pointed at the inner
      * LET (declared in a nested HIR block) and the HIR verifier rejected the
-     * valid shadowing program with E0501. The verifier (hir_verify.c
+     * valid shadowing program with E0951. The verifier (hir_verify.c
      * verify_block) already scopes per-block; this makes lowering match. */
     push_scope(ctx);
     push_defer_scope_hir(ctx);

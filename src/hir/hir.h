@@ -202,7 +202,7 @@ typedef struct {
  * `name` matching a globals[] entry. hir_verify.c already admits
  * invalid-var_id idents ("anonymous ident — allow"), so cross-function global
  * references verify without per-function LET materialization (the old scheme
- * that made mutable / impure-init globals E0501 everywhere past the first
+ * that made mutable / impure-init globals E0951 everywhere past the first
  * referencing function). hir_to_lir.c resolves the name against this list and
  * routes the access through a per-function global-slot ALLOCA that emit_c.c
  * aliases to a file-scope C static.

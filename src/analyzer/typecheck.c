@@ -205,10 +205,26 @@ typedef struct {
     /* The operand of the heap expression being checked: `heap [UInt8; 100]`
      * allocates a sized buffer, the one place `[T; N]` is a value. */
     Iron_Node         *heap_operand;
+    /* Where "a list cannot hold tuples" was last reported: an annotated
+     * binding has the tuple list in its type and in its literal (#322). */
+    const char        *tuple_list_file;
+    uint32_t           tuple_list_line;
     /* defer bodies enclosing the statement, for return; 0 inside a lambda
      * or spawn body. */
     int                defer_depth;
 } TypeCtx;
+
+static void emit_error(TypeCtx *ctx, int code, Iron_Span span,
+                       const char *msg, const char *suggestion);
+static void report_tuple_list(TypeCtx *ctx, Iron_Span sp) {
+    if (ctx->tuple_list_file && sp.filename && sp.line == ctx->tuple_list_line &&
+        strcmp(ctx->tuple_list_file, sp.filename) == 0)
+        return;
+    ctx->tuple_list_file = sp.filename;
+    ctx->tuple_list_line = sp.line;
+    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, sp, TUPLE_LIST_MSG, TUPLE_LIST_HELP);
+}
+
 
 /* Help for a method name that does not exist on `type_name`: the closest
  * declared method ("did you mean 'upper'?"), else a list of the type's
@@ -245,6 +261,26 @@ static const char *names_help(TypeCtx *ctx, const char *what, const char *owner,
     return r;
 }
 
+/* A type name declared twice, typically a user type named like a standard
+ * library one (`object Box`): E0201 already reports it, and every use then
+ * resolved to the other declaration, so "no field 'n' on type 'Box'"
+ * followed at each use (#322). */
+static bool type_name_declared_twice(TypeCtx *ctx, const char *name) {
+    if (!ctx->program || !name) return false;
+    int n = 0;
+    for (int i = 0; i < ctx->program->decl_count; i++) {
+        Iron_Node *d = ctx->program->decls[i];
+        const char *dn = NULL;
+        if (!d) continue;
+        if (d->kind == IRON_NODE_OBJECT_DECL && !((Iron_ObjectDecl *)d)->is_patch)
+            dn = ((Iron_ObjectDecl *)d)->name;
+        else if (d->kind == IRON_NODE_ENUM_DECL) dn = ((Iron_EnumDecl *)d)->name;
+        else if (d->kind == IRON_NODE_INTERFACE_DECL) dn = ((Iron_InterfaceDecl *)d)->name;
+        if (dn && strcmp(dn, name) == 0 && ++n > 1) return true;
+    }
+    return false;
+}
+
 static const char *method_help(TypeCtx *ctx, const char *type_name, const char *method) {
     if (!ctx || !ctx->program || !type_name || !method) return NULL;
     const char *names[256]; int n = 0;
@@ -255,6 +291,9 @@ static const char *method_help(TypeCtx *ctx, const char *type_name, const char *
         if (!md->type_name || !md->method_name || strcmp(md->type_name, type_name) != 0) continue;
         if (md->is_init || md->is_drop || md->is_copy || md->method_name[0] == '_' ||
             md->method_name[0] == '$' || strcmp(md->method_name, "init") == 0) continue;
+        /* A no-op kept for source compatibility (String.release) is not a
+         * suggestion: `reverse` was answered with "did you mean 'release'?". */
+        if (md->doc_comment && strstr(md->doc_comment, "source compatibility")) continue;
         bool dup = false;
         for (int k = 0; k < n; k++) if (strcmp(names[k], md->method_name) == 0) { dup = true; break; }
         if (!dup) names[n++] = md->method_name;
@@ -591,9 +630,20 @@ static void check_array_mutable(TypeCtx *ctx, Iron_Node *place, Iron_Span span,
                    "add 'var' modifier to grant in-body mutation: 'var <name>: T'");
     } else {
         snprintf(msg, sizeof(msg), "cannot %s an immutable list", what);
-        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, span, msg,
-                   root && sym_is_loop_var(root) ? LOOP_VAR_MUT_HELP
-                                                 : "declare it with 'var'");
+        /* No binding to declare `var` (#322): the list is the result of a
+         * call. A map's get() hands out a copy (manual 9.10), so a change
+         * to it would be lost. */
+        const char *help = root && sym_is_loop_var(root) ? LOOP_VAR_MUT_HELP
+                                                         : "declare it with 'var'";
+        if (!root) {
+            const char *mname = place->kind == IRON_NODE_METHOD_CALL
+                                    ? ((Iron_MethodCallExpr *)place)->method : NULL;
+            help = mname && (strcmp(mname, "get") == 0 || strcmp(mname, "get_or") == 0)
+                ? "get() returns a copy, so the change would be lost: write "
+                  "`var v = m.get(k)`, change v, then `m.put(k, v)`"
+                : "it is the result of a call, a temporary: bind it first, `var v = ...`";
+        }
+        emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, span, msg, help);
     }
 }
 
@@ -1930,7 +1980,7 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         if (!elem || elem->kind == IRON_TYPE_ERROR)
             return iron_type_make_primitive(IRON_TYPE_ERROR);
         if (elem->kind == IRON_TYPE_TUPLE) {
-            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ann->span, TUPLE_LIST_MSG, TUPLE_LIST_HELP);
+            report_tuple_list(ctx, ann->span);
             return iron_type_make_primitive(IRON_TYPE_ERROR);
         }
         int size = -1;
@@ -6901,7 +6951,10 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                             }
                         }
                     }
-                    if (!is_builtin_ns && !is_field_call) {
+                    if (!is_builtin_ns && !is_field_call &&
+                        type_name_declared_twice(ctx, eff_recv_t->object.decl->name)) {
+                        result = iron_type_make_primitive(IRON_TYPE_ERROR);
+                    } else if (!is_builtin_ns && !is_field_call) {
                         char msg[256];
                         snprintf(msg, sizeof(msg),
                                  "no method '%s' on type '%s'",
@@ -7297,7 +7350,9 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 report_private_member(ctx, matched_field->is_pub,
                                       matched_field->span, fa->span, what_f);
             }
-            if (!field_type) {
+            if (!field_type && od && type_name_declared_twice(ctx, od->name)) {
+                result = iron_type_make_primitive(IRON_TYPE_ERROR);
+            } else if (!field_type) {
                 /* Name the type and offer the closest field; the message
                  * used to end in "on type" with no name. */
                 const char *tname = od && od->name ? od->name
@@ -8123,7 +8178,7 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
             }
             if (elem_type && elem_type->kind == IRON_TYPE_TUPLE) {
-                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, al->span, TUPLE_LIST_MSG, TUPLE_LIST_HELP);
+                report_tuple_list(ctx, al->span);
                 elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
             }
             result = iron_type_make_array(ctx->arena, elem_type, -1, false);

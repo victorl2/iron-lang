@@ -1,0 +1,3 @@
+the standard library already declares 'Box'
+methods of 'String'
+get() returns a copy, so the change would be lost
