@@ -1811,7 +1811,8 @@ handle of type `rc T`. Copying the handle (assignment, passing, storing in
 a field or list, capturing in a closure) increments the count; destroying a
 copy decrements it, and when the last handle goes away the object's `drop`
 runs and the memory is released. All handles see the same object, and a
-field may be written through any handle, including a `val` one. Handles
+field may be written, or a method that changes the object called, through
+any handle, including a `val` one. Handles
 are not nullable (`?rc T` is rejected, `E0297`) and cannot be `leak`ed
 (`E0214`). The type `rc T` may be used for fields, parameters and results.
 

@@ -6624,12 +6624,18 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                      * (d.bump() with d: *var T mutates the pointee). */
                                     Iron_Type *rit = recv_ident ? recv_ident->resolved_type : NULL;
                                     bool via_ptr = rit && rit->kind == IRON_TYPE_PTR;
+                                    /* An rc handle reaches a shared object
+                                     * whose fields may be written through any
+                                     * handle, a `val` one included (manual
+                                     * 6.3), so its methods may be called too. */
+                                    bool via_rc = rit && (rit->kind == IRON_TYPE_RC ||
+                                                          rit->kind == IRON_TYPE_WEAK_RC);
                                     if (via_ptr && !rit->ptr.is_var) {
                                         emit_error(ctx, IRON_ERR_MUT_CALL_ON_VAL, mc->span,
                                                    "cannot call mutable method through a read-only pointer",
                                                    "use a *var pointer");
                                     }
-                                    if (!via_ptr &&
+                                    if (!via_ptr && !via_rc &&
                                         recv_ident && recv_ident->resolved_sym &&
                                         recv_ident->resolved_sym->sym_kind != IRON_SYM_TYPE &&
                                         !recv_ident->resolved_sym->is_mutable) {
