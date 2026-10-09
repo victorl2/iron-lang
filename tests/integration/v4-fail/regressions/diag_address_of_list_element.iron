@@ -1,0 +1,5 @@
+-- E0330, as section 11 of the manual lists it.
+func main() {
+    var xs = [1, 2]
+    val p = &xs[0]
+}

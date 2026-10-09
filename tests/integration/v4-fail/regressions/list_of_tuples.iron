@@ -1,0 +1,6 @@
+-- A list of tuples compiled into C that used an undeclared list type;
+-- tuples return several values and are taken apart at once (manual 2.4).
+func main() {
+    val ts: [(Int, String)] = [(1, "a")]
+    println("{ts.len()}")
+}

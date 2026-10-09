@@ -1,0 +1,4 @@
+-- E0233, as section 11 of the manual lists it.
+func main() {
+    val x = 1.5 & 2.0
+}

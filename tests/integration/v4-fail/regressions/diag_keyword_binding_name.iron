@@ -1,0 +1,4 @@
+-- E0175, as section 11 of the manual lists it.
+func main() {
+    val match = 3
+}

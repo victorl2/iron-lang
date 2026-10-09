@@ -1,0 +1,7 @@
+-- E0331, as section 11 of the manual lists it.
+func [T].twice() -> Int {
+    return 2
+}
+
+func main() {
+}

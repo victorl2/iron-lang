@@ -1,0 +1,5 @@
+-- E0218, as section 11 of the manual lists it.
+func main() {
+    val x = 3
+    x(1)
+}

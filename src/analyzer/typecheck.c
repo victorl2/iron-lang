@@ -51,6 +51,12 @@
 
 /* A `for x in xs` loop variable is a copy of the element, so mutating it is
  * rejected; point the user at indexing instead. */
+/* A tuple returns several values and is taken apart at once (manual 2.4);
+ * a list of them compiled into C that used an undeclared list type. */
+#define TUPLE_LIST_MSG  "a list cannot hold tuples"
+#define TUPLE_LIST_HELP "tuples return several values and are taken apart at once; " \
+                        "for a list of records, declare an object with named fields"
+
 #define LOOP_VAR_MUT_HELP \
     "the loop variable is a copy of the element; index the collection " \
     "to mutate it in place: 'for i in range(len(xs)) { xs[i].m() }'"
@@ -196,6 +202,9 @@ typedef struct {
     /* The iterable of the for loop being checked: the one place a
      * `range(n)` call is allowed. */
     Iron_Node         *for_iterable;
+    /* The operand of the heap expression being checked: `heap [UInt8; 100]`
+     * allocates a sized buffer, the one place `[T; N]` is a value. */
+    Iron_Node         *heap_operand;
     /* defer bodies enclosing the statement, for return; 0 inside a lambda
      * or spawn body. */
     int                defer_depth;
@@ -1920,6 +1929,10 @@ static Iron_Type *resolve_type_annotation(TypeCtx *ctx, Iron_Node *ann_node) {
         Iron_Type *elem = resolve_type_annotation(ctx, ann->array_elem_ann);
         if (!elem || elem->kind == IRON_TYPE_ERROR)
             return iron_type_make_primitive(IRON_TYPE_ERROR);
+        if (elem->kind == IRON_TYPE_TUPLE) {
+            emit_error(ctx, IRON_ERR_TYPE_MISMATCH, ann->span, TUPLE_LIST_MSG, TUPLE_LIST_HELP);
+            return iron_type_make_primitive(IRON_TYPE_ERROR);
+        }
         int size = -1;
         if (ann->array_size && ann->array_size->kind == IRON_NODE_INT_LIT) {
             Iron_IntLit *il = (Iron_IntLit *)ann->array_size;
@@ -7697,7 +7710,10 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
 
         case IRON_NODE_HEAP: {
             Iron_HeapExpr *he = (Iron_HeapExpr *)node;
+            Iron_Node *saved_heap_operand = ctx->heap_operand;
+            ctx->heap_operand = he->inner;
             result = check_expr(ctx, he->inner);
+            ctx->heap_operand = saved_heap_operand;
             he->resolved_type = result;
             /* Phase 22 READ-05: readonly method allocating heap memory.
              * Guard: Pitfall 1 — !ctx->in_pure_method prevents double-emit.
@@ -8014,6 +8030,17 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
              * sized-array syntax (e.g. `heap [UInt8; 100]`). */
             if (al->type_ann && al->element_count == 0) {
                 elem_type = resolve_type_annotation(ctx, al->type_ann);
+                /* `val xs = [Int; 3]` built an empty growable list: the
+                 * size was dropped. `[T; N]` is a type (manual 2.3); only
+                 * `heap [T; N]` allocates a buffer of that size. */
+                if (al->size && elem_type && elem_type->kind != IRON_TYPE_ERROR &&
+                    node != ctx->heap_operand) {
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, al->span,
+                               "'[T; N]' is a type, not a value",
+                               "write the elements: `val xs: [Int; 3] = [0, 0, 0]`, "
+                               "or `fill(3, 0)` for a list of 3 zeros");
+                    elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
+                }
             }
             bool lit_has_null = false;
             for (int i = 0; i < al->element_count; i++) {
@@ -8093,6 +8120,10 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                "add a type annotation like `var x: [T?] = [null]`",
                                NULL);
                 }
+                elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
+            }
+            if (elem_type && elem_type->kind == IRON_TYPE_TUPLE) {
+                emit_error(ctx, IRON_ERR_TYPE_MISMATCH, al->span, TUPLE_LIST_MSG, TUPLE_LIST_HELP);
                 elem_type = iron_type_make_primitive(IRON_TYPE_ERROR);
             }
             result = iron_type_make_array(ctx->arena, elem_type, -1, false);

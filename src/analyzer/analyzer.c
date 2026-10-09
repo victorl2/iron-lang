@@ -370,6 +370,22 @@ Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
                                         Iron_DiagList      *diags,
                                         const _Atomic bool *cancel_flag,
                                         int                 user_source_start_line) {
+    return iron_analyze_buffer_for_target(source, len, filename, mode, arena, diags,
+                                          cancel_flag, user_source_start_line,
+                                          IRON_TARGET_NATIVE);
+}
+
+/* As iron_analyze_buffer, for a build target: `ironc check --target web`
+ * runs the web-only passes (E0501 for `await`), which it skipped. */
+Iron_AnalyzeResult iron_analyze_buffer_for_target(const char         *source,
+                                                  size_t              len,
+                                                  const char         *filename,
+                                                  IronAnalysisMode    mode,
+                                                  Iron_Arena         *arena,
+                                                  Iron_DiagList      *diags,
+                                                  const _Atomic bool *cancel_flag,
+                                                  int                 user_source_start_line,
+                                                  IronBuildTarget     target) {
     Iron_AnalyzeResult result = { .global_scope = NULL, .has_errors = false,
                                    .program = NULL };
 
@@ -427,7 +443,7 @@ Iron_AnalyzeResult iron_analyze_buffer(const char         *source,
      * cooperative cancellation observable at pass boundaries and inside
      * each switch-over-kind walker (Plan 03 Task 02). */
     result = iron_analyze_with_mode((Iron_Program *)ast, mode, arena, diags,
-                                    NULL, NULL, 0, false, IRON_TARGET_NATIVE,
+                                    NULL, NULL, 0, false, target,
                                     cancel_flag);
     if (mode == IRON_ANALYSIS_MODE_LSP && user_source_start_line > 0) {
         split_prelude_decls((Iron_Program *)ast, filename, arena);

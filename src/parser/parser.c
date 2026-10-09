@@ -428,15 +428,6 @@ static bool iron_match(Iron_Parser *p, Iron_TokenKind kind) {
     return false;
 }
 
-/* Phase 16: detect v4 reserved keywords that are not valid as binding names.
- * Emits IRON_ERR_KEYWORD_NOT_BINDING_NAME (code 175) for sharp diagnostics
- * when one of these appears where the parser expects a binding name. */
-static bool iron_is_v4_reserved_kw(Iron_TokenKind k) {
-    return k == IRON_TOK_COPY || k == IRON_TOK_DROP
-        || k == IRON_TOK_NOCOPY || k == IRON_TOK_UNCHECKED
-        || k == IRON_TOK_WEAK;
-}
-
 /* Build an Iron_Span from a single token.
  * Phase 93 VIS-03: prefer t->filename when set (lexer recognized a
  * `-- @file: <name>` marker and re-tagged subsequent tokens). Falls back
@@ -3242,6 +3233,26 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
     return (Iron_Node *)n;
 }
 
+/* `val match = 3`: any keyword where a binding name goes is E0175 (only
+ * copy / drop / nocopy / unchecked / weak were; `match`, `type`, `in` and
+ * the rest gave "expected variable name" and "expected expression"). The
+ * keyword is then read as the name so the declaration parses on. */
+static void iron_keyword_as_binding_name(Iron_Parser *p) {
+    Iron_Token *t = iron_current(p);
+    if (t->kind == IRON_TOK_IDENTIFIER || t->kind == IRON_TOK_WILDCARD) return;
+    const char *sp = iron_token_spelling(t->kind);
+    if (!sp || !(isalpha((unsigned char)sp[0]) || sp[0] == '_')) return;
+    char msg[160], help[160];
+    snprintf(msg, sizeof(msg), "'%s' is a keyword and cannot name a binding", sp);
+    snprintf(help, sizeof(help), "rename it, for example '%s_' or a more specific name", sp);
+    iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR, IRON_ERR_KEYWORD_NOT_BINDING_NAME,
+                   iron_token_span(p, t),
+                   iron_arena_strdup(p->arena, msg, strlen(msg)),
+                   iron_arena_strdup(p->arena, help, strlen(help)));
+    t->kind  = IRON_TOK_IDENTIFIER;
+    t->value = sp;
+}
+
 /* The `: T` of a binding. `val b S = ...` (the colon missing) parsed as
  * `val b` and then the statement `S = ...`: "cannot assign to val 'S'", or
  * nothing at all for `val b Box[T] = ...`, an index assignment. Report the
@@ -3354,14 +3365,7 @@ static Iron_Node *iron_parse_val_decl(Iron_Parser *p) {
      * error code IRON_ERR_KEYWORD_NOT_BINDING_NAME (175) gives users a
      * clearer message than the generic IRON_ERR_UNEXPECTED_TOKEN.
      * Fall through to the existing IDENTIFIER check for recovery. */
-    if (iron_is_v4_reserved_kw(iron_peek(p))) {
-        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                       IRON_ERR_KEYWORD_NOT_BINDING_NAME,
-                       iron_token_span(p, iron_current(p)),
-                       "reserved v4 keyword cannot be used as a binding name",
-                       NULL);
-        /* fall through to the IDENTIFIER check below for recovery */
-    }
+    iron_keyword_as_binding_name(p);
     if (!iron_check(p, IRON_TOK_IDENTIFIER) && !iron_check(p, IRON_TOK_WILDCARD)) {
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,
@@ -3419,14 +3423,7 @@ static Iron_Node *iron_parse_var_decl(Iron_Parser *p) {
 
     /* Phase 16: emit a sharp diagnostic when a v4 reserved keyword appears
      * as a var binding name (e.g., `var drop = 1`). Same pattern as val. */
-    if (iron_is_v4_reserved_kw(iron_peek(p))) {
-        iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
-                       IRON_ERR_KEYWORD_NOT_BINDING_NAME,
-                       iron_token_span(p, iron_current(p)),
-                       "reserved v4 keyword cannot be used as a binding name",
-                       NULL);
-        /* fall through to the IDENTIFIER check below for recovery */
-    }
+    iron_keyword_as_binding_name(p);
     if (!iron_check(p, IRON_TOK_IDENTIFIER) && !iron_check(p, IRON_TOK_WILDCARD)) {
         iron_diag_emit(p->diags, p->arena, IRON_DIAG_ERROR,
                        IRON_ERR_UNEXPECTED_TOKEN,

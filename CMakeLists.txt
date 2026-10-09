@@ -1053,6 +1053,14 @@ add_test(NAME diag_init_help
         -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/init_help.expected_help
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 
+# `ironc check --target web` runs the web-only passes (it analyzed every
+# file as native): await on the web target is E0501.
+add_test(NAME check_web_await
+    COMMAND $<TARGET_FILE:ironc> check --target web
+        ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/web_await.iron)
+set_tests_properties(check_web_await PROPERTIES
+    PASS_REGULAR_EXPRESSION "error\\[E0501\\]")
+
 # A program without main is reported by build, not by the linker.
 add_test(NAME build_no_main
     COMMAND $<TARGET_FILE:ironc> build

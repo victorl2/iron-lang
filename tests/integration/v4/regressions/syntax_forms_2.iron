@@ -1,0 +1,32 @@
+-- More syntax forms of section 13 no other test used: @fusible, a tuple of
+-- three with trailing commas, a list literal's trailing comma, lists of rc
+-- and weak rc handles, an unordered list, a nullable Map, heap options.
+object Node {
+    val v: Int
+}
+
+@fusible
+func twice(x: Int) -> Int {
+    return x * 2
+}
+
+func three() -> (Int, String, Bool) {
+    return (1, "b", true,)
+}
+
+func main() {
+    val (a, b, c) = three()
+    println("{a}{b}{c}")
+    val xs = [1, 2, 3,]
+    println("{xs.len()} {twice(4)}")
+    val shared: [rc Node] = [rc Node(1)]
+    val weaks: [weak rc Node] = [shared[0].downgrade()]
+    println("{shared.len()} {weaks.len()}")
+    val bag: [Int, unordered] = [3, 1]
+    println("{bag.len()}")
+    val m: Map[String, Int]? = null
+    println("{m == null}")
+    val h = heap(allow_drop_skip: true) Node(5)
+    println("{h.v}")
+    free h
+}

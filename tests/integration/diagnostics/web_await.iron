@@ -1,0 +1,8 @@
+-- ironc check --target web runs the web-only passes: await is E0501.
+func main() {
+    val h = spawn("w") {
+        return 1
+    }
+    val v = await h
+    println("{v}")
+}

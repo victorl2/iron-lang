@@ -2943,7 +2943,7 @@ codes cited in this manual:
 
 | Code | Meaning |
 |---|---|
-| E0001 to E0005 | lexical errors: unterminated string, invalid character, invalid number, string too long |
+| E0001 to E0005 | lexical errors: unterminated string, invalid character, invalid number, out of memory, string too long |
 | E0101, E0102 | unexpected token, expected expression |
 | E0175, E0176 | keyword used as a binding name; field without `val` or `var` |
 | E0200, E0201 | undefined identifier; duplicate declaration |

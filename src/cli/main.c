@@ -314,7 +314,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "%s check: missing source file\n", IRON_BINARY_NAME);
             return 1;
         }
-        return iron_check(source_file, verbose, strict_v3);
+        return iron_check(source_file, verbose, strict_v3, target);
     }
 
     if (strcmp(cmd, "fmt") == 0) {

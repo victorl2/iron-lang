@@ -1,0 +1,7 @@
+-- E0323, as section 11 of the manual lists it.
+func main() {
+    val s = "a"
+    match s {
+        else -> println("x")
+    }
+}

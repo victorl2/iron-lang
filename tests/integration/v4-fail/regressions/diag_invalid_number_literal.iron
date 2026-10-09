@@ -1,0 +1,4 @@
+-- E0003, as section 11 of the manual lists it.
+func main() {
+    val x = 12abc
+}

@@ -1,0 +1,16 @@
+-- E0332, as section 11 of the manual lists it.
+enum Opt {
+    Some(Int),
+    None,
+}
+
+enum W {
+    Wrap(Opt),
+}
+
+func main() {
+    val w = W.Wrap(Opt.Some(1))
+    match w {
+        W.Wrap(Opt.Some(v)) -> println("{v}")
+    }
+}
