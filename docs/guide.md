@@ -134,11 +134,16 @@ its frame. Any C debugger reads it: gdb and lldb on Linux and macOS, the
 Visual Studio debugger (a PDB is written next to the `.exe`) on Windows.
 
 ```sh
-$ iron build --debug
-$ gdb target/my-app
+$ iron debug                       # in a package; or: iron debug main.iron
 (gdb) break main.iron:12
 (gdb) run
 ```
+
+`iron debug` builds with `--debug` and starts the debugger on the
+program with the value formatters below already loaded: LLDB on macOS,
+gdb elsewhere (`--gdb` / `--lldb` choose). Arguments after `--` go to
+the program. Building with `iron build --debug` and starting a debugger
+yourself works the same way.
 
 In VS Code the Iron extension lets you set breakpoints in `.iron` files;
 pair it with a C debugger extension (C/C++ from Microsoft, or CodeLLDB)
@@ -164,9 +169,26 @@ and a build task:
 }
 ```
 
-Locals and parameters show under their C names (`_v3`) for now, and
-values are shown as their C structures; Iron names and value formatting
-are tracked in [#312](https://github.com/victorl2/iron-lang/issues/312).
+Parameters and local bindings show under their Iron names (`w`, `total`);
+a name used twice in one function, or one that is also a C keyword,
+carries a suffix (`total_14`). The compiler's own temporaries appear as
+`_v12`.
+
+`lib/debug/` in the Iron installation holds formatters that show values
+as Iron values: a `String` as its text, a list or set as its elements,
+a map as its entries and a `T?` as its value or `null`. Load
+`iron_gdb.py` in gdb and `iron_lldb.py` in LLDB:
+
+```sh
+(gdb) source ~/.iron/lib/debug/iron_gdb.py
+(lldb) command script import ~/.iron/lib/debug/iron_lldb.py
+```
+
+In the VS Code configuration above, add
+`"setupCommands": [{ "text": "source ~/.iron/lib/debug/iron_gdb.py" }]`
+(cppdbg with gdb) or
+`"initCommands": ["command script import ~/.iron/lib/debug/iron_lldb.py"]`
+(CodeLLDB). Adjust the path to where Iron is installed.
 
 ### iron run
 

@@ -495,6 +495,149 @@ static int reject_unknown_flags(const char *cmd, int argc, char **argv,
 
 /* ── cmd_build (handles both build and run) ─────────────────────────────── */
 
+/* ── iron debug (#312) ──────────────────────────────────────────────── */
+
+static bool g_debug_session = false;   /* cmd_build: debug instead of run */
+static const char *g_debugger = NULL;  /* "gdb", "lldb", or NULL: default */
+
+static bool debug_file_exists(const char *p) {
+    struct stat st;
+    return p && stat(p, &st) == 0;
+}
+
+/* True when `tool` is an executable on PATH. */
+static bool debug_on_path(const char *tool) {
+    const char *path = getenv("PATH");
+    if (!path) return false;
+#ifdef _WIN32
+    const char sep = ';';
+    const char *ext = ".exe";
+#else
+    const char sep = ':';
+    const char *ext = "";
+#endif
+    char buf[4096];
+    for (const char *p = path; *p;) {
+        const char *e = strchr(p, sep);
+        size_t n = e ? (size_t)(e - p) : strlen(p);
+        if (n > 0 && n + strlen(tool) + 8 < sizeof(buf)) {
+            snprintf(buf, sizeof(buf), "%.*s/%s%s", (int)n, p, tool, ext);
+            if (debug_file_exists(buf)) return true;
+        }
+        if (!e) break;
+        p = e + 1;
+    }
+    return false;
+}
+
+/* <iron>/lib/debug/<file> next to the ironc in use, or the source tree's
+ * src/debug/<file> in a dev build; NULL when neither exists. */
+static char *debug_formatter(const char *ironc, const char *file) {
+    char buf[4200];
+    const char *slash = strrchr(ironc, '/');
+#ifdef _WIN32
+    const char *bs = strrchr(ironc, '\\');
+    if (bs > slash) slash = bs;
+#endif
+    if (slash) {
+        snprintf(buf, sizeof(buf), "%.*s/../lib/debug/%s", (int)(slash - ironc), ironc, file);
+        if (debug_file_exists(buf)) return strdup(buf);
+    }
+#ifdef IRON_SOURCE_DIR
+    snprintf(buf, sizeof(buf), "%s/debug/%s", IRON_SOURCE_DIR, file);
+    if (debug_file_exists(buf)) return strdup(buf);
+#endif
+    return NULL;
+}
+
+/* Start gdb or lldb on `binary` with its arguments and the Iron formatters
+ * loaded; returns the debugger's exit status. */
+static int iron_launch_debugger(const char *ironc, const char *binary,
+                                char **args, int nargs) {
+#ifdef __APPLE__
+    const char *first = "lldb", *second = "gdb";
+#else
+    const char *first = "gdb", *second = "lldb";
+#endif
+    const char *tool = g_debugger;
+    if (!tool) tool = debug_on_path(first) ? first : debug_on_path(second) ? second : NULL;
+    if (!tool || !debug_on_path(tool)) {
+        fprintf(stderr, "error: %s\n", tool ? "the requested debugger is not on PATH"
+                                            : "no debugger found: install gdb or lldb");
+        fprintf(stderr, "  the binary is built with debug info: %s\n"
+                        "  VS Code (and Visual Studio on Windows) can debug it; see "
+                        "the guide's Debugging section\n", binary);
+        return 1;
+    }
+    bool lldb = strcmp(tool, "lldb") == 0;
+    char *formatter = debug_formatter(ironc, lldb ? "iron_lldb.py" : "iron_gdb.py");
+    char cmd[4300] = "";
+    if (formatter) {
+        snprintf(cmd, sizeof(cmd), lldb ? "command script import %s" : "source %s", formatter);
+    } else {
+        fprintf(stderr, "note: the Iron value formatters were not found; values show as C\n");
+    }
+    char **argv = (char **)calloc((size_t)nargs + 8, sizeof(char *));
+    if (!argv) { free(formatter); return 1; }
+    int ai = 0;
+    argv[ai++] = (char *)tool;
+    if (lldb) {
+        if (formatter) { argv[ai++] = "-o"; argv[ai++] = cmd; }
+        argv[ai++] = "--";
+    } else {
+        argv[ai++] = "-q";
+        if (formatter) { argv[ai++] = "-ex"; argv[ai++] = cmd; }
+        argv[ai++] = "--args";
+    }
+    argv[ai++] = (char *)binary;
+    for (int i = 0; i < nargs; i++) argv[ai++] = args[i];
+    argv[ai] = NULL;
+    int ret = spawn_and_wait(tool, argv);
+    free(argv);
+    free(formatter);
+    return ret;
+}
+
+int iron_debug_file(int argc, char **argv) {
+    const char *file = NULL;
+    char **prog_args = NULL;
+    int prog_nargs = 0;
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--gdb") == 0) g_debugger = "gdb";
+        else if (strcmp(argv[i], "--lldb") == 0) g_debugger = "lldb";
+        else if (strcmp(argv[i], "--") == 0) {
+            prog_args = &argv[i + 1];
+            prog_nargs = argc - i - 1;
+            break;
+        } else if (!file) file = argv[i];
+        else { fprintf(stderr, "error: unexpected argument '%s'\n", argv[i]); return 1; }
+    }
+    if (!file) { fprintf(stderr, "error: iron debug needs a .iron file or an iron.toml\n"); return 1; }
+    char out[4200];
+    const char *base = strrchr(file, '/');
+#ifdef _WIN32
+    const char *bs = strrchr(file, '\\');
+    if (bs > base) base = bs;
+#endif
+    base = base ? base + 1 : file;
+#ifdef _WIN32
+    const char *tmp = getenv("TEMP");
+    snprintf(out, sizeof(out), "%s\\%.*s-debug.exe", tmp ? tmp : ".",
+             (int)(strlen(base) - 5), base);
+#else
+    const char *tmp = getenv("TMPDIR");
+    snprintf(out, sizeof(out), "%s/%.*s-debug-%d", tmp && *tmp ? tmp : "/tmp",
+             (int)(strlen(base) - 5), base, (int)getpid());
+#endif
+    char *ironc = find_ironc();
+    char *build_argv[] = { ironc, "build", (char *)file, "--debug", "-o", out, NULL };
+    int ret = spawn_and_wait(ironc, build_argv);
+    if (ret == 0) ret = iron_launch_debugger(ironc, out, prog_args, prog_nargs);
+    remove(out);
+    free(ironc);
+    return ret;
+}
+
 static int cmd_build(bool run_after, int argc, char **argv) {
     bool colors = iron_color_init();
 
@@ -503,11 +646,13 @@ static int cmd_build(bool run_after, int argc, char **argv) {
      * forwarded to ironc below; the Finished status line differentiates
      * "release [optimized]" from "dev [unoptimized]" based on the same flag. */
     static const char *const allowed[] = { "--verbose", "--release", "--debug", "--target=", NULL };
-    if (reject_unknown_flags(run_after ? "run" : "build", argc, argv, allowed) != 0)
+    static const char *const allowed_debug[] = { "--verbose", "--gdb", "--lldb", NULL };
+    if (reject_unknown_flags(g_debug_session ? "debug" : run_after ? "run" : "build", argc, argv,
+                             g_debug_session ? allowed_debug : allowed) != 0)
         return 1;
     bool verbose = false;
     bool release = false;
-    bool debug = false;          /* --debug: debug info on Iron lines (#312) */
+    bool debug = g_debug_session; /* --debug: debug info on Iron lines (#312) */
     const char *target = NULL;   /* --target=<name>: web or a cross target, forwarded to ironc */
     char **run_args = NULL;
     int run_arg_count = 0;
@@ -518,6 +663,10 @@ static int cmd_build(bool run_after, int argc, char **argv) {
             release = true;
         } else if (strcmp(argv[i], "--debug") == 0) {
             debug = true;
+        } else if (strcmp(argv[i], "--gdb") == 0) {
+            g_debugger = "gdb";
+        } else if (strcmp(argv[i], "--lldb") == 0) {
+            g_debugger = "lldb";
         } else if (strncmp(argv[i], "--target=", 9) == 0) {
             target = argv[i] + 9;
             if (strcmp(target, "native") == 0) target = NULL;
@@ -778,7 +927,10 @@ static int cmd_build(bool run_after, int argc, char **argv) {
                  elapsed);
         iron_print_status(colors, "Finished", detail);
 
-        if (run_after) {
+        if (g_debug_session) {
+            iron_print_status(colors, "Debugging", output_path);
+            ret = iron_launch_debugger(ironc, output_path, run_args, run_arg_count);
+        } else if (run_after) {
             iron_print_status(colors, "Running", output_path);
 
             /* Execute the built binary with passthrough args */
@@ -1009,6 +1161,10 @@ static int cmd_test(int argc, char **argv) {
 int cmd_project(const char *cmd, int argc, char **argv) {
     if (strcmp(cmd, "build") == 0) return cmd_build(false, argc, argv);
     if (strcmp(cmd, "run") == 0)   return cmd_build(true, argc, argv);
+    if (strcmp(cmd, "debug") == 0) {
+        g_debug_session = true;
+        return cmd_build(true, argc, argv);
+    }
     if (strcmp(cmd, "check") == 0) return cmd_check(argc, argv);
     if (strcmp(cmd, "test") == 0)  return cmd_test(argc, argv);
     if (strcmp(cmd, "fmt") == 0) {

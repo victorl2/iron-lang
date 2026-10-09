@@ -969,6 +969,8 @@ add_executable(iron
 )
 target_include_directories(iron PRIVATE src)
 target_compile_definitions(iron PRIVATE
+    # `iron debug` finds the source tree's debugger formatters in dev builds.
+    IRON_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src"
     IRON_VERSION_STRING="${IRON_VERSION_FULL}"
     IRON_GIT_HASH="${IRON_GIT_HASH}"
     IRON_BUILD_DATE="${IRON_BUILD_DATE}"
@@ -2823,6 +2825,10 @@ install(DIRECTORY src/vendor/ DESTINATION lib/vendor COMPONENT iron)
 install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib COMPONENT iron FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
 # Install stdlib .iron files
 install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib COMPONENT iron FILES_MATCHING PATTERN "*.iron")
+# #312: gdb, LLDB and Visual Studio (natvis) views of Iron values in
+# `--debug` programs.
+install(FILES src/debug/iron_gdb.py src/debug/iron_lldb.py src/debug/iron.natvis
+        DESTINATION lib/debug COMPONENT iron)
 # Install diagnostics module: header is referenced by lib/runtime/iron_runtime.h
 # at user-build time, so it must be present in the install prefix. Without
 # this rule, every fresh install fails to compile any program with

@@ -45,6 +45,7 @@
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 #include "vendor/stb_ds.h"
+#include <ctype.h>
 #include "cli/iron_import_detect.h"
 #include "cli/build_web.h"
 
@@ -481,6 +482,95 @@ static int prepend_marked_file(char **source_io, const char *base_dir,
  * passed to clang with the other runtime sources. */
 static char *s_rt_os = NULL;
 
+#ifdef _WIN32
+/* --debug on Windows (#312): Visual Studio views of Iron values. A natvis
+ * `Type Name` matches only a whole C type name (wildcards are for template
+ * arguments), so the generated C is scanned for the list, map, set and
+ * optional types the program uses, and the file is linked into the PDB
+ * with /NATVIS, where the debugger finds it without configuration. */
+static void natvis_type(FILE *f, const char *name) {
+    if (strncmp(name, "Iron_List_", 10) == 0) {
+        fprintf(f, "  <Type Name=\"%s\">\n"
+                   "    <DisplayString>{{ size={count} }}</DisplayString>\n"
+                   "    <Expand><ArrayItems><Size>count</Size><ValuePointer>items</ValuePointer></ArrayItems></Expand>\n"
+                   "  </Type>\n", name);
+    } else if (strncmp(name, "Iron_Map_", 9) == 0) {
+        fprintf(f, "  <Type Name=\"%s\">\n"
+                   "    <DisplayString>{{ size={count} }}</DisplayString>\n"
+                   "    <Expand><CustomListItems><Variable Name=\"i\" InitialValue=\"0\"/>\n"
+                   "      <Loop Condition=\"i &lt; cap\"><If Condition=\"st[i] == 1\"><Item Name=\"[{keys[i]}]\">vals[i]</Item></If><Exec>++i</Exec></Loop>\n"
+                   "    </CustomListItems></Expand>\n"
+                   "  </Type>\n", name);
+    } else if (strncmp(name, "Iron_Set_", 9) == 0) {
+        fprintf(f, "  <Type Name=\"%s\">\n"
+                   "    <DisplayString>{{ size={count} }}</DisplayString>\n"
+                   "    <Expand><CustomListItems><Variable Name=\"i\" InitialValue=\"0\"/>\n"
+                   "      <Loop Condition=\"i &lt; cap\"><If Condition=\"st[i] == 1\"><Item>items[i]</Item></If><Exec>++i</Exec></Loop>\n"
+                   "    </CustomListItems></Expand>\n"
+                   "  </Type>\n", name);
+    } else if (strncmp(name, "Iron_Optional_", 14) == 0) {
+        fprintf(f, "  <Type Name=\"%s\">\n"
+                   "    <DisplayString Condition=\"!has_value\">null</DisplayString>\n"
+                   "    <DisplayString>{value}</DisplayString>\n"
+                   "  </Type>\n", name);
+    }
+}
+
+/* Writes `<c_file>.natvis`; false when the C file cannot be read. */
+static bool write_debug_natvis(const char *c_file, char *out, size_t out_cap) {
+    FILE *in = fopen(c_file, "rb");
+    if (!in) return false;
+    fseek(in, 0, SEEK_END);
+    long n = ftell(in);
+    rewind(in);
+    char *src = (char *)malloc((size_t)n + 1);
+    if (!src) { fclose(in); return false; }
+    size_t got = fread(src, 1, (size_t)n, in);
+    fclose(in);
+    src[got] = '\0';
+    snprintf(out, out_cap, "%s.natvis", c_file);
+    FILE *f = fopen(out, "wb");
+    if (!f) { free(src); return false; }
+    fprintf(f, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+               "<AutoVisualizer xmlns=\"http://schemas.microsoft.com/vstudio/debugger/natvis/2010\">\n"
+               "  <Type Name=\"Iron_String\">\n"
+               "    <DisplayString Condition=\"(heap.flags &amp; 1) != 0\">{heap.data,[heap.byte_length]s8}</DisplayString>\n"
+               "    <DisplayString>{sso.data,[sso.len]s8}</DisplayString>\n"
+               "    <StringView Condition=\"(heap.flags &amp; 1) != 0\">heap.data,[heap.byte_length]s8</StringView>\n"
+               "    <StringView>sso.data,[sso.len]s8</StringView>\n"
+               "  </Type>\n");
+    struct { char *key; int value; } *seen = NULL;
+    static const char *const prefixes[] = { "Iron_List_", "Iron_Map_", "Iron_Set_", "Iron_Optional_" };
+    for (char *p = src; *p; p++) {
+        if (p[0] != 'I' || (p > src && (isalnum((unsigned char)p[-1]) || p[-1] == '_'))) continue;
+        for (int k = 0; k < 4; k++) {
+            size_t pl = strlen(prefixes[k]);
+            if (strncmp(p, prefixes[k], pl) != 0) continue;
+            char *e = p + pl;
+            while (isalnum((unsigned char)*e) || *e == '_') e++;
+            char saved = *e;
+            const char *after = e;
+            while (*after == ' ' || *after == '\t') after++;
+            if (*after == '(') { p = e - 1; break; }  /* a helper function */
+            *e = '\0';
+            if (shgeti(seen, p) < 0) {
+                shput(seen, strdup(p), 1);
+                natvis_type(f, p);
+            }
+            *e = saved;
+            p = e - 1;
+            break;
+        }
+    }
+    for (ptrdiff_t i = 0; i < shlen(seen); i++) free(seen[i].key);
+    shfree(seen);
+    fprintf(f, "</AutoVisualizer>\n");
+    fclose(f);
+    free(src);
+    return true;
+}
+#endif
+
 static int build_src_list(const char **argv_buf, int *ai_out,
                            const char *clang_path,
                            const char *c_file, const char *output,
@@ -855,8 +945,14 @@ static int build_src_list(const char **argv_buf, int *ai_out,
 #ifdef _WIN32
     /* /link hands everything after it to the linker, so it comes last. */
     if (opts.debug_info && !opts.release) {
+        static char natvis_path[4200];
+        static char natvis_flag[4300];
         argv_buf[ai++] = "/link";
         argv_buf[ai++] = "/DEBUG";
+        if (write_debug_natvis(c_file, natvis_path, sizeof(natvis_path))) {
+            snprintf(natvis_flag, sizeof(natvis_flag), "/NATVIS:%s", natvis_path);
+            argv_buf[ai++] = natvis_flag;
+        }
     }
 #endif
     argv_buf[ai] = NULL;

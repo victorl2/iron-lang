@@ -1677,7 +1677,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
 
     /* Step 5: Deep-expression anchor comment */
     if (depth > 3) {
-        iron_strbuf_appendf(sb, "/* _v%u */ ", vid);
+        iron_strbuf_appendf(sb, "/* %s */ ", emit_vname(vid));
     }
 
     /* Step 6: Build expression based on instruction kind */
@@ -3242,9 +3242,9 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 fn, instr, instr->alloca.alloc_type, ctx);
             const char *dropfn = emit_cell_drop_fn(ctx, instr->alloca.alloc_type);
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s *_v%u_box = (%s *)iron_cell_alloc(sizeof(%s), %s);\n",
-                                c_type, instr->id, c_type, c_type, dropfn);
-            iron_strbuf_appendf(sb, "#define _v%u (*_v%u_box)\n", instr->id, instr->id);
+            iron_strbuf_appendf(sb, "%s *%s_box = (%s *)iron_cell_alloc(sizeof(%s), %s);\n",
+                                c_type, emit_vname(instr->id), c_type, c_type, dropfn);
+            iron_strbuf_appendf(sb, "#define %s (*%s_box)\n", emit_vname(instr->id), emit_vname(instr->id));
             arrput(ctx->boxed_vids, instr->id);
         } else {
             /* Declare a C variable of the alloc_type */
@@ -8200,8 +8200,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
     case IRON_LIR_PHI:
         /* Should never reach here — phi_eliminate() runs before emission */
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "/* ERROR: phi not eliminated _v%u */\n",
-                            instr->id);
+        iron_strbuf_appendf(sb, "/* ERROR: phi not eliminated %s */\n",
+                            emit_vname(instr->id));
         break;
 
     /* ── Poison ─────────────────────────────────────────────────────────── */
@@ -8518,31 +8518,31 @@ void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
              * ARRAY pointer-mode branch (the analysis skips var params, but
              * keep the precedence explicit). */
             if (fn->param_is_var && fn->param_is_var[i]) {
-                iron_strbuf_appendf(sb, "%s *_v%d",
+                iron_strbuf_appendf(sb, "%s *%s",
                                     pt ? emit_type_to_c(pt, ctx) : "void*",
-                                    param_val_id);
+                                    emit_vname(param_val_id));
             } else if (pt && pt->kind == IRON_TYPE_ARRAY) {
                 ArrayParamMode pmode = emit_get_array_param_mode(ctx, fn->name, i);
                 if (pmode == ARRAY_PARAM_CONST_PTR) {
                     const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
-                    iron_strbuf_appendf(sb, "const %s *_v%d, int64_t _v%d_len",
-                                        elem_c, param_val_id, param_val_id);
+                    iron_strbuf_appendf(sb, "const %s *%s, int64_t %s_len",
+                                        elem_c, emit_vname(param_val_id), emit_vname(param_val_id));
                 } else if (pmode == ARRAY_PARAM_MUT_PTR) {
                     const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
-                    iron_strbuf_appendf(sb, "%s *_v%d, int64_t _v%d_len",
-                                        elem_c, param_val_id, param_val_id);
+                    iron_strbuf_appendf(sb, "%s *%s, int64_t %s_len",
+                                        elem_c, emit_vname(param_val_id), emit_vname(param_val_id));
                 } else {
-                    iron_strbuf_appendf(sb, "%s _v%d",
-                                        emit_type_to_c(pt, ctx), param_val_id);
+                    iron_strbuf_appendf(sb, "%s %s",
+                                        emit_type_to_c(pt, ctx), emit_vname(param_val_id));
                 }
             } else if (fn->is_mut_receiver_method && i == 0) {
-                iron_strbuf_appendf(sb, "%s *_v%d",
+                iron_strbuf_appendf(sb, "%s *%s",
                                     pt ? emit_type_to_c(pt, ctx) : "void*",
-                                    param_val_id);
+                                    emit_vname(param_val_id));
             } else {
-                iron_strbuf_appendf(sb, "%s _v%d",
+                iron_strbuf_appendf(sb, "%s %s",
                                     pt ? emit_type_to_c(pt, ctx) : "void*",
-                                    param_val_id);
+                                    emit_vname(param_val_id));
             }
         }
         if (fn->param_count == 0) {
@@ -8570,9 +8570,9 @@ void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
          * pointer-mode branch (the analysis skips var params, but keep the
          * precedence explicit). */
         if (fn->param_is_var && fn->param_is_var[i]) {
-            iron_strbuf_appendf(sb, "%s *_v%d",
+            iron_strbuf_appendf(sb, "%s *%s",
                                 pt ? emit_type_to_c(pt, ctx) : "void*",
-                                param_val_id);
+                                emit_vname(param_val_id));
             continue;
         }
         /* PARAM-01/02: Check if this array param uses pointer mode */
@@ -8581,12 +8581,12 @@ void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
             pmode = emit_get_array_param_mode(ctx, fn->name, i);
         if (pmode == ARRAY_PARAM_CONST_PTR) {
             const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
-            iron_strbuf_appendf(sb, "const %s *_v%d, int64_t _v%d_len",
-                                elem_c, param_val_id, param_val_id);
+            iron_strbuf_appendf(sb, "const %s *%s, int64_t %s_len",
+                                elem_c, emit_vname(param_val_id), emit_vname(param_val_id));
         } else if (pmode == ARRAY_PARAM_MUT_PTR) {
             const char *elem_c = emit_type_to_c(pt->array.elem, ctx);
-            iron_strbuf_appendf(sb, "%s *_v%d, int64_t _v%d_len",
-                                elem_c, param_val_id, param_val_id);
+            iron_strbuf_appendf(sb, "%s *%s, int64_t %s_len",
+                                elem_c, emit_vname(param_val_id), emit_vname(param_val_id));
         } else if (pt) {
             /* Phase 80 MUT-07: mut-receiver methods take self by pointer so
              * field mutations persist to the caller's binding. The AST/HIR
@@ -8594,14 +8594,14 @@ void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
              * receiver-form methods, so this code path never affects free
              * functions, classic-form methods, or stdlib externs. */
             if (fn->is_mut_receiver_method && i == 0) {
-                iron_strbuf_appendf(sb, "%s *_v%d",
-                                    emit_type_to_c(pt, ctx), param_val_id);
+                iron_strbuf_appendf(sb, "%s *%s",
+                                    emit_type_to_c(pt, ctx), emit_vname(param_val_id));
             } else {
-                iron_strbuf_appendf(sb, "%s _v%d",
-                                    emit_type_to_c(pt, ctx), param_val_id);
+                iron_strbuf_appendf(sb, "%s %s",
+                                    emit_type_to_c(pt, ctx), emit_vname(param_val_id));
             }
         } else {
-            iron_strbuf_appendf(sb, "void* _v%d", param_val_id);
+            iron_strbuf_appendf(sb, "void* %s", emit_vname(param_val_id));
         }
     }
     if (fn->param_count == 0) {
@@ -8943,6 +8943,7 @@ static int emit_structured_lexical_rank(EmitStructuredLoop *loops, int bi) {
 }
 
 static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb);
+static void emit_func_body_named(EmitCtx *ctx, IronLIR_Func *fn);
 
 /* --debug (#312): `#line` directives map each instruction to its Iron
  * source line, so the C compiler's debug info (-g) puts breakpoints and
@@ -8994,7 +8995,100 @@ static void emit_restate_lines(Iron_StrBuf *out, const char *body, size_t len) {
     }
 }
 
+/* --debug: C names that cannot be an Iron binding's name as is. */
+static bool c_name_reserved(const char *n) {
+    static const char *const k[] = {
+        "auto", "break", "case", "char", "const", "continue", "default", "do",
+        "double", "else", "enum", "extern", "float", "for", "goto", "if", "inline",
+        "int", "long", "register", "restrict", "return", "short", "signed",
+        "sizeof", "static", "struct", "switch", "typedef", "union", "unsigned",
+        "void", "volatile", "while", "bool", "true", "false", "NULL", "main",
+        "errno", "stdin", "stdout", "stderr", "environ", "memcpy", "memmove",
+        "memset", "memcmp", "strlen", "strcmp", "strncmp", "malloc", "calloc",
+        "realloc", "free", "printf", "fprintf", "snprintf", "abort", "exit",
+        "sqrt", "pow", "floor", "ceil", "fabs", "fmod", "sin", "cos", "tan",
+        "exp", "log", "round", "trunc", NULL,
+    };
+    if (!n || !*n || n[0] == '_' || (n[0] >= '0' && n[0] <= '9')) return true;
+    if (strncmp(n, "iron_", 5) == 0 || strncmp(n, "Iron_", 5) == 0 ||
+        strncmp(n, "IRON_", 5) == 0) return true;
+    for (int i = 0; k[i]; i++) if (strcmp(n, k[i]) == 0) return true;
+    for (const char *c = n; *c; c++) {
+        if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') ||
+              (*c >= '0' && *c <= '9') || *c == '_')) return true;
+    }
+    return false;
+}
+
+/* --debug: name `id` after the Iron binding `name`, as is when the name is
+ * free and safe in C, else `name_<id>`. */
+typedef struct { char *key; int value; } DebugTakenName;
+
+static void debug_name_value(EmitValueName **map, DebugTakenName **taken,
+                             IronLIR_ValueId id, const char *name, Iron_Arena *arena) {
+    if (!name || !*name || hmgeti(*map, id) >= 0) return;
+    char buf[160];
+    if (!c_name_reserved(name) && shgeti(*taken, name) < 0) {
+        snprintf(buf, sizeof(buf), "%s", name);
+    } else {
+        /* `total_12`: a suffixed name cannot be a C keyword or a libc name. */
+        const char *base = name;
+        while (*base == '_') base++;
+        bool digit = *base >= '0' && *base <= '9';  /* a synthetic temporary */
+        snprintf(buf, sizeof(buf), "%s%s_%u", digit ? "v" : "", *base ? base : "v", id);
+        for (char *c = buf; *c; c++)
+            if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') ||
+                  (*c >= '0' && *c <= '9') || *c == '_')) *c = '_';
+        if (strncmp(buf, "iron_", 5) == 0 || strncmp(buf, "Iron_", 5) == 0 ||
+            strncmp(buf, "IRON_", 5) == 0) buf[0] = 'v';
+    }
+    if (shgeti(*taken, buf) >= 0) snprintf(buf, sizeof(buf), "v_%u", id);
+    const char *dup = iron_arena_strdup(arena, buf, strlen(buf));
+    shput(*taken, dup, 1);
+    hmput(*map, id, dup);
+}
+
+/* --debug: the Iron names of a function's parameters, `var` slots and
+ * `val` values, for emit_vname. */
+static EmitValueName *debug_value_names(IronLIR_Func *fn, Iron_Arena *arena) {
+    EmitValueName *map = NULL;
+    DebugTakenName *taken = NULL;
+    for (int i = 0; i < fn->param_count; i++) {
+        debug_name_value(&map, &taken, (IronLIR_ValueId)(i + 1), fn->params[i].name, arena);
+    }
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *b = fn->blocks[bi];
+        for (int ii = 0; ii < b->instr_count; ii++) {
+            IronLIR_Instr *in = b->instrs[ii];
+            /* A boxed slot (a var a closure captures) is reached through a
+             * `#define <name> (*<name>_box)` macro, which would also
+             * rewrite struct fields of the same name: it keeps `_vN`. */
+            if (in->kind != IRON_LIR_ALLOCA || in->alloca.global_name ||
+                in->alloca.is_boxed) continue;
+            const char *h = in->alloca.name_hint;
+            if (!h || h[0] == '_' || strcmp(h, "for_idx") == 0) continue;
+            debug_name_value(&map, &taken, in->id, h, arena);
+        }
+    }
+    for (ptrdiff_t i = 0; i < hmlen(fn->value_names); i++) {
+        debug_name_value(&map, &taken, fn->value_names[i].key, fn->value_names[i].value, arena);
+    }
+    shfree(taken);
+    return map;
+}
+
 void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
+    EmitValueName *names = NULL;
+    if (g_emit_line_directives) {
+        names = debug_value_names(fn, ctx->arena);
+        emit_set_value_names(names);
+    }
+    emit_func_body_named(ctx, fn);
+    emit_set_value_names(NULL);
+    hmfree(names);
+}
+
+static void emit_func_body_named(EmitCtx *ctx, IronLIR_Func *fn) {
     if (!is_lifted_func(fn->name)) {
         if (g_emit_line_directives) {
             Iron_StrBuf body = iron_strbuf_create(4096);
@@ -9994,8 +10088,8 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
         /* Emit env cast prologue: `<func_name>_env_t *_e = (<func_name>_env_t *)_v1;`
          * _v1 is the synthetic param ID for _env (first parameter). */
         emit_indent(sb, 1);
-        iron_strbuf_appendf(sb, "%s_env_t *_e = (%s_env_t *)_v1;\n",
-                            fn->name, fn->name);
+        iron_strbuf_appendf(sb, "%s_env_t *_e = (%s_env_t *)%s;\n",
+                            fn->name, fn->name, emit_vname(1));
     }
 
     /* Compute reachable blocks via BFS from entry to avoid emitting dead code
@@ -10081,17 +10175,17 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                     hmput(ctx->phi_hoisted, in->id, true);
                     emit_indent(sb, 1);
                     if (in->alloca.global_name) {
-                        iron_strbuf_appendf(sb, "%s *_v%u = &%s;\n", c_type,
-                            in->id,
+                        iron_strbuf_appendf(sb, "%s *%s = &%s;\n", c_type,
+                            emit_vname(in->id),
                             emit_global_static_name(ctx, in->alloca.global_name));
                     } else {
-                        iron_strbuf_appendf(sb, "%s _v%u;\n", c_type, in->id);
+                        iron_strbuf_appendf(sb, "%s %s;\n", c_type, emit_vname(in->id));
                     }
                 } else if (in->type && in->type->kind != IRON_TYPE_VOID) {
                     hmput(ctx->phi_hoisted, in->id, true);
                     emit_indent(sb, 1);
-                    iron_strbuf_appendf(sb, "%s _v%u;\n",
-                        emit_local_decl_type(fn, in, in->type, ctx), in->id);
+                    iron_strbuf_appendf(sb, "%s %s;\n",
+                        emit_local_decl_type(fn, in, in->type, ctx), emit_vname(in->id));
                 }
             }
         }
@@ -10211,11 +10305,11 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                      * must carry the full pointer-alias initializer; the
                      * ALLOCA arm then no-ops on is_hoisted. */
                     if (in->alloca.global_name) {
-                        iron_strbuf_appendf(sb, "%s *_v%u = &%s;\n", c_type,
-                            in->id,
+                        iron_strbuf_appendf(sb, "%s *%s = &%s;\n", c_type,
+                            emit_vname(in->id),
                             emit_global_static_name(ctx, in->alloca.global_name));
                     } else {
-                        iron_strbuf_appendf(sb, "%s _v%u;\n", c_type, in->id);
+                        iron_strbuf_appendf(sb, "%s %s;\n", c_type, emit_vname(in->id));
                     }
                 } else {
                     /* Hoist any other value-producing instruction (LOAD, CALL, binop, etc.)
@@ -10237,8 +10331,8 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                     }
                     hmput(ctx->phi_hoisted, in->id, true);
                     emit_indent(sb, 1);
-                    iron_strbuf_appendf(sb, "%s _v%u;\n",
-                        emit_local_decl_type(fn, in, in->type, ctx), in->id);
+                    iron_strbuf_appendf(sb, "%s %s;\n",
+                        emit_local_decl_type(fn, in, in->type, ctx), emit_vname(in->id));
                 }
             }
         }
@@ -10443,8 +10537,8 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
             if (ivin && ivin->type) {
                 hmput(ctx->phi_hoisted, ivid, true);
                 emit_indent(sb, 1);
-                iron_strbuf_appendf(sb, "%s _v%u;\n",
-                    emit_type_to_c(ivin->type, ctx), ivid);
+                iron_strbuf_appendf(sb, "%s %s;\n",
+                    emit_type_to_c(ivin->type, ctx), emit_vname(ivid));
             }
         }
     }
@@ -10736,7 +10830,7 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
     iron_strbuf_appendf(sb, "}\n");
     /* The value names of boxed slots (#210) are function-local macros. */
     for (ptrdiff_t bi = 0; bi < arrlen(ctx->boxed_vids); bi++)
-        iron_strbuf_appendf(sb, "#undef _v%u\n", ctx->boxed_vids[bi]);
+        iron_strbuf_appendf(sb, "#undef %s\n", emit_vname(ctx->boxed_vids[bi]));
     arrsetlen(ctx->boxed_vids, 0);
     iron_strbuf_appendf(sb, "\n");
 
