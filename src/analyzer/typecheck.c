@@ -9663,7 +9663,10 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                                      "return type mismatch: function returns '%s', got '%s'",
                                      iron_type_to_string(ctx->current_return_type, ctx->arena),
                                      iron_type_to_string(ret_type, ctx->arena));
-                            emit_error(ctx, IRON_ERR_RETURN_TYPE, rs->span, msg, NULL);
+                            /* The same conversion help as an argument or a
+                             * binding (`return n` from `-> String`). */
+                            emit_error(ctx, IRON_ERR_RETURN_TYPE, rs->span, msg,
+                                       conversion_hint(ctx, ctx->current_return_type, ret_type));
                         }
                     }
                     /* Narrow literal in return (e.g., return 42 in Int32 func) */

@@ -13,3 +13,4 @@ fields of 'P': x
 a list has no text form
 parse the text with s.to_int()
 parse the text with s.to_float()
+make text of it with interpolation

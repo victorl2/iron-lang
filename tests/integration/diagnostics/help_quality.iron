@@ -23,6 +23,10 @@ func area(w: Int, h: Int) -> Int {
     return w * h
 }
 
+func label_of(n: Int) -> String {
+    return n
+}
+
 func main() {
     val pets: [Named] = [Dog("rex")]
     val total = 1
