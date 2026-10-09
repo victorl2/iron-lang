@@ -1392,6 +1392,16 @@ if(UNIX)
     set_tests_properties(benchmark_process_regressions PROPERTIES
         LABELS "benchmark;harness" TIMEOUT 30)
 endif()
+# How much of the manual the suite exercises (scripts/spec_coverage.py):
+# fails when a syntax form, diagnostic code, library call or example the
+# baseline covers is no longer covered. Raise the baseline with
+# `scripts/spec_coverage.py --update tests/spec_coverage_baseline.json`.
+if(Python3_EXECUTABLE)
+    add_test(NAME spec_coverage
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/spec_coverage.py
+            --check ${CMAKE_SOURCE_DIR}/tests/spec_coverage_baseline.json)
+    set_tests_properties(spec_coverage PROPERTIES LABELS "spec" TIMEOUT 300)
+endif()
 # run_benchmarks.sh is a POSIX shell script; Windows has no benchmark rows.
 if(UNIX)
 add_test(NAME benchmark_smoke
