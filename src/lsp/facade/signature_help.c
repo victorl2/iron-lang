@@ -19,6 +19,7 @@
 #include "analyzer/analyzer.h"
 #include "analyzer/scope.h"
 #include "parser/ast.h"
+#include "lsp/facade/nav/nav_common.h"
 #include "diagnostics/diagnostics.h"
 #include "util/arena.h"
 
@@ -119,6 +120,13 @@ static void build_sig_info(IronLsp_SignatureInfo *out,
     /* Count total params (self + user). */
     int user_count = md ? md->param_count : (fd ? fd->param_count : 0);
     Iron_Node **params = md ? md->params : (fd ? fd->params : NULL);
+    /* A method's `self` is implicit in Iron source: `s.replace(old, new)`. */
+    if (user_count > 0 && params && params[0] && params[0]->kind == IRON_NODE_PARAM &&
+        ((Iron_Param *)params[0])->name &&
+        strcmp(((Iron_Param *)params[0])->name, "self") == 0) {
+        params++;
+        user_count--;
+    }
     int total = user_count + (self_type ? 1 : 0);
 
     IronLsp_SigParam *offs = NULL;
@@ -448,30 +456,17 @@ void ilsp_facade_signature_help(struct IronLsp_Server    *server,
     const char *self_type = NULL;
     if (ctx.best->kind == IRON_NODE_CALL) {
         callee = ((Iron_CallExpr *)ctx.best)->callee;
-    } else if (ctx.best->kind == IRON_NODE_METHOD_CALL) {
-        /* Method call: use object's resolved type as self_type. */
-        Iron_MethodCallExpr *m = (Iron_MethodCallExpr *)ctx.best;
-        /* No direct callee ident; the symbol lookup for the method
-         * must traverse the object's type. For simplicity we fall
-         * back to the method name on the object's type (if
-         * resolved_type is available). */
-        if (m->object && m->object->kind == IRON_NODE_IDENT) {
-            Iron_Ident *oid = (Iron_Ident *)m->object;
-            if (oid->resolved_sym && oid->resolved_sym->type &&
-                oid->resolved_sym->type->kind == IRON_TYPE_OBJECT &&
-                oid->resolved_sym->type->object.decl) {
-                Iron_ObjectDecl *od = (Iron_ObjectDecl *)oid->resolved_sym->type->object.decl;
-                self_type = od->name;
-            }
-        }
-        /* We don't have a direct Iron_MethodDecl pointer without a
-         * workspace method-resolver; downstream resolution TBD.
-         * For now, leave callee NULL -- graceful empty. */
-        callee = NULL;
     }
 
     Iron_FuncDecl   *fd = NULL;
     Iron_MethodDecl *md = NULL;
+    if (ctx.best->kind == IRON_NODE_METHOD_CALL) {
+        /* The method the call resolves to, in the file or the stdlib
+         * (String.replace, Math.pow, a user method). Its receiver is
+         * implicit in Iron source, so no `self` parameter is shown. */
+        Iron_Node *d = ilsp_nav_member_decl(program, ctx.best, &walk_arena);
+        if (d && d->kind == IRON_NODE_METHOD_DECL) md = (Iron_MethodDecl *)d;
+    }
     if (callee && callee->kind == IRON_NODE_IDENT) {
         Iron_Ident *id = (Iron_Ident *)callee;
         Iron_Symbol *sym = id->resolved_sym;
