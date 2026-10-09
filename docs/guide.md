@@ -139,6 +139,10 @@ $ iron debug                       # in a package; or: iron debug main.iron
 (gdb) run
 ```
 
+A panic (an index out of bounds, a failed `assert`, `panic(...)`) stops
+the debugger: the call stack shows the Iron function and line that
+failed, a few frames above the runtime's `abort`.
+
 `iron debug` builds with `--debug` and starts the debugger on the
 program with the value formatters below already loaded: LLDB on macOS,
 gdb elsewhere (`--gdb` / `--lldb` choose). Arguments after `--` go to
