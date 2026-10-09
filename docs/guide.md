@@ -139,7 +139,7 @@ $ iron debug                       # in a package; or: iron debug main.iron
 (gdb) run
 ```
 
-A panic (an index out of bounds, a failed `assert`, `panic(...)`) stops
+A panic (an index out of bounds, a failed `assert`, a missing map key) stops
 the debugger: the call stack shows the Iron function and line that
 failed, a few frames above the runtime's `abort`.
 
