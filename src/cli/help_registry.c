@@ -61,9 +61,11 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
     /* ── iron debug ── */
     { "debug", "--gdb",  NULL, "off", "Debug with gdb (the default except on macOS)" },
     { "debug", "--lldb", NULL, "off", "Debug with lldb (the default on macOS)" },
+    { "debug", "--check", NULL, "off", "Show what debugging needs here (gdb, lldb, Python, lldb-dap) and how to install it" },
 
     /* ── iron dap ── */
     { "dap", "--adapter", NULL, NULL, "lldb-dap or gdb to run (default: lldb-dap, else gdb 14+)" },
+    { "dap", "--check", NULL, "off", "Check the adapter can run (Python 3, lldb-dap or gdb 14+), as iron debug --check" },
 
     /* ── iron run (mirrors most of build's surface) ── */
     { "run", "--release",            NULL, "off",    "Optimized release build (native -O2, web -Oz -flto)" },

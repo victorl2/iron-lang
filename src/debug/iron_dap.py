@@ -37,7 +37,9 @@ Launch arguments:
                and packages)
 
 Adapter selection: --adapter PATH or $IRON_DAP_ADAPTER, else lldb-dap on
-PATH (also lldb-dap-NN and Xcode's), else gdb 14 or later.
+PATH (also lldb-dap-NN, lldb-vscode(-NN), Homebrew's LLVM and Xcode's),
+else gdb 14 or later. `--check` reports what it finds, and how to
+install a debugger when there is none, and exits 1 then.
 
 Only the Python standard library is used.
 """
@@ -59,6 +61,9 @@ POINTER = re.compile(r"^(\([^)]*\)\s*)?0x[0-9a-fA-F]+$")
 # Every Iron panic prints its message and ends in the C library's abort().
 PANIC_FUNCTIONS = ("abort", "__abort", "raise", "__pthread_kill", "pthread_kill",
                    "__pthread_kill_implementation", "gsignal")
+# LLDB's answer to `command script import` when it was built without Python.
+NO_SCRIPTING = re.compile(r"does not support importing modules|"
+                          r"built without scripting language support")
 PANIC_LINE = re.compile(r"^(panic|assertion failed|error: index|.*out of bounds)", re.I)
 
 
@@ -126,40 +131,125 @@ def is_iron_source(path):
 
 # ── Finding the debugger and building ────────────────────────────────────────
 
-def find_adapter(requested=None):
-    """(kind, argv) for the DAP debugger to run, or None."""
+def xcode_tools_installed():
+    """macOS: the Command Line Tools (or Xcode) are installed. Without
+    them, xcrun and the /usr/bin placeholders open the installer."""
+    try:
+        r = subprocess.run(["/usr/bin/xcode-select", "-p"], capture_output=True, text=True)
+        return r.returncode == 0 and os.path.isdir(r.stdout.strip())
+    except OSError:
+        return False
+
+
+def gdb_version(gdb):
+    """gdb's major version, or None when it does not run."""
+    try:
+        v = subprocess.run([gdb, "--version"], capture_output=True, text=True).stdout
+    except OSError:
+        return None
+    m = re.search(r"(\d+)\.\d+", v)
+    return int(m.group(1)) if m else None
+
+
+def find_adapter(requested=None, notes=None):
+    """(kind, argv) for the DAP debugger to run, or None. `notes`, a list,
+    gets what was found but cannot be used (gdb too old, lldb without
+    lldb-dap, an IRON_DAP_ADAPTER that names nothing)."""
+    notes = [] if notes is None else notes
+
     def as_adapter(path):
         if os.path.basename(path).startswith("gdb"):
             return "gdb", [path, "-q", "-i=dap"]
         return "lldb-dap", [path]
 
-    requested = requested or os.environ.get("IRON_DAP_ADAPTER")
     if requested:
-        found = shutil.which(requested) or requested
-        return as_adapter(found)
-    names = ["lldb-dap"] + ["lldb-dap-%d" % v for v in range(25, 17, -1)] + ["lldb-vscode"]
+        source = "--adapter"
+    else:
+        requested, source = os.environ.get("IRON_DAP_ADAPTER"), "IRON_DAP_ADAPTER"
+    if requested:
+        found = shutil.which(requested)
+        if not found and not os.path.isfile(requested):
+            notes.append("%s is %s, which is neither a program on PATH nor a file"
+                         % (source, requested))
+            return None
+        return as_adapter(found or requested)
+    names = (["lldb-dap"] + ["lldb-dap-%d" % v for v in range(25, 17, -1)] +
+             ["lldb-vscode"] + ["lldb-vscode-%d" % v for v in range(17, 13, -1)])
     for n in names:
         p = shutil.which(n)
         if p:
             return as_adapter(p)
     if sys.platform == "darwin":
-        try:
-            p = subprocess.run(["xcrun", "-f", "lldb-dap"], capture_output=True,
-                               text=True).stdout.strip()
-            if p and os.path.exists(p):
+        # Homebrew's LLVM is keg-only: its lldb-dap is not on PATH.
+        for p in ("/opt/homebrew/opt/llvm/bin/lldb-dap", "/usr/local/opt/llvm/bin/lldb-dap"):
+            if os.path.isfile(p):
                 return as_adapter(p)
-        except OSError:
-            pass
+        if xcode_tools_installed():
+            try:
+                p = subprocess.run(["/usr/bin/xcrun", "-f", "lldb-dap"], capture_output=True,
+                                   text=True).stdout.strip()
+                if p and os.path.exists(p):
+                    return as_adapter(p)
+            except OSError:
+                pass
+        else:
+            notes.append("the Xcode Command Line Tools, which include lldb-dap, are not installed")
     gdb = shutil.which("gdb")
     if gdb:
-        try:
-            v = subprocess.run([gdb, "--version"], capture_output=True, text=True).stdout
-            m = re.search(r"(\d+)\.\d+", v)
-            if m and int(m.group(1)) >= 14:  # DAP mode since gdb 14
-                return as_adapter(gdb)
-        except OSError:
-            pass
+        v = gdb_version(gdb)
+        if v is not None and v >= 14:  # DAP mode since gdb 14
+            return as_adapter(gdb)
+        notes.append("%s is gdb %s; its DAP mode needs gdb 14 or later"
+                     % (gdb, v if v is not None else "(version unknown)"))
+    lldb = shutil.which("lldb")
+    if lldb and not (sys.platform == "darwin" and lldb.startswith("/usr/bin/")):
+        notes.append("%s is installed, but not lldb-dap, its DAP server (LLVM 18 and "
+                     "later include it; LLVM 14 to 17 call it lldb-vscode)" % lldb)
     return None
+
+
+def install_hint(requested=None):
+    """How to get lldb-dap or gdb 14 or later on this OS, as lines."""
+    if requested or os.environ.get("IRON_DAP_ADAPTER"):
+        return ["set it to the path of lldb-dap or gdb (14 or later), "
+                "or unset it to search PATH"]
+    if sys.platform == "darwin":
+        return ["lldb-dap comes with the Xcode Command Line Tools; install them with:",
+                "    xcode-select --install",
+                "or Homebrew's LLVM: brew install llvm"]
+    if os.name == "nt":
+        return ["LLVM for Windows includes lldb-dap.exe: winget install LLVM.LLVM",
+                "(VS Code's Iron extension debugs with the C/C++ extension "
+                "instead and needs neither)"]
+    return ["install LLDB (it includes lldb-dap) or gdb 14 or later:",
+            "    sudo apt install lldb      (Debian, Ubuntu; or: sudo apt install gdb)",
+            "    sudo dnf install lldb      (Fedora, RHEL, Rocky; or gdb)",
+            "    sudo pacman -S lldb        (Arch; or gdb)"]
+
+
+def no_adapter_message(notes, requested=None):
+    """The error a client shows when no DAP debugger is found."""
+    lines = ["no debugger found: iron dap runs lldb-dap, or gdb 14 or later in its DAP mode."]
+    lines += ["  " + n for n in notes]
+    lines += ["  " + h for h in install_hint(requested)]
+    lines.append("  `iron debug --check` shows what debugging needs here.")
+    return "\n".join(lines)
+
+
+def check(requested=None):
+    """`iron dap --check`: report the adapter's debugger; 0 when found."""
+    notes = []
+    found = find_adapter(requested, notes)
+    for n in notes:
+        print("  --   %s" % n)
+    if not found:
+        print("  --   lldb-dap, or gdb 14 or later: not found")
+        for h in install_hint(requested):
+            print("       " + h)
+        return 1
+    kind, argv = found
+    print("  ok   %s (%s)" % (kind, argv[0]))
+    return 0
 
 
 def package_dir(start):
@@ -596,6 +686,8 @@ class Proxy:
         self.step_waiter = None  # queue of stops while the adapter steps on its own
         self.synth_seq = SYNTH_REF_BASE
         self.test = None         # the test block this session debugs, if any
+        self.adapter_path = None
+        self.warned_no_scripting = False
 
     # Output to the client.
     def send(self, msg):
@@ -633,11 +725,12 @@ class Proxy:
         return slot[1] or {"success": False}
 
     def start_child(self):
-        found = find_adapter(self.requested_adapter)
+        notes = []
+        found = find_adapter(self.requested_adapter, notes)
         if not found:
-            return ("no debugger found: install lldb-dap (LLVM) or gdb 14 or later, "
-                    "or name one with IRON_DAP_ADAPTER")
+            return no_adapter_message(notes, self.requested_adapter)
         self.kind, argv = found
+        self.adapter_path = argv[0]
         if self.kind == "gdb":
             fmt = os.path.join(HERE, "iron_gdb.py")
             if os.path.exists(fmt):
@@ -646,7 +739,7 @@ class Proxy:
             self.child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                           stderr=subprocess.PIPE)
         except OSError as e:
-            return "cannot start %s: %s" % (argv[0], e)
+            return "cannot start %s: %s\n  `iron debug --check` shows what debugging needs here." % (argv[0], e)
         threading.Thread(target=self.child_reader, daemon=True).start()
         threading.Thread(target=self.child_stderr, daemon=True).start()
         return None
@@ -769,8 +862,12 @@ class Proxy:
             for k in ("preRunCommands", "stopCommands", "exitCommands"):
                 if k in a:
                     out[k] = a[k]
-            if a.get("stopOnPanic", True) and os.path.exists(fmt):
-                out["preRunCommands"] = list(out.get("preRunCommands", [])) + ["iron-panic-stop"]
+            if a.get("stopOnPanic", True):
+                # A plain LLDB breakpoint, not the formatters' iron-panic-stop:
+                # it works in an LLDB without Python too, and the adapter
+                # picks the Iron frame itself (finish_stopped).
+                out["preRunCommands"] = (list(out.get("preRunCommands", [])) +
+                                         ["breakpoint set --name abort"])
         else:
             if env:
                 out["env"] = env
@@ -799,6 +896,7 @@ class Proxy:
                 self.panic_frames.clear()
             if ev == "output":
                 self.note_output(msg)
+                self.note_no_scripting(msg)
             if ev in ("stopped", "continued") and self.step_waiter is not None:
                 # A step of the adapter's own (see step_in): not the client's.
                 if ev == "stopped":
@@ -883,6 +981,21 @@ class Proxy:
         for line in str(body.get("output", "")).splitlines():
             if PANIC_LINE.search(line):
                 self.panic_text = line.strip()
+
+    def note_no_scripting(self, msg):
+        """An lldb-dap whose LLDB has no Python cannot load iron_lldb.py:
+        say so once, with what to do, instead of leaving only LLDB's
+        error in the console."""
+        text = str((msg.get("body") or {}).get("output", ""))
+        if self.warned_no_scripting or not NO_SCRIPTING.search(text):
+            return
+        self.warned_no_scripting = True
+        self.output("iron dap: %s has no Python scripting, so the Iron value formatters "
+                    "cannot load: strings, lists, maps and optionals show as their C "
+                    "structs. Breakpoints, stepping and Iron expressions still work. For "
+                    "Iron values, use an lldb-dap with Python (Xcode's, or your "
+                    "distribution's lldb package) or gdb 14 or later (IRON_DAP_ADAPTER).\n"
+                    % (self.adapter_path or "this lldb-dap"))
 
     def finish_stopped(self, msg):
         body = msg.get("body") or {}
@@ -1191,6 +1304,8 @@ def main(argv):
         elif argv[i] == "--adapter" and i + 1 < len(argv):
             adapter = argv[i + 1]
             i += 2
+        elif argv[i] == "--check":
+            return check(adapter)
         elif argv[i] in ("-h", "--help"):
             print(__doc__)
             return 0

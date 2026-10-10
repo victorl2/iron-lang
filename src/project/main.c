@@ -327,11 +327,14 @@ int main(int argc, char **argv) {
     }
 
     /* dap: the debug adapter for editors (#312, #347). */
-    if (strcmp(cmd, "dap") == 0) {
+    if (strcmp(cmd, "dap") == 0 || strcmp(cmd, "debug") == 0) {
         char self_path[4096];
         if (resolve_self_path(self_path, sizeof(self_path)) != 0)
             snprintf(self_path, sizeof(self_path), "iron");
-        return iron_dap(self_path, argc, argv);
+        /* --check: what debugging needs here, and how to get it. */
+        for (int i = 2; i < argc; i++)
+            if (strcmp(argv[i], "--check") == 0) return iron_debug_check(self_path);
+        if (strcmp(cmd, "dap") == 0) return iron_dap(self_path, argc, argv);
     }
 
     /* debug: build with --debug and start a debugger (#312). */
