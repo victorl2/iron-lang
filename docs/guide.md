@@ -150,8 +150,8 @@ configuration turns this off. In LLDB started by hand, run
 `iron-panic-stop` after loading the formatters; in gdb, `break abort`.
 
 `iron debug` builds with `--debug` and starts the debugger on the
-program with the value formatters below already loaded: LLDB on macOS,
-gdb elsewhere (`--gdb` / `--lldb` choose). Arguments after `--` go to
+program with the value formatters below already loaded: LLDB on macOS
+and Windows, gdb on Linux (`--gdb` / `--lldb` choose). Arguments after `--` go to
 the program. Building with `iron build --debug` and starting a debugger
 yourself works the same way.
 
@@ -185,7 +185,12 @@ Where the pieces come from:
 |---|---|---|
 | macOS | lldb, from the Xcode Command Line Tools (`xcode-select --install`), which building already needs | Python 3 and `lldb-dap`, both from the Command Line Tools |
 | Linux | gdb or lldb from the distribution (`sudo apt install gdb`, `sudo dnf install gdb`) | Python 3 (installed on most distributions) and `lldb-dap` (`sudo apt install lldb`) or gdb 14 or later |
-| Windows | not available: debug the `.exe` and its PDB in Visual Studio or VS Code | VS Code uses the C/C++ extension instead and needs neither; for Neovim or Zed, Python 3 from python.org and LLVM (`winget install LLVM.LLVM`) for `lldb-dap` |
+| Windows | lldb from LLVM's installer (`winget install LLVM.LLVM`, with `C:\Program Files\LLVM\bin` on PATH) and Python 3.10 or later | Python 3.10 or later (`winget install Python.Python.3.12`) and `lldb-dap` from LLVM's installer (`winget install LLVM.LLVM`); the `lldb-dap.exe` in Visual Studio's LLVM cannot run (it has no `liblldb.dll`). Without them VS Code falls back to the C/C++ extension's debugger |
+
+On Windows LLDB needs Python even to start (LLVM's build loads
+`python3.dll`, version 3.10 or later), so `iron dap` uses the same
+Python and hands its directory to `lldb-dap`; the value formatters then
+load as on the other systems.
 
 Through `iron dap`, what you type while paused is Iron: hover, watch
 expressions and the debug console take `xs.len() > 2 and not done`,
@@ -205,8 +210,10 @@ walking through the runtime's C.
 
 In VS Code, F5 in a `.iron` file debugs it with the Iron extension's
 `iron` debug type (`"type": "iron"`, `"program"` a `.iron` file or the
-package directory), which runs `iron dap` on Linux and macOS and the
-Visual Studio debugger on Windows; see the extension's README.
+package directory), which runs `iron dap`; on Windows without
+`lldb-dap` and Python it uses the C/C++ extension's Visual Studio
+debugger instead (the `iron.debug.windowsDebugger` setting chooses); see
+the extension's README.
 
 Without the extension's debug type, pair a C debugger extension (C/C++
 from Microsoft, or CodeLLDB) with a build task:

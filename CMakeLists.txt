@@ -3006,7 +3006,8 @@ install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib COMPONENT iron FILES_MATCHI
 # client: build, breakpoints, stack, locals under Iron names, formatters.
 # Exit 77 (skipped) when neither lldb-dap nor gdb 14+ is installed.
 find_package(Python3 COMPONENTS Interpreter QUIET)
-if(NOT WIN32 AND Python3_Interpreter_FOUND)
+# Also on Windows, with LLVM's lldb-dap (#388).
+if(Python3_Interpreter_FOUND)
   add_test(NAME debug_dap_smoke
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_client.py
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/stepping.iron
@@ -3019,6 +3020,8 @@ if(NOT WIN32 AND Python3_Interpreter_FOUND)
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/conditions.iron
                    $<TARGET_FILE:iron> dap)
   set_tests_properties(debug_dap_eval_smoke PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+endif()
+if(NOT WIN32 AND Python3_Interpreter_FOUND)
   # What iron dap, iron debug and iron debug --check say when Python,
   # lldb-dap / gdb 14+ or a debugger is missing (PATH of our own).
   add_test(NAME debug_setup_messages
