@@ -270,10 +270,17 @@ def reduce_program(ironc, outdir, area, seed, mode='plain', rtlib=None, jobs=8):
                 break
             cands[k][0]()
             changed = True
-        blocks = []
-        child_blocks([g.mainblock] + [fd.body for fd, _ in g.funcs], blocks, set())
-        for blk in blocks:
-            chunk = max(1, len(blk.stmts) // 2)
+        done = set()
+        while True:
+            # the blocks still in the program, outermost first; a block
+            # whose statement was deleted is gone with it
+            blocks = []
+            child_blocks([g.mainblock] + [fd.body for fd, _ in g.funcs], blocks, set())
+            blk = next((b for b in blocks if id(b) not in done), None)
+            if blk is None:
+                break
+            done.add(id(blk))
+            chunk = max(1, len(blk.stmts))
             while chunk >= 1:
                 while True:
                     cands = [deletion(blk.stmts, i, chunk)
