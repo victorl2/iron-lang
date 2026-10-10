@@ -2290,8 +2290,25 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                  * count is read. */
                 TempOwned *len_temps = NULL;
                 note_owned_temp(ctx, &len_temps, expr->call.args[0], arr_val, span);
-                IronLIR_ValueId n = iron_lir_get_field(ctx->current_func, ctx->current_block,
-                                                       arr_val, "count", int_type, span)->id;
+                IronLIR_ValueId n;
+                if (arg_type->array.elem && arg_type->array.elem->kind == IRON_TYPE_INTERFACE &&
+                    arg_type->array.size < 0 && !arg_type->array.is_bounded) {
+                    /* An interface list is a split collection with no
+                     * `count` member: ask it, as `xs.len()` does. */
+                    const char *sfx = list_elem_suffix(ctx, arg_type->array.elem);
+                    size_t clen = 16 + strlen(sfx) + 1;
+                    char *lname = (char *)iron_arena_alloc(ctx->lir_arena, clen, 1);
+                    if (!lname) iron_oom_abort("hir_to_lir.c:len split list");
+                    snprintf(lname, clen, "Iron_List_%s_len", sfx);
+                    IronLIR_Instr *lref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
+                                                            lname, NULL, span);
+                    IronLIR_ValueId largs[1] = { arr_val };
+                    n = iron_lir_call(ctx->current_func, ctx->current_block, NULL, lref->id,
+                                      largs, 1, int_type, span)->id;
+                } else {
+                    n = iron_lir_get_field(ctx->current_func, ctx->current_block,
+                                           arr_val, "count", int_type, span)->id;
+                }
                 release_owned_temps(ctx, &len_temps, span);
                 return n;
             }
