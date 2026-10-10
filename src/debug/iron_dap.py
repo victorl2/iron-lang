@@ -689,6 +689,7 @@ class Proxy:
         self.held_launch = None  # gdb: launch waits for configurationDone
         self.panic_frames = {}   # threadId -> index of the Iron frame that panicked
         self.panic_text = ""     # the debuggee's last panic message
+        self.trapped = set()     # threads stopped on a debug trap (their abort follows)
         self.bp_rules = {}       # (path, line) -> condition / hit count / log message
         self.synth = {}          # SYNTH_REF_BASE + n -> children (a C array shown as a list)
         self.step_waiter = None  # queue of stops while the adapter steps on its own
@@ -1009,7 +1010,7 @@ class Proxy:
         body = msg.get("body") or {}
         tid = body.get("threadId")
         if tid is not None and body.get("reason") in ("breakpoint", "signal", "exception",
-                                                       "function breakpoint", None):
+                                                       "function breakpoint", "stopped", None):
             r = self.request("stackTrace", {"threadId": tid, "startFrame": 0, "levels": 40})
             frames = (r.get("body") or {}).get("stackFrames", []) if r.get("success") else []
             top = [str(f.get("name", "")).split("(")[0].strip() for f in frames[:4]]
@@ -1017,6 +1018,11 @@ class Proxy:
                     not self.breakpoint_holds(frames[0], tid):
                 return
             if any(n.replace("__GI_", "") in PANIC_FUNCTIONS for n in top):
+                if tid in self.trapped:
+                    # The debug trap already stopped on this panic, on its
+                    # Iron line: the abort that follows ends the program.
+                    self.request("continue", {"threadId": tid})
+                    return
                 for i, f in enumerate(frames):
                     src = f.get("source") or {}
                     if is_iron_source(src.get("path") or src.get("name")):
@@ -1024,7 +1030,27 @@ class Proxy:
                         msg = dict(msg, body=dict(body, reason="exception", description="Panic",
                                                   text=self.panic_text or "Iron panic"))
                         break
+            elif frames and not body.get("hitBreakpointIds") and \
+                    is_iron_source((frames[0].get("source") or {}).get("path")):
+                text = self.trap_message(frames[0])
+                if text:
+                    self.trapped.add(tid)
+                    msg = dict(msg, body=dict(body, reason="exception", description="Panic",
+                                              text=text))
         self.send(msg)
+
+    def trap_message(self, frame):
+        """The panic message of a stop on a --debug build's debug trap
+        (#388), or None. A check that fails under a debugger keeps its
+        message in iron_debug_panic_message and runs a breakpoint
+        instruction in the Iron function, so the stop is already on the
+        Iron line; the panic itself (and its abort) runs on continue."""
+        r = self.request("evaluate", {"expression": "(const char *)iron_debug_panic_message",
+                                      "frameId": frame.get("id"), "context": "watch"})
+        if not r.get("success"):
+            return None
+        m = re.search(r'"((?:[^"\\]|\\.)*)"', str((r.get("body") or {}).get("result", "")))
+        return m.group(1) if m and m.group(1) else None
 
     # ── Iron expressions in evaluate and breakpoints ───────────────────────
 

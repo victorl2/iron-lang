@@ -1,0 +1,10 @@
+func pick(xs: [Int], i: Int) -> Int {
+    val doubled = i * 2
+    return xs[i] + doubled
+}
+
+func main() {
+    val xs = [1, 2, 3]
+    println("{pick(xs, 1)}")
+    println("{pick(xs, 5)}")
+}
