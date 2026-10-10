@@ -231,7 +231,7 @@
     "package": "npm run prepackage && npm run bundle && vsce package --no-dependencies",
     "publish": "npm run prepackage && npm run bundle && vsce publish --no-dependencies",
     "pretest:e2e": "tsc -p . --outDir out",
-    "test:e2e": "npm run bundle && node ./out/test/runTest.js"
+    "test:e2e": "npm run prepackage && npm run bundle && node ./out/test/runTest.js"
   },
   "dependencies": {
     "vscode-languageclient": "9.0.1"
