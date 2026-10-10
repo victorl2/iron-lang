@@ -725,6 +725,11 @@ static void dap_report_no_python(const char *why) {
     snprintf(msg + n, sizeof(msg) - (size_t)n, "Run `iron debug --check` to see what debugging needs.");
     fprintf(stderr, "error: %s\n", msg);
     if (isatty(0)) return;
+#ifdef _WIN32
+    /* DAP framing counts bytes: no CRLF translation either way. */
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
     /* Read the client's first request (initialize) and answer it. */
     int length = -1;
     char line[256];
