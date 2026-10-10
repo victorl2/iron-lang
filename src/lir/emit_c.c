@@ -2516,10 +2516,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
              * caller binding's alloca; render its address. Module-global
              * slot: already the static's address — verbatim. */
             if (instr->call.args_by_addr && instr->call.args_by_addr[i]) {
-                if (!emit_vid_global_slot(fn, instr->call.args[i])) {
-                    iron_strbuf_appendf(sb, "&");
-                }
-                emit_val(sb, instr->call.args[i]);
+                emit_receiver_addr(sb, fn, ctx, instr->call.args[i], use_block_id);
                 continue;
             }
             /* Interface wrapping: if arg is concrete but callee is interface dispatch */
@@ -6001,10 +5998,11 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     }
                 }
                 if (via_ifw) continue;
-                if (!emit_vid_global_slot(fn, arg_id)) {
-                    iron_strbuf_appendf(sb, "&");
-                }
-                emit_val(sb, arg_id);
+                /* The address of the binding's storage: its slot, the
+                 * global, or the cell a lambda reaches it through when the
+                 * binding is a capture (a captured var passed on to a
+                 * `var` parameter had no declared slot to take). */
+                emit_receiver_addr(sb, fn, ctx, arg_id, ctx->current_block_id);
                 continue;
             }
 

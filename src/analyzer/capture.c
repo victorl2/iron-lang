@@ -448,6 +448,20 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
             }
             break;
         }
+        case IRON_NODE_ENUM_CONSTRUCT: {
+            /* `Tok.Pair(a, b)`: the payload arguments may be captures. */
+            Iron_EnumConstruct *ec = (Iron_EnumConstruct *)node;
+            for (int i = 0; i < ec->arg_count; i++) {
+                collect_idents(ec->args[i], locals, captures, seen);
+            }
+            break;
+        }
+        case IRON_NODE_IN_ARENA: {
+            Iron_InArenaBlock *ia = (Iron_InArenaBlock *)node;
+            collect_idents(ia->arena_expr, locals, captures, seen);
+            collect_idents(ia->body,       locals, captures, seen);
+            break;
+        }
         case IRON_NODE_ARRAY_LIT: {
             Iron_ArrayLit *al = (Iron_ArrayLit *)node;
             collect_idents(al->size, locals, captures, seen);

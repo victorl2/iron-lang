@@ -5354,6 +5354,12 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     fn_id->name
                         ? iron_scope_lookup(ctx->global_scope, fn_id->name)
                         : NULL;
+                /* A local binding of function type with the name of a
+                 * top-level function shadows it: the call goes through the
+                 * binding, so the function's `var` parameters do not apply. */
+                if (fn_id->resolved_sym &&
+                    fn_id->resolved_sym->sym_kind != IRON_SYM_FUNCTION)
+                    fn_sym = NULL;
                 if (fn_sym && fn_sym->sym_kind == IRON_SYM_FUNCTION &&
                     fn_sym->decl_node &&
                     fn_sym->decl_node->kind == IRON_NODE_FUNC_DECL) {
