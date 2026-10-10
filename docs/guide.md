@@ -168,8 +168,24 @@ Iron names without the compiler's temporaries, and shows Iron function
 names in the call stack. `editors/neovim` (nvim-dap) and `editors/zed`
 (Zed's debugger) configure it; their READMEs have the details.
 `--adapter <path>` (or `IRON_DAP_ADAPTER`)
-picks the debugger. It needs Python 3; the pinned toolchain does not
-include `lldb-dap`.
+picks the debugger. It needs Python 3.8 or later; the pinned toolchain
+does not include `lldb-dap`. The value formatters need an LLDB built with
+Python (Xcode's and the distributions' are); with an `lldb-dap` built
+without it, breakpoints, stepping, the stack and panics still work, values
+show as their C structs, and the debug console says so.
+
+`iron debug --check` (or `iron dap --check`) shows what debugging needs
+on this machine, what it found and how to install what is missing; it
+exits 0 when both `iron debug` and `iron dap` can run. When a piece is
+missing, `iron debug` and `iron dap` say which and how to get it, and
+an editor shows the same message when its debug session fails to start.
+Where the pieces come from:
+
+| | `iron debug` | `iron dap` (editors) |
+|---|---|---|
+| macOS | lldb, from the Xcode Command Line Tools (`xcode-select --install`), which building already needs | Python 3 and `lldb-dap`, both from the Command Line Tools |
+| Linux | gdb or lldb from the distribution (`sudo apt install gdb`, `sudo dnf install gdb`) | Python 3 (installed on most distributions) and `lldb-dap` (`sudo apt install lldb`) or gdb 14 or later |
+| Windows | not available: debug the `.exe` and its PDB in Visual Studio or VS Code | VS Code uses the C/C++ extension instead and needs neither; for Neovim or Zed, Python 3 from python.org and LLVM (`winget install LLVM.LLVM`) for `lldb-dap` |
 
 Through `iron dap`, what you type while paused is Iron: hover, watch
 expressions and the debug console take `xs.len() > 2 and not done`,
