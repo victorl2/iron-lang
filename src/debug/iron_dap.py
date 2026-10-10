@@ -37,8 +37,10 @@ Launch arguments:
                and packages)
 
 Adapter selection: --adapter PATH or $IRON_DAP_ADAPTER, else lldb-dap on
-PATH (also lldb-dap-NN, lldb-vscode(-NN), Homebrew's LLVM and Xcode's),
-else gdb 14 or later. `--check` reports what it finds, and how to
+PATH (also lldb-dap-NN, lldb-vscode(-NN), Homebrew's LLVM and Xcode's, and
+on Windows LLVM's installer in Program Files), else gdb 14 or later. On
+Windows, LLDB needs Python 3.10 or later, which it finds through the
+Python running this adapter. `--check` reports what it finds, and how to
 install a debugger when there is none, and exits 1 then.
 
 Only the Python standard library is used.
@@ -129,6 +131,14 @@ def is_iron_source(path):
     return bool(path) and path.endswith(".iron")
 
 
+def is_runtime_source(path):
+    """A C file of the Iron runtime or standard library (lib/runtime,
+    lib/stdlib, or src/... in a source tree), as opposed to the program's
+    generated C."""
+    parent = os.path.basename(os.path.dirname(str(path or "").replace("\\", "/")))
+    return parent in ("runtime", "stdlib")
+
+
 # ── Finding the debugger and building ────────────────────────────────────────
 
 def xcode_tools_installed():
@@ -149,6 +159,30 @@ def gdb_version(gdb):
         return None
     m = re.search(r"(\d+)\.\d+", v)
     return int(m.group(1)) if m else None
+
+
+def windows_lldb_dap_usable(path, notes):
+    """Windows: an lldb-dap.exe runs only with liblldb.dll beside it. The
+    copy in Visual Studio's (and the Build Tools') LLVM has none, and
+    fails to start; LLVM's own installer has both."""
+    if os.path.isfile(os.path.join(os.path.dirname(path), "liblldb.dll")):
+        return True
+    notes.append("%s has no liblldb.dll beside it and cannot run (Visual Studio's LLVM "
+                 "ships it that way); install LLVM itself" % path)
+    return False
+
+
+# Windows: LLDB from LLVM's installer loads Python (python3.dll) when it
+# starts and stops at once without it; Python 3.9 and older do not work.
+WINDOWS_LLDB_PYTHON = (3, 10)
+
+
+def windows_python_dir():
+    """The directory with this Python's python3.dll (also for a venv)."""
+    base = getattr(sys, "base_prefix", sys.prefix)
+    if os.path.isfile(os.path.join(base, "python3.dll")):
+        return base
+    return os.path.dirname(sys.executable)
 
 
 def find_adapter(requested=None, notes=None):
@@ -177,8 +211,17 @@ def find_adapter(requested=None, notes=None):
              ["lldb-vscode"] + ["lldb-vscode-%d" % v for v in range(17, 13, -1)])
     for n in names:
         p = shutil.which(n)
-        if p:
+        if p and (os.name != "nt" or windows_lldb_dap_usable(p, notes)):
             return as_adapter(p)
+    if os.name == "nt":
+        # LLVM's installer puts it in Program Files and leaves PATH alone
+        # unless asked to.
+        for root in (os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432"),
+                     os.environ.get("LOCALAPPDATA") and
+                     os.path.join(os.environ["LOCALAPPDATA"], "Programs")):
+            p = root and os.path.join(root, "LLVM", "bin", "lldb-dap.exe")
+            if p and os.path.isfile(p) and windows_lldb_dap_usable(p, notes):
+                return as_adapter(p)
     if sys.platform == "darwin":
         # Homebrew's LLVM is keg-only: its lldb-dap is not on PATH.
         for p in ("/opt/homebrew/opt/llvm/bin/lldb-dap", "/usr/local/opt/llvm/bin/lldb-dap"):
@@ -219,8 +262,8 @@ def install_hint(requested=None):
                 "or Homebrew's LLVM: brew install llvm"]
     if os.name == "nt":
         return ["LLVM for Windows includes lldb-dap.exe: winget install LLVM.LLVM",
-                "(VS Code's Iron extension debugs with the C/C++ extension "
-                "instead and needs neither)"]
+                "(its LLDB needs Python 3.10 or later: winget install Python.Python.3.12;",
+                "without them VS Code's Iron extension uses the C/C++ extension's debugger)"]
     return ["install LLDB (it includes lldb-dap) or gdb 14 or later:",
             "    sudo apt install lldb      (Debian, Ubuntu; or: sudo apt install gdb)",
             "    sudo dnf install lldb      (Fedora, RHEL, Rocky; or gdb)",
@@ -248,8 +291,21 @@ def check(requested=None):
             print("       " + h)
         return 1
     kind, argv = found
+    err = windows_python_problem(kind)
+    if err:
+        print("  --   %s (%s): %s" % (kind, argv[0], err))
+        return 1
     print("  ok   %s (%s)" % (kind, argv[0]))
     return 0
+
+
+def windows_python_problem(kind):
+    """Why LLDB on Windows cannot run with this Python, or None."""
+    if os.name != "nt" or kind != "lldb-dap" or sys.version_info[:2] >= WINDOWS_LLDB_PYTHON:
+        return None
+    return ("LLDB on Windows needs Python %d.%d or later and this is Python %d.%d "
+            "(winget install Python.Python.3.12)"
+            % (WINDOWS_LLDB_PYTHON + tuple(sys.version_info[:2])))
 
 
 def package_dir(start):
@@ -740,13 +796,22 @@ class Proxy:
             return no_adapter_message(notes, self.requested_adapter)
         self.kind, argv = found
         self.adapter_path = argv[0]
+        err = windows_python_problem(self.kind)
+        if err:
+            return "%s: %s.\n  `iron debug --check` shows what debugging needs here." % (argv[0], err)
+        env = None
+        if os.name == "nt" and self.kind == "lldb-dap":
+            # LLDB finds python3.dll on PATH: give it this Python's, which
+            # may only be reachable through the py launcher.
+            env = dict(os.environ)
+            env["PATH"] = windows_python_dir() + os.pathsep + env.get("PATH", "")
         if self.kind == "gdb":
             fmt = os.path.join(HERE, "iron_gdb.py")
             if os.path.exists(fmt):
                 argv = argv + ["-iex", "source %s" % fmt]
         try:
             self.child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                          stderr=subprocess.PIPE)
+                                          stderr=subprocess.PIPE, env=env)
         except OSError as e:
             return "cannot start %s: %s\n  `iron debug --check` shows what debugging needs here." % (argv[0], e)
         threading.Thread(target=self.child_reader, daemon=True).start()
@@ -783,6 +848,14 @@ class Proxy:
         if cmd == "evaluate":
             threading.Thread(target=self.handle_evaluate, args=(msg,), daemon=True).start()
             return
+        if cmd == "exceptionInfo":
+            tid = (msg.get("arguments") or {}).get("threadId")
+            if tid in self.panic_frames:
+                # A panic: the debugger would describe its abort()
+                # breakpoint; say what the program printed instead.
+                self.respond(msg, {"exceptionId": "panic", "breakMode": "always",
+                                   "description": self.panic_text or "Iron panic"})
+                return
         if cmd == "stepIn" and self.configured:
             threading.Thread(target=self.step_in, args=(msg,), daemon=True).start()
             return
@@ -1212,8 +1285,10 @@ class Proxy:
                 if not is_iron_source(src.get("path") or src.get("name")):
                     # An Iron function's prologue is the generated C's until
                     # its first statement: go on to that line. Anything else
-                    # (the runtime, a generated helper) is stepped out of.
-                    iron_fn = str(top.get("name", "")).startswith("Iron_")
+                    # (the runtime, whose builtins are Iron_ too, a generated
+                    # helper) is stepped out of.
+                    iron_fn = str(top.get("name", "")).startswith("Iron_") and \
+                        not is_runtime_source(src.get("path") or src.get("name"))
                     command = "next" if iron_fn and depth > start_depth else "stepOut"
                     continue
                 if (src.get("path"), top.get("line")) == start_at and depth == start_depth:
