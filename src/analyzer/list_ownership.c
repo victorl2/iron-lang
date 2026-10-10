@@ -55,6 +55,11 @@ static bool owns_list(const Iron_Type *t) {
     return is_dynamic_list(t) || object_holds_list(t, 0);
 }
 
+static bool declared_primitive(const Iron_Type *t) {
+    return t && (iron_type_is_numeric(t) || t->kind == IRON_TYPE_BOOL ||
+                 t->kind == IRON_TYPE_STRING);
+}
+
 static Iron_Type *node_type(Iron_Node *n) {
     if (!n) return NULL;
     switch ((int)n->kind) {  /* only the ownership-relevant kinds */
@@ -172,14 +177,22 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
             /* A synthesized pub-field getter returns a view of the field,
              * exactly like reading `o.items`; callers see a place. */
             return !((Iron_MethodDecl *)n)->is_synth_accessor;
+        /* A binding declared with a primitive type (`val s: String = b`)
+         * cannot receive a list: that is a type error already, and the
+         * ownership error only repeated it. (An interface or nullable
+         * binding can hold an object with a list, so it is still checked.) */
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)n;
+            if (declared_primitive(vd->declared_type)) break;
             if (vd->binding_count == 0) require_fresh(c, vd->init);
             break;
         }
-        case IRON_NODE_VAR_DECL:
-            require_fresh(c, ((Iron_VarDecl *)n)->init);
+        case IRON_NODE_VAR_DECL: {
+            Iron_VarDecl *vd = (Iron_VarDecl *)n;
+            if (declared_primitive(vd->declared_type)) break;
+            require_fresh(c, vd->init);
             break;
+        }
         case IRON_NODE_ASSIGN: {
             Iron_AssignStmt *as = (Iron_AssignStmt *)n;
             if (as->op == IRON_TOK_ASSIGN) require_fresh(c, as->value);

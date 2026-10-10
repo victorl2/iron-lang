@@ -1,0 +1,4 @@
+expected 'String', got 'Bag[Int]'
+no field 'nope' on type 'Bag[Int]'
+fields of 'Bag[Int]': items
+no method 'take' on type 'Bag[Int]'

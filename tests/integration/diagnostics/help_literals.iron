@@ -29,6 +29,13 @@ func main() {
         "none"
     }
     println("{word} {size}")
+    val million = 1_000_000
     val count Int = 3
+    println("{count}")
+    var handles = [
+        spawn("w") {
+            println("x")
+        },
+    ]
     println("{count}")
 }

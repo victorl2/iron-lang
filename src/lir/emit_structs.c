@@ -473,18 +473,13 @@ static void emit_ensure_enum_list(EmitCtx *ctx, const Iron_Type *et) {
     if (shgeti(ctx->emitted_mono_list_types, mangled) >= 0) return;
     shput(ctx->emitted_mono_list_types, mangled, true);
     if (et->enu.decl->name && strcmp(et->enu.decl->name, "Address") == 0) return;
-    /* An enum payload may have declared the struct already (emit_enum_decl). */
+    /* The struct is defined with the enum's forward declaration; an enum
+     * payload may have declared the prototypes already (emit_enum_decl). */
     char early[256];
     snprintf(early, sizeof(early), "early:%s", mangled);
     if (shgeti(ctx->emitted_mono_list_types, early) < 0)
-    iron_strbuf_appendf(&ctx->struct_bodies,
-        "typedef struct Iron_List_%s {\n"
-        "    %s    *items;\n"
-        "    int64_t count;\n"
-        "    int64_t capacity;\n"
-        "} Iron_List_%s;\n"
-        "IRON_LIST_DECL(%s, %s)\n",
-        mangled, mangled, mangled, mangled, mangled);
+        iron_strbuf_appendf(&ctx->struct_bodies, "IRON_LIST_DECL(%s, %s)\n",
+                            mangled, mangled);
     emit_list_impl_lifecycle(ctx, mangled, enum_needs_glue(ctx, et, false),
                              enum_needs_glue(ctx, et, true));
 }
@@ -939,6 +934,19 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
         /* Forward declaration for the outer struct */
         iron_strbuf_appendf(&ctx->forward_decls,
                              "typedef struct %s %s;\n", mangled, mangled);
+        /* The list of this enum holds only a pointer to its elements, so it
+         * is defined here, before any struct body, as an object's list is:
+         * an object may then have a [Enum] field (it used the type before
+         * its definition and the C did not compile). The prototypes and
+         * the implementation still go where the list is needed. */
+        if (!ed->name || strcmp(ed->name, "Address") != 0)
+            iron_strbuf_appendf(&ctx->forward_decls,
+                "typedef struct Iron_List_%s {\n"
+                "    %s *items;\n"
+                "    int64_t count;\n"
+                "    int64_t capacity;\n"
+                "} Iron_List_%s;\n",
+                mangled, mangled, mangled);
 
         /* Tag enum */
         iron_strbuf_appendf(&ctx->struct_bodies, "typedef enum {\n");
@@ -979,14 +987,9 @@ static void emit_enum_decl(EmitCtx *ctx, IronLIR_TypeDecl *td) {
                 snprintf(key, kl, "early:%s", em);
                 if (shgeti(ctx->emitted_mono_list_types, key) >= 0) continue;
                 shput(ctx->emitted_mono_list_types, key, true);
+                /* (The struct is with the forward declarations.) */
                 iron_strbuf_appendf(&ctx->struct_bodies,
-                    "typedef struct Iron_List_%s {\n"
-                    "    %s    *items;\n"
-                    "    int64_t count;\n"
-                    "    int64_t capacity;\n"
-                    "} Iron_List_%s;\n"
-                    "IRON_LIST_DECL(%s, %s)\n",
-                    em, em, em, em, em);
+                    "IRON_LIST_DECL(%s, %s)\n", em, em);
             }
         }
         for (int j = 0; j < ed->variant_count; j++) {

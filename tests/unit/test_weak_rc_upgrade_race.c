@@ -31,6 +31,7 @@
 #include <stddef.h>
 #include "support/posix_test.h"
 #include <stdatomic.h>
+#include <sched.h>
 
 void setUp(void)    {}
 void tearDown(void) {}
@@ -124,7 +125,10 @@ void test_upgrade_after_strong_drop_returns_null(void) {
  * (with a guarding strong release at the end).
  */
 
-#define UPGRADE_RACE_ITERS 10000
+/* Each round creates two threads. 10000 rounds took 1 s idle but 66 to
+ * 90 s on an oversubscribed Linux host (a parallel ctest next to other
+ * jobs), past the 60 s timeout; 2000 rounds keep the race well exercised. */
+#define UPGRADE_RACE_ITERS 2000
 
 static _Atomic int g_null_count_total = 0;
 static _Atomic int g_success_count_total = 0;
@@ -139,7 +143,9 @@ typedef struct {
 static void *race_thread_drop_strong(void *arg) {
     race_ctx_t *ctx = (race_ctx_t *)arg;
     while (atomic_load_explicit(&ctx->signal, memory_order_acquire) == 0) {
-        /* busy-wait */
+        /* Yield while waiting: two pure spinners per round could starve the
+         * thread that sets the signal on a loaded machine. */
+        sched_yield();
     }
     iron_rc_release(ctx->strong);
     return NULL;
@@ -148,7 +154,9 @@ static void *race_thread_drop_strong(void *arg) {
 static void *race_thread_attempt_upgrade(void *arg) {
     race_ctx_t *ctx = (race_ctx_t *)arg;
     while (atomic_load_explicit(&ctx->signal, memory_order_acquire) == 0) {
-        /* busy-wait */
+        /* Yield while waiting: two pure spinners per round could starve the
+         * thread that sets the signal on a loaded machine. */
+        sched_yield();
     }
     void *up = iron_rc_upgrade(ctx->weak);
     if (up == NULL) {

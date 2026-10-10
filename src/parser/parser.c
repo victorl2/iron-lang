@@ -2052,12 +2052,20 @@ static Iron_Node *iron_parse_primary(Iron_Parser *p) {
     }
 
     /* Unexpected token in expression position */
-    if (t->kind == IRON_TOK_MATCH || t->kind == IRON_TOK_IF) {
+    if (t->kind == IRON_TOK_MATCH || t->kind == IRON_TOK_IF || t->kind == IRON_TOK_SPAWN) {
         /* `val s = match x { ... }` / `val s = if c { a } else { b }`: both
          * are statements (manual 4.7). Say so once and skip the whole
          * construct; parsing its arms as statements reported more errors
          * and left the binding undeclared. */
         bool is_match = t->kind == IRON_TOK_MATCH;
+        if (t->kind == IRON_TOK_SPAWN)
+            /* `[spawn("w") { ... }]`: a spawn starts a binding (manual 3.10,
+             * `init_expr`); elsewhere it gave "expected expression" and
+             * recovery lost the statements after it. */
+            iron_emit_diag_help(p, IRON_ERR_EXPECTED_EXPR, iron_token_span(p, t),
+                                "'spawn' can only start a binding",
+                                "bind it first: `val h = spawn(\"name\") { ... }`, then use h");
+        else
         iron_emit_diag_help(p, IRON_ERR_EXPECTED_EXPR, iron_token_span(p, t),
                             is_match ? "'match' is a statement, not an expression"
                                      : "'if' is a statement, not an expression",

@@ -1,0 +1,13 @@
+-- A generic instance is named as written in diagnostics (`Bag[Int]`, not
+-- the internal `Bag__Int`), and a binding of a primitive type that gets an
+-- object holding a list reports the type mismatch only.
+object Bag[T] {
+    val items: [T]
+}
+
+func main() {
+    val b = Bag[Int]([1])
+    val s: String = b
+    println(b.nope)
+    b.take()
+}

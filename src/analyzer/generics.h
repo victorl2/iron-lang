@@ -40,6 +40,7 @@ const char *iron_generics_request(Iron_Node *decl, Iron_Type **args, int argc,
  * arguments (so `swap(p)` with `p: Pair[Int]` can bind T). NULL when the
  * name is not an instance. */
 Iron_Node *iron_generics_instance_of(const char *mangled, Iron_Type ***out_args, int *out_argc);
+const char *iron_generics_prettify(const char *text, Iron_Arena *arena);
 
 /* Clone every requested, not yet materialised instance into the program.
  * Returns the number of instances added. */
