@@ -1,0 +1,29 @@
+-- W0605 for an arena-allocated object whose fields own memory (a list, a
+-- string, a map): the arena never runs their destructors, so they leaked
+-- on reset with no warning (#330). A value of plain fields does not warn.
+object Blob {
+    val data: [Int]
+}
+
+object Named {
+    val name: String
+}
+
+object Table {
+    val m: Map[String, Int]
+}
+
+object Plain {
+    val x: Int
+    val y: Float
+}
+
+func main() {
+    val ar = Arena(65536)
+    val b = heap(in: ar) Blob([1])
+    val n = heap(in: ar) Named("x")
+    val t = heap(in: ar) Table(Map[String, Int]())
+    val p = heap(in: ar) Plain(1, 2.0)
+    val q = heap(in: ar, allow_drop_skip: true) Blob([2])
+    println("{b.data.len()} {n.name} {t.m.len()} {p.x} {q.data.len()}")
+}

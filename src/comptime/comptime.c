@@ -131,10 +131,11 @@ static Iron_ComptimeVal *lookup_local(Iron_ComptimeCtx *ctx,
 static const char *build_call_trace(Iron_ComptimeCtx *ctx, Iron_Arena *arena) {
     if (ctx->call_depth == 0) return NULL;
 
+    /* One line: a help with newlines rendered as broken, repeated lines. */
     Iron_StrBuf sb = iron_strbuf_create(256);
-    iron_strbuf_appendf(&sb, "call trace:\n");
+    iron_strbuf_appendf(&sb, "evaluating ");
     for (int i = 0; i < ctx->call_depth; i++) {
-        iron_strbuf_appendf(&sb, "  [%d] %s\n", i, ctx->call_stack[i]);
+        iron_strbuf_appendf(&sb, "%s%s()", i ? " -> " : "", ctx->call_stack[i]);
     }
     const char *result = iron_arena_strdup(arena, sb.data, sb.len);
     if (!result) { /* HARD-09 REPLACE (comptime.c:build_call_trace) */ return NULL; }
@@ -142,13 +143,26 @@ static const char *build_call_trace(Iron_ComptimeCtx *ctx, Iron_Arena *arena) {
     return result;
 }
 
-static void emit_error(Iron_ComptimeCtx *ctx, int code, Iron_Span span,
-                        const char *message) {
+static void emit_error_help(Iron_ComptimeCtx *ctx, int code, Iron_Span span,
+                            const char *message, const char *help) {
     if (ctx->had_error) return;  /* only emit first error per comptime expr */
     ctx->had_error = true;
-    const char *hint = build_call_trace(ctx, ctx->arena);
+    const char *trace = build_call_trace(ctx, ctx->arena);
+    const char *hint = help;
+    if (help && trace) {
+        size_t n = strlen(help) + strlen(trace) + 4;
+        char *buf = (char *)iron_arena_alloc(ctx->arena, n, 1);
+        if (buf) { snprintf(buf, n, "%s (%s)", help, trace); hint = buf; }
+    } else if (trace) {
+        hint = trace;
+    }
     iron_diag_emit(ctx->diags, ctx->arena, IRON_DIAG_ERROR, code, span,
                    message, hint);
+}
+
+static void emit_error(Iron_ComptimeCtx *ctx, int code, Iron_Span span,
+                        const char *message) {
+    emit_error_help(ctx, code, span, message, NULL);
 }
 
 /* ── Statement evaluator (forward declaration) ───────────────────────────── */
@@ -755,10 +769,33 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
         case IRON_NODE_INTERP_STRING:
         case IRON_NODE_LAMBDA:
         case IRON_NODE_IS:
-        case IRON_NODE_MATCH:
-            emit_error(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
-                       "comptime: expression kind not supported in comptime context");
+        case IRON_NODE_MATCH: {
+            /* Name what is not available (manual 8); "expression kind not
+             * supported" left the reader to guess which part. */
+            const char *what =
+                node->kind == IRON_NODE_METHOD_CALL  ? "a method call" :
+                node->kind == IRON_NODE_FIELD_ACCESS ? "field access" :
+                node->kind == IRON_NODE_SLICE        ? "slicing" :
+                node->kind == IRON_NODE_INTERP_STRING ? "string interpolation" :
+                node->kind == IRON_NODE_LAMBDA       ? "a lambda" :
+                node->kind == IRON_NODE_IS           ? "a type test" : "match";
+            char msg[160];
+            if (node->kind == IRON_NODE_METHOD_CALL && ((Iron_MethodCallExpr *)node)->method)
+                snprintf(msg, sizeof(msg), "comptime: method calls are not available at compile time ('.%s()')",
+                         ((Iron_MethodCallExpr *)node)->method);
+            else
+                snprintf(msg, sizeof(msg), "comptime: %s is not available at compile time", what);
+            const char *help =
+                (node->kind == IRON_NODE_METHOD_CALL && ((Iron_MethodCallExpr *)node)->method &&
+                 strcmp(((Iron_MethodCallExpr *)node)->method, "push") == 0)
+                ? "build the list with fill(n, v) and assign its elements, xs[i] = v"
+                : "compile-time evaluation covers literals, arithmetic, list indexing, "
+                  "object construction, len / range / fill / read_file and calls to "
+                  "top-level functions";
+            emit_error_help(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
+                            iron_arena_strdup(ctx->arena, msg, strlen(msg)), help);
             return cval_null(ctx);
+        }
 
         /* -Wswitch-enum opt-out: comptime evaluator only handles expression
          * kinds; statement and declaration kinds fall through to the generic

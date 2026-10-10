@@ -1,0 +1,18 @@
+func table(n: Int) -> [Int] {
+    var out: [Int] = []
+    for i in range(n) {
+        out.push(i * i)
+    }
+    return out
+}
+
+func label(n: Int) -> String {
+    return "n = {n}"
+}
+
+val SQUARES = comptime table(5)
+val LABEL = comptime label(3)
+
+func main() {
+    println("{SQUARES.len()} {LABEL}")
+}

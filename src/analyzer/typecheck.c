@@ -7826,6 +7826,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                 snprintf(wmsg, sizeof(wmsg),
                          "arena-allocated %s has a non-trivial destructor "
                          "that will be skipped", type_nm);
+                /* (a drop block, or a field that owns memory: a list, a
+                 * string, a map, an rc handle, a closure) */
                 emit_warning(ctx, IRON_WARN_ARENA_NONTRIVIAL_DTOR, he->span,
                              wmsg,
                              "the arena bulk-frees memory on reset() without "
@@ -10893,6 +10895,20 @@ static bool compute_has_user_copy_transitive(Iron_Type *t, TypeCtx *ctx) {
 static bool arena_type_has_nontrivial_dtor(Iron_Type *t, TypeCtx *ctx,
                                             int depth) {
     if (!t || depth > 32) return false;
+    /* A value that owns storage outside the arena has a destructor too, even
+     * without a `drop` block: a list's buffer, a string, a map or set's
+     * table, an rc reference, a closure's environment. An arena object
+     * holding one leaked it on reset, with no warning (#330). */
+    if (t->kind == IRON_TYPE_NULLABLE) return arena_type_has_nontrivial_dtor(t->nullable.inner, ctx, depth + 1);
+    if (t->kind == IRON_TYPE_ARRAY)
+        return (t->array.size < 0 && !t->array.is_bounded) ||
+               arena_type_has_nontrivial_dtor(t->array.elem, ctx, depth + 1);
+    if (t->kind == IRON_TYPE_STRING || t->kind == IRON_TYPE_RC ||
+        t->kind == IRON_TYPE_WEAK_RC || t->kind == IRON_TYPE_FUNC)
+        return true;
+    if (t->kind == IRON_TYPE_OBJECT && t->object.decl && t->object.decl->name && t->object.elem &&
+        (strcmp(t->object.decl->name, "Map") == 0 || strcmp(t->object.decl->name, "Set") == 0))
+        return true;
     if (t->kind != IRON_TYPE_OBJECT || !t->object.decl || !ctx->program)
         return false;
     Iron_ObjectDecl *od = t->object.decl;
