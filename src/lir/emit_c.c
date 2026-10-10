@@ -6641,7 +6641,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
     case IRON_LIR_WEAK_RC_DOWNGRADE: {
         const char *val_type = emit_type_to_c(instr->type, ctx);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", val_type);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", val_type);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (%s)iron_rc_downgrade((void *)", val_type);
         emit_val(sb, instr->weak_rc_downgrade.source);
@@ -6682,7 +6682,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         } else {
             /* Non-nullable result (pointer-shaped) — direct cast is valid. */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s ", val_type);
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", val_type);
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = (%s)iron_rc_upgrade((void *)", val_type);
             emit_val(sb, instr->weak_rc_upgrade.source);
@@ -7103,7 +7103,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_expr_to_buf(&src, instr->slice.array, fn, ctx, ctx->current_block_id, 0);
         const char *src_s = iron_strbuf_get(&src);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", list_c);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", list_c);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = %s_create();\n", list_c);
         emit_indent(sb, ind);
@@ -7175,11 +7175,14 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * IMPORTANT: the result variable is declared BEFORE the inner block
          * so it remains in scope for subsequent instructions. */
 
-        /* Declare result variable at outer scope */
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "Iron_String ");
-        emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, ";\n");
+        /* Declare result variable at outer scope (unless it was declared
+         * at the function entry) */
+        if (!is_hoisted) {
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "Iron_String ");
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, ";\n");
+        }
 
         /* Open temporary block for buf variables */
         emit_indent(sb, ind);
@@ -7746,19 +7749,31 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
             /* Build Iron_Closure with env */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "Iron_Closure ");
-            emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb,
-                " = { .env = _env_%u, .fn = (void(*)(void*))%s };\n",
-                instr->id, func_name);
+            if (is_hoisted) {
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = (Iron_Closure){ .env = _env_%u, .fn = (void(*)(void*))%s };\n",
+                                    instr->id, func_name);
+            } else {
+                iron_strbuf_appendf(sb, "Iron_Closure ");
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb,
+                    " = { .env = _env_%u, .fn = (void(*)(void*))%s };\n",
+                    instr->id, func_name);
+            }
         } else {
             /* Non-capturing: Iron_Closure with NULL env */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "Iron_Closure ");
-            emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb,
-                " = { .env = NULL, .fn = (void(*)(void*))%s };\n",
-                func_name);
+            if (is_hoisted) {
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = (Iron_Closure){ .env = NULL, .fn = (void(*)(void*))%s };\n",
+                                    func_name);
+            } else {
+                iron_strbuf_appendf(sb, "Iron_Closure ");
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb,
+                    " = { .env = NULL, .fn = (void(*)(void*))%s };\n",
+                    func_name);
+            }
         }
         break;
     }
