@@ -439,6 +439,24 @@ static Iron_Span iron_token_span(Iron_Parser *p, Iron_Token *t) {
                           t->line, t->col + (t->len > 0 ? t->len - 1 : 0));
 }
 
+/* The span of the last token consumed (newlines and doc comments are
+ * skipped), or `start` when nothing at or after `start` was consumed.
+ * A node that ends where its last token ends uses this rather than the
+ * current token, which is already the next construct (#362: a field's
+ * span ran into the next declaration through its type annotation). */
+static Iron_Span iron_prev_token_span(Iron_Parser *p, Iron_Span start) {
+    int i = (p->pos < p->token_count ? p->pos : p->token_count) - 1;
+    while (i >= 0 && (p->tokens[i].kind == IRON_TOK_NEWLINE ||
+                      p->tokens[i].kind == IRON_TOK_DOC_COMMENT ||
+                      p->tokens[i].kind == IRON_TOK_EOF)) i--;
+    if (i < 0) return start;
+    Iron_Token *t = &p->tokens[i];
+    if (t->line < start.line || (t->line == start.line && t->col < start.col)) {
+        return start;
+    }
+    return iron_token_span(p, t);
+}
+
 /* Emit a diagnostic. In CLI mode we suppress cascading errors while in
  * error-recovery so the user sees a clean error list (HARD-11 parity). In
  * LSP mode (HARD-02) suppression is disabled: LSP clients dedupe. */
@@ -806,7 +824,7 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         memset(ann, 0, sizeof(*ann));
         ann->kind             = IRON_NODE_TYPE_ANNOTATION;
         ann->span             = iron_span_merge(start_span,
-                                                iron_token_span(p, iron_current(p)));
+                                                iron_prev_token_span(p, start_span));
         ann->is_tuple         = true;
         ann->tuple_elems      = arena_elems;
         ann->tuple_elem_count = count;
@@ -928,7 +946,7 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
 
         iron_expect(p, IRON_TOK_RBRACKET);
         ann->span = iron_span_merge(iron_token_span(p, start),
-                                    iron_token_span(p, iron_current(p)));
+                                    iron_prev_token_span(p, iron_token_span(p, start)));
         return (Iron_Node *)ann;
     }
 
@@ -981,7 +999,7 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
         }
 
         ann->span = iron_span_merge(iron_token_span(p, start),
-                                    iron_token_span(p, iron_current(p)));
+                                    iron_prev_token_span(p, iron_token_span(p, start)));
         return (Iron_Node *)ann;
     }
 
@@ -1048,7 +1066,7 @@ static Iron_Node *iron_parse_type_annotation_impl(Iron_Parser *p) {
     ann->is_unordered      = false;
 
     ann->span = iron_span_merge(iron_token_span(p, start),
-                                iron_token_span(p, iron_current(p)));
+                                iron_prev_token_span(p, iron_token_span(p, start)));
     return (Iron_Node *)ann;
 }
 
@@ -6253,7 +6271,7 @@ static Iron_Node *iron_parse_interface_decl(Iron_Parser *p, bool is_private) {
         if (!sig) { /* HARD-09 REPLACE (iron_parse_interface_decl sig FuncDecl) */ p->in_error_recovery = true; return iron_make_error(p); }
         sig->kind                 = IRON_NODE_FUNC_DECL;
         sig->span                 = iron_span_merge(iron_token_span(p, fsig_start),
-                                                     iron_token_span(p, iron_current(p)));
+                                                     iron_prev_token_span(p, iron_token_span(p, fsig_start)));
         sig->name                 = iron_arena_strdup(p->arena, sig_name->value,
                                                        strlen(sig_name->value));
         if (!sig->name) { /* HARD-09 REPLACE (iron_parse_interface_decl sig name) */ sig->name = "?"; }
@@ -6395,7 +6413,7 @@ static Iron_Node *iron_parse_enum_decl(Iron_Parser *p, bool is_pub) {
             iron_expect(p, IRON_TOK_RPAREN);
             IRON_ARENA_ARR_ADOPT(p->arena, v->payload_type_anns);
             v->span = iron_span_merge(iron_token_span(p, vt),
-                                      iron_token_span(p, iron_current(p)));
+                                      iron_prev_token_span(p, iron_token_span(p, vt)));
         } else if (iron_check(p, IRON_TOK_ASSIGN)) {
             /* Optional explicit ordinal: VARIANT = INTEGER */
             iron_advance(p);  /* consume '=' */

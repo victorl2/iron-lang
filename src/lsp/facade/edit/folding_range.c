@@ -55,6 +55,12 @@ static bool emit_fold(IronLsp_FoldingRange **arr,
                        const char            *kind) {
     if (start_1based == 0 || end_1based == 0) return true;  /* skip unknown */
     if (start_1based >= end_1based) return true;           /* single line */
+    /* One fold per line range (#362): a body block and the statement or
+     * declaration around it can span the same lines. */
+    for (size_t i = 0; i < *n; i++) {
+        if ((*arr)[i].start_line == start_1based - 1 &&
+            (*arr)[i].end_line == end_1based - 1) return true;
+    }
     if (*n == *cap) {
         size_t new_cap = (*cap == 0) ? 8 : (*cap * 2);
         IronLsp_FoldingRange *next = (IronLsp_FoldingRange *)
@@ -245,22 +251,14 @@ void ilsp_facade_folding_range(struct IronLsp_Server   *server,
         switch ((int)d->kind) {
             case IRON_NODE_FUNC_DECL: {
                 Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
-                if (fd->body) {
-                    (void)emit_fold(&arr, &arr_n, &arr_cap, arena,
-                                     fd->body->span.line,
-                                     fd->body->span.end_line, "region");
-                    visit_body(fd->body, &arr, &arr_n, &arr_cap, arena);
-                }
+                /* The body is a block: visit_body emits its fold. */
+                if (fd->body) visit_body(fd->body, &arr, &arr_n, &arr_cap, arena);
                 break;
             }
             case IRON_NODE_METHOD_DECL: {
                 Iron_MethodDecl *md = (Iron_MethodDecl *)d;
-                if (md->body) {
-                    (void)emit_fold(&arr, &arr_n, &arr_cap, arena,
-                                     md->body->span.line,
-                                     md->body->span.end_line, "region");
-                    visit_body(md->body, &arr, &arr_n, &arr_cap, arena);
-                }
+                /* The body is a block: visit_body emits its fold. */
+                if (md->body) visit_body(md->body, &arr, &arr_n, &arr_cap, arena);
                 break;
             }
             case IRON_NODE_OBJECT_DECL: {
