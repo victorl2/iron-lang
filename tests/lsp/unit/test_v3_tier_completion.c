@@ -1,21 +1,14 @@
 /* test_v3_tier_completion -- Phase 10 Plan 10-03 (TIER-03).
  *
  * Drives ilsp_complete_buckets_build directly against parsed v3_tier
- * fixtures. Asserts the detail field for each top-level FUNC_DECL
- * candidate carries the tier prefix shipped by Task 4 in
- * src/lsp/facade/edit/complete/buckets.c::emit_top_level:
- *   - readonly func    when fd->is_readonly
- *   - pure func        when fd->is_pure
- *   - func             when neither (mutual exclusion enforced by
- *                       parser at src/parser/parser.c:3162-3180)
- *
- * Per CONTEXT.md D-10, only FUNC_DECL + METHOD_DECL get tier prefixes;
- * VAL_DECL / VAR_DECL / FIELD / ENUM_VARIANT / PARAM remain untouched.
+ * fixtures. Object-body methods (readonly, pure and plain) are hoisted
+ * to the program's top-level decls by the parser, but a method is only
+ * reachable through its receiver, so the top-level bucket must not
+ * offer them by their bare name. VAL_DECL / VAR_DECL candidates carry
+ * no tier prefix (CONTEXT.md D-10).
  *
  * Test harness mirrors tests/unit/test_completion_buckets.c (parse-only,
- * NULL server so buckets 4+5 short-circuit). Link-time stubs supply
- * symbols buckets.c references on the stdlib + dep paths so the unit
- * test binary does not need to drag in the full LSP store dep tree. */
+ * NULL server so buckets 4+5 short-circuit). */
 
 #include "unity.h"
 
@@ -96,13 +89,20 @@ find_candidate(const IronLsp_CompletionCandidate *cands, size_t n,
     return NULL;
 }
 
-/* ── Test 1: readonly func candidate detail prefix ──────────────────── */
+/* ── Tests 1-3: methods are not offered by their bare name ─────────────
+ *
+ * A method is called through its receiver (`v.length_sq()`); a bare
+ * `length_sq()` is an undefined identifier, even inside another method
+ * of the same object. The parser hoists object-body methods to the
+ * program's top-level decls, so the top-level bucket must skip them.
+ * Their tier-prefixed details (`readonly func length_sq() -> Int`) are
+ * offered by member completion after `v.`, covered by
+ * tests/lsp/smoke/edit/test_body_completion_smoke.py. */
 
-static void test_readonly_func_completion_detail_prefix(void) {
+static void assert_method_not_bare(const char *name) {
     char buf[1024];
     const char *path = fixture_path(buf, sizeof(buf), "tier_completion.iron");
-    TEST_ASSERT_NOT_NULL_MESSAGE(path,
-        "fixture tier_completion.iron not found");
+    TEST_ASSERT_NOT_NULL_MESSAGE(path, "fixture tier_completion.iron not found");
     char *src = load_file(path);
     TEST_ASSERT_NOT_NULL_MESSAGE(src, "load_file returned NULL");
 
@@ -113,98 +113,23 @@ static void test_readonly_func_completion_detail_prefix(void) {
 
     IronLsp_CompletionCandidate *cands = NULL;
     size_t n = 0;
-    /* STATEMENT_HEAD context drives the default 6-bucket pipeline so
-     * top-level FUNC_DECL candidates land in bucket 2 with the tier-
-     * prefixed detail string. NULL server so buckets 4+5 skip. */
     ilsp_complete_buckets_build(NULL, NULL, prog, 0,
                                   ILSP_CCTX_STATEMENT_HEAD, "",
                                   NULL, &arena, &cands, &n);
     TEST_ASSERT_TRUE_MESSAGE(n > 0, "no candidates emitted");
-
-    const IronLsp_CompletionCandidate *c = find_candidate(cands, n, "length_sq");
-    TEST_ASSERT_NOT_NULL_MESSAGE(c,
-        "TIER-03: readonly func `length_sq` MUST appear as a candidate");
-    TEST_ASSERT_NOT_NULL_MESSAGE(c->detail,
-        "TIER-03: candidate detail field MUST NOT be NULL");
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c->detail, "readonly func"),
-        "TIER-03: readonly func candidate detail MUST contain `readonly func`");
+    TEST_ASSERT_NOT_NULL_MESSAGE(find_candidate(cands, n, "Vec"),
+        "the object `Vec` MUST appear as a candidate");
+    TEST_ASSERT_NULL_MESSAGE(find_candidate(cands, n, name),
+        "a method MUST NOT appear as a bare top-level candidate");
 
     iron_diaglist_free(&diags);
     iron_arena_free(&arena);
     free(src);
 }
 
-/* ── Test 2: pure func candidate detail prefix ──────────────────────── */
-
-static void test_pure_func_completion_detail_prefix(void) {
-    char buf[1024];
-    const char *path = fixture_path(buf, sizeof(buf), "tier_completion.iron");
-    TEST_ASSERT_NOT_NULL_MESSAGE(path, "fixture not found");
-    char *src = load_file(path);
-    TEST_ASSERT_NOT_NULL_MESSAGE(src, "load_file returned NULL");
-
-    Iron_Arena arena = iron_arena_create(64 * 1024);
-    Iron_DiagList diags = iron_diaglist_create();
-    Iron_Program *prog = parse_source(src, &arena, &diags);
-    TEST_ASSERT_NOT_NULL_MESSAGE(prog, "parse failed");
-
-    IronLsp_CompletionCandidate *cands = NULL;
-    size_t n = 0;
-    ilsp_complete_buckets_build(NULL, NULL, prog, 0,
-                                  ILSP_CCTX_STATEMENT_HEAD, "",
-                                  NULL, &arena, &cands, &n);
-
-    const IronLsp_CompletionCandidate *c = find_candidate(cands, n, "add");
-    TEST_ASSERT_NOT_NULL_MESSAGE(c,
-        "TIER-03: pure func `add` MUST appear as a candidate");
-    TEST_ASSERT_NOT_NULL_MESSAGE(c->detail,
-        "TIER-03: candidate detail field MUST NOT be NULL");
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c->detail, "pure func"),
-        "TIER-03: pure func candidate detail MUST contain `pure func`");
-
-    iron_diaglist_free(&diags);
-    iron_arena_free(&arena);
-    free(src);
-}
-
-/* ── Test 3: plain func candidate has `func` detail (no tier prefix) ── */
-
-static void test_plain_func_completion_detail_no_tier_prefix(void) {
-    char buf[1024];
-    const char *path = fixture_path(buf, sizeof(buf), "tier_completion.iron");
-    TEST_ASSERT_NOT_NULL_MESSAGE(path, "fixture not found");
-    char *src = load_file(path);
-    TEST_ASSERT_NOT_NULL_MESSAGE(src, "load_file returned NULL");
-
-    Iron_Arena arena = iron_arena_create(64 * 1024);
-    Iron_DiagList diags = iron_diaglist_create();
-    Iron_Program *prog = parse_source(src, &arena, &diags);
-    TEST_ASSERT_NOT_NULL_MESSAGE(prog, "parse failed");
-
-    IronLsp_CompletionCandidate *cands = NULL;
-    size_t n = 0;
-    ilsp_complete_buckets_build(NULL, NULL, prog, 0,
-                                  ILSP_CCTX_STATEMENT_HEAD, "",
-                                  NULL, &arena, &cands, &n);
-
-    const IronLsp_CompletionCandidate *c = find_candidate(cands, n, "mutate");
-    TEST_ASSERT_NOT_NULL_MESSAGE(c,
-        "TIER-03: plain func `mutate` MUST appear as a candidate");
-    TEST_ASSERT_NOT_NULL_MESSAGE(c->detail,
-        "TIER-03: candidate detail field MUST NOT be NULL");
-    /* No `readonly` and no `pure` prefix word — the detail begins with
-     * the bare `func` token. Mutual exclusion is parser-enforced. */
-    TEST_ASSERT_NULL_MESSAGE(strstr(c->detail, "readonly"),
-        "TIER-03: plain func detail MUST NOT contain `readonly`");
-    TEST_ASSERT_NULL_MESSAGE(strstr(c->detail, "pure"),
-        "TIER-03: plain func detail MUST NOT contain `pure`");
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c->detail, "func"),
-        "TIER-03: plain func detail MUST contain bare `func`");
-
-    iron_diaglist_free(&diags);
-    iron_arena_free(&arena);
-    free(src);
-}
+static void test_readonly_method_not_bare(void) { assert_method_not_bare("length_sq"); }
+static void test_pure_method_not_bare(void)     { assert_method_not_bare("add"); }
+static void test_plain_method_not_bare(void)    { assert_method_not_bare("mutate"); }
 
 /* ── Test 4: VAL/VAR/FIELD candidates remain untouched (D-10) ───────── */
 
@@ -246,9 +171,9 @@ static void test_non_func_decls_have_no_tier_prefix(void) {
 
 int main(void) {
     UNITY_BEGIN();
-    RUN_TEST(test_readonly_func_completion_detail_prefix);
-    RUN_TEST(test_pure_func_completion_detail_prefix);
-    RUN_TEST(test_plain_func_completion_detail_no_tier_prefix);
+    RUN_TEST(test_readonly_method_not_bare);
+    RUN_TEST(test_pure_method_not_bare);
+    RUN_TEST(test_plain_method_not_bare);
     RUN_TEST(test_non_func_decls_have_no_tier_prefix);
     return UNITY_END();
 }

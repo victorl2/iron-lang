@@ -160,10 +160,16 @@ export async function activate(
       fileEvents: [
         vscode.workspace.createFileSystemWatcher('**/iron.toml'),
       ],
+      // Sends workspace/didChangeConfiguration with settings.iron when an
+      // iron.* setting changes; the server reads iron.inlayHints from it.
+      configurationSection: 'iron',
     },
     outputChannel: output,
     traceOutputChannel: traceChannel,
-    initializationOptions: { clientName: 'vscode' },
+    initializationOptions: {
+      clientName: 'vscode',
+      inlayHints: inlayHintSettings(),
+    },
   };
 
   client = new LanguageClient(
@@ -241,6 +247,16 @@ export async function deactivate(): Promise<void> {
     await client.stop();
     client = undefined;
   }
+}
+
+// The iron.inlayHints.* settings, in the shape ironls reads from
+// initializationOptions.inlayHints and settings.iron.inlayHints.
+function inlayHintSettings(): { parameterNames: boolean; bindingTypes: boolean } {
+  const cfg = vscode.workspace.getConfiguration('iron.inlayHints');
+  return {
+    parameterNames: cfg.get<boolean>('parameterNames') ?? true,
+    bindingTypes: cfg.get<boolean>('bindingTypes') ?? true,
+  };
 }
 
 // ---------- minimal semver helpers for ironLspCompatibleIronlsRange ----------

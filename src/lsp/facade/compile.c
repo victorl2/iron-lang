@@ -172,6 +172,13 @@ static Iron_Program *facade_analyze(struct IronLsp_Document      *doc,
     return r.program;
 }
 
+bool ilsp_facade_is_stdlib_path(const char *uri_or_path) {
+    if (!uri_or_path || !*uri_or_path) return false;
+    if (strncmp(uri_or_path, "stdlib://", 9) == 0) return true;
+    pthread_once(&g_lib_dir_once, resolve_lib_dir);
+    return g_lib_dir && is_stdlib_file(uri_or_path, g_lib_dir);
+}
+
 void ilsp_facade_compile_pure(struct IronLsp_Document      *doc,
                                const IronLsp_CompileRequest *req,
                                Iron_Arena                   *arena,

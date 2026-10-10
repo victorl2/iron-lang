@@ -101,7 +101,15 @@ code --install-extension iron-lsp-*.vsix
 | `iron.languageServer.path` | `""` | Absolute path to `ironls`. Empty → search `$PATH` via `which`/`where`. |
 | `iron.languageServer.trace.server` | `"off"` | LSP trace output level (`off` \| `messages` \| `verbose`). |
 | `iron.languageServer.logLevel` | `"info"` | Editor-side log severity (`error` \| `warn` \| `info` \| `debug`). |
+| `iron.inlayHints.parameterNames` | `true` | Parameter names before call arguments: `area(w: 2, h: 3)`. |
+| `iron.inlayHints.bindingTypes` | `true` | Inferred types after `val` / `var` written without one: `val n: Int = 3`. |
 | `iron.debug.ironPath` | `""` | Path to the `iron` CLI used by the `iron` debug type. Empty: search `$PATH`. |
+
+The `iron.inlayHints.*` settings apply without a restart. VS Code's own
+`editor.inlayHints.enabled` turns every inlay hint on or off. Other
+editors pass the same settings to `ironls` as
+`initializationOptions.inlayHints` (`{"parameterNames": false}`) or
+through `workspace/didChangeConfiguration` under `iron.inlayHints`.
 
 Changes to `iron.languageServer.*` restart the server after a 500 ms
 debounce — no manual reload required.
