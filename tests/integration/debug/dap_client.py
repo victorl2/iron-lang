@@ -91,9 +91,33 @@ def fail(msg):
     sys.exit(1)
 
 
+def check_panic(c, stop, tid):
+    """--panic (panic.iron): the failed assert in check() stops the
+    program as an exception, and the stack starts at the Iron line."""
+    body = stop["body"]
+    if body.get("reason") != "exception" or "total too large" not in body.get("text", ""):
+        fail("the panic stopped as %s, want an exception with the assert's message" % body)
+    frames = c.call("stackTrace", {"threadId": tid})["stackFrames"]
+    top = frames[0] if frames else {}
+    if not str(top.get("name", "")).startswith("check") or top.get("line") != 6:
+        fail("the panic's stack starts at %s, want check at panic.iron:6" %
+             [(f.get("name"), f.get("line")) for f in frames[:4]])
+    print("dap: the failed assert stops at panic.iron:6 in check (%s)" % body.get("text"))
+    try:
+        c.call("disconnect", {"terminateDebuggee": True}, timeout=20)
+    except Exception:
+        pass
+    c.p.kill()
+    print("PASS")
+
+
 def main():
-    src = os.path.abspath(sys.argv[1])
-    c = Client(sys.argv[2:])
+    args = sys.argv[1:]
+    panic = args[:1] == ["--panic"]
+    if panic:
+        args = args[1:]
+    src = os.path.abspath(args[0])
+    c = Client(args[1:])
     seq = c.send("initialize", {"clientID": "iron-test", "adapterID": "iron",
                                 "linesStartAt1": True, "columnsStartAt1": True,
                                 "pathFormat": "path"})
@@ -105,7 +129,8 @@ def main():
         fail("initialize: %s" % r.get("message"))
     launch = c.send("launch", {"program": src})
     c.event("initialized", timeout=180)
-    c.call("setBreakpoints", {"source": {"path": src}, "breakpoints": [{"line": 3}, {"line": 12}]})
+    lines = [] if panic else [{"line": 3}, {"line": 12}]
+    c.call("setBreakpoints", {"source": {"path": src}, "breakpoints": lines})
     c.call("configurationDone")
     c.wait(lambda m: m.get("type") == "response" and m.get("request_seq") == launch, 180)
     try:
@@ -117,8 +142,12 @@ def main():
         print("the debugger did not start the program here: skipped")
         sys.exit(77)
     if stop.get("event") != "stopped":
-        fail("the program ended without stopping on the breakpoint at line 3")
+        fail("the program ended without stopping %s" %
+             ("on the panic" if panic else "on the breakpoint at line 3"))
     tid = stop["body"].get("threadId")
+    if panic:
+        check_panic(c, stop, tid)
+        return
 
     frames = c.call("stackTrace", {"threadId": tid})["stackFrames"]
     names = [f["name"] for f in frames]

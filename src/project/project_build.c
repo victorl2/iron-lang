@@ -577,16 +577,23 @@ static int iron_launch_debugger(const char *ironc, const char *binary,
     } else {
         fprintf(stderr, "note: the Iron value formatters were not found; values show as C\n");
     }
-    char **argv = (char **)calloc((size_t)nargs + 8, sizeof(char *));
+    char **argv = (char **)calloc((size_t)nargs + 16, sizeof(char *));
     if (!argv) { free(formatter); return 1; }
     int ai = 0;
     argv[ai++] = (char *)tool;
+    /* Break on panic: every panic ends in abort(); the formatter script
+     * selects the Iron frame that panicked when it stops there. */
     if (lldb) {
-        if (formatter) { argv[ai++] = "-o"; argv[ai++] = cmd; }
+        if (formatter) {
+            argv[ai++] = "-o"; argv[ai++] = cmd;
+            argv[ai++] = "-o"; argv[ai++] = "iron-panic-stop";
+        }
         argv[ai++] = "--";
     } else {
         argv[ai++] = "-q";
         if (formatter) { argv[ai++] = "-ex"; argv[ai++] = cmd; }
+        argv[ai++] = "-iex"; argv[ai++] = "set breakpoint pending on";
+        argv[ai++] = "-ex"; argv[ai++] = "break abort";
         argv[ai++] = "--args";
     }
     argv[ai++] = (char *)binary;

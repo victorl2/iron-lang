@@ -140,8 +140,14 @@ $ iron debug                       # in a package; or: iron debug main.iron
 ```
 
 A panic (an index out of bounds, a failed `assert`, a missing map key) stops
-the debugger: the call stack shows the Iron function and line that
-failed, a few frames above the runtime's `abort`.
+the debugger on the Iron line that failed: `iron debug` and `iron dap`
+put a breakpoint on the C library's `abort`, where every panic ends, and
+select the Iron frame that panicked (`Iron panic at main.iron:6`), so
+`print` and the locals show that function's values. Through `iron dap`
+the stop is reported as an exception with the panic's message and the
+call stack starts at the Iron frame; `"stopOnPanic": false` in the launch
+configuration turns this off. In LLDB started by hand, run
+`iron-panic-stop` after loading the formatters; in gdb, `break abort`.
 
 `iron debug` builds with `--debug` and starts the debugger on the
 program with the value formatters below already loaded: LLDB on macOS,
