@@ -2,17 +2,23 @@
  * textDocument/references facade.
  *
  * Flow:
- *   1. Analyze the open doc via ilsp_facade_compile_for_nav so we can
- *      resolve the cursor's ident -> resolved_sym -> identity triple.
- *   2. On the FIRST references request per server-lifetime, bulk-
- *      analyze every non-open, not-yet-analyzed workspace entry so
- *      the workspace reverse-ref index has full coverage. Subsequent
- *      requests skip this (O(1) after warm).
- *   3. Query the workspace reverse-ref index by triple; the query
- *      UNCONDITIONALLY drops stdlib/dep use-sites (D-09 LOCKED).
- *   4. If context.includeDeclaration is true, prepend the decl span.
- *   5. Cancel flag polled between per-file iterations inside the
- *      bulk-analyze helper (T-03-09 + D-16).
+ *   1. Analyze the open doc via ilsp_facade_compile_for_nav.
+ *   2. Collect every written name of the document with what it names
+ *      (ilsp_nav_name_occurrences): identifiers, member names (`p.x`,
+ *      `p.get()`), enum variants, type names, and declarations' own
+ *      names, `for` variables and match bindings included. The one under
+ *      the cursor gives the (declaration, name) pair to match.
+ *   3. If context.includeDeclaration is true, the declaration comes
+ *      first: its name in this document, or the declaration site in
+ *      another file.
+ *   4. The uses in this document come from its buffer (step 2).
+ *   5. For a symbol other files can name, the workspace reverse-ref
+ *      index adds the other files' uses. On the FIRST request per
+ *      server lifetime every workspace entry is bulk-analyzed so the
+ *      index has full coverage; the query UNCONDITIONALLY drops
+ *      stdlib/dep use-sites (D-09 LOCKED), and cross-file sites of a
+ *      private symbol are hidden (VIS-01). The cancel flag is polled
+ *      between files (T-03-09 + D-16).
  */
 
 #include "lsp/facade/nav/nav_core.h"
@@ -86,42 +92,26 @@ static void build_decl_site(const Iron_Symbol              *sym,
     if (!out->uri) out->uri = "";
 }
 
-/* Every identifier in the open document resolving to `decl`. */
-typedef struct {
-    const Iron_Node          *decl;
-    IronLsp_Document         *doc;
-    IronLsp_PositionEncoding  enc;
-    Iron_Arena               *arena;
-    IronLsp_RefSite          *sites;
-    size_t                    cap, n;
-} RefCollect;
-
-static bool ref_collect_visit(Iron_Visitor *v, Iron_Node *n) {
-    RefCollect *rc = (RefCollect *)v->ctx;
-    if (n->kind == IRON_NODE_ERROR) return false;
-    if (n->kind != IRON_NODE_IDENT) return true;
-    Iron_Ident *id = (Iron_Ident *)n;
-    if (!id->resolved_sym || id->resolved_sym->decl_node != rc->decl) return true;
-    if (id->span.filename && rc->doc->uri && strcmp(id->span.filename, rc->doc->uri) != 0)
-        return true;
-    for (size_t i = 0; i < rc->n; i++) {  /* generic instances repeat spans */
-        if (rc->sites[i].range.start.line == id->span.line - 1 &&
-            rc->sites[i].range.start.character + 1 == id->span.col) return true;
+/* Append a site, growing the arena array. */
+static void push_site(IronLsp_RefSite **arr, size_t *n, size_t *cap, Iron_Arena *arena,
+                      const char *uri, IronLsp_Range range) {
+    for (size_t i = 0; i < *n; i++) {
+        if ((*arr)[i].range.start.line == range.start.line &&
+            (*arr)[i].range.start.character == range.start.character &&
+            strcmp((*arr)[i].uri, uri) == 0) return;
     }
-    if (rc->n == rc->cap) {
-        size_t ncap = rc->cap * 2;
+    if (*n == *cap) {
+        size_t ncap = *cap ? *cap * 2 : 16;
         IronLsp_RefSite *ns = (IronLsp_RefSite *)iron_arena_alloc(
-            rc->arena, ncap * sizeof(*ns), _Alignof(IronLsp_RefSite));
-        if (!ns) return false;
-        memcpy(ns, rc->sites, rc->n * sizeof(*ns));
-        rc->sites = ns;
-        rc->cap = ncap;
+            arena, ncap * sizeof(*ns), _Alignof(IronLsp_RefSite));
+        if (!ns) return;
+        if (*n) memcpy(ns, *arr, *n * sizeof(*ns));
+        *arr = ns;
+        *cap = ncap;
     }
-    rc->sites[rc->n].uri = rc->doc->uri
-        ? iron_arena_strdup(rc->arena, rc->doc->uri, strlen(rc->doc->uri)) : "";
-    rc->sites[rc->n].range = ilsp_span_to_lsp_range(id->span, rc->doc, rc->enc);
-    rc->n++;
-    return true;
+    (*arr)[*n].uri = uri;
+    (*arr)[*n].range = range;
+    (*n)++;
 }
 
 void ilsp_facade_nav_references(struct IronLsp_Server         *server,
@@ -149,154 +139,100 @@ void ilsp_facade_nav_references(struct IronLsp_Server         *server,
     if (!program) goto done;
     if (cancel && atomic_load(cancel)) goto done;
 
-    /* Step 2: resolve cursor -> ident -> Iron_Symbol. */
+    /* Step 2: what the name under the cursor names. Every written name
+     * of the document (uses, member names, type names, declarations'
+     * own names) is an occurrence; the one under the cursor gives the
+     * (declaration, name) pair the others are matched against. */
+    size_t occ_n = 0;
+    IronLsp_NameOcc *occs = ilsp_nav_name_occurrences(doc, program, &walk_arena, &occ_n);
+    const IronLsp_NameOcc *at = ilsp_nav_occurrence_at(occs, occ_n, doc, pos, enc);
     Iron_Node *node = ilsp_nav_node_at(doc, program, pos, enc);
     Iron_Symbol *sym = NULL;
     if (node && node->kind == IRON_NODE_IDENT) {
-        Iron_Ident *id = (Iron_Ident *)node;
-        sym = id->resolved_sym;
+        sym = ((Iron_Ident *)node)->resolved_sym;
     } else if (node) {
         /* The cursor on a declaration's name: its symbol is the one any
          * use of it resolves to. */
         sym = ilsp_nav_symbol_of_decl(program, node);
     }
-    /* If cursor is directly on a decl itself, synthesize a
-     * "self-reference" by using the decl_node's triple and treating
-     * the cursor position as the "decl span" for includeDeclaration. */
-    if (!sym) goto done;  /* graceful degradation */
+    const Iron_Node *key_decl = at ? at->decl : (sym ? sym->decl_node : NULL);
+    const char *key_name = at ? at->name : (sym ? sym->name : NULL);
+    if (!key_decl || !key_name) goto done;  /* graceful degradation */
+    /* A symbol for another declaration than the occurrence's (a type
+     * name under a constructor call...) is not the one to look up. */
+    if (sym && sym->decl_node != key_decl) sym = NULL;
 
-    /* Step 3: derive the triple using decl's canonical path. */
-    const char *decl_path = (sym->decl_node && sym->decl_node->span.filename)
-        ? sym->decl_node->span.filename
-        : doc->uri;
-    IronLsp_SymbolId triple = ilsp_symbol_id_derive(
-        sym, decl_path, program, &walk_arena);
-    if (triple.hash == 0) goto done;
+    const char *doc_uri = doc->uri
+        ? iron_arena_strdup(arena, doc->uri, strlen(doc->uri)) : "";
+    IronLsp_RefSite *final = NULL;
+    size_t fn = 0, fcap = 0;
 
-    /* Step 4: on first references request, bulk-analyze every
-     * workspace entry so the reverse-ref index is populated across
-     * all user files. The helper polls cancel between files and
-     * only flips bulk_analyze_done on full completion. */
-    IronLsp_WorkspaceIndex *wi = server->workspace_index;
-    if (wi && !wi->bulk_analyze_done) {
-        ilsp_workspace_index_bulk_analyze_for_refs(wi, cancel);
-        if (cancel && atomic_load(cancel)) goto done;
-    }
-
-    /* Also make sure THIS doc's contributions are recorded. The open-
-     * document analyze we just ran doesn't go through workspace_index
-     * (the document is the source of truth for its path). If the
-     * document's canonical_path corresponds to a workspace entry,
-     * invoke analyze_lazy on it so its spans show up in the reverse
-     * index. */
-    if (wi && doc->uri) {
-        IronLsp_IndexEntry *self_entry = ilsp_workspace_index_lookup(wi, doc->uri);
-        if (self_entry) {
-            /* Force a fresh populate from the analyzed entry. */
-            (void)ilsp_workspace_index_analyze_lazy(wi, self_entry, cancel);
-        }
-    }
-
-    /* Step 5: query the reverse-ref index. UNCONDITIONAL stdlib/dep
-     * filter happens inside the query helper (D-09 LOCKED). */
-    IronLsp_RefSite *raw_sites = NULL;
-    size_t raw_n = 0;
-    if (wi) {
-        ilsp_refs_query(wi, triple, arena, enc, &raw_sites, &raw_n);
-    }
-
-    /* Step 5.5 (NEW Phase 10 VIS-01): post-filter cross-file results
-     * by visibility. doc->uri is the requester; sym->decl_node carries
-     * the visibility bits via ilsp_vis_is_public. Same-module sites
-     * short-circuit to true; stdlib sites pass via D-08 carve-out.
-     *
-     * In-place compaction preserves the order of remaining results.
-     * Each raw_sites[i].uri is treated as the per-site decl-path
-     * proxy (the predicate's same-module shortcut handles the case
-     * where the site IS the decl's home file). Cross-file private
-     * sites get filtered.
-     *
-     * PATCH-05 (Plan 11-03): when the cursor is on a patch method, the
-     * visibility gate uses the enclosing patch ObjectDecl as decl_node
-     * (CONTEXT D-14). Per RESEARCH Conflict 3, this is forward-compat
-     * shape: today the predicate defaults-true for ObjectDecl (no
-     * is_private/is_pub axis on Iron_ObjectDecl in v3 grammar). The
-     * call shape activates the moment a future grammar phase adds
-     * patch-level visibility. For native methods, sym->decl_node
-     * remains the right argument and the existing filter applies.
-     *
-     * Derivation is done ONCE per request (before the filter loop) and
-     * cached in a local vis_decl_node used inside the loop. */
-    const Iron_Node *vis_decl_node = sym ? sym->decl_node : NULL;
-    if (sym && sym->decl_node &&
-        sym->decl_node->kind == IRON_NODE_METHOD_DECL) {
-        Iron_ObjectDecl *patch_od = ilsp_patch_enclosing_for_method(
-            program, (Iron_MethodDecl *)sym->decl_node, wi);
-        if (patch_od) vis_decl_node = (const Iron_Node *)patch_od;
-    }
-    if (raw_sites && raw_n > 0) {
-        const char *requester = (doc && doc->uri) ? doc->uri : "";
-        size_t kept = 0;
-        for (size_t i = 0; i < raw_n; i++) {
-            if (ilsp_vis_can_see(raw_sites[i].uri, requester,
-                                  vis_decl_node)) {
-                if (kept != i) raw_sites[kept] = raw_sites[i];
-                kept++;
+    /* Step 3: the declaration first, when asked for. */
+    bool decl_in_doc = false;
+    for (size_t i = 0; i < occ_n; i++) {
+        if (occs[i].is_decl && ilsp_nav_occ_same(&occs[i], key_decl, key_name)) {
+            decl_in_doc = true;
+            if (include_declaration) {
+                push_site(&final, &fn, &fcap, arena, doc_uri,
+                          ilsp_span_to_lsp_range(occs[i].span, doc, enc));
             }
         }
-        raw_n = kept;
+    }
+    IronLsp_WorkspaceIndex *wi = server->workspace_index;
+    if (include_declaration && !decl_in_doc && sym) {
+        IronLsp_RefSite ds;
+        build_decl_site(sym, doc, enc, arena, wi, &ds);
+        if (ds.uri && *ds.uri) push_site(&final, &fn, &fcap, arena, ds.uri, ds.range);
     }
 
-    /* Step 6: if raw_n is 0 and we still want to surface same-file
-     * references, fall back to walking the open document's program
-     * directly. This is essential because the open doc is not
-     * (re-)populated into the workspace index in single-file
-     * scenarios (no workspace_index entry). */
-    IronLsp_RefSite *fallback = NULL;
-    size_t fallback_n = 0;
-    if (raw_n == 0 && program) {
-        /* Gather every Iron_Ident use-site in THIS doc whose
-         * resolved_sym maps to the same decl_node. We use decl_node
-         * pointer equality (safe within a single analyze). */
-        size_t cap = 16;
-        fallback = (IronLsp_RefSite *)iron_arena_alloc(
-            arena, cap * sizeof(*fallback), _Alignof(IronLsp_RefSite));
-        if (!fallback) goto assemble;
-        RefCollect rc = { sym->decl_node, doc, enc, arena, fallback, cap, 0 };
-        Iron_Visitor v = { .ctx = &rc, .visit_node = ref_collect_visit, .post_visit = NULL };
-        for (int i = 0; i < program->decl_count; i++) {
-            if (program->decls[i]) iron_ast_walk(program->decls[i], &v);
+    /* Step 4: the uses in this document. */
+    for (size_t i = 0; i < occ_n; i++) {
+        if (!occs[i].is_decl && ilsp_nav_occ_same(&occs[i], key_decl, key_name)) {
+            push_site(&final, &fn, &fcap, arena, doc_uri,
+                      ilsp_span_to_lsp_range(occs[i].span, doc, enc));
         }
-        fallback = rc.sites;
-        fallback_n = rc.n;
     }
 
-assemble:
-    /* Step 7: assemble final array: optional decl + raw_sites or
-     * fallback sites. */
-    {
-        IronLsp_RefSite *src = (raw_n > 0) ? raw_sites : fallback;
-        size_t src_n = (raw_n > 0) ? raw_n : fallback_n;
-        size_t extra = include_declaration ? 1 : 0;
-        size_t total = src_n + extra;
-        if (total == 0) goto done;
-
-        IronLsp_RefSite *final = (IronLsp_RefSite *)iron_arena_alloc(
-            arena, total * sizeof(*final), _Alignof(IronLsp_RefSite));
-        if (!final) goto done;
-
-        size_t w = 0;
-        if (include_declaration) {
-            build_decl_site(sym, doc, enc, arena, wi, &final[w]);
-            w++;
+    /* Step 5: the uses in the other workspace files, for a symbol other
+     * files can name. The open document's own sites come from step 4
+     * (its buffer, not the file on disk). */
+    if (sym && wi) {
+        const char *decl_path = (sym->decl_node && sym->decl_node->span.filename)
+            ? sym->decl_node->span.filename : doc->uri;
+        IronLsp_SymbolId triple = ilsp_symbol_id_derive(sym, decl_path, program, &walk_arena);
+        if (triple.hash != 0) {
+            /* On the first references request, bulk-analyze every
+             * workspace entry so the reverse-ref index covers all user
+             * files. The helper polls cancel between files. */
+            if (!wi->bulk_analyze_done) {
+                ilsp_workspace_index_bulk_analyze_for_refs(wi, cancel);
+                if (cancel && atomic_load(cancel)) goto done;
+            }
+            IronLsp_RefSite *raw = NULL;
+            size_t raw_n = 0;
+            /* stdlib / dep use-sites are dropped by the query (D-09). */
+            ilsp_refs_query(wi, triple, arena, enc, &raw, &raw_n);
+            /* Visibility (VIS-01): a cross-file site of a private symbol
+             * is hidden. For a patch method the gate is the enclosing
+             * patch object (PATCH-05). */
+            const Iron_Node *vis_decl_node = sym->decl_node;
+            if (sym->decl_node && sym->decl_node->kind == IRON_NODE_METHOD_DECL) {
+                Iron_ObjectDecl *patch_od = ilsp_patch_enclosing_for_method(
+                    program, (Iron_MethodDecl *)sym->decl_node, wi);
+                if (patch_od) vis_decl_node = (const Iron_Node *)patch_od;
+            }
+            for (size_t i = 0; i < raw_n; i++) {
+                if (!raw[i].uri || span_file_is_doc(raw[i].uri, doc) ||
+                    (doc->uri && strcmp(raw[i].uri, doc->uri) == 0)) continue;
+                if (!ilsp_vis_can_see(raw[i].uri, doc->uri ? doc->uri : "", vis_decl_node))
+                    continue;
+                push_site(&final, &fn, &fcap, arena, raw[i].uri, raw[i].range);
+            }
         }
-        if (src && src_n > 0) {
-            memcpy(&final[w], src, src_n * sizeof(*final));
-            w += src_n;
-        }
-        *out_sites = final;
-        *out_n = w;
     }
+
+    *out_sites = final;
+    *out_n = fn;
 
 done:
     iron_diaglist_free(&walk_diags);

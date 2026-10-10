@@ -68,6 +68,16 @@
           "enum": ["error", "warn", "info", "debug"],
           "default": "info",
           "description": "Minimum severity for Iron LSP editor-side log events (ext.activate, ironls.discovered, lsp.initialize.*)."
+        },
+        "iron.inlayHints.parameterNames": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show parameter names before the arguments of a call, as in area(w: 2, h: 3)."
+        },
+        "iron.inlayHints.bindingTypes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the inferred type after a val or var written without one, as in val n: Int = 3."
         }
       }
     },

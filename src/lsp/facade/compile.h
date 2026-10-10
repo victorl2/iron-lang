@@ -80,6 +80,11 @@ Iron_Program *ilsp_facade_compile_for_nav(
     Iron_Arena                   *arena,
     Iron_DiagList                *diags);
 
+/* True when `uri_or_path` (a file:// URI or a path) names a file of the
+ * stdlib the buffers are analyzed with: a declaration there is not the
+ * user's to rename. */
+bool ilsp_facade_is_stdlib_path(const char *uri_or_path);
+
 #ifdef __cplusplus
 }
 #endif

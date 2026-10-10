@@ -9,6 +9,9 @@
 #   3. With gdb installed: a breakpoint on stepping.iron:3 stops in
 #      area(w, h), called from main at stepping.iron:9, and the locals
 #      show under their Iron names (product, total, i, names).
+#   4. With gdb, and with lldb: the `locals` command of lib/debug lists
+#      names.iron's bindings without the compiler's temporaries, a var a
+#      closure captures included, inside the closure and outside it.
 set -euo pipefail
 # Checks read gdb's output from a here-string: `echo "$out" | grep -q` let
 # grep exit at the first match while echo was still writing a long output
@@ -17,6 +20,20 @@ set -euo pipefail
 IRONC="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 SRC_ROOT="$(cd "$2" && pwd)"
 SRC="$SRC_ROOT/tests/integration/debug/stepping.iron"
+NAMES="$SRC_ROOT/tests/integration/debug/names.iron"
+
+# check_locals <debugger> <output of `locals` at names.iron:12, then :15>
+check_locals() {
+    for want in "x = 3" "doubled = 6" "count = 42" "step = 2" 'greeting = "hi"' "r = 48"; do
+        grep -q "^$want\$" <<< "$2" ||
+            { echo "FAIL: $1 locals: no '$want'"; echo "$2"; exit 1; }
+    done
+    if grep -qE '^(_v[0-9]|_ref_|_e |_env)' <<< "$2"; then
+        echo "FAIL: $1 locals shows compiler temporaries"; echo "$2"; exit 1
+    fi
+    echo "$1: locals under Iron names, temporaries hidden"
+}
+
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 cd "$work"
@@ -64,7 +81,32 @@ if command -v gdb >/dev/null 2>&1; then
             { echo "FAIL: iron debug did not load the printers"; echo "$out"; exit 1; }
         echo "iron debug: gdb with the printers"
     fi
+
+    # `locals` (iron_gdb.py) lists the Iron bindings only: no compiler
+    # temporaries, and a var a closure captures under its own name, inside
+    # the closure and in the function that declares it.
+    "$IRONC" build "$NAMES" --debug -o names >/dev/null 2>&1
+    out="$(gdb -q -batch -ex "source $SRC_ROOT/src/debug/iron_gdb.py" \
+              -ex "break names.iron:12" -ex "break names.iron:15" -ex run -ex locals \
+              -ex continue -ex locals ./names 2>&1 || true)"
+    check_locals gdb "$out"
 else
-    echo "gdb not installed: skipped the debugger check"
+    echo "gdb not installed: skipped the gdb check"
+fi
+
+if command -v lldb >/dev/null 2>&1 && lldb --version >/dev/null 2>&1; then
+    "$IRONC" build "$NAMES" --debug -o names >/dev/null 2>&1
+    out="$(lldb -b -o "command script import $SRC_ROOT/src/debug/iron_lldb.py" \
+                -o "b names.iron:12" -o "b names.iron:15" -o run -o locals \
+                -o continue -o locals ./names 2>&1 || true)"
+    if ! grep -q "stop reason = breakpoint" <<< "$out"; then
+        # No debugserver or no permission to debug (a locked-down CI host).
+        echo "lldb cannot run the program here: skipped the lldb check"; echo "$out" | tail -5
+    else
+        # lldb prints "(type) name = value"; keep "name = value".
+        check_locals lldb "$(sed -E 's/^\([^)]*\) //' <<< "$out")"
+    fi
+else
+    echo "lldb not installed: skipped the lldb check"
 fi
 echo "PASS"
