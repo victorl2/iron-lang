@@ -180,7 +180,12 @@ carries a suffix (`total_14`). The compiler's own temporaries appear as
 
 `lib/debug/` in the Iron installation holds formatters that show values
 as Iron values: a `String` as its text, a list or set as its elements,
-a map as its entries and a `T?` as its value or `null`. Load
+a map as its entries, a `T?` as its value or `null`, an enum value as
+its variant and payload (`Ok(5)`, `Rect(2, 3)`), an interface value as
+the implementing type and its value, an `rc` or `weak rc` value as the
+object with its counts (`rc Point {x = 3, y = 4} (strong=2, weak=0)`)
+and a closure as its function and source line, with the bindings it
+captured as children. Load
 `iron_gdb.py` in gdb and `iron_lldb.py` in LLDB:
 
 ```sh
