@@ -9019,6 +9019,10 @@ void iron_lir_emit_set_line_directives(bool on) {
     g_emit_line_directives = on;
 }
 
+bool iron_lir_emit_debug_build(void) {
+    return g_emit_line_directives;
+}
+
 /* After a function body: code that follows (helpers, the next declarations)
  * is generated, not Iron source; a debugger steps over it. */
 static void emit_line_reset(Iron_StrBuf *sb) {
@@ -11021,6 +11025,10 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
     ctx.indent            = 0;
 
     /* ── Phase 1: Includes ───────────────────────────────────────────────── */
+    /* --debug: a panic raised by a check stops an attached debugger on the
+     * Iron line (#388; IRON_DEBUG_TRAPS in iron_runtime.h). */
+    if (g_emit_line_directives)
+        iron_strbuf_appendf(&ctx.includes, "#define IRON_DEBUG_TRAPS 1\n");
     iron_strbuf_appendf(&ctx.includes,
                          "#include \"runtime/iron_runtime.h\"\n");
 

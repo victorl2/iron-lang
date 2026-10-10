@@ -8,13 +8,16 @@
 //
 // On Windows there is no lldb-dap in the toolchain; the configuration is
 // handed to the C/C++ extension's Visual Studio debugger (cppvsdbg),
-// which reads the PDB and the natvis that --debug links into it.
+// which reads the PDB and the natvis that --debug links into it. A panic
+// there stops on the Iron line: through the debug trap of a --debug build's
+// checks, and through panicFocus.ts for the rest.
 
 import * as vscode from 'vscode';
 import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { IRON_SESSION, registerPanicFocus } from './panicFocus';
 
 const TYPE = 'iron';
 
@@ -46,6 +49,7 @@ export function registerDebugger(context: vscode.ExtensionContext, output: vscod
     }),
     vscode.languages.registerCodeLensProvider({ language: 'iron' }, new TestLensProvider()),
   );
+  registerPanicFocus(context);
 }
 
 /** The .iron file a command acts on: the one clicked, else the active editor's. */
@@ -158,6 +162,7 @@ class IronConfigurationProvider implements vscode.DebugConfigurationProvider {
       cwd: config.cwd ?? (program.endsWith('.iron') ? path.dirname(program) : program),
       environment: Object.entries(config.env ?? {}).map(([name, value]) => ({ name, value })),
       console: 'integratedTerminal',
+      [IRON_SESSION]: true,  // a panic focuses the Iron frame (panicFocus.ts)
     });
     return undefined;  // the cppvsdbg session replaces this one
   }

@@ -9,6 +9,8 @@ line 3 inside area(w, h), and checks:
   - the Locals scope: w = 0, h = 2, product = 0, and no compiler
     temporary (a name starting with `_`);
   - a value formatter is loaded: `names` in main reads as its elements.
+With --panic [--expect=func:line:text[:trap]] it checks the stop on a
+panic instead (see check_panic).
 Exit 0 on success, 1 on a failed check, 77 when no DAP debugger is found.
 """
 import json
@@ -91,18 +93,30 @@ def fail(msg):
     sys.exit(1)
 
 
-def check_panic(c, stop, tid):
+def check_panic(c, stop, tid, expect):
     """--panic (panic.iron): the failed assert in check() stops the
-    program as an exception, and the stack starts at the Iron line."""
+    program as an exception, and the stack starts at the Iron line.
+    --expect=func:line:text[:trap] checks another panic; with `trap` (a
+    check's debug trap, #388) continuing ends the program without a
+    second stop (the abort after the trap is not shown again)."""
+    func, line, text, mode = (expect.split(":", 3) + [""])[:4] if expect else \
+        ("check", "6", "total too large", "")
     body = stop["body"]
-    if body.get("reason") != "exception" or "total too large" not in body.get("text", ""):
-        fail("the panic stopped as %s, want an exception with the assert's message" % body)
+    if body.get("reason") != "exception" or text not in body.get("text", ""):
+        fail("the panic stopped as %s, want an exception with '%s'" % (body, text))
     frames = c.call("stackTrace", {"threadId": tid})["stackFrames"]
     top = frames[0] if frames else {}
-    if not str(top.get("name", "")).startswith("check") or top.get("line") != 6:
-        fail("the panic's stack starts at %s, want check at panic.iron:6" %
-             [(f.get("name"), f.get("line")) for f in frames[:4]])
-    print("dap: the failed assert stops at panic.iron:6 in check (%s)" % body.get("text"))
+    if not str(top.get("name", "")).startswith(func) or top.get("line") != int(line):
+        fail("the panic's stack starts at %s, want %s at line %s" %
+             ([(f.get("name"), f.get("line")) for f in frames[:4]], func, line))
+    print("dap: the panic stops at line %s in %s (%s)" % (line, func, body.get("text")))
+    if mode == "trap":
+        c.call("continue", {"threadId": tid})
+        end = c.wait(lambda m: m.get("type") == "event" and
+                     m.get("event") in ("stopped", "exited", "terminated"), 60)
+        if end.get("event") == "stopped":
+            fail("continuing from the panic stopped again: %s" % end.get("body"))
+        print("dap: continuing from the panic ends the program (%s)" % end.get("event"))
     try:
         c.call("disconnect", {"terminateDebuggee": True}, timeout=20)
     except Exception:
@@ -114,8 +128,12 @@ def check_panic(c, stop, tid):
 def main():
     args = sys.argv[1:]
     panic = args[:1] == ["--panic"]
+    expect = None
     if panic:
         args = args[1:]
+        if args and args[0].startswith("--expect="):
+            expect = args[0][len("--expect="):]
+            args = args[1:]
     src = os.path.abspath(args[0])
     c = Client(args[1:])
     seq = c.send("initialize", {"clientID": "iron-test", "adapterID": "iron",
@@ -146,7 +164,7 @@ def main():
              ("on the panic" if panic else "on the breakpoint at line 3"))
     tid = stop["body"].get("threadId")
     if panic:
-        check_panic(c, stop, tid)
+        check_panic(c, stop, tid, expect)
         return
 
     frames = c.call("stackTrace", {"threadId": tid})["stackFrames"]
