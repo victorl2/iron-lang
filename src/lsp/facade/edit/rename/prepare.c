@@ -159,6 +159,46 @@ void ilsp_facade_prepare_rename(IronLsp_Server              *server,
     Iron_Node *ident = NULL;
     const Iron_Symbol *sym = ident_at_cursor(doc, program, pos, enc, &ident);
 
+    /* A written name of the document (nav_common.h): a use, a member
+     * name (`p.x`, `p.get()`), an enum variant, a type name, or a
+     * declaration's own name, `for` variables and match bindings
+     * included. Renamed as rename/apply.c does: refused for the stdlib,
+     * an extern function, and a member declared in another file. */
+    {
+        size_t occ_n = 0;
+        IronLsp_NameOcc *occs = ilsp_nav_name_occurrences(doc, program, &walk_arena, &occ_n);
+        const IronLsp_NameOcc *at = ilsp_nav_occurrence_at(occs, occ_n, doc, pos, enc);
+        if (at) {
+            const char *path = at->decl->span.filename;
+            if (path && ilsp_facade_is_stdlib_path(path)) {
+                out->kind = ILSP_PREPARE_RENAME_REJECT_STDLIB;
+                out->show_message = arena_fmt_msg(
+                    arena, "Cannot rename: %s is defined in the standard library.", at->name);
+                goto done;
+            }
+            if (at->decl->kind == IRON_NODE_FUNC_DECL &&
+                ((const Iron_FuncDecl *)at->decl)->is_extern) {
+                out->kind = ILSP_PREPARE_RENAME_REJECT_EXTERN;
+                out->show_message = arena_fmt_msg(
+                    arena, "Cannot rename: %s is an extern (C interop) symbol.", at->name);
+                goto done;
+            }
+            bool decl_in_doc = false;
+            for (size_t i = 0; i < occ_n && !decl_in_doc; i++) {
+                decl_in_doc = occs[i].is_decl && ilsp_nav_occ_same(&occs[i], at->decl, at->name);
+            }
+            if (!decl_in_doc && !(sym && sym->decl_node == at->decl)) {
+                out->kind = ILSP_PREPARE_RENAME_REJECT_SILENT;
+                goto done;
+            }
+            out->kind = ILSP_PREPARE_RENAME_ACCEPT;
+            out->range = ilsp_span_to_lsp_range(at->span, doc, enc);
+            out->placeholder = iron_arena_strdup(arena, at->name, strlen(at->name));
+            if (!out->placeholder) out->placeholder = "";
+            goto done;
+        }
+    }
+
     /* Category 1: not an ident node (keyword / literal / whitespace /
      * comment / operator).  ident_at_cursor returns NULL for sym AND
      * ident is either NULL or a non-IDENT kind -- both funnel here. */

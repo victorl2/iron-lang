@@ -101,9 +101,46 @@ code --install-extension iron-lsp-*.vsix
 | `iron.languageServer.path` | `""` | Absolute path to `ironls`. Empty → search `$PATH` via `which`/`where`. |
 | `iron.languageServer.trace.server` | `"off"` | LSP trace output level (`off` \| `messages` \| `verbose`). |
 | `iron.languageServer.logLevel` | `"info"` | Editor-side log severity (`error` \| `warn` \| `info` \| `debug`). |
+| `iron.inlayHints.parameterNames` | `true` | Parameter names before call arguments: `area(w: 2, h: 3)`. |
+| `iron.inlayHints.bindingTypes` | `true` | Inferred types after `val` / `var` written without one: `val n: Int = 3`. |
+| `iron.debug.ironPath` | `""` | Path to the `iron` CLI used by the `iron` debug type. Empty: search `$PATH`. |
+
+The `iron.inlayHints.*` settings apply without a restart. VS Code's own
+`editor.inlayHints.enabled` turns every inlay hint on or off. Other
+editors pass the same settings to `ironls` as
+`initializationOptions.inlayHints` (`{"parameterNames": false}`) or
+through `workspace/didChangeConfiguration` under `iron.inlayHints`.
 
 Changes to `iron.languageServer.*` restart the server after a 500 ms
 debounce — no manual reload required.
+
+## Debugging
+
+Press F5 in a `.iron` file to build it with `iron build --debug` and
+debug it: breakpoints in `.iron` files, stepping on Iron lines, the call
+stack of Iron functions, locals under their Iron names (the compiler's
+temporaries hidden), values shown as Iron values (strings, lists, maps,
+optionals, enums, `rc`, closures), and a stop on the failing Iron line
+when the program panics.
+
+A `launch.json` configuration of type `iron`:
+
+```jsonc
+{
+  "type": "iron",
+  "request": "launch",
+  "name": "Iron: debug the package",
+  "program": "${workspaceFolder}",   // or a .iron file, or a built binary
+  "args": [],
+  "stopOnPanic": true
+}
+```
+
+On Linux and macOS the extension runs `iron dap`, the Iron debug adapter,
+which needs Python 3 and either `lldb-dap` (LLVM, or Xcode on macOS) or
+gdb 14 or later. On Windows it builds the program and hands it to the
+Visual Studio debugger of the C/C++ extension (`ms-vscode.cpptools`),
+which reads the PDB and the natvis that `--debug` writes.
 
 ## Troubleshooting
 

@@ -33,6 +33,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+
+/* --debug (#312): the current function's boxed `var` slots (a var a closure
+ * captures) -> the Iron name their `_ref_<name>` alias carries. */
+static EmitValueName *g_debug_ref_names;
+static bool debug_c_ident(const char *n);
 #include <assert.h>
 #include <math.h>
 
@@ -2568,6 +2573,8 @@ static bool emit_call_is_checked_list_method(IronLIR_Func *fn, EmitCtx *ctx,
 static bool g_emit_line_directives;
 static const IronLIR_Func *g_line_fn;   /* function the next two describe */
 static unsigned g_line_fn_first;        /* its first line (entry block) */
+static unsigned g_line_fn_last;         /* the line of its last statement so far */
+static void emit_line_directive(Iron_StrBuf *sb, unsigned line, const char *file);
 static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx);
 
@@ -2579,6 +2586,25 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ctx->indent);
         iron_strbuf_appendf(sb, "iron_list_call_line = 0;\n");
     }
+    /* --debug: a local declared up front takes the function's first line
+     * (below). What follows it outside any instruction, such as the phi
+     * copies that end the entry block, belongs to the statement before
+     * it: without this they would take the first line too, and stepping
+     * would go back to it (7, 8, 7, 8 into a loop). */
+    if (g_emit_line_directives && instr->kind == IRON_LIR_ALLOCA && g_line_fn == fn &&
+        g_line_fn_last > 0 && instr->span.filename && instr->span.line > 0 &&
+        sb->len > 0 && iron_strbuf_get(sb)[sb->len - 1] == '\n') {
+        emit_line_directive(sb, g_line_fn_last, instr->span.filename);
+    }
+}
+
+static void emit_line_directive(Iron_StrBuf *sb, unsigned line, const char *file) {
+    iron_strbuf_appendf(sb, "#line %u \"", line);
+    for (const char *c = file; *c; c++) {
+        if (*c == '\\' || *c == '"') iron_strbuf_appendf(sb, "\\%c", *c);
+        else iron_strbuf_appendf(sb, "%c", *c);
+    }
+    iron_strbuf_appendf(sb, "\"\n");
 }
 
 static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
@@ -2629,6 +2655,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (g_line_fn != fn) {
             g_line_fn = fn;
             g_line_fn_first = line;
+            g_line_fn_last = 0;
             IronLIR_Block *entry = fn->block_count > 0 ? fn->blocks[0] : NULL;
             for (int i = 0; entry && i < entry->instr_count; i++) {
                 unsigned l = (unsigned)entry->instrs[i]->span.line;
@@ -2636,12 +2663,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
         if (instr->kind == IRON_LIR_ALLOCA) line = g_line_fn_first;
-        iron_strbuf_appendf(sb, "#line %u \"", line);
-        for (const char *c = instr->span.filename; *c; c++) {
-            if (*c == '\\' || *c == '"') iron_strbuf_appendf(sb, "\\%c", *c);
-            else iron_strbuf_appendf(sb, "%c", *c);
-        }
-        iron_strbuf_appendf(sb, "\"\n");
+        else g_line_fn_last = line;
+        emit_line_directive(sb, line, instr->span.filename);
     }
     if (emit_call_is_checked_list_method(fn, ctx, instr)) {
         emit_indent(sb, ctx->indent);
@@ -3275,6 +3298,15 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             iron_strbuf_appendf(sb, "%s *%s_box = (%s *)iron_cell_alloc(sizeof(%s), %s);\n",
                                 c_type, emit_vname(instr->id), c_type, c_type, dropfn);
             iron_strbuf_appendf(sb, "#define %s (*%s_box)\n", emit_vname(instr->id), emit_vname(instr->id));
+            /* --debug: the slot is reached through the macro, so the
+             * debugger sees only the cell pointer; `_ref_<name>` names
+             * it after the Iron binding (lib/debug shows it as `<name>`). */
+            ptrdiff_t ri = g_debug_ref_names ? hmgeti(g_debug_ref_names, instr->id) : -1;
+            if (ri >= 0) {
+                emit_indent(sb, ind);
+                iron_strbuf_appendf(sb, "%s *_ref_%s = %s_box;\n", c_type,
+                                    g_debug_ref_names[ri].value, emit_vname(instr->id));
+            }
             arrput(ctx->boxed_vids, instr->id);
         } else {
             /* Declare a C variable of the alloc_type */
@@ -8983,8 +9015,6 @@ static void emit_func_body_named(EmitCtx *ctx, IronLIR_Func *fn);
 /* --debug (#312): `#line` directives map each instruction to its Iron
  * source line, so the C compiler's debug info (-g) puts breakpoints and
  * stepping on .iron lines. */
-static bool g_emit_line_directives = false;
-
 void iron_lir_emit_set_line_directives(bool on) {
     g_emit_line_directives = on;
 }
@@ -9028,6 +9058,16 @@ static void emit_restate_lines(Iron_StrBuf *out, const char *body, size_t len) {
         prev_continues = ll > 0 && ln[ll - 1] == '\\';
         i = e + 1;
     }
+}
+
+/* --debug: `n` is a plain C identifier (letters, digits, `_`). */
+static bool debug_c_ident(const char *n) {
+    if (!n || !*n || (n[0] >= '0' && n[0] <= '9')) return false;
+    for (const char *c = n; *c; c++) {
+        if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') ||
+              (*c >= '0' && *c <= '9') || *c == '_')) return false;
+    }
+    return strlen(n) < 100;
 }
 
 /* --debug: C names that cannot be an Iron binding's name as is. */
@@ -9085,23 +9125,33 @@ static void debug_name_value(EmitValueName **map, DebugTakenName **taken,
 
 /* --debug: the Iron names of a function's parameters, `var` slots and
  * `val` values, for emit_vname. */
-static EmitValueName *debug_value_names(IronLIR_Func *fn, Iron_Arena *arena) {
+static EmitValueName *debug_value_names(IronLIR_Func *fn, Iron_Arena *arena,
+                                        EmitValueName **ref_names) {
     EmitValueName *map = NULL;
     DebugTakenName *taken = NULL;
     for (int i = 0; i < fn->param_count; i++) {
-        debug_name_value(&map, &taken, (IronLIR_ValueId)(i + 1), fn->params[i].name, arena);
+        /* `_env` and the other synthetic parameters keep `_vN`: a C name
+         * starting with `_` is never an Iron binding (lib/debug hides it). */
+        const char *pn = fn->params[i].name;
+        if (pn && pn[0] == '_') continue;
+        debug_name_value(&map, &taken, (IronLIR_ValueId)(i + 1), pn, arena);
     }
     for (int bi = 0; bi < fn->block_count; bi++) {
         IronLIR_Block *b = fn->blocks[bi];
         for (int ii = 0; ii < b->instr_count; ii++) {
             IronLIR_Instr *in = b->instrs[ii];
-            /* A boxed slot (a var a closure captures) is reached through a
-             * `#define <name> (*<name>_box)` macro, which would also
-             * rewrite struct fields of the same name: it keeps `_vN`. */
-            if (in->kind != IRON_LIR_ALLOCA || in->alloca.global_name ||
-                in->alloca.is_boxed) continue;
+            if (in->kind != IRON_LIR_ALLOCA || in->alloca.global_name) continue;
             const char *h = in->alloca.name_hint;
             if (!h || h[0] == '_' || strcmp(h, "for_idx") == 0) continue;
+            /* A boxed slot (a var a closure captures) is reached through a
+             * `#define _vN (*_vN_box)` macro: a macro named after the
+             * binding would also rewrite struct fields of that name. It
+             * keeps `_vN`, and a `_ref_<name>` pointer to the cell names it
+             * for the debugger. */
+            if (in->alloca.is_boxed) {
+                debug_name_value(ref_names, &taken, in->id, h, arena);
+                continue;
+            }
             debug_name_value(&map, &taken, in->id, h, arena);
         }
     }
@@ -9113,14 +9163,17 @@ static EmitValueName *debug_value_names(IronLIR_Func *fn, Iron_Arena *arena) {
 }
 
 void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
-    EmitValueName *names = NULL;
+    EmitValueName *names = NULL, *refs = NULL;
     if (g_emit_line_directives) {
-        names = debug_value_names(fn, ctx->arena);
+        names = debug_value_names(fn, ctx->arena, &refs);
         emit_set_value_names(names);
+        g_debug_ref_names = refs;
     }
     emit_func_body_named(ctx, fn);
     emit_set_value_names(NULL);
+    g_debug_ref_names = NULL;
     hmfree(names);
+    hmfree(refs);
 }
 
 static void emit_func_body_named(EmitCtx *ctx, IronLIR_Func *fn) {
@@ -10125,6 +10178,27 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
         emit_indent(sb, 1);
         iron_strbuf_appendf(sb, "%s_env_t *_e = (%s_env_t *)%s;\n",
                             fn->name, fn->name, emit_vname(1));
+        /* --debug: the captured bindings live in the env; a `_ref_<name>`
+         * pointer to each lets the debugger show them under their Iron
+         * names (lib/debug). */
+        for (int ci = 0; g_emit_line_directives && ci < fn->capture_count; ci++) {
+            Iron_CaptureEntry *cap = &fn->capture_metadata[ci];
+            if (!debug_c_ident(cap->name)) continue;
+            const char *f = cap_c_name(cap->name);
+            if (cap->is_heap_handle) {
+                if (!cap->type) continue;
+                const char *t = emit_type_to_c(cap->type, ctx);
+                emit_indent(sb, 1);
+                iron_strbuf_appendf(sb, "%s *_ref_%s = ((%s *)(%s_e->%s).addr);\n", t,
+                                    cap->name, t, cap->is_mutable ? "*" : "", f);
+            } else if (cap->is_mutable) {
+                emit_indent(sb, 1);
+                iron_strbuf_appendf(sb, "__typeof__(*_e->%s) *_ref_%s = _e->%s;\n", f, cap->name, f);
+            } else {
+                emit_indent(sb, 1);
+                iron_strbuf_appendf(sb, "__typeof__(_e->%s) *_ref_%s = &_e->%s;\n", f, cap->name, f);
+            }
+        }
     }
 
     /* Compute reachable blocks via BFS from entry to avoid emitting dead code

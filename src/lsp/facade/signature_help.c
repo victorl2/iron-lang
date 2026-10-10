@@ -1,13 +1,20 @@
-/* Phase 3 Plan 04 Task 03 (NAV-10, D-13) -- textDocument/signatureHelp
- * facade.
+/* textDocument/signatureHelp.
  *
- * Triggers on `(` and `,`. active-parameter computed via a byte-walk
- * from the enclosing call's `(` to the cursor, counting top-level
- * commas (depth-tracking `()` `[]` `{}`). Methods render the self
- * parameter first as `self: Container`. Returns empty signatures on
- * Iron_ErrorNode or missing resolved_sym.
+ * The call whose argument list holds the cursor is the one with the
+ * latest `(` before it whose `)` comes after it or is not typed yet, so
+ * `area(1, |` gets help while the line is still being written, and
+ * calls inside lambdas, interpolations and list literals are found like
+ * any other. The active parameter counts the top-level commas between
+ * the `(` and the cursor, outside brackets and strings.
+ *
+ * Signatures come from the declaration the call resolves to (a function,
+ * a method in the file or the stdlib, an interface signature), from an
+ * object's `init`s or fields for a construction, from builtin_members.h
+ * for `println`, `xs.push`, `m.put`..., or from the type of a binding
+ * holding a function. A method's implicit `self` is not shown.
  */
 
+#include "lsp/facade/builtin_members.h"
 #include "lsp/facade/nav/nav_core.h"
 #include "lsp/facade/nav/node_at.h"
 #include "lsp/facade/compile.h"
@@ -82,6 +89,16 @@ static const char *render_type_ann(Iron_Node *n, Iron_Arena *arena) {
     return "Unknown";
 }
 
+/* A parameter's type: the checker's, when it ran (`func(Int) -> Int`
+ * for a lambda parameter), else as written. */
+static const char *param_type_str(Iron_Param *pm, Iron_Arena *arena) {
+    if (pm->resolved_type && pm->resolved_type->kind != IRON_TYPE_ERROR) {
+        const char *s = iron_type_to_string(pm->resolved_type, arena);
+        if (s) return s;
+    }
+    return render_type_ann(pm->type_ann, arena);
+}
+
 /* Build a SignatureInfo for a function/method decl. Returns the info
  * with parameter_offsets populated. `self_type` is NULL for free
  * funcs; non-NULL prepends `self: <type>` as the first parameter. */
@@ -106,7 +123,13 @@ static void build_sig_info(IronLsp_SignatureInfo *out,
 
     /* Prefix: "func Name(" or "func Container.Name(". */
     sb_append(&label, "func ");
-    if (md) {
+    if (md && md->is_array_extension) {
+        /* `func [T].map(...)`, not the internal `__Array`. */
+        sb_append(&label, "[");
+        sb_append(&label, md->elem_type_name ? md->elem_type_name : "T");
+        sb_append(&label, "].");
+        sb_append(&label, md->method_name ? md->method_name : "_");
+    } else if (md) {
         sb_append(&label, md->type_name ? md->type_name : "_");
         sb_append(&label, ".");
         sb_append(&label, md->method_name ? md->method_name : "_");
@@ -154,7 +177,7 @@ static void build_sig_info(IronLsp_SignatureInfo *out,
             Iron_Param *pp = (Iron_Param *)p;
             sb_append(&label, pp->name ? pp->name : "_");
             sb_append(&label, ": ");
-            sb_append(&label, render_type_ann(pp->type_ann, arena));
+            sb_append(&label, param_type_str(pp, arena));
         } else {
             sb_append(&label, "_");
         }
@@ -201,221 +224,256 @@ static size_t pos_to_byte(const IronLsp_Document *doc,
     return line_start + byte;
 }
 
-/* Convert an Iron_Span's (line, col) start to a byte offset in doc->text.
- * Iron_Span lines/cols are 1-based byte-based. */
-static size_t span_start_to_byte(const IronLsp_Document *doc, Iron_Span s) {
-    if (!doc || !doc->text) return 0;
-    if (s.line == 0) return 0;
-    size_t line_start = ilsp_byte_of_line(&doc->line_idx, s.line - 1);
+/* Byte offset of a 1-based (line, col) position in doc->text. */
+static size_t line_col_to_byte(const IronLsp_Document *doc, uint32_t line, uint32_t col) {
+    if (!doc || !doc->text || line == 0) return 0;
+    size_t line_start = ilsp_byte_of_line(&doc->line_idx, line - 1);
     if (line_start > doc->text_len) return doc->text_len;
-    size_t col_byte = (s.col > 0) ? s.col - 1 : 0;
-    return line_start + col_byte;
+    size_t r = line_start + (col > 0 ? col - 1 : 0);
+    return r > doc->text_len ? doc->text_len : r;
 }
 
-/* Find the opening `(` byte index for a call expression. We search
- * forward from the call's span start for the first unparenthesised
- * `(`. Returns SIZE_MAX on miss. */
-static size_t find_call_paren(const IronLsp_Document *doc,
-                                size_t call_start_byte,
-                                size_t cursor_byte) {
-    if (!doc || !doc->text) return (size_t)-1;
-    size_t limit = cursor_byte < doc->text_len ? cursor_byte : doc->text_len;
-    /* Track depth of enclosing brackets so we ignore `(` inside
-     * nested constructs before the call's own paren. But since
-     * call_start_byte IS the call expression start (typically an
-     * identifier), the first `(` we meet at depth 0 is ours. */
-    for (size_t i = call_start_byte; i < limit; i++) {
-        if (doc->text[i] == '(') return i;
+/* The byte after a string literal starting at `i` (a `"`). */
+static size_t skip_string(const char *t, size_t len, size_t i) {
+    for (i++; i < len; i++) {
+        if (t[i] == '\\') { i++; continue; }
+        if (t[i] == '"') return i + 1;
+        if (t[i] == '\n') return i;
     }
-    return (size_t)-1;
+    return len;
 }
 
-/* Compute the active parameter index by walking from paren+1 up to
- * cursor, counting top-level commas. Nested (/[/{ increment depth. */
+/* The `(` opening a call's arguments: the first one at or after `from`
+ * outside brackets (`Map[String, Int](`) and strings. SIZE_MAX if the
+ * next code is anything but the callee, `.name`, `[...]` and spaces. */
+static size_t open_paren_from(const IronLsp_Document *doc, size_t from) {
+    const char *t = doc->text;
+    size_t len = doc->text_len;
+    int depth = 0;
+    for (size_t i = from; i < len; i++) {
+        char c = t[i];
+        if (c == '[') { depth++; continue; }
+        if (c == ']') { if (depth > 0) depth--; continue; }
+        if (depth > 0) continue;
+        if (c == '(') return i;
+        if (c == '"' || c == ')' || c == '{' || c == '}' || c == ',' || c == '\n' ||
+            c == '=') return SIZE_MAX;
+    }
+    return SIZE_MAX;
+}
+
+/* The `)` matching the `(` at `open`, or SIZE_MAX when it is not
+ * written yet (the call being typed). Strings are skipped. */
+static size_t close_paren(const IronLsp_Document *doc, size_t open) {
+    const char *t = doc->text;
+    size_t len = doc->text_len;
+    int depth = 0;
+    for (size_t i = open + 1; i < len;) {
+        char c = t[i];
+        if (c == '"') { i = skip_string(t, len, i); continue; }
+        if (c == '(' || c == '[' || c == '{') depth++;
+        else if (c == ')' || c == ']' || c == '}') {
+            if (depth == 0) return c == ')' ? i : SIZE_MAX;
+            depth--;
+        }
+        i++;
+    }
+    return SIZE_MAX;
+}
+
+/* The active parameter: the top-level commas between the `(` and the
+ * cursor, outside nested brackets and strings. */
 static int active_param_between(const IronLsp_Document *doc,
                                    size_t paren_byte,
                                    size_t cursor_byte) {
     if (!doc || !doc->text) return 0;
-    if (paren_byte >= doc->text_len) return 0;
+    const char *t = doc->text;
+    size_t limit = cursor_byte < doc->text_len ? cursor_byte : doc->text_len;
     int depth = 0;
     int commas = 0;
-    size_t limit = cursor_byte < doc->text_len ? cursor_byte : doc->text_len;
-    for (size_t i = paren_byte + 1; i < limit; i++) {
-        char c = doc->text[i];
+    for (size_t i = paren_byte + 1; i < limit;) {
+        char c = t[i];
+        if (c == '"') { i = skip_string(t, limit, i); continue; }
         switch (c) {
             case '(': case '[': case '{': depth++; break;
             case ')': case ']': case '}': if (depth > 0) depth--; break;
             case ',': if (depth == 0) commas++; break;
             default: break;
         }
+        i++;
     }
     return commas;
 }
 
-/* Walk program to find the innermost call expression whose byte-range
- * contains the cursor. Returns the call node, or NULL. We scan
- * top-level decls (and their bodies) looking for Iron_CallExpr /
- * Iron_MethodCallExpr nodes whose span brackets the cursor. */
-
+/* The innermost call whose argument list holds the cursor: the one with
+ * the latest `(` before the cursor whose `)` is after it (or not typed
+ * yet). Calls inside lambdas, interpolations, list literals and every
+ * other expression are seen through the generic AST walker. */
 typedef struct {
-    Iron_Node *best;
-    size_t     best_start;
-    size_t     best_end;
+    const IronLsp_Document *doc;
+    size_t                  cursor;
+    Iron_Node              *best;
+    size_t                  best_paren;
 } FindCallCtx;
 
-/* Decode a span's end byte using the document's line index. end_col
- * is 1-based byte-indexed inclusive (Iron_Span contract). */
-static size_t span_end_to_byte(const IronLsp_Document *doc, Iron_Span s) {
-    if (!doc || !doc->text) return 0;
-    if (s.end_line == 0) return span_start_to_byte(doc, s);
-    size_t line_start = ilsp_byte_of_line(&doc->line_idx, s.end_line - 1);
-    if (line_start > doc->text_len) return doc->text_len;
-    size_t col_byte = (s.end_col > 0) ? s.end_col : 0;
-    size_t r = line_start + col_byte;
-    if (r > doc->text_len) r = doc->text_len;
-    return r;
+static bool find_call_visit(Iron_Visitor *v, Iron_Node *n) {
+    FindCallCtx *c = (FindCallCtx *)v->ctx;
+    if (n->kind == IRON_NODE_ERROR) return false;
+    if (n->span.line == 0) return true;
+    if (n->span.filename && c->doc->uri && strcmp(n->span.filename, c->doc->uri) != 0)
+        return true;
+    size_t from;
+    if (n->kind == IRON_NODE_CALL) {
+        Iron_Node *callee = ((Iron_CallExpr *)n)->callee;
+        if (!callee || callee->span.line == 0) return true;
+        from = line_col_to_byte(c->doc, callee->span.end_line, callee->span.end_col) + 1;
+    } else if (n->kind == IRON_NODE_METHOD_CALL) {
+        Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)n;
+        if (!mc->object || mc->object->span.line == 0 || !mc->method) return true;
+        size_t i = line_col_to_byte(c->doc, mc->object->span.end_line,
+                                    mc->object->span.end_col) + 1;
+        /* `.method`, spaces and newlines allowed around the dot. */
+        while (i < c->doc->text_len && (c->doc->text[i] == ' ' || c->doc->text[i] == '\t' ||
+                                        c->doc->text[i] == '\n' || c->doc->text[i] == '\r'))
+            i++;
+        if (i >= c->doc->text_len || c->doc->text[i] != '.') return true;
+        i++;
+        while (i < c->doc->text_len && (c->doc->text[i] == ' ' || c->doc->text[i] == '\t')) i++;
+        size_t ml = strlen(mc->method);
+        if (i + ml > c->doc->text_len || memcmp(c->doc->text + i, mc->method, ml) != 0)
+            return true;
+        from = i + ml;
+    } else {
+        return true;
+    }
+    if (from >= c->doc->text_len) return true;
+    size_t open = open_paren_from(c->doc, from);
+    if (open == SIZE_MAX || open >= c->cursor) return true;
+    size_t close = close_paren(c->doc, open);
+    if (close != SIZE_MAX && close < c->cursor) return true;
+    if (!c->best || open > c->best_paren) {
+        c->best = n;
+        c->best_paren = open;
+    }
+    return true;
 }
 
-static bool byte_in_span(const IronLsp_Document *doc, Iron_Span s, size_t b) {
-    size_t a = span_start_to_byte(doc, s);
-    size_t e = span_end_to_byte(doc, s);
-    return b >= a && b <= e;
+/* ── Signatures without a declaration ─────────────────────────────── */
+
+/* A signature from its label alone (`func push(item: Int)`): the
+ * parameters are the comma-separated parts of its first parenthesis. */
+static void sig_from_label(IronLsp_SignatureInfo *out, const char *label,
+                           const char *doc_comment, Iron_Arena *arena) {
+    memset(out, 0, sizeof(*out));
+    out->label = label ? label : "";
+    out->documentation = doc_comment;
+    if (!label) return;
+    const char *open = strchr(label, '(');
+    if (!open) return;
+    int depth = 0, count = 0;
+    IronLsp_SigParam tmp[32];
+    int start = (int)(open - label) + 1;
+    for (const char *p = open + 1; *p && count < 32; p++) {
+        if (*p == '(' || *p == '[') depth++;
+        else if ((*p == ')' || *p == ']') && depth > 0) depth--;
+        else if ((*p == ',' && depth == 0) || (*p == ')' && depth == 0)) {
+            int end = (int)(p - label);
+            if (end > start) { tmp[count].start = start; tmp[count].end = end; count++; }
+            if (*p == ')') break;
+            start = end + 1;
+            while (label[start] == ' ') start++;
+        }
+    }
+    if (count == 0) return;
+    IronLsp_SigParam *offs = (IronLsp_SigParam *)iron_arena_alloc(
+        arena, (size_t)count * sizeof(*offs), _Alignof(IronLsp_SigParam));
+    if (!offs) return;
+    memcpy(offs, tmp, (size_t)count * sizeof(*offs));
+    out->parameter_offsets = offs;
+    out->parameter_count = count;
 }
 
-static void find_call_in_node(FindCallCtx *ctx,
-                                Iron_Node *n,
-                                const IronLsp_Document *doc,
-                                size_t cursor_byte);
-
-static void find_call_in_nodes(FindCallCtx *ctx,
-                                 Iron_Node **arr, int count,
-                                 const IronLsp_Document *doc,
-                                 size_t cursor_byte) {
-    if (!arr) return;
-    for (int i = 0; i < count; i++) {
-        find_call_in_node(ctx, arr[i], doc, cursor_byte);
+/* `Point(x: Int, y: Int)`: an object's construction, from its anonymous
+ * `init`s or, when it has none, its fields in order. Returns how many
+ * signatures were written to `out` (at most `max`). */
+static int constructor_sigs(const Iron_Program *program, Iron_ObjectDecl *od,
+                            IronLsp_SignatureInfo *out, int max, Iron_Arena *arena) {
+    int n = 0;
+    for (int i = 0; i < program->decl_count + program->prelude_decl_count && n < max; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!md->is_init || md->init_name || !md->type_name || !od->name ||
+            strcmp(md->type_name, od->name) != 0) continue;
+        SB label; sb_init(&label, arena);
+        sb_append(&label, od->name);
+        sb_append(&label, "(");
+        bool first = true;
+        for (int j = 0; j < md->param_count; j++) {
+            Iron_Param *pm = (Iron_Param *)md->params[j];
+            if (!pm || pm->kind != IRON_NODE_PARAM || !pm->name ||
+                strcmp(pm->name, "self") == 0) continue;
+            if (!first) sb_append(&label, ", ");
+            first = false;
+            sb_append(&label, pm->name);
+            sb_append(&label, ": ");
+            sb_append(&label, param_type_str(pm, arena));
+        }
+        sb_append(&label, ")");
+        sig_from_label(&out[n++], label.buf, md->doc_comment ? md->doc_comment
+                                                              : od->doc_comment, arena);
     }
+    if (n > 0) return n;
+    SB label; sb_init(&label, arena);
+    sb_append(&label, od->name ? od->name : "_");
+    sb_append(&label, "(");
+    for (int j = 0; j < od->field_count; j++) {
+        Iron_Field *f = (Iron_Field *)od->fields[j];
+        if (!f || f->kind != IRON_NODE_FIELD || !f->name) continue;
+        if (label.buf && label.buf[label.len - 1] != '(') sb_append(&label, ", ");
+        sb_append(&label, f->name);
+        sb_append(&label, ": ");
+        sb_append(&label, render_type_ann(f->type_ann, arena));
+    }
+    sb_append(&label, ")");
+    sig_from_label(&out[0], label.buf, od->doc_comment, arena);
+    return 1;
 }
 
-static void find_call_in_node(FindCallCtx *ctx,
-                                Iron_Node *n,
-                                const IronLsp_Document *doc,
-                                size_t cursor_byte) {
-    if (!n || n->kind == IRON_NODE_ERROR) return;
-    if (!byte_in_span(doc, n->span, cursor_byte)) return;
-
-    if (n->kind == IRON_NODE_CALL || n->kind == IRON_NODE_METHOD_CALL) {
-        size_t st = span_start_to_byte(doc, n->span);
-        size_t en = span_end_to_byte(doc, n->span);
-        /* Prefer innermost (smallest bracketing span). */
-        if (!ctx->best ||
-            (st >= ctx->best_start && en <= ctx->best_end)) {
-            ctx->best = n;
-            ctx->best_start = st;
-            ctx->best_end   = en;
-        }
+/* `func(Int) -> Bool`: a call through a binding of function type. */
+static const char *func_type_label(const char *name, const Iron_Type *t, Iron_Arena *arena) {
+    SB label; sb_init(&label, arena);
+    sb_append(&label, "func ");
+    sb_append(&label, name ? name : "_");
+    sb_append(&label, "(");
+    for (int i = 0; i < t->func.param_count; i++) {
+        if (i > 0) sb_append(&label, ", ");
+        const char *ts = iron_type_to_string(t->func.param_types[i], arena);
+        sb_append(&label, ts ? ts : "_");
     }
-
-    switch ((int)n->kind) {
-        case IRON_NODE_CALL: {
-            Iron_CallExpr *c = (Iron_CallExpr *)n;
-            find_call_in_node(ctx, c->callee, doc, cursor_byte);
-            find_call_in_nodes(ctx, c->args, c->arg_count, doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_METHOD_CALL: {
-            Iron_MethodCallExpr *m = (Iron_MethodCallExpr *)n;
-            find_call_in_node(ctx, m->object, doc, cursor_byte);
-            find_call_in_nodes(ctx, m->args, m->arg_count, doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_BLOCK: {
-            Iron_Block *b = (Iron_Block *)n;
-            find_call_in_nodes(ctx, b->stmts, b->stmt_count, doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_FUNC_DECL: {
-            Iron_FuncDecl *fd = (Iron_FuncDecl *)n;
-            find_call_in_node(ctx, fd->body, doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_METHOD_DECL: {
-            Iron_MethodDecl *md = (Iron_MethodDecl *)n;
-            find_call_in_node(ctx, md->body, doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_BINARY: {
-            Iron_BinaryExpr *b = (Iron_BinaryExpr *)n;
-            find_call_in_node(ctx, b->left,  doc, cursor_byte);
-            find_call_in_node(ctx, b->right, doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_UNARY: {
-            Iron_UnaryExpr *u = (Iron_UnaryExpr *)n;
-            find_call_in_node(ctx, u->operand, doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_FIELD_ACCESS: {
-            Iron_FieldAccess *fa = (Iron_FieldAccess *)n;
-            find_call_in_node(ctx, fa->object, doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_INDEX: {
-            Iron_IndexExpr *ix = (Iron_IndexExpr *)n;
-            find_call_in_node(ctx, ix->object, doc, cursor_byte);
-            find_call_in_node(ctx, ix->index,  doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_ASSIGN: {
-            Iron_AssignStmt *a = (Iron_AssignStmt *)n;
-            find_call_in_node(ctx, a->target, doc, cursor_byte);
-            find_call_in_node(ctx, a->value,  doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_RETURN: {
-            Iron_ReturnStmt *r = (Iron_ReturnStmt *)n;
-            find_call_in_node(ctx, r->value, doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_IF: {
-            Iron_IfStmt *ifs = (Iron_IfStmt *)n;
-            find_call_in_node(ctx, ifs->condition, doc, cursor_byte);
-            find_call_in_node(ctx, ifs->body,      doc, cursor_byte);
-            for (int i = 0; i < ifs->elif_count; i++) {
-                find_call_in_node(ctx, ifs->elif_conds[i],  doc, cursor_byte);
-                find_call_in_node(ctx, ifs->elif_bodies[i], doc, cursor_byte);
-            }
-            find_call_in_node(ctx, ifs->else_body, doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_WHILE: {
-            Iron_WhileStmt *w = (Iron_WhileStmt *)n;
-            find_call_in_node(ctx, w->condition, doc, cursor_byte);
-            find_call_in_node(ctx, w->body,      doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_FOR: {
-            Iron_ForStmt *f = (Iron_ForStmt *)n;
-            find_call_in_node(ctx, f->iterable, doc, cursor_byte);
-            find_call_in_node(ctx, f->body,     doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_VAL_DECL: {
-            Iron_ValDecl *v = (Iron_ValDecl *)n;
-            find_call_in_node(ctx, v->init, doc, cursor_byte);
-            break;
-        }
-        case IRON_NODE_VAR_DECL: {
-            Iron_VarDecl *v = (Iron_VarDecl *)n;
-            find_call_in_node(ctx, v->init, doc, cursor_byte);
-            break;
-        }
-        default:
-            break;
+    sb_append(&label, ")");
+    if (t->func.return_type && t->func.return_type->kind != IRON_TYPE_VOID) {
+        const char *rs = iron_type_to_string(t->func.return_type, arena);
+        sb_append(&label, " -> ");
+        sb_append(&label, rs ? rs : "_");
     }
+    return label.buf;
+}
+
+static const Iron_Type *strip_handles(const Iron_Type *t) {
+    for (int g = 0; t && g < 8; g++) {
+        if (t->kind == IRON_TYPE_NULLABLE) t = t->nullable.inner;
+        else if (t->kind == IRON_TYPE_RC) t = t->rc.inner;
+        else if (t->kind == IRON_TYPE_WEAK_RC) t = t->weak_rc.inner;
+        else if (t->kind == IRON_TYPE_PTR) t = t->ptr.pointee;
+        else break;
+    }
+    return t;
 }
 
 /* ── Entry point ─────────────────────────────────────────────────── */
+
+#define ILSP_SIG_MAX 8
 
 void ilsp_facade_signature_help(struct IronLsp_Server    *server,
                                   struct IronLsp_Document  *doc,
@@ -430,7 +488,7 @@ void ilsp_facade_signature_help(struct IronLsp_Server    *server,
     if (out_n)    *out_n    = 0;
     if (out_active_sig)   *out_active_sig   = 0;
     if (out_active_param) *out_active_param = 0;
-    if (!server || !doc || !arena) return;
+    if (!server || !doc || !arena || !doc->text) return;
 
     IronLsp_PositionEncoding enc = server->position_encoding;
 
@@ -445,64 +503,87 @@ void ilsp_facade_signature_help(struct IronLsp_Server    *server,
 
     size_t cursor_byte = pos_to_byte(doc, pos, enc);
 
-    FindCallCtx ctx = { .best = NULL, .best_start = 0, .best_end = SIZE_MAX };
+    FindCallCtx ctx = { doc, cursor_byte, NULL, 0 };
+    Iron_Visitor v = { .ctx = &ctx, .visit_node = find_call_visit, .post_visit = NULL };
     for (int i = 0; i < program->decl_count; i++) {
-        find_call_in_node(&ctx, program->decls[i], doc, cursor_byte);
+        if (program->decls[i]) iron_ast_walk(program->decls[i], &v);
     }
     if (!ctx.best) goto done;
 
-    /* Resolve the callee to a decl_node. */
-    Iron_Node *callee = NULL;
-    const char *self_type = NULL;
-    if (ctx.best->kind == IRON_NODE_CALL) {
-        callee = ((Iron_CallExpr *)ctx.best)->callee;
-    }
+    IronLsp_SignatureInfo *sigs = (IronLsp_SignatureInfo *)iron_arena_alloc(
+        arena, ILSP_SIG_MAX * sizeof(*sigs), _Alignof(IronLsp_SignatureInfo));
+    if (!sigs) goto done;
+    int nsig = 0;
+    int arg_count = 0;
 
-    Iron_FuncDecl   *fd = NULL;
-    Iron_MethodDecl *md = NULL;
     if (ctx.best->kind == IRON_NODE_METHOD_CALL) {
+        Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)ctx.best;
+        arg_count = mc->arg_count;
         /* The method the call resolves to, in the file or the stdlib
-         * (String.replace, Math.pow, a user method). Its receiver is
-         * implicit in Iron source, so no `self` parameter is shown. */
+         * (String.replace, Math.pow, a user method, an interface's
+         * signature). Its receiver is implicit in Iron source, so no
+         * `self` parameter is shown. */
         Iron_Node *d = ilsp_nav_member_decl(program, ctx.best, &walk_arena);
-        if (d && d->kind == IRON_NODE_METHOD_DECL) md = (Iron_MethodDecl *)d;
-    }
-    if (callee && callee->kind == IRON_NODE_IDENT) {
-        Iron_Ident *id = (Iron_Ident *)callee;
-        Iron_Symbol *sym = id->resolved_sym;
-        if (sym && sym->decl_node) {
-            if (sym->decl_node->kind == IRON_NODE_FUNC_DECL) {
-                fd = (Iron_FuncDecl *)sym->decl_node;
-            } else if (sym->decl_node->kind == IRON_NODE_METHOD_DECL) {
-                md = (Iron_MethodDecl *)sym->decl_node;
+        if (d && d->kind == IRON_NODE_METHOD_DECL) {
+            build_sig_info(&sigs[nsig++], NULL, (Iron_MethodDecl *)d, NULL, arena);
+        } else if (d && d->kind == IRON_NODE_FUNC_DECL) {
+            build_sig_info(&sigs[nsig++], (Iron_FuncDecl *)d, NULL, NULL, arena);
+        } else if (mc->object && mc->method) {
+            /* A compiler builtin: `xs.push(`, `m.put(`. */
+            const Iron_Type *rt = strip_handles(((Iron_ExprNode *)mc->object)->resolved_type);
+            const char *detail = ilsp_builtin_find(ilsp_builtin_table_for(rt), mc->method);
+            if (detail) {
+                sig_from_label(&sigs[nsig++], ilsp_builtin_signature(detail, rt, arena),
+                               NULL, arena);
+            }
+        }
+    } else {
+        Iron_CallExpr *call = (Iron_CallExpr *)ctx.best;
+        arg_count = call->arg_count;
+        Iron_Node *callee = call->callee;
+        if (callee && callee->kind == IRON_NODE_IDENT) {
+            Iron_Ident *id = (Iron_Ident *)callee;
+            Iron_Symbol *sym = id->resolved_sym;
+            Iron_Node *dn = sym ? sym->decl_node : NULL;
+            if (dn && dn->kind == IRON_NODE_FUNC_DECL) {
+                build_sig_info(&sigs[nsig++], (Iron_FuncDecl *)dn, NULL, NULL, arena);
+            } else if (dn && dn->kind == IRON_NODE_METHOD_DECL) {
+                build_sig_info(&sigs[nsig++], NULL, (Iron_MethodDecl *)dn, NULL, arena);
+            } else if (dn && dn->kind == IRON_NODE_OBJECT_DECL) {
+                nsig = constructor_sigs(program, (Iron_ObjectDecl *)dn, sigs, ILSP_SIG_MAX,
+                                        arena);
+            } else if (!dn && id->name && ilsp_builtin_find(ilsp_builtin_funcs, id->name)) {
+                sig_from_label(&sigs[nsig++], ilsp_builtin_find(ilsp_builtin_funcs, id->name),
+                               NULL, arena);
+            } else {
+                const Iron_Type *ft = id->resolved_type ? id->resolved_type
+                                                        : (sym ? sym->type : NULL);
+                if (ft && ft->kind == IRON_TYPE_FUNC) {
+                    sig_from_label(&sigs[nsig++], func_type_label(id->name, ft, arena),
+                                   NULL, arena);
+                }
             }
         }
     }
-    if (!fd && !md) goto done;  /* graceful empty */
+    if (nsig == 0) goto done;
 
-    /* Build one signature info. */
-    IronLsp_SignatureInfo *sig_arr = (IronLsp_SignatureInfo *)iron_arena_alloc(
-        arena, sizeof(*sig_arr), _Alignof(IronLsp_SignatureInfo));
-    if (!sig_arr) goto done;
-    build_sig_info(&sig_arr[0], fd, md, self_type, arena);
-
-    /* Find the call's '(' byte. */
-    size_t paren = find_call_paren(doc, ctx.best_start, cursor_byte);
-    int active_param = 0;
-    if (paren != (size_t)-1) {
-        active_param = active_param_between(doc, paren, cursor_byte);
+    int active_param = active_param_between(doc, ctx.best_paren, cursor_byte);
+    /* Several constructors: the first one taking that many arguments. */
+    int active_sig = 0;
+    int want = active_param + 1 > arg_count ? active_param + 1 : arg_count;
+    for (int i = 0; i < nsig; i++) {
+        if (sigs[i].parameter_count >= want) { active_sig = i; break; }
     }
-    /* Clamp. */
-    int pc = sig_arr[0].parameter_count;
+    int pc = sigs[active_sig].parameter_count;
     if (pc > 0) {
         if (active_param >= pc) active_param = pc - 1;
     } else {
         active_param = 0;
     }
 
-    *out_sigs = sig_arr;
-    *out_n    = 1;
-    if (out_active_sig)   *out_active_sig   = 0;
+    *out_sigs = sigs;
+    *out_n    = (size_t)nsig;
+    if (out_active_sig)   *out_active_sig   = active_sig;
     if (out_active_param) *out_active_param = active_param;
 
 done:

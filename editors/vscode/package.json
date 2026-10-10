@@ -18,7 +18,9 @@
   ],
   "activationEvents": [
     "onLanguage:iron",
-    "workspaceContains:**/iron.toml"
+    "workspaceContains:**/iron.toml",
+    "onDebugResolve:iron",
+    "onDebugDynamicConfigurations:iron"
   ],
   "main": "./dist/extension.js",
   "ironLspCompatibleIronlsRange": ">= 4.0.0, < 5.0.0",
@@ -49,6 +51,76 @@
         "language": "iron"
       }
     ],
+    "debuggers": [
+      {
+        "type": "iron",
+        "label": "Iron",
+        "languages": ["iron"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "A .iron file or a package directory (built with `iron build --debug` first), or a binary that is already built.",
+                "default": "${file}"
+              },
+              "args": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Arguments for the program.",
+                "default": []
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory of the program (default: the file's directory, or the package)."
+              },
+              "env": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "description": "Environment variables for the program.",
+                "default": {}
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Stop at the start of the program.",
+                "default": false
+              },
+              "stopOnPanic": {
+                "type": "boolean",
+                "description": "Stop on the Iron line when the program panics (failed assert, index out of bounds).",
+                "default": true
+              },
+              "build": {
+                "type": "boolean",
+                "description": "Build .iron files and packages with --debug before debugging.",
+                "default": true
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "iron",
+            "request": "launch",
+            "name": "Iron: debug this file",
+            "program": "${file}"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Iron: debug a file",
+            "description": "Build the open .iron file with --debug and debug it.",
+            "body": { "type": "iron", "request": "launch", "name": "Iron: debug this file", "program": "^\"\\${file}\"" }
+          },
+          {
+            "label": "Iron: debug the package",
+            "description": "Build the package with iron build --debug and debug it.",
+            "body": { "type": "iron", "request": "launch", "name": "Iron: debug the package", "program": "^\"\\${workspaceFolder}\"", "args": [] }
+          }
+        ]
+      }
+    ],
     "configuration": {
       "title": "Iron LSP",
       "properties": {
@@ -63,11 +135,26 @@
           "default": "off",
           "description": "Traces LSP communication between VSCode and ironls. When not 'off', messages appear in the 'Iron Language Server (trace)' output channel."
         },
+        "iron.debug.ironPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the `iron` CLI the iron debug type runs (`iron dap`, and the --debug build). When empty, the extension searches PATH."
+        },
         "iron.languageServer.logLevel": {
           "type": "string",
           "enum": ["error", "warn", "info", "debug"],
           "default": "info",
           "description": "Minimum severity for Iron LSP editor-side log events (ext.activate, ironls.discovered, lsp.initialize.*)."
+        },
+        "iron.inlayHints.parameterNames": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show parameter names before the arguments of a call, as in area(w: 2, h: 3)."
+        },
+        "iron.inlayHints.bindingTypes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the inferred type after a val or var written without one, as in val n: Int = 3."
         }
       }
     },
