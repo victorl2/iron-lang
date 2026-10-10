@@ -3,3 +3,5 @@ build the list with fill(n, v)
 evaluating table()
 string interpolation is not available at compile time
 evaluating label()
+enum values are not available at compile time
+evaluating top()
