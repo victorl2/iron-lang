@@ -1,31 +1,35 @@
 #!/usr/bin/env bash
-# Phase 6 Plan 06-02 Task 2 (EXT-02). Integration-corpus tree-sitter parse
-# gate. Iterates every tests/integration/*.iron through `tree-sitter parse`
-# and fails the build when any file produces ERROR or MISSING nodes.
+# Integration-corpus tree-sitter parse gate. Runs every valid Iron program
+# in the repo through `tree-sitter parse` and fails when any file produces
+# ERROR or MISSING nodes:
+#
+#   tests/integration/**/*.iron   except the negative suites (v4-fail,
+#                                 diagnostics), which hold invalid code
+#   src/stdlib/**/*.iron
+#   examples/**/*.iron
 #
 # This is the structural-parity fence between the Iron parser
-# (src/parser/parser.c) and the tree-sitter grammar: any new integration
-# fixture that uses a syntactic construct the grammar does not cover will
-# turn this test red, prompting the developer to either (a) add the rule
-# to grammar.js.in + regenerate, or (b) land an explicit
-# known-skip entry in this script with a reason and a follow-up tracking ID.
+# (src/parser/parser.c) and the tree-sitter grammar that Neovim and Zed
+# highlight with: a program using a construct the grammar does not cover
+# turns this test red, prompting the developer to either (a) add the rule
+# to grammar.js.in + grammar.js and regenerate, or (b) add an explicit
+# known-skip entry below with a reason.
 #
 # Exit codes:
-#   0   — every integration fixture parses with zero ERROR/MISSING nodes
-#   1   — at least one fixture failed; stderr lists the offenders
-#   77  — tree-sitter-cli not available (CTest SKIP code)
+#   0   every file parses with zero ERROR/MISSING nodes
+#   1   at least one file failed; stderr lists the offenders
+#   77  tree-sitter-cli not available (CTest SKIP code)
 #
 # Environment:
-#   TREE_SITTER — optional override for the tree-sitter executable.
-#                 Otherwise resolved from PATH, then from the grammar
-#                 directory's node_modules/.bin.
+#   TREE_SITTER  optional override for the tree-sitter executable.
+#                Otherwise resolved from PATH, then from the grammar
+#                directory's node_modules/.bin.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 GRAMMAR_DIR="$REPO/grammars/tree-sitter/iron"
-INT_DIR="$REPO/tests/integration"
 
-# Tooling discovery — global install, then local node_modules, then skip.
+# Tooling discovery: global install, then local node_modules, then skip.
 if [ -n "${TREE_SITTER:-}" ]; then
     TS="$TREE_SITTER"
 elif command -v tree-sitter >/dev/null 2>&1; then
@@ -37,18 +41,14 @@ else
     exit 77  # CTest SKIP
 fi
 
-# Pre-v1 known-skip: only the url_parse_basic.iron fixture remains (external-scanner gap; tracked in Plan 06-02 SUMMARY).
 KNOWN_SKIPS=(
-    # url_parse_basic.iron — contains backslash-escaped quotes inside
-    # interpolations (e.g. `"{Url.default_port(\"http\")}"`). Iron's lexer
-    # handles this via IRON_TOK_INTERP_STRING single-token escape decoding;
-    # tree-sitter would need an external scanner to match. v1 gap;
-    # post-v1 external-scanner upgrade will close it.
+    # Backslash-escaped quotes inside an interpolation
+    # (`"{Url.default_port(\"http\")}"`). Iron's lexer re-lexes the
+    # interpolation text; tree-sitter would need an external scanner.
     url_parse_basic.iron
-    # v3_spec_visibility_example.iron — uses v3 visibility surface that the
-    # tree-sitter grammar does not yet model end-to-end. Track as a follow-up
-    # grammar update.
-    v3_spec_visibility_example.iron
+    string_interpolation_lexing.iron
+    # Deliberately invalid source used by the vendor test.
+    broken_test.iron
 )
 
 contains_skip() {
@@ -60,38 +60,41 @@ contains_skip() {
     return 1
 }
 
-# Regenerate parser.c if absent (first run after clean checkout).
 cd "$GRAMMAR_DIR"
 if [ ! -f "src/parser.c" ]; then
     "$TS" generate >/dev/null
 fi
 
-fail=0
+list=$(mktemp)
+trap 'rm -f "$list"' EXIT
 total=0
 skipped=0
-for f in $(find "$INT_DIR" -maxdepth 1 -name '*.iron' | sort); do
+while IFS= read -r f; do
     total=$((total+1))
-    base=$(basename "$f")
-    if contains_skip "$base"; then
+    if contains_skip "$(basename "$f")"; then
         skipped=$((skipped+1))
         continue
     fi
-    if ! out=$("$TS" parse "$f" 2>&1); then
-        echo "iron-lsp: PARSE FAILURE in $f" >&2
-        echo "$out" | head -3 >&2
-        fail=$((fail+1))
-        continue
-    fi
-    if echo "$out" | grep -qE '(ERROR|MISSING)'; then
-        echo "iron-lsp: ERROR/MISSING nodes in $f" >&2
-        echo "$out" | grep -E '(ERROR|MISSING)' | head -3 >&2
-        fail=$((fail+1))
-    fi
-done
+    echo "$f" >> "$list"
+done < <(find "$REPO/tests/integration" "$REPO/src/stdlib" "$REPO/examples" \
+              -name '*.iron' \
+              -not -path '*/v4-fail/*' \
+              -not -path '*/diagnostics/*' | sort)
 
-if [ "$fail" -gt 0 ]; then
-    echo "iron-lsp: $fail / $total integration fixtures failed the tree-sitter parse gate (skipped=$skipped)" >&2
+# One process for the whole list; --quiet prints only the files that hold
+# ERROR or MISSING nodes.
+out=$("$TS" parse --quiet --paths "$list" 2>&1 || true)
+bad=$(echo "$out" | grep -E '\((ERROR|MISSING)' || true)
+
+if [ -n "$bad" ]; then
+    fail=$(echo "$bad" | wc -l | tr -d ' ')
+    echo "$bad" | head -40 >&2
+    echo "iron-lsp: $fail / $total Iron programs failed the tree-sitter parse gate (skipped=$skipped)" >&2
+    exit 1
+fi
+if [ "$total" -lt 100 ]; then
+    echo "iron-lsp: only $total Iron programs found; the corpus paths look wrong" >&2
     exit 1
 fi
 
-echo "iron-lsp: all $((total - skipped)) / $total integration fixtures parsed cleanly (skipped=$skipped)"
+echo "iron-lsp: all $((total - skipped)) / $total Iron programs parsed cleanly (skipped=$skipped)"

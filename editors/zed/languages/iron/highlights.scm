@@ -1,3 +1,6 @@
+; Generated from grammars/tree-sitter/iron/queries/highlights.scm by
+; scripts/sync-editor-queries.sh. Edit the source and rerun the script.
+
 ; Tree-sitter highlight queries for Iron.
 ;
 ; Capture names follow nvim-treesitter's standard groups (Neovim 0.10+ links
@@ -22,7 +25,7 @@
   (#match? @constant "^[A-Z][A-Z0-9_]+$"))
 
 ; ── Field access ──────────────────────────────────────────────────────
-(member_expression property: (identifier) @variable.member)
+(member_expression property: (identifier) @property)
 
 ; ── Function / method calls ───────────────────────────────────────────
 (call_expression
@@ -45,9 +48,9 @@
 (init_declaration name: (identifier) @constructor)
 (method_declaration type_name: (identifier) @type)
 
-(object_declaration    name: (identifier) @type.definition)
-(interface_declaration name: (identifier) @type.definition)
-(enum_declaration      name: (identifier) @type.definition)
+(object_declaration    name: (identifier) @type)
+(interface_declaration name: (identifier) @type)
+(enum_declaration      name: (identifier) @type)
 (patch_declaration   target: (identifier) @type)
 (object_declaration  parent: (identifier) @type)
 (object_declaration  implements: (identifier) @type)
@@ -55,7 +58,7 @@
 (enum_variant          name: (identifier) @constructor)
 
 (parameter name: (identifier) @variable.parameter)
-(field_declaration name: (identifier) @variable.member)
+(field_declaration name: (identifier) @property)
 (test_declaration name: (string_literal) @string.special)
 
 ; ── Types ─────────────────────────────────────────────────────────────
@@ -71,7 +74,7 @@
 ; ── Patterns ──────────────────────────────────────────────────────────
 (variant_pattern enum_name: (identifier) @type)
 (variant_pattern variant: (identifier) @constructor)
-(wildcard_pattern) @character.special
+(wildcard_pattern) @variable.special
 
 ; ── Self ──────────────────────────────────────────────────────────────
 (self_expression) @variable.builtin
@@ -130,4 +133,4 @@
 
 ; ── Comments ──────────────────────────────────────────────────────────
 (line_comment) @comment
-(doc_comment)  @comment.documentation
+(doc_comment)  @comment.doc
