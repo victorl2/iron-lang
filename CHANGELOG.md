@@ -3,6 +3,17 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v4.12.0-alpha: Debugging in Iron Terms (2026-10-10)
+
+- **Debugging:** Iron expressions in hover, watch and the debug console;
+  breakpoint conditions, hit counts and logpoints in Iron; Step Into stays
+  in Iron code; debug one test block (`"test"` in the launch
+  configuration); loop variables, list literals and parameters, and
+  objects shown as Iron values.
+- **Editors:** run / debug buttons for files and test blocks in VS Code
+  (title bar and code lenses), Zed (gutter, with a debug locator) and
+  Neovim (`:IronRun`, `:IronTest`, `:IronDebug`, `:IronDebugTest`).
+
 ## v4.11.0-alpha: Debugging in Every Editor (2026-10-10)
 
 - **Debugging:** `iron dap`, one debug adapter for VS Code (F5 on a `.iron`
