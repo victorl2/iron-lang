@@ -1,0 +1,4 @@
+'xs' is passed to the var parameter 'xs' and again in the same call
+'ys' is passed to the var parameter 'a' and again in the same call
+'m' is passed to the var parameter 'm' and again in the same call
+pass xs.copy() for the other one

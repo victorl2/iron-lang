@@ -150,6 +150,19 @@ class CollGen(Gen):
     def top_lines(self):
         return ['func num(n: Int) -> Int {', '    return n', '}', '']
 
+    def call_args(self, fd, ctx):
+        """A list passed to a var parameter may not be passed again in the
+        same call (E0328): the other parameter gets a literal instead."""
+        args = super().call_args(fd, ctx)
+        if args is None:
+            return None
+        var_uids = {a.uid for p, a in zip(fd.params, args)
+                    if p.mut and p.typ.startswith('[') and isinstance(a, Var)}
+        for i, (p, a) in enumerate(zip(fd.params, args)):
+            if not p.mut and isinstance(a, Var) and a.uid in var_uids and p.typ in (LI, LS):
+                args[i] = self.list_lit(p.typ, ctx)
+        return args
+
     # ------------------------------------------------------ expressions
     def str_lit(self):
         r = self.r

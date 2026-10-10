@@ -1106,6 +1106,13 @@ add_test(NAME diag_generic_names
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/generic_names.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 
+# E0328 for a list passed to a var parameter and again in the same call.
+add_test(NAME diag_var_list_alias
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/var_list_alias.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/var_list_alias.expected_help
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 # W0605 for arena objects whose fields own memory (#330).
 add_test(NAME diag_arena_owned_fields
     COMMAND ${CMAKE_COMMAND}

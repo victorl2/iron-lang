@@ -169,6 +169,42 @@ static void check_field_args(ListOwnCtx *c, const char *type_name,
     for (int i = 0; i < argc; i++) require_fresh(c, args[i]);
 }
 
+/* A list passed to a `var` parameter may be grown by the callee, which can
+ * move its buffer; a second argument naming the same binding is a view of
+ * the old buffer (use after free). The two are the same list, so the call
+ * is rejected: pass a copy for the other parameter. */
+static void check_var_list_alias(ListOwnCtx *c, Iron_FuncDecl *fd, Iron_CallExpr *ce) {
+    for (int i = 0; i < ce->arg_count && i < fd->param_count; i++) {
+        Iron_Param *p = (Iron_Param *)fd->params[i];
+        Iron_Node *a = ce->args[i];
+        if (!p || p->kind != IRON_NODE_PARAM || !p->is_var || !a ||
+            a->kind != IRON_NODE_IDENT || !owns_list(node_type(a)))
+            continue;
+        Iron_Symbol *sym = ((Iron_Ident *)a)->resolved_sym;
+        if (!sym) continue;
+        for (int j = 0; j < ce->arg_count; j++) {
+            Iron_Node *b = ce->args[j];
+            if (j == i || !b || b->kind != IRON_NODE_IDENT ||
+                ((Iron_Ident *)b)->resolved_sym != sym)
+                continue;
+            const char *name = ((Iron_Ident *)a)->name;
+            char msg[320], help[320];
+            snprintf(msg, sizeof(msg),
+                     "'%s' is passed to the var parameter '%s' and again in the same call",
+                     name, p->name ? p->name : "?");
+            snprintf(help, sizeof(help),
+                     "the callee may grow or replace '%s' through '%s' while the other "
+                     "argument still refers to it: pass %s.copy() for the other one",
+                     name, p->name ? p->name : "?", name);
+            iron_diag_emit(c->diags, c->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_LIST_IMPLICIT_COPY, b->span,
+                           iron_arena_strdup(c->arena, msg, strlen(msg)),
+                           iron_arena_strdup(c->arena, help, strlen(help)));
+            return;
+        }
+    }
+}
+
 static bool visit(Iron_Visitor *v, Iron_Node *n) {
     ListOwnCtx *c = (ListOwnCtx *)v->ctx;
     if (!n) return false;
@@ -218,6 +254,10 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
                 Iron_Ident *id = (Iron_Ident *)ce->callee;
                 if (id->resolved_sym && id->resolved_sym->sym_kind == IRON_SYM_TYPE)
                     check_field_args(c, id->name, ce->args, ce->arg_count);
+                if (id->resolved_sym && id->resolved_sym->sym_kind == IRON_SYM_FUNCTION &&
+                    id->resolved_sym->decl_node &&
+                    id->resolved_sym->decl_node->kind == IRON_NODE_FUNC_DECL)
+                    check_var_list_alias(c, (Iron_FuncDecl *)id->resolved_sym->decl_node, ce);
             }
             break;
         }

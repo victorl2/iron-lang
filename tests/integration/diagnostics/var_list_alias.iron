@@ -1,0 +1,36 @@
+-- A list passed to a `var` parameter and again to another parameter of the
+-- same call: the callee may grow it through the var parameter, moving its
+-- buffer while the other parameter still points at the old one (use after
+-- free). E0328 rejects the call. A copy for the other parameter, two
+-- different lists, or a value passed twice to plain parameters are fine.
+func grow(var xs: [Int], ys: [Int]) -> Int {
+    xs.push(1)
+    xs.insert(0, 2)
+    return ys.len()
+}
+
+func both(var a: [Int], var b: [Int]) {
+    a.push(1)
+    b.push(2)
+}
+
+func sum2(a: [Int], b: [Int]) -> Int {
+    return a.sum() + b.sum()
+}
+
+func tally(var m: Map[String, Int], other: Map[String, Int]) {
+    m.put("k", other.len())
+}
+
+func main() {
+    var xs = [1, 2, 3]
+    grow(xs, xs)
+    var ys = [4]
+    both(ys, ys)
+    var m = Map[String, Int]()
+    tally(m, m)
+    grow(xs, xs.copy())
+    var zs = [5]
+    grow(xs, zs)
+    println("{sum2(xs, xs)}")
+}
