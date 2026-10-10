@@ -4284,6 +4284,11 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                     iron_lir_store(ctx->current_func, ctx->current_block,
                                    alloca_id, init_val, span);
                 }
+                /* `val s: Shape = obj` copies obj into the binding: the
+                 * copy is fixed up (rc fields retained, copy block run) as
+                 * a `var` binding's is. It was a bytewise copy, so dropping
+                 * the binding released the rc fields obj still held. */
+                emit_copy_fixup_at(ctx, stmt->let.init, type, alloca_id, span);
             }
             /* Phase 24 DROP-01 (Plan 24-02): push drop entry for interface-alloca binding */
             if (!var_is_capture(ctx, vid) &&
