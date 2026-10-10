@@ -1862,7 +1862,9 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
         for (int ii = 0; ii < blk->instr_count; ii++) {
             IronLIR_Instr *in = blk->instrs[ii];
             if (in->kind == IRON_LIR_ALLOCA) {
-                hmput(escaped, in->id, false);
+                /* A global slot aliases the module static, which any
+                 * callee may write: it is escaped from the start. */
+                hmput(escaped, in->id, in->alloca.global_name != NULL);
             }
         }
     }

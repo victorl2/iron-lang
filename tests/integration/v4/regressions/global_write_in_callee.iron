@@ -1,0 +1,30 @@
+-- A global written by a called function is read again after the call: the
+-- store just before the call was forwarded past it to the load after it,
+-- so main printed the value it had stored, not the one the callee wrote.
+var g = 46
+var h = 0
+
+func half() {
+    match g % 5 {
+        4 -> println("four")
+        else -> g /= 2
+    }
+}
+
+func set_h(n: Int) {
+    h = n
+}
+
+func main() {
+    g = 46
+    half()
+    println("{g}")
+    h = 1
+    set_h(5)
+    println("{h}")
+    for i in range(3) {
+        h = i
+        set_h(h * 10)
+        println("{h}")
+    }
+}
