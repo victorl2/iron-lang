@@ -1,0 +1,3 @@
+arena-allocated Blob has a non-trivial destructor
+arena-allocated Named has a non-trivial destructor
+arena-allocated Table has a non-trivial destructor
