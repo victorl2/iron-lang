@@ -18,6 +18,11 @@ func sum2(a: [Int], b: [Int]) -> Int {
     return a.sum() + b.sum()
 }
 
+func mix(var xs: [Int], n: Int, ys: [Int]) -> Int {
+    xs.push(n)
+    return ys.len()
+}
+
 func tally(var m: Map[String, Int], other: Map[String, Int]) {
     m.put("k", other.len())
 }
@@ -29,6 +34,7 @@ func main() {
     both(ys, ys)
     var m = Map[String, Int]()
     tally(m, m)
+    println("{mix(xs, 2, xs)}")
     grow(xs, xs.copy())
     var zs = [5]
     grow(xs, zs)
