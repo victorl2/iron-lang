@@ -419,6 +419,8 @@ typedef struct {
     Iron_Arena             *out_arena;
     uint32_t                first_line, last_line;  /* 1-based, inclusive */
     IronLsp_InlayHint      *hints;                  /* stb_ds */
+    bool                    param_names;            /* settings */
+    bool                    binding_types;
 } HintCtx;
 
 static bool is_literal(const Iron_Node *n) {
@@ -430,31 +432,77 @@ static bool is_literal(const Iron_Node *n) {
 /* `area(w: 2, h: 3)`: each argument's parameter name, except where the
  * argument already says it (`area(w, h)`, `area(p.w, ...)`) and for a
  * single parameter unless the argument is a literal. */
+static void param_hints_named(HintCtx *c, const char *const *names, int named,
+                              Iron_Node **args, int arg_count) {
+    for (int i = 0; i < arg_count && i < named; i++) {
+        Iron_Node *a = args[i];
+        const char *name = names[i];
+        if (!a || !name || !*name || a->span.line == 0) continue;
+        if (a->span.line < c->first_line || a->span.line > c->last_line) continue;
+        if (named == 1 && !is_literal(a)) continue;
+        if (a->kind == IRON_NODE_IDENT && ((Iron_Ident *)a)->name &&
+            strcmp(((Iron_Ident *)a)->name, name) == 0) continue;
+        if (a->kind == IRON_NODE_FIELD_ACCESS && ((Iron_FieldAccess *)a)->field &&
+            strcmp(((Iron_FieldAccess *)a)->field, name) == 0) continue;
+        size_t off = offset_of(c->doc, a->span.line, a->span.col);
+        if (off == SIZE_MAX) continue;
+        size_t len = strlen(name) + 2;
+        char *label = (char *)iron_arena_alloc(c->out_arena, len, 1);
+        if (!label) continue;
+        snprintf(label, len, "%s:", name);
+        IronLsp_InlayHint h = { .off = off, .label = label, .kind = 2 };
+        arrput(c->hints, h);
+    }
+}
+
 static void param_hints(HintCtx *c, Iron_Node **params, int param_count,
                         Iron_Node **args, int arg_count) {
     int first = 0;
     if (param_count > 0 && params[0] && ((Iron_Param *)params[0])->name &&
         strcmp(((Iron_Param *)params[0])->name, "self") == 0) first = 1;
     int named = param_count - first;
-    for (int i = 0; i < arg_count && i < named; i++) {
-        Iron_Node *a = args[i];
+    if (named <= 0) return;
+    const char **names = (const char **)iron_arena_alloc(
+        c->walk_arena, sizeof(const char *) * (size_t)named, _Alignof(const char *));
+    if (!names) return;
+    for (int i = 0; i < named; i++) {
         Iron_Param *pm = (Iron_Param *)params[first + i];
-        if (!a || !pm || !pm->name || a->span.line == 0) continue;
-        if (a->span.line < c->first_line || a->span.line > c->last_line) continue;
-        if (named == 1 && !is_literal(a)) continue;
-        if (a->kind == IRON_NODE_IDENT && ((Iron_Ident *)a)->name &&
-            strcmp(((Iron_Ident *)a)->name, pm->name) == 0) continue;
-        if (a->kind == IRON_NODE_FIELD_ACCESS && ((Iron_FieldAccess *)a)->field &&
-            strcmp(((Iron_FieldAccess *)a)->field, pm->name) == 0) continue;
-        size_t off = offset_of(c->doc, a->span.line, a->span.col);
-        if (off == SIZE_MAX) continue;
-        size_t len = strlen(pm->name) + 2;
-        char *label = (char *)iron_arena_alloc(c->out_arena, len, 1);
-        if (!label) continue;
-        snprintf(label, len, "%s:", pm->name);
-        IronLsp_InlayHint h = { .off = off, .label = label, .kind = 2 };
-        arrput(c->hints, h);
+        names[i] = (pm && pm->kind == IRON_NODE_PARAM) ? pm->name : NULL;
     }
+    param_hints_named(c, names, named, args, arg_count);
+}
+
+/* `P(x: 1, y: 2)`: a construction names the parameters of the object's
+ * anonymous `init` taking that many arguments or, when it has no init,
+ * its fields in order. */
+static void construct_hints(HintCtx *c, Iron_ObjectDecl *od, Iron_Node **args,
+                            int arg_count) {
+    const Iron_Program *p = c->program;
+    bool has_init = false;
+    for (int i = 0; i < p->decl_count + p->prelude_decl_count; i++) {
+        Iron_Node *d = p->decls[i];
+        if (!d || d->kind != IRON_NODE_METHOD_DECL) continue;
+        Iron_MethodDecl *md = (Iron_MethodDecl *)d;
+        if (!md->is_init || md->init_name || !md->type_name || !od->name ||
+            strcmp(md->type_name, od->name) != 0) continue;
+        has_init = true;
+        int n = md->param_count;
+        if (n > 0 && md->params[0] && ((Iron_Param *)md->params[0])->name &&
+            strcmp(((Iron_Param *)md->params[0])->name, "self") == 0) n--;
+        if (n == arg_count) {
+            param_hints(c, md->params, md->param_count, args, arg_count);
+            return;
+        }
+    }
+    if (has_init || od->field_count <= 0) return;
+    const char **names = (const char **)iron_arena_alloc(
+        c->walk_arena, sizeof(const char *) * (size_t)od->field_count, _Alignof(const char *));
+    if (!names) return;
+    for (int i = 0; i < od->field_count; i++) {
+        Iron_Field *f = (Iron_Field *)od->fields[i];
+        names[i] = (f && f->kind == IRON_NODE_FIELD) ? f->name : NULL;
+    }
+    param_hints_named(c, names, od->field_count, args, arg_count);
 }
 
 static bool hint_visit(Iron_Visitor *v, Iron_Node *n) {
@@ -465,25 +513,34 @@ static bool hint_visit(Iron_Visitor *v, Iron_Node *n) {
     }
     if (n->kind == IRON_NODE_CALL) {
         Iron_CallExpr *call = (Iron_CallExpr *)n;
+        if (!c->param_names) return true;
         if (call->callee && call->callee->kind == IRON_NODE_IDENT) {
             const Iron_Symbol *sym = ((Iron_Ident *)call->callee)->resolved_sym;
             Iron_Node *d = sym ? sym->decl_node : NULL;
             if (d && d->kind == IRON_NODE_FUNC_DECL) {
                 Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
                 param_hints(c, fd->params, fd->param_count, call->args, call->arg_count);
+            } else if (d && d->kind == IRON_NODE_OBJECT_DECL) {
+                construct_hints(c, (Iron_ObjectDecl *)d, call->args, call->arg_count);
             }
         }
         return true;
     }
     if (n->kind == IRON_NODE_METHOD_CALL) {
         Iron_MethodCallExpr *mc = (Iron_MethodCallExpr *)n;
+        if (!c->param_names) return true;
         Iron_Node *d = ilsp_nav_member_decl(c->program, n, c->walk_arena);
         if (d && d->kind == IRON_NODE_METHOD_DECL) {
             Iron_MethodDecl *md = (Iron_MethodDecl *)d;
             param_hints(c, md->params, md->param_count, mc->args, mc->arg_count);
+        } else if (d && d->kind == IRON_NODE_FUNC_DECL) {
+            /* An interface's signature. */
+            Iron_FuncDecl *sig = (Iron_FuncDecl *)d;
+            param_hints(c, sig->params, sig->param_count, mc->args, mc->arg_count);
         }
         return true;
     }
+    if (!c->binding_types) return true;
     const char *name = NULL;
     const Iron_Type *t = NULL;
     if (n->kind == IRON_NODE_VAL_DECL) {
@@ -527,6 +584,9 @@ IronLsp_InlayHint *ilsp_facade_inlay_hints(IronLsp_Server *server, IronLsp_Docum
                                            size_t *out_n) {
     *out_n = 0;
     if (!server || !doc || !doc->text) return NULL;
+    bool param_names = !atomic_load(&server->inlay_hide_parameter_names);
+    bool binding_types = !atomic_load(&server->inlay_hide_binding_types);
+    if (!param_names && !binding_types) return NULL;  /* both turned off */
 
     Iron_Arena    walk_arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags      = iron_diaglist_create();
@@ -535,7 +595,8 @@ IronLsp_InlayHint *ilsp_facade_inlay_hints(IronLsp_Server *server, IronLsp_Docum
     IronLsp_InlayHint *out = NULL;
 
     if (program && !(cancel && atomic_load(cancel))) {
-        HintCtx c = { doc, program, &walk_arena, arena, first_line0 + 1, last_line0 + 1, NULL };
+        HintCtx c = { doc, program, &walk_arena, arena, first_line0 + 1, last_line0 + 1, NULL,
+                      param_names, binding_types };
         Iron_Visitor v = { .ctx = &c, .visit_node = hint_visit, .post_visit = NULL };
         for (int i = 0; i < program->decl_count; i++) {
             if (program->decls[i]) iron_ast_walk(program->decls[i], &v);
@@ -676,4 +737,59 @@ out:
     yyjson_mut_doc_free(rd);
     iron_arena_free(&work_arena);
     iron_arena_free(&body_arena);
+}
+
+/* ── Inlay hint settings ──────────────────────────────────────────── */
+
+static bool apply_flag(yyjson_val *obj, const char *key, _Atomic bool *hide) {
+    yyjson_val *v = yyjson_obj_get(obj, key);
+    if (!v || !yyjson_is_bool(v)) return false;
+    bool new_hide = !yyjson_get_bool(v);
+    return atomic_exchange(hide, new_hide) != new_hide;
+}
+
+bool ilsp_inlay_apply_settings(IronLsp_Server *s, yyjson_val *inlay_hints) {
+    if (!s || !inlay_hints || !yyjson_is_obj(inlay_hints)) return false;
+    bool changed = apply_flag(inlay_hints, "parameterNames", &s->inlay_hide_parameter_names);
+    changed |= apply_flag(inlay_hints, "bindingTypes", &s->inlay_hide_binding_types);
+    return changed;
+}
+
+/* workspace/inlayHint/refresh is a server-to-client request with no
+ * params; the client's null response is not correlated. */
+static void send_inlay_refresh(IronLsp_Server *s) {
+    if (!s->writer) return;
+    Iron_Arena arena = iron_arena_create(1024);
+    yyjson_alc alc = ilsp_json_alc(&arena);
+    yyjson_mut_doc *d = yyjson_mut_doc_new(&alc);
+    if (d) {
+        yyjson_mut_val *root = yyjson_mut_obj(d);
+        yyjson_mut_doc_set_root(d, root);
+        yyjson_mut_obj_add_strcpy(d, root, "jsonrpc", "2.0");
+        yyjson_mut_obj_add_uint(d, root, "id", atomic_fetch_add(&s->next_request_id, 1));
+        yyjson_mut_obj_add_strcpy(d, root, "method", "workspace/inlayHint/refresh");
+        size_t len = 0;
+        char *body = ilsp_json_write_mut(d, &arena, &len);
+        char *heap = (body && len) ? (char *)malloc(len) : NULL;
+        if (heap) {
+            memcpy(heap, body, len);
+            ilsp_writer_enqueue(s->writer, ILSP_PRIO_NOTIFICATION, heap, len);
+        }
+        yyjson_mut_doc_free(d);
+    }
+    iron_arena_free(&arena);
+}
+
+void ilsp_handle_workspace_did_change_configuration(IronLsp_Server    *s,
+                                                    struct yyjson_doc *doc,
+                                                    Iron_Arena        *arena) {
+    (void)arena;
+    if (!s || !doc) return;
+    yyjson_val *params   = yyjson_obj_get(yyjson_doc_get_root(doc), "params");
+    yyjson_val *settings = params ? yyjson_obj_get(params, "settings") : NULL;
+    yyjson_val *iron     = settings ? yyjson_obj_get(settings, "iron") : NULL;
+    yyjson_val *hints    = iron ? yyjson_obj_get(iron, "inlayHints") : NULL;
+    if (ilsp_inlay_apply_settings(s, hints) && s->client_supports_inlay_refresh) {
+        send_inlay_refresh(s);
+    }
 }

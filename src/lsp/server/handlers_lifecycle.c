@@ -24,6 +24,7 @@
 #include "lsp/server/capabilities.h"
 #include "lsp/server/cancel.h"
 #include "lsp/server/dyn_register.h"
+#include "lsp/facade/semantic.h"         /* #311: inlay hint settings */
 #include "lsp/store/workspace.h"          /* Phase 5 Plan 05-02 (D-13): URI->path */
 #include "lsp/store/workspace_index.h"   /* Phase 5 Plan 05-02 (D-13): fmt_opts load */
 #include "lsp/transport/json.h"
@@ -108,6 +109,16 @@ void ilsp_handle_initialize(IronLsp_Server    *s,
      * client-supplied JSON. */
     s->client_supports_snippet = false;
     s->client_supports_document_changes = false;
+    s->client_supports_inlay_refresh = false;
+    /* #311: `initializationOptions.inlayHints` turns hint kinds off
+     * (`{"parameterNames": false}`); the editor's later changes arrive
+     * through workspace/didChangeConfiguration. */
+    {
+        yyjson_val *io = params ? yyjson_obj_get(params, "initializationOptions") : NULL;
+        if (io && yyjson_is_obj(io)) {
+            (void)ilsp_inlay_apply_settings(s, yyjson_obj_get(io, "inlayHints"));
+        }
+    }
     if (client_caps && yyjson_is_obj(client_caps)) {
         yyjson_val *td = yyjson_obj_get(client_caps, "textDocument");
         if (td && yyjson_is_obj(td)) {
@@ -124,6 +135,9 @@ void ilsp_handle_initialize(IronLsp_Server    *s,
         }
         yyjson_val *ws = yyjson_obj_get(client_caps, "workspace");
         if (ws && yyjson_is_obj(ws)) {
+            yyjson_val *ih = yyjson_obj_get(ws, "inlayHint");
+            yyjson_val *rs = (ih && yyjson_is_obj(ih)) ? yyjson_obj_get(ih, "refreshSupport") : NULL;
+            s->client_supports_inlay_refresh = rs && yyjson_is_bool(rs) && yyjson_get_bool(rs);
             yyjson_val *we = yyjson_obj_get(ws, "workspaceEdit");
             if (we && yyjson_is_obj(we)) {
                 yyjson_val *dc = yyjson_obj_get(we, "documentChanges");

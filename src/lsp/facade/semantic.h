@@ -7,6 +7,7 @@
 #include "vendor/yyjson/yyjson.h"
 
 #include <stdatomic.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -46,5 +47,17 @@ void ilsp_handle_text_document_semantic_tokens_full(struct IronLsp_Server *s,
 void ilsp_handle_text_document_inlay_hint(struct IronLsp_Server *s,
                                           struct yyjson_doc     *doc,
                                           Iron_Arena            *arena);
+
+/* Apply an `inlayHints` settings object (`{"parameterNames": false,
+ * "bindingTypes": true}`); a key that is absent or not a bool leaves its
+ * setting as it is. Returns true when a setting changed. */
+bool ilsp_inlay_apply_settings(struct IronLsp_Server *s, yyjson_val *inlay_hints);
+
+/* workspace/didChangeConfiguration: reads settings.iron.inlayHints and,
+ * when a setting changed and the client supports it, sends
+ * workspace/inlayHint/refresh so the editor asks for hints again. */
+void ilsp_handle_workspace_did_change_configuration(struct IronLsp_Server *s,
+                                                    struct yyjson_doc     *doc,
+                                                    Iron_Arena            *arena);
 
 #endif /* IRON_LSP_FACADE_SEMANTIC_H */
