@@ -596,6 +596,11 @@ jobs:
           cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja .
           cmake --build build --target ironls --parallel 4
 
+      # harness.sh builds the iron parser with it so the tree-sitter
+      # highlighting checks run instead of staying pending.
+      - name: Install tree-sitter-cli
+        run: npm install -g tree-sitter-cli@0.26.8
+
       - name: Run plenary e2e harness
         run: |
           export PATH="${{ github.workspace }}/build:$PATH"

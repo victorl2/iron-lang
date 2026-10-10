@@ -94,11 +94,38 @@ return {
   cmd = { 'ironls' },
   filetypes = { 'iron' },
   root_markers = { 'iron.toml', '.git' },
+  -- Same keys as the VS Code extension's iron.* settings. Neovim sends them
+  -- with workspace/didChangeConfiguration once the server is up;
+  -- before_init below also passes them in initializationOptions so the
+  -- first analysis already honors them. Override in init.lua:
+  --   vim.lsp.config('ironls', {
+  --     settings = { iron = { inlayHints = { parameterNames = false } } },
+  --   })
+  -- and toggle at run time with :IronInlayHints parameterNames off.
   settings = {
-    -- reserved for future iron.languageServer.* options (UI-SPEC S4).
+    iron = {
+      inlayHints = {
+        parameterNames = true, -- `area(width: 2.0, height: 3.0)`
+        bindingTypes = true,   -- `val total: Int = ...`
+      },
+    },
   },
   -- initializationOptions mirror the VSCode extension for cross-editor parity.
   init_options = { clientName = 'neovim' },
+  -- ironls publishes diagnostics as the buffer changes and also offers
+  -- textDocument/diagnostic. Neovim uses both when both are advertised and
+  -- shows every diagnostic twice (one namespace each), so keep the push
+  -- stream only.
+  on_init = function(client)
+    client.server_capabilities.diagnosticProvider = nil
+  end,
+  before_init = function(params, config)
+    local iron = config.settings and config.settings.iron
+    if type(iron) == 'table' and type(iron.inlayHints) == 'table' then
+      params.initializationOptions = vim.tbl_extend(
+        'force', params.initializationOptions or {}, { inlayHints = iron.inlayHints })
+    end
+  end,
   -- UI-SPEC S9 — version compatibility range. Phase 7 HARD-22 tightened
   -- this to hard-refuse; the on_attach hook below enforces it.
   -- Non-standard field; harmless to vim.lsp.Config consumers; read by

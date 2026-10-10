@@ -343,6 +343,37 @@ static void test_exit_without_shutdown_sets_exit_code(void) {
     ilsp_exit_fn = orig;
 }
 
+/* ── Test 7 ──────────────────────────────────────────────────────────── */
+/* The client's replies to server-originated requests (registerCapability,
+ * inlayHint/refresh) carry an id and a result or error but no method.
+ * They must be dropped silently: answering them with InvalidRequest makes
+ * Neovim show NO_RESULT_CALLBACK_FOUND on every start. A method-less
+ * message with neither result nor error is still InvalidRequest. */
+static void test_client_response_is_not_answered(void) {
+    Harness h; harness_init(&h);
+
+    dispatch(&h,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\","
+        "\"params\":{\"capabilities\":{}}}");
+    dispatch(&h, "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}");
+    harness_flush(&h);
+    size_t before_len = h.sink_len;
+
+    dispatch(&h, "{\"jsonrpc\":\"2.0\",\"id\":2147483648,\"result\":null}");
+    dispatch(&h, "{\"jsonrpc\":\"2.0\",\"id\":2147483649,"
+                 "\"error\":{\"code\":-32601,\"message\":\"nope\"}}");
+    harness_flush(&h);
+    TEST_ASSERT_EQUAL_size_t(before_len, h.sink_len);
+
+    dispatch(&h, "{\"jsonrpc\":\"2.0\",\"id\":7}");
+    harness_flush(&h);
+    TEST_ASSERT_TRUE(h.sink_len > before_len);
+    TEST_ASSERT_NOT_NULL(memmem(h.sink_buf + before_len, h.sink_len - before_len,
+                                "-32600", 6));
+
+    harness_destroy(&h);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_uninit_rejects_nonlifecycle_request);
@@ -351,5 +382,6 @@ int main(void) {
     RUN_TEST(test_duplicate_initialize_rejected);
     RUN_TEST(test_shutdown_then_request_rejected);
     RUN_TEST(test_exit_without_shutdown_sets_exit_code);
+    RUN_TEST(test_client_response_is_not_answered);
     return UNITY_END();
 }

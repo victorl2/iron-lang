@@ -225,6 +225,72 @@ vim.api.nvim_create_user_command('IronLspDiagnose', function()
   end
 end, { desc = 'Iron LSP: Diagnose (print + copy UI-SPEC S3 bug-report payload)' })
 
+-- ---------------------------------------------------------------------------
+-- Inlay hints
+-- ---------------------------------------------------------------------------
+
+-- Neovim leaves inlay hints off until something enables them. Turn them on
+-- in Iron buffers, as VS Code shows them by default; opt out with
+-- `vim.g.iron_inlay_hints = false` before the server attaches.
+vim.api.nvim_create_autocmd('LspAttach', {
+  group = vim.api.nvim_create_augroup('iron_lsp_attach', { clear = true }),
+  callback = function(args)
+    local client = vim.lsp.get_client_by_id(args.data.client_id)
+    if not client or client.name ~= 'ironls' then return end
+    if vim.g.iron_inlay_hints ~= false and vim.lsp.inlay_hint
+        and client.server_capabilities.inlayHintProvider then
+      vim.lsp.inlay_hint.enable(true, { bufnr = args.buf })
+    end
+  end,
+})
+
+local INLAY_KINDS = { parameterNames = true, bindingTypes = true }
+
+--- Set one iron.inlayHints.* setting on every running ironls client and
+--- send it with workspace/didChangeConfiguration. ironls answers with
+--- workspace/inlayHint/refresh, so visible hints update right away.
+--- @param kind string 'parameterNames' | 'bindingTypes'
+--- @param value boolean|nil nil toggles
+function M.set_inlay_hint(kind, value)
+  if not INLAY_KINDS[kind] then
+    vim.notify('[iron-lsp] unknown inlay hint kind: ' .. tostring(kind)
+      .. ' (parameterNames | bindingTypes)', vim.log.levels.ERROR)
+    return
+  end
+  for _, client in ipairs(get_clients()) do
+    client.settings = client.settings or {}
+    client.settings.iron = client.settings.iron or {}
+    client.settings.iron.inlayHints = client.settings.iron.inlayHints or {}
+    local hints = client.settings.iron.inlayHints
+    if value == nil then
+      value = hints[kind] == false
+    end
+    hints[kind] = value
+    client:notify('workspace/didChangeConfiguration', { settings = client.settings })
+  end
+end
+
+vim.api.nvim_create_user_command('IronInlayHints', function(opts)
+  local kind, state = opts.fargs[1], opts.fargs[2]
+  local value
+  if state == 'on' then value = true
+  elseif state == 'off' then value = false
+  elseif state ~= nil and state ~= 'toggle' then
+    vim.notify('[iron-lsp] usage: :IronInlayHints {parameterNames|bindingTypes} [on|off|toggle]',
+      vim.log.levels.ERROR)
+    return
+  end
+  M.set_inlay_hint(kind, value)
+end, {
+  nargs = '+',
+  desc = 'Iron LSP: turn a kind of inlay hint on or off',
+  complete = function(_, line)
+    local n = #vim.split(line, '%s+', { trimempty = false })
+    if n <= 2 then return { 'parameterNames', 'bindingTypes' } end
+    return { 'on', 'off', 'toggle' }
+  end,
+})
+
 -- Fire ext.activate event at plugin load (UI-SPEC S5 vocabulary).
 M.event('info', 'ext.activate', { editor_version = editor_version_string() })
 
