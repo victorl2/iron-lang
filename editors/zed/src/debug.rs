@@ -112,7 +112,9 @@ pub fn locate(task: &TaskTemplate, label: &str) -> Option<DebugScenario> {
         config["cwd"] = serde_json::Value::String(cwd.clone());
     }
     Some(DebugScenario {
-        label: format!("Debug: {}", label),
+        // The task's label, as Zed's own locators do: the menu already
+        // prefixes debug entries with "debug:".
+        label: label.to_string(),
         adapter: ADAPTER.to_string(),
         build: None,
         config: config.to_string(),

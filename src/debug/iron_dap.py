@@ -104,7 +104,13 @@ def iron_name(c_name):
     return c_name, False
 
 
-def iron_function_name(c_name):
+def iron_function_name(c_name, test=None):
+    """The Iron name of a frame's C function. A `test "..."` block compiles
+    to Iron_iron__test_<n>: it is shown as test "<name>" when the session
+    debugs that one test (`test`), else as test."""
+    m = re.match(r"^(?:Iron_)?iron__test_\d+(.*)$", c_name)
+    if m:
+        return ('test "%s"' % test if test else "test") + m.group(1)
     m = re.match(r"^Iron_(\w+)(.*)$", c_name)
     if m:
         return m.group(1) + m.group(2)
@@ -589,6 +595,7 @@ class Proxy:
         self.synth = {}          # SYNTH_REF_BASE + n -> children (a C array shown as a list)
         self.step_waiter = None  # queue of stops while the adapter steps on its own
         self.synth_seq = SYNTH_REF_BASE
+        self.test = None         # the test block this session debugs, if any
 
     # Output to the client.
     def send(self, msg):
@@ -718,7 +725,7 @@ class Proxy:
                                     "directory or a binary")
             return None
         binary = program
-        test = test_name(a.get("test"))
+        test = self.test = test_name(a.get("test"))
         plan = build_plan(self.iron, program, bool(test)) if a.get("build", True) else None
         if isinstance(plan, str):
             self.respond_error(req, plan)
@@ -858,7 +865,7 @@ class Proxy:
             for f in body.get("stackFrames", []):
                 name = f.get("name")
                 if isinstance(name, str):
-                    f["name"] = iron_function_name(name)
+                    f["name"] = iron_function_name(name, self.test)
                 src = f.get("source") or {}
                 if not is_iron_source(src.get("path") or src.get("name")):
                     f["presentationHint"] = "subtle"

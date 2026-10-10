@@ -86,6 +86,14 @@ for given, want in TEST_NAMES:
     if got != want:
         failed += 1
         print("FAIL: test_name(%r) = %r, want %r" % (given, got, want))
+# Frame names: a test block's C function is shown as the test.
+FRAMES = [(("Iron_main", None), "main"), (("iron__test_1796", "adds"), 'test "adds"'),
+          (("Iron_iron__test_12", None), "test"), (("__lambda_3", None), "func")]
+for (c_name, test), want in FRAMES:
+    got = dap.iron_function_name(c_name, test)
+    if got != want:
+        failed += 1
+        print("FAIL: iron_function_name(%r, %r) = %r, want %r" % (c_name, test, got, want))
 if failed:
     sys.exit(1)
 print("iron eval: %d expressions, %d errors: PASS" % (len(CASES), len(ERRORS)))
