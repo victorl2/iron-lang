@@ -161,7 +161,7 @@ def panic_stop_command(debugger, command, result, _dict):
         return
     bp = target.BreakpointCreateByName("abort")
     bp.AddName("iron-panic")
-    debugger.HandleCommand("target stop-hook add -P %s.PanicStopHook" % __name__)
+    _command(debugger, "target stop-hook add -P %s.PanicStopHook" % __name__)
 
 
 def size_summary(valobj, _dict):
@@ -464,11 +464,23 @@ def locals_command(debugger, command, result, _dict):
         result.AppendMessage(str(v))
 
 
+def _command(debugger, cmd):
+    """Run an LLDB command through the interpreter with a result object.
+    SBDebugger.HandleCommand writes to the debugger's output stream, and
+    in lldb-dap on Windows that ends the adapter (#388)."""
+    res = lldb.SBCommandReturnObject()
+    debugger.GetCommandInterpreter().HandleCommand(cmd, res)
+    return res.Succeeded()
+
+
 def __lldb_init_module(debugger, _dict):
-    debugger.HandleCommand("command script add -o -f %s.panic_stop_command iron-panic-stop"
-                           % __name__)
+    _command(debugger, "command script add -o -f %s.panic_stop_command iron-panic-stop"
+             % __name__)
     m = __name__
-    run = debugger.HandleCommand
+
+    def run(cmd):
+        return _command(debugger, cmd)
+
     run('command script add -o -f %s.locals_command locals' % m)
     run('type summary add -F %s.string_summary "Iron_String"' % m)
     run('type synthetic add -x "^Iron_List_" -l %s.ListProvider' % m)
