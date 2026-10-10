@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "properties": {
+    "request": {
+      "type": "string",
+      "enum": ["launch"],
+      "default": "launch",
+      "description": "Only launch is supported."
+    },
+    "program": {
+      "type": "string",
+      "description": "A .iron file or a package directory (built with `iron build --debug` first), or a binary that is already built."
+    },
+    "args": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Arguments for the program."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Working directory of the program (default: the file's directory, or the package)."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Environment variables for the program."
+    },
+    "stopOnEntry": {
+      "type": "boolean",
+      "default": false,
+      "description": "Stop at the start of the program."
+    },
+    "stopOnPanic": {
+      "type": "boolean",
+      "default": true,
+      "description": "Stop on the Iron line when the program panics."
+    },
+    "build": {
+      "type": "boolean",
+      "default": true,
+      "description": "Build .iron files and packages with --debug before debugging."
+    }
+  },
+  "required": ["program"]
+}

@@ -31,6 +31,11 @@ compatible_ironls = ">= 4.0.0, < 5.0.0"
 [version_constraints]
 ironls = ">= 4.0.0, < 5.0.0"
 
+# Debugging (#312, #347): the `Iron` debug adapter runs `iron dap`, the
+# adapter shared with VS Code and Neovim (src/debug.rs). Its launch
+# configuration schema is debug_adapter_schemas/Iron.json.
+[debug_adapters.Iron]
+
 # Minimum-permissions capability grant per RESEARCH §V4 Access Control.
 # zed_extension_api::download_file only succeeds against hosts the extension
 # has declared a capability for. Locking to github.com alone keeps the
