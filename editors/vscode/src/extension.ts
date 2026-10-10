@@ -36,6 +36,7 @@ import {
 import { discoverIronls, probeIronlsVersion } from './server';
 import { runDiagnose } from './diagnose';
 import { logEvent } from './log';
+import { registerDebugger } from './debug';
 
 let client: LanguageClient | undefined;
 let output: vscode.OutputChannel | undefined;
@@ -46,6 +47,8 @@ export async function activate(
 ): Promise<void> {
   output = vscode.window.createOutputChannel('Iron Language Server');
   context.subscriptions.push(output);
+  // The iron debug type works without the language server (#312).
+  registerDebugger(context, output);
 
   logEvent(output, 'info', 'ext.activate', {
     editor_version: vscode.version,
