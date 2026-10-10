@@ -8,6 +8,7 @@
  */
 
 #include "lir/emit_helpers.h"
+#include "lir/emit_c.h"
 #include "vendor/stb_ds.h"
 
 #include <stdio.h>
@@ -961,7 +962,7 @@ void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
         "    ((%s *)fp.addr)[0] = value;\n"
         "    %s box; box.inner = fp; return box;\n"
         "}\n"
-        "static %s *%s_unwrap(%s *box) {\n"
+        "%s %s *%s_unwrap(%s *box) {\n"
         "    /* Pitfall 5: returns bare T* (8B), NOT Iron_FatPtr (16B) */\n"
         "    if (!box || !box->inner.addr) {\n"
         "        iron_panic_null_box();\n"
@@ -976,7 +977,10 @@ void emit_ensure_box(EmitCtx *ctx, const Iron_Type *elem_type) {
         "}\n",
         /* _new */ struct_name, struct_name, elem_c,
         elem_c, elem_c, struct_name,
-        /* _unwrap */ elem_c, struct_name, struct_name,
+        /* _unwrap: inlined in --debug builds so a null unwrap stops the
+         * debugger on the Iron line (IRON_CHECK_FN, #388) */
+        iron_lir_emit_debug_build() ? "IRON_CHECK_FN" : "static",
+        elem_c, struct_name, struct_name,
         elem_c,
         /* _is_null */ struct_name, struct_name,
         /* _null_val */ struct_name, struct_name,

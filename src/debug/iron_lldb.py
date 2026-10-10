@@ -120,7 +120,9 @@ class SlotProvider:
 # Every Iron panic (a failed assert, an index out of bounds, a missing map
 # key, out of memory) prints its message and ends in the C library's
 # abort(). `iron-panic-stop` puts a breakpoint there; when it is hit, the
-# stop hook selects the Iron frame that panicked.
+# stop hook selects the Iron frame that panicked. A --debug build stops
+# earlier for the panics of its checks, on a trap in the Iron function
+# itself (iron_trap_stop).
 
 PANIC_FUNCTIONS = ("abort", "__abort", "raise", "__pthread_kill", "pthread_kill",
                    "__pthread_kill_implementation", "gsignal")
@@ -138,12 +140,42 @@ def iron_panic_frame(thread):
     return -1
 
 
+def iron_trap_message(frame):
+    """The panic message a --debug build's debug trap left, or ""."""
+    v = frame.EvaluateExpression("(const char *)iron_debug_panic_message")
+    s = v.GetSummary() if v and v.IsValid() and v.GetError().Success() else None
+    if not s or len(s) < 2 or not s.startswith('"'):
+        return ""
+    return s[1:-1]
+
+
+def iron_trap_stop(thread):
+    """True when the thread stopped on a --debug build's debug trap (#388):
+    a check that failed under a debugger runs a breakpoint instruction in
+    the Iron function, before the panic."""
+    if thread.GetStopReason() not in (lldb.eStopReasonException, lldb.eStopReasonSignal):
+        return False
+    if thread.GetStopReason() == lldb.eStopReasonSignal and \
+            thread.GetStopReasonDataAtIndex(0) != 5:  # SIGTRAP
+        return False
+    f = thread.GetFrameAtIndex(0)
+    if not (f.GetLineEntry().GetFileSpec().GetFilename() or "").endswith(".iron"):
+        return False
+    return bool(iron_trap_message(f))
+
+
 class PanicStopHook:
     def __init__(self, target, extra_args, _dict):
         self.target = target
 
     def handle_stop(self, exe_ctx, stream):
         thread = exe_ctx.GetThread()
+        if iron_trap_stop(thread):
+            f = thread.GetFrameAtIndex(0)
+            e = f.GetLineEntry()
+            stream.Print("Iron panic at %s:%d: %s\n"
+                         % (e.GetFileSpec().GetFilename(), e.GetLine(), iron_trap_message(f)))
+            return True
         i = iron_panic_frame(thread)
         if i >= 0:
             thread.SetSelectedFrame(i)

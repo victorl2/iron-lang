@@ -3051,6 +3051,15 @@ if(Python3_EXECUTABLE)
                    ${CMAKE_SOURCE_DIR}/src/debug/iron_dap.py)
   set_tests_properties(debug_dap_setup PROPERTIES TIMEOUT 60)
 endif()
+# A --debug build names C variables from HIR names; a tuple temporary's
+# name pointed at a dead stack buffer (stack use after return in ironc).
+if(NOT WIN32)
+  add_test(NAME debug_tuple_names
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_tuple_names.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_tuple_names PROPERTIES TIMEOUT 120
+    ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1")
+endif()
 # #312: a panic stops the debugger on the Iron line (iron debug, iron dap).
 if(NOT WIN32)
   add_test(NAME debug_panic_smoke

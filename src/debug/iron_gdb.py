@@ -26,7 +26,9 @@ import gdb.printing
 # Break on panic: every Iron panic (a failed assert, an index out of
 # bounds, a missing map key, out of memory) prints its message and ends in
 # the C library's abort(). With `break abort` (iron debug and iron dap set
-# it), a stop there selects the Iron frame that panicked.
+# it), a stop there selects the Iron frame that panicked. A --debug build
+# stops earlier for the panics of its checks, on a trap in the Iron
+# function itself (iron_trap_frame).
 
 PANIC_FUNCTIONS = ("abort", "__abort", "raise", "__pthread_kill", "pthread_kill",
                    "__pthread_kill_implementation", "gsignal")
@@ -53,7 +55,56 @@ def iron_panic_frame():
     return None
 
 
+def iron_trap_message():
+    """The panic message a --debug build's debug trap left, or ""."""
+    try:
+        return gdb.parse_and_eval("(const char *)iron_debug_panic_message").string()
+    except (gdb.error, UnicodeDecodeError):
+        return ""
+
+
+def iron_trap_frame(event):
+    """The Iron frame of a stop on a --debug build's debug trap (#388): a
+    check that failed under a debugger runs a breakpoint instruction in
+    the Iron function, before the panic. None for any other stop."""
+    # gdb reports a SIGTRAP that hit no breakpoint as a plain StopEvent.
+    if isinstance(event, gdb.BreakpointEvent) or \
+            (isinstance(event, gdb.SignalEvent) and event.stop_signal != "SIGTRAP"):
+        return None
+    try:
+        f = gdb.newest_frame()
+    except gdb.error:
+        return None
+    sal = f.find_sal()
+    if sal.symtab is None or not sal.symtab.filename.endswith(".iron"):
+        return None
+    if not iron_trap_message():
+        return None
+    return f
+
+
+def _step_over_brk(f):
+    """On AArch64 the trap (brk #0xf000) leaves the pc on itself, and a
+    continue would run it again: move past it, still on the Iron line."""
+    try:
+        if not f.architecture().name().startswith("aarch64"):
+            return
+        pc = f.pc()
+        word = int.from_bytes(bytes(gdb.selected_inferior().read_memory(pc, 4)), "little")
+        if word == 0xd43e0000:
+            gdb.execute("set var $pc = %d" % (pc + 4), to_string=True)
+    except (gdb.error, gdb.MemoryError, ValueError):
+        pass
+
+
 def _on_stop(event):
+    t = iron_trap_frame(event)
+    if t is not None:
+        _step_over_brk(t)
+        sal = t.find_sal()
+        gdb.write("Iron panic at %s:%d: %s\n"
+                  % (sal.symtab.filename.split("/")[-1], sal.line, iron_trap_message()))
+        return
     f = iron_panic_frame()
     if f is not None:
         f.select()
