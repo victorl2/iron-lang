@@ -176,7 +176,12 @@ and a build task:
 Parameters and local bindings show under their Iron names (`w`, `total`);
 a name used twice in one function, or one that is also a C keyword,
 carries a suffix (`total_14`). The compiler's own temporaries appear as
-`_v12`.
+`_v12`: a C name that starts with `_` is never an Iron binding. A `var`
+that a closure captures lives in a shared cell and appears as
+`_ref_count`, a pointer to it; inside the closure, each captured binding
+appears the same way. The `locals` command that the formatters below add
+to gdb and LLDB lists the Iron bindings only: it hides the temporaries
+and shows `_ref_count` as `count` with its value.
 
 `lib/debug/` in the Iron installation holds formatters that show values
 as Iron values: a `String` as its text, a list or set as its elements,
