@@ -1,0 +1,26 @@
+-- A string built only to be compared (a concatenation, a method result, an
+-- interpolation) is owned by the comparison and released after it. It was
+-- never released: every such comparison leaked the string (the leak oracle
+-- shows it; strings short enough to be stored inline do not allocate).
+func same(a: String) -> Bool {
+    return a == a + a or "c" <= a.repeat(1) and a.len() < 0
+}
+
+func main() {
+    val s = "a string long enough to live on the heap"
+    val b = s == s + "x"
+    println("{b} {same(s)}")
+    if s + "y" != s {
+        println("different")
+    }
+    val c = s.upper() < s
+    val d = "{s}!" > s.lower()
+    println("{c} {d}")
+    var n = 0
+    for i in range(3) {
+        if s.replace("heap", "stack") != s.repeat(2) {
+            n += 1
+        }
+    }
+    println("{n}")
+}

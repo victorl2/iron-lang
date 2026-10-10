@@ -2248,10 +2248,15 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             TempOwned *temps = NULL;
             IronHIR_Expr *ops[2] = { expr->binop.left, expr->binop.right };
             IronLIR_ValueId vals[2] = { left, right };
-            for (int i = 0; i < 2; i++)
-                if (ops[i] && ops[i]->type && type_is_rc_like(ops[i]->type) &&
-                    rc_expr_transfers_ownership(ops[i]))
+            /* Likewise an owned string (or other droppable value) built
+             * just to be compared (`s == s + "x"`, `a.upper() < b`) was
+             * never released. */
+            for (int i = 0; i < 2; i++) {
+                if (!ops[i] || !ops[i]->type) continue;
+                if (type_is_rc_like(ops[i]->type) ? rc_expr_transfers_ownership(ops[i])
+                                                  : !hir_expr_is_place(ops[i]))
                     note_owned_temp(ctx, &temps, ops[i], vals[i], span);
+            }
             release_owned_temps(ctx, &temps, span);
         }
         return res;
