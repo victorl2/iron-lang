@@ -3009,6 +3009,12 @@ if(NOT WIN32 AND Python3_Interpreter_FOUND)
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/conditions.iron
                    $<TARGET_FILE:iron> dap)
   set_tests_properties(debug_dap_eval_smoke PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  # What iron dap, iron debug and iron debug --check say when Python,
+  # lldb-dap / gdb 14+ or a debugger is missing (PATH of our own).
+  add_test(NAME debug_setup_messages
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_setup_messages.sh
+                   $<TARGET_FILE:iron> ${Python3_EXECUTABLE})
+  set_tests_properties(debug_setup_messages PROPERTIES TIMEOUT 120)
 endif()
 # The adapter's Iron expression evaluator against a fake debugger (any host).
 if(Python3_EXECUTABLE)
