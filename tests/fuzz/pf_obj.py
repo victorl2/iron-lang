@@ -997,19 +997,19 @@ class ObjGen(Gen):
         et = self.ta if typ == '[Ta]' else self.tb
         e = self.fresh('e')
         lc = ctx.sub(loop=ctx.loop + 1, in_defer=False)
-        self.frozen = getattr(self, 'frozen', set())
-        self.frozen.add(n)
+        self.frozen = getattr(self, 'frozen', [])
+        self.frozen.append(n)
         self.push()
         eu = self.bind(e, et.name, False)
         body = self.block(lc, r.randint(1, 2), depth - 1)
         self.pop()
-        self.frozen.discard(n)
+        self.frozen.remove(n)
         return [ObjForIn(e, eu, n, self.uid(n), body)]
 
     def names(self, typ, mut=None):
         ns = super().names(typ, mut)
         if mut:
-            fr = getattr(self, 'frozen', set())
+            fr = getattr(self, 'frozen', [])
             ns = [x for x in ns if x not in fr]
         return ns
 

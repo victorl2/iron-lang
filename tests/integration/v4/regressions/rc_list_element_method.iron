@@ -25,4 +25,12 @@ func main() {
     val shared: [rc Counter] = [rc Counter(9)]
     shared[0].bump(1)
     println("{shared[0].get()}")
+    -- an rc field and an rc binding as receivers
+    val h = Holder(rs[1])
+    val r = rc Counter(3)
+    println("{h.c.get()} {r.get()}")
+}
+
+object Holder {
+    val c: rc Counter
 }

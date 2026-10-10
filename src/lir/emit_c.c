@@ -1158,7 +1158,9 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
             return;
         }
     }
-    if (emit_val_is_heap_ptr(fn, vid)) {
+    /* (A load of a heap binding's slot is its Iron_FatPtr handle too: the
+     * slot is never promoted to SSA, so the load is not the allocation.) */
+    if (emit_val_is_heap_ptr(fn, vid) || emit_val_is_heap_fat_ptr(fn, vid)) {
         if (emit_val_is_heap_fat_ptr(fn, vid)) {
             const char *pointee = emit_fat_ptr_pointee_type_c(fn, vid, ctx);
             iron_strbuf_appendf(sb, "((%s *)(", pointee ? pointee : "void");
@@ -5951,6 +5953,15 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 Iron_Type *a0t = emit_get_value_type(fn, arg_id);
                 IronLIR_Func *cfn0 = emit_find_ir_func(ctx, callee_ir_name);
                 Iron_Type *p0t = (cfn0 && cfn0->param_count > 0) ? cfn0->params[0].type : NULL;
+                if (a0t && a0t->kind == IRON_TYPE_RC && a0t->rc.inner &&
+                    p0t && p0t->kind == IRON_TYPE_OBJECT &&
+                    iron_type_equals(a0t->rc.inner, p0t)) {
+                    /* An rc handle (`T *` in C) for a by-value receiver. */
+                    iron_strbuf_appendf(sb, "(*");
+                    emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ")");
+                    continue;
+                }
                 if (a0t && a0t->kind == IRON_TYPE_PTR && a0t->ptr.pointee &&
                     p0t && p0t->kind == IRON_TYPE_OBJECT &&
                     iron_type_equals(a0t->ptr.pointee, p0t)) {

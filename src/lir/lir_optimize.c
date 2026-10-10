@@ -6372,6 +6372,10 @@ static void run_function_inlining(IronLIR_Module *module,
                         Iron_Type *pt = callee->params[ai].type;
                         if (at && pt && at->kind == IRON_TYPE_PTR && pt->kind != IRON_TYPE_PTR)
                             arg_mismatch = true;
+                        /* (An rc handle for a by-value receiver, `r.m()` or
+                         * `rs[0].m()` with r: rc T, is a T * in C.) */
+                        if (at && pt && at->kind == IRON_TYPE_RC && pt->kind == IRON_TYPE_OBJECT)
+                            arg_mismatch = true;
                     }
                     if (arg_mismatch) continue;
                 }

@@ -135,7 +135,7 @@ class CollGen(Gen):
 
     def __init__(self, rng):
         super().__init__(rng)
-        self.frozen = set()     # collections iterated by an enclosing loop
+        self.frozen = []        # collections iterated by enclosing loops (a multiset)
 
     # ------------------------------------------------------------ scope
     def names(self, typ, mut=None):
@@ -579,12 +579,12 @@ class CollGen(Gen):
         name, typ = r.choice(ns)
         x = self.fresh('x')
         lc = ctx.sub(loop=ctx.loop + 1, in_defer=False)
-        self.frozen.add(name)
+        self.frozen.append(name)
         self.push()
         xu = self.bind(x, 'Int' if typ == LI else S)
         body = self.block(lc, r.randint(1, 3), depth - 1)
         self.pop()
-        self.frozen.discard(name)
+        self.frozen.remove(name)
         return [ForIn(x, self.ref(name), body, uid=xu)]
 
     def s_lfunc(self, ctx, depth):
@@ -711,7 +711,7 @@ class CollGen(Gen):
         name, typ = r.choice(ns)
         acc = self.fresh('v')
         accu = self.bind(acc, 'Int', True)
-        self.frozen.add(name)
+        self.frozen.append(name)
         self.push()
         if typ in MAPS:
             kn, vn = self.fresh('k'), self.fresh('x')
@@ -728,7 +728,7 @@ class CollGen(Gen):
             rhs = Bin('*', kexpr, Lit(r.randint(1, 9)))
             names, uids = [kn], [ku]
         self.pop()
-        self.frozen.discard(name)
+        self.frozen.remove(name)
         out = [Decl(acc, Lit(0), True, uid=accu),
                ForMap(names, uids, self.ref(name), Block([Assign(acc, '+=', rhs, uid=accu)]))]
         if not ctx.pure:
