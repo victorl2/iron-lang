@@ -72,3 +72,27 @@ val s = "\u{e9} \{x\}"
       (escape_sequence)
       (escape_sequence)
       (escape_sequence))))
+
+================================================================================
+A string holding a closing brace inside a nested interpolation
+================================================================================
+
+func main() {
+    println("{"a{"}"}b"}")
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list)
+    body: (block
+      (expression_statement
+        (call_expression
+          function: (identifier)
+          (string_literal
+            (interpolation
+              (string_literal
+                (interpolation
+                  (string_literal))))))))))
