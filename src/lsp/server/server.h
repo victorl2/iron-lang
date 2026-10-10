@@ -99,6 +99,17 @@ typedef struct IronLsp_Server {
      * const-after-initialize (mutated only in ilsp_handle_initialize). */
     bool                      client_supports_snippet;
     bool                      client_supports_document_changes;
+
+    /* #311: inlay hint settings, from initializationOptions.inlayHints
+     * and workspace/didChangeConfiguration (settings.iron.inlayHints):
+     * `parameterNames` (`area(w: 2, h: 3)`) and `bindingTypes`
+     * (`val n: Int = ...`). Both shown by default, so the zero value
+     * means "shown". Read by document workers, written by the reader. */
+    _Atomic bool              inlay_hide_parameter_names;
+    _Atomic bool              inlay_hide_binding_types;
+    /* workspace.inlayHint.refreshSupport: the server may ask the client
+     * to request hints again after a settings change. */
+    bool                      client_supports_inlay_refresh;
 } IronLsp_Server;
 
 #endif /* IRON_LSP_SERVER_SERVER_H */

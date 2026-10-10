@@ -223,6 +223,9 @@ const IronLsp_HandlerEntry ilsp_handler_table[] = {
      * Capability handled by capabilities.c's diagnosticProvider special-case
      * (workspaceDiagnostics=true in Plan 06). caps_has dedups. */
     { "workspace/diagnostic",              ilsp_handle_workspace_diagnostic,           true,  "diagnosticProvider"    },
+    /* #311: inlay hint settings. "didChangeC" < "didChangeW" ('C' 0x43 <
+     * 'W' 0x57). A notification: no capability, no response. */
+    { "workspace/didChangeConfiguration",  ilsp_handle_workspace_did_change_configuration, false, NULL                },
     { "workspace/didChangeWatchedFiles",   ilsp_handle_didChangeWatchedFiles,          false, NULL                    },
     /* Plan 03 Task 03 (NAV-08): workspace/symbol. */
     { "workspace/symbol",                  ilsp_handle_workspace_symbol,               true,  "workspaceSymbolProvider"},
