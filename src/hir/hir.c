@@ -76,10 +76,13 @@ IronHIR_VarId iron_hir_alloc_var(IronHIR_Module *mod, const char *name,
     IronHIR_VarId id = mod->next_var_id++;
     IronHIR_VarInfo info;
     info.id         = id;
-    /* FIX-03 / AUDIT-04 §5: SAFETY — `name` points into the AST parser arena
-     * for every caller in hir_lower.c; the HIR module must be destroyed
-     * before the parser arena (see file-header comment above). */
-    info.name       = name;
+    /* The name is copied into the module's arena: callers pass names from
+     * the parser arena but also stack buffers (`__tuple_tmp_N`,
+     * `__ca_tmpN` in hir_lower.c), which were read after their frame was
+     * gone when --debug named the C variables (a stack use after return,
+     * and nondeterministic --debug C). */
+    info.name       = name ? iron_arena_strdup(mod->arena, name, strlen(name)) : NULL;
+    if (name && !info.name) iron_oom_abort("hir.c:iron_hir_alloc_var name");
     info.type       = type;
     info.is_mutable = is_mutable;
     info.is_boxed   = false;
