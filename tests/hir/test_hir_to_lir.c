@@ -2383,9 +2383,9 @@ void test_h2l_two_params_in_while_loop(void) {
  * not on every iteration in the header block.
  * Pattern:
  *   for x in [1, 2, 3] { }
- *   -> entry: alloca for_count
+ *   -> entry: alloca __for_count
  *   -> pre_header: GET_FIELD .count  (only once)
- *   -> header: LOAD from for_count   (no GET_FIELD here)
+ *   -> header: LOAD from __for_count   (no GET_FIELD here)
  */
 void test_h2l_for_loop_count_hoisted(void) {
     Iron_Span span    = zero_span();
@@ -2427,8 +2427,8 @@ void test_h2l_for_loop_count_hoisted(void) {
     IronLIR_Func *lf = lir->funcs[0];
     TEST_ASSERT_NOT_NULL(lf);
 
-    /* 1. Entry block must have alloca named "for_count" */
-    TEST_ASSERT_TRUE_MESSAGE(entry_has_alloca(lf, "for_count"),
+    /* 1. Entry block must have alloca named "__for_count" */
+    TEST_ASSERT_TRUE_MESSAGE(entry_has_alloca(lf, "__for_count"),
         "entry block must have alloca for hoisted loop bound (for_count)");
 
     /* 2. Find pre_header block (label starts with "for_pre") */

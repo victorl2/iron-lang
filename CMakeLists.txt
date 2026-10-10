@@ -3002,6 +3002,20 @@ if(NOT WIN32 AND Python3_Interpreter_FOUND)
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/stepping.iron
                    $<TARGET_FILE:iron> dap)
   set_tests_properties(debug_dap_smoke PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  # Iron expressions in evaluate, conditional breakpoints, hit counts,
+  # logpoints, and lists kept as C arrays shown as lists.
+  add_test(NAME debug_dap_eval_smoke
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_eval_client.py
+                   ${CMAKE_SOURCE_DIR}/tests/integration/debug/conditions.iron
+                   $<TARGET_FILE:iron> dap)
+  set_tests_properties(debug_dap_eval_smoke PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+endif()
+# The adapter's Iron expression evaluator against a fake debugger (any host).
+if(Python3_EXECUTABLE)
+  add_test(NAME debug_iron_eval
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/test_iron_eval.py
+                   ${CMAKE_SOURCE_DIR}/src/debug/iron_dap.py)
+  set_tests_properties(debug_iron_eval PROPERTIES TIMEOUT 60)
 endif()
 # #312: a panic stops the debugger on the Iron line (iron debug, iron dap).
 if(NOT WIN32)

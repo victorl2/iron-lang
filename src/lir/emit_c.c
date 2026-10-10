@@ -9125,7 +9125,7 @@ static void debug_name_value(EmitValueName **map, DebugTakenName **taken,
 
 /* --debug: the Iron names of a function's parameters, `var` slots and
  * `val` values, for emit_vname. */
-static EmitValueName *debug_value_names(IronLIR_Func *fn, Iron_Arena *arena,
+static EmitValueName *debug_value_names(EmitCtx *ctx, IronLIR_Func *fn, Iron_Arena *arena,
                                         EmitValueName **ref_names) {
     EmitValueName *map = NULL;
     DebugTakenName *taken = NULL;
@@ -9134,6 +9134,25 @@ static EmitValueName *debug_value_names(IronLIR_Func *fn, Iron_Arena *arena,
          * starting with `_` is never an Iron binding (lib/debug hides it). */
         const char *pn = fn->params[i].name;
         if (pn && pn[0] == '_') continue;
+        /* A list parameter passed as a C array is copied into a slot of its
+         * own name; the slot holds the current value, so it takes the name
+         * and the parameter keeps `_vN` (it showed twice, as xs and xs_3). */
+        bool has_slot = false;
+        bool c_array = fn->params[i].type && fn->params[i].type->kind == IRON_TYPE_ARRAY &&
+                       emit_get_array_param_mode(ctx, fn->name, i) != ARRAY_PARAM_LIST;
+        for (int bi = 0; c_array && bi < fn->block_count && !has_slot; bi++) {
+            IronLIR_Block *b = fn->blocks[bi];
+            for (int ii = 0; ii < b->instr_count; ii++) {
+                IronLIR_Instr *in = b->instrs[ii];
+                if (in->kind == IRON_LIR_ALLOCA && !in->alloca.global_name &&
+                    !in->alloca.is_boxed && in->alloca.name_hint && pn &&
+                    strcmp(in->alloca.name_hint, pn) == 0) {
+                    has_slot = true;
+                    break;
+                }
+            }
+        }
+        if (has_slot) continue;
         debug_name_value(&map, &taken, (IronLIR_ValueId)(i + 1), pn, arena);
     }
     for (int bi = 0; bi < fn->block_count; bi++) {
@@ -9142,7 +9161,7 @@ static EmitValueName *debug_value_names(IronLIR_Func *fn, Iron_Arena *arena,
             IronLIR_Instr *in = b->instrs[ii];
             if (in->kind != IRON_LIR_ALLOCA || in->alloca.global_name) continue;
             const char *h = in->alloca.name_hint;
-            if (!h || h[0] == '_' || strcmp(h, "for_idx") == 0) continue;
+            if (!h || h[0] == '_') continue;
             /* A boxed slot (a var a closure captures) is reached through a
              * `#define _vN (*_vN_box)` macro: a macro named after the
              * binding would also rewrite struct fields of that name. It
@@ -9165,7 +9184,7 @@ static EmitValueName *debug_value_names(IronLIR_Func *fn, Iron_Arena *arena,
 void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     EmitValueName *names = NULL, *refs = NULL;
     if (g_emit_line_directives) {
-        names = debug_value_names(fn, ctx->arena, &refs);
+        names = debug_value_names(ctx, fn, ctx->arena, &refs);
         emit_set_value_names(names);
         g_debug_ref_names = refs;
     }

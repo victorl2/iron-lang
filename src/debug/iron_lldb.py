@@ -169,6 +169,14 @@ def size_summary(valobj, _dict):
         "count").GetValueAsUnsigned(0)
 
 
+def list_summary(valobj, _dict):
+    """A list as Iron writes it: [1, 2, 3] (the first 20 elements)."""
+    n = valobj.GetNonSyntheticValue().GetChildMemberWithName("count").GetValueAsUnsigned(0)
+    shown = min(n, 20)
+    parts = [_text(valobj.GetChildAtIndex(i)) for i in range(shown)]
+    return "[%s%s]" % (", ".join(parts), ", ..." if n > shown else "")
+
+
 # ── Enums, interfaces, rc / weak rc, closures ───────────────────────────────
 
 
@@ -304,8 +312,12 @@ def rc_summary(valobj, _dict):
         _rc_depth[0] += 1
         try:
             # rc [T] holds the list in `items`.
-            body = _text(items) if obj.GetNumChildren() == 1 and items.IsValid() else \
-                "%s %s" % (_short(obj.GetTypeName() or ""), _text(obj))
+            if obj.GetNumChildren() == 1 and items.IsValid():
+                body = _text(items)
+            else:
+                # The object summary already starts with the type's name.
+                name, text = _short(obj.GetTypeName() or ""), _text(obj)
+                body = text if text.startswith(name + " {") else "%s %s" % (name, text)
         finally:
             _rc_depth[0] -= 1
     # weak counts one extra reference shared by the strong ones.
@@ -379,8 +391,36 @@ def _register_values(debugger):
     # shape rather than their name (LLDB 16 and later).
     for kind, fn, rec in (("summary", "-F %s.tagged_summary", "is_tagged"),
                           ("synthetic", "-l %s.TaggedProvider", "is_tagged"),
-                          ("summary", "-F %s.rc_summary", "is_rc_pointer")):
+                          ("summary", "-F %s.rc_summary", "is_rc_pointer"),
+                          ("summary", "-F %s.object_summary", "is_object")):
         run('type %s add %s --recognizer-function %s.%s' % (kind, fn % m, m, rec))
+
+
+RUNTIME_TYPES = ("Iron_String", "Iron_RcHeader", "Iron_Closure", "Iron_Arena_RT",
+                 "Iron_FatPtr", "Iron_Mutex", "Iron_Channel")
+
+
+def is_object(sbtype, _dict):
+    """An Iron object: a struct named Iron_<Type> that is not a runtime
+    type, a collection, an optional or an enum."""
+    t = sbtype.GetCanonicalType()
+    name = (t.GetName() or "").replace("struct ", "")
+    if t.GetTypeClass() != lldb.eTypeClassStruct or not name.startswith("Iron_"):
+        return False
+    if name in RUNTIME_TYPES or name.startswith(("Iron_List_", "Iron_Map_", "Iron_Set_",
+                                                 "Iron_Optional_", "Iron_SplitList_")):
+        return False
+    return not is_tagged(sbtype, _dict) and t.GetNumberOfFields() > 0
+
+
+def object_summary(valobj, _dict):
+    """An object: Point {x = 3, y = 4}, as rc values show it."""
+    v = valobj.GetNonSyntheticValue()
+    name = _short((v.GetType().GetCanonicalType().GetName() or "").replace("struct ", ""))
+    n = v.GetNumChildren()
+    parts = ["%s = %s" % (c.GetName(), _text(c))
+             for c in (v.GetChildAtIndex(i) for i in range(min(n, 8)))]
+    return "%s {%s%s}" % (name, ", ".join(parts), ", ..." if n > 8 else "")
 
 
 def optional_summary(valobj, _dict):
@@ -432,7 +472,7 @@ def __lldb_init_module(debugger, _dict):
     run('command script add -o -f %s.locals_command locals' % m)
     run('type summary add -F %s.string_summary "Iron_String"' % m)
     run('type synthetic add -x "^Iron_List_" -l %s.ListProvider' % m)
-    run('type summary add -e -x "^Iron_List_" -F %s.size_summary' % m)
+    run('type summary add -e -x "^Iron_List_" -F %s.list_summary' % m)
     run('type synthetic add -x "^Iron_(Map|Set)_" -l %s.SlotProvider' % m)
     run('type summary add -e -x "^Iron_(Map|Set)_" -F %s.size_summary' % m)
     run('type summary add -x "^Iron_Optional_" -F %s.optional_summary' % m)
