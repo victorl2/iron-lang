@@ -113,8 +113,14 @@ options and the receiver type).
 **Integers** are decimal (`42`), hexadecimal (`0xFF`, `0Xff`) or binary
 (`0b1010`). Digits may not be separated by `_`, and a letter directly after a
 number is an error. An integer literal has type `Int` (64-bit signed) unless
-it initializes a binding or field of another integer type, in which case it
-takes that type. Hexadecimal and binary literals must fit in 64 bits.
+it initializes a binding or field of another integer type, or is an operand
+whose partner has another integer type (`x + 1` with `x: Int8` is `Int8`
+arithmetic), in which case it takes that type. A constant expression
+(literals combined with `-`, `~` and the arithmetic, bitwise and shift
+operators) behaves like the literal it folds to: `x + (2 + 3)` is
+`x + 5`. A literal or constant expression whose value does not fit the type
+it takes is an error (`E0292`). Hexadecimal and binary literals must fit in
+64 bits.
 
 **Floats** are a digit sequence, a `.` and a digit sequence: `3.25`,
 `0.5`. There is no exponent form and no trailing-dot form (`1.` and `.5`

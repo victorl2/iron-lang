@@ -1114,6 +1114,13 @@ add_test(NAME diag_arena_owned_fields
         -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/arena_owned_fields.expected_help
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/arena_owned_fields.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+add_test(NAME diag_constant_range
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/constant_range.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/constant_range.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/constant_range.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 add_test(NAME diag_comptime_unsupported
     COMMAND ${CMAKE_COMMAND}
         -DIRONC=$<TARGET_FILE:ironc>
