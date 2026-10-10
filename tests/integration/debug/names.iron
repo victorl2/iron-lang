@@ -1,0 +1,16 @@
+func apply(f: func(Int) -> Int, v: Int) -> Int {
+    return f(v)
+}
+
+func main() {
+    var count = 40
+    val step = 2
+    val greeting = "hi"
+    val bump = func(x: Int) -> Int {
+        count = count + step
+        val doubled = x * 2
+        return doubled + count
+    }
+    val r = apply(bump, 3)
+    println("{greeting} {r} {count}")
+}

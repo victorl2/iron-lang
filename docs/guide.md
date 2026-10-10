@@ -198,11 +198,21 @@ from Microsoft, or CodeLLDB) with a build task:
 Parameters and local bindings show under their Iron names (`w`, `total`);
 a name used twice in one function, or one that is also a C keyword,
 carries a suffix (`total_14`). The compiler's own temporaries appear as
-`_v12`.
+`_v12`: a C name that starts with `_` is never an Iron binding. A `var`
+that a closure captures lives in a shared cell and appears as
+`_ref_count`, a pointer to it; inside the closure, each captured binding
+appears the same way. The `locals` command that the formatters below add
+to gdb and LLDB lists the Iron bindings only: it hides the temporaries
+and shows `_ref_count` as `count` with its value.
 
 `lib/debug/` in the Iron installation holds formatters that show values
 as Iron values: a `String` as its text, a list or set as its elements,
-a map as its entries and a `T?` as its value or `null`. Load
+a map as its entries, a `T?` as its value or `null`, an enum value as
+its variant and payload (`Ok(5)`, `Rect(2, 3)`), an interface value as
+the implementing type and its value, an `rc` or `weak rc` value as the
+object with its counts (`rc Point {x = 3, y = 4} (strong=2, weak=0)`)
+and a closure as its function and source line, with the bindings it
+captured as children. Load
 `iron_gdb.py` in gdb and `iron_lldb.py` in LLDB:
 
 ```sh
