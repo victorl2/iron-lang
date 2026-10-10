@@ -173,6 +173,16 @@ def package_name(d):
     return m.group(1) if m else None
 
 
+def test_name(test):
+    """The `test` launch argument as a test block's name. Zed's run button
+    passes the block's string literal, quotes included (the tree-sitter
+    capture behind $ZED_CUSTOM_test_name), so `"adds"` names the test
+    adds; a bare name is taken as is."""
+    if isinstance(test, str) and len(test) >= 2 and test[0] == '"' and test[-1] == '"':
+        return re.sub(r'\\(["\\])', r"\1", test[1:-1])
+    return test
+
+
 def build_plan(iron, program, test=False):
     """(argv, cwd, binary) that builds `program` with --debug (and its test
     blocks with `test`), None when `program` is already a binary, or a str
@@ -708,7 +718,7 @@ class Proxy:
                                     "directory or a binary")
             return None
         binary = program
-        test = a.get("test")
+        test = test_name(a.get("test"))
         plan = build_plan(self.iron, program, bool(test)) if a.get("build", True) else None
         if isinstance(plan, str):
             self.respond_error(req, plan)

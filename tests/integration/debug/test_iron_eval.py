@@ -77,6 +77,15 @@ for expr, want in ERRORS:
     if want not in got:
         failed += 1
         print("FAIL: %s gives %r, want an error with %r" % (expr, got, want))
+# The `test` launch argument: Zed's run button passes the block's string
+# literal with its quotes ($ZED_CUSTOM_test_name), other clients the name.
+TEST_NAMES = [('"area of a square"', "area of a square"), ("adds", "adds"),
+              ('"says \\"hi\\""', 'says "hi"'), ('"', '"'), (None, None)]
+for given, want in TEST_NAMES:
+    got = dap.test_name(given)
+    if got != want:
+        failed += 1
+        print("FAIL: test_name(%r) = %r, want %r" % (given, got, want))
 if failed:
     sys.exit(1)
 print("iron eval: %d expressions, %d errors: PASS" % (len(CASES), len(ERRORS)))

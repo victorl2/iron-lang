@@ -115,6 +115,16 @@ fn language_config_matches_the_server_and_grammar() {
         c["path_suffixes"].as_array().unwrap()[0].as_str(),
         Some("iron")
     );
+    // Zed asks the debug locators for a run button's Debug entry only with
+    // the language's first debugger (editor::code_actions::debug_scenarios):
+    // without it the gutter menu has no Debug at all.
+    let debuggers = c.get("debuggers").and_then(|d| d.as_array());
+    let first = debuggers.and_then(|d| d.first()).and_then(|d| d.as_str());
+    assert_eq!(first, Some("Iron"), "config.toml: debuggers must list the Iron adapter first");
+    assert!(
+        m["debug_adapters"].get("Iron").is_some(),
+        "config.toml names the Iron debugger but extension.toml has no [debug_adapters.Iron]"
+    );
 }
 
 #[test]

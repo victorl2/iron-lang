@@ -81,6 +81,14 @@ pub fn scenario(config: DebugConfig) -> Result<DebugScenario, String> {
 /// The locator's name: `[debug_locators.iron]` in extension.toml.
 pub const LOCATOR: &str = "iron";
 
+/// A task's file argument: a .iron path, or the `$ZED_FILE` of the run
+/// buttons' tasks. Zed hands locators the task template, not the resolved
+/// task, so the variables are still unexpanded here; Zed substitutes them
+/// in the scenario's configuration when the session starts.
+fn is_iron_file(arg: &str) -> bool {
+    arg.ends_with(".iron") || arg == "$ZED_FILE" || arg == "${ZED_FILE}"
+}
+
 /// A run button's task as a debug session: `iron run <file>` debugs the
 /// file, `iron test <file> <name>` debugs that test alone (`iron dap`
 /// builds it with --test). Other tasks are not ours.
@@ -92,10 +100,10 @@ pub fn locate(task: &TaskTemplate, label: &str) -> Option<DebugScenario> {
     let unquote = |s: &str| s.trim().trim_matches('"').replace("\\\"", "\"");
     let args: Vec<String> = task.args.iter().map(|a| unquote(a)).collect();
     let mut config = match args.as_slice() {
-        [cmd, file] if cmd == "run" && file.ends_with(".iron") => {
+        [cmd, file] if cmd == "run" && is_iron_file(file) => {
             serde_json::json!({ "request": "launch", "program": file })
         }
-        [cmd, file, test] if cmd == "test" && file.ends_with(".iron") && !test.is_empty() => {
+        [cmd, file, test] if cmd == "test" && is_iron_file(file) && !test.is_empty() => {
             serde_json::json!({ "request": "launch", "program": file, "test": test })
         }
         _ => return None,
@@ -145,6 +153,30 @@ mod tests {
                        "iron test").unwrap();
         assert_eq!(config(&s)["program"], "/p/a.iron");
         assert_eq!(config(&s)["test"], "sums the first ten");
+    }
+
+    /// What Zed really passes: the templates of languages/iron/tasks.json
+    /// with their variables unexpanded (editor::code_actions hands the
+    /// locators `original_task()`).
+    #[test]
+    fn run_button_templates_are_ours() {
+        let tasks: serde_json::Value =
+            serde_json::from_str(include_str!("../languages/iron/tasks.json")).unwrap();
+        let template = |tag: &str| {
+            let t = tasks
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|t| t["tags"].as_array().map_or(false, |a| a.iter().any(|x| x == tag)))
+                .unwrap();
+            let args: Vec<&str> = t["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()).collect();
+            task(t["command"].as_str().unwrap(), &args)
+        };
+        let main = locate(&template("iron-main"), "iron run main.iron").expect("a Debug entry on func main");
+        assert_eq!(config(&main)["program"], "$ZED_FILE");
+        let test = locate(&template("iron-test"), "iron test \"adds\"").expect("a Debug entry on a test block");
+        assert_eq!(config(&test)["program"], "$ZED_FILE");
+        assert_eq!(config(&test)["test"], "$ZED_CUSTOM_test_name");
     }
 
     #[test]

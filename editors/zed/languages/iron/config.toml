@@ -14,6 +14,9 @@ autoclose_before = ";:.,=}])>\t\n "
 word_characters = ["_"]
 tab_size = 4
 hard_tabs = false
+# Zed offers a Debug entry next to a run button's task (through the iron
+# debug locator) only for the debug adapters the language lists here.
+debuggers = ["Iron"]
 
 [[brackets]]
 start = "{"
