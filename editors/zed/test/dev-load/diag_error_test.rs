@@ -57,7 +57,11 @@ fn sha256_output_is_lowercase_hex_64_chars() {
     // future hex-encoding change in the main `lib.rs` path does not
     // silently break the displayed message.
     let mock = mock_release::MockRelease::new();
-    assert_eq!(mock.expected_sha256.len(), 64, "SHA-256 hex digest must be 64 chars");
+    assert_eq!(
+        mock.expected_sha256.len(),
+        64,
+        "SHA-256 hex digest must be 64 chars"
+    );
     assert!(
         mock.expected_sha256
             .chars()
