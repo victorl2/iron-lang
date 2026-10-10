@@ -6,11 +6,13 @@
 // the program with --debug, runs lldb-dap or gdb, loads the value
 // formatters, shows locals under their Iron names and stops on panics.
 //
-// On Windows there is no lldb-dap in the toolchain; the configuration is
-// handed to the C/C++ extension's Visual Studio debugger (cppvsdbg),
-// which reads the PDB and the natvis that --debug links into it. A panic
-// there stops on the Iron line: through the debug trap of a --debug build's
-// checks, and through panicFocus.ts for the rest.
+// On Windows `iron dap` runs too when it can (LLVM's lldb-dap and Python
+// 3.10 or later are installed): the iron.debug.windowsDebugger setting,
+// auto by default, asks `iron dap --check`. Otherwise the configuration is
+// built here and handed to the C/C++ extension's Visual Studio debugger
+// (cppvsdbg), which reads the PDB and the natvis that --debug links in. A
+// panic there stops on the Iron line: through the debug trap of a --debug
+// build's checks, and through panicFocus.ts for the rest.
 
 import * as vscode from 'vscode';
 import { spawn, spawnSync } from 'node:child_process';
@@ -117,6 +119,19 @@ function ironCli(): string {
   return 'iron';
 }
 
+/** Windows: the debugger the iron debug type uses. `iron-dap` and
+ * `cppvsdbg` are taken as set; `auto` (the default) is iron dap when
+ * `iron dap --check` says it is ready, else cppvsdbg. */
+export function windowsDebugger(output: vscode.OutputChannel): 'iron-dap' | 'cppvsdbg' {
+  const setting = vscode.workspace.getConfiguration('iron.debug').get<string>('windowsDebugger') ?? 'auto';
+  if (setting === 'iron-dap' || setting === 'cppvsdbg') return setting;
+  const check = spawnSync(ironCli(), ['dap', '--check'], { encoding: 'utf8', timeout: 30000 });
+  if (/^iron dap: ready/m.test(check.stdout ?? '')) return 'iron-dap';
+  output.appendLine('Iron: iron dap is not ready here (`iron debug --check` says why); ' +
+    'debugging with the C/C++ extension instead (setting iron.debug.windowsDebugger).');
+  return 'cppvsdbg';
+}
+
 class IronConfigurationProvider implements vscode.DebugConfigurationProvider {
   constructor(private output: vscode.OutputChannel) {}
 
@@ -135,7 +150,8 @@ class IronConfigurationProvider implements vscode.DebugConfigurationProvider {
       folder: vscode.WorkspaceFolder | undefined, config: vscode.DebugConfiguration):
       Promise<vscode.DebugConfiguration | undefined> {
     if (process.platform !== 'win32') return config;  // iron dap builds and launches
-    // Windows: build here, then debug with the Visual Studio debugger.
+    if (windowsDebugger(this.output) === 'iron-dap') return config;
+    // Windows without iron dap: build here, then debug with the Visual Studio debugger.
     const binary = await buildForWindows(config.program, this.output, Boolean(config.test));
     if (!binary) return undefined;
     let args: string[] = config.args ?? [];

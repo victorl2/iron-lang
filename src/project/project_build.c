@@ -510,6 +510,25 @@ static bool debug_file_exists(const char *p) {
 }
 
 /* The path of `tool` on PATH into buf; false when it is not there. */
+/* Windows: lldb.exe runs only with liblldb.dll beside it; the copy in
+ * Visual Studio's LLVM (and the Build Tools') has none and fails to
+ * start. True for any other tool or OS. */
+static bool debug_windows_lldb_runs(const char *tool, const char *exe) {
+#ifdef _WIN32
+    if (strcmp(tool, "lldb") != 0) return true;
+    char dll[4200];
+    const char *slash = strrchr(exe, '/');
+    const char *bs = strrchr(exe, '\\');
+    if (bs > slash) slash = bs;
+    if (!slash) return true;
+    snprintf(dll, sizeof(dll), "%.*s/liblldb.dll", (int)(slash - exe), exe);
+    return debug_file_exists(dll);
+#else
+    (void)tool; (void)exe;
+    return true;
+#endif
+}
+
 static bool debug_which(const char *tool, char *buf, size_t size) {
     const char *path = getenv("PATH");
     if (!path) return false;
@@ -525,11 +544,26 @@ static bool debug_which(const char *tool, char *buf, size_t size) {
         size_t n = e ? (size_t)(e - p) : strlen(p);
         if (n > 0 && n + strlen(tool) + 8 < size) {
             snprintf(buf, size, "%.*s/%s%s", (int)n, p, tool, ext);
-            if (debug_file_exists(buf)) return true;
+            if (debug_file_exists(buf) && debug_windows_lldb_runs(tool, buf)) return true;
         }
         if (!e) break;
         p = e + 1;
     }
+#ifdef _WIN32
+    /* LLVM's installer puts lldb in Program Files without touching PATH
+     * unless asked to (#388). */
+    if (strcmp(tool, "lldb") == 0) {
+        const char *roots[] = { getenv("ProgramFiles"), getenv("ProgramW6432"), NULL, NULL };
+        char local[4096];
+        const char *la = getenv("LOCALAPPDATA");
+        if (la) { snprintf(local, sizeof(local), "%s\\Programs", la); roots[2] = local; }
+        for (int i = 0; i < 3; i++) {
+            if (!roots[i]) continue;
+            snprintf(buf, size, "%s\\LLVM\\bin\\lldb.exe", roots[i]);
+            if (debug_file_exists(buf) && debug_windows_lldb_runs(tool, buf)) return true;
+        }
+    }
+#endif
     return false;
 }
 
@@ -647,10 +681,12 @@ static void debug_install_hint_text(const char *tool, char *buf, size_t size) {
         snprintf(buf, size, "  install Python 3 from https://www.python.org/downloads/ or with:\n"
                             "    winget install Python.Python.3.12\n"
                             "  (the Microsoft Store `python` alias that only opens the Store does not count)\n");
+    } else if (strcmp(tool, "lldb") == 0) {
+        snprintf(buf, size, "  LLVM for Windows includes lldb and lldb-dap; install it with:\n"
+                            "    winget install LLVM.LLVM\n"
+                            "  (its LLDB also needs Python 3.10 or later: winget install Python.Python.3.12)\n");
     } else {
-        snprintf(buf, size, "  Windows has no %s; debug the .exe that `iron build --debug` writes\n"
-                            "  (with its PDB) in Visual Studio, or in VS Code with the Iron extension,\n"
-                            "  which uses the C/C++ extension (ms-vscode.cpptools)\n", tool);
+        snprintf(buf, size, "  on Windows, use lldb instead: it comes with LLVM (winget install LLVM.LLVM)\n");
     }
 #else
     snprintf(buf, size, "  install it with your package manager:\n"
@@ -793,7 +829,7 @@ static char *debug_formatter(const char *ironc, const char *file) {
  * loaded; returns the debugger's exit status. */
 static int iron_launch_debugger(const char *ironc, const char *binary,
                                 char **args, int nargs) {
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
     const char *first = "lldb", *second = "gdb";
 #else
     const char *first = "gdb", *second = "lldb";
@@ -808,6 +844,8 @@ static int iron_launch_debugger(const char *ironc, const char *binary,
                         "  editors can debug it too; see the guide's Debugging section\n", binary);
         return 1;
     }
+    char tool_path[4096];
+    if (!debug_which(tool, tool_path, sizeof(tool_path))) snprintf(tool_path, sizeof(tool_path), "%s", tool);
     bool lldb = strcmp(tool, "lldb") == 0;
     char *formatter = debug_formatter(ironc, lldb ? "iron_lldb.py" : "iron_gdb.py");
     char cmd[4300] = "";
@@ -819,7 +857,7 @@ static int iron_launch_debugger(const char *ironc, const char *binary,
     char **argv = (char **)calloc((size_t)nargs + 16, sizeof(char *));
     if (!argv) { free(formatter); return 1; }
     int ai = 0;
-    argv[ai++] = (char *)tool;
+    argv[ai++] = tool_path;
     /* Break on panic: every panic ends in abort(); the formatter script
      * selects the Iron frame that panicked when it stops there. */
     if (lldb) {
@@ -838,7 +876,7 @@ static int iron_launch_debugger(const char *ironc, const char *binary,
     argv[ai++] = (char *)binary;
     for (int i = 0; i < nargs; i++) argv[ai++] = args[i];
     argv[ai] = NULL;
-    int ret = spawn_and_wait(tool, argv);
+    int ret = spawn_and_wait(tool_path, argv);
     free(argv);
     free(formatter);
     return ret;
@@ -929,7 +967,7 @@ static void check_line(bool ok, const char *fmt, const char *a, const char *b) {
  * `iron dap` need, what is found, and how to get what is missing.
  * Exits 0 when both can debug, 1 otherwise. */
 int iron_debug_check(const char *self_path) {
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
     const char *const tools[] = { "lldb", "gdb", NULL };
 #else
     const char *const tools[] = { "gdb", "lldb", NULL };
@@ -991,11 +1029,17 @@ int iron_debug_check(const char *self_path) {
     printf("\n");
     if (debugger) printf("iron debug: ready (%s)\n", debugger);
     else printf("iron debug: not ready, no debugger\n");
-#ifdef _WIN32
-    printf("on Windows, VS Code's Iron extension debugs with the C/C++ extension "
-           "(ms-vscode.cpptools) and needs neither\n");
-#endif
     printf("iron dap: %s\n", dap_ok ? "ready" : "not ready, see above");
+#ifdef _WIN32
+    /* What VS Code's Iron extension does here (iron.debug.windowsDebugger
+     * set to auto, the default): iron dap when it is ready, else the C/C++
+     * extension's Visual Studio debugger (cppvsdbg). */
+    if (dap_ok)
+        printf("VS Code: the Iron extension debugs through iron dap\n");
+    else
+        printf("VS Code: the Iron extension falls back to the C/C++ extension's debugger "
+               "(ms-vscode.cpptools), without Iron names, panic stops or Iron expressions\n");
+#endif
     return debugger && dap_ok ? 0 : 1;
 }
 

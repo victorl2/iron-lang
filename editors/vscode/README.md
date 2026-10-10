@@ -129,7 +129,6 @@ expressions (`xs.len() > 2 and not done`, `name == "ann"`,
 `ages.get("ann")`). Right-click a breakpoint to give it an Iron condition
 (`i == 7 and total > 20`), a hit count (`5`, `>= 5`, `% 5`) or a log
 message (`i = {i}, total = {total}`), which prints without stopping.
-On Windows these go to the Visual Studio debugger, which reads C.
 
 Each `test "..."` block has **Run Test** and **Debug Test** above it.
 Debug Test builds the file with `--test --debug` and runs that test
@@ -150,11 +149,17 @@ A `launch.json` configuration of type `iron`:
 }
 ```
 
-On Linux and macOS the extension runs `iron dap`, the Iron debug adapter,
-which needs Python 3 and either `lldb-dap` (LLVM, or Xcode on macOS) or
-gdb 14 or later. On Windows it builds the program and hands it to the
-Visual Studio debugger of the C/C++ extension (`ms-vscode.cpptools`),
-which reads the PDB and the natvis that `--debug` writes.
+The extension runs `iron dap`, the Iron debug adapter, which needs
+Python 3 and either `lldb-dap` (LLVM, or Xcode on macOS) or gdb 14 or
+later. On Windows that is LLVM's installer (`winget install LLVM.LLVM`,
+which includes `lldb-dap.exe`) and Python 3.10 or later (`winget install
+Python.Python.3.12`); `iron debug --check` says what is missing. Without
+them the extension builds the program and hands it to the Visual Studio
+debugger of the C/C++ extension (`ms-vscode.cpptools`), which reads the
+PDB and the natvis that `--debug` writes, but shows C function names,
+stops panics in `abort()` and evaluates C rather than Iron. The
+`iron.debug.windowsDebugger` setting (`auto`, `iron-dap`, `cppvsdbg`)
+picks one explicitly.
 
 ## Troubleshooting
 

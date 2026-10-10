@@ -110,6 +110,12 @@ def check_panic(c, stop, tid, expect):
         fail("the panic's stack starts at %s, want %s at line %s" %
              ([(f.get("name"), f.get("line")) for f in frames[:4]], func, line))
     print("dap: the panic stops at line %s in %s (%s)" % (line, func, body.get("text")))
+    # VS Code shows exceptionInfo in its exception widget: the panic's
+    # message, not the debugger's abort() breakpoint.
+    info = c.call("exceptionInfo", {"threadId": tid})
+    if text not in str(info.get("description", "")):
+        fail("exceptionInfo is %s, want '%s'" % (info, text))
+    print("dap: exceptionInfo says %s" % info.get("description"))
     if mode == "trap":
         c.call("continue", {"threadId": tid})
         end = c.wait(lambda m: m.get("type") == "event" and

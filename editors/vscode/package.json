@@ -144,6 +144,17 @@
           "default": "",
           "description": "Path to the `iron` CLI the iron debug type runs (`iron dap`, and the --debug build). When empty, the extension searches PATH."
         },
+        "iron.debug.windowsDebugger": {
+          "type": "string",
+          "enum": ["auto", "iron-dap", "cppvsdbg"],
+          "enumDescriptions": [
+            "iron dap when it can run here (LLVM's lldb-dap and Python 3.10 or later; see `iron debug --check`), else the C/C++ extension's debugger",
+            "Always iron dap with LLVM's lldb-dap: Iron names in the call stack, panics stop on the Iron line, Iron expressions and conditions, Step Into stays in Iron code",
+            "Always the C/C++ extension's Visual Studio debugger (ms-vscode.cpptools), which shows values through the natvis"
+          ],
+          "default": "auto",
+          "description": "Windows only: the debugger the iron debug type uses."
+        },
         "iron.languageServer.logLevel": {
           "type": "string",
           "enum": ["error", "warn", "info", "debug"],
