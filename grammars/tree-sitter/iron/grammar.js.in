@@ -71,7 +71,9 @@ module.exports = grammar({
   // and the `func` keyword delineate declaration vs expression starts. Any
   // conflict detected by tree-sitter generate should be surfaced for review
   // rather than hidden here.
-  conflicts: $ => [],
+  conflicts: $ => [
+    [$._expression, $.generic_expression],
+  ],
 
   // Tokens that look like keywords (`self`, `super`, `true`, `false`, `null`)
   // are reserved by the word token rule + the _keyword alternation.
@@ -133,6 +135,7 @@ module.exports = grammar({
     // Phase 35 GRM-06 (Plan 35-01): optional `nocopy` prefix modifier
     // (`nocopy object FileHandle { ... }`) via $.nocopy_modifier named child.
     object_declaration: $ => seq(
+      optional($.visibility_modifier),
       optional(field('marker', $.nocopy_modifier)),
       'object',
       field('name', $.identifier),
@@ -172,6 +175,7 @@ module.exports = grammar({
 
     // interface Name { func sig() -> T  func other(p: T) }
     interface_declaration: $ => seq(
+      optional($.visibility_modifier),
       'interface',
       field('name', $.identifier),
       optional($.generic_params),
@@ -199,6 +203,7 @@ module.exports = grammar({
 
     // enum Name[<Generics>] { Variant, Variant(T), Variant(T, U) }
     enum_declaration: $ => seq(
+      optional($.visibility_modifier),
       'enum',
       field('name', $.identifier),
       optional($.generic_params),
@@ -215,7 +220,7 @@ module.exports = grammar({
       field('name', $.identifier),
       optional(seq(
         '(',
-        optional(seq($._type, repeat(seq(',', $._type)))),
+        optional(seq($._type, repeat(seq(',', $._type)), optional(','))),
         ')',
       )),
       optional(seq('=', field('ordinal', $.integer_literal))),
@@ -277,6 +282,7 @@ module.exports = grammar({
       ',',
       choice($.identifier, '_'),
       repeat(seq(',', choice($.identifier, '_'))),
+      optional(','),
       ')',
     ),
 
@@ -289,14 +295,15 @@ module.exports = grammar({
       optional(seq('->', field('return_type', $._type))),
     ),
 
-    // generic params: [T] or [T, U] or [T, U, V]
+    // generic params: [T] or [T, U] or [K: Hashable, V]
     generic_params: $ => seq(
       '[',
-      seq($.identifier, repeat(seq(',', $.identifier))),
+      commaSep1(seq($.identifier, optional(seq(':', $.type_identifier)))),
+      optional(','),
       ']',
     ),
 
-    parameter_list: $ => seq('(', optional(commaSep1($.parameter)), ')'),
+    parameter_list: $ => seq('(', optional(seq(commaSep1($.parameter), optional(','))), ')'),
     // D-04: optional `mut` modifier prefix on parameter (legacy v2 receiver-
     // form tolerance — semantically rejected by parser as IRON_ERR_V3_MUT_*
     // but syntactically tolerated to avoid ERROR nodes on v2 code mid-
@@ -315,7 +322,7 @@ module.exports = grammar({
     // `pure`; multi-tier stacking via repeat(...) at the call site.
     visibility_modifier:    $ => 'pub',
     mutation_tier_modifier: $ => choice('readonly', 'pure'),
-    param_mut_modifier:     $ => 'mut',
+    param_mut_modifier:     $ => choice('mut', 'var', 'val'),
 
     // ── v3 init declaration (D-05) ─────────────────────────────────────
     // init [name](params) { body }   |  pub init(params) { body }
@@ -379,6 +386,7 @@ module.exports = grammar({
     block: $ => seq('{', repeat($._statement), '}'),
 
     _statement: $ => choice(
+      $.block,
       $.val_declaration,
       $.var_declaration,
       $.assignment_statement,
@@ -424,7 +432,7 @@ module.exports = grammar({
 
     for_statement: $ => seq(
       'for',
-      field('variable', $.identifier),
+      field('variable', choice($.identifier, $.tuple_binding)),
       'in',
       field('iterable', $._expression),
       // `parallel` modifier: `for i in n parallel { ... }` (Phase 49 pfor)
@@ -513,6 +521,8 @@ module.exports = grammar({
       $.call_expression,
       $.member_expression,
       $.index_expression,
+      $.slice_expression,
+      $.generic_expression,
       $.parenthesized_expression,
       $.tuple_expression,
       $.array_literal,
@@ -546,7 +556,7 @@ module.exports = grammar({
     ),
 
     unary_expression: $ => prec.right(13, seq(
-      field('op', choice('-', '!', '~', 'not')),
+      field('op', choice('-', '!', '~', 'not', '&')),
       $._expression,
     )),
 
@@ -557,7 +567,7 @@ module.exports = grammar({
     call_expression: $ => prec.left(14, seq(
       field('function', $._expression),
       '(',
-      optional(commaSep1($._expression)),
+      optional(seq(commaSep1($._expression), optional(','))),
       ')',
     )),
 
@@ -571,6 +581,25 @@ module.exports = grammar({
       field('collection', $._expression),
       '[',
       field('index', $._expression),
+      ']',
+    )),
+
+    // Type arguments on a name: `Map[String, Int]()`, `List[Int?]()`.
+    // `xs[i]` parses both ways; the index reading wins (dynamic precedence),
+    // so this node appears only when the brackets hold something an index
+    // cannot (a comma, `?`, an array type).
+    generic_expression: $ => prec.dynamic(-1, seq(
+      field('name', $.identifier),
+      field('type_arguments', $.type_arguments),
+    )),
+    type_arguments: $ => seq('[', commaSep1($._type), ']'),
+
+    slice_expression: $ => prec.left(14, seq(
+      field('collection', $._expression),
+      '[',
+      optional(field('start', $._expression)),
+      '..',
+      optional(field('end', $._expression)),
       ']',
     )),
 
@@ -653,8 +682,28 @@ module.exports = grammar({
       $.literal_pattern,
       $.wildcard_pattern,
       $.variant_pattern,
+      $.type_pattern,
       $.identifier_pattern,
+      $.constant_pattern,
     ),
+
+    // Negative literal or constant expression arm: `-5 -> ...`,
+    // `1 << 3 -> ...`. Operators are flat (no precedence); the tree only
+    // feeds highlighting, ironc evaluates the constant.
+    constant_pattern: $ => choice(
+      seq('-', $._constant_atom, repeat(seq($._constant_op, $._constant_atom))),
+      seq($._constant_atom, repeat1(seq($._constant_op, $._constant_atom))),
+    ),
+    _constant_atom: $ => choice($.integer_literal, $.float_literal, $.identifier),
+    _constant_op: $ => choice('+', '-', '*', '/', '%', '<<', '>>', '&', '|', '^'),
+
+    // Implementor arm of a type match: `Circle(c) -> ...`
+    type_pattern: $ => prec(2, seq(
+      field('type', $.identifier),
+      '(',
+      field('binding', choice($.identifier, '_')),
+      ')',
+    )),
 
     literal_pattern: $ => choice(
       $.integer_literal, $.float_literal, $.string_literal,
@@ -670,7 +719,7 @@ module.exports = grammar({
       field('variant', $.identifier),
       optional(seq(
         '(',
-        optional(seq($._pattern, repeat(seq(',', $._pattern)))),
+        optional(seq($._pattern, repeat(seq(',', $._pattern)), optional(','))),
         ')',
       )),
     )),
@@ -692,7 +741,7 @@ module.exports = grammar({
 
     type_identifier: $ => $.identifier,
 
-    nullable_type: $ => prec(1, seq($.type_identifier, '?')),
+    nullable_type: $ => prec(1, seq(choice($.type_identifier, $.generic_type), '?')),
 
     generic_type: $ => prec(2, seq(
       $.type_identifier,
@@ -817,7 +866,9 @@ module.exports = grammar({
 
     interpolation: $ => seq('{', $._expression, '}'),
 
-    escape_sequence: $ => token.immediate(/\\(u\{[0-9a-fA-F]{1,6}\}|[nrt"\\{}])/),
+    // Iron's lexer decodes \n \t \\ \" \{ \} \u{HEX} and keeps any other
+    // backslash pair as written (`"\0"`), so every pair is one token here.
+    escape_sequence: $ => token.immediate(/\\(u\{[0-9a-fA-F]{1,6}\}|[0-9A-Za-z"\\{}])/),
 
     // NOTE: interpolated strings appear in the parse tree as
     // (string_literal (interpolation ...)) — queries/highlights.scm + folds.scm
