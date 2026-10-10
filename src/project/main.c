@@ -296,7 +296,7 @@ int main(int argc, char **argv) {
      */
     {
         static const char *KNOWN_SUBS[] = {
-            "init", "build", "run", "check", "fmt", "test", "debug", NULL
+            "init", "build", "run", "check", "fmt", "test", "debug", "dap", NULL
         };
         int is_known_sub = 0;
         for (int i = 0; KNOWN_SUBS[i]; i++) {
@@ -316,6 +316,14 @@ int main(int argc, char **argv) {
     /* toolchain: ironc owns the lookup; forward as is (including --help). */
     if (strcmp(cmd, "toolchain") == 0) {
         return forward_to_ironc(argc, argv);
+    }
+
+    /* dap: the debug adapter for editors (#312, #347). */
+    if (strcmp(cmd, "dap") == 0) {
+        char self_path[4096];
+        if (resolve_self_path(self_path, sizeof(self_path)) != 0)
+            snprintf(self_path, sizeof(self_path), "iron");
+        return iron_dap(self_path, argc, argv);
     }
 
     /* debug: build with --debug and start a debugger (#312). */

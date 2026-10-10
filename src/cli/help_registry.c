@@ -62,6 +62,9 @@ const IronCliFlag IRON_CLI_FLAGS[] = {
     { "debug", "--gdb",  NULL, "off", "Debug with gdb (the default except on macOS)" },
     { "debug", "--lldb", NULL, "off", "Debug with lldb (the default on macOS)" },
 
+    /* ── iron dap ── */
+    { "dap", "--adapter", NULL, NULL, "lldb-dap or gdb to run (default: lldb-dap, else gdb 14+)" },
+
     /* ── iron run (mirrors most of build's surface) ── */
     { "run", "--release",            NULL, "off",    "Optimized release build (native -O2, web -Oz -flto)" },
     { "run", "--debug",              NULL, "off",    "Debug info on Iron lines: breakpoints and stepping in gdb, lldb, VS Code" },
@@ -101,6 +104,7 @@ static const IronSubSummary IRON_SUB_SUMMARIES[] = {
     { "fmt",     "Format source files" },
     { "test",    "Run package tests" },
     { "debug",   "Build with --debug and start gdb or lldb on the program" },
+    { "dap",     "Debug adapter (DAP) for editors: VS Code, Neovim, Zed" },
     { "init",    "Scaffold a new package" },
     { "toolchain", "Show, locate, install or check the pinned C toolchain (info, path, install, check)" },
 };
