@@ -47,10 +47,10 @@ end
 -- future relaxation of the range updates both the min/max and the
 -- array shape together.
 local IRON_LSP_COMPATIBLE_VERSION_RANGE = {
-  ">= 4.0.0",
-  "< 5.0.0",
-  min = "4.0.0",
-  max_exclusive = "5.0.0",
+  ">= 5.0.0",
+  "< 6.0.0",
+  min = "5.0.0",
+  max_exclusive = "6.0.0",
 }
 
 -- Parse a dotted semver prefix "X.Y.Z" (with optional "-preX.Y" suffix)
@@ -126,7 +126,7 @@ return {
   -- this to hard-refuse; the on_attach hook below enforces it.
   -- Non-standard field; harmless to vim.lsp.Config consumers; read by
   -- plugin/iron_lsp.lua's diagnose command.
-  compatible_ironls = ">= 4.0.0, < 5.0.0",
+  compatible_ironls = ">= 5.0.0, < 6.0.0",
   -- S5 log emit on successful initialize; tolerates the helper module being
   -- absent (plugin/iron_lsp.lua is a plugin file, loaded automatically on
   -- startup under packages on runtimepath — pcall keeps the config valid
@@ -153,7 +153,7 @@ return {
     if not server_version or not version_in_range(server_version, IRON_LSP_COMPATIBLE_VERSION_RANGE) then
       emit('error', 'ironls.version_mismatch', {
         detected = server_version or 'unknown',
-        range = ">= 4.0.0, < 5.0.0",
+        range = ">= 5.0.0, < 6.0.0",
         action = 'detach-client',
       })
       vim.notify(

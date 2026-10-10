@@ -3,6 +3,24 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v5.0.0-alpha: One Debugger Everywhere, and 22 Bugs Fuzzed Out (2026-10-10)
+
+- **Debugging:** Windows debugs through `iron dap` with LLVM's lldb-dap
+  (Iron names, Iron expressions, conditions, Step Into, panic stops), with
+  the Visual Studio debugger as a fallback; a panic stops on its Iron line
+  in every debugger; compiler temporaries are hidden from Locals; Iron
+  expressions read closure captures; `iron debug --check`.
+- **Editors:** ironls stops sending duplicate diagnostics, reports
+  `ironc check`'s strict errors and gets document symbols and folding
+  right; Zed's run buttons offer Debug; VS Code comments with `--`.
+  Editors accept ironls 5.x.
+- **Fixes:** 22 bugs found by new program fuzzers (control flow,
+  collections, objects, closures): three wrong values, seven memory
+  errors, and a dozen rejected or broken programs; a stack use after
+  return in ironc's `--debug` naming.
+- **Language:** E0328 rejects a list passed both to a `var` parameter and
+  to another parameter of the same call, naming the fix.
+
 ## v4.12.0-alpha: Debugging in Iron Terms (2026-10-10)
 
 - **Debugging:** Iron expressions in hover, watch and the debug console;

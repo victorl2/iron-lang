@@ -127,7 +127,7 @@ When no `ironls` is configured or on PATH, the extension:
 
 ## Version compatibility
 
-The extension works with `ironls` `>= 4.0.0, < 5.0.0`
+The extension works with `ironls` `>= 5.0.0, < 6.0.0`
 (`[version_constraints]` in `extension.toml`). It runs `ironls --version`
 before starting the server and refuses a version outside that range with a
 message naming the binary. If Zed does not allow the extension to run

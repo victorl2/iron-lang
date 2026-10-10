@@ -16,7 +16,7 @@ languages = ["Iron"]
 # The ironls versions this extension works with. src/config.rs
 # (COMPATIBLE_IRONLS) must agree; test/dev-load/extension_test.rs checks it.
 [version_constraints]
-ironls = ">= 4.0.0, < 5.0.0"
+ironls = ">= 5.0.0, < 6.0.0"
 
 # Debugging (#312, #347): the `Iron` debug adapter runs `iron dap`, the
 # adapter shared with VS Code and Neovim (src/debug.rs). Its launch
@@ -33,7 +33,7 @@ ironls = ">= 4.0.0, < 5.0.0"
 # Bump it whenever grammar.js changes.
 [grammars.iron]
 repository = "https://github.com/victorl2/iron-lang"
-commit = "2948978d509dade864d40b6d0bd115c0c98d2220"
+commit = "5ca624bcbfa191adffa5c254284f2c741d73fffd"
 path = "grammars/tree-sitter/iron"
 
 # The ironls download: zed::download_file only reaches declared hosts and

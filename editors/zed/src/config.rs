@@ -6,9 +6,9 @@ use serde_json::{json, Map, Value};
 
 /// The semver range this extension works with. Mirrors
 /// [version_constraints] ironls in extension.toml (a test checks they agree).
-pub const COMPATIBLE_IRONLS: &str = ">= 4.0.0, < 5.0.0";
-pub const COMPATIBLE_MIN: (u32, u32, u32) = (4, 0, 0);
-pub const COMPATIBLE_MAX_EXCLUSIVE: (u32, u32, u32) = (5, 0, 0);
+pub const COMPATIBLE_IRONLS: &str = ">= 5.0.0, < 6.0.0";
+pub const COMPATIBLE_MIN: (u32, u32, u32) = (5, 0, 0);
+pub const COMPATIBLE_MAX_EXCLUSIVE: (u32, u32, u32) = (6, 0, 0);
 
 /// The GitHub repository whose releases carry the ironls archives.
 pub const RELEASE_REPO: &str = "victorl2/iron-lang";
