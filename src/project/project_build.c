@@ -638,6 +638,47 @@ int iron_debug_file(int argc, char **argv) {
     return ret;
 }
 
+/* `iron dap [--adapter <path>]`: the Debug Adapter Protocol server that
+ * editors run (lib/debug/iron_dap.py, in Python): it builds .iron files
+ * and packages with --debug, runs lldb-dap or gdb's DAP mode with the
+ * value formatters loaded, and shows locals under their Iron names. */
+int iron_dap(const char *self_path, int argc, char **argv) {
+    char *ironc = find_ironc();
+    char *script = debug_formatter(ironc, "iron_dap.py");
+    free(ironc);
+    if (!script) {
+        fprintf(stderr, "error: iron dap: lib/debug/iron_dap.py was not found next to this iron\n");
+        return 1;
+    }
+#ifdef _WIN32
+    const char *const pythons[] = { "python3", "python", "py", NULL };
+#else
+    const char *const pythons[] = { "python3", "python", NULL };
+#endif
+    const char *python = NULL;
+    for (int i = 0; pythons[i] && !python; i++)
+        if (debug_on_path(pythons[i])) python = pythons[i];
+    if (!python) {
+        fprintf(stderr, "error: iron dap needs Python 3 on PATH\n");
+        free(script);
+        return 1;
+    }
+    char **dargv = (char **)calloc((size_t)argc + 6, sizeof(char *));
+    if (!dargv) { free(script); return 1; }
+    int ai = 0;
+    dargv[ai++] = (char *)python;
+    if (strcmp(python, "py") == 0) dargv[ai++] = "-3";
+    dargv[ai++] = script;
+    dargv[ai++] = "--iron";
+    dargv[ai++] = (char *)self_path;
+    for (int i = 2; i < argc; i++) dargv[ai++] = argv[i];
+    dargv[ai] = NULL;
+    int ret = spawn_and_wait(python, dargv);
+    free(dargv);
+    free(script);
+    return ret;
+}
+
 static int cmd_build(bool run_after, int argc, char **argv) {
     bool colors = iron_color_init();
 
