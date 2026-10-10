@@ -15,6 +15,7 @@
 #include "util/arena.h"
 #include "vendor/yyjson/yyjson.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -158,10 +159,41 @@ static void test_registration_id_stable(void) {
     free(buf);
 }
 
+/* ── Test 4: server request ids are LSP integers (int32) ────────────── */
+/* Zed drops a request whose id does not fit an int32 ("failed to
+ * deserialize LSP message"), so it never answered registerCapability
+ * when ids started at 2^31. The first id, and a generous run after it,
+ * must stay in range, and stay clear of client ids. */
+static void test_request_ids_fit_lsp_integer(void) {
+    TEST_ASSERT_TRUE(ILSP_SERVER_REQUEST_ID_BASE >= 1000000ULL);
+    TEST_ASSERT_TRUE(ILSP_SERVER_REQUEST_ID_BASE + 100000000ULL <= (uint64_t)INT32_MAX);
+
+    char *buf = NULL; size_t len = 0;
+    FILE *sink = open_memstream(&buf, &len);
+    IronLsp_Writer *w = ilsp_writer_create(sink);
+    IronLsp_Server s; memset(&s, 0, sizeof(s));
+    s.writer  = w;
+    s.dyn_reg = ilsp_dyn_register_create();
+    atomic_store(&s.next_request_id, ILSP_SERVER_REQUEST_ID_BASE);
+
+    Iron_Arena pa = iron_arena_create(8 * 1024);
+    yyjson_doc *d = capture_registration(&s, w, sink, &buf, &len, &pa);
+    yyjson_val *id = yyjson_obj_get(yyjson_doc_get_root(d), "id");
+    TEST_ASSERT_NOT_NULL(id);
+    TEST_ASSERT_TRUE(yyjson_get_uint(id) <= (uint64_t)INT32_MAX);
+
+    iron_arena_free(&pa);
+    ilsp_dyn_register_destroy(s.dyn_reg);
+    ilsp_writer_destroy(w);
+    fclose(sink);
+    free(buf);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_outbound_method);
     RUN_TEST(test_watchers_payload);
     RUN_TEST(test_registration_id_stable);
+    RUN_TEST(test_request_ids_fit_lsp_integer);
     return UNITY_END();
 }
