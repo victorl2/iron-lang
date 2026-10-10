@@ -61,6 +61,9 @@ POINTER = re.compile(r"^(\([^)]*\)\s*)?0x[0-9a-fA-F]+$")
 # Every Iron panic prints its message and ends in the C library's abort().
 PANIC_FUNCTIONS = ("abort", "__abort", "raise", "__pthread_kill", "pthread_kill",
                    "__pthread_kill_implementation", "gsignal")
+# LLDB's answer to `command script import` when it was built without Python.
+NO_SCRIPTING = re.compile(r"does not support importing modules|"
+                          r"built without scripting language support")
 PANIC_LINE = re.compile(r"^(panic|assertion failed|error: index|.*out of bounds)", re.I)
 
 
@@ -666,6 +669,8 @@ class Proxy:
         self.synth = {}          # SYNTH_REF_BASE + n -> children (a C array shown as a list)
         self.step_waiter = None  # queue of stops while the adapter steps on its own
         self.synth_seq = SYNTH_REF_BASE
+        self.adapter_path = None
+        self.warned_no_scripting = False
 
     # Output to the client.
     def send(self, msg):
@@ -708,6 +713,7 @@ class Proxy:
         if not found:
             return no_adapter_message(notes, self.requested_adapter)
         self.kind, argv = found
+        self.adapter_path = argv[0]
         if self.kind == "gdb":
             fmt = os.path.join(HERE, "iron_gdb.py")
             if os.path.exists(fmt):
@@ -839,8 +845,12 @@ class Proxy:
             for k in ("preRunCommands", "stopCommands", "exitCommands"):
                 if k in a:
                     out[k] = a[k]
-            if a.get("stopOnPanic", True) and os.path.exists(fmt):
-                out["preRunCommands"] = list(out.get("preRunCommands", [])) + ["iron-panic-stop"]
+            if a.get("stopOnPanic", True):
+                # A plain LLDB breakpoint, not the formatters' iron-panic-stop:
+                # it works in an LLDB without Python too, and the adapter
+                # picks the Iron frame itself (finish_stopped).
+                out["preRunCommands"] = (list(out.get("preRunCommands", [])) +
+                                         ["breakpoint set --name abort"])
         else:
             if env:
                 out["env"] = env
@@ -869,6 +879,7 @@ class Proxy:
                 self.panic_frames.clear()
             if ev == "output":
                 self.note_output(msg)
+                self.note_no_scripting(msg)
             if ev in ("stopped", "continued") and self.step_waiter is not None:
                 # A step of the adapter's own (see step_in): not the client's.
                 if ev == "stopped":
@@ -953,6 +964,21 @@ class Proxy:
         for line in str(body.get("output", "")).splitlines():
             if PANIC_LINE.search(line):
                 self.panic_text = line.strip()
+
+    def note_no_scripting(self, msg):
+        """An lldb-dap whose LLDB has no Python cannot load iron_lldb.py:
+        say so once, with what to do, instead of leaving only LLDB's
+        error in the console."""
+        text = str((msg.get("body") or {}).get("output", ""))
+        if self.warned_no_scripting or not NO_SCRIPTING.search(text):
+            return
+        self.warned_no_scripting = True
+        self.output("iron dap: %s has no Python scripting, so the Iron value formatters "
+                    "cannot load: strings, lists, maps and optionals show as their C "
+                    "structs. Breakpoints, stepping and Iron expressions still work. For "
+                    "Iron values, use an lldb-dap with Python (Xcode's, or your "
+                    "distribution's lldb package) or gdb 14 or later (IRON_DAP_ADAPTER).\n"
+                    % (self.adapter_path or "this lldb-dap"))
 
     def finish_stopped(self, msg):
         body = msg.get("body") or {}

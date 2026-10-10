@@ -3022,6 +3022,11 @@ if(Python3_EXECUTABLE)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/test_iron_eval.py
                    ${CMAKE_SOURCE_DIR}/src/debug/iron_dap.py)
   set_tests_properties(debug_iron_eval PROPERTIES TIMEOUT 60)
+  # What the adapter says about its debugger: missing, misnamed, no Python.
+  add_test(NAME debug_dap_setup
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/test_dap_setup.py
+                   ${CMAKE_SOURCE_DIR}/src/debug/iron_dap.py)
+  set_tests_properties(debug_dap_setup PROPERTIES TIMEOUT 60)
 endif()
 # #312: a panic stops the debugger on the Iron line (iron debug, iron dap).
 if(NOT WIN32)

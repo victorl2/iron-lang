@@ -169,7 +169,10 @@ names in the call stack. `editors/neovim` (nvim-dap) and `editors/zed`
 (Zed's debugger) configure it; their READMEs have the details.
 `--adapter <path>` (or `IRON_DAP_ADAPTER`)
 picks the debugger. It needs Python 3.8 or later; the pinned toolchain
-does not include `lldb-dap`.
+does not include `lldb-dap`. The value formatters need an LLDB built with
+Python (Xcode's and the distributions' are); with an `lldb-dap` built
+without it, breakpoints, stepping, the stack and panics still work, values
+show as their C structs, and the debug console says so.
 
 `iron debug --check` (or `iron dap --check`) shows what debugging needs
 on this machine, what it found and how to install what is missing; it
