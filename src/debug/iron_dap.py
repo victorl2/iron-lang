@@ -469,6 +469,14 @@ class IronEval:
     def fetch(self, path):
         r = self.proxy.request("evaluate", {"expression": path, "frameId": self.frame_id,
                                             "context": "watch"})
+        if not r.get("success") and re.fullmatch(r"[A-Za-z_]\w*", path):
+            # A var captured by a closure lives behind `_ref_<name>` (the
+            # Locals view shows it as <name>); read it through that pointer.
+            ref_path = "(*_ref_%s)" % path
+            r2 = self.proxy.request("evaluate", {"expression": ref_path,
+                                                 "frameId": self.frame_id, "context": "watch"})
+            if r2.get("success"):
+                r, path = r2, ref_path
         if not r.get("success"):
             if "." in path or "[" in path:
                 raise IronEvalError("`%s` has no value here" % path)
