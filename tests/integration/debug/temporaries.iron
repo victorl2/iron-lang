@@ -1,0 +1,29 @@
+func scale(v: Int, by: Int) -> Int {
+    val scaled = v * by + 1
+    return scaled
+}
+
+func main() {
+    var total = 0
+    val xs = [10, 20, 30]
+    val names = ["a", "bb"]
+    for i in range(4) {
+        total += scale(i, 2) + xs[1]
+    }
+    var count = 1
+    val bump = func(d: Int) -> Int {
+        count = count + d
+        val doubled = count * 2
+        return doubled
+    }
+    val r = bump(3)
+    println("{total} {names[0]} {xs[2]} {r} {count}")
+}
+
+test "adds up" {
+    var t = 0
+    for i in range(4) {
+        t += i
+    }
+    assert_eq(t, 6)
+}

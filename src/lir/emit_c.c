@@ -9060,6 +9060,198 @@ static void emit_restate_lines(Iron_StrBuf *out, const char *body, size_t len) {
     }
 }
 
+/* --debug (#388): the compiler's own locals carry no debug info, so no
+ * debugger lists them: not the Visual Studio debugger (which has no rule to
+ * hide them), not gdb or lldb used directly. A temporary is a C local whose
+ * name starts with `_` (`_vN`, `_vN_len`, `_vN_box`, `_e`, `_env_N`...) or
+ * `iron__`; Iron bindings never do (debug_value_names). `_ref_<name>` stays:
+ * it is how a debugger reaches a var a closure captures. The attribute is
+ * added to every declaration in the emitted body, so no emission path can
+ * miss it. IRON_DEBUG_TEMPORARIES=1 keeps the temporaries visible, for
+ * debugging the compiler. clang accepts `nodebug` on variables, not on
+ * parameters: synthetic parameters (a closure's env) stay listed. */
+static bool debug_hide_temporaries(void) {
+    static int hide = -1;
+    if (hide < 0) {
+        const char *e = getenv("IRON_DEBUG_TEMPORARIES");
+        hide = !(e && *e && strcmp(e, "0") != 0);
+    }
+    return hide == 1;
+}
+
+static bool debug_ident_char(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+           (c >= '0' && c <= '9') || c == '_';
+}
+
+static bool debug_temporary_name(const char *s, size_t n) {
+    if (n > 0 && s[0] == '_') return !(n > 5 && strncmp(s, "_ref_", 5) == 0);
+    return n > 6 && strncmp(s, "iron__", 6) == 0;
+}
+
+static bool debug_word_is(const char *s, size_t n, const char *w) {
+    return strlen(w) == n && strncmp(s, w, n) == 0;
+}
+
+/* The declaration starting at `p` (a statement start) declares a temporary:
+ * `T _vN = ...;`, `T *_vN;`, `T _vN[] = {...};`, `__typeof__(x) *_vN = ...;`,
+ * `T (*_vN)(args) = ...;`. Anything else (an assignment, a call, a label,
+ * `return _vN;`) is not a declaration. */
+static bool debug_declares_temporary(const char *s, size_t p, size_t end) {
+    static const char *const not_types[] = {
+        "return", "goto", "else", "case", "default", "do", "break", "continue",
+        "if", "while", "for", "switch", "sizeof", NULL };
+    const char *name = NULL;
+    size_t name_len = 0;
+    int tokens = 0;
+    size_t q = p;
+    for (;;) {
+        while (q < end && (s[q] == ' ' || s[q] == '\t')) q++;
+        if (q >= end) return false;
+        char c = s[q];
+        if (debug_ident_char(c) && !(c >= '0' && c <= '9')) {
+            size_t b = q;
+            while (q < end && debug_ident_char(s[q])) q++;
+            size_t n = q - b;
+            if (tokens == 0)
+                for (int i = 0; not_types[i]; i++)
+                    if (debug_word_is(s + b, n, not_types[i])) return false;
+            tokens++;
+            if (debug_word_is(s + b, n, "__typeof__") || debug_word_is(s + b, n, "typeof") ||
+                debug_word_is(s + b, n, "__typeof")) {
+                while (q < end && (s[q] == ' ' || s[q] == '\t')) q++;
+                if (q >= end || s[q] != '(') return false;
+                int depth = 0;
+                for (; q < end && s[q] != '\n'; q++) {
+                    if (s[q] == '(') depth++;
+                    else if (s[q] == ')' && --depth == 0) break;
+                }
+                if (q >= end || s[q] != ')') return false;
+                q++;
+                name = NULL;
+                continue;
+            }
+            name = s + b;
+            name_len = n;
+            continue;
+        }
+        if (c == '*') {
+            if (tokens == 0) return false;
+            tokens++;
+            name = NULL;
+            q++;
+            continue;
+        }
+        if (c == '(') {
+            /* `T (*name)(args)`: a function pointer. */
+            if (tokens == 0) return false;
+            q++;
+            while (q < end && (s[q] == ' ' || s[q] == '\t')) q++;
+            if (q >= end || s[q] != '*') return false;
+            q++;
+            while (q < end && (s[q] == ' ' || s[q] == '\t')) q++;
+            size_t b = q;
+            while (q < end && debug_ident_char(s[q])) q++;
+            if (q == b) return false;
+            size_t n = q - b;
+            while (q < end && (s[q] == ' ' || s[q] == '\t')) q++;
+            if (q + 1 >= end || s[q] != ')') return false;
+            q++;
+            while (q < end && (s[q] == ' ' || s[q] == '\t')) q++;
+            if (q >= end || s[q] != '(') return false;
+            return debug_temporary_name(s + b, n);
+        }
+        if (c == '=' || c == ';' || c == '[' || c == ',')
+            return tokens >= 2 && name && debug_temporary_name(name, name_len);
+        return false;
+    }
+}
+
+/* Copy a function body to `out`, marking every declaration of a temporary
+ * `__attribute__((nodebug))`. A declaration starts a statement: after `;`,
+ * `{` or `}` outside parentheses, or right after `for (`. Preprocessor
+ * lines, comments and literals are copied as they are. */
+static void emit_hide_temporaries(Iron_StrBuf *out, const char *s, size_t len) {
+    int depth = 0;              /* parentheses open in the current braces */
+    int saved[256];             /* depth outside each open brace */
+    int nsaved = 0;
+    bool stmt = true, line_start = true, prev_for = false;
+    size_t copied = 0, i = 0;
+    while (i < len) {
+        char c = s[i];
+        if (line_start) {
+            size_t k = i;
+            while (k < len && (s[k] == ' ' || s[k] == '\t')) k++;
+            if (k < len && s[k] == '#') {
+                /* A directive, with its continuation lines. */
+                while (k < len) {
+                    if (s[k] == '\n' && s[k - 1] != '\\') break;
+                    k++;
+                }
+                i = k;
+                continue;
+            }
+            line_start = false;
+        }
+        if (c == '\n') { line_start = true; i++; continue; }
+        if (c == ' ' || c == '\t' || c == '\r') { i++; continue; }
+        if (c == '/' && i + 1 < len && s[i + 1] == '*') {
+            const char *e = strstr(s + i + 2, "*/");
+            i = e ? (size_t)(e - s) + 2 : len;
+            continue;
+        }
+        if (c == '/' && i + 1 < len && s[i + 1] == '/') {
+            while (i < len && s[i] != '\n') i++;
+            continue;
+        }
+        if (c == '"' || c == '\'') {
+            i++;
+            while (i < len && s[i] != c && s[i] != '\n') i += (s[i] == '\\') ? 2 : 1;
+            i++;
+            stmt = false;
+            prev_for = false;
+            continue;
+        }
+        if (debug_ident_char(c)) {
+            if (stmt && !(c >= '0' && c <= '9') && debug_declares_temporary(s, i, len)) {
+                iron_strbuf_append(out, s + copied, i - copied);
+                iron_strbuf_appendf(out, "__attribute__((nodebug)) ");
+                copied = i;
+            }
+            size_t b = i;
+            while (i < len && debug_ident_char(s[i])) i++;
+            prev_for = debug_word_is(s + b, i - b, "for");
+            stmt = false;
+            continue;
+        }
+        if (c == '(') {
+            depth++;
+            stmt = prev_for;
+        } else if (c == ')') {
+            if (depth > 0) depth--;
+            stmt = false;
+        } else if (c == ';') {
+            stmt = depth == 0;
+        } else if (c == '{') {
+            if (nsaved < (int)(sizeof(saved) / sizeof(saved[0]))) saved[nsaved] = depth;
+            nsaved++;
+            depth = 0;
+            stmt = true;
+        } else if (c == '}') {
+            if (nsaved > 0) {
+                nsaved--;
+                depth = nsaved < (int)(sizeof(saved) / sizeof(saved[0])) ? saved[nsaved] : 0;
+            }
+            stmt = depth == 0;
+        } else {
+            stmt = false;
+        }
+        prev_for = false;
+        i++;
+    }
+    iron_strbuf_append(out, s + copied, len - copied);
+}
+
 /* --debug: `n` is a plain C identifier (letters, digits, `_`). */
 static bool debug_c_ident(const char *n) {
     if (!n || !*n || (n[0] >= '0' && n[0] <= '9')) return false;
@@ -9102,6 +9294,9 @@ typedef struct { char *key; int value; } DebugTakenName;
 static void debug_name_value(EmitValueName **map, DebugTakenName **taken,
                              IronLIR_ValueId id, const char *name, Iron_Arena *arena) {
     if (!name || !*name || hmgeti(*map, id) >= 0) return;
+    /* `iron__...`: a binding the parser made up (assert_eq's operands), a
+     * temporary rather than one of the program's names. */
+    if (strncmp(name, "iron__", 6) == 0) return;
     char buf[160];
     if (!c_name_reserved(name) && shgeti(*taken, name) < 0) {
         snprintf(buf, sizeof(buf), "%s", name);
@@ -9195,12 +9390,25 @@ void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn) {
     hmfree(refs);
 }
 
+/* --debug: a function body as it goes out, temporaries without debug info
+ * and the Iron line restated on every C line. */
+static void emit_debug_body(Iron_StrBuf *out, Iron_StrBuf *body) {
+    if (!debug_hide_temporaries()) {
+        emit_restate_lines(out, iron_strbuf_get(body), body->len);
+        return;
+    }
+    Iron_StrBuf hidden = iron_strbuf_create(body->len + 1024);
+    emit_hide_temporaries(&hidden, iron_strbuf_get(body), body->len);
+    emit_restate_lines(out, iron_strbuf_get(&hidden), hidden.len);
+    iron_strbuf_free(&hidden);
+}
+
 static void emit_func_body_named(EmitCtx *ctx, IronLIR_Func *fn) {
     if (!is_lifted_func(fn->name)) {
         if (g_emit_line_directives) {
             Iron_StrBuf body = iron_strbuf_create(4096);
             emit_func_body_into(ctx, fn, &body);
-            emit_restate_lines(&ctx->implementations, iron_strbuf_get(&body), body.len);
+            emit_debug_body(&ctx->implementations, &body);
             iron_strbuf_free(&body);
         } else {
             emit_func_body_into(ctx, fn, &ctx->implementations);
@@ -9215,7 +9423,7 @@ static void emit_func_body_named(EmitCtx *ctx, IronLIR_Func *fn) {
     Iron_StrBuf body = iron_strbuf_create(4096);
     emit_func_body_into(ctx, fn, &body);
     if (g_emit_line_directives)
-        emit_restate_lines(&ctx->lifted_funcs, iron_strbuf_get(&body), body.len);
+        emit_debug_body(&ctx->lifted_funcs, &body);
     else
         iron_strbuf_append(&ctx->lifted_funcs, iron_strbuf_get(&body), body.len);
     emit_line_reset(&ctx->lifted_funcs);
