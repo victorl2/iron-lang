@@ -286,17 +286,22 @@ loaded lazily, call setup from its config instead:
 ```
 
 Then, in a `.iron` buffer, `:lua require('dap').toggle_breakpoint()` and
-`:lua require('dap').continue()` offer two configurations:
+`:lua require('dap').continue()` offer three configurations:
 
 | Configuration | `program` |
 |---|---|
 | Iron: debug this file | `${file}` |
 | Iron: debug the package | `${workspaceFolder}` (asks for arguments) |
+| Iron: debug the test under the cursor | `${file}`, with `test` the nearest `test "..."` block at or above the cursor |
 
 Your own entries in `dap.configurations.iron` take the same fields as the
 VS Code `iron` type: `program` (a `.iron` file, a package directory or a
 built binary), `args`, `cwd`, `env`, `stopOnEntry`, `stopOnPanic`,
-`build`.
+`build`, and `test` (a test block of the `.iron` file to run alone).
+While paused, `:lua require('dap').repl.open()` and watch expressions
+take Iron expressions (`xs.len() > 2 and not done`), and breakpoint
+conditions (`require('dap').set_breakpoint('i == 7')`) and log points are
+Iron too.
 
 `test/e2e/dap_harness.sh <iron>` checks this headlessly: it stops on
 `tests/integration/debug/stepping.iron:3` and reads the locals of

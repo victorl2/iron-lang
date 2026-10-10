@@ -40,6 +40,10 @@
       "type": "boolean",
       "default": true,
       "description": "Build .iron files and packages with --debug before debugging."
+    },
+    "test": {
+      "type": "string",
+      "description": "The name of a test \"...\" block in program (a .iron file): only that test runs, built with --test."
     }
   },
   "required": ["program"]

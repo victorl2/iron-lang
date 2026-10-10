@@ -30,6 +30,8 @@ its DAP mode, and changes what passes between the client and it:
 
 Launch arguments:
   program      .iron file, package directory, or an already built binary
+  test         the name of a `test "..."` block in program (a .iron file):
+               the file is built with --test and only that test runs
   args, cwd, env, stopOnEntry
   build        false: debug `program` as is (default: build .iron files
                and packages)
@@ -170,16 +172,20 @@ def package_name(d):
     return m.group(1) if m else None
 
 
-def build_plan(iron, program):
-    """(argv, cwd, binary) that builds `program` with --debug, None when
-    `program` is already a binary, or a str error."""
+def build_plan(iron, program, test=False):
+    """(argv, cwd, binary) that builds `program` with --debug (and its test
+    blocks with `test`), None when `program` is already a binary, or a str
+    error."""
     exe = ".exe" if os.name == "nt" else ""
     program = os.path.abspath(program)
     if program.endswith(".iron"):
         out = os.path.join(tempfile.gettempdir(), "iron-debug",
-                           os.path.basename(program)[:-5] + exe)
+                           os.path.basename(program)[:-5] + ("_test" if test else "") + exe)
         os.makedirs(os.path.dirname(out), exist_ok=True)
-        return [iron, "build", program, "--debug", "-o", out], os.path.dirname(program), out
+        argv = [iron, "build", program, "--debug"] + (["--test"] if test else []) + ["-o", out]
+        return argv, os.path.dirname(program), out
+    if test:
+        return "to debug a test, set \"program\" to the .iron file that declares it"
     if os.path.isdir(program) or os.path.basename(program) == "iron.toml":
         pkg = package_dir(program if os.path.isdir(program) else os.path.dirname(program))
         name = pkg and package_name(pkg)
@@ -697,7 +703,8 @@ class Proxy:
                                     "directory or a binary")
             return None
         binary = program
-        plan = build_plan(self.iron, program) if a.get("build", True) else None
+        test = a.get("test")
+        plan = build_plan(self.iron, program, bool(test)) if a.get("build", True) else None
         if isinstance(plan, str):
             self.respond_error(req, plan)
             return None
@@ -713,7 +720,19 @@ class Proxy:
                 self.respond_error(req, "the --debug build failed (see the debug console)")
                 return None
             a.setdefault("cwd", cwd)
-        out = {"program": os.path.abspath(binary), "args": a.get("args", []),
+        args = list(a.get("args", []))
+        if test:
+            # A test binary lists its tests with --iron-list and runs test
+            # n alone with --iron-test n.
+            r = subprocess.run([binary, "--iron-list"], capture_output=True, text=True)
+            names = r.stdout.splitlines() if r.returncode == 0 else []
+            if test not in names:
+                self.respond_error(req, "no test \"%s\" in %s (tests: %s)" %
+                                   (test, os.path.basename(program),
+                                    ", ".join(names) or "none"))
+                return None
+            args = ["--iron-test", str(names.index(test))] + args
+        out = {"program": os.path.abspath(binary), "args": args,
                "cwd": a.get("cwd") or os.path.dirname(os.path.abspath(binary)),
                "stopOnEntry": bool(a.get("stopOnEntry", False))}
         env = a.get("env")

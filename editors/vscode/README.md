@@ -116,8 +116,9 @@ debounce — no manual reload required.
 
 ## Debugging
 
-Press F5 in a `.iron` file to build it with `iron build --debug` and
-debug it: breakpoints in `.iron` files, stepping on Iron lines, the call
+Press F5 in a `.iron` file, or use the Run / Debug buttons at the top
+right of the editor, to build it with `iron build --debug` and debug it
+(Run builds and runs it in a terminal): breakpoints in `.iron` files, stepping on Iron lines, the call
 stack of Iron functions, locals under their Iron names (the compiler's
 temporaries hidden), values shown as Iron values (strings, lists, maps,
 optionals, enums, `rc`, closures), and a stop on the failing Iron line
@@ -129,6 +130,12 @@ expressions (`xs.len() > 2 and not done`, `name == "ann"`,
 (`i == 7 and total > 20`), a hit count (`5`, `>= 5`, `% 5`) or a log
 message (`i = {i}, total = {total}`), which prints without stopping.
 On Windows these go to the Visual Studio debugger, which reads C.
+
+Each `test "..."` block has **Run Test** and **Debug Test** above it.
+Debug Test builds the file with `--test --debug` and runs that test
+alone under the debugger, so breakpoints in the test and in the code it
+calls stop. In `launch.json` the same is `"test": "<name>"` next to a
+`.iron` file as `program`.
 
 A `launch.json` configuration of type `iron`:
 

@@ -159,7 +159,9 @@ yourself works the same way.
 server on standard input and output that VS Code, Neovim (nvim-dap) and
 Zed can run. Its `launch` request takes `program` (a `.iron` file, a
 package directory, or a binary that is already built), `args`, `cwd`,
-`env` and `stopOnEntry`. It builds the program with `--debug`, runs
+`env` and `stopOnEntry`, and `test`, the name of a `test "..."` block of
+the `.iron` file: the file is built with `--test` and only that test
+runs, so its breakpoints stop. It builds the program with `--debug`, runs
 `lldb-dap` (from LLVM or Xcode) or, without it, gdb 14 or later in its
 DAP mode, loads the value formatters below, lists locals under their
 Iron names without the compiler's temporaries, and shows Iron function
