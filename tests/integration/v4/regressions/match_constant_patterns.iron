@@ -1,0 +1,31 @@
+-- A match arm with a negative literal or a constant expression pattern
+-- matches its value; such arms used to become the default arm and never
+-- matched (#344). Constant expression operands take their partner's type
+-- like literals do (#341).
+func pick(n: Int) -> Int {
+    return n
+}
+
+func p8(n: Int) -> Int8 {
+    return Int8(n)
+}
+
+func describe(n: Int) -> String {
+    match n {
+        -5 -> return "minus five"
+        1 + 2 -> return "three"
+        1 << 3 -> return "eight"
+        else -> return "other"
+    }
+    return "unreachable"
+}
+
+func main() {
+    println("{describe(pick(0 - 5))} {describe(pick(3))} {describe(pick(8))} {describe(pick(4))}")
+    val a = p8(3)
+    val b = a + (2 + 3)
+    val c = a * (10 - 12)
+    val d: Int8 = 2 + 3 * 4
+    val e: UInt8 = (1 << 7) | 1
+    println("{b} {c} {d} {e}")
+}

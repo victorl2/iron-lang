@@ -163,6 +163,10 @@ typedef struct {
      * `if ((a == b))`, -Wparentheses-equality). Consumed on entry to
      * emit_expr_to_buf, so nested comparisons keep theirs. */
     bool bare_cond;
+    /* Set just before emit_expr_to_buf re-enters itself to emit the body
+     * of an 8 or 16 bit arithmetic result inside its truncating cast;
+     * consumed on entry (#342). */
+    bool narrow_wrapped;
     IronLIR_ValueBlockEntry *value_block;      /* per-function value->block map */
     IronLIR_BlockId          current_block_id; /* set before each emit_instr call */
     /* When set, emit_expr_to_buf reconstructs this one value's producing

@@ -39,6 +39,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 
@@ -1623,7 +1624,13 @@ static bool literal_range_error(TypeCtx *ctx, const Iron_Type *decl_t,
     if (value_fits_type(val, decl_t)) return false;
     const char *range = integer_range_text(decl_t);
     char msg[256];
-    snprintf(msg, sizeof(msg), "literal %lld does not fit in %s%s%s%s", val,
+    snprintf(msg, sizeof(msg), "%s %lld does not fit in %s%s%s%s",
+             init_node->kind == IRON_NODE_INT_LIT ||
+             (init_node->kind == IRON_NODE_UNARY &&
+              ((Iron_UnaryExpr *)init_node)->op == (Iron_OpKind)IRON_TOK_MINUS &&
+              ((Iron_UnaryExpr *)init_node)->operand &&
+              ((Iron_UnaryExpr *)init_node)->operand->kind == IRON_NODE_INT_LIT)
+                 ? "literal" : "constant expression", val,
              iron_type_to_string((Iron_Type *)decl_t, ctx->arena),
              range ? " (" : "", range ? range : "", range ? ")" : "");
     emit_error(ctx, IRON_ERR_TYPE_MISMATCH_LITERAL, init_node->span, msg,
@@ -1631,11 +1638,12 @@ static bool literal_range_error(TypeCtx *ctx, const Iron_Type *decl_t,
     return true;
 }
 
-/* Try to extract a compile-time constant integer from an AST node.
- * Returns true if the node is a constant integer (INT_LIT or -INT_LIT),
- * and writes the value to *out. Returns false otherwise. */
-static bool try_get_constant_int(Iron_Node *node, long long *out) {
-    if (!node) return false;
+/* The value of an integer constant expression: a literal, or literals
+ * combined with unary - and ~ and binary + - * / % & | ^ << >> (manual
+ * 2: a constant expression behaves like the literal it folds to, #341).
+ * Fails on overflow, division by zero and out-of-range shifts. */
+static bool fold_constant_int(Iron_Node *node, long long *out, int depth) {
+    if (!node || depth > 64) return false;
     if (node->kind == IRON_NODE_INT_LIT) {
         Iron_IntLit *lit = (Iron_IntLit *)node;
         if (!lit->value) return false;
@@ -1645,21 +1653,70 @@ static bool try_get_constant_int(Iron_Node *node, long long *out) {
         *out = v;
         return true;
     }
-    /* Handle unary minus: -42 is UNARY(-, INT_LIT(42)) */
     if (node->kind == IRON_NODE_UNARY) {
         Iron_UnaryExpr *ue = (Iron_UnaryExpr *)node;
-        if (ue->op == IRON_TOK_MINUS && ue->operand &&
-            ue->operand->kind == IRON_NODE_INT_LIT) {
-            Iron_IntLit *lit = (Iron_IntLit *)ue->operand;
-            if (!lit->value) return false;
-            errno = 0;
-            long long v = strtoll(lit->value, NULL, 10);
-            if (errno) return false;
+        long long v;
+        if (!fold_constant_int(ue->operand, &v, depth + 1)) return false;
+        if (ue->op == IRON_TOK_MINUS) {
+            if (v == LLONG_MIN) return false;
             *out = -v;
             return true;
         }
+        if (ue->op == IRON_TOK_TILDE) { *out = ~v; return true; }
+        return false;
+    }
+    if (node->kind == IRON_NODE_BINARY) {
+        Iron_BinaryExpr *be = (Iron_BinaryExpr *)node;
+        long long a, b;
+        if (!fold_constant_int(be->left, &a, depth + 1) ||
+            !fold_constant_int(be->right, &b, depth + 1)) return false;
+        switch ((int)be->op) {
+            case IRON_TOK_PLUS:  return !__builtin_add_overflow(a, b, out);
+            case IRON_TOK_MINUS: return !__builtin_sub_overflow(a, b, out);
+            case IRON_TOK_STAR:  return !__builtin_mul_overflow(a, b, out);
+            case IRON_TOK_SLASH:
+                if (b == 0 || (a == LLONG_MIN && b == -1)) return false;
+                *out = a / b;
+                return true;
+            case IRON_TOK_PERCENT:
+                if (b == 0 || (a == LLONG_MIN && b == -1)) return false;
+                *out = a % b;
+                return true;
+            case IRON_TOK_AMP:   *out = a & b; return true;
+            case IRON_TOK_PIPE:  *out = a | b; return true;
+            case IRON_TOK_CARET: *out = a ^ b; return true;
+            case IRON_TOK_SHL:
+                if (a < 0 || b < 0 || b > 62 || a > (LLONG_MAX >> b)) return false;
+                *out = a << b;
+                return true;
+            case IRON_TOK_SHR:
+                if (b < 0 || b > 63) return false;
+                *out = a >> b;
+                return true;
+            /* -Wswitch-enum opt-out: comparisons and logical operators do
+             * not produce an integer. */
+            default:
+                return false;
+        }
     }
     return false;
+}
+
+static bool try_get_constant_int(Iron_Node *node, long long *out) {
+    return fold_constant_int(node, out, 0);
+}
+
+/* Give an integer constant expression the type its context chose, down to
+ * its literals, so `a + (2 + 3)` with `a: Int8` is Int8 throughout. */
+static void retype_int_constant(Iron_Node *node, Iron_Type *t, int depth) {
+    if (!node || depth > 64) return;
+    ((Iron_ExprNode *)node)->resolved_type = t;
+    if (node->kind == IRON_NODE_UNARY) {
+        retype_int_constant(((Iron_UnaryExpr *)node)->operand, t, depth + 1);
+    } else if (node->kind == IRON_NODE_BINARY) {
+        retype_int_constant(((Iron_BinaryExpr *)node)->left, t, depth + 1);
+        retype_int_constant(((Iron_BinaryExpr *)node)->right, t, depth + 1);
+    }
 }
 
 /* ── Generic constraint helpers ──────────────────────────────────────────── */
@@ -4215,14 +4272,18 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
             if (lt && rt && lt->kind != IRON_TYPE_ERROR &&
                 rt->kind != IRON_TYPE_ERROR && !iron_type_equals(lt, rt)) {
                 if (is_int_literal_narrowing(lt, rt, be->right)) {
-                    ((Iron_ExprNode *)be->right)->resolved_type = lt;
+                    retype_int_constant(be->right, lt, 0);
                     rt = lt;
                 } else if (is_int_literal_narrowing(rt, lt, be->left)) {
-                    ((Iron_ExprNode *)be->left)->resolved_type = rt;
+                    retype_int_constant(be->left, rt, 0);
                     lt = rt;
                 } else if (be->op == IRON_TOK_PLUS || be->op == IRON_TOK_MINUS ||
                            be->op == IRON_TOK_STAR || be->op == IRON_TOK_SLASH ||
-                           be->op == IRON_TOK_PERCENT) {
+                           be->op == IRON_TOK_PERCENT || be->op == IRON_TOK_AMP ||
+                           be->op == IRON_TOK_PIPE || be->op == IRON_TOK_CARET ||
+                           be->op == IRON_TOK_EQUALS || be->op == IRON_TOK_NOT_EQUALS ||
+                           be->op == IRON_TOK_LESS || be->op == IRON_TOK_GREATER ||
+                           be->op == IRON_TOK_LESS_EQ || be->op == IRON_TOK_GREATER_EQ) {
                     literal_range_reported =
                         literal_range_error(ctx, lt, rt, be->right) ||
                         literal_range_error(ctx, rt, lt, be->left);
@@ -4440,7 +4501,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                            ? "convert to an integer first: Int(x)" : NULL);
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     } else if (!is_shift && !iron_type_equals(lt, rt)) {
-                        emit_type_mismatch(ctx, be->span, lt, rt);
+                        if (!literal_range_reported)
+                            emit_type_mismatch(ctx, be->span, lt, rt);
                         result = iron_type_make_primitive(IRON_TYPE_ERROR);
                     } else {
                         result = lt;
@@ -10297,6 +10359,26 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                 for (int i = 0; i < ms->case_count; i++) {
                     Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
                     if (!mc || !mc->pattern) continue;
+                    /* A constant expression pattern (`-5`, `1 << 3`) becomes
+                     * the literal it folds to: the lowering puts only
+                     * integer literals in the switch table and took any
+                     * other pattern for the default arm, so the arm never
+                     * matched (#344). */
+                    long long folded;
+                    if (mc->pattern->kind != IRON_NODE_INT_LIT &&
+                        try_get_constant_int(mc->pattern, &folded)) {
+                        Iron_IntLit *lit = ARENA_ALLOC(ctx->arena, Iron_IntLit);
+                        char buf[32];
+                        snprintf(buf, sizeof(buf), "%lld", folded);
+                        const char *text = iron_arena_strdup(ctx->arena, buf, strlen(buf));
+                        if (lit && text) {
+                            lit->kind = IRON_NODE_INT_LIT;
+                            lit->span = mc->pattern->span;
+                            lit->resolved_type = subject_type;
+                            lit->value = text;
+                            mc->pattern = (Iron_Node *)lit;
+                        }
+                    }
                     Iron_Node *pn = mc->pattern;
                     bool neg = false;
                     if (pn->kind == IRON_NODE_UNARY &&

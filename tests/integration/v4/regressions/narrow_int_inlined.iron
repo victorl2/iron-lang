@@ -1,0 +1,31 @@
+-- 8 and 16 bit arithmetic inlined into another expression wraps to its
+-- width: C computes it in int, so (a + a) < 0 compared 200 and ~u % 4
+-- took -222 % 4 before the result was truncated (#342).
+func p8(n: Int) -> Int8 {
+    return Int8(n)
+}
+
+func pu8(n: Int) -> UInt8 {
+    return UInt8(n)
+}
+
+func p16(n: Int) -> Int16 {
+    return Int16(n)
+}
+
+func main() {
+    val u = pu8(221)
+    val m = ~u % UInt8(4)
+    val n = (u + u) / UInt8(2)
+    val a = p8(100)
+    val q = (a + a) / Int8(2)
+    val c = (a + a) < Int8(0)
+    println("{m} {n} {q} {c}")
+    val h = p16(30000)
+    val g = (h + h) > Int16(0)
+    val k = (h * Int16(3)) / Int16(4)
+    println("{g} {k}")
+    if (a + a) < Int8(0) {
+        println("wrapped")
+    }
+}

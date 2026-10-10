@@ -1,0 +1,12 @@
+func pu8(n: Int) -> UInt8 {
+    return UInt8(n)
+}
+
+func main() {
+    val a = pu8(3)
+    val b = a & ~29
+    val c = a < -1
+    val d = a + 300
+    val e: Int8 = 100 + 100
+    println("{b} {c} {d} {e}")
+}

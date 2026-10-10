@@ -1610,6 +1610,8 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                        IronLIR_BlockId use_block_id, int depth) {
     bool bare_cmp = depth == 0 && ctx->bare_cond;
     ctx->bare_cond = false;
+    bool narrow_wrapped = ctx->narrow_wrapped;
+    ctx->narrow_wrapped = false;
     if (vid == IRON_LIR_VALUE_INVALID) {
         iron_strbuf_appendf(sb, "_v_invalid");
         return;
@@ -1680,6 +1682,27 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
     /* Step 5: Deep-expression anchor comment */
     if (depth > 3) {
         iron_strbuf_appendf(sb, "/* %s */ ", emit_vname(vid));
+    }
+
+    /* Step 5b: C computes 8 and 16 bit arithmetic in int, so an inlined
+     * result is not wrapped to its width until it is stored: `(a + a) < 0`
+     * with a = 100 : Int8 compared 200, and `~u % 4` with u = 221 : UInt8
+     * took -222 % 4 (#342). Truncate the inlined result to its type. */
+    if (!narrow_wrapped && instr->type &&
+        (instr->type->kind == IRON_TYPE_INT8 || instr->type->kind == IRON_TYPE_INT16 ||
+         instr->type->kind == IRON_TYPE_UINT8 || instr->type->kind == IRON_TYPE_UINT16)) {
+        switch ((int)instr->kind) {
+        case IRON_LIR_ADD: case IRON_LIR_SUB: case IRON_LIR_MUL:
+        case IRON_LIR_DIV: case IRON_LIR_NEG: case IRON_LIR_BNOT:
+        case IRON_LIR_SHL:
+            iron_strbuf_appendf(sb, "((%s)", emit_type_to_c(instr->type, ctx));
+            ctx->narrow_wrapped = true;
+            emit_expr_to_buf(sb, vid, fn, ctx, use_block_id, depth);
+            iron_strbuf_appendf(sb, ")");
+            return;
+        default:
+            break;
+        }
     }
 
     /* Step 6: Build expression based on instruction kind */
