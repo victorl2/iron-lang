@@ -4183,6 +4183,21 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             if (boxed && alloca_id < (IronLIR_ValueId)arrlen(ctx->current_func->value_table) &&
                 ctx->current_func->value_table[alloca_id]) {
                 ctx->current_func->value_table[alloca_id]->alloca.is_boxed = true;
+                /* The cell is allocated here, where the binding comes into
+                 * existence, not once at function entry: a declaration in a
+                 * loop body makes a new binding (and cell) each iteration,
+                 * and each iteration's scope exit releases its own (a cell
+                 * allocated once was released, then reused, then released
+                 * again: a double free). */
+                if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                    IronLIR_Instr *cref = iron_lir_func_ref(ctx->current_func,
+                        ctx->current_block, "$cell_new", NULL, span);
+                    if (cref) {
+                        IronLIR_ValueId cargs[1] = { alloca_id };
+                        iron_lir_call(ctx->current_func, ctx->current_block,
+                                      NULL, cref->id, cargs, 1, NULL, span);
+                    }
+                }
                 if (ctx->defer_depth > 0 && ctx->drop_stacks &&
                     ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
                     /* (The type tells the pump whether the cell holds a

@@ -96,6 +96,46 @@ static const char *cap_c_name(const char *n) {
     return n;
 }
 
+/* The env struct `<lambda>_env_t` of a capturing closure, written once into
+ * struct_bodies: a var capture is a pointer to the shared slot, a val
+ * capture a copy of the value. */
+static void emit_closure_env_typedef(EmitCtx *ctx, const char *env_type,
+                                     Iron_CaptureEntry *cap_meta, int cap_count) {
+    if (shgeti(ctx->mono_registry, (char *)env_type) >= 0) return;
+    shput(ctx->mono_registry, (char *)env_type, true);
+    iron_strbuf_appendf(&ctx->struct_bodies, "typedef struct {\n");
+    for (int ci = 0; ci < cap_count; ci++) {
+        const char *field_type = cap_meta[ci].is_heap_handle
+                                 ? "Iron_FatPtr"
+                                 : cap_meta[ci].type
+                                 ? emit_type_to_c(cap_meta[ci].type, ctx)
+                                 : "void*";
+        iron_strbuf_appendf(&ctx->struct_bodies,
+                            cap_meta[ci].is_mutable ? "    %s *%s;\n" : "    %s %s;\n",
+                            field_type, cap_c_name(cap_meta[ci].name));
+    }
+    iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n\n", env_type);
+}
+
+/* A lambda whose closure is never built (it sits in unreachable code, after
+ * a return) is still emitted, and its body reads the captures through the
+ * env struct that only building the closure declares. Declare the missing
+ * ones after all functions are written. */
+void emit_unbuilt_closure_envs(EmitCtx *ctx, IronLIR_Module *module) {
+    for (int i = 0; i < module->func_count; i++) {
+        IronLIR_Func *fn = module->funcs[i];
+        if (!fn || fn->is_extern || !fn->name || strncmp(fn->name, "__lambda_", 9) != 0 ||
+            fn->capture_count <= 0 || !fn->capture_metadata)
+            continue;
+        Iron_StrBuf sb = iron_strbuf_create(64);
+        iron_strbuf_appendf(&sb, "%s_env_t", fn->name);
+        const char *env_type = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+        iron_strbuf_free(&sb);
+        if (!env_type) iron_oom_abort("emit_c.c:emit_unbuilt_closure_envs");
+        emit_closure_env_typedef(ctx, env_type, fn->capture_metadata, fn->capture_count);
+    }
+}
+
 static IronLIR_ValueId get_stack_array_origin(EmitCtx *ctx, IronLIR_ValueId id) {
     if (!ctx->opt_info->stack_array_ids) return IRON_LIR_VALUE_INVALID;
     ptrdiff_t idx = hmgeti(ctx->opt_info->stack_array_ids, id);
@@ -3293,10 +3333,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * it for every load, store and address-of below. */
             const char *c_type = emit_local_decl_type(
                 fn, instr, instr->alloca.alloc_type, ctx);
-            const char *dropfn = emit_cell_drop_fn(ctx, instr->alloca.alloc_type);
+            /* The cell itself is allocated by the `$cell_new` glue at the
+             * declaration (once per execution of it). */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s *%s_box = (%s *)iron_cell_alloc(sizeof(%s), %s);\n",
-                                c_type, emit_vname(instr->id), c_type, c_type, dropfn);
+            iron_strbuf_appendf(sb, "%s *%s_box = NULL;\n", c_type, emit_vname(instr->id));
             iron_strbuf_appendf(sb, "#define %s (*%s_box)\n", emit_vname(instr->id), emit_vname(instr->id));
             /* --debug: the slot is reached through the macro, so the
              * debugger sees only the cell pointer; `_ref_<name>` names
@@ -4402,6 +4442,29 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                  fn->value_table[gfp] &&
                                  fn->value_table[gfp]->kind == IRON_LIR_FUNC_REF)
                                 ? fn->value_table[gfp]->func_ref.func_name : NULL;
+            if (gname && strcmp(gname, "$cell_new") == 0 && instr->call.arg_count == 1) {
+                /* A fresh counted cell for a boxed `var` (#210), allocated
+                 * where the declaration runs. */
+                IronLIR_ValueId ca = instr->call.args[0];
+                IronLIR_Instr *cin = (ca != IRON_LIR_VALUE_INVALID &&
+                                      ca < (IronLIR_ValueId)arrlen(fn->value_table))
+                                     ? fn->value_table[ca] : NULL;
+                if (cin && cin->kind == IRON_LIR_ALLOCA && cin->alloca.is_boxed) {
+                    const char *c_type = emit_local_decl_type(
+                        fn, cin, cin->alloca.alloc_type, ctx);
+                    const char *dropfn = emit_cell_drop_fn(ctx, cin->alloca.alloc_type);
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "%s_box = (%s *)iron_cell_alloc(sizeof(%s), %s);\n",
+                                        emit_vname(ca), c_type, c_type, dropfn);
+                    ptrdiff_t ri = g_debug_ref_names ? hmgeti(g_debug_ref_names, ca) : -1;
+                    if (ri >= 0) {
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "_ref_%s = %s_box;\n",
+                                            g_debug_ref_names[ri].value, emit_vname(ca));
+                    }
+                }
+                break;
+            }
             if (gname && strncmp(gname, "$is:", 4) == 0 && instr->call.arg_count == 1) {
                 emit_indent(sb, ind);
                 if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
@@ -7435,29 +7498,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             iron_strbuf_free(&env_type_sb);
 
             /* Emit typedef into struct_bodies (deduplicated via mono_registry) */
-            if (shgeti(ctx->mono_registry, (char *)env_type) < 0) {
-                shput(ctx->mono_registry, (char *)env_type, true);
-                iron_strbuf_appendf(&ctx->struct_bodies, "typedef struct {\n");
-                for (int ci = 0; ci < cap_count; ci++) {
-                    const char *field_type = cap_meta[ci].is_heap_handle
-                                             ? "Iron_FatPtr"
-                                             : cap_meta[ci].type
-                                             ? emit_type_to_c(cap_meta[ci].type, ctx)
-                                             : "void*";
-                    if (cap_meta[ci].is_mutable) {
-                        /* var capture: store pointer to outer variable */
-                        iron_strbuf_appendf(&ctx->struct_bodies,
-                                            "    %s *%s;\n",
-                                            field_type, cap_c_name(cap_meta[ci].name));
-                    } else {
-                        /* val capture: store value copy */
-                        iron_strbuf_appendf(&ctx->struct_bodies,
-                                            "    %s %s;\n",
-                                            field_type, cap_c_name(cap_meta[ci].name));
-                    }
-                }
-                iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n\n", env_type);
-            }
+            emit_closure_env_typedef(ctx, env_type, cap_meta, cap_count);
 
             /* Phase 26 OQ-03 (Plan 26-03): synthesize <func_name>_env_drop
              * companion function (Approach A). It goes into struct_bodies,
@@ -12188,6 +12229,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         }
         emit_func_body(&ctx, fn);
     }
+    emit_unbuilt_closure_envs(&ctx, module);
 
     /* ── Test build: a main that lists and runs the `test` functions ──── */
     if (module->test_mode) {

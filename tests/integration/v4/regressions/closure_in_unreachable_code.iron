@@ -1,0 +1,20 @@
+-- A capturing lambda in code that cannot run (after an if whose branches
+-- both return) never builds its closure, but its body is still emitted and
+-- reads the captures through the env struct: that struct must be declared
+-- (the C compiler rejected the program).
+func f(n: Int) -> Int {
+    if n > 0 {
+        return n
+    } else {
+        return 0
+    }
+    var acc = 0
+    val xs = [1, 2]
+    val ys = xs.filter(func(x: Int) -> Bool { return x > n })
+    xs.forEach(func(x: Int) { acc += x })
+    return ys.len() + acc
+}
+
+func main() {
+    println("{f(3)}")
+}

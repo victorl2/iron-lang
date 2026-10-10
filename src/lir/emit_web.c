@@ -513,6 +513,7 @@ const char *emit_web_module(IronLIR_Module *module, Iron_Arena *arena,
          * Its content has been fully split into the callback + wrapper pair.
          * The native Iron_<fn> symbol must not appear in the web output. */
     }
+    emit_unbuilt_closure_envs(&ctx, module);
 
     /* ── Concatenate all sections (mirrors iron_lir_emit_c lines 6566-6597) ─ */
     Iron_StrBuf output = iron_strbuf_create(8192);
