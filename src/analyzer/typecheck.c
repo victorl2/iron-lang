@@ -10433,9 +10433,25 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     for (int i = 0; i < ms->case_count; i++) {
                         Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
                         if (!mc || !mc->pattern) continue;
-                        if (mc->pattern->kind != IRON_NODE_PATTERN) continue;
-                        Iron_Pattern *p = (Iron_Pattern *)mc->pattern;
-                        const char *vname = p->variant_name;
+                        /* A bare unit variant (`Empty ->`) is parsed as an
+                         * identifier expression; it covers its variant just
+                         * as `Tok.Empty ->` does. */
+                        const char *vname = NULL;
+                        int pat_bindings = 0;
+                        if (mc->pattern->kind == IRON_NODE_PATTERN) {
+                            Iron_Pattern *pp = (Iron_Pattern *)mc->pattern;
+                            vname = pp->variant_name;
+                            pat_bindings = pp->binding_count;
+                        } else if (mc->pattern->kind == IRON_NODE_IDENT) {
+                            Iron_Ident *pid = (Iron_Ident *)mc->pattern;
+                            if (pid->resolved_sym &&
+                                pid->resolved_sym->sym_kind == IRON_SYM_ENUM_VARIANT &&
+                                pid->resolved_sym->type &&
+                                iron_type_equals(pid->resolved_sym->type, subject_type)) {
+                                vname = pid->name;
+                            }
+                        }
+                        if (!vname) continue;
                         int vi = find_variant_index(ed, vname);
                         if (vi < 0) {
                             /* Unknown variant — already reported by resolver; skip */
@@ -10453,11 +10469,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         }
                         /* Check pattern arity (binding_count must match payload_count) */
                         Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
-                        if (p->binding_count != ev->payload_count) {
+                        if (pat_bindings != ev->payload_count) {
                             char msg[256];
                             snprintf(msg, sizeof(msg),
                                      "%s expects %d field(s) but pattern has %d",
-                                     vname, ev->payload_count, p->binding_count);
+                                     vname, ev->payload_count, pat_bindings);
                             emit_error(ctx, IRON_ERR_PATTERN_ARITY, mc->pattern->span,
                                        msg, NULL);
                         }
