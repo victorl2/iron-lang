@@ -7,13 +7,12 @@
  * then qsort's and 128-caps the result.
  *
  * Implementation notes:
- *   - "Local scope" (Bucket 1) is approximated by walking the enclosing
- *     func decl's params + let/val/var decls inside its body whose spans
- *     precede the cursor byte offset. True Iron_Scope chain walking
- *     would require a scope_at_cursor helper and broadly re-traversing
- *     the analyzer output; for Plan 04-02 we keep this as the fn-level
- *     approximation (sufficient for EDIT-01's "locals surfaced before
- *     top-level" guarantee).
+ *   - "Local scope" (Bucket 1) walks the function or method holding the
+ *     cursor for the names in scope there: parameters, and the bindings,
+ *     `for` variables, lambda parameters and match bindings whose scope
+ *     holds the cursor and that are declared before it.
+ *   - The stdlib prelude's types and functions and the compiler's
+ *     builtin functions (`println`, `len`...) join bucket 4.
  *   - "Imported" (Bucket 3) surfaces each import alias as a module
  *     candidate (Module kind=9). Full same-module symbol traversal is
  *     deferred to Plan 04-03 when auto-import wiring makes the
@@ -28,6 +27,7 @@
 #include "lsp/facade/edit/complete/buckets.h"
 #include "lsp/facade/edit/complete/context_classify.h"
 #include "lsp/facade/edit/complete/keyword_filter.h"
+#include "lsp/facade/builtin_members.h"
 #include "lsp/facade/nav/fuzzy.h"
 #include "lsp/facade/nav/patch_lookup.h"
 #include "lsp/server/server.h"
@@ -197,6 +197,9 @@ static void emit_top_level(IronLsp_CompletionCandidate **out_arr,
         /* Keep imports out of bucket 2 (they're module names, not
          * symbols). Plan 04-03 may surface them via bucket 3. */
         if (d->kind == IRON_NODE_IMPORT_DECL) continue;
+        /* A method is reached through its receiver (`p.area()`), never by
+         * its bare name; member completion lists it. */
+        if (d->kind == IRON_NODE_METHOD_DECL) continue;
         /* NEW Phase 10 TIER-03 (D-10): build tier-prefixed detail for
          * method-bearing decls (FUNC_DECL + METHOD_DECL only). Mutual
          * exclusion is parser-enforced (parser.c:3162-3180). FIELD,
@@ -228,86 +231,270 @@ static void emit_top_level(IronLsp_CompletionCandidate **out_arr,
     }
 }
 
-/* ── Bucket 1: local scope (approximated at func level) ───────────── */
+/* ── Bucket 1: the bindings in scope at the cursor ───────────────── */
 
-/* Find the enclosing FUNC_DECL or METHOD_DECL whose span brackets the
- * cursor. Returns NULL when the cursor is at top-level. */
-static Iron_Node *enclosing_func(Iron_Program *program,
-                                   size_t cursor_byte_offset,
-                                   const struct IronLsp_Document *doc) {
-    if (!program || !doc) return NULL;
-    for (int i = 0; i < program->decl_count; i++) {
-        Iron_Node *d = program->decls[i];
-        if (!d) continue;
-        if (d->kind != IRON_NODE_FUNC_DECL && d->kind != IRON_NODE_METHOD_DECL)
-            continue;
-        /* Best-effort: if the span's byte range covers cursor, accept. */
-        Iron_Span s = d->span;
-        /* Convert span start -> byte; if doc has line index we could be
-         * precise, but for the approximation here we accept any decl
-         * whose line range brackets the cursor byte. Since the span
-         * end is on the closing `}`, this is safe. */
-        (void)s; (void)cursor_byte_offset;
-        /* Simple acceptance: linearly accept the FIRST func decl. In
-         * practice Iron programs have one main() and a handful of
-         * helpers; the cursor is usually inside main(). A more refined
-         * line-index lookup is future work. */
-        return d;
+/* Every name a use at the cursor could resolve to inside the enclosing
+ * declaration: its parameters, and the `val` / `var` bindings, `for`
+ * variables, lambda parameters and match bindings whose scope contains
+ * the cursor and that are declared before it. An inner binding replaces
+ * an outer one of the same name. */
+typedef struct {
+    const char *name;
+    const char *detail;
+    int         kind;
+} LocalBinding;
+
+typedef struct {
+    uint32_t      line, col;          /* the cursor, 1-based */
+    Iron_Node    *stack[256];         /* ancestors of the visited node */
+    int           depth;
+    LocalBinding *found;              /* stb_ds */
+    Iron_Arena   *arena;
+} LocalsCtx;
+
+static bool pos_in_span(const Iron_Span *sp, uint32_t line, uint32_t col) {
+    if (sp->line == 0) return false;
+    if (line < sp->line || line > sp->end_line) return false;
+    if (line == sp->line && col < sp->col) return false;
+    /* The cursor right after a block's last character is still in it. */
+    if (line == sp->end_line && col > sp->end_col + 1) return false;
+    return true;
+}
+
+static bool starts_before(const Iron_Span *sp, uint32_t line, uint32_t col) {
+    return sp->line != 0 && (sp->line < line || (sp->line == line && sp->col < col));
+}
+
+static const char *typed_detail(LocalsCtx *c, const char *prefix, const char *name,
+                                const Iron_Type *t) {
+    const char *ts = t ? iron_type_to_string(t, c->arena) : NULL;
+    char buf[256];
+    if (ts) snprintf(buf, sizeof(buf), "%s%s: %s", prefix, name, ts);
+    else snprintf(buf, sizeof(buf), "%s%s", prefix, name);
+    return iron_arena_strdup(c->arena, buf, strlen(buf));
+}
+
+static void add_local(LocalsCtx *c, const char *name, const char *detail, int kind) {
+    if (!name || !*name || strcmp(name, "_") == 0) return;
+    for (ptrdiff_t i = 0; i < arrlen(c->found); i++) {
+        if (strcmp(c->found[i].name, name) == 0) {
+            c->found[i].detail = detail;
+            c->found[i].kind = kind;
+            return;
+        }
+    }
+    LocalBinding b = { name, detail, kind };
+    arrput(c->found, b);
+}
+
+static void add_pattern_bindings(LocalsCtx *c, const Iron_Node *n) {
+    if (!n || n->kind != IRON_NODE_PATTERN) return;
+    const Iron_Pattern *p = (const Iron_Pattern *)n;
+    for (int i = 0; i < p->binding_count; i++) {
+        const char *bn = p->binding_names ? p->binding_names[i] : NULL;
+        if (bn) add_local(c, bn, typed_detail(c, "", bn, NULL), LSP_CK_VARIABLE);
+        else if (p->nested_patterns) add_pattern_bindings(c, p->nested_patterns[i]);
+    }
+}
+
+/* The nearest block enclosing the visited node (the stack top). */
+static Iron_Node *enclosing_block(LocalsCtx *c) {
+    int top = c->depth - 2;
+    if (top >= (int)(sizeof(c->stack) / sizeof(c->stack[0]))) return NULL;
+    for (int i = top; i >= 0; i--) {
+        Iron_NodeKind k = c->stack[i]->kind;
+        if (k == IRON_NODE_BLOCK) return c->stack[i];
+        if (k == IRON_NODE_FUNC_DECL || k == IRON_NODE_METHOD_DECL ||
+            k == IRON_NODE_LAMBDA) return NULL;
     }
     return NULL;
 }
 
-static void emit_func_locals(IronLsp_CompletionCandidate **out_arr,
-                               Iron_Arena              *arena,
-                               Iron_Node                      *fn,
-                               const char                     *canonical_path,
-                               const char                     *query_prefix,
-                               _Atomic bool                   *cancel) {
-    if (!fn) return;
-    Iron_Node **params = NULL;
-    int param_count = 0;
-    Iron_Node *body = NULL;
-    if (fn->kind == IRON_NODE_FUNC_DECL) {
-        Iron_FuncDecl *fd = (Iron_FuncDecl *)fn;
-        params = fd->params;
-        param_count = fd->param_count;
-        body = fd->body;
-    } else if (fn->kind == IRON_NODE_METHOD_DECL) {
-        Iron_MethodDecl *md = (Iron_MethodDecl *)fn;
-        params = md->params;
-        param_count = md->param_count;
-        body = md->body;
-    } else {
-        return;
-    }
-
-    for (int i = 0; i < param_count; i++) {
-        if (canceled(cancel)) return;
-        Iron_Node *p = params ? params[i] : NULL;
-        const char *nm = decl_name(p);
-        if (!nm) continue;
-        maybe_push(out_arr, arena, nm, LSP_CK_VARIABLE,
-                    ILSP_COMPLETION_BUCKET_LOCAL,
-                    "parameter", canonical_path, nm,
-                    false, false, query_prefix);
-    }
-
-    if (body && body->kind == IRON_NODE_BLOCK) {
-        Iron_Block *b = (Iron_Block *)body;
-        for (int i = 0; i < b->stmt_count; i++) {
-            if (i % 64 == 0 && canceled(cancel)) return;
-            Iron_Node *s = b->stmts[i];
-            if (!s) continue;
-            if (s->kind != IRON_NODE_VAL_DECL && s->kind != IRON_NODE_VAR_DECL)
-                continue;
-            const char *nm = decl_name(s);
-            if (!nm) continue;
-            maybe_push(out_arr, arena, nm, lsp_kind_from_decl(s),
-                        ILSP_COMPLETION_BUCKET_LOCAL,
-                        s->kind == IRON_NODE_VAL_DECL ? "val" : "var",
-                        canonical_path, nm,
-                        false, false, query_prefix);
+static bool locals_visit(Iron_Visitor *v, Iron_Node *n) {
+    LocalsCtx *c = (LocalsCtx *)v->ctx;
+    if (n->kind == IRON_NODE_ERROR) return false;
+    if (c->depth < (int)(sizeof(c->stack) / sizeof(c->stack[0]))) c->stack[c->depth] = n;
+    c->depth++;
+    switch ((int)n->kind) {
+        case IRON_NODE_VAL_DECL:
+        case IRON_NODE_VAR_DECL: {
+            Iron_Node *blk = enclosing_block(c);
+            if (!blk || !pos_in_span(&blk->span, c->line, c->col)) break;
+            /* Declared before the cursor, and not the binding being written. */
+            if (!starts_before(&n->span, c->line, c->col)) break;
+            if (pos_in_span(&n->span, c->line, c->col) &&
+                !(n->span.end_line == c->line && n->span.end_col + 1 == c->col)) break;
+            if (n->kind == IRON_NODE_VAL_DECL) {
+                Iron_ValDecl *vd = (Iron_ValDecl *)n;
+                if (vd->binding_count > 0) {
+                    for (int i = 0; i < vd->binding_count; i++) {
+                        const char *bn = vd->binding_names ? vd->binding_names[i] : NULL;
+                        if (bn) add_local(c, bn, typed_detail(c, "val ", bn, NULL),
+                                          LSP_CK_CONSTANT);
+                    }
+                } else if (vd->name) {
+                    add_local(c, vd->name, typed_detail(c, "val ", vd->name, vd->declared_type),
+                              LSP_CK_CONSTANT);
+                }
+            } else {
+                Iron_VarDecl *vd = (Iron_VarDecl *)n;
+                if (vd->name) add_local(c, vd->name,
+                                        typed_detail(c, "var ", vd->name, vd->declared_type),
+                                        LSP_CK_VARIABLE);
+            }
+            break;
         }
+        case IRON_NODE_FUNC_DECL:
+        case IRON_NODE_METHOD_DECL:
+        case IRON_NODE_LAMBDA: {
+            Iron_Node **params = NULL;
+            int count = 0;
+            Iron_Node *body = NULL;
+            if (n->kind == IRON_NODE_FUNC_DECL) {
+                Iron_FuncDecl *fd = (Iron_FuncDecl *)n;
+                params = fd->params; count = fd->param_count; body = fd->body;
+            } else if (n->kind == IRON_NODE_METHOD_DECL) {
+                Iron_MethodDecl *md = (Iron_MethodDecl *)n;
+                params = md->params; count = md->param_count; body = md->body;
+            } else {
+                Iron_LambdaExpr *le = (Iron_LambdaExpr *)n;
+                params = le->params; count = le->param_count; body = le->body;
+            }
+            if (!body || !pos_in_span(&body->span, c->line, c->col)) break;
+            for (int i = 0; i < count; i++) {
+                Iron_Param *pm = (Iron_Param *)params[i];
+                if (!pm || pm->kind != IRON_NODE_PARAM || !pm->name) continue;
+                add_local(c, pm->name, typed_detail(c, "", pm->name, pm->resolved_type),
+                          LSP_CK_VARIABLE);
+            }
+            break;
+        }
+        case IRON_NODE_FOR: {
+            Iron_ForStmt *fs = (Iron_ForStmt *)n;
+            if (!fs->body || !pos_in_span(&fs->body->span, c->line, c->col)) break;
+            if (fs->var_name) add_local(c, fs->var_name,
+                                        typed_detail(c, "", fs->var_name, NULL), LSP_CK_VARIABLE);
+            if (fs->var_name2) add_local(c, fs->var_name2,
+                                         typed_detail(c, "", fs->var_name2, NULL), LSP_CK_VARIABLE);
+            break;
+        }
+        case IRON_NODE_MATCH_CASE: {
+            Iron_MatchCase *mc = (Iron_MatchCase *)n;
+            if (!mc->body || !pos_in_span(&mc->body->span, c->line, c->col)) break;
+            add_pattern_bindings(c, mc->pattern);
+            break;
+        }
+        default:
+            break;
+    }
+    return true;
+}
+
+static void locals_post(Iron_Visitor *v, Iron_Node *n) {
+    (void)n;
+    LocalsCtx *c = (LocalsCtx *)v->ctx;
+    if (c->depth > 0) c->depth--;
+}
+
+/* The smallest function or method of the buffer whose span holds the
+ * cursor. */
+static Iron_Node *enclosing_func(Iron_Program *program, uint32_t line, uint32_t col) {
+    Iron_Node *best = NULL;
+    for (int i = 0; program && i < program->decl_count; i++) {
+        Iron_Node *d = program->decls[i];
+        if (!d || d->kind == IRON_NODE_ERROR) continue;
+        if (d->kind != IRON_NODE_FUNC_DECL && d->kind != IRON_NODE_METHOD_DECL) continue;
+        if (!pos_in_span(&d->span, line, col)) continue;
+        if (!best || (pos_in_span(&best->span, d->span.line, d->span.col) &&
+                      pos_in_span(&best->span, d->span.end_line, d->span.end_col))) {
+            best = d;
+        }
+    }
+    return best;
+}
+
+static void emit_scope_locals(IronLsp_CompletionCandidate  **out_arr,
+                              Iron_Arena                    *arena,
+                              Iron_Program                  *program,
+                              const struct IronLsp_Document *doc,
+                              size_t                         cursor_byte,
+                              const char                    *canonical_path,
+                              const char                    *query_prefix,
+                              _Atomic bool                  *cancel) {
+    if (!program || !doc || !doc->text || canceled(cancel)) return;
+    uint32_t line0 = ilsp_line_of_byte(&doc->line_idx, cursor_byte);
+    size_t line_start = ilsp_byte_of_line(&doc->line_idx, line0);
+    if (line_start > cursor_byte) line_start = cursor_byte;
+    /* Scope is decided where the identifier being typed starts. */
+    size_t word = cursor_byte;
+    while (word > line_start) {
+        unsigned char ch = (unsigned char)doc->text[word - 1];
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+            (ch >= '0' && ch <= '9') || ch == '_') { word--; continue; }
+        break;
+    }
+    LocalsCtx c;
+    memset(&c, 0, sizeof(c));
+    c.line = line0 + 1;
+    c.col = (uint32_t)(word - line_start) + 1;
+    c.arena = arena;
+    Iron_Node *fn = enclosing_func(program, c.line, c.col);
+    if (!fn) return;
+    Iron_Visitor v = { .ctx = &c, .visit_node = locals_visit, .post_visit = locals_post };
+    iron_ast_walk(fn, &v);
+    for (ptrdiff_t i = 0; i < arrlen(c.found); i++) {
+        maybe_push(out_arr, arena, c.found[i].name, c.found[i].kind,
+                   ILSP_COMPLETION_BUCKET_LOCAL, c.found[i].detail,
+                   canonical_path, c.found[i].name, false, false, query_prefix);
+    }
+    arrfree(c.found);
+}
+
+/* ── The stdlib prelude and the compiler's builtin functions ──────── */
+
+/* Types and functions of the stdlib the buffer is analyzed with (`Map`,
+ * `Math` after `import math`...) and `println`, `len`, `range`... Names
+ * starting with `_` are the stdlib's internals. */
+static void emit_prelude(IronLsp_CompletionCandidate **out_arr,
+                         Iron_Arena                   *arena,
+                         const Iron_Program           *program,
+                         bool                          types_only,
+                         const char                   *query_prefix,
+                         _Atomic bool                 *cancel) {
+    if (!types_only) {
+        for (int i = 0; ilsp_builtin_funcs[i].name; i++) {
+            maybe_push(out_arr, arena, ilsp_builtin_funcs[i].name, LSP_CK_FUNCTION,
+                       ILSP_COMPLETION_BUCKET_STDLIB, ilsp_builtin_funcs[i].detail, "",
+                       ilsp_builtin_funcs[i].name, false, false, query_prefix);
+        }
+    }
+    if (!program) return;
+    for (int i = program->decl_count; i < program->decl_count + program->prelude_decl_count;
+         i++) {
+        if (i % 64 == 0 && canceled(cancel)) return;
+        Iron_Node *d = program->decls[i];
+        if (!d) continue;
+        const char *detail = NULL;
+        switch ((int)d->kind) {
+            case IRON_NODE_OBJECT_DECL:
+                if (((Iron_ObjectDecl *)d)->is_patch) continue;
+                detail = "object";
+                break;
+            case IRON_NODE_ENUM_DECL:      detail = "enum"; break;
+            case IRON_NODE_INTERFACE_DECL: detail = "interface"; break;
+            case IRON_NODE_FUNC_DECL: {
+                Iron_FuncDecl *fd = (Iron_FuncDecl *)d;
+                if (types_only || fd->is_extern || fd->is_test) continue;
+                detail = "func";
+                break;
+            }
+            default:
+                continue;
+        }
+        const char *nm = decl_name(d);
+        if (!nm || !*nm || nm[0] == '_') continue;
+        maybe_push(out_arr, arena, nm, lsp_kind_from_decl(d), ILSP_COMPLETION_BUCKET_STDLIB,
+                   detail, "", nm, false, false, query_prefix);
     }
 }
 
@@ -553,40 +740,15 @@ static const char *method_detail(Iron_MethodDecl *md, Iron_Arena *arena) {
     return iron_arena_strdup(arena, buf, strlen(buf));
 }
 
-/* Methods the compiler provides by name, with no declaration to read. */
-typedef struct { const char *name, *detail; } BuiltinMember;
-
-static const BuiltinMember k_list_builtins[] = {
-    { "len", "func len() -> Int" },          { "push", "func push(item: T)" },
-    { "pop", "func pop() -> T" },            { "get", "func get(i: Int) -> T" },
-    { "set", "func set(i: Int, item: T)" },  { "insert", "func insert(i: Int, item: T)" },
-    { "remove", "func remove(i: Int) -> T" },{ "clear", "func clear()" },
-    { "reverse", "func reverse()" },         { "contains", "func contains(item: T) -> Bool" },
-    { "sort", "func sort()" },               { "copy", "func copy() -> [T]" },
-    { "take", "func take() -> [T]" },        { NULL, NULL },
-};
-static const BuiltinMember k_map_builtins[] = {
-    { "put", "func put(key: K, value: V)" }, { "get", "func get(key: K) -> V" },
-    { "get_or", "func get_or(key: K, default: V) -> V" },
-    { "has", "func has(key: K) -> Bool" },   { "remove", "func remove(key: K) -> Bool" },
-    { "len", "func len() -> Int" },          { "clear", "func clear()" },
-    { "keys", "func keys() -> [K]" },        { "values", "func values() -> [V]" },
-    { "copy", "func copy() -> Map[K, V]" },  { "take", "func take() -> Map[K, V]" },
-    { NULL, NULL },
-};
-static const BuiltinMember k_set_builtins[] = {
-    { "add", "func add(item: T) -> Bool" },  { "has", "func has(item: T) -> Bool" },
-    { "remove", "func remove(item: T) -> Bool" }, { "len", "func len() -> Int" },
-    { "clear", "func clear()" },             { "values", "func values() -> [T]" },
-    { "copy", "func copy() -> Set[T]" },     { "take", "func take() -> Set[T]" },
-    { NULL, NULL },
-};
-
+/* Methods the compiler provides by name (builtin_members.h), with the
+ * receiver's element types written in. */
 static void push_builtins(IronLsp_CompletionCandidate **out, Iron_Arena *arena,
-                          const BuiltinMember *table, const char *prefix) {
+                          const IronLsp_BuiltinMember *table, const Iron_Type *recv,
+                          const char *prefix) {
     for (int i = 0; table[i].name; i++) {
         maybe_push(out, arena, table[i].name, LSP_CK_METHOD, ILSP_COMPLETION_BUCKET_LOCAL,
-                   table[i].detail, "", table[i].name, false, false, prefix);
+                   ilsp_builtin_signature(table[i].detail, recv, arena), "", table[i].name,
+                   false, false, prefix);
     }
 }
 
@@ -768,18 +930,18 @@ static void emit_member_fields(IronLsp_CompletionCandidate **out_arr,
     if (!t || t->kind == IRON_TYPE_ERROR) return;
     switch ((int)t->kind) {
         case IRON_TYPE_ARRAY:
-            push_builtins(out_arr, arena, k_list_builtins, query_prefix);
+            push_builtins(out_arr, arena, ilsp_list_builtins, t, query_prefix);
             push_declared_methods(out_arr, arena, program, NULL, true, query_prefix);
             return;
         case IRON_TYPE_OBJECT: {
             Iron_ObjectDecl *od = t->object.decl;
             if (!od || !od->name) return;
             if (strcmp(od->name, "Map") == 0) {
-                push_builtins(out_arr, arena, k_map_builtins, query_prefix);
+                push_builtins(out_arr, arena, ilsp_map_builtins, t, query_prefix);
                 return;
             }
             if (strcmp(od->name, "Set") == 0) {
-                push_builtins(out_arr, arena, k_set_builtins, query_prefix);
+                push_builtins(out_arr, arena, ilsp_set_builtins, t, query_prefix);
                 return;
             }
             emit_object_members_by_name(out_arr, arena, server, doc, program, od->name,
@@ -873,6 +1035,7 @@ void ilsp_complete_buckets_build(struct IronLsp_Server             *server,
                             false, false, query_prefix);
             }
         }
+        emit_prelude(&cands, arena, program, true, query_prefix, cancel);
         /* Primitives. */
         static const char *const primitives[] = {
             "Int", "Int8", "Int16", "Int32", "Int64",
@@ -894,8 +1057,8 @@ void ilsp_complete_buckets_build(struct IronLsp_Server             *server,
 
     /* Bucket 1 (LOCAL). */
     if (canceled(cancel)) goto finish;
-    Iron_Node *fn = enclosing_func(program, cursor_byte_offset, doc);
-    emit_func_locals(&cands, arena, fn, canonical_path, query_prefix, cancel);
+    emit_scope_locals(&cands, arena, program, doc, cursor_byte_offset, canonical_path,
+                      query_prefix, cancel);
 
     /* Bucket 2 (TOP_LEVEL). */
     if (canceled(cancel)) goto finish;
@@ -913,6 +1076,7 @@ void ilsp_complete_buckets_build(struct IronLsp_Server             *server,
     if (canceled(cancel)) { if (imported) shfree(imported); goto finish; }
     emit_stdlib(&cands, arena, server, imported, query_prefix, cancel);
     if (imported) shfree(imported);
+    emit_prelude(&cands, arena, program, false, query_prefix, cancel);
 
     /* Bucket 6 (KEYWORDS) — Phase 12 Plan 12-02 (KW-03, D-04..D-10):
      * the legacy if-gate is dropped. Per-keyword visibility is enforced
