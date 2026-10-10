@@ -2412,6 +2412,23 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         } else if (expr->call.callee && expr->call.callee->kind == IRON_HIR_EXPR_IDENT) {
             /* Could be a function reference via identifier */
             func_ptr = lower_expr(ctx, expr->call.callee);
+            /* A closure in a var that closures share (a capture cell, or a
+             * capture of the enclosing lambda) may be replaced while it
+             * runs (`f = func() { f = other ... }`), which released the
+             * running closure's env under it. The call holds a reference
+             * of its own until it returns. */
+            IronHIR_VarId cv = expr->call.callee->ident.var_id;
+            Iron_Type *ct = expr->call.callee->type;
+            if (ct && ct->kind == IRON_TYPE_FUNC && ctx->current_block &&
+                !block_is_terminated(ctx->current_block) &&
+                (iron_hir_var_is_boxed(ctx->hir, cv) || var_is_capture(ctx, cv))) {
+                IronLIR_ValueId ts = emit_alloca_in_entry(ctx, ct, "__callee", span);
+                iron_lir_store(ctx->current_func, ctx->current_block, ts, func_ptr, span);
+                emit_lifecycle_glue_call(ctx, "$copy", ts, span);
+                func_ptr = iron_lir_load(ctx->current_func, ctx->current_block, ts, ct, span)->id;
+                TempOwned to = { ts, ct, true };
+                arrput(temps, to);
+            }
         } else {
             func_ptr = lower_expr(ctx, expr->call.callee);
             /* A closure produced by the callee expression itself

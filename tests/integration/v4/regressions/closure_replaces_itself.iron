@@ -1,0 +1,14 @@
+-- A closure stored in a var it captures replaces itself while it runs. The
+-- call went through the var, so replacing it released the running
+-- closure's env under it, and the rest of its body read freed memory.
+func main() {
+    var step = func(x: Int) -> Int { return x }
+    val label = "a string long enough to be allocated on the heap"
+    for i in range(3) {
+        step = func(x: Int) -> Int {
+            step = func(y: Int) -> Int { return y * 10 }
+            return x + label.len() + i
+        }
+        println("{step(1)} {step(2)}")
+    }
+}
