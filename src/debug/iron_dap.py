@@ -17,6 +17,8 @@ its DAP mode, and changes what passes between the client and it:
   stackTrace  Iron functions lose their C prefix (Iron_main is main);
               frames outside Iron source (the runtime, the C library)
               are marked subtle, so clients focus the Iron frame.
+  initialize  the debugger's C++ / Ada / Objective-C exception filters
+              are not offered.
 
 Launch arguments:
   program      .iron file, package directory, or an already built binary
@@ -354,7 +356,13 @@ class Proxy:
             return
         cmd = req.get("command")
         body = msg.get("body") or {}
-        if cmd == "scopes":
+        if cmd == "initialize":
+            # The debugger's exception filters (C++ throw, Ada, Objective-C)
+            # do not apply to Iron programs.
+            body["exceptionBreakpointFilters"] = []
+            msg["body"] = body
+            self.send(msg)
+        elif cmd == "scopes":
             for s in body.get("scopes", []):
                 if re.match(r"^(locals|arguments)$", s.get("name", ""), re.I) and \
                         s.get("variablesReference"):
