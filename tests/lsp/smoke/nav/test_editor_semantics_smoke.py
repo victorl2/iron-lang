@@ -12,7 +12,7 @@ SOURCE = """import math
 
 object Point {
     val x: Float
-    var y: Float
+    val y: Float
 }
 
 enum Shape { Circle, Square }
