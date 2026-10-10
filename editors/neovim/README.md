@@ -261,6 +261,19 @@ https://github.com/iron-lang/iron-lang/issues.
 
 ---
 
+## Running and testing
+
+| Command | Does |
+|---|---|
+| `:IronRun` | build and run the current file in a terminal split |
+| `:IronTest [name]` | run one test: the named one, else the `test "..."` block the cursor is in; every test of the file when there is neither |
+| `:IronTestFile` | run every test of the current file |
+| `:IronDebug` | debug the current file (nvim-dap, below) |
+| `:IronDebugTest [name]` | debug one test alone, built with `--test` (nvim-dap) |
+
+Map them as you like, for example
+`vim.keymap.set('n', '<leader>tt', '<cmd>IronTest<cr>')`.
+
 ## Debugging (nvim-dap)
 
 `lua/iron_dap.lua` registers the Iron debug adapter with
