@@ -1,0 +1,10 @@
+object Sample {
+    val value: Int
+}
+
+func main() {
+    val before = 7
+    val b: Box[Sample] = Box.null()
+    val v = b.unwrap()
+    println("value: {v.value} {before}")
+}

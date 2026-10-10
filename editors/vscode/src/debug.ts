@@ -6,15 +6,20 @@
 // the program with --debug, runs lldb-dap or gdb, loads the value
 // formatters, shows locals under their Iron names and stops on panics.
 //
-// On Windows there is no lldb-dap in the toolchain; the configuration is
-// handed to the C/C++ extension's Visual Studio debugger (cppvsdbg),
-// which reads the PDB and the natvis that --debug links into it.
+// On Windows `iron dap` runs too when it can (LLVM's lldb-dap and Python
+// 3.10 or later are installed): the iron.debug.windowsDebugger setting,
+// auto by default, asks `iron dap --check`. Otherwise the configuration is
+// built here and handed to the C/C++ extension's Visual Studio debugger
+// (cppvsdbg), which reads the PDB and the natvis that --debug links in. A
+// panic there stops on the Iron line: through the debug trap of a --debug
+// build's checks, and through panicFocus.ts for the rest.
 
 import * as vscode from 'vscode';
 import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { IRON_SESSION, registerPanicFocus } from './panicFocus';
 
 const TYPE = 'iron';
 
@@ -46,6 +51,7 @@ export function registerDebugger(context: vscode.ExtensionContext, output: vscod
     }),
     vscode.languages.registerCodeLensProvider({ language: 'iron' }, new TestLensProvider()),
   );
+  registerPanicFocus(context);
 }
 
 /** The .iron file a command acts on: the one clicked, else the active editor's. */
@@ -60,9 +66,25 @@ function targetFile(uri?: vscode.Uri): string | undefined {
 function runInTerminal(args: string[], cwd: string): void {
   const term = vscode.window.terminals.find((t) => t.name === 'Iron') ??
     vscode.window.createTerminal({ name: 'Iron', cwd });
-  const quote = (a: string) => (/^[\w./:=-]+$/.test(a) ? a : `"${a.replace(/(["\\$`])/g, '\\$1')}"`);
   term.show(true);
-  term.sendText([ironCli(), ...args].map(quote).join(' '));
+  term.sendText(terminalCommand(vscode.env.shell, [ironCli(), ...args]));
+}
+
+/** The command line that runs `argv` in `shell` (the terminal's default
+ * shell): PowerShell needs the call operator before a quoted program and
+ * takes single quotes, cmd takes double quotes without backslash escapes,
+ * and POSIX shells (also Git Bash on Windows) take escaped double quotes. */
+export function terminalCommand(shell: string, argv: string[]): string {
+  const name = path.win32.basename(shell).toLowerCase();
+  const plain = (a: string) => /^[\w./:=-]+$/.test(a);
+  if (/^(pwsh|powershell)(\.exe)?$/.test(name)) {
+    const q = (a: string) => `'${a.replace(/'/g, "''")}'`;
+    return ['&', ...argv.map(q)].join(' ');
+  }
+  if (name === 'cmd.exe' || name === 'cmd') {
+    return argv.map((a) => (/^[\w.:\\=-]+$/.test(a) ? a : `"${a.replace(/"/g, '""')}"`)).join(' ');
+  }
+  return argv.map((a) => (plain(a) ? a : `"${a.replace(/(["\\$`])/g, '\\$1')}"`)).join(' ');
 }
 
 /** "Run Test | Debug Test" above every `test "name" {` line. */
@@ -97,6 +119,19 @@ function ironCli(): string {
   return 'iron';
 }
 
+/** Windows: the debugger the iron debug type uses. `iron-dap` and
+ * `cppvsdbg` are taken as set; `auto` (the default) is iron dap when
+ * `iron dap --check` says it is ready, else cppvsdbg. */
+export function windowsDebugger(output: vscode.OutputChannel): 'iron-dap' | 'cppvsdbg' {
+  const setting = vscode.workspace.getConfiguration('iron.debug').get<string>('windowsDebugger') ?? 'auto';
+  if (setting === 'iron-dap' || setting === 'cppvsdbg') return setting;
+  const check = spawnSync(ironCli(), ['dap', '--check'], { encoding: 'utf8', timeout: 30000 });
+  if (/^iron dap: ready/m.test(check.stdout ?? '')) return 'iron-dap';
+  output.appendLine('Iron: iron dap is not ready here (`iron debug --check` says why); ' +
+    'debugging with the C/C++ extension instead (setting iron.debug.windowsDebugger).');
+  return 'cppvsdbg';
+}
+
 class IronConfigurationProvider implements vscode.DebugConfigurationProvider {
   constructor(private output: vscode.OutputChannel) {}
 
@@ -115,7 +150,8 @@ class IronConfigurationProvider implements vscode.DebugConfigurationProvider {
       folder: vscode.WorkspaceFolder | undefined, config: vscode.DebugConfiguration):
       Promise<vscode.DebugConfiguration | undefined> {
     if (process.platform !== 'win32') return config;  // iron dap builds and launches
-    // Windows: build here, then debug with the Visual Studio debugger.
+    if (windowsDebugger(this.output) === 'iron-dap') return config;
+    // Windows without iron dap: build here, then debug with the Visual Studio debugger.
     const binary = await buildForWindows(config.program, this.output, Boolean(config.test));
     if (!binary) return undefined;
     let args: string[] = config.args ?? [];
@@ -142,6 +178,7 @@ class IronConfigurationProvider implements vscode.DebugConfigurationProvider {
       cwd: config.cwd ?? (program.endsWith('.iron') ? path.dirname(program) : program),
       environment: Object.entries(config.env ?? {}).map(([name, value]) => ({ name, value })),
       console: 'integratedTerminal',
+      [IRON_SESSION]: true,  // a panic focuses the Iron frame (panicFocus.ts)
     });
     return undefined;  // the cppvsdbg session replaces this one
   }

@@ -3,10 +3,7 @@
  *
  * Architecture: each test loads a fixture, builds an in-memory
  * IronLsp_Document, hand-crafts an Iron_Diagnostic at the location the
- * compiler would emit one in CLI mode (the LSP analysis path runs in
- * IRON_ANALYSIS_MODE_LSP which intentionally suppresses v3 strict-mode
- * diagnostics so editors can keep showing v2 diagnostics during the
- * migration), and invokes the quickfix handler directly — same pattern
+ * compiler emits one, and invokes the quickfix handler directly — same pattern
  * as tests/unit/test_codeaction_registry.c uses for the 5 P1 handlers.
  *
  * The orchestrator (codeaction.c) is exercised end-to-end in production

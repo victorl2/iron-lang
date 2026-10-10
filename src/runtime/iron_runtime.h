@@ -38,6 +38,37 @@
 #define IRON_NO_TRE
 #endif
 
+/* ── Debug traps: a panic stops the debugger on the Iron line (#388) ───────
+ * `iron build --debug` defines IRON_DEBUG_TRAPS before including this
+ * header. Every panic raised by a check of generated code (assert, an index
+ * out of bounds, a division by zero, a missing map key, unwrap() of a null
+ * Box, a stale pointer) then first asks iron_debug_panic_stop (iron_os.c)
+ * whether a debugger is attached; when one is, the message is printed and a
+ * breakpoint instruction runs before the usual panic. The checks and the
+ * wrappers below are always_inline and nodebug, so that instruction lands in
+ * the Iron function with the Iron line and its locals: gdb, LLDB and the
+ * Visual Studio debugger all stop there. Continuing runs the normal panic
+ * (message, abort). Without a debugger, or in any other build, nothing
+ * changes. Clang only (the compiler of every Iron target). */
+#if defined(IRON_DEBUG_TRAPS) && defined(__clang__)
+#define IRON_DEBUG_TRAPS_ON 1
+#if defined(_WIN32)
+#define IRON_DEBUG_BREAK() __debugbreak()
+#else
+#define IRON_DEBUG_BREAK() __builtin_debugtrap()
+#endif
+#define IRON_CHECK_FN static inline __attribute__((always_inline, nodebug, unused))
+#else
+#define IRON_CHECK_FN static inline
+#endif
+/* True when a debugger is attached and the panic at site_file:site_line
+ * (site_file NULL: no site) should stop there; the message, formatted from
+ * fmt, is then printed and kept in iron_debug_panic_message. False for a
+ * site with line 0 (a runtime body, not an Iron line). */
+bool iron_debug_panic_stop(const char *site_file, int site_line, const char *fmt, ...);
+/* The last message iron_debug_panic_stop kept, for debuggers and adapters. */
+extern char iron_debug_panic_message[512];
+
 /* ── Memory primitives (iron_os.c) ─────────────────────────────────────────
  * Every allocation and byte operation of the runtime header's inline
  * helpers and of generated code goes through these; the runtime library
@@ -68,6 +99,13 @@ IRON_NORETURN void iron_abort(void);
 char  *iron_cstr_format(const char *fmt, ...);
 /* Box.unwrap() on a null box. */
 IRON_NORETURN void iron_panic_null_box(void);
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_null_box(void) {
+    if (iron_debug_panic_stop(0, 0, "unwrap() on null Box")) IRON_DEBUG_BREAK();
+    iron_panic_null_box();
+}
+#define iron_panic_null_box() iron_dbg_panic_null_box()
+#endif
 /* FileHandle.open(path) (write mode) / close: the descriptor, or -1. */
 int    iron_filehandle_open(const char *path);
 void   iron_filehandle_close(int fd);
@@ -287,6 +325,15 @@ __attribute__((noreturn))
 void iron_panic_stale_pointer(const char *deref_file,
                               int deref_line,
                               const IronAllocHdr *hdr);
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_stale_pointer(const char *f, int l,
+                                                             const IronAllocHdr *hdr) {
+    if (iron_debug_panic_stop(f, l, "stale pointer dereference"))
+        IRON_DEBUG_BREAK();
+    iron_panic_stale_pointer(f, l, hdr);
+}
+#define iron_panic_stale_pointer(...) iron_dbg_panic_stale_pointer(__VA_ARGS__)
+#endif
 
 /* ── Phase 30 OPT-08 input: opt-in generation-check counter ──────────────────
  *
@@ -328,7 +375,7 @@ void iron_gencheck_counts_reset(void);
  * call site. Iron's release codegen will inline this trivially.
  * CONTEXT-locked: do not change to out-of-line without coordinating with
  * Phase 30 (POINTER-LAYOUT.md API surface). */
-static inline void iron_check_pointer_gen(Iron_FatPtr fp,
+IRON_CHECK_FN void iron_check_pointer_gen(Iron_FatPtr fp,
                                           const char *deref_file,
                                           int deref_line) {
     IRON_GENCHECK_COUNT_BUMP_HEAP();  /* Phase 30 OPT-08: no-op unless IRON_GENCHECK_COUNT */
@@ -382,6 +429,14 @@ __attribute__((noreturn))
 void iron_panic_stale_stack_pointer(const char *deref_file,
                                     int deref_line,
                                     uint64_t captured_frame_gen);
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_stale_stack_pointer(const char *f, int l,
+                                                                   uint64_t gen) {
+    if (iron_debug_panic_stop(f, l, "dangling stack pointer to frame")) IRON_DEBUG_BREAK();
+    iron_panic_stale_stack_pointer(f, l, gen);
+}
+#define iron_panic_stale_stack_pointer(...) iron_dbg_panic_stale_stack_pointer(__VA_ARGS__)
+#endif
 
 /* Interface `var` parameter boundary: the callee rebound a wrapped concrete
  * binding to another implementor, so the write-back cannot proceed.
@@ -392,6 +447,16 @@ __attribute__((noreturn))
 #endif
 void iron_panic_iface_rebound(const char *site_file, int site_line,
                               const char *iface_name, const char *expected_impl);
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_iface_rebound(const char *f, int l,
+                                                             const char *iface_name,
+                                                             const char *expected_impl) {
+    if (iron_debug_panic_stop(f, l, "interface parameter rebound to a different implementor"))
+        IRON_DEBUG_BREAK();
+    iron_panic_iface_rebound(f, l, iface_name, expected_impl);
+}
+#define iron_panic_iface_rebound(...) iron_dbg_panic_iface_rebound(__VA_ARGS__)
+#endif
 
 /* Phase 23 VEC-03: bounded vector out-of-bounds panic.
  * Forward-declared here so generated user binaries can call it inline at
@@ -404,18 +469,44 @@ void iron_panic_bvec_oob(const char *deref_file,
                          int deref_line,
                          int64_t index,
                          int64_t bound);
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_bvec_oob(const char *f, int l,
+                                                        int64_t index, int64_t bound) {
+    if (iron_debug_panic_stop(f, l, "bounded vector access out of bounds (index %lld, bound %lld)",
+                              (long long)index, (long long)bound))
+        IRON_DEBUG_BREAK();
+    iron_panic_bvec_oob(f, l, index, bound);
+}
+#define iron_panic_bvec_oob(...) iron_dbg_panic_bvec_oob(__VA_ARGS__)
+#endif
 
 /* Integer division/modulo by zero (DIV-01). Definition in iron_panic.c. */
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((noreturn))
 #endif
 void iron_panic_div_by_zero(const char *site_file, int site_line);
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_div_by_zero(const char *f, int l) {
+    if (iron_debug_panic_stop(f, l, "integer division by zero")) IRON_DEBUG_BREAK();
+    iron_panic_div_by_zero(f, l);
+}
+#define iron_panic_div_by_zero(...) iron_dbg_panic_div_by_zero(__VA_ARGS__)
+#endif
 
 /* A shift by a negative count. Definition in iron_panic.c. */
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((noreturn))
 #endif
 void iron_panic_negative_shift(const char *site_file, int site_line, int64_t count);
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_negative_shift(const char *f, int l,
+                                                              int64_t count) {
+    if (iron_debug_panic_stop(f, l, "shift by a negative count (%lld)", (long long)count))
+        IRON_DEBUG_BREAK();
+    iron_panic_negative_shift(f, l, count);
+}
+#define iron_panic_negative_shift(...) iron_dbg_panic_negative_shift(__VA_ARGS__)
+#endif
 
 /* The Iron source line of the list method call in progress. The emitter
  * sets it around xs.pop() / remove / insert / set / get, whose runtime
@@ -434,30 +525,40 @@ __attribute__((noreturn))
 #endif
 void iron_panic_index_oob(const char *site_file, int site_line,
                           int64_t index, int64_t bound);
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_index_oob(const char *f, int l,
+                                                         int64_t index, int64_t bound) {
+    if (iron_debug_panic_stop(f, l, "index out of bounds (index %lld, bound %lld)",
+                              (long long)index, (long long)bound))
+        IRON_DEBUG_BREAK();
+    iron_panic_index_oob(f, l, index, bound);
+}
+#define iron_panic_index_oob(...) iron_dbg_panic_index_oob(__VA_ARGS__)
+#endif
 
 /* Checked integer division/modulo (DIV-01). The emitter routes every integer
  * `/` and `%` through these so b == 0 becomes an Iron panic instead of a
  * SIGFPE/UB, and INT64_MIN / -1 wraps (matching the -fwrapv Int semantics)
  * instead of trapping. Narrower signed/unsigned operands promote in and
  * truncate back on assignment, which under wrap semantics is exact. */
-static inline int64_t iron_idiv64(int64_t a, int64_t b,
+IRON_CHECK_FN int64_t iron_idiv64(int64_t a, int64_t b,
                                   const char *site_file, int site_line) {
     if (b == 0) iron_panic_div_by_zero(site_file, site_line);
     if (b == -1) return (int64_t)(0u - (uint64_t)a); /* INT64_MIN-safe negate */
     return a / b;
 }
-static inline int64_t iron_imod64(int64_t a, int64_t b,
+IRON_CHECK_FN int64_t iron_imod64(int64_t a, int64_t b,
                                   const char *site_file, int site_line) {
     if (b == 0) iron_panic_div_by_zero(site_file, site_line);
     if (b == -1) return 0; /* INT64_MIN % -1 traps in hardware; result is 0 */
     return a % b;
 }
-static inline uint64_t iron_udiv64(uint64_t a, uint64_t b,
+IRON_CHECK_FN uint64_t iron_udiv64(uint64_t a, uint64_t b,
                                    const char *site_file, int site_line) {
     if (b == 0) iron_panic_div_by_zero(site_file, site_line);
     return a / b;
 }
-static inline uint64_t iron_umod64(uint64_t a, uint64_t b,
+IRON_CHECK_FN uint64_t iron_umod64(uint64_t a, uint64_t b,
                                    const char *site_file, int site_line) {
     if (b == 0) iron_panic_div_by_zero(site_file, site_line);
     return a % b;
@@ -468,31 +569,31 @@ static inline uint64_t iron_umod64(uint64_t a, uint64_t b,
  * a count of the width or more gives 0 for <<, and for >> the sign fill
  * (0 or -1); a negative count panics. Left shifts work on the unsigned
  * bits, so -1 << 3 is -8. */
-static inline int64_t iron_shl_i64(int64_t a, int64_t n, const char *site_file, int site_line) {
+IRON_CHECK_FN int64_t iron_shl_i64(int64_t a, int64_t n, const char *site_file, int site_line) {
     if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
     if (n >= 64) return 0;
     return (int64_t)((uint64_t)a << n);
 }
-static inline int64_t iron_shr_i64(int64_t a, int64_t n, const char *site_file, int site_line) {
+IRON_CHECK_FN int64_t iron_shr_i64(int64_t a, int64_t n, const char *site_file, int site_line) {
     if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
     if (n >= 64) return a < 0 ? -1 : 0;
     return a >> n;
 }
-static inline int32_t iron_shl_i32(int32_t a, int64_t n, const char *site_file, int site_line) {
+IRON_CHECK_FN int32_t iron_shl_i32(int32_t a, int64_t n, const char *site_file, int site_line) {
     if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
     if (n >= 32) return 0;
     return (int32_t)((uint32_t)a << n);
 }
-static inline int32_t iron_shr_i32(int32_t a, int64_t n, const char *site_file, int site_line) {
+IRON_CHECK_FN int32_t iron_shr_i32(int32_t a, int64_t n, const char *site_file, int site_line) {
     if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
     if (n >= 32) return a < 0 ? -1 : 0;
     return a >> n;
 }
-static inline uint64_t iron_shl_u64(uint64_t a, int64_t n, const char *site_file, int site_line) {
+IRON_CHECK_FN uint64_t iron_shl_u64(uint64_t a, int64_t n, const char *site_file, int site_line) {
     if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
     return n >= 64 ? 0 : a << n;
 }
-static inline uint64_t iron_shr_u64(uint64_t a, int64_t n, const char *site_file, int site_line) {
+IRON_CHECK_FN uint64_t iron_shr_u64(uint64_t a, int64_t n, const char *site_file, int site_line) {
     if (n < 0) iron_panic_negative_shift(site_file, site_line, n);
     return n >= 64 ? 0 : a >> n;
 }
@@ -501,7 +602,7 @@ static inline uint64_t iron_shr_u64(uint64_t a, int64_t n, const char *site_file
  * compare covers both), otherwise returns i — so an inlined `arr[i]` in a
  * consumer expression becomes `arr[iron_bounds_idx(i, n, ...)]` without
  * needing a preceding statement. */
-static inline int64_t iron_bounds_idx(int64_t i, int64_t n,
+IRON_CHECK_FN int64_t iron_bounds_idx(int64_t i, int64_t n,
                                       const char *site_file, int site_line) {
     if ((uint64_t)i >= (uint64_t)n) iron_panic_index_oob(site_file, site_line, i, n);
     return i;
@@ -525,8 +626,19 @@ __attribute__((noreturn))
 #endif
 void iron_panic_index_oob_unchecked(const char *site_file, int site_line,
                                     int64_t index, int64_t bound);
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_index_oob_unchecked(const char *f, int l,
+                                                                   int64_t index,
+                                                                   int64_t bound) {
+    if (iron_debug_panic_stop(f, l, "index out of bounds (unchecked site) (index %lld, bound %lld)",
+                              (long long)index, (long long)bound))
+        IRON_DEBUG_BREAK();
+    iron_panic_index_oob_unchecked(f, l, index, bound);
+}
+#define iron_panic_index_oob_unchecked(...) iron_dbg_panic_index_oob_unchecked(__VA_ARGS__)
+#endif
 #ifdef IRON_DEBUG_ALLOCATOR
-static inline int64_t iron_bounds_idx_unchecked(int64_t i, int64_t n,
+IRON_CHECK_FN int64_t iron_bounds_idx_unchecked(int64_t i, int64_t n,
                                                 const char *site_file,
                                                 int site_line) {
     if ((uint64_t)i >= (uint64_t)n)
@@ -581,7 +693,7 @@ void iron_panic_destructor_aborted(const char *type_name,
  * generation source, compare, panic) so Phase 30's elision pass templates
  * over both. CONTEXT-locked: do not change to out-of-line without
  * coordinating with Phase 30. */
-static inline void iron_check_stack_pointer_gen(Iron_FatPtr fp,
+IRON_CHECK_FN void iron_check_stack_pointer_gen(Iron_FatPtr fp,
                                                 const char *deref_file,
                                                 int deref_line) {
     IRON_GENCHECK_COUNT_BUMP_STACK();  /* Phase 30 OPT-08: no-op unless IRON_GENCHECK_COUNT */
@@ -626,8 +738,16 @@ __attribute__((noreturn))
 void iron_panic_arena_stale(const char *deref_file,
                             int deref_line,
                             const struct IronArenaAllocHdr *hdr);
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_arena_stale(const char *f, int l,
+                                                           const struct IronArenaAllocHdr *hdr) {
+    if (iron_debug_panic_stop(f, l, "stale pointer dereference (arena)")) IRON_DEBUG_BREAK();
+    iron_panic_arena_stale(f, l, hdr);
+}
+#define iron_panic_arena_stale(...) iron_dbg_panic_arena_stale(__VA_ARGS__)
+#endif
 
-static inline void iron_check_arena_pointer_gen(Iron_FatPtr fp,
+IRON_CHECK_FN void iron_check_arena_pointer_gen(Iron_FatPtr fp,
                                                 const char *deref_file,
                                                 int deref_line) {
     IRON_GENCHECK_COUNT_BUMP_ARENA();  /* Phase 30 OPT-08: no-op unless IRON_GENCHECK_COUNT */
@@ -926,6 +1046,14 @@ int64_t Iron_max(int64_t a, int64_t b);
 int64_t Iron_clamp(int64_t val, int64_t lo, int64_t hi);
 int64_t Iron_abs(int64_t val);
 void    Iron_assert(bool cond, Iron_String msg);
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN void iron_dbg_assert(bool cond, Iron_String msg) {
+    if (!cond && iron_debug_panic_stop(0, 0, "assertion failed: %s", iron_string_cstr(&msg)))
+        IRON_DEBUG_BREAK();
+    Iron_assert(cond, msg);
+}
+#define Iron_assert(...) iron_dbg_assert(__VA_ARGS__)
+#endif
 Iron_String Iron_read_file(Iron_String path);
 
 /* ── Phase 78 FMT — Int/Int32/Float → String conversion ─────────────────
@@ -1577,6 +1705,13 @@ uint64_t iron_string_hash(const Iron_String *s);
 __attribute__((noreturn))
 #endif
 void iron_panic_key_missing(const char *site_file, int site_line);
+#ifdef IRON_DEBUG_TRAPS_ON
+IRON_CHECK_FN IRON_NORETURN void iron_dbg_panic_key_missing(const char *f, int l) {
+    if (iron_debug_panic_stop(f, l, "key not found in map")) IRON_DEBUG_BREAK();
+    iron_panic_key_missing(f, l);
+}
+#define iron_panic_key_missing(...) iron_dbg_panic_key_missing(__VA_ARGS__)
+#endif
 
 /* Every instantiation lands in the program's single translation unit, so
  * the helpers are static; unused ones must not trip -Wunused-function. */
@@ -1584,6 +1719,13 @@ void iron_panic_key_missing(const char *site_file, int site_line);
 #define IRON_HT_FN static inline __attribute__((unused))
 #else
 #define IRON_HT_FN static inline
+#endif
+/* m.get(k) panics on a missing key: inlined in --debug builds so the
+ * debug trap (IRON_CHECK_FN) stops on the Iron line of the call. */
+#ifdef IRON_DEBUG_TRAPS_ON
+#define IRON_HT_CHECK_FN IRON_CHECK_FN
+#else
+#define IRON_HT_CHECK_FN IRON_HT_FN
 #endif
 
 #define IRON_HMAP_DEFINE(NAME, K, V) \
@@ -1628,7 +1770,7 @@ void iron_panic_key_missing(const char *site_file, int site_line);
     IRON_HT_FN bool NAME##_has(const NAME *m, K key) { \
         bool r = NAME##_find(m, &key) >= 0; NAME##_kdrop(&key); return r; \
     } \
-    IRON_HT_FN V NAME##_get_at(const NAME *m, K key, const char *site_file, int site_line) { \
+    IRON_HT_CHECK_FN V NAME##_get_at(const NAME *m, K key, const char *site_file, int site_line) { \
         int64_t at = NAME##_find(m, &key); NAME##_kdrop(&key); \
         if (at < 0) iron_panic_key_missing(site_file, site_line); \
         V out = m->vals[at]; NAME##_vcopy(&out); return out; \

@@ -112,13 +112,9 @@ return {
   },
   -- initializationOptions mirror the VSCode extension for cross-editor parity.
   init_options = { clientName = 'neovim' },
-  -- ironls publishes diagnostics as the buffer changes and also offers
-  -- textDocument/diagnostic. Neovim uses both when both are advertised and
-  -- shows every diagnostic twice (one namespace each), so keep the push
-  -- stream only.
-  on_init = function(client)
-    client.server_capabilities.diagnosticProvider = nil
-  end,
+  -- Diagnostics: Neovim pulls them (textDocument/diagnostic) on open and
+  -- change, and ironls pushes nothing to a client that pulls, so each
+  -- diagnostic is shown once.
   before_init = function(params, config)
     local iron = config.settings and config.settings.iron
     if type(iron) == 'table' and type(iron.inlayHints) == 'table' then

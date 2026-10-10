@@ -110,6 +110,7 @@ void ilsp_handle_initialize(IronLsp_Server    *s,
     s->client_supports_snippet = false;
     s->client_supports_document_changes = false;
     s->client_supports_inlay_refresh = false;
+    s->client_pulls_diagnostics = false;
     /* #311: `initializationOptions.inlayHints` turns hint kinds off
      * (`{"parameterNames": false}`); the editor's later changes arrive
      * through workspace/didChangeConfiguration. */
@@ -122,6 +123,10 @@ void ilsp_handle_initialize(IronLsp_Server    *s,
     if (client_caps && yyjson_is_obj(client_caps)) {
         yyjson_val *td = yyjson_obj_get(client_caps, "textDocument");
         if (td && yyjson_is_obj(td)) {
+            /* #360: a client that can pull diagnostics gets them only by
+             * pulling; see ilsp_facade_compile. */
+            yyjson_val *pull = yyjson_obj_get(td, "diagnostic");
+            s->client_pulls_diagnostics = pull && yyjson_is_obj(pull);
             yyjson_val *comp = yyjson_obj_get(td, "completion");
             if (comp && yyjson_is_obj(comp)) {
                 yyjson_val *ci = yyjson_obj_get(comp, "completionItem");

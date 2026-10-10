@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
-project(iron VERSION 4.11.0 LANGUAGES C)
+project(iron VERSION 4.12.0 LANGUAGES C)
 
 # Full release version, including any pre-release suffix (e.g. "1.0.0-alpha").
 # CMake's project(VERSION ...) only accepts numeric MAJOR.MINOR.PATCH[.TWEAK],
 # so the suffixed form lives in its own variable and is baked into the binaries
 # as IRON_VERSION_STRING below. Both this line and the project() line above are
 # kept in sync with the latest GitHub release by .github/workflows/changelog-on-release.yml.
-set(IRON_VERSION_FULL "4.11.0-alpha")
+set(IRON_VERSION_FULL "4.12.0-alpha")
 
 # ── Version info baked at compile time ─────────────────────────────────────
 execute_process(
@@ -1175,6 +1175,22 @@ if(NOT WIN32)
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_values_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
   set_tests_properties(debug_values_smoke PROPERTIES TIMEOUT 120)
+  # #388: the compiler's temporaries carry no debug info, so gdb and lldb
+  # used directly list only Iron names (IRON_DEBUG_TEMPORARIES=1 keeps them).
+  add_test(NAME debug_temporaries_smoke
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_temporaries_smoke.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_temporaries_smoke PROPERTIES TIMEOUT 180)
+endif()
+
+# `iron` started through a symlink (a bin/ link on PATH) still finds the
+# ironc next to the real binary (macOS used to look next to the link).
+if(NOT WIN32)
+  add_test(NAME iron_through_symlink
+           COMMAND sh -c "rm -rf \"$1\" && mkdir -p \"$1\" && ln -s \"$2\" \"$1/iron\" && \"$1/iron\" check \"$3\""
+                   sh ${CMAKE_BINARY_DIR}/iron_link_bin $<TARGET_FILE:iron>
+                   ${CMAKE_SOURCE_DIR}/tests/integration/check_only/nullable_type_args_ctor_elements.iron)
+  set_tests_properties(iron_through_symlink PROPERTIES FAIL_REGULAR_EXPRESSION "failed to spawn")
 endif()
 
 add_test(NAME iron_new_hint COMMAND $<TARGET_FILE:iron> new demo)
@@ -3010,7 +3026,8 @@ install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib COMPONENT iron FILES_MATCHI
 # client: build, breakpoints, stack, locals under Iron names, formatters.
 # Exit 77 (skipped) when neither lldb-dap nor gdb 14+ is installed.
 find_package(Python3 COMPONENTS Interpreter QUIET)
-if(NOT WIN32 AND Python3_Interpreter_FOUND)
+# Also on Windows, with LLVM's lldb-dap (#388).
+if(Python3_Interpreter_FOUND)
   add_test(NAME debug_dap_smoke
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_client.py
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/stepping.iron
@@ -3023,6 +3040,21 @@ if(NOT WIN32 AND Python3_Interpreter_FOUND)
                    ${CMAKE_SOURCE_DIR}/tests/integration/debug/conditions.iron
                    $<TARGET_FILE:iron> dap)
   set_tests_properties(debug_dap_eval_smoke PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+  # #388: with the temporaries out of the debug info, iron dap still shows
+  # a captured var (through _ref_<name>) and a C-array list (xs + xs_len).
+  add_test(NAME debug_dap_temporaries
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_temporaries_client.py
+                   ${CMAKE_SOURCE_DIR}/tests/integration/debug/temporaries.iron
+                   $<TARGET_FILE:iron> dap)
+  set_tests_properties(debug_dap_temporaries PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+endif()
+if(NOT WIN32 AND Python3_Interpreter_FOUND)
+  # What iron dap, iron debug and iron debug --check say when Python,
+  # lldb-dap / gdb 14+ or a debugger is missing (PATH of our own).
+  add_test(NAME debug_setup_messages
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_setup_messages.sh
+                   $<TARGET_FILE:iron> ${Python3_EXECUTABLE})
+  set_tests_properties(debug_setup_messages PROPERTIES TIMEOUT 120)
 endif()
 # The adapter's Iron expression evaluator against a fake debugger (any host).
 if(Python3_EXECUTABLE)
@@ -3030,6 +3062,20 @@ if(Python3_EXECUTABLE)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/test_iron_eval.py
                    ${CMAKE_SOURCE_DIR}/src/debug/iron_dap.py)
   set_tests_properties(debug_iron_eval PROPERTIES TIMEOUT 60)
+  # What the adapter says about its debugger: missing, misnamed, no Python.
+  add_test(NAME debug_dap_setup
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/test_dap_setup.py
+                   ${CMAKE_SOURCE_DIR}/src/debug/iron_dap.py)
+  set_tests_properties(debug_dap_setup PROPERTIES TIMEOUT 60)
+endif()
+# A --debug build names C variables from HIR names; a tuple temporary's
+# name pointed at a dead stack buffer (stack use after return in ironc).
+if(NOT WIN32)
+  add_test(NAME debug_tuple_names
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_tuple_names.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_tuple_names PROPERTIES TIMEOUT 120
+    ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1")
 endif()
 # #312: a panic stops the debugger on the Iron line (iron debug, iron dap).
 if(NOT WIN32)

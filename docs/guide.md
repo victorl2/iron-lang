@@ -150,8 +150,8 @@ configuration turns this off. In LLDB started by hand, run
 `iron-panic-stop` after loading the formatters; in gdb, `break abort`.
 
 `iron debug` builds with `--debug` and starts the debugger on the
-program with the value formatters below already loaded: LLDB on macOS,
-gdb elsewhere (`--gdb` / `--lldb` choose). Arguments after `--` go to
+program with the value formatters below already loaded: LLDB on macOS
+and Windows, gdb on Linux (`--gdb` / `--lldb` choose). Arguments after `--` go to
 the program. Building with `iron build --debug` and starting a debugger
 yourself works the same way.
 
@@ -168,8 +168,29 @@ Iron names without the compiler's temporaries, and shows Iron function
 names in the call stack. `editors/neovim` (nvim-dap) and `editors/zed`
 (Zed's debugger) configure it; their READMEs have the details.
 `--adapter <path>` (or `IRON_DAP_ADAPTER`)
-picks the debugger. It needs Python 3; the pinned toolchain does not
-include `lldb-dap`.
+picks the debugger. It needs Python 3.8 or later; the pinned toolchain
+does not include `lldb-dap`. The value formatters need an LLDB built with
+Python (Xcode's and the distributions' are); with an `lldb-dap` built
+without it, breakpoints, stepping, the stack and panics still work, values
+show as their C structs, and the debug console says so.
+
+`iron debug --check` (or `iron dap --check`) shows what debugging needs
+on this machine, what it found and how to install what is missing; it
+exits 0 when both `iron debug` and `iron dap` can run. When a piece is
+missing, `iron debug` and `iron dap` say which and how to get it, and
+an editor shows the same message when its debug session fails to start.
+Where the pieces come from:
+
+| | `iron debug` | `iron dap` (editors) |
+|---|---|---|
+| macOS | lldb, from the Xcode Command Line Tools (`xcode-select --install`), which building already needs | Python 3 and `lldb-dap`, both from the Command Line Tools |
+| Linux | gdb or lldb from the distribution (`sudo apt install gdb`, `sudo dnf install gdb`) | Python 3 (installed on most distributions) and `lldb-dap` (`sudo apt install lldb`) or gdb 14 or later |
+| Windows | lldb from LLVM's installer (`winget install LLVM.LLVM`) and Python 3.10 or later | Python 3.10 or later (`winget install Python.Python.3.12`) and `lldb-dap` from LLVM's installer (`winget install LLVM.LLVM`); the `lldb-dap.exe` in Visual Studio's LLVM cannot run (it has no `liblldb.dll`). Without them VS Code falls back to the C/C++ extension's debugger |
+
+On Windows LLDB needs Python even to start (LLVM's build loads
+`python3.dll`, version 3.10 or later), so `iron dap` uses the same
+Python and hands its directory to `lldb-dap`; the value formatters then
+load as on the other systems.
 
 Through `iron dap`, what you type while paused is Iron: hover, watch
 expressions and the debug console take `xs.len() > 2 and not done`,
@@ -189,8 +210,10 @@ walking through the runtime's C.
 
 In VS Code, F5 in a `.iron` file debugs it with the Iron extension's
 `iron` debug type (`"type": "iron"`, `"program"` a `.iron` file or the
-package directory), which runs `iron dap` on Linux and macOS and the
-Visual Studio debugger on Windows; see the extension's README.
+package directory), which runs `iron dap`; on Windows without
+`lldb-dap` and Python it uses the C/C++ extension's Visual Studio
+debugger instead (the `iron.debug.windowsDebugger` setting chooses); see
+the extension's README.
 
 Without the extension's debug type, pair a C debugger extension (C/C++
 from Microsoft, or CodeLLDB) with a build task:
@@ -217,13 +240,17 @@ from Microsoft, or CodeLLDB) with a build task:
 
 Parameters and local bindings show under their Iron names (`w`, `total`);
 a name used twice in one function, or one that is also a C keyword,
-carries a suffix (`total_14`). The compiler's own temporaries appear as
-`_v12`: a C name that starts with `_` is never an Iron binding. A `var`
-that a closure captures lives in a shared cell and appears as
-`_ref_count`, a pointer to it; inside the closure, each captured binding
-appears the same way. The `locals` command that the formatters below add
-to gdb and LLDB lists the Iron bindings only: it hides the temporaries
-and shows `_ref_count` as `count` with its value.
+carries a suffix (`total_14`). The compiler's own temporaries carry no
+debug info, so no debugger lists them (set `IRON_DEBUG_TEMPORARIES=1`
+when building to keep them, as `_v12`: a C name that starts with `_` is
+never an Iron binding). The exceptions are synthetic parameters, which C
+cannot hide: a closure's environment, and the `_v1` / `_v1_len` pair a
+list parameter passed as a C array arrives in (its Iron name is the
+copy beside it). A `var` that a closure captures lives in a shared cell
+and appears as `_ref_count`, a pointer to it; inside the closure, each
+captured binding appears the same way. The `locals` command that the
+formatters below add to gdb and LLDB lists the Iron bindings only: it
+leaves those out and shows `_ref_count` as `count` with its value.
 
 `lib/debug/` in the Iron installation holds formatters that show values
 as Iron values: a `String` as its text, a list or set as its elements,

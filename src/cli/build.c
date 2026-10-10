@@ -63,6 +63,11 @@ static int resolve_self_dir(char *buf, size_t buf_size) {
 #ifdef __APPLE__
     uint32_t size = (uint32_t)buf_size;
     if (_NSGetExecutablePath(buf, &size) != 0) return -1;
+    { /* resolve a symlinked binary, like /proc/self/exe on Linux */
+        char resolved[PATH_MAX];
+        if (realpath(buf, resolved) != NULL && strlen(resolved) < buf_size)
+            memcpy(buf, resolved, strlen(resolved) + 1);
+    }
 #elif defined(__linux__)
     ssize_t n = readlink("/proc/self/exe", buf, buf_size - 1);
     if (n < 0) return -1;
@@ -953,6 +958,10 @@ static int build_src_list(const char **argv_buf, int *ai_out,
         static char natvis_flag[4300];
         argv_buf[ai++] = "/link";
         argv_buf[ai++] = "/DEBUG";
+        /* /DEBUG turns on incremental linking, which routes every call
+         * through a jump table; LLDB cannot step into a function through
+         * it (lldb-dap on Windows, #388). */
+        argv_buf[ai++] = "/INCREMENTAL:NO";
         if (write_debug_natvis(c_file, natvis_path, sizeof(natvis_path))) {
             snprintf(natvis_flag, sizeof(natvis_flag), "/NATVIS:%s", natvis_path);
             argv_buf[ai++] = natvis_flag;

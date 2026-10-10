@@ -9,6 +9,8 @@ import * as assert from 'node:assert';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import * as vscode from 'vscode';
+import { terminalCommand } from '../../src/debug';
+import { panicFrameIndex } from '../../src/panicFocus';
 
 function findIron(): string | undefined {
   if (process.env.IRON_PATH) return process.env.IRON_PATH;
@@ -93,6 +95,44 @@ suite('iron-lsp e2e: iron debug type', () => {
     for (const c of ['iron.runFile', 'iron.debugFile', 'iron.runTest', 'iron.debugTest']) {
       assert.ok(commands.includes(c), `${c} is not registered`);
     }
+  });
+
+  // Run / Run Test type the command into the terminal's shell. On Windows
+  // that is PowerShell by default, where a quoted program needs `&`: the
+  // POSIX quoting failed there with "Unexpected token 'test'".
+  test('Run commands are quoted for the terminal shell', () => {
+    const argv = ['C:\\Program Files\\Iron\\iron.exe', 'test', 'C:\\work\\main.iron', "Bob's \"area\""];
+    assert.strictEqual(terminalCommand('C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', argv),
+      "& 'C:\\Program Files\\Iron\\iron.exe' 'test' 'C:\\work\\main.iron' 'Bob''s \"area\"'");
+    assert.strictEqual(terminalCommand('C:\\Program Files\\PowerShell\\7\\pwsh.exe', ['iron', 'run', 'a.iron']),
+      "& 'iron' 'run' 'a.iron'");
+    assert.strictEqual(terminalCommand('C:\\WINDOWS\\System32\\cmd.exe', argv),
+      '"C:\\Program Files\\Iron\\iron.exe" test C:\\work\\main.iron "Bob\'s ""area"""');
+    assert.strictEqual(terminalCommand('/bin/zsh', ['/usr/local/bin/iron', 'test', '/p/a.iron', 'area of a "square"']),
+      '/usr/local/bin/iron test /p/a.iron "area of a \\"square\\""');
+    assert.strictEqual(terminalCommand('C:\\Program Files\\Git\\bin\\bash.exe', ['iron', 'run', 'a b.iron']),
+      'iron run "a b.iron"');
+  });
+
+  // #388: under the Visual Studio debugger (Windows) a panic that reaches
+  // abort() focuses the first Iron frame; a stop already on an Iron line
+  // (a --debug check's trap) or outside the panic path is left alone.
+  test('a panic in abort() focuses the Iron frame', () => {
+    const src = (p: string) => ({ path: p });
+    const abort = [
+      { id: 1, name: 'main_test.exe!abort() Line 77', source: src('minkernel\\crts\\ucrt\\src\\appcrt\\startup\\abort.cpp') },
+      { id: 2, name: 'main_test.exe!Iron_read_file(Iron_String path) Line 71', source: src('C:\\iron\\lib\\runtime\\iron_builtins.c') },
+      { id: 3, name: 'main_test.exe!Iron_load(Iron_String path) Line 2', source: src('C:\\work\\main.iron') },
+      { id: 4, name: 'main_test.exe!Iron_main() Line 6', source: src('C:\\work\\main.iron') },
+    ];
+    assert.strictEqual(panicFrameIndex(abort), 2);
+    assert.strictEqual(panicFrameIndex(abort.slice(2)), -1);           // the trap: already Iron
+    const crash = [
+      { id: 1, name: 'main.exe!memcpy() Line 10', source: src('memcpy.asm') },
+      { id: 2, name: 'main.exe!Iron_main() Line 6', source: src('C:\\work\\main.iron') },
+    ];
+    assert.strictEqual(panicFrameIndex(crash), -1);                    // not a panic
+    assert.strictEqual(panicFrameIndex([abort[0], abort[1]]), -1);     // no Iron frame
   });
 
   test('Debug Test stops in the test block', async function () {

@@ -24,6 +24,10 @@
 #  include <unistd.h>
 #  include <dirent.h>
 #  include <time.h>
+#  include <fcntl.h>
+#  include <spawn.h>
+#  include <sys/wait.h>
+extern char **environ;
 #endif
 
 #include "cli/toml.h"
@@ -505,8 +509,27 @@ static bool debug_file_exists(const char *p) {
     return p && stat(p, &st) == 0;
 }
 
-/* True when `tool` is an executable on PATH. */
-static bool debug_on_path(const char *tool) {
+/* The path of `tool` on PATH into buf; false when it is not there. */
+/* Windows: lldb.exe runs only with liblldb.dll beside it; the copy in
+ * Visual Studio's LLVM (and the Build Tools') has none and fails to
+ * start. True for any other tool or OS. */
+static bool debug_windows_lldb_runs(const char *tool, const char *exe) {
+#ifdef _WIN32
+    if (strcmp(tool, "lldb") != 0) return true;
+    char dll[4200];
+    const char *slash = strrchr(exe, '/');
+    const char *bs = strrchr(exe, '\\');
+    if (bs > slash) slash = bs;
+    if (!slash) return true;
+    snprintf(dll, sizeof(dll), "%.*s/liblldb.dll", (int)(slash - exe), exe);
+    return debug_file_exists(dll);
+#else
+    (void)tool; (void)exe;
+    return true;
+#endif
+}
+
+static bool debug_which(const char *tool, char *buf, size_t size) {
     const char *path = getenv("PATH");
     if (!path) return false;
 #ifdef _WIN32
@@ -516,18 +539,270 @@ static bool debug_on_path(const char *tool) {
     const char sep = ':';
     const char *ext = "";
 #endif
-    char buf[4096];
     for (const char *p = path; *p;) {
         const char *e = strchr(p, sep);
         size_t n = e ? (size_t)(e - p) : strlen(p);
-        if (n > 0 && n + strlen(tool) + 8 < sizeof(buf)) {
-            snprintf(buf, sizeof(buf), "%.*s/%s%s", (int)n, p, tool, ext);
-            if (debug_file_exists(buf)) return true;
+        if (n > 0 && n + strlen(tool) + 8 < size) {
+            snprintf(buf, size, "%.*s/%s%s", (int)n, p, tool, ext);
+            if (debug_file_exists(buf) && debug_windows_lldb_runs(tool, buf)) return true;
         }
         if (!e) break;
         p = e + 1;
     }
+#ifdef _WIN32
+    /* LLVM's installer puts lldb in Program Files without touching PATH
+     * unless asked to (#388). */
+    if (strcmp(tool, "lldb") == 0) {
+        const char *roots[] = { getenv("ProgramFiles"), getenv("ProgramW6432"), NULL, NULL };
+        char local[4096];
+        const char *la = getenv("LOCALAPPDATA");
+        if (la) { snprintf(local, sizeof(local), "%s\\Programs", la); roots[2] = local; }
+        for (int i = 0; i < 3; i++) {
+            if (!roots[i]) continue;
+            snprintf(buf, size, "%s\\LLVM\\bin\\lldb.exe", roots[i]);
+            if (debug_file_exists(buf) && debug_windows_lldb_runs(tool, buf)) return true;
+        }
+    }
+#endif
     return false;
+}
+
+/* Run argv (argv[0] a path or a name on PATH) with its stderr discarded;
+ * the first line of its output goes to out. Returns the exit status
+ * (-1: it could not run). */
+static int debug_probe(char *const argv[], char *out, size_t size) {
+    if (size) out[0] = '\0';
+    fflush(NULL);
+#ifdef _WIN32
+    char cmd[8192];
+    int n = 0;
+    for (int i = 0; argv[i] && n < (int)sizeof(cmd) - 16; i++) {
+        /* Quote each argument; inner quotes are backslash escaped. */
+        n += snprintf(cmd + n, sizeof(cmd) - (size_t)n, i ? " \"" : "\"");
+        for (const char *c = argv[i]; *c && n < (int)sizeof(cmd) - 16; c++) {
+            if (*c == '"') cmd[n++] = '\\';
+            cmd[n++] = *c;
+        }
+        n += snprintf(cmd + n, sizeof(cmd) - (size_t)n, "\"");
+    }
+    snprintf(cmd + n, sizeof(cmd) - (size_t)n, " 2>NUL");
+    /* cmd.exe strips the outer quotes of a line that starts with one. */
+    char line_cmd[8300];
+    snprintf(line_cmd, sizeof(line_cmd), "\"%s\"", cmd);
+    FILE *p = _popen(line_cmd, "r");
+    if (!p) return -1;
+    char line[512];
+    bool first = true;
+    while (fgets(line, sizeof(line), p)) {
+        if (first && size) {
+            line[strcspn(line, "\r\n")] = '\0';
+            snprintf(out, size, "%s", line);
+        }
+        first = false;
+    }
+    return _pclose(p);
+#else
+    int fds[2];
+    if (pipe(fds) != 0) return -1;
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_adddup2(&fa, fds[1], 1);
+    posix_spawn_file_actions_addclose(&fa, fds[0]);
+    posix_spawn_file_actions_addclose(&fa, fds[1]);
+    posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDONLY, 0);
+    pid_t pid;
+    int rc = posix_spawnp(&pid, argv[0], &fa, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    close(fds[1]);
+    if (rc != 0) { close(fds[0]); return -1; }
+    char buf[1024];
+    size_t used = 0;
+    ssize_t got;
+    while ((got = read(fds[0], buf + used, sizeof(buf) - 1 - used)) > 0) {
+        used += (size_t)got;
+        if (used == sizeof(buf) - 1) {   /* keep draining; only the start matters */
+            char sink[512];
+            while (read(fds[0], sink, sizeof(sink)) > 0) {}
+            break;
+        }
+    }
+    close(fds[0]);
+    buf[used] = '\0';
+    buf[strcspn(buf, "\r\n")] = '\0';
+    if (size) snprintf(out, size, "%s", buf);
+    int st;
+    if (waitpid(pid, &st, 0) < 0) return -1;
+    return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+#endif
+}
+
+#ifdef __APPLE__
+/* macOS: /usr/bin/lldb and /usr/bin/python3 are placeholders that work
+ * only once the Xcode Command Line Tools (or Xcode) are installed; before
+ * that, running one opens the installer instead. */
+static bool debug_xcode_tools_installed(void) {
+    char dir[1024];
+    char *argv[] = { "/usr/bin/xcode-select", "-p", NULL };
+    return debug_probe(argv, dir, sizeof(dir)) == 0 && dir[0] &&
+           debug_file_exists(dir);
+}
+
+static bool debug_is_xcode_shim(const char *path) {
+    return strncmp(path, "/usr/bin/", 9) == 0 && !debug_xcode_tools_installed();
+}
+#endif
+
+/* `tool` is on PATH and can run (not a macOS placeholder). */
+static bool debug_usable(const char *tool) {
+    char path[4096];
+    if (!debug_which(tool, path, sizeof(path))) return false;
+#ifdef __APPLE__
+    if (debug_is_xcode_shim(path)) return false;
+#endif
+    return true;
+}
+
+/* How to install `tool` (gdb, lldb, python3) on this OS: one or more
+ * lines, each starting with two spaces. */
+static void debug_install_hint_text(const char *tool, char *buf, size_t size) {
+    bool py = strcmp(tool, "python3") == 0;
+#if defined(__APPLE__)
+    if (strcmp(tool, "gdb") == 0) {
+        snprintf(buf, size, "  on macOS, use lldb instead: it comes with the Xcode Command Line Tools\n"
+                            "  (xcode-select --install); `iron debug` picks it by default\n");
+    } else {
+        snprintf(buf, size, "  %s comes with the Xcode Command Line Tools; install them with:\n"
+                            "    xcode-select --install\n%s", py ? "Python 3" : tool,
+                 py ? "  (or install Python 3 from https://www.python.org or Homebrew)\n" : "");
+    }
+#elif defined(_WIN32)
+    if (py) {
+        snprintf(buf, size, "  install Python 3 from https://www.python.org/downloads/ or with:\n"
+                            "    winget install Python.Python.3.12\n"
+                            "  (the Microsoft Store `python` alias that only opens the Store does not count)\n");
+    } else if (strcmp(tool, "lldb") == 0) {
+        snprintf(buf, size, "  LLVM for Windows includes lldb and lldb-dap; install it with:\n"
+                            "    winget install LLVM.LLVM\n"
+                            "  (its LLDB also needs Python 3.10 or later: winget install Python.Python.3.12)\n");
+    } else {
+        snprintf(buf, size, "  on Windows, use lldb instead: it comes with LLVM (winget install LLVM.LLVM)\n");
+    }
+#else
+    snprintf(buf, size, "  install it with your package manager:\n"
+                        "    sudo apt install %s       (Debian, Ubuntu)\n"
+                        "    sudo dnf install %s       (Fedora, RHEL, Rocky)\n"
+                        "    sudo pacman -S %s         (Arch)\n",
+             tool, tool, py ? "python" : tool);
+#endif
+}
+
+static void debug_install_hint(FILE *out, const char *tool) {
+    char buf[1024];
+    debug_install_hint_text(tool, buf, sizeof(buf));
+    fputs(buf, out);
+}
+
+/* The Python 3 (3.8 or later) that runs iron_dap.py: its command name
+ * into name ("py" means `py -3`), its version into version. On failure,
+ * why says what was found instead, if anything. */
+static bool debug_find_python(char *name, size_t nsize, char *version, size_t vsize,
+                              char *why, size_t wsize) {
+#ifdef _WIN32
+    const char *const pythons[] = { "python3", "python", "py", NULL };
+#else
+    const char *const pythons[] = { "python3", "python", NULL };
+#endif
+    if (wsize) why[0] = '\0';
+    for (int i = 0; pythons[i]; i++) {
+        char path[4096];
+        if (!debug_which(pythons[i], path, sizeof(path))) continue;
+#ifdef __APPLE__
+        if (debug_is_xcode_shim(path)) {
+            snprintf(why, wsize, "%s is the Xcode Command Line Tools placeholder "
+                     "(the tools are not installed)", path);
+            continue;
+        }
+#endif
+        char v[64];
+        char *pargv[] = { path, "-c", "import sys; v = sys.version_info; sys.stdout.write(str(v[0]) + '.' + str(v[1]))", NULL, NULL };
+        if (strcmp(pythons[i], "py") == 0) {
+            pargv[1] = "-3";
+            pargv[2] = "-c";
+            pargv[3] = "import sys; v = sys.version_info; sys.stdout.write(str(v[0]) + '.' + str(v[1]))";
+        }
+        int major = 0, minor = 0;
+        if (debug_probe(pargv, v, sizeof(v)) != 0 || sscanf(v, "%d.%d", &major, &minor) != 2) {
+            snprintf(why, wsize, "%s does not run", path);
+            continue;
+        }
+        if (major != 3 || minor < 8) {
+            snprintf(why, wsize, "%s is Python %d.%d", path, major, minor);
+            continue;
+        }
+        snprintf(name, nsize, "%s", pythons[i]);
+        snprintf(version, vsize, "%s", v);
+        return true;
+    }
+    return false;
+}
+
+/* The error `iron dap` gives without Python 3, on stderr and, when an
+ * editor is on the other end, as the response to its `initialize`
+ * request, so the editor shows it instead of "the adapter exited". */
+static void dap_report_no_python(const char *why) {
+    char msg[2048];
+    int n = snprintf(msg, sizeof(msg), "iron dap needs Python 3.8 or later on PATH, and none was found");
+    if (why && *why) n += snprintf(msg + n, sizeof(msg) - (size_t)n, " (%s)", why);
+    n += snprintf(msg + n, sizeof(msg) - (size_t)n, ".\n");
+    char hint[1024];
+    debug_install_hint_text("python3", hint, sizeof(hint));
+    n += snprintf(msg + n, sizeof(msg) - (size_t)n, "%s", hint);
+    snprintf(msg + n, sizeof(msg) - (size_t)n, "Run `iron debug --check` to see what debugging needs.");
+    fprintf(stderr, "error: %s\n", msg);
+    if (isatty(0)) return;
+#ifdef _WIN32
+    /* DAP framing counts bytes: no CRLF translation either way. */
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
+    /* Read the client's first request (initialize) and answer it. */
+    int length = -1;
+    char line[256];
+    while (fgets(line, sizeof(line), stdin)) {
+        if (line[0] == '\r' || line[0] == '\n') { if (length >= 0) break; continue; }
+        if (strncmp(line, "Content-Length:", 15) == 0) length = atoi(line + 15);
+    }
+    if (length <= 0 || length > 1 << 20) return;
+    char *body = (char *)malloc((size_t)length + 1);
+    if (!body) return;
+    size_t got = fread(body, 1, (size_t)length, stdin);
+    body[got] = '\0';
+    long seq = 0;
+    const char *s = strstr(body, "\"seq\"");
+    if (s && (s = strchr(s, ':'))) seq = strtol(s + 1, NULL, 10);
+    char command[64] = "initialize";
+    const char *c = strstr(body, "\"command\"");
+    if (c && (c = strchr(c, ':')) && (c = strchr(c, '"'))) {
+        size_t k = strcspn(c + 1, "\"");
+        if (k < sizeof(command)) snprintf(command, sizeof(command), "%.*s", (int)k, c + 1);
+    }
+    free(body);
+    char esc[4096];
+    size_t e = 0;
+    for (const char *p = msg; *p && e + 8 < sizeof(esc); p++) {
+        if (*p == '"' || *p == '\\') { esc[e++] = '\\'; esc[e++] = *p; }
+        else if (*p == '\n') { esc[e++] = '\\'; esc[e++] = 'n'; }
+        else if ((unsigned char)*p >= 0x20) esc[e++] = *p;
+    }
+    esc[e] = '\0';
+    char resp[9000];
+    int rn = snprintf(resp, sizeof(resp),
+        "{\"seq\":1,\"type\":\"response\",\"request_seq\":%ld,\"command\":\"%s\","
+        "\"success\":false,\"message\":\"%s\",\"body\":{\"error\":{\"id\":1,"
+        "\"format\":\"%s\",\"showUser\":true}}}", seq, command, esc, esc);
+    printf("Content-Length: %d\r\n\r\n%s", rn, resp);
+    fflush(stdout);
 }
 
 /* <iron>/lib/debug/<file> next to the ironc in use, or the source tree's
@@ -554,21 +829,23 @@ static char *debug_formatter(const char *ironc, const char *file) {
  * loaded; returns the debugger's exit status. */
 static int iron_launch_debugger(const char *ironc, const char *binary,
                                 char **args, int nargs) {
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_WIN32)
     const char *first = "lldb", *second = "gdb";
 #else
     const char *first = "gdb", *second = "lldb";
 #endif
     const char *tool = g_debugger;
-    if (!tool) tool = debug_on_path(first) ? first : debug_on_path(second) ? second : NULL;
-    if (!tool || !debug_on_path(tool)) {
-        fprintf(stderr, "error: %s\n", tool ? "the requested debugger is not on PATH"
-                                            : "no debugger found: install gdb or lldb");
+    if (!tool) tool = debug_usable(first) ? first : debug_usable(second) ? second : NULL;
+    if (!tool || !debug_usable(tool)) {
+        if (tool) fprintf(stderr, "error: %s was not found on PATH\n", tool);
+        else fprintf(stderr, "error: no debugger found: iron debug starts %s or %s\n", first, second);
+        debug_install_hint(stderr, tool ? tool : first);
         fprintf(stderr, "  the binary is built with debug info: %s\n"
-                        "  VS Code (and Visual Studio on Windows) can debug it; see "
-                        "the guide's Debugging section\n", binary);
+                        "  editors can debug it too; see the guide's Debugging section\n", binary);
         return 1;
     }
+    char tool_path[4096];
+    if (!debug_which(tool, tool_path, sizeof(tool_path))) snprintf(tool_path, sizeof(tool_path), "%s", tool);
     bool lldb = strcmp(tool, "lldb") == 0;
     char *formatter = debug_formatter(ironc, lldb ? "iron_lldb.py" : "iron_gdb.py");
     char cmd[4300] = "";
@@ -580,7 +857,7 @@ static int iron_launch_debugger(const char *ironc, const char *binary,
     char **argv = (char **)calloc((size_t)nargs + 16, sizeof(char *));
     if (!argv) { free(formatter); return 1; }
     int ai = 0;
-    argv[ai++] = (char *)tool;
+    argv[ai++] = tool_path;
     /* Break on panic: every panic ends in abort(); the formatter script
      * selects the Iron frame that panicked when it stops there. */
     if (lldb) {
@@ -599,7 +876,7 @@ static int iron_launch_debugger(const char *ironc, const char *binary,
     argv[ai++] = (char *)binary;
     for (int i = 0; i < nargs; i++) argv[ai++] = args[i];
     argv[ai] = NULL;
-    int ret = spawn_and_wait(tool, argv);
+    int ret = spawn_and_wait(tool_path, argv);
     free(argv);
     free(formatter);
     return ret;
@@ -657,16 +934,9 @@ int iron_dap(const char *self_path, int argc, char **argv) {
         fprintf(stderr, "error: iron dap: lib/debug/iron_dap.py was not found next to this iron\n");
         return 1;
     }
-#ifdef _WIN32
-    const char *const pythons[] = { "python3", "python", "py", NULL };
-#else
-    const char *const pythons[] = { "python3", "python", NULL };
-#endif
-    const char *python = NULL;
-    for (int i = 0; pythons[i] && !python; i++)
-        if (debug_on_path(pythons[i])) python = pythons[i];
-    if (!python) {
-        fprintf(stderr, "error: iron dap needs Python 3 on PATH\n");
+    char python[32], version[64], why[4200];
+    if (!debug_find_python(python, sizeof(python), version, sizeof(version), why, sizeof(why))) {
+        dap_report_no_python(why);
         free(script);
         return 1;
     }
@@ -684,6 +954,93 @@ int iron_dap(const char *self_path, int argc, char **argv) {
     free(dargv);
     free(script);
     return ret;
+}
+
+/* One line of `iron debug --check`: "  ok   what" or "  --   what". */
+static void check_line(bool ok, const char *fmt, const char *a, const char *b) {
+    printf("  %s  ", ok ? "ok " : "-- ");
+    printf(fmt, a, b);
+    printf("\n");
+}
+
+/* `iron debug --check` (also `iron dap --check`): what `iron debug` and
+ * `iron dap` need, what is found, and how to get what is missing.
+ * Exits 0 when both can debug, 1 otherwise. */
+int iron_debug_check(const char *self_path) {
+#if defined(__APPLE__) || defined(_WIN32)
+    const char *const tools[] = { "lldb", "gdb", NULL };
+#else
+    const char *const tools[] = { "gdb", "lldb", NULL };
+#endif
+    printf("iron debug (a debugger in the terminal):\n");
+    const char *debugger = NULL;
+    for (int i = 0; tools[i]; i++) {
+        char path[4096], v[256];
+        if (!debug_usable(tools[i])) {
+            check_line(false, "%s: not found%s", tools[i], "");
+            continue;
+        }
+        debug_which(tools[i], path, sizeof(path));
+        char *vargv[] = { path, "--version", NULL };
+        debug_probe(vargv, v, sizeof(v));
+        check_line(true, "%s (%s)", v[0] ? v : tools[i], path);
+        if (!debugger) debugger = tools[i];
+    }
+    if (!debugger) debug_install_hint(stdout, tools[0]);
+
+    printf("iron dap (the debug adapter VS Code, Neovim and Zed run):\n");
+    bool dap_ok = false;
+    char python[32], version[64], why[4200];
+    char *ironc = find_ironc();
+    char *script = debug_formatter(ironc, "iron_dap.py");
+    if (!debug_find_python(python, sizeof(python), version, sizeof(version), why, sizeof(why))) {
+        check_line(false, "Python 3.8 or later: not found%s%s", why[0] ? "; " : "", why);
+        debug_install_hint(stdout, "python3");
+    } else {
+        check_line(true, "Python %s (%s)", version, python);
+        if (!script) {
+            check_line(false, "lib/debug/iron_dap.py: not found next to %s%s", ironc, "");
+        } else {
+            /* The adapter finds its debugger itself (lldb-dap, else gdb
+             * 14+, or IRON_DAP_ADAPTER): ask it. */
+            char *cargv[] = { python, NULL, NULL, NULL, NULL, NULL };
+            int ai = 1;
+            if (strcmp(python, "py") == 0) cargv[ai++] = "-3";
+            cargv[ai++] = script;
+            cargv[ai++] = "--check";
+            fflush(stdout);
+            dap_ok = spawn_and_wait(python, cargv) == 0;
+        }
+    }
+
+    printf("value formatters (Iron values in the debugger):\n");
+    char *lldb_fmt = debug_formatter(ironc, "iron_lldb.py");
+    char *gdb_fmt = debug_formatter(ironc, "iron_gdb.py");
+    check_line(lldb_fmt != NULL, "%s%s", lldb_fmt ? lldb_fmt : "iron_lldb.py: not found",
+               lldb_fmt ? "" : " (values show as C in LLDB)");
+    check_line(gdb_fmt != NULL, "%s%s", gdb_fmt ? gdb_fmt : "iron_gdb.py: not found",
+               gdb_fmt ? "" : " (values show as C in gdb)");
+    free(lldb_fmt);
+    free(gdb_fmt);
+    free(script);
+    free(ironc);
+    (void)self_path;
+
+    printf("\n");
+    if (debugger) printf("iron debug: ready (%s)\n", debugger);
+    else printf("iron debug: not ready, no debugger\n");
+    printf("iron dap: %s\n", dap_ok ? "ready" : "not ready, see above");
+#ifdef _WIN32
+    /* What VS Code's Iron extension does here (iron.debug.windowsDebugger
+     * set to auto, the default): iron dap when it is ready, else the C/C++
+     * extension's Visual Studio debugger (cppvsdbg). */
+    if (dap_ok)
+        printf("VS Code: the Iron extension debugs through iron dap\n");
+    else
+        printf("VS Code: the Iron extension falls back to the C/C++ extension's debugger "
+               "(ms-vscode.cpptools), without Iron names, panic stops or Iron expressions\n");
+#endif
+    return debugger && dap_ok ? 0 : 1;
 }
 
 static int cmd_build(bool run_after, int argc, char **argv) {

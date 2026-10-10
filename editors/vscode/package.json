@@ -3,7 +3,7 @@
   "displayName": "Iron LSP",
   "description": "Iron language support for VSCode via ironls (LSP 3.17) with TextMate syntax highlighting.",
   "publisher": "iron-lang",
-  "version": "4.11.0-alpha",
+  "version": "4.12.0-alpha",
   "license": "Apache-2.0",
   "icon": "icon.png",
   "repository": {
@@ -144,6 +144,17 @@
           "default": "",
           "description": "Path to the `iron` CLI the iron debug type runs (`iron dap`, and the --debug build). When empty, the extension searches PATH."
         },
+        "iron.debug.windowsDebugger": {
+          "type": "string",
+          "enum": ["auto", "iron-dap", "cppvsdbg"],
+          "enumDescriptions": [
+            "iron dap when it can run here (LLVM's lldb-dap and Python 3.10 or later; see `iron debug --check`), else the C/C++ extension's debugger",
+            "Always iron dap with LLVM's lldb-dap: Iron names in the call stack, panics stop on the Iron line, Iron expressions and conditions, Step Into stays in Iron code",
+            "Always the C/C++ extension's Visual Studio debugger (ms-vscode.cpptools), which shows values through the natvis"
+          ],
+          "default": "auto",
+          "description": "Windows only: the debugger the iron debug type uses."
+        },
         "iron.languageServer.logLevel": {
           "type": "string",
           "enum": ["error", "warn", "info", "debug"],
@@ -231,25 +242,17 @@
     "package": "npm run prepackage && npm run bundle && vsce package --no-dependencies",
     "publish": "npm run prepackage && npm run bundle && vsce publish --no-dependencies",
     "pretest:e2e": "tsc -p . --outDir out",
-    "test:e2e": "npm run bundle && node ./out/test/runTest.js"
+    "test:e2e": "npm run prepackage && npm run bundle && node ./out/test/runTest.js"
   },
   "dependencies": {
     "vscode-languageclient": "9.0.1"
-  },
-  "overrides": {
-    "minimatch@3.1.5": {
-      "brace-expansion": "1.1.18"
-    },
-    "mocha": {
-      "serialize-javascript": "^7.1.0"
-    }
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",
     "@types/node": "^20.0.0",
     "@types/vscode": "1.92.0",
     "@vscode/test-electron": "^2.5.2",
-    "@vscode/vsce": "^3.9.0",
+    "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.1",
     "glob": "^11.0.0",
     "mocha": "^12.0.3",

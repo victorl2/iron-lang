@@ -141,14 +141,14 @@ jobs:
       - name: ASan and UBSan smoke
         if: needs.changes.outputs.ci == 'true'
         env:
-          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build -R '^test_runtime_threads$' --output-on-failure
 
       - name: Run unit tests with ASan and UBSan
         if: needs.changes.outputs.ci == 'true'
         env:
-          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build --output-on-failure -j4 -E "benchmark"
 
@@ -161,7 +161,7 @@ jobs:
       - name: Run integration tests
         if: needs.changes.outputs.ci == 'true'
         env:
-          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           chmod +x tests/integration/run_integration.sh

@@ -21,10 +21,16 @@
   #endif
   #include <windows.h>
 #else
+  #include <fcntl.h>
   #include <pthread.h>
   #include <sched.h>
   #include <unistd.h>
 #endif
+#ifdef __APPLE__
+  #include <sys/types.h>
+  #include <sys/sysctl.h>
+#endif
+#include <stdarg.h>
 
 /* ── Memory ─────────────────────────────────────────────────────────────── */
 
@@ -53,6 +59,58 @@ void iron_panic_null_box(void) {
     fputs("iron: panic: unwrap() on null Box\n", stderr);
     fflush(stderr);
     abort();
+}
+
+/* ── Debug traps (#388) ──────────────────────────────────────────────────
+ * The checks of a --debug build call iron_debug_panic_stop just before a
+ * panic; when it returns true they run a breakpoint instruction in the Iron
+ * function (IRON_DEBUG_BREAK in iron_runtime.h). Asked at the panic, not
+ * once at startup, so a debugger attached to a running program counts. */
+char iron_debug_panic_message[512];
+
+static bool iron_debugger_attached(void) {
+#if defined(_WIN32)
+    return IsDebuggerPresent() != 0;
+#elif defined(__APPLE__)
+    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, (int)getpid() };
+    struct kinfo_proc info;
+    size_t size = sizeof info;
+    memset(&info, 0, sizeof info);
+    if (sysctl(mib, 4, &info, &size, NULL, 0) != 0) return false;
+    return (info.kp_proc.p_flag & P_TRACED) != 0;
+#elif defined(__linux__)
+    /* TracerPid in /proc/self/status: nonzero while ptrace-attached. */
+    char buf[2048];
+    int fd = open("/proc/self/status", O_RDONLY);
+    if (fd < 0) return false;
+    ssize_t n = read(fd, buf, sizeof buf - 1);
+    close(fd);
+    if (n <= 0) return false;
+    buf[n] = '\0';
+    const char *t = strstr(buf, "TracerPid:");
+    if (!t) return false;
+    t += 10;
+    while (*t == ' ' || *t == '\t') t++;
+    return *t >= '1' && *t <= '9';
+#else
+    return false;
+#endif
+}
+
+bool iron_debug_panic_stop(const char *site_file, int site_line, const char *fmt, ...) {
+    if (site_file && site_line <= 0) return false;  /* a runtime body: no Iron line */
+    if (!iron_debugger_attached()) return false;
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(iron_debug_panic_message, sizeof iron_debug_panic_message, fmt, ap);
+    va_end(ap);
+    fflush(stdout);
+    if (site_file)
+        fprintf(stderr, "panic: %s at %s:%d\n", iron_debug_panic_message, site_file, site_line);
+    else
+        fprintf(stderr, "panic: %s\n", iron_debug_panic_message);
+    fflush(stderr);
+    return true;
 }
 
 /* ── FileHandle (write mode) ─────────────────────────────────────────────── */

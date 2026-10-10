@@ -86,6 +86,7 @@ struct Iron_Pool {
     iron_cond_t      work_done;
     int              pending;
     bool             shutdown;
+    bool             started;    /* fixed pool: workers spawned (on first submit) */
     const char      *name;
 
     /* ── Phase 59 P01b: elastic mode ─────────────────────────────────────
@@ -219,7 +220,19 @@ Iron_Pool *Iron_pool_create(const char *name, int thread_count) {
         (size_t)thread_count * sizeof(iron_thread_t));
     if (!pool->threads) iron_oom_abort("iron_threads.c:Iron_pool_create threads");
 
-    for (int i = 0; i < thread_count; i++) {
+    /* The workers start with the first submit (pool_start_locked), so a
+     * program that never uses the pool stays single threaded: cheaper to
+     * start, and LLDB on Windows crashes or hangs on `continue` in
+     * multithreaded programs (#388). */
+    pool->started = false;
+    return pool;
+}
+
+/* Fixed pool: spawn the workers if they have not started. Caller holds
+ * pool->lock; a new worker blocks on it until the caller releases it. */
+static void pool_start_locked(Iron_Pool *pool) {
+    if (pool->is_elastic || pool->started) return;
+    for (int i = 0; i < pool->thread_count; i++) {
         /* FIX-02: IRON_THREAD_CREATE failure (non-OOM but still unrecoverable —
          * EAGAIN from the scheduler) now routes through iron_oom_abort since the
          * runtime has no panic channel. AUDIT-03 §32. */
@@ -227,8 +240,7 @@ Iron_Pool *Iron_pool_create(const char *name, int thread_count) {
             iron_oom_abort("iron_threads.c:Iron_pool_create IRON_THREAD_CREATE");
         }
     }
-
-    return pool;
+    pool->started = true;
 }
 
 void Iron_pool_submit(Iron_Pool *pool, void (*fn)(void *), void *arg) {
@@ -256,6 +268,7 @@ void Iron_pool_submit(Iron_Pool *pool, void (*fn)(void *), void *arg) {
         pool_spawn_elastic_worker_locked(pool);
     }
 
+    pool_start_locked(pool);
     IRON_COND_SIGNAL(pool->work_ready);
     IRON_MUTEX_UNLOCK(pool->lock);
 }
@@ -285,6 +298,7 @@ void Iron_pool_submit_wait(Iron_Pool *pool,
         pool_spawn_elastic_worker_locked(pool);
     }
 
+    pool_start_locked(pool);
     IRON_COND_SIGNAL(pool->work_ready);
     IRON_MUTEX_UNLOCK(pool->lock);
 }
@@ -339,7 +353,7 @@ void Iron_pool_destroy(Iron_Pool *pool) {
             IRON_THREAD_JOIN(snapshot[i]);
         }
         free(snapshot);
-    } else {
+    } else if (pool->started) {
         for (int i = 0; i < pool->thread_count; i++) {
             IRON_THREAD_JOIN(pool->threads[i]);
         }
@@ -517,6 +531,7 @@ Iron_Pool *Iron_elastic_pool_create(const char *name,
     pool->queue_count      = 0;
     pool->pending          = 0;
     pool->shutdown         = false;
+    pool->started          = true;
     pool->is_elastic       = true;
     pool->max_threads      = max_threads;
     pool->idle_threads     = 0;

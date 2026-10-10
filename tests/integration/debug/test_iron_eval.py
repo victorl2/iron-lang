@@ -18,7 +18,9 @@ VALUES = {"p": ("Point {x = 3, y = 4}", 1), "p.x": ("3", 0), "p.y": ("4", 0),
           "xs": ("[10, 20, 30]", 2), "xs[0]": ("10", 0), "xs[1]": ("20", 0), "xs[2]": ("30", 0),
           "name": ('"iron"', 3), "ages": ("size=1", 4), "maybe": ("7", 0), "none": ("null", 0),
           "flag": ("true", 0), "i": ("1", 0), "gl": ("[3]", 5), "carr": ("0x16fdfdce0", 0),
-          "carr_len": ("2", 0), "carr[1]": ("8", 0)}
+          "carr_len": ("2", 0), "carr[1]": ("8", 0),
+          # A var captured by a closure: only its `_ref_` pointer is a local.
+          "(*_ref_count)": ("41", 0)}
 CHILDREN = {2: [{"name": "[%d]" % i, "value": v} for i, v in enumerate(("10", "20", "30"))],
             4: [{"name": '["ann"]', "value": "31"}],
             5: [{"name": "[%d]" % i, "value": v} for i, v in enumerate(('"a"', '"bb"', '"c"'))]}
@@ -55,6 +57,8 @@ CASES = [
     ("gl.len()", "3"), ("gl[1]", '"bb"'),
     # A list kept as a C array: a pointer and carr_len.
     ("carr.len()", "2"), ("carr[1] + 1", "9"),
+    # A captured var, read through `_ref_count`.
+    ("count + 1", "42"), ("count * 2 > 80", "true"),
 ]
 ERRORS = [("nosuch", "no variable `nosuch` here"), ("p.z", "`p.z` has no value here"),
           ("xs[5]", "out of range"), ("1 / 0", "division by zero"), ("not 3", "expected a Bool"),
@@ -77,6 +81,23 @@ for expr, want in ERRORS:
     if want not in got:
         failed += 1
         print("FAIL: %s gives %r, want an error with %r" % (expr, got, want))
+# The `test` launch argument: Zed's run button passes the block's string
+# literal with its quotes ($ZED_CUSTOM_test_name), other clients the name.
+TEST_NAMES = [('"area of a square"', "area of a square"), ("adds", "adds"),
+              ('"says \\"hi\\""', 'says "hi"'), ('"', '"'), (None, None)]
+for given, want in TEST_NAMES:
+    got = dap.test_name(given)
+    if got != want:
+        failed += 1
+        print("FAIL: test_name(%r) = %r, want %r" % (given, got, want))
+# Frame names: a test block's C function is shown as the test.
+FRAMES = [(("Iron_main", None), "main"), (("iron__test_1796", "adds"), 'test "adds"'),
+          (("Iron_iron__test_12", None), "test"), (("__lambda_3", None), "func")]
+for (c_name, test), want in FRAMES:
+    got = dap.iron_function_name(c_name, test)
+    if got != want:
+        failed += 1
+        print("FAIL: iron_function_name(%r, %r) = %r, want %r" % (c_name, test, got, want))
 if failed:
     sys.exit(1)
 print("iron eval: %d expressions, %d errors: PASS" % (len(CASES), len(ERRORS)))

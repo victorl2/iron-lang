@@ -14,4 +14,8 @@ int iron_debug_file(int argc, char **argv);
  * self_path is this iron binary, which the adapter builds with. */
 int iron_dap(const char *self_path, int argc, char **argv);
 
+/* `iron debug --check` / `iron dap --check`: report what debugging needs
+ * on this machine and how to install what is missing; 0 when ready. */
+int iron_debug_check(const char *self_path);
+
 #endif /* IRON_PROJECT_BUILD_H */

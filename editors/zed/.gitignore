@@ -10,3 +10,6 @@
 # Zed dev-extension runtime artefacts
 /work_dir
 /.zed
+# What Zed writes when it builds the dev extension
+/extension.wasm
+/grammars

@@ -41,7 +41,7 @@ linux_leg() {   # $1 = asan | release | leaks
     export IRON_CURRENT_PHASE=37
     case $leg in
     asan)
-        export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1
+        export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1
         export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
         cmake -S . -B "$dir" -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang \
             -DOPENSSL_ROOT_DIR=/usr -DIRON_ENABLE_SANITIZERS=ON >/dev/null &&
@@ -84,7 +84,7 @@ run_linux() {
 
 run_mac() {
     local rc=0
-    ( export IRON_CURRENT_PHASE=37 ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 \
+    ( export IRON_CURRENT_PHASE=37 ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:detect_stack_use_after_return=1 \
              UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
       cmake -S . -B build-ci-mac-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang \
           -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3 2>/dev/null)" -DIRON_ENABLE_SANITIZERS=ON >/dev/null &&
