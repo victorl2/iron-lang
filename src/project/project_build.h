@@ -10,4 +10,8 @@ int cmd_project(const char *cmd, int argc, char **argv);
  * --debug into a temporary directory and debug it. */
 int iron_debug_file(int argc, char **argv);
 
+/* `iron dap [--adapter <path>]`: the debug adapter editors run (#347).
+ * self_path is this iron binary, which the adapter builds with. */
+int iron_dap(const char *self_path, int argc, char **argv);
+
 #endif /* IRON_PROJECT_BUILD_H */

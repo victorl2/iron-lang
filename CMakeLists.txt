@@ -2985,9 +2985,20 @@ install(DIRECTORY src/vendor/ DESTINATION lib/vendor COMPONENT iron)
 install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib COMPONENT iron FILES_MATCHING PATTERN "*.c" PATTERN "*.h")
 # Install stdlib .iron files
 install(DIRECTORY src/stdlib/ DESTINATION lib/stdlib COMPONENT iron FILES_MATCHING PATTERN "*.iron")
+# #312, #347: `iron dap`, the debug adapter editors run, driven by a DAP
+# client: build, breakpoints, stack, locals under Iron names, formatters.
+# Exit 77 (skipped) when neither lldb-dap nor gdb 14+ is installed.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(NOT WIN32 AND Python3_Interpreter_FOUND)
+  add_test(NAME debug_dap_smoke
+           COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/integration/debug/dap_client.py
+                   ${CMAKE_SOURCE_DIR}/tests/integration/debug/stepping.iron
+                   $<TARGET_FILE:iron> dap)
+  set_tests_properties(debug_dap_smoke PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+endif()
 # #312: gdb, LLDB and Visual Studio (natvis) views of Iron values in
 # `--debug` programs.
-install(FILES src/debug/iron_gdb.py src/debug/iron_lldb.py src/debug/iron.natvis
+install(FILES src/debug/iron_gdb.py src/debug/iron_lldb.py src/debug/iron_dap.py src/debug/iron.natvis
         DESTINATION lib/debug COMPONENT iron)
 # Install diagnostics module: header is referenced by lib/runtime/iron_runtime.h
 # at user-build time, so it must be present in the install prefix. Without

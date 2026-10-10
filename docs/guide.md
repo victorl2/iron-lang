@@ -149,6 +149,18 @@ gdb elsewhere (`--gdb` / `--lldb` choose). Arguments after `--` go to
 the program. Building with `iron build --debug` and starting a debugger
 yourself works the same way.
 
+`iron dap` is the debug adapter for editors: a Debug Adapter Protocol
+server on standard input and output that VS Code, Neovim (nvim-dap) and
+Zed can run. Its `launch` request takes `program` (a `.iron` file, a
+package directory, or a binary that is already built), `args`, `cwd`,
+`env` and `stopOnEntry`. It builds the program with `--debug`, runs
+`lldb-dap` (from LLVM or Xcode) or, without it, gdb 14 or later in its
+DAP mode, loads the value formatters below, lists locals under their
+Iron names without the compiler's temporaries, and shows Iron function
+names in the call stack. `--adapter <path>` (or `IRON_DAP_ADAPTER`)
+picks the debugger. It needs Python 3; the pinned toolchain does not
+include `lldb-dap`.
+
 In VS Code the Iron extension lets you set breakpoints in `.iron` files;
 pair it with a C debugger extension (C/C++ from Microsoft, or CodeLLDB)
 and a build task:
