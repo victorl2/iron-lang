@@ -7140,15 +7140,23 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                iface_method_help(ctx, iface_ni, mc->method));
                     result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 }
-            } else if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_OBJECT &&
-                       obj_type_mc->object.decl && obj_type_mc->object.decl->name &&
+            } else if (obj_type_mc &&
+                       (obj_type_mc->kind == IRON_TYPE_OBJECT ||
+                        (obj_type_mc->kind == IRON_TYPE_RC && obj_type_mc->rc.inner &&
+                         obj_type_mc->rc.inner->kind == IRON_TYPE_OBJECT)) &&
+                       (obj_type_mc->kind == IRON_TYPE_RC ? obj_type_mc->rc.inner : obj_type_mc)->object.decl &&
+                       (obj_type_mc->kind == IRON_TYPE_RC ? obj_type_mc->rc.inner : obj_type_mc)->object.decl->name &&
                        ctx->program) {
                 /* Non-ident receiver of object type (`self.ball.hp()`): resolve
-                 * the return type from the method decl, as the ident arm does. */
-                const char *type_name_ni = obj_type_mc->object.decl->name;
+                 * the return type from the method decl, as the ident arm does.
+                 * An rc handle reached the same way (`rs[0].get()`) dispatches
+                 * on the object it holds, as an rc binding does. */
+                bool via_rc_ni = obj_type_mc->kind == IRON_TYPE_RC;
+                Iron_Type *obj_ni = via_rc_ni ? obj_type_mc->rc.inner : obj_type_mc;
+                const char *type_name_ni = obj_ni->object.decl->name;
                 /* A func typed field called through the receiver (#196). */
                 {
-                    Iron_ObjectDecl *od_ni = obj_type_mc->object.decl;
+                    Iron_ObjectDecl *od_ni = obj_ni->object.decl;
                     for (int fi = 0; fi < od_ni->field_count; fi++) {
                         Iron_Field *f = (Iron_Field *)od_ni->fields[fi];
                         if (!f || !f->name || !mc->method || strcmp(f->name, mc->method) != 0)
@@ -7178,7 +7186,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     /* `cs[0].bump()`, `p.inner.bump()`: a method that writes
                      * self needs a mutable path to the receiver, as the
                      * identifier receiver above does. */
-                    if (md->is_receiver_form && md->param_count > 0 && !md->is_readonly &&
+                    if (!via_rc_ni &&
+                        md->is_receiver_form && md->param_count > 0 && !md->is_readonly &&
                         !md->is_pure && md->params[0] &&
                         ((Iron_Param *)md->params[0])->is_mut_receiver)
                         check_mutating_receiver(ctx, mc, mc->object);
