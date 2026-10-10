@@ -33,7 +33,30 @@ function M.configurations()
         return vim.split(line, ' ', { trimempty = true })
       end,
     },
+    {
+      type = 'iron',
+      request = 'launch',
+      name = 'Iron: debug the test under the cursor',
+      program = '${file}',
+      test = function()
+        return M.test_at_cursor() or vim.fn.input('Test name: ')
+      end,
+    },
   }
+end
+
+--- The name of the `test "..."` block the cursor is in (the nearest one
+--- at or above the cursor), or nil.
+function M.test_at_cursor()
+  local row = vim.api.nvim_win_get_cursor(0)[1]
+  for i = row, 1, -1 do
+    local line = vim.api.nvim_buf_get_lines(0, i - 1, i, false)[1] or ''
+    local name = line:match('^%s*test%s+"(.-)"%s*{')
+    if name then
+      return (name:gsub('\\(.)', '%1'))
+    end
+  end
+  return nil
 end
 
 --- Register the `iron` adapter and configurations with nvim-dap.

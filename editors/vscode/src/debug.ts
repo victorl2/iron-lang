@@ -27,7 +27,60 @@ export function registerDebugger(context: vscode.ExtensionContext, output: vscod
     vscode.debug.registerDebugAdapterDescriptorFactory(TYPE, {
       createDebugAdapterDescriptor: () => new vscode.DebugAdapterExecutable(ironCli(), ['dap']),
     }),
+    // Run / Debug in the editor title of a .iron file, and on each test block.
+    vscode.commands.registerCommand('iron.runFile', (uri?: vscode.Uri) => {
+      const file = targetFile(uri);
+      if (file) runInTerminal(['run', file], path.dirname(file));
+    }),
+    vscode.commands.registerCommand('iron.debugFile', (uri?: vscode.Uri) => {
+      const file = targetFile(uri);
+      if (file) void vscode.debug.startDebugging(vscode.workspace.getWorkspaceFolder(vscode.Uri.file(file)),
+        { type: TYPE, request: 'launch', name: `Iron: debug ${path.basename(file)}`, program: file });
+    }),
+    vscode.commands.registerCommand('iron.runTest', (uri: vscode.Uri, name: string) => {
+      runInTerminal(['test', uri.fsPath, name], path.dirname(uri.fsPath));
+    }),
+    vscode.commands.registerCommand('iron.debugTest', (uri: vscode.Uri, name: string) => {
+      void vscode.debug.startDebugging(vscode.workspace.getWorkspaceFolder(uri),
+        { type: TYPE, request: 'launch', name: `Iron: debug test "${name}"`, program: uri.fsPath, test: name });
+    }),
+    vscode.languages.registerCodeLensProvider({ language: 'iron' }, new TestLensProvider()),
   );
+}
+
+/** The .iron file a command acts on: the one clicked, else the active editor's. */
+function targetFile(uri?: vscode.Uri): string | undefined {
+  const doc = uri ? undefined : vscode.window.activeTextEditor?.document;
+  const file = uri?.fsPath ?? (doc?.languageId === 'iron' ? doc.uri.fsPath : undefined);
+  if (!file) void vscode.window.showErrorMessage('Iron: open a .iron file first.');
+  return file;
+}
+
+/** Run the iron CLI in a terminal of its own (reused between runs). */
+function runInTerminal(args: string[], cwd: string): void {
+  const term = vscode.window.terminals.find((t) => t.name === 'Iron') ??
+    vscode.window.createTerminal({ name: 'Iron', cwd });
+  const quote = (a: string) => (/^[\w./:=-]+$/.test(a) ? a : `"${a.replace(/(["\\$`])/g, '\\$1')}"`);
+  term.show(true);
+  term.sendText([ironCli(), ...args].map(quote).join(' '));
+}
+
+/** "Run Test | Debug Test" above every `test "name" {` line. */
+export class TestLensProvider implements vscode.CodeLensProvider {
+  provideCodeLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
+    const lenses: vscode.CodeLens[] = [];
+    for (let i = 0; i < doc.lineCount; i++) {
+      const m = /^\s*test\s+"((?:[^"\\]|\\.)*)"\s*\{/.exec(doc.lineAt(i).text);
+      if (!m) continue;
+      const name = m[1].replace(/\\(.)/g, '$1');
+      const range = new vscode.Range(i, 0, i, 0);
+      lenses.push(
+        new vscode.CodeLens(range, { title: '$(play) Run Test', command: 'iron.runTest', arguments: [doc.uri, name] }),
+        new vscode.CodeLens(range, { title: '$(debug-alt) Debug Test', command: 'iron.debugTest', arguments: [doc.uri, name] }),
+      );
+    }
+    return lenses;
+  }
 }
 
 export function defaultConfiguration(): vscode.DebugConfiguration {
@@ -63,8 +116,20 @@ class IronConfigurationProvider implements vscode.DebugConfigurationProvider {
       Promise<vscode.DebugConfiguration | undefined> {
     if (process.platform !== 'win32') return config;  // iron dap builds and launches
     // Windows: build here, then debug with the Visual Studio debugger.
-    const binary = await buildForWindows(config.program, this.output);
+    const binary = await buildForWindows(config.program, this.output, Boolean(config.test));
     if (!binary) return undefined;
+    let args: string[] = config.args ?? [];
+    if (config.test) {
+      // A test binary lists its tests with --iron-list and runs test n with --iron-test n.
+      const list = spawnSync(binary, ['--iron-list'], { encoding: 'utf8' });
+      const names = list.status === 0 ? list.stdout.split(/\r?\n/).filter((l) => l) : [];
+      const index = names.indexOf(config.test);
+      if (index < 0) {
+        void vscode.window.showErrorMessage(`Iron: no test "${config.test}" in ${path.basename(config.program)}.`);
+        return undefined;
+      }
+      args = ['--iron-test', String(index), ...args];
+    }
     if (!vscode.extensions.getExtension('ms-vscode.cpptools')) {
       void vscode.window.showErrorMessage(
         'Iron: debugging on Windows uses the C/C++ extension (ms-vscode.cpptools); install it and try again.');
@@ -73,7 +138,7 @@ class IronConfigurationProvider implements vscode.DebugConfigurationProvider {
     const program: string = config.program;
     await vscode.debug.startDebugging(folder, {
       type: 'cppvsdbg', request: 'launch', name: config.name, program: binary,
-      args: config.args ?? [],
+      args,
       cwd: config.cwd ?? (program.endsWith('.iron') ? path.dirname(program) : program),
       environment: Object.entries(config.env ?? {}).map(([name, value]) => ({ name, value })),
       console: 'integratedTerminal',
@@ -84,15 +149,18 @@ class IronConfigurationProvider implements vscode.DebugConfigurationProvider {
 
 /** Windows: build `program` (a .iron file or a package directory) with
  * --debug and return the .exe, or undefined when the build failed. */
-async function buildForWindows(program: string, output: vscode.OutputChannel): Promise<string | undefined> {
+async function buildForWindows(program: string, output: vscode.OutputChannel, test = false): Promise<string | undefined> {
   const iron = ironCli();
   let cwd: string, args: string[], binary: string;
   if (program.endsWith('.iron')) {
     const dir = path.join(os.tmpdir(), 'iron-debug');
     fs.mkdirSync(dir, { recursive: true });
-    binary = path.join(dir, path.basename(program, '.iron') + '.exe');
+    binary = path.join(dir, path.basename(program, '.iron') + (test ? '_test' : '') + '.exe');
     cwd = path.dirname(program);
-    args = ['build', program, '--debug', '-o', binary];
+    args = ['build', program, '--debug', ...(test ? ['--test'] : []), '-o', binary];
+  } else if (test) {
+    void vscode.window.showErrorMessage('Iron: to debug a test, debug the .iron file that declares it.');
+    return undefined;
   } else {
     let dir = program;
     while (!fs.existsSync(path.join(dir, 'iron.toml')) && path.dirname(dir) !== dir) dir = path.dirname(dir);

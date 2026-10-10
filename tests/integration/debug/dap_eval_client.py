@@ -16,7 +16,9 @@ names = ["a", "bb", "ccc"] (line 18) and ends with p = Point(3, 4)
   - names reads as ["a", "bb", "ccc"], and the locals show the loop
     variable n under its name;
   - in a second session, the hit count `>= 9` on line 15 first stops on
-    the ninth hit (i = 8).
+    the ninth hit (i = 8);
+  - launched with "test": "sums the first ten", only that test block runs
+    and its breakpoint (line 29) stops with total = 45.
 Exit 0 on success, 1 on a failed check, 77 when no DAP debugger is found.
 """
 import os
@@ -32,7 +34,7 @@ def fail(msg):
     sys.exit(1)
 
 
-def start(argv, src, breakpoints):
+def start(argv, src, breakpoints, extra=None):
     c = Client(argv)
     out = []
     seq = c.send("initialize", {"clientID": "iron-test", "adapterID": "iron",
@@ -49,7 +51,7 @@ def start(argv, src, breakpoints):
                 "supportsLogPoints"):
         if not caps.get(cap):
             fail("initialize does not report %s" % cap)
-    launch = c.send("launch", {"program": src})
+    launch = c.send("launch", dict({"program": src}, **(extra or {})))
     c.event("initialized", timeout=180)
     c.call("setBreakpoints", {"source": {"path": src}, "breakpoints": breakpoints})
     c.call("configurationDone")
@@ -158,6 +160,16 @@ def main():
         fail("hit count >= 9 stopped at %s with i = %s, want line 15 with i = 8" %
              (top, top and ev(c, top, "i")))
     print("dap: hit count >= 9 stopped on the ninth hit")
+    finish(c)
+
+    # Debugging one test block: built with --test, only that test runs.
+    c, out = start(argv, src, [{"line": 29}], {"test": "sums the first ten"})
+    tid, top = next_stop(c)
+    if not top or top.get("line") != 29 or ev(c, top, "total") != "45":
+        fail("the test session stopped at %s, want line 29 of the test with total = 45" % top)
+    if any(n + "\r\n" in "".join(out) or n + "\n" in "".join(out) for n in ("a", "bb", "ccc")):
+        fail("main ran in the test session: %r" % "".join(out)[-200:])
+    print("dap: test \"sums the first ten\" stopped on line 29 with total = 45")
     finish(c)
     print("PASS")
 

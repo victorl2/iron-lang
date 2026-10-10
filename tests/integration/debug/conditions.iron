@@ -20,3 +20,11 @@ func main() {
     val p = Point(3, 4)
     println("{total} {p.x}")
 }
+
+test "sums the first ten" {
+    var total = 0
+    for i in range(10) {
+        total += i
+    }
+    assert_eq(total, 45)
+}

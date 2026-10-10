@@ -74,4 +74,57 @@ suite('iron-lsp e2e: iron debug type', () => {
       vscode.debug.removeBreakpoints(vscode.debug.breakpoints);
     }
   });
+
+  test('test blocks get Run Test / Debug Test; .iron files get Run / Debug', async function () {
+    this.timeout(60_000);
+    const repo = path.resolve(__dirname, '..', '..', '..', '..', '..');
+    const uri = vscode.Uri.file(path.join(repo, 'tests', 'integration', 'debug', 'conditions.iron'));
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
+    const lenses = (await vscode.commands.executeCommand<vscode.CodeLens[]>(
+      'vscode.executeCodeLensProvider', uri)) ?? [];
+    const tests = lenses.filter((l) => l.command?.command === 'iron.runTest' ||
+                                       l.command?.command === 'iron.debugTest');
+    assert.strictEqual(tests.length, 2, `lenses: ${lenses.map((l) => l.command?.title)}`);
+    for (const l of tests) {
+      assert.strictEqual(l.range.start.line, 23);           // test "sums the first ten" {
+      assert.deepStrictEqual(l.command?.arguments?.[1], 'sums the first ten');
+    }
+    const commands = await vscode.commands.getCommands(true);
+    for (const c of ['iron.runFile', 'iron.debugFile', 'iron.runTest', 'iron.debugTest']) {
+      assert.ok(commands.includes(c), `${c} is not registered`);
+    }
+  });
+
+  test('Debug Test stops in the test block', async function () {
+    this.timeout(180_000);
+    const iron = findIron();
+    if (!iron || process.platform === 'win32') this.skip();
+    await vscode.workspace.getConfiguration('iron.debug').update('ironPath', iron, vscode.ConfigurationTarget.Global);
+    const repo = path.resolve(__dirname, '..', '..', '..', '..', '..');
+    const uri = vscode.Uri.file(path.join(repo, 'tests', 'integration', 'debug', 'conditions.iron'));
+    vscode.debug.addBreakpoints([new vscode.SourceBreakpoint(new vscode.Location(uri, new vscode.Position(28, 0)))]);
+    let stopped: ((tid: number) => void) | undefined;
+    const stop = new Promise<number>((resolve) => { stopped = resolve; });
+    const tracker = vscode.debug.registerDebugAdapterTrackerFactory('iron', {
+      createDebugAdapterTracker: () => ({
+        onDidSendMessage: (m: any) => {
+          if (m.type === 'event' && m.event === 'stopped') stopped?.(m.body.threadId);
+        },
+      }),
+    });
+    try {
+      await vscode.commands.executeCommand('iron.debugTest', uri, 'sums the first ten');
+      const tid = await stop;
+      const session = vscode.debug.activeDebugSession!;
+      const st = await session.customRequest('stackTrace', { threadId: tid });
+      assert.strictEqual(st.stackFrames[0].line, 29);
+      const total = await session.customRequest('evaluate',
+        { expression: 'total', frameId: st.stackFrames[0].id, context: 'watch' });
+      assert.strictEqual(total.result, '45');
+      await vscode.debug.stopDebugging(session);
+    } finally {
+      tracker.dispose();
+      vscode.debug.removeBreakpoints(vscode.debug.breakpoints);
+    }
+  });
 });

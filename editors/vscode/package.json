@@ -95,6 +95,10 @@
                 "type": "boolean",
                 "description": "Build .iron files and packages with --debug before debugging.",
                 "default": true
+              },
+              "test": {
+                "type": "string",
+                "description": "The name of a `test \"...\"` block in `program` (a .iron file): only that test runs, built with --test."
               }
             }
           }
@@ -163,8 +167,62 @@
         "command": "iron-lsp.diagnose",
         "title": "Iron LSP: Diagnose",
         "category": "Iron LSP"
+      },
+      {
+        "command": "iron.runFile",
+        "title": "Run Iron File",
+        "category": "Iron",
+        "icon": "$(play)"
+      },
+      {
+        "command": "iron.debugFile",
+        "title": "Debug Iron File",
+        "category": "Iron",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "iron.runTest",
+        "title": "Run Test",
+        "category": "Iron"
+      },
+      {
+        "command": "iron.debugTest",
+        "title": "Debug Test",
+        "category": "Iron"
       }
-    ]
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "iron.runFile",
+          "when": "resourceLangId == iron",
+          "group": "navigation@1"
+        },
+        {
+          "command": "iron.debugFile",
+          "when": "resourceLangId == iron",
+          "group": "navigation@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "iron.runFile",
+          "when": "editorLangId == iron"
+        },
+        {
+          "command": "iron.debugFile",
+          "when": "editorLangId == iron"
+        },
+        {
+          "command": "iron.runTest",
+          "when": "false"
+        },
+        {
+          "command": "iron.debugTest",
+          "when": "false"
+        }
+      ]
+    }
   },
   "scripts": {
     "bundle": "node esbuild.mjs",
