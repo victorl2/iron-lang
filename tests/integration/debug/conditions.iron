@@ -1,0 +1,22 @@
+object Point {
+    var x: Int
+    var y: Int
+
+    init(x: Int, y: Int) {
+        self.x = x
+        self.y = y
+    }
+}
+
+func main() {
+    var total = 0
+    val names = ["a", "bb", "ccc"]
+    for i in range(10) {
+        total += i
+    }
+    for n in names {
+        println(n)
+    }
+    val p = Point(3, 4)
+    println("{total} {p.x}")
+}

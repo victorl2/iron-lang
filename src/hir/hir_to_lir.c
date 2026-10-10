@@ -4695,7 +4695,7 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         Iron_Type *int_type  = iron_type_make_primitive(IRON_TYPE_INT);
 
         /* Alloca for loop index */
-        IronLIR_ValueId idx_alloca = emit_alloca_in_entry(ctx, int_type, "for_idx", span);
+        IronLIR_ValueId idx_alloca = emit_alloca_in_entry(ctx, int_type, "__for_idx", span);
         IronLIR_ValueId zero_val   = iron_lir_const_int(ctx->current_func, pre_header, 0, int_type, span)->id;
         iron_lir_store(ctx->current_func, pre_header, idx_alloca, zero_val, span);
 
@@ -4707,11 +4707,16 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
         }
         if (!elem_type) elem_type = int_type;
 
-        IronLIR_ValueId var_alloca = emit_alloca_in_entry(ctx, elem_type, "for_var", span);
+        /* The element slot carries the loop variable's name, so a debugger
+         * shows `n` for `for n in names`; the index and the hoisted count
+         * are the compiler's (a leading `_` hides them). */
+        const char *for_name = iron_hir_var_name(ctx->hir, stmt->for_loop.var_id);
+        IronLIR_ValueId var_alloca = emit_alloca_in_entry(ctx, elem_type,
+                                                          for_name ? for_name : "__for_var", span);
         hmput(ctx->var_alloca_map, stmt->for_loop.var_id, var_alloca);
 
         /* Hoist loop bound: evaluate .count once in pre-header */
-        IronLIR_ValueId count_alloca = emit_alloca_in_entry(ctx, int_type, "for_count", span);
+        IronLIR_ValueId count_alloca = emit_alloca_in_entry(ctx, int_type, "__for_count", span);
         IronLIR_ValueId count_init = iron_lir_get_field(ctx->current_func, pre_header,
                                                           iterable_val, "count", int_type, span)->id;
         iron_lir_store(ctx->current_func, pre_header, count_alloca, count_init, span);

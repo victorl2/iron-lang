@@ -57,7 +57,7 @@ if command -v lldb >/dev/null 2>&1 && lldb --version >/dev/null 2>&1; then
         echo "lldb cannot run the program here: skipped"
     else
         expect lldb "$out" "${common[@]}" 'color = Iron_Color_Green' \
-            'letters = 0x' 'rc size=2 (strong=2, weak=0)'
+            'letters = 0x' 'rc ["a", "b"] (strong=2, weak=0)'
         echo "lldb: values"
     fi
 else

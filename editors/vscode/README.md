@@ -123,6 +123,13 @@ temporaries hidden), values shown as Iron values (strings, lists, maps,
 optionals, enums, `rc`, closures), and a stop on the failing Iron line
 when the program panics.
 
+While paused, hover, the Watch view and the Debug Console take Iron
+expressions (`xs.len() > 2 and not done`, `name == "ann"`,
+`ages.get("ann")`). Right-click a breakpoint to give it an Iron condition
+(`i == 7 and total > 20`), a hit count (`5`, `>= 5`, `% 5`) or a log
+message (`i = {i}, total = {total}`), which prints without stopping.
+On Windows these go to the Visual Studio debugger, which reads C.
+
 A `launch.json` configuration of type `iron`:
 
 ```jsonc

@@ -169,6 +169,20 @@ names in the call stack. `editors/neovim` (nvim-dap) and `editors/zed`
 picks the debugger. It needs Python 3; the pinned toolchain does not
 include `lldb-dap`.
 
+Through `iron dap`, what you type while paused is Iron: hover, watch
+expressions and the debug console take `xs.len() > 2 and not done`,
+`name == "ann"`, `ages.get("ann")` or `xs[i] * 2`. The adapter reads
+the values the expression names from the debugger and computes the rest
+with Iron's rules (`and` / `or` / `not`, truncating `/`, string `==`,
+`len`, and a list's, map's or string's `len`, `is_empty`, `has`, `get`,
+`get_or`, `contains`). Breakpoint conditions are Iron too, and so are hit
+counts (`5`, `>= 5`, `% 5`) and logpoint messages, whose `{expr}` parts
+are filled in like an Iron string (`i = {i}, total = {total}`). An
+expression that is not Iron (a debugger command typed in the console)
+goes to the debugger as written; start it with a backquote to skip the
+Iron reading. Objects show as `Point {x = 3, y = 4}` and lists as their
+elements.
+
 In VS Code, F5 in a `.iron` file debugs it with the Iron extension's
 `iron` debug type (`"type": "iron"`, `"program"` a `.iron` file or the
 package directory), which runs `iron dap` on Linux and macOS and the
