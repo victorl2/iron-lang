@@ -107,21 +107,24 @@ async def test_rename(client, tmp_path, name, src, which):
 
 
 @pytest.mark.asyncio
-async def test_stdlib_member_is_not_renamed(client, tmp_path):
-    text = 'func main() {\n    val s = "abc"\n    val t = s.upper()\n}\n'
+@pytest.mark.parametrize("text,line,ch,want", [
+    ('func main() {\n    val s = "abc"\n    val t = s.upper()\n}\n', 2, 15, [((2, 14), (2, 19))]),
+    ('func main() {\n    var m = Map[String, Int]()\n    m.put("a", 1)\n}\n', 1, 13, [((1, 12), (1, 15))]),
+], ids=["method", "type"])
+async def test_stdlib_name_is_not_renamed(client, tmp_path, text, line, ch, want):
+    """A stdlib name gets no edit: before, renaming `Map` produced an edit
+    at the top of the stdlib file holding it."""
     uri = await open_doc(client, tmp_path, text)
     doc = types.TextDocumentIdentifier(uri=uri)
-    pos = types.Position(line=2, character=15)
+    pos = types.Position(line=line, character=ch)
     prep = await asyncio.wait_for(client.text_document_prepare_rename_async(
         types.PrepareRenameParams(text_document=doc, position=pos)), timeout=10.0)
     assert prep is None
     edit = await asyncio.wait_for(client.text_document_rename_async(
         types.RenameParams(text_document=doc, position=pos, new_name="zz")), timeout=10.0)
-    edits = [] if edit is None else ((edit.changes or {}).get(uri) or [
-        e for dc in (edit.document_changes or []) for e in dc.edits])
-    assert edits == []
+    assert edit is None or (not edit.changes and not edit.document_changes)
     # References still find its uses in the file.
     refs = await asyncio.wait_for(client.text_document_references_async(types.ReferenceParams(
         text_document=doc, position=pos, context=types.ReferenceContext(include_declaration=False))),
         timeout=10.0)
-    assert [rng(r.range) for r in refs or [] if r.uri == uri] == [((2, 14), (2, 19))]
+    assert [rng(r.range) for r in refs or [] if r.uri == uri] == want
