@@ -65,14 +65,19 @@ Three install flows. Pick one.
 
 ### Manual
 
-Copy (or symlink) the `lsp/`, `ftdetect/`, and `plugin/` directories into
-your Neovim runtimepath:
+Put `editors/neovim` on your runtimepath (simplest, keeps every piece
+together), or copy its directories into `~/.config/nvim`:
+
+```lua
+-- init.lua
+vim.opt.rtp:append('/path/to/iron-lang/editors/neovim')
+```
 
 ```sh
-mkdir -p ~/.config/nvim/lsp ~/.config/nvim/ftdetect ~/.config/nvim/plugin
-cp -r editors/neovim/lsp/ironls.lua     ~/.config/nvim/lsp/
-cp -r editors/neovim/ftdetect/iron.lua  ~/.config/nvim/ftdetect/
-cp -r editors/neovim/plugin/iron_lsp.lua ~/.config/nvim/plugin/
+cd editors/neovim
+for d in lsp ftdetect ftplugin plugin syntax queries; do
+  [ -d "$d" ] && mkdir -p ~/.config/nvim/$d && cp -r $d/* ~/.config/nvim/$d/
+done
 ```
 
 Then add to `~/.config/nvim/init.lua`:
@@ -127,11 +132,49 @@ copy the output into a bug report.
 
 ---
 
+## Features and settings
+
+With `vim.lsp.enable('ironls')`, Iron buffers get everything ironls offers
+through Neovim's built-in client: diagnostics while typing, hover (`K`),
+completion (`<C-x><C-o>`, or `vim.lsp.completion.enable()`), signature
+help (`<C-s>` in insert mode), go to definition, references (`grr`),
+rename (`grn`), code actions (`gra`), formatting
+(`vim.lsp.buf.format()`), document symbols (`gO`), semantic tokens and
+inlay hints. LSP folding is available with
+`vim.wo.foldexpr = 'v:lua.vim.lsp.foldexpr()'` and `foldmethod=expr`.
+
+Inlay hints are turned on in Iron buffers. Set
+`vim.g.iron_inlay_hints = false` to keep them off. The two kinds follow the
+same settings as VS Code:
+
+```lua
+vim.lsp.config('ironls', {
+  settings = { iron = { inlayHints = {
+    parameterNames = false, -- area(width: 2.0, height: 3.0)
+    bindingTypes = true,    -- val total: Float = ...
+  } } },
+})
+```
+
+Change them in a running session with `:IronInlayHints parameterNames off`
+(`on`, `off` or `toggle`; `bindingTypes` likewise); the hints update
+without a restart.
+
+The ftplugin sets `commentstring` to `-- %s` (so `gc` comments with `--`),
+four-space indentation and brace indentation. Without a tree-sitter parser,
+`syntax/iron.vim` highlights keywords, strings, numbers and comments, and
+ironls semantic tokens color types, functions, parameters and fields.
+
+---
+
 ## Tree-sitter
 
-Two install paths. Either works — the ftdetect script calls
-`vim.treesitter.language.register('iron', 'iron')`, so the parser name is
-just `iron` regardless of install source.
+`queries/iron/` in this directory holds the highlight, fold, indent,
+locals and text object queries (copied from
+`grammars/tree-sitter/iron/queries` by `scripts/sync-editor-queries.sh`).
+Once a parser named `iron` is installed, the ftplugin starts tree-sitter
+highlighting by itself; set `vim.g.iron_treesitter = false` to keep the
+regex syntax instead. Two ways to get the parser:
 
 1. **nvim-treesitter** (recommended once the upstream parser registration
    PR lands — tracked post-v1):
@@ -152,15 +195,11 @@ just `iron` regardless of install source.
 
    ```sh
    cd grammars/tree-sitter/iron
-   npm install
-   npx tree-sitter generate
-   npx tree-sitter build --wasm
+   npx tree-sitter build -o ~/.local/share/nvim/site/parser/iron.so
    ```
 
-   Then copy `iron.wasm` + the `queries/` directory into your
-   nvim-treesitter parser directory (usually
-   `~/.local/share/nvim/site/parser/` and
-   `~/.local/share/nvim/site/queries/iron/`).
+   Neovim loads `parser/iron.so` from any runtimepath directory; the
+   queries come from this plugin's `queries/iron/`.
 
 ---
 
@@ -304,10 +343,16 @@ editors/neovim/
 │   └── ironls.lua                  # canonical vim.lsp.Config (user entry point)
 ├── ftdetect/
 │   └── iron.lua                    # *.iron -> filetype 'iron' + tree-sitter register
+├── ftplugin/
+│   └── iron.lua                    # comments, indentation, tree-sitter start
 ├── plugin/
-│   └── iron_lsp.lua                # :IronLspDiagnose + S5 log helper
+│   └── iron_lsp.lua                # :IronLspDiagnose, :IronInlayHints, inlay hints on attach
+├── queries/iron/                   # tree-sitter queries (generated copies)
+├── syntax/
+│   └── iron.vim                    # regex highlighting without tree-sitter
 └── test/
     └── e2e/
         ├── diag_error_spec.lua     # plenary.nvim e2e test
+        ├── features_spec.lua       # every editing feature against ironls
         └── harness.sh              # CI driver (nvim --headless + plenary)
 ```
