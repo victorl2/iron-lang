@@ -39,6 +39,8 @@ use zed_extension_api::{
 
 use sha2::{Digest, Sha256};
 
+mod debug;
+
 /// The semver range this extension is known to be compatible with.
 /// Mirrors [version_constraints] ironls + [language_servers.iron-lsp]
 /// compatible_ironls in extension.toml; UI-SPEC S9. Phase 7 Plan 07-07
@@ -529,6 +531,36 @@ impl zed::Extension for IronLspExtension {
             args: vec![],
             env: vec![],
         })
+    }
+
+    // ── Debugging (#312, #347): the `Iron` adapter runs `iron dap`. ──
+
+    fn get_dap_binary(
+        &mut self,
+        adapter_name: String,
+        config: zed::DebugTaskDefinition,
+        user_provided_debug_adapter_path: Option<String>,
+        worktree: &Worktree,
+    ) -> std::result::Result<zed::DebugAdapterBinary, String> {
+        if adapter_name != debug::ADAPTER {
+            return Err(format!("unknown debug adapter {adapter_name}"));
+        }
+        debug::binary(config, user_provided_debug_adapter_path, worktree)
+    }
+
+    fn dap_request_kind(
+        &mut self,
+        _adapter_name: String,
+        config: zed::serde_json::Value,
+    ) -> std::result::Result<zed::StartDebuggingRequestArgumentsRequest, String> {
+        debug::request_kind(&config)
+    }
+
+    fn dap_config_to_scenario(
+        &mut self,
+        config: zed::DebugConfig,
+    ) -> std::result::Result<zed::DebugScenario, String> {
+        debug::scenario(config)
     }
 }
 

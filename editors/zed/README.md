@@ -117,6 +117,49 @@ Controls the verbosity of the `src: "zed-ext"` log lines the extension
 emits to the Zed developer console (`View → Debug` in Zed). Valid
 values: `error`, `warn`, `info`, `debug`.
 
+## Debugging
+
+The extension adds an `Iron` debug adapter to Zed's debugger. It runs
+`iron dap`, the Iron debug adapter shared with VS Code and Neovim: it
+builds the program with `iron build --debug`, runs `lldb-dap` (LLVM, or
+Xcode on macOS) or gdb 14 or later, loads the Iron value formatters,
+lists locals under their Iron names without the compiler's temporaries,
+and stops on the Iron line when the program panics. It needs the `iron`
+CLI on PATH, Python 3, and one of those debuggers.
+
+Add `.zed/debug.json` to the project:
+
+```json
+[
+  {
+    "label": "Iron: debug this file",
+    "adapter": "Iron",
+    "request": "launch",
+    "program": "$ZED_FILE"
+  },
+  {
+    "label": "Iron: debug the package",
+    "adapter": "Iron",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT",
+    "args": []
+  }
+]
+```
+
+Set breakpoints in `.iron` files from the gutter, then start a session
+from the debugger panel (`debugger: start`). The fields are those of
+`debug_adapter_schemas/Iron.json`: `program` (a `.iron` file, a package
+directory or a built binary), `args`, `cwd`, `env`, `stopOnEntry`,
+`stopOnPanic`, `build`. To use an `iron` that is not on PATH:
+
+```json
+{ "dap": { "Iron": { "binary": "/absolute/path/to/iron" } } }
+```
+
+Zed's "new session" form (program, arguments, working directory) works
+too: the extension turns it into the same launch configuration.
+
 ## How download + verification works
 
 On first activation (and after an `ironls` version bump), the extension

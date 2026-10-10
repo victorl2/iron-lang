@@ -163,7 +163,9 @@ package directory, or a binary that is already built), `args`, `cwd`,
 `lldb-dap` (from LLVM or Xcode) or, without it, gdb 14 or later in its
 DAP mode, loads the value formatters below, lists locals under their
 Iron names without the compiler's temporaries, and shows Iron function
-names in the call stack. `--adapter <path>` (or `IRON_DAP_ADAPTER`)
+names in the call stack. `editors/neovim` (nvim-dap) and `editors/zed`
+(Zed's debugger) configure it; their READMEs have the details.
+`--adapter <path>` (or `IRON_DAP_ADAPTER`)
 picks the debugger. It needs Python 3; the pinned toolchain does not
 include `lldb-dap`.
 
