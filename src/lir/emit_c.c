@@ -897,6 +897,19 @@ static const char *emit_vid_global_slot(IronLIR_Func *fn, IronLIR_ValueId vid) {
     return in->alloca.global_name;
 }
 
+static const char *emit_local_decl_type(IronLIR_Func *fn, IronLIR_Instr *instr,
+                                        Iron_Type *t, EmitCtx *ctx);
+static Iron_Type *emit_value_c_type(IronLIR_Func *fn, IronLIR_Instr *instr);
+
+/* The C type of a value's local declared at the function entry. A heap or
+ * arena allocation is an Iron_FatPtr handle whatever its object type. */
+static const char *emit_hoisted_decl_type(IronLIR_Func *fn, IronLIR_Instr *in,
+                                          EmitCtx *ctx) {
+    if (in->kind == IRON_LIR_HEAP_ALLOC || in->kind == IRON_LIR_ARENA_ALLOC)
+        return "Iron_FatPtr";
+    return emit_local_decl_type(fn, in, emit_value_c_type(fn, in), ctx);
+}
+
 /* The C type of the local holding instr's value. A LOAD of an rc, heap or
  * arena slot holds what the slot holds (a pointer or an Iron_FatPtr handle,
  * not the object), and a LOAD of a global slot is typed from the global.
@@ -6415,7 +6428,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * do NOT emit iron_heap_free here. */
         const char *val_type = emit_type_to_c(instr->type, ctx);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "Iron_FatPtr ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_FatPtr ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb,
             " = iron_heap_alloc(IRON_SITE, sizeof(%s));\n",
@@ -6473,7 +6486,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         }
 
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s *", val_type);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s *", val_type);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (%s *)iron_rc_alloc(sizeof(%s), %s);\n",
                             val_type, val_type, drop_fn_arg);
@@ -6504,7 +6517,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * (ARENA-05/11 TLS-default resolution). */
         const char *val_type = emit_type_to_c(instr->type, ctx);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "Iron_FatPtr ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_FatPtr ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = iron_arena_rt_alloc(");
         if (instr->arena_alloc.arena_val != IRON_LIR_VALUE_INVALID) {
@@ -10359,7 +10372,7 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                     hmput(ctx->phi_hoisted, in->id, true);
                     emit_indent(sb, 1);
                     iron_strbuf_appendf(sb, "%s %s;\n",
-                        emit_local_decl_type(fn, in, emit_value_c_type(fn, in), ctx), emit_vname(in->id));
+                        emit_hoisted_decl_type(fn, in, ctx), emit_vname(in->id));
                 }
             }
         }
@@ -10506,7 +10519,7 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                     hmput(ctx->phi_hoisted, in->id, true);
                     emit_indent(sb, 1);
                     iron_strbuf_appendf(sb, "%s %s;\n",
-                        emit_local_decl_type(fn, in, emit_value_c_type(fn, in), ctx), emit_vname(in->id));
+                        emit_hoisted_decl_type(fn, in, ctx), emit_vname(in->id));
                 }
             }
         }
