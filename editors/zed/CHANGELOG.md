@@ -5,6 +5,11 @@ this file.
 
 ## Unreleased
 
+- The run buttons on `func main` and on `test "..."` blocks offer
+  **debug** next to the run task (the language lists the `Iron` debugger,
+  and the locator accepts the tasks' unexpanded `$ZED_FILE`); debugging a
+  test names its frame `test "<name>"`.
+
 - Windows (x86_64) is supported: the extension downloads
   `ironls-<version>-windows-x86_64.zip`, verifies its SHA-256 sidecar and
   runs `ironls.exe` from it.

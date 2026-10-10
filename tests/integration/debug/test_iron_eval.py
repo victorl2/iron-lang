@@ -77,6 +77,23 @@ for expr, want in ERRORS:
     if want not in got:
         failed += 1
         print("FAIL: %s gives %r, want an error with %r" % (expr, got, want))
+# The `test` launch argument: Zed's run button passes the block's string
+# literal with its quotes ($ZED_CUSTOM_test_name), other clients the name.
+TEST_NAMES = [('"area of a square"', "area of a square"), ("adds", "adds"),
+              ('"says \\"hi\\""', 'says "hi"'), ('"', '"'), (None, None)]
+for given, want in TEST_NAMES:
+    got = dap.test_name(given)
+    if got != want:
+        failed += 1
+        print("FAIL: test_name(%r) = %r, want %r" % (given, got, want))
+# Frame names: a test block's C function is shown as the test.
+FRAMES = [(("Iron_main", None), "main"), (("iron__test_1796", "adds"), 'test "adds"'),
+          (("Iron_iron__test_12", None), "test"), (("__lambda_3", None), "func")]
+for (c_name, test), want in FRAMES:
+    got = dap.iron_function_name(c_name, test)
+    if got != want:
+        failed += 1
+        print("FAIL: iron_function_name(%r, %r) = %r, want %r" % (c_name, test, got, want))
 if failed:
     sys.exit(1)
 print("iron eval: %d expressions, %d errors: PASS" % (len(CASES), len(ERRORS)))

@@ -9,6 +9,7 @@ import * as assert from 'node:assert';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import * as vscode from 'vscode';
+import { terminalCommand } from '../../src/debug';
 
 function findIron(): string | undefined {
   if (process.env.IRON_PATH) return process.env.IRON_PATH;
@@ -93,6 +94,23 @@ suite('iron-lsp e2e: iron debug type', () => {
     for (const c of ['iron.runFile', 'iron.debugFile', 'iron.runTest', 'iron.debugTest']) {
       assert.ok(commands.includes(c), `${c} is not registered`);
     }
+  });
+
+  // Run / Run Test type the command into the terminal's shell. On Windows
+  // that is PowerShell by default, where a quoted program needs `&`: the
+  // POSIX quoting failed there with "Unexpected token 'test'".
+  test('Run commands are quoted for the terminal shell', () => {
+    const argv = ['C:\\Program Files\\Iron\\iron.exe', 'test', 'C:\\work\\main.iron', "Bob's \"area\""];
+    assert.strictEqual(terminalCommand('C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', argv),
+      "& 'C:\\Program Files\\Iron\\iron.exe' 'test' 'C:\\work\\main.iron' 'Bob''s \"area\"'");
+    assert.strictEqual(terminalCommand('C:\\Program Files\\PowerShell\\7\\pwsh.exe', ['iron', 'run', 'a.iron']),
+      "& 'iron' 'run' 'a.iron'");
+    assert.strictEqual(terminalCommand('C:\\WINDOWS\\System32\\cmd.exe', argv),
+      '"C:\\Program Files\\Iron\\iron.exe" test C:\\work\\main.iron "Bob\'s ""area"""');
+    assert.strictEqual(terminalCommand('/bin/zsh', ['/usr/local/bin/iron', 'test', '/p/a.iron', 'area of a "square"']),
+      '/usr/local/bin/iron test /p/a.iron "area of a \\"square\\""');
+    assert.strictEqual(terminalCommand('C:\\Program Files\\Git\\bin\\bash.exe', ['iron', 'run', 'a b.iron']),
+      'iron run "a b.iron"');
   });
 
   test('Debug Test stops in the test block', async function () {

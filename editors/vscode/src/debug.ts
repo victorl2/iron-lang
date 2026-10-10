@@ -60,9 +60,25 @@ function targetFile(uri?: vscode.Uri): string | undefined {
 function runInTerminal(args: string[], cwd: string): void {
   const term = vscode.window.terminals.find((t) => t.name === 'Iron') ??
     vscode.window.createTerminal({ name: 'Iron', cwd });
-  const quote = (a: string) => (/^[\w./:=-]+$/.test(a) ? a : `"${a.replace(/(["\\$`])/g, '\\$1')}"`);
   term.show(true);
-  term.sendText([ironCli(), ...args].map(quote).join(' '));
+  term.sendText(terminalCommand(vscode.env.shell, [ironCli(), ...args]));
+}
+
+/** The command line that runs `argv` in `shell` (the terminal's default
+ * shell): PowerShell needs the call operator before a quoted program and
+ * takes single quotes, cmd takes double quotes without backslash escapes,
+ * and POSIX shells (also Git Bash on Windows) take escaped double quotes. */
+export function terminalCommand(shell: string, argv: string[]): string {
+  const name = path.win32.basename(shell).toLowerCase();
+  const plain = (a: string) => /^[\w./:=-]+$/.test(a);
+  if (/^(pwsh|powershell)(\.exe)?$/.test(name)) {
+    const q = (a: string) => `'${a.replace(/'/g, "''")}'`;
+    return ['&', ...argv.map(q)].join(' ');
+  }
+  if (name === 'cmd.exe' || name === 'cmd') {
+    return argv.map((a) => (/^[\w.:\\=-]+$/.test(a) ? a : `"${a.replace(/"/g, '""')}"`)).join(' ');
+  }
+  return argv.map((a) => (plain(a) ? a : `"${a.replace(/(["\\$`])/g, '\\$1')}"`)).join(' ');
 }
 
 /** "Run Test | Debug Test" above every `test "name" {` line. */

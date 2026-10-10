@@ -1170,6 +1170,16 @@ if(NOT WIN32)
   set_tests_properties(debug_values_smoke PROPERTIES TIMEOUT 120)
 endif()
 
+# `iron` started through a symlink (a bin/ link on PATH) still finds the
+# ironc next to the real binary (macOS used to look next to the link).
+if(NOT WIN32)
+  add_test(NAME iron_through_symlink
+           COMMAND sh -c "rm -rf \"$1\" && mkdir -p \"$1\" && ln -s \"$2\" \"$1/iron\" && \"$1/iron\" check \"$3\""
+                   sh ${CMAKE_BINARY_DIR}/iron_link_bin $<TARGET_FILE:iron>
+                   ${CMAKE_SOURCE_DIR}/tests/integration/check_only/nullable_type_args_ctor_elements.iron)
+  set_tests_properties(iron_through_symlink PROPERTIES FAIL_REGULAR_EXPRESSION "failed to spawn")
+endif()
+
 add_test(NAME iron_new_hint COMMAND $<TARGET_FILE:iron> new demo)
 set_tests_properties(iron_new_hint PROPERTIES
     PASS_REGULAR_EXPRESSION "iron init <name>")

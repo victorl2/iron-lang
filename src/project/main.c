@@ -59,6 +59,14 @@ static int resolve_self_path(char *buf, size_t buf_size) {
 #ifdef __APPLE__
     uint32_t size = (uint32_t)buf_size;
     if (_NSGetExecutablePath(buf, &size) != 0) return -1;
+    /* _NSGetExecutablePath returns the path the program was started by,
+     * which is the symlink when `iron` is a link on PATH (a bin/ symlink
+     * into an install tree). Resolve it so ironc is found next to the real
+     * binary, as /proc/self/exe already does on Linux. */
+    char resolved[PATH_MAX];
+    if (realpath(buf, resolved) != NULL && strlen(resolved) < buf_size) {
+        memcpy(buf, resolved, strlen(resolved) + 1);
+    }
     return 0;
 #elif defined(__linux__)
     ssize_t n = readlink("/proc/self/exe", buf, buf_size - 1);

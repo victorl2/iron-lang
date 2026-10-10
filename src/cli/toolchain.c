@@ -57,6 +57,11 @@ static int self_dir(char *buf, size_t cap) {
 #ifdef __APPLE__
     uint32_t size = (uint32_t)cap;
     if (_NSGetExecutablePath(buf, &size) != 0) return -1;
+    { /* resolve a symlinked binary, like /proc/self/exe on Linux */
+        char resolved[PATH_MAX];
+        if (realpath(buf, resolved) != NULL && strlen(resolved) < cap)
+            memcpy(buf, resolved, strlen(resolved) + 1);
+    }
 #elif defined(__linux__)
     ssize_t n = readlink("/proc/self/exe", buf, cap - 1);
     if (n < 0) return -1;
