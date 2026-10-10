@@ -2011,7 +2011,9 @@ allocator. `heap(in: a) T(args)` allocates from arena `a`, and inside
 freed individually: `a.reset()` releases everything at once, and
 `a.save()` / `a.restore(point)` roll the arena back to an earlier mark.
 Because the arena frees in bulk, the `drop` block of an object allocated
-in it does not run; the compiler warns about it (`W0605`) unless the
+in it does not run, and neither does the cleanup of a field that owns
+memory outside the arena (a list, a string, a map or set, an `rc` handle,
+a closure), which then leaks; the compiler warns about it (`W0605`) unless the
 allocation says `heap(in: a, allow_drop_skip: true) T(args)`. Accessing an
 arena value after `reset` or `restore` is a stale pointer error at run
 time. `rc` allocation inside an `in arena` block is an error (`E0301`).

@@ -1106,6 +1106,22 @@ add_test(NAME diag_generic_names
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/generic_names.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 
+# W0605 for arena objects whose fields own memory (#330).
+add_test(NAME diag_arena_owned_fields
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/arena_owned_fields.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/arena_owned_fields.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/arena_owned_fields.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+add_test(NAME diag_comptime_unsupported
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/comptime_unsupported.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/comptime_unsupported.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/comptime_unsupported.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+
 # A diagnostic is reported once even when two passes find it.
 add_test(NAME diag_reported_once
     COMMAND $<TARGET_FILE:ironc> check

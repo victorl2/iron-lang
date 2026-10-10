@@ -1,0 +1,5 @@
+method calls are not available at compile time ('.push()')
+build the list with fill(n, v)
+evaluating table()
+string interpolation is not available at compile time
+evaluating label()
