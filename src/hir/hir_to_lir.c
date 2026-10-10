@@ -5661,6 +5661,14 @@ static void ssa_collect_addr_taken(IronLIR_Func *fn) {
             IronLIR_Instr *in = blk->instrs[ii];
             if (!in) continue;
             switch ((int)in->kind) {
+            case IRON_LIR_ALLOCA:
+                /* A global slot aliases the module static, which any call
+                 * may write: it is never promoted. (Promoted, the join of a
+                 * branch that stores to it took the other branches' value
+                 * as 0, and value range narrowing then truncated its loads
+                 * to the range of the stored constants.) */
+                if (in->alloca.global_name) hmput(g_ssa_addr_taken, in->id, true);
+                break;
             case IRON_LIR_CALL:
                 for (int ai = 0; ai < in->call.arg_count; ai++) {
                     ssa_mark_addr_taken(fn, in->call.args[ai]);
