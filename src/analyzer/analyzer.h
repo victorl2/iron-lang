@@ -20,8 +20,11 @@
  *                 I/O enabled, cascade-suppression on, v3_strict_mode = true.
  *   LSP         — comptime FS I/O disabled (HARD-04), cascade-suppression
  *                 disabled (HARD-02 — every diagnostic surfaces;
- *                 the client dedupes), v3_strict_mode = false (lenient on
- *                 partial input mid-edit).
+ *                 the client dedupes), v3_strict_mode = true, so the
+ *                 editor reports the errors `ironc check` does (#361).
+ *                 The strict checks reject removed v2 declarations, not
+ *                 partial input, so completion and hover on code being
+ *                 typed are unaffected.
  *   CLI_LENIENT — same as CLI for FS / cascade behavior, but with
  *                 v3_strict_mode = false. Used by `ironc check --lenient`
  *                 to honor the inverse of `--strict-v3`. Phase 9 D-11
