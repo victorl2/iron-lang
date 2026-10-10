@@ -689,11 +689,11 @@ static bool debug_find_python(char *name, size_t nsize, char *version, size_t vs
         }
 #endif
         char v[64];
-        char *pargv[] = { path, "-c", "import sys; print('%d.%d' % sys.version_info[:2])", NULL, NULL };
+        char *pargv[] = { path, "-c", "import sys; v = sys.version_info; sys.stdout.write(str(v[0]) + '.' + str(v[1]))", NULL, NULL };
         if (strcmp(pythons[i], "py") == 0) {
             pargv[1] = "-3";
             pargv[2] = "-c";
-            pargv[3] = "import sys; print('%d.%d' % sys.version_info[:2])";
+            pargv[3] = "import sys; v = sys.version_info; sys.stdout.write(str(v[0]) + '.' + str(v[1]))";
         }
         int major = 0, minor = 0;
         if (debug_probe(pargv, v, sizeof(v)) != 0 || sscanf(v, "%d.%d", &major, &minor) != 2) {
