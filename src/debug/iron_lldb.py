@@ -115,6 +115,55 @@ class SlotProvider:
         return self._at(self.vals, slot, "[%s]" % ksum)
 
 
+# ── Break on panic ──────────────────────────────────────────────────────────
+#
+# Every Iron panic (a failed assert, an index out of bounds, a missing map
+# key, out of memory) prints its message and ends in the C library's
+# abort(). `iron-panic-stop` puts a breakpoint there; when it is hit, the
+# stop hook selects the Iron frame that panicked.
+
+PANIC_FUNCTIONS = ("abort", "__abort", "raise", "__pthread_kill", "pthread_kill",
+                   "__pthread_kill_implementation", "gsignal")
+
+
+def iron_panic_frame(thread):
+    """The index of the Iron frame a panic stopped in, or -1 when the
+    thread is not stopped in a panic."""
+    names = [(f.GetFunctionName() or "") for f in thread.frames[:4]]
+    if not any(n.replace("__GI_", "") in PANIC_FUNCTIONS for n in names):
+        return -1
+    for i, f in enumerate(thread.frames):
+        if (f.GetLineEntry().GetFileSpec().GetFilename() or "").endswith(".iron"):
+            return i
+    return -1
+
+
+class PanicStopHook:
+    def __init__(self, target, extra_args, _dict):
+        self.target = target
+
+    def handle_stop(self, exe_ctx, stream):
+        thread = exe_ctx.GetThread()
+        i = iron_panic_frame(thread)
+        if i >= 0:
+            thread.SetSelectedFrame(i)
+            e = thread.GetFrameAtIndex(i).GetLineEntry()
+            stream.Print("Iron panic at %s:%d (frame #%d is selected)\n"
+                         % (e.GetFileSpec().GetFilename(), e.GetLine(), i))
+        return True
+
+
+def panic_stop_command(debugger, command, result, _dict):
+    """iron-panic-stop: stop when the program panics, on the Iron line."""
+    target = debugger.GetSelectedTarget()
+    if not target.IsValid():
+        result.SetError("iron-panic-stop: no target")
+        return
+    bp = target.BreakpointCreateByName("abort")
+    bp.AddName("iron-panic")
+    debugger.HandleCommand("target stop-hook add -P %s.PanicStopHook" % __name__)
+
+
 def size_summary(valobj, _dict):
     return "size=%d" % valobj.GetNonSyntheticValue().GetChildMemberWithName(
         "count").GetValueAsUnsigned(0)
@@ -376,6 +425,8 @@ def locals_command(debugger, command, result, _dict):
 
 
 def __lldb_init_module(debugger, _dict):
+    debugger.HandleCommand("command script add -o -f %s.panic_stop_command iron-panic-stop"
+                           % __name__)
     m = __name__
     run = debugger.HandleCommand
     run('command script add -o -f %s.locals_command locals' % m)

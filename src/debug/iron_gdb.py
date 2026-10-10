@@ -23,6 +23,48 @@ import gdb
 import gdb.printing
 
 
+# Break on panic: every Iron panic (a failed assert, an index out of
+# bounds, a missing map key, out of memory) prints its message and ends in
+# the C library's abort(). With `break abort` (iron debug and iron dap set
+# it), a stop there selects the Iron frame that panicked.
+
+PANIC_FUNCTIONS = ("abort", "__abort", "raise", "__pthread_kill", "pthread_kill",
+                   "__pthread_kill_implementation", "gsignal")
+
+
+def iron_panic_frame():
+    """The Iron frame a panic stopped in, or None."""
+    try:
+        f = gdb.newest_frame()
+    except gdb.error:
+        return None
+    top = []
+    g = f
+    while g is not None and len(top) < 4:
+        top.append(g.name() or "")
+        g = g.older()
+    if not any(n.replace("__GI_", "") in PANIC_FUNCTIONS for n in top):
+        return None
+    while f is not None:
+        sal = f.find_sal()
+        if sal.symtab is not None and sal.symtab.filename.endswith(".iron"):
+            return f
+        f = f.older()
+    return None
+
+
+def _on_stop(event):
+    f = iron_panic_frame()
+    if f is not None:
+        f.select()
+        sal = f.find_sal()
+        gdb.write("Iron panic at %s:%d (frame #%d is selected)\n"
+                  % (sal.symtab.filename.split("/")[-1], sal.line, f.level()))
+
+
+gdb.events.stop.connect(_on_stop)
+
+
 def _string(val):
     """The text of an Iron_String (small-string or heap form)."""
     heap = val["heap"]
