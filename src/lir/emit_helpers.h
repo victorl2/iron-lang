@@ -503,6 +503,8 @@ void emit_ctx_cleanup(EmitCtx *ctx);
 void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
                          EmitCtx *ctx, bool with_newline);
 void emit_func_body(EmitCtx *ctx, IronLIR_Func *fn);
+/* Declare the env structs of lambdas whose closure is never built. */
+void emit_unbuilt_closure_envs(EmitCtx *ctx, IronLIR_Module *module);
 void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx);
 

@@ -1,0 +1,32 @@
+-- A `var` weak handle declared inside a branch, starting as `weak rc null`
+-- and maybe set later: the compiler stopped with an internal PHI type
+-- error at the join after the branch.
+object Node {
+    val id: Int
+    drop { println("drop {self.id}") }
+}
+
+func main() {
+    val k = 3
+    if k > 1 {
+        var w: weak rc Node = weak rc null
+        println("declared")
+    }
+    var outer: weak rc Node = weak rc null
+    if k > 5 {
+        println("no")
+    } elif k > 2 {
+        val n = rc Node(1)
+        outer = n.downgrade()
+        val u = outer.upgrade()
+        if u != null {
+            println("alive {u.id}")
+        }
+    } else {
+        println("no")
+    }
+    val v = outer.upgrade()
+    if v == null {
+        println("gone")
+    }
+}

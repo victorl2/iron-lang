@@ -83,3 +83,39 @@ func f(c: Color) -> Int {
         (match_else_arm
           body: (return_statement
             value: (integer_literal)))))))
+
+================================================================================
+Payload variant without its enum name, several bindings
+================================================================================
+
+func f(p: Pair) -> Int {
+    match p {
+        Pair(a, b) -> return a
+    }
+    return 0
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (func_declaration
+    name: (identifier)
+    parameters: (parameter_list
+      (parameter
+        name: (identifier)
+        type: (type_identifier
+          (identifier))))
+    return_type: (type_identifier
+      (identifier))
+    body: (block
+      (match_statement
+        subject: (identifier)
+        (match_arm
+          pattern: (type_pattern
+            type: (identifier)
+            binding: (identifier)
+            binding: (identifier))
+          body: (return_statement
+            value: (identifier))))
+      (return_statement
+        value: (integer_literal)))))

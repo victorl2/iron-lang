@@ -1,0 +1,43 @@
+-- A function that calls itself and takes a value passed as a C struct (an
+-- enum with payloads here). LLVM's tail recursion elimination overwrote
+-- the caller's copy of that argument with the recursive call's before the
+-- caller read it, so `walk(2, Tok.Pair(..))` matched the Num it passed down
+-- and returned 2 (clang 18 and 23 at -O1 and above).
+enum Color {
+    Red = 8,
+    Blue = 15,
+    Gray = 17,
+}
+
+enum Tok {
+    Pair(Int, Int),
+    Num(Int),
+    Empty,
+}
+
+var g0 = 1
+
+func walk(n: Int, a0: Tok, a1: Color, a2: Int) -> Int {
+    if n <= 0 {
+        return 9
+    }
+    val v1 = n - 1
+    val v2 = walk(v1, Tok.Num(14), Color.Gray, v1 + (-4))
+    match a0 {
+        Empty -> {
+        }
+        Pair(p, q) -> return g0
+        else -> {
+        }
+    }
+    return n
+}
+
+func main() {
+    for i in range(1) {
+        g0 = -(i + (-2))
+    }
+    var w = 0
+    g0 &= 16
+    println("{walk(2, Tok.Pair(10, 3), Color.Blue, w)} {walk(2, Tok.Empty, Color.Red, w)}")
+}

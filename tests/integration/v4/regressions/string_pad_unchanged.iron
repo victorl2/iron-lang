@@ -1,0 +1,18 @@
+-- pad_left / pad_right with a width the string already reaches return it
+-- unchanged. The result is the caller's, like every string a method
+-- returns, but the same reference was handed out without a count of its
+-- own, so the receiver and the result were both released: a double free.
+func main() {
+    val base = "a string long enough to live on the heap" + "!"
+    for i in range(3) {
+        val a = (base + "x").pad_left(4, "*")
+        val b = (base + "y").pad_right(2, "-")
+        val c = base.pad_left(i, "0")
+        println("{a.len()} {b.len()} {c.len()}")
+    }
+    var s = "abcdefghijklmnopqrstuvwxyz0123456789"
+    s = s.pad_left(3, "*")
+    s = s.pad_right(5, "*")
+    println(s)
+    println("{"7".pad_left(3, "0")} {"7".pad_right(3, "-")}")
+}

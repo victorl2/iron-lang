@@ -2123,7 +2123,10 @@ rules, all enforced at compile time with `E0328`:
   another list, and returning a list parameter are rejected; write
   `a.copy()` or `a.take()`.
 - A function receives a list argument by reference for the duration of the
-  call; it may read it, and mutate it only through a `var` parameter.
+  call; it may read it, and mutate it only through a `var` parameter. A list
+  passed to a `var` parameter cannot be passed again in the same call (the
+  callee may move its elements while the other parameter refers to them);
+  pass `xs.copy()` for the other one.
 - A lambda may capture a list only when the lambda is passed directly as a
   call argument; a lambda that is bound, returned or stored cannot capture a
   list. A `spawn` body that captures a list must be awaited in the block

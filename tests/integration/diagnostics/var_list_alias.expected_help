@@ -1,0 +1,10 @@
+'xs' is passed twice to grow(): as the var parameter 'xs' (argument 1) and as 'ys' (argument 2)
+grow() can change 'xs' through its var parameter 'xs' (push, insert, remove, assignment)
+Give it its own copy: grow(xs, xs.copy()), or pass two different lists
+'ys' is passed twice to both(): as the var parameter 'a' (argument 1) and as the var parameter 'b' (argument 2)
+Give one parameter its own copy: both(ys, ys.copy())
+'m' is passed twice to tally(): as the var parameter 'm' (argument 1) and as 'other' (argument 2)
+(put, remove, clear, assignment). Growing a map can move its entries
+Give it its own copy: tally(m, m.copy()), or pass two different maps
+'xs' is passed twice to mix(): as the var parameter 'xs' (argument 1) and as 'ys' (argument 3)
+Pass xs.copy() as 'ys' instead, or pass two different lists

@@ -175,6 +175,24 @@ static void declare_var(IronHIR_LowerCtx *ctx, const char *name,
     shput(ctx->scope_stack[ctx->scope_depth - 1], name, id);
 }
 
+/* The HIR name of a binding declared in the body being lowered. Inside a
+ * lifted lambda, a local that shadows one of the lambda's captures
+ * (`val v = v + 1`) gets a name of its own: the later passes find a
+ * capture's slot and env field by name, and would take the local for the
+ * capture. Lookups still use the source name (declare_var). */
+static const char *hir_local_name(IronHIR_LowerCtx *ctx, const char *name) {
+    IronHIR_Func *fn = ctx->current_func;
+    if (!name || !fn || fn->capture_count <= 0 || !fn->captures) return name;
+    bool clash = false;
+    for (int i = 0; i < fn->capture_count; i++)
+        if (fn->captures[i].name && strcmp(fn->captures[i].name, name) == 0) clash = true;
+    if (!clash) return name;
+    char buf[160];
+    snprintf(buf, sizeof(buf), "%s__in%d", name, (int)arrlen(ctx->module->name_table));
+    char *out = iron_arena_strdup(ctx->module->arena, buf, strlen(buf));
+    return out ? out : name;
+}
+
 /* The declared type of a HIR variable (its binding's type). */
 static Iron_Type *hir_var_type(IronHIR_Module *mod, IronHIR_VarId id) {
     for (ptrdiff_t i = arrlen(mod->name_table) - 1; i >= 0; i--)
@@ -877,7 +895,7 @@ static void inject_pattern_let_stmts(IronHIR_LowerCtx *ctx,
             IronHIR_Expr *field_expr = iron_hir_expr_field_access(mod, scrut_expr,
                                          slot_field_copy,
                                          ptype, span);
-            IronHIR_VarId vid = iron_hir_alloc_var(mod, bname, ptype, false);
+            IronHIR_VarId vid = iron_hir_alloc_var(mod, hir_local_name(ctx, bname), ptype, false);
             declare_var(ctx, bname, vid);
             IronHIR_Stmt *let_s = iron_hir_stmt_let(mod, vid, ptype, field_expr,
                                                       false, span);
@@ -961,7 +979,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 Iron_Type *elem_ty = (i < tuple_ty->tuple.elem_count)
                     ? tuple_ty->tuple.elem_types[i]
                     : iron_type_make_primitive(IRON_TYPE_ERROR);
-                IronHIR_VarId bind_id = iron_hir_alloc_var(mod, binding,
+                IronHIR_VarId bind_id = iron_hir_alloc_var(mod, hir_local_name(ctx, binding),
                                                             elem_ty, false);
                 declare_var(ctx, binding, bind_id);
 
@@ -1056,7 +1074,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         }
 
         IronHIR_Expr *init = vd->init ? lower_expr_hir(ctx, vd->init) : NULL;
-        IronHIR_VarId id   = iron_hir_alloc_var(mod, vd->name, ty, false);
+        IronHIR_VarId id   = iron_hir_alloc_var(mod, hir_local_name(ctx, vd->name), ty, false);
         declare_var(ctx, vd->name, id);
         IronHIR_Stmt *s = iron_hir_stmt_let(mod, id, ty, init, false, span);
         iron_hir_block_add_stmt(blk, s);
@@ -1069,7 +1087,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
         Iron_Type    *ty = vd->declared_type;
         if (!ty) ty = resolve_type_ann(ctx, vd->type_ann);
         IronHIR_Expr *init = vd->init ? lower_expr_hir(ctx, vd->init) : NULL;
-        IronHIR_VarId id   = iron_hir_alloc_var(mod, vd->name, ty, true);
+        IronHIR_VarId id   = iron_hir_alloc_var(mod, hir_local_name(ctx, vd->name), ty, true);
         if (vd->is_boxed) iron_hir_var_set_boxed(mod, id);
         declare_var(ctx, vd->name, id);
         IronHIR_Stmt *s = iron_hir_stmt_let(mod, id, ty, init, true, span);
@@ -1338,7 +1356,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
 
         if (is_range) {
             /* Desugar: for i in start..end → while loop with counter */
-            IronHIR_VarId loop_var = iron_hir_alloc_var(mod, fs->var_name,
+            IronHIR_VarId loop_var = iron_hir_alloc_var(mod, hir_local_name(ctx, fs->var_name),
                                                          iron_type_make_primitive(IRON_TYPE_INT),
                                                          true);
             Iron_Type *int_ty = iron_type_make_primitive(IRON_TYPE_INT);
@@ -1405,7 +1423,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             iron_hir_block_add_stmt(blk, ws);
         } else {
             /* Array/collection for: STMT_FOR */
-            IronHIR_VarId loop_var = iron_hir_alloc_var(mod, fs->var_name,
+            IronHIR_VarId loop_var = iron_hir_alloc_var(mod, hir_local_name(ctx, fs->var_name),
                                                          expr_type(fs->iterable),
                                                          false);
             IronHIR_Expr *iterable = lower_expr_hir(ctx, fs->iterable);
@@ -1485,7 +1503,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
             if (it_map && fs->var_name2 && map_again) {
                 /* val v = m.get(k): an owned copy of the entry's value. */
                 Iron_Type *val_t = it_t->object.elem2;
-                IronHIR_VarId vv = iron_hir_alloc_var(mod, fs->var_name2, val_t, false);
+                IronHIR_VarId vv = iron_hir_alloc_var(mod, hir_local_name(ctx, fs->var_name2), val_t, false);
                 IronHIR_Expr **gargs = (IronHIR_Expr **)iron_arena_alloc(
                     mod->arena, sizeof(IronHIR_Expr *), _Alignof(IronHIR_Expr *));
                 if (!gargs) iron_oom_abort("hir_lower.c:for map get");
@@ -1554,7 +1572,7 @@ static IronHIR_Stmt *lower_stmt_hir(IronHIR_LowerCtx *ctx, Iron_Node *node) {
                 IronHIR_Block *then_blk = iron_hir_block_create(mod);
                 push_scope(ctx);
                 if (bname) {
-                    IronHIR_VarId bv = iron_hir_alloc_var(mod, bname, tt, false);
+                    IronHIR_VarId bv = iron_hir_alloc_var(mod, hir_local_name(ctx, bname), tt, false);
                     declare_var(ctx, bname, bv);
                     __typeof__(ctx->type_views[0].value) tv = { subj, subj_name, scrut_ty, tt };
                     hmput(ctx->type_views, bv, tv);

@@ -3054,6 +3054,39 @@ static Iron_Node *iron_parse_spawn_stmt(Iron_Parser *p) {
 
 /* ── String interpolation parsing ────────────────────────────────────────── */
 
+static size_t interp_skip_expr(const char *s, size_t len, size_t i, int lvl);
+
+/* s[i] is the opening quote of a string literal inside an interpolated
+ * expression; returns the index just past its closing quote (or len). The
+ * literal's own `{...}` interpolations are skipped whole, so a quote inside
+ * one of them (`"{"a{"}"}b"}"`) does not end the literal. */
+static size_t interp_skip_string(const char *s, size_t len, size_t i, int lvl) {
+    i++;
+    while (i < len && s[i] != '"') {
+        if (s[i] == '\\' && i + 1 < len) { i += 2; continue; }
+        if (s[i] == '{' && lvl < 64) {
+            i = interp_skip_expr(s, len, i + 1, lvl + 1);
+            if (i < len) i++;
+            continue;
+        }
+        i++;
+    }
+    return i < len ? i + 1 : len;
+}
+
+/* i is just past an opening '{'; returns the index of the matching '}' (or
+ * len), skipping string literals with interp_skip_string. */
+static size_t interp_skip_expr(const char *s, size_t len, size_t i, int lvl) {
+    int depth = 1;
+    while (i < len) {
+        if (s[i] == '"') { i = interp_skip_string(s, len, i, lvl); continue; }
+        if (s[i] == '{') depth++;
+        else if (s[i] == '}' && --depth == 0) return i;
+        i++;
+    }
+    return len;
+}
+
 /* Parse an interpolated string token value into an InterpString node.
  * raw_value is the token text (already stripped of outer quotes by the lexer).
  * Splits on { } boundaries:
@@ -3099,26 +3132,13 @@ static Iron_Node *iron_parse_interp_string(Iron_Parser *p, const char *raw_value
                 lit_len = 0;
             }
 
-            /* Find matching closing brace, respecting nested parens/brackets */
+            /* Find the matching closing brace. A string literal inside the
+             * expression, and any interpolation inside that literal, is
+             * skipped whole: its braces and quotes are not delimiters of
+             * this one. */
             i++;  /* skip '{' */
             size_t expr_start = i;
-            int depth = 1;
-            while (i < len && depth > 0) {
-                if (s[i] == '"') {
-                    /* A string literal inside the expression: its braces
-                     * and quotes are not delimiters of this one. */
-                    i++;
-                    while (i < len && s[i] != '"') {
-                        if (s[i] == '\\' && i + 1 < len) i++;
-                        i++;
-                    }
-                    if (i < len) i++;
-                    continue;
-                }
-                if (s[i] == '{') depth++;
-                else if (s[i] == '}') depth--;
-                if (depth > 0) i++;
-            }
+            i = interp_skip_expr(s, len, i, 0);
             /* s[i] is now the closing '}' (or end of string) */
             size_t expr_len = i - expr_start;
             if (i < len) i++;  /* skip '}' */

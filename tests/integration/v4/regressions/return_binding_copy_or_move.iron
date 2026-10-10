@@ -1,0 +1,63 @@
+-- Returning a binding moves it only when the function owns it. A parameter
+-- is lent by the caller: returning it copies (the copy hook runs and an rc
+-- field is retained). It was moved, so the caller and the callee's result
+-- released the same rc field (use after free) and no copy hook ran. A local
+-- of a type with a copy hook but no drop is moved like a droppable one:
+-- its copy hook ran for a value nobody else held.
+object Inner {
+    val id: Int
+    drop { println("drop inner {self.id}") }
+}
+
+object Outer {
+    val id: Int
+    val r: rc Inner
+    drop { println("drop outer {self.id}") }
+}
+
+object Tagged {
+    val id: Int
+    var v: Int
+    init(id: Int, v: Int) {
+        self.id = id
+        self.v = v
+    }
+    copy { println("copy {self.id}") }
+}
+
+func same(o: Outer) -> Outer {
+    return o
+}
+
+func same_tagged(t: Tagged) -> Tagged {
+    return t
+}
+
+func make_tagged(id: Int) -> Tagged {
+    val t = Tagged(id, 1)
+    return t
+}
+
+func make_var_tagged(id: Int) -> Tagged {
+    var t = Tagged(id, 1)
+    t.v = 5
+    return t
+}
+
+func main() {
+    val a = Outer(1, rc Inner(5))
+    {
+        val b = same(a)
+        println("b {b.r.id}")
+    }
+    println("a {a.r.id}")
+    var t = Tagged(2, 0)
+    var u = same_tagged(t)
+    u.v = 9
+    println("{t.v} {u.v}")
+    t = make_tagged(3)
+    val w = make_var_tagged(4)
+    var xs: [Tagged] = []
+    xs.push(make_tagged(6))
+    println("{t.id} {w.v} {xs[0].id}")
+}

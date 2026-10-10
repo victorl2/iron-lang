@@ -697,11 +697,14 @@ module.exports = grammar({
     _constant_atom: $ => choice($.integer_literal, $.float_literal, $.identifier),
     _constant_op: $ => choice('+', '-', '*', '/', '%', '<<', '>>', '&', '|', '^'),
 
-    // Implementor arm of a type match: `Circle(c) -> ...`
+    // Implementor arm of a type match, `Circle(c) -> ...`, or a payload
+    // variant written without its enum name, `Pair(a, b) -> ...`.
     type_pattern: $ => prec(2, seq(
       field('type', $.identifier),
       '(',
       field('binding', choice($.identifier, '_')),
+      repeat(seq(',', field('binding', choice($.identifier, '_')))),
+      optional(','),
       ')',
     )),
 
@@ -862,7 +865,8 @@ module.exports = grammar({
       '"',
     ),
 
-    _string_body: $ => token.immediate(prec(1, /[^"\\{}]+/)),
+    // A `}` inside a string is text (`"}"` in an interpolation, #382).
+    _string_body: $ => token.immediate(prec(1, /[^"\\{]+/)),
 
     interpolation: $ => seq('{', $._expression, '}'),
 

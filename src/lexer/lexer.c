@@ -385,11 +385,19 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
 
         if (interp_depth > 0 && c == '"') {
             /* A string literal inside an interpolation expression: copy it
-             * verbatim, escapes included, up to its closing quote. A newline
-             * or EOF leaves it open and the outer checks report it. */
+             * verbatim, escapes included, up to its closing quote. The
+             * literal may itself interpolate (`"{"a{"}"}b"}"`): its `{...}`
+             * expressions, and the literals inside those, are copied whole,
+             * so a quote or brace in them does not end anything early. Each
+             * stack entry is 0 inside a literal, or the brace depth inside
+             * one of its interpolations. A newline or EOF leaves it open and
+             * the outer checks report it. */
+            int nest[64];
+            int sp = 0;
+            nest[sp++] = 0;
             iron_advance_char(l);
             PUSH_CHAR('"');
-            for (;;) {
+            while (sp > 0) {
                 char d = iron_peek_char(l);
                 if (d == '\0' || d == '\n') break;
                 iron_advance_char(l);
@@ -399,7 +407,14 @@ static Iron_Token iron_lex_string(Iron_Lexer *l) {
                     if (e != '\0' && e != '\n') { iron_advance_char(l); PUSH_CHAR(e); }
                     continue;
                 }
-                if (d == '"') break;
+                if (nest[sp - 1] == 0) {
+                    if (d == '"') sp--;
+                    else if (d == '{' && sp < 64) nest[sp++] = 1;
+                } else {
+                    if (d == '"' && sp < 64) nest[sp++] = 0;
+                    else if (d == '{') nest[sp - 1]++;
+                    else if (d == '}' && --nest[sp - 1] == 0) sp--;
+                }
             }
             continue;
         }

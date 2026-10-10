@@ -27,6 +27,17 @@
 #define IRON_NORETURN
 #endif
 
+/* LLVM's tail recursion elimination can overwrite a struct passed by value
+ * (byval) to a recursive call while the caller still reads its own copy
+ * after the call (clang 18 and 23 at -O1 and above; a call whose result is
+ * unused is enough). A function that calls itself with such arguments is
+ * marked to opt out. */
+#if defined(__clang__)
+#define IRON_NO_TRE __attribute__((disable_tail_calls))
+#else
+#define IRON_NO_TRE
+#endif
+
 /* ── Debug traps: a panic stops the debugger on the Iron line (#388) ───────
  * `iron build --debug` defines IRON_DEBUG_TRAPS before including this
  * header. Every panic raised by a check of generated code (assert, an index

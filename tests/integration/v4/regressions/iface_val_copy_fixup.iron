@@ -1,0 +1,33 @@
+-- `val s: Shape = obj` copies obj into an interface binding. The copy was
+-- bytewise: its copy block did not run and its rc field was not retained,
+-- so dropping the binding released the field obj still held (use after
+-- free; the object behind it was dropped early).
+interface Shape {
+    readonly func area() -> Int
+}
+
+object Inner {
+    val id: Int
+    drop { println("drop inner {self.id}") }
+}
+
+object Ta impl Shape {
+    val id: Int
+    val r: rc Inner
+    readonly func area() -> Int {
+        return self.id + self.r.id
+    }
+    copy { println("copy A{self.id}") }
+}
+
+func main() {
+    val a = Ta(1, rc Inner(7))
+    {
+        val t: Shape = a
+        println("t {t.area()}")
+    }
+    println("a {a.area()}")
+    var s: Shape = Ta(2, rc Inner(8))
+    s = a
+    println("s {s.area()}")
+}

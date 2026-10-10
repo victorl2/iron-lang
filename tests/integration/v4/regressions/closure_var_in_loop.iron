@@ -1,0 +1,32 @@
+-- A var declared in a loop body and captured by a closure is a new binding,
+-- with a new cell, on every iteration. The cell was allocated once at
+-- function entry and released at the end of each iteration: the second
+-- iteration wrote through a freed cell and released it again.
+func apply(f: func(Int), x: Int) {
+    f(x)
+}
+
+func main() {
+    for i in range(3) {
+        var acc = i
+        apply(func(x: Int) { acc += x }, 10)
+        println("{acc}")
+    }
+    val xs = [7, 8]
+    var k = 0
+    while k < 2 {
+        k += 1
+        var total = 0
+        xs.forEach(func(x: Int) { total += x * k })
+        println("{total}")
+    }
+    var fs: [func() -> Int] = []
+    for i in range(3) {
+        var count = i * 100
+        fs.push(func() -> Int {
+            count += 1
+            return count
+        })
+    }
+    println("{fs[0]()} {fs[1]()} {fs[2]()} {fs[0]()}")
+}

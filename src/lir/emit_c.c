@@ -96,6 +96,46 @@ static const char *cap_c_name(const char *n) {
     return n;
 }
 
+/* The env struct `<lambda>_env_t` of a capturing closure, written once into
+ * struct_bodies: a var capture is a pointer to the shared slot, a val
+ * capture a copy of the value. */
+static void emit_closure_env_typedef(EmitCtx *ctx, const char *env_type,
+                                     Iron_CaptureEntry *cap_meta, int cap_count) {
+    if (shgeti(ctx->mono_registry, (char *)env_type) >= 0) return;
+    shput(ctx->mono_registry, (char *)env_type, true);
+    iron_strbuf_appendf(&ctx->struct_bodies, "typedef struct {\n");
+    for (int ci = 0; ci < cap_count; ci++) {
+        const char *field_type = cap_meta[ci].is_heap_handle
+                                 ? "Iron_FatPtr"
+                                 : cap_meta[ci].type
+                                 ? emit_type_to_c(cap_meta[ci].type, ctx)
+                                 : "void*";
+        iron_strbuf_appendf(&ctx->struct_bodies,
+                            cap_meta[ci].is_mutable ? "    %s *%s;\n" : "    %s %s;\n",
+                            field_type, cap_c_name(cap_meta[ci].name));
+    }
+    iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n\n", env_type);
+}
+
+/* A lambda whose closure is never built (it sits in unreachable code, after
+ * a return) is still emitted, and its body reads the captures through the
+ * env struct that only building the closure declares. Declare the missing
+ * ones after all functions are written. */
+void emit_unbuilt_closure_envs(EmitCtx *ctx, IronLIR_Module *module) {
+    for (int i = 0; i < module->func_count; i++) {
+        IronLIR_Func *fn = module->funcs[i];
+        if (!fn || fn->is_extern || !fn->name || strncmp(fn->name, "__lambda_", 9) != 0 ||
+            fn->capture_count <= 0 || !fn->capture_metadata)
+            continue;
+        Iron_StrBuf sb = iron_strbuf_create(64);
+        iron_strbuf_appendf(&sb, "%s_env_t", fn->name);
+        const char *env_type = iron_arena_strdup(ctx->arena, iron_strbuf_get(&sb), sb.len);
+        iron_strbuf_free(&sb);
+        if (!env_type) iron_oom_abort("emit_c.c:emit_unbuilt_closure_envs");
+        emit_closure_env_typedef(ctx, env_type, fn->capture_metadata, fn->capture_count);
+    }
+}
+
 static IronLIR_ValueId get_stack_array_origin(EmitCtx *ctx, IronLIR_ValueId id) {
     if (!ctx->opt_info->stack_array_ids) return IRON_LIR_VALUE_INVALID;
     ptrdiff_t idx = hmgeti(ctx->opt_info->stack_array_ids, id);
@@ -857,6 +897,46 @@ static const char *emit_vid_global_slot(IronLIR_Func *fn, IronLIR_ValueId vid) {
     return in->alloca.global_name;
 }
 
+static const char *emit_local_decl_type(IronLIR_Func *fn, IronLIR_Instr *instr,
+                                        Iron_Type *t, EmitCtx *ctx);
+static Iron_Type *emit_value_c_type(IronLIR_Func *fn, IronLIR_Instr *instr);
+
+/* The C type of a value's local declared at the function entry. A heap or
+ * arena allocation is an Iron_FatPtr handle whatever its object type. */
+static const char *emit_hoisted_decl_type(IronLIR_Func *fn, IronLIR_Instr *in,
+                                          EmitCtx *ctx) {
+    if (in->kind == IRON_LIR_HEAP_ALLOC || in->kind == IRON_LIR_ARENA_ALLOC)
+        return "Iron_FatPtr";
+    return emit_local_decl_type(fn, in, emit_value_c_type(fn, in), ctx);
+}
+
+/* The C type of the local holding instr's value. A LOAD of an rc, heap or
+ * arena slot holds what the slot holds (a pointer or an Iron_FatPtr handle,
+ * not the object), and a LOAD of a global slot is typed from the global.
+ * The declaration at the definition site and a declaration hoisted to the
+ * function entry (the value is used in an earlier block, or inside a
+ * structured loop) must agree. */
+static Iron_Type *emit_value_c_type(IronLIR_Func *fn, IronLIR_Instr *instr) {
+    if (instr->kind != IRON_LIR_LOAD) return instr->type;
+    Iron_Type *load_c_type = instr->type;
+    IronLIR_ValueId ptr = instr->load.ptr;
+    IronLIR_Instr *slot = (ptr != IRON_LIR_VALUE_INVALID &&
+                           ptr < (IronLIR_ValueId)arrlen(fn->value_table))
+                          ? fn->value_table[ptr] : NULL;
+    if (!slot || slot->kind != IRON_LIR_ALLOCA || !slot->alloca.alloc_type)
+        return load_c_type;
+    /* Alloca holds a pointer: use the alloca's RC type for C type */
+    if (slot->alloca.alloc_type->kind == IRON_TYPE_RC)
+        load_c_type = slot->alloca.alloc_type;
+    /* heap / arena binding slot: the load reads the Iron_FatPtr handle */
+    if (emit_slot_is_heap_handle(fn, ptr, instr->type))
+        load_c_type = slot->alloca.alloc_type;
+    /* Module-global slot: the load copies the static's value */
+    if (slot->alloca.global_name)
+        load_c_type = slot->alloca.alloc_type;
+    return load_c_type;
+}
+
 /* C identifier of the file-scope static backing module global `name`.
  * Distinct `Iron_g_` prefix so a global named e.g. `Color` cannot collide
  * with the `Iron_Color` typedef. Arena-owned. */
@@ -1078,7 +1158,9 @@ static void emit_receiver_addr(Iron_StrBuf *sb, IronLIR_Func *fn, EmitCtx *ctx,
             return;
         }
     }
-    if (emit_val_is_heap_ptr(fn, vid)) {
+    /* (A load of a heap binding's slot is its Iron_FatPtr handle too: the
+     * slot is never promoted to SSA, so the load is not the allocation.) */
+    if (emit_val_is_heap_ptr(fn, vid) || emit_val_is_heap_fat_ptr(fn, vid)) {
         if (emit_val_is_heap_fat_ptr(fn, vid)) {
             const char *pointee = emit_fat_ptr_pointee_type_c(fn, vid, ctx);
             iron_strbuf_appendf(sb, "((%s *)(", pointee ? pointee : "void");
@@ -2436,10 +2518,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
              * caller binding's alloca; render its address. Module-global
              * slot: already the static's address — verbatim. */
             if (instr->call.args_by_addr && instr->call.args_by_addr[i]) {
-                if (!emit_vid_global_slot(fn, instr->call.args[i])) {
-                    iron_strbuf_appendf(sb, "&");
-                }
-                emit_val(sb, instr->call.args[i]);
+                emit_receiver_addr(sb, fn, ctx, instr->call.args[i], use_block_id);
                 continue;
             }
             /* Interface wrapping: if arg is concrete but callee is interface dispatch */
@@ -3293,10 +3372,10 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * it for every load, store and address-of below. */
             const char *c_type = emit_local_decl_type(
                 fn, instr, instr->alloca.alloc_type, ctx);
-            const char *dropfn = emit_cell_drop_fn(ctx, instr->alloca.alloc_type);
+            /* The cell itself is allocated by the `$cell_new` glue at the
+             * declaration (once per execution of it). */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s *%s_box = (%s *)iron_cell_alloc(sizeof(%s), %s);\n",
-                                c_type, emit_vname(instr->id), c_type, c_type, dropfn);
+            iron_strbuf_appendf(sb, "%s *%s_box = NULL;\n", c_type, emit_vname(instr->id));
             iron_strbuf_appendf(sb, "#define %s (*%s_box)\n", emit_vname(instr->id), emit_vname(instr->id));
             /* --debug: the slot is reached through the macro, so the
              * debugger sees only the cell pointer; `_ref_<name>` names
@@ -3433,30 +3512,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * alloca's type (T*) rather than the LOAD's inner type (T). */
             emit_indent(sb, ind);
             if (!is_hoisted) {
-                Iron_Type *load_c_type = instr->type;
-                IronLIR_ValueId ptr = instr->load.ptr;
-                if (ptr != IRON_LIR_VALUE_INVALID &&
-                    ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                    fn->value_table[ptr] &&
-                    fn->value_table[ptr]->kind == IRON_LIR_ALLOCA &&
-                    fn->value_table[ptr]->alloca.alloc_type &&
-                    fn->value_table[ptr]->alloca.alloc_type->kind == IRON_TYPE_RC) {
-                    /* Alloca holds a pointer: use the alloca's RC type for C type */
-                    load_c_type = fn->value_table[ptr]->alloca.alloc_type;
-                }
-                /* heap / arena binding slot: the load reads the Iron_FatPtr
-                 * handle, not the object. */
-                if (emit_slot_is_heap_handle(fn, ptr, instr->type)) {
-                    load_c_type = fn->value_table[ptr]->alloca.alloc_type;
-                }
-                /* Module-global slot: the load copies the STATIC's value, so
-                 * type it from the slot's alloc_type (authoritative). */
-                if (emit_vid_global_slot(fn, ptr) &&
-                    fn->value_table[ptr]->alloca.alloc_type) {
-                    load_c_type = fn->value_table[ptr]->alloca.alloc_type;
-                }
                 iron_strbuf_appendf(sb, "%s ",
-                    emit_local_decl_type(fn, instr, load_c_type, ctx));
+                    emit_local_decl_type(fn, instr, emit_value_c_type(fn, instr), ctx));
             }
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
@@ -4402,6 +4459,29 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                                  fn->value_table[gfp] &&
                                  fn->value_table[gfp]->kind == IRON_LIR_FUNC_REF)
                                 ? fn->value_table[gfp]->func_ref.func_name : NULL;
+            if (gname && strcmp(gname, "$cell_new") == 0 && instr->call.arg_count == 1) {
+                /* A fresh counted cell for a boxed `var` (#210), allocated
+                 * where the declaration runs. */
+                IronLIR_ValueId ca = instr->call.args[0];
+                IronLIR_Instr *cin = (ca != IRON_LIR_VALUE_INVALID &&
+                                      ca < (IronLIR_ValueId)arrlen(fn->value_table))
+                                     ? fn->value_table[ca] : NULL;
+                if (cin && cin->kind == IRON_LIR_ALLOCA && cin->alloca.is_boxed) {
+                    const char *c_type = emit_local_decl_type(
+                        fn, cin, cin->alloca.alloc_type, ctx);
+                    const char *dropfn = emit_cell_drop_fn(ctx, cin->alloca.alloc_type);
+                    emit_indent(sb, ind);
+                    iron_strbuf_appendf(sb, "%s_box = (%s *)iron_cell_alloc(sizeof(%s), %s);\n",
+                                        emit_vname(ca), c_type, c_type, dropfn);
+                    ptrdiff_t ri = g_debug_ref_names ? hmgeti(g_debug_ref_names, ca) : -1;
+                    if (ri >= 0) {
+                        emit_indent(sb, ind);
+                        iron_strbuf_appendf(sb, "_ref_%s = %s_box;\n",
+                                            g_debug_ref_names[ri].value, emit_vname(ca));
+                    }
+                }
+                break;
+            }
             if (gname && strncmp(gname, "$is:", 4) == 0 && instr->call.arg_count == 1) {
                 emit_indent(sb, ind);
                 if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
@@ -5873,6 +5953,15 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 Iron_Type *a0t = emit_get_value_type(fn, arg_id);
                 IronLIR_Func *cfn0 = emit_find_ir_func(ctx, callee_ir_name);
                 Iron_Type *p0t = (cfn0 && cfn0->param_count > 0) ? cfn0->params[0].type : NULL;
+                if (a0t && a0t->kind == IRON_TYPE_RC && a0t->rc.inner &&
+                    p0t && p0t->kind == IRON_TYPE_OBJECT &&
+                    iron_type_equals(a0t->rc.inner, p0t)) {
+                    /* An rc handle (`T *` in C) for a by-value receiver. */
+                    iron_strbuf_appendf(sb, "(*");
+                    emit_expr_to_buf(sb, arg_id, fn, ctx, ctx->current_block_id, 0);
+                    iron_strbuf_appendf(sb, ")");
+                    continue;
+                }
                 if (a0t && a0t->kind == IRON_TYPE_PTR && a0t->ptr.pointee &&
                     p0t && p0t->kind == IRON_TYPE_OBJECT &&
                     iron_type_equals(a0t->ptr.pointee, p0t)) {
@@ -5920,10 +6009,11 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                     }
                 }
                 if (via_ifw) continue;
-                if (!emit_vid_global_slot(fn, arg_id)) {
-                    iron_strbuf_appendf(sb, "&");
-                }
-                emit_val(sb, arg_id);
+                /* The address of the binding's storage: its slot, the
+                 * global, or the cell a lambda reaches it through when the
+                 * binding is a capture (a captured var passed on to a
+                 * `var` parameter had no declared slot to take). */
+                emit_receiver_addr(sb, fn, ctx, arg_id, ctx->current_block_id);
                 continue;
             }
 
@@ -6347,7 +6437,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * do NOT emit iron_heap_free here. */
         const char *val_type = emit_type_to_c(instr->type, ctx);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "Iron_FatPtr ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_FatPtr ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb,
             " = iron_heap_alloc(IRON_SITE, sizeof(%s));\n",
@@ -6405,7 +6495,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         }
 
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s *", val_type);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s *", val_type);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (%s *)iron_rc_alloc(sizeof(%s), %s);\n",
                             val_type, val_type, drop_fn_arg);
@@ -6436,7 +6526,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * (ARENA-05/11 TLS-default resolution). */
         const char *val_type = emit_type_to_c(instr->type, ctx);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "Iron_FatPtr ");
+        if (!is_hoisted) iron_strbuf_appendf(sb, "Iron_FatPtr ");
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = iron_arena_rt_alloc(");
         if (instr->arena_alloc.arena_val != IRON_LIR_VALUE_INVALID) {
@@ -6562,7 +6652,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
     case IRON_LIR_WEAK_RC_DOWNGRADE: {
         const char *val_type = emit_type_to_c(instr->type, ctx);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", val_type);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", val_type);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = (%s)iron_rc_downgrade((void *)", val_type);
         emit_val(sb, instr->weak_rc_downgrade.source);
@@ -6603,7 +6693,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         } else {
             /* Non-nullable result (pointer-shaped) — direct cast is valid. */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "%s ", val_type);
+            if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", val_type);
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = (%s)iron_rc_upgrade((void *)", val_type);
             emit_val(sb, instr->weak_rc_upgrade.source);
@@ -7024,7 +7114,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_expr_to_buf(&src, instr->slice.array, fn, ctx, ctx->current_block_id, 0);
         const char *src_s = iron_strbuf_get(&src);
         emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "%s ", list_c);
+        if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", list_c);
         emit_val(sb, instr->id);
         iron_strbuf_appendf(sb, " = %s_create();\n", list_c);
         emit_indent(sb, ind);
@@ -7096,11 +7186,14 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
          * IMPORTANT: the result variable is declared BEFORE the inner block
          * so it remains in scope for subsequent instructions. */
 
-        /* Declare result variable at outer scope */
-        emit_indent(sb, ind);
-        iron_strbuf_appendf(sb, "Iron_String ");
-        emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, ";\n");
+        /* Declare result variable at outer scope (unless it was declared
+         * at the function entry) */
+        if (!is_hoisted) {
+            emit_indent(sb, ind);
+            iron_strbuf_appendf(sb, "Iron_String ");
+            emit_val(sb, instr->id);
+            iron_strbuf_appendf(sb, ";\n");
+        }
 
         /* Open temporary block for buf variables */
         emit_indent(sb, ind);
@@ -7435,29 +7528,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             iron_strbuf_free(&env_type_sb);
 
             /* Emit typedef into struct_bodies (deduplicated via mono_registry) */
-            if (shgeti(ctx->mono_registry, (char *)env_type) < 0) {
-                shput(ctx->mono_registry, (char *)env_type, true);
-                iron_strbuf_appendf(&ctx->struct_bodies, "typedef struct {\n");
-                for (int ci = 0; ci < cap_count; ci++) {
-                    const char *field_type = cap_meta[ci].is_heap_handle
-                                             ? "Iron_FatPtr"
-                                             : cap_meta[ci].type
-                                             ? emit_type_to_c(cap_meta[ci].type, ctx)
-                                             : "void*";
-                    if (cap_meta[ci].is_mutable) {
-                        /* var capture: store pointer to outer variable */
-                        iron_strbuf_appendf(&ctx->struct_bodies,
-                                            "    %s *%s;\n",
-                                            field_type, cap_c_name(cap_meta[ci].name));
-                    } else {
-                        /* val capture: store value copy */
-                        iron_strbuf_appendf(&ctx->struct_bodies,
-                                            "    %s %s;\n",
-                                            field_type, cap_c_name(cap_meta[ci].name));
-                    }
-                }
-                iron_strbuf_appendf(&ctx->struct_bodies, "} %s;\n\n", env_type);
-            }
+            emit_closure_env_typedef(ctx, env_type, cap_meta, cap_count);
 
             /* Phase 26 OQ-03 (Plan 26-03): synthesize <func_name>_env_drop
              * companion function (Approach A). It goes into struct_bodies,
@@ -7689,19 +7760,31 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
 
             /* Build Iron_Closure with env */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "Iron_Closure ");
-            emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb,
-                " = { .env = _env_%u, .fn = (void(*)(void*))%s };\n",
-                instr->id, func_name);
+            if (is_hoisted) {
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = (Iron_Closure){ .env = _env_%u, .fn = (void(*)(void*))%s };\n",
+                                    instr->id, func_name);
+            } else {
+                iron_strbuf_appendf(sb, "Iron_Closure ");
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb,
+                    " = { .env = _env_%u, .fn = (void(*)(void*))%s };\n",
+                    instr->id, func_name);
+            }
         } else {
             /* Non-capturing: Iron_Closure with NULL env */
             emit_indent(sb, ind);
-            iron_strbuf_appendf(sb, "Iron_Closure ");
-            emit_val(sb, instr->id);
-            iron_strbuf_appendf(sb,
-                " = { .env = NULL, .fn = (void(*)(void*))%s };\n",
-                func_name);
+            if (is_hoisted) {
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb, " = (Iron_Closure){ .env = NULL, .fn = (void(*)(void*))%s };\n",
+                                    func_name);
+            } else {
+                iron_strbuf_appendf(sb, "Iron_Closure ");
+                emit_val(sb, instr->id);
+                iron_strbuf_appendf(sb,
+                    " = { .env = NULL, .fn = (void(*)(void*))%s };\n",
+                    func_name);
+            }
         }
         break;
     }
@@ -8564,11 +8647,51 @@ static bool is_lifted_func(const char *name) {
     return strncmp(name, "__", 2) == 0;
 }
 
+/* A function that calls itself and takes a parameter passed as a C struct
+ * by value (see IRON_NO_TRE in iron_runtime.h). */
+static bool emit_func_needs_no_tre(IronLIR_Func *fn) {
+    if (fn->is_extern || !fn->name) return false;
+    bool struct_param = false;
+    for (int i = 0; i < fn->param_count && !struct_param; i++) {
+        Iron_Type *pt = fn->params[i].type;
+        if (!pt || (fn->param_is_var && fn->param_is_var[i])) continue;
+        switch ((int)pt->kind) {
+        case IRON_TYPE_STRING: case IRON_TYPE_OBJECT: case IRON_TYPE_ARRAY:
+        case IRON_TYPE_ENUM: case IRON_TYPE_NULLABLE: case IRON_TYPE_INTERFACE:
+        case IRON_TYPE_FUNC: case IRON_TYPE_TUPLE:
+            struct_param = true;
+            break;
+        default:
+            break;
+        }
+    }
+    if (!struct_param) return false;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (in->kind != IRON_LIR_CALL) continue;
+            const char *callee = NULL;
+            if (in->call.func_decl) {
+                callee = in->call.func_decl->name;
+            } else if (in->call.func_ptr != IRON_LIR_VALUE_INVALID &&
+                       in->call.func_ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                       fn->value_table[in->call.func_ptr] &&
+                       fn->value_table[in->call.func_ptr]->kind == IRON_LIR_FUNC_REF) {
+                callee = fn->value_table[in->call.func_ptr]->func_ref.func_name;
+            }
+            if (callee && strcmp(callee, fn->name) == 0) return true;
+        }
+    }
+    return false;
+}
+
 void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
                          EmitCtx *ctx, bool with_newline) {
     const char *c_name = fn->is_extern && fn->extern_c_name
                         ? fn->extern_c_name
                         : emit_mangle_func_name(fn->name, ctx->arena);
+    if (emit_func_needs_no_tre(fn)) iron_strbuf_appendf(sb, "IRON_NO_TRE ");
     /* Phase 22 READ-08: sret ABI — readonly functions returning a fixed-size
      * array use `void fn(T_array *_sret, ...args)` instead of
      * `T_array fn(...args)`. Both decl and call sites must agree (Pitfall 6). */
@@ -10525,7 +10648,7 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                     hmput(ctx->phi_hoisted, in->id, true);
                     emit_indent(sb, 1);
                     iron_strbuf_appendf(sb, "%s %s;\n",
-                        emit_local_decl_type(fn, in, in->type, ctx), emit_vname(in->id));
+                        emit_hoisted_decl_type(fn, in, ctx), emit_vname(in->id));
                 }
             }
         }
@@ -10672,7 +10795,7 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                     hmput(ctx->phi_hoisted, in->id, true);
                     emit_indent(sb, 1);
                     iron_strbuf_appendf(sb, "%s %s;\n",
-                        emit_local_decl_type(fn, in, in->type, ctx), emit_vname(in->id));
+                        emit_hoisted_decl_type(fn, in, ctx), emit_vname(in->id));
                 }
             }
         }
@@ -12404,6 +12527,7 @@ const char *iron_lir_emit_c(IronLIR_Module *module, Iron_Arena *arena,
         }
         emit_func_body(&ctx, fn);
     }
+    emit_unbuilt_closure_envs(&ctx, module);
 
     /* ── Test build: a main that lists and runs the `test` functions ──── */
     if (module->test_mode) {

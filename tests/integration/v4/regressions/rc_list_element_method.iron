@@ -1,0 +1,36 @@
+-- A method called on an element of a list of rc handles reaches the
+-- object, like a field read does (`rs[0].get()` was typed Void).
+object Counter {
+    var n: Int
+    init(n: Int) {
+        self.n = n
+    }
+    readonly func get() -> Int {
+        return self.n * 10
+    }
+    func bump(k: Int) {
+        self.n += k
+    }
+}
+
+func main() {
+    var rs: [rc Counter] = []
+    rs.push(rc Counter(1))
+    rs.push(rc Counter(2))
+    println("{rs[1].n} {rs[1].get()}")
+    rs[0].bump(5)
+    val total = rs[0].get() + rs[1].get()
+    println("{rs[0].n} {total}")
+    -- through an rc handle the object may be changed from a val binding
+    val shared: [rc Counter] = [rc Counter(9)]
+    shared[0].bump(1)
+    println("{shared[0].get()}")
+    -- an rc field and an rc binding as receivers
+    val h = Holder(rs[1])
+    val r = rc Counter(3)
+    println("{h.c.get()} {r.get()}")
+}
+
+object Holder {
+    val c: rc Counter
+}

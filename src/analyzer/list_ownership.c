@@ -169,6 +169,97 @@ static void check_field_args(ListOwnCtx *c, const char *type_name,
     for (int i = 0; i < argc; i++) require_fresh(c, args[i]);
 }
 
+/* "list", "map" or "set" for the owning collection `t`, for messages. */
+static const char *list_kind_word(const Iron_Type *t) {
+    if (t && t->kind == IRON_TYPE_OBJECT && t->object.decl && t->object.decl->name) {
+        if (strcmp(t->object.decl->name, "Map") == 0) return "map";
+        if (strcmp(t->object.decl->name, "Set") == 0) return "set";
+    }
+    return "list";
+}
+
+/* A list passed to a `var` parameter may be grown by the callee, which can
+ * move its buffer; a second argument naming the same binding is a view of
+ * the old buffer (use after free). The two are the same list, so the call
+ * is rejected: pass a copy for the other parameter. */
+static void check_var_list_alias(ListOwnCtx *c, Iron_FuncDecl *fd, Iron_CallExpr *ce) {
+    for (int i = 0; i < ce->arg_count && i < fd->param_count; i++) {
+        Iron_Param *p = (Iron_Param *)fd->params[i];
+        Iron_Node *a = ce->args[i];
+        if (!p || p->kind != IRON_NODE_PARAM || !p->is_var || !a ||
+            a->kind != IRON_NODE_IDENT || !owns_list(node_type(a)))
+            continue;
+        Iron_Symbol *sym = ((Iron_Ident *)a)->resolved_sym;
+        if (!sym) continue;
+        for (int j = 0; j < ce->arg_count; j++) {
+            Iron_Node *b = ce->args[j];
+            if (j == i || !b || b->kind != IRON_NODE_IDENT ||
+                ((Iron_Ident *)b)->resolved_sym != sym)
+                continue;
+            const char *name = ((Iron_Ident *)a)->name;
+            const char *fname = fd->name ? fd->name : "the function";
+            const char *pa = p->name ? p->name : "?";
+            Iron_Param *q = j < fd->param_count ? (Iron_Param *)fd->params[j] : NULL;
+            bool q_param = q && q->kind == IRON_NODE_PARAM;
+            const char *pb = q_param && q->name ? q->name : "?";
+            bool both_var = q_param && q->is_var;
+            const char *what = list_kind_word(node_type(a));
+            const char *ops = strcmp(what, "map") == 0 ? "put, remove, clear, assignment"
+                            : strcmp(what, "set") == 0 ? "add, remove, clear, assignment"
+                            : "push, insert, remove, assignment";
+            const char *items = strcmp(what, "list") == 0 ? "elements" : "entries";
+            /* The call as it should be written, when every argument is a
+             * plain name: the second use of the list becomes a copy. */
+            char fixed[200];
+            fixed[0] = '\0';
+            bool simple = true;
+            for (int k = 0; k < ce->arg_count && simple; k++)
+                simple = ce->args[k] && ce->args[k]->kind == IRON_NODE_IDENT;
+            if (simple) {
+                size_t off = (size_t)snprintf(fixed, sizeof(fixed), "%s(", fname);
+                for (int k = 0; k < ce->arg_count && off < sizeof(fixed); k++)
+                    off += (size_t)snprintf(fixed + off, sizeof(fixed) - off, "%s%s%s",
+                                            k ? ", " : "", ((Iron_Ident *)ce->args[k])->name,
+                                            k == j ? ".copy()" : "");
+                if (off < sizeof(fixed))
+                    snprintf(fixed + off, sizeof(fixed) - off, ")");
+                if (off >= sizeof(fixed)) fixed[0] = '\0';
+            }
+            /* The fix, as a whole call when it can be written out. */
+            char fix[260];
+            if (fixed[0])
+                snprintf(fix, sizeof(fix), "%s: %s", both_var ? "Give one parameter its own copy"
+                         : "Give it its own copy", fixed);
+            else if (both_var)
+                snprintf(fix, sizeof(fix), "Pass %s.copy() to one of them instead", name);
+            else
+                snprintf(fix, sizeof(fix), "Pass %s.copy() as '%s' instead", name, pb);
+            char msg[400], help[640];
+            snprintf(msg, sizeof(msg),
+                     "'%s' is passed twice to %s(): as the var parameter '%s' (argument %d) "
+                     "and as %s'%s' (argument %d)",
+                     name, fname, pa, i + 1, both_var ? "the var parameter " : "", pb, j + 1);
+            if (both_var)
+                snprintf(help, sizeof(help),
+                         "%s() can change '%s' through both '%s' and '%s'; each change works on "
+                         "the same %s, so growing it through one can move the %s the "
+                         "other still uses (a use after free). %s, or pass two different %ss",
+                         fname, name, pa, pb, what, items, fix, what);
+            else
+                snprintf(help, sizeof(help),
+                         "%s() can change '%s' through its var parameter '%s' (%s). Growing a "
+                         "%s can move its %s, so '%s' would then read freed memory. %s, or "
+                         "pass two different %ss",
+                         fname, name, pa, ops, what, items, pb, fix, what);
+            iron_diag_emit(c->diags, c->arena, IRON_DIAG_ERROR,
+                           IRON_ERR_LIST_IMPLICIT_COPY, b->span,
+                           iron_arena_strdup(c->arena, msg, strlen(msg)),
+                           iron_arena_strdup(c->arena, help, strlen(help)));
+            return;
+        }
+    }
+}
+
 static bool visit(Iron_Visitor *v, Iron_Node *n) {
     ListOwnCtx *c = (ListOwnCtx *)v->ctx;
     if (!n) return false;
@@ -218,6 +309,10 @@ static bool visit(Iron_Visitor *v, Iron_Node *n) {
                 Iron_Ident *id = (Iron_Ident *)ce->callee;
                 if (id->resolved_sym && id->resolved_sym->sym_kind == IRON_SYM_TYPE)
                     check_field_args(c, id->name, ce->args, ce->arg_count);
+                if (id->resolved_sym && id->resolved_sym->sym_kind == IRON_SYM_FUNCTION &&
+                    id->resolved_sym->decl_node &&
+                    id->resolved_sym->decl_node->kind == IRON_NODE_FUNC_DECL)
+                    check_var_list_alias(c, (Iron_FuncDecl *)id->resolved_sym->decl_node, ce);
             }
             break;
         }

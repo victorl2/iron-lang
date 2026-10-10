@@ -2248,10 +2248,15 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
             TempOwned *temps = NULL;
             IronHIR_Expr *ops[2] = { expr->binop.left, expr->binop.right };
             IronLIR_ValueId vals[2] = { left, right };
-            for (int i = 0; i < 2; i++)
-                if (ops[i] && ops[i]->type && type_is_rc_like(ops[i]->type) &&
-                    rc_expr_transfers_ownership(ops[i]))
+            /* Likewise an owned string (or other droppable value) built
+             * just to be compared (`s == s + "x"`, `a.upper() < b`) was
+             * never released. */
+            for (int i = 0; i < 2; i++) {
+                if (!ops[i] || !ops[i]->type) continue;
+                if (type_is_rc_like(ops[i]->type) ? rc_expr_transfers_ownership(ops[i])
+                                                  : !hir_expr_is_place(ops[i]))
                     note_owned_temp(ctx, &temps, ops[i], vals[i], span);
+            }
             release_owned_temps(ctx, &temps, span);
         }
         return res;
@@ -2285,8 +2290,25 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
                  * count is read. */
                 TempOwned *len_temps = NULL;
                 note_owned_temp(ctx, &len_temps, expr->call.args[0], arr_val, span);
-                IronLIR_ValueId n = iron_lir_get_field(ctx->current_func, ctx->current_block,
-                                                       arr_val, "count", int_type, span)->id;
+                IronLIR_ValueId n;
+                if (arg_type->array.elem && arg_type->array.elem->kind == IRON_TYPE_INTERFACE &&
+                    arg_type->array.size < 0 && !arg_type->array.is_bounded) {
+                    /* An interface list is a split collection with no
+                     * `count` member: ask it, as `xs.len()` does. */
+                    const char *sfx = list_elem_suffix(ctx, arg_type->array.elem);
+                    size_t clen = 16 + strlen(sfx) + 1;
+                    char *lname = (char *)iron_arena_alloc(ctx->lir_arena, clen, 1);
+                    if (!lname) iron_oom_abort("hir_to_lir.c:len split list");
+                    snprintf(lname, clen, "Iron_List_%s_len", sfx);
+                    IronLIR_Instr *lref = iron_lir_func_ref(ctx->current_func, ctx->current_block,
+                                                            lname, NULL, span);
+                    IronLIR_ValueId largs[1] = { arr_val };
+                    n = iron_lir_call(ctx->current_func, ctx->current_block, NULL, lref->id,
+                                      largs, 1, int_type, span)->id;
+                } else {
+                    n = iron_lir_get_field(ctx->current_func, ctx->current_block,
+                                           arr_val, "count", int_type, span)->id;
+                }
                 release_owned_temps(ctx, &len_temps, span);
                 return n;
             }
@@ -2407,6 +2429,23 @@ static IronLIR_ValueId lower_expr(HIR_to_LIR_Ctx *ctx, IronHIR_Expr *expr) {
         } else if (expr->call.callee && expr->call.callee->kind == IRON_HIR_EXPR_IDENT) {
             /* Could be a function reference via identifier */
             func_ptr = lower_expr(ctx, expr->call.callee);
+            /* A closure in a var that closures share (a capture cell, or a
+             * capture of the enclosing lambda) may be replaced while it
+             * runs (`f = func() { f = other ... }`), which released the
+             * running closure's env under it. The call holds a reference
+             * of its own until it returns. */
+            IronHIR_VarId cv = expr->call.callee->ident.var_id;
+            Iron_Type *ct = expr->call.callee->type;
+            if (ct && ct->kind == IRON_TYPE_FUNC && ctx->current_block &&
+                !block_is_terminated(ctx->current_block) &&
+                (iron_hir_var_is_boxed(ctx->hir, cv) || var_is_capture(ctx, cv))) {
+                IronLIR_ValueId ts = emit_alloca_in_entry(ctx, ct, "__callee", span);
+                iron_lir_store(ctx->current_func, ctx->current_block, ts, func_ptr, span);
+                emit_lifecycle_glue_call(ctx, "$copy", ts, span);
+                func_ptr = iron_lir_load(ctx->current_func, ctx->current_block, ts, ct, span)->id;
+                TempOwned to = { ts, ct, true };
+                arrput(temps, to);
+            }
         } else {
             func_ptr = lower_expr(ctx, expr->call.callee);
             /* A closure produced by the callee expression itself
@@ -4183,6 +4222,21 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
             if (boxed && alloca_id < (IronLIR_ValueId)arrlen(ctx->current_func->value_table) &&
                 ctx->current_func->value_table[alloca_id]) {
                 ctx->current_func->value_table[alloca_id]->alloca.is_boxed = true;
+                /* The cell is allocated here, where the binding comes into
+                 * existence, not once at function entry: a declaration in a
+                 * loop body makes a new binding (and cell) each iteration,
+                 * and each iteration's scope exit releases its own (a cell
+                 * allocated once was released, then reused, then released
+                 * again: a double free). */
+                if (ctx->current_block && !block_is_terminated(ctx->current_block)) {
+                    IronLIR_Instr *cref = iron_lir_func_ref(ctx->current_func,
+                        ctx->current_block, "$cell_new", NULL, span);
+                    if (cref) {
+                        IronLIR_ValueId cargs[1] = { alloca_id };
+                        iron_lir_call(ctx->current_func, ctx->current_block,
+                                      NULL, cref->id, cargs, 1, NULL, span);
+                    }
+                }
                 if (ctx->defer_depth > 0 && ctx->drop_stacks &&
                     ctx->defer_depth <= (int)arrlen(ctx->drop_stacks)) {
                     /* (The type tells the pump whether the cell holds a
@@ -4247,6 +4301,11 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
                     iron_lir_store(ctx->current_func, ctx->current_block,
                                    alloca_id, init_val, span);
                 }
+                /* `val s: Shape = obj` copies obj into the binding: the
+                 * copy is fixed up (rc fields retained, copy block run) as
+                 * a `var` binding's is. It was a bytewise copy, so dropping
+                 * the binding released the rc fields obj still held. */
+                emit_copy_fixup_at(ctx, stmt->let.init, type, alloca_id, span);
             }
             /* Phase 24 DROP-01 (Plan 24-02): push drop entry for interface-alloca binding */
             if (!var_is_capture(ctx, vid) &&
@@ -5006,16 +5065,37 @@ static void lower_stmt(HIR_to_LIR_Ctx *ctx, IronHIR_Stmt *stmt) {
              * scope-exit drop is skipped below); any other place is copied
              * for the caller, who will drop the returned value. */
             IronHIR_Expr *rv = stmt->return_stmt.value;
-            if (rv->kind == IRON_HIR_EXPR_IDENT &&
-                type_needs_drop(ret_type, ctx->program) &&
-                hmgeti(ctx->var_alloca_map, rv->ident.var_id) >= 0 &&
-                !var_is_capture(ctx, rv->ident.var_id) &&
-                !iron_hir_var_is_boxed(ctx->hir, rv->ident.var_id)) {
+            /* Only a binding this frame owns can move: a parameter is lent
+             * by the caller and a global outlives the call, so returning
+             * either copies (the copy hook runs, rc fields are retained). */
+            bool rv_owned = rv->kind == IRON_HIR_EXPR_IDENT &&
+                            hmgeti(ctx->param_map, rv->ident.var_id) < 0 &&
+                            !var_is_capture(ctx, rv->ident.var_id) &&
+                            !iron_hir_var_is_boxed(ctx->hir, rv->ident.var_id);
+            ptrdiff_t rv_slot = rv_owned ? hmgeti(ctx->var_alloca_map, rv->ident.var_id) : -1;
+            if (rv_slot >= 0) {
+                IronLIR_ValueId sv = ctx->var_alloca_map[rv_slot].value;
+                if (sv < (IronLIR_ValueId)arrlen(ctx->current_func->value_table) &&
+                    ctx->current_func->value_table[sv] &&
+                    ctx->current_func->value_table[sv]->kind == IRON_LIR_ALLOCA &&
+                    ctx->current_func->value_table[sv]->alloca.global_name) {
+                    rv_owned = false;
+                    rv_slot = -1;
+                }
+            }
+            if (rv_owned && rv_slot >= 0 &&
+                type_needs_drop(ret_type, ctx->program)) {
                 /* (A captured var belongs to the env, not this frame: it
                  * is copied for the caller below, never moved. A var in
                  * a capture cell is owned by the cell, which other closures
                  * may still share: the caller gets a copy, #246.) */
                 ctx->moved_slot = hmget(ctx->var_alloca_map, rv->ident.var_id);
+            } else if (rv_owned && ret_type && ret_type->kind == IRON_TYPE_OBJECT &&
+                       !type_needs_drop(ret_type, ctx->program) &&
+                       (rv_slot >= 0 || hmgeti(ctx->val_binding_map, rv->ident.var_id) >= 0)) {
+                /* A local of a type with no drop (a copy hook only) moves
+                 * too: copying it ran the copy hook for a value nobody else
+                 * holds, which a droppable local does not. */
             } else if (ctx->cur_is_init && rv->kind == IRON_HIR_EXPR_IDENT &&
                        rv->ident.name && strcmp(rv->ident.name, "self") == 0) {
                 /* init hands the object it built to the caller as is: the
@@ -5620,6 +5700,14 @@ static void ssa_collect_addr_taken(IronLIR_Func *fn) {
             IronLIR_Instr *in = blk->instrs[ii];
             if (!in) continue;
             switch ((int)in->kind) {
+            case IRON_LIR_ALLOCA:
+                /* A global slot aliases the module static, which any call
+                 * may write: it is never promoted. (Promoted, the join of a
+                 * branch that stores to it took the other branches' value
+                 * as 0, and value range narrowing then truncated its loads
+                 * to the range of the stored constants.) */
+                if (in->alloca.global_name) hmput(g_ssa_addr_taken, in->id, true);
+                break;
             case IRON_LIR_CALL:
                 for (int ai = 0; ai < in->call.arg_count; ai++) {
                     ssa_mark_addr_taken(fn, in->call.args[ai]);
@@ -5909,16 +5997,32 @@ static void ssa_construct_func(IronLIR_Func *fn) {
         struct { IronLIR_BlockId key; bool value; } *def_blocks = NULL;
         struct { IronLIR_BlockId key; bool value; } *phi_placed  = NULL;
 
+        /* A heap or arena binding's slot holds the allocation handle, typed
+         * `*T`, while the allocation is typed T: a phi over the slot would
+         * join values of two types. Such a slot keeps real loads, as it
+         * does once anything reaches the object through it. */
+        bool heap_slot = false;
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronLIR_Block *blk = fn->blocks[bi];
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *instr = blk->instrs[ii];
                 if (instr && instr->kind == IRON_LIR_STORE &&
                     instr->store.ptr == alloca_id) {
+                    IronLIR_ValueId sv = instr->store.value;
+                    IronLIR_Instr *si = (sv != IRON_LIR_VALUE_INVALID &&
+                                         sv < (IronLIR_ValueId)arrlen(fn->value_table))
+                                        ? fn->value_table[sv] : NULL;
+                    if (si && (si->kind == IRON_LIR_HEAP_ALLOC || si->kind == IRON_LIR_ARENA_ALLOC))
+                        heap_slot = true;
                     hmput(def_blocks, blk->id, true);
-                    break;
                 }
             }
+        }
+        if (heap_slot) {
+            fn->value_table[alloca_id]->alloca.addr_taken = true;
+            hmput(g_ssa_addr_taken, alloca_id, true);
+            hmfree(def_blocks);
+            continue;
         }
 
         /* DF+ closure: iteratively propagate through DF */

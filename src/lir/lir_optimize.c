@@ -1862,7 +1862,9 @@ static IronLIR_EscapeEntry *compute_escape_set(IronLIR_Func *fn) {
         for (int ii = 0; ii < blk->instr_count; ii++) {
             IronLIR_Instr *in = blk->instrs[ii];
             if (in->kind == IRON_LIR_ALLOCA) {
-                hmput(escaped, in->id, false);
+                /* A global slot aliases the module static, which any
+                 * callee may write: it is escaped from the start. */
+                hmput(escaped, in->id, in->alloca.global_name != NULL);
             }
         }
     }
@@ -6369,6 +6371,10 @@ static void run_function_inlining(IronLIR_Module *module,
                             at = fn->params[av - 1].type;
                         Iron_Type *pt = callee->params[ai].type;
                         if (at && pt && at->kind == IRON_TYPE_PTR && pt->kind != IRON_TYPE_PTR)
+                            arg_mismatch = true;
+                        /* (An rc handle for a by-value receiver, `r.m()` or
+                         * `rs[0].m()` with r: rc T, is a T * in C.) */
+                        if (at && pt && at->kind == IRON_TYPE_RC && pt->kind == IRON_TYPE_OBJECT)
                             arg_mismatch = true;
                     }
                     if (arg_mismatch) continue;

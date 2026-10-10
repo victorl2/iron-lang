@@ -5354,6 +5354,12 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     fn_id->name
                         ? iron_scope_lookup(ctx->global_scope, fn_id->name)
                         : NULL;
+                /* A local binding of function type with the name of a
+                 * top-level function shadows it: the call goes through the
+                 * binding, so the function's `var` parameters do not apply. */
+                if (fn_id->resolved_sym &&
+                    fn_id->resolved_sym->sym_kind != IRON_SYM_FUNCTION)
+                    fn_sym = NULL;
                 if (fn_sym && fn_sym->sym_kind == IRON_SYM_FUNCTION &&
                     fn_sym->decl_node &&
                     fn_sym->decl_node->kind == IRON_NODE_FUNC_DECL) {
@@ -7140,15 +7146,23 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                iface_method_help(ctx, iface_ni, mc->method));
                     result = iron_type_make_primitive(IRON_TYPE_ERROR);
                 }
-            } else if (obj_type_mc && obj_type_mc->kind == IRON_TYPE_OBJECT &&
-                       obj_type_mc->object.decl && obj_type_mc->object.decl->name &&
+            } else if (obj_type_mc &&
+                       (obj_type_mc->kind == IRON_TYPE_OBJECT ||
+                        (obj_type_mc->kind == IRON_TYPE_RC && obj_type_mc->rc.inner &&
+                         obj_type_mc->rc.inner->kind == IRON_TYPE_OBJECT)) &&
+                       (obj_type_mc->kind == IRON_TYPE_RC ? obj_type_mc->rc.inner : obj_type_mc)->object.decl &&
+                       (obj_type_mc->kind == IRON_TYPE_RC ? obj_type_mc->rc.inner : obj_type_mc)->object.decl->name &&
                        ctx->program) {
                 /* Non-ident receiver of object type (`self.ball.hp()`): resolve
-                 * the return type from the method decl, as the ident arm does. */
-                const char *type_name_ni = obj_type_mc->object.decl->name;
+                 * the return type from the method decl, as the ident arm does.
+                 * An rc handle reached the same way (`rs[0].get()`) dispatches
+                 * on the object it holds, as an rc binding does. */
+                bool via_rc_ni = obj_type_mc->kind == IRON_TYPE_RC;
+                Iron_Type *obj_ni = via_rc_ni ? obj_type_mc->rc.inner : obj_type_mc;
+                const char *type_name_ni = obj_ni->object.decl->name;
                 /* A func typed field called through the receiver (#196). */
                 {
-                    Iron_ObjectDecl *od_ni = obj_type_mc->object.decl;
+                    Iron_ObjectDecl *od_ni = obj_ni->object.decl;
                     for (int fi = 0; fi < od_ni->field_count; fi++) {
                         Iron_Field *f = (Iron_Field *)od_ni->fields[fi];
                         if (!f || !f->name || !mc->method || strcmp(f->name, mc->method) != 0)
@@ -7178,7 +7192,8 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                     /* `cs[0].bump()`, `p.inner.bump()`: a method that writes
                      * self needs a mutable path to the receiver, as the
                      * identifier receiver above does. */
-                    if (md->is_receiver_form && md->param_count > 0 && !md->is_readonly &&
+                    if (!via_rc_ni &&
+                        md->is_receiver_form && md->param_count > 0 && !md->is_readonly &&
                         !md->is_pure && md->params[0] &&
                         ((Iron_Param *)md->params[0])->is_mut_receiver)
                         check_mutating_receiver(ctx, mc, mc->object);
@@ -10433,9 +10448,25 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                     for (int i = 0; i < ms->case_count; i++) {
                         Iron_MatchCase *mc = (Iron_MatchCase *)ms->cases[i];
                         if (!mc || !mc->pattern) continue;
-                        if (mc->pattern->kind != IRON_NODE_PATTERN) continue;
-                        Iron_Pattern *p = (Iron_Pattern *)mc->pattern;
-                        const char *vname = p->variant_name;
+                        /* A bare unit variant (`Empty ->`) is parsed as an
+                         * identifier expression; it covers its variant just
+                         * as `Tok.Empty ->` does. */
+                        const char *vname = NULL;
+                        int pat_bindings = 0;
+                        if (mc->pattern->kind == IRON_NODE_PATTERN) {
+                            Iron_Pattern *pp = (Iron_Pattern *)mc->pattern;
+                            vname = pp->variant_name;
+                            pat_bindings = pp->binding_count;
+                        } else if (mc->pattern->kind == IRON_NODE_IDENT) {
+                            Iron_Ident *pid = (Iron_Ident *)mc->pattern;
+                            if (pid->resolved_sym &&
+                                pid->resolved_sym->sym_kind == IRON_SYM_ENUM_VARIANT &&
+                                pid->resolved_sym->type &&
+                                iron_type_equals(pid->resolved_sym->type, subject_type)) {
+                                vname = pid->name;
+                            }
+                        }
+                        if (!vname) continue;
                         int vi = find_variant_index(ed, vname);
                         if (vi < 0) {
                             /* Unknown variant — already reported by resolver; skip */
@@ -10453,11 +10484,11 @@ static void check_stmt(TypeCtx *ctx, Iron_Node *node) {
                         }
                         /* Check pattern arity (binding_count must match payload_count) */
                         Iron_EnumVariant *ev = (Iron_EnumVariant *)ed->variants[vi];
-                        if (p->binding_count != ev->payload_count) {
+                        if (pat_bindings != ev->payload_count) {
                             char msg[256];
                             snprintf(msg, sizeof(msg),
                                      "%s expects %d field(s) but pattern has %d",
-                                     vname, ev->payload_count, p->binding_count);
+                                     vname, ev->payload_count, pat_bindings);
                             emit_error(ctx, IRON_ERR_PATTERN_ARITY, mc->pattern->span,
                                        msg, NULL);
                         }

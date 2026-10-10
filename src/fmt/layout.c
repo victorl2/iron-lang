@@ -125,14 +125,11 @@ static Line *scan_lines(const char *src) {
             }
             if (c == '\\') { i += (i + 1 < n && src[i + 1] != '\n') ? 2 : 1; continue; }
             if (c == '"') {
-                /* A literal nested in the expression, copied verbatim by
-                 * the lexer up to its closing quote. */
+                /* A literal nested in the expression, which may interpolate
+                 * in turn: scanned like any other string. */
+                ScanCtx s = { CTX_STR, 0 };
+                arrput(stack, s);
                 i++;
-                while (i < n && src[i] != '\n' && src[i] != '"') {
-                    if (src[i] == '\\' && i + 1 < n && src[i + 1] != '\n') i++;
-                    i++;
-                }
-                if (i < n && src[i] == '"') i++;
                 continue;
             }
             if (c == '{') { TOP.depth++; i++; continue; }

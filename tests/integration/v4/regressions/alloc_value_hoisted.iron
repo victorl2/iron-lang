@@ -1,0 +1,60 @@
+-- An rc, heap or arena allocation whose value the emitter declares at the
+-- function entry (it is used from an earlier block, here around a branch
+-- that returns) was declared a second time where it is made, so the C did
+-- not compile ("redefinition of _vN").
+object Crate {
+    val id: Int
+    var v: Int
+    init(id: Int, v: Int) {
+        self.id = id
+        self.v = v
+    }
+    drop { println("drop {self.id}") }
+}
+
+func make() -> Crate {
+    val b = Crate(9, 1)
+    return b
+}
+
+func f(var a: Int) -> Int {
+    var m = make()
+    val r = rc Crate(2, a)
+    val v3 = m.v
+    if a == -10 {
+    } elif v3 <= v3 * (a & 7) {
+    } elif a > 100 {
+        return r.v
+    } else {
+        var q = rc Crate(4, 0)
+    }
+    return m.id + r.v
+}
+
+func g(var a: Int) -> Int {
+    var m = make()
+    val r = rc Crate(3, a)
+    val w = r.downgrade()
+    val v3 = m.v
+    if a == -10 {
+    } elif v3 <= v3 * (a & 7) {
+    } elif a > 100 {
+        return r.v
+    } else {
+        var q = rc Crate(5, 0)
+    }
+    val u = w.upgrade()
+    if u != null {
+        return u.v + m.id
+    }
+    return 0
+}
+
+func main() {
+    var a = 3
+    println("{f(a)}")
+    a = 200
+    println("{f(a)}")
+    a = 4
+    println("{g(a)}")
+}

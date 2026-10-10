@@ -197,6 +197,24 @@ static void collect_locals(Iron_Node *node, StrSet **locals) {
 /* Forward declaration for mutual recursion. */
 static void walk_node_for_lambdas(CaptureCtx *ctx, Iron_Node *node);
 
+static StrSet *strset_copy(StrSet *s) {
+    StrSet *out = NULL;
+    for (ptrdiff_t i = 0; i < shlen(s); i++) shput(out, s[i].key, 1);
+    return out;
+}
+
+/* The names a match pattern binds, nested patterns included. */
+static void pattern_locals(Iron_Node *pat, StrSet **locals) {
+    if (!pat || pat->kind != IRON_NODE_PATTERN) return;
+    Iron_Pattern *p = (Iron_Pattern *)pat;
+    for (int i = 0; i < p->binding_count; i++) {
+        if (p->binding_names && p->binding_names[i])
+            shput(*locals, (char *)p->binding_names[i], 1);
+        if (p->nested_patterns && p->nested_patterns[i])
+            pattern_locals(p->nested_patterns[i], locals);
+    }
+}
+
 /* Walk `node` collecting all IRON_NODE_IDENT references that are outer-scope
  * captures into `captures`. `locals` is the set of names defined inside this
  * lambda (params + local decls). */
@@ -264,22 +282,35 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
             break;
         }
 
-        /* Recurse into all other node types that can contain expressions */
+        /* Recurse into all other node types that can contain expressions.
+         * A name declared in a block is local from its declaration to the
+         * end of that block (manual 4.1): before it, and outside the block,
+         * the same name still reaches the binding of an enclosing scope,
+         * which is then a capture (`val v = v + 1` reads the outer v). */
         case IRON_NODE_BLOCK: {
             Iron_Block *blk = (Iron_Block *)node;
+            StrSet *saved = strset_copy(*locals);
             for (int i = 0; i < blk->stmt_count; i++) {
                 collect_idents(blk->stmts[i], locals, captures, seen);
             }
+            shfree(*locals);
+            *locals = saved;
             break;
         }
         case IRON_NODE_VAL_DECL: {
             Iron_ValDecl *vd = (Iron_ValDecl *)node;
             collect_idents(vd->init, locals, captures, seen);
+            if (vd->name) shput(*locals, (char *)vd->name, 1);
+            for (int i = 0; i < vd->binding_count; i++) {
+                if (vd->binding_names && vd->binding_names[i])
+                    shput(*locals, (char *)vd->binding_names[i], 1);
+            }
             break;
         }
         case IRON_NODE_VAR_DECL: {
             Iron_VarDecl *vd = (Iron_VarDecl *)node;
             collect_idents(vd->init, locals, captures, seen);
+            if (vd->name) shput(*locals, (char *)vd->name, 1);
             break;
         }
         case IRON_NODE_ASSIGN: {
@@ -313,7 +344,12 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
         case IRON_NODE_FOR: {
             Iron_ForStmt *fs = (Iron_ForStmt *)node;
             collect_idents(fs->iterable, locals, captures, seen);
+            StrSet *saved = strset_copy(*locals);
+            if (fs->var_name) shput(*locals, (char *)fs->var_name, 1);
+            if (fs->var_name2) shput(*locals, (char *)fs->var_name2, 1);
             collect_idents(fs->body,     locals, captures, seen);
+            shfree(*locals);
+            *locals = saved;
             break;
         }
         case IRON_NODE_MATCH: {
@@ -328,7 +364,11 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
         case IRON_NODE_MATCH_CASE: {
             Iron_MatchCase *mc = (Iron_MatchCase *)node;
             collect_idents(mc->pattern, locals, captures, seen);
+            StrSet *saved = strset_copy(*locals);
+            pattern_locals(mc->pattern, locals);
             collect_idents(mc->body,    locals, captures, seen);
+            shfree(*locals);
+            *locals = saved;
             break;
         }
         case IRON_NODE_BINARY: {
@@ -408,6 +448,20 @@ static void collect_idents(Iron_Node *node, StrSet **locals,
             }
             break;
         }
+        case IRON_NODE_ENUM_CONSTRUCT: {
+            /* `Tok.Pair(a, b)`: the payload arguments may be captures. */
+            Iron_EnumConstruct *ec = (Iron_EnumConstruct *)node;
+            for (int i = 0; i < ec->arg_count; i++) {
+                collect_idents(ec->args[i], locals, captures, seen);
+            }
+            break;
+        }
+        case IRON_NODE_IN_ARENA: {
+            Iron_InArenaBlock *ia = (Iron_InArenaBlock *)node;
+            collect_idents(ia->arena_expr, locals, captures, seen);
+            collect_idents(ia->body,       locals, captures, seen);
+            break;
+        }
         case IRON_NODE_ARRAY_LIT: {
             Iron_ArrayLit *al = (Iron_ArrayLit *)node;
             collect_idents(al->size, locals, captures, seen);
@@ -464,8 +518,9 @@ static void find_captures(CaptureCtx *ctx, Iron_LambdaExpr *le) {
             shput(locals, param->name, 1);
         }
     }
-    /* Also collect all val/var decls inside the body as locals */
-    collect_locals(le->body, &locals);
+    /* The body's own declarations become local as the walk reaches them
+     * (collect_idents), so a name read before a shadowing declaration is
+     * still captured from the enclosing scope. */
 
     /* Collect captures via ident walk */
     TmpCapture *captures = NULL;

@@ -1,0 +1,12 @@
+-- A string literal inside an interpolation may interpolate in turn, and the
+-- literals inside that may hold escaped braces, braces or quotes: none of
+-- them ends the outer literal or its interpolation early.
+func main() {
+    val n = 7
+    println("{"<{"\{"}>"}")
+    println("{"a{"}"}b"}")
+    println("{"x{"{n}"}y"}")
+    println("1 {"a{"b{n}c"}d"} 2")
+    val s = "-{"\}"}-{"{"{"\{"}"}"}-"
+    println(s)
+}

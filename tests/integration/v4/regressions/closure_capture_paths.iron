@@ -1,0 +1,55 @@
+-- Captures reached in less common places: the payload of an enum value
+-- built inside the lambda (not walked, so the binding was not captured),
+-- and a captured var passed on to a `var` parameter (its address was taken
+-- of a slot the lambda does not have). Both failed the C compile. A local
+-- binding of function type named like a top-level function shadows it: the
+-- call does not take that function's `var` parameters (E0267 was reported).
+enum Tok {
+    Pair(Int, Int),
+    Empty,
+}
+
+func total(t: Tok) -> Int {
+    match t {
+        Tok.Pair(a, b) -> return a + b
+        Tok.Empty -> return 0
+    }
+    return 0
+}
+
+func inc(var a: Int) -> Int {
+    a += 1
+    return a
+}
+
+func make_adder(n: Int) -> func(Int) -> Int {
+    return func(x: Int) -> Int { return x + n }
+}
+
+func twice(var a: Int, b: Int) -> Int {
+    a += b
+    return a
+}
+
+func pair_sum(k: Int) -> Int {
+    val g = func(x: Int) -> Int {
+        return x + total(Tok.Pair(k, k * 2))
+    }
+    return g(1)
+}
+
+func main() {
+    println("{pair_sum(3)}")
+    var c = 0
+    val f = func() -> Int { return inc(c) }
+    println("{f()} {f()} {c}")
+    val g = func() -> Int {
+        var w = 10
+        val h = func() -> Int { return inc(w) }
+        val r = h()
+        return r + w
+    }
+    println("{g()}")
+    var twice = make_adder(5)
+    println("{twice(1)}")
+}

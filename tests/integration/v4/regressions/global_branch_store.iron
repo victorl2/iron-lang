@@ -1,0 +1,37 @@
+-- A global stored in one arm of a match and read after it. The global's
+-- slot was promoted to SSA as if it were a local: the join took the other
+-- arms' value as 0, and value range narrowing then typed the later loads
+-- of the global as int8_t, from the stored constant, truncating -348 to
+-- 164 on the fourth call.
+var g0 = 5
+var g1 = (-5)
+
+func f3(a0: Int, a1: Int) -> Int {
+    println("g1 {g1}")
+    match 12 & g1 ^ -a1 {
+        -4 -> {
+        }
+        7 -> g1 = 3
+        else -> {
+        }
+    }
+    if a1 >= a0 {
+        g1 += a1 + g1
+        var w = 0
+        while w < 6 {
+            w += 1
+            g1 += g0 - 14
+        }
+    }
+    return g1
+}
+
+func main() {
+    val start = g1
+    var k = 0
+    while k < 4 {
+        k += 1
+        f3(start | (-6), g0 + g0)
+    }
+    println("end {g1}")
+}

@@ -1,0 +1,28 @@
+-- A unit variant written without its enum (`Empty ->`) covers that variant
+-- in a match on an enum with payloads, as `Tok.Empty ->` does: the match
+-- below is exhaustive and needs no else arm (it was rejected with E0224).
+enum Tok {
+    Num(Int),
+    Pair(Int, Int),
+    Empty,
+}
+
+func show(t: Tok) -> String {
+    match t {
+        Num(n) -> return "num {n}"
+        Empty -> return "empty"
+        Pair(a, b) -> return "pair {a} {b}"
+    }
+    return ""
+}
+
+func main() {
+    println(show(Tok.Empty))
+    println(show(Tok.Num(2)))
+    println(show(Tok.Pair(3, 4)))
+    match Tok.Empty {
+        Tok.Num(_) -> println("num")
+        Empty -> println("bare empty")
+        Pair(_, _) -> println("pair")
+    }
+}

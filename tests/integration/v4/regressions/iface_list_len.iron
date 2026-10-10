@@ -1,0 +1,30 @@
+-- len(xs) on a list of an interface type: that list is a split collection
+-- (one list per implementor) with no `count` member, and len() read it
+-- anyway, so the C did not compile. xs.len() worked.
+interface Shape {
+    readonly func area() -> Int
+}
+
+object Sq impl Shape {
+    val s: Int
+    readonly func area() -> Int {
+        return self.s * self.s
+    }
+}
+
+object Ci impl Shape {
+    val r: Int
+    readonly func area() -> Int {
+        return 3 * self.r * self.r
+    }
+}
+
+func main() {
+    var xs: [Shape] = []
+    xs.push(Sq(2))
+    xs.push(Ci(1))
+    println("{len(xs)} {xs.len()}")
+    if len(xs) > 1 {
+        println("{xs[1].area()}")
+    }
+}
