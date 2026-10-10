@@ -1,0 +1,40 @@
+-- A heap binding in a loop body whose object is written and read: the loads
+-- of the handle were declared at the function entry with the object's
+-- type, so the C did not compile. A heap binding in a branch that is never
+-- used stopped the compiler with an internal PHI type error.
+object Cell {
+    val id: Int
+    var v: Int
+    init(id: Int, v: Int) {
+        self.id = id
+        self.v = v
+    }
+    readonly func get() -> Int {
+        return self.v * 10 + self.id
+    }
+    drop {
+        println("drop {self.id} {self.v}")
+    }
+}
+
+func main() {
+    for i in range(2) {
+        var h = heap Cell(i, 1)
+        defer free h
+        h.v += i + 1
+        h.v = h.v * 2
+        println("{h.v} {h.get()}")
+    }
+    var k = 0
+    while k < 2 {
+        k += 1
+        val c = heap Cell(10 + k, k)
+        println("{c.get()}")
+        free c
+    }
+    if k > 1 {
+        var unused = heap Cell(99, 0)
+        leak unused
+    }
+    println("end")
+}

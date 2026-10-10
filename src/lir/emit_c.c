@@ -897,6 +897,33 @@ static const char *emit_vid_global_slot(IronLIR_Func *fn, IronLIR_ValueId vid) {
     return in->alloca.global_name;
 }
 
+/* The C type of the local holding instr's value. A LOAD of an rc, heap or
+ * arena slot holds what the slot holds (a pointer or an Iron_FatPtr handle,
+ * not the object), and a LOAD of a global slot is typed from the global.
+ * The declaration at the definition site and a declaration hoisted to the
+ * function entry (the value is used in an earlier block, or inside a
+ * structured loop) must agree. */
+static Iron_Type *emit_value_c_type(IronLIR_Func *fn, IronLIR_Instr *instr) {
+    if (instr->kind != IRON_LIR_LOAD) return instr->type;
+    Iron_Type *load_c_type = instr->type;
+    IronLIR_ValueId ptr = instr->load.ptr;
+    IronLIR_Instr *slot = (ptr != IRON_LIR_VALUE_INVALID &&
+                           ptr < (IronLIR_ValueId)arrlen(fn->value_table))
+                          ? fn->value_table[ptr] : NULL;
+    if (!slot || slot->kind != IRON_LIR_ALLOCA || !slot->alloca.alloc_type)
+        return load_c_type;
+    /* Alloca holds a pointer: use the alloca's RC type for C type */
+    if (slot->alloca.alloc_type->kind == IRON_TYPE_RC)
+        load_c_type = slot->alloca.alloc_type;
+    /* heap / arena binding slot: the load reads the Iron_FatPtr handle */
+    if (emit_slot_is_heap_handle(fn, ptr, instr->type))
+        load_c_type = slot->alloca.alloc_type;
+    /* Module-global slot: the load copies the static's value */
+    if (slot->alloca.global_name)
+        load_c_type = slot->alloca.alloc_type;
+    return load_c_type;
+}
+
 /* C identifier of the file-scope static backing module global `name`.
  * Distinct `Iron_g_` prefix so a global named e.g. `Color` cannot collide
  * with the `Iron_Color` typedef. Arena-owned. */
@@ -3473,30 +3500,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
              * alloca's type (T*) rather than the LOAD's inner type (T). */
             emit_indent(sb, ind);
             if (!is_hoisted) {
-                Iron_Type *load_c_type = instr->type;
-                IronLIR_ValueId ptr = instr->load.ptr;
-                if (ptr != IRON_LIR_VALUE_INVALID &&
-                    ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
-                    fn->value_table[ptr] &&
-                    fn->value_table[ptr]->kind == IRON_LIR_ALLOCA &&
-                    fn->value_table[ptr]->alloca.alloc_type &&
-                    fn->value_table[ptr]->alloca.alloc_type->kind == IRON_TYPE_RC) {
-                    /* Alloca holds a pointer: use the alloca's RC type for C type */
-                    load_c_type = fn->value_table[ptr]->alloca.alloc_type;
-                }
-                /* heap / arena binding slot: the load reads the Iron_FatPtr
-                 * handle, not the object. */
-                if (emit_slot_is_heap_handle(fn, ptr, instr->type)) {
-                    load_c_type = fn->value_table[ptr]->alloca.alloc_type;
-                }
-                /* Module-global slot: the load copies the STATIC's value, so
-                 * type it from the slot's alloc_type (authoritative). */
-                if (emit_vid_global_slot(fn, ptr) &&
-                    fn->value_table[ptr]->alloca.alloc_type) {
-                    load_c_type = fn->value_table[ptr]->alloca.alloc_type;
-                }
                 iron_strbuf_appendf(sb, "%s ",
-                    emit_local_decl_type(fn, instr, load_c_type, ctx));
+                    emit_local_decl_type(fn, instr, emit_value_c_type(fn, instr), ctx));
             }
             emit_val(sb, instr->id);
             iron_strbuf_appendf(sb, " = ");
@@ -10354,7 +10359,7 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                     hmput(ctx->phi_hoisted, in->id, true);
                     emit_indent(sb, 1);
                     iron_strbuf_appendf(sb, "%s %s;\n",
-                        emit_local_decl_type(fn, in, in->type, ctx), emit_vname(in->id));
+                        emit_local_decl_type(fn, in, emit_value_c_type(fn, in), ctx), emit_vname(in->id));
                 }
             }
         }
@@ -10501,7 +10506,7 @@ static void emit_func_body_into(EmitCtx *ctx, IronLIR_Func *fn, Iron_StrBuf *sb)
                     hmput(ctx->phi_hoisted, in->id, true);
                     emit_indent(sb, 1);
                     iron_strbuf_appendf(sb, "%s %s;\n",
-                        emit_local_decl_type(fn, in, in->type, ctx), emit_vname(in->id));
+                        emit_local_decl_type(fn, in, emit_value_c_type(fn, in), ctx), emit_vname(in->id));
                 }
             }
         }

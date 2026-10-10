@@ -5924,16 +5924,32 @@ static void ssa_construct_func(IronLIR_Func *fn) {
         struct { IronLIR_BlockId key; bool value; } *def_blocks = NULL;
         struct { IronLIR_BlockId key; bool value; } *phi_placed  = NULL;
 
+        /* A heap or arena binding's slot holds the allocation handle, typed
+         * `*T`, while the allocation is typed T: a phi over the slot would
+         * join values of two types. Such a slot keeps real loads, as it
+         * does once anything reaches the object through it. */
+        bool heap_slot = false;
         for (int bi = 0; bi < fn->block_count; bi++) {
             IronLIR_Block *blk = fn->blocks[bi];
             for (int ii = 0; ii < blk->instr_count; ii++) {
                 IronLIR_Instr *instr = blk->instrs[ii];
                 if (instr && instr->kind == IRON_LIR_STORE &&
                     instr->store.ptr == alloca_id) {
+                    IronLIR_ValueId sv = instr->store.value;
+                    IronLIR_Instr *si = (sv != IRON_LIR_VALUE_INVALID &&
+                                         sv < (IronLIR_ValueId)arrlen(fn->value_table))
+                                        ? fn->value_table[sv] : NULL;
+                    if (si && (si->kind == IRON_LIR_HEAP_ALLOC || si->kind == IRON_LIR_ARENA_ALLOC))
+                        heap_slot = true;
                     hmput(def_blocks, blk->id, true);
-                    break;
                 }
             }
+        }
+        if (heap_slot) {
+            fn->value_table[alloca_id]->alloca.addr_taken = true;
+            hmput(g_ssa_addr_taken, alloca_id, true);
+            hmfree(def_blocks);
+            continue;
         }
 
         /* DF+ closure: iteratively propagate through DF */
