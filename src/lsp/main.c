@@ -277,8 +277,9 @@ int main(int argc, char **argv) {
      * and increment, and some treat the id-space as shared — so a
      * server request with id=1 sent after the client's initialize
      * (also id=1) corrupts their id→pending-request map. Start the
-     * server counter at 2^31 so no realistic session can collide. */
-    atomic_store(&g_server.next_request_id, 0x80000000ULL);
+     * server counter at 2^30: no realistic session reaches it, and it
+     * stays a valid LSP integer (int32). */
+    atomic_store(&g_server.next_request_id, ILSP_SERVER_REQUEST_ID_BASE);
 
     if (!g_server.writer || !g_server.cancels || !g_server.dyn_reg) {
         ilsp_log(ILSP_LOG_ERROR, "startup-failure",

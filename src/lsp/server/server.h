@@ -26,6 +26,13 @@
 #include "lsp/server/lifecycle.h"
 #include "lsp/facade/types.h"    /* IronLsp_PositionEncoding */
 
+/* First id of server-originated requests. Far above any client's own ids
+ * (clients count up from 1 and some share the id space), but inside the
+ * LSP `integer` range (int32): Zed rejected the old 2^31 base as an
+ * undecodable message and never answered client/registerCapability or
+ * workspace/inlayHint/refresh. */
+#define ILSP_SERVER_REQUEST_ID_BASE 0x40000000ULL
+
 /* Forward declarations -- each subsystem owns its own struct body. */
 typedef struct IronLsp_Writer         IronLsp_Writer;
 typedef struct IronLsp_Reader         IronLsp_Reader;
@@ -81,7 +88,8 @@ typedef struct IronLsp_Server {
     IronLsp_WsDiagCache      *ws_diag_cache;
 
     /* Atomic request-id counter for server-originated requests
-     * (e.g., client/registerCapability from the dyn-register subsystem). */
+     * (e.g., client/registerCapability from the dyn-register subsystem).
+     * Starts at ILSP_SERVER_REQUEST_ID_BASE. */
     _Atomic uint64_t          next_request_id;
 
     /* Phase 4 Plan 04-03 Task 03 (EDIT-04 D-15, RESEARCH §3.1): client

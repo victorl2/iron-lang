@@ -59,6 +59,23 @@ fn manifest_declares_server_grammar_and_capabilities() {
     let caps = m["capabilities"].as_array().expect("capabilities");
     let kinds: Vec<_> = caps.iter().map(|c| c["kind"].as_str().unwrap()).collect();
     assert!(kinds.contains(&"download_file"));
+    // Zed 1.23 rejects the whole manifest when a download_file capability
+    // has no `path` (#356).
+    for c in caps
+        .iter()
+        .filter(|c| c["kind"].as_str() == Some("download_file"))
+    {
+        assert!(
+            c.get("host").is_some(),
+            "download_file capability without host"
+        );
+        assert!(
+            c.get("path")
+                .and_then(|p| p.as_array())
+                .is_some_and(|p| !p.is_empty()),
+            "download_file capability without path"
+        );
+    }
     assert!(
         kinds.contains(&"process:exec"),
         "the --version check needs a process:exec capability"

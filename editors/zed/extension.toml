@@ -27,10 +27,12 @@ repository = "https://github.com/victorl2/iron-lang"
 commit = "a3db4a8b49ead7bf21e37d5e3f23d470e3cac622"
 path = "grammars/tree-sitter/iron"
 
-# The ironls download: zed::download_file only reaches declared hosts.
+# The ironls download: zed::download_file only reaches declared hosts and
+# paths (Zed rejects the manifest when `path` is missing).
 [[capabilities]]
 kind = "download_file"
 host = "github.com"
+path = ["victorl2", "iron-lang", "**"]
 
 # `ironls --version` for the compatibility check (any ironls path: the
 # settings path, PATH or the download).

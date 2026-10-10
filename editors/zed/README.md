@@ -45,9 +45,7 @@ All settings live under `lsp.iron-lsp` in Zed's `settings.json`:
       }
     }
   },
-  "languages": {
-    "Iron": { "inlay_hints": { "enabled": true } }
-  }
+  "inlay_hints": { "enabled": true }
 }
 ```
 
@@ -58,8 +56,9 @@ All settings live under `lsp.iron-lsp` in Zed's `settings.json`:
   and `settings.inlayHints.bindingTypes` (`val total: Float`): the same
   keys as the VS Code extension's `iron.inlayHints.*`. You may also nest
   them under `"iron"`. Changes apply without a restart.
-- Zed shows inlay hints only when `inlay_hints.enabled` is on (globally
-  or for `Iron`, as above).
+- Zed shows inlay hints only when `inlay_hints.enabled` is on (or after
+  `editor: toggle inlay hints`, ctrl-;). In Zed 1.23, enabling them only
+  under `languages.Iron` did not show them.
 
 ## How the download works
 
