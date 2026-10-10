@@ -65,6 +65,7 @@ if [ "$what" = "--in-container" ]; then linux_leg "$2"; exit $?; fi
 
 run_linux() {
     rsync -az --delete --exclude 'build*/' --exclude '.iron-build/' --exclude '.local-ci/' \
+        --exclude 'node_modules/' --exclude '.vscode-test/' --exclude 'target/' \
         "$here/" "$CI_HOST:$CI_REMOTE_DIR/" || { echo "linux: rsync failed"; return 1; }
     local pids=() leg
     for leg in asan release leaks; do
