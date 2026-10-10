@@ -18,7 +18,9 @@ names = ["a", "bb", "ccc"] (line 18) and ends with p = Point(3, 4)
   - in a second session, the hit count `>= 9` on line 15 first stops on
     the ninth hit (i = 8);
   - launched with "test": "sums the first ten", only that test block runs
-    and its breakpoint (line 29) stops with total = 45.
+    and its breakpoint (line 29) stops with total = 45;
+  - step into from line 20 enters Point's init (line 6), and from line 18
+    (println) it stays in conditions.iron instead of the runtime's C.
 Exit 0 on success, 1 on a failed check, 77 when no DAP debugger is found.
 """
 import os
@@ -171,6 +173,20 @@ def main():
         fail("main ran in the test session: %r" % "".join(out)[-200:])
     print("dap: test \"sums the first ten\" stopped on line 29 with total = 45")
     finish(c)
+
+    # Step into Iron code only: into init from Point(3, 4), over println's
+    # runtime code to the next Iron line.
+    for line, want in ((20, (6,)), (18, (17, 18, 19, 20))):
+        c, out = start(argv, src, [{"line": line}])
+        tid, top = next_stop(c)
+        c.call("stepIn", {"threadId": tid})
+        tid, top = next_stop(c)
+        path = os.path.realpath(((top or {}).get("source") or {}).get("path") or "")
+        if path != os.path.realpath(src) or top.get("line") not in want:
+            fail("step into from line %d stopped at %s:%s, want conditions.iron line %s" %
+                 (line, path, top and top.get("line"), " or ".join(map(str, want))))
+        finish(c)
+    print("dap: step into enters init from line 20 and skips println's runtime code")
     print("PASS")
 
 

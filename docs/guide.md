@@ -183,7 +183,9 @@ are filled in like an Iron string (`i = {i}, total = {total}`). An
 expression that is not Iron (a debugger command typed in the console)
 goes to the debugger as written; start it with a backquote to skip the
 Iron reading. Objects show as `Point {x = 3, y = 4}` and lists as their
-elements.
+elements. Step Into stays in Iron code: it enters `square(4)` but steps
+over the runtime behind `println(...)` or `xs.push(v)`, instead of
+walking through the runtime's C.
 
 In VS Code, F5 in a `.iron` file debugs it with the Iron extension's
 `iron` debug type (`"type": "iron"`, `"program"` a `.iron` file or the

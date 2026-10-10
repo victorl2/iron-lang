@@ -43,6 +43,7 @@ Only the Python standard library is used.
 """
 import json
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -576,6 +577,7 @@ class Proxy:
         self.panic_text = ""     # the debuggee's last panic message
         self.bp_rules = {}       # (path, line) -> condition / hit count / log message
         self.synth = {}          # SYNTH_REF_BASE + n -> children (a C array shown as a list)
+        self.step_waiter = None  # queue of stops while the adapter steps on its own
         self.synth_seq = SYNTH_REF_BASE
 
     # Output to the client.
@@ -661,6 +663,9 @@ class Proxy:
                 return
         if cmd == "evaluate":
             threading.Thread(target=self.handle_evaluate, args=(msg,), daemon=True).start()
+            return
+        if cmd == "stepIn" and self.configured:
+            threading.Thread(target=self.step_in, args=(msg,), daemon=True).start()
             return
         if cmd == "variables":
             ref = (msg.get("arguments") or {}).get("variablesReference")
@@ -777,6 +782,11 @@ class Proxy:
                 self.panic_frames.clear()
             if ev == "output":
                 self.note_output(msg)
+            if ev in ("stopped", "continued") and self.step_waiter is not None:
+                # A step of the adapter's own (see step_in): not the client's.
+                if ev == "stopped":
+                    self.step_waiter.put(msg)
+                return
             if ev == "stopped":
                 # Telling a panic apart takes a request of our own: finish
                 # on another thread.
@@ -1005,6 +1015,53 @@ class Proxy:
                 out.append(text[i])
                 i += 1
         return "".join(out)
+
+    def top_frame(self, tid):
+        r = self.request("stackTrace", {"threadId": tid, "startFrame": 0, "levels": 50})
+        frames = (r.get("body") or {}).get("stackFrames", []) if r.get("success") else []
+        return (frames[0] if frames else {}), len(frames)
+
+    def step_in(self, req):
+        """Step into Iron code only: a step that lands outside a .iron file
+        (the runtime's C, a generated helper) steps back out, and a step
+        that comes back to the line it started on steps in again, so
+        `println(...)` goes to the next line and `square(4)` into square."""
+        tid = (req.get("arguments") or {}).get("threadId")
+        start, start_depth = self.top_frame(tid)
+        start_at = ((start.get("source") or {}).get("path"), start.get("line"))
+        self.respond(req, {})
+        self.step_waiter = queue.Queue()
+        last = None
+        try:
+            command = "stepIn"
+            for _ in range(60):
+                self.request(command, {"threadId": tid}, timeout=30)
+                try:
+                    last = self.step_waiter.get(timeout=30)
+                except queue.Empty:
+                    last = None
+                    break
+                if last["body"].get("reason") not in ("step", None):
+                    break          # a breakpoint, a panic: show it
+                top, depth = self.top_frame(tid)
+                src = top.get("source") or {}
+                if not is_iron_source(src.get("path") or src.get("name")):
+                    # An Iron function's prologue is the generated C's until
+                    # its first statement: go on to that line. Anything else
+                    # (the runtime, a generated helper) is stepped out of.
+                    iron_fn = str(top.get("name", "")).startswith("Iron_")
+                    command = "next" if iron_fn and depth > start_depth else "stepOut"
+                    continue
+                if (src.get("path"), top.get("line")) == start_at and depth == start_depth:
+                    command = "stepIn"
+                    continue
+                break
+        finally:
+            self.step_waiter = None
+        if last is not None:
+            self.local_scopes.clear()
+            self.synth.clear()
+            threading.Thread(target=self.finish_stopped, args=(last,), daemon=True).start()
 
     def go_on(self, tid):
         self.request("continue", {"threadId": tid}, timeout=30)
