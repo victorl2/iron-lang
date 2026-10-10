@@ -40,6 +40,10 @@ import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OWN_SEQ_BASE = 1000000000
+# Every Iron panic prints its message and ends in the C library's abort().
+PANIC_FUNCTIONS = ("abort", "__abort", "raise", "__pthread_kill", "pthread_kill",
+                   "__pthread_kill_implementation", "gsignal")
+PANIC_LINE = re.compile(r"^(panic|assertion failed|error: index|.*out of bounds)", re.I)
 
 
 # ── DAP framing ───────────────────────────────────────────────────────────────
@@ -188,6 +192,8 @@ class Proxy:
         self.local_scopes = {}   # variablesReference -> frameId
         self.configured = False  # the client sent configurationDone
         self.held_launch = None  # gdb: launch waits for configurationDone
+        self.panic_frames = {}   # threadId -> index of the Iron frame that panicked
+        self.panic_text = ""     # the debuggee's last panic message
 
     # Output to the client.
     def send(self, msg):
@@ -270,6 +276,13 @@ class Proxy:
             if err:
                 self.respond_error(msg, err)
                 return
+        if cmd == "stackTrace":
+            a = msg.get("arguments") or {}
+            skip = self.panic_frames.get(a.get("threadId"), 0)
+            if skip and a.get("startFrame"):
+                # A later page of a panic's stack: frames counted from the
+                # Iron frame (see from_child).
+                msg = dict(msg, arguments=dict(a, startFrame=a["startFrame"] + skip))
         if cmd == "launch":
             msg = self.rewrite_launch(msg)
             if msg is None:
@@ -328,9 +341,16 @@ class Proxy:
             for k in ("preRunCommands", "stopCommands", "exitCommands"):
                 if k in a:
                     out[k] = a[k]
+            if a.get("stopOnPanic", True) and os.path.exists(fmt):
+                out["preRunCommands"] = list(out.get("preRunCommands", [])) + ["iron-panic-stop"]
         else:
             if env:
                 out["env"] = env
+            if a.get("stopOnPanic", True):
+                # Pending: abort() is in the C library, loaded with the program.
+                self.request("evaluate", {"expression": "set breakpoint pending on",
+                                          "context": "repl"})
+                self.request("evaluate", {"expression": "break abort", "context": "repl"})
         if "__restart" in a:
             out["__restart"] = a["__restart"]
         return dict(req, arguments=out)
@@ -344,8 +364,17 @@ class Proxy:
                 slot[0].set()
             return
         if msg.get("type") != "response":
-            if msg.get("type") == "event" and msg.get("event") in ("stopped", "continued"):
+            ev = msg.get("event") if msg.get("type") == "event" else None
+            if ev in ("stopped", "continued"):
                 self.local_scopes.clear()
+                self.panic_frames.clear()
+            if ev == "output":
+                self.note_output(msg)
+            if ev == "stopped":
+                # Telling a panic apart takes a request of our own: finish
+                # on another thread.
+                threading.Thread(target=self.finish_stopped, args=(msg,), daemon=True).start()
+                return
             self.send(msg)
             return
         req = self.pending.pop(msg.get("request_seq"), None)
@@ -372,6 +401,15 @@ class Proxy:
             else:
                 self.send(msg)
         elif cmd == "stackTrace":
+            # Stopped in a panic: the stack starts at the Iron frame that
+            # panicked, so every editor shows that line.
+            args = req.get("arguments") or {}
+            skip = self.panic_frames.get(args.get("threadId"), 0)
+            if skip and not args.get("startFrame"):
+                frames = body.get("stackFrames", [])[skip:]
+                body["stackFrames"] = frames
+                if isinstance(body.get("totalFrames"), int):
+                    body["totalFrames"] = max(len(frames), body["totalFrames"] - skip)
             for f in body.get("stackFrames", []):
                 name = f.get("name")
                 if isinstance(name, str):
@@ -384,6 +422,33 @@ class Proxy:
             self.send(msg)
         else:
             self.send(msg)
+
+    def note_output(self, msg):
+        """Remember the debuggee's last panic message."""
+        body = msg.get("body") or {}
+        if body.get("category") not in ("stdout", "stderr", None):
+            return
+        for line in str(body.get("output", "")).splitlines():
+            if PANIC_LINE.search(line):
+                self.panic_text = line.strip()
+
+    def finish_stopped(self, msg):
+        body = msg.get("body") or {}
+        tid = body.get("threadId")
+        if tid is not None and body.get("reason") in ("breakpoint", "signal", "exception",
+                                                       "function breakpoint", None):
+            r = self.request("stackTrace", {"threadId": tid, "startFrame": 0, "levels": 40})
+            frames = (r.get("body") or {}).get("stackFrames", []) if r.get("success") else []
+            top = [str(f.get("name", "")).split("(")[0].strip() for f in frames[:4]]
+            if any(n.replace("__GI_", "") in PANIC_FUNCTIONS for n in top):
+                for i, f in enumerate(frames):
+                    src = f.get("source") or {}
+                    if is_iron_source(src.get("path") or src.get("name")):
+                        self.panic_frames[tid] = i
+                        msg = dict(msg, body=dict(body, reason="exception", description="Panic",
+                                                  text=self.panic_text or "Iron panic"))
+                        break
+        self.send(msg)
 
     def finish_variables(self, msg, frame_id):
         out = []

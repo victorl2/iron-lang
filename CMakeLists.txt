@@ -2984,6 +2984,13 @@ if(NOT WIN32 AND Python3_Interpreter_FOUND)
                    $<TARGET_FILE:iron> dap)
   set_tests_properties(debug_dap_smoke PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
 endif()
+# #312: a panic stops the debugger on the Iron line (iron debug, iron dap).
+if(NOT WIN32)
+  add_test(NAME debug_panic_smoke
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_panic_smoke.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_panic_smoke PROPERTIES TIMEOUT 300)
+endif()
 # #312: gdb, LLDB and Visual Studio (natvis) views of Iron values in
 # `--debug` programs.
 install(FILES src/debug/iron_gdb.py src/debug/iron_lldb.py src/debug/iron_dap.py src/debug/iron.natvis

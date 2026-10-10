@@ -1,0 +1,15 @@
+func pick(xs: [Int], i: Int) -> Int {
+    return xs[i]
+}
+
+func check(total: Int) {
+    assert(total < 5, "total too large")
+}
+
+func main() {
+    val xs = [1, 2, 3]
+    val first = pick(xs, 1)
+    check(first)
+    check(first + 10)
+    println("{pick(xs, 5)}")
+}
