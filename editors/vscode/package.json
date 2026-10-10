@@ -3,7 +3,7 @@
   "displayName": "Iron LSP",
   "description": "Iron language support for VSCode via ironls (LSP 3.17) with TextMate syntax highlighting.",
   "publisher": "iron-lang",
-  "version": "4.12.0-alpha",
+  "version": "5.0.0-alpha",
   "license": "Apache-2.0",
   "icon": "icon.png",
   "repository": {
@@ -23,7 +23,7 @@
     "onDebugDynamicConfigurations:iron"
   ],
   "main": "./dist/extension.js",
-  "ironLspCompatibleIronlsRange": ">= 4.0.0, < 5.0.0",
+  "ironLspCompatibleIronlsRange": ">= 5.0.0, < 6.0.0",
   "contributes": {
     "languages": [
       {

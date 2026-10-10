@@ -196,12 +196,12 @@ fn every_query_zed_loads_is_present_and_highlights_are_in_sync() {
 }
 
 #[test]
-fn version_range_accepts_4x_and_refuses_others() {
-    assert!(config::version_in_range("4.0.0"));
-    assert!(config::version_in_range("4.10.0-alpha"));
-    assert!(config::version_in_range("v4.10.0-alpha"));
-    assert!(!config::version_in_range("3.9.9"));
-    assert!(!config::version_in_range("5.0.0"));
+fn version_range_accepts_5x_and_refuses_others() {
+    assert!(config::version_in_range("5.0.0"));
+    assert!(config::version_in_range("5.0.0-alpha"));
+    assert!(config::version_in_range("v5.3.0-alpha"));
+    assert!(!config::version_in_range("4.12.0-alpha"));
+    assert!(!config::version_in_range("6.0.0"));
     assert!(!config::version_in_range("garbage"));
     assert_eq!(
         config::version_from_output("ironls 4.10.0-alpha (a14e8c58, 2026-10-10)\n").as_deref(),

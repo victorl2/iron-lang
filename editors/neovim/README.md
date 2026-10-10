@@ -5,7 +5,7 @@ server (`ironls`). It is a single Lua config file consumed by Neovim's native
 `vim.lsp.config()` / `vim.lsp.enable()` API — no plugin-wrapper layer, no
 framework dependency.
 
-**Tracks:** Iron v4.0.0-alpha (current main-branch alpha). See the
+**Tracks:** Iron v5.0.0-alpha (current main-branch alpha). See the
 **Version compatibility** section below for the exact `ironls` range the
 config accepts.
 
@@ -354,7 +354,7 @@ before our version guard gets a chance to `return {}`. Upgrade Neovim.
 ### Version mismatch (`[iron-lsp] detected ironls X.Y.Z, but this config requires …`)
 
 Phase 7 HARD-22 / D-10 / UI-SPEC S9 — when the attached `ironls` reports
-a `serverInfo.version` outside the range `>= 4.0.0, < 5.0.0`
+a `serverInfo.version` outside the range `>= 5.0.0, < 6.0.0`
 (`IRON_LSP_COMPATIBLE_VERSION_RANGE` in `lsp/ironls.lua`), the
 `on_attach` hook refuses the attach:
 
@@ -372,11 +372,11 @@ the LSP client is not silently left running in a half-active state.
 
 ## Version compatibility
 
-This config targets `ironls` in `>= 4.0.0, < 5.0.0` per the
+This config targets `ironls` in `>= 5.0.0, < 6.0.0` per the
 `IRON_LSP_COMPATIBLE_VERSION_RANGE` constant in `lsp/ironls.lua`. The
 `on_attach` hook enforces the range as a hard refuse (Phase 7 HARD-22
-/ D-10). Minor/patch bumps within the current `4.x` major are
-compatible by definition; a `5.0.0` release signals breaking LSP
+/ D-10). Minor/patch bumps within the current `5.x` major are
+compatible by definition; a `6.0.0` release signals breaking LSP
 semantics and will require an updated config.
 
 ---

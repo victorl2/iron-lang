@@ -4,7 +4,7 @@ Iron language support for [Visual Studio Code](https://code.visualstudio.com/):
 TextMate syntax highlighting and a full LSP 3.17 client that delegates to
 [`ironls`](https://github.com/iron-lang/iron-lang), the Iron language server.
 
-**Tracks:** Iron v4.0.0-alpha (current main-branch alpha). See the
+**Tracks:** Iron v5.0.0-alpha (current main-branch alpha). See the
 **Version mismatch** section below for the exact `ironls` binary the
 extension accepts.
 
@@ -74,7 +74,7 @@ patch Player {
   `ironls` alongside `ironc`; follow the install instructions at
   <https://iron-lang.dev/install>.
 - Compatible `ironls` versions: see `ironLspCompatibleIronlsRange` in
-  `package.json` (currently `>= 4.0.0, < 5.0.0`). An incompatible server
+  `package.json` (currently `>= 5.0.0, < 6.0.0`). An incompatible server
   triggers a **hard refuse** — see the "Version mismatch" section below.
 
 ## Install
@@ -176,11 +176,11 @@ Each error has an **Open Settings** button that jumps to the
 ### Version mismatch
 
 Phase 7 HARD-22 / UI-SPEC S9 — when the extension detects an `ironls`
-version outside `ironLspCompatibleIronlsRange` (`>= 4.0.0, < 5.0.0`),
+version outside `ironLspCompatibleIronlsRange` (`>= 5.0.0, < 6.0.0`),
 it refuses to activate the language client:
 
 > **Iron LSP: detected ironls X.Y.Z, but this extension requires
-> &gt;= 4.0.0 .. &lt; 5.0.0. The language server will NOT activate.
+> &gt;= 5.0.0 .. &lt; 6.0.0. The language server will NOT activate.
 > Install the latest ironls to continue.**
 
 Click **Update Iron LSP** in the toast to open
