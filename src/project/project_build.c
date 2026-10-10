@@ -684,8 +684,7 @@ static void debug_install_hint_text(const char *tool, char *buf, size_t size) {
     } else if (strcmp(tool, "lldb") == 0) {
         snprintf(buf, size, "  LLVM for Windows includes lldb and lldb-dap; install it with:\n"
                             "    winget install LLVM.LLVM\n"
-                            "  (add C:\\Program Files\\LLVM\\bin to PATH for `iron debug`; its LLDB also\n"
-                            "  needs Python 3.10 or later: winget install Python.Python.3.12)\n");
+                            "  (its LLDB also needs Python 3.10 or later: winget install Python.Python.3.12)\n");
     } else {
         snprintf(buf, size, "  on Windows, use lldb instead: it comes with LLVM (winget install LLVM.LLVM)\n");
     }

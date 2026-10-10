@@ -375,8 +375,6 @@ TOKEN = re.compile(r'\s*(?:(\d+\.\d+)|(\d+)|("(?:[^"\\]|\\.)*")|([A-Za-z_][A-Za-
                    r'(==|!=|<=|>=|&&|\|\||[-+*/%<>()\[\].,!]))')
 BINARY = {"or": 1, "and": 2, "==": 3, "!=": 3, "<": 4, ">": 4, "<=": 4, ">=": 4,
           "+": 5, "-": 5, "*": 6, "/": 6, "%": 6}
-# A value the debugger reads without compiling an expression: x, p.x, xs[1].
-VARIABLE_PATH = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*|\[\d+\])*")
 IRON_ONLY = re.compile(r'\b(and|or|not)\b|\.\s*(len|is_empty|has|get|get_or|contains)\s*\(|'
                        r'\blen\s*\(|"')
 
@@ -1101,19 +1099,6 @@ class Proxy:
         raw = text.startswith("`")
         iron_first = frame_id is not None and not raw and bool(IRON_ONLY.search(text))
         debugger_error = "cannot evaluate"
-        if frame_id is not None and not raw and not iron_first and self.avoid_c_expressions() \
-                and not VARIABLE_PATH.fullmatch(text.strip()):
-            # LLDB on Windows: an expression LLDB compiles and runs in the
-            # program (`total + i * 2`) can make later breakpoint hits go
-            # missing. Compute it as Iron from the variables it names;
-            # only text that is not Iron goes to the debugger.
-            try:
-                v = IronEval(self, frame_id).ev(Parser(text).parse())
-                self.respond(req, {"result": fmt(v),
-                                   "variablesReference": v.ref if isinstance(v, Ref) else 0})
-                return
-            except IronEvalError:
-                pass
         if not iron_first:
             r = self.request("evaluate", a, timeout=30)
             if r.get("success") or frame_id is None or raw:
@@ -1146,11 +1131,6 @@ class Proxy:
             self.respond_error(req, str(e))
             return
         self.respond(req, {"result": fmt(v), "variablesReference": v.ref if isinstance(v, Ref) else 0})
-
-    def avoid_c_expressions(self):
-        """LLDB on Windows loses breakpoint hits after it runs an
-        expression in the program; variable paths are read without one."""
-        return os.name == "nt" and self.kind == "lldb-dap"
 
     def keep_breakpoint_rules(self, req):
         """Iron conditions, hit counts and log messages stay here; the

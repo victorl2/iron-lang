@@ -185,7 +185,7 @@ Where the pieces come from:
 |---|---|---|
 | macOS | lldb, from the Xcode Command Line Tools (`xcode-select --install`), which building already needs | Python 3 and `lldb-dap`, both from the Command Line Tools |
 | Linux | gdb or lldb from the distribution (`sudo apt install gdb`, `sudo dnf install gdb`) | Python 3 (installed on most distributions) and `lldb-dap` (`sudo apt install lldb`) or gdb 14 or later |
-| Windows | lldb from LLVM's installer (`winget install LLVM.LLVM`, with `C:\Program Files\LLVM\bin` on PATH) and Python 3.10 or later | Python 3.10 or later (`winget install Python.Python.3.12`) and `lldb-dap` from LLVM's installer (`winget install LLVM.LLVM`); the `lldb-dap.exe` in Visual Studio's LLVM cannot run (it has no `liblldb.dll`). Without them VS Code falls back to the C/C++ extension's debugger |
+| Windows | lldb from LLVM's installer (`winget install LLVM.LLVM`) and Python 3.10 or later | Python 3.10 or later (`winget install Python.Python.3.12`) and `lldb-dap` from LLVM's installer (`winget install LLVM.LLVM`); the `lldb-dap.exe` in Visual Studio's LLVM cannot run (it has no `liblldb.dll`). Without them VS Code falls back to the C/C++ extension's debugger |
 
 On Windows LLDB needs Python even to start (LLVM's build loads
 `python3.dll`, version 3.10 or later), so `iron dap` uses the same
