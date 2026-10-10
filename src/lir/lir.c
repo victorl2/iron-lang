@@ -240,6 +240,18 @@ IronLIR_Instr *iron_lir_store(IronLIR_Func *fn, IronLIR_Block *block,
     IronLIR_Instr *i = alloc_instr(fn, block, IRON_LIR_STORE, NULL, span, false);
     i->store.ptr   = ptr;
     i->store.value = value;
+    /* `weak rc null` is one constant for every weak type: stored into a
+     * `weak rc T` slot it is a `weak rc T`, so the SSA value that stands
+     * for the slot (and a phi joining it) carries the slot's type. */
+    if (ptr != IRON_LIR_VALUE_INVALID && value != IRON_LIR_VALUE_INVALID &&
+        (ptrdiff_t)ptr < arrlen(fn->value_table) && (ptrdiff_t)value < arrlen(fn->value_table)) {
+        IronLIR_Instr *slot = fn->value_table[ptr];
+        IronLIR_Instr *val  = fn->value_table[value];
+        if (slot && val && slot->kind == IRON_LIR_ALLOCA && val->kind == IRON_LIR_CONST_NULL &&
+            slot->alloca.alloc_type && slot->alloca.alloc_type->kind == IRON_TYPE_WEAK_RC &&
+            (!val->type || val->type->kind == IRON_TYPE_WEAK_RC))
+            val->type = slot->alloca.alloc_type;
+    }
     return i;
 }
 
