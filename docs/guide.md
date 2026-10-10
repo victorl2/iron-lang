@@ -240,13 +240,17 @@ from Microsoft, or CodeLLDB) with a build task:
 
 Parameters and local bindings show under their Iron names (`w`, `total`);
 a name used twice in one function, or one that is also a C keyword,
-carries a suffix (`total_14`). The compiler's own temporaries appear as
-`_v12`: a C name that starts with `_` is never an Iron binding. A `var`
-that a closure captures lives in a shared cell and appears as
-`_ref_count`, a pointer to it; inside the closure, each captured binding
-appears the same way. The `locals` command that the formatters below add
-to gdb and LLDB lists the Iron bindings only: it hides the temporaries
-and shows `_ref_count` as `count` with its value.
+carries a suffix (`total_14`). The compiler's own temporaries carry no
+debug info, so no debugger lists them (set `IRON_DEBUG_TEMPORARIES=1`
+when building to keep them, as `_v12`: a C name that starts with `_` is
+never an Iron binding). The exceptions are synthetic parameters, which C
+cannot hide: a closure's environment, and the `_v1` / `_v1_len` pair a
+list parameter passed as a C array arrives in (its Iron name is the
+copy beside it). A `var` that a closure captures lives in a shared cell
+and appears as `_ref_count`, a pointer to it; inside the closure, each
+captured binding appears the same way. The `locals` command that the
+formatters below add to gdb and LLDB lists the Iron bindings only: it
+leaves those out and shows `_ref_count` as `count` with its value.
 
 `lib/debug/` in the Iron installation holds formatters that show values
 as Iron values: a `String` as its text, a list or set as its elements,
