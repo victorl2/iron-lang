@@ -208,7 +208,11 @@ def child_blocks(obj, out, seen):
             child_blocks(v, out, seen)
 
 
-def reduce_program(ironc, outdir, area, seed, mode='plain', rtlib=None):
+def reduce_program(ironc, outdir, area, seed, mode='plain', rtlib=None, jobs=8):
+    """Delete and hoist statements (and drop functions) while the program
+    still fails the same way. Candidates are checked `jobs` at a time; the
+    first one in program order that still fails is kept."""
+    from concurrent.futures import ThreadPoolExecutor
     g = make_gen(area, seed)
     d = os.path.join(outdir, f'reduce_{area}_{seed}')
     name = f'{area}_{seed}'
@@ -218,61 +222,82 @@ def reduce_program(ironc, outdir, area, seed, mode='plain', rtlib=None):
         return 1
     print(f'failure: {st} {base}', flush=True)
     tries = [0]
+    pool = ThreadPoolExecutor(jobs)
 
-    def still_fails():
-        try:
-            exp = g.model()
-        except Exception:
-            # Bail, or an exit statement hoisted out of its loop or function
-            return False
-        tries[0] += 1
-        st2, _, sig = check_text(ironc, d, name, g.render(), exp, mode, rtlib)
-        return sig == base
+    def first_failing(cands):
+        """cands: (apply, undo) pairs. Returns the index of the first
+        candidate that keeps the failure, or -1. Leaves the program as it
+        was."""
+        work = []
+        for idx, (apply, undo) in enumerate(cands):
+            apply()
+            try:
+                exp = g.model()
+                src = g.render()
+                work.append((idx, src, exp))
+            except Exception:
+                # Bail, or an exit statement hoisted out of its loop or function
+                pass
+            undo()
+        for k in range(0, len(work), jobs):
+            batch = work[k:k + jobs]
+            tries[0] += len(batch)
+            futs = [pool.submit(check_text, ironc, f'{d}_{j}', name, src, exp, mode, rtlib)
+                    for j, (idx, src, exp) in enumerate(batch)]
+            for (idx, _, _), fu in zip(batch, futs):
+                if fu.result()[2] == base:
+                    for f2 in futs:
+                        f2.result()
+                    return idx
+        return -1
+
+    def deletion(lst, i, n):
+        saved = lst[:]
+        return (lambda: lst.__delitem__(slice(i, i + n)), lambda: lst.__setitem__(slice(None), saved))
+
+    def hoist(lst, i, inner):
+        saved = lst[:]
+        return (lambda: lst.__setitem__(slice(i, i + 1), inner.stmts),
+                lambda: lst.__setitem__(slice(None), saved))
 
     changed = True
     while changed:
         changed = False
-        # whole functions
-        i = len(g.funcs) - 1
-        while i >= 0:
-            saved = g.funcs[:]
-            del g.funcs[i]
-            if still_fails():
-                changed = True
-            else:
-                g.funcs[:] = saved
-            i -= 1
+        while True:
+            cands = [deletion(g.funcs, i, 1) for i in range(len(g.funcs) - 1, -1, -1)]
+            k = first_failing(cands)
+            if k < 0:
+                break
+            cands[k][0]()
+            changed = True
         blocks = []
         child_blocks([g.mainblock] + [fd.body for fd, _ in g.funcs], blocks, set())
         for blk in blocks:
-            n = len(blk.stmts)
-            chunk = max(1, n // 2)
+            chunk = max(1, len(blk.stmts) // 2)
             while chunk >= 1:
-                i = len(blk.stmts) - chunk
-                while i >= 0:
-                    saved = blk.stmts[:]
-                    del blk.stmts[i:i + chunk]
-                    if still_fails():
-                        changed = True
-                    else:
-                        blk.stmts[:] = saved
-                    i -= chunk
+                while True:
+                    cands = [deletion(blk.stmts, i, chunk)
+                             for i in range(len(blk.stmts) - chunk, -1, -chunk)]
+                    k = first_failing(cands)
+                    if k < 0:
+                        break
+                    cands[k][0]()
+                    changed = True
                 chunk //= 2
             # hoist the body of a compound statement in its place
-            i = len(blk.stmts) - 1
-            while i >= 0:
-                s = blk.stmts[i]
-                inner = []
-                child_blocks(s, inner, set())
-                for ib in inner[:4]:
-                    saved = blk.stmts[:]
-                    blk.stmts[i:i + 1] = ib.stmts
-                    if still_fails():
-                        changed = True
-                        break
-                    blk.stmts[:] = saved
-                i -= 1
+            while True:
+                cands = []
+                for i in range(len(blk.stmts) - 1, -1, -1):
+                    inner = []
+                    child_blocks(blk.stmts[i], inner, set())
+                    cands += [hoist(blk.stmts, i, ib) for ib in inner[:4]]
+                k = first_failing(cands)
+                if k < 0:
+                    break
+                cands[k][0]()
+                changed = True
         print(f'pass done, {tries[0]} tries, {len(g.render().splitlines())} lines', flush=True)
+    pool.shutdown()
     src = g.render()
     exp = g.model()
     with open(os.path.join(outdir, f'reduced_{name}.iron'), 'w', encoding='utf-8') as f:
@@ -375,7 +400,7 @@ def main(argv):
     area, ironc, outdir, seed = args[0], os.path.abspath(args[1]), args[2], int(args[3])
     count = int(args[4]) if len(args) > 4 else 1
     if reduce:
-        return reduce_program(ironc, outdir, area, seed, mode, rtlib)
+        return reduce_program(ironc, outdir, area, seed, mode, rtlib, jobs=max(jobs, 8))
     bad = run(ironc, outdir, area, range(seed, seed + count), mode, rtlib,
               quiet=count > 20, jobs=jobs)
     print(f'{area}: {count - bad}/{count} ok ({mode})', flush=True)
