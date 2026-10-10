@@ -1971,21 +1971,22 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         iron_strbuf_appendf(sb, ")");
         break;
 
-    /* Unary ops */
+    /* Unary ops. The operand is parenthesized: an inlined comparison
+     * (`x == 1`) under `!` read as `(!x) == 1` (#333). */
     case IRON_LIR_NEG:
-        iron_strbuf_appendf(sb, "(-");
+        iron_strbuf_appendf(sb, "(-(");
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, ")");
+        iron_strbuf_appendf(sb, "))");
         break;
     case IRON_LIR_NOT:
-        iron_strbuf_appendf(sb, "(!");
+        iron_strbuf_appendf(sb, "(!(");
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, ")");
+        iron_strbuf_appendf(sb, "))");
         break;
     case IRON_LIR_BNOT:
-        iron_strbuf_appendf(sb, "(~");
+        iron_strbuf_appendf(sb, "(~(");
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, use_block_id, depth+1);
-        iron_strbuf_appendf(sb, ")");
+        iron_strbuf_appendf(sb, "))");
         break;
 
     /* Constants */
@@ -3145,27 +3146,27 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = -");
+        iron_strbuf_appendf(sb, " = -(");
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ";\n");
+        iron_strbuf_appendf(sb, ");\n");
         break;
 
     case IRON_LIR_NOT:
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "bool ");
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = !");
+        iron_strbuf_appendf(sb, " = !(");
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ";\n");
+        iron_strbuf_appendf(sb, ");\n");
         break;
 
     case IRON_LIR_BNOT:
         emit_indent(sb, ind);
         if (!is_hoisted) iron_strbuf_appendf(sb, "%s ", emit_type_to_c(instr->type, ctx));
         emit_val(sb, instr->id);
-        iron_strbuf_appendf(sb, " = ~");
+        iron_strbuf_appendf(sb, " = ~(");
         emit_expr_to_buf(sb, instr->unop.operand, fn, ctx, ctx->current_block_id, 0);
-        iron_strbuf_appendf(sb, ";\n");
+        iron_strbuf_appendf(sb, ");\n");
         break;
 
     /* ── Memory ─────────────────────────────────────────────────────────── */

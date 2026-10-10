@@ -539,6 +539,21 @@ void test_unterminated_string_error(void) {
     arrfree(toks);
 }
 
+/* `&&`, `||` and `!` report the Iron word and lex as its keyword token,
+ * so the parser goes on with one error (#333 follow-up). */
+void test_c_logical_operators(void) {
+    Iron_Token *toks = lex("a && b || !c");
+    TEST_ASSERT_EQUAL(3, diags.error_count);
+    TEST_ASSERT_EQUAL(IRON_ERR_INVALID_CHAR, diags.items[0].code);
+    TEST_ASSERT_EQUAL(IRON_TOK_IDENTIFIER, toks[0].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_AND, toks[1].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_IDENTIFIER, toks[2].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_OR, toks[3].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_NOT, toks[4].kind);
+    TEST_ASSERT_EQUAL(IRON_TOK_IDENTIFIER, toks[5].kind);
+    arrfree(toks);
+}
+
 void test_invalid_char_error(void) {
     Iron_Token *toks = lex("$");
     TEST_ASSERT_EQUAL(1, diags.error_count);
@@ -652,6 +667,7 @@ int main(void) {
 
     RUN_TEST(test_unterminated_string_error);
     RUN_TEST(test_invalid_char_error);
+    RUN_TEST(test_c_logical_operators);
     RUN_TEST(test_three_independent_errors);
 
     RUN_TEST(test_val_x_assign_10);

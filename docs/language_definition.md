@@ -177,7 +177,9 @@ and  or   not  &    |    ^    ~    <<   >>   is
 (    )    [    ]    {    }
 ```
 
-`!` on its own is not a token (`not` is the logical negation).
+`!` on its own is not a token (`not` is the logical negation), and
+neither are `&&` and `||` (`and`, `or`); each is an error (E0002) that
+names the word to write.
 Section 3.1 gives the precedence of the operators.
 
 ### 1.6 Newlines and statement boundaries

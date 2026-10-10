@@ -1003,6 +1003,13 @@ if(NOT IRON_ENABLE_FUZZING AND NOT MSVC)
 endif()
 
 # Diagnostics propose a fix: every expected help line must appear.
+add_test(NAME diag_c_logical_operators
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/c_logical_operators.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/c_logical_operators.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/c_logical_operators.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 add_test(NAME diag_help_quality
     COMMAND ${CMAKE_COMMAND}
         -DIRONC=$<TARGET_FILE:ironc>

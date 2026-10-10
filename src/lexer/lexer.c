@@ -875,6 +875,27 @@ static Iron_Token iron_lex_identifier(Iron_Lexer *l) {
 
 /* ── Punctuation / operator lexing ───────────────────────────────────────── */
 
+
+/* `&&`, `||` and `!` from C-family languages: report the Iron spelling and
+ * return the keyword's token, so the expression still parses and one slip
+ * gives one error (`&&` used to read as two address-of operators, E0270). */
+static Iron_Token iron_lex_c_operator(Iron_Lexer *l, Iron_TokenKind kind,
+                                      const char *op, const char *word,
+                                      uint32_t start_line, uint32_t start_col,
+                                      uint32_t len) {
+    char msg[64], help[64];
+    snprintf(msg, sizeof(msg), "'%s' is not an Iron operator", op);
+    snprintf(help, sizeof(help), "write `%s`", word);
+    const char *arena_msg = iron_arena_strdup(l->arena, msg, strlen(msg));
+    const char *arena_help = iron_arena_strdup(l->arena, help, strlen(help));
+    if (!arena_msg) arena_msg = "invalid character";
+    Iron_Span span = iron_span_make(l->filename, start_line, start_col,
+                                     start_line, start_col + len);
+    iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
+                   IRON_ERR_INVALID_CHAR, span, arena_msg, arena_help);
+    return iron_make_token(l, kind, NULL, start_line, start_col, len);
+}
+
 static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
     uint32_t start_line = l->line;
     uint32_t start_col  = l->col;
@@ -1145,22 +1166,9 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                 return iron_make_token(l, IRON_TOK_NOT_EQUALS, NULL,
                                        start_line, start_col, 2);
             }
-            /* Bare '!' is not valid Iron — fall through to error. */
-            {
-                char msg[64];
-                snprintf(msg, sizeof(msg), "invalid character '!'");
-                const char *arena_msg = iron_arena_strdup(l->arena, msg, strlen(msg));
-                /* HARD-09 REPLACE (CR-01, lexer.c:iron_lex_punctuation bang msg):
-                 * fall back to a static message on OOM so lexing stays fallible. */
-                if (!arena_msg) arena_msg = "invalid character";
-                Iron_Span span = iron_span_make(l->filename, start_line, start_col,
-                                                 start_line, start_col + 1);
-                iron_diag_emit(l->diags, l->arena, IRON_DIAG_ERROR,
-                               IRON_ERR_INVALID_CHAR, span, arena_msg, NULL);
-                return iron_make_token(l, IRON_TOK_ERROR, NULL,
-                                       start_line, start_col,
-                                       (uint32_t)(l->pos - start_pos));
-            }
+            /* Bare '!' is not valid Iron: logical negation is `not`. */
+            return iron_lex_c_operator(l, IRON_TOK_NOT, "!", "not",
+                                       start_line, start_col, 1);
 
         case '<':
             if (iron_peek_char(l) == '=') {
@@ -1206,6 +1214,11 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                 return iron_make_token(l, IRON_TOK_AMP_ASSIGN, NULL,
                                        start_line, start_col, 2);
             }
+            if (iron_peek_char(l) == '&') {
+                iron_advance_char(l);
+                return iron_lex_c_operator(l, IRON_TOK_AND, "&&", "and",
+                                           start_line, start_col, 2);
+            }
             return iron_make_token(l, IRON_TOK_AMP, NULL,
                                    start_line, start_col, 1);
 
@@ -1214,6 +1227,11 @@ static Iron_Token iron_lex_punctuation(Iron_Lexer *l) {
                 iron_advance_char(l);
                 return iron_make_token(l, IRON_TOK_PIPE_ASSIGN, NULL,
                                        start_line, start_col, 2);
+            }
+            if (iron_peek_char(l) == '|') {
+                iron_advance_char(l);
+                return iron_lex_c_operator(l, IRON_TOK_OR, "||", "or",
+                                           start_line, start_col, 2);
             }
             return iron_make_token(l, IRON_TOK_PIPE, NULL,
                                    start_line, start_col, 1);

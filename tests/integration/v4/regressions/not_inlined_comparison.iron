@@ -1,0 +1,20 @@
+-- `not (b == k)` on a value from a bitwise and: the comparison was
+-- inlined under C's `!` without parentheses and read as `(!b) == k` (#333).
+func pick(n: Int) -> Int {
+    return n * 3
+}
+
+func main() {
+    val a = pick(1)
+    val b = a & 3
+    val x = not (b == 1)
+    val y = not (b < 1)
+    val z = not (b != 3)
+    println("{x} {y} {z}")
+    if not (b == 1) and b > 0 {
+        println("branch taken")
+    }
+    val m = -(b & 1)
+    val n = ~(b & 2)
+    println("{m} {n}")
+}
