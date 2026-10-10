@@ -8636,11 +8636,51 @@ static bool is_lifted_func(const char *name) {
     return strncmp(name, "__", 2) == 0;
 }
 
+/* A function that calls itself and takes a parameter passed as a C struct
+ * by value (see IRON_NO_TRE in iron_runtime.h). */
+static bool emit_func_needs_no_tre(IronLIR_Func *fn) {
+    if (fn->is_extern || !fn->name) return false;
+    bool struct_param = false;
+    for (int i = 0; i < fn->param_count && !struct_param; i++) {
+        Iron_Type *pt = fn->params[i].type;
+        if (!pt || (fn->param_is_var && fn->param_is_var[i])) continue;
+        switch ((int)pt->kind) {
+        case IRON_TYPE_STRING: case IRON_TYPE_OBJECT: case IRON_TYPE_ARRAY:
+        case IRON_TYPE_ENUM: case IRON_TYPE_NULLABLE: case IRON_TYPE_INTERFACE:
+        case IRON_TYPE_FUNC: case IRON_TYPE_TUPLE:
+            struct_param = true;
+            break;
+        default:
+            break;
+        }
+    }
+    if (!struct_param) return false;
+    for (int bi = 0; bi < fn->block_count; bi++) {
+        IronLIR_Block *blk = fn->blocks[bi];
+        for (int ii = 0; ii < blk->instr_count; ii++) {
+            IronLIR_Instr *in = blk->instrs[ii];
+            if (in->kind != IRON_LIR_CALL) continue;
+            const char *callee = NULL;
+            if (in->call.func_decl) {
+                callee = in->call.func_decl->name;
+            } else if (in->call.func_ptr != IRON_LIR_VALUE_INVALID &&
+                       in->call.func_ptr < (IronLIR_ValueId)arrlen(fn->value_table) &&
+                       fn->value_table[in->call.func_ptr] &&
+                       fn->value_table[in->call.func_ptr]->kind == IRON_LIR_FUNC_REF) {
+                callee = fn->value_table[in->call.func_ptr]->func_ref.func_name;
+            }
+            if (callee && strcmp(callee, fn->name) == 0) return true;
+        }
+    }
+    return false;
+}
+
 void emit_func_signature(Iron_StrBuf *sb, IronLIR_Func *fn,
                          EmitCtx *ctx, bool with_newline) {
     const char *c_name = fn->is_extern && fn->extern_c_name
                         ? fn->extern_c_name
                         : emit_mangle_func_name(fn->name, ctx->arena);
+    if (emit_func_needs_no_tre(fn)) iron_strbuf_appendf(sb, "IRON_NO_TRE ");
     /* Phase 22 READ-08: sret ABI — readonly functions returning a fixed-size
      * array use `void fn(T_array *_sret, ...args)` instead of
      * `T_array fn(...args)`. Both decl and call sites must agree (Pitfall 6). */
