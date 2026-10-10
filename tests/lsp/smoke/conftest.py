@@ -74,11 +74,11 @@ def _default_init_params() -> types.InitializeParams:
                 ],
             ),
             text_document=types.TextDocumentClientCapabilities(
+                # Push only: no `diagnostic` capability, so the server
+                # publishes diagnostics (it pushes nothing to a client
+                # that pulls, #360; test_pull_push_exclusive.py covers
+                # pull clients).
                 publish_diagnostics=types.PublishDiagnosticsClientCapabilities(),
-                diagnostic=types.DiagnosticClientCapabilities(
-                    dynamic_registration=False,
-                    related_document_support=False,
-                ),
                 synchronization=types.TextDocumentSyncClientCapabilities(
                     dynamic_registration=False,
                     will_save=False,

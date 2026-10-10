@@ -197,6 +197,11 @@ void ilsp_facade_compile(struct IronLsp_Server   *server,
                           struct IronLsp_Document *doc,
                           const IronLsp_CompileRequest *req) {
     if (!server || !doc) return;
+    /* #360: a client that pulls (textDocument/diagnostic) asks for the
+     * diagnostics itself after every open and change. Pushing them as well
+     * makes it show each one twice, and the analysis would only feed the
+     * push, so skip it. */
+    if (server->client_pulls_diagnostics) return;
 
     Iron_Arena    arena = iron_arena_create(64 * 1024);
     Iron_DiagList diags = iron_diaglist_create();

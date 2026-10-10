@@ -118,6 +118,11 @@ typedef struct IronLsp_Server {
     /* workspace.inlayHint.refreshSupport: the server may ask the client
      * to request hints again after a settings change. */
     bool                      client_supports_inlay_refresh;
+    /* textDocument.diagnostic present: the client pulls diagnostics
+     * (textDocument/diagnostic) on open and change. The server then does
+     * not push publishDiagnostics for open documents, or the client would
+     * show every diagnostic twice (#360). const-after-initialize. */
+    bool                      client_pulls_diagnostics;
 } IronLsp_Server;
 
 #endif /* IRON_LSP_SERVER_SERVER_H */
