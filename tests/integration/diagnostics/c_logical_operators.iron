@@ -1,0 +1,7 @@
+func main() {
+    val a = true
+    val b = a && false
+    val c = a || false
+    val d = !a
+    println("{b} {c} {d}")
+}
