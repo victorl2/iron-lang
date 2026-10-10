@@ -1511,6 +1511,13 @@ if(Python3_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/expr_fuzz.py
             --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/expr_fuzz)
     set_tests_properties(expr_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
+    # Random whole programs (control flow, collections, objects and
+    # ownership, closures) compared with a Python model of the manual
+    # (tests/fuzz/prog_fuzz.py). Fixed seeds.
+    add_test(NAME prog_fuzz
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/fuzz/prog_fuzz.py
+            --suite $<TARGET_FILE:ironc> ${CMAKE_BINARY_DIR}/prog_fuzz)
+    set_tests_properties(prog_fuzz PROPERTIES LABELS "codegen" TIMEOUT 900)
 endif()
 # The standard library prelude, parsed by every compile, stays within the
 # section 13 grammar of the manual (#324).
