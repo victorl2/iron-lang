@@ -1,0 +1,64 @@
+enum Color {
+    Red,
+    Green,
+}
+
+enum Shape {
+    Circle(Float),
+    Rect(Int, Int),
+    Empty,
+}
+
+enum Result[T, E] {
+    Ok(T),
+    Err(E),
+}
+
+object Point {
+    var x: Int
+    var y: Int
+    init(x: Int, y: Int) {
+        self.x = x
+        self.y = y
+    }
+}
+
+object Node {
+    var name: String
+    var parent: weak rc Node
+    init(name: String, parent: weak rc Node) {
+        self.name = name
+        self.parent = parent
+    }
+}
+
+func parse(n: Int) -> Result[Int, String] {
+    if n > 0 {
+        return Result.Ok(n)
+    }
+    return Result.Err("negative")
+}
+
+func main() {
+    val greeting = "hello"
+    val nums = [1, 2, 3]
+    var ages = Map[String, Int]()
+    ages.put("ann", 31)
+    var tags = Set[String]()
+    tags.add("x")
+    val maybe: Int? = 7
+    val nothing: Int? = null
+    val color = Color.Green
+    val rect = Shape.Rect(2, 3)
+    val empty = Shape.Empty
+    val ok = parse(5)
+    val err = parse(-1)
+    val shared = rc Point(3, 4)
+    val also = shared
+    val root = rc Node("root", weak rc null)
+    val child = rc Node("child", root.downgrade())
+    val letters: rc [String] = rc ["a", "b"]
+    val k = 10
+    val add = func(x: Int) -> Int { return x + k + len(letters) }
+    println("{greeting} {nums.len()} {ages.len()} {tags.len()} {add(1)} {also.y} {child.name}")
+}

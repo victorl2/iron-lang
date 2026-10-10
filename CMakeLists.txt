@@ -1149,6 +1149,11 @@ if(NOT WIN32)
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_info_smoke.sh
                    $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
   set_tests_properties(debug_info_smoke PROPERTIES TIMEOUT 120)
+  # lib/debug's gdb and LLDB value formatters.
+  add_test(NAME debug_values_smoke
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration/debug/debug_values_smoke.sh
+                   $<TARGET_FILE:ironc> ${CMAKE_SOURCE_DIR})
+  set_tests_properties(debug_values_smoke PROPERTIES TIMEOUT 120)
 endif()
 
 add_test(NAME iron_new_hint COMMAND $<TARGET_FILE:iron> new demo)
