@@ -750,7 +750,7 @@ Iron_String Iron_string_replace(Iron_String self, Iron_String old_s, Iron_String
     const char *newc   = iron_string_cstr(&new_s);
     size_t      newlen = iron_string_byte_len(&new_s);
 
-    if (oldlen == 0) return self; /* no-op: empty old pattern */
+    if (oldlen == 0) { iron_string_retain(&self); return self; } /* no-op: empty old pattern */
 
     /* First pass: count occurrences to size the output buffer */
     size_t count = 0;
@@ -849,7 +849,8 @@ Iron_String Iron_string_pad_left(Iron_String self, int64_t width, Iron_String ch
     const char *pc   = plen > 0 ? pad : " ";
 
     int64_t chars = (int64_t)iron_string_codepoint_count(&self);
-    if (chars >= width) return self;
+    /* The result is owned by the caller: hand out a reference of its own. */
+    if (chars >= width) { iron_string_retain(&self); return self; }
     size_t pad_count = (size_t)(width - chars);
     size_t total     = slen + pad_count * pn;
     char *buf = (char *)malloc(total + 1);
@@ -874,7 +875,8 @@ Iron_String Iron_string_pad_right(Iron_String self, int64_t width, Iron_String c
     const char *pc   = plen > 0 ? pad : " ";
 
     int64_t chars = (int64_t)iron_string_codepoint_count(&self);
-    if (chars >= width) return self;
+    /* The result is owned by the caller: hand out a reference of its own. */
+    if (chars >= width) { iron_string_retain(&self); return self; }
     size_t pad_count = (size_t)(width - chars);
     size_t total     = slen + pad_count * pn;
     char *buf = (char *)malloc(total + 1);
