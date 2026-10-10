@@ -112,8 +112,17 @@ def odestroy(m, v):
     elif isinstance(v, ListV):
         items = v.items
         v.items = []
+        if isinstance(v, ShapeListV):
+            # A list of an interface type keeps one list per implementor
+            # (a split collection) and drops them one implementor after the
+            # other, in declaration order; the manual does not order drops.
+            items = sorted(items, key=lambda o: AREA_K[o.t.name])
         for x in items:
             odestroy(m, x)
+
+
+class ShapeListV(ListV):
+    """A [Shape] list."""
 
 
 def deref(v):
@@ -795,7 +804,7 @@ class ObjGen(Gen):
         return [TypeMatch(p, self.next_tag(), (self.fresh('x'), self.fresh('y')))]
 
     def s_ilist(self, ctx, depth):
-        return [self.decl('[Shape]', True, Simple('[]', lambda m, f: ListV([])), ann='[Shape]')[2]]
+        return [self.decl('[Shape]', True, Simple('[]', lambda m, f: ShapeListV([])), ann='[Shape]')[2]]
 
     def s_ilop(self, ctx, depth):
         r = self.r

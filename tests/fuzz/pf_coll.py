@@ -9,6 +9,7 @@ from pf_lang import *
 from pf_stmt import Gen, Ctx
 
 S, LI, LS, LL = 'String', '[Int]', '[String]', '[[Int]]'
+FA, BV = '[Int; 3]', '[Int; <=4]'   # a fixed array and a bounded vector: values
 MII, MSI, SI, SS, MSL = ('Map[Int, Int]', 'Map[String, Int]', 'Set[Int]',
                          'Set[String]', 'Map[String, [Int]]')
 LISTS = (LI, LS, LL)
@@ -360,7 +361,9 @@ class CollGen(Gen):
              ('lread', 3 if has(LI, LS, LL) and not ctx.pure else 0),
              ('sassign', 2 if has(S, mut=True) else 0),
              ('mdecl', 2), ('mop', 5 if has(*(MAPS + SETS), mut=True) else 0),
-             ('mread', 3 if has(*(MAPS + SETS)) and not ctx.pure else 0)]
+             ('mread', 3 if has(*(MAPS + SETS)) and not ctx.pure else 0),
+             ('adecl', 2), ('aop', 4 if has(FA, BV, mut=True) else 0),
+             ('aread', 2 if has(FA, BV) and not ctx.pure else 0)]
         if depth > 0:
             w += [('liter', 2 if has(LI, LS) else 0), ('miter', 1 if has(MII, MSI, SI, SS) else 0),
                   ('lfunc', 2 if has(LI) else 0)]
@@ -718,6 +721,89 @@ class CollGen(Gen):
         if not ctx.pure:
             out.append(Print(Interp([self.next_tag() + ' ', Var(acc, accu)])))
         return out
+
+
+class ArrV:
+    """A fixed array or bounded vector: a value, copied on assignment."""
+    __slots__ = ('items', 'cap')
+
+    def __init__(self, items, cap):
+        self.items, self.cap = items, cap
+
+
+def arr_copy(v):
+    return ArrV(list(v.items), v.cap)
+
+
+def _adecl(self, ctx, depth):
+    r = self.r
+    typ = r.choice([FA, BV])
+    srcs = self.names(typ)
+    if srcs and r.random() < 0.4:
+        n = r.choice(srcs)
+        u = self.uid(n)
+        e = Raw(n, lambda m, f, u=u: arr_copy(f.look(u).v))
+        ann = None
+    elif typ == FA:
+        items = [self.int_expr(1, ctx) for _ in range(3)]
+        e = Raw('[' + ', '.join(i.src() for i in items) + ']',
+                lambda m, f, items=items: ArrV([i.ev(m, f) for i in items], 3))
+        ann = typ
+    else:
+        items = [self.int_expr(1, ctx) for _ in range(r.randint(0, 3))]
+        e = Raw('[' + ', '.join(i.src() for i in items) + ']',
+                lambda m, f, items=items: ArrV([i.ev(m, f) for i in items], 4))
+        ann = typ
+    name, uid = self.new_name(typ, r.random() < 0.8)
+    return [Decl(name, e, self.visible()[name][1], ann=ann, uid=uid)]
+
+
+def _aop(self, ctx, depth):
+    r = self.r
+    cands = [(n, t) for t in (FA, BV) for n in self.names(t, True)]
+    n, typ = r.choice(cands)
+    u = self.uid(n)
+    A = lambda: Var(n, u)
+    c = r.random()
+    if c < 0.4:
+        # a constant index past a fixed array's end is a compile error (E0312)
+        k = r.randint(0, 2 if typ == FA else 3)
+        st = IndexAssign(Index(A(), Lit(k)), r.choice(['=', '+=', '^=']), self.int_expr(2, ctx))
+        return [st] if typ == FA else [self.guard_len(A(), k, [st])]
+    if c < 0.6:
+        others = [x for x in self.names(typ) if x != n]
+        if others:
+            o = r.choice(others)
+            ou = self.uid(o)
+            return [Assign(n, '=', Raw(o, lambda m, f, ou=ou: arr_copy(f.look(ou).v)), uid=u)]
+    if typ == BV and c < 0.8:
+        body = [ExprStmt(MethodCall(A(), 'push', [self.int_expr(1, ctx)],
+                                    lambda m, f, c, x: c.items.append(x[0])))]
+        return [If([(Bin('<', Builtin('len', [A()], lambda x: len(x.items)), Lit(4)), Block(body))])]
+    if typ == BV:
+        return [self.guard_len(A(), 0, [ExprStmt(MethodCall(A(), 'pop', [],
+                                                            lambda m, f, c, x: c.items.pop()))])]
+    k = r.randint(0, 2)
+    return [IndexAssign(Index(A(), Lit(k)), '=', self.int_expr(1, ctx))]
+
+
+def _aread(self, ctx, depth):
+    r = self.r
+    n = r.choice([x for t in (FA, BV) for x in self.names(t)])
+    u = self.uid(n)
+    tag = self.next_tag()
+    x = self.fresh('x')
+    self.push()
+    xu = self.bind(x, 'Int')
+    self.pop()
+    return [PrintPart(Interp([tag + ' ', Builtin('len', [Var(n, u)], lambda a: len(a.items)), ':'])),
+            ForIn(x, Var(n, u), Block([PrintPart(Interp([' ', Var(x, xu)]))]), uid=xu),
+            Print(Interp([]))]
+
+
+CollGen.s_adecl = _adecl
+CollGen.s_aop = _aop
+CollGen.s_aread = _aread
 
 
 def generate(rng):
