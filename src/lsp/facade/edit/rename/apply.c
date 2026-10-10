@@ -2,7 +2,13 @@
  * facade. Builds a WorkspaceEdit workspace-wide for the cursor symbol.
  *
  * Flow (lifted from facade/nav/references.c + extended):
- *   1. Analyze the open doc to resolve cursor -> Iron_Symbol.
+ *   1. Analyze the open doc and collect its written names with what
+ *      they name (ilsp_nav_name_occurrences); the one under the cursor
+ *      is the target. Names in this document are edited from its
+ *      buffer: locals, parameters, `for` variables, match bindings,
+ *      fields, methods, enum variants and types alike. A stdlib target
+ *      is refused, and so is a member declared in another file that no
+ *      symbol lets us follow there. Steps 3 to 5 run for a symbol.
  *   2. Same-name short-circuit: if new_name == old_name emit empty edit.
  *   3. Bulk-analyze gate (first-time only):
  *        ilsp_workspace_index_bulk_analyze_for_refs(wi, cancel);
@@ -190,70 +196,6 @@ static bool build_decl_site(const Iron_Symbol              *sym,
     return true;
 }
 
-/* Walk the open doc's program collecting identifier use-sites whose
- * resolved_sym's decl_node matches target_decl. Mirrors the
- * references.c same-file fallback walker.
- *
- * Results appended to raw[] stb_ds-free simple growable array; caller
- * passes cap pointer for growth. */
-typedef struct {
-    const Iron_Node          *decl;
-    IronLsp_Document         *doc;
-    IronLsp_PositionEncoding  enc;
-    Iron_Arena               *arena;
-    SiteRaw                 **raw;
-    size_t                   *n, *cap;
-} GatherCtx;
-
-/* Every identifier in the open document naming the declaration, once
- * (instances of a generic repeat their template's spans). */
-static bool gather_visit(Iron_Visitor *v, Iron_Node *node) {
-    GatherCtx *g = (GatherCtx *)v->ctx;
-    if (node->kind == IRON_NODE_ERROR) return false;
-    if (node->kind != IRON_NODE_IDENT) return true;
-    Iron_Ident *id = (Iron_Ident *)node;
-    if (!id->resolved_sym || id->resolved_sym->decl_node != g->decl) return true;
-    if (id->span.filename && g->doc->uri && strcmp(id->span.filename, g->doc->uri) != 0)
-        return true;
-    IronLsp_Range r = ilsp_span_to_lsp_range(id->span, g->doc, g->enc);
-    for (size_t i = 0; i < *g->n; i++) {
-        if ((*g->raw)[i].range.start.line == r.start.line &&
-            (*g->raw)[i].range.start.character == r.start.character) return true;
-    }
-    if (*g->n == *g->cap) {
-        size_t ncap = (*g->cap) * 2;
-        if (ncap < 8) ncap = 8;
-        SiteRaw *nr = (SiteRaw *)iron_arena_alloc(g->arena, ncap * sizeof(**g->raw),
-                                                  _Alignof(SiteRaw));
-        if (!nr) return false;
-        if (*g->n) memcpy(nr, *g->raw, *g->n * sizeof(**g->raw));
-        *g->raw = nr;
-        *g->cap = ncap;
-    }
-    SiteRaw *sr = &(*g->raw)[(*g->n)++];
-    memset(sr, 0, sizeof(*sr));
-    sr->uri = g->doc->uri ? iron_arena_strdup(g->arena, g->doc->uri, strlen(g->doc->uri)) : "";
-    sr->range = r;
-    sr->sort_key = range_sort_key(r);
-    return true;
-}
-
-static void gather_open_doc_sites(const Iron_Program *program,
-                                    const Iron_Node     *target_decl,
-                                    IronLsp_Document    *doc,
-                                    IronLsp_PositionEncoding enc,
-                                    Iron_Arena          *arena,
-                                    SiteRaw            **raw,
-                                    size_t              *n,
-                                    size_t              *cap) {
-    if (!program || !target_decl || !doc) return;
-    GatherCtx g = { target_decl, doc, enc, arena, raw, n, cap };
-    Iron_Visitor v = { .ctx = &g, .visit_node = gather_visit, .post_visit = NULL };
-    for (int i = 0; i < program->decl_count; i++) {
-        if (program->decls[i]) iron_ast_walk(program->decls[i], &v);
-    }
-}
-
 /* Compare files ASC by URI string. */
 static int fileedit_cmp_asc(const void *a, const void *b) {
     const IronLsp_RenameFileEdit *fa = (const IronLsp_RenameFileEdit *)a;
@@ -296,13 +238,35 @@ void ilsp_facade_rename(IronLsp_Server        *server,
         out->outcome = ILSP_RENAME_FAIL_CANCELLED; goto done;
     }
 
-    /* Step 2: Resolve cursor -> Iron_Symbol. */
+    /* Step 2: what the name under the cursor names. Every written name
+     * of the document is an occurrence (nav_common.h); the one under the
+     * cursor gives the (declaration, name) pair every edited name
+     * matches: a local, a parameter, a `for` variable, a match binding,
+     * a field (`p.x`), a method (`p.get()`), an enum variant, a type. */
+    size_t occ_n = 0;
+    IronLsp_NameOcc *occs = ilsp_nav_name_occurrences(doc, program, &walk_arena, &occ_n);
+    const IronLsp_NameOcc *at = ilsp_nav_occurrence_at(occs, occ_n, doc, pos, enc);
     Iron_Node *ident = NULL;
     const Iron_Symbol *sym = ident_at_cursor(doc, program, pos, enc, &ident);
-    if (!sym) goto done;          /* graceful: empty WorkspaceEdit */
+    const Iron_Node *key_decl = at ? at->decl : (sym ? sym->decl_node : NULL);
+    const char *key_name = at ? at->name : (sym ? sym->name : NULL);
+    if (!key_decl || !key_name) goto done;  /* graceful: empty WorkspaceEdit */
+    if (sym && sym->decl_node != key_decl) sym = NULL;
+    /* The stdlib is not the user's to rename (prepareRename says so). */
+    if (key_decl->span.filename && ilsp_facade_is_stdlib_path(key_decl->span.filename))
+        goto done;
+    bool decl_in_doc = false;
+    for (size_t i = 0; i < occ_n; i++) {
+        if (occs[i].is_decl && ilsp_nav_occ_same(&occs[i], key_decl, key_name)) {
+            decl_in_doc = true;
+        }
+    }
+    /* A member or binding declared in another file, with no symbol to
+     * find its uses there: renaming only this file would break them. */
+    if (!sym && !decl_in_doc) goto done;
 
     /* Step 3: Same-name short-circuit (D-10). */
-    const char *old_name = sym->name ? sym->name : "";
+    const char *old_name = key_name;
     if (new_name && strcmp(new_name, old_name) == 0) {
         out->outcome = ILSP_RENAME_SUCCESS;
         out->files   = NULL;
@@ -310,216 +274,216 @@ void ilsp_facade_rename(IronLsp_Server        *server,
         goto done;
     }
 
-    /* Step 4: Bulk-analyze gate (Phase 3 precedent from references.c).
-     * TODO(phase-7): emit $/progress begin/report/end when the client
-     * supports WorkDoneProgress per RESEARCH §EDIT-11. For v1 we
-     * block the request; cold-workspace latency is ~10s at worst. */
+    /* Steps 4 to 7.5 need a symbol: one other files can name. A field,
+     * method or binding found only through its occurrences is renamed in
+     * this document (its declaration is here, checked above). */
     IronLsp_WorkspaceIndex *wi = server ? server->workspace_index : NULL;
-    if (wi && !wi->bulk_analyze_done) {
-        ilsp_workspace_index_bulk_analyze_for_refs(wi, cancel);
-        if (cancel && atomic_load(cancel)) {
-            out->outcome = ILSP_RENAME_FAIL_CANCELLED; goto done;
-        }
-    }
-
-    /* Step 5: Identity triple. */
-    const char *decl_path = (sym->decl_node && sym->decl_node->span.filename)
-        ? sym->decl_node->span.filename
-        : (doc->uri ? doc->uri : "");
-    IronLsp_SymbolId triple = ilsp_symbol_id_derive(
-        sym, decl_path, program, &walk_arena);
-    if (triple.hash == 0) goto done;
-
-    /* Ensure the open doc's contributions are in the refs index if it
-     * has a workspace entry (same as references.c does). */
-    if (wi && doc->uri) {
-        IronLsp_IndexEntry *self_entry = ilsp_workspace_index_lookup(wi, doc->uri);
-        if (self_entry) {
-            (void)ilsp_workspace_index_analyze_lazy(wi, self_entry, cancel);
-        }
-    }
-
-    /* Step 6: PITFALL B — interface-method rename must reject if any
-     * implementor lives in stdlib/dep. Detection: sym->sym_kind ==
-     * IRON_SYM_METHOD AND decl_node is inside an Iron_InterfaceDecl.
-     * The iface_workspace registry is keyed on the INTERFACE's triple,
-     * not the method's triple, so we first need to locate the owning
-     * interface. For v1 we walk the open program looking for a method
-     * decl pointer match. */
-    if (sym->sym_kind == IRON_SYM_METHOD && sym->decl_node &&
-        sym->decl_node->kind == IRON_NODE_METHOD_DECL) {
-        /* Find an interface whose method_sigs[] contains sym->decl_node. */
-        Iron_InterfaceDecl *iface = NULL;
-        for (int i = 0; i < program->decl_count; i++) {
-            Iron_Node *d = program->decls[i];
-            if (!d || d->kind != IRON_NODE_INTERFACE_DECL) continue;
-            Iron_InterfaceDecl *ifc = (Iron_InterfaceDecl *)d;
-            for (int j = 0; j < ifc->method_count; j++) {
-                if (ifc->method_sigs[j] == sym->decl_node) {
-                    iface = ifc; break;
-                }
-            }
-            if (iface) break;
-        }
-        if (iface && wi) {
-            /* Build the interface's identity triple. */
-            IronLsp_IfaceWorkspace *iws = ilsp_workspace_index_iface_ws(wi);
-            if (iws) {
-                /* Synthesize an interface symbol for triple derivation. */
-                Iron_Symbol iface_sym = {0};
-                iface_sym.name      = iface->name;
-                iface_sym.sym_kind  = IRON_SYM_INTERFACE;
-                iface_sym.decl_node = (struct Iron_Node *)iface;
-                iface_sym.span      = iface->span;
-                const char *iface_path = iface->span.filename
-                    ? iface->span.filename : decl_path;
-                IronLsp_SymbolId iface_triple = ilsp_symbol_id_derive(
-                    &iface_sym, iface_path, program, &walk_arena);
-
-                IronLsp_ImplEntry *impls = NULL;
-                size_t impls_n = 0;
-                ilsp_iface_ws_query_implementors(
-                    iws, iface_triple, &walk_arena, &impls, &impls_n);
-
-                const char *method_name = sym->name ? sym->name : "";
-                for (size_t i = 0; i < impls_n; i++) {
-                    /* PITFALL B contract: reject when ANY implementor
-                     * lives in stdlib:// or dep://. Method-name
-                     * filtering within the implementor would require
-                     * stb_ds arrlen on the methods array; for v1 we
-                     * keep the conservative fan-out guard: any stdlib
-                     * or dep implementor at all aborts the rename.
-                     * This is the safe over-approximation; Phase 7
-                     * may tighten it to method-name exact match. */
-                    const char *ip = impls[i].canonical_path;
-                    if (ilsp_nav_path_is_stdlib(ip)) {
-                        out->outcome = ILSP_RENAME_FAIL_STDLIB_IMPLEMENTOR;
-                        out->fail_location = arena_printf(
-                            arena, "%s:%u:%u",
-                            ip ? ip : "",
-                            impls[i].object_decl_span.line,
-                            impls[i].object_decl_span.col);
-                        out->fail_message = arena_printf(
-                            arena,
-                            "rename would affect stdlib implementor of %s.%s at %s; stdlib is read-only",
-                            iface->name ? iface->name : "",
-                            method_name,
-                            out->fail_location);
-                        goto done;
-                    }
-                    if (path_is_dep(ip)) {
-                        out->outcome = ILSP_RENAME_FAIL_DEP_IMPLEMENTOR;
-                        out->fail_location = arena_printf(
-                            arena, "%s:%u:%u",
-                            ip ? ip : "",
-                            impls[i].object_decl_span.line,
-                            impls[i].object_decl_span.col);
-                        out->fail_message = arena_printf(
-                            arena,
-                            "rename would affect dep implementor of %s.%s at %s; deps are read-only",
-                            iface->name ? iface->name : "",
-                            method_name,
-                            out->fail_location);
-                        goto done;
-                    }
-                }
-            }
-        }
-    }
-
-    /* Step 7: query workspace-wide use-sites. D-09 filter
-     * (stdlib/dep) is applied by ilsp_refs_query. */
     IronLsp_RefSite *workspace_sites = NULL;
     size_t workspace_n = 0;
-    if (wi) {
-        ilsp_refs_query(wi, triple, arena, enc,
-                          &workspace_sites, &workspace_n);
-    }
-
-    /* Step 7.5 (NEW Phase 10 VIS-04, D-07): visibility pre-flight.
-     * Before constructing the WorkspaceEdit, check whether ANY workspace
-     * site lives in a module other than doc->uri AND the symbol is not
-     * publicly visible. If so, refuse the rename loudly via
-     * window/showMessage and return null WorkspaceEdit. Two-channel
-     * surface per D-07 -- distinct from Category 1/2 silent rejects in
-     * prepare.c which fire when the cursor is not on a renameable
-     * token (a "no-op" condition; user does not need feedback).
-     *
-     * E03PV is the LSP-side advisory code, NOT a compiler diagnostic
-     * code. CLAUDE.md "Error Code Ranges" reserves: lexer 1-99,
-     * parser 101-199, semantic 200-299, LIR 300-399, lowering 400-499,
-     * HIR 500-599, warnings 600+, web 700-799. LSP advisory codes
-     * (E03PV, future ones) live in a separate LSP-only namespace. */
-    {
-        const char *requester_uri = (doc && doc->uri) ? doc->uri : "";
-        bool visibility_failed = false;
-        for (size_t i = 0; i < workspace_n; i++) {
-            if (!ilsp_vis_can_see(workspace_sites[i].uri,
-                                   requester_uri,
-                                   sym ? sym->decl_node : NULL)) {
-                visibility_failed = true;
-                break;
+    if (sym) {
+        /* Step 4: Bulk-analyze gate (Phase 3 precedent from references.c).
+         * TODO(phase-7): emit $/progress begin/report/end when the client
+         * supports WorkDoneProgress per RESEARCH §EDIT-11. For v1 we
+         * block the request; cold-workspace latency is ~10s at worst. */
+        if (wi && !wi->bulk_analyze_done) {
+            ilsp_workspace_index_bulk_analyze_for_refs(wi, cancel);
+            if (cancel && atomic_load(cancel)) {
+                out->outcome = ILSP_RENAME_FAIL_CANCELLED; goto done;
             }
         }
-        if (visibility_failed) {
-            const char *msg = arena_printf(arena,
-                "E03PV: cannot rename `%s` -- usage spans modules and symbol is not pub",
-                (sym && sym->name) ? sym->name : "");
-            if (server) {
-                ilsp_send_window_showmessage(
-                    server, doc ? doc->uri : NULL,
-                    ILSP_MESSAGE_TYPE_WARNING, msg);
-            }
-            out->outcome = ILSP_RENAME_FAIL_VISIBILITY;
-            out->fail_message = msg;
-            goto done;  /* null WorkspaceEdit downstream */
-        }
-    }
 
-    /* Step 8: open-doc fallback if workspace index doesn't cover the
-     * open doc (single-file scenario). */
-    SiteRaw *raw = NULL;
-    size_t   raw_n = 0, raw_cap = 0;
-    if (workspace_n == 0) {
-        gather_open_doc_sites(program, sym->decl_node, doc, enc,
-                                 arena, &raw, &raw_n, &raw_cap);
-    } else {
-        /* Translate RefSite -> SiteRaw. */
-        raw = (SiteRaw *)iron_arena_alloc(
-            arena, workspace_n * sizeof(*raw), _Alignof(SiteRaw));
-        if (raw) {
+        /* Step 5: Identity triple. */
+        const char *decl_path = (sym->decl_node && sym->decl_node->span.filename)
+            ? sym->decl_node->span.filename
+            : (doc->uri ? doc->uri : "");
+        IronLsp_SymbolId triple = ilsp_symbol_id_derive(
+            sym, decl_path, program, &walk_arena);
+        if (triple.hash == 0) goto done;
+
+        /* Ensure the open doc's contributions are in the refs index if it
+         * has a workspace entry (same as references.c does). */
+        if (wi && doc->uri) {
+            IronLsp_IndexEntry *self_entry = ilsp_workspace_index_lookup(wi, doc->uri);
+            if (self_entry) {
+                (void)ilsp_workspace_index_analyze_lazy(wi, self_entry, cancel);
+            }
+        }
+
+        /* Step 6: PITFALL B — interface-method rename must reject if any
+         * implementor lives in stdlib/dep. Detection: sym->sym_kind ==
+         * IRON_SYM_METHOD AND decl_node is inside an Iron_InterfaceDecl.
+         * The iface_workspace registry is keyed on the INTERFACE's triple,
+         * not the method's triple, so we first need to locate the owning
+         * interface. For v1 we walk the open program looking for a method
+         * decl pointer match. */
+        if (sym->sym_kind == IRON_SYM_METHOD && sym->decl_node &&
+            sym->decl_node->kind == IRON_NODE_METHOD_DECL) {
+            /* Find an interface whose method_sigs[] contains sym->decl_node. */
+            Iron_InterfaceDecl *iface = NULL;
+            for (int i = 0; i < program->decl_count; i++) {
+                Iron_Node *d = program->decls[i];
+                if (!d || d->kind != IRON_NODE_INTERFACE_DECL) continue;
+                Iron_InterfaceDecl *ifc = (Iron_InterfaceDecl *)d;
+                for (int j = 0; j < ifc->method_count; j++) {
+                    if (ifc->method_sigs[j] == sym->decl_node) {
+                        iface = ifc; break;
+                    }
+                }
+                if (iface) break;
+            }
+            if (iface && wi) {
+                /* Build the interface's identity triple. */
+                IronLsp_IfaceWorkspace *iws = ilsp_workspace_index_iface_ws(wi);
+                if (iws) {
+                    /* Synthesize an interface symbol for triple derivation. */
+                    Iron_Symbol iface_sym = {0};
+                    iface_sym.name      = iface->name;
+                    iface_sym.sym_kind  = IRON_SYM_INTERFACE;
+                    iface_sym.decl_node = (struct Iron_Node *)iface;
+                    iface_sym.span      = iface->span;
+                    const char *iface_path = iface->span.filename
+                        ? iface->span.filename : decl_path;
+                    IronLsp_SymbolId iface_triple = ilsp_symbol_id_derive(
+                        &iface_sym, iface_path, program, &walk_arena);
+
+                    IronLsp_ImplEntry *impls = NULL;
+                    size_t impls_n = 0;
+                    ilsp_iface_ws_query_implementors(
+                        iws, iface_triple, &walk_arena, &impls, &impls_n);
+
+                    const char *method_name = sym->name ? sym->name : "";
+                    for (size_t i = 0; i < impls_n; i++) {
+                        /* PITFALL B contract: reject when ANY implementor
+                         * lives in stdlib:// or dep://. Method-name
+                         * filtering within the implementor would require
+                         * stb_ds arrlen on the methods array; for v1 we
+                         * keep the conservative fan-out guard: any stdlib
+                         * or dep implementor at all aborts the rename.
+                         * This is the safe over-approximation; Phase 7
+                         * may tighten it to method-name exact match. */
+                        const char *ip = impls[i].canonical_path;
+                        if (ilsp_nav_path_is_stdlib(ip)) {
+                            out->outcome = ILSP_RENAME_FAIL_STDLIB_IMPLEMENTOR;
+                            out->fail_location = arena_printf(
+                                arena, "%s:%u:%u",
+                                ip ? ip : "",
+                                impls[i].object_decl_span.line,
+                                impls[i].object_decl_span.col);
+                            out->fail_message = arena_printf(
+                                arena,
+                                "rename would affect stdlib implementor of %s.%s at %s; stdlib is read-only",
+                                iface->name ? iface->name : "",
+                                method_name,
+                                out->fail_location);
+                            goto done;
+                        }
+                        if (path_is_dep(ip)) {
+                            out->outcome = ILSP_RENAME_FAIL_DEP_IMPLEMENTOR;
+                            out->fail_location = arena_printf(
+                                arena, "%s:%u:%u",
+                                ip ? ip : "",
+                                impls[i].object_decl_span.line,
+                                impls[i].object_decl_span.col);
+                            out->fail_message = arena_printf(
+                                arena,
+                                "rename would affect dep implementor of %s.%s at %s; deps are read-only",
+                                iface->name ? iface->name : "",
+                                method_name,
+                                out->fail_location);
+                            goto done;
+                        }
+                    }
+                }
+            }
+        }
+
+        /* Step 7: query workspace-wide use-sites. D-09 filter
+         * (stdlib/dep) is applied by ilsp_refs_query. */
+        if (wi) {
+            ilsp_refs_query(wi, triple, arena, enc,
+                              &workspace_sites, &workspace_n);
+        }
+
+        /* Step 7.5 (NEW Phase 10 VIS-04, D-07): visibility pre-flight.
+         * Before constructing the WorkspaceEdit, check whether ANY workspace
+         * site lives in a module other than doc->uri AND the symbol is not
+         * publicly visible. If so, refuse the rename loudly via
+         * window/showMessage and return null WorkspaceEdit. Two-channel
+         * surface per D-07 -- distinct from Category 1/2 silent rejects in
+         * prepare.c which fire when the cursor is not on a renameable
+         * token (a "no-op" condition; user does not need feedback).
+         *
+         * E03PV is the LSP-side advisory code, NOT a compiler diagnostic
+         * code. CLAUDE.md "Error Code Ranges" reserves: lexer 1-99,
+         * parser 101-199, semantic 200-299, LIR 300-399, lowering 400-499,
+         * HIR 500-599, warnings 600+, web 700-799. LSP advisory codes
+         * (E03PV, future ones) live in a separate LSP-only namespace. */
+        {
+            const char *requester_uri = (doc && doc->uri) ? doc->uri : "";
+            bool visibility_failed = false;
             for (size_t i = 0; i < workspace_n; i++) {
-                raw[i].uri      = workspace_sites[i].uri;
-                raw[i].range    = workspace_sites[i].range;
-                raw[i].sort_key = range_sort_key(workspace_sites[i].range);
+                if (!ilsp_vis_can_see(workspace_sites[i].uri,
+                                       requester_uri,
+                                       sym ? sym->decl_node : NULL)) {
+                    visibility_failed = true;
+                    break;
+                }
             }
-            raw_n = workspace_n;
+            if (visibility_failed) {
+                const char *msg = arena_printf(arena,
+                    "E03PV: cannot rename `%s` -- usage spans modules and symbol is not pub",
+                    (sym && sym->name) ? sym->name : "");
+                if (server) {
+                    ilsp_send_window_showmessage(
+                        server, doc ? doc->uri : NULL,
+                        ILSP_MESSAGE_TYPE_WARNING, msg);
+                }
+                out->outcome = ILSP_RENAME_FAIL_VISIBILITY;
+                out->fail_message = msg;
+                goto done;  /* null WorkspaceEdit downstream */
+            }
         }
     }
 
-    /* Step 9: append decl site so the decl gets rewritten too. */
-    SiteRaw decl_site;
-    if (build_decl_site(sym, doc, enc, arena, wi, &decl_site)) {
-        /* Avoid duplicate decl+use-site pairs by skipping if an
-         * existing raw entry has matching URI + range. */
-        bool already = false;
-        for (size_t i = 0; i < raw_n; i++) {
-            if (raw[i].sort_key == decl_site.sort_key &&
-                raw[i].uri && decl_site.uri &&
-                strcmp(raw[i].uri, decl_site.uri) == 0) {
-                already = true; break;
-            }
+    /* Step 8: the names to edit. This document's come from its buffer:
+     * every occurrence naming the target, its declaration included. The
+     * other workspace files' come from the reverse-ref index. */
+    SiteRaw *raw = NULL;
+    size_t   raw_n = 0;
+    {
+        size_t cap = occ_n + workspace_n + 1;
+        raw = (SiteRaw *)iron_arena_alloc(arena, cap * sizeof(*raw), _Alignof(SiteRaw));
+        if (!raw) goto done;
+        const char *doc_uri = doc->uri
+            ? iron_arena_strdup(arena, doc->uri, strlen(doc->uri)) : "";
+        for (size_t i = 0; i < occ_n; i++) {
+            if (!ilsp_nav_occ_same(&occs[i], key_decl, key_name)) continue;
+            raw[raw_n].uri      = doc_uri;
+            raw[raw_n].range    = ilsp_span_to_lsp_range(occs[i].span, doc, enc);
+            raw[raw_n].sort_key = range_sort_key(raw[raw_n].range);
+            raw_n++;
         }
-        if (!already) {
-            /* Grow raw by 1. */
-            SiteRaw *nr = (SiteRaw *)iron_arena_alloc(
-                arena, (raw_n + 1) * sizeof(*nr), _Alignof(SiteRaw));
-            if (nr) {
-                if (raw_n > 0) memcpy(nr, raw, raw_n * sizeof(*nr));
-                nr[raw_n] = decl_site;
-                raw = nr;
-                raw_n++;
+        for (size_t i = 0; i < workspace_n; i++) {
+            const char *u = workspace_sites[i].uri;
+            if (!u || (doc->uri && strcmp(u, doc->uri) == 0)) continue;
+            raw[raw_n].uri      = u;
+            raw[raw_n].range    = workspace_sites[i].range;
+            raw[raw_n].sort_key = range_sort_key(workspace_sites[i].range);
+            raw_n++;
+        }
+
+        /* Step 9: a declaration in another file is rewritten too. */
+        SiteRaw decl_site;
+        if (sym && !decl_in_doc && build_decl_site(sym, doc, enc, arena, wi, &decl_site)) {
+            bool already = false;
+            for (size_t i = 0; i < raw_n; i++) {
+                if (raw[i].sort_key == decl_site.sort_key &&
+                    raw[i].uri && decl_site.uri &&
+                    strcmp(raw[i].uri, decl_site.uri) == 0) {
+                    already = true; break;
+                }
             }
+            if (!already) raw[raw_n++] = decl_site;
         }
     }
 

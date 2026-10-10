@@ -119,6 +119,40 @@ struct Iron_Symbol *ilsp_nav_symbol_of_decl(const Iron_Program *program,
 Iron_Span ilsp_nav_decl_name_span(const Iron_Node *decl, const char *text,
                                   size_t text_len);
 
+/* ── Names in a document and what they name ──────────────────────── */
+
+/* One written name in the document: a use (`total`, the `x` of `p.x`,
+ * the `get` of `p.get()`, `Shape` and `Circle` in `Shape.Circle(r)`, a
+ * type name) or a declaration's own name. Two occurrences name the same
+ * thing when their (decl, name) pairs are equal: `decl` is the
+ * declaration node (a `for` statement or a match pattern for the names
+ * they bind, the `val` for each name of a destructuring), `name` the
+ * name written. */
+typedef struct {
+    Iron_Span        span;      /* the name only, 1-based, one line */
+    const Iron_Node *decl;
+    const char      *name;
+    bool             is_decl;   /* the declaration's own name */
+} IronLsp_NameOcc;
+
+/* Every name in the document's own declarations (not the prelude's),
+ * deduplicated by position, in walk order. Arena-allocated. */
+IronLsp_NameOcc *ilsp_nav_name_occurrences(const IronLsp_Document *doc,
+                                           const Iron_Program     *program,
+                                           Iron_Arena             *arena,
+                                           size_t                 *out_n);
+
+/* The occurrence whose name holds `pos` (or ends right before it), or
+ * NULL. */
+const IronLsp_NameOcc *ilsp_nav_occurrence_at(const IronLsp_NameOcc   *occs,
+                                              size_t                   n,
+                                              const IronLsp_Document  *doc,
+                                              IronLsp_Position         pos,
+                                              IronLsp_PositionEncoding enc);
+
+/* True when `a` and `b` name the same thing. */
+bool ilsp_nav_occ_same(const IronLsp_NameOcc *a, const Iron_Node *decl, const char *name);
+
 /* ── LocationLink -> JSON ────────────────────────────────────────── */
 
 /* Build a JSON object for a single LocationLink. When
