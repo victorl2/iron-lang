@@ -103,6 +103,12 @@ def check_panic(c, stop, tid):
         fail("the panic's stack starts at %s, want check at panic.iron:6" %
              [(f.get("name"), f.get("line")) for f in frames[:4]])
     print("dap: the failed assert stops at panic.iron:6 in check (%s)" % body.get("text"))
+    # VS Code shows exceptionInfo in its exception widget: the panic's
+    # message, not the debugger's abort() breakpoint.
+    info = c.call("exceptionInfo", {"threadId": tid})
+    if "total too large" not in str(info.get("description", "")):
+        fail("exceptionInfo is %s, want the assert's message" % info)
+    print("dap: exceptionInfo says %s" % info.get("description"))
     try:
         c.call("disconnect", {"terminateDebuggee": True}, timeout=20)
     except Exception:

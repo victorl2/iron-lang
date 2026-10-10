@@ -839,6 +839,14 @@ class Proxy:
         if cmd == "evaluate":
             threading.Thread(target=self.handle_evaluate, args=(msg,), daemon=True).start()
             return
+        if cmd == "exceptionInfo":
+            tid = (msg.get("arguments") or {}).get("threadId")
+            if tid in self.panic_frames:
+                # A panic: the debugger would describe its abort()
+                # breakpoint; say what the program printed instead.
+                self.respond(msg, {"exceptionId": "panic", "breakMode": "always",
+                                   "description": self.panic_text or "Iron panic"})
+                return
         if cmd == "stepIn" and self.configured:
             threading.Thread(target=self.step_in, args=(msg,), daemon=True).start()
             return
