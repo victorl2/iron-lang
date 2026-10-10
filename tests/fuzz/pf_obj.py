@@ -475,6 +475,59 @@ class PeekCall(Expr):
 
 LEAF = TypeDef('Leaf', [('id', 'id')], False, True, False, 'L')
 
+# area() differs per implementor so a dispatch to the wrong one shows
+AREA_K = {'Ta': 1000, 'Tb': 2000}
+
+
+def area_of(o):
+    return wrap(o.f['v'] * 5 + o.f['id'] + AREA_K[o.t.name])
+
+
+class AreaCall(Expr):
+    """s.area() through an interface binding (or element)."""
+
+    def __init__(self, place):
+        self.place = place
+
+    def src(self, parent=0):
+        return f'{self.place.text}.area()'
+
+    def ev(self, m, f):
+        return area_of(self.place.get(m, f))
+
+
+class IsTest(Expr):
+    def __init__(self, place, tname):
+        self.place, self.tname = place, tname
+
+    def src(self, parent=0):
+        return f'{self.place.text} is {self.tname}'
+
+    def ev(self, m, f):
+        return self.place.get(m, f).t.name == self.tname
+
+
+class TypeMatch(Stmt):
+    """match s { Ta(x) -> println(x.v) Tb(y) -> println(y.id) }: the arm
+    binding views the object (no copy, no drop)."""
+
+    def __init__(self, place, tag, names):
+        self.place, self.tag, self.names = place, tag, names
+
+    def lines(self, ind):
+        a, b = self.names
+        return [f'{ind}match {self.place.text} {{',
+                f'{ind}    Ta({a}) -> println("{self.tag} A {{{a}.v}} {{{a}.get()}}")',
+                f'{ind}    Tb({b}) -> println("{self.tag} B {{{b}.id}}")',
+                f'{ind}}}']
+
+    def run(self, m, f):
+        o = self.place.get(m, f)
+        if o.t.name == 'Ta':
+            m.emit(f'{self.tag} A {o.f["v"]} {get_value(o)}')
+        else:
+            m.emit(f'{self.tag} B {o.f["id"]}')
+
 
 # ------------------------------------------------------------- generator
 
@@ -507,8 +560,9 @@ class ObjGen(Gen):
     def top_lines(self):
         out = ['object Leaf {', '    val id: Int', '    drop {',
                '        println("drop L{self.id}")', '    }', '}', '']
+        out += ['interface Shape {', '    readonly func area() -> Int', '}', '']
         for t in [self.ta, self.tb, self.tp, self.th]:
-            out.append(f'object {t.name} {{')
+            out.append(f'object {t.name}{" impl Shape" if t in (self.ta, self.tb) else ""} {{')
             for n, k in t.fields:
                 typ = {'id': 'Int', 'int': 'Int', 'leaf': 'Leaf', 'rc': 'rc Ta'}[k]
                 out.append(f'    {"var" if k == "int" else "val"} {n}: {typ}')
@@ -523,7 +577,9 @@ class ObjGen(Gen):
                         f'        println("bump {t.tag}{{self.id}}")',
                         '        self.v += k', '    }',
                         '    readonly func get() -> Int {',
-                        '        return self.v * 3 + self.id', '    }']
+                        '        return self.v * 3 + self.id', '    }',
+                        '    readonly func area() -> Int {',
+                        f'        return self.v * 5 + self.id + {AREA_K[t.name]}', '    }']
             elif t is self.tp:
                 out += ['    readonly func get() -> Int {',
                         '        return self.id * 2 + self.w', '    }']
@@ -641,7 +697,10 @@ class ObjGen(Gen):
              ('omut', 5 if self.obj_places(mutable=True, with_int=True) else 0),
              ('otemp', 2), ('olist', 2), ('olop', 6 if has('[Ta]', '[Tb]', '[rc Ta]', mut=True) else 0),
              ('orc', 3), ('oweak', 2 if has('weak rc Ta') else 0),
-             ('oheap', 1), ('oholder', 1 if has('rc Ta') else 0)]
+             ('oheap', 1), ('oholder', 1 if has('rc Ta') else 0),
+             ('inew', 3), ('iuse', 3 if has('Shape') else 0),
+             ('iassign', 2 if has('Shape', mut=True) else 0),
+             ('ilist', 1), ('ilop', 3 if has('[Shape]', mut=True) else 0)]
         if depth > 0:
             w += [('oiter', 2 if has('[Ta]', '[Tb]') else 0), ('oscope', 2)]
         return w
@@ -698,6 +757,69 @@ class ObjGen(Gen):
             n = r.choice(stack)
             return [Poke(t, n, self.uid(n), self.int_expr(1, ctx))]
         return [Bump(p, self.int_expr(1, ctx))]
+
+    def shape_init(self, ctx):
+        """A value for an interface binding or element: a new object (moved),
+        a made one (moved), or a copy of an object or interface binding."""
+        r = self.r
+        c = r.random()
+        srcs = [n for t in ('Ta', 'Tb', 'Shape') for n in self.names(t)]
+        if srcs and c < 0.35:
+            n = r.choice(srcs)
+            return CopyOf(n, self.uid(n))
+        t = r.choice([self.ta, self.tb])
+        if c < 0.55:
+            return Make(t, self.oid(), self.int_expr(1, ctx))
+        return self.new_init(t, ctx)
+
+    def s_inew(self, ctx, depth):
+        mut = self.r.random() < 0.6
+        return [self.decl('Shape', mut, self.shape_init(ctx), ann='Shape')[2]]
+
+    def s_iassign(self, ctx, depth):
+        n = self.r.choice(self.names('Shape', True))
+        init = self.shape_init(ctx)
+        if isinstance(init, CopyOf) and init.name == n:
+            init = self.new_init(self.tb, ctx)
+        return [OAssign(n, self.uid(n), init)]
+
+    def s_iuse(self, ctx, depth):
+        r = self.r
+        n = r.choice(self.names('Shape'))
+        p = bind_place(n, self.uid(n))
+        c = r.random()
+        if c < 0.45:
+            return [Print(Interp([self.next_tag() + ' ', AreaCall(p)]))]
+        if c < 0.7:
+            return [Print(Interp([self.next_tag() + ' ', IsTest(p, r.choice(['Ta', 'Tb']))]))]
+        return [TypeMatch(p, self.next_tag(), (self.fresh('x'), self.fresh('y')))]
+
+    def s_ilist(self, ctx, depth):
+        return [self.decl('[Shape]', True, Simple('[]', lambda m, f: ListV([])), ann='[Shape]')[2]]
+
+    def s_ilop(self, ctx, depth):
+        r = self.r
+        n = r.choice(self.names('[Shape]', True))
+        u = self.uid(n)
+        L = lambda m, f: f.look(u).v
+        c = r.random()
+        if c < 0.5:
+            ei = self.shape_init(ctx)
+            return [ListOp(f'{n}.push({ei.src()})', lambda m, f, ei=ei: L(m, f).items.append(ei.make(m, f)))]
+        if c < 0.65:
+            def pop(m, f):
+                odestroy(m, L(m, f).items.pop())
+            return [self.guard(n, u, 0, [ListOp(f'{n}.pop()', pop)])]
+        if c < 0.85:
+            k = r.randint(0, 2)
+            return [self.guard(n, u, k, [Print(Interp([self.next_tag() + ' ', AreaCall(elem_place(n, u, k))]))])]
+        # every element, lent to the loop
+        e = self.fresh('e')
+        self.push()
+        eu = self.bind(e, 'Shape#lent', False)
+        self.pop()
+        tag = self.next_tag()
+        return [ObjForIn(e, eu, n, u, Block([Print(Interp([tag + ' ', AreaCall(bind_place(e, eu))]))]))]
 
     def s_otemp(self, ctx, depth):
         r = self.r
