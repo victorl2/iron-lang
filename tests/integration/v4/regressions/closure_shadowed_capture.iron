@@ -1,0 +1,43 @@
+-- A lambda may declare a binding with the name of one it captures. The
+-- captured binding is still read before the declaration (in its own
+-- initializer, or in a block where the declaration is not visible), and
+-- the local is a binding of its own: the capture was missed (the C
+-- compiler saw an undeclared name), or the local was taken for it.
+func f(a: Int) -> Int {
+    var g = func() -> Int { return 0 }
+    g = func() -> Int {
+        var a = a * 10 + 1
+        a += 1
+        return a
+    }
+    return g() + a
+}
+
+func main() {
+    val base = 5
+    val h = func(x: Int) -> Int {
+        val base = base + x
+        return base * 2
+    }
+    println("{h(1)} {h(2)} {base}")
+    for i in range(2) {
+        val k = func() -> Int {
+            if i > 0 {
+                val i = 100
+                return i
+            } elif i == 0 {
+                return i + 7
+            }
+            return i
+        }
+        println("{k()}")
+    }
+    println("{f(3)}")
+    var count = 1
+    val bump = func(n: Int) -> Int {
+        count += n
+        val count = count * 100
+        return count
+    }
+    println("{bump(2)} {count}")
+}
