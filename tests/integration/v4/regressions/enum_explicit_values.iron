@@ -1,0 +1,50 @@
+-- A plain enum value is its declared value at run time, so `{e}` names
+-- the right variant and match takes the right arm for values only known
+-- at run time (#338: values were positions, MEDIUM printed LOW).
+enum Priority {
+    LOW = 1,
+    MEDIUM = 50,
+    HIGH,
+}
+
+enum Plain {
+    A,
+    B,
+    C,
+}
+
+func pick(n: Int) -> Priority {
+    if n == 0 {
+        return Priority.LOW
+    }
+    if n == 1 {
+        return Priority.MEDIUM
+    }
+    return Priority.HIGH
+}
+
+func describe(p: Priority) -> String {
+    match p {
+        Priority.LOW -> return "low"
+        Priority.MEDIUM -> return "med"
+        Priority.HIGH -> return "high"
+    }
+    return "unknown"
+}
+
+func plain(n: Int) -> Plain {
+    if n == 0 {
+        return Plain.A
+    }
+    if n == 1 {
+        return Plain.B
+    }
+    return Plain.C
+}
+
+func main() {
+    for i in range(3) {
+        val p = pick(i)
+        println("{p} {describe(p)} {p == Priority.MEDIUM} {plain(i)}")
+    }
+}

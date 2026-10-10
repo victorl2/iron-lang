@@ -1608,6 +1608,8 @@ static void emit_shift_expr(Iron_StrBuf *sb, IronLIR_Instr *instr, IronLIR_Func 
 void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                        IronLIR_Func *fn, EmitCtx *ctx,
                        IronLIR_BlockId use_block_id, int depth) {
+    bool bare_cmp = depth == 0 && ctx->bare_cond;
+    ctx->bare_cond = false;
     if (vid == IRON_LIR_VALUE_INVALID) {
         iron_strbuf_appendf(sb, "_v_invalid");
         return;
@@ -1779,6 +1781,10 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
         }
         break;
     }
+    /* Comparisons are parenthesized at every depth: the statement emitter
+     * passes depth 0 for its operands, so `(a == 6) != (b == 3)` came out
+     * as `true != b == 3`, which C reads as `(true != b) == 3` (#336). Only
+     * the top comparison of a branch condition goes bare (bare_cond). */
     case IRON_LIR_EQ: {
         /* Phase 59 01d: tuple equality — element-wise && of primitive
          * comparisons or iron_string_equals() for string elements. The
@@ -1788,7 +1794,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
          * `==` that the previous fall-through emitted. */
         Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
         if (lty && lty->kind == IRON_TYPE_TUPLE) {
-            if (depth > 0) iron_strbuf_appendf(sb, "(");
+            if (!bare_cmp) iron_strbuf_appendf(sb, "(");
             iron_strbuf_appendf(sb, "(");
             int nc = lty->tuple.elem_count;
             for (int i = 0; i < nc; i++) {
@@ -1810,7 +1816,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                 }
             }
             iron_strbuf_appendf(sb, ")");
-            if (depth > 0) iron_strbuf_appendf(sb, ")");
+            if (!bare_cmp) iron_strbuf_appendf(sb, ")");
             break;
         }
         if (lty && lty->kind == IRON_TYPE_ENUM && lty->enu.decl &&
@@ -1834,11 +1840,11 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             iron_strbuf_appendf(sb, "))");
             break;
         }
-        if (depth > 0) iron_strbuf_appendf(sb, "(");
+        if (!bare_cmp) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " == ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        if (depth > 0) iron_strbuf_appendf(sb, ")");
+        if (!bare_cmp) iron_strbuf_appendf(sb, ")");
         break;
     }
     case IRON_LIR_NEQ: {
@@ -1846,7 +1852,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
          * Phase 59 P05: handle plain String != String via iron_string_equals. */
         Iron_Type *lty = emit_get_value_type(fn, instr->binop.left);
         if (lty && lty->kind == IRON_TYPE_TUPLE) {
-            if (depth > 0) iron_strbuf_appendf(sb, "(");
+            if (!bare_cmp) iron_strbuf_appendf(sb, "(");
             iron_strbuf_appendf(sb, "!(");
             int nc = lty->tuple.elem_count;
             for (int i = 0; i < nc; i++) {
@@ -1868,7 +1874,7 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
                 }
             }
             iron_strbuf_appendf(sb, ")");
-            if (depth > 0) iron_strbuf_appendf(sb, ")");
+            if (!bare_cmp) iron_strbuf_appendf(sb, ")");
             break;
         }
         if (lty && lty->kind == IRON_TYPE_ENUM && lty->enu.decl &&
@@ -1890,44 +1896,44 @@ void emit_expr_to_buf(Iron_StrBuf *sb, IronLIR_ValueId vid,
             iron_strbuf_appendf(sb, ")))");
             break;
         }
-        if (depth > 0) iron_strbuf_appendf(sb, "(");
+        if (!bare_cmp) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " != ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        if (depth > 0) iron_strbuf_appendf(sb, ")");
+        if (!bare_cmp) iron_strbuf_appendf(sb, ")");
         break;
     }
     case IRON_LIR_LT:
         if (emit_string_ordering(sb, instr, "<", fn, ctx, use_block_id, depth)) break;
-        if (depth > 0) iron_strbuf_appendf(sb, "(");
+        if (!bare_cmp) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " < ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        if (depth > 0) iron_strbuf_appendf(sb, ")");
+        if (!bare_cmp) iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_LTE:
         if (emit_string_ordering(sb, instr, "<=", fn, ctx, use_block_id, depth)) break;
-        if (depth > 0) iron_strbuf_appendf(sb, "(");
+        if (!bare_cmp) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " <= ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        if (depth > 0) iron_strbuf_appendf(sb, ")");
+        if (!bare_cmp) iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_GT:
         if (emit_string_ordering(sb, instr, ">", fn, ctx, use_block_id, depth)) break;
-        if (depth > 0) iron_strbuf_appendf(sb, "(");
+        if (!bare_cmp) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " > ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        if (depth > 0) iron_strbuf_appendf(sb, ")");
+        if (!bare_cmp) iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_GTE:
         if (emit_string_ordering(sb, instr, ">=", fn, ctx, use_block_id, depth)) break;
-        if (depth > 0) iron_strbuf_appendf(sb, "(");
+        if (!bare_cmp) iron_strbuf_appendf(sb, "(");
         emit_expr_to_buf(sb, instr->binop.left,  fn, ctx, use_block_id, depth+1);
         iron_strbuf_appendf(sb, " >= ");
         emit_expr_to_buf(sb, instr->binop.right, fn, ctx, use_block_id, depth+1);
-        if (depth > 0) iron_strbuf_appendf(sb, ")");
+        if (!bare_cmp) iron_strbuf_appendf(sb, ")");
         break;
     case IRON_LIR_AND:
         iron_strbuf_appendf(sb, "(");
@@ -6141,6 +6147,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
     case IRON_LIR_BRANCH:
         emit_indent(sb, ind);
         iron_strbuf_appendf(sb, "if (");
+        ctx->bare_cond = true;
         emit_expr_to_buf(sb, instr->branch.cond, fn, ctx, ctx->current_block_id, 0);
         iron_strbuf_appendf(sb, ") goto %s; else goto %s;\n",
                             emit_resolve_label(fn, instr->branch.then_block, ctx->arena),
@@ -8853,6 +8860,7 @@ static void emit_structured_member_block(Iron_StrBuf *sb, IronLIR_Func *fn,
                     in->branch.else_block == fn->blocks[owner->header_bi]->id)) {
             emit_indent(sb, ctx->indent);
             iron_strbuf_appendf(sb, "if (");
+            ctx->bare_cond = true;
             emit_expr_to_buf(sb, in->branch.cond, fn, ctx,
                              ctx->current_block_id, 0);
             if (in->branch.then_block == fn->blocks[owner->header_bi]->id) {

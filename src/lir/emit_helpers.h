@@ -158,6 +158,11 @@ typedef struct {
      * value_block: ValueId -> BlockId (for block-boundary enforcement).
      * current_block_id: set before each emit_instr call. */
     IronLIR_InlineEligEntry *inline_eligible;  /* per-function inline eligibility map */
+    /* Set by a branch emitter just before it emits `if (cond)`: the top
+     * comparison of cond may skip its own parentheses (they would read
+     * `if ((a == b))`, -Wparentheses-equality). Consumed on entry to
+     * emit_expr_to_buf, so nested comparisons keep theirs. */
+    bool bare_cond;
     IronLIR_ValueBlockEntry *value_block;      /* per-function value->block map */
     IronLIR_BlockId          current_block_id; /* set before each emit_instr call */
     /* When set, emit_expr_to_buf reconstructs this one value's producing
