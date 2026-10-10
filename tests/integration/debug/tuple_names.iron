@@ -1,0 +1,8 @@
+func divmod(a: Int, b: Int) -> (Int, Int) {
+    return (a / b, a % b)
+}
+
+func main() {
+    val (q, r) = divmod(17, 5)
+    println("{q} {r}")
+}
