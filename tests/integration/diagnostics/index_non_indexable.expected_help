@@ -1,0 +1,6 @@
+cannot index a value of type 'Map[String, Int]'
+write with m.put(k, v)
+cannot index a value of type 'Set[Int]'
+insert with s.add(v)
+cannot index a value of type 'Int'
+indexing takes a list, a fixed-size array or a String

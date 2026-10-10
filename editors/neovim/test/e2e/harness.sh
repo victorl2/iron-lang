@@ -45,6 +45,28 @@ echo "neovim-e2e: PLENARY_DIR=$PLENARY_DIR"
 
 cd "$REPO"
 
+# Build the iron tree-sitter parser into a scratch runtimepath directory
+# when tree-sitter-cli is available, so features_spec.lua can check
+# tree-sitter highlighting too (it is marked pending otherwise).
+TS_CLI="${TREE_SITTER:-$(command -v tree-sitter || true)}"
+if [[ -z "$TS_CLI" && -x "$REPO/grammars/tree-sitter/iron/node_modules/.bin/tree-sitter" ]]; then
+    TS_CLI="$REPO/grammars/tree-sitter/iron/node_modules/.bin/tree-sitter"
+fi
+if [[ -n "$TS_CLI" ]]; then
+    IRON_TS_RTP=$(mktemp -d)
+    trap 'rm -rf "$IRON_TS_RTP"' EXIT
+    mkdir -p "$IRON_TS_RTP/parser"
+    if (cd "$REPO/grammars/tree-sitter/iron" &&
+        { [[ -f src/parser.c ]] || "$TS_CLI" generate >/dev/null; } &&
+        "$TS_CLI" build -o "$IRON_TS_RTP/parser/iron.so" >/dev/null 2>&1); then
+        export IRON_TS_RTP
+        echo "neovim-e2e: tree-sitter parser built into $IRON_TS_RTP/parser"
+    else
+        echo "neovim-e2e: tree-sitter parser build failed; skipping tree-sitter checks"
+        unset IRON_TS_RTP
+    fi
+fi
+
 # -u NONE: skip the user's init.lua (we are not testing the user config; we
 # are testing the shipped in-tree config). The plenary runtimepath is added
 # inline via `set rtp+=...` so the harness has no other dependency.

@@ -169,9 +169,13 @@ names in the call stack. `editors/neovim` (nvim-dap) and `editors/zed`
 picks the debugger. It needs Python 3; the pinned toolchain does not
 include `lldb-dap`.
 
-In VS Code the Iron extension lets you set breakpoints in `.iron` files;
-pair it with a C debugger extension (C/C++ from Microsoft, or CodeLLDB)
-and a build task:
+In VS Code, F5 in a `.iron` file debugs it with the Iron extension's
+`iron` debug type (`"type": "iron"`, `"program"` a `.iron` file or the
+package directory), which runs `iron dap` on Linux and macOS and the
+Visual Studio debugger on Windows; see the extension's README.
+
+Without the extension's debug type, pair a C debugger extension (C/C++
+from Microsoft, or CodeLLDB) with a build task:
 
 ```jsonc
 // .vscode/tasks.json

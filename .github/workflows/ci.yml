@@ -353,7 +353,15 @@ jobs:
         working-directory: grammars/tree-sitter/iron
         run: |
           tree-sitter generate
+          # src/ is committed (Zed builds the grammar from the repository);
+          # fail when grammar.js changed without regenerating it.
+          git diff --exit-code -- src/ || {
+            echo "::error::grammars/tree-sitter/iron/src is stale; run 'tree-sitter generate' (0.26.x) and commit src/"
+            exit 1
+          }
           tree-sitter test
+          bash ../../../tests/grammars/tree_sitter/check_queries.sh
+          bash ../../../tests/grammars/tree_sitter/parse_fixtures.sh
 
       - name: Build WASM (auto-downloads wasi-sdk on first run)
         working-directory: grammars/tree-sitter/iron
@@ -587,6 +595,11 @@ jobs:
         run: |
           cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja .
           cmake --build build --target ironls --parallel 4
+
+      # harness.sh builds the iron parser with it so the tree-sitter
+      # highlighting checks run instead of staying pending.
+      - name: Install tree-sitter-cli
+        run: npm install -g tree-sitter-cli@0.26.8
 
       - name: Run plenary e2e harness
         run: |

@@ -318,7 +318,16 @@ void ilsp_dispatch_route(IronLsp_Server *server,
     bool is_request      = (id != NULL);
 
     if (!method) {
-        if (is_request) enqueue_error(server, arena, id, -32600, "InvalidRequest");
+        /* A message with an id, no method and a `result` or `error` is
+         * the client's response to a server-originated request
+         * (client/registerCapability, workspace/inlayHint/refresh...).
+         * Nothing waits on those, so drop it: answering it with an error
+         * sends the client a response to an id it never used, which
+         * Neovim reports to the user as NO_RESULT_CALLBACK_FOUND. */
+        bool is_response = yyjson_obj_get(root, "result") != NULL ||
+                           yyjson_obj_get(root, "error") != NULL;
+        if (is_request && !is_response)
+            enqueue_error(server, arena, id, -32600, "InvalidRequest");
         return;
     }
 

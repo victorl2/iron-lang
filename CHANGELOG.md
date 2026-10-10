@@ -3,6 +3,23 @@
 All notable changes to Iron are published as [GitHub releases](https://github.com/victorl2/iron-lang/releases).
 This file is generated from those release notes automatically on each publish.
 
+## v4.11.0-alpha: Debugging in Every Editor (2026-10-10)
+
+- **Debugging:** `iron dap`, one debug adapter for VS Code (F5 on a `.iron`
+  file), Neovim (nvim-dap) and Zed; Iron values for enums, interfaces, rc
+  and weak rc, rc lists and closures; closure captures under their Iron
+  names; break on panic at the Iron line; no step back at function entry.
+- **Editing:** completion and signature help inside function bodies with
+  the standard library, references and rename for fields, methods, variants
+  and every binding, inlay hint settings; Neovim and Zed integrations
+  updated, and a tree-sitter grammar that parses the current syntax.
+- **Fixes:** negated comparisons, comparisons of comparisons, 8 and 16 bit
+  arithmetic inside expressions and constant match patterns compiled to the
+  wrong value; enums with explicit values are their value at run time;
+  indexing a Map or Set is reported.
+- **Diagnostics:** `&&` / `||` / `!`, constant expressions that do not fit,
+  and unsupported comptime constructs say what to write.
+
 ## v4.10.0-alpha: Correctness and Spec Coverage (2026-10-09)
 
 - **Language:** a for loop walks a list, String, Map, Set or `range(n)`

@@ -1,0 +1,28 @@
+-- Shared editor fixture for the feature tests (hover, completion, signature
+-- help, definition, references, rename, inlay hints, semantic tokens,
+-- symbols, folding, formatting). It compiles without errors; the specs
+-- locate positions by searching for text, so edits must keep the marked
+-- spellings unique.
+
+object Point {
+    val x: Float
+    val y: Float
+
+    readonly func length_sq() -> Float {
+        return self.x * self.x + self.y * self.y
+    }
+}
+
+func area(width: Float, height: Float) -> Float {
+    return width * height
+}
+
+func main() {
+    val origin = Point(3.0, 4.0)
+    val total = area(2.0, 3.0)
+    val names = ["ada", "grace"]
+    for name in names {
+        println(name.replace("a", "o"))
+    }
+    println("{origin.x} {origin.length_sq()} {total}")
+}

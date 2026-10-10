@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
-project(iron VERSION 4.10.0 LANGUAGES C)
+project(iron VERSION 4.11.0 LANGUAGES C)
 
 # Full release version, including any pre-release suffix (e.g. "1.0.0-alpha").
 # CMake's project(VERSION ...) only accepts numeric MAJOR.MINOR.PATCH[.TWEAK],
 # so the suffixed form lives in its own variable and is baked into the binaries
 # as IRON_VERSION_STRING below. Both this line and the project() line above are
 # kept in sync with the latest GitHub release by .github/workflows/changelog-on-release.yml.
-set(IRON_VERSION_FULL "4.10.0-alpha")
+set(IRON_VERSION_FULL "4.11.0-alpha")
 
 # ── Version info baked at compile time ─────────────────────────────────────
 execute_process(
@@ -1113,6 +1113,13 @@ add_test(NAME diag_arena_owned_fields
         -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/arena_owned_fields.iron
         -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/arena_owned_fields.expected_help
         -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/arena_owned_fields.forbidden
+        -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
+add_test(NAME diag_index_non_indexable
+    COMMAND ${CMAKE_COMMAND}
+        -DIRONC=$<TARGET_FILE:ironc>
+        -DSOURCE=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/index_non_indexable.iron
+        -DEXPECTED=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/index_non_indexable.expected_help
+        -DFORBIDDEN=${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/index_non_indexable.forbidden
         -P ${CMAKE_SOURCE_DIR}/tests/integration/diagnostics/check_help.cmake)
 add_test(NAME diag_constant_range
     COMMAND ${CMAKE_COMMAND}

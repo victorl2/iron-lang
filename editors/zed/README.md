@@ -1,121 +1,64 @@
-# Iron LSP — Zed extension
+# Iron LSP: Zed extension
 
-Language support for the [Iron programming language](https://github.com/iron-lang/iron-lang)
-in the [Zed editor](https://zed.dev/). Ships with:
+Language support for the [Iron programming language](https://github.com/victorl2/iron-lang)
+in the [Zed editor](https://zed.dev/):
 
-- syntax highlighting (via the in-tree tree-sitter-iron parser, distributed
-  as `iron.wasm` alongside each ironls release),
-- LSP integration (diagnostics, hover, go-to-definition, completion,
-  rename, formatting — every capability ironls itself implements),
-- automatic `ironls` binary download from GitHub Releases with
-  SHA-256 verification.
-
-**Tracks:** Iron v4.0.0-alpha (current main-branch alpha). See the
-**Version compatibility** section below for the exact `ironls` range the
-extension accepts.
-
-## Iron syntax overview
-
-Iron's current surface includes first-class features surfaced by `ironls`
-completion, hover, and diagnostics — all rendered by Zed's standard LSP
-client UI:
-
-- **`init` blocks** — anonymous (`init(x: Int, y: Int) { ... }`) and named
-  (`init Named(x: Int) { ... }`) constructors declared as first-class
-  object members; replaces the v2 receiver-method initializer pattern.
-- **`patch` extensions** — reopen an existing object or primitive type
-  (`patch Int { ... }`, `patch Player { ... }`) to add methods.
-- **`pub` visibility** — symbol-level export modifier distinguishing
-  module-public from module-private decls.
-- **`pure` methods** — side-effect-restricted method annotation used by
-  the compiler for memoization + reordering safety.
-- **`readonly` + `mut` mutation tiers** — transitive-readonly bindings
-  and explicit mutable bindings; the type system enforces compatibility
-  at call boundaries.
-
-The core keywords (`val`, `var`, `object`, `interface`, `impl`, etc.)
-are all part of the current v4 surface. The complete roster is 49
-keywords, drift-guarded at build time by
-`test_grammar_keyword_drift_tree_sitter`.
-
-## Iron schematic example
-
-```iron
-pub object Player {
-    val name: String
-    val hp: Int
-
-    init(name: String, hp: Int) {
-        self.name = name
-        self.hp = hp
-    }
-
-    pure func is_alive(self) -> Bool {
-        return self.hp > 0
-    }
-}
-
-patch Player {
-    func take_damage(mut self, amount: Int) {
-        self.hp = self.hp - amount
-    }
-}
-```
+- syntax highlighting, bracket matching, indentation, the outline panel and
+  vim-mode text objects, from the in-tree tree-sitter grammar
+  (`grammars/tree-sitter/iron`, pinned in `extension.toml`);
+- the `ironls` language server: diagnostics while typing, hover,
+  completion, signature help, go to definition, references, rename,
+  semantic tokens, inlay hints, formatting, code actions, folding and
+  document symbols;
+- `ironls` from your settings, your PATH, or downloaded from the latest
+  GitHub release and checked against its SHA-256 sidecar.
 
 ## Requirements
 
-- **Zed 0.200+** (the `zed_extension_api` 0.7 surface + `wasm32-wasip2`
-  target). Older Zed versions use a different extension API and will not
-  load this extension.
-- **macOS** (Apple silicon or Intel), **Linux** (x86_64) or **Windows**
-  (x86_64; the extension downloads `ironls-<version>-windows-x86_64.zip`).
-- Internet access on first activation (to download the `ironls` binary).
-  Users who have already built `ironls` locally can set `iron_lsp_path`
-  to bypass the download entirely.
+- Zed with extension API 0.7 support (`zed_extension_api = "=0.7.0"`).
+- macOS (Apple silicon or Intel), Linux x86_64 or Windows x86_64 for the
+  downloaded `ironls`; any platform when `ironls` is on PATH or configured.
 
 ## Install
 
-Once published to the [Zed extensions registry](https://zed.dev/extensions)
-search for "Iron LSP" under **Zed → Extensions**. Until then, install in
-dev-extension mode:
+Until the extension is in the Zed registry, install it as a dev extension
+(Zed needs `rustup` with the `wasm32-wasip2` target for this):
 
 ```sh
-git clone https://github.com/iron-lang/iron-lang.git
-cd iron-lang/editors/zed
-cargo build --target wasm32-wasip2 --release
-# Then in Zed: Extensions → Install Dev Extension → select this directory.
+rustup target add wasm32-wasip2
 ```
+
+Then in Zed: **Extensions** > **Install Dev Extension** and pick
+`editors/zed`. Zed builds the extension and the grammar itself.
 
 ## Configure
 
-Both settings live under the Zed `lsp.iron-lsp` key:
+All settings live under `lsp.iron-lsp` in Zed's `settings.json`:
 
 ```json
 {
   "lsp": {
     "iron-lsp": {
+      "binary": { "path": "/absolute/path/to/ironls" },
       "settings": {
-        "iron_lsp_path": "/absolute/path/to/ironls",
-        "iron_lsp_log_level": "info"
+        "inlayHints": { "parameterNames": true, "bindingTypes": true }
       }
     }
-  }
+  },
+  "inlay_hints": { "enabled": true }
 }
 ```
 
-### `iron_lsp_path` (default: empty)
-
-Absolute path to a local `ironls` binary. When set and the file is
-executable, the extension uses it directly and skips the GitHub download
-+ SHA-256 verification flow. Useful when you are developing iron-lang
-itself (local `build/ironls` is always newer than the last release) or
-when corporate network policy blocks `github.com`.
-
-### `iron_lsp_log_level` (default: `"info"`)
-
-Controls the verbosity of the `src: "zed-ext"` log lines the extension
-emits to the Zed developer console (`View → Debug` in Zed). Valid
-values: `error`, `warn`, `info`, `debug`.
+- `binary.path` (also `binary.arguments`, `binary.env`): the `ironls` to
+  run. Without it the extension uses `ironls` from your PATH, and only
+  downloads one when neither is set.
+- `settings.inlayHints.parameterNames` (`area(width: 2.0, height: 3.0)`)
+  and `settings.inlayHints.bindingTypes` (`val total: Float`): the same
+  keys as the VS Code extension's `iron.inlayHints.*`. You may also nest
+  them under `"iron"`. Changes apply without a restart.
+- Zed shows inlay hints only when `inlay_hints.enabled` is on (or after
+  `editor: toggle inlay hints`, ctrl-;). In Zed 1.23, enabling them only
+  under `languages.Iron` did not show them.
 
 ## Debugging
 
@@ -160,126 +103,45 @@ directory or a built binary), `args`, `cwd`, `env`, `stopOnEntry`,
 Zed's "new session" form (program, arguments, working directory) works
 too: the extension turns it into the same launch configuration.
 
-## How download + verification works
+## How the download works
 
-On first activation (and after an `ironls` version bump), the extension
-runs the following flow — verbatim per CONTEXT D-06 + RESEARCH §Pattern 4:
+When no `ironls` is configured or on PATH, the extension:
 
-1. **User override.** If `iron_lsp_path` is set and points to an
-   existing file, use it and stop.
-2. **Cached binary.** If a previous activation already downloaded and
-   verified an `ironls` binary and the cached copy still exists, use it.
-3. **Fresh download.** Otherwise:
-   - `zed::current_platform()` → `(os, arch)` tuple.
-   - `zed::latest_github_release("iron-lang/iron-lang", { require_assets: true, pre_release: false })`
-     fetches the newest non-prerelease tag with assets attached.
-   - Locate two assets: `ironls-{version}-{os}-{arch}.tar.gz` and its
-     `.sha256` sidecar.
-   - Download the `.sha256` sidecar first (fail fast if the release is
-     missing it).
-   - Download the tarball as `DownloadedFileType::Uncompressed` so we
-     can hash the raw bytes on disk.
-   - **SHA-256 verify** — `sha2::Sha256::digest` over the raw bytes,
-     hex-encoded, compared against the sidecar's contents. On mismatch,
-     the tarball is deleted and the extension aborts with a toast
-     directing you to `iron_lsp_path`.
-   - On match, re-invoke `zed::download_file` with
-     `DownloadedFileType::GzipTar` to extract the archive, then
-     `zed::make_file_executable` on the extracted `ironls` binary.
-
-The hand-rolled SHA-256 step is required because
-`zed_extension_api::download_file` does **not** provide built-in hash
-verification (see issue [zed-industries/zed#16732](https://github.com/zed-industries/zed/issues/16732),
-closed "not planned" — Zed's maintainers have said extensions should
-do this themselves). Shipping an unverified download would allow a
-MITM or a compromised GitHub Release asset to run arbitrary code as
-your user account; the extension treats this as non-negotiable.
-
-## Troubleshooting
-
-### "Iron LSP: ironls download verification failed…"
-
-The SHA-256 of the downloaded tarball did not match the published
-`.sha256` sidecar. Next activation will re-download. Causes, in order
-of likelihood:
-
-- The download was truncated or corrupted in transit (try again).
-- GitHub's asset storage is in a partial state (wait a few minutes).
-- The release was re-cut and the tarball + sidecar are out of sync
-  — report it as a repo issue.
-- Extremely rare but serious: the binary was tampered with. Do **not**
-  bypass by setting `iron_lsp_path` until you have verified locally.
-
-If it keeps failing, `iron_lsp_path` lets you build and use `ironls`
-yourself.
-
-### "Iron LSP: could not download ironls from GitHub…"
-
-Usually network-related:
-
-- Corporate proxy blocking `github.com`.
-- GitHub API rate-limit exhaustion (set `GH_TOKEN` in your
-  shell environment, or use `iron_lsp_path` to bypass).
-- No ironls release exists for your platform (check the
-  [releases page](https://github.com/iron-lang/iron-lang/releases)).
-
-### macOS Gatekeeper
-
-`ironls` binaries attached to GitHub Releases are Developer-ID signed,
-Apple-notarized, and stapled per Phase 7 HARD-21 (see
-`scripts/ci/sign_and_notarize_macos.sh` +
-`docs/dev/apple-notarization-setup.md`). Gatekeeper accepts them
-silently on first launch — no `xattr -dr com.apple.quarantine` dance
-required. If you built `ironls` locally and pointed `iron_lsp_path` at
-it, that local binary is *not* signed and Gatekeeper may quarantine
-it; in that case either use the release binary via the download flow
-or sign your local copy yourself.
-
-### Zed on Linux
-
-Zed's Linux support is still maturing (CONTEXT D-07). The extension
-itself works; some UI surfaces (toast rendering, status bar) may
-behave slightly differently across Zed nightly builds on Linux. The
-CI harness allows Linux to fail on this extension for v1.
+1. asks GitHub for the latest release of `victorl2/iron-lang`;
+2. downloads the `.sha256` sidecar of
+   `ironls-<tag>-<os>-<arch>.tar.gz` (`.zip` on Windows), then the
+   archive itself, uncompressed;
+3. hashes the archive with SHA-256 and compares it with the sidecar,
+   deleting it on a mismatch (`zed_extension_api::download_file` has no
+   built-in verification, see zed-industries/zed#16732);
+4. only then extracts it and makes `ironls` executable.
 
 ## Version compatibility
 
-This extension targets `ironls` in the range `>= 4.0.0, < 5.0.0` per
-the `[version_constraints] ironls` entry in `extension.toml`. Phase 7
-HARD-22 / D-10 enforces this with a **hard refuse**: on every
-activation the extension runs `ironls --version`, parses the semver
-token, and aborts `language_server_command` if it falls outside the
-range.
-
-### Troubleshooting: "Iron LSP: detected ironls X.Y.Z, but this extension requires …"
-
-The hard-refuse error surfaces in Zed's notifications and developer
-console. To resolve:
-
-1. Install the latest release from
-   <https://github.com/iron-lang/iron-lang/releases/latest>.
-2. Set `iron_lsp_path` in your Zed settings to the upgraded binary
-   (or clear it so the extension re-downloads on next activation).
-3. Reload the workspace (`Developer: Reload Extensions`).
-
-If you need to pin to a specific release, build the matching
-extension version from `editors/zed/` and install via
-`Extensions → Install Dev Extension`.
+The extension works with `ironls` `>= 4.0.0, < 5.0.0`
+(`[version_constraints]` in `extension.toml`). It runs `ironls --version`
+before starting the server and refuses a version outside that range with a
+message naming the binary. If Zed does not allow the extension to run
+processes, the check is skipped.
 
 ## Development
 
 ```sh
 cd editors/zed
 cargo build --target wasm32-wasip2 --release
-cargo test --features dev-extension-test       # native SHA-256 helper tests
-zed --dev-extension editors/zed                 # load into a running Zed
+cargo test --features dev-extension-test
 ```
 
-The build step requires the `wasm32-wasip2` target:
+The native tests check the manifest, the language config, the grammar pin
+(the pinned commit must contain the generated parser), the query files and
+the settings sent to `ironls`. `ctest -R test_tree_sitter_queries` compiles
+every query file against the grammar.
 
-```sh
-rustup target add wasm32-wasip2
-```
+`languages/iron/highlights.scm` is generated: edit
+`grammars/tree-sitter/iron/queries/highlights.scm` and run
+`scripts/sync-editor-queries.sh`. When `grammar.js` changes, regenerate
+`grammars/tree-sitter/iron/src/` and bump `[grammars.iron] commit` to a
+commit that contains it.
 
 ## License
 

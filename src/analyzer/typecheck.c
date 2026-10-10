@@ -7764,6 +7764,19 @@ static Iron_Type *check_expr_impl(TypeCtx *ctx, Iron_Node *node) {
                                "string index must be an integer type", NULL);
                 }
             } else {
+                /* Only lists, fixed arrays and strings are indexed. Any other
+                 * value was typed as an error without a diagnostic, so
+                 * `m[k] = v` on a Map reached the C compiler (#355). */
+                if (obj_type && obj_type->kind != IRON_TYPE_ERROR) {
+                    char hc = hash_container_kind(obj_type);
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "cannot index a value of type '%s'",
+                             iron_type_to_string(obj_type, ctx->arena));
+                    emit_error(ctx, IRON_ERR_TYPE_MISMATCH, idx_e->span, msg,
+                               hc == 'M' ? "a Map has no indexing: read with m.get(k) or m.get_or(k, d), write with m.put(k, v)"
+                               : hc == 'S' ? "a Set has no indexing: test with s.has(v), insert with s.add(v)"
+                               : "indexing takes a list, a fixed-size array or a String");
+                }
                 result = iron_type_make_primitive(IRON_TYPE_ERROR);
             }
             idx_e->resolved_type = result;
