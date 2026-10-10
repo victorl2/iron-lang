@@ -1,3 +1,4 @@
+-- @leaks-by-design: the branch case leaks its heap object on purpose (`leak`)
 -- A heap binding in a loop body whose object is written and read: the loads
 -- of the handle were declared at the function entry with the object's
 -- type, so the C did not compile. A heap binding in a branch that is never
