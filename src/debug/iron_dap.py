@@ -746,6 +746,7 @@ class Proxy:
         self.panic_frames = {}   # threadId -> index of the Iron frame that panicked
         self.panic_text = ""     # the debuggee's last panic message
         self.trapped = set()     # threads stopped on a debug trap (their abort follows)
+        self.trap_texts = {}       # threadId -> message of the debug trap it stopped on
         self.bp_rules = {}       # (path, line) -> condition / hit count / log message
         self.synth = {}          # SYNTH_REF_BASE + n -> children (a C array shown as a list)
         self.step_waiter = None  # queue of stops while the adapter steps on its own
@@ -850,11 +851,13 @@ class Proxy:
             return
         if cmd == "exceptionInfo":
             tid = (msg.get("arguments") or {}).get("threadId")
-            if tid in self.panic_frames:
+            if tid in self.panic_frames or tid in self.trap_texts:
                 # A panic: the debugger would describe its abort()
-                # breakpoint; say what the program printed instead.
+                # breakpoint or the debug trap (EXC_BREAKPOINT, SIGTRAP);
+                # say what the program printed instead.
+                text = self.trap_texts.get(tid) or self.panic_text or "Iron panic"
                 self.respond(msg, {"exceptionId": "panic", "breakMode": "always",
-                                   "description": self.panic_text or "Iron panic"})
+                                   "description": text})
                 return
         if cmd == "stepIn" and self.configured:
             threading.Thread(target=self.step_in, args=(msg,), daemon=True).start()
@@ -1082,6 +1085,7 @@ class Proxy:
     def finish_stopped(self, msg):
         body = msg.get("body") or {}
         tid = body.get("threadId")
+        self.trap_texts.pop(tid, None)   # set again below if this stop is a trap
         if tid is not None and body.get("reason") in ("breakpoint", "signal", "exception",
                                                        "function breakpoint", "stopped", None):
             r = self.request("stackTrace", {"threadId": tid, "startFrame": 0, "levels": 40})
@@ -1108,6 +1112,7 @@ class Proxy:
                 text = self.trap_message(frames[0])
                 if text:
                     self.trapped.add(tid)
+                    self.trap_texts[tid] = text
                     msg = dict(msg, body=dict(body, reason="exception", description="Panic",
                                               text=text))
         self.send(msg)
