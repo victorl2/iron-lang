@@ -2365,23 +2365,25 @@ static Iron_Node *iron_parse_expr_prec_impl(Iron_Parser *p, int min_prec) {
                 if (!iron_check(p, IRON_TOK_RBRACKET)) {
                     end_expr = iron_parse_expr(p);
                 }
-                iron_expect(p, IRON_TOK_RBRACKET);
+                /* The span ends at the `]` (the token after it when it is
+                 * missing). */
+                Iron_Token *rb = iron_expect(p, IRON_TOK_RBRACKET);
                 Iron_SliceExpr *sl = ARENA_ALLOC(p->arena, Iron_SliceExpr);
                 if (!sl) { /* HARD-09 REPLACE (iron_parse_expr_prec SliceExpr) */ p->in_error_recovery = true; return iron_make_error(p); }
                 sl->kind   = IRON_NODE_SLICE;
                 sl->span   = iron_span_merge(left->span,
-                                             iron_token_span(p, iron_current(p)));
+                                             iron_token_span(p, rb ? rb : iron_current(p)));
                 sl->object = left;
                 sl->start  = idx;
                 sl->end    = end_expr;
                 left = (Iron_Node *)sl;
             } else {
-                iron_expect(p, IRON_TOK_RBRACKET);
+                Iron_Token *rb = iron_expect(p, IRON_TOK_RBRACKET);
                 Iron_IndexExpr *ix = ARENA_ALLOC(p->arena, Iron_IndexExpr);
                 if (!ix) { /* HARD-09 REPLACE (iron_parse_expr_prec IndexExpr) */ p->in_error_recovery = true; return iron_make_error(p); }
                 ix->kind   = IRON_NODE_INDEX;
                 ix->span   = iron_span_merge(left->span,
-                                             iron_token_span(p, iron_current(p)));
+                                             iron_token_span(p, rb ? rb : iron_current(p)));
                 ix->object = left;
                 ix->index  = idx;
                 if (targs) {
