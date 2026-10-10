@@ -222,6 +222,49 @@ https://github.com/iron-lang/iron-lang/issues.
 
 ---
 
+## Debugging (nvim-dap)
+
+`lua/iron_dap.lua` registers the Iron debug adapter with
+[nvim-dap](https://github.com/mfussenegger/nvim-dap). The adapter is
+`iron dap`, the same one VS Code and Zed use: it builds the program with
+`iron build --debug`, runs `lldb-dap` (LLVM, or Xcode on macOS) or gdb 14
+or later, loads the Iron value formatters, lists locals under their Iron
+names without the compiler's temporaries, and stops on the Iron line when
+the program panics. It needs Python 3 and one of those debuggers.
+
+With `editors/neovim` on the runtimepath (see Install) and nvim-dap
+installed, `plugin/iron_dap.lua` sets it up at startup. When nvim-dap is
+loaded lazily, call setup from its config instead:
+
+```lua
+-- lazy.nvim
+{
+  'mfussenegger/nvim-dap',
+  config = function()
+    require('iron_dap').setup()              -- or setup({ iron = '/path/to/iron' })
+  end,
+}
+```
+
+Then, in a `.iron` buffer, `:lua require('dap').toggle_breakpoint()` and
+`:lua require('dap').continue()` offer two configurations:
+
+| Configuration | `program` |
+|---|---|
+| Iron: debug this file | `${file}` |
+| Iron: debug the package | `${workspaceFolder}` (asks for arguments) |
+
+Your own entries in `dap.configurations.iron` take the same fields as the
+VS Code `iron` type: `program` (a `.iron` file, a package directory or a
+built binary), `args`, `cwd`, `env`, `stopOnEntry`, `stopOnPanic`,
+`build`.
+
+`test/e2e/dap_harness.sh <iron>` checks this headlessly: it stops on
+`tests/integration/debug/stepping.iron:3` and reads the locals of
+`area(w, h)` through nvim-dap (nvim-dap checkout in `NVIM_DAP_DIR`).
+
+---
+
 ## Troubleshooting
 
 ### `[iron-lsp] ironls not found on PATH.`
@@ -304,10 +347,15 @@ editors/neovim/
 │   └── ironls.lua                  # canonical vim.lsp.Config (user entry point)
 ├── ftdetect/
 │   └── iron.lua                    # *.iron -> filetype 'iron' + tree-sitter register
+├── lua/
+│   └── iron_dap.lua                # nvim-dap adapter + configurations (iron dap)
 ├── plugin/
-│   └── iron_lsp.lua                # :IronLspDiagnose + S5 log helper
+│   ├── iron_lsp.lua                # :IronLspDiagnose + S5 log helper
+│   └── iron_dap.lua                # calls iron_dap.setup() when nvim-dap is loaded
 └── test/
     └── e2e/
         ├── diag_error_spec.lua     # plenary.nvim e2e test
-        └── harness.sh              # CI driver (nvim --headless + plenary)
+        ├── harness.sh              # CI driver (nvim --headless + plenary)
+        ├── dap_test.lua            # nvim-dap check of the Iron debug adapter
+        └── dap_harness.sh          # its driver (nvim --headless -l)
 ```

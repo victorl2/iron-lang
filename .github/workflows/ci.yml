@@ -593,6 +593,17 @@ jobs:
           export PATH="${{ github.workspace }}/build:$PATH"
           bash editors/neovim/test/e2e/harness.sh
 
+      # #312, #347: nvim-dap with the Iron debug adapter (`iron dap`).
+      - name: Run nvim-dap harness
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then sudo apt-get install -y gdb; fi
+          cmake --build build --target iron ironc --parallel 4
+          git clone --depth 1 https://github.com/mfussenegger/nvim-dap \
+            ~/.local/share/nvim/site/pack/test/start/nvim-dap
+          rc=0
+          bash editors/neovim/test/e2e/dap_harness.sh build/iron || rc=$?
+          [ "$rc" -eq 0 ] || [ "$rc" -eq 77 ]
+
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
