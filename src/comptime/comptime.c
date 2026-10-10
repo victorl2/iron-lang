@@ -798,11 +798,17 @@ Iron_ComptimeVal *iron_comptime_eval_expr(Iron_ComptimeCtx *ctx,
         }
 
         /* -Wswitch-enum opt-out: comptime evaluator only handles expression
-         * kinds; statement and declaration kinds fall through to the generic
-         * "unsupported expression kind" diagnostic. */
+         * kinds; every other kind is a construct compile-time evaluation does
+         * not cover (E0231, manual 8), named where the reader would not
+         * guess it. */
         default:
-            emit_error(ctx, IRON_ERR_COMPTIME_ERROR, node->span,
-                       "comptime: unsupported expression kind in comptime context");
+            emit_error_help(ctx, IRON_ERR_COMPTIME_RESTRICTION, node->span,
+                            node->kind == IRON_NODE_ENUM_CONSTRUCT
+                                ? "comptime: enum values are not available at compile time"
+                                : "comptime: this expression is not available at compile time",
+                            "compile-time evaluation covers literals, arithmetic, list indexing, "
+                            "object construction, len / range / fill / read_file and calls to "
+                            "top-level functions");
             return cval_null(ctx);
     }
 }

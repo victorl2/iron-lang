@@ -1,0 +1,4 @@
+constant expression -30 does not fit in UInt8 (0..255)
+literal -1 does not fit in UInt8 (0..255)
+literal 300 does not fit in UInt8 (0..255)
+constant expression 200 does not fit in Int8 (-128..127)

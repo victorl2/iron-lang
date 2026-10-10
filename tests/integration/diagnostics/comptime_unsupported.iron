@@ -10,9 +10,19 @@ func label(n: Int) -> String {
     return "n = {n}"
 }
 
+enum Level {
+    Low,
+    High,
+}
+
+func top() -> Level {
+    return Level.High
+}
+
 val SQUARES = comptime table(5)
+val TOP = comptime top()
 val LABEL = comptime label(3)
 
 func main() {
-    println("{SQUARES.len()} {LABEL}")
+    println("{SQUARES.len()} {LABEL} {TOP}")
 }
