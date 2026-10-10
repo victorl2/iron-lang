@@ -1,0 +1,13 @@
+func main() {
+    var ages = Map[String, Int]()
+    ages["ann"] = 31
+    val a = ages["ann"]
+    var s = Set[Int]()
+    s[1] = true
+    println("{a} {s.len()}")
+}
+
+func count() -> Int {
+    val n = 5
+    return n[0]
+}
