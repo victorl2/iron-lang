@@ -2573,6 +2573,8 @@ static bool emit_call_is_checked_list_method(IronLIR_Func *fn, EmitCtx *ctx,
 static bool g_emit_line_directives;
 static const IronLIR_Func *g_line_fn;   /* function the next two describe */
 static unsigned g_line_fn_first;        /* its first line (entry block) */
+static unsigned g_line_fn_last;         /* the line of its last statement so far */
+static void emit_line_directive(Iron_StrBuf *sb, unsigned line, const char *file);
 static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
                 IronLIR_Func *fn, EmitCtx *ctx);
 
@@ -2584,6 +2586,25 @@ void emit_instr(Iron_StrBuf *sb, IronLIR_Instr *instr,
         emit_indent(sb, ctx->indent);
         iron_strbuf_appendf(sb, "iron_list_call_line = 0;\n");
     }
+    /* --debug: a local declared up front takes the function's first line
+     * (below). What follows it outside any instruction, such as the phi
+     * copies that end the entry block, belongs to the statement before
+     * it: without this they would take the first line too, and stepping
+     * would go back to it (7, 8, 7, 8 into a loop). */
+    if (g_emit_line_directives && instr->kind == IRON_LIR_ALLOCA && g_line_fn == fn &&
+        g_line_fn_last > 0 && instr->span.filename && instr->span.line > 0 &&
+        sb->len > 0 && iron_strbuf_get(sb)[sb->len - 1] == '\n') {
+        emit_line_directive(sb, g_line_fn_last, instr->span.filename);
+    }
+}
+
+static void emit_line_directive(Iron_StrBuf *sb, unsigned line, const char *file) {
+    iron_strbuf_appendf(sb, "#line %u \"", line);
+    for (const char *c = file; *c; c++) {
+        if (*c == '\\' || *c == '"') iron_strbuf_appendf(sb, "\\%c", *c);
+        else iron_strbuf_appendf(sb, "%c", *c);
+    }
+    iron_strbuf_appendf(sb, "\"\n");
 }
 
 static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
@@ -2634,6 +2655,7 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
         if (g_line_fn != fn) {
             g_line_fn = fn;
             g_line_fn_first = line;
+            g_line_fn_last = 0;
             IronLIR_Block *entry = fn->block_count > 0 ? fn->blocks[0] : NULL;
             for (int i = 0; entry && i < entry->instr_count; i++) {
                 unsigned l = (unsigned)entry->instrs[i]->span.line;
@@ -2641,12 +2663,8 @@ static void emit_instr_inner(Iron_StrBuf *sb, IronLIR_Instr *instr,
             }
         }
         if (instr->kind == IRON_LIR_ALLOCA) line = g_line_fn_first;
-        iron_strbuf_appendf(sb, "#line %u \"", line);
-        for (const char *c = instr->span.filename; *c; c++) {
-            if (*c == '\\' || *c == '"') iron_strbuf_appendf(sb, "\\%c", *c);
-            else iron_strbuf_appendf(sb, "%c", *c);
-        }
-        iron_strbuf_appendf(sb, "\"\n");
+        else g_line_fn_last = line;
+        emit_line_directive(sb, line, instr->span.filename);
     }
     if (emit_call_is_checked_list_method(fn, ctx, instr)) {
         emit_indent(sb, ctx->indent);
